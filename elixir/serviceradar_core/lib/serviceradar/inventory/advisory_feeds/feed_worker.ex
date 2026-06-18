@@ -8,7 +8,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     * `"vulncheck-kev"`— VulnCheck KEV backup (CISA-KEV-shaped array), 6h
     * `"nist-nvd2"`    — VulnCheck nist-nvd2 backup (full NVD CPE dataset), 6h,
                           gated by both the feature flag and a sub-gate
-    * `"nvd-api"`      — NVD CVE 2.0 REST fallback (stub; not wired in this slice)
+    * `"nvd-api"`      — NVD CVE 2.0 REST fallback (stub; not wired in this slice
+                          and intentionally NOT in `@feeds`, so it is never
+                          scheduled — `do_run/1` keeps the stub for future wiring)
 
   The whole lifecycle — acquire → stage → extract → stream-parse → bulk-load →
   generation swap — runs in core with `SystemActor`. Single-flight is enforced by
@@ -41,7 +43,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   require Ash.Query
   require Logger
 
-  @feeds ~w(cisa-kev vulncheck-kev nist-nvd2 nvd-api)
+  # NOTE: "nvd-api" is intentionally excluded — `do_run("nvd-api")` is an
+  # unimplemented stub, so scheduling it only produces error+reschedule noise.
+  # Add it back here once the NVD CVE 2.0 REST fallback is wired.
+  @feeds ~w(cisa-kev vulncheck-kev nist-nvd2)
 
   @doc "All feed keys this worker can run."
   @spec feeds() :: [String.t()]
@@ -145,7 +150,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
         :ok
 
       {:error, reason} ->
-        Logger.warning("advisory_feeds: #{feed} failed", reason: inspect(reason))
+        Logger.warning("advisory_feeds: #{feed} failed: #{inspect(reason)}",
+          reason: inspect(reason)
+        )
 
         mark_status(
           feed,
