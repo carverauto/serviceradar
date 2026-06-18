@@ -1,0 +1,167 @@
+defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeederTest do
+  use ExUnit.Case, async: false
+  use Oban.Testing, repo: ServiceRadar.Repo, prefix: "platform"
+
+  alias ServiceRadar.Inventory.AdvisoryFeeds.Config
+  alias ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeeder
+  alias ServiceRadar.Inventory.AdvisoryFeeds.FeedRegistry
+  alias ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker
+  alias ServiceRadar.Inventory.VulnerabilityFeedDefinition
+
+  require Ash.Query
+
+  @moduletag :integration
+
+  setup_all do
+    ServiceRadar.TestSupport.start_core!()
+    :ok
+  end
+
+  setup do
+    actor = %{
+      id: Ash.UUID.generate(),
+      email: "feed-def-test@serviceradar.local",
+      role: :admin,
+      permissions: MapSet.new(["settings.integrations.manage"])
+    }
+
+    destroy_seeded_definitions(actor)
+    on_exit(fn -> destroy_seeded_definitions(actor) end)
+
+    {:ok, actor: actor}
+  end
+
+  test "seed_defaults/0 creates one feed definition per FeedWorker feed", %{actor: actor} do
+    assert :ok = FeedDefinitionSeeder.seed_defaults()
+
+    definitions = read_seeded(actor)
+    seeded = MapSet.new(definitions, &{&1.provider, &1.feed_key})
+    expected = MapSet.new(FeedRegistry.all(), &{&1.provider, &1.feed_key})
+
+    assert MapSet.equal?(seeded, expected)
+
+    cisa = Enum.find(definitions, &(&1.provider == "cisa" and &1.feed_key == "cisa-kev"))
+    assert cisa.display_name == "CISA Known Exploited Vulnerabilities"
+    assert cisa.last_status == "never"
+    assert cisa.refresh_interval_seconds == 3_600
+  end
+
+  test "seed_defaults/0 is idempotent and does not clobber operator edits", %{actor: actor} do
+    assert :ok = FeedDefinitionSeeder.seed_defaults()
+
+    cisa = fetch(actor, "cisa", "cisa-kev")
+
+    {:ok, _edited} =
+      cisa
+      |> Ash.Changeset.for_update(:update, %{enabled: true, refresh_interval_seconds: 999},
+        actor: actor
+      )
+      |> Ash.update(actor: actor)
+
+    # Re-running the seeder must not create duplicates nor reset operator state.
+    assert :ok = FeedDefinitionSeeder.seed_defaults()
+
+    assert length(read_seeded(actor)) == length(FeedRegistry.all())
+
+    reread = fetch(actor, "cisa", "cisa-kev")
+    assert reread.enabled == true
+    assert reread.refresh_interval_seconds == 999
+  end
+
+  test "mark_status writes now persist because the row exists", %{actor: actor} do
+    assert :ok = FeedDefinitionSeeder.seed_defaults()
+
+    # FeedWorker.perform short-circuits on the disabled master flag, but the
+    # status row is what the seeder guarantees exists; assert update_status lands.
+    cisa = fetch(actor, "cisa", "cisa-kev")
+
+    {:ok, updated} =
+      cisa
+      |> Ash.Changeset.for_update(
+        :update_status,
+        %{last_status: "success", last_message: "loaded 5 advisories"},
+        actor: actor
+      )
+      |> Ash.update(actor: actor)
+
+    assert updated.last_status == "success"
+    assert updated.last_message == "loaded 5 advisories"
+  end
+
+  test "run_now enqueues the mapped FeedWorker feed and marks running", %{actor: actor} do
+    assert :ok = FeedDefinitionSeeder.seed_defaults()
+
+    definition = fetch(actor, "vulncheck", "vulncheck-kev")
+
+    assert {:ok, ran} =
+             definition
+             |> Ash.Changeset.for_update(:run_now, %{}, actor: actor)
+             |> Ash.update(actor: actor)
+
+    assert ran.last_status == "running"
+    assert ran.last_attempt_at
+
+    assert_enqueued(worker: FeedWorker, args: %{feed: "vulncheck-kev"}, prefix: "platform")
+  end
+
+  test "Config.refresh_seconds reads the feed-def row as primary source", %{actor: actor} do
+    assert :ok = FeedDefinitionSeeder.seed_defaults()
+
+    # Default seeded cadence.
+    assert Config.refresh_seconds("cisa-kev") == 3_600
+
+    cisa = fetch(actor, "cisa", "cisa-kev")
+
+    {:ok, _edited} =
+      cisa
+      |> Ash.Changeset.for_update(:update, %{refresh_interval_seconds: 7_200}, actor: actor)
+      |> Ash.update(actor: actor)
+
+    assert Config.refresh_seconds("cisa-kev") == 7_200
+  end
+
+  test "Config.vulncheck_token reads the feed-def credential_ref as primary source", %{
+    actor: actor
+  } do
+    assert :ok = FeedDefinitionSeeder.seed_defaults()
+
+    vulncheck = fetch(actor, "vulncheck", "vulncheck-kev")
+
+    {:ok, _edited} =
+      vulncheck
+      |> Ash.Changeset.for_update(:update, %{credential_ref: "operator-set-token"}, actor: actor)
+      |> Ash.update(actor: actor)
+
+    assert {:ok, "operator-set-token"} = Config.vulncheck_token()
+  end
+
+  defp read_seeded(actor) do
+    keys = Enum.map(FeedRegistry.all(), &{&1.provider, &1.feed_key})
+
+    {:ok, definitions} =
+      VulnerabilityFeedDefinition
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.read(actor: actor)
+
+    Enum.filter(definitions, &({&1.provider, &1.feed_key} in keys))
+  end
+
+  defp fetch(actor, provider, feed_key) do
+    {:ok, definition} =
+      VulnerabilityFeedDefinition
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(provider == ^provider and feed_key == ^feed_key)
+      |> Ash.read_one(actor: actor)
+
+    definition
+  end
+
+  defp destroy_seeded_definitions(actor) do
+    Enum.each(FeedRegistry.all(), fn entry ->
+      case fetch(actor, entry.provider, entry.feed_key) do
+        %VulnerabilityFeedDefinition{} = definition -> Ash.destroy!(definition, actor: actor)
+        _ -> :ok
+      end
+    end)
+  end
+end

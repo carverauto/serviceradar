@@ -7,8 +7,10 @@ defmodule ServiceRadar.Plugins.ProducerScheduleCatalog do
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.ProducerSchedule
+  alias ServiceRadar.Plugins.RetiredNativeAddons
 
   require Ash.Query
+  require Logger
 
   @spec sync_package(PluginPackage.t() | AddonPackage.t(), keyword()) :: :ok | {:error, term()}
   def sync_package(package, opts \\ [])
@@ -17,8 +19,20 @@ defmodule ServiceRadar.Plugins.ProducerScheduleCatalog do
     sync_contracts(:wasm_plugin, package, package.producer_schedules || [], opts)
   end
 
-  def sync_package(%AddonPackage{} = package, opts) do
-    sync_contracts(:native_addon, package, package.producer_schedules || [], opts)
+  def sync_package(%AddonPackage{addon_id: addon_id} = package, opts) do
+    # Retired native add-ons (e.g. advisory-producer, now owned by core/web-ng)
+    # must never re-seed producer schedules — even when an old package row is
+    # re-saved and the AfterAction hook fires. The generic producer-schedule
+    # subsystem stays intact for every non-retired package.
+    if RetiredNativeAddons.retired?(addon_id) do
+      Logger.debug(
+        "producer_schedule_catalog: skipping producer-schedule seeding for retired native add-on #{addon_id}"
+      )
+
+      :ok
+    else
+      sync_contracts(:native_addon, package, package.producer_schedules || [], opts)
+    end
   end
 
   def sync_package(_package, _opts), do: :ok
