@@ -472,6 +472,15 @@ fn apply_filter<'a>(mut query: EventsQuery<'a>, filter: &Filter) -> Result<Event
         "device_id" | "uid" | "source_device_uid" => {
             query = apply_metadata_identity_filter(query, filter, EVENT_DEVICE_IDENTITY_KEYS)?;
         }
+        "device_uid_exact" => {
+            query = apply_device_uid_exact_filter(query, filter)?;
+        }
+        "agent_id" => {
+            query = apply_agent_id_filter(query, filter)?;
+        }
+        "host_id" | "hostname" => {
+            query = apply_host_id_filter(query, filter)?;
+        }
         "finding_uid" => {
             query = apply_finding_uid_filter(query, filter)?;
         }
@@ -600,6 +609,116 @@ fn apply_event_type_filter<'a>(query: EventsQuery<'a>, filter: &Filter) -> Resul
                  metadata #>> '{{service_radar,event_type}}' = {literal} OR \
                  unmapped ->> 'event_type' = {literal}"
             )
+        })
+        .map(|clause| format!("({clause})"))
+        .collect::<Vec<_>>();
+
+    if clauses.is_empty() {
+        return Ok(query);
+    }
+
+    let clause = clauses.join(" OR ");
+    let sql_clause = if negate {
+        format!("NOT ({clause})")
+    } else {
+        format!("({clause})")
+    };
+
+    Ok(query.filter(sql::<Bool>(&sql_clause)))
+}
+
+fn apply_device_uid_exact_filter<'a>(
+    query: EventsQuery<'a>,
+    filter: &Filter,
+) -> Result<EventsQuery<'a>> {
+    apply_metadata_exact_filter(
+        query,
+        filter,
+        &[
+            "metadata #>> '{service_radar,device_uid}'",
+            "metadata ->> 'device_uid'",
+            "metadata ->> 'source_device_uid'",
+            "unmapped ->> 'device_uid'",
+            "unmapped ->> 'source_device_uid'",
+            "device ->> 'uid'",
+        ],
+        "device_uid_exact",
+    )
+}
+
+fn apply_agent_id_filter<'a>(query: EventsQuery<'a>, filter: &Filter) -> Result<EventsQuery<'a>> {
+    apply_metadata_exact_filter(
+        query,
+        filter,
+        &[
+            "metadata #>> '{service_radar,agent_id}'",
+            "metadata #>> '{service_radar,device_uid}'",
+            "metadata ->> 'agent_id'",
+            "unmapped ->> 'agent_id'",
+            "device ->> 'uid'",
+        ],
+        "agent_id",
+    )
+}
+
+fn apply_host_id_filter<'a>(query: EventsQuery<'a>, filter: &Filter) -> Result<EventsQuery<'a>> {
+    apply_metadata_exact_filter(
+        query,
+        filter,
+        &[
+            "metadata #>> '{service_radar,device_hostname}'",
+            "metadata #>> '{service_radar,source_instance}'",
+            "metadata #>> '{service_radar,device_uid}'",
+            "metadata ->> 'hostname'",
+            "metadata ->> 'host_id'",
+            "unmapped ->> 'hostname'",
+            "unmapped ->> 'host_id'",
+            "device ->> 'name'",
+            "device ->> 'hostname'",
+        ],
+        "host_id",
+    )
+}
+
+fn apply_metadata_exact_filter<'a>(
+    query: EventsQuery<'a>,
+    filter: &Filter,
+    expressions: &[&str],
+    label: &str,
+) -> Result<EventsQuery<'a>> {
+    let negate = matches!(
+        filter.op,
+        crate::parser::FilterOp::NotEq | crate::parser::FilterOp::NotIn
+    );
+
+    let values = match filter.op {
+        crate::parser::FilterOp::Eq | crate::parser::FilterOp::NotEq => {
+            vec![filter.value.as_scalar()?.to_string()]
+        }
+        crate::parser::FilterOp::In | crate::parser::FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(query);
+            }
+            values
+        }
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "{label} filter only supports equality and IN/NOT IN comparisons"
+            )))
+        }
+    };
+
+    let clauses = values
+        .into_iter()
+        .map(|value| {
+            let literal = sql_string_literal(&value);
+
+            expressions
+                .iter()
+                .map(|expr| format!("{expr} = {literal}"))
+                .collect::<Vec<_>>()
+                .join(" OR ")
         })
         .map(|clause| format!("({clause})"))
         .collect::<Vec<_>>();
@@ -943,9 +1062,10 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
         "activity_name" | "severity" | "message" | "short_message" | "log_name"
         | "log_provider" | "log_level" | "status" | "status_code" | "status_detail"
         | "trace_id" | "span_id" => collect_text_params(params, filter),
-        "device_id" | "uid" | "source_device_uid" | "source" | "source_type" | "addon_id"
-        | "event_type" | "purl" | "purl_canonical" | "canonical_purl" | "cpe" | "cpes" | "cve"
-        | "vulnerability_id" | "finding_uid" => Ok(()),
+        "device_id" | "uid" | "source_device_uid" | "device_uid_exact" | "agent_id" | "host_id"
+        | "hostname" | "source" | "source_type" | "addon_id" | "event_type" | "purl"
+        | "purl_canonical" | "canonical_purl" | "cpe" | "cpes" | "cve" | "vulnerability_id"
+        | "finding_uid" => Ok(()),
         "class_uid" | "category_uid" | "type_uid" | "activity_id" | "severity_id" | "status_id" => {
             params.push(BindParam::Int(i64::from(parse_i32(
                 filter.value.as_scalar()?,

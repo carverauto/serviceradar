@@ -27,13 +27,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   def load(_srql_module, identity, _scope) when identity in [nil, %{}], do: empty()
 
   def load(srql_module, identity, scope) when is_map(identity) do
-    candidates = filter_candidates(identity)
+    anomaly_candidates = anomaly_filter_candidates(identity)
+    capacity_candidates = capacity_filter_candidates(identity)
 
-    if candidates == [] do
+    if anomaly_candidates == [] and capacity_candidates == [] do
       empty()
     else
-      anomaly = load_first(srql_module, candidates, scope, &anomaly_query/1)
-      capacity = load_first(srql_module, capacity_candidates(candidates), scope, &capacity_query/1)
+      anomaly = load_first(srql_module, anomaly_candidates, scope, &anomaly_query/1)
+      capacity = load_first(srql_module, capacity_candidates, scope, &capacity_query/1)
 
       %{
         status: combined_status(anomaly, capacity),
@@ -102,24 +103,37 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp combined_status(_anomaly, %{status: :error}), do: :error
   defp combined_status(_anomaly, _capacity), do: :ok
 
-  defp filter_candidates(identity) do
+  defp anomaly_filter_candidates(identity) do
     Enum.reject(
       [
-        candidate(identity, :device_uid, "device_id", "device"),
         candidate(identity, :agent_id, "agent_id", "agent"),
-        candidate(identity, :host_id, "host_id", "host")
+        candidate(identity, :host_id, "host_id", "host"),
+        candidate(identity, :device_uid, "device_uid_exact", "device")
       ],
       &is_nil/1
     )
   end
 
-  defp capacity_candidates(candidates) do
-    Enum.flat_map(candidates, fn candidate ->
+  defp capacity_filter_candidates(identity) do
+    identity
+    |> capacity_id_candidates()
+    |> Enum.flat_map(fn candidate ->
       [
         %{candidate | field: "resource_id"},
         %{candidate | field: "resource_key", value: "%#{candidate.value}%"}
       ]
     end)
+  end
+
+  defp capacity_id_candidates(identity) do
+    Enum.reject(
+      [
+        candidate(identity, :device_uid, "resource_id", "device"),
+        candidate(identity, :agent_id, "resource_id", "agent"),
+        candidate(identity, :host_id, "resource_id", "host")
+      ],
+      &is_nil/1
+    )
   end
 
   defp candidate(identity, key, field, label) do
@@ -138,7 +152,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       [
         "in:events",
         "class_uid:2004",
-        "source_type:anomaly_detection",
+        "event_type:(anomaly,anomaly_detection)",
         ~s|#{field}:"#{QueryData.escape_value(value)}"|,
         "time:last_7d",
         "sort:time:desc",
@@ -152,6 +166,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
     Enum.join(
       [
         "in:capacity_forecasts",
+        "status:(projected,at_risk,exhaustion_projected)",
+        "has_exhaustion:true",
         ~s|#{field}:"#{QueryData.escape_value(value)}"|,
         "sort:projected_exhaustion_at:asc",
         "limit:#{@capacity_limit}"

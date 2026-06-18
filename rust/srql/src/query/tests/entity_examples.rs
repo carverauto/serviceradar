@@ -330,6 +330,36 @@ fn events_event_type_filter_matches_metadata_and_unmapped_contracts() {
 }
 
 #[test]
+fn events_agent_and_host_filters_match_exact_identity_paths() {
+    let agent_plan =
+        plan_for(r#"in:events agent_id:"agent-sr-test-pve04" event_type:anomaly limit:25"#);
+    let host_plan = plan_for(r#"in:events host_id:"sr-test-pve04" event_type:anomaly limit:25"#);
+    let device_plan =
+        plan_for(r#"in:events device_uid_exact:"sr:device-1" event_type:anomaly limit:25"#);
+
+    let (agent_sql, _) = events::to_sql_and_params(&agent_plan).expect("agent filter SQL");
+    let (host_sql, _) = events::to_sql_and_params(&host_plan).expect("host filter SQL");
+    let (device_sql, _) = events::to_sql_and_params(&device_plan).expect("device filter SQL");
+
+    assert!(
+        agent_sql.contains("metadata #>> '{service_radar,agent_id}' = 'agent-sr-test-pve04'")
+            && agent_sql
+                .contains("metadata #>> '{service_radar,device_uid}' = 'agent-sr-test-pve04'"),
+        "expected agent_id filter to match agent and legacy device uid paths, got: {agent_sql}"
+    );
+    assert!(
+        host_sql.contains("metadata #>> '{service_radar,device_hostname}' = 'sr-test-pve04'")
+            && host_sql.contains("metadata #>> '{service_radar,device_uid}' = 'sr-test-pve04'"),
+        "expected host_id filter to match host and legacy device uid paths, got: {host_sql}"
+    );
+    assert!(
+        device_sql.contains("metadata #>> '{service_radar,device_uid}' = 'sr:device-1'")
+            && !device_sql.contains("EXISTS ("),
+        "expected device_uid_exact filter to avoid inventory alias fallback, got: {device_sql}"
+    );
+}
+
+#[test]
 fn logs_source_device_uid_matches_service_radar_attributes() {
     let query = r#"in:logs source_device_uid:"sr:device-1" time:last_24h sort:timestamp:desc"#;
     let plan = plan_for(query);
