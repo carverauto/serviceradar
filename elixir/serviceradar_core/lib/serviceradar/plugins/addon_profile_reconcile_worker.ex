@@ -64,7 +64,11 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcileWorker do
         :ok
 
       {:error, reason} ->
-        Logger.warning("Failed to load enabled add-on profiles", reason: inspect(reason))
+        Logger.warning(
+          "Failed to load enabled add-on profiles: #{inspect(reason)}",
+          reason: inspect(reason)
+        )
+
         schedule_next()
         {:error, reason}
     end
@@ -79,7 +83,8 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcileWorker do
         )
 
       {:error, reason} ->
-        Logger.warning("Failed to reconcile add-on profile",
+        Logger.warning(
+          "Failed to reconcile add-on profile #{profile.id}: #{inspect(reason)}",
           profile_id: profile.id,
           reason: inspect(reason)
         )
