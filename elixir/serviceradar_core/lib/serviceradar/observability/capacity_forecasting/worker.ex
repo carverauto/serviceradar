@@ -283,9 +283,11 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   # bytes->percent, at_risk?, the Ash upsert, telemetry, VerdictEmitter); ONLY the
   # least-squares / Holt-Winters fit moved to the Rust `dispose_capacity` kernel on
   # the shared DeepCausality substrate (OpenSpec add-core-causal-disposition-nif,
-  # task 7.4). This adapter preserves the legacy `Model.forecast/2` contract exactly:
-  # `{:ok, forecast_map}` for a projection, `{:skip, reason, diagnostics}` for the
-  # insufficient-history / guard gate — so every consumer below is untouched.
+  # task 7.4). This adapter preserves the legacy forecast contract exactly (the shape
+  # the now-deleted `model.ex` `forecast/2` returned, captured bit-for-bit by the
+  # `capacity_parity_fixtures.json` gate): `{:ok, forecast_map}` for a projection,
+  # `{:skip, reason, diagnostics}` for the insufficient-history / guard gate — so every
+  # consumer below is untouched.
   defp compute_forecast(points, opts) do
     min_points = positive_integer(Keyword.get(opts, :min_points), @default_min_points)
 
@@ -362,8 +364,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
 
   defp forecast_from_disposition({:skipped, %{reason: reason}}, meta) do
     # The insufficient-history gate (and the kernel's finite guards) -> the legacy
-    # `{:skip, reason, diagnostics}` tuple, carrying the diagnostics model.ex emitted
-    # (model.ex:47).
+    # `{:skip, reason, diagnostics}` tuple, carrying the diagnostics the legacy model
+    # emitted (now the `insufficient_history` skip in `capacity.rs`).
     {:skip, to_string(reason), %{sample_count: length(meta.points), min_points: meta.min_points}}
   end
 
@@ -371,9 +373,11 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
     {:skip, "forecast_unavailable", %{"error" => inspect(other)}}
   end
 
-  # Rebuild the legacy diagnostics map per model (model.ex:99-103 / 188-194). The
-  # diagnostics ride in metadata only (not part of the 1e-9 numeric parity gate); we
-  # reconstruct every key the worker has without re-deriving model internals.
+  # Rebuild the legacy diagnostics map per model (the keys the deleted `model.ex`
+  # emitted in its `linear` / `holt_winters_additive` diagnostics, now reproduced by
+  # `capacity.rs`). The diagnostics ride in metadata only (not part of the 1e-9 numeric
+  # parity gate); we reconstruct every key the worker has without re-deriving model
+  # internals.
   defp forecast_diagnostics(
          %{model: "holt_winters_additive", rmse: rmse},
          horizon_seconds,
@@ -392,7 +396,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   end
 
   # Map the worker's `source.model` (a string after config merge) onto the NIF
-  # `CapacityModelKind` atom. Mirrors `model.ex:52-61` dispatch keys.
+  # `CapacityModelKind` atom. Mirrors the legacy model-choice dispatch keys (now the
+  # `Disposition`/`model_kind` selection in `capacity.rs`).
   defp capacity_model_kind(model)
        when model in [:seasonal, "seasonal", :holt_winters, "holt_winters"], do: :seasonal
 
