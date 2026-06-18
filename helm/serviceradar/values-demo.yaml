@@ -77,6 +77,28 @@ cnpg:
       default_pool_size: "40"
       reserve_pool_size: "10"
       reserve_pool_timeout: "5"
+  # ===========================================================================
+  # >>> CNPG SELF-HOSTED BACKUPS — DO NOT SYNC UNTIL CNPG IS 3/3 HEALTHY <<<
+  # ===========================================================================
+  # The demo ArgoCD app is MANUAL-SYNC, so these gated resources apply only when
+  # an operator syncs. Enabling a REQUIRED WAL archiver on an UNHEALTHY cluster
+  # makes CNPG retain WAL LOCALLY (it cannot ship it), which refills the
+  # local-path data volume — the exact shape of the 2026-06-17 disk-fill outage.
+  # max_slot_wal_keep_size (250GB, above) is only a backstop, NOT a substitute
+  # for waiting. BEFORE syncing this opt-in, confirm:
+  #     kubectl get cluster cnpg -n demo
+  # reports 3/3 instances and "Cluster in healthy state". Then sync.
+  # ===========================================================================
+  backup:
+    enabled: true
+    bucket: serviceradar-demo
+    endpointURL: http://seaweedfs-s3.serviceradar-backups.svc.cluster.local:8333
+    credentialsSecret: cnpg-backup-s3-creds
+    retentionPolicy: "30d"
+    # 6-field cron: every 6 hours on the hour.
+    schedule: "0 0 */6 * * *"
+    # serverName defaults to the clusterName ("cnpg") — STABLE FOREVER; changing
+    # it after backups exist orphans the history. Do not set/change it.
 
 logCollector:
   replicaCount: 3

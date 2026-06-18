@@ -1,0 +1,33 @@
+{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $backup := default (dict) $cnpg.backup -}}
+{{- $np := default (dict) $backup.networkPolicy -}}
+{{- if and (default true $cnpg.enabled) (default false $backup.enabled) (default true $np.enabled) }}
+{{- $clusterName := include "serviceradar.cnpgClusterName" . -}}
+{{- /* The serviceradar-egress allow-list does NOT select CNPG pods (they lack the
+       app.kubernetes.io/part-of label), so backups need a dedicated egress policy.
+       Select ALL CNPG instances via cnpg.io/cluster (not just the primary): any
+       replica can archive WAL on failover, and the in-pod barman-cloud plugin
+       sidecar shares the postgres pod's labels. */}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-cnpg-backup-egress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: cnpg
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: {{ $clusterName | quote }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ default "serviceradar-backups" $np.backupsNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ default 8333 $np.s3Port }}
+{{- end }}

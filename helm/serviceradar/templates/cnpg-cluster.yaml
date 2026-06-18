@@ -15,6 +15,10 @@
   {{- fail "cnpg.storageClass or global.storage.encryptedStorageClassName is required unless global.storage.allowInsecureStorage=true" -}}
 {{- end -}}
 {{- $clusterName := include "serviceradar.cnpgClusterName" . -}}
+{{- $backup := default (dict) $cnpg.backup -}}
+{{- $backupEnabled := default false $backup.enabled -}}
+{{- $backupStore := default (printf "%s-store" $clusterName) $backup.objectStoreName -}}
+{{- $backupServerName := default $clusterName $backup.serverName -}}
 {{- /* WAL safety cap: never leave max_slot_wal_keep_size unbounded (-1) — a stuck or
        lagging replication slot would otherwise retain WAL until the data volume fills
        and the primary crashes (the 2026-06-17 demo CNPG outage). Default to ~30% of the
@@ -106,6 +110,20 @@ spec:
     {{- if $cnpgStorageClass }}
     storageClass: {{ $cnpgStorageClass | quote }}
     {{- end }}
+  {{- if $backupEnabled }}
+  {{- /* Self-hosted backups: register the barman-cloud plugin as the WAL
+         archiver. serverName MUST stay stable forever (orphans history if
+         changed). SAFETY: a required WAL archiver on an UNHEALTHY cluster
+         retains WAL locally and can refill the data volume (2026-06-17 outage),
+         which is why values-demo opt-in must wait for the cluster to be Healthy.
+         max_slot_wal_keep_size (above) remains a backstop, not a substitute. */}}
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: {{ $backupStore | quote }}
+        serverName: {{ $backupServerName | quote }}
+  {{- end }}
   bootstrap:
     initdb:
       database: {{ default "serviceradar" $cnpg.database }}

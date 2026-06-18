@@ -1,0 +1,64 @@
+{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $backup := default (dict) $cnpg.backup -}}
+{{- if and (default true $cnpg.enabled) (default false $backup.enabled) }}
+{{- $ns := .Release.Namespace -}}
+{{- $clusterName := include "serviceradar.cnpgClusterName" . -}}
+{{- $store := default (printf "%s-store" $clusterName) $backup.objectStoreName -}}
+{{- $bucket := default "serviceradar-demo" $backup.bucket -}}
+{{- $dest := default (printf "s3://%s/" $bucket) $backup.destinationPath -}}
+{{- $endpoint := default "http://seaweedfs-s3.serviceradar-backups.svc.cluster.local:8333" $backup.endpointURL -}}
+{{- $secret := default "cnpg-backup-s3-creds" $backup.credentialsSecret -}}
+{{- $akKey := default "ACCESS_KEY_ID" $backup.accessKeyIdKey -}}
+{{- $skKey := default "ACCESS_SECRET_KEY" $backup.secretAccessKeyKey -}}
+{{- $wal := default (dict) $backup.wal -}}
+{{- $data := default (dict) $backup.data -}}
+{{- $scheduledName := default (printf "%s-scheduled-backup" $clusterName) $backup.scheduledBackupName -}}
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: {{ $store }}
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: cnpg
+spec:
+  retentionPolicy: {{ default "30d" $backup.retentionPolicy | quote }}
+  configuration:
+    destinationPath: {{ $dest | quote }}
+    endpointURL: {{ $endpoint | quote }}
+    s3Credentials:
+      accessKeyId:
+        name: {{ $secret | quote }}
+        key: {{ $akKey | quote }}
+      secretAccessKey:
+        name: {{ $secret | quote }}
+        key: {{ $skKey | quote }}
+    wal:
+      compression: {{ default "gzip" $wal.compression }}
+      maxParallel: {{ default 4 $wal.maxParallel }}
+    data:
+      compression: {{ default "gzip" $data.compression }}
+      jobs: {{ default 2 $data.jobs }}
+    # serverName is intentionally OMITTED on the ObjectStore. It is set per-cluster
+    # on the Cluster's barman-cloud plugin (templates/cnpg-cluster.yaml) so each
+    # cluster owns a stable, distinct path in the shared bucket.
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: {{ $scheduledName }}
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: cnpg
+spec:
+  schedule: {{ default "0 0 */6 * * *" $backup.schedule | quote }}
+  immediate: {{ default true $backup.immediate }}
+  target: {{ default "prefer-standby" $backup.target }}
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+  cluster:
+    name: {{ $clusterName }}
+{{- end }}

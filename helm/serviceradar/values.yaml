@@ -726,6 +726,50 @@ cnpg:
     # unintentionally isolate the database from migrations and app pods.
     enabled: true
     policyName: ""
+  backup:
+    # Self-hosted CNPG backups to the cluster-internal SeaweedFS S3 store via the
+    # barman-cloud plugin. OFF by default so OSS/single-node installs render
+    # unchanged. The platform half (the barman-cloud plugin in cnpg-system plus
+    # the SeaweedFS S3 store) is deployed separately (gitops), not by this chart.
+    enabled: false
+    # STABLE FOREVER. Identifies this cluster's WAL stream and base backups in the
+    # bucket. Changing it after backups exist orphans the existing history and
+    # starts a new timeline — never change it for a live cluster. Blank defaults to
+    # cnpg.clusterName (single-tenant-per-cluster today). For future multi-tenant
+    # SaaS, an explicit "<tenantId>-<clusterName>" can be supplied here.
+    serverName: ""
+    # ObjectStore (barmancloud.cnpg.io/v1) name. Blank defaults to
+    # "<clusterName>-store". serverName is intentionally NOT set on the
+    # ObjectStore; it is set per-cluster on the Cluster plugin instead.
+    objectStoreName: ""
+    bucket: serviceradar-demo
+    endpointURL: http://seaweedfs-s3.serviceradar-backups.svc.cluster.local:8333
+    # Blank defaults to "s3://<bucket>/".
+    destinationPath: ""
+    # Per-cluster S3 credentials Secret (keys below). Deployed separately.
+    credentialsSecret: cnpg-backup-s3-creds
+    accessKeyIdKey: ACCESS_KEY_ID
+    secretAccessKeyKey: ACCESS_SECRET_KEY
+    retentionPolicy: "30d"
+    wal:
+      compression: gzip
+      maxParallel: 4
+    data:
+      compression: gzip
+      jobs: 2
+    # 6-field cron (seconds minute hour day-of-month month day-of-week).
+    schedule: "0 0 */6 * * *"
+    # ScheduledBackup name. Blank defaults to "<clusterName>-scheduled-backup".
+    scheduledBackupName: ""
+    target: prefer-standby
+    immediate: true
+    networkPolicy:
+      # Egress allowance for CNPG pods -> the SeaweedFS S3 store. The existing
+      # serviceradar-egress allow-list does not select CNPG pods, so a dedicated
+      # gated NetworkPolicy is rendered when backups are enabled.
+      enabled: true
+      backupsNamespace: serviceradar-backups
+      s3Port: 8333
   pooler:
     # CNPG-managed PgBouncer pooler for web/core traffic.
     # Set enabled=false to route all workloads directly to CNPG.
