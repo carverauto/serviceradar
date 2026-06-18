@@ -20,7 +20,7 @@ use addon_sdk::{
 };
 use async_trait::async_trait;
 use prost::Message;
-use serviceradar_anomaly_core::ReasonVerdict;
+use serviceradar_anomaly_core::{ReasonVerdict, SaturationGate};
 use sha2::{Digest as _, Sha256};
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt as _;
@@ -29,7 +29,7 @@ use tonic::Status;
 
 use std::path::{Path, PathBuf};
 
-use crate::engine::{DetectorEngine, EngineCheckpoint, EngineConfig};
+use crate::engine::{DetectorEngine, EngineCheckpoint, EngineConfig, SeriesProfile};
 
 const ADDON_ID: &str = "anomaly";
 const ADDON_VERSION: &str = "0.1.1";
@@ -55,6 +55,14 @@ struct AddonConfig {
     n_sigma: Option<f64>,
     confirm_slots: Option<usize>,
     max_series: Option<usize>,
+    /// Optional GLOBAL dispersion-floor overrides (fix #2). When set, these only
+    /// ever RAISE a series' built-in per-class floor (max), letting an operator
+    /// tighten the whole fleet without per-class tuning. Omitted leaves every
+    /// series on its built-in default (0 for non-gauges, the gauge defaults for
+    /// cpu/mem/disk). The central metric_class override channel remains a
+    /// follow-up; this flat knob is the edge-only global override.
+    min_std_floor: Option<f64>,
+    min_cv: Option<f64>,
     /// Local path the add-on persists its per-series checkpoint to so a restart
     /// re-warms baselines instead of cold-starting. Unset disables checkpointing.
     checkpoint_path: Option<String>,
@@ -91,6 +99,10 @@ impl AddonConfig {
             n_sigma: self.n_sigma.unwrap_or(base.n_sigma),
             confirm_slots: self.confirm_slots.unwrap_or(base.confirm_slots).max(1),
             max_series: self.max_series.unwrap_or(base.max_series).max(1),
+            // Only accept a finite, positive override; a 0/negative/NaN value is
+            // treated as "unset" so it can never weaken a gauge's safe floor.
+            min_std_floor: self.min_std_floor.filter(|v| v.is_finite() && *v > 0.0),
+            min_cv: self.min_cv.filter(|v| v.is_finite() && *v > 0.0),
         }
     }
 }
@@ -283,6 +295,18 @@ async fn process_frame(
             // per-second rate the same way central does before scoring.
             let counter = is_cumulative_counter(metric);
 
+            // Per-series fidelity profile (dispersion floors + saturation gate).
+            // A rate-normalized counter has NO saturation ceiling, so it stays
+            // purely z-based (no gate) — a real flood must still fire. A
+            // saturation gauge (cpu/mem/disk used_percent) gets the directional +
+            // absolute-floor gate and the dispersion floors so a benign near-
+            // constant level cannot explode into a Critical.
+            let profile = if counter {
+                SeriesProfile::default()
+            } else {
+                series_profile_for(metric)
+            };
+
             for point in &metric.points {
                 let series_key = series_key_for(&resource, metric, point);
 
@@ -303,7 +327,7 @@ async fn process_frame(
                 };
 
                 if let Some(verdict) =
-                    engine.evaluate(&series_key, value, point.observed_at_unix_nano)
+                    engine.evaluate(&series_key, value, point.observed_at_unix_nano, profile)
                     && (verdict.breached || verdict.anomalous)
                 {
                     records.push(verdict_record(
@@ -424,6 +448,117 @@ fn is_cumulative_counter(metric: &Metric) -> bool {
     metric.is_monotonic
         && metric.temporality == MetricTemporality::Cumulative as i32
         && metric.kind == MetricKind::Sum as i32
+}
+
+/// The saturation-gauge class of a metric, derived from `metric_type` exactly as
+/// central `series_config.metric_group/2` does (so edge and central agree on what
+/// a gauge is). `None` means "not a saturation gauge" — the series stays purely
+/// z-based with no dispersion floors (counters, interface rates, ICMP RTT, and
+/// any unclassified metric). The class drives the fidelity defaults below.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum GaugeClass {
+    Cpu,
+    Mem,
+    Disk,
+}
+
+/// Classify a metric's `metric_type` into a saturation-gauge class. Mirrors
+/// central `metric_group/2`: `sysmon.cpu`/`cpu` -> CPU, `sysmon.memory`/`memory`
+/// -> Mem, `sysmon.disk`/`disk` -> Disk. Everything else (snmp/icmp/flow/otel and
+/// any unknown) is not a saturation gauge.
+///
+/// The `metric_type` match is necessary but NOT sufficient: the agent emits
+/// non-percent series under these same types (e.g. `cpu.frequency_hz` /
+/// `cpu.cluster.frequency_hz` are `sysmon.cpu`, unit Hz, ~GHz). Those are not
+/// bounded 0-100% utilization gauges, so the directional saturation gate would
+/// wrongly suppress a legitimate DOWNWARD excursion (CPU thermal throttling /
+/// power-capping). We therefore additionally require the metric to be the
+/// percent-utilization gauge — its `name` ends with `usage_percent` or
+/// `used_percent` (matching `cpu.usage_percent`, `memory.used_percent`,
+/// `disk.used_percent`). Frequency and any other non-percent series under these
+/// types get `None` -> the default profile -> stay purely z-based (catching the
+/// throttling excursion the symmetric z-score detects).
+fn gauge_class(metric: &Metric) -> Option<GaugeClass> {
+    if !is_utilization_percent_gauge(metric) {
+        return None;
+    }
+    match metric.metric_type.as_str() {
+        "sysmon.cpu" | "cpu" => Some(GaugeClass::Cpu),
+        "sysmon.memory" | "memory" => Some(GaugeClass::Mem),
+        "sysmon.disk" | "disk" => Some(GaugeClass::Disk),
+        _ => None,
+    }
+}
+
+/// True when the metric is the percent-utilization gauge of its group — its name
+/// ends with `usage_percent` (cpu) or `used_percent` (mem/disk). This is the gate
+/// that distinguishes a bounded 0-100% saturation gauge (`cpu.usage_percent`)
+/// from a non-percent series riding the same `metric_type` (`cpu.frequency_hz`).
+fn is_utilization_percent_gauge(metric: &Metric) -> bool {
+    let name = metric.name.as_str();
+    name.ends_with("usage_percent") || name.ends_with("used_percent")
+}
+
+/// Build the per-series fidelity [`SeriesProfile`] for a (non-counter) metric.
+///
+/// Saturation gauges (cpu/mem/disk `used_percent`) measure a bounded 0-100%
+/// utilization with a meaningful direction: only *rising* utilization toward the
+/// ceiling matters, and a low absolute value is benign no matter how the z-score
+/// reads. So a gauge gets:
+///   * a directional + absolute-floor saturation gate (fix #3) — only an upward
+///     excursion ABOVE `min_breach_value` can breach; a benign low level (live:
+///     disk 1.36%, mem 6.4%, a CPU core briefly at 18%) never alerts; and
+///   * dispersion floors (fix #2) — `min_std_floor` in percentage points and a
+///     relative `min_cv`, so a near-constant level with sub-point jitter cannot
+///     manufacture a huge z-score.
+///
+/// Defaults are deliberately conservative (benign-suppressing, not alert-
+/// suppressing): a disk genuinely climbing toward full, memory pressure, or a
+/// CPU pinned high still clears the floor and fires. Per-core CPU is the most
+/// volatile, so its floor is the highest (one core at 18%, or even a brief 100%
+/// spike on a single core, must not page). These are the edge built-in defaults;
+/// the central metric_class override channel (anomaly_addon_profile_seeder
+/// projecting metric_class config into add-on params) is a documented FOLLOW-UP.
+///
+/// A non-gauge metric returns the default profile (no floors, no gate): purely
+/// z-based, unchanged from prior behavior.
+fn series_profile_for(metric: &Metric) -> SeriesProfile {
+    match gauge_class(metric) {
+        // Disk used_percent: very low variance normally; the live false-fire was
+        // disk at ~1.36% with ~0.01 jitter. A 1-point absolute floor + 5% CV
+        // tames the denominator; nothing under 80% full is worth a Critical.
+        Some(GaugeClass::Disk) => SeriesProfile {
+            min_std_floor: 1.0,
+            min_cv: 0.05,
+            saturation_gate: Some(SaturationGate {
+                directional: true,
+                min_value: 80.0,
+            }),
+        },
+        // Memory used_percent: commonly runs 60-80% benignly (caches, buffers).
+        // Same dispersion floors; only sustained pressure above 80% breaches.
+        Some(GaugeClass::Mem) => SeriesProfile {
+            min_std_floor: 1.0,
+            min_cv: 0.05,
+            saturation_gate: Some(SaturationGate {
+                directional: true,
+                min_value: 80.0,
+            }),
+        },
+        // CPU used_percent (per-core): the noisiest gauge — individual cores spike
+        // to 100% constantly and benignly. A higher absolute floor + std/CV floor
+        // keep one core at 18% (or a brief single-core spike) from paging; only a
+        // core sustained at/above 85% breaches.
+        Some(GaugeClass::Cpu) => SeriesProfile {
+            min_std_floor: 5.0,
+            min_cv: 0.10,
+            saturation_gate: Some(SaturationGate {
+                directional: true,
+                min_value: 85.0,
+            }),
+        },
+        None => SeriesProfile::default(),
+    }
 }
 
 /// The authoritative counter reading: the typed `raw_value` (the uint string SNMP
@@ -725,6 +860,129 @@ mod tests {
         }
     }
 
+    fn metric_of_type(metric_type: &str) -> Metric {
+        Metric {
+            name: format!("{metric_type}.used_percent"),
+            metric_type: metric_type.to_string(),
+            ..Default::default()
+        }
+    }
+
+    fn metric_named(name: &str, metric_type: &str) -> Metric {
+        Metric {
+            name: name.to_string(),
+            metric_type: metric_type.to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn gauge_classes_map_like_central_metric_group() {
+        assert_eq!(
+            gauge_class(&metric_of_type("sysmon.cpu")),
+            Some(GaugeClass::Cpu)
+        );
+        assert_eq!(gauge_class(&metric_of_type("cpu")), Some(GaugeClass::Cpu));
+        assert_eq!(
+            gauge_class(&metric_of_type("sysmon.memory")),
+            Some(GaugeClass::Mem)
+        );
+        assert_eq!(
+            gauge_class(&metric_of_type("memory")),
+            Some(GaugeClass::Mem)
+        );
+        assert_eq!(
+            gauge_class(&metric_of_type("sysmon.disk")),
+            Some(GaugeClass::Disk)
+        );
+        assert_eq!(gauge_class(&metric_of_type("disk")), Some(GaugeClass::Disk));
+        // Non-gauges (snmp interface, icmp, flow, otel, unknown) are not gated.
+        assert_eq!(gauge_class(&metric_of_type("snmp")), None);
+        assert_eq!(gauge_class(&metric_of_type("icmp")), None);
+        assert_eq!(gauge_class(&metric_of_type("flow")), None);
+        assert_eq!(gauge_class(&metric_of_type("otel.metric_point")), None);
+        assert_eq!(gauge_class(&metric_of_type("")), None);
+    }
+
+    #[test]
+    fn gauge_profile_carries_directional_floor_gate() {
+        // Disk/mem get the 80% floor; cpu gets the relaxed 85% floor. All are
+        // directional, and all carry a nonzero dispersion floor.
+        for (ty, floor) in [
+            ("sysmon.disk", 80.0),
+            ("sysmon.memory", 80.0),
+            ("sysmon.cpu", 85.0),
+        ] {
+            let profile = series_profile_for(&metric_of_type(ty));
+            let gate = profile.saturation_gate.expect("gauge must have a gate");
+            assert!(gate.directional, "{ty} gate must be directional");
+            assert_eq!(gate.min_value, floor, "{ty} absolute floor");
+            assert!(profile.min_std_floor > 0.0, "{ty} must have a std floor");
+            assert!(profile.min_cv > 0.0, "{ty} must have a cv floor");
+        }
+    }
+
+    #[test]
+    fn non_gauge_metric_gets_default_profile() {
+        // An SNMP interface metric stays purely z-based (no gate, no floors).
+        let profile = series_profile_for(&metric_of_type("snmp"));
+        assert!(profile.saturation_gate.is_none());
+        assert_eq!(profile.min_std_floor, 0.0);
+        assert_eq!(profile.min_cv, 0.0);
+    }
+
+    #[test]
+    fn cpu_frequency_under_sysmon_cpu_is_not_a_saturation_gauge() {
+        // The agent emits `cpu.frequency_hz` / `cpu.cluster.frequency_hz` under
+        // metric_type `sysmon.cpu` (unit Hz, ~GHz) — NOT a 0-100% utilization
+        // gauge. The directional saturation gate would suppress a downward
+        // frequency excursion (CPU thermal throttling / power-capping), a real
+        // anomaly the symmetric z-score catches. So these must fall to the default
+        // profile (no gate, no floors), staying purely z-based.
+        for name in ["cpu.frequency_hz", "cpu.cluster.frequency_hz"] {
+            let metric = metric_named(name, "sysmon.cpu");
+            assert_eq!(
+                gauge_class(&metric),
+                None,
+                "{name} must not be classified as a saturation gauge"
+            );
+            let profile = series_profile_for(&metric);
+            assert!(
+                profile.saturation_gate.is_none(),
+                "{name} must have no saturation gate (allows downward throttling)"
+            );
+            assert_eq!(profile.min_std_floor, 0.0, "{name} must have no std floor");
+            assert_eq!(profile.min_cv, 0.0, "{name} must have no cv floor");
+        }
+    }
+
+    #[test]
+    fn percent_utilization_gauges_keep_their_saturation_gate() {
+        // The percent gauges the agent actually emits stay gated exactly as
+        // before: cpu.usage_percent (Cpu, 85% floor), memory.used_percent (Mem,
+        // 80%), disk.used_percent (Disk, 80%). The gate is what suppresses benign
+        // low values; only the percent gauge gets it.
+        for (name, ty, floor) in [
+            ("cpu.usage_percent", "sysmon.cpu", 85.0),
+            ("memory.used_percent", "sysmon.memory", 80.0),
+            ("disk.used_percent", "sysmon.disk", 80.0),
+        ] {
+            let metric = metric_named(name, ty);
+            assert!(
+                gauge_class(&metric).is_some(),
+                "{name} must remain a saturation gauge"
+            );
+            let profile = series_profile_for(&metric);
+            let gate = profile
+                .saturation_gate
+                .unwrap_or_else(|| panic!("{name} must keep its saturation gate"));
+            assert!(gate.directional, "{name} gate must be directional");
+            assert_eq!(gate.min_value, floor, "{name} absolute floor");
+            assert!(profile.min_std_floor > 0.0, "{name} must keep a std floor");
+            assert!(profile.min_cv > 0.0, "{name} must keep a cv floor");
+        }
+    }
+
     #[test]
     fn attested_tags_merges_metric_and_point_with_point_winning() {
         let metric = Metric {
@@ -871,7 +1129,12 @@ mod tests {
         {
             let mut e = engine.lock().unwrap();
             for i in 0..20 {
-                e.evaluate("s", 100.0 + (i % 3) as f64, i as u64);
+                e.evaluate(
+                    "s",
+                    100.0 + (i % 3) as f64,
+                    i as u64,
+                    SeriesProfile::default(),
+                );
             }
         }
 

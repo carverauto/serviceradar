@@ -134,6 +134,9 @@ fn run(args: Args, mut out: impl Write) -> Result<(), String> {
                 trend_n_sigma: None,
                 confirm_slots: Some(args.confirm_slots),
                 consecutive_anomalous: Some(state.consecutive_anomalous),
+                min_std_floor: None,
+                min_cv: None,
+                saturation_gate: None,
             },
             ReasonSample {
                 value: sample.value,

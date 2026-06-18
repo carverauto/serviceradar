@@ -95,6 +95,9 @@ mod tests {
             trend_n_sigma: None,
             confirm_slots: Some(5),
             consecutive_anomalous: Some(0),
+            min_std_floor: None,
+            min_cv: None,
+            saturation_gate: None,
         }
     }
 

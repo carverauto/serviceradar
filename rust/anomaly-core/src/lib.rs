@@ -41,4 +41,6 @@ pub const WINDOW_CAPACITY_MULTIPLE: usize = 2;
 
 pub use detector::reason_impl;
 pub use stats::{BaselineStats, WelfordAcc, clean_threshold, sample_stats, z_score};
-pub use types::{ReasonContext, ReasonEventVerdict, ReasonSample, ReasonVerdict, SignalVerdict};
+pub use types::{
+    ReasonContext, ReasonEventVerdict, ReasonSample, ReasonVerdict, SaturationGate, SignalVerdict,
+};

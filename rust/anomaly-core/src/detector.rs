@@ -6,9 +6,9 @@
 //! The DeepCausality detector flow: hydrate window state, evaluate the rolling /
 //! seasonal / trend signals, apply confirm-slot hysteresis, and emit a verdict.
 
-use crate::signal::{evaluate_rolling_signal, evaluate_signal, reason_for_state};
+use crate::signal::{SignalGate, evaluate_rolling_signal, evaluate_signal, reason_for_state};
 use crate::stats::{WelfordAcc, clean_threshold};
-use crate::types::{ReasonContext, ReasonSample, ReasonVerdict, SignalVerdict};
+use crate::types::{ReasonContext, ReasonSample, ReasonVerdict, SaturationGate, SignalVerdict};
 use crate::window::compact_rolling_state;
 use crate::{DEFAULT_CONFIRM_SLOTS, DEFAULT_MIN_SAMPLES, DEFAULT_N_SIGMA, DEFAULT_WINDOW_SIZE};
 use deep_causality_core::CausalFlow;
@@ -19,6 +19,11 @@ struct DetectorThresholds {
     window_size: usize,
     n_sigma: f64,
     confirm_slots: usize,
+    /// Dispersion floors (fix #2) and the optional saturation gate (fix #3),
+    /// applied to every signal so edge and central score and gate identically.
+    min_std_floor: f64,
+    min_cv: f64,
+    saturation_gate: Option<SaturationGate>,
     seasonal_baseline: Vec<f64>,
     seasonal_enabled: bool,
     seasonal_min_samples: usize,
@@ -27,6 +32,19 @@ struct DetectorThresholds {
     trend_enabled: bool,
     trend_min_samples: usize,
     trend_n_sigma: f64,
+}
+
+impl DetectorThresholds {
+    /// The breach gate shared by all three signals: the dispersion floors plus the
+    /// saturation gate. Bundling it here keeps the per-signal call sites uniform
+    /// and guarantees edge/central apply the *same* floors and gate.
+    fn signal_gate(&self) -> SignalGate {
+        SignalGate {
+            min_std_floor: self.min_std_floor,
+            min_cv: self.min_cv,
+            saturation_gate: self.saturation_gate,
+        }
+    }
 }
 
 struct DetectorState {
@@ -118,12 +136,24 @@ impl DetectorThresholds {
                 .is_some_and(|values| !values.is_empty())
         });
 
+        let min_std_floor = context
+            .min_std_floor
+            .filter(|v| v.is_finite() && *v > 0.0)
+            .unwrap_or(0.0);
+        let min_cv = context
+            .min_cv
+            .filter(|v| v.is_finite() && *v > 0.0)
+            .unwrap_or(0.0);
+
         Self {
             rolling_enabled: context.rolling_enabled.unwrap_or(true),
             min_samples,
             window_size,
             n_sigma,
             confirm_slots,
+            min_std_floor,
+            min_cv,
+            saturation_gate: context.saturation_gate,
             seasonal_baseline: context.seasonal_baseline.clone().unwrap_or_default(),
             seasonal_enabled,
             seasonal_min_samples: context.seasonal_min_samples.unwrap_or(min_samples).max(1),
@@ -193,6 +223,7 @@ fn evaluate_detector(
     state: &DetectorState,
     thresholds: &DetectorThresholds,
 ) -> DetectionEvaluation {
+    let gate = thresholds.signal_gate();
     let signals = vec![
         evaluate_rolling_signal(
             "rolling",
@@ -201,6 +232,7 @@ fn evaluate_detector(
             thresholds.min_samples,
             thresholds.n_sigma,
             state.sample.value,
+            gate,
         ),
         evaluate_signal(
             "seasonal",
@@ -210,6 +242,7 @@ fn evaluate_detector(
             thresholds.window_size,
             thresholds.seasonal_n_sigma,
             state.sample.value,
+            gate,
         ),
         evaluate_signal(
             "trend",
@@ -219,6 +252,7 @@ fn evaluate_detector(
             thresholds.window_size,
             thresholds.trend_n_sigma,
             state.sample.value,
+            gate,
         ),
     ];
 
@@ -257,6 +291,15 @@ fn finalize_detector_verdict(
     };
 
     let anomalous = evaluation.breached && state.consecutive_anomalous >= thresholds.confirm_slots;
+
+    // Withhold-from-baseline: a breaching sample is *never* folded into the
+    // rolling baseline (it is only admitted on the clean arm of `branch_with`).
+    // This is intentional and copied from the deep_causality
+    // `corrective_ddos_detector` example — keeping the baseline clean is exactly
+    // what lets a real sustained surge keep reading anomalous for its full
+    // duration instead of being absorbed back into the mean. The benign-value
+    // false positives this used to cause are killed by the std/CV floor (fix #2)
+    // and the gauge saturation gate (fix #3), not by re-baselining.
     let include_in_baseline = !evaluation.breached;
     let verdict_state = if !evaluation.ready {
         "insufficient_baseline"
