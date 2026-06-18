@@ -70,11 +70,19 @@ defmodule ServiceRadar.Observability.CausalReasoner do
   Only `{:seasonal_breach, _}` surfaces upstream as an anomaly verdict; the worker
   carries `next_consecutive_anomalous` back to Postgres for confirm-slot hysteresis.
 
-  ## Capacity (phase 2)
+  ## Capacity
 
-  `dispose_batch(:capacity, _)` currently returns `{:error, _}` per row: the capacity
-  port (`disposition/capacity.rs`) is the parity-gated second phase and is not wired
-  yet. The kind is accepted so the worker contract is stable across the cutover.
+  `dispose_batch(:capacity, [{:capacity, %{config: cfg, row: row}}])` runs the
+  least-squares / Holt-Winters forecast in `disposition/capacity.rs` (a 1:1 port of
+  the former `CapacityForecasting.Model`, parity-gated to 1e-9). It returns per row:
+  - `{:capacity_ok, %{series_key: ..., disposition: disposition}}`, where `disposition` is
+    `{:projected, %{slope_per_second, intercept, projected_value, projected_exhaustion_at_unix_micros, confidence, lower_bound, upper_bound, rmse, ...}}`
+    or `{:skipped, %{reason: "insufficient_history"}}`
+  - `{:error, reason}` on an ABI/contract violation or a contained per-row panic.
+
+  The worker keeps all orchestration (bytes→percent, `at_risk?`/warning policy, the
+  plausibility guards, Ash upsert, telemetry, `VerdictEmitter`); only the numeric fit
+  lives in the NIF.
   """
 
   use Rustler,
