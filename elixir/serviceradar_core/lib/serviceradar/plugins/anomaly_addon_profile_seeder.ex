@@ -24,6 +24,21 @@ defmodule ServiceRadar.Plugins.AnomalyAddonProfileSeeder do
   @seeded_by "ServiceRadar.Plugins.AnomalyAddonProfileSeeder"
   @default_params %{"metric_feed" => %{"sources" => ["sysmon", "snmp"]}}
 
+  @doc """
+  The default profile params seeded for the edge anomaly add-on.
+
+  Exposed so the add-on package `config_schema` (the source of truth shipped in
+  the bundle's `config.schema.json`) can be validated against the exact params
+  this seeder writes — guarding against a schema regression that would reject the
+  legitimate `metric_feed` selection and freeze reconcile.
+  """
+  @spec default_params() :: map()
+  def default_params, do: @default_params
+
+  @doc "The add-on id this seeder manages (`\"anomaly\"`)."
+  @spec addon_id() :: String.t()
+  def addon_id, do: @addon_id
+
   @spec seed_defaults(keyword()) :: :ok | {:error, term()}
   def seed_defaults(opts \\ []) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:anomaly_addon_profile_seeder))
