@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -175,4 +176,76 @@ func TestCollectorProcessResult_NonCounterDeltaStillRates(t *testing.T) {
 	require.Equal(t, TypeFloat, point.DataType)
 	require.False(t, point.Delta)
 	require.InDelta(t, 10.0, point.Value, 0.1)
+}
+
+// A Gauge32 arrives on the wire as a bare uint64 (not a CounterValue). Even when
+// an OID is misconfigured DataType:counter, it must NOT be classified or
+// rate-normalized as a counter — the SNMP wire type, not operator config,
+// decides. Regression guard for the gauge-as-counter footgun.
+func TestCollectorProcessResult_GaugeWireMislabeledAsCounter_DowngradedToGauge(t *testing.T) {
+	collector := &SNMPCollector{
+		target: &Target{
+			OIDs: []OIDConfig{
+				{
+					OID:      ".1.3.6.1.2.1.2.2.1.5.7",
+					Name:     "ifSpeed::ifindex:7",
+					DataType: TypeCounter, // operator misconfiguration on a Gauge32 OID
+					Scale:    1,
+				},
+			},
+		},
+		dataChan: make(chan DataPoint, 1),
+		done:     make(chan struct{}),
+		status: TargetStatus{
+			OIDStatus: make(map[string]OIDStatus),
+		},
+		logger: logger.NewTestLogger(),
+	}
+
+	// Gauge32 wire value: a bare uint64, not a CounterValue.
+	err := collector.processResult(context.Background(), ".1.3.6.1.2.1.2.2.1.5.7", uint64(1_000_000_000))
+	require.NoError(t, err)
+
+	point := <-collector.dataChan
+	require.Equal(t, TypeGauge, point.DataType, "mislabeled gauge must be downgraded to gauge")
+	require.NotEqual(t, counterKindSum, point.Kind, "must not be classified as a counter (SUM)")
+	require.False(t, point.IsMonotonic, "a gauge is not monotonic")
+	require.False(t, point.Delta)
+	require.Equal(t, 0, point.CounterWidth, "no counter width for a gauge")
+}
+
+// A real Counter32 (CounterValue{Width:32}) on a DataType:counter OID is still
+// classified as a counter — the gate only downgrades non-counter wire types.
+func TestCollectorProcessResult_RealCounter32StaysCounter(t *testing.T) {
+	collector := &SNMPCollector{
+		target: &Target{
+			OIDs: []OIDConfig{
+				{
+					OID:      ".1.3.6.1.2.1.2.2.1.10.7",
+					Name:     "ifInOctets::ifindex:7",
+					DataType: TypeCounter,
+					Scale:    1,
+				},
+			},
+		},
+		dataChan: make(chan DataPoint, 1),
+		done:     make(chan struct{}),
+		status: TargetStatus{
+			OIDStatus: make(map[string]OIDStatus),
+		},
+		logger: logger.NewTestLogger(),
+	}
+
+	err := collector.processResult(
+		context.Background(),
+		".1.3.6.1.2.1.2.2.1.10.7",
+		CounterValue{Value: 12345, Width: 32},
+	)
+	require.NoError(t, err)
+
+	point := <-collector.dataChan
+	require.Equal(t, TypeCounter, point.DataType)
+	require.Equal(t, counterKindSum, point.Kind)
+	require.True(t, point.IsMonotonic)
+	require.Equal(t, 32, point.CounterWidth)
 }
