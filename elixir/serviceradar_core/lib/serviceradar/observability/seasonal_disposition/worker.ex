@@ -237,7 +237,9 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
     rescue
       error -> {:error, {:nif_call_failed, Exception.message(error)}}
     catch
-      :error, reason -> {:error, {:nif_call_failed, reason}}
+      # `rescue` already covers :error-class failures (ErlangError / nif_not_loaded);
+      # catch a NIF process :exit, the one mode it doesn't, instead of a dead :error clause.
+      :exit, reason -> {:error, {:nif_call_failed, {:exit, reason}}}
     end
   end
 
