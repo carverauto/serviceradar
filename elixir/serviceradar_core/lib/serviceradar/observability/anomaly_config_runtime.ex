@@ -26,6 +26,7 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
   @type cache :: %{
           optional(:anomaly_series_config) => map(),
           optional(:capacity_forecasting_opts) => keyword(),
+          optional(:seasonal_disposition_opts) => keyword(),
           optional(:refreshed_at_ms) => integer()
         }
 
@@ -44,6 +45,20 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
   def capacity_forecasting_opts do
     cache()
     |> Map.get(:capacity_forecasting_opts, [])
+    |> Keyword.new()
+  end
+
+  @doc """
+  Hot-reloadable tuning for the central-seasonal disposition worker.
+
+  Shares the anomaly-detection settings (`n_sigma`, `confirm_slots`, the per-metric-
+  class overrides) so the seasonal tier tracks the same operator-facing tuning as
+  the streaming detector; mapped to the seasonal NIF config keys the worker reads.
+  """
+  @spec seasonal_disposition_opts() :: keyword()
+  def seasonal_disposition_opts do
+    cache()
+    |> Map.get(:seasonal_disposition_opts, [])
     |> Keyword.new()
   end
 
@@ -88,6 +103,20 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
       |> Map.put("default", base)
 
     %{metric_class_defaults: metric_class_defaults}
+  end
+
+  @doc false
+  @spec seasonal_disposition_opts_from_settings(struct() | nil) :: keyword()
+  def seasonal_disposition_opts_from_settings(nil), do: []
+
+  def seasonal_disposition_opts_from_settings(%AnomalyDetectionConfig{} = settings) do
+    [
+      seasonal_n_sigma: settings.n_sigma,
+      min_bucket_samples: settings.min_samples,
+      confirm_slots: settings.confirm_slots,
+      seasonal_metric_class_overrides:
+        normalize_metric_class_overrides(settings.metric_class_overrides || %{})
+    ]
   end
 
   @doc false
@@ -150,20 +179,32 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
     actor = SystemActor.system(:anomaly_config_runtime)
     existing = cache()
 
-    anomaly_series_config =
+    anomaly_settings =
       case state.anomaly_fetcher.(actor) do
         {:ok, %AnomalyDetectionConfig{} = settings} ->
-          anomaly_series_config_from_settings(settings)
+          {:ok, settings}
 
         {:ok, nil} ->
-          Map.get(existing, :anomaly_series_config, %{})
+          :unchanged
 
         {:error, reason} ->
           Logger.warning("Failed to refresh anomaly detection config",
             reason: inspect(reason)
           )
 
-          Map.get(existing, :anomaly_series_config, %{})
+          :unchanged
+      end
+
+    anomaly_series_config =
+      case anomaly_settings do
+        {:ok, settings} -> anomaly_series_config_from_settings(settings)
+        :unchanged -> Map.get(existing, :anomaly_series_config, %{})
+      end
+
+    seasonal_disposition_opts =
+      case anomaly_settings do
+        {:ok, settings} -> seasonal_disposition_opts_from_settings(settings)
+        :unchanged -> Map.get(existing, :seasonal_disposition_opts, [])
       end
 
     capacity_forecasting_opts =
@@ -186,6 +227,7 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
       normalize_cache(%{
         anomaly_series_config: anomaly_series_config,
         capacity_forecasting_opts: capacity_forecasting_opts,
+        seasonal_disposition_opts: seasonal_disposition_opts,
         refreshed_at_ms: System.monotonic_time(:millisecond)
       })
 
@@ -218,6 +260,10 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
       capacity_forecasting_opts:
         cache
         |> Map.get(:capacity_forecasting_opts, [])
+        |> Keyword.new(),
+      seasonal_disposition_opts:
+        cache
+        |> Map.get(:seasonal_disposition_opts, [])
         |> Keyword.new(),
       refreshed_at_ms: Map.get(cache, :refreshed_at_ms, System.monotonic_time(:millisecond))
     }
