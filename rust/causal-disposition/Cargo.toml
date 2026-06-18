@@ -1,0 +1,32 @@
+[package]
+name = "serviceradar-causal-disposition"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+description = "Central disposition kernels (seasonal residual-z, capacity forecast) on ServiceRadar's shared DeepCausality streaming substrate (serviceradar-anomaly-core). The thin Rustler NIF wraps these kernels; this crate carries zero rustler dep so it stays linkable by bazel, tests, and causal-engine (OpenSpec: add-core-causal-disposition-nif)."
+license = "Apache-2.0"
+
+[lib]
+name = "serviceradar_causal_disposition"
+path = "src/lib.rs"
+
+[dependencies]
+# Reuse the streaming substrate (CausalFlow / reason_impl / ReasonContext) — do
+# not re-vendor DeepCausality. The disposition kernels add only the seasonal /
+# capacity Value enums + their flows on top of this crate's primitives.
+serviceradar-anomaly-core = { path = "../anomaly-core" }
+deep_causality_core = "0.10.0"
+
+# The NIF-facing ABI derives (NifMap/NifStruct) are gated behind this feature so
+# the kernel crate stays dependency-light: bazel, `cargo test`, and (in
+# principle) causal-engine link it WITHOUT pulling rustler / its proc-macro tree.
+# Only `native/causal_disposition_nif` turns this on.
+rustler = { version = "0.38", optional = true, default-features = false }
+
+[features]
+default = []
+# Turn on the typed NIF ABI derives (NifTaggedEnum / NifMap / NifUnitEnum). We
+# pull rustler with default-features off to stay light, so re-assert the minimal
+# NIF version rustler's own default would set (`nif_version_2_15`); without it the
+# rustler build script aborts. Only `native/causal_disposition_nif` enables this.
+rustler = ["dep:rustler", "rustler/nif_version_2_15"]

@@ -34,6 +34,23 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntimeTest do
     assert config.metric_class_defaults["mem"]["window_size"] == 120
   end
 
+  test "converts anomaly settings into seasonal disposition worker options" do
+    settings = %AnomalyDetectionConfig{
+      n_sigma: 4.5,
+      window_size: 600,
+      confirm_slots: 7,
+      min_samples: 45,
+      metric_class_overrides: %{"interface" => %{"seasonal_n_sigma" => 5.5}}
+    }
+
+    opts = AnomalyConfigRuntime.seasonal_disposition_opts_from_settings(settings)
+
+    assert opts[:seasonal_n_sigma] == 4.5
+    assert opts[:min_bucket_samples] == 45
+    assert opts[:confirm_slots] == 7
+    assert opts[:seasonal_metric_class_overrides]["interface"]["seasonal_n_sigma"] == 5.5
+  end
+
   test "converts forecast settings into worker options" do
     settings = %CapacityForecastConfig{
       forecast_horizon_seconds: 15_552_000,

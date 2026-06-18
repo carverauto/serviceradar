@@ -14,6 +14,7 @@ alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
 alias ServiceRadar.Jobs.RootSpanRatioWorker
 alias ServiceRadar.Observability.CapacityForecasting.Worker, as: CapacityForecastingWorker
 alias ServiceRadar.Observability.DataRetentionWorker
+alias ServiceRadar.Observability.SeasonalDisposition.Worker, as: SeasonalDispositionWorker
 
 # Netprobe native add-on package — signed artifact refs for the package seeder.
 # native-addons.yml emits per-arch object_key/sha256/signature refs in its import index;
@@ -1110,6 +1111,31 @@ if config_env() == :prod do
       []
     end
 
+  seasonal_disposition_enabled =
+    "SERVICERADAR_SEASONAL_DISPOSITION_ENABLED"
+    |> System.get_env("true")
+    |> String.downcase()
+    |> Kernel.in(["1", "true", "yes", "on"])
+
+  seasonal_disposition_cron =
+    System.get_env("SERVICERADAR_SEASONAL_DISPOSITION_CRON", "47 * * * *")
+
+  seasonal_disposition_emit_verdicts =
+    "SERVICERADAR_SEASONAL_DISPOSITION_EMIT_VERDICTS"
+    |> System.get_env("true")
+    |> String.downcase()
+    |> Kernel.in(["1", "true", "yes", "on"])
+
+  seasonal_disposition_crontab =
+    if seasonal_disposition_enabled do
+      [
+        {seasonal_disposition_cron, SeasonalDispositionWorker,
+         args: %{"trigger" => "cron"}, queue: :maintenance}
+      ]
+    else
+      []
+    end
+
   config :serviceradar_core, CapacityForecastingWorker,
     enabled: capacity_forecasting_enabled,
     horizon_seconds: capacity_forecasting_horizon_seconds,
@@ -1156,9 +1182,23 @@ if config_env() == :prod do
             queue: :maintenance},
            {"31 3 * * *", ServiceRadar.Edge.RemoteAccessVersionRetentionWorker,
             queue: :maintenance}
-         ] ++ object_store_retention_crontab ++ capacity_forecasting_crontab}
+         ] ++
+           object_store_retention_crontab ++
+           capacity_forecasting_crontab ++ seasonal_disposition_crontab}
     ],
     peer: Oban.Peers.Database
+
+  config :serviceradar_core, SeasonalDispositionWorker,
+    enabled: seasonal_disposition_enabled,
+    emit_verdicts?: seasonal_disposition_emit_verdicts,
+    seasonal_n_sigma:
+      String.to_float(System.get_env("SERVICERADAR_SEASONAL_DISPOSITION_N_SIGMA") || "3.0"),
+    min_bucket_samples:
+      String.to_integer(
+        System.get_env("SERVICERADAR_SEASONAL_DISPOSITION_MIN_BUCKET_SAMPLES") || "4"
+      ),
+    confirm_slots:
+      String.to_integer(System.get_env("SERVICERADAR_SEASONAL_DISPOSITION_CONFIRM_SLOTS") || "1")
 
   config :serviceradar_core, :object_store_retention,
     enabled?: object_store_retention_enabled,
