@@ -19,7 +19,9 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
   @default_time_range "last_180d"
   @default_limit 50_000
 
-  @type robust_statistic :: :mean_stddev | :median_mad | :p05_p95
+  # `:p05p95` (no underscore) is the exact NIF `RobustStatistic` ABI atom; see
+  # `robust_statistic_value/2` for why the underscore form is normalized away.
+  @type robust_statistic :: :mean_stddev | :median_mad | :p05p95
 
   @type t :: %__MODULE__{
           name: String.t(),
@@ -140,12 +142,23 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
   def robust?(%__MODULE__{robust_statistic: :mean_stddev}), do: false
   def robust?(%__MODULE__{}), do: true
 
+  # The robust statistic atom is the NIF `RobustStatistic` `NifUnitEnum` ABI contract:
+  # rustler derives the variant atom via `to_snake_case` of the Rust ident, so `P05P95`
+  # decodes ONLY as `:p05p95` (NOT `:p05_p95` — there is no underscore between the
+  # digit-adjacent segments). Passing `:p05_p95` to the NIF raises a decode error that
+  # crashes the WHOLE `dispose_batch` call (not a per-row `{:error, _}`). We accept the
+  # human-friendly `p05_p95` spelling on input for operator config back-compat, but
+  # normalize to the exact ABI atom `:p05p95` that the NIF accepts.
   defp robust_statistic_value(values, key) do
     case Map.get(values, key, Map.get(values, to_string(key))) do
-      value when value in [:mean_stddev, :median_mad, :p05_p95] -> value
+      :mean_stddev -> :mean_stddev
+      :median_mad -> :median_mad
+      :p05p95 -> :p05p95
+      :p05_p95 -> :p05p95
       "mean_stddev" -> :mean_stddev
       "median_mad" -> :median_mad
-      "p05_p95" -> :p05_p95
+      "p05p95" -> :p05p95
+      "p05_p95" -> :p05p95
       _ -> :mean_stddev
     end
   end

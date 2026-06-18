@@ -26,7 +26,11 @@ defmodule ServiceRadar.Observability.CausalReasoner do
            seasonal_n_sigma: 3.0,
            min_bucket_samples: 4,
            confirm_slots: 1,
-           robust_statistic: :mean_stddev | :median_mad | :p05_p95
+           # NOTE: the NIF `RobustStatistic` NifUnitEnum decodes `P05P95` as the atom
+           # `:p05p95` (no underscore — rustler's to_snake_case does not split the
+           # digit-adjacent segments). Passing `:p05_p95` RAISES a decode error and
+           # crashes the whole batch, so the worker normalizes to `:p05p95`.
+           robust_statistic: :mean_stddev | :median_mad | :p05p95
          },
          row: %{
            series_key: "svc/cpu",

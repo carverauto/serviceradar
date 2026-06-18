@@ -92,7 +92,12 @@ pub enum RobustStatistic {
 /// `n_sigma` threshold applies across robust statistics. `1 / Φ⁻¹(0.75)`.
 pub(crate) const MAD_TO_STDDEV: f64 = 1.482_602_218_505_602;
 
-/// ≈3.2897: maps a p05–p95 (90%-coverage) inter-percentile range to a
-/// stddev-equivalent under normality. `1 / (Φ⁻¹(0.95) − Φ⁻¹(0.05))` =
-/// `1 / (2 · 1.644853...)`, so the band width is divided by `2·1.644853`.
-pub(crate) const P05P95_TO_STDDEV: f64 = 3.289_707_253_902_94;
+/// ≈0.3040: maps a p05–p95 (90%-coverage) inter-percentile range to a
+/// stddev-equivalent under normality. Under normality `p95 − p05 = (Φ⁻¹(0.95) −
+/// Φ⁻¹(0.05))·σ = 2·1.644853·σ ≈ 3.2897·σ`, so the stddev-equivalent scale is the
+/// band width *divided* by `3.2897`, i.e. multiplied by `1 / 3.2897 ≈ 0.30397`.
+/// (The MAD constant above is a true multiplier — `MAD·1.4826 = σ` — but the
+/// inter-percentile band must be *narrowed* to a single σ, so this constant is the
+/// reciprocal, not `3.2897`. Using `3.2897` here would inflate the scale ~10.8× and
+/// silently suppress every robust-band breach.)
+pub(crate) const P05P95_TO_STDDEV: f64 = 0.303_975_897_309_837;

@@ -46,14 +46,27 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.SourceTest do
     assert source.robust_statistic == :mean_stddev
   end
 
+  test "from_config normalizes the p05-p95 statistic to the :p05p95 NIF ABI atom" do
+    # The NIF RobustStatistic NifUnitEnum decodes P05P95 ONLY as :p05p95 (no
+    # underscore). The human-friendly underscore spelling must normalize to the exact
+    # ABI atom or the worker crashes the whole dispose_batch call on a decode raise.
+    for input <- [:p05p95, :p05_p95, "p05p95", "p05_p95"] do
+      source = Source.from_config(%{robust_statistic: input})
+
+      assert source.robust_statistic == :p05p95,
+             "robust_statistic #{inspect(input)} must normalize to the :p05p95 ABI atom, " <>
+               "got #{inspect(source.robust_statistic)}"
+    end
+  end
+
   test "robust? is true only for statistics whose order stats SQL must pre-exclude" do
     assert Source.robust?(%Source{robust_statistic: :median_mad})
-    assert Source.robust?(%Source{robust_statistic: :p05_p95})
+    assert Source.robust?(%Source{robust_statistic: :p05p95})
     refute Source.robust?(%Source{robust_statistic: :mean_stddev})
   end
 
   test "from_config is idempotent on an existing struct" do
-    source = %Source{name: "x", robust_statistic: :p05_p95}
+    source = %Source{name: "x", robust_statistic: :p05p95}
     assert Source.from_config(source) == source
   end
 end

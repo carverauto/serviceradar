@@ -678,6 +678,73 @@ mod tests {
     }
 
     #[test]
+    fn p05_p95_band_is_narrowed_to_one_sigma_not_inflated() {
+        // The p05-p95 band must be NARROWED to a stddev-equivalent (band / 3.2897 ≈
+        // band * 0.304), not widened (the inflate-by-10.8x bug). This test is chosen
+        // to DISCRIMINATE the two: a tight band of width 1.0 → correct scale ≈ 0.304,
+        // buggy scale ≈ 3.29. A residual of 3.0 then gives z ≈ 9.9 (breach) under the
+        // correct scale but z ≈ 0.91 (suppress) under the inflated one.
+        let base = SeasonalRow {
+            series_key: "svc/lat".to_string(),
+            dow: 0,
+            hod: 3,
+            sample_value: 0.0,
+            bucket_count: 20, // excluded-baseline count for the robust path
+            bucket_sum: 0.0,
+            bucket_sum_sq: 0.0,
+            center: 5.0,
+            mad: 0.0,
+            // Historical band: p05..p95 spans 1.0 around the median 5.0, so the
+            // stddev-equivalent scale ≈ 1.0/3.2897 ≈ 0.304.
+            p05: 4.5,
+            p95: 5.5,
+            consecutive_anomalous: 0,
+            baseline_excludes_latest: true,
+        };
+        let cfg = SeasonalConfig {
+            robust_statistic: RobustStatistic::P05P95,
+            ..config()
+        };
+
+        // residual = 8.0 - 5.0 = 3.0. Correct scale 0.304 → z ≈ 9.87 (breach);
+        // inflated scale 3.29 → z ≈ 0.91 (would suppress — catches the bug).
+        let breach = dispose_seasonal(
+            SeasonalRow {
+                sample_value: 8.0,
+                ..base.clone()
+            },
+            &cfg,
+        );
+        assert!(
+            matches!(breach.disposition, Disposition::SeasonalBreach { .. }),
+            "a residual of 3.0 against a band-width-1.0 profile must breach (band must be \
+             narrowed to ~0.304σ, not inflated to ~3.29σ), got {:?} score {}",
+            breach.disposition,
+            breach.score
+        );
+        assert!(
+            breach.score >= 9.0,
+            "residual z must reflect the narrowed scale (~9.9), got {}",
+            breach.score
+        );
+
+        // An in-band sample (5.2, residual 0.2 → z ≈ 0.66) must suppress.
+        let in_band = dispose_seasonal(
+            SeasonalRow {
+                sample_value: 5.2,
+                ..base
+            },
+            &cfg,
+        );
+        assert_eq!(
+            in_band.disposition,
+            Disposition::Suppress,
+            "an in-band p05-p95 value must suppress, got {:?}",
+            in_band.disposition
+        );
+    }
+
+    #[test]
     fn robust_path_rejects_non_excluded_baseline() {
         // If SQL did NOT exclude the latest bucket, the robust path cannot honor the
         // invariant (order stats can't be de-aggregated) and must Skip, not score.
