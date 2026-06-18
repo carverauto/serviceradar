@@ -6,8 +6,40 @@
 //! Rolling / seasonal / trend signal evaluation.
 
 use crate::stats::{BaselineStats, WelfordAcc, sample_stats, z_score};
-use crate::types::SignalVerdict;
+use crate::types::{SaturationGate, SignalVerdict};
 use crate::window::window_values;
+
+/// The dispersion floors + optional saturation gate applied to one signal's
+/// breach decision. Grouped so the per-signal call sites stay readable as more
+/// fidelity knobs are added. Defaults (`0.0`/`0.0`/`None`) reproduce the prior
+/// pure-symmetric-z behavior exactly.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SignalGate {
+    pub min_std_floor: f64,
+    pub min_cv: f64,
+    pub saturation_gate: Option<SaturationGate>,
+}
+
+/// Decide whether a z-score over the threshold actually breaches, applying the
+/// saturation gate (if any). The score is *not* modified here — only the breach
+/// boolean — so edge/central z-score parity is preserved (the gate is `None` for
+/// the counter/interface series the parity test exercises, and the score field is
+/// always the raw z-score regardless).
+fn gated_breach(
+    score: f64,
+    threshold: f64,
+    sample_value: f64,
+    stats: BaselineStats,
+    gate: &SignalGate,
+) -> bool {
+    if score < threshold {
+        return false;
+    }
+    match gate.saturation_gate {
+        Some(saturation) => saturation.allows_breach(sample_value, stats.mean),
+        None => true,
+    }
+}
 
 impl SignalVerdict {
     pub(crate) fn disabled(name: &str, threshold: f64) -> Self {
@@ -69,6 +101,11 @@ impl SignalVerdict {
     }
 }
 
+// The fidelity knobs are already bundled into one `SignalGate`; the remaining
+// parameters are the signal's distinct primitive inputs (name/baseline/enable/
+// min_samples/window_size/threshold/sample) that the detector passes positionally
+// per signal, so a wrapper struct would not aid the call sites. One over the lint.
+#[allow(clippy::too_many_arguments)]
 pub fn evaluate_signal(
     name: &str,
     baseline: &[f64],
@@ -77,13 +114,22 @@ pub fn evaluate_signal(
     window_size: usize,
     threshold: f64,
     sample_value: f64,
+    gate: SignalGate,
 ) -> SignalVerdict {
     if !enabled {
         return SignalVerdict::disabled(name, threshold);
     }
 
     let window = window_values(baseline, window_size);
-    evaluate_signal_window(name, window, enabled, min_samples, threshold, sample_value)
+    evaluate_signal_window(
+        name,
+        window,
+        enabled,
+        min_samples,
+        threshold,
+        sample_value,
+        gate,
+    )
 }
 
 pub fn evaluate_rolling_signal(
@@ -93,6 +139,7 @@ pub fn evaluate_rolling_signal(
     min_samples: usize,
     threshold: f64,
     sample_value: f64,
+    gate: SignalGate,
 ) -> SignalVerdict {
     if !enabled {
         return SignalVerdict::disabled(name, threshold);
@@ -120,13 +167,15 @@ pub fn evaluate_rolling_signal(
         );
     };
 
-    let score = z_score(sample_value, stats, threshold);
-    let breached = score >= threshold;
-    let reason = if breached {
-        format!("{name} z-score {score:.3} breached {threshold:.3}")
-    } else {
-        format!("{name} z-score {score:.3} is below {threshold:.3}")
-    };
+    let score = z_score(
+        sample_value,
+        stats,
+        threshold,
+        gate.min_std_floor,
+        gate.min_cv,
+    );
+    let breached = gated_breach(score, threshold, sample_value, stats, &gate);
+    let reason = breach_reason(name, score, threshold, breached);
 
     SignalVerdict::ready(name, breached, score, threshold, acc.count, stats, reason)
 }
@@ -169,6 +218,7 @@ fn evaluate_signal_window(
     min_samples: usize,
     threshold: f64,
     sample_value: f64,
+    gate: SignalGate,
 ) -> SignalVerdict {
     if !enabled {
         return SignalVerdict::disabled(name, threshold);
@@ -188,13 +238,15 @@ fn evaluate_signal_window(
     }
 
     let stats = sample_stats(&window);
-    let score = z_score(sample_value, stats, threshold);
-    let breached = score >= threshold;
-    let reason = if breached {
-        format!("{name} z-score {score:.3} breached {threshold:.3}")
-    } else {
-        format!("{name} z-score {score:.3} is below {threshold:.3}")
-    };
+    let score = z_score(
+        sample_value,
+        stats,
+        threshold,
+        gate.min_std_floor,
+        gate.min_cv,
+    );
+    let breached = gated_breach(score, threshold, sample_value, stats, &gate);
+    let reason = breach_reason(name, score, threshold, breached);
 
     SignalVerdict::ready(
         name,
@@ -205,4 +257,111 @@ fn evaluate_signal_window(
         stats,
         reason,
     )
+}
+
+/// Human-readable reason for a signal's outcome. A z-score over the threshold
+/// that the saturation gate suppressed reads as "below" the threshold for the
+/// purpose of breaching — it is intentionally not an alert — so the message
+/// reflects the final breach decision, not just the raw score comparison.
+fn breach_reason(name: &str, score: f64, threshold: f64, breached: bool) -> String {
+    if breached {
+        format!("{name} z-score {score:.3} breached {threshold:.3}")
+    } else if score >= threshold {
+        format!("{name} z-score {score:.3} over {threshold:.3} but suppressed by saturation gate")
+    } else {
+        format!("{name} z-score {score:.3} is below {threshold:.3}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SignalGate, evaluate_rolling_signal};
+    use crate::stats::WelfordAcc;
+    use crate::types::SaturationGate;
+
+    fn acc(values: &[f64]) -> WelfordAcc {
+        WelfordAcc::from_values(values)
+    }
+
+    #[test]
+    fn ungated_signal_breaches_on_symmetric_z() {
+        // Baseline ~50 with small noise; a big spike breaches with the default
+        // (empty) gate — pure symmetric z, the prior behavior.
+        let baseline: Vec<f64> = (0..40).map(|i| 50.0 + (i % 5) as f64).collect();
+        let v = evaluate_rolling_signal(
+            "rolling",
+            acc(&baseline),
+            true,
+            5,
+            3.0,
+            200.0,
+            SignalGate::default(),
+        );
+        assert!(v.ready && v.breached, "spike must breach without a gate");
+    }
+
+    #[test]
+    fn saturation_gate_suppresses_benign_and_downward_but_keeps_real_rise() {
+        // Tight baseline at ~85% so the floored denominator (max of the 1.0 std
+        // floor and the 0.05*85 CV floor) still lets a rise to the 100% ceiling
+        // clear the 3-sigma threshold.
+        let baseline: Vec<f64> = (0..40).map(|i| 85.0 + 0.2 * ((i % 2) as f64)).collect();
+        let gate = SignalGate {
+            min_std_floor: 1.0,
+            min_cv: 0.05,
+            saturation_gate: Some(SaturationGate {
+                directional: true,
+                min_value: 80.0,
+            }),
+        };
+
+        // Upward to the 100% ceiling (over the floor, rising): breaches.
+        let up = evaluate_rolling_signal("rolling", acc(&baseline), true, 5, 3.0, 100.0, gate);
+        assert!(
+            up.breached,
+            "a real upward saturation must breach (score {})",
+            up.score
+        );
+
+        // Downward to 60% (below mean, still above the 80% absolute floor would be
+        // suppressed too, but 60<80 also fails the floor): a large-z drop is gated
+        // off — utilization easing is never an incident.
+        let down = evaluate_rolling_signal("rolling", acc(&baseline), true, 5, 3.0, 60.0, gate);
+        assert!(
+            down.score >= 3.0,
+            "premise: the downward move is large-z ({})",
+            down.score
+        );
+        assert!(!down.breached, "a downward move must not breach a gauge");
+
+        // A benign low gauge (1.36% disk) wiggling: gate floor blocks it.
+        let low_baseline: Vec<f64> = (0..40).map(|i| 1.36 + 0.01 * (i % 2) as f64).collect();
+        let benign =
+            evaluate_rolling_signal("rolling", acc(&low_baseline), true, 5, 3.0, 1.5, gate);
+        assert!(!benign.breached, "a benign low gauge must not breach");
+    }
+
+    #[test]
+    fn std_floor_in_gate_tames_near_constant_series() {
+        // Near-constant ~50 with sub-0.05 jitter: tiny nonzero stddev. Without a
+        // floor a 0.1 bump is a huge z; the gate's std floor collapses it, while a
+        // genuinely large spike on the same series still breaches.
+        let baseline: Vec<f64> = (0..40).map(|i| 50.0 + 0.02 * ((i % 2) as f64)).collect();
+        let floor_gate = SignalGate {
+            min_std_floor: 1.0,
+            min_cv: 0.05,
+            saturation_gate: None,
+        };
+
+        let wiggle =
+            evaluate_rolling_signal("rolling", acc(&baseline), true, 5, 3.0, 50.1, floor_gate);
+        assert!(!wiggle.breached, "a sub-floor wiggle must not breach");
+
+        let spike =
+            evaluate_rolling_signal("rolling", acc(&baseline), true, 5, 3.0, 250.0, floor_gate);
+        assert!(
+            spike.breached,
+            "a real spike must still breach despite the floor"
+        );
+    }
 }

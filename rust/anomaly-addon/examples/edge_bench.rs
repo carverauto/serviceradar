@@ -14,7 +14,7 @@
 
 use std::time::Instant;
 
-use serviceradar_anomaly_addon::engine::{DetectorEngine, EngineConfig};
+use serviceradar_anomaly_addon::engine::{DetectorEngine, EngineConfig, SeriesProfile};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -46,10 +46,10 @@ fn main() {
                 100.0 + noise
             };
 
-            if let Some(verdict) = engine.evaluate(key, value, ts) {
-                if verdict.breached {
-                    breaches += 1;
-                }
+            if let Some(verdict) = engine.evaluate(key, value, ts, SeriesProfile::default())
+                && verdict.breached
+            {
+                breaches += 1;
             }
         }
     }

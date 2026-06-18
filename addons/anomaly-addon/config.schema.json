@@ -36,6 +36,18 @@
       "minimum": 1,
       "default": 50000
     },
+    "min_std_floor": {
+      "type": "number",
+      "title": "Global absolute dispersion floor (metric units)",
+      "description": "Optional fleet-wide floor on the standard deviation the z-score divides by, raised before scoring so a near-constant series cannot turn a trivial wiggle into a huge z-score. Applied as a max with each series' built-in per-class floor, so it only ever tightens (never weakens a saturation gauge's safe default). Omit to keep built-in defaults (0 for non-gauges; the cpu/mem/disk gauge defaults otherwise).",
+      "exclusiveMinimum": 0
+    },
+    "min_cv": {
+      "type": "number",
+      "title": "Global relative dispersion floor (coefficient of variation)",
+      "description": "Optional fleet-wide relative floor: the effective dispersion is at least min_cv * |mean|, so a high-magnitude series with proportionally small jitter is also tamed. Applied as a max with each series' built-in per-class floor (only ever tightens). Omit to keep built-in defaults.",
+      "exclusiveMinimum": 0
+    },
     "metric_feed": {
       "type": "object",
       "title": "Local metric feed subscription",

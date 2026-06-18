@@ -12,6 +12,29 @@ pub struct BaselineStats {
     pub stddev: f64,
 }
 
+impl BaselineStats {
+    /// The dispersion the z-score divides by, raised to a configured floor so a
+    /// near-constant series (e.g. disk used_percent ~1.36% ± 0.01) cannot turn a
+    /// trivial wiggle into a large z-score. The effective dispersion is the max
+    /// of the raw stddev, an absolute floor (`min_std_floor`, in the metric's own
+    /// units), and a relative floor (`min_cv * |mean|`, a coefficient-of-variation
+    /// floor that scales with the level). Both floors default to ~0 so untuned
+    /// series keep the prior pure-stddev behavior.
+    pub fn effective_stddev(&self, min_std_floor: f64, min_cv: f64) -> f64 {
+        let abs_floor = if min_std_floor.is_finite() && min_std_floor > 0.0 {
+            min_std_floor
+        } else {
+            0.0
+        };
+        let cv_floor = if min_cv.is_finite() && min_cv > 0.0 {
+            min_cv * self.mean.abs()
+        } else {
+            0.0
+        };
+        self.stddev.max(abs_floor).max(cv_floor)
+    }
+}
+
 /// Online Welford accumulator supporting O(1) add and remove, so a rolling
 /// window's mean/variance can be maintained incrementally as samples enter and
 /// leave the window.
@@ -136,8 +159,22 @@ pub fn sample_stats(values: &[f64]) -> BaselineStats {
 /// z-score in the normal case; for a zero-variance baseline it returns a
 /// magnitude-aware score that always clears `threshold` on any deviation but
 /// grows with the relative excursion so larger spikes outrank smaller ones.
-pub fn z_score(sample_value: f64, stats: BaselineStats, threshold: f64) -> f64 {
-    if stats.stddev <= f64::EPSILON {
+///
+/// `min_std_floor` / `min_cv` raise the effective dispersion before dividing
+/// (see [`BaselineStats::effective_stddev`]); pass `0.0` for both to recover the
+/// prior pure-stddev behavior. When the floored dispersion is positive it is used
+/// directly — a near-constant series with a *tiny but nonzero* stddev no longer
+/// produces a huge z-score from a trivial wiggle (the live disk-1.36% false-fire).
+pub fn z_score(
+    sample_value: f64,
+    stats: BaselineStats,
+    threshold: f64,
+    min_std_floor: f64,
+    min_cv: f64,
+) -> f64 {
+    let effective_stddev = stats.effective_stddev(min_std_floor, min_cv);
+
+    if effective_stddev <= f64::EPSILON {
         let deviation = (sample_value - stats.mean).abs();
         if deviation <= f64::EPSILON {
             0.0
@@ -147,7 +184,7 @@ pub fn z_score(sample_value: f64, stats: BaselineStats, threshold: f64) -> f64 {
             (threshold + 1.0) + magnitude.ln_1p()
         }
     } else {
-        ((sample_value - stats.mean) / stats.stddev).abs()
+        ((sample_value - stats.mean) / effective_stddev).abs()
     }
 }
 
@@ -173,8 +210,8 @@ mod tests {
         };
         let threshold = 3.0;
 
-        let small = z_score(101.0, stats, threshold);
-        let large = z_score(10_000.0, stats, threshold);
+        let small = z_score(101.0, stats, threshold, 0.0, 0.0);
+        let large = z_score(10_000.0, stats, threshold, 0.0, 0.0);
 
         assert!(small >= threshold, "small deviation must still breach");
         assert!(large >= threshold, "large deviation must still breach");
@@ -191,7 +228,7 @@ mod tests {
             mean: 42.0,
             stddev: 0.0,
         };
-        assert_eq!(z_score(42.0, stats, 3.0), 0.0);
+        assert_eq!(z_score(42.0, stats, 3.0, 0.0, 0.0), 0.0);
     }
 
     #[test]
@@ -201,12 +238,60 @@ mod tests {
             stddev: 0.0,
         };
         let threshold = 3.0;
-        let small = z_score(1.0, stats, threshold);
-        let large = z_score(1_000_000.0, stats, threshold);
+        let small = z_score(1.0, stats, threshold, 0.0, 0.0);
+        let large = z_score(1_000_000.0, stats, threshold, 0.0, 0.0);
 
         assert!(small >= threshold);
         assert!(large > small);
         assert!(small.is_finite() && large.is_finite());
+    }
+
+    #[test]
+    fn min_std_floor_collapses_near_constant_wiggle() {
+        // The live false-fire: disk used_percent hovering at ~1.36% with ~0.01
+        // jitter has a tiny *nonzero* stddev, so the unfloored z-score on a
+        // 0.1-point bump is enormous. A 1.0-point absolute floor (percent units)
+        // collapses it to well under any sane sigma threshold.
+        let stats = BaselineStats {
+            mean: 1.36,
+            stddev: 0.012,
+        };
+        let unfloored = z_score(1.46, stats, 3.0, 0.0, 0.0);
+        let floored = z_score(1.46, stats, 3.0, 1.0, 0.05);
+
+        assert!(
+            unfloored > 3.0,
+            "premise: unfloored z {unfloored} must breach (the bug)"
+        );
+        assert!(
+            floored < 1.0,
+            "floored z {floored} must be tiny so a benign wiggle never breaches"
+        );
+    }
+
+    #[test]
+    fn min_cv_floor_scales_with_level() {
+        // A relative (coefficient-of-variation) floor scales with the mean, so a
+        // high-magnitude series with proportionally small jitter is also tamed.
+        let stats = BaselineStats {
+            mean: 1_000.0,
+            stddev: 2.0,
+        };
+        // 5%-of-mean CV floor = 50 dispersion; a +10 bump is z=0.2, not z=5.
+        let floored = z_score(1_010.0, stats, 3.0, 0.0, 0.05);
+        assert!(floored < 1.0, "cv-floored z {floored} must be small");
+    }
+
+    #[test]
+    fn floor_does_not_mask_a_genuine_large_excursion() {
+        // The floor lifts the denominator but a real spike still clears it: a
+        // 10x jump on the disk series breaches even with the percent-unit floor.
+        let stats = BaselineStats {
+            mean: 1.36,
+            stddev: 0.012,
+        };
+        let big = z_score(15.0, stats, 3.0, 1.0, 0.05);
+        assert!(big >= 3.0, "a true excursion {big} must still breach");
     }
 
     #[test]
