@@ -854,6 +854,7 @@ webNg:
       memory: "512Mi"
   gatewayAddress: ""
   natsUrl: ""
+  natsCertName: "web"
   coreAddress: ""
   clusterEnabled: "true"
   clusterStrategy: "dns"

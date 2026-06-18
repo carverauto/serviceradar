@@ -6,6 +6,11 @@
 {{- $kvBucket := default "serviceradar-datasvc" .Values.kv.bucket -}}
 {{- $datasvc := default (dict) .Values.datasvc -}}
 {{- $objectBucket := default "serviceradar-objects" $datasvc.objectBucket -}}
+{{- $webNg := default (dict) .Values.webNg -}}
+{{- $webNgPluginStorage := default (dict) $webNg.pluginStorage -}}
+{{- $pluginBucket := default "serviceradar_plugins" $webNgPluginStorage.jetstreamBucket -}}
+{{- $fieldSurveyStore := default (dict) $webNg.fieldSurveyArtifactStore -}}
+{{- $fieldSurveyBucket := default "serviceradar_fieldsurvey" $fieldSurveyStore.jetstreamBucket -}}
 {{- /*
 B-5 sub-issue 2: partition_id is the per-deployment scoping anchor used
 to render the core/datasvc/agent NATS ACL blocks below. The chart's
@@ -153,6 +158,37 @@ spec:
                   }
                   subscribe: {
                     allow: [">"]
+                  }
+                }
+              },
+              # Web-NG owns browser/API-facing object-store workflows such as
+              # plugin WASM/dashboard package imports and FieldSurvey artifacts.
+              # Keep this identity scoped to object-store and JetStream control
+              # subjects instead of reusing the broader core identity.
+              {
+                user: "CN=serviceradar-web-ng,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: [
+                      "\$O.{{ $pluginBucket }}.>",
+                      "\$JS.FC.OBJ_{{ $pluginBucket }}.>",
+                      "\$O.{{ $fieldSurveyBucket }}.>",
+                      "\$JS.FC.OBJ_{{ $fieldSurveyBucket }}.>",
+                      "\$JS.API.>",
+                      "\$JS.ACK.>",
+                      "_INBOX.>"
+                    ]
+                    deny: ["\$SYS.>"]
+                  }
+                  subscribe: {
+                    allow: [
+                      "\$O.{{ $pluginBucket }}.>",
+                      "\$O.{{ $fieldSurveyBucket }}.>",
+                      "\$JS.API.>",
+                      "\$JS.ACK.>",
+                      "_INBOX.>"
+                    ]
+                    deny: ["\$SYS.>"]
                   }
                 }
               },
