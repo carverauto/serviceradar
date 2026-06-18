@@ -15,6 +15,18 @@
   {{- fail "cnpg.storageClass or global.storage.encryptedStorageClassName is required unless global.storage.allowInsecureStorage=true" -}}
 {{- end -}}
 {{- $clusterName := include "serviceradar.cnpgClusterName" . -}}
+{{- /* WAL safety cap: never leave max_slot_wal_keep_size unbounded (-1) — a stuck or
+       lagging replication slot would otherwise retain WAL until the data volume fills
+       and the primary crashes (the 2026-06-17 demo CNPG outage). Default to ~30% of the
+       declared storage (min 10Gi); override with cnpg.maxSlotWalKeepSize, or set it
+       directly in cnpg.postgresqlParameters. */ -}}
+{{- $walCap := default "" $cnpg.maxSlotWalKeepSize -}}
+{{- if eq $walCap "" -}}
+  {{- $storeNum := int (regexReplaceAll "[^0-9]" (default "100Gi" $cnpg.storageSize) "") -}}
+  {{- $derived := div (mul $storeNum 30) 100 -}}
+  {{- if lt $derived 10 -}}{{- $derived = 10 -}}{{- end -}}
+  {{- $walCap = printf "%dGi" $derived -}}
+{{- end -}}
 {{- $appSecretName := default "serviceradar-db-credentials" $cnpg.credentialsSecret -}}
 {{- $superSecretName := default "cnpg-superuser" $cnpg.superuserSecret -}}
 {{- $existingAppCreds := (lookup "v1" "Secret" $ns $appSecretName) -}}
@@ -107,12 +119,13 @@ spec:
         {{- end }}
       {{- end }}
   postgresql:
-    {{- with $cnpg.postgresqlParameters }}
     parameters:
-      {{- range $k, $v := . }}
+      {{- range $k, $v := (default dict $cnpg.postgresqlParameters) }}
       {{ $k | quote }}: {{ $v | quote }}
       {{- end }}
-    {{- end }}
+      {{- if not (hasKey (default dict $cnpg.postgresqlParameters) "max_slot_wal_keep_size") }}
+      "max_slot_wal_keep_size": {{ $walCap | quote }}
+      {{- end }}
     {{- with $cnpg.sharedPreloadLibraries }}
     shared_preload_libraries:
       {{- range $lib := . }}
