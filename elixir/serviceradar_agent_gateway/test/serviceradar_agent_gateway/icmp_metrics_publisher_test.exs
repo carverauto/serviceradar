@@ -1,6 +1,8 @@
 defmodule ServiceRadarAgentGateway.IcmpMetricsPublisherTest do
   use ExUnit.Case, async: false
 
+  import ServiceRadarAgentGateway.MetricsPublisherTestHelpers
+
   alias Serviceradar.Metric.V1.IngestIdentity
   alias Serviceradar.Metric.V1.Metric
   alias Serviceradar.Metric.V1.MetricBatch
@@ -67,7 +69,7 @@ defmodule ServiceRadarAgentGateway.IcmpMetricsPublisherTest do
     assert metric.metric_type == "icmp"
     assert point.raw_value == "12345678"
     assert point.raw_value_type == :METRIC_VALUE_TYPE_INT64
-    assert ingress_headers(opts)
+    assert assert_full_ingress_headers(opts)
   end
 
   test "rejects legacy JSON ICMP metric payloads" do
@@ -178,27 +180,5 @@ defmodule ServiceRadarAgentGateway.IcmpMetricsPublisherTest do
         }
       ]
     })
-  end
-
-  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_agent_gateway, key)
-  defp restore_env(key, value), do: Application.put_env(:serviceradar_agent_gateway, key, value)
-
-  defp ingress_headers(opts) do
-    headers =
-      opts
-      |> Keyword.fetch!(:headers)
-      |> Map.new()
-
-    assert headers["Sr-Ingress-Id"] =~ uuidv8_pattern()
-    assert Integer.parse(headers["Sr-Ingress-Time-Unix-Nano"]) != :error
-    assert headers["Sr-Agent-Id"] == "agent-1"
-    assert headers["Sr-Gateway-Id"] == "gateway-1"
-    assert headers["Sr-Partition"] == "default"
-    assert headers["Sr-Ingest-Identity"] == "agent:agent-1"
-    assert headers["Nats-Msg-Id"] == headers["Sr-Ingress-Id"]
-  end
-
-  defp uuidv8_pattern do
-    ~r/^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
   end
 end

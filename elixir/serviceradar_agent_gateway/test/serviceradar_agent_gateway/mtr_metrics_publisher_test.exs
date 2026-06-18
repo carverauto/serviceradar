@@ -1,6 +1,8 @@
 defmodule ServiceRadarAgentGateway.MtrMetricsPublisherTest do
   use ExUnit.Case, async: false
 
+  import ServiceRadarAgentGateway.MetricsPublisherTestHelpers
+
   alias Serviceradar.Metric.V1.IngestIdentity
   alias Serviceradar.Metric.V1.Metric
   alias Serviceradar.Metric.V1.MetricBatch
@@ -64,7 +66,7 @@ defmodule ServiceRadarAgentGateway.MtrMetricsPublisherTest do
     assert metric.name == "mtr.hop.avg_us"
     assert metric.metric_type == "mtr"
     assert point.value == 1_100.0
-    assert ingress_headers(opts)
+    assert assert_nats_msg_id_header(opts)
   end
 
   test "rejects legacy JSON MTR metric payloads" do
@@ -154,20 +156,4 @@ defmodule ServiceRadarAgentGateway.MtrMetricsPublisherTest do
       ]
     })
   end
-
-  defp ingress_headers(opts) do
-    headers = Keyword.fetch!(opts, :headers)
-
-    Enum.any?(headers, fn
-      {"Nats-Msg-Id", value} when is_binary(value) and value != "" -> true
-      _ -> false
-    end)
-  end
-
-  defp uuidv8_pattern do
-    ~r/^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
-  end
-
-  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_agent_gateway, key)
-  defp restore_env(key, value), do: Application.put_env(:serviceradar_agent_gateway, key, value)
 end
