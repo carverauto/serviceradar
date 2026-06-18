@@ -1074,40 +1074,79 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   defp anomaly_detection_metadata(normalized, payload, device_uid) do
     finding_info = anomaly_detection_finding_info(payload, device_uid)
+    capacity_forecast? = capacity_forecast_signal?(normalized, payload)
+    source_type = if capacity_forecast?, do: "capacity_forecasting", else: "anomaly_detection"
+    addon_id = if capacity_forecast?, do: "capacity-forecasting", else: "anomaly-detection"
+    finding_type = if capacity_forecast?, do: "capacity_forecast", else: "anomaly"
+
+    finding_source =
+      if capacity_forecast?,
+        do: "capacity_forecasting",
+        else: Map.get(payload, "verdict_source", "central")
+
+    series_key = detection_series_key(payload, capacity_forecast?)
+    metric_class = detection_metric_class(payload, capacity_forecast?)
 
     normalized
     |> Map.put("primary_domain", "health")
     |> Map.put("finding_info", finding_info)
     |> Map.put("security_signal", %{
       "kind" => "health",
-      "source" => "anomaly_detection",
+      "source" => source_type,
       "finding_uid" => finding_info["uid"],
-      "series_key" => get_in(payload, ["anomaly", "series_key"]),
-      "metric_class" => get_in(payload, ["anomaly", "metric_class"])
+      "series_key" => series_key,
+      "metric_class" => metric_class
     })
     |> Map.put("service_radar", %{
-      "source_type" => "anomaly_detection",
-      "addon_id" => "anomaly-detection",
+      "source_type" => source_type,
+      "addon_id" => addon_id,
       "finding_uid" => finding_info["uid"],
       "device_uid" => device_uid,
-      "series_key" => get_in(payload, ["anomaly", "series_key"]),
-      "metric_class" => get_in(payload, ["anomaly", "metric_class"]),
+      "series_key" => series_key,
+      "metric_class" => metric_class,
       # verdict_source distinguishes an edge spike verdict ("edge-spike") from a
       # central one (default "central", later "central-seasonal"). SRQL/alerts
       # can filter/group on metadata.service_radar.verdict_source.
-      "verdict_source" => Map.get(payload, "verdict_source", "central"),
+      "verdict_source" => finding_source,
       "ocsf_class" => "detection_finding"
     })
     |> Map.put("detection_finding", %{
-      "type" => "anomaly",
-      "source" => Map.get(payload, "verdict_source", "central"),
-      "series_key" => get_in(payload, ["anomaly", "series_key"]),
-      "metric_class" => get_in(payload, ["anomaly", "metric_class"]),
+      "type" => finding_type,
+      "source" => finding_source,
+      "series_key" => series_key,
+      "metric_class" => metric_class,
       "state" => get_in(payload, ["anomaly", "state"]),
       "score" => get_in(payload, ["anomaly", "score"]),
       "reason" => get_in(payload, ["anomaly", "reason"])
     })
   end
+
+  defp capacity_forecast_signal?(normalized, payload) do
+    event_type =
+      normalized["event_type"] || payload["event_type"] || payload["eventType"] ||
+        get_in(payload, ["capacity_forecast", "event_type"])
+
+    provider = payload["provider"] || payload["source"] || payload["log_provider"]
+
+    normalize_event_type(event_type) == "capacity_forecast" or
+      normalize_event_type(provider) == "capacity_forecasting"
+  end
+
+  defp detection_series_key(payload, true) do
+    get_in(payload, ["capacity_forecast", "resource_key"]) ||
+      payload["resource_key"] ||
+      get_in(payload, ["anomaly", "series_key"])
+  end
+
+  defp detection_series_key(payload, false), do: get_in(payload, ["anomaly", "series_key"])
+
+  defp detection_metric_class(payload, true) do
+    get_in(payload, ["capacity_forecast", "metric_name"]) ||
+      payload["metric_name"] ||
+      get_in(payload, ["anomaly", "metric_class"])
+  end
+
+  defp detection_metric_class(payload, false), do: get_in(payload, ["anomaly", "metric_class"])
 
   defp anomaly_detection_finding_info(payload, device_uid) do
     case payload["finding_info"] do

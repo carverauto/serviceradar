@@ -33,13 +33,13 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLiveTest do
     assert html =~ "Projected"
     assert has_element?(view, "a[href='/observability/health']", "Health")
     assert has_element?(view, "a[href*='in%3Acapacity_forecasts']", "Open SRQL")
-    assert has_element?(view, "a[href*='source_type%3Aanomaly_detection']", "Open events")
+    assert has_element?(view, "a[href*='event_type%3A%28anomaly%2Canomaly_detection%29']", "Open events")
   end
 
   defmodule SRQLStub do
     @moduledoc false
 
-    def query("in:events source_type:anomaly_detection" <> _rest, _opts) do
+    def query("in:events event_type:(anomaly,anomaly_detection)" <> _rest, _opts) do
       {:ok,
        %{
          "results" => [

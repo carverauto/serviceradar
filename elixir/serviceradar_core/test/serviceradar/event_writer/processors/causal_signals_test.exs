@@ -629,6 +629,11 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       assert row.class_uid == 2004
       assert row.metadata["signal_type"] == "causal"
       assert row.metadata["event_type"] == "capacity_forecast"
+      assert row.metadata["security_signal"]["source"] == "capacity_forecasting"
+      assert row.metadata["service_radar"]["source_type"] == "capacity_forecasting"
+      assert row.metadata["service_radar"]["addon_id"] == "capacity-forecasting"
+      assert row.metadata["detection_finding"]["type"] == "capacity_forecast"
+      assert row.log_provider == "capacity_forecasting"
 
       assert [alert_row] = CausalSignals.alert_evaluation_rows([row])
       assert alert_row.id == row.metadata["event_identity"]
