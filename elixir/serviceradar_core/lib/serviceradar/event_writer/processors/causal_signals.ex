@@ -16,6 +16,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.BulkInsert
+  alias ServiceRadar.EventWriter.DeviceCorrelation
   alias ServiceRadar.Monitoring.OcsfEvent
   alias ServiceRadar.Observability.BmpSettingsRuntime
   alias ServiceRadar.Observability.CausalPubSub
@@ -570,6 +571,11 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   defp build_anomaly_detection_finding_row(normalized, payload, raw_data, metadata) do
     severity_id = normalized["severity_id"] || 0
+    # Resolve the canonical device uid once and thread it through every consumer
+    # (device.uid, metadata.service_radar.device_uid, finding_info dimensions, and
+    # the deterministic finding_uid) so the re-key stays coherent and we pay at
+    # most one (cache-backed) correlation lookup per row.
+    device_uid = anomaly_detection_device_uid(payload)
 
     %{
       id: Ecto.UUID.dump!(normalized["event_identity"]),
@@ -586,12 +592,12 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       status: payload["status"] || payload["finding_status"] || "open",
       status_code: nil,
       status_detail: payload["status_detail"],
-      metadata: anomaly_detection_metadata(normalized, payload),
+      metadata: anomaly_detection_metadata(normalized, payload, device_uid),
       observables: [],
       trace_id: nil,
       span_id: nil,
       actor: %{},
-      device: anomaly_detection_device(payload),
+      device: anomaly_detection_device(device_uid),
       src_endpoint: %{},
       dst_endpoint: %{},
       log_name: metadata[:subject],
@@ -1066,8 +1072,8 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       |> Enum.join(": ")
   end
 
-  defp anomaly_detection_metadata(normalized, payload) do
-    finding_info = anomaly_detection_finding_info(payload)
+  defp anomaly_detection_metadata(normalized, payload, device_uid) do
+    finding_info = anomaly_detection_finding_info(payload, device_uid)
 
     normalized
     |> Map.put("primary_domain", "health")
@@ -1083,7 +1089,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       "source_type" => "anomaly_detection",
       "addon_id" => "anomaly-detection",
       "finding_uid" => finding_info["uid"],
-      "device_uid" => anomaly_detection_device_uid(payload),
+      "device_uid" => device_uid,
       "series_key" => get_in(payload, ["anomaly", "series_key"]),
       "metric_class" => get_in(payload, ["anomaly", "metric_class"]),
       # verdict_source distinguishes an edge spike verdict ("edge-spike") from a
@@ -1103,13 +1109,12 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     })
   end
 
-  defp anomaly_detection_finding_info(payload) do
+  defp anomaly_detection_finding_info(payload, device_uid) do
     case payload["finding_info"] do
       %{"uid" => uid} = finding_info when is_binary(uid) and uid != "" ->
         finding_info
 
       _ ->
-        device_uid = anomaly_detection_device_uid(payload)
         series_key = get_in(payload, ["anomaly", "series_key"])
         metric_class = get_in(payload, ["anomaly", "metric_class"])
         uid = anomaly_detection_finding_uid(device_uid, series_key, metric_class)
@@ -1152,14 +1157,31 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     |> deterministic_uuid()
   end
 
-  defp anomaly_detection_device(payload) do
-    case anomaly_detection_device_uid(payload) do
-      nil -> %{}
-      device_uid -> %{"uid" => device_uid}
+  defp anomaly_detection_device(nil), do: %{}
+  defp anomaly_detection_device(device_uid), do: %{"uid" => device_uid}
+
+  # Canonical re-key on ingest. Anomaly verdicts (edge spike + central seasonal)
+  # and capacity-forecast verdicts arrive keyed by a raw host/agent/series id (for
+  # example "ns03", "agent-ns03", "k8s-cp3-worker3"). Findings written under those
+  # raw ids never join the canonical `sr:` device, so device-detail queries the
+  # canonical uid and shows "No anomaly findings". We resolve the raw identity to
+  # the canonical inventory device uid here so device.uid,
+  # metadata.service_radar.device_uid, finding_info dimensions, and the deterministic
+  # finding_uid are all coherently keyed off the canonical uid.
+  #
+  # `DeviceCorrelation.resolve/1` is cache-backed (one DB lookup per device per
+  # burst) and fail-open (returns nil on miss or error), so on a miss we fall back
+  # to the raw id label exactly as before — re-key is additive, never lossy.
+  defp anomaly_detection_device_uid(payload) do
+    raw = anomaly_detection_raw_device_uid(payload)
+
+    case DeviceCorrelation.resolve(anomaly_detection_correlation_candidate(payload, raw)) do
+      uid when is_binary(uid) and uid != "" -> uid
+      _ -> raw
     end
   end
 
-  defp anomaly_detection_device_uid(payload) do
+  defp anomaly_detection_raw_device_uid(payload) do
     first_non_blank([
       payload["device_uid"],
       payload["deviceUid"],
@@ -1172,6 +1194,75 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       get_in(payload, ["anomaly", "series_key"])
     ])
   end
+
+  defp anomaly_detection_correlation_candidate(payload, raw) do
+    anomaly_metadata = get_in(payload, ["anomaly", "metadata"]) || %{}
+    source_identity = get_in(payload, ["source_identity"]) || %{}
+
+    # `target_device_ip` is the SNMP target identity (see
+    # Observability.AnomalyDetection.SeriesKey: it is the polled device, not the
+    # polling agent's own host). For an SNMP poll of a *remote* target the raw
+    # device_uid/agent_id name the polling agent, so resolving by agent first
+    # (DeviceCorrelation.resolve order: agent before ip) would re-key the finding
+    # to the polling agent instead of the polled target. We surface the target ip
+    # as the leading `:ip` candidate and, for SNMP findings that actually carry a
+    # target ip, omit `agent_id` so the polled target wins. Self-poll SNMP (no
+    # target ip) keeps `agent_id`, which is the only path that resolves the
+    # agent-keyed device.
+    target_device_ip =
+      first_non_blank([
+        payload["target_device_ip"],
+        get_in(payload, ["anomaly", "metadata", "target_device_ip"]),
+        source_identity["target_device_ip"]
+      ])
+
+    metric_class = get_in(payload, ["anomaly", "metric_class"])
+    snmp_target_poll? = snmp_metric_class?(metric_class) and not is_nil(target_device_ip)
+
+    agent_id =
+      if snmp_target_poll? do
+        nil
+      else
+        first_non_blank([
+          payload["agent_id"],
+          payload["agentId"],
+          anomaly_metadata["agent_id"],
+          anomaly_metadata["agentId"]
+        ])
+      end
+
+    %{
+      device_uid: raw,
+      agent_id: agent_id,
+      hostname:
+        first_non_blank([
+          anomaly_metadata["host_id"],
+          anomaly_metadata["hostname"],
+          get_in(payload, ["device", "hostname"]),
+          payload["hostname"],
+          payload["host"]
+        ]),
+      ip:
+        first_non_blank([
+          target_device_ip,
+          payload["device_ip"],
+          payload["source_ip"],
+          anomaly_metadata["device_ip"],
+          anomaly_metadata["ip"]
+        ]),
+      partition:
+        first_non_blank([
+          payload["partition"],
+          anomaly_metadata["partition"]
+        ])
+    }
+  end
+
+  defp snmp_metric_class?(metric_class) when is_binary(metric_class) do
+    metric_class == "snmp" or String.starts_with?(metric_class, "snmp.")
+  end
+
+  defp snmp_metric_class?(_metric_class), do: false
 
   defp inventory_vulnerability_contexts(payload) do
     [

@@ -220,10 +220,36 @@ fn build_anomaly_findings_rollup_stats(plan: &QueryPlan) -> Result<Option<Events
         )));
     }
 
-    let anomaly_clause = anomaly_detection_rollup_clause();
+    // Both anomaly-detection verdicts and capacity-forecast verdicts are written
+    // by build_anomaly_detection_finding_row as OCSF Detection Findings, i.e. every
+    // row this rollup can match satisfies class_uid = 2004 AND category_uid = 2.
+    // Hoisting that pair to a leading top-level AND lets the planner range-scan
+    // idx_ocsf_events_class_category_time (class_uid, category_uid, time DESC)
+    // instead of seq-scanning the whole chunk: previously the
+    // (anomaly_clause OR capacity_clause) blob put a JSONB-source predicate at the
+    // top of the OR, defeating every index. The source-discriminating JSONB OR is
+    // now evaluated only over the already-narrowed 2004/2 partition, so the counts
+    // are identical, just index-served. (See verdict_emitter.ex class_uid => 2004
+    // and build_anomaly_detection_finding_row category_uid => 2.)
+    //
+    // Verified invariant (live demo CNPG, 2026-06-17): of 34,937 rows matching the
+    // capacity-forecast source predicate (and of the 166 matching the full
+    // capacity_clause), ZERO carry class_uid <> 2004 or category_uid <> 2; the same
+    // holds for every anomaly-source row. The latent risk the hoist guards against
+    // is a capacity verdict that falls through to build_causal_signal_event_row
+    // (class_uid 1008) while still carrying unmapped event_type = capacity_forecast;
+    // no such row exists today, so the hoist drops nothing. If that path ever starts
+    // emitting non-2004/2 capacity rows, restructure to keep the capacity arm an
+    // independent OR (WHERE (class_uid=2004 AND category_uid=2 AND source) OR
+    // capacity_clause) so the anomaly arm still leads with the indexable predicate.
+    let anomaly_clause = anomaly_detection_rollup_source_clause();
     let capacity_clause = capacity_forecast_at_risk_rollup_clause();
     let mut binds = Vec::new();
-    let mut clauses = vec![format!("(({anomaly_clause}) OR ({capacity_clause}))")];
+    let mut clauses = vec![
+        "\"class_uid\" = 2004".to_string(),
+        "\"category_uid\" = 2".to_string(),
+        format!("(({anomaly_clause}) OR ({capacity_clause}))"),
+    ];
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
         clauses.push("\"time\" >= ?".to_string());
@@ -248,10 +274,13 @@ WHERE {}"#,
     Ok(Some(EventsRollupSql { sql, binds }))
 }
 
-fn anomaly_detection_rollup_clause() -> &'static str {
-    r#""class_uid" = 2004
-AND "category_uid" = 2
-AND (
+// Source-discrimination only: the class_uid/category_uid gate is now hoisted to a
+// top-level AND in build_anomaly_findings_rollup_stats so the planner can use
+// idx_ocsf_events_class_category_time. This clause is also reused verbatim inside
+// the COUNT(*) FILTER expressions, where the same gate already applies to the
+// scanned rows, so dropping it here keeps the per-bucket counts identical.
+fn anomaly_detection_rollup_source_clause() -> &'static str {
+    r#"(
   metadata #>> '{service_radar,source_type}' = 'anomaly_detection'
   OR metadata #>> '{service_radar,ocsf_class}' = 'detection_finding'
   OR metadata #>> '{security_signal,source}' = 'anomaly_detection'
@@ -557,21 +586,48 @@ fn apply_metadata_identity_filter<'a>(
     let mut clauses = Vec::new();
 
     for value in values {
-        for key in keys {
-            let key_pattern = escape_like_fragment(key);
-            let value_pattern = escape_like_fragment(&value);
-            let pattern = sql_string_literal(&format!("%\"{key_pattern}\"%\"{value_pattern}\"%"));
+        // Anchored, index-eligible equality on the two canonical device-key paths
+        // that build_anomaly_detection_finding_row writes after the ingest re-key
+        // (device.uid and metadata.service_radar.device_uid). For a canonical
+        // "sr:" uid this adds the fast path so the planner range-scans
+        // idx_ocsf_events_sr_device_uid_time instead of leading-wildcard
+        // seq-scanning device/metadata/unmapped/observables ::text (the 15.6s ->
+        // statement_timeout path the device anomaly panel was hitting).
+        clauses.push(canonical_device_identity_clause(&value));
 
-            clauses.push(format!(
-                "(device::text ILIKE {pattern} ESCAPE '\\' OR \
-                  metadata::text ILIKE {pattern} ESCAPE '\\' OR \
-                  unmapped::text ILIKE {pattern} ESCAPE '\\' OR \
-                  observables::text ILIKE {pattern} ESCAPE '\\')"
-            ));
-        }
-
+        // The inventory-alias EXISTS resolves d.uid/d.uid_alt = value and then
+        // matches events keyed under the device's hostnames / IPs / alt-uids. It is
+        // the ONLY clause that finds historical, *raw*-keyed anomaly findings (the
+        // ~15.6k rows written before the #4 ingest re-key) and is shared by the
+        // SecurityFindings / ScanActivity / DnsActivity canonical-uid lookups. It is
+        // an EXISTS over platform.ocsf_devices, not a leading-wildcard scan of the
+        // events table, so it must stay even for canonical "sr:" values — otherwise
+        // a canonical lookup silently drops every pre-re-key / alias-keyed finding.
         if keys == EVENT_DEVICE_IDENTITY_KEYS {
             clauses.push(device_inventory_identity_clause(&value));
+        }
+
+        // Legacy / free-text fallback: only widen to the non-indexable, leading-
+        // wildcard multi-column ::text ILIKE over the events table (the actual
+        // 15.6s offender) when the caller passes a raw, pre-re-key id (host name,
+        // agent id, series key, bare device id). A canonical "sr:" lookup is served
+        // by the anchored equality above plus the alias-EXISTS, so it never needs
+        // this substring scan — which is what keeps the dominant device-detail panel
+        // path index-served while legacy ids still resolve exactly as before.
+        if !is_canonical_device_uid(&value) {
+            for key in keys {
+                let key_pattern = escape_like_fragment(key);
+                let value_pattern = escape_like_fragment(&value);
+                let pattern =
+                    sql_string_literal(&format!("%\"{key_pattern}\"%\"{value_pattern}\"%"));
+
+                clauses.push(format!(
+                    "(device::text ILIKE {pattern} ESCAPE '\\' OR \
+                      metadata::text ILIKE {pattern} ESCAPE '\\' OR \
+                      unmapped::text ILIKE {pattern} ESCAPE '\\' OR \
+                      observables::text ILIKE {pattern} ESCAPE '\\')"
+                ));
+            }
         }
     }
 
@@ -643,6 +699,27 @@ fn apply_finding_uid_filter<'a>(
     };
 
     Ok(query.filter(sql::<Bool>(&sql_clause)))
+}
+
+/// Anchored equality on the canonical device-key paths an OCSF detection finding
+/// carries after the ingest re-key. Both terms are plain `#>>`/`->>` text equality,
+/// so the partial expression index idx_ocsf_events_sr_device_uid_time (on
+/// `metadata #>> '{service_radar,device_uid}'` WHERE class_uid = 2004) serves the
+/// dominant `metadata` term, and `device ->> 'uid'` covers the OCSF device block.
+fn canonical_device_identity_clause(value: &str) -> String {
+    let literal = sql_string_literal(value);
+
+    format!(
+        "(metadata #>> '{{service_radar,device_uid}}' = {literal} \
+          OR device ->> 'uid' = {literal})"
+    )
+}
+
+/// Canonical inventory uids are always `sr:`-prefixed. A value that already looks
+/// canonical does not need the legacy free-text fallback scan, which is what lets
+/// the device-detail panel lookup stay purely index-served.
+fn is_canonical_device_uid(value: &str) -> bool {
+    value.starts_with("sr:")
 }
 
 fn device_inventory_identity_clause(value: &str) -> String {
