@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -506,12 +507,30 @@ func (s *Server) initPluginManager(ctx context.Context) {
 
 	cacheDir := filepath.Join(s.configDir, "plugins")
 	s.pluginManager = NewPluginManager(ctx, PluginManagerConfig{
-		CacheDir:         cacheDir,
-		LocalStoreDir:    s.configDir,
-		Logger:           s.logger,
-		CredentialBroker: s.credentialBroker,
-		ArtifactUploader: s.artifactUploader,
+		CacheDir:           cacheDir,
+		LocalStoreDir:      s.configDir,
+		Logger:             s.logger,
+		ArtifactHTTPClient: s.gatewayArtifactHTTPClient(),
+		CredentialBroker:   s.credentialBroker,
+		ArtifactUploader:   s.artifactUploader,
 	})
+}
+
+func (s *Server) gatewayArtifactHTTPClient() *http.Client {
+	if s == nil || s.config == nil {
+		return unavailableGatewayArtifactHTTPClient(errReleaseGatewaySecurityRequired)
+	}
+
+	client, err := gatewayArtifactHTTPClient(s.config.GatewaySecurity)
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn().Err(err).Msg("Gateway artifact downloads unavailable")
+		}
+
+		return unavailableGatewayArtifactHTTPClient(err)
+	}
+
+	return client
 }
 
 // Start initializes and starts all agent services.

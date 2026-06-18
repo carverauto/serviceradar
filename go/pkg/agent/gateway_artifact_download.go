@@ -69,6 +69,17 @@ type gatewayArtifactDownloader struct {
 	tooLargeErr error
 }
 
+type gatewayArtifactUnavailableTransport struct {
+	err error
+}
+
+func (t gatewayArtifactUnavailableTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	if t.err != nil {
+		return nil, t.err
+	}
+	return nil, errReleaseGatewaySecurityRequired
+}
+
 func (d gatewayArtifactDownloader) DownloadObject(ctx context.Context, key string) ([]byte, error) {
 	if strings.TrimSpace(key) != strings.TrimSpace(d.objectKey) {
 		return nil, errGatewayArtifactObjectMismatch
@@ -135,6 +146,14 @@ func downloadGatewayArtifactHTTP(
 func defaultGatewayArtifactHTTPClient() *http.Client {
 	return &http.Client{
 		Timeout:       5 * time.Minute,
+		CheckRedirect: validateReleaseRedirect,
+	}
+}
+
+func unavailableGatewayArtifactHTTPClient(err error) *http.Client {
+	return &http.Client{
+		Timeout:       5 * time.Minute,
+		Transport:     gatewayArtifactUnavailableTransport{err: err},
 		CheckRedirect: validateReleaseRedirect,
 	}
 }

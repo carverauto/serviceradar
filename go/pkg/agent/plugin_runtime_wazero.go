@@ -463,7 +463,15 @@ func (m *PluginManager) downloadWasm(ctx context.Context, assignment *pluginAssi
 		req.Header.Set("X-ServiceRadar-Plugin-Token", downloadToken)
 	}
 
-	resp, err := m.httpClient.Do(req)
+	client := m.artifactHTTPClient
+	if client == nil {
+		client = m.httpClient
+	}
+	if client == nil {
+		return nil, errDownloadFailed
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}

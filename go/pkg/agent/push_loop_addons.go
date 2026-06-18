@@ -19,6 +19,7 @@ package agent
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -200,16 +201,26 @@ func (p *PushLoop) gatewayArtifactDownloadHTTPClient(downloadURL string) *http.C
 		return nil
 	}
 	if p == nil || p.server == nil || p.server.config == nil {
+		if !gatewayArtifactDownloadRequiresMTLS(downloadURL) {
+			return defaultGatewayArtifactHTTPClient()
+		}
+		return nil
+	}
+
+	if !gatewayArtifactDownloadRequiresMTLS(downloadURL) {
 		return defaultGatewayArtifactHTTPClient()
 	}
 
-	client, err := gatewayArtifactHTTPClient(p.server.config.GatewaySecurity)
+	return p.server.gatewayArtifactHTTPClient()
+}
+
+func gatewayArtifactDownloadRequiresMTLS(downloadURL string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(downloadURL))
 	if err != nil {
-		p.logger.Warn().Err(err).Msg("Falling back to platform TLS for gateway artifact download")
-		return defaultGatewayArtifactHTTPClient()
+		return true
 	}
 
-	return client
+	return strings.EqualFold(parsed.Scheme, "https")
 }
 
 // applyAddonAssignments reconciles the agent's native add-ons to the assignments
