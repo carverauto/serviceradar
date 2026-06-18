@@ -43,6 +43,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         bumblebee_catalog_source_seeder_child(),
         bumblebee_addon_package_seeder_child(),
         netprobe_addon_package_seeder_child(),
+        otel_collector_addon_package_seeder_child(),
         workload_identity_addon_package_seeder_child(),
         endpoint_inventory_addon_package_seeder_child(),
         anomaly_addon_profile_seeder_child(),
@@ -185,6 +186,12 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
   defp netprobe_addon_package_seeder_child do
     if enabled?(:seeders_enabled, true) do
       ServiceRadar.Plugins.NetprobeAddonPackageSeeder
+    end
+  end
+
+  defp otel_collector_addon_package_seeder_child do
+    if enabled?(:seeders_enabled, true) do
+      ServiceRadar.Plugins.OtelCollectorAddonPackageSeeder
     end
   end
 

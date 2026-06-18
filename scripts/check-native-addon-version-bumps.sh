@@ -90,6 +90,7 @@ bumblebee
 scalibr-endpoint-inventory
 rdp
 anomaly
+otel-collector
 EOF
 }
 
@@ -104,6 +105,7 @@ manifest_path() {
     scalibr-endpoint-inventory) echo "addons/scalibr-endpoint-inventory/addon.yaml" ;;
     rdp) echo "addons/rdp-adapter/addon.yaml" ;;
     anomaly) echo "addons/anomaly-addon/addon.yaml" ;;
+    otel-collector) echo "addons/otel-collector/addon.yaml" ;;
     *) return 1 ;;
   esac
 }
@@ -116,6 +118,7 @@ cargo_version_path() {
     workload-identity) echo "rust/workload-identity/Cargo.toml" ;;
     rdp) echo "rust/rdp-adapter/Cargo.toml" ;;
     anomaly) echo "rust/anomaly-addon/Cargo.toml" ;;
+    otel-collector) echo "rust/otel-addon/Cargo.toml" ;;
     *) return 1 ;;
   esac
 }
@@ -181,6 +184,11 @@ path_belongs_to_addon() {
     anomaly)
       case "${path}" in
         addons/anomaly-addon/*|rust/anomaly-addon/*) return 0 ;;
+      esac
+      ;;
+    otel-collector)
+      case "${path}" in
+        addons/otel-collector/*|rust/otel-addon/*) return 0 ;;
       esac
       ;;
   esac
