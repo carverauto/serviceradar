@@ -57,21 +57,50 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
   - `{:ok, nil}` - No targeting profiles matched
   - `{:error, reason}` - An error occurred
   """
-  @spec resolve_for_device(String.t(), map()) ::
+  @spec resolve_for_device(String.t() | nil, map()) ::
           {:ok, SNMPProfile.t() | nil} | {:error, term()}
-  def resolve_for_device(device_uid, actor) when is_binary(device_uid) do
+  def resolve_for_device(device_uid, actor), do: resolve_for_device(device_uid, nil, actor)
+
+  @doc """
+  Resolves the matching SNMP profile for a device, honoring per-agent targeting.
+
+  When `agent_id` is provided, only targeting profiles that apply to that agent
+  are considered candidates: a profile with a non-empty `agent_ids` is excluded
+  unless `agent_id` is in its set. A profile with an empty `agent_ids` behaves
+  exactly as before (its `target_query` decides). When `agent_id` is `nil`, all
+  targeting profiles are considered (legacy behavior).
+  """
+  @spec resolve_for_device(String.t() | nil, String.t() | nil, map()) ::
+          {:ok, SNMPProfile.t() | nil} | {:error, term()}
+  def resolve_for_device(device_uid, agent_id, actor) when is_binary(device_uid) do
     SRQLProfileResolver.resolve(device_uid, actor,
-      load_profiles: &load_targeting_profiles/1,
+      load_profiles: fn actor -> load_targeting_profiles(agent_id, actor) end,
       match_profile: &matches_device?/3,
       log_prefix: "SNMPSrqlTargetResolver"
     )
   end
 
-  def resolve_for_device(nil, _actor), do: {:ok, nil}
+  def resolve_for_device(nil, _agent_id, _actor), do: {:ok, nil}
 
-  # Load all profiles with SRQL targeting, ordered by priority
-  defp load_targeting_profiles(actor) do
+  # Load all profiles with SRQL targeting, ordered by priority.
+  #
+  # When agent_id is provided, use the agent-aware read action so the database
+  # (and the agent_ids GIN index) excludes profiles pinned to other agents.
+  # When agent_id is nil, fall back to listing every targeting profile (legacy).
+  defp load_targeting_profiles(nil, actor) do
     query = Ash.Query.for_read(SNMPProfile, :list_targeting_profiles, %{}, actor: actor)
+
+    case Ash.read(query, actor: actor) do
+      {:ok, profiles} -> {:ok, profiles}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp load_targeting_profiles(agent_id, actor) when is_binary(agent_id) do
+    query =
+      Ash.Query.for_read(SNMPProfile, :targeting_profiles_for_agent, %{agent_id: agent_id},
+        actor: actor
+      )
 
     case Ash.read(query, actor: actor) do
       {:ok, profiles} -> {:ok, profiles}

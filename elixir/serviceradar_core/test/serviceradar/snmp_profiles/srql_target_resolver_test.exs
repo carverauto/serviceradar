@@ -348,6 +348,97 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
     end
   end
 
+  describe "resolve_for_device/3 agent_ids gating" do
+    @tag :integration
+    setup do
+      ServiceRadar.TestSupport.start_core!()
+      actor = SystemActor.system(:test)
+      clear_targeting_profiles!(actor)
+      :ok
+    end
+
+    @tag :integration
+    test "targeting profile pinned to an agent is excluded for other agents" do
+      actor = SystemActor.system(:test)
+      unique = System.unique_integer([:positive])
+      hostname = "pinned-router-#{unique}"
+      device_uid = create_device!(actor, hostname)
+
+      {:ok, profile} =
+        SNMPProfile
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Pinned Profile #{unique}",
+            target_query: ~s(in:devices hostname:"#{hostname}"),
+            priority: 10,
+            agent_ids: ["agent-a"]
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      # Listed agent matches.
+      assert {:ok, matched} = SrqlTargetResolver.resolve_for_device(device_uid, "agent-a", actor)
+      assert matched.id == profile.id
+
+      # Unlisted agent is excluded (no candidate, even though the device matches).
+      assert {:ok, nil} = SrqlTargetResolver.resolve_for_device(device_uid, "agent-b", actor)
+
+      # Legacy 2-arity (no agent_id) still considers it (backward-compat).
+      assert {:ok, legacy} = SrqlTargetResolver.resolve_for_device(device_uid, actor)
+      assert legacy.id == profile.id
+    end
+
+    @tag :integration
+    test "empty agent_ids targeting profile applies to every agent (legacy)" do
+      actor = SystemActor.system(:test)
+      unique = System.unique_integer([:positive])
+      hostname = "unpinned-router-#{unique}"
+      device_uid = create_device!(actor, hostname)
+
+      {:ok, profile} =
+        SNMPProfile
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Unpinned Profile #{unique}",
+            target_query: ~s(in:devices hostname:"#{hostname}"),
+            priority: 10,
+            agent_ids: []
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      for agent_id <- ["agent-a", "agent-b"] do
+        assert {:ok, matched} = SrqlTargetResolver.resolve_for_device(device_uid, agent_id, actor)
+        assert matched.id == profile.id
+      end
+    end
+  end
+
+  defp create_device!(actor, hostname) do
+    device_uid = Ecto.UUID.generate()
+
+    {:ok, _device} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: device_uid,
+          hostname: hostname,
+          type_id: 3,
+          created_time: DateTime.utc_now(),
+          modified_time: DateTime.utc_now()
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    device_uid
+  end
+
   defp clear_targeting_profiles!(actor) do
     SNMPProfile
     |> Ash.Query.for_read(:read, %{}, actor: actor)

@@ -84,13 +84,18 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   end
 
   @impl true
-  def compile(_partition, _agent_id, opts \\ []) do
+  def compile(_partition, agent_id, opts \\ []) do
     # DB connection's search_path determines the schema
     actor = opts[:actor] || SystemActor.system(:snmp_compiler)
     device_uid = opts[:device_uid]
 
-    # Resolve the profile for this agent/device
-    profile = resolve_profile(device_uid, actor)
+    # Resolve the profile for this agent/device.
+    #
+    # agent_id gates *profile selection*: when a profile pins agent_ids, only
+    # the listed agents resolve it; everyone else falls through to disabled
+    # config below. When agent_ids is empty, behavior is unchanged (legacy
+    # target_query + is_default fallback).
+    profile = resolve_profile(device_uid, agent_id, actor)
 
     if profile && profile.enabled do
       config = compile_profile(profile, actor)
@@ -127,12 +132,18 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   2. Default profile
 
   Returns the matching SNMPProfile or nil if no profile matches.
+
+  `agent_id` gates which profiles apply: a profile that pins `agent_ids` is only
+  a candidate for the listed agents. An empty `agent_ids` keeps legacy behavior
+  (the profile applies to all agents and `target_query`/`is_default` decide).
   """
-  @spec resolve_profile(String.t() | nil, map()) :: SNMPProfile.t() | nil
-  def resolve_profile(device_uid, actor) do
+  @spec resolve_profile(String.t() | nil, String.t() | nil, map()) :: SNMPProfile.t() | nil
+  def resolve_profile(device_uid, agent_id, actor) do
     TargetedProfileResolver.resolve(device_uid, actor,
-      resolver: &SrqlTargetResolver.resolve_for_device/2,
-      default_resolver: &get_default_profile/1,
+      resolver: fn device_uid, actor ->
+        SrqlTargetResolver.resolve_for_device(device_uid, agent_id, actor)
+      end,
+      default_resolver: fn actor -> get_default_profile(agent_id, actor) end,
       log_prefix: "SNMPCompiler"
     )
   end
@@ -849,13 +860,37 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     }
   end
 
-  # Get the default profile
-  defp get_default_profile(actor) do
+  # Get the default profile, gated by agent_ids.
+  #
+  # The :get_default read intentionally has no agent filter (it is the
+  # all-agents fallback). We apply the agent_ids gate here, after the read, so
+  # the read action stays usable by other call sites (e.g. web-ng set_default):
+  #
+  #   - agent_ids == []         => default applies to all agents (legacy)
+  #   - agent_id in agent_ids   => default applies to this agent
+  #   - otherwise               => nil (caller falls through to disabled_config)
+  defp get_default_profile(agent_id, actor) do
     query = Ash.Query.for_read(SNMPProfile, :get_default, %{})
 
     case Ash.read_one(query, actor: actor) do
-      {:ok, profile} -> profile
-      {:error, _} -> nil
+      {:ok, profile} ->
+        if profile_applies_to_agent?(profile, agent_id), do: profile
+
+      {:error, _} ->
+        nil
     end
   end
+
+  @doc """
+  Returns true when a profile applies to the given agent.
+
+  A profile with an empty `agent_ids` applies to every agent (legacy behavior).
+  A profile with a non-empty `agent_ids` applies only to the listed agent UIDs.
+  """
+  @spec profile_applies_to_agent?(SNMPProfile.t() | map() | nil, String.t() | nil) :: boolean()
+  def profile_applies_to_agent?(%{agent_ids: agent_ids}, agent_id) when is_list(agent_ids) do
+    agent_ids == [] or (is_binary(agent_id) and agent_id in agent_ids)
+  end
+
+  def profile_applies_to_agent?(_profile, _agent_id), do: true
 end

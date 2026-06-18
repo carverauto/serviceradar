@@ -1942,7 +1942,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     actor = SystemActor.system(:snmp_config_loader)
     device_uid = resolve_agent_device_uid(agent_id, actor)
 
-    case ConfigServer.get_config(:snmp, partition, agent_id, actor: actor, device_uid: device_uid) do
+    case ConfigServer.get_config(:snmp, partition, agent_id,
+           actor: actor,
+           device_uid: device_uid,
+           agent_id: agent_id
+         ) do
       {:ok, entry} ->
         entry.config
 

@@ -68,6 +68,15 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
       version = Enum.find(attrs, &(&1.name == :version))
       assert version.default == :v2c
     end
+
+    test "agent_ids defaults to empty list (legacy all-agents behavior)" do
+      attrs = ResourceInfo.attributes(SNMPProfile)
+      agent_ids = Enum.find(attrs, &(&1.name == :agent_ids))
+      assert agent_ids
+      assert agent_ids.default == []
+      assert agent_ids.allow_nil? == false
+      assert agent_ids.type == {:array, Ash.Type.String}
+    end
   end
 
   describe "actions" do
@@ -99,6 +108,21 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
     test "has list_targeting_profiles action" do
       actions = ResourceInfo.actions(SNMPProfile)
       assert Enum.any?(actions, &(&1.name == :list_targeting_profiles))
+    end
+
+    test "has targeting_profiles_for_agent action" do
+      actions = ResourceInfo.actions(SNMPProfile)
+      assert Enum.any?(actions, &(&1.name == :targeting_profiles_for_agent))
+    end
+
+    test "create action accepts agent_ids" do
+      action = ResourceInfo.action(SNMPProfile, :create)
+      assert :agent_ids in action.accept
+    end
+
+    test "update action accepts agent_ids" do
+      action = ResourceInfo.action(SNMPProfile, :update)
+      assert :agent_ids in action.accept
     end
   end
 
