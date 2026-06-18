@@ -18,7 +18,8 @@ defmodule ServiceRadar.Repo.Migrations.AddOcsfEventsAnomalyDeviceIdentityIndex d
 
   use Ecto.Migration
 
-  # Build without holding a long write lock on the hot OCSF hypertable.
+  # Timescale hypertables do not support CREATE INDEX CONCURRENTLY. Keep this
+  # migration outside the transaction/lock path, but build the index normally.
   @disable_ddl_transaction true
   @disable_migration_lock true
 
@@ -27,13 +28,13 @@ defmodule ServiceRadar.Repo.Migrations.AddOcsfEventsAnomalyDeviceIdentityIndex d
 
   def up do
     execute("""
-    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ocsf_events_sr_device_uid_time
+    CREATE INDEX IF NOT EXISTS idx_ocsf_events_sr_device_uid_time
     ON #{@schema}.#{@table} ((metadata #>> '{service_radar,device_uid}'), time DESC)
     WHERE class_uid = 2004
     """)
   end
 
   def down do
-    execute("DROP INDEX CONCURRENTLY IF EXISTS #{@schema}.idx_ocsf_events_sr_device_uid_time")
+    execute("DROP INDEX IF EXISTS #{@schema}.idx_ocsf_events_sr_device_uid_time")
   end
 end
