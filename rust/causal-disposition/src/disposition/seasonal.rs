@@ -356,6 +356,10 @@ fn run_seasonal_flow(
         // Gate variants neither confirm nor reset; preserve the carried counter so a
         // transient thin/skip cycle does not erase confirmation progress.
         Disposition::InsufficientSeasonalBaseline | Disposition::Skipped { .. } => carried,
+        // Capacity-only Value variants never arise on the seasonal flow (the
+        // seasonal kernel only ever produces the variants above), but the enum is
+        // shared, so preserve the carried counter for exhaustiveness.
+        Disposition::Projected { .. } | Disposition::Inactive => carried,
     };
 
     let score = disposition.score().unwrap_or(0.0);

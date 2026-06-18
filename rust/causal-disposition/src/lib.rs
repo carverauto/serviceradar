@@ -43,7 +43,11 @@
 
 pub mod disposition;
 
+pub use disposition::capacity::{
+    CapacityConfig, CapacityDisposition, CapacityModelKind, CapacityPoint, CapacityRow,
+    dispose_capacity,
+};
 pub use disposition::seasonal::{
     SeasonalConfig, SeasonalDisposition, SeasonalRow, dispose_seasonal,
 };
-pub use disposition::{Disposition, RobustStatistic};
+pub use disposition::{CapacityForecast, Disposition, RobustStatistic};

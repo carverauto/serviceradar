@@ -10,6 +10,7 @@
 //! typed NIF ABI directly (a `NifTaggedEnum`) without forcing a JSON string at the
 //! boundary, while keeping the kernel crate rustler-free for bazel/tests.
 
+pub mod capacity;
 pub mod seasonal;
 
 /// The disposition a kernel assigns to the latest complete bucket under test.
@@ -42,9 +43,78 @@ pub enum Disposition {
     /// can be issued. The baseline-sufficiency gate, returned as a value.
     InsufficientSeasonalBaseline,
     /// A guard short-circuited the evaluation (zero-variance / non-finite sample /
-    /// missing config / empty bucket). Carries a stable machine reason string.
-    /// This is the error channel surfaced as a value (graft #1) — never a panic.
+    /// missing config / empty bucket / `insufficient_history`). Carries a stable
+    /// machine reason string. This is the error channel surfaced as a value
+    /// (graft #1) — never a panic.
     Skipped { reason: String },
+    /// A successful **capacity** forecast (the `{:ok, forecast}` path of
+    /// `CapacityForecasting.Model`, `model.ex:84-104`/`163-195`). Carries every
+    /// numeric output field the parity gate compares to within `1e-9` via the boxed
+    /// [`CapacityForecast`] payload. The model always yields a `Projected` on a
+    /// successful fit; whether it is "at risk" or downgraded to
+    /// [`Disposition::Inactive`] is the worker's `at_risk?` policy (`worker.ex:412`),
+    /// NOT the kernel's — so the kernel emits a `Projected` even when
+    /// `projected_exhaustion_at_unix_micros` is `None` (no exhaustion in horizon).
+    ///
+    /// The payload is **boxed** so this large variant does not bloat the shared
+    /// `Disposition` (the small seasonal gate variants ride the enum by value in a
+    /// `Result<_, Disposition>` on the seasonal path). With the `rustler` feature on,
+    /// rustler encodes `Box<CapacityForecast>` identically to the inner struct, so
+    /// the Elixir ABI is `{:projected, %{model: ..., slope_per_second: ..., ...}}`.
+    Projected(Box<CapacityForecast>),
+    /// A capacity forecast that is NOT at risk within the warning horizon — the
+    /// worker's `at_risk?`-false downgrade (`worker.ex:407`). Included in the Value
+    /// channel for ABI completeness (the spec's `Disposition ∈ {Projected, Inactive,
+    /// Skipped}`); the **kernel never emits it** because the at-risk decision is
+    /// orchestration that stays in Elixir (task 7.4). A `Projected` with
+    /// `projected_exhaustion_at_unix_micros = None` is the kernel's "no exhaustion",
+    /// which the worker maps onto `Inactive`/`projected` as policy dictates.
+    Inactive,
+}
+
+/// The numeric payload of a [`Disposition::Projected`] capacity forecast — every
+/// field the golden-fixture parity gate (graft #4) compares to `model.ex` within
+/// `1e-9`. Boxed inside the enum to keep `Disposition` small.
+///
+/// With the crate's `rustler` feature on this is a `NifMap`, so on the Elixir side
+/// the worker reads `{:projected, %{model: ..., current_value: ..., ...}}` and
+/// threads the fields into the Ash `CapacityForecast` upsert. Timestamps are unix
+/// **microseconds** so the worker rebuilds the `DateTime` preserving the window
+/// start's sub-second component (`DateTime.add(first_at, round(cross_x), :second)`
+/// keeps `first_at`'s micros, `model.ex:273`).
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "rustler", derive(rustler::NifMap))]
+pub struct CapacityForecast {
+    /// `"linear"` or `"holt_winters_additive"` (`model.ex:86,165`).
+    pub model: String,
+    /// `current_value` (`model.ex:87` / `158`): the last sample's value.
+    pub current_value: f64,
+    /// `slope_per_second` (`model.ex:88` / `159`).
+    pub slope_per_second: f64,
+    /// `intercept` (`model.ex:89`); for Holt-Winters this is the final `level`
+    /// (`model.ex:168`).
+    pub intercept: f64,
+    /// `projected_value` at `last_x + horizon` (`model.ex:90` / `157`).
+    pub projected_value: f64,
+    /// `projected_exhaustion_at` as unix microseconds (`model.ex:91` / `170`), or
+    /// `None` for the no-ETA cases (non-positive slope, missing threshold,
+    /// already-crossed, beyond-`10×`-horizon).
+    pub projected_exhaustion_at_unix_micros: Option<i64>,
+    /// `confidence` clamped to `[0, 1]` (`model.ex:93` / `182`).
+    pub confidence: f64,
+    /// `lower_bound = projected_value - 1.96 * rmse` (`model.ex:94` / `183`).
+    pub lower_bound: f64,
+    /// `upper_bound = projected_value + 1.96 * rmse` (`model.ex:95` / `184`).
+    pub upper_bound: f64,
+    /// `diagnostics["rmse"]` (`model.ex:100` / `189`) — surfaced so the worker can
+    /// rebuild the diagnostics map and the parity test compares it directly.
+    pub rmse: f64,
+    /// `sample_count` (`model.ex:96` / `185`).
+    pub sample_count: usize,
+    /// `window_started_at` as unix microseconds (`model.ex:97` / `186`).
+    pub window_started_at_unix_micros: i64,
+    /// `window_ended_at` as unix microseconds (`model.ex:98` / `187`).
+    pub window_ended_at_unix_micros: i64,
 }
 
 impl Disposition {
