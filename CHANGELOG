@@ -1,3 +1,37 @@
+# ServiceRadar v1.3.5
+
+Release hardening for the causal disposition pipeline, native add-on delivery,
+demo database stability, and agent artifact downloads.
+
+## Whats New
+
+**1.3.5**
+- Added the central causal-disposition path: seasonal anomaly disposition and
+  capacity forecasting now run through the DeepCausality-backed NIF with parity
+  fixtures, a supervised seasonal worker/source, and the old Elixir capacity
+  model removed behind a parity-gated cutover.
+- Hardened the edge anomaly and observability pipeline with stricter detector
+  fidelity gates, canonical device re-keying for anomaly queries, index-served
+  event/anomaly lookups, and set-based agent-command retention to reduce
+  database pressure.
+- Improved native add-on delivery: fixed the draft release path for native
+  add-on import indexes, split agent artifact URLs from web URLs, retired legacy
+  endpoint-inventory add-on metadata, added the ScaLibr endpoint-inventory
+  native add-on seeder, and enabled demo auto-approval for the new add-on id.
+- Fixed demo/runtime add-on artifact access by granting scoped web-ng NATS
+  object-store writes and forcing agent plugin artifact downloads through the
+  gateway mTLS HTTP client instead of falling back to public/system TLS.
+- Stabilized CNPG-backed demo rollouts by pinning the default CNPG and
+  spire-postgres images back to the known-good digest and bounding
+  `max_slot_wal_keep_size` by default so the chart never renders `-1`.
+- Tightened SNMP and metrics behavior with per-agent SNMP profile targeting,
+  SNMP counter classification from wire type rather than operator config, shared
+  gateway metrics publisher plumbing, and local agent metric fan-out for
+  subscribed add-ons.
+- Reduced web-ng and SRQL blast radius with bounded default log queries, bounded
+  database statement runtime, safer replayed log SRQL queries, and native add-on
+  fleet/package UI adjustments for retired and imported add-ons.
+
 # ServiceRadar v1.3.4
 
 Ingestion-pipeline scale and reliability hardening: a complete EventWriter
