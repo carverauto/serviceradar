@@ -22,6 +22,12 @@ import (
 	"github.com/tetratelabs/wazero/sys"
 )
 
+type testRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f testRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
 func TestPluginDownloadUsesHeaderToken(t *testing.T) {
 	t.Parallel()
 
@@ -53,6 +59,41 @@ func TestPluginDownloadUsesHeaderToken(t *testing.T) {
 	}
 	if string(data) != string(expectedBody) {
 		t.Fatalf("unexpected body: %q", string(data))
+	}
+}
+
+func TestPluginDownloadUsesArtifactHTTPClient(t *testing.T) {
+	t.Parallel()
+
+	expectedBody := []byte("wasm-binary")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(expectedBody)
+	}))
+	defer server.Close()
+
+	runtimeClient := &http.Client{
+		Transport: testRoundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, errors.New("runtime HTTP client used for artifact download")
+		}),
+	}
+
+	manager := NewPluginManager(t.Context(), PluginManagerConfig{
+		HTTPClient:         runtimeClient,
+		ArtifactHTTPClient: server.Client(),
+		Logger:             logger.NewTestLogger(),
+	})
+	defer manager.Stop()
+
+	data, err := manager.loadWasm(context.Background(), &pluginAssignment{
+		AssignmentID: "assignment-1",
+		PackageID:    "package-1",
+		DownloadURL:  server.URL,
+	})
+	if err != nil {
+		t.Fatalf("loadWasm: %v", err)
+	}
+	if string(data) != string(expectedBody) {
+		t.Fatalf("downloaded wasm = %q, want %q", data, expectedBody)
 	}
 }
 

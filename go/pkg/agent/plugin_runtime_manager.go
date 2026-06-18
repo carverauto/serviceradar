@@ -91,24 +91,30 @@ func NewPluginManager(ctx context.Context, cfg PluginManagerConfig) *PluginManag
 		client = &http.Client{Timeout: pluginDefaultHTTPTimeout}
 	}
 
+	artifactClient := cfg.ArtifactHTTPClient
+	if artifactClient == nil {
+		artifactClient = client
+	}
+
 	return &PluginManager{
-		logger:           cfg.Logger,
-		cacheDir:         cacheDir,
-		localStoreDir:    localStoreDir,
-		httpClient:       client,
-		compilationCache: wazero.NewCompilationCache(),
-		credentialBroker: cfg.CredentialBroker,
-		artifactUploader: cfg.ArtifactUploader,
-		credentialCache:  make(map[string]credentialBrokerCacheEntry),
-		credentialNow:    time.Now,
-		ctx:              rootCtx,
-		cancel:           cancel,
-		runners:          make(map[string]*pluginRunner),
-		streams:          make(map[string]*pluginAssignment),
-		results:          make(chan PluginResult, 1024),
-		signals:          make(chan PluginSignalTelemetry, 1024),
-		states:           make(map[string]*assignmentState),
-		stateNow:         time.Now,
+		logger:             cfg.Logger,
+		cacheDir:           cacheDir,
+		localStoreDir:      localStoreDir,
+		httpClient:         client,
+		artifactHTTPClient: artifactClient,
+		compilationCache:   wazero.NewCompilationCache(),
+		credentialBroker:   cfg.CredentialBroker,
+		artifactUploader:   cfg.ArtifactUploader,
+		credentialCache:    make(map[string]credentialBrokerCacheEntry),
+		credentialNow:      time.Now,
+		ctx:                rootCtx,
+		cancel:             cancel,
+		runners:            make(map[string]*pluginRunner),
+		streams:            make(map[string]*pluginAssignment),
+		results:            make(chan PluginResult, 1024),
+		signals:            make(chan PluginSignalTelemetry, 1024),
+		states:             make(map[string]*assignmentState),
+		stateNow:           time.Now,
 	}
 }
 

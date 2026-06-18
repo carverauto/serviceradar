@@ -919,20 +919,14 @@ func TestStageAddonArtifactGatewayMissingClient(t *testing.T) {
 	}
 }
 
-func TestGatewayAddonHTTPClientUsesPublicWebTLS(t *testing.T) {
+func TestGatewayAddonHTTPClientRequiresGatewaySecurity(t *testing.T) {
 	pl := &PushLoop{}
 	client := pl.gatewayAddonHTTPClient(&proto.AddonAssignmentConfig{
 		AddonId:     "gw",
 		DownloadUrl: "https://demo-gw.serviceradar.cloud:50053/artifacts/addons/pkg/blob/download",
 	})
-	if client == nil {
-		t.Fatal("gatewayAddonHTTPClient() returned nil client")
-	}
-	if client.Transport != nil {
-		t.Fatalf("expected default transport/system roots for public web URL, got %#v", client.Transport)
-	}
-	if client.CheckRedirect == nil {
-		t.Fatal("expected redirect validator to be installed")
+	if client != nil {
+		t.Fatalf("expected nil client without gateway security, got %#v", client)
 	}
 }
 
