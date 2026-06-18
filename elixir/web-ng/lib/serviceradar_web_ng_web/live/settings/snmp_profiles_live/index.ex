@@ -22,6 +22,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   import ServiceRadarWebNGWeb.SettingsComponents
 
   alias AshPhoenix.Form
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.SNMPProfiles.BuiltinTemplates
@@ -77,6 +78,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         # OID template selection state (for profile form)
         |> assign(:available_templates, load_all_templates(scope))
         |> assign(:selected_template_ids, [])
+        # Per-agent targeting selector state (for profile form)
+        |> assign(:agents, load_agents(scope))
 
       {:ok, socket}
     else
@@ -193,6 +196,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   @impl true
   def handle_event("validate_profile", %{"form" => params}, socket) do
     target_query = Map.get(params, "target_query")
+    params = normalize_agent_ids_param(params)
     ash_form = Form.validate(socket.assigns.ash_form, params)
 
     {:noreply,
@@ -213,6 +217,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
       else
         params
       end
+
+    # Drop the hidden empty agent_ids placeholder so unchecking every box
+    # persists [] (legacy all-agents) rather than [""].
+    params = normalize_agent_ids_param(params)
 
     # Include selected OID template IDs
     params = Map.put(params, "oid_template_ids", socket.assigns.selected_template_ids)
@@ -1236,6 +1244,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
               targets={@targets}
               selected_template_ids={@selected_template_ids}
               available_templates={@available_templates}
+              agents={@agents}
             />
           <% else %>
             <.profiles_panel
@@ -1423,6 +1432,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   attr :targets, :list, default: []
   attr :selected_template_ids, :list, default: []
   attr :available_templates, :list, default: []
+  attr :agents, :list, default: []
 
   defp profile_form(assigns) do
     is_default = assigns.selected_profile && assigns.selected_profile.is_default
@@ -1655,6 +1665,45 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
               Leave password fields blank to keep existing values. Credentials are encrypted at rest.
             </p>
           <% end %>
+        </div>
+        
+    <!-- Agent Targeting Section -->
+        <div class="space-y-4">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+            Agent Targeting
+          </h3>
+
+          <div>
+            <label class="label"><span class="label-text">Agents</span></label>
+            <% selected_agents = Enum.map(@form[:agent_ids].value || [], &to_string/1) %>
+            <!-- Hidden empty entry so unchecking every box submits [] (legacy all-agents). -->
+            <input type="hidden" name="form[agent_ids][]" value="" />
+            <%= if @agents == [] do %>
+              <p class="text-sm text-base-content/60">
+                No active agents available. Leave unset to run this profile on all SNMP-capable agents.
+              </p>
+            <% else %>
+              <div class="flex flex-wrap gap-4">
+                <%= for agent <- @agents do %>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      name="form[agent_ids][]"
+                      value={agent.uid}
+                      class="checkbox"
+                      checked={Enum.member?(selected_agents, to_string(agent.uid))}
+                    />
+                    <span>{agent_display_name(agent)}</span>
+                  </label>
+                <% end %>
+              </div>
+            <% end %>
+            <label class="label">
+              <span class="label-text-alt text-base-content/50">
+                Pin this profile to specific agents. Leave all unchecked to run on every SNMP-capable agent (legacy behavior).
+              </span>
+            </label>
+          </div>
         </div>
         
     <!-- Interface Targeting Section -->
@@ -3044,6 +3093,48 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     case Ash.read(SNMPOIDTemplate, action: :list_custom, scope: scope) do
       {:ok, templates} -> templates
       {:error, _} -> []
+    end
+  end
+
+  # The agent selector ships a hidden empty entry so unchecking every box still
+  # submits the field. Strip blanks so the persisted array is clean ([] = legacy
+  # all-agents, otherwise exactly the checked agent UIDs).
+  defp normalize_agent_ids_param(%{"agent_ids" => agent_ids} = params) when is_list(agent_ids) do
+    Map.put(params, "agent_ids", Enum.reject(agent_ids, &(&1 in [nil, ""])))
+  end
+
+  defp normalize_agent_ids_param(params), do: params
+
+  # Load active agents for the per-agent targeting selector. Mirrors the sweep
+  # agent picker (NetworksLive). Only agents seen recently are offered so the
+  # operator pins to live agents.
+  defp load_agents(scope) do
+    if RBAC.can?(scope, "settings.snmp_profiles.manage") do
+      case Ash.read(Agent, domain: ServiceRadar.Infrastructure, scope: scope) do
+        {:ok, agents} -> Enum.filter(agents, &active_agent?/1)
+        {:error, _reason} -> []
+      end
+    else
+      []
+    end
+  end
+
+  defp active_agent?(%Agent{status: status, last_seen_time: %DateTime{} = last_seen_time})
+       when status in [:connected, :degraded, :connecting] do
+    DateTime.diff(DateTime.utc_now(), last_seen_time, :minute) <= 30
+  end
+
+  defp active_agent?(%Agent{last_seen_time: %DateTime{} = last_seen_time}) do
+    DateTime.diff(DateTime.utc_now(), last_seen_time, :minute) <= 30
+  end
+
+  defp active_agent?(_agent), do: false
+
+  defp agent_display_name(agent) do
+    cond do
+      agent.name && agent.name != "" -> agent.name
+      agent.uid && agent.uid != "" -> agent.uid
+      true -> "Agent #{agent.uid}"
     end
   end
 

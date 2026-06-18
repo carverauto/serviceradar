@@ -34,6 +34,86 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLiveTest do
            )
   end
 
+  test "new profile form renders the agent targeting selector", %{conn: conn} do
+    {:ok, lv, html} = live(conn, ~p"/settings/snmp/new")
+
+    assert html =~ "Agent Targeting"
+    # Hidden empty entry guarantees unchecking all submits [] (legacy all-agents).
+    assert has_element?(lv, "input[type='hidden'][name='form[agent_ids][]']")
+  end
+
+  test "agent targeting renders a checkbox per active agent", %{conn: conn} do
+    gateway = gateway_fixture()
+    agent = agent_fixture(gateway, %{uid: "agent-snmp-#{System.unique_integer([:positive])}"})
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/snmp/new")
+
+    assert has_element?(lv, "input[type='checkbox'][name='form[agent_ids][]'][value='#{agent.uid}']")
+  end
+
+  test "editing a profile pre-checks its pinned agents", %{conn: conn, scope: scope} do
+    gateway = gateway_fixture()
+    agent = agent_fixture(gateway, %{uid: "agent-pin-#{System.unique_integer([:positive])}"})
+
+    {:ok, profile} =
+      SNMPProfile
+      |> Ash.Changeset.for_create(:create, %{
+        name: "Pinned #{System.unique_integer([:positive])}",
+        agent_ids: [agent.uid]
+      })
+      |> Ash.create(scope: scope)
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/snmp/#{profile.id}/edit")
+
+    assert has_element?(
+             lv,
+             "input[type='checkbox'][name='form[agent_ids][]'][value='#{agent.uid}'][checked]"
+           )
+  end
+
+  test "saving with no agents checked persists empty agent_ids (legacy)", %{
+    conn: conn,
+    scope: scope
+  } do
+    unique = System.unique_integer([:positive])
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/snmp/new")
+
+    lv
+    |> form("form[phx-submit='save_profile']", %{
+      "form" => %{"name" => "Legacy Profile #{unique}", "agent_ids" => [""]}
+    })
+    |> render_submit()
+
+    {:ok, profile} =
+      SNMPProfile
+      |> Ash.Query.for_read(:by_name, %{name: "Legacy Profile #{unique}"})
+      |> Ash.read_one(scope: scope)
+
+    assert profile.agent_ids == []
+  end
+
+  test "saving with an agent checked persists that agent_id", %{conn: conn, scope: scope} do
+    unique = System.unique_integer([:positive])
+    gateway = gateway_fixture()
+    agent = agent_fixture(gateway, %{uid: "agent-save-#{unique}"})
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/snmp/new")
+
+    lv
+    |> form("form[phx-submit='save_profile']", %{
+      "form" => %{"name" => "Pinned Save #{unique}", "agent_ids" => ["", agent.uid]}
+    })
+    |> render_submit()
+
+    {:ok, profile} =
+      SNMPProfile
+      |> Ash.Query.for_read(:by_name, %{name: "Pinned Save #{unique}"})
+      |> Ash.read_one(scope: scope)
+
+    assert profile.agent_ids == [agent.uid]
+  end
+
   test "renders target counts for SNMP profiles", %{conn: conn, scope: scope} do
     unique = System.unique_integer([:positive])
     device_fixture(%{hostname: "target#{unique}"})

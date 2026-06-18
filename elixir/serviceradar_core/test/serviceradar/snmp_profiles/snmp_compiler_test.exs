@@ -629,7 +629,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       actor = SystemActor.system(:test)
       Repo.query!("TRUNCATE TABLE platform.snmp_profiles CASCADE")
 
-      result = SNMPCompiler.resolve_profile(nil, actor)
+      result = SNMPCompiler.resolve_profile(nil, nil, actor)
       assert is_nil(result)
     end
 
@@ -656,10 +656,126 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
         |> Ash.update(actor: actor)
 
-      result = SNMPCompiler.resolve_profile("some-device-uid", actor)
+      result = SNMPCompiler.resolve_profile("some-device-uid", nil, actor)
       assert result.id == profile.id
       assert result.is_default == true
     end
+  end
+
+  describe "resolve_profile/3 agent_ids gating" do
+    @tag :integration
+    setup do
+      ServiceRadar.TestSupport.start_core!()
+      :ok
+    end
+
+    @tag :integration
+    test "empty agent_ids: default profile applies to every agent (legacy)" do
+      actor = SystemActor.system(:test)
+      Repo.query!("TRUNCATE TABLE platform.snmp_profiles CASCADE")
+
+      profile = create_default_profile(actor, agent_ids: [])
+
+      # No agent_id and arbitrary agent ids both resolve the default profile.
+      assert SNMPCompiler.resolve_profile("device-uid", nil, actor).id == profile.id
+      assert SNMPCompiler.resolve_profile("device-uid", "agent-a", actor).id == profile.id
+      assert SNMPCompiler.resolve_profile("device-uid", "agent-b", actor).id == profile.id
+    end
+
+    @tag :integration
+    test "non-empty agent_ids: default profile applies only to listed agents" do
+      actor = SystemActor.system(:test)
+      Repo.query!("TRUNCATE TABLE platform.snmp_profiles CASCADE")
+
+      profile = create_default_profile(actor, agent_ids: ["agent-a"])
+
+      # Listed agent gets the profile.
+      assert SNMPCompiler.resolve_profile("device-uid", "agent-a", actor).id == profile.id
+
+      # Unlisted agent does NOT resolve the profile (falls through to disabled).
+      assert is_nil(SNMPCompiler.resolve_profile("device-uid", "agent-b", actor))
+    end
+
+    @tag :integration
+    test "profile_applies_to_agent?/2 gate semantics" do
+      assert SNMPCompiler.profile_applies_to_agent?(%{agent_ids: []}, "anything")
+      assert SNMPCompiler.profile_applies_to_agent?(%{agent_ids: []}, nil)
+      assert SNMPCompiler.profile_applies_to_agent?(%{agent_ids: ["a", "b"]}, "a")
+      refute SNMPCompiler.profile_applies_to_agent?(%{agent_ids: ["a", "b"]}, "c")
+      refute SNMPCompiler.profile_applies_to_agent?(%{agent_ids: ["a"]}, nil)
+    end
+  end
+
+  describe "compile/3 agent_ids gating" do
+    @tag :integration
+    setup do
+      ServiceRadar.TestSupport.start_core!()
+      :ok
+    end
+
+    @tag :integration
+    test "agent not in agent_ids resolves disabled config" do
+      actor = SystemActor.system(:test)
+      Repo.query!("TRUNCATE TABLE platform.snmp_profiles CASCADE")
+
+      create_default_profile(actor, agent_ids: ["agent-a"])
+
+      # Unlisted agent -> disabled config (no profile, no targets).
+      {:ok, config} = SNMPCompiler.compile("default", "agent-b", actor: actor)
+      assert config["enabled"] == false
+      assert config["profile_id"] == nil
+      assert config["targets"] == []
+    end
+
+    @tag :integration
+    test "agent in agent_ids resolves the profile" do
+      actor = SystemActor.system(:test)
+      Repo.query!("TRUNCATE TABLE platform.snmp_profiles CASCADE")
+
+      profile = create_default_profile(actor, agent_ids: ["agent-a"])
+
+      {:ok, config} = SNMPCompiler.compile("default", "agent-a", actor: actor)
+      assert config["profile_id"] == profile.id
+      assert config["profile_name"] == profile.name
+    end
+
+    @tag :integration
+    test "empty agent_ids preserves legacy behavior for all agents" do
+      actor = SystemActor.system(:test)
+      Repo.query!("TRUNCATE TABLE platform.snmp_profiles CASCADE")
+
+      profile = create_default_profile(actor, agent_ids: [])
+
+      for agent_id <- [nil, "agent-a", "agent-b"] do
+        {:ok, config} = SNMPCompiler.compile("default", agent_id, actor: actor)
+        assert config["profile_id"] == profile.id
+      end
+    end
+  end
+
+  defp create_default_profile(actor, opts) do
+    agent_ids = Keyword.get(opts, :agent_ids, [])
+
+    {:ok, profile} =
+      SNMPProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Agent Gating Profile #{System.unique_integer([:positive])}",
+          is_default: false,
+          enabled: true,
+          agent_ids: agent_ids
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, profile} =
+      profile
+      |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+      |> Ash.update(actor: actor)
+
+    profile
   end
 
   defp unique_test_ip(a, b, value) do

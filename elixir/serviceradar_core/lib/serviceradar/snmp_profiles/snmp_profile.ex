@@ -83,7 +83,8 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
     :auth_protocol,
     :priv_protocol,
     :credential_secret_id,
-    :oid_template_ids
+    :oid_template_ids,
+    :agent_ids
   ]
 
   @profile_create_fields [:is_default | @profile_fields]
@@ -92,6 +93,10 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
     table "snmp_profiles"
     repo ServiceRadar.Repo
     schema "platform"
+
+    custom_indexes do
+      index [:agent_ids], using: "gin", name: "snmp_profiles_agent_ids_idx"
+    end
   end
 
   actions do
@@ -155,6 +160,26 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
     read :list_targeting_profiles do
       description "List profiles with SRQL targeting, ordered by priority"
       filter expr(enabled == true and is_default == false and not is_nil(target_query))
+
+      prepare fn query, _context ->
+        Ash.Query.sort(query, priority: :desc)
+      end
+    end
+
+    read :targeting_profiles_for_agent do
+      description """
+      List SRQL targeting profiles that apply to the given agent, ordered by priority.
+
+      A profile applies when its agent_ids is empty (legacy / all-agents) or
+      contains the given agent_id (pinned to that agent).
+      """
+
+      argument :agent_id, :string, allow_nil?: false
+
+      filter expr(
+               enabled == true and is_default == false and not is_nil(target_query) and
+                 (agent_ids == [] or ^arg(:agent_id) in agent_ids)
+             )
 
       prepare fn query, _context ->
         Ash.Query.sort(query, priority: :desc)
@@ -249,6 +274,20 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
       default []
       public? true
       description "List of OID template IDs to apply when polling devices matched by this profile"
+    end
+
+    # Per-agent targeting (mirrors sweep_groups.agent_id, but multi-agent).
+    #
+    # Empty list ([]) preserves legacy behavior: the profile applies to all
+    # SNMP-capable agents (target_query + is_default fallback decide devices).
+    # A non-empty list restricts the profile to exactly those agent UIDs; an
+    # agent whose UID is not in the set resolves disabled SNMP config.
+    attribute :agent_ids, {:array, :string} do
+      allow_nil? false
+      default []
+      public? true
+
+      description "Agent UIDs that run this profile ([] = legacy all-agents target_query/is_default behavior)"
     end
 
     # SNMP credentials (profile-scoped, encrypted at rest)

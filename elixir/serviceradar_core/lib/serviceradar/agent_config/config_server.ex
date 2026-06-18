@@ -199,8 +199,24 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
 
   defp cache_scope(config_type, opts)
 
-  defp cache_scope(config_type, opts)
-       when config_type in [:mapper, :snmp, :sysmon, :visibility] do
+  # SNMP config output depends on agent_id (per-agent profile targeting via
+  # SNMPProfile.agent_ids), so the cache scope MUST include the agent_id to
+  # avoid two agents sharing a device_uid (or both nil) bleeding each other's
+  # gated config. Other per-device compilers key on device_uid only.
+  defp cache_scope(:snmp, opts) do
+    device_uid =
+      case Keyword.get(opts, :device_uid) do
+        device_uid when is_binary(device_uid) and device_uid != "" -> device_uid
+        _ -> nil
+      end
+
+    case Keyword.get(opts, :agent_id) do
+      agent_id when is_binary(agent_id) and agent_id != "" -> {:agent, agent_id, device_uid}
+      _ -> device_uid && {:device_uid, device_uid}
+    end
+  end
+
+  defp cache_scope(config_type, opts) when config_type in [:mapper, :sysmon, :visibility] do
     case Keyword.get(opts, :device_uid) do
       device_uid when is_binary(device_uid) and device_uid != "" ->
         {:device_uid, device_uid}
