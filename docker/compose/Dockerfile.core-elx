@@ -49,6 +49,12 @@ COPY proto ./proto
 # Copy SRQL Rust crate for Rustler builds
 COPY rust/srql ./rust/srql
 COPY rust/kvutil ./rust/kvutil
+# Rustler builds the causal_disposition_nif cdylib during `mix compile`; it
+# path-deps rust/causal-disposition, which in turn path-deps rust/anomaly-core, so
+# both must be in the build context before `mix compile` or the release build fails
+# (OpenSpec add-core-causal-disposition-nif, task 6.1 / design D6 build-wiring footgun).
+COPY rust/causal-disposition ./rust/causal-disposition
+COPY rust/anomaly-core ./rust/anomaly-core
 
 WORKDIR /app/elixir/serviceradar_core_elx
 

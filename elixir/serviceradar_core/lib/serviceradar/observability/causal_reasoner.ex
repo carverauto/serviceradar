@@ -1,0 +1,113 @@
+defmodule ServiceRadar.Observability.CausalReasoner do
+  @moduledoc """
+  Rustler NIF facade for the central disposition kernels.
+
+  This is the BEAM-visible seam for the operator directive that moves seasonal (and,
+  in a parity-gated follow-up, capacity) statistics out of Elixir into Rust on the
+  shared DeepCausality substrate (`serviceradar-anomaly-core`). It wraps the
+  `causal_disposition_nif` cdylib, which in turn calls the phase-1
+  `serviceradar-causal-disposition` kernels.
+
+  ## Boundary
+
+  `dispose_batch/2` takes a `kind` (`:seasonal | :capacity`) and a list of typed
+  per-row request maps, and returns one typed result per row. The boundary is a
+  typed `NifMap`/`NifTaggedEnum` ABI, **not** a JSON string (design D2): the worker
+  passes plain Elixir maps and reads back tagged tuples.
+
+  ### Seasonal request shape (`kind = :seasonal`)
+
+  Each element of `inputs` is a tagged tuple `{:seasonal, %{config: ..., row: ...}}`
+  (the typed `NifTaggedEnum` encoding of the request, NOT a bare map):
+
+      {:seasonal,
+       %{
+         config: %{
+           seasonal_n_sigma: 3.0,
+           min_bucket_samples: 4,
+           confirm_slots: 1,
+           robust_statistic: :mean_stddev | :median_mad | :p05_p95
+         },
+         row: %{
+           series_key: "svc/cpu",
+           dow: 2,
+           hod: 9,
+           sample_value: 805.0,
+           bucket_count: 21,
+           bucket_sum: 16_900.0,
+           bucket_sum_sq: 13_700_000.0,
+           center: 0.0,
+           mad: 0.0,
+           p05: 0.0,
+           p95: 0.0,
+           consecutive_anomalous: 0,
+           baseline_excludes_latest: true
+         }
+       }}
+
+  Config rides per row so a missing/invalid config short-circuits to a per-row
+  `{:error, _}` result (design D2) rather than failing or unwinding the whole batch.
+
+  ### Result shape
+
+  One result per input row, in order:
+
+  - `{:ok, %{series_key: ..., disposition: disposition, next_consecutive_anomalous: ..., score: ...}}`
+    where `disposition` is the typed Value channel, one of:
+    - `:suppress`
+    - `{:seasonal_breach, %{score: 4.2}}`
+    - `{:seasonal_drift, %{score: 3.1}}`
+    - `:insufficient_seasonal_baseline`
+    - `{:skipped, %{reason: "zero-variance seasonal bucket"}}`
+  - `{:error, reason}` when the row could not be disposed (ABI/contract violation,
+    an as-yet-unimplemented kernel, or — via per-row panic isolation — a contained
+    kernel panic). One bad row never crashes the batch.
+
+  Only `{:seasonal_breach, _}` surfaces upstream as an anomaly verdict; the worker
+  carries `next_consecutive_anomalous` back to Postgres for confirm-slot hysteresis.
+
+  ## Capacity (phase 2)
+
+  `dispose_batch(:capacity, _)` currently returns `{:error, _}` per row: the capacity
+  port (`disposition/capacity.rs`) is the parity-gated second phase and is not wired
+  yet. The kind is accepted so the worker contract is stable across the cutover.
+  """
+
+  use Rustler,
+    otp_app: :serviceradar_core,
+    crate: "causal_disposition_nif"
+
+  @typedoc "Which disposition kernel to run for the batch."
+  @type kind :: :seasonal | :capacity
+
+  @typedoc "The typed Value-channel disposition returned per row."
+  @type disposition ::
+          :suppress
+          | {:seasonal_breach, %{score: float()}}
+          | {:seasonal_drift, %{score: float()}}
+          | :insufficient_seasonal_baseline
+          | {:skipped, %{reason: String.t()}}
+
+  @typedoc "One per-row seasonal disposition result payload."
+  @type seasonal_disposition :: %{
+          series_key: String.t(),
+          disposition: disposition(),
+          next_consecutive_anomalous: non_neg_integer(),
+          score: float()
+        }
+
+  @typedoc "One per-row result: a disposition or a typed error reason."
+  @type result :: {:ok, seasonal_disposition()} | {:error, String.t()}
+
+  @doc """
+  Disposes a batch of rows through the central disposition kernel selected by `kind`.
+
+  Returns one `t:result/0` per input row, in order. Each row is evaluated under
+  per-row panic isolation in Rust (design D2): one malformed row yields one
+  `{:error, _}` and never crashes the batch or a scheduler thread.
+
+  See the module doc for the per-`kind` request and result shapes.
+  """
+  @spec dispose_batch(kind(), [map()]) :: [result()]
+  def dispose_batch(_kind, _inputs), do: :erlang.nif_error(:nif_not_loaded)
+end
