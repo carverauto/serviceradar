@@ -357,6 +357,11 @@ webNg:
       - netprobe
       - workload-identity
       - scalibr-endpoint-inventory
+      # anomaly: so the rebuilt 0.1.1 bundle (config_schema with metric_feed)
+      # auto-approves on import and the Edge Anomaly profile reconciles.
+      - anomaly
+      # otel-collector: deliver the edge OTLP collector once CI publishes its blob.
+      - otel-collector
   gatewayAddress: "demo-gw.serviceradar.cloud:50052"
   agentReleasePublicKey: "ZY2//cpkD3oVdC6q4Cg6lN1I2M6SgmDMzL4QyQjptH8="
   extraEnv:
