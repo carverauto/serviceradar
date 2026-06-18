@@ -170,7 +170,49 @@ workload_identity_addon_config =
       workload_identity_addon_config
   end
 
+endpoint_inventory_addon_artifacts =
+  case System.get_env("SERVICERADAR_ENDPOINT_INVENTORY_ADDON_ARTIFACTS") do
+    json when is_binary(json) and json != "" ->
+      case Jason.decode(json) do
+        {:ok, %{} = map} -> map
+        _ -> %{}
+      end
+
+    _ ->
+      %{}
+  end
+
+endpoint_inventory_addon_config = [artifacts: endpoint_inventory_addon_artifacts]
+
+endpoint_inventory_addon_config =
+  case System.get_env("SERVICERADAR_ENDPOINT_INVENTORY_ADDON_VERSION") do
+    v when is_binary(v) and v != "" -> Keyword.put(endpoint_inventory_addon_config, :version, v)
+    _ -> endpoint_inventory_addon_config
+  end
+
+endpoint_inventory_addon_config =
+  case System.get_env("SERVICERADAR_ENDPOINT_INVENTORY_ADDON_OCI_REF") do
+    v when is_binary(v) and v != "" ->
+      Keyword.put(endpoint_inventory_addon_config, :source_oci_ref, v)
+
+    _ ->
+      endpoint_inventory_addon_config
+  end
+
+endpoint_inventory_addon_config =
+  case System.get_env("SERVICERADAR_ENDPOINT_INVENTORY_ADDON_OCI_DIGEST") do
+    v when is_binary(v) and v != "" ->
+      Keyword.put(endpoint_inventory_addon_config, :source_oci_digest, v)
+
+    _ ->
+      endpoint_inventory_addon_config
+  end
+
 config :geolix, databases: base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
+
+config :serviceradar_core,
+       :endpoint_inventory_native_addon_package,
+       endpoint_inventory_addon_config
 
 config :serviceradar_core, :netprobe_native_addon_package, netprobe_addon_config
 

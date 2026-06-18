@@ -367,6 +367,11 @@ core:
     ociRef: ""
     ociDigest: ""
     artifacts: {}
+  endpointInventoryAddon:
+    version: ""
+    ociRef: ""
+    ociDigest: ""
+    artifacts: {}
   # Extra environment variables for the core-elx pod.
   extraEnv: {}
   # Extra environment variables sourced from Kubernetes secrets/configmaps.
