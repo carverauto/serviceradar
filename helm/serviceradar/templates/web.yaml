@@ -282,6 +282,8 @@ spec:
           value: "true"
         - name: NATS_SERVER_NAME
           value: {{ default "serviceradar-nats" $webNg.natsServerName | quote }}
+        - name: NATS_CERT_NAME
+          value: {{ default "web" $webNg.natsCertName | quote }}
         - name: NATS_CREDS_FILE
           value: "/etc/serviceradar/creds/platform.creds"
         {{- end }}

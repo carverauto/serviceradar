@@ -305,12 +305,13 @@ end
 nats_tls_config =
   if nats_tls_enabled do
     cert_dir = System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs")
+    cert_name = System.get_env("NATS_CERT_NAME", "web")
 
     [
       verify: :verify_peer,
       cacertfile: Path.join(cert_dir, "root.pem"),
-      certfile: Path.join(cert_dir, "core.pem"),
-      keyfile: Path.join(cert_dir, "core-key.pem"),
+      certfile: Path.join(cert_dir, "#{cert_name}.pem"),
+      keyfile: Path.join(cert_dir, "#{cert_name}-key.pem"),
       server_name_indication: "NATS_SERVER_NAME" |> System.get_env("serviceradar-nats") |> String.to_charlist()
     ]
   else
