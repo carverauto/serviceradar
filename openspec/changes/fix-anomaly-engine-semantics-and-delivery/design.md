@@ -688,3 +688,14 @@ volume alongside the 100% view; add non-color series encoding.
 - F32 (NetFlow sampling + rate mislabel) is a correctness bug independent of
   anomalies and should be fixed regardless — the headline bandwidth numbers are
   quantitatively wrong today.
+
+### F38: The shared chart renderer is a 1544-line god-module (MEDIUM, maintainability)
+`dashboard/plugins/timeseries.ex` (~1544 lines) mixes point
+extraction/normalization, downsampling, counter-rate derivation, scale/unit
+inference, SVG path geometry, hover, and the LiveComponent shell in one file — well
+over a sane ~300-line module size, and the locus of F30/F31/F33/F34/F35. The size
+makes the bugs above hard to see and risky to fix. Sibling oversized modules
+(`device_live/sysmon_metrics.ex`, `netflow_live/dashboard.ex`) have the same
+problem. Fix: split into focused sub-modules (each < ~300 lines) as a
+behavior-preserving refactor first, then land the chart fixes against the smaller
+modules.

@@ -109,23 +109,23 @@
 - [ ] 18.7 Add an end-to-end smoke test that fires `sysmon.debug_spike` and asserts one open finding (not one-per-sample-per-core), sample-time `time`, and coherent device identity.
 
 ## 19. Device-Details Panel Performance (F25)
-- [ ] 19.1 Query `device_uid_exact` first as a bare indexed equality; stop trying `agent_id`/`host_id` first (which seq-scan the OCSF hypertable).
-- [ ] 19.2 Drop the capacity `resource_key '%<id>%'` leading-wildcard ILIKE; add a btree index on capacity `resource_id`.
-- [ ] 19.3 Run the anomaly and capacity loads concurrently (Task.async) instead of sequential `load_first`; short-circuit empty candidates.
-- [ ] 19.4 Lower the anomaly/capacity query `limit` and project only rendered fields (not full metadata/raw_data/unmapped).
+- [x] 19.1 Query `device_uid_exact` first as a bare indexed equality; stop trying `agent_id`/`host_id` first (which seq-scan the OCSF hypertable).
+- [x] 19.2 Drop the capacity `resource_key '%<id>%'` leading-wildcard ILIKE; add a btree index on capacity `resource_id`.
+- [x] 19.3 Run the anomaly and capacity loads concurrently (Task.async) instead of sequential `load_first`; short-circuit empty candidates.
+- [x] 19.4 Lower the anomaly/capacity query `limit` and project only rendered fields (not full metadata/raw_data/unmapped).
 
 ## 20. Operator-Actionable Anomaly/Capacity Rows (F26)
-- [ ] 20.1 Make finding rows and capacity rows clickable (`phx-click` + uid) opening a detail modal.
-- [ ] 20.2 Prefer `finding_info.title` for the human title; demote the raw `verdict.reason` to a sub-line.
-- [ ] 20.3 Render real identity: metric_name, interface_uid/if_index (for interface findings), anomaly value + score; stop showing bare `"snmp"`.
-- [ ] 20.4 Add `title=`/tooltip with full id and resolve a human device label for truncated ids.
-- [ ] 20.5 Label capacity with units/metric-type/threshold/headroom; hide or aggregate `skipped` rows; reconcile the metric_class row label vs the RED chip bucketing.
+- [x] 20.1 Make finding rows and capacity rows clickable (`phx-click` + uid) opening a detail modal.
+- [x] 20.2 Prefer `finding_info.title` for the human title; demote the raw `verdict.reason` to a sub-line.
+- [x] 20.3 Render real identity: metric_name, interface_uid/if_index (for interface findings), anomaly value + score; stop showing bare `"snmp"`.
+- [x] 20.4 Add `title=`/tooltip with full id and resolve a human device label for truncated ids.
+- [x] 20.5 Label capacity with units/metric-type/threshold/headroom; hide or aggregate `skipped` rows; reconcile the metric_class row label vs the RED chip bucketing.
 
 ## 21. SNMP Anomaly Target Attribution (F27)
 - [x] 21.1 Edge: prefer `resource.target_device_ip` for non-self SNMP polls when choosing `device_uid`/`series_key` (`addon.rs:857-862`).
 - [x] 21.2 Core: for `snmp_target_poll?` rows, set the leading `device_uid` resolution candidate to the target (not the agent host) (`causal_signals.ex:1356-1357`).
 - [x] 21.3 Emit `target_device_ip` at a stable top-level/anomaly path, not only under `source_identity`; add a regression test for resolved device_uid on an SNMP poll.
-- [ ] 21.4 Once attribution is correct, scope the web-ng device-finding query by canonical device/series instead of `agent_id`-first.
+- [x] 21.4 Once attribution is correct, scope the web-ng device-finding query by canonical device/series instead of `agent_id`-first.
 
 ## 22. Metric Chart Fidelity (F28)
 - [ ] 22.1 For per-core metrics, render per-core series (or a max-across-cores line); stop collapsing to `series=nil` avg-across-cores.
@@ -179,12 +179,17 @@
 - [ ] 31.2 Show absolute volume alongside the NetFlow 100%-stacked view.
 - [ ] 31.3 Add non-color series encoding (shape/pattern/label) for color-blind operators.
 
-## 32. Verification
-- [x] 32.1 Run `sfw cargo test -p serviceradar-anomaly-addon -p serviceradar-anomaly-core -p serviceradar-causal-disposition`.
-- [x] 32.2 Run `sfw cargo test -p serviceradar-srql` if the seasonal profiling verb is implemented in SRQL.
-- [x] 32.3 Run `go test ./go/pkg/agent/addon/...` (and update bazel BUILD deps for any new test files/imports).
-- [ ] 32.4 Run focused core-elx tests for status handler, causal signals, seasonal disposition, capacity forecasting, anomaly profile seeding, and alert generation.
-- [ ] 32.5 Run web-ng tests for the device-details anomaly/capacity components, chart renderer, NetFlow/interface data layers, and JS chart hooks.
-- [ ] 32.6 Run `./scripts/elixir_quality.sh --project elixir/serviceradar_core` if the implementation changes shared core-elx behavior broadly.
-- [x] 32.7 Run native add-on manifest/version gates if add-on package metadata or Rust add-on sources change.
-- [ ] 32.8 Re-run the live `sysmon.debug_spike` trace in demo and confirm the F1/F3/F6/F12/F15/F21-F37 behaviors are resolved (one open finding, sample-time, coherent identity, visible+annotated chart spike, correct NetFlow units, no alert storm).
+## 32. Chart Renderer Modularization (F38)
+- [ ] 32.1 Break up `dashboard/plugins/timeseries.ex` (~1544 lines) into focused modules each under ~300 lines, e.g. point extraction/normalization, downsampling, counter-rate derivation, scale/units, SVG path geometry, hover/annotation, and the LiveComponent shell.
+- [ ] 32.2 Do the split as a behavior-preserving refactor first (no logic change), then land the F30/F31/F33/F34/F35 fixes against the smaller modules.
+- [ ] 32.3 Audit sibling oversized chart/device modules (`live/device_live/sysmon_metrics.ex`, `netflow_live/dashboard.ex`) for the same >300-line split.
+
+## 33. Verification
+- [x] 33.1 Run `sfw cargo test -p serviceradar-anomaly-addon -p serviceradar-anomaly-core -p serviceradar-causal-disposition`.
+- [x] 33.2 Run `sfw cargo test -p serviceradar-srql` if the seasonal profiling verb is implemented in SRQL.
+- [x] 33.3 Run `go test ./go/pkg/agent/addon/...` (and update bazel BUILD deps for any new test files/imports).
+- [ ] 33.4 Run focused core-elx tests for status handler, causal signals, seasonal disposition, capacity forecasting, anomaly profile seeding, and alert generation.
+- [ ] 33.5 Run web-ng tests for the device-details anomaly/capacity components, chart renderer, NetFlow/interface data layers, and JS chart hooks.
+- [ ] 33.6 Run `./scripts/elixir_quality.sh --project elixir/serviceradar_core` if the implementation changes shared core-elx behavior broadly.
+- [x] 33.7 Run native add-on manifest/version gates if add-on package metadata or Rust add-on sources change.
+- [ ] 33.8 Re-run the live `sysmon.debug_spike` trace in demo and confirm the F1/F3/F6/F12/F15/F21-F37 behaviors are resolved (one open finding, sample-time, coherent identity, visible+annotated chart spike, correct NetFlow units, no alert storm).
