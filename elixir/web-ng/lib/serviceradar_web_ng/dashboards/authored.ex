@@ -38,6 +38,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   @preview_limit 100
   @render_limit 10_000
   @default_panel_time_window "last_24h"
+  @max_panel_time_window_seconds 30 * 24 * 60 * 60
   @default_timezone "UTC"
   @max_panel_refresh_interval_seconds 86_400
   @max_schedule_recipients 50
@@ -919,6 +920,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
     tokens
     |> Enum.reject(&limit_token?/1)
+    |> Enum.map(&clamp_time_token/1)
     |> maybe_append_default_time(has_time?)
     |> Kernel.++(["limit:#{limit}"])
     |> Enum.join(" ")
@@ -977,6 +979,34 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   defp time_token?(token), do: token |> String.downcase() |> String.starts_with?("time:")
   defp limit_token?(token), do: token |> String.downcase() |> String.starts_with?("limit:")
+
+  defp clamp_time_token(token) do
+    case parse_relative_time_token(token) do
+      {:ok, seconds} when seconds > @max_panel_time_window_seconds ->
+        "time:last_30d"
+
+      _ ->
+        token
+    end
+  end
+
+  defp parse_relative_time_token(token) do
+    with "time:last_" <> window <- String.downcase(token),
+         {amount, unit} when amount > 0 <- Integer.parse(window),
+         {:ok, seconds_per_unit} <- relative_time_unit_seconds(unit) do
+      {:ok, amount * seconds_per_unit}
+    else
+      _ -> :error
+    end
+  end
+
+  defp relative_time_unit_seconds("s"), do: {:ok, 1}
+  defp relative_time_unit_seconds("m"), do: {:ok, 60}
+  defp relative_time_unit_seconds("h"), do: {:ok, 60 * 60}
+  defp relative_time_unit_seconds("d"), do: {:ok, 24 * 60 * 60}
+  defp relative_time_unit_seconds("w"), do: {:ok, 7 * 24 * 60 * 60}
+  defp relative_time_unit_seconds("y"), do: {:ok, 365 * 24 * 60 * 60}
+  defp relative_time_unit_seconds(_unit), do: :error
 
   @spec compatible_visuals([map()], [map()]) :: [atom()]
   def compatible_visuals(rows, fields) when is_list(rows) and is_list(fields) do
