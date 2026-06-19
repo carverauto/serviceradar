@@ -37,7 +37,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     assert html =~ "Total Packets"
   end
 
-  test "/observability netflows summary rates use the covered data span", %{conn: conn} do
+  test "/observability netflows summary rates floor sparse coverage to the selected bucket", %{conn: conn} do
     Application.put_env(
       :serviceradar_web_ng,
       :srql_module,
@@ -56,9 +56,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     {:ok, _lv, html} = live(conn, ~p"/observability?#{%{q: q, limit: 50, tab: "netflows"}}")
 
     assert html =~ "Avg Bandwidth (covered)"
-    assert html =~ "32 bps"
+    assert html =~ "64.0 bps"
     assert html =~ "Avg PPS (covered)"
-    assert html =~ "0.02 pps"
+    assert html =~ "0.04 pps"
 
     queries = collect_srql_queries([])
 
@@ -169,7 +169,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
              "results" => [
                %{
                  "first_time" => "2026-02-27T21:00:00Z",
-                 "last_time" => "2026-02-27T21:30:00Z"
+                 "last_time" => "2026-02-27T21:00:02Z"
                }
              ],
              "pagination" => %{},

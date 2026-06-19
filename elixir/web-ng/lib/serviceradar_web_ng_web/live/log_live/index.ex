@@ -7863,7 +7863,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       end)
 
     other = max(total - tcp - udp, 0)
-    covered_seconds = netflow_summary_covered_seconds(srql_module.query(coverage_query, %{scope: scope}), window_seconds)
+
+    min_covered_seconds =
+      case resolve_srql_time(time_token) do
+        {:ok, %{start: start_dt, end: end_dt}} -> choose_netflow_bucket_seconds(start_dt, end_dt)
+        _ -> 60
+      end
+
+    covered_seconds =
+      netflow_summary_covered_seconds(
+        srql_module.query(coverage_query, %{scope: scope}),
+        window_seconds,
+        min_covered_seconds
+      )
 
     avg_bps = total_bytes * 8.0 / covered_seconds
     avg_pps = total_packets * 1.0 / covered_seconds
@@ -7885,14 +7897,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       empty_netflow_summary()
   end
 
-  defp netflow_summary_covered_seconds(result, fallback_seconds) do
+  defp netflow_summary_covered_seconds(result, fallback_seconds, min_covered_seconds) do
     row = extract_stats_row(result)
+    minimum = max(to_int(min_covered_seconds), 1)
 
     with {:ok, first_time} <- row |> Map.get("first_time") |> parse_timestamp(),
          {:ok, last_time} <- row |> Map.get("last_time") |> parse_timestamp() do
       last_time
       |> DateTime.diff(first_time, :second)
-      |> max(1)
+      |> max(minimum)
     else
       _ -> max(to_int(fallback_seconds), 1)
     end
