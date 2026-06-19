@@ -103,6 +103,7 @@ const STATE_EVICTION_MAX_AGE_NS: u64 = COUNTER_MAX_GAP_NS;
 struct SeriesState {
     window_tail: Vec<f64>,
     consecutive_anomalous: usize,
+    consecutive_clean: usize,
     /// Whether this series currently has an emitted-but-not-cleared anomaly.
     active_anomalous: bool,
     /// Observed time of the most recent sample, for the restart staleness bound:
@@ -314,6 +315,7 @@ impl DetectorEngine {
             .or_insert_with(|| SeriesState {
                 window_tail: Vec::new(),
                 consecutive_anomalous: 0,
+                consecutive_clean: 0,
                 active_anomalous: false,
                 last_observed_at_unix_nano: observed_at_unix_nano,
             });
@@ -374,7 +376,8 @@ impl DetectorEngine {
     /// The detector core still decides whether a sample is clean, pending, or
     /// confirmed anomalous. The edge add-on owns only delivery lifecycle: one
     /// open when a series first confirms, no duplicate opens while it remains
-    /// active, and one clear when that active series returns clean.
+    /// active, and one clear when that active series stays clean for the same
+    /// confirmation window used to open.
     pub fn evaluate_transition(
         &mut self,
         series_key: &str,
@@ -384,14 +387,29 @@ impl DetectorEngine {
     ) -> Option<TransitionVerdict> {
         let verdict = self.evaluate(series_key, value, observed_at_unix_nano, profile)?;
         let state = self.series.get_mut(series_key)?;
+        let clear_slots = self.config.confirm_slots.max(1);
 
         let transition = if verdict.anomalous && !state.active_anomalous {
             state.active_anomalous = true;
+            state.consecutive_clean = 0;
             AnomalyTransition::Open
-        } else if state.active_anomalous && verdict.state == "clean" {
-            state.active_anomalous = false;
-            AnomalyTransition::Clear
+        } else if state.active_anomalous {
+            if is_clean_verdict(&verdict) {
+                state.consecutive_clean = state.consecutive_clean.saturating_add(1);
+
+                if state.consecutive_clean >= clear_slots {
+                    state.active_anomalous = false;
+                    state.consecutive_clean = 0;
+                    AnomalyTransition::Clear
+                } else {
+                    AnomalyTransition::None
+                }
+            } else {
+                state.consecutive_clean = 0;
+                AnomalyTransition::None
+            }
         } else {
+            state.consecutive_clean = 0;
             AnomalyTransition::None
         };
 
@@ -402,12 +420,18 @@ impl DetectorEngine {
     }
 }
 
+fn is_clean_verdict(verdict: &ReasonVerdict) -> bool {
+    !verdict.anomalous && verdict.next_consecutive_anomalous == 0
+}
+
 /// One series' retained detector baseline, serialized for the restart checkpoint.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct SeriesCheckpoint {
     pub series_key: String,
     pub window_tail: Vec<f64>,
     pub consecutive_anomalous: usize,
+    #[serde(default)]
+    pub consecutive_clean: usize,
     #[serde(default)]
     pub active_anomalous: bool,
     pub last_observed_at_unix_nano: u64,
@@ -444,6 +468,7 @@ impl DetectorEngine {
                     series_key: key.clone(),
                     window_tail: state.window_tail.clone(),
                     consecutive_anomalous: state.consecutive_anomalous,
+                    consecutive_clean: state.consecutive_clean,
                     active_anomalous: state.active_anomalous,
                     last_observed_at_unix_nano: state.last_observed_at_unix_nano,
                 })
@@ -497,6 +522,7 @@ impl DetectorEngine {
                 SeriesState {
                     window_tail,
                     consecutive_anomalous: series.consecutive_anomalous,
+                    consecutive_clean: series.consecutive_clean,
                     active_anomalous: series.active_anomalous,
                     last_observed_at_unix_nano: series.last_observed_at_unix_nano,
                 },
@@ -854,8 +880,18 @@ mod tests {
         let mut restored = DetectorEngine::new(cfg);
         assert_eq!(restored.restore_checkpoint(checkpoint, 23, u64::MAX), 1);
 
-        let cleared = restored
+        let clean_pending_clear = restored
             .evaluate_transition("series-a", 100.0, 23, SeriesProfile::default())
+            .expect("first clean verdict");
+        assert_eq!(clean_pending_clear.verdict.state, "clean");
+        assert_eq!(
+            clean_pending_clear.transition,
+            AnomalyTransition::None,
+            "a single clean slot should not clear an active anomaly"
+        );
+
+        let cleared = restored
+            .evaluate_transition("series-a", 100.0, 24, SeriesProfile::default())
             .expect("clear verdict");
         assert_eq!(cleared.verdict.state, "clean");
         assert_eq!(cleared.transition, AnomalyTransition::Clear);
