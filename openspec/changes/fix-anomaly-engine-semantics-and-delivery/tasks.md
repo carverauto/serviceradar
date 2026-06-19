@@ -90,7 +90,7 @@
 - [x] 15.3 Align edge 32-bit counter-wrap salvage (modulus / unknown `counter_width`) with central's per-sample-max behavior.
 
 ## 16. Operability (F19)
-- [ ] 16.1 Add a scoring-liveness/health surface (verdict throughput, tracked-series vs cap, last-scored time).
+- [x] 16.1 Add a scoring-liveness/health surface (verdict throughput, tracked-series vs cap, last-scored time).
 - [x] 16.2 Emit a signal when cgroup resource enforcement is absent or a limit write failed.
 
 ## 17. Performance At Scale (F20, extends F8)
