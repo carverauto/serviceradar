@@ -23,6 +23,19 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
 
   require Logger
 
+  @empty_path_diversity %{unique_paths: 0, avg_path_length: 0.0, hop_distribution: %{}}
+  @empty_traffic_timeseries %{series: [], data: []}
+  @empty_bgp_statistics %{
+    traffic_data: [],
+    communities: [],
+    path_diversity: @empty_path_diversity,
+    topology: [],
+    as_path_details: [],
+    data_sources: [],
+    traffic_timeseries: @empty_traffic_timeseries,
+    prefix_analysis: []
+  }
+
   @impl true
   def mount(_params, _session, socket) do
     # Subscribe to BGP observation updates
@@ -33,7 +46,8 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
     {:ok,
      socket
      |> assign(:page_title, "BGP Routing")
-     |> assign(:srql, %{enabled: false, page_path: "/observability/bgp"})}
+     |> assign(:srql, %{enabled: false, page_path: "/observability/bgp"})
+     |> assign(:bgp_load_error, nil)}
   end
 
   @impl true
@@ -123,41 +137,95 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
     time_range = socket.assigns[:time_range] || "last_1h"
     source_protocol = socket.assigns[:source_protocol]
 
-    # Fetch all BGP statistics
-    traffic_data = Stats.get_traffic_by_as(time_range, source_protocol, 10)
-    communities = Stats.get_top_communities(time_range, source_protocol, 10)
-    path_diversity = Stats.get_path_diversity(time_range, source_protocol)
-    topology = Stats.get_as_topology(time_range, source_protocol, 50)
+    [
+      traffic_data: Stats.get_traffic_by_as_result(time_range, source_protocol, 10),
+      communities: Stats.get_top_communities_result(time_range, source_protocol, 10),
+      path_diversity: Stats.get_path_diversity_result(time_range, source_protocol),
+      topology: Stats.get_as_topology_result(time_range, source_protocol, 50),
+      as_path_details: Stats.get_as_path_details_result(time_range, source_protocol, 50),
+      data_sources: Stats.get_data_sources_result(time_range),
+      traffic_timeseries: Stats.get_traffic_timeseries_result(time_range, source_protocol, 5),
+      prefix_analysis: Stats.get_prefix_analysis_result(time_range, source_protocol, 20)
+    ]
+    |> bgp_statistics_assigns()
+    |> then(&assign(socket, &1))
+  end
 
-    # New enhanced data
-    as_path_details = Stats.get_as_path_details(time_range, source_protocol, 50)
-    data_sources = Stats.get_data_sources(time_range)
-    traffic_timeseries = Stats.get_traffic_timeseries(time_range, source_protocol, 5)
-    prefix_analysis = Stats.get_prefix_analysis(time_range, source_protocol, 20)
+  @doc false
+  def bgp_statistics_assigns(results) when is_list(results) do
+    {statistics, errors} = collect_bgp_statistics(results)
+    statistics = Map.merge(@empty_bgp_statistics, statistics)
+    traffic_data = statistics.traffic_data
 
-    # Calculate max values for percentage bars
-    max_bytes =
-      case Enum.max_by(traffic_data, & &1.bytes, fn -> %{bytes: 1} end) do
-        %{bytes: bytes} -> bytes
-        _ -> 1
-      end
+    statistics
+    |> Map.put(:max_bytes, max_bytes(traffic_data))
+    |> Map.put(:has_data, has_data?(traffic_data, statistics.communities, statistics.topology))
+    |> Map.put(:bgp_load_error, bgp_load_error(errors))
+  end
 
-    socket
-    |> assign(:traffic_data, traffic_data)
-    |> assign(:communities, communities)
-    |> assign(:path_diversity, path_diversity)
-    |> assign(:topology, topology)
-    |> assign(:as_path_details, as_path_details)
-    |> assign(:data_sources, data_sources)
-    |> assign(:traffic_timeseries, traffic_timeseries)
-    |> assign(:prefix_analysis, prefix_analysis)
-    |> assign(:max_bytes, max_bytes)
-    |> assign(:has_data, has_data?(traffic_data, communities, topology))
+  @doc false
+  def bgp_empty_state(nil) do
+    %{
+      icon: "hero-document-text",
+      title: "No BGP Routing Data",
+      body: "No BGP observations found for the selected time range and filters.",
+      detail: "BGP data is populated from NetFlow, sFlow, or BMP sources."
+    }
+  end
+
+  def bgp_empty_state(load_error) do
+    %{
+      icon: "hero-exclamation-triangle",
+      title: "BGP Query Failed",
+      body: "BGP routing statistics could not be loaded for the selected time range and filters.",
+      detail: load_error
+    }
   end
 
   defp has_data?(traffic_data, communities, topology) do
     !Enum.empty?(traffic_data) or !Enum.empty?(communities) or !Enum.empty?(topology)
   end
+
+  defp max_bytes(traffic_data) do
+    case Enum.max_by(traffic_data, & &1.bytes, fn -> %{bytes: 1} end) do
+      %{bytes: bytes} -> bytes
+      _ -> 1
+    end
+  end
+
+  defp collect_bgp_statistics(results) do
+    Enum.reduce(results, {%{}, []}, fn
+      {key, {:ok, value}}, {statistics, errors} ->
+        {Map.put(statistics, key, value), errors}
+
+      {key, {:error, reason}}, {statistics, errors} ->
+        {statistics, [{key, reason} | errors]}
+    end)
+  end
+
+  defp bgp_load_error([]), do: nil
+
+  defp bgp_load_error(errors) do
+    errors
+    |> Enum.reverse()
+    |> Enum.map_join("; ", fn {key, reason} ->
+      "#{bgp_stat_label(key)} failed: #{format_bgp_query_error(reason)}"
+    end)
+    |> String.slice(0, 300)
+  end
+
+  defp bgp_stat_label(:traffic_data), do: "traffic by AS"
+  defp bgp_stat_label(:communities), do: "top communities"
+  defp bgp_stat_label(:path_diversity), do: "path diversity"
+  defp bgp_stat_label(:topology), do: "AS topology"
+  defp bgp_stat_label(:as_path_details), do: "AS path details"
+  defp bgp_stat_label(:data_sources), do: "data sources"
+  defp bgp_stat_label(:traffic_timeseries), do: "traffic time series"
+  defp bgp_stat_label(:prefix_analysis), do: "prefix analysis"
+
+  defp format_bgp_query_error(%{postgres: %{message: message}}) when is_binary(message), do: message
+  defp format_bgp_query_error(%{message: message}) when is_binary(message), do: message
+  defp format_bgp_query_error(reason), do: inspect(reason)
 
   @impl true
   def render(assigns) do
@@ -231,6 +299,16 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
           </div>
         <% end %>
 
+        <%= if @bgp_load_error && @has_data do %>
+          <div class="alert alert-warning">
+            <.icon name="hero-exclamation-triangle" class="size-5" />
+            <div>
+              <div class="font-medium">Some BGP statistics failed to load</div>
+              <div class="text-sm opacity-80">{@bgp_load_error}</div>
+            </div>
+          </div>
+        <% end %>
+
         <%= if @has_data do %>
           <!-- Export Button -->
           <div class="flex justify-end mb-4">
@@ -274,29 +352,18 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
     <!-- Prefix Analysis Table -->
           <.prefix_analysis_table prefixes={@prefix_analysis} />
         <% else %>
+          <% empty_state = bgp_empty_state(@bgp_load_error) %>
           <!-- Empty State -->
           <div class="text-center py-16">
-            <svg
-              class="mx-auto h-12 w-12 text-base-content/40"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-              />
-            </svg>
+            <.icon name={empty_state.icon} class="mx-auto h-12 w-12 text-base-content/40" />
             <h3 class="mt-2 text-sm font-medium text-base-content">
-              No BGP Routing Data
+              {empty_state.title}
             </h3>
             <p class="mt-1 text-sm text-base-content/60">
-              No BGP observations found for the selected time range and filters.
+              {empty_state.body}
             </p>
             <p class="mt-1 text-xs text-base-content/40">
-              BGP data is populated from NetFlow, sFlow, or BMP sources.
+              {empty_state.detail}
             </p>
           </div>
         <% end %>
