@@ -96,6 +96,22 @@ func streamReconnectJitterSeed() int64 {
 	return time.Now().UnixNano()
 }
 
+func streamRunWasStable(openedAt, closedAt time.Time, maxDelay time.Duration) bool {
+	if openedAt.IsZero() || closedAt.Before(openedAt) {
+		return false
+	}
+
+	return closedAt.Sub(openedAt) >= streamReconnectStableDuration(maxDelay)
+}
+
+func streamReconnectStableDuration(maxDelay time.Duration) time.Duration {
+	if maxDelay <= 0 {
+		return defaultRestartBackoffMax
+	}
+
+	return maxDelay
+}
+
 func waitStreamReconnect(ctx context.Context, delay time.Duration) bool {
 	timer := time.NewTimer(delay)
 	defer timer.Stop()

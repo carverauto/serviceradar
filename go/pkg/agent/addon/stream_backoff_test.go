@@ -103,3 +103,34 @@ func TestNextStreamReconnectDelayAppliesJitterWithinBaseWindow(t *testing.T) {
 		}
 	}
 }
+
+func TestStreamRunWasStableRequiresMaxBackoffWindow(t *testing.T) {
+	t.Parallel()
+
+	openedAt := time.Unix(100, 0)
+	maxDelay := 2 * time.Second
+
+	if streamRunWasStable(openedAt, openedAt.Add(maxDelay-time.Nanosecond), maxDelay) {
+		t.Fatal("stream below stable window should not reset reconnect backoff")
+	}
+
+	if !streamRunWasStable(openedAt, openedAt.Add(maxDelay), maxDelay) {
+		t.Fatal("stream at stable window should reset reconnect backoff")
+	}
+
+	if streamRunWasStable(time.Time{}, openedAt.Add(maxDelay), maxDelay) {
+		t.Fatal("zero open timestamp should not be stable")
+	}
+
+	if streamRunWasStable(openedAt, openedAt.Add(-time.Nanosecond), maxDelay) {
+		t.Fatal("closed-before-open stream should not be stable")
+	}
+}
+
+func TestStreamReconnectStableDurationDefaultsInvalidMaxDelay(t *testing.T) {
+	t.Parallel()
+
+	if got := streamReconnectStableDuration(0); got != defaultRestartBackoffMax {
+		t.Fatalf("streamReconnectStableDuration() = %s, want %s", got, defaultRestartBackoffMax)
+	}
+}
