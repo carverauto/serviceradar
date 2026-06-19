@@ -809,3 +809,56 @@ fn rewrite_placeholders(sql: &str) -> String {
     }
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        parser::{DownsampleSpec, FilterValue},
+        query::QueryPlan,
+    };
+    use chrono::{Duration as ChronoDuration, TimeZone};
+
+    #[test]
+    fn rate_aggregation_drops_counter_decreases_before_bucket_average() {
+        let start = Utc.with_ymd_and_hms(2026, 6, 19, 12, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+        let plan = QueryPlan {
+            entity: Entity::SnmpMetrics,
+            filters: vec![
+                Filter {
+                    field: "metric_name".into(),
+                    op: FilterOp::Eq,
+                    value: FilterValue::Scalar("ifHCInOctets".into()),
+                },
+                Filter {
+                    field: "partition".into(),
+                    op: FilterOp::Eq,
+                    value: FilterValue::Scalar("default".into()),
+                },
+            ],
+            order: Vec::new(),
+            limit: 500,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: None,
+            downsample: Some(DownsampleSpec {
+                bucket_seconds: 60,
+                agg: DownsampleAgg::Rate,
+                series: Some("if_index".into()),
+                value_field: Some("value".into()),
+            }),
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let (sql, params) = to_sql_and_params(&plan).expect("rate downsample SQL should build");
+
+        assert!(sql.contains("LAG(value) OVER (PARTITION BY coalesce(if_index::text, '') ORDER BY timestamp) AS prev_value"));
+        assert!(sql.contains("WHEN value < prev_value THEN NULL"));
+        assert!(sql.contains("WHERE rate_value IS NOT NULL"));
+        assert!(sql.contains("AVG(rate_value) AS value"));
+
+        assert_eq!(params.len(), 7);
+    }
+}
