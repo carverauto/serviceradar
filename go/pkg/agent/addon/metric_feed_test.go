@@ -19,6 +19,7 @@ package addon
 import (
 	"context"
 	"reflect"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -51,6 +52,8 @@ func TestMetricFeedLifecycleFiltersSourcesAndPublishesFrames(t *testing.T) {
 		client,
 		[]string{testMetricFeedSourceSysmon},
 		zerolog.Nop(),
+		time.Millisecond,
+		time.Millisecond,
 	)
 	lifecycle.start()
 	t.Cleanup(lifecycle.stop)
@@ -89,6 +92,8 @@ func TestManagerPublishMetricFeedFiltersSources(t *testing.T) {
 		client,
 		[]string{testMetricFeedSourceSysmon},
 		zerolog.Nop(),
+		time.Millisecond,
+		time.Millisecond,
 	)
 	lifecycle.start()
 	t.Cleanup(lifecycle.stop)
@@ -116,6 +121,49 @@ func TestManagerPublishMetricFeedFiltersSources(t *testing.T) {
 	}
 }
 
+func TestMetricFeedLifecycleReconnectsAfterAckStreamClose(t *testing.T) {
+	client := &reconnectingMetricFeedClient{received: make(chan *addonpb.MetricFeedFrame, 1)}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	lifecycle := newMetricFeedLifecycle(
+		ctx,
+		"anomaly",
+		client,
+		[]string{testMetricFeedSourceSysmon},
+		zerolog.Nop(),
+		time.Millisecond,
+		time.Millisecond,
+	)
+	lifecycle.start()
+	t.Cleanup(lifecycle.stop)
+
+	deadline := time.After(2 * time.Second)
+	for client.calls.Load() < 2 {
+		select {
+		case <-deadline:
+			t.Fatalf("StreamMetricFeed calls = %d, want at least 2", client.calls.Load())
+		case <-time.After(time.Millisecond):
+		}
+	}
+
+	if !lifecycle.publish("sysmon", []byte("after-reconnect")) {
+		t.Fatal("expected metric feed frame to be accepted after reconnect")
+	}
+
+	select {
+	case got := <-client.received:
+		if got.GetFeedId() != 1 {
+			t.Fatalf("feed_id = %d, want reset-to-1 after reconnect", got.GetFeedId())
+		}
+		if string(got.GetPayload()) != "after-reconnect" {
+			t.Fatalf("payload = %q, want after-reconnect", got.GetPayload())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for metric feed frame after reconnect")
+	}
+}
+
 type recordingMetricFeedClient struct {
 	received chan *addonpb.MetricFeedFrame
 }
@@ -125,6 +173,50 @@ func (c *recordingMetricFeedClient) StreamMetricFeed(
 ) (chan<- *addonpb.MetricFeedFrame, <-chan uint64, error) {
 	frames := make(chan *addonpb.MetricFeedFrame)
 	acks := make(chan uint64)
+
+	go func() {
+		defer close(acks)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case frame, ok := <-frames:
+				if !ok {
+					return
+				}
+				select {
+				case c.received <- frame:
+				case <-ctx.Done():
+					return
+				}
+				select {
+				case acks <- frame.GetFeedId():
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+
+	return frames, acks, nil
+}
+
+type reconnectingMetricFeedClient struct {
+	calls    atomic.Int32
+	received chan *addonpb.MetricFeedFrame
+}
+
+func (c *reconnectingMetricFeedClient) StreamMetricFeed(
+	ctx context.Context,
+) (chan<- *addonpb.MetricFeedFrame, <-chan uint64, error) {
+	call := c.calls.Add(1)
+	frames := make(chan *addonpb.MetricFeedFrame)
+	acks := make(chan uint64)
+
+	if call == 1 {
+		close(acks)
+		return frames, acks, nil
+	}
 
 	go func() {
 		defer close(acks)

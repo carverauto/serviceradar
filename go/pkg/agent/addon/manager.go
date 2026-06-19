@@ -744,7 +744,15 @@ func (r *runner) startMetricFeed(ctx context.Context, client coreaddon.MetricFee
 		return nil
 	}
 
-	lifecycle := newMetricFeedLifecycle(ctx, r.id, client, sources, r.cfg.Logger)
+	lifecycle := newMetricFeedLifecycle(
+		ctx,
+		r.id,
+		client,
+		sources,
+		r.cfg.Logger,
+		r.cfg.RestartBackoffInitial,
+		r.cfg.RestartBackoffMax,
+	)
 	lifecycle.start()
 
 	r.mu.Lock()
@@ -798,27 +806,44 @@ func (m *Manager) PublishMetricFeed(source string, payload []byte) int {
 }
 
 func (r *runner) drainTelemetry(ctx context.Context, telemetryClient coreaddon.TelemetryClient) {
-	batches, err := telemetryClient.StreamTelemetry(ctx)
-	if err != nil {
-		r.cfg.Logger.Warn().Err(err).Str("addon", r.id).Msg("addon telemetry stream failed to open")
-		return
-	}
+	attempt := 0
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case batch, ok := <-batches:
-			if !ok {
+	for ctx.Err() == nil {
+		batches, err := telemetryClient.StreamTelemetry(ctx)
+		if err != nil {
+			delay := nextStreamReconnectDelay(attempt, r.cfg.RestartBackoffInitial, r.cfg.RestartBackoffMax)
+			r.cfg.Logger.Warn().Err(err).Str("addon", r.id).Dur("retry_after", delay).Msg("addon telemetry stream failed to open")
+			if !waitStreamReconnect(ctx, delay) {
 				return
 			}
-			if batch == nil {
-				continue
-			}
-			if r.cfg.TelemetryHandler != nil {
-				r.cfg.TelemetryHandler(r.id, batch)
+			attempt++
+			continue
+		}
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case batch, ok := <-batches:
+				if !ok {
+					delay := nextStreamReconnectDelay(attempt, r.cfg.RestartBackoffInitial, r.cfg.RestartBackoffMax)
+					r.cfg.Logger.Warn().Str("addon", r.id).Dur("retry_after", delay).Msg("addon telemetry stream closed; reconnecting")
+					if !waitStreamReconnect(ctx, delay) {
+						return
+					}
+					attempt++
+					goto reopen
+				}
+				if batch == nil {
+					continue
+				}
+				attempt = 0
+				if r.cfg.TelemetryHandler != nil {
+					r.cfg.TelemetryHandler(r.id, batch)
+				}
 			}
 		}
+	reopen:
 	}
 }
 
