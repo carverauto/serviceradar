@@ -9,7 +9,7 @@
 
 use std::fmt::Display;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use addon_sdk::metric_pb::{
     Metric, MetricBatch, MetricKind, MetricPoint, MetricResource, MetricTemporality,
@@ -26,6 +26,7 @@ use serde::{Deserialize as _, de::Error as _};
 use serviceradar_anomaly_core::{ReasonVerdict, SaturationGate};
 use sha2::{Digest as _, Sha256};
 use tokio::sync::{broadcast, mpsc};
+use tokio::task::JoinHandle;
 use tokio_stream::StreamExt as _;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::Status;
@@ -37,7 +38,7 @@ use crate::engine::{
 };
 
 const ADDON_ID: &str = "anomaly";
-const ADDON_VERSION: &str = "0.1.5";
+const ADDON_VERSION: &str = "0.1.6";
 const VERDICT_CHANNEL_DEPTH: usize = 256;
 const ACK_CHANNEL_DEPTH: usize = 64;
 const OCSF_CLASS_EVENT_LOG_ACTIVITY: i64 = 1008;
@@ -183,6 +184,8 @@ pub struct AnomalyAddon {
     verdict_tx: broadcast::Sender<TelemetryBatch>,
     /// Resolved at `configure`; read when a feed stream opens.
     checkpoint: Mutex<CheckpointSettings>,
+    /// The metric feed is single-owner: reconnecting replaces the prior scorer.
+    feed_task: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl Default for AnomalyAddon {
@@ -198,6 +201,54 @@ impl AnomalyAddon {
             engine: Arc::new(Mutex::new(DetectorEngine::new(EngineConfig::default()))),
             verdict_tx,
             checkpoint: Mutex::new(CheckpointSettings::default()),
+            feed_task: Mutex::new(None),
+        }
+    }
+}
+
+impl Drop for AnomalyAddon {
+    fn drop(&mut self) {
+        if let Ok(slot) = self.feed_task.get_mut()
+            && let Some(handle) = slot.take()
+        {
+            handle.abort();
+        }
+    }
+}
+
+fn lock_engine(engine: &Arc<Mutex<DetectorEngine>>) -> MutexGuard<'_, DetectorEngine> {
+    match engine.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            let mut guard = poisoned.into_inner();
+            let config = guard.config();
+            *guard = DetectorEngine::new(config);
+            engine.clear_poison();
+            guard
+        }
+    }
+}
+
+fn lock_checkpoint_settings(
+    checkpoint: &Mutex<CheckpointSettings>,
+) -> MutexGuard<'_, CheckpointSettings> {
+    match checkpoint.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            let guard = poisoned.into_inner();
+            checkpoint.clear_poison();
+            guard
+        }
+    }
+}
+
+fn lock_feed_task(slot: &Mutex<Option<JoinHandle<()>>>) -> MutexGuard<'_, Option<JoinHandle<()>>> {
+    match slot.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            let guard = poisoned.into_inner();
+            slot.clear_poison();
+            guard
         }
     }
 }
@@ -246,17 +297,14 @@ impl Addon for AnomalyAddon {
             }
         };
 
-        self.engine
-            .lock()
-            .expect("engine mutex poisoned")
-            .set_config(engine_config);
+        lock_engine(&self.engine).set_config(engine_config);
 
         // Re-warm from the on-disk checkpoint before scoring resumes, so a
         // restart does not storm false positives while windows refill.
         if let Some(path) = settings.path.clone() {
             load_checkpoint(&self.engine, &path, settings.max_age_ns);
         }
-        *self.checkpoint.lock().expect("checkpoint mutex poisoned") = settings;
+        *lock_checkpoint_settings(&self.checkpoint) = settings;
 
         Ok(ConfigureResult {
             config_hash,
@@ -286,14 +334,14 @@ impl Addon for AnomalyAddon {
     fn stream_metric_feed(&self, frames: MetricFeedStream) -> Result<MetricFeedAckStream, Status> {
         let engine = self.engine.clone();
         let verdict_tx = self.verdict_tx.clone();
-        let checkpoint = self
-            .checkpoint
-            .lock()
-            .expect("checkpoint mutex poisoned")
-            .clone();
+        let checkpoint = lock_checkpoint_settings(&self.checkpoint).clone();
         let (ack_tx, ack_rx) = mpsc::channel::<Result<MetricFeedAck, Status>>(ACK_CHANNEL_DEPTH);
 
-        tokio::spawn(async move {
+        if let Some(prior) = lock_feed_task(&self.feed_task).take() {
+            prior.abort();
+        }
+
+        let handle = tokio::spawn(async move {
             let mut frames = frames;
             let mut frame_count: u64 = 0;
             while let Some(item) = frames.next().await {
@@ -330,6 +378,7 @@ impl Addon for AnomalyAddon {
                 write_checkpoint(&engine, path);
             }
         });
+        *lock_feed_task(&self.feed_task) = Some(handle);
 
         Ok(Box::pin(ReceiverStream::new(ack_rx)))
     }
@@ -352,7 +401,7 @@ async fn process_frame(
     let mut records: Vec<TelemetryRecord> = Vec::new();
     let mut shed_report: Option<ShedReport> = None;
     {
-        let mut engine = engine.lock().expect("engine mutex poisoned");
+        let mut engine = lock_engine(engine);
         let dropped_before = engine.dropped_at_capacity;
         for metric in &batch.metrics {
             if is_process_metric(metric) {
@@ -491,7 +540,7 @@ fn resolve_checkpoint_settings(config: &AddonConfig) -> CheckpointSettings {
 /// fresh checkpoint).
 fn write_checkpoint(engine: &Arc<Mutex<DetectorEngine>>, path: &Path) {
     let checkpoint = {
-        let engine = engine.lock().expect("engine mutex poisoned");
+        let engine = lock_engine(engine);
         engine.export_checkpoint()
     };
 
@@ -517,10 +566,7 @@ fn load_checkpoint(engine: &Arc<Mutex<DetectorEngine>>, path: &Path, max_age_ns:
     };
 
     let now = now_unix_nano();
-    engine
-        .lock()
-        .expect("engine mutex poisoned")
-        .restore_checkpoint(checkpoint, now, max_age_ns);
+    lock_engine(engine).restore_checkpoint(checkpoint, now, max_age_ns);
 }
 
 /// Wall-clock now in unix nanoseconds, for the restart staleness bound. Saturates
@@ -981,6 +1027,9 @@ mod tests {
     use super::*;
     use addon_sdk::metric_pb::StringMapEntry;
     use broadcast::error::TryRecvError;
+    use tokio::sync::mpsc;
+    use tokio::time::{Duration, timeout};
+    use tokio_stream::wrappers::ReceiverStream;
 
     fn entry(key: &str, value: &str) -> StringMapEntry {
         StringMapEntry {
@@ -1027,6 +1076,22 @@ mod tests {
             }],
             ..Default::default()
         }
+    }
+
+    fn metric_feed_frame(feed_id: u64, value: f64) -> MetricFeedFrame {
+        MetricFeedFrame {
+            feed_id,
+            source: None,
+            payload: anomaly_metric_batch(value, feed_id).encode_to_vec(),
+        }
+    }
+
+    fn metric_feed_stream() -> (
+        mpsc::Sender<Result<MetricFeedFrame, Status>>,
+        MetricFeedStream,
+    ) {
+        let (tx, rx) = mpsc::channel(4);
+        (tx, Box::pin(ReceiverStream::new(rx)))
     }
 
     async fn process_anomaly_value(
@@ -1428,6 +1493,77 @@ mod tests {
                 Some("after-reconnect")
             );
         }
+    }
+
+    #[tokio::test]
+    async fn metric_feed_reopen_aborts_prior_scorer() {
+        let addon = AnomalyAddon::new();
+        let (old_tx, old_frames) = metric_feed_stream();
+        let mut old_acks = addon
+            .stream_metric_feed(old_frames)
+            .expect("old metric feed opens");
+
+        old_tx
+            .send(Ok(metric_feed_frame(1, 100.0)))
+            .await
+            .expect("old feed receiver");
+        let old_ack = old_acks
+            .next()
+            .await
+            .expect("old ack item")
+            .expect("old ack ok");
+        assert_eq!(old_ack.acked_feed_id, 1);
+
+        let (new_tx, new_frames) = metric_feed_stream();
+        let mut new_acks = addon
+            .stream_metric_feed(new_frames)
+            .expect("new metric feed opens");
+
+        let old_end = timeout(Duration::from_secs(1), old_acks.next())
+            .await
+            .expect("old ack stream closes after feed replacement");
+        assert!(old_end.is_none(), "old feed ack stream must close");
+        assert!(
+            old_tx.send(Ok(metric_feed_frame(2, 200.0))).await.is_err(),
+            "old feed sender must observe the aborted receiver"
+        );
+
+        new_tx
+            .send(Ok(metric_feed_frame(3, 300.0)))
+            .await
+            .expect("new feed receiver");
+        let new_ack = new_acks
+            .next()
+            .await
+            .expect("new ack item")
+            .expect("new ack ok");
+        assert_eq!(new_ack.acked_feed_id, 3);
+    }
+
+    #[tokio::test]
+    async fn poisoned_engine_mutex_recovers_before_scoring() {
+        let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig {
+            max_series: 7,
+            ..EngineConfig::default()
+        })));
+        let poison_engine = engine.clone();
+
+        let hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let result = std::panic::catch_unwind(move || {
+            let _guard = poison_engine.lock().expect("lock before poison");
+            panic!("poison engine mutex");
+        });
+        std::panic::set_hook(hook);
+        assert!(result.is_err());
+        assert!(engine.lock().is_err(), "test must poison the engine mutex");
+
+        let (tx, _rx) = broadcast::channel(4);
+        process_frame(&engine, &tx, &metric_feed_frame(1, 100.0)).await;
+
+        let guard = engine.lock().expect("process_frame clears engine poison");
+        assert_eq!(guard.series_count(), 1);
+        assert_eq!(guard.max_series(), 7);
     }
 
     #[tokio::test]

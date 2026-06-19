@@ -41,9 +41,9 @@
 - [x] 7.4 Add Rust tests for counter cap, staleness eviction, and that a saturated map still admits a fresh active series after eviction.
 
 ## 8. Edge Feed Task Lifecycle (F10)
-- [ ] 8.1 Make `stream_metric_feed` single-owner: abort/replace any prior scoring task on reopen and track the `JoinHandle`.
-- [ ] 8.2 Recover from a poisoned engine mutex (re-init state) instead of `expect`-panicking all future scoring.
-- [ ] 8.3 Add tests for feed reopen (no double-scoring / no checkpoint race) and panic recovery.
+- [x] 8.1 Make `stream_metric_feed` single-owner: abort/replace any prior scoring task on reopen and track the `JoinHandle`.
+- [x] 8.2 Recover from a poisoned engine mutex (re-init state) instead of `expect`-panicking all future scoring.
+- [x] 8.3 Add tests for feed reopen (no double-scoring / no checkpoint race) and panic recovery.
 
 ## 9. Agent Delivery Self-Healing (F11)
 - [ ] 9.1 Reconnect `drainTelemetry`, `drainArtifacts`, and `metricFeedLifecycle.run` with bounded backoff while the subprocess is alive.

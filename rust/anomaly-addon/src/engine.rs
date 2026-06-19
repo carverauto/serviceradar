@@ -146,6 +146,10 @@ impl DetectorEngine {
         self.config = config;
     }
 
+    pub fn config(&self) -> EngineConfig {
+        self.config.clone()
+    }
+
     pub fn series_count(&self) -> usize {
         self.series.len()
     }
