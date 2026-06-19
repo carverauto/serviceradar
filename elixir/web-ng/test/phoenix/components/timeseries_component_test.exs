@@ -54,6 +54,46 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
     assert html =~ "%"
   end
 
+  test "build carries metric unit from SRQL rows into the panel spec" do
+    response = %{
+      "viz" => %{
+        "suggestions" => [
+          %{"kind" => "timeseries", "x" => "timestamp", "y" => "value", "series" => "metric"}
+        ]
+      },
+      "results" => [
+        %{
+          "timestamp" => "2025-01-01T00:00:00Z",
+          "metric" => "disk.free",
+          "value" => 2048.0,
+          "unit" => "bytes"
+        }
+      ]
+    }
+
+    assert {:ok, %{spec: %{unit: "bytes"}, series_points: [{"disk.free", [_point]}]}} =
+             Timeseries.build(response)
+  end
+
+  test "explicit metric unit is preferred over generic field names" do
+    points = [
+      {~U[2025-01-01 00:00:00Z], 1024.0},
+      {~U[2025-01-01 00:05:00Z], 2048.0}
+    ]
+
+    html =
+      render_component(Timeseries, %{
+        id: "ts-explicit-unit",
+        title: "Disk",
+        panel_assigns: %{chart_mode: :single, rate_mode: :none},
+        spec: %{x: "timestamp", y: "value", series: "label", unit: "bytes"},
+        series_points: [{"disk", points}]
+      })
+
+    assert html =~ "KB"
+    refute html =~ "2048.0"
+  end
+
   test "single-series percent charts use a padded data scale by default" do
     points = [
       {~U[2025-01-01 00:00:00Z], 54.0},

@@ -40,6 +40,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   @impl true
   def build(%{"results" => results, "viz" => viz} = _srql_response) when is_list(results) and is_map(viz) do
     with {:ok, spec} <- parse_timeseries_spec(viz),
+         spec = spec_with_metric_unit(spec, results),
          {:ok, series_points} <- extract_series_points(results, spec) do
       {:ok, %{spec: spec, series_points: series_points}}
     end
@@ -48,6 +49,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   def build(%{"results" => results} = _srql_response) when is_list(results) do
     case infer_timeseries_spec(results) do
       {:ok, spec} ->
+        spec = spec_with_metric_unit(spec, results)
+
         with {:ok, series_points} <- extract_series_points(results, spec) do
           {:ok, %{spec: spec, series_points: series_points}}
         end
@@ -69,10 +72,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     case suggestion do
       %{"x" => x, "y" => y, "series" => series}
       when is_binary(x) and is_binary(y) and is_binary(series) ->
-        {:ok, %{x: x, y: y, series: series}}
+        {:ok, maybe_put_unit(%{x: x, y: y, series: series}, suggestion_unit(suggestion))}
 
       %{"x" => x, "y" => y} when is_binary(x) and is_binary(y) ->
-        {:ok, %{x: x, y: y, series: nil}}
+        {:ok, maybe_put_unit(%{x: x, y: y, series: nil}, suggestion_unit(suggestion))}
 
       _ ->
         {:error, :missing_timeseries_suggestion}
@@ -86,6 +89,48 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       {:timeseries, %{x: x, y: y}} -> {:ok, %{x: x, y: y, series: nil}}
       _ -> {:error, :missing_timeseries}
     end
+  end
+
+  defp spec_with_metric_unit(spec, results) do
+    case explicit_unit_value(spec) || first_row_unit(results) do
+      nil -> spec
+      unit -> maybe_put_unit(spec, unit)
+    end
+  end
+
+  defp suggestion_unit(suggestion) when is_map(suggestion) do
+    Map.get(suggestion, "unit") || Map.get(suggestion, "metric.unit") || Map.get(suggestion, "metric_unit")
+  end
+
+  defp suggestion_unit(_), do: nil
+
+  defp first_row_unit(results) when is_list(results) do
+    Enum.find_value(results, fn
+      row when is_map(row) -> row_unit(row)
+      _ -> nil
+    end)
+  end
+
+  defp first_row_unit(_), do: nil
+
+  defp row_unit(row) when is_map(row) do
+    Enum.find(
+      [
+        Map.get(row, "metric.unit"),
+        Map.get(row, :unit),
+        Map.get(row, "unit"),
+        Map.get(row, "metric_unit"),
+        get_in(row, ["metric", "unit"]),
+        get_in(row, [:metric, :unit])
+      ],
+      &present_unit?/1
+    )
+  end
+
+  defp row_unit(_), do: nil
+
+  defp maybe_put_unit(spec, unit) do
+    if present_unit?(unit), do: Map.put(spec, :unit, unit), else: spec
   end
 
   defp extract_series_points(results, %{x: x, y: y, series: series_key}) do
@@ -718,9 +763,14 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   defp scale_max_for_unit(_), do: nil
 
   defp unit_for_series(series, spec, rate_mode) do
+    explicit_unit = explicit_unit(spec)
+
     cond do
       rate_mode == :counter ->
-        if traffic_series?(series), do: :bytes_per_sec, else: :count_per_sec
+        counter_rate_unit(series, explicit_unit)
+
+      explicit_unit != nil ->
+        explicit_unit
 
       percent_field?(spec) ->
         :percent
@@ -735,6 +785,58 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         :number
     end
   end
+
+  defp explicit_unit(spec) when is_map(spec) do
+    spec
+    |> explicit_unit_value()
+    |> normalize_unit()
+  end
+
+  defp explicit_unit(_), do: nil
+
+  defp explicit_unit_value(spec) when is_map(spec) do
+    Map.get(spec, :unit) || Map.get(spec, "unit") || Map.get(spec, :"metric.unit") ||
+      Map.get(spec, "metric.unit") || Map.get(spec, :metric_unit) || Map.get(spec, "metric_unit")
+  end
+
+  defp explicit_unit_value(_), do: nil
+
+  defp present_unit?(unit) when is_binary(unit), do: String.trim(unit) not in ["", "1"]
+  defp present_unit?(unit) when is_atom(unit), do: unit not in [nil, :number]
+  defp present_unit?({:custom, unit}) when is_binary(unit), do: String.trim(unit) != ""
+  defp present_unit?(_), do: false
+
+  defp normalize_unit(nil), do: nil
+  defp normalize_unit(:number), do: nil
+  defp normalize_unit(unit) when unit in [:percent, :bytes, :bytes_per_sec, :bits_per_sec, :hz, :count_per_sec], do: unit
+  defp normalize_unit({:custom, unit}) when is_binary(unit), do: {:custom, String.trim(unit)}
+
+  defp normalize_unit(unit) when is_atom(unit) do
+    unit
+    |> Atom.to_string()
+    |> normalize_unit()
+  end
+
+  defp normalize_unit(unit) when is_binary(unit) do
+    trimmed = String.trim(unit)
+
+    case String.downcase(trimmed) do
+      value when value in ["", "1"] -> nil
+      value when value in ["%", "percent", "percentage", "pct"] -> :percent
+      value when value in ["b", "by", "byte", "bytes", "octet", "octets"] -> :bytes
+      value when value in ["b/s", "by/s", "byte/s", "bytes/s", "bytes_per_sec", "bytes_per_second"] -> :bytes_per_sec
+      value when value in ["bps", "bit/s", "bits/s", "bits_per_sec", "bits_per_second"] -> :bits_per_sec
+      value when value in ["hz", "hertz"] -> :hz
+      value when value in ["count/s", "counts/s", "count_per_sec", "counts_per_sec", "pps"] -> :count_per_sec
+      _ -> {:custom, trimmed}
+    end
+  end
+
+  defp normalize_unit(_), do: nil
+
+  defp counter_rate_unit(series, :bytes), do: counter_rate_unit(series, :bytes_per_sec)
+  defp counter_rate_unit(_series, unit) when unit in [:bytes_per_sec, :bits_per_sec, :count_per_sec], do: unit
+  defp counter_rate_unit(series, _unit), do: if(traffic_series?(series), do: :bytes_per_sec, else: :count_per_sec)
 
   defp percent_field?(%{y: y}) when is_binary(y), do: String.contains?(y, "percent")
   defp percent_field?(_), do: false
@@ -759,9 +861,11 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     case unit do
       :percent -> "percent"
       :bytes_per_sec -> "bytes_per_sec"
+      :bits_per_sec -> "bits_per_sec"
       :bytes -> "bytes"
       :hz -> "hz"
       :count_per_sec -> "count_per_sec"
+      {:custom, unit} -> unit
       _ -> "number"
     end
   end
@@ -772,9 +876,11 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     case unit do
       :percent -> "#{Float.round(value, 1)}%"
       :bytes_per_sec -> format_bytes_per_sec(value)
+      :bits_per_sec -> format_bits_per_sec(value)
       :bytes -> format_bytes(value)
       :hz -> format_hz(value)
       :count_per_sec -> format_count_per_sec(value)
+      {:custom, unit} -> "#{format_number(value)} #{unit}"
       _ -> format_number(value)
     end
   end
@@ -809,6 +915,24 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     # Negative values (shouldn't happen with rate calc, but just in case)
     "#{Float.round(bps, 2)}"
   end
+
+  defp format_bits_per_sec(bps) when bps >= 1_000_000_000 do
+    "#{Float.round(bps / 1_000_000_000, 2)} Gbps"
+  end
+
+  defp format_bits_per_sec(bps) when bps >= 1_000_000 do
+    "#{Float.round(bps / 1_000_000, 2)} Mbps"
+  end
+
+  defp format_bits_per_sec(bps) when bps >= 1_000 do
+    "#{Float.round(bps / 1_000, 2)} Kbps"
+  end
+
+  defp format_bits_per_sec(bps) when bps >= 0 do
+    "#{Float.round(bps, 1)} bps"
+  end
+
+  defp format_bits_per_sec(bps), do: "#{Float.round(bps, 2)}"
 
   defp format_bytes(bytes) when bytes >= 1_000_000_000 do
     "#{Float.round(bytes / 1_000_000_000, 2)} GB"
