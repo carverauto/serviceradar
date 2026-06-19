@@ -40,7 +40,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
             <div :if={@overview.capacity_error} class="mt-1">{@overview.capacity_error}</div>
           </div>
 
-          <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
             <.metric_status_card :for={status <- @overview.metric_statuses} status={status} />
           </div>
 

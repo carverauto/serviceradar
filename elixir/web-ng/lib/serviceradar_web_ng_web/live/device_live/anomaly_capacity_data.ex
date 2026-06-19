@@ -5,7 +5,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
 
   require Logger
 
-  @metric_classes ~w(cpu memory disk interface red)
+  @metric_classes ~w(cpu memory disk interface snmp red)
   @anomaly_limit 20
   @capacity_limit 8
 
@@ -253,6 +253,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       "cpu_metrics" -> "cpu"
       "disk_metrics" -> "disk"
       "interface_metrics" -> "interface"
+      "snmp" -> "snmp"
       class when class in @metric_classes -> class
       _ -> "red"
     end
@@ -272,6 +273,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp metric_label("memory"), do: "Memory"
   defp metric_label("disk"), do: "Disk"
   defp metric_label("interface"), do: "Interfaces"
+  defp metric_label("snmp"), do: "SNMP"
   defp metric_label("red"), do: "RED"
   defp metric_label(class), do: class
 end

@@ -122,7 +122,7 @@
 - [x] 20.4 Add `title=`/tooltip with full id on truncated resource/series identity.
 - [ ] 20.5 Resolve a human device label for truncated device/resource ids when the row only carries uid-like values.
 - [x] 20.6 Label capacity with units/metric-type/threshold/headroom; hide or aggregate `skipped` rows.
-- [ ] 20.7 Reconcile the metric_class row label vs the RED chip bucketing.
+- [x] 20.7 Reconcile the metric_class row label vs the RED chip bucketing.
 
 ## 21. SNMP Anomaly Target Attribution (F27)
 - [x] 21.1 Edge: prefer `resource.target_device_ip` for non-self SNMP polls when choosing `device_uid`/`series_key` (`addon.rs:857-862`).
