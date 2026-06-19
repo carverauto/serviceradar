@@ -1,21 +1,30 @@
 defmodule ServiceRadarWebNGWeb.BGPLive.IndexTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadarWebNGWeb.BGPLive.Index
 
   describe "bgp_statistics_assigns/1" do
-    test "keeps successful data visible while reporting partial query failures" do
-      assigns =
-        Index.bgp_statistics_assigns(
-          traffic_data: {:ok, [%{as_number: 64_512, bytes: 42_000, flow_count: 7}]},
-          communities: {:error, %{postgres: %{message: "relation missing"}}},
-          topology: {:ok, []}
-        )
+    test "keeps successful data visible while reporting partial query failures without raw reasons" do
+      raw_reason = %{postgres: %{message: "relation platform.bgp_routing_info does not exist"}}
+
+      {assigns, log} =
+        with_log(fn ->
+          Index.bgp_statistics_assigns(
+            traffic_data: {:ok, [%{as_number: 64_512, bytes: 42_000, flow_count: 7}]},
+            communities: {:error, raw_reason},
+            topology: {:ok, []}
+          )
+        end)
 
       assert assigns.has_data
       assert assigns.max_bytes == 42_000
       assert assigns.communities == []
-      assert assigns.bgp_load_error == "top communities failed: relation missing"
+      assert assigns.bgp_load_error == "top communities failed to load - check logs"
+      refute assigns.bgp_load_error =~ "platform.bgp_routing_info"
+      assert log =~ "BGP statistic failed to load"
+      assert log =~ "platform.bgp_routing_info"
     end
 
     test "distinguishes total query failure from no BGP rows" do
@@ -29,7 +38,8 @@ defmodule ServiceRadarWebNGWeb.BGPLive.IndexTest do
       refute assigns.has_data
       assert assigns.traffic_data == []
       assert assigns.traffic_timeseries == %{series: [], data: []}
-      assert assigns.bgp_load_error =~ "traffic by AS failed: :db_unavailable"
+      assert assigns.bgp_load_error =~ "traffic by AS failed to load - check logs"
+      refute assigns.bgp_load_error =~ ":db_unavailable"
 
       empty_state = Index.bgp_empty_state(assigns.bgp_load_error)
 

@@ -27,10 +27,9 @@ defmodule ServiceRadar.BGP.Stats do
     List of maps: `%{as_number: integer, bytes: integer, flow_count: integer}`
   """
   def get_traffic_by_as(time_range \\ "last_1h", source_protocol \\ nil, limit \\ 10) do
-    case get_traffic_by_as_result(time_range, source_protocol, limit) do
-      {:ok, traffic_data} -> traffic_data
-      {:error, _reason} -> []
-    end
+    time_range
+    |> get_traffic_by_as_result(source_protocol, limit)
+    |> unwrap([])
   end
 
   def get_traffic_by_as_result(time_range \\ "last_1h", source_protocol \\ nil, limit \\ 10) do
@@ -86,10 +85,9 @@ defmodule ServiceRadar.BGP.Stats do
     List of maps: `%{community: integer, bytes: integer, flow_count: integer}`
   """
   def get_top_communities(time_range \\ "last_1h", source_protocol \\ nil, limit \\ 10) do
-    case get_top_communities_result(time_range, source_protocol, limit) do
-      {:ok, communities} -> communities
-      {:error, _reason} -> []
-    end
+    time_range
+    |> get_top_communities_result(source_protocol, limit)
+    |> unwrap([])
   end
 
   def get_top_communities_result(time_range \\ "last_1h", source_protocol \\ nil, limit \\ 10) do
@@ -154,10 +152,9 @@ defmodule ServiceRadar.BGP.Stats do
     ```
   """
   def get_path_diversity(time_range \\ "last_1h", source_protocol \\ nil) do
-    case get_path_diversity_result(time_range, source_protocol) do
-      {:ok, path_diversity} -> path_diversity
-      {:error, _reason} -> %{unique_paths: 0, avg_path_length: 0.0, hop_distribution: %{}}
-    end
+    time_range
+    |> get_path_diversity_result(source_protocol)
+    |> unwrap(%{unique_paths: 0, avg_path_length: 0.0, hop_distribution: %{}})
   end
 
   def get_path_diversity_result(time_range \\ "last_1h", source_protocol \\ nil) do
@@ -224,10 +221,9 @@ defmodule ServiceRadar.BGP.Stats do
     List of edges: `%{from_as: integer, to_as: integer, bytes: integer}`
   """
   def get_as_topology(time_range \\ "last_1h", source_protocol \\ nil, limit \\ 50) do
-    case get_as_topology_result(time_range, source_protocol, limit) do
-      {:ok, topology} -> topology
-      {:error, _reason} -> []
-    end
+    time_range
+    |> get_as_topology_result(source_protocol, limit)
+    |> unwrap([])
   end
 
   def get_as_topology_result(time_range \\ "last_1h", source_protocol \\ nil, limit \\ 50) do
@@ -292,10 +288,9 @@ defmodule ServiceRadar.BGP.Stats do
     List of maps: `%{as_path: [integer], path_length: integer, bytes: integer, packets: integer, flow_count: integer}`
   """
   def get_as_path_details(time_range \\ "last_1h", source_protocol \\ nil, limit \\ 50) do
-    case get_as_path_details_result(time_range, source_protocol, limit) do
-      {:ok, paths} -> paths
-      {:error, _reason} -> []
-    end
+    time_range
+    |> get_as_path_details_result(source_protocol, limit)
+    |> unwrap([])
   end
 
   def get_as_path_details_result(time_range \\ "last_1h", source_protocol \\ nil, limit \\ 50) do
@@ -335,10 +330,9 @@ defmodule ServiceRadar.BGP.Stats do
     List of maps: `%{sampler_address: string, bytes: integer, flow_count: integer, observation_count: integer}`
   """
   def get_data_sources(time_range \\ "last_1h") do
-    case get_data_sources_result(time_range) do
-      {:ok, sources} -> sources
-      {:error, _reason} -> []
-    end
+    time_range
+    |> get_data_sources_result()
+    |> unwrap([])
   end
 
   def get_data_sources_result(time_range \\ "last_1h") do
@@ -387,10 +381,9 @@ defmodule ServiceRadar.BGP.Stats do
     Map with keys: `:series` (list of AS numbers), `:data` (list of time buckets with values per AS)
   """
   def get_traffic_timeseries(time_range \\ "last_1h", source_protocol \\ nil, top_n \\ 5) do
-    case get_traffic_timeseries_result(time_range, source_protocol, top_n) do
-      {:ok, timeseries} -> timeseries
-      {:error, _reason} -> %{series: [], data: []}
-    end
+    time_range
+    |> get_traffic_timeseries_result(source_protocol, top_n)
+    |> unwrap(%{series: [], data: []})
   end
 
   def get_traffic_timeseries_result(time_range \\ "last_1h", source_protocol \\ nil, top_n \\ 5) do
@@ -442,10 +435,9 @@ defmodule ServiceRadar.BGP.Stats do
     List of maps: `%{prefix: string, as_number: integer, bytes: integer, flow_count: integer}`
   """
   def get_prefix_analysis(time_range \\ "last_1h", source_protocol \\ nil, limit \\ 20) do
-    case get_prefix_analysis_result(time_range, source_protocol, limit) do
-      {:ok, prefixes} -> prefixes
-      {:error, _reason} -> []
-    end
+    time_range
+    |> get_prefix_analysis_result(source_protocol, limit)
+    |> unwrap([])
   end
 
   def get_prefix_analysis_result(time_range \\ "last_1h", source_protocol \\ nil, limit \\ 20) do
@@ -493,6 +485,9 @@ defmodule ServiceRadar.BGP.Stats do
 
   defp map_query_result({:ok, %{rows: rows}}, mapper), do: {:ok, mapper.(rows)}
   defp map_query_result({:error, reason}, _mapper), do: {:error, reason}
+
+  defp unwrap({:ok, value}, _fallback), do: value
+  defp unwrap({:error, _reason}, fallback), do: fallback
 
   defp build_protocol_filter(nil, params), do: {"", params}
 
