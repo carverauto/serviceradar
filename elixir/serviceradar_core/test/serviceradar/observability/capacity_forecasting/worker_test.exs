@@ -551,7 +551,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert attrs.metadata["raw_value_unit"] == "bytes_per_second"
   end
 
-  test "interface forecasts drop SNMP counter-wrap spikes instead of projecting impossible utilization" do
+  test "interface forecasts insert a gap for SNMP counter-wrap spikes" do
     source = interface_source()
 
     resolver = fn _row, _opts ->
@@ -578,11 +578,14 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
 
     assert_received {:capacity_forecast_interface, attrs}
 
-    # With the wrap sample dropped, the projection stays in the real ~10% range — never an
-    # 8e8% value, and no millennia-out / past-dated exhaustion.
-    assert attrs.status == "projected"
-    assert attrs.projected_value < 100.0
-    assert attrs.current_value < 100.0
+    # The wrap bucket becomes a gap, so the model does not stitch together the
+    # pre-wrap and post-wrap segments as one continuous time series.
+    assert attrs.status == "skipped"
+    assert attrs.skip_reason == "insufficient_history"
+    assert attrs.sample_count == 23
+    assert attrs.current_value == nil
+    assert attrs.metadata["gap_count"] == 1
+    assert attrs.window_started_at == ~U[2026-06-02 01:00:00Z]
   end
 
   test "interface forecasts are skipped when live speed is missing" do
