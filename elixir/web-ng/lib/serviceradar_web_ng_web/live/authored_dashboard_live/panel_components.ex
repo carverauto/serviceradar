@@ -642,6 +642,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
 
     values =
       rows
+      |> trend_ordered_rows(fields)
       |> Enum.map(fn row -> numeric(Map.get(row, value_key)) end)
       |> Enum.reject(&is_nil/1)
 
@@ -674,6 +675,31 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
   end
 
   defp trend_summary(_trend, _panel), do: nil
+
+  defp trend_ordered_rows(rows, fields) do
+    case first_field_of_type(fields, :datetime) do
+      nil -> rows
+      time_key -> Enum.sort_by(rows, &datetime_sort_key(Map.get(&1, time_key)))
+    end
+  end
+
+  defp datetime_sort_key(%DateTime{} = value), do: {0, DateTime.to_unix(value, :microsecond)}
+  defp datetime_sort_key(%NaiveDateTime{} = value), do: {0, NaiveDateTime.to_gregorian_seconds(value)}
+  defp datetime_sort_key(%Date{} = value), do: {0, Date.to_gregorian_days(value)}
+
+  defp datetime_sort_key(value) when is_binary(value) do
+    with {:error, _reason} <- DateTime.from_iso8601(value),
+         {:error, _reason} <- NaiveDateTime.from_iso8601(value),
+         {:ok, date} <- Date.from_iso8601(value) do
+      datetime_sort_key(date)
+    else
+      {:ok, datetime, _offset} -> datetime_sort_key(datetime)
+      {:ok, naive_datetime} -> datetime_sort_key(naive_datetime)
+      {:error, _reason} -> {1, 0}
+    end
+  end
+
+  defp datetime_sort_key(_value), do: {1, 0}
 
   defp trend_summary_text(%{"percent_delta" => percent_delta, "label" => label, "text" => text})
        when is_number(percent_delta) do

@@ -196,7 +196,7 @@
 - [x] 34.3 Add tests proving a view-only user cannot rewrite a panel's collection/filters via a variable.
 
 ## 35. Authored-Panel Readout Correctness (F41)
-- [ ] 35.1 Fix the Stat/Count trend to compare true first/last by enforced time sort (correct arrow + delta sign).
+- [x] 35.1 Fix the Stat/Count trend to compare true first/last by enforced time sort (correct arrow + delta sign).
 - [ ] 35.2 Fix KPI sparklines to select the most-recent buckets (`ORDER BY bucket DESC LIMIT N` then reverse).
 - [ ] 35.3 Compute pivot/stat aggregations server-side over the full result, not the 250-row client-truncated set; stop type-inferring from a 100-row sample.
 
