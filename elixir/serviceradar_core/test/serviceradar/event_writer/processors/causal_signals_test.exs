@@ -53,6 +53,23 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
     end
   end
 
+  describe "causal prediction OCSF upsert contract" do
+    test "replaces mutable payload columns without mutating the conflict key" do
+      replace_fields = CausalSignals.causal_prediction_ocsf_event_replace_fields()
+
+      refute :id in replace_fields
+      refute :time in replace_fields
+
+      assert :severity_id in replace_fields
+      assert :severity in replace_fields
+      assert :message in replace_fields
+      assert :status in replace_fields
+      assert :metadata in replace_fields
+      assert :unmapped in replace_fields
+      assert :raw_data in replace_fields
+    end
+  end
+
   describe "parse_message/1" do
     test "normalizes BMP payload into causal envelope row" do
       payload = %{
