@@ -53,4 +53,44 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
 
     assert html =~ "%"
   end
+
+  test "scales numeric y axis to the data band instead of forcing zero" do
+    points = [
+      {~U[2025-01-01 00:00:00Z], 80.0},
+      {~U[2025-01-01 00:05:00Z], 85.0},
+      {~U[2025-01-01 00:10:00Z], 90.0}
+    ]
+
+    html =
+      render_component(Timeseries, %{
+        id: "ts-band",
+        title: "Narrow band",
+        panel_assigns: %{chart_mode: :single, rate_mode: :none},
+        spec: %{x: "timestamp", y: "gauge_value", series: "label"},
+        series_points: [{"gauge", points}]
+      })
+
+    assert html =~ "79.5"
+    assert html =~ "90.5"
+  end
+
+  test "supports opt-in log scale for timeseries panels" do
+    points = [
+      {~U[2025-01-01 00:00:00Z], 1.0},
+      {~U[2025-01-01 00:05:00Z], 10.0},
+      {~U[2025-01-01 00:10:00Z], 100.0}
+    ]
+
+    html =
+      render_component(Timeseries, %{
+        id: "ts-log",
+        title: "Log scale",
+        panel_assigns: %{chart_mode: :single, rate_mode: :none, scale_mode: :log},
+        spec: %{x: "timestamp", y: "gauge_value", series: "label"},
+        series_points: [{"gauge", points}]
+      })
+
+    assert html =~ "2.51"
+    assert html =~ "39.81"
+  end
 end
