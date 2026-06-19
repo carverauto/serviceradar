@@ -1,5 +1,7 @@
 import * as d3 from "d3"
 
+import {ensureTooltip, escapeHtml} from "../../netflow_charts/util"
+
 export default {
   mounted() {
     this.renderChart()
@@ -7,17 +9,26 @@ export default {
   updated() {
     this.renderChart()
   },
+  destroyed() {
+    try {
+      this._tooltipCleanup?.()
+    } catch (_e) {}
+  },
   renderChart() {
     const series = JSON.parse(this.el.dataset.series || "[]")
     const data = JSON.parse(this.el.dataset.data || "[]")
 
     if (!series.length || !data.length) return
 
+    try {
+      this._tooltipCleanup?.()
+    } catch (_e) {}
+
     this.el.innerHTML = ""
 
     const margin = { top: 20, right: 120, bottom: 30, left: 60 }
-    const width = this.el.clientWidth - margin.left - margin.right
-    const height = this.el.clientHeight - margin.top - margin.bottom
+    const width = Math.max(1, this.el.clientWidth - margin.left - margin.right)
+    const height = Math.max(1, this.el.clientHeight - margin.top - margin.bottom)
 
     const svg = d3
       .select(this.el)
@@ -28,6 +39,7 @@ export default {
       .attr("transform", `translate(${margin.left},${margin.top})`)
 
     const times = data.map((d) => new Date(d.time))
+    const rows = data.map((d, i) => ({...d, t: times[i]}))
     const x = d3.scaleTime().domain(d3.extent(times)).range([0, width])
 
     const allValues = data.flatMap((d) => Object.values(d.values))
@@ -85,5 +97,66 @@ export default {
         .style("font-size", "12px")
         .attr("fill", "currentColor")
     })
+
+    const hover = svg.append("g").attr("pointer-events", "none").style("display", "none")
+    hover
+      .append("line")
+      .attr("y1", 0)
+      .attr("y2", height)
+      .attr("stroke", "currentColor")
+      .attr("stroke-opacity", 0.35)
+      .attr("stroke-width", 1)
+      .attr("stroke-dasharray", "3,3")
+
+    const tooltip = ensureTooltip(this.el)
+    const bisect = d3.bisector((d) => d.t).center
+
+    const hideTooltip = () => {
+      tooltip.classList.add("hidden")
+      hover.style("display", "none")
+    }
+
+    const onMove = (event) => {
+      const rect = this.el.getBoundingClientRect()
+      const plotX = Math.max(0, Math.min(width, event.clientX - rect.left - margin.left))
+      const row = rows[bisect(rows, x.invert(plotX))]
+      if (!row) {
+        hideTooltip()
+        return
+      }
+
+      const lineX = x(row.t)
+      hover.style("display", null)
+      hover.select("line").attr("x1", lineX).attr("x2", lineX)
+
+      const lines = series
+        .slice(0, 8)
+        .map((asNumber) => {
+          const value = Number(row.values?.[asNumber] || 0)
+          return `<div class="flex items-center justify-between gap-3"><span>${escapeHtml(
+            `AS ${asNumber}`
+          )}</span><span class="font-mono">${escapeHtml(value.toFixed(0))}</span></div>`
+        })
+        .join("")
+
+      tooltip.innerHTML = `${lines}<div class="mt-1 text-[10px] text-base-content/60 font-mono">${escapeHtml(
+        row.t instanceof Date ? row.t.toISOString() : String(row.t || "")
+      )}</div>`
+      tooltip.classList.remove("hidden")
+
+      const pad = 8
+      const ttRect = tooltip.getBoundingClientRect()
+      const left = margin.left + lineX + 12
+      const maxLeft = rect.width - (ttRect.width || 180) - pad
+      tooltip.style.left = `${Math.max(pad, Math.min(maxLeft, left))}px`
+      tooltip.style.top = `${Math.max(pad, Math.min(rect.height - 48, event.clientY - rect.top - 12))}px`
+    }
+
+    this.el.addEventListener("mousemove", onMove)
+    this.el.addEventListener("mouseleave", hideTooltip)
+    this._tooltipCleanup = () => {
+      this.el.removeEventListener("mousemove", onMove)
+      this.el.removeEventListener("mouseleave", hideTooltip)
+    }
   },
 }
