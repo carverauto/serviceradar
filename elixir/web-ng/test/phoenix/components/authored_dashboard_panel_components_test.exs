@@ -30,7 +30,27 @@ defmodule ServiceRadarWebNGWeb.Components.AuthoredDashboardPanelComponentsTest d
       })
 
     assert html =~ "+50.0%"
-    assert html =~ "50 -&gt; 75 (+25)"
+    assert html =~ "50.00 -&gt; 75.00 (+25.00)"
     refute html =~ "75 -&gt; 50"
+  end
+
+  test "stat aggregates all returned rows for bound value fields" do
+    html =
+      render_component(&PanelComponents.render_visual/1, %{
+        panel: %{
+          id: "panel-1",
+          visual_type: :stat,
+          title: "Total Services",
+          data_binding: %{"value_field" => "value", "aggregate" => "sum"},
+          display_config: %{"label" => "Total Services"},
+          visual_config: %{}
+        },
+        rows: [%{"value" => 10}, %{"value" => 15}, %{"value" => 20}],
+        fields: [%{name: "value", type: :number}],
+        trend: nil
+      })
+
+    assert html =~ "45.00"
+    refute html =~ "10.00"
   end
 end

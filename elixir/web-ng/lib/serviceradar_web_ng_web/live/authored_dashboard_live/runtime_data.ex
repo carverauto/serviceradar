@@ -6,6 +6,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.RuntimeData do
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.AccessControls
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.DashboardVariables
 
+  @preview_limit 250
+  @aggregate_render_limit 10_000
+
   def load_dashboard(scope, dashboard_id, current_variable_values, access_assigns) do
     with {:ok, %AuthoredDashboard{} = dashboard} <-
            Dashboards.get_authored_dashboard(scope, dashboard_id, load: [:panels, :report_schedules]) do
@@ -39,7 +42,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.RuntimeData do
 
   def preview_panel_query(scope, panel, variable_values, variables \\ []) do
     query = DashboardVariables.substitute(panel.srql_query, variable_values, variables)
-    Dashboards.preview_authored_query(scope, query, limit: 250)
+    limit = panel_render_limit(panel)
+    Dashboards.preview_authored_query(scope, query, limit: limit, max_limit: limit)
   end
 
   def preview_trend_query(scope, panel, variable_values, variables \\ []) do
@@ -51,7 +55,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.RuntimeData do
     case query do
       value when is_binary(value) and value != "" ->
         Dashboards.preview_authored_query(scope, DashboardVariables.substitute(value, variable_values, variables),
-          limit: 250
+          limit: @preview_limit,
+          max_limit: @preview_limit
         )
 
       _ ->
@@ -68,4 +73,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.RuntimeData do
 
   def default_clone_target_id([target | _]), do: target.id
   def default_clone_target_id(_targets), do: ""
+
+  defp panel_render_limit(%{visual_type: visual_type})
+       when visual_type in [:stat, "stat", :count, "count", :pivot, "pivot"], do: @aggregate_render_limit
+
+  defp panel_render_limit(_panel), do: @preview_limit
 end

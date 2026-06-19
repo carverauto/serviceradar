@@ -19,7 +19,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardExportController do
            Dashboards.preview_authored_query(
              scope,
              DashboardVariables.substitute(panel.srql_query, safe_values, variables),
-             limit: @export_limit
+             limit: @export_limit,
+             max_limit: @export_limit
            ) do
       conn
       |> put_resp_content_type("text/csv")

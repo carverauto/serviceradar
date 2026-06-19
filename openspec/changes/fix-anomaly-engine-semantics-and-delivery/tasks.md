@@ -198,7 +198,7 @@
 ## 35. Authored-Panel Readout Correctness (F41)
 - [x] 35.1 Fix the Stat/Count trend to compare true first/last by enforced time sort (correct arrow + delta sign).
 - [x] 35.2 Fix KPI sparklines to select the most-recent buckets (`ORDER BY bucket DESC LIMIT N` then reverse).
-- [ ] 35.3 Compute pivot/stat aggregations server-side over the full result, not the 250-row client-truncated set; stop type-inferring from a 100-row sample.
+- [x] 35.3 Compute pivot/stat aggregations server-side over the full result, not the 250-row client-truncated set; stop type-inferring from a 100-row sample.
 
 ## 36. Dashboard Table & Topology Plugins (F42)
 - [ ] 36.1 Table plugin: server-side pagination/cap + sort; preserve authored SELECT column order; format numeric cells (units/separators).

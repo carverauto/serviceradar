@@ -36,6 +36,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   @default_limit 50
   @max_limit 200
   @preview_limit 100
+  @render_limit 10_000
   @default_panel_time_window "last_24h"
   @default_timezone "UTC"
   @max_panel_refresh_interval_seconds 86_400
@@ -868,7 +869,8 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   def preview_query(scope, srql_query, opts) when is_binary(srql_query) do
     query = String.trim(srql_query)
-    limit = opts |> Keyword.get(:limit, @preview_limit) |> normalize_limit()
+    max_limit = opts |> Keyword.get(:max_limit, @max_limit) |> normalize_limit(@render_limit)
+    limit = opts |> Keyword.get(:limit, @preview_limit) |> normalize_limit(max_limit)
     srql_module = Keyword.get(opts, :srql_module, srql_module())
 
     if query == "" do
@@ -879,7 +881,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
       case srql_module.query(bounded_query, %{scope: scope, limit: limit}) do
         {:ok, %{"results" => results} = response} ->
           rows = normalize_rows(results)
-          fields = infer_fields(rows)
+          fields = infer_fields(rows, Map.get(response, "viz"))
 
           {:ok,
            %{
@@ -1011,8 +1013,23 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
     dimension_count >= 2 and has_numeric?
   end
 
-  @spec infer_fields([map()]) :: [map()]
-  def infer_fields(rows) when is_list(rows) do
+  @spec infer_fields([map()], map() | nil) :: [map()]
+  def infer_fields(rows, viz \\ nil)
+
+  def infer_fields(rows, viz) when is_list(rows) do
+    viz_fields = fields_from_viz(viz, rows)
+
+    row_fields =
+      rows
+      |> infer_fields_from_rows()
+      |> Enum.reject(fn field -> Enum.any?(viz_fields, &(&1.name == field.name)) end)
+
+    viz_fields ++ row_fields
+  end
+
+  def infer_fields(_rows, _viz), do: []
+
+  defp infer_fields_from_rows(rows) when is_list(rows) do
     rows
     |> Enum.filter(&is_map/1)
     |> Enum.flat_map(&Map.keys/1)
@@ -1035,7 +1052,49 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
     end)
   end
 
-  def infer_fields(_rows), do: []
+  defp fields_from_viz(%{"columns" => columns}, rows) when is_list(columns),
+    do: Enum.map(columns, &field_from_viz_column(&1, rows))
+
+  defp fields_from_viz(%{columns: columns}, rows) when is_list(columns),
+    do: Enum.map(columns, &field_from_viz_column(&1, rows))
+
+  defp fields_from_viz(_viz, _rows), do: []
+
+  defp field_from_viz_column(column, rows) when is_map(column) do
+    name = column |> fetch_value([:name, "name"]) |> to_string()
+    type = column |> fetch_value([:type, "type"]) |> viz_type()
+    values = values_for(rows, name)
+
+    %{
+      id: name,
+      name: name,
+      type: type,
+      sample: Enum.find(values, &present?/1),
+      json_paths: json_paths(values),
+      aggregate_compatible: type == :number,
+      compatible_aggregations: compatible_aggregations(type)
+    }
+  end
+
+  defp viz_type(value) when is_atom(value), do: value |> Atom.to_string() |> viz_type()
+
+  defp viz_type(value) when is_binary(value) do
+    case value do
+      "bool" -> :boolean
+      "boolean" -> :boolean
+      "float" -> :number
+      "int" -> :number
+      "integer" -> :number
+      "timestamptz" -> :datetime
+      "timestamp" -> :datetime
+      "jsonb" -> :object
+      "text_array" -> :array
+      "int_array" -> :array
+      _ -> :string
+    end
+  end
+
+  defp viz_type(_value), do: :string
 
   defp json_paths(values) do
     values
@@ -1589,16 +1648,17 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   defp normalize_existing_atoms(value, allowed), do: normalize_existing_atoms([value], allowed)
 
-  defp normalize_limit(value) when is_integer(value), do: value |> max(1) |> min(@max_limit)
+  defp normalize_limit(value, max_limit \\ @max_limit)
+  defp normalize_limit(value, max_limit) when is_integer(value), do: value |> max(1) |> min(max_limit)
 
-  defp normalize_limit(value) when is_binary(value) do
+  defp normalize_limit(value, max_limit) when is_binary(value) do
     case Integer.parse(String.trim(value)) do
-      {int, ""} -> normalize_limit(int)
+      {int, ""} -> normalize_limit(int, max_limit)
       _ -> @default_limit
     end
   end
 
-  defp normalize_limit(_value), do: @default_limit
+  defp normalize_limit(_value, _max_limit), do: @default_limit
 
   defp visual_types do
     Enum.map(@visuals, & &1.type)
