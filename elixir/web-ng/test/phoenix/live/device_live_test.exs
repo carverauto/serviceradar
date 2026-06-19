@@ -1567,6 +1567,73 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "normal"
   end
 
+  test "sysmon metric sections carry anomaly annotations and selected finding marker" do
+    section = %{
+      key: "cpu",
+      panels: [
+        %{
+          id: "cpu",
+          assigns: %{series_points: [{"CPU0", []}, {"CPU1", []}]}
+        }
+      ]
+    }
+
+    row = %{
+      "time" => "2026-06-19T12:05:00Z",
+      "severity" => "High",
+      "metric_name" => "cpu.usage_percent",
+      "message" => "CPU saturation anomaly",
+      "metadata" => %{
+        "source_identity" => %{"series_key" => "sysmon.cpu:host:CPU1"}
+      }
+    }
+
+    [%{panels: [%{assigns: assigns}]}] =
+      SysmonMetrics.annotate_metric_sections([section], %{anomaly_rows: [row]}, row)
+
+    assert [
+             %{
+               dt: "2026-06-19T12:05:00Z",
+               label: "Selected: CPU saturation anomaly",
+               severity: "High",
+               series: "CPU1"
+             },
+             %{
+               dt: "2026-06-19T12:05:00Z",
+               label: "CPU saturation anomaly",
+               severity: "High",
+               series: "CPU1"
+             }
+           ] = assigns.annotations
+  end
+
+  test "sysmon anomaly annotations remain visible when panel has no matching series" do
+    section = %{
+      key: "cpu",
+      panels: [
+        %{
+          id: "cpu",
+          assigns: %{series_points: [{"avg", []}]}
+        }
+      ]
+    }
+
+    row = %{
+      "time" => "2026-06-19T12:05:00Z",
+      "severity" => "warning",
+      "metric_name" => "cpu.usage_percent",
+      "message" => "CPU saturation anomaly",
+      "metadata" => %{
+        "source_identity" => %{"series_key" => "sysmon.cpu:host:CPU1"}
+      }
+    }
+
+    [%{panels: [%{assigns: assigns}]}] =
+      SysmonMetrics.annotate_metric_sections([section], %{anomaly_rows: [row]})
+
+    assert [%{label: "CPU saturation anomaly", series: nil}] = assigns.annotations
+  end
+
   test "logs sysmon process metric SRQL failures" do
     Application.put_env(:serviceradar_web_ng, :device_live_srql_responder, fn query, _opts ->
       assert query =~ "in:timeseries_metrics"
