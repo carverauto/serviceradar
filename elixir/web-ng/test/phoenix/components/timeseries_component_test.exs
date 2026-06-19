@@ -328,8 +328,26 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
       })
 
     assert error_html =~ "Chart query failed"
-    assert error_html =~ "SRQL timeout while loading samples"
+    assert error_html =~ "The chart query failed before returning usable data."
+    refute error_html =~ "SRQL timeout while loading samples"
     assert error_html =~ "border-error"
+
+    safe_detail_html =
+      render_component(Timeseries, %{
+        id: "ts-query-error-safe-detail",
+        title: "Query error",
+        panel_assigns: %{
+          chart_mode: :single,
+          rate_mode: :none,
+          empty_state: :query_error,
+          empty_detail: "Could not load metric samples for this chart.",
+          error_message: "SRQL timeout while loading samples"
+        },
+        series_points: []
+      })
+
+    assert safe_detail_html =~ "Could not load metric samples for this chart."
+    refute safe_detail_html =~ "SRQL timeout while loading samples"
 
     disabled_html =
       render_component(Timeseries, %{

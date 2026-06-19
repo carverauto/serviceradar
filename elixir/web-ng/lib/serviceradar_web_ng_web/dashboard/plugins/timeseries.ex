@@ -1167,7 +1167,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         empty_state_detail(
           assigns,
           panel_assigns,
-          empty_state_error(assigns, panel_assigns) || "The chart query failed before returning usable data."
+          "The chart query failed before returning usable data."
         ),
       link_href: empty_state_link_href(assigns, panel_assigns),
       link_label: empty_state_link_label(assigns, panel_assigns)

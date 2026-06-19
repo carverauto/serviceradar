@@ -1533,12 +1533,18 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         }
 
       {:error, reason} ->
+        Logger.warning("Interface metrics failed to load",
+          device_uid: device_uid,
+          if_index: if_index,
+          reason: inspect(reason)
+        )
+
         %{
           panels: [
             interface_metrics_empty_panel(
               :query_error,
               "Metrics query failed",
-              "Failed to load SNMP metrics for this interface: #{inspect(reason)}"
+              "SNMP metric samples could not be loaded for this interface. Check logs and SNMP settings."
             )
           ],
           error: nil,
