@@ -382,15 +382,9 @@ fn validate_other_rollup_request(
         ));
     }
 
-    let stats = ast.stats.as_ref().ok_or_else(|| {
+    ast.stats.as_ref().ok_or_else(|| {
         ServiceError::InvalidRequest("other:true requires a grouped stats query".into())
     })?;
-
-    if !stats.as_raw().to_lowercase().contains(" by ") {
-        return Err(ServiceError::InvalidRequest(
-            "other:true requires grouped stats with a by clause".into(),
-        ));
-    }
 
     if requested_limit.is_none() {
         return Err(ServiceError::InvalidRequest(
