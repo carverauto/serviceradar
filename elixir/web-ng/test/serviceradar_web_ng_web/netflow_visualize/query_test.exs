@@ -3,9 +3,9 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.QueryTest do
 
   alias ServiceRadarWebNGWeb.NetflowVisualize.Query
 
-  test "load_sankey leaves limiting to the render bucketing layer" do
+  test "load_sankey asks SRQL for an Other rollup and renders the tail row" do
     result =
-      Query.load_sankey(SRQLStub, "in:flows time:last_1h limit:10", %{test_pid: self()},
+      Query.load_sankey(__MODULE__.SRQLStub, "in:flows time:last_1h limit:10", %{test_pid: self()},
         prefix: 24,
         dims: ["src_cidr", "dst_port", "dst_cidr"],
         max_edges: 1
@@ -14,8 +14,13 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.QueryTest do
     assert_receive {:srql_query, query}
     assert query =~ ~s|stats:"sum(bytes_total) as total_bytes by src_cidr:24, dst_endpoint_port, dst_cidr:24"|
     assert query =~ "sort:total_bytes:desc"
-    refute query =~ "limit:"
-    assert length(result.edges) == 3
+    assert query =~ "limit:1"
+    assert query =~ "other:true"
+
+    assert [
+             %{src: "10.0.0.0/24", mid: "https", dst: "198.51.100.0/24", bytes: 300},
+             %{src: "Other (src)", mid: "Other", dst: "Other (dst)", bytes: 300}
+           ] = result.edges
   end
 
   defmodule SRQLStub do
@@ -34,16 +39,11 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.QueryTest do
              "total_bytes" => 300
            },
            %{
-             "src_cidr" => "10.0.1.0/24",
-             "dst_endpoint_port" => 53,
-             "dst_cidr" => "203.0.113.0/24",
-             "total_bytes" => 200
-           },
-           %{
-             "src_cidr" => "10.0.2.0/24",
-             "dst_endpoint_port" => 22,
-             "dst_cidr" => "192.0.2.0/24",
-             "total_bytes" => 100
+             "__other__" => true,
+             "src_cidr" => nil,
+             "dst_endpoint_port" => nil,
+             "dst_cidr" => nil,
+             "total_bytes" => 300
            }
          ]
        }}
