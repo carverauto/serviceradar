@@ -303,6 +303,59 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
              )
   end
 
+  test "worker fails loudly when SRQL rows omit profile columns" do
+    event = [:serviceradar, :observability, :seasonal_disposition, :source]
+    handler_id = {:seasonal_profile_error, make_ref()}
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      event,
+      fn ^event, measurements, metadata, _config ->
+        send(test_pid, {handler_id, measurements, metadata})
+      end,
+      nil
+    )
+
+    rows = [
+      %{
+        "series" => "svc/cpu/missing-profile",
+        "dow" => 0,
+        "hod" => 3,
+        "sample_value" => 42.0,
+        "bucket" => @bucket_at
+      }
+    ]
+
+    log =
+      try do
+        capture_log(fn ->
+          assert {:error, {:seasonal_profile_columns_missing, missing}} =
+                   Worker.run(job(),
+                     sources: [source()],
+                     runner: make_runner(rows),
+                     verdict_emitter: TestEmitter,
+                     test_pid: self()
+                   )
+
+          assert "bucket_count" in missing
+          assert "bucket_sum" in missing
+          assert "bucket_sum_sq" in missing
+        end)
+      after
+        :telemetry.detach(handler_id)
+      end
+
+    assert log =~ "Seasonal disposition profile rows missing required columns"
+    refute_received {:seasonal_verdict, _}
+
+    assert_receive {^handler_id, measurements,
+                    %{source: "cpu_seasonal", phase: :profile, result: :error} = metadata}
+
+    assert measurements.rows == 0
+    assert metadata.reason_class == "seasonal_profile_columns_missing"
+  end
+
   defmodule PagedRunner do
     @moduledoc false
     def query_page(query, opts) do
