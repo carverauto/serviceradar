@@ -23,10 +23,10 @@
 - [x] 4.4 Add tests proving canonical re-keying updates finding identity consistently.
 
 ## 5. Seasonal State
-- [ ] 5.1 Add production persistence for seasonal confirmation counters keyed by source, series, day-of-week, and hour-of-day.
-- [ ] 5.2 Load persisted counters before NIF evaluation and write returned counters after each pass.
-- [ ] 5.3 Add restart/multi-run tests showing `confirm_slots > 1` can surface a sustained seasonal breach.
-- [ ] 5.4 Add cleanup/TTL for stale seasonal state keys.
+- [x] 5.1 Add production persistence for seasonal confirmation counters keyed by source, series, day-of-week, and hour-of-day.
+- [x] 5.2 Load persisted counters before NIF evaluation and write returned counters after each pass.
+- [x] 5.3 Add restart/multi-run tests showing `confirm_slots > 1` can surface a sustained seasonal breach.
+- [x] 5.4 Add cleanup/TTL for stale seasonal state keys.
 
 ## 6. Configuration
 - [ ] 6.1 Decide and implement the operator tuning path for edge spike detector params.
