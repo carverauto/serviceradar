@@ -151,7 +151,7 @@
 ## 25. Chart Scale & Units (F31)
 - [ ] 25.1 Scale Y to the data band (min..max + padding) instead of a hardcoded 0 floor; add an opt-in log scale (`timeseries.ex:186-221,378-384`).
 - [ ] 25.2 Thread `metric.unit` from the SRQL row into the panel spec and prefer it over field-name inference (`timeseries.ex:91-126,685-711`).
-- [ ] 25.3 Add y ticks/gridlines/labels to NetFlow grid + BGP + stacked-area charts.
+- [x] 25.3 Add y ticks/gridlines/labels to NetFlow grid + BGP + stacked-area charts.
 
 ## 26. NetFlow Traffic Correctness (F32)
 - [ ] 26.1 Carry `sampling_rate` into flow rows and weight every byte/packet sum by it (Total Bandwidth, Top-N, gauges, p95, subnet).

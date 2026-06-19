@@ -1,6 +1,7 @@
 import * as d3 from "d3"
 
 import {ensureTooltip, escapeHtml} from "../../netflow_charts/util"
+import {yGridTicks} from "../../utils/chart_axis_grid"
 
 export function bgpSeriesValue(row, asNumber) {
   const raw = row?.values?.[asNumber]
@@ -60,11 +61,26 @@ export default {
       .range([height, 0])
 
     const color = d3.scaleOrdinal(d3.schemeCategory10)
+    const yTicks = yGridTicks(y, 4)
 
     svg
       .append("g")
       .attr("transform", `translate(0,${height})`)
       .call(d3.axisBottom(x))
+
+    svg
+      .append("g")
+      .attr("pointer-events", "none")
+      .selectAll("line")
+      .data(yTicks)
+      .join("line")
+      .attr("x1", 0)
+      .attr("x2", width)
+      .attr("y1", (d) => y(d))
+      .attr("y2", (d) => y(d))
+      .attr("stroke", "currentColor")
+      .attr("stroke-opacity", 0.12)
+      .attr("stroke-width", 1)
 
     svg.append("g").call(d3.axisLeft(y))
 

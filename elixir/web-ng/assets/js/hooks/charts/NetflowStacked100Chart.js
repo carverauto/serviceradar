@@ -10,6 +10,7 @@ import {
   fmtPct as nfFmtPct,
   parseSeriesData as nfParseSeriesData,
 } from "../../netflow_charts/util"
+import {yGridTicks} from "../../utils/chart_axis_grid"
 
 export default {
   mounted() {
@@ -90,6 +91,20 @@ export default {
     const g = d3.select(svg).append("g").attr("transform", `translate(${m.left},${m.top})`)
 
     const color = nfColorScale(keys, colors)
+    const yTicks = yGridTicks(y, 4)
+
+    g.append("g")
+      .attr("pointer-events", "none")
+      .selectAll("line")
+      .data(yTicks)
+      .join("line")
+      .attr("x1", 0)
+      .attr("x2", iw)
+      .attr("y1", (d) => y(d))
+      .attr("y2", (d) => y(d))
+      .attr("stroke", "currentColor")
+      .attr("stroke-opacity", 0.12)
+      .attr("stroke-width", 1)
 
     const area = d3
       .area()
