@@ -30,10 +30,23 @@ export default {
     const times = data.map((d) => new Date(d.time))
     const x = d3.scaleTime().domain(d3.extent(times)).range([0, width])
 
-    const allValues = data.flatMap((d) => Object.values(d.values))
+    const valueForSeries = (row, asNumber) => {
+      if (!row?.values || !Object.prototype.hasOwnProperty.call(row.values, asNumber)) {
+        return null
+      }
+
+      const value = Number(row.values[asNumber])
+      return Number.isFinite(value) ? value : null
+    }
+
+    const allValues = data
+      .flatMap((d) => Object.values(d.values || {}))
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value))
+    const maxValue = d3.max(allValues) || 1
     const y = d3
       .scaleLinear()
-      .domain([0, d3.max(allValues)])
+      .domain([0, maxValue])
       .range([height, 0])
 
     const color = d3.scaleOrdinal(d3.schemeCategory10)
@@ -47,11 +60,12 @@ export default {
 
     const line = d3
       .line()
+      .defined((d) => d !== null)
       .x((d, i) => x(times[i]))
-      .y((d) => y(d || 0))
+      .y((d) => y(d))
 
     series.forEach((as_number) => {
-      const values = data.map((d) => d.values[as_number] || 0)
+      const values = data.map((d) => valueForSeries(d, as_number))
 
       svg
         .append("path")

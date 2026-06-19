@@ -699,3 +699,130 @@ makes the bugs above hard to see and risky to fix. Sibling oversized modules
 problem. Fix: split into focused sub-modules (each < ~300 lines) as a
 behavior-preserving refactor first, then land the chart fixes against the smaller
 modules.
+
+## Flow Pipeline & Dashboard-Authoring Audit (2026-06-19)
+
+A 6-surface end-to-end audit (flow collection -> ingest/storage -> netflow
+visualize/dashboard -> device flow -> dashboard authoring -> dashboard data layer
++ table/topology plugins) found 48 verified issues (14 high). Consolidated as
+F39-F46. The headline is that NetFlow traffic is wrong from the wire up, and the
+dashboard-authoring layer has a security hole.
+
+### F39: Flow sampling-rate is broken end to end — the full F32 root cause (HIGH, sampling-accuracy)
+F32 (UI never multiplies) is the last link of a broken chain:
+- The collector never populates `sampling_rate` for NetFlow v5/v9/IPFIX — only
+  sFlow sets it (`flow-collector/src/netflow/converter.rs`; the sampling IEs
+  SamplingInterval/SamplerRandomInterval/etc. are parseable but unmatched), so
+  every sampled NetFlow/IPFIX record ships `sampling_rate=0`.
+- Core decodes it but **never persists it to a flow column** — `flows.ex` runs
+  `zero_to_nil` and drops it into the OCSF `unmapped` blob, storing bytes/packets
+  raw (`flows.ex:313-441,715-744`). So F32 is literally unfixable downstream: there
+  is no column to multiply by.
+- The hierarchical continuous aggregates bake raw (un-sampled) `SUM(bytes_total)`
+  into materialized rollups (`migrations/...flow_traffic_hierarchical_caggs`), so
+  even after a schema fix the historical 7d/30d capacity rollups stay wrong.
+- sFlow ships `packets=1` with unscaled bytes and mixes L2 (`frame_length`) vs L3
+  (`ipv4.length`) byte counts across record types (`sflow/converter.rs:78,97-116`),
+  so byte totals differ by record type for identical traffic.
+Fix: capture sampling IEs (incl. options/sampler records) at the collector for a
+per-exporter rate; persist `sampling_rate` (and a configured per-exporter fallback)
+to a real flow column; scale bytes/packets by it in queries; rebuild/learn the
+caggs with scaling; normalize sFlow byte layer.
+
+### F40: Dashboard variables are interpolated into SRQL with no escaping — viewer authz bypass / injection (HIGH, security)
+`authored_dashboard_live/dashboard_variables.ex:35-41` string-interpolates
+user-supplied variable values straight into the panel SRQL. A user with only
+VIEW access to a shared/public dashboard can supply a crafted variable value that
+rewrites the query structure (e.g. change the `in:` collection or inject filters)
+and read data outside the dashboard's intended scope. Compounding it, authored
+panel queries have no default time window or enforced `LIMIT`
+(`runtime_data.ex:39-57`), allowing unbounded table scans. Fix: parameterize/escape
+variable values (never interpolate into the query grammar), validate against the
+variable's declared type/allowed set, and enforce a default time bound + max LIMIT
+on every authored query.
+
+### F41: Authored-panel readouts are quantitatively wrong (HIGH, data-correctness)
+- The Stat/Count **trend arrow is reversed**: it compares first vs last row in the
+  returned order with no enforced sort (`panel_components.ex:639-674`), so a rising
+  metric shows trending down and the delta sign is wrong.
+- KPI **sparklines show the OLDEST buckets**: `ORDER BY bucket ASC LIMIT N`
+  (`dashboard_live/data.ex:1959-2090`) selects the start of a 7d/30d window, so the
+  "recent trend" is stale history.
+- Pivot/stat **aggregations are computed over the 250-row client-truncated set**,
+  not the full result (`panel_components.ex:227-256`), so totals/averages are wrong
+  on large queries; field types are inferred from a 100-row sample (mistyping); the
+  auto-synthesized trend query only rewrites the time token, leaving
+  `limit`/`bucket`/`stats` intact.
+Fix: enforce sort and compare true first/last by time; sparklines `ORDER BY bucket
+DESC LIMIT N` then reverse; compute aggregations in the query (server side), not the
+truncated client set.
+
+### F42: Table & topology dashboard plugins distort or drop data (HIGH/MEDIUM)
+- The table plugin renders **every row with no pagination, cap, or sort**
+  (`plugins/table.ex:21-48`) — a large result balloons the LiveView payload and
+  freezes the tab; columns are derived from the **first row only and sorted
+  alphabetically** (`srql_components.ex:485-522`), so authored column order is lost
+  and columns vanish when the first row lacks a key; numeric cells are raw
+  `to_string` (no units/separators, full float).
+- Topology **silently drops nodes beyond 120 and all their edges**
+  (`plugins/topology.ex:216-245`) with no truncation indicator, and a fallback node
+  id of `phash2(raw_map)` gives equal nodes different ids so dedupe/edges break.
+Fix: paginate/cap + server sort the table, preserve SELECT column order, format
+numbers; cap topology with an explicit "+N more" and a stable node id.
+
+### F43: NetFlow visualize/dashboard aggregation & attribution errors (HIGH/MEDIUM)
+Beyond sampling (F39) and the F32 rate items:
+- The interface bandwidth gauge divides **whole-exporter aggregate bytes by one
+  interface's link speed** (`netflow_live/dashboard.ex:594-602,947-1004`) — a 48-port
+  switch vs one uplink reads far over 100%; the gauge "current" is a window average
+  labeled instantaneous.
+- The Sankey **drops the long tail at the DB (`limit:max_edges`) before computing
+  "Other"** (`visualize.ex:1782-1866`), so "Other" understates omitted traffic and
+  the diagram misrepresents the decomposition; the timeseries chart uses a flat
+  `limit:` with sort stripped, dropping arbitrary buckets.
+- **Bidirectional double-counting**: Top Conversations aren't canonicalized (A→B and
+  B→A counted twice, `dashboard.ex:813-829`); the device flow panel sums both
+  ingress and egress representations into one device's total
+  (`srql/.../flows.rs:2120-2152`); Top Talkers use raw endpoint-IP grouping while the
+  device tab uses alias/exporter-resolved scoping (inconsistent numbers).
+- Reverse-DNS/Geo enrichment is read with no expiry filter (stale cache shown as
+  current); a chart query failure renders as an empty chart indistinguishable from
+  "no traffic" (`visualize.ex:810-906`).
+Fix: scope the gauge to the interface, canonicalize bidirectional flows, compute
+"Other" from the full set, filter enrichment by expiry, and distinguish error from
+empty.
+
+### F44: Flow ingest defaults distort direction/rate (MEDIUM, data-correctness)
+`bytes_in/out`/`packets_in/out` default to `0` (not NULL) for protocols that don't
+carry directional counts (`flows.ex:404-441`), so directional charts read a real 0
+instead of "unknown"; `flow_summary` bps/pps divide by the full wall-clock window
+even when data covers only part of it (`dashboard_live/data.ex:530-540`), and an
+interface sparkline conflates in+out into one bps using `MAX(value)` per bucket.
+
+### F45: Dashboard load is slow and the data layer is a god-module (MEDIUM, performance/maintainability)
+The dashboard runs ~20 data queries + ~30 schema probes strictly sequentially with
+no concurrency (`dashboard_live/data.ex:86-159, 2703-2759`); `data.ex` is a
+3148-line module mixing flow, topology, MTR, survey geometry, threat-intel, and
+rendering. Fix: parallelize independent queries; split the module (ties F38/§32).
+
+### F46: Data-volume growth is driven by missing retention + the finding flood (MEDIUM, operability)
+Live (2026-06-19): the `serviceradar` DB is ~217 GB (3 CNPG instances ≈ 304 GB
+disk each incl. ~65 GB pg_wal). Retention IS running (41 TimescaleDB policies,
+~0 failures), and WAL/replication are healthy (slots retain KB, archiver
+`failed=0`) — so this is NOT the prior stuck-slot WAL incident. But growth has two
+real drivers: (1) `otel_traces` (36 GB) and `ocsf_network_activity` (17 GB) had **no
+retention policy until today** (`total_runs=1`), so they grew unbounded; (2) the
+anomaly/capacity finding flood (F1 pending-as-Critical, F12 capacity ~2,528 unique
+findings/hour, F17 counter false-criticals) and the un-sampled raw flow rows
+(F39) inflate `ocsf_events`/`capacity_forecasts`/flow tables. Note: scheduled CNPG
+base backups are FAILING (Longhorn throughput) — separate, no recovery point. Fix:
+own retention for every high-volume hypertable (verify coverage), and the F1/F12/
+F17/F39 fixes cut write volume at the source.
+
+## Decisions (flow/dashboard addendum)
+- F39 (sampling) and F40 (variable injection) are the priorities: traffic numbers
+  are wrong from the wire and a view-only user can read out-of-scope data. Both are
+  independent of the anomaly engine and should be fixed regardless.
+- F46: pruning is not broken; the DB growth is missing-retention-coverage plus the
+  finding/flow write floods — fixing F1/F12/F17/F39 and adding retention to all
+  high-volume hypertables addresses it.

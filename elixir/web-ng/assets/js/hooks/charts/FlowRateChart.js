@@ -19,12 +19,18 @@ function parsePoints(raw) {
     .map((p) => {
       const value = Number(p?.v)
       const time = p?.t
+      const parsedTime = time ? new Date(time) : null
+
+      if (!(parsedTime instanceof Date) || Number.isNaN(parsedTime.getTime())) {
+        return null
+      }
+
       return {
         t: time,
         v: Number.isFinite(value) ? value : null,
       }
     })
-    .filter((p) => p.v !== null)
+    .filter(Boolean)
 }
 
 function formatRate(value) {
@@ -88,16 +94,17 @@ export default {
 
     const color = this.el.dataset.color || "oklch(0.65 0.24 150)"
 
-    if (points.length < 2) {
+    const finiteValues = points.map((p) => p.v).filter((v) => Number.isFinite(v))
+
+    if (finiteValues.length < 2) {
       ctx.fillStyle = "rgba(115, 115, 115, 0.85)"
       ctx.font = "12px ui-sans-serif, system-ui, sans-serif"
       ctx.fillText("No flow-rate data", padLeft, padTop + 16)
       return
     }
 
-    const values = points.map((p) => p.v)
-    const minVal = Math.min(0, ...values)
-    const maxVal = Math.max(...values)
+    const minVal = Math.min(0, ...finiteValues)
+    const maxVal = Math.max(...finiteValues)
     const paddedMax = maxVal <= minVal ? minVal + 1 : maxVal * 1.05
     const range = paddedMax - minVal
 
@@ -137,25 +144,62 @@ export default {
       ctx.stroke()
     }
 
-    // Area
-    ctx.beginPath()
-    ctx.moveTo(xFor(0), h - padBottom)
-    for (let i = 0; i < points.length; i++) {
-      ctx.lineTo(xFor(i), yFor(points[i].v))
-    }
-    ctx.lineTo(xFor(points.length - 1), h - padBottom)
-    ctx.closePath()
     ctx.fillStyle = color
     ctx.globalAlpha = 0.15
-    ctx.fill()
+
+    let areaOpen = false
+    let areaStartX = null
+
+    for (let i = 0; i < points.length; i++) {
+      const value = points[i].v
+      const x = xFor(i)
+
+      if (!Number.isFinite(value)) {
+        if (areaOpen) {
+          ctx.lineTo(xFor(i - 1), h - padBottom)
+          ctx.lineTo(areaStartX, h - padBottom)
+          ctx.closePath()
+          ctx.fill()
+          areaOpen = false
+          areaStartX = null
+        }
+        continue
+      }
+
+      if (!areaOpen) {
+        areaOpen = true
+        areaStartX = x
+        ctx.beginPath()
+        ctx.moveTo(x, h - padBottom)
+      }
+
+      ctx.lineTo(x, yFor(value))
+    }
+
+    if (areaOpen) {
+      ctx.lineTo(xFor(points.length - 1), h - padBottom)
+      ctx.lineTo(areaStartX, h - padBottom)
+      ctx.closePath()
+      ctx.fill()
+    }
 
     // Line
     ctx.globalAlpha = 1
     ctx.beginPath()
+    let lineOpen = false
+
     for (let i = 0; i < points.length; i++) {
+      if (!Number.isFinite(points[i].v)) {
+        lineOpen = false
+        continue
+      }
+
       const x = xFor(i)
       const y = yFor(points[i].v)
-      if (i === 0) ctx.moveTo(x, y)
+      if (!lineOpen) {
+        ctx.moveTo(x, y)
+        lineOpen = true
+      }
       else ctx.lineTo(x, y)
     }
     ctx.strokeStyle = color
