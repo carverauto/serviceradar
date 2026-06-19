@@ -74,6 +74,7 @@ defmodule ServiceRadarWebNGWeb.DashboardEngineTest do
     assert [%{plugin: Plugins.Table, assigns: assigns}] = Engine.build_panels(response)
     assert assigns.columns == ["bytes_total", "count"]
     assert length(assigns.results) == 500
+    assert length(assigns.source_results) == 501
     assert assigns.total_count == 501
     assert assigns.truncated
   end

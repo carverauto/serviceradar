@@ -204,7 +204,7 @@
 - [x] 35.3 Compute pivot/stat aggregations server-side over the full result, not the 250-row client-truncated set; stop type-inferring from a 100-row sample.
 
 ## 36. Dashboard Table & Topology Plugins (F42)
-- [ ] 36.1 Table plugin: server-side pagination/cap + sort; preserve authored SELECT column order; format numeric cells (units/separators).
+- [x] 36.1 Table plugin: server-side pagination/cap + sort; preserve authored SELECT column order; format numeric cells (units/separators).
 - [x] 36.2 Topology: cap nodes with an explicit "+N more" truncation indicator; use a stable node id (not `phash2` of the raw map).
 
 ## 37. NetFlow Aggregation & Attribution (F43)
