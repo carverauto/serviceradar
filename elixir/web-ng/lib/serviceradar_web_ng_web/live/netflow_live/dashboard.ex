@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   alias ServiceRadar.Observability.IpRdnsCache
   alias ServiceRadar.Observability.NetflowLocalCidr
   alias ServiceRadar.ReferenceData.ServicePorts
+  alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
 
   require Ash.Query
   require Logger
@@ -1580,7 +1581,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     query =
       IpRdnsCache
       |> Ash.Query.for_read(:read, %{})
-      |> Ash.Query.filter(ip in ^ips and (is_nil(expires_at) or expires_at > ^now))
+      |> EnrichmentExpiry.live_for_ips(ips, now)
 
     case Ash.read(query, scope: scope) do
       {:ok, rows} ->
@@ -1603,7 +1604,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     query =
       IpGeoEnrichmentCache
       |> Ash.Query.for_read(:read, %{})
-      |> Ash.Query.filter(ip in ^ips and (is_nil(expires_at) or expires_at > ^now))
+      |> EnrichmentExpiry.live_for_ips(ips, now)
 
     case Ash.read(query, scope: scope) do
       {:ok, rows} ->
