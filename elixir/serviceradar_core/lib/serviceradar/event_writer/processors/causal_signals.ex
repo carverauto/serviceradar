@@ -1314,10 +1314,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     existing
     |> Map.put("uid", uid)
     |> Map.put("group_uid", uid)
-    |> Map.put(
-      "title",
-      "Anomaly detection: #{metric_class || "metric"} #{series_key || "series"}"
-    )
+    |> Map.put("title", anomaly_detection_title(payload, series_key, metric_class))
     |> Map.put_new("type", "ServiceRadar Anomaly")
     |> Map.put_new("type_id", 99)
     |> Map.put("source", "anomaly_detection")
@@ -1334,12 +1331,58 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       "device_uid" => device_uid,
       "series_key" => series_key,
       "metric_class" => metric_class,
+      "metric_name" => get_in(payload, ["anomaly", "metric_name"]),
+      "target_device_ip" => anomaly_detection_target_device_ip(payload),
+      "if_index" => get_in(payload, ["anomaly", "if_index"]),
+      "interface_name" => get_in(payload, ["anomaly", "interface_name"]),
+      "resource_label" => anomaly_detection_display_label(payload, series_key),
       "state" => get_in(payload, ["anomaly", "state"]),
       "subject" => get_in(payload, ["anomaly", "subject"])
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
   end
+
+  defp anomaly_detection_title(payload, series_key, metric_class) do
+    metric =
+      first_non_blank([
+        get_in(payload, ["anomaly", "metric_name"]),
+        metric_class
+      ]) || "metric"
+
+    label = anomaly_detection_display_label(payload, series_key) || "series"
+
+    "Anomaly detection: #{metric} #{label}"
+  end
+
+  defp anomaly_detection_display_label(payload, series_key) do
+    first_non_blank([
+      get_in(payload, ["anomaly", "resource_label"]),
+      get_in(payload, ["anomaly", "label"]),
+      anomaly_detection_interface_label(payload),
+      readable_series_key(series_key)
+    ])
+  end
+
+  defp anomaly_detection_interface_label(payload) do
+    target_device_ip = anomaly_detection_target_device_ip(payload)
+    if_index = get_in(payload, ["anomaly", "if_index"])
+    interface_name = get_in(payload, ["anomaly", "interface_name"])
+
+    [target_device_ip, interface_name, if_index_label(if_index)]
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> nil
+      parts -> Enum.join(parts, " ")
+    end
+  end
+
+  defp if_index_label(nil), do: nil
+  defp if_index_label(value), do: "ifIndex #{value}"
+
+  defp readable_series_key("v2:" <> _rest), do: nil
+  defp readable_series_key(value) when is_binary(value) and value != "", do: value
+  defp readable_series_key(_value), do: nil
 
   defp anomaly_detection_finding_uid(device_uid, series_key, metric_class) do
     [

@@ -819,6 +819,55 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       assert stale_row.metadata["security_signal"]["finding_uid"] == finding_info["uid"]
     end
 
+    test "uses structured anomaly dimensions for titles when series keys are opaque" do
+      opaque_series_key =
+        "v2:partition=64656661756c74:class=736e6d702e696e74657266616365:identity=31302e302e302e3230"
+
+      payload = %{
+        "event_id" => "anomaly-edge-opaque-series-key",
+        "signal_type" => "causal",
+        "event_type" => "anomaly",
+        "class_uid" => 2004,
+        "timestamp" => "2026-06-12T12:00:00Z",
+        "severity_id" => 4,
+        "device_uid" => "10.0.0.20",
+        "target_device_ip" => "10.0.0.20",
+        "verdict_source" => "edge-spike",
+        "anomaly" => %{
+          "series_key" => opaque_series_key,
+          "metric_class" => "snmp.interface",
+          "metric_name" => "ifHCInOctets",
+          "target_device_ip" => "10.0.0.20",
+          "interface_name" => "uplink0",
+          "if_index" => 7,
+          "state" => "anomaly_open"
+        }
+      }
+
+      row =
+        CausalSignals.parse_message(%{
+          data: Jason.encode!(payload),
+          metadata: %{
+            subject: "signals.causal.predictions.#{opaque_series_key}",
+            received_at: DateTime.utc_now()
+          }
+        })
+
+      finding_info = row.metadata["finding_info"]
+      dimensions = finding_info["dimensions"]
+
+      assert finding_info["title"] ==
+               "Anomaly detection: ifHCInOctets 10.0.0.20 uplink0 ifIndex 7"
+
+      refute finding_info["title"] =~ "v2:"
+      assert dimensions["series_key"] == opaque_series_key
+      assert dimensions["metric_name"] == "ifHCInOctets"
+      assert dimensions["target_device_ip"] == "10.0.0.20"
+      assert dimensions["interface_name"] == "uplink0"
+      assert dimensions["if_index"] == 7
+      assert dimensions["resource_label"] == "10.0.0.20 uplink0 ifIndex 7"
+    end
+
     test "selects capacity causal prediction findings for stateful alert evaluation" do
       forecast = %{
         forecasted_at: ~U[2026-06-12 12:00:00Z],
