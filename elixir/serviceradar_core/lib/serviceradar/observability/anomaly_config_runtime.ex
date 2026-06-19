@@ -270,15 +270,9 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
   end
 
   defp normalize_metric_class_overrides(overrides) when is_map(overrides) do
-    overrides =
-      Map.new(overrides, fn {class, values} ->
-        {normalize_metric_class(class), normalize_override_values(values)}
-      end)
-
-    case Map.get(overrides, "memory") do
-      nil -> overrides
-      values -> Map.put_new(overrides, "mem", values)
-    end
+    Map.new(overrides, fn {class, values} ->
+      {normalize_metric_class(class), normalize_override_values(values)}
+    end)
   end
 
   defp normalize_metric_class_overrides(_overrides), do: %{}

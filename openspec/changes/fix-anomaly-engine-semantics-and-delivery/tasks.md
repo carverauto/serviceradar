@@ -86,7 +86,7 @@
 
 ## 15. Config Reconciliation (F18)
 - [ ] 15.1 Decide and document the role of `window_duration_seconds` for the count-based edge window (map or scope away).
-- [ ] 15.2 Remove or correctly map the `mem` runtime alias to a real tier/gauge class.
+- [x] 15.2 Remove or correctly map the `mem` runtime alias to a real tier/gauge class.
 - [ ] 15.3 Align edge 32-bit counter-wrap salvage (modulus / unknown `counter_width`) with central's per-sample-max behavior.
 
 ## 16. Operability (F19)
