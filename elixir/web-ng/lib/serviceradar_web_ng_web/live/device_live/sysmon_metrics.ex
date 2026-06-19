@@ -177,19 +177,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   end
 
   defp build_cpu_section(srql_module, filter_tokens, scope) do
-    query =
-      timeseries_metric_query(
-        "sysmon.cpu",
-        "cpu.usage_percent",
-        filter_tokens,
-        nil,
-        @metrics_limit
-      )
+    query = cpu_metric_query(filter_tokens, @metrics_limit)
 
     base = %{
       key: "cpu",
       title: "CPU",
-      subtitle: "last 24h · 5m buckets · avg across cores",
+      subtitle: "last 24h · 5m buckets · max per core",
       unit: :percent,
       query: query,
       panels: [],
@@ -201,9 +194,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => results}} when is_list(results) and results != [] ->
         normalized = normalize_metric_results(results, "usage_percent")
-        viz = timeseries_viz("usage_percent", nil)
-        panels = build_metric_panels(%{"results" => normalized, "viz" => viz}, normalized, nil)
-        header_value = latest_metric_value(normalized, "usage_percent")
+        viz = timeseries_viz("usage_percent", "core_id")
+        panels = build_metric_panels(%{"results" => normalized, "viz" => viz}, normalized, "core_id")
+        header_value = latest_metric_max_value(normalized, "usage_percent")
         header_stats = metric_stats(normalized, "usage_percent")
         %{base | panels: panels, header_value: header_value, header_stats: header_stats}
 
@@ -415,6 +408,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   defp extract_metric_value({_dt, value}), do: value
   defp extract_metric_value(_), do: nil
 
+  defp latest_metric_max_value(rows, field) when is_list(rows) do
+    rows
+    |> Enum.filter(&is_map/1)
+    |> Enum.reduce(nil, &update_latest_metric_max(&1, field, &2))
+    |> extract_metric_value()
+  end
+
+  defp latest_metric_max_value(_rows, _field), do: nil
+
   defp update_latest_metric(row, field, acc) do
     with {:ok, dt} <- parse_datetime(Map.get(row, "timestamp")),
          value when is_number(value) <- parse_number(Map.get(row, field)) do
@@ -428,6 +430,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
 
   defp pick_latest_metric({dt, _} = current, {prev_dt, _} = previous) do
     if DateTime.after?(dt, prev_dt), do: current, else: previous
+  end
+
+  defp update_latest_metric_max(row, field, acc) do
+    with {:ok, dt} <- parse_datetime(Map.get(row, "timestamp")),
+         value when is_number(value) <- parse_number(Map.get(row, field)) do
+      pick_latest_metric_max({dt, value}, acc)
+    else
+      _ -> acc
+    end
+  end
+
+  defp pick_latest_metric_max(current, nil), do: current
+
+  defp pick_latest_metric_max({dt, value} = current, {prev_dt, prev_value} = previous) do
+    cond do
+      DateTime.after?(dt, prev_dt) -> current
+      DateTime.compare(dt, prev_dt) == :eq and value > prev_value -> current
+      true -> previous
+    end
   end
 
   defp metric_stats(rows, field) when is_list(rows) do
@@ -728,6 +749,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
       |> Kernel.++(["sort:timestamp:desc", "limit:#{limit}"])
 
     Enum.join(tokens, " ")
+  end
+
+  defp cpu_metric_query(filter_tokens, limit) do
+    [
+      "in:cpu_metrics",
+      "time:last_24h",
+      "bucket:5m",
+      "agg:max",
+      "series:core_id"
+    ]
+    |> Kernel.++(filter_tokens)
+    |> Kernel.++(["sort:timestamp:desc", "limit:#{limit}"])
+    |> Enum.join(" ")
   end
 
   defp maybe_add_token(tokens, _key, nil), do: tokens

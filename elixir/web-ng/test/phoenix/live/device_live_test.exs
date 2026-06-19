@@ -1313,8 +1313,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       }
     ])
 
+    Repo.insert_all("cpu_metrics", [
+      cpu_metric_row(now, uid, 0, 42.4),
+      cpu_metric_row(now, uid, 1, 95.1)
+    ])
+
     Repo.insert_all("timeseries_metrics", [
-      timeseries_metric_row(now, uid, "cpu.usage_percent", "sysmon.cpu", 42.4, "%"),
       timeseries_metric_row(now, uid, "memory.used_percent", "sysmon.memory", 33.3, "%"),
       timeseries_metric_row(now, uid, "disk.used_percent", "sysmon.disk", 50.0, "%"),
       timeseries_metric_row(now, uid, "process.count", "sysmon.process", 1.0, "{process}"),
@@ -1330,7 +1334,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     html = render_until(view, "CPU", 10_000)
 
     assert html =~ "CPU"
-    assert html =~ "42.4%"
+    assert html =~ "95.1%"
     assert html =~ "Memory"
     assert html =~ "Disk"
     assert html =~ "Process Count"
@@ -1360,11 +1364,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       }
     ])
 
-    Repo.insert_all("timeseries_metrics", [
-      timeseries_metric_row(now, skewed_device_id, "cpu.usage_percent", "sysmon.cpu", 57.8, "%",
+    Repo.insert_all("cpu_metrics", [
+      cpu_metric_row(now, skewed_device_id, 0, 57.8,
         gateway_id: gateway_id,
         agent_id: host_id
-      ),
+      )
+    ])
+
+    Repo.insert_all("timeseries_metrics", [
       timeseries_metric_row(now, skewed_device_id, "memory.used_percent", "sysmon.memory", 33.3, "%",
         gateway_id: gateway_id,
         agent_id: host_id
@@ -3741,6 +3748,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       partition: "default",
       is_delta: false,
       metadata: %{"kind" => "gauge"},
+      created_at: timestamp
+    }
+  end
+
+  defp cpu_metric_row(timestamp, device_id, core_id, usage_percent, opts \\ []) do
+    %{
+      timestamp: timestamp,
+      gateway_id: Keyword.get(opts, :gateway_id, "test-gw"),
+      agent_id: Keyword.get(opts, :agent_id, "test-agent"),
+      host_id: Keyword.get(opts, :host_id),
+      core_id: core_id,
+      usage_percent: usage_percent,
+      frequency_hz: Keyword.get(opts, :frequency_hz),
+      label: Keyword.get(opts, :label, "cpu#{core_id}"),
+      cluster: Keyword.get(opts, :cluster),
+      device_id: device_id,
+      partition: "default",
       created_at: timestamp
     }
   end
