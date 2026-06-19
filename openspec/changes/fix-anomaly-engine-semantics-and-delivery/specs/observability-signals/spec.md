@@ -159,3 +159,28 @@ finding.
 - **WHEN** the device-details metric chart renders a per-core or per-series metric for which the detector produced a finding
 - **THEN** the chart SHALL be able to show the per-series and short-duration spike the detector scored (not only a cross-series, long-bucket average)
 - **AND** the chart's summary min/avg/max SHALL be consistent with the plotted aggregation
+
+#### Scenario: Downsampling preserves extremes
+- **WHEN** a chart downsamples a dense series for rendering
+- **THEN** it SHALL preserve real minima and maxima (e.g. min/max-envelope downsampling) rather than dropping extremes by fixed-stride decimation or attenuating them by interpolation/smoothing of measured samples
+
+#### Scenario: Findings are locatable on the timeline
+- **WHEN** an anomaly or capacity finding exists for a series shown on a chart
+- **THEN** the chart SHALL be able to annotate the finding's time (and any configured threshold) on the timeline so the operator can see where it fired
+
+#### Scenario: Axis is readable and correctly unitized
+- **WHEN** a series occupies a narrow band high above zero, or carries a known metric unit
+- **THEN** the chart SHALL be able to scale to the data band (not only a zero-floored axis) and SHALL label the axis from the metric's unit rather than guessing from the field name
+
+### Requirement: Quantitative Traffic Accuracy
+Traffic figures derived from sampled flow data SHALL be quantitatively correct, and
+a value labeled as a rate SHALL be a rate.
+
+#### Scenario: Sampled flow is scaled by its sampling rate
+- **WHEN** bandwidth, top-N, gauge, or percentile figures are computed from NetFlow/sFlow records that carry a sampling rate
+- **THEN** the figures SHALL be scaled by the sampling rate so they reflect true traffic, not the sampled subset
+
+#### Scenario: A rate is divided by its time window
+- **WHEN** a value is presented in per-second units (bps, B/s, pps)
+- **THEN** it SHALL be the windowed total divided by the window duration, not the raw cumulative window total
+- **AND** SNMP interface counter charts SHALL present a derived per-second rate that handles counter wrap/reset as gaps rather than fabricated spikes

@@ -548,3 +548,143 @@ excluded-metric leak or a mis-built finding UID; verify under F17/F24.)
 - F26/F28 are presentation fixes but F28 is data-correctness-adjacent: the chart
   must be able to show what the detector scored, or operators cannot validate any
   finding.
+
+## Chart UX & SNMP Rendering Audit (2026-06-19)
+
+A 7-surface audit (shared timeseries renderer, sysmon/process, SNMP interface,
+NetFlow, MTR/BGP, the JS chart hooks, and SNMP data semantics) found 67 verified
+chart issues (9 high, 30 medium). The CPU-chart problem (F28) is not isolated —
+spike-hiding aggregation, unreadable scales, missing annotation, and two
+quantitative NetFlow errors are fleet-wide. Consolidated as F30-F37. Ground truth:
+SNMP interface metrics are stored as RAW monotonic counters (`ifInOctets` reaching
+~10^13, `metric_type="snmp"`, `unit` empty), so every interface chart depends
+entirely on correct rate derivation.
+
+### F30: Chart aggregation hides the spikes the detector fires on — renderer-wide (HIGH)
+Beyond F28's CPU case, the shared renderer and several queries destroy extremes:
+- `limit_points` downsamples by `take_every` stride decimation
+  (`timeseries.ex:629-655`), so on dense windows real peaks between kept indices
+  never render — fleet-wide.
+- `bytes_per_sec` series are densified by linear interpolation and box-smoothed
+  before plotting (`timeseries.ex:528-595`), fabricating samples and shaving real
+  traffic spikes.
+- Per-series collapse: the device Disk chart averages ALL mount points into one
+  line (`sysmon_metrics.ex:235-263`) — a full partition is invisible; CPU averages
+  across cores (F28); the backend supports `series:series_key`/`mount_point` but the
+  query passes `series=nil`.
+- Interface traffic is `bucket:5m agg:max` then an Elixir delta/300s
+  (`interface_data.ex:315-317`, `timeseries.ex:323-336`) — a 5-minute-averaged rate
+  that smooths microbursts and saturation.
+Fix: min/max-envelope (LTTB) downsampling instead of stride; never interpolate
+measured samples; split per-core/per-mount/per-series; offer finer buckets / a raw
+window for counters; compute header min/max from raw, not bucketed, data.
+
+### F31: Axis scale and units make many signals unreadable (HIGH)
+- The Y axis is hardcoded to `0..max*1.1` (and a fixed `0..100` for percent), with
+  no min-based zoom and no log option (`timeseries.ex:186-221, 378-384`). A series
+  clustered in a narrow band high above zero (steady 900 Mb/s, CPU pinned at 54%,
+  memory near full) renders as a flat band and the header peak/avg cannot be
+  reconciled with the line — the same "flat line under a Critical" confusion,
+  fleet-wide.
+- The axis unit is inferred from the y-field NAME substring (`percent`/`bytes`/`hz`)
+  and never from the metric's DB `unit` column, which is carried on the row but
+  discarded in `extract_series_points` (`timeseries.ex:91-126, 685-711`). Any SNMP
+  gauge outside the hard-coded set gets a bare `:number` axis.
+- NetFlow grid panels have no y ticks/gridlines/labels and each panel auto-scales
+  independently (`NetflowGridChart.js:99-126`); BGP and stacked-area charts plot raw
+  bytes with no unit (`BGPTimeSeriesChart.js:33-46`).
+Fix: scale Y to the data band (min..max + padding) with an opt-in log scale; thread
+`metric.unit` into the panel spec and prefer it; add axis ticks/labels.
+
+### F32: NetFlow traffic numbers are quantitatively WRONG (HIGH, data-correctness)
+Two independent errors make headline bandwidth figures incorrect, not just ugly:
+- The NetFlow/sFlow **sampling-rate multiplier is never applied**
+  (`netflow_live/dashboard.ex:792-829,...`, `flow_data.ex:138-215`). On any sampled
+  exporter (1:100, 1:1000, 1:4096 are normal) Total Bandwidth, Top
+  Talkers/Listeners/Conversations, interface gauges, p95, and subnet distribution
+  all under-report true traffic by the sampling factor.
+- Top-N tables and "Total Bandwidth" label **cumulative window totals as a
+  per-second rate** (bps / B/s) without dividing by the window
+  (`netflow_live/dashboard.ex:1241-1246, 1283-1302`), so every rate value is wrong
+  by `time_window_seconds` (3600× for 1h, up to 2.6M× for 30d).
+- The interface bandwidth gauge uses a window-average "current" bps that hides peaks
+  and disagrees with its own p95 column, and p95 is hard-pinned to `last_30d/1h`
+  regardless of the selected window (`dashboard.ex:594-621, 1006-1034`).
+Fix: carry `sampling_rate` into flow rows and weight every sum by it; divide window
+sums by the window seconds before labeling a rate; align gauge/p95 to the selected
+window; make peak vs average explicit.
+
+### F33: SNMP counter rendering is semantically wrong (HIGH, snmp-semantics)
+Interface counters are rate-derived in hand-rolled Elixir rather than SRQL's native
+`agg:rate`, with several defects:
+- Width 32 vs 64-bit is guessed from the series-name substring `"HC"` (or
+  prev-value>2^32) instead of the SNMP PDU type (`timeseries.ex:358-366`). A 64-bit
+  counter below 2^32 whose label lacks `HC` is treated as 32-bit; on a real reset
+  this fabricates a `2^32 - prev + cur` **phantom traffic spike** (which can itself
+  look like an anomaly). SRQL's native `agg:rate` already NULLs on `value < prev`.
+- Counter reset/gap emits a real `0 B/s` instead of a no-data gap, and the first
+  sample is always 0 (`timeseries.ex:319-321, 338-346`).
+- The per-second rate is clamped to the link's BYTE speed for ALL series, including
+  packet/error/discard counters whose natural scale is unrelated to byte speed
+  (`timeseries.ex:335, 368-376`).
+Fix: carry counter width/PDU kind from the collector and use it (or just use SRQL
+`agg:rate`); render resets/gaps as gaps not 0; clamp only octet series to link
+speed; render rate vs count units on separate axes.
+
+### F34: Charts cannot annotate findings, thresholds, or events (HIGH, missing-annotation)
+The shared renderer has **no event/marker layer** in the SVG or the panel config
+(`timeseries.ex:1175-1323`); interface charts draw no threshold line despite
+per-metric thresholds existing (`interface_live/show.ex:242, 277-291`); no sysmon
+chart or process row carries a finding marker. So when an anomaly or capacity
+finding fires at time t, the operator has no way to see WHERE on the timeline it
+fired and must mentally correlate a separate findings table with the x-axis. This
+is the missing half of F26's drill-down. Fix: add an `annotations` list to the
+panel assigns ({dt, label, severity}) rendered as vertical marker lines/bands using
+the existing `idx_to_x`/time mapping, plus a threshold reference line; clicking a
+finding focuses/marks its time+series.
+
+### F35: Hover/tooltip readouts are misaligned and incomplete (MEDIUM, interaction)
+The only way to read exact values off these charts is broken:
+- `TimeseriesChart.js` (and `TimeseriesCombinedChart.js`) invert mouse-x over the
+  full container width while the SVG plots inside an 8px pad with
+  `preserveAspectRatio="none"` (`TimeseriesChart.js:55-78`, geometry in
+  `timeseries.ex:657-663`), so the crosshair and the reported value point at a
+  different x than the vertex under the cursor — worst at the edges where spikes
+  live. The netflow `util.js` tooltip has the same left-margin x-inversion error
+  (`util.js:65-98`) and `NetflowGridChart` uses a full-width x-scale against a
+  grid layout so hover hits the wrong panel (`NetflowGridChart.js:99,129-139`).
+- BGP charts have no tooltip/hover at all and a legend of bare `AS <n>`
+  (`BGPTimeSeriesChart.js:48-87`); several tooltips have no crosshair/marker.
+Fix: invert mouse-x with the same geometry as `idx_to_x` (or render the crosshair
+inside the SVG); add per-series crosshair markers; give BGP a tooltip.
+
+### F36: Gaps and errors are silently fabricated into signal (MEDIUM, empty/error)
+- Non-finite points are filtered out so gaps are silently bridged
+  (`FlowRateChart.js:19-27`), and a sparse/missing AS in a bucket is drawn as a hard
+  drop to zero, **fabricating traffic-collapse spikes** (`BGPTimeSeriesChart.js:53-62`).
+- BGP empty-state cannot distinguish a query error (returns empty series+data) from
+  genuine no-data (`bgp_live/components.ex:438-457`); favorited-interface empty
+  states never link to SNMP polling config (`interface_components.ex:390-409`).
+Fix: use `null` sentinels with `.defined()` so gaps render as breaks; distinguish
+error vs empty vs disabled and link empty states to the relevant config action.
+
+### F37: Collected signal is never charted + accessibility gaps (MEDIUM/LOW)
+- `process.count` is collected and presence-probed but never charted
+  (`sysmon_metrics.ex:576, 140-151`); the process table is a single latest snapshot
+  with no per-process history, so process CPU/mem spikes are invisible
+  (`sysmon_metrics.ex:76-103`).
+- `NetflowStacked100Chart` normalizes every timestamp to 100% so absolute volume is
+  invisible and an all-zero bucket still looks full (`NetflowStacked100Chart.js:60-82`).
+- Series identity/legend is color-only with no shape/pattern and tooltips rely on a
+  single series, hurting color-blind operators (`timeseries.ex:665-677`,
+  `util.js:157-163`).
+Fix: chart process.count and add per-process history/sparklines; show absolute
+volume alongside the 100% view; add non-color series encoding.
+
+## Decisions (chart audit addendum)
+- The chart layer systematically hides the exact signal the anomaly engine scores
+  (F30/F31/F33/F34); fixing the engine (F1-F24) without fixing the charts leaves
+  operators unable to validate or triage any finding.
+- F32 (NetFlow sampling + rate mislabel) is a correctness bug independent of
+  anomalies and should be fixed regardless — the headline bandwidth numbers are
+  quantitatively wrong today.

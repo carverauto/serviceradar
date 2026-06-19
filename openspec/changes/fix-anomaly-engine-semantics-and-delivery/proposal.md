@@ -97,6 +97,23 @@ F25-F29. The change also:
 - Make `alert_generator.ex` handle anomaly + capacity findings, transition-gated and
   deduped (sequenced after F1/F12/F17 so it cannot storm) (F29).
 
+A 7-surface chart-UX + SNMP rendering audit (2026-06-19, see `design.md`) added
+F30-F37: the chart layer systematically hides the signal the engine scores. The
+change also:
+- Preserve extremes when downsampling/aggregating (min/max envelope, per-series/
+  per-core/per-mount split, finer counter buckets); stop interpolating measured
+  samples (F30).
+- Scale axes to the data band with optional log, and label axes from the metric
+  unit instead of the field name (F31).
+- Fix NetFlow traffic correctness: apply the sampling-rate multiplier and divide
+  windowed totals by the window before labeling a per-second rate (F32).
+- Fix SNMP counter rendering: derive rates from PDU width / native `agg:rate`,
+  render wrap/reset as gaps not fabricated spikes or zeros, clamp only octet series
+  (F33).
+- Add a chart annotation layer for findings/thresholds (F34); fix hover/tooltip
+  x-alignment and add crosshairs (F35); render gaps/errors honestly (F36); chart
+  collected-but-unshown signal and add non-color encoding (F37).
+
 ## Impact
 - Affected specs: `edge-architecture`, `observability-signals`
 - Affected code: `rust/anomaly-addon` (engine state bounds, feed task lifecycle,
@@ -112,5 +129,8 @@ F25-F29. The change also:
   `.../observability/anomaly_config_runtime.ex`, anomaly add-on profile/config
   seeders, `.../monitoring/alert_generator.ex` (anomaly/capacity alerting), web-ng
   device-details (`.../live/device_live/anomaly_capacity_components.ex`,
-  `anomaly_capacity_data.ex`, `sysmon_metrics.ex`, `show.ex`), SRQL capacity/event
-  indexes, and focused tests.
+  `anomaly_capacity_data.ex`, `sysmon_metrics.ex`, `interface_data.ex`, `show.ex`),
+  the shared chart renderer (`.../dashboard/plugins/timeseries.ex`), the JS chart
+  hooks (`assets/js/hooks/charts/*`, `assets/js/netflow_charts/util.js`), NetFlow
+  dashboards (`.../live/netflow_live/dashboard.ex`), SRQL capacity/event indexes and
+  counter-rate path, and focused tests.

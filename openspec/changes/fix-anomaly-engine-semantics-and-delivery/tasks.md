@@ -66,11 +66,11 @@
 - [x] 11.5 Add tests for partition scoping, key collision resistance, and edge↔central subject parity.
 
 ## 12. Seasonal Data Feed And Semantics (F15, blocker)
-- [ ] 12.1 Implement the `profile_hour_of_week` SRQL stats verb (or an equivalent bucket-profile query) producing `dow/hod/center/mad/p05/p95/bucket_count/bucket_sum/bucket_sum_sq`.
+- [x] 12.1 Implement the `profile_hour_of_week` SRQL stats verb (or an equivalent bucket-profile query) producing `dow/hod/center/mad/p05/p95/bucket_count/bucket_sum/bucket_sum_sq`.
 - [x] 12.2 Make the worker fail loudly with telemetry when the profiling query returns no profile columns.
 - [x] 12.3 Emit seasonal clears; fix the zero-width bucket window (distinct started/ended).
-- [ ] 12.4 Fix the Oban uniqueness key so per-run `evaluated_at` does not defeat dedup; align dow/hod bucketing to a configured time zone.
-- [ ] 12.5 Add an integration test that exercises the real SRQL path end-to-end (not mock rows).
+- [x] 12.4 Fix the Oban uniqueness key so per-run `evaluated_at` does not defeat dedup; align dow/hod bucketing to a configured time zone.
+- [x] 12.5 Add an integration test that exercises the real SRQL path end-to-end (not mock rows).
 
 ## 13. Capacity Forecast Correctness (F16)
 - [x] 13.1 Fix the flow-capacity source unit label and add a threshold so it can alert.
@@ -122,9 +122,9 @@
 - [ ] 20.5 Label capacity with units/metric-type/threshold/headroom; hide or aggregate `skipped` rows; reconcile the metric_class row label vs the RED chip bucketing.
 
 ## 21. SNMP Anomaly Target Attribution (F27)
-- [ ] 21.1 Edge: prefer `resource.target_device_ip` for non-self SNMP polls when choosing `device_uid`/`series_key` (`addon.rs:857-862`).
-- [ ] 21.2 Core: for `snmp_target_poll?` rows, set the leading `device_uid` resolution candidate to the target (not the agent host) (`causal_signals.ex:1356-1357`).
-- [ ] 21.3 Emit `target_device_ip` at a stable top-level/anomaly path, not only under `source_identity`; add a regression test for resolved device_uid on an SNMP poll.
+- [x] 21.1 Edge: prefer `resource.target_device_ip` for non-self SNMP polls when choosing `device_uid`/`series_key` (`addon.rs:857-862`).
+- [x] 21.2 Core: for `snmp_target_poll?` rows, set the leading `device_uid` resolution candidate to the target (not the agent host) (`causal_signals.ex:1356-1357`).
+- [x] 21.3 Emit `target_device_ip` at a stable top-level/anomaly path, not only under `source_identity`; add a regression test for resolved device_uid on an SNMP poll.
 - [ ] 21.4 Once attribution is correct, scope the web-ng device-finding query by canonical device/series instead of `agent_id`-first.
 
 ## 22. Metric Chart Fidelity (F28)
@@ -133,18 +133,58 @@
 - [ ] 22.3 Annotate finding timestamps/series on the chart and let a finding click focus the chart on its series/time window.
 
 ## 23. Anomaly & Capacity Alerting (F29, gated on F1/F12/F17)
-- [ ] 23.1 Add `alert_generator.ex` handling for anomaly findings: alert only on confirmed anomaly-open and clear transitions, never on `pending_anomaly` or per-sample.
-- [ ] 23.2 Dedup/coalesce per canonical series with a cooldown/suppression window so one ongoing condition is one alert.
-- [ ] 23.3 Add capacity alerting on a real exhaustion-ETA crossing the warning horizon, not on every `projected` re-emit.
-- [ ] 23.4 Map detector/finding severity to alert severity; exclude floor-less counter false-criticals until F17 lands.
-- [ ] 23.5 Add tests proving no alert storm: a sustained anomaly yields one open + one clear, and pending/duplicate findings produce no alert.
+- [x] 23.1 Add `alert_generator.ex` handling for anomaly findings: alert only on confirmed anomaly-open and clear transitions, never on `pending_anomaly` or per-sample.
+- [x] 23.2 Dedup/coalesce per canonical series with a cooldown/suppression window so one ongoing condition is one alert.
+- [x] 23.3 Add capacity alerting on a real exhaustion-ETA crossing the warning horizon, not on every `projected` re-emit.
+- [x] 23.4 Map detector/finding severity to alert severity; exclude floor-less counter false-criticals until F17 lands.
+- [x] 23.5 Add tests proving no alert storm: a sustained anomaly yields one open + one clear, and pending/duplicate findings produce no alert.
 
-## 24. Verification
-- [ ] 24.1 Run `sfw cargo test -p serviceradar-anomaly-addon -p serviceradar-anomaly-core -p serviceradar-causal-disposition`.
-- [ ] 24.2 Run `sfw cargo test -p serviceradar-srql` if the seasonal profiling verb is implemented in SRQL.
-- [x] 24.3 Run `go test ./go/pkg/agent/addon/...` (and update bazel BUILD deps for any new test files/imports).
-- [ ] 24.4 Run focused core-elx tests for status handler, causal signals, seasonal disposition, capacity forecasting, anomaly profile seeding, and alert generation.
-- [ ] 24.5 Run web-ng tests for the device-details anomaly/capacity components and data layer.
-- [ ] 24.6 Run `./scripts/elixir_quality.sh --project elixir/serviceradar_core` if the implementation changes shared core-elx behavior broadly.
-- [ ] 24.7 Run native add-on manifest/version gates if add-on package metadata or Rust add-on sources change.
-- [ ] 24.8 Re-run the live `sysmon.debug_spike` trace in demo and confirm the F1/F3/F6/F12/F15/F21-F29 behaviors are resolved (one open finding, sample-time, coherent identity, visible chart spike, no alert storm).
+## 24. Chart Aggregation Fidelity (F30)
+- [ ] 24.1 Replace `limit_points` stride decimation with min/max-envelope (LTTB) downsampling so extremes survive (`timeseries.ex:629-655`).
+- [ ] 24.2 Stop interpolating/box-smoothing measured `bytes_per_sec` series (`timeseries.ex:528-595`); interpolate visually only.
+- [ ] 24.3 Split per-series: disk by `mount_point`, CPU by core/`series_key`; offer `agg:max` alongside avg; compute header min/max from raw rows.
+- [ ] 24.4 For counter/interface charts offer finer buckets or a raw window so microbursts are visible.
+
+## 25. Chart Scale & Units (F31)
+- [ ] 25.1 Scale Y to the data band (min..max + padding) instead of a hardcoded 0 floor; add an opt-in log scale (`timeseries.ex:186-221,378-384`).
+- [ ] 25.2 Thread `metric.unit` from the SRQL row into the panel spec and prefer it over field-name inference (`timeseries.ex:91-126,685-711`).
+- [ ] 25.3 Add y ticks/gridlines/labels to NetFlow grid + BGP + stacked-area charts.
+
+## 26. NetFlow Traffic Correctness (F32)
+- [ ] 26.1 Carry `sampling_rate` into flow rows and weight every byte/packet sum by it (Total Bandwidth, Top-N, gauges, p95, subnet).
+- [ ] 26.2 Divide window-sum totals by the window seconds before labeling a per-second rate (`dashboard.ex:1241-1246,1283-1302`).
+- [ ] 26.3 Align the interface gauge and p95 to the selected time window; make peak vs average explicit.
+- [ ] 26.4 Add tests pinning correct bandwidth math for a sampled exporter and each time window.
+
+## 27. SNMP Counter Rendering Semantics (F33)
+- [ ] 27.1 Use the counter PDU width (or SRQL native `agg:rate`) instead of guessing 32/64-bit from the `"HC"` label (`timeseries.ex:358-366`).
+- [ ] 27.2 Render counter resets/gaps as no-data gaps, not `0 B/s`; drop the always-0 first sample (`timeseries.ex:319-346`).
+- [ ] 27.3 Clamp only octet series to link speed; render byte-rate vs count-rate on separate axes (`timeseries.ex:335,368-376`).
+
+## 28. Chart Finding/Threshold Annotation (F34)
+- [ ] 28.1 Add an `annotations` list ({dt, label, severity}) to the timeseries panel assigns, rendered as SVG marker lines/bands via the existing time mapping.
+- [ ] 28.2 Draw per-metric threshold reference lines on interface/sysmon charts.
+- [ ] 28.3 Make a finding click focus/mark its time + series on the chart.
+
+## 29. Chart Hover/Tooltip Correctness (F35)
+- [ ] 29.1 Invert mouse-x with the same geometry as `idx_to_x` (8px pad + viewBox scaling) in `TimeseriesChart.js`/`TimeseriesCombinedChart.js` and `netflow_charts/util.js`.
+- [ ] 29.2 Fix `NetflowGridChart` hover to map to the correct grid panel; add per-series crosshair markers; add a BGP tooltip.
+
+## 30. Chart Gap/Error Honesty (F36)
+- [ ] 30.1 Use `null` sentinels + `.defined()` so missing buckets render as breaks, not drops-to-zero (`FlowRateChart.js`, `BGPTimeSeriesChart.js:53-62`).
+- [ ] 30.2 Distinguish query-error vs no-data vs disabled empty states; link empty states to the relevant SNMP/polling config.
+
+## 31. Charted Coverage & Accessibility (F37)
+- [ ] 31.1 Chart `process.count`; add per-process history/sparklines so process spikes are visible.
+- [ ] 31.2 Show absolute volume alongside the NetFlow 100%-stacked view.
+- [ ] 31.3 Add non-color series encoding (shape/pattern/label) for color-blind operators.
+
+## 32. Verification
+- [x] 32.1 Run `sfw cargo test -p serviceradar-anomaly-addon -p serviceradar-anomaly-core -p serviceradar-causal-disposition`.
+- [x] 32.2 Run `sfw cargo test -p serviceradar-srql` if the seasonal profiling verb is implemented in SRQL.
+- [x] 32.3 Run `go test ./go/pkg/agent/addon/...` (and update bazel BUILD deps for any new test files/imports).
+- [ ] 32.4 Run focused core-elx tests for status handler, causal signals, seasonal disposition, capacity forecasting, anomaly profile seeding, and alert generation.
+- [ ] 32.5 Run web-ng tests for the device-details anomaly/capacity components, chart renderer, NetFlow/interface data layers, and JS chart hooks.
+- [ ] 32.6 Run `./scripts/elixir_quality.sh --project elixir/serviceradar_core` if the implementation changes shared core-elx behavior broadly.
+- [x] 32.7 Run native add-on manifest/version gates if add-on package metadata or Rust add-on sources change.
+- [ ] 32.8 Re-run the live `sysmon.debug_spike` trace in demo and confirm the F1/F3/F6/F12/F15/F21-F37 behaviors are resolved (one open finding, sample-time, coherent identity, visible+annotated chart spike, correct NetFlow units, no alert storm).
