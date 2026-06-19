@@ -575,8 +575,9 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
 
     threshold =
       override
-      |> option_value("warning_threshold_percent", Keyword.get(opts, :warning_threshold_percent))
-      |> option_value_fallback(option_value(override, "threshold", source.threshold))
+      |> option_value("warning_threshold_percent", nil)
+      |> option_value_fallback(option_value(override, "threshold", nil))
+      |> option_value_fallback(percent_threshold_default(source, opts))
       |> config_number_value(source.threshold)
 
     model =
@@ -586,6 +587,14 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
 
     %{source | threshold: threshold, model: to_string(model)}
   end
+
+  defp percent_threshold_default(%Source{metric_name: "utilization_percent"}, opts),
+    do: Keyword.get(opts, :warning_threshold_percent)
+
+  defp percent_threshold_default(%Source{metric_name: "usage_percent"}, opts),
+    do: Keyword.get(opts, :warning_threshold_percent)
+
+  defp percent_threshold_default(_source, _opts), do: nil
 
   defp capacity_metric_class_override(opts, metric_class) do
     opts

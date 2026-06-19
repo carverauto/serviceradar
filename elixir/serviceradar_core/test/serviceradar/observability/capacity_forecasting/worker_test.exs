@@ -38,6 +38,25 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     end
   end
 
+  defmodule FlowRunner do
+    @moduledoc false
+    @start ~U[2026-06-01 00:00:00Z]
+
+    def query(query, _opts) do
+      send(self(), {:capacity_forecast_query, query})
+
+      rows =
+        for hour <- 0..47 do
+          %{
+            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "bytes_total" => 500_000_000_000.0 + hour * 10_000_000_000.0
+          }
+        end
+
+      {:ok, rows}
+    end
+  end
+
   defmodule RecentRunner do
     @moduledoc false
     @start ~U[2026-06-10 13:00:00Z]
@@ -434,6 +453,57 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     interface_source = Enum.find(sources, &(&1.resource_type == "interface"))
     assert interface_source.metric_name == "utilization_percent"
     assert interface_source.threshold == 100.0
+
+    flow_source = Enum.find(sources, &(&1.resource_type == "flow"))
+    assert flow_source.name == "flow_bytes_per_hour"
+    assert flow_source.metric_name == "bytes_per_hour"
+    assert flow_source.value_field == "bytes_total"
+    assert flow_source.threshold == 1_000_000_000_000.0
+  end
+
+  test "runtime percent threshold does not override non-percent flow capacity source" do
+    AnomalyConfigRuntime.put_cache_for_test(%{
+      capacity_forecasting_opts: [
+        horizon_seconds: 12 * 3_600,
+        warning_threshold_percent: 75.0,
+        min_points: 24,
+        capacity_metric_class_overrides: %{}
+      ]
+    })
+
+    source = %Source{
+      name: "flow_bytes_per_hour",
+      resource_type: "flow",
+      metric_class: "flow",
+      metric_name: "bytes_per_hour",
+      query: "in:flows time:last_180d bucket:1h stats:sum(bytes_total) as bytes_total by bucket",
+      value_field: "bytes_total",
+      threshold: 1_000_000_000_000.0,
+      model: "linear"
+    }
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_flow, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{
+      args: %{"trigger" => "cron"},
+      inserted_at: @forecasted_at,
+      scheduled_at: @forecasted_at
+    }
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: FlowRunner,
+               upsert_fun: upsert_fun,
+               emit_verdicts?: false
+             )
+
+    assert_received {:capacity_forecast_flow, attrs}
+    assert attrs.metric_name == "bytes_per_hour"
+    assert attrs.exhaustion_threshold == 1_000_000_000_000.0
   end
 
   test "interface forecasts convert byte rates to utilization percent using live speed" do
