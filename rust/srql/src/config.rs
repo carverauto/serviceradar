@@ -15,6 +15,7 @@ pub struct AppConfig {
     pub pg_ssl_root_cert: Option<String>,
     pub pg_ssl_cert: Option<String>,
     pub pg_ssl_key: Option<String>,
+    pub pg_ssl_server_name: Option<String>,
     pub api_key: Option<String>,
     pub api_key_kv_key: Option<String>,
     pub allowed_origins: Option<Vec<String>>,
@@ -155,6 +156,9 @@ impl AppConfig {
             pg_ssl_root_cert: env::var("PGSSLROOTCERT").ok(),
             pg_ssl_cert: env::var("PGSSLCERT").ok(),
             pg_ssl_key: env::var("PGSSLKEY").ok(),
+            pg_ssl_server_name: env::var("PGSSLSERVERNAME")
+                .ok()
+                .or_else(|| env::var("PGSSLTARGETNAME").ok()),
             api_key,
             api_key_kv_key: raw.srql_api_key_kv_key,
             allowed_origins,
@@ -182,6 +186,7 @@ impl AppConfig {
             pg_ssl_root_cert: None,
             pg_ssl_cert: None,
             pg_ssl_key: None,
+            pg_ssl_server_name: None,
             api_key: None,
             api_key_kv_key: None,
             allowed_origins: None,
