@@ -140,6 +140,12 @@ pub(super) const FLOW_IN_IF_SPEED_BPS_GROUP_EXPR: &str =
 pub(super) const FLOW_OUT_IF_SPEED_BPS_GROUP_EXPR: &str =
     "COALESCE((SELECT ic.if_speed_bps::text FROM netflow_interface_cache ic WHERE ic.sampler_address = sampler_address AND ic.if_index = (CASE WHEN (ocsf_payload #>> '{connection_info,output_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,output_snmp}')::int ELSE NULL END) LIMIT 1), 'Unknown')";
 
+pub(super) const FLOW_CONVERSATION_A_IP_EXPR: &str =
+    "CASE WHEN COALESCE(NULLIF(src_endpoint_ip, ''), 'Unknown') <= COALESCE(NULLIF(dst_endpoint_ip, ''), 'Unknown') THEN COALESCE(NULLIF(src_endpoint_ip, ''), 'Unknown') ELSE COALESCE(NULLIF(dst_endpoint_ip, ''), 'Unknown') END";
+
+pub(super) const FLOW_CONVERSATION_B_IP_EXPR: &str =
+    "CASE WHEN COALESCE(NULLIF(src_endpoint_ip, ''), 'Unknown') <= COALESCE(NULLIF(dst_endpoint_ip, ''), 'Unknown') THEN COALESCE(NULLIF(dst_endpoint_ip, ''), 'Unknown') ELSE COALESCE(NULLIF(src_endpoint_ip, ''), 'Unknown') END";
+
 pub(super) const FLOW_TCP_FLAGS_LABEL_EXPR: &str =
     "COALESCE(array_to_string(tcp_flags_labels, ','), 'Unknown')";
 
@@ -1049,6 +1055,8 @@ impl FlowAggField {
 enum FlowGroupField {
     SrcEndpointIp,
     DstEndpointIp,
+    ConversationAIp,
+    ConversationBIp,
     SrcEndpointPort,
     DstEndpointPort,
     ProtocolNum,
@@ -1075,6 +1083,8 @@ impl FlowGroupField {
         match s.to_lowercase().as_str() {
             "src_endpoint_ip" | "src_ip" => Some(Self::SrcEndpointIp),
             "dst_endpoint_ip" | "dst_ip" => Some(Self::DstEndpointIp),
+            "conversation_a_ip" | "conversation_min_ip" => Some(Self::ConversationAIp),
+            "conversation_b_ip" | "conversation_max_ip" => Some(Self::ConversationBIp),
             "src_endpoint_port" | "src_port" => Some(Self::SrcEndpointPort),
             "dst_endpoint_port" | "dst_port" => Some(Self::DstEndpointPort),
             "protocol_num" | "proto" => Some(Self::ProtocolNum),
@@ -1102,6 +1112,8 @@ impl FlowGroupField {
         match self {
             Self::SrcEndpointIp => "src_endpoint_ip",
             Self::DstEndpointIp => "dst_endpoint_ip",
+            Self::ConversationAIp => "conversation_a_ip",
+            Self::ConversationBIp => "conversation_b_ip",
             Self::SrcEndpointPort => "src_endpoint_port",
             Self::DstEndpointPort => "dst_endpoint_port",
             Self::ProtocolNum => "protocol_num",
@@ -1128,6 +1140,8 @@ impl FlowGroupField {
         match self {
             Self::SrcEndpointIp => "src_endpoint_ip",
             Self::DstEndpointIp => "dst_endpoint_ip",
+            Self::ConversationAIp => FLOW_CONVERSATION_A_IP_EXPR,
+            Self::ConversationBIp => FLOW_CONVERSATION_B_IP_EXPR,
             Self::SrcEndpointPort => "src_endpoint_port",
             Self::DstEndpointPort => "dst_endpoint_port",
             Self::ProtocolNum => "protocol_num",
@@ -2453,6 +2467,24 @@ mod tests {
     }
 
     #[test]
+    fn parse_stats_expr_supports_canonical_conversation_group_by() {
+        let expr =
+            "sum(bytes_total) as bytes_total, sum(packets_total) as packets_total by conversation_a_ip, conversation_b_ip";
+        let spec = parse_stats_expr(expr).unwrap();
+        assert_eq!(spec.group_by.len(), 2);
+        assert_eq!(
+            spec.group_by[0],
+            FlowGroupSpec::Field(FlowGroupField::ConversationAIp)
+        );
+        assert_eq!(
+            spec.group_by[1],
+            FlowGroupSpec::Field(FlowGroupField::ConversationBIp)
+        );
+        assert_eq!(spec.group_by[0].response_key(), "conversation_a_ip");
+        assert_eq!(spec.group_by[1].response_key(), "conversation_b_ip");
+    }
+
+    #[test]
     fn multi_group_by_requires_time_window() {
         let plan = QueryPlan {
             entity: Entity::Flows,
@@ -2572,6 +2604,50 @@ mod tests {
         assert!(
             sql.contains("ORDER BY agg_value_1 DESC"),
             "expected order by packets_total alias mapped to agg_value_1, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn translate_grouped_stats_conversation_group_by_uses_canonical_endpoints() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: Vec::new(),
+            order: vec![OrderClause {
+                field: "bytes_total".into(),
+                direction: OrderDirection::Desc,
+            }],
+            limit: 10,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "sum(bytes_total) as bytes_total, sum(packets_total) as packets_total by conversation_a_ip, conversation_b_ip",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let (sql, _params) = to_sql_and_params_stats(&plan).unwrap();
+        assert!(
+            sql.contains("FROM ocsf_network_activity f"),
+            "canonical conversation grouping must use raw flows, got: {sql}"
+        );
+        assert!(
+            sql.contains("'conversation_a_ip', group_value_0")
+                && sql.contains("'conversation_b_ip', group_value_1"),
+            "expected canonical conversation JSON keys, got: {sql}"
+        );
+        assert!(
+            sql.contains("CASE WHEN COALESCE(NULLIF(src_endpoint_ip, ''), 'Unknown') <=")
+                && sql.contains("ELSE COALESCE(NULLIF(dst_endpoint_ip, ''), 'Unknown') END"),
+            "expected unordered endpoint expression, got: {sql}"
+        );
+        assert!(
+            sql.contains("ORDER BY agg_value_0 DESC"),
+            "expected sort by bytes_total aggregate, got: {sql}"
         );
     }
 

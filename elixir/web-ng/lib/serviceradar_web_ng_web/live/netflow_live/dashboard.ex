@@ -153,7 +153,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   def handle_event("drill_down_conversation", %{"row-idx" => idx}, socket) do
     with {:ok, i} <- safe_parse_int(idx),
          row when not is_nil(row) <- Enum.at(socket.assigns.top_conversations, i) do
-      {:noreply, drill_down(socket, "src_ip:#{srql_quote(row.src_ip)} dst_ip:#{srql_quote(row.dst_ip)}")}
+      {:noreply, drill_down(socket, bidirectional_conversation_filter(row))}
     else
       _ -> {:noreply, socket}
     end
@@ -815,7 +815,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   defp load_top_conversations(srql_mod, scope, base, sort_field) do
     query =
-      "#{base} stats:sum(bytes_total) as bytes_total stats:sum(packets_total) as packets_total by src_endpoint_ip,dst_endpoint_ip sort:#{sort_field}:desc limit:#{@top_n}"
+      "#{base} stats:sum(bytes_total) as bytes_total stats:sum(packets_total) as packets_total by conversation_a_ip,conversation_b_ip sort:#{sort_field}:desc limit:#{@top_n}"
 
     srql_mod
     |> srql_results(query, scope)
@@ -823,12 +823,34 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
       p = row_payload(row)
 
       %{
-        src_ip: get_field(p, "src_endpoint_ip"),
-        dst_ip: get_field(p, "dst_endpoint_ip"),
+        src_ip: get_field(p, "conversation_a_ip"),
+        dst_ip: get_field(p, "conversation_b_ip"),
         bytes: to_number(get_field(p, "bytes_total")),
         packets: to_number(get_field(p, "packets_total"))
       }
     end)
+  end
+
+  defp bidirectional_conversation_filter(%{src_ip: src_ip, dst_ip: dst_ip}) do
+    endpoints =
+      [src_ip, dst_ip]
+      |> Enum.filter(&is_binary/1)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == "" or &1 == "Unknown"))
+      |> Enum.uniq()
+
+    case endpoints do
+      [one] ->
+        quoted = srql_quote(one)
+        "src_ip:#{quoted} dst_ip:#{quoted}"
+
+      [a, b | _] ->
+        list = "#{srql_quote(a)},#{srql_quote(b)}"
+        "src_ip:(#{list}) dst_ip:(#{list})"
+
+      _ ->
+        ""
+    end
   end
 
   defp load_interface_timeseries(socket, interface_key) do
