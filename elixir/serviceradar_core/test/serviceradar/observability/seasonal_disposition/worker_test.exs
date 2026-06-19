@@ -141,6 +141,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
     assert attrs.status == "breach"
     assert attrs.score >= 3.0
     assert attrs.consecutive_anomalous == 1
+    assert attrs.bucket_started_at == ~U[2026-06-07 03:00:00Z]
+    assert attrs.bucket_ended_at == ~U[2026-06-07 04:00:00Z]
     assert attrs.metadata["verdict_source"] == "central-seasonal"
     refute_received {:seasonal_verdict, %{series_key: "svc/cpu/b"}}
 

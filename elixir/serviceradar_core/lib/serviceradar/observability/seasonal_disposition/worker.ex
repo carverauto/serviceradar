@@ -279,6 +279,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
          dow when is_integer(dow) <- integer_value(raw, source.dow_field),
          hod when is_integer(hod) <- integer_value(raw, source.hod_field),
          sample when is_number(sample) <- number_value(raw, source.sample_field) do
+      bucket_started_at = datetime_value(raw, source.bucket_field)
+
       %{
         series_key: series_key,
         dow: dow,
@@ -292,8 +294,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
         p05: number_value(raw, source.p05_field) || 0.0,
         p95: number_value(raw, source.p95_field) || 0.0,
         label: label(raw, source, series_key),
-        bucket_started_at: datetime_value(raw, source.bucket_field),
-        bucket_ended_at: datetime_value(raw, source.bucket_field),
+        bucket_started_at: bucket_started_at,
+        bucket_ended_at: bucket_ended_at(bucket_started_at),
         consecutive_anomalous: 0,
         baseline_excludes_latest: Source.robust?(source)
       }
@@ -301,6 +303,11 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
       _ -> nil
     end
   end
+
+  defp bucket_ended_at(%DateTime{} = bucket_started_at),
+    do: DateTime.add(bucket_started_at, 3_600, :second)
+
+  defp bucket_ended_at(_bucket_started_at), do: nil
 
   # Build the typed NIF row map (the inner `row` of `{:seasonal, %{config, row}}`).
   # `baseline_excludes_latest` is true only for the robust statistics, whose order
