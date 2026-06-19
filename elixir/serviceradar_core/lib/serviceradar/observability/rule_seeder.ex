@@ -195,7 +195,7 @@ defmodule ServiceRadar.Observability.RuleSeeder do
         },
         alert: %{
           "title" => "Anomaly Finding",
-          "severity" => "warning"
+          "severity_from" => "source"
         }
       },
       %{
@@ -233,7 +233,7 @@ defmodule ServiceRadar.Observability.RuleSeeder do
         },
         alert: %{
           "title" => "Capacity Forecast Finding",
-          "severity" => "warning"
+          "severity_from" => "source"
         }
       },
       %{

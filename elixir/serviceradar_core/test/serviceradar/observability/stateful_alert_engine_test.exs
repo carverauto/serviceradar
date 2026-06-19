@@ -482,7 +482,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
             "log_name" => "alert.health.anomaly_detection",
             "message" => "Anomaly detection finding detected"
           },
-          alert: %{"title" => alert_title, "severity" => "warning"}
+          alert: %{"title" => alert_title, "severity_from" => "source"}
         },
         actor: actor
       )
@@ -519,6 +519,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert :ok = StatefulAlertEngine.evaluate_events([event.("anomaly_open", 10)])
     assert [active_alert] = active_alerts_by_title(actor, alert_title)
 
+    assert active_alert.severity == :critical
     assert active_alert.metadata["incident_rule_id"] == to_string(rule.id)
 
     assert active_alert.metadata["incident_group_values"] == %{
@@ -580,7 +581,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
             "log_name" => "alert.health.capacity_forecast",
             "message" => "Capacity forecast warning-horizon finding detected"
           },
-          alert: %{"title" => alert_title, "severity" => "warning"}
+          alert: %{"title" => alert_title, "severity_from" => "source"}
         },
         actor: actor
       )
@@ -617,6 +618,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
     assert :ok = StatefulAlertEngine.evaluate_events([event.("projected", 10)])
     assert [active_alert] = active_alerts_by_title(actor, alert_title)
+
+    assert active_alert.severity == :critical
 
     assert active_alert.metadata["incident_group_values"] == %{
              "capacity_forecast.resource_key" => resource_key,
