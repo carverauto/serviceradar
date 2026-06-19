@@ -4,7 +4,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
 
   require Logger
 
-  @anomaly_query "in:events source_type:anomaly_detection time:last_24h sort:time:desc limit:25"
+  @anomaly_query "in:events event_type:(anomaly,anomaly_detection) time:last_24h sort:time:desc limit:25"
   @health_query "in:events rollup_stats:anomaly_findings time:last_24h limit:1"
   @capacity_query "in:capacity_forecasts status:(projected,at_risk,exhaustion_projected) sort:projected_exhaustion_at:asc limit:25"
 

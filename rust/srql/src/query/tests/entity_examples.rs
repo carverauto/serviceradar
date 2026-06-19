@@ -270,8 +270,17 @@ fn events_rollup_stats_anomaly_findings_builds_summary_payload() {
             && lower.contains("'anomalies'")
             && lower.contains("'at_risk'")
             && lower.contains("anomaly_detection")
+            && lower.contains("metadata #>> '{detection_finding,type}' = 'anomaly'")
             && lower.contains("capacity_forecast"),
         "expected anomaly/capacity summary payload, got: {sql}"
+    );
+    assert!(
+        lower.contains("and not ((metadata ->> 'event_type' = 'capacity_forecast'"),
+        "expected anomaly counts to exclude capacity forecast rows, got: {sql}"
+    );
+    assert!(
+        !lower.contains("metadata #>> '{service_radar,ocsf_class}' = 'detection_finding'"),
+        "generic OCSF detection_finding metadata must not count capacity rows as anomalies, got: {sql}"
     );
     assert_eq!(params.len(), 2);
 }
@@ -300,6 +309,53 @@ fn events_rollup_stats_anomaly_findings_scopes_severity_counts_to_anomalies() {
         lower.contains("'high', coalesce(count(*) filter (where (")
             && lower.contains("and coalesce(severity_id, 0) = 4"),
         "expected high severity count to be scoped to anomaly findings, got: {sql}"
+    );
+}
+
+#[test]
+fn events_event_type_filter_matches_metadata_and_unmapped_contracts() {
+    let query = "in:events event_type:(anomaly,anomaly_detection) time:last_24h sort:time:desc";
+    let plan = plan_for(query);
+
+    let (sql, params) = events::to_sql_and_params(&plan).expect("should build event type SQL");
+    let lower = sql.to_lowercase();
+
+    assert!(
+        lower.contains("metadata ->> 'event_type' = 'anomaly'")
+            && lower.contains("metadata #>> '{service_radar,event_type}' = 'anomaly_detection'")
+            && lower.contains("unmapped ->> 'event_type' = 'anomaly_detection'"),
+        "expected event_type filter to match metadata and unmapped event type paths, got: {sql}"
+    );
+    assert!(params.len() >= 2);
+}
+
+#[test]
+fn events_agent_and_host_filters_match_exact_identity_paths() {
+    let agent_plan =
+        plan_for(r#"in:events agent_id:"agent-sr-test-pve04" event_type:anomaly limit:25"#);
+    let host_plan = plan_for(r#"in:events host_id:"sr-test-pve04" event_type:anomaly limit:25"#);
+    let device_plan =
+        plan_for(r#"in:events device_uid_exact:"sr:device-1" event_type:anomaly limit:25"#);
+
+    let (agent_sql, _) = events::to_sql_and_params(&agent_plan).expect("agent filter SQL");
+    let (host_sql, _) = events::to_sql_and_params(&host_plan).expect("host filter SQL");
+    let (device_sql, _) = events::to_sql_and_params(&device_plan).expect("device filter SQL");
+
+    assert!(
+        agent_sql.contains("metadata #>> '{service_radar,agent_id}' = 'agent-sr-test-pve04'")
+            && agent_sql
+                .contains("metadata #>> '{service_radar,device_uid}' = 'agent-sr-test-pve04'"),
+        "expected agent_id filter to match agent and legacy device uid paths, got: {agent_sql}"
+    );
+    assert!(
+        host_sql.contains("metadata #>> '{service_radar,device_hostname}' = 'sr-test-pve04'")
+            && host_sql.contains("metadata #>> '{service_radar,device_uid}' = 'sr-test-pve04'"),
+        "expected host_id filter to match host and legacy device uid paths, got: {host_sql}"
+    );
+    assert!(
+        device_sql.contains("metadata #>> '{service_radar,device_uid}' = 'sr:device-1'")
+            && !device_sql.contains("EXISTS ("),
+        "expected device_uid_exact filter to avoid inventory alias fallback, got: {device_sql}"
     );
 }
 

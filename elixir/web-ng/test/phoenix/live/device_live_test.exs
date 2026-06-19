@@ -1423,7 +1423,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
            }}
 
         String.contains?(query, "in:events") and
-          String.contains?(query, "source_type:anomaly_detection") and
+          String.contains?(query, "event_type:(anomaly,anomaly_detection)") and
             String.contains?(query, ~s|agent_id:"#{agent_id}"|) ->
           {:ok,
            %{
@@ -1455,6 +1455,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
            }}
 
         String.contains?(query, "in:capacity_forecasts") and
+          String.contains?(query, "status:(projected,at_risk,exhaustion_projected)") and
+          String.contains?(query, "has_exhaustion:true") and
             String.contains?(query, ~s|resource_id:"#{agent_id}"|) ->
           {:ok,
            %{

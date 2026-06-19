@@ -135,6 +135,36 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeederTest do
     assert {:ok, "operator-set-token"} = Config.vulncheck_token()
   end
 
+  test "Config.vulncheck_token falls back to the nist-nvd2 credential_ref", %{
+    actor: actor
+  } do
+    assert :ok = FeedDefinitionSeeder.seed_defaults()
+
+    nist = fetch(actor, "nvd", "nist-nvd2")
+
+    {:ok, _edited} =
+      nist
+      |> Ash.Changeset.for_update(:update, %{credential_ref: " nist-row-token "}, actor: actor)
+      |> Ash.update(actor: actor)
+
+    assert {:ok, "nist-row-token"} = Config.vulncheck_token()
+  end
+
+  test "Config.feed_enabled?/1 follows the operator feed row", %{actor: actor} do
+    assert :ok = FeedDefinitionSeeder.seed_defaults()
+
+    refute Config.feed_enabled?("cisa-kev")
+
+    cisa = fetch(actor, "cisa", "cisa-kev")
+
+    {:ok, _edited} =
+      cisa
+      |> Ash.Changeset.for_update(:update, %{enabled: true}, actor: actor)
+      |> Ash.update(actor: actor)
+
+    assert Config.feed_enabled?("cisa-kev")
+  end
+
   defp read_seeded(actor) do
     keys = Enum.map(FeedRegistry.all(), &{&1.provider, &1.feed_key})
 

@@ -243,12 +243,14 @@ fn build_anomaly_findings_rollup_stats(plan: &QueryPlan) -> Result<Option<Events
     // independent OR (WHERE (class_uid=2004 AND category_uid=2 AND source) OR
     // capacity_clause) so the anomaly arm still leads with the indexable predicate.
     let anomaly_clause = anomaly_detection_rollup_source_clause();
+    let capacity_event_clause = capacity_forecast_rollup_source_clause();
     let capacity_clause = capacity_forecast_at_risk_rollup_clause();
+    let anomaly_count_clause = format!("({anomaly_clause}) AND NOT ({capacity_event_clause})");
     let mut binds = Vec::new();
     let mut clauses = vec![
         "\"class_uid\" = 2004".to_string(),
         "\"category_uid\" = 2".to_string(),
-        format!("(({anomaly_clause}) OR ({capacity_clause}))"),
+        format!("(({anomaly_count_clause}) OR ({capacity_clause}))"),
     ];
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
@@ -261,10 +263,10 @@ fn build_anomaly_findings_rollup_stats(plan: &QueryPlan) -> Result<Option<Events
     let sql = format!(
         r#"SELECT jsonb_build_object(
     'total', COALESCE(COUNT(*), 0)::bigint,
-    'anomalies', COALESCE(COUNT(*) FILTER (WHERE {anomaly_clause}), 0)::bigint,
+    'anomalies', COALESCE(COUNT(*) FILTER (WHERE {anomaly_count_clause}), 0)::bigint,
     'at_risk', COALESCE(COUNT(*) FILTER (WHERE {capacity_clause}), 0)::bigint,
-    'critical', COALESCE(COUNT(*) FILTER (WHERE ({anomaly_clause}) AND COALESCE(severity_id, 0) >= 5), 0)::bigint,
-    'high', COALESCE(COUNT(*) FILTER (WHERE ({anomaly_clause}) AND COALESCE(severity_id, 0) = 4), 0)::bigint
+    'critical', COALESCE(COUNT(*) FILTER (WHERE ({anomaly_count_clause}) AND COALESCE(severity_id, 0) >= 5), 0)::bigint,
+    'high', COALESCE(COUNT(*) FILTER (WHERE ({anomaly_count_clause}) AND COALESCE(severity_id, 0) = 4), 0)::bigint
 ) AS payload
 FROM ocsf_events
 WHERE {}"#,
@@ -276,13 +278,14 @@ WHERE {}"#,
 
 // Source-discrimination only: the class_uid/category_uid gate is now hoisted to a
 // top-level AND in build_anomaly_findings_rollup_stats so the planner can use
-// idx_ocsf_events_class_category_time. This clause is also reused verbatim inside
-// the COUNT(*) FILTER expressions, where the same gate already applies to the
-// scanned rows, so dropping it here keeps the per-bucket counts identical.
+// idx_ocsf_events_class_category_time. Keep this predicate scoped to explicit
+// anomaly markers only; generic OCSF detection_finding metadata is also used by
+// capacity forecast verdicts and would inflate the anomaly count.
 fn anomaly_detection_rollup_source_clause() -> &'static str {
     r#"(
   metadata #>> '{service_radar,source_type}' = 'anomaly_detection'
-  OR metadata #>> '{service_radar,ocsf_class}' = 'detection_finding'
+  OR metadata #>> '{service_radar,addon_id}' = 'anomaly-detection'
+  OR metadata #>> '{detection_finding,type}' = 'anomaly'
   OR metadata #>> '{security_signal,source}' = 'anomaly_detection'
   OR log_provider = 'anomaly_detection'
   OR unmapped ->> 'event_type' IN ('anomaly', 'anomaly_detection')
@@ -298,6 +301,12 @@ AND (
   OR unmapped #>> '{capacity_forecast,status}' IN ('projected', 'at_risk', 'exhaustion_projected')
   OR NULLIF(unmapped #>> '{capacity_forecast,projected_exhaustion_at}', '') IS NOT NULL
 )"#
+}
+
+fn capacity_forecast_rollup_source_clause() -> &'static str {
+    r#"(metadata ->> 'event_type' = 'capacity_forecast'
+  OR unmapped ->> 'event_type' = 'capacity_forecast'
+  OR log_provider = 'capacity_forecasting')"#
 }
 
 fn rewrite_placeholders(sql: &str) -> String {
@@ -451,6 +460,9 @@ fn apply_filter<'a>(mut query: EventsQuery<'a>, filter: &Filter) -> Result<Event
         "source" | "source_type" | "addon_id" => {
             query = apply_metadata_source_filter(query, filter)?;
         }
+        "event_type" => {
+            query = apply_event_type_filter(query, filter)?;
+        }
         "trace_id" => {
             query = apply_text_filter!(query, filter, col_trace_id)?;
         }
@@ -459,6 +471,15 @@ fn apply_filter<'a>(mut query: EventsQuery<'a>, filter: &Filter) -> Result<Event
         }
         "device_id" | "uid" | "source_device_uid" => {
             query = apply_metadata_identity_filter(query, filter, EVENT_DEVICE_IDENTITY_KEYS)?;
+        }
+        "device_uid_exact" => {
+            query = apply_device_uid_exact_filter(query, filter)?;
+        }
+        "agent_id" => {
+            query = apply_agent_id_filter(query, filter)?;
+        }
+        "host_id" | "hostname" => {
+            query = apply_host_id_filter(query, filter)?;
         }
         "finding_uid" => {
             query = apply_finding_uid_filter(query, filter)?;
@@ -545,6 +566,168 @@ fn apply_metadata_source_filter<'a>(
         .map(|clause| format!("({clause})"))
         .collect::<Vec<_>>()
         .join(" OR ");
+    let sql_clause = if negate {
+        format!("NOT ({clause})")
+    } else {
+        format!("({clause})")
+    };
+
+    Ok(query.filter(sql::<Bool>(&sql_clause)))
+}
+
+fn apply_event_type_filter<'a>(query: EventsQuery<'a>, filter: &Filter) -> Result<EventsQuery<'a>> {
+    let negate = matches!(
+        filter.op,
+        crate::parser::FilterOp::NotEq | crate::parser::FilterOp::NotIn
+    );
+
+    let values = match filter.op {
+        crate::parser::FilterOp::Eq | crate::parser::FilterOp::NotEq => {
+            vec![filter.value.as_scalar()?.to_string()]
+        }
+        crate::parser::FilterOp::In | crate::parser::FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(query);
+            }
+            values
+        }
+        _ => {
+            return Err(ServiceError::InvalidRequest(
+                "event_type filter only supports equality and IN/NOT IN comparisons".into(),
+            ))
+        }
+    };
+
+    let clauses = values
+        .into_iter()
+        .map(|value| {
+            let literal = sql_string_literal(&value);
+
+            format!(
+                "metadata ->> 'event_type' = {literal} OR \
+                 metadata #>> '{{service_radar,event_type}}' = {literal} OR \
+                 unmapped ->> 'event_type' = {literal}"
+            )
+        })
+        .map(|clause| format!("({clause})"))
+        .collect::<Vec<_>>();
+
+    if clauses.is_empty() {
+        return Ok(query);
+    }
+
+    let clause = clauses.join(" OR ");
+    let sql_clause = if negate {
+        format!("NOT ({clause})")
+    } else {
+        format!("({clause})")
+    };
+
+    Ok(query.filter(sql::<Bool>(&sql_clause)))
+}
+
+fn apply_device_uid_exact_filter<'a>(
+    query: EventsQuery<'a>,
+    filter: &Filter,
+) -> Result<EventsQuery<'a>> {
+    apply_metadata_exact_filter(
+        query,
+        filter,
+        &[
+            "metadata #>> '{service_radar,device_uid}'",
+            "metadata ->> 'device_uid'",
+            "metadata ->> 'source_device_uid'",
+            "unmapped ->> 'device_uid'",
+            "unmapped ->> 'source_device_uid'",
+            "device ->> 'uid'",
+        ],
+        "device_uid_exact",
+    )
+}
+
+fn apply_agent_id_filter<'a>(query: EventsQuery<'a>, filter: &Filter) -> Result<EventsQuery<'a>> {
+    apply_metadata_exact_filter(
+        query,
+        filter,
+        &[
+            "metadata #>> '{service_radar,agent_id}'",
+            "metadata #>> '{service_radar,device_uid}'",
+            "metadata ->> 'agent_id'",
+            "unmapped ->> 'agent_id'",
+            "device ->> 'uid'",
+        ],
+        "agent_id",
+    )
+}
+
+fn apply_host_id_filter<'a>(query: EventsQuery<'a>, filter: &Filter) -> Result<EventsQuery<'a>> {
+    apply_metadata_exact_filter(
+        query,
+        filter,
+        &[
+            "metadata #>> '{service_radar,device_hostname}'",
+            "metadata #>> '{service_radar,source_instance}'",
+            "metadata #>> '{service_radar,device_uid}'",
+            "metadata ->> 'hostname'",
+            "metadata ->> 'host_id'",
+            "unmapped ->> 'hostname'",
+            "unmapped ->> 'host_id'",
+            "device ->> 'name'",
+            "device ->> 'hostname'",
+        ],
+        "host_id",
+    )
+}
+
+fn apply_metadata_exact_filter<'a>(
+    query: EventsQuery<'a>,
+    filter: &Filter,
+    expressions: &[&str],
+    label: &str,
+) -> Result<EventsQuery<'a>> {
+    let negate = matches!(
+        filter.op,
+        crate::parser::FilterOp::NotEq | crate::parser::FilterOp::NotIn
+    );
+
+    let values = match filter.op {
+        crate::parser::FilterOp::Eq | crate::parser::FilterOp::NotEq => {
+            vec![filter.value.as_scalar()?.to_string()]
+        }
+        crate::parser::FilterOp::In | crate::parser::FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(query);
+            }
+            values
+        }
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "{label} filter only supports equality and IN/NOT IN comparisons"
+            )))
+        }
+    };
+
+    let clauses = values
+        .into_iter()
+        .map(|value| {
+            let literal = sql_string_literal(&value);
+
+            expressions
+                .iter()
+                .map(|expr| format!("{expr} = {literal}"))
+                .collect::<Vec<_>>()
+                .join(" OR ")
+        })
+        .map(|clause| format!("({clause})"))
+        .collect::<Vec<_>>();
+
+    if clauses.is_empty() {
+        return Ok(query);
+    }
+
+    let clause = clauses.join(" OR ");
     let sql_clause = if negate {
         format!("NOT ({clause})")
     } else {
@@ -879,9 +1062,10 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
         "activity_name" | "severity" | "message" | "short_message" | "log_name"
         | "log_provider" | "log_level" | "status" | "status_code" | "status_detail"
         | "trace_id" | "span_id" => collect_text_params(params, filter),
-        "device_id" | "uid" | "source_device_uid" | "source" | "source_type" | "addon_id"
-        | "purl" | "purl_canonical" | "canonical_purl" | "cpe" | "cpes" | "cve"
-        | "vulnerability_id" | "finding_uid" => Ok(()),
+        "device_id" | "uid" | "source_device_uid" | "device_uid_exact" | "agent_id" | "host_id"
+        | "hostname" | "source" | "source_type" | "addon_id" | "event_type" | "purl"
+        | "purl_canonical" | "canonical_purl" | "cpe" | "cpes" | "cve" | "vulnerability_id"
+        | "finding_uid" => Ok(()),
         "class_uid" | "category_uid" | "type_uid" | "activity_id" | "severity_id" | "status_id" => {
             params.push(BindParam::Int(i64::from(parse_i32(
                 filter.value.as_scalar()?,

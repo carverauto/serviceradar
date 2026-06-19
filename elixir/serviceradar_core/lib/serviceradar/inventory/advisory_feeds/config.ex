@@ -17,8 +17,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Config do
 
   require Ash.Query
 
-  # Feed whose credential_ref carries the operator-supplied VulnCheck API token.
-  @vulncheck_credential_feed "vulncheck-kev"
+  # Feeds whose credential_ref may carry the shared operator-supplied VulnCheck
+  # API token. The UI exposes the credential field on each VulnCheck-backed row,
+  # so read both while preferring the KEV row for existing deployments.
+  @vulncheck_credential_feeds ["vulncheck-kev", "nist-nvd2"]
 
   @cisa_kev_url "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
 
@@ -43,6 +45,20 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Config do
       env_bool("SERVICERADAR_ADVISORY_NIST_NVD2_ENABLED", true)
     )
   end
+
+  @doc "Per-feed operator gate from the feed-definition row."
+  @spec feed_enabled?(String.t()) :: boolean()
+  def feed_enabled?(feed) when is_binary(feed) do
+    with {:ok, entry} <- FeedRegistry.fetch(feed),
+         %VulnerabilityFeedDefinition{enabled: enabled} <-
+           read_definition(entry.provider, entry.feed_key) do
+      enabled == true
+    else
+      _ -> false
+    end
+  end
+
+  def feed_enabled?(_feed), do: false
 
   @doc """
   Refresh cadence (seconds) for a feed.
@@ -83,7 +99,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Config do
   @doc """
   VulnCheck API token.
 
-  Primary source is the `vulncheck-kev` feed-def row's `credential_ref` column
+  Primary source is a VulnCheck-backed feed-def row's `credential_ref` column
   (operator-settable from the UI); falls back to env (`VULNCHECK_API_TOKEN`,
   `SERVICERADAR_VULNCHECK_TOKEN`) then app config. Returns
   `{:error, :missing_vulncheck_token}` when absent everywhere.
@@ -97,16 +113,23 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Config do
         config(:vulncheck_token, nil)
 
     case token do
-      value when is_binary(value) and value != "" -> {:ok, value}
+      value when is_binary(value) -> present_token(value)
       _ -> {:error, :missing_vulncheck_token}
     end
   end
 
   defp definition_credential_ref do
-    with {:ok, entry} <- FeedRegistry.fetch(@vulncheck_credential_feed),
-         %VulnerabilityFeedDefinition{credential_ref: ref} when is_binary(ref) and ref != "" <-
-           read_definition(entry.provider, entry.feed_key) do
-      ref
+    @vulncheck_credential_feeds
+    |> Stream.map(&definition_credential_ref/1)
+    |> Enum.find(&present?/1)
+  end
+
+  defp definition_credential_ref(feed) do
+    with {:ok, entry} <- FeedRegistry.fetch(feed),
+         %VulnerabilityFeedDefinition{credential_ref: ref} <-
+           read_definition(entry.provider, entry.feed_key),
+         true <- present?(ref) do
+      String.trim(ref)
     else
       _ -> nil
     end
@@ -149,4 +172,13 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Config do
       value -> String.downcase(value) in ["1", "true", "yes", "on"]
     end
   end
+
+  defp present_token(value) do
+    case String.trim(value) do
+      "" -> {:error, :missing_vulncheck_token}
+      token -> {:ok, token}
+    end
+  end
+
+  defp present?(value), do: is_binary(value) and String.trim(value) != ""
 end

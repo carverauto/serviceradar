@@ -373,6 +373,12 @@ spec:
           value: {{ $webNgObanQueueMaintenance | quote }}
         - name: WEB_NG_OBAN_QUEUE_WEB_MAINTENANCE
           value: {{ $webNgObanQueueWebMaintenance | quote }}
+        # Core-elx owns advisory feed acquisition. Keep web-ng from running the
+        # shared FeedWorker if it ever sees an integrations job.
+        - name: SERVICERADAR_ADVISORY_FEEDS_ENABLED
+          value: "false"
+        - name: ADVISORY_FEED_SCHEDULER_ENABLED
+          value: "false"
         - name: SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_REFRESH_MS
           value: {{ default 30000 $webNgGodView.runtimeGraphRefreshMs | quote }}
         - name: SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_AUTO_REFRESH

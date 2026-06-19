@@ -177,6 +177,30 @@ fn apply_filter<'a>(
         "exhaustion_threshold" => {
             query = apply_float_filter!(query, filter, col_exhaustion_threshold)
         }
+        "has_exhaustion" => {
+            let value = parse_bool(filter.value.as_scalar()?, "has_exhaustion")?;
+            query = match filter.op {
+                FilterOp::Eq => {
+                    if value {
+                        query.filter(col_projected_exhaustion_at.is_not_null())
+                    } else {
+                        query.filter(col_projected_exhaustion_at.is_null())
+                    }
+                }
+                FilterOp::NotEq => {
+                    if value {
+                        query.filter(col_projected_exhaustion_at.is_null())
+                    } else {
+                        query.filter(col_projected_exhaustion_at.is_not_null())
+                    }
+                }
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "has_exhaustion filter expects true/false equality".into(),
+                    ));
+                }
+            };
+        }
         other => {
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported filter field for capacity_forecasts: '{other}'"
@@ -211,6 +235,7 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
     match filter.field.as_str() {
         "resource_key" | "resource_type" | "resource_id" | "resource_label" | "metric_class"
         | "metric_name" | "model" | "status" | "skip_reason" => collect_text_params(params, filter),
+        "has_exhaustion" => Ok(()),
         "horizon_seconds" => {
             params.push(BindParam::Int(parse_i64(
                 filter.value.as_scalar()?,
@@ -341,6 +366,16 @@ fn parse_i64(value: &str, field: &str) -> Result<i64> {
     })
 }
 
+fn parse_bool(value: &str, field: &str) -> Result<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "true" | "1" | "yes" | "on" => Ok(true),
+        "false" | "0" | "no" | "off" => Ok(false),
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "{field} filter expects a boolean value"
+        ))),
+    }
+}
+
 fn parse_i32(value: &str, field: &str) -> Result<i32> {
     value.parse::<i32>().map_err(|_| {
         ServiceError::InvalidRequest(format!("{field} filter expects an integer value"))
@@ -402,5 +437,16 @@ mod tests {
             (Some(BindParam::Float(projected)), Some(BindParam::Float(confidence)))
                 if *projected == 80.0 && *confidence == 0.8
         ));
+    }
+
+    #[test]
+    fn supports_has_exhaustion_filter() {
+        let plan = plan("in:capacity_forecasts has_exhaustion:true limit:10");
+        let (sql, params) = to_sql_and_params(&plan).expect("translate exhaustion filter");
+
+        assert!(sql.contains("\"capacity_forecasts\".\"projected_exhaustion_at\" IS NOT NULL"));
+        assert!(params
+            .iter()
+            .all(|param| !matches!(param, BindParam::Text(value) if value == "true")));
     }
 }

@@ -75,11 +75,16 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   def enqueue(_feed), do: {:error, :unknown_feed}
 
   defp maybe_enqueue(feed) do
-    if already_scheduled?(feed) do
-      :ok
-    else
-      _ = ObanSupport.safe_insert(new(%{feed: feed}, schedule_in: 5))
-      :ok
+    cond do
+      not Config.feed_enabled?(feed) ->
+        :ok
+
+      already_scheduled?(feed) ->
+        :ok
+
+      true ->
+        _ = ObanSupport.safe_insert(new(%{feed: feed}, schedule_in: 5))
+        :ok
     end
   end
 
@@ -104,6 +109,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     cond do
       not Config.enabled?() ->
         Logger.info("advisory_feeds: disabled, skipping #{feed}")
+        :ok
+
+      not Config.feed_enabled?(feed) ->
+        Logger.info("advisory_feeds: #{feed} disabled, skipping")
         :ok
 
       feed == "nist-nvd2" and not Config.nist_nvd2_enabled?() ->
@@ -305,8 +314,11 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   defp provider_feed("nvd-api"), do: {"nvd", "nvd-api"}
 
   defp schedule_next(feed) do
-    seconds = Config.refresh_seconds(feed)
-    _ = ObanSupport.safe_insert(new(%{feed: feed}, schedule_in: seconds))
+    if Config.feed_enabled?(feed) do
+      seconds = Config.refresh_seconds(feed)
+      _ = ObanSupport.safe_insert(new(%{feed: feed}, schedule_in: seconds))
+    end
+
     :ok
   end
 
