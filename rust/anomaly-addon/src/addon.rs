@@ -38,7 +38,7 @@ use crate::engine::{
 };
 
 const ADDON_ID: &str = "anomaly";
-const ADDON_VERSION: &str = "0.1.6";
+const ADDON_VERSION: &str = "0.1.7";
 const VERDICT_CHANNEL_DEPTH: usize = 256;
 const ACK_CHANNEL_DEPTH: usize = 64;
 const OCSF_CLASS_EVENT_LOG_ACTIVITY: i64 = 1008;
@@ -204,6 +204,15 @@ impl AnomalyAddon {
             feed_task: Mutex::new(None),
         }
     }
+
+    async fn stop_feed_task(&self) {
+        let handle = lock_feed_task(&self.feed_task).take();
+
+        if let Some(handle) = handle {
+            handle.abort();
+            let _ = handle.await;
+        }
+    }
 }
 
 impl Drop for AnomalyAddon {
@@ -319,6 +328,11 @@ impl Addon for AnomalyAddon {
             version: ADDON_VERSION.to_string(),
             degradation_reason: String::new(),
         })
+    }
+
+    async fn shutdown(&self) -> anyhow::Result<()> {
+        self.stop_feed_task().await;
+        Ok(())
     }
 
     /// Hand the agent a verdict stream subscription. Every call gets a fresh
@@ -1538,6 +1552,34 @@ mod tests {
             .expect("new ack item")
             .expect("new ack ok");
         assert_eq!(new_ack.acked_feed_id, 3);
+    }
+
+    #[tokio::test]
+    async fn shutdown_aborts_open_metric_feed_promptly() {
+        let addon = AnomalyAddon::new();
+        let (feed_tx, frames) = metric_feed_stream();
+        let mut acks = addon.stream_metric_feed(frames).expect("metric feed opens");
+
+        feed_tx
+            .send(Ok(metric_feed_frame(1, 100.0)))
+            .await
+            .expect("feed receiver");
+        let ack = acks.next().await.expect("ack item").expect("ack ok");
+        assert_eq!(ack.acked_feed_id, 1);
+
+        timeout(Duration::from_millis(200), addon.shutdown())
+            .await
+            .expect("shutdown completes inside grace window")
+            .expect("shutdown ok");
+
+        let end = timeout(Duration::from_millis(200), acks.next())
+            .await
+            .expect("ack stream closes after shutdown");
+        assert!(end.is_none(), "shutdown must close the ack stream");
+        assert!(
+            feed_tx.send(Ok(metric_feed_frame(2, 200.0))).await.is_err(),
+            "shutdown must drop the feed receiver"
+        );
     }
 
     #[tokio::test]
