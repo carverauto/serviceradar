@@ -12,11 +12,17 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   alias ServiceRadar.EventWriter.Processors.CausalSignals
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.OcsfEvent
+
+  alias ServiceRadar.Observability.SeasonalDisposition.VerdictEmitter,
+    as: SeasonalVerdictEmitter
+
   alias ServiceRadar.Observability.StatefulAlertEngine
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Observability.StatefulAlertRuleHistory
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.TestSupport
+
+  require Ash.Query
 
   @moduletag :integration
 
@@ -539,6 +545,103 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert resolved_alert.status == :resolved
   end
 
+  test "seeded anomaly rule contract opens and resolves for seasonal verdict payloads", %{
+    actor: actor
+  } do
+    with_engine_shards(1, fn ->
+      unique = System.unique_integer([:positive])
+      device_uid = "sr:seasonal-alert-device-#{unique}"
+      series_key = "seasonal:cpu:#{device_uid}:0"
+
+      {:ok, rule} =
+        StatefulAlertRule
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "seasonal-seeded-contract-#{unique}",
+            enabled: true,
+            signal: :event,
+            match: %{
+              "subject_prefix" => "signals.causal.predictions",
+              "attribute_equals" => %{
+                "signal_type" => "causal",
+                "event_type" => ["anomaly", "anomaly_detection"],
+                "anomaly.state" => ["anomaly_open", "open", "anomalous"]
+              },
+              "recovery" => %{
+                "subject_prefix" => "signals.causal.predictions",
+                "attribute_equals" => %{
+                  "signal_type" => "causal",
+                  "event_type" => ["anomaly", "anomaly_detection"],
+                  "anomaly.state" => ["anomaly_clear", "clear", "cleared", "inactive"]
+                }
+              }
+            },
+            group_by: ["device", "anomaly.series_key"],
+            threshold: 1,
+            window_seconds: 300,
+            bucket_seconds: 60,
+            cooldown_seconds: 300,
+            renotify_seconds: 21_600,
+            event: %{
+              "log_name" => "alert.health.causal_prediction",
+              "message" => "Causal prediction finding detected"
+            },
+            alert: %{"title" => "Anomaly Finding", "severity_from" => "source"}
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      base_time = DateTime.utc_now()
+
+      event = fn status, offset ->
+        event_time = DateTime.add(base_time, offset, :second)
+
+        seasonal_payload =
+          status
+          |> seasonal_verdict_attrs(device_uid, series_key, event_time)
+          |> SeasonalVerdictEmitter.payload()
+
+        severity_id = Map.fetch!(seasonal_payload, "severity_id")
+
+        %{
+          id: Ash.UUID.generate(),
+          time: event_time,
+          severity_id: severity_id,
+          severity: OCSF.severity_name(severity_id),
+          message: Map.fetch!(seasonal_payload, "message"),
+          log_name: Map.fetch!(seasonal_payload, "source_subject"),
+          log_provider: "seasonal_disposition",
+          device: %{"uid" => device_uid},
+          unmapped: seasonal_payload,
+          metadata: %{"signal_type" => "causal", "event_type" => "anomaly"}
+        }
+      end
+
+      assert :ok = StatefulAlertEngine.evaluate_events([event.("breach", 0)])
+
+      active_alert =
+        eventually(
+          fn -> seasonal_alert_row(rule.id, device_uid, series_key) end,
+          &match?(
+            %{"status" => status} when status in ["pending", "acknowledged", "escalated"],
+            &1
+          )
+        )
+
+      assert :ok = StatefulAlertEngine.evaluate_events([event.("cleared", 60)])
+
+      resolved_alert =
+        eventually(
+          fn -> seasonal_alert_row(rule.id, device_uid, series_key) end,
+          &match?(%{"status" => "resolved"}, &1)
+        )
+
+      assert resolved_alert["id"] == active_alert["id"]
+    end)
+  end
+
   test "capacity forecast alerts coalesce by resource and resolve on inactive status", %{
     actor: actor
   } do
@@ -924,6 +1027,65 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     |> Ash.read!()
     |> Page.unwrap!()
     |> Enum.filter(fn alert -> alert.title == title end)
+  end
+
+  defp seasonal_verdict_attrs(status, device_uid, series_key, bucket_ended_at) do
+    bucket_started_at = DateTime.add(bucket_ended_at, -3600, :second)
+
+    %{
+      status: status,
+      disposition: if(status == "breach", do: "seasonal_breach", else: "suppressed"),
+      resource_type: "device",
+      resource_id: device_uid,
+      resource_label: device_uid,
+      series_key: series_key,
+      metric_class: "sysmon.cpu",
+      metric_name: "cpu.usage_percent",
+      score: if(status == "breach", do: 7.25, else: 0.5),
+      consecutive_anomalous: if(status == "breach", do: 3, else: 0),
+      dow: 2,
+      hod: 10,
+      sample_value: if(status == "breach", do: 97.0, else: 31.0),
+      evaluated_at: bucket_ended_at,
+      bucket_started_at: bucket_started_at,
+      bucket_ended_at: bucket_ended_at,
+      metadata: %{"source" => "cpu_seasonal"}
+    }
+  end
+
+  defp seasonal_alert_row(rule_id, device_uid, series_key) do
+    sql = """
+    SELECT id::text, status, severity
+    FROM platform.alerts
+    WHERE title = 'Anomaly Finding'
+      AND metadata ->> 'incident_rule_id' = $1
+      AND metadata -> 'incident_group_values' ->> 'device' = $2
+      AND metadata -> 'incident_group_values' ->> 'anomaly.series_key' = $3
+    ORDER BY created_at DESC
+    LIMIT 1
+    """
+
+    case ServiceRadar.Repo.query!(sql, [to_string(rule_id), device_uid, series_key]).rows do
+      [[id, status, severity]] -> %{"id" => id, "status" => status, "severity" => severity}
+      [] -> nil
+    end
+  end
+
+  defp with_engine_shards(count, fun) when is_integer(count) and count > 0 do
+    previous = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
+    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, count)
+    reset_engine()
+
+    try do
+      fun.()
+    after
+      reset_engine()
+
+      case previous do
+        nil -> Application.delete_env(:serviceradar_core, :stateful_alert_engine_shards)
+        value -> Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, value)
+      end
+    end
   end
 
   defp reset_engine do
