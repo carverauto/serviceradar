@@ -48,17 +48,15 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKey do
         tags = tags(source_identity)
         if_index = int(source_identity, "if_index")
 
-        metric_class
-        |> readable_identity(base, identity, tags, if_index)
-        |> prefix_series_key(metric_class)
+        readable_identity(metric_class, base, identity, tags, if_index)
     end
   end
 
   def from_source_identity(_source_identity), do: nil
 
+  defp resource_identity(%{device_id: device_id}) when is_binary(device_id), do: device_id
   defp resource_identity(%{host_id: host_id}) when is_binary(host_id), do: host_id
   defp resource_identity(%{agent_id: agent_id}) when is_binary(agent_id), do: agent_id
-  defp resource_identity(%{device_id: device_id}) when is_binary(device_id), do: device_id
   defp resource_identity(%{host_ip: host_ip}) when is_binary(host_ip), do: host_ip
   defp resource_identity(_base), do: nil
 
@@ -121,14 +119,6 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKey do
       |> Enum.map(fn {_key, value} -> string_value(value) end)
 
     leading ++ if_index ++ extra
-  end
-
-  defp prefix_series_key(readable_identity, metric_class) do
-    if String.starts_with?(readable_identity, "#{metric_class}:") do
-      readable_identity
-    else
-      "#{metric_class}:#{readable_identity}"
-    end
   end
 
   defp tags(source_identity) do
