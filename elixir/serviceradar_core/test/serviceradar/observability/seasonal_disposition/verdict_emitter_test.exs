@@ -4,6 +4,17 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitterTest do
   alias ServiceRadar.EventWriter.Processors.CausalSignals
   alias ServiceRadar.Observability.SeasonalDisposition.VerdictEmitter
 
+  defmodule ExistingTimeRepo do
+    def query(_sql, [ids]) do
+      rows =
+        Enum.map(ids, fn id ->
+          [id, Process.get({:seasonal_existing_ocsf_time, id})]
+        end)
+
+      {:ok, %{rows: rows}}
+    end
+  end
+
   @breach %{
     evaluated_at: ~U[2026-06-12 12:00:00Z],
     bucket_started_at: ~U[2026-06-09 09:00:00Z],
@@ -96,6 +107,13 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitterTest do
       })
 
     assert first_row.id == next_row.id
-    assert first_row.time != next_row.time
+
+    event_id = first_row.metadata["event_identity"]
+    Process.put({:seasonal_existing_ocsf_time, event_id}, first_row.time)
+
+    assert [%{time: aligned_time}] =
+             CausalSignals.align_existing_ocsf_event_times([next_row], ExistingTimeRepo)
+
+    assert DateTime.compare(aligned_time, first_row.time) == :eq
   end
 end

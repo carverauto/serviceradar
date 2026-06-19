@@ -33,6 +33,34 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   @ocsf_detection_finding_type_uid 200_401
   @ocsf_create_activity_id 1
   @ocsf_event_conflict_target [:time, :id]
+  @ocsf_event_replace_fields [
+    :class_uid,
+    :category_uid,
+    :type_uid,
+    :activity_id,
+    :activity_name,
+    :severity_id,
+    :severity,
+    :message,
+    :status_id,
+    :status,
+    :status_code,
+    :status_detail,
+    :metadata,
+    :observables,
+    :trace_id,
+    :span_id,
+    :actor,
+    :device,
+    :src_endpoint,
+    :dst_endpoint,
+    :log_name,
+    :log_provider,
+    :log_level,
+    :log_version,
+    :unmapped,
+    :raw_data
+  ]
 
   @impl true
   def table_name, do: "ocsf_events"
@@ -168,8 +196,19 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       )
     end)
 
+    {causal_rows, insert_only_rows} = Enum.split_with(valid_rows, &causal_prediction_row?/1)
+
+    insert_only_rows = record_insert_only_ocsf_events(insert_only_rows)
+    causal_rows = record_causal_prediction_ocsf_events(causal_rows)
+
+    insert_only_rows ++ causal_rows
+  end
+
+  defp record_insert_only_ocsf_events([]), do: []
+
+  defp record_insert_only_ocsf_events(rows) when is_list(rows) do
     {_count, inserted_rows} =
-      BulkInsert.insert_all(table_name(), valid_rows,
+      BulkInsert.insert_all(table_name(), rows,
         on_conflict: :nothing,
         conflict_target: @ocsf_event_conflict_target,
         returning: @ocsf_event_conflict_target
@@ -177,9 +216,81 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
     inserted_keys = MapSet.new(Enum.map(inserted_rows, &ocsf_event_conflict_key/1))
 
-    valid_rows
+    rows
     |> Enum.filter(&MapSet.member?(inserted_keys, ocsf_event_conflict_key(&1)))
     |> dedupe_rows_by_conflict_key(&ocsf_event_conflict_key/1)
+  end
+
+  defp record_causal_prediction_ocsf_events([]), do: []
+
+  defp record_causal_prediction_ocsf_events(rows) when is_list(rows) do
+    rows =
+      rows
+      |> align_existing_ocsf_event_times()
+      |> dedupe_rows_by_conflict_key(&ocsf_event_id_key/1)
+
+    {_count, upserted_rows} =
+      BulkInsert.insert_all(table_name(), rows,
+        on_conflict: {:replace, @ocsf_event_replace_fields},
+        conflict_target: @ocsf_event_conflict_target,
+        returning: @ocsf_event_conflict_target
+      )
+
+    upserted_keys = MapSet.new(Enum.map(upserted_rows, &ocsf_event_conflict_key/1))
+
+    rows
+    |> Enum.filter(&MapSet.member?(upserted_keys, ocsf_event_conflict_key(&1)))
+    |> dedupe_rows_by_conflict_key(&ocsf_event_conflict_key/1)
+  end
+
+  @doc false
+  def align_existing_ocsf_event_times(rows, repo \\ ServiceRadar.Repo)
+
+  def align_existing_ocsf_event_times([], _repo), do: []
+
+  def align_existing_ocsf_event_times(rows, repo) when is_list(rows) do
+    ids =
+      rows
+      |> Enum.map(&ocsf_event_id_key/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    case existing_ocsf_event_times(repo, ids) do
+      {:ok, existing_times} when map_size(existing_times) > 0 ->
+        Enum.map(rows, fn row ->
+          case Map.get(existing_times, ocsf_event_id_key(row)) do
+            %DateTime{} = existing_time -> %{row | time: existing_time}
+            _ -> row
+          end
+        end)
+
+      _ ->
+        rows
+    end
+  end
+
+  defp existing_ocsf_event_times(_repo, []), do: {:ok, %{}}
+
+  defp existing_ocsf_event_times(repo, ids) when is_list(ids) do
+    sql = """
+    SELECT id::text, min(time)
+    FROM platform.ocsf_events
+    WHERE id = ANY($1::uuid[])
+    GROUP BY id
+    """
+
+    case repo.query(sql, [ids]) do
+      {:ok, %{rows: rows}} ->
+        {:ok, Map.new(rows, &existing_ocsf_time_row/1)}
+
+      {:error, reason} = error ->
+        Logger.warning("Failed to load existing OCSF event times",
+          reason: inspect(reason),
+          count: length(ids)
+        )
+
+        error
+    end
   end
 
   defp recordable_ocsf_row?(%{id: <<_::128>>, time: %DateTime{}}), do: true
@@ -189,6 +300,18 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   end
 
   defp recordable_ocsf_row?(_row), do: false
+
+  defp existing_ocsf_time_row([id, %DateTime{} = time]), do: {uuid_conflict_value(id), time}
+
+  defp existing_ocsf_time_row([id, %NaiveDateTime{} = time]) do
+    {uuid_conflict_value(id), DateTime.from_naive!(time, "Etc/UTC")}
+  end
+
+  defp existing_ocsf_time_row([id, time]), do: {uuid_conflict_value(id), time}
+
+  defp ocsf_event_id_key(%{id: id}), do: uuid_conflict_value(id)
+  defp ocsf_event_id_key(%{"id" => id}), do: uuid_conflict_value(id)
+  defp ocsf_event_id_key(_row), do: nil
 
   defp ocsf_event_conflict_key(%{id: id, time: time}),
     do: {uuid_conflict_value(id), time_conflict_value(time)}

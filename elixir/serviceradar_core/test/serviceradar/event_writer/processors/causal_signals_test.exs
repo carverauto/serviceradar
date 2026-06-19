@@ -5,9 +5,51 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
   alias ServiceRadar.EventWriter.Processors.CausalSignals
   alias ServiceRadar.Observability.CapacityForecasting.VerdictEmitter
 
+  defmodule ExistingTimeRepo do
+    def query(sql, [ids]) do
+      send(Process.get(:causal_signals_test_pid), {:existing_time_query, sql, ids})
+
+      rows =
+        Enum.flat_map(ids, fn id ->
+          case Process.get({:existing_ocsf_time, id}) do
+            %DateTime{} = time -> [[id, time]]
+            _ -> []
+          end
+        end)
+
+      {:ok, %{rows: rows}}
+    end
+  end
+
   describe "table_name/0" do
     test "returns ocsf_events" do
       assert CausalSignals.table_name() == "ocsf_events"
+    end
+  end
+
+  describe "align_existing_ocsf_event_times/2" do
+    test "reuses the first persisted time for a deterministic causal finding id" do
+      event_id = Ecto.UUID.generate()
+      existing_time = ~U[2026-06-12 12:00:00Z]
+      next_time = ~U[2026-06-12 12:05:00Z]
+
+      Process.put(:causal_signals_test_pid, self())
+      Process.put({:existing_ocsf_time, event_id}, existing_time)
+
+      row = %{
+        id: event_id,
+        time: next_time,
+        class_uid: 2004,
+        metadata: %{"signal_type" => "causal", "event_type" => "capacity_forecast"},
+        unmapped: %{}
+      }
+
+      assert [%{time: ^existing_time}] =
+               CausalSignals.align_existing_ocsf_event_times([row], ExistingTimeRepo)
+
+      assert_received {:existing_time_query, sql, [^event_id]}
+      assert sql =~ "min(time)"
+      assert sql =~ "platform.ocsf_events"
     end
   end
 
