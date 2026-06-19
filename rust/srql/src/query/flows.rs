@@ -1357,7 +1357,7 @@ struct FlowStatsPayload {
 }
 
 struct FlowGroupedStatsSql {
-    sql: String, // uses '?' placeholders for Diesel binds
+    sql: String,
     binds: Vec<FlowSqlBindValue>,
 }
 
@@ -1388,7 +1388,7 @@ async fn execute_stats(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result
     )?;
 
     let grouped = build_grouped_stats_query(plan, &spec)?;
-    let mut query = diesel::sql_query(&grouped.sql).into_boxed();
+    let mut query = diesel::sql_query(rewrite_placeholders(&grouped.sql)).into_boxed();
     for bind in &grouped.binds {
         query = bind.apply(query);
     }
