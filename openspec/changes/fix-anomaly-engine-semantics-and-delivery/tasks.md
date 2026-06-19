@@ -116,11 +116,13 @@
 - [ ] 19.5 Project only rendered fields once SRQL supports row projection for events/capacity rows (avoid fetching full metadata/raw_data/unmapped).
 
 ## 20. Operator-Actionable Anomaly/Capacity Rows (F26)
-- [ ] 20.1 Make finding rows and capacity rows clickable (`phx-click` + uid) opening a detail modal.
-- [ ] 20.2 Prefer `finding_info.title` for the human title; demote the raw `verdict.reason` to a sub-line.
-- [ ] 20.3 Render real identity: metric_name, interface_uid/if_index (for interface findings), anomaly value + score; stop showing bare `"snmp"`.
-- [ ] 20.4 Add `title=`/tooltip with full id and resolve a human device label for truncated ids.
-- [ ] 20.5 Label capacity with units/metric-type/threshold/headroom; hide or aggregate `skipped` rows; reconcile the metric_class row label vs the RED chip bucketing.
+- [x] 20.1 Make finding rows and capacity rows clickable (`phx-click` + row index) opening a detail modal.
+- [x] 20.2 Prefer `finding_info.title` for the human title; demote the raw `verdict.reason` to a sub-line.
+- [x] 20.3 Render real identity: metric_name, interface_uid/if_index (for interface findings), anomaly value + score; stop showing bare `"snmp"`.
+- [x] 20.4 Add `title=`/tooltip with full id on truncated resource/series identity.
+- [ ] 20.5 Resolve a human device label for truncated device/resource ids when the row only carries uid-like values.
+- [x] 20.6 Label capacity with units/metric-type/threshold/headroom; hide or aggregate `skipped` rows.
+- [ ] 20.7 Reconcile the metric_class row label vs the RED chip bucketing.
 
 ## 21. SNMP Anomaly Target Attribution (F27)
 - [x] 21.1 Edge: prefer `resource.target_device_ip` for non-self SNMP polls when choosing `device_uid`/`series_key` (`addon.rs:857-862`).

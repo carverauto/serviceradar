@@ -904,6 +904,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {:noreply, EndpointInventoryRuntime.close_package_detail(socket)}
   end
 
+  def handle_event("open_anomaly_capacity_detail", %{"kind" => kind, "index" => raw_index}, socket) do
+    with {index, ""} <- Integer.parse(raw_index),
+         rows when is_list(rows) <- anomaly_capacity_detail_rows(socket.assigns.anomaly_capacity, kind),
+         %{} = row <- Enum.at(rows, index) do
+      {:noreply, assign(socket, :anomaly_capacity_detail, %{kind: kind, row: row})}
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("close_anomaly_capacity_detail", _params, socket) do
+    {:noreply, assign(socket, :anomaly_capacity_detail, nil)}
+  end
+
   def handle_event("view_mtr_trace", %{"id" => trace_id}, socket) do
     case MtrRuntime.get_trace_detail(socket.assigns.current_scope, trace_id) do
       {:ok, trace, hops} ->
@@ -1030,6 +1044,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_event(_event, _params, socket), do: {:noreply, socket}
+
+  defp anomaly_capacity_detail_rows(%{anomaly_rows: rows}, "anomaly"), do: rows
+  defp anomaly_capacity_detail_rows(%{capacity_rows: rows}, "capacity"), do: rows
+  defp anomaly_capacity_detail_rows(_overview, _kind), do: nil
 
   @impl true
   def render(assigns), do: ServiceRadarWebNGWeb.DeviceLive.ShowTemplate.render(assigns)

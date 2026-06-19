@@ -1432,10 +1432,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
              "results" => [
                %{
                  "time" => "2026-06-13T12:00:00Z",
-                 "finding_title" => "CPU anomaly detected",
+                 "message" => "breach pending confirmation at 3/5 consecutive anomalous slots",
                  "metric_class" => "cpu",
+                 "metric_name" => "cpu.usage_percent",
                  "source_type" => "anomaly_detection",
-                 "severity" => "High"
+                 "severity" => "High",
+                 "metadata" => %{
+                   "finding_info" => %{"title" => "CPU saturation anomaly"},
+                   "source_identity" => %{
+                     "metric_name" => "cpu.usage_percent",
+                     "series_key" => "sysmon:#{uid}:cpu.usage_percent",
+                     "interface_uid" => "eth0",
+                     "if_index" => 2
+                   },
+                   "anomaly" => %{"value" => 97.4, "score" => 4.8}
+                 }
                }
              ],
              "pagination" => %{}
@@ -1469,6 +1480,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
                  "current_value" => 72.5,
                  "projected_value" => 91.2,
                  "projected_exhaustion_at" => "2026-06-20T00:00:00Z",
+                 "horizon_seconds" => 604_800,
+                 "exhaustion_threshold" => 95.0,
                  "confidence" => 0.82
                }
              ],
@@ -1490,9 +1503,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     html = render_until(view, "Anomaly &amp; Capacity", 10_000)
     queries = drain_srql_queries()
 
-    assert html =~ "CPU anomaly detected"
+    assert html =~ "CPU saturation anomaly"
+    assert html =~ "breach pending confirmation"
+    assert html =~ "cpu.usage_percent"
+    assert html =~ "eth0 / ifIndex 2"
+    assert html =~ "value 97.40"
+    assert html =~ "score 4.80"
     refute html =~ "Unexpected connection to K8s API Server"
     assert html =~ "Filesystem /"
+    assert html =~ "threshold 95.00%"
+    assert html =~ "headroom 22.50%"
+    assert html =~ "open_anomaly_capacity_detail"
     assert html =~ "device source_device_uid=#{uid}"
     assert html =~ "device resource_id=#{uid}"
     assert html =~ "active"
