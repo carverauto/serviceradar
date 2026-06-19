@@ -54,7 +54,7 @@
 
 ## 10. Verdict Idempotency (F12)
 - [x] 10.1 Remove per-run wall-clock time from capacity and seasonal `event_id`/finding identity.
-- [ ] 10.2 Make edge verdict `time` deterministic from the producer epoch (depends on 4.1) so `(id, time)` dedup holds on redelivery.
+- [x] 10.2 Make edge verdict `time` deterministic from the producer epoch (depends on 4.1) so `(id, time)` dedup holds on redelivery.
 - [ ] 10.3 Add a dead-letter path or alert for JetStream `max_deliver` exhaustion.
 - [ ] 10.4 Add tests proving redelivery and repeated worker runs converge on one finding.
 
