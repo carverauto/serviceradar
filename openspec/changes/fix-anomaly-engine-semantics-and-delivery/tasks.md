@@ -120,7 +120,7 @@
 - [x] 20.2 Prefer `finding_info.title` for the human title; demote the raw `verdict.reason` to a sub-line.
 - [x] 20.3 Render real identity: metric_name, interface_uid/if_index (for interface findings), anomaly value + score; stop showing bare `"snmp"`.
 - [x] 20.4 Add `title=`/tooltip with full id on truncated resource/series identity.
-- [ ] 20.5 Resolve a human device label for truncated device/resource ids when the row only carries uid-like values.
+- [x] 20.5 Resolve a human device label for truncated device/resource ids when the row only carries uid-like values.
 - [x] 20.6 Label capacity with units/metric-type/threshold/headroom; hide or aggregate `skipped` rows.
 - [x] 20.7 Reconcile the metric_class row label vs the RED chip bucketing.
 
@@ -128,7 +128,7 @@
 - [x] 21.1 Edge: prefer `resource.target_device_ip` for non-self SNMP polls when choosing `device_uid`/`series_key` (`addon.rs:857-862`).
 - [x] 21.2 Core: for `snmp_target_poll?` rows, set the leading `device_uid` resolution candidate to the target (not the agent host) (`causal_signals.ex:1356-1357`).
 - [x] 21.3 Emit `target_device_ip` at a stable top-level/anomaly path, not only under `source_identity`; add a regression test for resolved device_uid on an SNMP poll.
-- [ ] 21.4 Once attribution is correct, scope the web-ng device-finding query by canonical device/series instead of `agent_id`-first.
+- [x] 21.4 Once attribution is correct, scope the web-ng device-finding query by canonical device/series instead of `agent_id`-first.
 
 ## 22. Metric Chart Fidelity (F28)
 - [ ] 22.1 For per-core metrics, render per-core series (or a max-across-cores line); stop collapsing to `series=nil` avg-across-cores.
