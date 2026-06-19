@@ -38,7 +38,7 @@ use crate::engine::{
 };
 
 const ADDON_ID: &str = "anomaly";
-const ADDON_VERSION: &str = "0.1.16";
+const ADDON_VERSION: &str = "0.1.17";
 const VERDICT_CHANNEL_DEPTH: usize = 256;
 const ACK_CHANNEL_DEPTH: usize = 64;
 const OCSF_CLASS_EVENT_LOG_ACTIVITY: i64 = 1008;
@@ -240,9 +240,7 @@ fn lock_engine(engine: &Arc<Mutex<DetectorEngine>>) -> MutexGuard<'_, DetectorEn
     match engine.lock() {
         Ok(guard) => guard,
         Err(poisoned) => {
-            let mut guard = poisoned.into_inner();
-            let config = guard.config();
-            *guard = DetectorEngine::new(config);
+            let guard = poisoned.into_inner();
             engine.clear_poison();
             guard
         }
@@ -2164,6 +2162,10 @@ mod tests {
             max_series: 7,
             ..EngineConfig::default()
         })));
+        {
+            let mut guard = engine.lock().expect("warm engine");
+            guard.evaluate("warm-series", 42.0, 1, SeriesProfile::default());
+        }
         let poison_engine = engine.clone();
 
         let hook = std::panic::take_hook();
@@ -2181,7 +2183,15 @@ mod tests {
         process_frame(&engine, &tx, &scoring_health, &metric_feed_frame(1, 100.0)).await;
 
         let guard = engine.lock().expect("process_frame clears engine poison");
-        assert_eq!(guard.series_count(), 1);
+        let checkpoint = guard.export_checkpoint();
+        assert!(
+            checkpoint
+                .series
+                .iter()
+                .any(|series| series.series_key == "warm-series"),
+            "poison recovery should preserve warmed detector state"
+        );
+        assert_eq!(guard.series_count(), 2);
         assert_eq!(guard.max_series(), 7);
     }
 
