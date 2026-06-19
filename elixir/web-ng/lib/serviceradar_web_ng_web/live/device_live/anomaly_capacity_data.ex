@@ -253,7 +253,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       "cpu_metrics" -> "cpu"
       "disk_metrics" -> "disk"
       "interface_metrics" -> "interface"
-      "snmp" -> "snmp"
+      "snmp" <> _ -> "snmp"
       class when class in @metric_classes -> class
       _ -> "red"
     end
