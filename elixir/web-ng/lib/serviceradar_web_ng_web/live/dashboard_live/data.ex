@@ -497,14 +497,14 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
 
     Enum.find_value(
       [
-        {"platform.flow_traffic_1h", "flow_traffic_1h", "bucket"},
-        {"platform.ocsf_network_activity_5m_traffic", "ocsf_network_activity_5m_traffic", "bucket"},
-        {"platform.ocsf_network_activity", "ocsf_network_activity", "time"}
+        {"platform.flow_traffic_1h", "flow_traffic_1h", "bucket", 3_600},
+        {"platform.ocsf_network_activity_5m_traffic", "ocsf_network_activity_5m_traffic", "bucket", 300},
+        {"platform.ocsf_network_activity", "ocsf_network_activity", "time", nil}
       ],
       empty_flow_summary(),
-      fn {relation_ref, relation, time_column} ->
+      fn {relation_ref, relation, time_column, bucket_seconds} ->
         if relation_exists?(relation_ref) do
-          summary = flow_summary_from_relation(relation, time_column, cutoff)
+          summary = flow_summary_from_relation(relation, time_column, cutoff, bucket_seconds)
 
           if summary.flow_count > 0 or summary.bytes_total > 0 do
             summary
@@ -516,21 +516,23 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     _ -> empty_flow_summary()
   end
 
-  defp flow_summary_from_relation(relation, time_column, cutoff) do
+  defp flow_summary_from_relation(relation, time_column, cutoff, bucket_seconds) do
     flow_count_expr = flow_count_expr(relation)
+    coverage_expr = flow_summary_coverage_expr(time_column, bucket_seconds)
 
     sql = """
     SELECT
       COALESCE(SUM(bytes_total), 0)::bigint,
       COALESCE(SUM(packets_total), 0)::bigint,
-      COALESCE(#{flow_count_expr}, 0)::bigint
+      COALESCE(#{flow_count_expr}, 0)::bigint,
+      #{coverage_expr}
     FROM #{relation}
     WHERE #{time_column} >= $1
     """
 
     case Repo.query(sql, [cutoff]) do
-      {:ok, %{rows: [[bytes, packets, flows]]}} ->
-        seconds = max(DateTime.diff(DateTime.utc_now(), cutoff, :second), 1)
+      {:ok, %{rows: [[bytes, packets, flows, coverage_seconds]]}} ->
+        seconds = max(to_int(coverage_seconds), 1)
 
         %{
           bytes_total: to_int(bytes),
@@ -543,6 +545,34 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       _ ->
         empty_flow_summary()
     end
+  end
+
+  defp flow_summary_coverage_expr(time_column, bucket_seconds) when is_integer(bucket_seconds) do
+    interval = "#{bucket_seconds} seconds"
+
+    """
+    COALESCE(
+      GREATEST(
+        EXTRACT(EPOCH FROM ((MAX(#{time_column}) + INTERVAL '#{interval}') - MIN(#{time_column})))::bigint,
+        1
+      ),
+      1
+    )::bigint
+    """
+  end
+
+  defp flow_summary_coverage_expr(time_column, nil) do
+    """
+    COALESCE(
+      GREATEST(
+        EXTRACT(EPOCH FROM (
+          MAX(COALESCE(end_time, #{time_column})) - MIN(COALESCE(start_time, #{time_column}))
+        ))::bigint,
+        1
+      ),
+      1
+    )::bigint
+    """
   end
 
   defp traffic_links(time_window) do

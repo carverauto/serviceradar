@@ -214,7 +214,7 @@
 - [x] 37.4 Filter reverse-DNS/Geo enrichment by expiry; distinguish chart query-error from no-traffic.
 
 ## 38. Flow Ingest Defaults (F44)
-- [ ] 38.1 Use NULL (not 0) for directional byte/packet counts a protocol does not carry; divide bps/pps by covered data span, not the full wall-clock window.
+- [x] 38.1 Use NULL (not 0) for directional byte/packet counts a protocol does not carry; divide bps/pps by covered data span, not the full wall-clock window.
 
 ## 39. Dashboard Load Performance (F45)
 - [ ] 39.1 Parallelize the ~20 dashboard data queries + ~30 schema probes (concurrent, not sequential).

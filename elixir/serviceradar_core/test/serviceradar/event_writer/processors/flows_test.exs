@@ -65,6 +65,29 @@ defmodule ServiceRadar.EventWriter.Processors.FlowsTest do
     assert row.ocsf_payload["connection_info"]["output_snmp"] == 20
   end
 
+  test "row_from_flow_message preserves absent directional counters as unknown" do
+    flow = %FlowMessage{
+      type: :NETFLOW_V9,
+      time_received_ns: 1_705_363_200_000_000_000,
+      src_addr: <<192, 0, 2, 10>>,
+      dst_addr: <<198, 51, 100, 20>>,
+      proto: 17,
+      bytes: 2048,
+      packets: 4
+    }
+
+    row = Flows.row_from_flow_message(flow, %{subject: "flows.raw.netflow"})
+
+    assert row.bytes_total == 2048
+    assert row.packets_total == 4
+    assert is_nil(row.bytes_in)
+    assert is_nil(row.bytes_out)
+    assert is_nil(row.packets_in)
+    assert is_nil(row.packets_out)
+    refute Map.has_key?(row.ocsf_payload, "bytes_in")
+    refute Map.has_key?(row.ocsf_payload, "packets_in")
+  end
+
   test "parse_message accepts protobuf payloads on raw flow subjects" do
     flow = %FlowMessage{
       type: :SFLOW_5,
