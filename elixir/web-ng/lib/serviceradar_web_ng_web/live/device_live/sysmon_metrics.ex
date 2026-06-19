@@ -10,7 +10,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   require Logger
 
   @metrics_limit 300
-  @disk_metrics_limit @metrics_limit
   @process_query_limit 10_000
 
   defp escape_value(value) when is_binary(value) do
@@ -177,7 +176,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   end
 
   defp build_cpu_section(srql_module, filter_tokens, scope) do
-    query = cpu_metric_query(filter_tokens, @metrics_limit)
+    query = cpu_metric_query(filter_tokens)
 
     base = %{
       key: "cpu",
@@ -254,7 +253,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   end
 
   defp build_disk_section(srql_module, filter_tokens, scope) do
-    query = disk_metric_query(filter_tokens, @disk_metrics_limit)
+    query = disk_metric_query(filter_tokens)
 
     base = %{
       key: "disk",
@@ -774,7 +773,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
     Enum.join(tokens, " ")
   end
 
-  defp cpu_metric_query(filter_tokens, limit) do
+  defp cpu_metric_query(filter_tokens) do
     [
       "in:cpu_metrics",
       "time:last_24h",
@@ -783,11 +782,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
       "series:core_id"
     ]
     |> Kernel.++(filter_tokens)
-    |> Kernel.++(["sort:timestamp:desc", "limit:#{limit}"])
+    |> Kernel.++(["sort:timestamp:desc"])
     |> Enum.join(" ")
   end
 
-  defp disk_metric_query(filter_tokens, limit) do
+  defp disk_metric_query(filter_tokens) do
     [
       "in:disk_metrics",
       "time:last_24h",
@@ -796,7 +795,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
       "series:mount_point"
     ]
     |> Kernel.++(filter_tokens)
-    |> Kernel.++(["sort:timestamp:desc", "limit:#{limit}"])
+    |> Kernel.++(["sort:timestamp:desc"])
     |> Enum.join(" ")
   end
 

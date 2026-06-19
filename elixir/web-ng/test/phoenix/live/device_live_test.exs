@@ -1667,6 +1667,43 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     refute Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.memory"|))
   end
 
+  test "native sysmon chart queries do not total-limit fanned series" do
+    previous_test_pid = Application.get_env(:serviceradar_web_ng, :device_live_srql_test_pid)
+    previous_responder = Application.get_env(:serviceradar_web_ng, :device_live_srql_responder)
+
+    Application.put_env(:serviceradar_web_ng, :device_live_srql_test_pid, self())
+
+    Application.put_env(:serviceradar_web_ng, :device_live_srql_responder, fn _query, _opts ->
+      {:ok, %{"results" => [], "pagination" => %{}}}
+    end)
+
+    on_exit(fn ->
+      restore_env(:device_live_srql_test_pid, previous_test_pid)
+      restore_env(:device_live_srql_responder, previous_responder)
+    end)
+
+    assert [_cpu, _memory, _disk, _process] =
+             SysmonMetrics.load_metric_sections(
+               __MODULE__.RecordingSRQLStub,
+               [~s|uid:"fanout-device"|],
+               :scope
+             )
+
+    queries = drain_srql_queries()
+    cpu_query = Enum.find(queries, &String.contains?(&1, "in:cpu_metrics"))
+    disk_query = Enum.find(queries, &String.contains?(&1, "in:disk_metrics"))
+
+    assert cpu_query =~ "bucket:5m"
+    assert cpu_query =~ "agg:max"
+    assert cpu_query =~ "series:core_id"
+    refute cpu_query =~ "limit:"
+
+    assert disk_query =~ "bucket:5m"
+    assert disk_query =~ "agg:max"
+    assert disk_query =~ "series:mount_point"
+    refute disk_query =~ "limit:"
+  end
+
   test "renders endpoint software inventory on device details", %{conn: conn, scope: scope} do
     unique = System.unique_integer([:positive])
     uid = "sr:test-device-endpoint-inventory-#{unique}"
