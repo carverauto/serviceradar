@@ -36,6 +36,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   @default_limit 50
   @max_limit 200
   @preview_limit 100
+  @default_panel_time_window "last_24h"
   @default_timezone "UTC"
   @max_panel_refresh_interval_seconds 86_400
   @max_schedule_recipients 50
@@ -873,14 +874,16 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
     if query == "" do
       {:error, :empty_query}
     else
-      case srql_module.query(query, %{scope: scope, limit: limit}) do
+      bounded_query = bound_authored_query(query, limit)
+
+      case srql_module.query(bounded_query, %{scope: scope, limit: limit}) do
         {:ok, %{"results" => results} = response} ->
           rows = normalize_rows(results)
           fields = infer_fields(rows)
 
           {:ok,
            %{
-             query: query,
+             query: bounded_query,
              rows: rows,
              row_count: length(rows),
              fields: fields,
@@ -892,7 +895,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
         {:ok, response} ->
           {:ok,
            %{
-             query: query,
+             query: bounded_query,
              rows: [],
              row_count: 0,
              fields: [],
@@ -907,6 +910,71 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   end
 
   def preview_query(_scope, _srql_query, _opts), do: {:error, :empty_query}
+
+  defp bound_authored_query(query, limit) when is_binary(query) do
+    tokens = split_srql_tokens(query)
+    has_time? = Enum.any?(tokens, &time_token?/1)
+
+    tokens
+    |> Enum.reject(&limit_token?/1)
+    |> maybe_append_default_time(has_time?)
+    |> Kernel.++(["limit:#{limit}"])
+    |> Enum.join(" ")
+  end
+
+  defp split_srql_tokens(query) do
+    {tokens, current, _quote, _escaped?} =
+      query
+      |> String.graphemes()
+      |> Enum.reduce({[], "", nil, false}, &split_srql_token/2)
+
+    tokens =
+      if current == "" do
+        tokens
+      else
+        [current | tokens]
+      end
+
+    Enum.reverse(tokens)
+  end
+
+  defp split_srql_token(char, {tokens, current, quote, true}) do
+    {tokens, current <> char, quote, false}
+  end
+
+  defp split_srql_token("\\", {tokens, current, quote, false}) when not is_nil(quote) do
+    {tokens, current <> "\\", quote, true}
+  end
+
+  defp split_srql_token(char, {tokens, current, quote, false}) when char == quote and not is_nil(quote) do
+    {tokens, current <> char, nil, false}
+  end
+
+  defp split_srql_token(char, {tokens, current, quote, false}) when not is_nil(quote) do
+    {tokens, current <> char, quote, false}
+  end
+
+  defp split_srql_token(char, {tokens, current, nil, false}) when char in ["\"", "'"] do
+    {tokens, current <> char, char, false}
+  end
+
+  defp split_srql_token(char, {tokens, current, nil, false}) when char in [" ", "\n", "\r", "\t"] do
+    if current == "" do
+      {tokens, "", nil, false}
+    else
+      {[current | tokens], "", nil, false}
+    end
+  end
+
+  defp split_srql_token(char, {tokens, current, quote, escaped?}) do
+    {tokens, current <> char, quote, escaped?}
+  end
+
+  defp maybe_append_default_time(tokens, true), do: tokens
+  defp maybe_append_default_time(tokens, false), do: tokens ++ ["time:#{@default_panel_time_window}"]
+
+  defp time_token?(token), do: token |> String.downcase() |> String.starts_with?("time:")
+  defp limit_token?(token), do: token |> String.downcase() |> String.starts_with?("limit:")
 
   @spec compatible_visuals([map()], [map()]) :: [atom()]
   def compatible_visuals(rows, fields) when is_list(rows) and is_list(fields) do

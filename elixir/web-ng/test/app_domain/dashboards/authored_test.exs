@@ -126,6 +126,22 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
     refute :gauge in preview.compatible_visuals
   end
 
+  test "preview bounds authored queries with default time and capped limits", %{scope: scope} do
+    assert {:ok, preview} =
+             Dashboards.preview_authored_query(scope, "series services limit:999", limit: 250)
+
+    assert preview.query == "series services time:last_24h limit:200"
+
+    assert {:ok, preview} =
+             Dashboards.preview_authored_query(
+               scope,
+               ~s(series services time:last_7d status:"limit:999"),
+               limit: 50
+             )
+
+    assert preview.query == ~s(series services time:last_7d status:"limit:999" limit:50)
+  end
+
   test "gauge compatibility is limited to single metrics and availability ratios", %{scope: scope} do
     assert {:ok, stat_preview} = Dashboards.preview_authored_query(scope, "stat services")
     assert :gauge in stat_preview.compatible_visuals

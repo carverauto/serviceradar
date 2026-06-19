@@ -10,11 +10,11 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
   defmodule SRQLStub do
     @moduledoc false
 
-    def query("series site:ZZA" <> _rest, _opts) do
+    def query(~s(series site:"ZZA) <> _rest, _opts) do
       {:ok, %{"results" => [%{"service" => "iah-core", "status" => "ok", "value" => 10}]}}
     end
 
-    def query("series site:MSP" <> _rest, _opts) do
+    def query(~s(series site:"MSP) <> _rest, _opts) do
       {:ok, %{"results" => [%{"service" => "msp-core", "status" => "ok", "value" => 20}]}}
     end
 

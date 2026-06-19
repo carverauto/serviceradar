@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardExportController do
   use ServiceRadarWebNGWeb, :controller
 
   alias ServiceRadarWebNG.Dashboards
+  alias ServiceRadarWebNGWeb.AuthoredDashboardLive.DashboardVariables
 
   @export_limit 10_000
 
@@ -12,8 +13,12 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardExportController do
     with {:ok, dashboard} <- Dashboards.get_authored_dashboard(scope, dashboard_id, load: [:panels]),
          {:ok, panel} <- find_panel(dashboard, panel_id),
          {:ok, variable_values} <- decode_variables(params["vars"]),
+         variables = DashboardVariables.list(dashboard),
+         safe_values = DashboardVariables.values(variables, variable_values),
          {:ok, preview} <-
-           Dashboards.preview_authored_query(scope, substitute_variables(panel.srql_query, variable_values),
+           Dashboards.preview_authored_query(
+             scope,
+             DashboardVariables.substitute(panel.srql_query, safe_values, variables),
              limit: @export_limit
            ) do
       conn
@@ -93,14 +98,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardExportController do
   defp format_value(value) when is_integer(value) or is_float(value) or is_boolean(value), do: to_string(value)
   defp format_value(nil), do: ""
   defp format_value(value), do: Jason.encode!(value)
-
-  defp substitute_variables(query, values) when is_binary(query) and is_map(values) do
-    Regex.replace(~r/\$\{([a-zA-Z][a-zA-Z0-9_-]*)\}/, query, fn _match, name ->
-      Map.get(values, name, "")
-    end)
-  end
-
-  defp substitute_variables(query, _values), do: query
 
   defp safe_filename(value) do
     value

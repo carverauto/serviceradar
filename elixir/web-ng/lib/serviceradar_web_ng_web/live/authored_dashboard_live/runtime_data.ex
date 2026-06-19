@@ -10,9 +10,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.RuntimeData do
     with {:ok, %AuthoredDashboard{} = dashboard} <-
            Dashboards.get_authored_dashboard(scope, dashboard_id, load: [:panels, :report_schedules]) do
       panels = panels(dashboard)
-      variable_values = DashboardVariables.values(dashboard, current_variable_values)
-      results = panel_results(scope, panels, variable_values)
-      trends = trend_results(scope, panels, variable_values)
+      variables = DashboardVariables.list(dashboard)
+      variable_values = DashboardVariables.values(variables, current_variable_values)
+      results = panel_results(scope, panels, variable_values, variables)
+      trends = trend_results(scope, panels, variable_values, variables)
       access = AccessControls.load(scope, dashboard, access_assigns)
       clone_targets = clone_targets(scope, dashboard)
 
@@ -24,24 +25,24 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.RuntimeData do
     Enum.sort_by(dashboard.panels || [], &{&1.position, &1.inserted_at})
   end
 
-  def panel_results(scope, panels, variable_values) do
+  def panel_results(scope, panels, variable_values, variables \\ []) do
     Map.new(panels, fn panel ->
-      {panel.id, preview_panel_query(scope, panel, variable_values)}
+      {panel.id, preview_panel_query(scope, panel, variable_values, variables)}
     end)
   end
 
-  def trend_results(scope, panels, variable_values) do
+  def trend_results(scope, panels, variable_values, variables \\ []) do
     Map.new(panels, fn panel ->
-      {panel.id, preview_trend_query(scope, panel, variable_values)}
+      {panel.id, preview_trend_query(scope, panel, variable_values, variables)}
     end)
   end
 
-  def preview_panel_query(scope, panel, variable_values) do
-    query = DashboardVariables.substitute(panel.srql_query, variable_values)
+  def preview_panel_query(scope, panel, variable_values, variables \\ []) do
+    query = DashboardVariables.substitute(panel.srql_query, variable_values, variables)
     Dashboards.preview_authored_query(scope, query, limit: 250)
   end
 
-  def preview_trend_query(scope, panel, variable_values) do
+  def preview_trend_query(scope, panel, variable_values, variables \\ []) do
     query =
       panel
       |> Map.get(:visual_config, %{})
@@ -49,7 +50,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.RuntimeData do
 
     case query do
       value when is_binary(value) and value != "" ->
-        Dashboards.preview_authored_query(scope, DashboardVariables.substitute(value, variable_values), limit: 250)
+        Dashboards.preview_authored_query(scope, DashboardVariables.substitute(value, variable_values, variables),
+          limit: 250
+        )
 
       _ ->
         nil
