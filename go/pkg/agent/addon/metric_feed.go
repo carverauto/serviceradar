@@ -191,6 +191,7 @@ func (l *metricFeedLifecycle) run(ctx context.Context) {
 			return
 		}
 		if delivered {
+			// TODO(F11): reset only after a stable stream run instead of any delivered frame.
 			attempt = 0
 		}
 

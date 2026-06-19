@@ -18,10 +18,23 @@ package addon
 
 import (
 	"context"
+	cryptorand "crypto/rand"
+	"encoding/binary"
+	"math/rand"
+	"sync"
 	"time"
 )
 
+var (
+	streamReconnectJitterMu sync.Mutex
+	streamReconnectJitter   = rand.New(rand.NewSource(streamReconnectJitterSeed()))
+)
+
 func nextStreamReconnectDelay(attempt int, initial, maxDelay time.Duration) time.Duration {
+	return jitterStreamReconnectDelay(streamReconnectBaseDelay(attempt, initial, maxDelay))
+}
+
+func streamReconnectBaseDelay(attempt int, initial, maxDelay time.Duration) time.Duration {
 	if initial <= 0 {
 		initial = defaultRestartBackoffInitial
 	}
@@ -43,6 +56,44 @@ func nextStreamReconnectDelay(attempt int, initial, maxDelay time.Duration) time
 		return maxDelay
 	}
 	return delay
+}
+
+func jitterStreamReconnectDelay(delay time.Duration) time.Duration {
+	return jitterStreamReconnectDelayWithRand(delay, streamReconnectJitterInt63n)
+}
+
+func jitterStreamReconnectDelayWithRand(delay time.Duration, nextInt63n func(int64) int64) time.Duration {
+	if delay <= time.Nanosecond {
+		return delay
+	}
+
+	minDelay := delay / 2
+	span := delay - minDelay
+	if span <= 0 {
+		return delay
+	}
+
+	return minDelay + time.Duration(nextInt63n(int64(span)+1))
+}
+
+func streamReconnectJitterInt63n(n int64) int64 {
+	if n <= 0 {
+		return 0
+	}
+
+	streamReconnectJitterMu.Lock()
+	defer streamReconnectJitterMu.Unlock()
+
+	return streamReconnectJitter.Int63n(n)
+}
+
+func streamReconnectJitterSeed() int64 {
+	var seed [8]byte
+	if _, err := cryptorand.Read(seed[:]); err == nil {
+		return int64(binary.LittleEndian.Uint64(seed[:]))
+	}
+
+	return time.Now().UnixNano()
 }
 
 func waitStreamReconnect(ctx context.Context, delay time.Duration) bool {
