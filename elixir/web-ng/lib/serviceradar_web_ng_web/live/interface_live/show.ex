@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Dashboard.Engine
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
+  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries
   alias ServiceRadarWebNGWeb.Helpers.InterfaceTypes
 
   require Logger
@@ -1468,10 +1469,30 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     cond do
       not settings_value(settings, :metrics_enabled) or
           settings_list_value(settings, :metrics_selected) == [] ->
-        %{panels: [], error: nil, message: "Metrics collection is disabled for this interface."}
+        %{
+          panels: [
+            interface_metrics_empty_panel(
+              :disabled,
+              "Metrics collection disabled",
+              "Enable SNMP metrics collection and select at least one metric for this interface."
+            )
+          ],
+          error: nil,
+          message: nil
+        }
 
       is_nil(Map.get(interface, "if_index")) ->
-        %{panels: [], error: nil, message: "Interface has no if_index for SNMP metrics"}
+        %{
+          panels: [
+            interface_metrics_empty_panel(
+              :disabled,
+              "Missing SNMP interface index",
+              "This interface has no ifIndex, so SNMP metric samples cannot be matched to it."
+            )
+          ],
+          error: nil,
+          message: nil
+        }
 
       true ->
         fetch_interface_metrics(srql_module, device_uid, interface, settings, scope)
@@ -1499,14 +1520,54 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         %{panels: panels, error: nil, message: nil}
 
       {:ok, %{"results" => []}} ->
-        %{panels: [], error: nil, message: "No metrics data available yet"}
+        %{
+          panels: [
+            interface_metrics_empty_panel(
+              :no_data,
+              "No metrics data available yet",
+              "SNMP metrics are enabled, but no samples matched this interface in the last 24 hours."
+            )
+          ],
+          error: nil,
+          message: nil
+        }
 
       {:error, reason} ->
-        %{panels: [], error: "Failed to load metrics: #{inspect(reason)}", message: nil}
+        %{
+          panels: [
+            interface_metrics_empty_panel(
+              :query_error,
+              "Metrics query failed",
+              "Failed to load SNMP metrics for this interface: #{inspect(reason)}"
+            )
+          ],
+          error: nil,
+          message: nil
+        }
 
       _ ->
         %{panels: [], error: nil, message: nil}
     end
+  end
+
+  defp interface_metrics_empty_panel(kind, title, detail) do
+    %{
+      id: "empty-state",
+      plugin: Timeseries,
+      title: "Metrics History",
+      assigns: %{
+        series_points: [],
+        chart_mode: :single,
+        rate_mode: :rate,
+        empty_state: %{
+          kind: kind,
+          title: title,
+          detail: detail,
+          link_href: ~p"/settings/snmp",
+          link_label: "SNMP settings"
+        }
+      }
+    }
   end
 
   # Build panels for interface metrics with speed scaling and combined chart mode
@@ -1603,7 +1664,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
       %{
         id: "group-#{group["id"]}",
-        plugin: ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries,
+        plugin: Timeseries,
         title: group_name,
         assigns: %{
           series: series,
