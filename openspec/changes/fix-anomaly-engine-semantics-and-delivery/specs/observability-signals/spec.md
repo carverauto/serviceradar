@@ -28,7 +28,10 @@ series fields after re-keying, not from provisional producer hints.
 
 ### Requirement: Seasonal Anomaly Confirmation Persistence
 Central seasonal anomaly confirmation SHALL persist across scheduled worker runs
-and core-elx restarts.
+and core-elx restarts. A seasonal confirmation slot is one completed evaluation
+for one canonical `(source, series_key, dow, hod)` bucket after readiness checks
+and detector gates pass; `confirm_slots = N` means N consecutive breaching slots
+are required to open a finding, and a clean slot resets the pending count.
 
 #### Scenario: Sustained seasonal breach spans runs
 - **GIVEN** central seasonal anomaly detection requires more than one confirm slot
@@ -112,3 +115,47 @@ consistent, sanitized subject and key identity so they correlate downstream.
 - **WHEN** core-elx republishes a re-keyed edge anomaly verdict
 - **THEN** it SHALL build the publish subject with the same sanitization the central seasonal and capacity emitters use for the same series
 - **AND** the subject SHALL NOT contain unescaped delimiters or messaging wildcards that would prevent delivery or correlation
+
+### Requirement: SNMP Anomaly Target Attribution
+An anomaly finding for a metric the agent polls from a remote device SHALL be
+attributed to the polled device, not to the agent host that performed the poll.
+
+#### Scenario: SNMP interface anomaly attributes to the polled device
+- **GIVEN** an agent polls SNMP interface metrics from a separate network device
+- **WHEN** the edge add-on produces an anomaly finding for one of those interface series
+- **THEN** the finding `device_uid`, `series_key`, and persisted device identity SHALL resolve to the polled device (and its interface), not the agent host
+- **AND** the device-details page for a host that does not itself collect SNMP SHALL NOT show that host's agent's SNMP-of-other-devices findings as its own
+
+### Requirement: Anomaly And Capacity Alerting
+Anomaly and capacity findings SHALL be able to generate operator alerts, and that
+alerting SHALL be transition-gated and deduplicated so it cannot storm.
+
+#### Scenario: Confirmed anomaly raises one alert
+- **GIVEN** a series transitions to a confirmed anomaly-open state
+- **WHEN** the alert generator processes anomaly findings
+- **THEN** it SHALL raise one alert for that condition and resolve it on the clear transition
+- **AND** it SHALL NOT raise an alert for a `pending_anomaly` finding or for each per-sample finding
+
+#### Scenario: Sustained condition does not storm
+- **WHEN** the same anomaly or capacity condition persists across many findings or worker runs
+- **THEN** the alert generator SHALL coalesce them into a single active alert with a cooldown/suppression window rather than one alert per finding
+
+#### Scenario: Capacity alert fires on a real exhaustion crossing
+- **WHEN** a capacity forecast's exhaustion ETA crosses the configured warning horizon
+- **THEN** the alert generator SHALL raise a capacity alert
+- **AND** it SHALL NOT alert on every re-emitted `projected` forecast that has no horizon crossing
+
+### Requirement: Operator-Actionable Anomaly Presentation
+The device-details anomaly and capacity presentation SHALL give an operator enough
+identity and context to act, and SHALL be able to show the signal that triggered a
+finding.
+
+#### Scenario: Finding row carries actionable identity
+- **WHEN** the device-details panel renders an anomaly finding
+- **THEN** the row SHALL show a human title, the metric name, the interface/ifIndex for interface findings, and the anomalous value/score
+- **AND** the row SHALL be drill-down navigable to a detail view rather than a static, content-free line
+
+#### Scenario: Metric chart reflects the scored signal
+- **WHEN** the device-details metric chart renders a per-core or per-series metric for which the detector produced a finding
+- **THEN** the chart SHALL be able to show the per-series and short-duration spike the detector scored (not only a cross-series, long-bucket average)
+- **AND** the chart's summary min/avg/max SHALL be consistent with the plotted aggregation

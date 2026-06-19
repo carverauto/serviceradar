@@ -130,3 +130,27 @@ degenerate statistics.
 #### Scenario: Short windows produce defined statistics
 - **WHEN** detector statistics are computed over a window of fewer than two samples
 - **THEN** the computation SHALL return a defined, non-breaching result rather than `NaN`, infinity, or a panic
+
+### Requirement: Anomaly Confirmation Slot Definition
+Edge spike detection and central seasonal anomaly detection SHALL use the same
+`confirm_slots` semantics so operator tuning has one meaning across detector
+surfaces.
+
+#### Scenario: Consecutive breaches open one finding
+- **GIVEN** a canonical metric series has `confirm_slots = N`
+- **WHEN** N consecutive completed evaluation slots for that series breach after readiness checks and detector gates pass
+- **THEN** the detector SHALL transition the series from inactive or pending to active/open
+- **AND** it SHALL emit exactly one anomaly-open finding for that confirmed transition
+
+#### Scenario: Clean slot resets pending confirmation
+- **GIVEN** a canonical metric series has fewer than N consecutive breaching slots accumulated
+- **WHEN** a later completed evaluation slot for that series is clean
+- **THEN** the detector SHALL reset the pending confirmation count for that series to zero
+- **AND** it SHALL NOT emit an anomaly-clear finding unless the series was already active/open
+
+#### Scenario: Active series clears once
+- **GIVEN** a canonical metric series is active/open
+- **WHEN** later completed evaluation slots continue to breach
+- **THEN** the detector SHALL NOT emit duplicate anomaly-open findings
+- **WHEN** the first later completed evaluation slot is clean
+- **THEN** the detector SHALL transition the series to inactive and emit one anomaly-clear finding

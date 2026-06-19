@@ -23,16 +23,16 @@
 - [x] 4.4 Add tests proving canonical re-keying updates finding identity consistently.
 
 ## 5. Seasonal State
-- [ ] 5.1 Add production persistence for seasonal confirmation counters keyed by source, series, day-of-week, and hour-of-day.
-- [ ] 5.2 Load persisted counters before NIF evaluation and write returned counters after each pass.
-- [ ] 5.3 Add restart/multi-run tests showing `confirm_slots > 1` can surface a sustained seasonal breach.
-- [ ] 5.4 Add cleanup/TTL for stale seasonal state keys.
+- [x] 5.1 Add production persistence for seasonal confirmation counters keyed by source, series, day-of-week, and hour-of-day.
+- [x] 5.2 Load persisted counters before NIF evaluation and write returned counters after each pass.
+- [x] 5.3 Add restart/multi-run tests showing `confirm_slots > 1` can surface a sustained seasonal breach.
+- [x] 5.4 Add cleanup/TTL for stale seasonal state keys.
 
 ## 6. Configuration
-- [ ] 6.1 Decide and implement the operator tuning path for edge spike detector params.
+- [x] 6.1 Decide and implement the operator tuning path for edge spike detector params.
 - [x] 6.2 Validate edge add-on assignment config with `min_samples <= window_size`.
-- [ ] 6.3 Add seeder/reconciler tests showing default anomaly profiles carry intended detector knobs or docs/UI clearly split the knobs.
-- [ ] 6.4 Update operator docs for the final tuning ownership model.
+- [x] 6.3 Add seeder/reconciler tests showing default anomaly profiles carry intended detector knobs or docs/UI clearly split the knobs.
+- [x] 6.4 Update operator docs for the final tuning ownership model.
 
 ## 7. Edge Detector State Bounds (F9)
 - [x] 7.1 Apply the `max_series` cap to the `counters` map on both the live normalize path and `restore_checkpoint`.
@@ -48,15 +48,15 @@
 ## 9. Agent Delivery Self-Healing (F11)
 - [x] 9.1 Reconnect `drainTelemetry`, `drainArtifacts`, and `metricFeedLifecycle.run` with bounded backoff while the subprocess is alive.
 - [x] 9.2 Re-arm the restart circuit breaker after a cooldown; surface circuit-open as a health failure.
-- [ ] 9.3 Distinguish EOF from transport errors in `grpc.go` stream loops and emit stream-loss diagnostics.
+- [x] 9.3 Distinguish EOF from transport errors in `grpc.go` stream loops and emit stream-loss diagnostics.
 - [x] 9.4 Base the backoff reset on run stability, not last-run duration.
-- [ ] 9.5 Add Go tests for drain reconnect, breaker recovery, and stream-loss reporting.
+- [x] 9.5 Add Go tests for drain reconnect, breaker recovery, and stream-loss reporting.
 
 ## 10. Verdict Idempotency (F12)
-- [ ] 10.1 Remove per-run wall-clock time from capacity and seasonal `event_id`/finding identity.
-- [ ] 10.2 Make edge verdict `time` deterministic from the producer epoch (depends on 4.1) so `(id, time)` dedup holds on redelivery.
-- [ ] 10.3 Add a dead-letter path or alert for JetStream `max_deliver` exhaustion.
-- [ ] 10.4 Add tests proving redelivery and repeated worker runs converge on one finding.
+- [x] 10.1 Remove per-run wall-clock time from capacity and seasonal `event_id`/finding identity.
+- [x] 10.2 Make edge verdict `time` deterministic from the producer epoch (depends on 4.1) so `(id, time)` dedup holds on redelivery.
+- [x] 10.3 Add a dead-letter path or alert for JetStream `max_deliver` exhaustion.
+- [x] 10.4 Add tests proving redelivery and repeated worker runs converge on one finding.
 
 ## 11. Identity Partition Scoping And Correlation (F13, F14)
 - [x] 11.1 Incorporate attested `partition_id` into the canonical `series_key` / finding identity.
@@ -67,52 +67,84 @@
 
 ## 12. Seasonal Data Feed And Semantics (F15, blocker)
 - [ ] 12.1 Implement the `profile_hour_of_week` SRQL stats verb (or an equivalent bucket-profile query) producing `dow/hod/center/mad/p05/p95/bucket_count/bucket_sum/bucket_sum_sq`.
-- [ ] 12.2 Make the worker fail loudly with telemetry when the profiling query returns no profile columns.
-- [ ] 12.3 Emit seasonal clears; fix the zero-width bucket window (distinct started/ended).
+- [x] 12.2 Make the worker fail loudly with telemetry when the profiling query returns no profile columns.
+- [x] 12.3 Emit seasonal clears; fix the zero-width bucket window (distinct started/ended).
 - [ ] 12.4 Fix the Oban uniqueness key so per-run `evaluated_at` does not defeat dedup; align dow/hod bucketing to a configured time zone.
 - [ ] 12.5 Add an integration test that exercises the real SRQL path end-to-end (not mock rows).
 
 ## 13. Capacity Forecast Correctness (F16)
 - [x] 13.1 Fix the flow-capacity source unit label and add a threshold so it can alert.
 - [x] 13.2 Guard the Holt-Winters ETA against negative `slope_per_second`.
-- [ ] 13.3 Insert a gap marker instead of deleting interior points on counter wrap.
+- [x] 13.3 Insert a gap marker instead of deleting interior points on counter wrap.
 - [x] 13.4 Constrain `warning_horizon_seconds <= horizon_seconds`.
 
 ## 14. Detector Numeric Safety (F17)
 - [x] 14.1 Replace the unconditional zero-variance breach with a magnitude/floor-aware rule that does not fire for floor-less counter rates; widen the near-zero stddev guard beyond `f64::EPSILON`.
 - [x] 14.2 Make `sample_stats` defined for windows of length 0/1 (no NaN/inf/panic).
 - [x] 14.3 Keep Welford sample count consistent with logical samples (handle non-finite explicitly).
-- [ ] 14.4 Pin a `confirm_slots` definition shared by edge and central seasonal confirmation.
+- [x] 14.4 Pin a `confirm_slots` definition shared by edge and central seasonal confirmation.
 
 ## 15. Config Reconciliation (F18)
 - [x] 15.1 Decide and document the role of `window_duration_seconds` for the count-based edge window (map or scope away).
 - [x] 15.2 Remove or correctly map the `mem` runtime alias to a real tier/gauge class.
-- [ ] 15.3 Align edge 32-bit counter-wrap salvage (modulus / unknown `counter_width`) with central's per-sample-max behavior.
+- [x] 15.3 Align edge 32-bit counter-wrap salvage (modulus / unknown `counter_width`) with central's per-sample-max behavior.
 
 ## 16. Operability (F19)
-- [ ] 16.1 Add a scoring-liveness/health surface (verdict throughput, tracked-series vs cap, last-scored time).
-- [ ] 16.2 Emit a signal when cgroup resource enforcement is absent or a limit write failed.
+- [x] 16.1 Add a scoring-liveness/health surface (verdict throughput, tracked-series vs cap, last-scored time).
+- [x] 16.2 Emit a signal when cgroup resource enforcement is absent or a limit write failed.
 
 ## 17. Performance At Scale (F20, extends F8)
-- [ ] 17.1 Batch causal-prediction inserts (`insert_all` + `ON CONFLICT DO NOTHING`); drop the per-row existence SELECT.
-- [ ] 17.2 Stream worker history instead of `List.flatten`-ing the full result set into memory.
-- [ ] 17.3 Reduce per-reading allocations in the counter normalization path.
+- [x] 17.1 Batch causal-prediction inserts (`insert_all` + `ON CONFLICT DO NOTHING`); drop the per-row existence SELECT.
+- [x] 17.2 Stream worker history instead of `List.flatten`-ing the full result set into memory.
+- [x] 17.3 Reduce per-reading allocations in the counter normalization path.
 - [x] 17.4 Document or revisit F8's O(window) per-sample envelope under the F9 eviction changes.
 
 ## 18. Live-Confirmed Edge Delivery Fixes (F21-F24, demo 2026-06-19)
-- [ ] 18.1 F21: stop the seeder/assignment from writing empty-string `""` for unset numeric add-on params (omit, or send number/null).
+- [x] 18.1 F21: stop the seeder/assignment from writing empty-string `""` for unset numeric add-on params (omit, or send number/null).
 - [x] 18.2 F21: make the Rust `AddonConfig` deserializer coerce empty/absent optional knobs to defaults instead of rejecting `""` ("invalid type: string, expected u64").
-- [ ] 18.3 F21: add a migration/repair to clear empty-string params already persisted for mis-seeded agents (`agent-k8s-cp2-worker1`, `k8s-agent`) and recover their `circuit_open` add-ons.
+- [x] 18.3 F21: add a migration/repair to clear empty-string params already persisted for mis-seeded agents (`agent-k8s-cp2-worker1`, `k8s-agent`) and recover their `circuit_open` add-ons.
 - [x] 18.4 F22: make the add-on `Shutdown` return promptly (abort the scoring task, close the feed) so the manager stops SIGKILLing it; test that stop completes within the grace window.
-- [ ] 18.5 F23: place the add-on in `serviceradar-addons.slice` with the declared `memory.max`/`tasks.max`, and emit a health signal when enforcement is absent (ties F19).
-- [ ] 18.6 F24: unify device identity (uid + hostname) and series-key host component across sysmon and SNMP edge findings on the canonical re-key path (ties F4/F13).
+- [x] 18.5 F23: place the add-on in `serviceradar-addons.slice` with the declared `memory.max`/`tasks.max`, and emit a health signal when enforcement is absent (ties F19).
+- [x] 18.6 F24: unify device identity (uid + hostname) and series-key host component across sysmon and SNMP edge findings on the canonical re-key path (ties F4/F13).
 - [ ] 18.7 Add an end-to-end smoke test that fires `sysmon.debug_spike` and asserts one open finding (not one-per-sample-per-core), sample-time `time`, and coherent device identity.
 
-## 19. Verification
-- [ ] 19.1 Run `sfw cargo test -p serviceradar-anomaly-addon -p serviceradar-anomaly-core -p serviceradar-causal-disposition`.
-- [ ] 19.2 Run `sfw cargo test -p serviceradar-srql` if the seasonal profiling verb is implemented in SRQL.
-- [ ] 19.3 Run `go test ./go/pkg/agent/addon/...` (and update bazel BUILD deps for any new test files/imports).
-- [ ] 19.4 Run focused core-elx tests for status handler, causal signals, seasonal disposition, capacity forecasting, and anomaly profile seeding.
-- [ ] 19.5 Run `./scripts/elixir_quality.sh --project elixir/serviceradar_core` if the implementation changes shared core-elx behavior broadly.
-- [ ] 19.6 Run native add-on manifest/version gates if add-on package metadata or Rust add-on sources change.
-- [ ] 19.7 Re-run the live `sysmon.debug_spike` trace in demo and confirm the F1/F3/F6/F12/F15/F21-F24 behaviors are resolved.
+## 19. Device-Details Panel Performance (F25)
+- [ ] 19.1 Query `device_uid_exact` first as a bare indexed equality; stop trying `agent_id`/`host_id` first (which seq-scan the OCSF hypertable).
+- [ ] 19.2 Drop the capacity `resource_key '%<id>%'` leading-wildcard ILIKE; add a btree index on capacity `resource_id`.
+- [ ] 19.3 Run the anomaly and capacity loads concurrently (Task.async) instead of sequential `load_first`; short-circuit empty candidates.
+- [ ] 19.4 Lower the anomaly/capacity query `limit` and project only rendered fields (not full metadata/raw_data/unmapped).
+
+## 20. Operator-Actionable Anomaly/Capacity Rows (F26)
+- [ ] 20.1 Make finding rows and capacity rows clickable (`phx-click` + uid) opening a detail modal.
+- [ ] 20.2 Prefer `finding_info.title` for the human title; demote the raw `verdict.reason` to a sub-line.
+- [ ] 20.3 Render real identity: metric_name, interface_uid/if_index (for interface findings), anomaly value + score; stop showing bare `"snmp"`.
+- [ ] 20.4 Add `title=`/tooltip with full id and resolve a human device label for truncated ids.
+- [ ] 20.5 Label capacity with units/metric-type/threshold/headroom; hide or aggregate `skipped` rows; reconcile the metric_class row label vs the RED chip bucketing.
+
+## 21. SNMP Anomaly Target Attribution (F27)
+- [ ] 21.1 Edge: prefer `resource.target_device_ip` for non-self SNMP polls when choosing `device_uid`/`series_key` (`addon.rs:857-862`).
+- [ ] 21.2 Core: for `snmp_target_poll?` rows, set the leading `device_uid` resolution candidate to the target (not the agent host) (`causal_signals.ex:1356-1357`).
+- [ ] 21.3 Emit `target_device_ip` at a stable top-level/anomaly path, not only under `source_identity`; add a regression test for resolved device_uid on an SNMP poll.
+- [ ] 21.4 Once attribution is correct, scope the web-ng device-finding query by canonical device/series instead of `agent_id`-first.
+
+## 22. Metric Chart Fidelity (F28)
+- [ ] 22.1 For per-core metrics, render per-core series (or a max-across-cores line); stop collapsing to `series=nil` avg-across-cores.
+- [ ] 22.2 Offer `agg:max` (or an avg+max envelope) per bucket so short spikes are visible; make the header min/avg/max match the plotted aggregation.
+- [ ] 22.3 Annotate finding timestamps/series on the chart and let a finding click focus the chart on its series/time window.
+
+## 23. Anomaly & Capacity Alerting (F29, gated on F1/F12/F17)
+- [ ] 23.1 Add `alert_generator.ex` handling for anomaly findings: alert only on confirmed anomaly-open and clear transitions, never on `pending_anomaly` or per-sample.
+- [ ] 23.2 Dedup/coalesce per canonical series with a cooldown/suppression window so one ongoing condition is one alert.
+- [ ] 23.3 Add capacity alerting on a real exhaustion-ETA crossing the warning horizon, not on every `projected` re-emit.
+- [ ] 23.4 Map detector/finding severity to alert severity; exclude floor-less counter false-criticals until F17 lands.
+- [ ] 23.5 Add tests proving no alert storm: a sustained anomaly yields one open + one clear, and pending/duplicate findings produce no alert.
+
+## 24. Verification
+- [ ] 24.1 Run `sfw cargo test -p serviceradar-anomaly-addon -p serviceradar-anomaly-core -p serviceradar-causal-disposition`.
+- [ ] 24.2 Run `sfw cargo test -p serviceradar-srql` if the seasonal profiling verb is implemented in SRQL.
+- [x] 24.3 Run `go test ./go/pkg/agent/addon/...` (and update bazel BUILD deps for any new test files/imports).
+- [ ] 24.4 Run focused core-elx tests for status handler, causal signals, seasonal disposition, capacity forecasting, anomaly profile seeding, and alert generation.
+- [ ] 24.5 Run web-ng tests for the device-details anomaly/capacity components and data layer.
+- [ ] 24.6 Run `./scripts/elixir_quality.sh --project elixir/serviceradar_core` if the implementation changes shared core-elx behavior broadly.
+- [ ] 24.7 Run native add-on manifest/version gates if add-on package metadata or Rust add-on sources change.
+- [ ] 24.8 Re-run the live `sysmon.debug_spike` trace in demo and confirm the F1/F3/F6/F12/F15/F21-F29 behaviors are resolved (one open finding, sample-time, coherent identity, visible chart spike, no alert storm).

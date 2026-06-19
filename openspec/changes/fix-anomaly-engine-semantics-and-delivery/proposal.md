@@ -79,6 +79,24 @@ F15/F17 in production. The change also:
 - Unify device identity (uid + hostname) and the series-key host component across
   sysmon and SNMP edge findings (F24).
 
+A live device-details UI/chart/alerting triage (2026-06-19, see `design.md`) added
+F25-F29. The change also:
+- Fix the device-details panel load (query the indexed `device_uid` first, drop the
+  leading-wildcard ILIKE, index capacity `resource_id`, run anomaly + capacity
+  concurrently, trim limits/projection) (F25).
+- Make anomaly/capacity rows operator-actionable: clickable drill-down, human title,
+  metric/interface/value identity instead of bare `"snmp"`, tooltips/human labels for
+  truncated ids, and a readable capacity column with units/threshold (skip the
+  `skipped`-row noise) (F26).
+- Attribute SNMP-polled anomalies to the polled device (edge prefers
+  `target_device_ip`; core stops passing the agent-host `device_uid` for
+  `snmp_target_poll?`; UI scopes by canonical device) (F27).
+- Make device metric charts show the per-core, short-duration spikes the detector
+  scores (per-core/max series + `agg:max`/envelope), reconcile header stats, and
+  annotate findings on the chart (F28).
+- Make `alert_generator.ex` handle anomaly + capacity findings, transition-gated and
+  deduped (sequenced after F1/F12/F17 so it cannot storm) (F29).
+
 ## Impact
 - Affected specs: `edge-architecture`, `observability-signals`
 - Affected code: `rust/anomaly-addon` (engine state bounds, feed task lifecycle,
@@ -92,4 +110,7 @@ F15/F17 in production. The change also:
   `.../observability/capacity_forecasting`,
   `.../observability/anomaly_detection/series_key.ex`,
   `.../observability/anomaly_config_runtime.ex`, anomaly add-on profile/config
-  seeders, and focused tests.
+  seeders, `.../monitoring/alert_generator.ex` (anomaly/capacity alerting), web-ng
+  device-details (`.../live/device_live/anomaly_capacity_components.ex`,
+  `anomaly_capacity_data.ex`, `sysmon_metrics.ex`, `show.ex`), SRQL capacity/event
+  indexes, and focused tests.

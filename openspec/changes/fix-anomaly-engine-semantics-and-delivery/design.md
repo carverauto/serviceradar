@@ -420,3 +420,131 @@ Reproduce: `ServiceRadar.Edge.AgentCommandBus.dispatch("<agent_id>",
 "sysmon.debug_spike", %{"metric" => "cpu", "value" => 99.0, "samples" => 12})` from
 a core node (`bin/serviceradar_core_elx rpc`). The agent injects synthetic samples
 mirroring the last real sysmon sample so they key to the established baseline series.
+
+## Device-Details UI, Charts & Alerting (Live Triage, 2026-06-19)
+
+Triage of the device-details `/devices/:id` "Anomaly & Capacity" panel and metric
+charts on demo, against device `sr:cf8d5471-...` (host 192.168.1.62 =
+`agent-sr-test-pve04`, a sysmon-only host). The panel takes ~8-10s to populate and
+renders findings an operator cannot act on. Findings F25-F29.
+
+### F25: Device-details anomaly/capacity panel is slow — sequential SRQL fan-out + hypertable seq scans (HIGH, perf)
+`AnomalyCapacityData.load/3` runs the anomaly load and the capacity load
+sequentially, and each `load_first/4` iterates candidates via `Enum.reduce_while`
+issuing one SRQL round-trip per candidate, halting only on the first non-empty
+result (`anomaly_capacity_data.ex:36-90`). Worst case ~9 serial SRQL round-trips
+(3 anomaly candidates + 6 capacity candidates), each a 2-statement transaction,
+all inside one `start_async` (`show.ex:447-465`). Worse, the candidates are
+mis-ordered and non-sargable:
+- Anomaly candidates run `agent_id` -> `host_id` -> `device_uid_exact`
+  (`anomaly_capacity_data.ex:106-115`); only `device_uid_exact` hits the dedicated
+  partial index, and it runs LAST, so the common path **seq-scans the ~13GB OCSF
+  hypertable** twice before the indexed query.
+- Capacity candidates expand each id into an exact `resource_id` (no usable index)
+  plus a leading-wildcard `resource_key '%<id>%'` ILIKE that **cannot use any
+  index** (`anomaly_capacity_data.ex:117-137`).
+- Each query selects up to 50 full OCSF rows (metadata/raw_data/unmapped JSONB)
+  when the list shows ~8 (`anomaly_capacity_data.ex:159`).
+Fix: query `device_uid_exact` first as a bare indexed equality; drop the
+`%id%` ILIKE; add a btree index on capacity `resource_id`; run anomaly + capacity
+concurrently (`Task.async`); lower the limits/projection to what the panel renders.
+
+### F26: Anomaly & capacity findings are not operator-actionable (HIGH, ux)
+`anomaly_capacity_components.ex` renders each finding as a static `<article>`
+(line 59) and each capacity forecast as a plain `<tr>` (line 113) with **no
+`phx-click`, no link, no drill-down modal** (UI-1). Beyond that, the rows are
+nearly content-free:
+- The finding "title" is the raw detector reason string `breach pending
+  confirmation at N/M consecutive anomalous slots` — `finding_title/1` prefers
+  `message` (= `verdict.reason`, `signal.rs:205-208` via `addon.rs:899`) over the
+  human `finding_info.title` (UI-4).
+- The only metadata shown is the metric-class label and timestamp; `"snmp"` is the
+  literal `metric_type` leaking through the `other -> other` catch-all in
+  `metric_class/1` (`anomaly_capacity_components.ex:184-216`). The payload carries
+  `source_identity.metric_name`, `if_index`, `interface_uid`, tags, `anomaly.value`,
+  `anomaly.score`, `series_key` — **none are rendered** (UI-3, UI-6). For interface
+  findings the operator cannot see which interface/OID/metric fired.
+- Resource/device IDs are `max-w-48 truncate` with **no `title` attribute and no
+  human name** (`anomaly_capacity_components.ex:114`) — the full id isn't even
+  available on hover (UI-2).
+- Capacity "Projected" is a bare number (`format_number(projected_value)`) with **no
+  unit, no metric type, no threshold, no horizon** — "19.92 / now 13.29" is
+  unreadable (UI-7); and `status: "skipped"` rows render as all-`n/a` noise because
+  a skipped forecast nulls every numeric field (`worker.ex` skipped_attrs; DB CHECK
+  allows only `projected`/`skipped`) (UI-8).
+Note inconsistency: a `"snmp"` finding shows `"snmp"` in the row but is counted
+under the RED chip, because `anomaly_capacity_data.ex:264-275` buckets unknown
+classes into `red` while the component prints them verbatim.
+Fix: make rows clickable to a detail modal (`phx-click` + `phx-value-uid`); prefer
+`finding_info.title`; render metric_name + interface/ifIndex + value/score; add
+`title=` to truncated ids and resolve a friendly device label; label capacity with
+units/metric/threshold/headroom and hide or aggregate skipped rows.
+
+### F27: SNMP anomalies are attributed to the polling agent host, not the polled device (HIGH, data-integrity)
+The concrete root cause of "a sysmon-only host shows SNMP anomalies": the edge
+`verdict_record()` sets `device_uid = first_non_empty([resource.device_id,
+host_id, agent_id, host_ip])` and **never considers `resource.target_device_ip`**
+(`addon.rs:857-862`), so an SNMP poll of remote gear is stamped with the agent
+host's identity (and `series_key = snmp:<agent_id>:<ifIndex>`). Core actually
+detects this (`anomaly_detection_correlation_candidate/2` sets `snmp_target_poll?`
+and drops `agent_id`, `causal_signals.ex:1342-1354`) but **line 1357 still passes
+the agent-host `device_uid` as the leading resolution candidate**, defeating the
+re-key. `target_device_ip` is also only emitted under `source_identity`
+(fragile). The web-ng device page then matches findings by `agent_id` FIRST
+(`anomaly_capacity_data.ex:106-115`), amplifying the mis-attribution onto the host
+page. Confirmed in data: these findings carry `device.uid = "agent-sr-test-pve04"`,
+`hostname = nil`; `sr:cf8d5471` has `discovery_sources` without `snmp`. Fix: at the
+edge prefer `target_device_ip` for non-self SNMP polls; in core, for
+`snmp_target_poll?` rows set the leading `device_uid` candidate to the target (not
+the agent host); emit `target_device_ip` at a stable top-level path; scope the UI
+query by canonical device/series once attribution is correct. (Sharpens F13/F24.)
+
+### F28: Device CPU/memory/disk charts hide the per-core, short-duration spikes the detector fires on (HIGH, data-correctness)
+The metric charts query `in:timeseries_metrics ... bucket:5m agg:avg` with
+**`series_field = nil`** (`sysmon_metrics.ex:153-161, 626-656`), i.e. the line is
+averaged over 5-minute buckets AND across all cores. The detector scores **per-core
+raw samples** (`sysmon.cpu:...:CPUn`), so:
+- A single pegged core (1 of 16 at 100%) shows as ~6% on the chart while the
+  detector fires Critical on that core; the operator sees a flat line under a
+  Critical finding.
+- A short severe spike is averaged away by `agg:avg` over 5m. The verified example:
+  an injected all-core 99% spike rendered as a ~54% bucket peak with the line/hover
+  near it showing ~1.3%.
+- The headline `min/avg/max` (`metric_stats/2`) is computed over the same diluted
+  5m-avg buckets, so "max 54.1%" cannot be reconciled with the plotted line.
+- Findings are not annotated on the chart, so there is no visual link between a
+  Critical finding and the metric that triggered it.
+Fix: for per-core metrics, render per-core series (or at least a max-across-cores
+line) and offer `agg:max` (or an avg+max band) so spikes are visible; make the
+headline stat match the plotted aggregation; annotate finding timestamps/series on
+the chart and let a finding click focus the chart on its series/time.
+
+### F29: alert_generator does not handle anomaly or capacity findings — and must be wired carefully (HIGH, operability)
+Live: **0 alerts in 6h** despite hundreds of CPU findings, thousands of SNMP
+findings, and ~31k capacity findings. `Monitoring.AlertGenerator` only emits alerts
+for service/device/gateway/agent-offline and metric `threshold_violation`; there is
+no path turning class-2004 anomaly or capacity findings into `alerts` rows. So
+today the findings are non-actionable noise that never reaches an operator. The
+requested fix is to make `alert_generator.ex` handle anomaly + capacity findings —
+but this MUST be gated, or it becomes the alert storm the flood findings imply:
+- Alert only on a confirmed anomaly-OPEN transition (after F1) and a CLEAR, never
+  on `pending_anomaly` (today pending breaches are emitted as `severity_id: 4`
+  Critical — confirmed in finding metadata) and never per-sample.
+- Dedup/coalesce per canonical series with a cooldown/suppression window (the
+  generator already has a 5-min stats-alert cooldown pattern) so one ongoing
+  condition is one alert, not 2,528/hour (depends on F12 idempotency).
+- Exclude floor-less counter false-criticals until F17 lands; map detector severity
+  to alert severity; for capacity, alert on a real exhaustion-ETA crossing a
+  warning horizon, not on every `projected` re-emit.
+Sequence F29 AFTER F1/F12/F17 so anomaly alerting turns on only once the findings
+are trustworthy. (Also observed: a CPU-usage finding's `finding_info.uid` is keyed
+on `cpu.frequency_hz` — a metric meant to be excluded — suggesting either an
+excluded-metric leak or a mis-built finding UID; verify under F17/F24.)
+
+## Decisions (UI/alerting addendum)
+- Delivery and edge scoring work; the device-details experience is the gap. Treat
+  F25 (perf) and F27 (SNMP attribution) as the highest-impact UI/data fixes, and
+  F29 (alerting) as gated on F1/F12/F17.
+- F26/F28 are presentation fixes but F28 is data-correctness-adjacent: the chart
+  must be able to show what the detector scored, or operators cannot validate any
+  finding.
