@@ -300,15 +300,15 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
         <div :if={section_visible?(@section, "overview")} class="space-y-4">
           <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <.stat_card
-              title={if @unit_mode == "pps", do: "Total Packets", else: "Total Bandwidth"}
-              value={primary_metric(@total_bytes, @total_packets, @unit_mode)}
+              title={if @unit_mode == "pps", do: "Average Packet Rate", else: "Average Bandwidth"}
+              value={primary_metric(@total_bytes, @total_packets, @unit_mode, @time_window)}
               unit={unit_suffix(@unit_mode)}
               loading={@loading}
             />
             <.stat_card
               title="Total Packets"
               value={@total_packets}
-              unit="pps"
+              unit="pkts"
               loading={@loading}
             />
             <.stat_card
@@ -404,7 +404,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               %{
                 key: :bytes,
                 label: primary_metric_col_label(@unit_mode, @metric_mode),
-                format: &format_primary_cell(&1, @unit_mode, @metric_mode)
+                format: &format_primary_cell(&1, @unit_mode, @metric_mode, @time_window)
               },
               %{key: :packets, label: "Packets"}
             ]}
@@ -425,7 +425,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               %{
                 key: :bytes,
                 label: primary_metric_col_label(@unit_mode, @metric_mode),
-                format: &format_primary_cell(&1, @unit_mode, @metric_mode)
+                format: &format_primary_cell(&1, @unit_mode, @metric_mode, @time_window)
               },
               %{key: :packets, label: "Packets"}
             ]}
@@ -451,7 +451,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               %{
                 key: :bytes,
                 label: primary_metric_col_label(@unit_mode, @metric_mode),
-                format: &format_primary_cell(&1, @unit_mode, @metric_mode)
+                format: &format_primary_cell(&1, @unit_mode, @metric_mode, @time_window)
               }
             ]}
             on_row_click="drill_down_conversation"
@@ -467,7 +467,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               %{
                 key: :bytes,
                 label: primary_metric_col_label(@unit_mode, @metric_mode),
-                format: &format_primary_cell(&1, @unit_mode, @metric_mode)
+                format: &format_primary_cell(&1, @unit_mode, @metric_mode, @time_window)
               },
               %{key: :packets, label: "Packets"}
             ]}
@@ -484,7 +484,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               %{
                 key: :bytes,
                 label: primary_metric_col_label(@unit_mode, @metric_mode),
-                format: &format_primary_cell(&1, @unit_mode, @metric_mode)
+                format: &format_primary_cell(&1, @unit_mode, @metric_mode, @time_window)
               },
               %{key: :packets, label: "Packets"}
             ]}
@@ -501,7 +501,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               %{
                 key: :bytes,
                 label: primary_metric_col_label(@unit_mode, @metric_mode),
-                format: &format_primary_cell(&1, @unit_mode, @metric_mode)
+                format: &format_primary_cell(&1, @unit_mode, @metric_mode, @time_window)
               },
               %{key: :packets, label: "Packets"}
             ]}
@@ -612,7 +612,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               %{
                 key: :bytes,
                 label: unit_suffix(@unit_mode),
-                format: &format_bytes_cell(&1, @unit_mode)
+                format: &format_bytes_cell(&1, @unit_mode, @time_window)
               },
               %{key: :p95_bps, label: "95th % (30d)", format: &format_p95_cell/1},
               %{key: :capacity_bps, label: "Capacity", format: &format_capacity_cell/1}
@@ -631,7 +631,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               %{
                 key: :bytes,
                 label: unit_suffix(@unit_mode),
-                format: &format_bytes_cell(&1, @unit_mode)
+                format: &format_bytes_cell(&1, @unit_mode, @time_window)
               }
             ]}
             loading={@loading}
@@ -1238,12 +1238,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   defp srql_quote(value), do: srql_quote(to_string(value))
 
-  defp primary_metric(_bytes, packets, "pps"), do: packets
-  defp primary_metric(bytes, _packets, "bps"), do: bytes * 8
-  defp primary_metric(bytes, _packets, _mode), do: bytes
+  defp primary_metric(_bytes, packets, "pps", time_window), do: packets / time_window_seconds(time_window)
+  defp primary_metric(bytes, _packets, unit_mode, time_window), do: display_rate(bytes, unit_mode, time_window)
 
-  defp display_bandwidth(total_bytes, "bps"), do: total_bytes * 8
-  defp display_bandwidth(total_bytes, _mode), do: total_bytes
+  defp display_rate(total_bytes, "bps", time_window), do: total_bytes * 8 / time_window_seconds(time_window)
+  defp display_rate(total_bytes, "Bps", time_window), do: total_bytes / time_window_seconds(time_window)
+  defp display_rate(total_bytes, _mode, _time_window), do: total_bytes
 
   defp unit_suffix("bps"), do: "bps"
   defp unit_suffix("Bps"), do: "B/s"
@@ -1280,22 +1280,24 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     if cap > 0, do: format_si(cap * 1.0, unit: "bps"), else: "N/A"
   end
 
-  defp format_bytes_cell(row, "pps") do
-    val = row.packets || 0
+  defp format_bytes_cell(row, "pps", time_window) do
+    val = (row.packets || 0) / time_window_seconds(time_window)
     ServiceRadarWebNGWeb.FlowStatComponents.format_si(val, unit: "pps")
   end
 
-  defp format_bytes_cell(row, unit_mode) do
-    val = display_bandwidth(row.bytes || 0, unit_mode)
+  defp format_bytes_cell(row, unit_mode, time_window) do
+    val = display_rate(row.bytes || 0, unit_mode, time_window)
     ServiceRadarWebNGWeb.FlowStatComponents.format_si(val, unit: unit_suffix(unit_mode))
   end
 
-  defp format_primary_cell(row, _unit_mode, "packets") do
+  defp format_primary_cell(row, _unit_mode, "packets", _time_window) do
     val = row.packets || 0
-    ServiceRadarWebNGWeb.FlowStatComponents.format_si(val, unit: "pps")
+    ServiceRadarWebNGWeb.FlowStatComponents.format_si(val, unit: "pkts")
   end
 
-  defp format_primary_cell(row, unit_mode, _metric_mode), do: format_bytes_cell(row, unit_mode)
+  defp format_primary_cell(row, unit_mode, _metric_mode, time_window) do
+    format_bytes_cell(row, unit_mode, time_window)
+  end
 
   defp primary_metric_col_label("pps", _metric_mode), do: "Packets/sec"
   defp primary_metric_col_label(_unit_mode, "packets"), do: "Packets"
