@@ -11,9 +11,9 @@
 - [x] 2.5 Add Rust tests for confirm-slot suppression, one open per active anomaly, clear emission, and checkpoint restore of active state.
 
 ## 3. Delivery Resilience
-- [ ] 3.1 Replace the anomaly add-on single-use telemetry receiver with reconnect-safe broadcast/drop delivery.
-- [ ] 3.2 Ensure native telemetry backpressure cannot block metric-feed acknowledgement or scoring.
-- [ ] 3.3 Add tests for telemetry reconnect and lag/drop behavior.
+- [x] 3.1 Replace the anomaly add-on single-use telemetry receiver with reconnect-safe broadcast/drop delivery.
+- [x] 3.2 Ensure native telemetry backpressure cannot block metric-feed acknowledgement or scoring.
+- [x] 3.3 Add tests for telemetry reconnect and lag/drop behavior.
 - [ ] 3.4 Decide whether agent-side stream drain should reconnect on stream close for native telemetry and metric-feed streams.
 
 ## 4. Core Ingestion Fidelity

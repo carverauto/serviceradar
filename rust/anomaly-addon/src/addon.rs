@@ -22,7 +22,7 @@ use async_trait::async_trait;
 use prost::Message;
 use serviceradar_anomaly_core::{ReasonVerdict, SaturationGate};
 use sha2::{Digest as _, Sha256};
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tokio_stream::StreamExt as _;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::Status;
@@ -34,7 +34,7 @@ use crate::engine::{
 };
 
 const ADDON_ID: &str = "anomaly";
-const ADDON_VERSION: &str = "0.1.2";
+const ADDON_VERSION: &str = "0.1.3";
 const VERDICT_CHANNEL_DEPTH: usize = 256;
 const ACK_CHANNEL_DEPTH: usize = 64;
 const OCSF_CLASS_EVENT_LOG_ACTIVITY: i64 = 1008;
@@ -113,8 +113,7 @@ impl AddonConfig {
 /// mutable state is behind a `Mutex`.
 pub struct AnomalyAddon {
     engine: Arc<Mutex<DetectorEngine>>,
-    verdict_tx: mpsc::Sender<Result<TelemetryBatch, Status>>,
-    verdict_rx: Mutex<Option<mpsc::Receiver<Result<TelemetryBatch, Status>>>>,
+    verdict_tx: broadcast::Sender<TelemetryBatch>,
     /// Resolved at `configure`; read when a feed stream opens.
     checkpoint: Mutex<CheckpointSettings>,
 }
@@ -127,11 +126,10 @@ impl Default for AnomalyAddon {
 
 impl AnomalyAddon {
     pub fn new() -> Self {
-        let (verdict_tx, verdict_rx) = mpsc::channel(VERDICT_CHANNEL_DEPTH);
+        let (verdict_tx, _) = broadcast::channel(VERDICT_CHANNEL_DEPTH);
         Self {
             engine: Arc::new(Mutex::new(DetectorEngine::new(EngineConfig::default()))),
             verdict_tx,
-            verdict_rx: Mutex::new(Some(verdict_rx)),
             checkpoint: Mutex::new(CheckpointSettings::default()),
         }
     }
@@ -197,18 +195,11 @@ impl Addon for AnomalyAddon {
         })
     }
 
-    /// Hand the agent the verdict stream. Called once when the agent opens the
-    /// native telemetry stream; later calls get an empty stream.
+    /// Hand the agent a verdict stream subscription. Every call gets a fresh
+    /// receiver; lagging clients drop locally and reconnecting clients can
+    /// subscribe without restarting the add-on.
     fn stream_telemetry(&self) -> TelemetryStream {
-        match self
-            .verdict_rx
-            .lock()
-            .expect("verdict_rx mutex poisoned")
-            .take()
-        {
-            Some(rx) => Box::pin(ReceiverStream::new(rx)),
-            None => Box::pin(tokio_stream::empty()),
-        }
+        telemetry_stream_from_receiver(self.verdict_tx.subscribe())
     }
 
     /// Consume the agent's local metric feed, score each sample, and ack frames.
@@ -270,7 +261,7 @@ impl Addon for AnomalyAddon {
 /// verdict telemetry batch for any breaches.
 async fn process_frame(
     engine: &Arc<Mutex<DetectorEngine>>,
-    verdict_tx: &mpsc::Sender<Result<TelemetryBatch, Status>>,
+    verdict_tx: &broadcast::Sender<TelemetryBatch>,
     frame: &MetricFeedFrame,
 ) {
     let batch = match MetricBatch::decode(frame.payload.as_slice()) {
@@ -372,7 +363,26 @@ async fn process_frame(
     for record in records {
         builder = builder.push_record(record);
     }
-    let _ = verdict_tx.send(Ok(builder.build())).await;
+    let _ = verdict_tx.send(builder.build());
+}
+
+fn telemetry_stream_from_receiver(mut rx: broadcast::Receiver<TelemetryBatch>) -> TelemetryStream {
+    let (tx, out_rx) = mpsc::channel::<Result<TelemetryBatch, Status>>(VERDICT_CHANNEL_DEPTH);
+
+    tokio::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(batch) => match tx.try_send(Ok(batch)) {
+                    Ok(()) | Err(mpsc::error::TrySendError::Full(_)) => {}
+                    Err(mpsc::error::TrySendError::Closed(_)) => break,
+                },
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+
+    Box::pin(ReceiverStream::new(out_rx))
 }
 
 /// Resolve checkpoint behavior from the parsed config: a blank/absent path
@@ -889,7 +899,7 @@ fn shed_signal_schema_ref() -> SignalSchemaRef {
 mod tests {
     use super::*;
     use addon_sdk::metric_pb::StringMapEntry;
-    use tokio::sync::mpsc::error::TryRecvError;
+    use broadcast::error::TryRecvError;
 
     fn entry(key: &str, value: &str) -> StringMapEntry {
         StringMapEntry {
@@ -940,7 +950,7 @@ mod tests {
 
     async fn process_anomaly_value(
         engine: &Arc<Mutex<DetectorEngine>>,
-        tx: &mpsc::Sender<Result<TelemetryBatch, Status>>,
+        tx: &broadcast::Sender<TelemetryBatch>,
         value: f64,
         observed_at_unix_nano: u64,
     ) {
@@ -953,16 +963,18 @@ mod tests {
         process_frame(engine, tx, &frame).await;
     }
 
-    fn assert_no_batch(rx: &mut mpsc::Receiver<Result<TelemetryBatch, Status>>) {
+    fn assert_no_batch(rx: &mut broadcast::Receiver<TelemetryBatch>) {
         assert!(matches!(rx.try_recv(), Err(TryRecvError::Empty)));
     }
 
-    fn recv_single_event(
-        rx: &mut mpsc::Receiver<Result<TelemetryBatch, Status>>,
-    ) -> serde_json::Value {
-        let batch = rx.try_recv().expect("telemetry batch").expect("batch ok");
+    fn recv_single_event(rx: &mut broadcast::Receiver<TelemetryBatch>) -> serde_json::Value {
+        let batch = rx.try_recv().expect("telemetry batch");
         assert_eq!(batch.records.len(), 1);
         serde_json::from_slice(&batch.records[0].payload).expect("event json")
+    }
+
+    fn empty_telemetry_batch(source_instance: &str) -> TelemetryBatch {
+        TelemetryBatchBuilder::new("test", source_instance).build()
     }
 
     #[test]
@@ -1157,7 +1169,7 @@ mod tests {
             confirm_slots: 1,
             ..EngineConfig::default()
         })));
-        let (tx, mut rx) = mpsc::channel(1);
+        let (tx, mut rx) = broadcast::channel(4);
         let batch = MetricBatch {
             resource: Some(MetricResource {
                 agent_id: "agent-a".to_string(),
@@ -1199,13 +1211,55 @@ mod tests {
 
         process_frame(&engine, &tx, &frame).await;
 
-        let sent = rx.recv().await.expect("telemetry batch").expect("batch ok");
+        let sent = rx.recv().await.expect("telemetry batch");
         assert_eq!(sent.records.len(), 1);
         let event: serde_json::Value = serde_json::from_slice(&sent.records[0].payload).unwrap();
         assert_eq!(event["status_code"], "anomaly_capacity_shed");
         assert_eq!(event["unmapped"]["dropped_series_delta"], 2);
         assert_eq!(event["unmapped"]["feed_id"], 7);
         assert_eq!(engine.lock().unwrap().dropped_at_capacity, 2);
+    }
+
+    #[tokio::test]
+    async fn telemetry_stream_can_reconnect_and_survives_lag() {
+        let (tx, rx) = broadcast::channel(1);
+        let mut stream = telemetry_stream_from_receiver(rx);
+
+        let _ = tx.send(empty_telemetry_batch("old-1"));
+        let _ = tx.send(empty_telemetry_batch("old-2"));
+        let _ = tx.send(empty_telemetry_batch("latest"));
+
+        let received = stream
+            .next()
+            .await
+            .expect("stream item after lag")
+            .expect("batch ok");
+        assert_eq!(
+            received
+                .source
+                .as_ref()
+                .map(|source| source.source_instance.as_str()),
+            Some("latest")
+        );
+
+        let mut first = telemetry_stream_from_receiver(tx.subscribe());
+        let mut second = telemetry_stream_from_receiver(tx.subscribe());
+        let _ = tx.send(empty_telemetry_batch("after-reconnect"));
+
+        for stream in [&mut first, &mut second] {
+            let received = stream
+                .next()
+                .await
+                .expect("reconnected stream item")
+                .expect("batch ok");
+            assert_eq!(
+                received
+                    .source
+                    .as_ref()
+                    .map(|source| source.source_instance.as_str()),
+                Some("after-reconnect")
+            );
+        }
     }
 
     #[tokio::test]
@@ -1218,7 +1272,7 @@ mod tests {
             max_series: 10,
             ..EngineConfig::default()
         })));
-        let (tx, mut rx) = mpsc::channel(4);
+        let (tx, mut rx) = broadcast::channel(8);
 
         for ts in 1..=20 {
             process_anomaly_value(&engine, &tx, 100.0, ts).await;
