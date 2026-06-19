@@ -38,7 +38,7 @@ use crate::engine::{
 };
 
 const ADDON_ID: &str = "anomaly";
-const ADDON_VERSION: &str = "0.1.7";
+const ADDON_VERSION: &str = "0.1.12";
 const VERDICT_CHANNEL_DEPTH: usize = 256;
 const ACK_CHANNEL_DEPTH: usize = 64;
 const OCSF_CLASS_EVENT_LOG_ACTIVITY: i64 = 1008;
@@ -51,6 +51,9 @@ const OCSF_VERSION: &str = "1.7.0";
 const DEFAULT_CHECKPOINT_MAX_AGE_NS: u64 = 6 * 60 * 60 * 1_000_000_000;
 /// Default checkpoint cadence: persist after every N processed feed frames.
 const DEFAULT_CHECKPOINT_WRITE_EVERY: u64 = 100;
+/// Default scoring liveness staleness bound (5m): once scoring has started,
+/// health degrades if no scored frame completes within this age.
+const DEFAULT_SCORING_STALE_AFTER_NS: u64 = 5 * 60 * 1_000_000_000;
 
 /// Operator-supplied configuration (validated by the control plane against
 /// `config.schema.json`). All fields optional; omitted ones keep the defaults.
@@ -83,6 +86,10 @@ struct AddonConfig {
     /// are not reseeded.
     #[serde(default, deserialize_with = "deserialize_optional_u64")]
     checkpoint_max_age_secs: Option<u64>,
+    /// Liveness staleness bound in seconds (default 5m); once scoring has
+    /// started, health degrades if no frame finishes scoring within this age.
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    scoring_stale_after_secs: Option<u64>,
 }
 
 fn deserialize_optional_usize<'de, D>(deserializer: D) -> Result<Option<usize>, D::Error>
@@ -307,6 +314,7 @@ impl Addon for AnomalyAddon {
         };
 
         let settings = resolve_checkpoint_settings(&parsed);
+        let scoring_stale_after_ns = resolve_scoring_stale_after_ns(&parsed);
 
         let engine_config = match parsed.into_engine_config() {
             Ok(config) => config,
@@ -320,6 +328,7 @@ impl Addon for AnomalyAddon {
         };
 
         lock_engine(&self.engine).set_config(engine_config);
+        lock_scoring_health(&self.scoring_health).set_stale_after_ns(scoring_stale_after_ns);
 
         // Re-warm from the on-disk checkpoint before scoring resumes, so a
         // restart does not storm false positives while windows refill.
@@ -570,7 +579,7 @@ fn telemetry_stream_from_receiver(mut rx: broadcast::Receiver<TelemetryBatch>) -
     Box::pin(ReceiverStream::new(out_rx))
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 struct ScoringHealth {
     frames_seen: u64,
     scored_samples: u64,
@@ -578,9 +587,22 @@ struct ScoringHealth {
     last_feed_id: u64,
     last_scored_at_unix_nano: u64,
     last_frame_at_unix_nano: u64,
+    stale_after_ns: u64,
 }
 
-const SCORING_STALE_AFTER_NS: u64 = 5 * 60 * 1_000_000_000;
+impl Default for ScoringHealth {
+    fn default() -> Self {
+        Self {
+            frames_seen: 0,
+            scored_samples: 0,
+            emitted_verdicts: 0,
+            last_feed_id: 0,
+            last_scored_at_unix_nano: 0,
+            last_frame_at_unix_nano: 0,
+            stale_after_ns: DEFAULT_SCORING_STALE_AFTER_NS,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 struct ScoringFrameUpdate {
@@ -605,6 +627,10 @@ struct HealthSummary {
 }
 
 impl ScoringHealth {
+    fn set_stale_after_ns(&mut self, stale_after_ns: u64) {
+        self.stale_after_ns = stale_after_ns.max(1_000_000_000);
+    }
+
     fn record_frame(&mut self, update: ScoringFrameUpdate) {
         self.frames_seen = self.frames_seen.saturating_add(1);
         self.scored_samples = self.scored_samples.saturating_add(update.scored_samples);
@@ -627,7 +653,7 @@ impl ScoringHealth {
             && (engine.tracked_series >= engine.max_series
                 || engine.tracked_counters >= engine.max_series);
         let last_frame_age_ns = now_unix_nano.saturating_sub(self.last_frame_at_unix_nano);
-        let scoring_stalled = self.scored_samples > 0 && last_frame_age_ns > SCORING_STALE_AFTER_NS;
+        let scoring_stalled = self.scored_samples > 0 && last_frame_age_ns > self.stale_after_ns;
 
         let (status, state) = if self.scored_samples == 0 {
             (HealthStatus::Degraded, "no_scored_samples")
@@ -644,7 +670,7 @@ impl ScoringHealth {
         HealthSummary {
             status,
             detail: format!(
-                "state={state};frames_seen={};scored_samples={};emitted_verdicts={};last_feed_id={};last_frame_at_unix_nano={};last_scored_at_unix_nano={};last_frame_age_ns={};stale_after_ns={SCORING_STALE_AFTER_NS};tracked_series={};tracked_counters={};max_series={};dropped_total={}",
+                "state={state};frames_seen={};scored_samples={};emitted_verdicts={};last_feed_id={};last_frame_at_unix_nano={};last_scored_at_unix_nano={};last_frame_age_ns={};stale_after_ns={};tracked_series={};tracked_counters={};max_series={};dropped_total={}",
                 self.frames_seen,
                 self.scored_samples,
                 self.emitted_verdicts,
@@ -652,6 +678,7 @@ impl ScoringHealth {
                 self.last_frame_at_unix_nano,
                 self.last_scored_at_unix_nano,
                 last_frame_age_ns,
+                self.stale_after_ns,
                 engine.tracked_series,
                 engine.tracked_counters,
                 engine.max_series,
@@ -680,6 +707,13 @@ fn resolve_checkpoint_settings(config: &AddonConfig) -> CheckpointSettings {
     }
 
     settings
+}
+
+fn resolve_scoring_stale_after_ns(config: &AddonConfig) -> u64 {
+    config
+        .scoring_stale_after_secs
+        .map(|secs| secs.max(1).saturating_mul(1_000_000_000))
+        .unwrap_or(DEFAULT_SCORING_STALE_AFTER_NS)
 }
 
 /// Atomically persist the engine's per-series checkpoint: write a sibling `.tmp`
@@ -1441,16 +1475,43 @@ mod tests {
                 max_series: 50_000,
                 dropped_total: 0,
             },
-            1_000 + SCORING_STALE_AFTER_NS + 1,
+            1_000 + DEFAULT_SCORING_STALE_AFTER_NS + 1,
         );
 
         assert_eq!(stalled.status, HealthStatus::Degraded);
         assert!(stalled.detail.contains("state=scoring_stalled"));
-        assert!(
-            stalled
-                .detail
-                .contains(&format!("last_frame_age_ns={}", SCORING_STALE_AFTER_NS + 1))
-        );
+        assert!(stalled.detail.contains(&format!(
+            "last_frame_age_ns={}",
+            DEFAULT_SCORING_STALE_AFTER_NS + 1
+        )));
+    }
+
+    #[test]
+    fn health_summary_uses_configured_stale_threshold() {
+        let mut scoring = ScoringHealth::default();
+        scoring.set_stale_after_ns(10_000_000_000);
+        scoring.record_frame(ScoringFrameUpdate {
+            feed_id: 9,
+            scored_samples: 3,
+            emitted_verdicts: 1,
+            last_scored_at_unix_nano: 123,
+        });
+        scoring.last_frame_at_unix_nano = 1_000;
+
+        let engine = EngineHealthSnapshot {
+            tracked_series: 2,
+            tracked_counters: 1,
+            max_series: 50_000,
+            dropped_total: 0,
+        };
+
+        let active = scoring.health_summary_at(engine, 1_000 + 10_000_000_000);
+        assert_eq!(active.status, HealthStatus::Healthy);
+        assert!(active.detail.contains("stale_after_ns=10000000000"));
+
+        let stalled = scoring.health_summary_at(engine, 1_000 + 10_000_000_001);
+        assert_eq!(stalled.status, HealthStatus::Degraded);
+        assert!(stalled.detail.contains("state=scoring_stalled"));
     }
 
     fn anomaly_metric_batch(value: f64, observed_at_unix_nano: u64) -> MetricBatch {
@@ -1533,11 +1594,17 @@ mod tests {
             "max_series": "",
             "min_std_floor": "",
             "min_cv": "",
-            "checkpoint_max_age_secs": ""
+            "checkpoint_max_age_secs": "",
+            "scoring_stale_after_secs": ""
         }))
         .expect("empty strings should deserialize as unset optional knobs");
 
         let base = EngineConfig::default();
+        assert_eq!(
+            resolve_scoring_stale_after_ns(&config),
+            DEFAULT_SCORING_STALE_AFTER_NS
+        );
+
         let resolved = config.into_engine_config().expect("default config");
         assert_eq!(resolved.window_size, base.window_size);
         assert_eq!(resolved.min_samples, base.min_samples);
@@ -1558,12 +1625,14 @@ mod tests {
             "max_series": "1234",
             "min_std_floor": "0.25",
             "min_cv": "0.10",
-            "checkpoint_max_age_secs": "60"
+            "checkpoint_max_age_secs": "60",
+            "scoring_stale_after_secs": "42"
         }))
         .expect("numeric strings should deserialize");
 
         let checkpoint = resolve_checkpoint_settings(&config);
         assert_eq!(checkpoint.max_age_ns, 60_000_000_000);
+        assert_eq!(resolve_scoring_stale_after_ns(&config), 42_000_000_000);
 
         let resolved = config.into_engine_config().expect("valid config");
         assert_eq!(resolved.window_size, 42);
