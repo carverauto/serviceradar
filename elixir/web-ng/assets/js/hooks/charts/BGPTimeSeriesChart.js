@@ -2,6 +2,14 @@ import * as d3 from "d3"
 
 import {ensureTooltip, escapeHtml} from "../../netflow_charts/util"
 
+export function bgpSeriesValue(row, asNumber) {
+  const raw = row?.values?.[asNumber]
+  if (raw === null || raw === undefined) return null
+
+  const value = Number(raw)
+  return Number.isFinite(value) ? value : null
+}
+
 export default {
   mounted() {
     this.renderChart()
@@ -42,10 +50,13 @@ export default {
     const rows = data.map((d, i) => ({...d, t: times[i]}))
     const x = d3.scaleTime().domain(d3.extent(times)).range([0, width])
 
-    const allValues = data.flatMap((d) => Object.values(d.values))
+    const allValues = data
+      .flatMap((d) => Object.values(d.values || {}))
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value))
     const y = d3
       .scaleLinear()
-      .domain([0, d3.max(allValues)])
+      .domain([0, d3.max(allValues) || 1])
       .range([height, 0])
 
     const color = d3.scaleOrdinal(d3.schemeCategory10)
@@ -59,11 +70,12 @@ export default {
 
     const line = d3
       .line()
+      .defined((d) => d !== null)
       .x((d, i) => x(times[i]))
-      .y((d) => y(d || 0))
+      .y((d) => y(d))
 
     series.forEach((as_number) => {
-      const values = data.map((d) => d.values[as_number] || 0)
+      const values = data.map((d) => bgpSeriesValue(d, as_number))
 
       svg
         .append("path")
@@ -132,10 +144,10 @@ export default {
       const lines = series
         .slice(0, 8)
         .map((asNumber) => {
-          const value = Number(row.values?.[asNumber] || 0)
+          const value = bgpSeriesValue(row, asNumber)
           return `<div class="flex items-center justify-between gap-3"><span>${escapeHtml(
             `AS ${asNumber}`
-          )}</span><span class="font-mono">${escapeHtml(value.toFixed(0))}</span></div>`
+          )}</span><span class="font-mono">${escapeHtml(value === null ? "no data" : value.toFixed(0))}</span></div>`
         })
         .join("")
 
