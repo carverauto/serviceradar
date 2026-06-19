@@ -35,10 +35,10 @@
 - [ ] 6.4 Update operator docs for the final tuning ownership model.
 
 ## 7. Edge Detector State Bounds (F9)
-- [ ] 7.1 Apply the `max_series` cap to the `counters` map on both the live normalize path and `restore_checkpoint`.
-- [ ] 7.2 Add staleness eviction for `series` and `counters` keyed on `last_observed_at_unix_nano` so the cap reclaims dead series.
-- [ ] 7.3 Include counter-map size in the capacity-shed diagnostic.
-- [ ] 7.4 Add Rust tests for counter cap, staleness eviction, and that a saturated map still admits a fresh active series after eviction.
+- [x] 7.1 Apply the `max_series` cap to the `counters` map on both the live normalize path and `restore_checkpoint`.
+- [x] 7.2 Add staleness eviction for `series` and `counters` keyed on `last_observed_at_unix_nano` so the cap reclaims dead series.
+- [x] 7.3 Include counter-map size in the capacity-shed diagnostic.
+- [x] 7.4 Add Rust tests for counter cap, staleness eviction, and that a saturated map still admits a fresh active series after eviction.
 
 ## 8. Edge Feed Task Lifecycle (F10)
 - [ ] 8.1 Make `stream_metric_feed` single-owner: abort/replace any prior scoring task on reopen and track the `JoinHandle`.

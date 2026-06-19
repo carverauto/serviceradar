@@ -37,7 +37,7 @@ use crate::engine::{
 };
 
 const ADDON_ID: &str = "anomaly";
-const ADDON_VERSION: &str = "0.1.4";
+const ADDON_VERSION: &str = "0.1.5";
 const VERDICT_CHANNEL_DEPTH: usize = 256;
 const ACK_CHANNEL_DEPTH: usize = 64;
 const OCSF_CLASS_EVENT_LOG_ACTIVITY: i64 = 1008;
@@ -424,6 +424,7 @@ async fn process_frame(
                 dropped_delta: dropped_after - dropped_before,
                 dropped_total: dropped_after,
                 tracked_series: engine.series_count(),
+                tracked_counters: engine.counter_count(),
                 max_series: engine.max_series(),
             });
         }
@@ -883,6 +884,7 @@ struct ShedReport {
     dropped_delta: u64,
     dropped_total: u64,
     tracked_series: usize,
+    tracked_counters: usize,
     max_series: usize,
 }
 
@@ -916,8 +918,8 @@ fn shed_record(resource: &MetricResource, feed_id: u64, report: ShedReport) -> T
         "status": "Success",
         "status_code": "anomaly_capacity_shed",
         "message": format!(
-            "Anomaly add-on shed {} new series at capacity ({} tracked of max {})",
-            report.dropped_delta, report.tracked_series, report.max_series
+            "Anomaly add-on shed {} new series at capacity ({} detector series, {} counters of max {})",
+            report.dropped_delta, report.tracked_series, report.tracked_counters, report.max_series
         ),
         "log_name": "anomaly.capacity",
         "log_provider": ADDON_ID,
@@ -950,6 +952,7 @@ fn shed_record(resource: &MetricResource, feed_id: u64, report: ShedReport) -> T
             "dropped_series_delta": report.dropped_delta,
             "dropped_series_total": report.dropped_total,
             "tracked_series": report.tracked_series,
+            "tracked_counters": report.tracked_counters,
             "max_series": report.max_series
         }
     });
@@ -1296,6 +1299,7 @@ mod tests {
                 dropped_delta: 3,
                 dropped_total: 10,
                 tracked_series: 1,
+                tracked_counters: 2,
                 max_series: 1,
             },
         );
@@ -1309,6 +1313,7 @@ mod tests {
         assert_eq!(event["status_code"], "anomaly_capacity_shed");
         assert_eq!(event["unmapped"]["dropped_series_delta"], 3);
         assert_eq!(event["unmapped"]["dropped_series_total"], 10);
+        assert_eq!(event["unmapped"]["tracked_counters"], 2);
         assert!(event.get("anomaly").is_none());
         assert_ne!(
             event.get("event_type").and_then(|v| v.as_str()),
@@ -1379,6 +1384,7 @@ mod tests {
         assert_eq!(event["status_code"], "anomaly_capacity_shed");
         assert_eq!(event["unmapped"]["dropped_series_delta"], 2);
         assert_eq!(event["unmapped"]["feed_id"], 7);
+        assert_eq!(event["unmapped"]["tracked_counters"], 0);
         assert_eq!(engine.lock().unwrap().dropped_at_capacity, 2);
     }
 

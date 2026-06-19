@@ -91,6 +91,12 @@ const COUNTER_MAX_GAP_NS: u64 = 2 * 60 * 60 * 1_000_000_000;
 /// rate used to sanity-check a wrap (central `@counter32_modulus`).
 const COUNTER32_MODULUS: f64 = 4_294_967_296.0;
 
+/// A series/counter that has not been observed for this long is eligible for
+/// eviction when a new key would otherwise hit the memory cap. This matches the
+/// counter discontinuity gap: after two hours the old sample is no longer useful
+/// for rate derivation or anomaly baseline continuity.
+const STATE_EVICTION_MAX_AGE_NS: u64 = COUNTER_MAX_GAP_NS;
+
 /// The retained baseline for one series. The rolling accumulator is recomputed
 /// from `window_tail` each evaluation (the stateless path), so only the bounded
 /// window tail and the confirm-slot counter need to persist between samples.
@@ -144,8 +150,22 @@ impl DetectorEngine {
         self.series.len()
     }
 
+    pub fn counter_count(&self) -> usize {
+        self.counters.len()
+    }
+
     pub fn max_series(&self) -> usize {
         self.config.max_series
+    }
+
+    fn evict_stale_state(&mut self, now_unix_nano: u64) {
+        self.series.retain(|_, state| {
+            now_unix_nano.saturating_sub(state.last_observed_at_unix_nano)
+                <= STATE_EVICTION_MAX_AGE_NS
+        });
+        self.counters.retain(|_, counter| {
+            now_unix_nano.saturating_sub(counter.timestamp) <= STATE_EVICTION_MAX_AGE_NS
+        });
     }
 
     /// Rate-normalize one cumulative-monotonic counter reading against this
@@ -179,6 +199,13 @@ impl DetectorEngine {
         let previous = match self.counters.get(series_key) {
             // Warmup: store the first reading, emit nothing (a rate needs two).
             None => {
+                if self.counters.len() >= self.config.max_series {
+                    self.evict_stale_state(observed_at_unix_nano);
+                }
+                if self.counters.len() >= self.config.max_series {
+                    self.dropped_at_capacity = self.dropped_at_capacity.saturating_add(1);
+                    return None;
+                }
                 self.counters.insert(series_key.to_owned(), current);
                 return None;
             }
@@ -240,9 +267,14 @@ impl DetectorEngine {
             return None;
         }
 
-        if !self.series.contains_key(series_key) && self.series.len() >= self.config.max_series {
-            self.dropped_at_capacity = self.dropped_at_capacity.saturating_add(1);
-            return None;
+        if !self.series.contains_key(series_key) {
+            if self.series.len() >= self.config.max_series {
+                self.evict_stale_state(observed_at_unix_nano);
+            }
+            if self.series.len() >= self.config.max_series {
+                self.dropped_at_capacity = self.dropped_at_capacity.saturating_add(1);
+                return None;
+            }
         }
 
         let state = self
@@ -443,6 +475,11 @@ impl DetectorEngine {
 
         for counter in checkpoint.counters {
             if !fresh(counter.timestamp) {
+                continue;
+            }
+            if !self.counters.contains_key(&counter.series_key)
+                && self.counters.len() >= self.config.max_series
+            {
                 continue;
             }
             self.counters.insert(
@@ -772,6 +809,96 @@ mod tests {
                 .evaluate("a", 2.0, 2, SeriesProfile::default())
                 .is_some()
         );
+    }
+
+    #[test]
+    fn counter_cap_drops_new_counter_series() {
+        let mut engine = DetectorEngine::new(EngineConfig {
+            max_series: 1,
+            ..EngineConfig::default()
+        });
+
+        assert_eq!(engine.normalize_counter("c1", 1_000.0, 1, "boot", 64), None);
+        assert_eq!(engine.counter_count(), 1);
+
+        assert_eq!(engine.normalize_counter("c2", 2_000.0, 2, "boot", 64), None);
+        assert_eq!(engine.counter_count(), 1);
+        assert_eq!(engine.dropped_at_capacity, 1);
+
+        let checkpoint = engine.export_checkpoint();
+        assert_eq!(checkpoint.counters.len(), 1);
+        assert_eq!(checkpoint.counters[0].series_key, "c1");
+    }
+
+    #[test]
+    fn restore_checkpoint_caps_counter_state() {
+        let checkpoint = EngineCheckpoint {
+            series: Vec::new(),
+            counters: vec![
+                CounterCheckpoint {
+                    series_key: "c1".to_string(),
+                    value: 1_000.0,
+                    timestamp: 1,
+                    reset_anchor: "boot".to_string(),
+                },
+                CounterCheckpoint {
+                    series_key: "c2".to_string(),
+                    value: 2_000.0,
+                    timestamp: 2,
+                    reset_anchor: "boot".to_string(),
+                },
+                CounterCheckpoint {
+                    series_key: "c3".to_string(),
+                    value: 3_000.0,
+                    timestamp: 3,
+                    reset_anchor: "boot".to_string(),
+                },
+            ],
+        };
+        let mut restored = DetectorEngine::new(EngineConfig {
+            max_series: 2,
+            ..EngineConfig::default()
+        });
+
+        assert_eq!(restored.restore_checkpoint(checkpoint, 4, u64::MAX), 0);
+        assert_eq!(restored.counter_count(), 2);
+    }
+
+    #[test]
+    fn stale_state_eviction_reclaims_capacity_for_fresh_series_and_counter() {
+        let mut engine = DetectorEngine::new(EngineConfig {
+            max_series: 1,
+            ..EngineConfig::default()
+        });
+        assert!(
+            engine
+                .evaluate("old-series", 1.0, 0, SeriesProfile::default())
+                .is_some()
+        );
+        assert_eq!(
+            engine.normalize_counter("old-counter", 1_000.0, 0, "boot", 64),
+            None
+        );
+        assert_eq!(engine.series_count(), 1);
+        assert_eq!(engine.counter_count(), 1);
+
+        let fresh_ts = STATE_EVICTION_MAX_AGE_NS + 1;
+        assert!(
+            engine
+                .evaluate("fresh-series", 2.0, fresh_ts, SeriesProfile::default())
+                .is_some(),
+            "stale detector state should be evicted before dropping a fresh series"
+        );
+        assert_eq!(engine.series_count(), 1);
+        assert_eq!(engine.counter_count(), 0);
+
+        assert_eq!(
+            engine.normalize_counter("fresh-counter", 2_000.0, fresh_ts, "boot", 64),
+            None,
+            "first fresh counter reading should be admitted as warmup"
+        );
+        assert_eq!(engine.counter_count(), 1);
+        assert_eq!(engine.dropped_at_capacity, 0);
     }
 
     /// The disk saturation profile the add-on assigns to a `sysmon.disk` series:
