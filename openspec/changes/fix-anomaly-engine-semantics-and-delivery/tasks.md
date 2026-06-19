@@ -47,9 +47,9 @@
 
 ## 9. Agent Delivery Self-Healing (F11)
 - [x] 9.1 Reconnect `drainTelemetry`, `drainArtifacts`, and `metricFeedLifecycle.run` with bounded backoff while the subprocess is alive.
-- [ ] 9.2 Re-arm the restart circuit breaker after a cooldown; surface circuit-open as a health failure.
+- [x] 9.2 Re-arm the restart circuit breaker after a cooldown; surface circuit-open as a health failure.
 - [ ] 9.3 Distinguish EOF from transport errors in `grpc.go` stream loops and emit stream-loss diagnostics.
-- [ ] 9.4 Base the backoff reset on run stability, not last-run duration.
+- [x] 9.4 Base the backoff reset on run stability, not last-run duration.
 - [ ] 9.5 Add Go tests for drain reconnect, breaker recovery, and stream-loss reporting.
 
 ## 10. Verdict Idempotency (F12)
