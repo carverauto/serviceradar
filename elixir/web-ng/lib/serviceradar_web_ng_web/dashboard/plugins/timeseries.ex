@@ -242,7 +242,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   # Chart paths with optional max_y for fixed Y-axis scaling (e.g., interface speed)
   # Always auto-scale Y-axis to actual data values for visibility
   # max_y is kept for reference/display but not used for scaling
-  defp chart_paths(points, scale_bounds, scale_mode) when is_list(points) do
+  defp chart_paths(points, scale_bounds, scale_mode, extra_scale_values \\ []) when is_list(points) do
     values = numeric_values(points)
 
     case values do
@@ -264,7 +264,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         max_v = Enum.max(values, fn -> 0 end)
         avg_v = Enum.sum(values) / length(values)
         latest = List.last(values)
-        {scale_min, scale_max, effective_scale_mode} = chart_scale(values, scale_bounds, scale_mode)
+        scale_values = values ++ Enum.filter(extra_scale_values, &is_number/1)
+        {scale_min, scale_max, effective_scale_mode} = chart_scale(scale_values, scale_bounds, scale_mode)
 
         segments = chart_coordinate_segments(points, scale_min, scale_max, effective_scale_mode)
         line = path_for_segments(segments, &line_path/1)
@@ -379,6 +380,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         [
           get_in(series, [:paths, :min]),
           get_in(series, [:paths, :max])
+          | Enum.map(Map.get(series, :reference_lines, []), &Map.get(&1, :value))
         ]
       end)
       |> Enum.filter(&is_number/1)
@@ -509,6 +511,80 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   defp annotation_color(:high), do: "#F97316"
   defp annotation_color(:warning), do: "#EAB308"
   defp annotation_color(_), do: "#0EA5E9"
+
+  defp reference_line_markers(reference_lines, chart_min, chart_max, scale_mode, raw_series, display_name)
+       when is_list(reference_lines) and is_number(chart_min) and is_number(chart_max) and chart_max > chart_min do
+    reference_lines
+    |> Enum.filter(&reference_line_applies_to_series?(&1, raw_series, display_name))
+    |> Enum.map(&reference_line_marker(&1, chart_min, chart_max, scale_mode))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq_by(fn marker -> {marker.y, marker.label, marker.severity, marker.series} end)
+    |> Enum.sort_by(& &1.y)
+  end
+
+  defp reference_line_markers(_reference_lines, _chart_min, _chart_max, _scale_mode, _raw_series, _display_name), do: []
+
+  defp combined_reference_line_markers(series_data, chart_min, chart_max, scale_mode)
+       when is_list(series_data) and is_number(chart_min) and is_number(chart_max) and chart_max > chart_min do
+    series_data
+    |> Enum.flat_map(&Map.get(&1, :reference_lines, []))
+    |> Enum.map(&reference_line_marker(&1, chart_min, chart_max, scale_mode))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq_by(fn marker -> {marker.y, marker.label, marker.severity, marker.series} end)
+    |> Enum.sort_by(& &1.y)
+  end
+
+  defp combined_reference_line_markers(_series_data, _chart_min, _chart_max, _scale_mode), do: []
+
+  defp reference_line_applies_to_series?(%{series: nil}, _raw_series, _display_name), do: true
+
+  defp reference_line_applies_to_series?(%{series: series}, raw_series, display_name) do
+    raw = raw_series |> safe_to_string() |> String.trim()
+    humanized = humanize_series_name(raw_series || "series")
+
+    series in [raw, display_name, humanized]
+  end
+
+  defp reference_line_marker(
+         %{value: value, label: label, severity: severity, series: series},
+         chart_min,
+         chart_max,
+         scale_mode
+       )
+       when is_number(value) do
+    if reference_line_visible?(value, chart_min, chart_max, scale_mode) do
+      y = value_to_y(value, chart_min, chart_max, scale_mode)
+
+      %{
+        y: y,
+        value: value,
+        label: label,
+        severity: severity,
+        series: series,
+        color: reference_line_color(severity),
+        title: "#{label}: #{format_value(value, :number)}"
+      }
+    end
+  end
+
+  defp reference_line_marker(_reference_line, _chart_min, _chart_max, _scale_mode), do: nil
+
+  defp reference_line_visible?(value, _chart_min, _chart_max, :log) when value <= 0, do: false
+  defp reference_line_visible?(value, chart_min, chart_max, _scale_mode), do: value >= chart_min and value <= chart_max
+
+  defp reference_line_color(:critical), do: "#EF4444"
+  defp reference_line_color(:high), do: "#F97316"
+  defp reference_line_color(:warning), do: "#EAB308"
+  defp reference_line_color(_), do: "#0EA5E9"
+
+  defp reference_line_values(reference_lines, raw_series, display_name) when is_list(reference_lines) do
+    reference_lines
+    |> Enum.filter(&reference_line_applies_to_series?(&1, raw_series, display_name))
+    |> Enum.map(&Map.get(&1, :value))
+    |> Enum.filter(&is_number/1)
+  end
+
+  defp reference_line_values(_reference_lines, _raw_series, _display_name), do: []
 
   defp y_ticks(min_v, max_v, compact, unit, scale_mode) when is_number(min_v) and is_number(max_v) and max_v > min_v do
     ticks = if compact, do: 3, else: 5
@@ -1147,6 +1223,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     combined_title = Map.get(panel_assigns || %{}, :combined_title)
     empty_state = empty_state_from_assigns(assigns, panel_assigns)
     annotations = annotations_from_assigns(assigns, panel_assigns)
+    reference_lines = reference_lines_from_assigns(assigns, panel_assigns)
     # Rate mode: :counter (compute deltas), :rate (precomputed rates), or :none.
     rate_mode = Map.get(panel_assigns || %{}, :rate_mode, :none)
     series_points = series_points_from_assigns(assigns, panel_assigns)
@@ -1171,6 +1248,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       |> assign(:combined_title, combined_title)
       |> assign(:empty_state, empty_state)
       |> assign(:annotations, annotations)
+      |> assign(:reference_lines, reference_lines)
       |> assign(:rate_mode, rate_mode)
       |> assign(:chart_width, @chart_width)
       |> assign(:chart_height, @chart_height)
@@ -1319,6 +1397,105 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
   defp annotation_value(annotation, keys) do
     Enum.find_value(keys, &Map.get(annotation, &1))
+  end
+
+  defp reference_lines_from_assigns(assigns, panel_assigns) do
+    source =
+      cond do
+        is_map(panel_assigns) and fetch_panel_value(panel_assigns, :reference_lines) != nil ->
+          fetch_panel_value(panel_assigns, :reference_lines)
+
+        Map.get(assigns, :reference_lines) != nil ->
+          Map.get(assigns, :reference_lines)
+
+        true ->
+          []
+      end
+
+    normalize_reference_lines(source)
+  end
+
+  defp normalize_reference_lines(reference_lines) when is_list(reference_lines) do
+    reference_lines
+    |> Enum.map(&normalize_reference_line/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.sort_by(fn reference_line -> {reference_line.value, reference_line.label} end)
+  end
+
+  defp normalize_reference_lines(_), do: []
+
+  defp normalize_reference_line(%{} = reference_line) do
+    case parse_number(reference_line_value(reference_line)) do
+      {:ok, value} ->
+        %{
+          value: value,
+          label: reference_line_label(reference_line),
+          severity: reference_line_severity(reference_line),
+          series: reference_line_series(reference_line)
+        }
+
+      _ ->
+        nil
+    end
+  end
+
+  defp normalize_reference_line(_), do: nil
+
+  defp reference_line_value(reference_line) do
+    reference_line_value(reference_line, [:value, "value", :threshold, "threshold", :y, "y"])
+  end
+
+  defp reference_line_value(reference_line, keys) do
+    Enum.find_value(keys, &Map.get(reference_line, &1))
+  end
+
+  defp reference_line_label(reference_line) do
+    reference_line
+    |> reference_line_value([:label, "label", :title, "title", :name, "name"])
+    |> safe_to_string()
+    |> String.trim()
+    |> case do
+      "" -> "Threshold"
+      value -> value
+    end
+  end
+
+  defp reference_line_severity(reference_line) do
+    reference_line
+    |> reference_line_value([:severity, "severity", :severity_text, "severity_text"])
+    |> safe_to_string()
+    |> String.trim()
+    |> String.downcase()
+    |> case do
+      "critical" -> :critical
+      "error" -> :critical
+      "high" -> :high
+      "warning" -> :warning
+      "warn" -> :warning
+      "medium" -> :warning
+      "low" -> :info
+      "info" -> :info
+      "informational" -> :info
+      _ -> :info
+    end
+  end
+
+  defp reference_line_series(reference_line) do
+    reference_line
+    |> reference_line_value([:series, "series", :series_key, "series_key"])
+    |> case do
+      nil ->
+        nil
+
+      value ->
+        value
+        |> safe_to_string()
+        |> String.trim()
+        |> case do
+          "" -> nil
+          series -> series
+        end
+    end
   end
 
   defp fetch_panel_value(panel_assigns, key, default \\ nil)
@@ -1520,15 +1697,38 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     rate_mode = Map.get(assigns, :rate_mode, :none)
     scale_mode = scale_mode_for(assigns, spec)
     annotations = Map.get(assigns, :annotations, [])
+    reference_lines = Map.get(assigns, :reference_lines, [])
 
     series_points
     |> Enum.with_index()
     |> Enum.map(fn {{series, points}, idx} ->
-      series_data_for_points(series, points, idx, spec, rate_mode, compact, max_speed, scale_mode, annotations)
+      series_data_for_points(
+        series,
+        points,
+        idx,
+        spec,
+        rate_mode,
+        compact,
+        max_speed,
+        scale_mode,
+        annotations,
+        reference_lines
+      )
     end)
   end
 
-  defp series_data_for_points(series, points, idx, spec, rate_mode, compact, max_speed, scale_mode, annotations) do
+  defp series_data_for_points(
+         series,
+         points,
+         idx,
+         spec,
+         rate_mode,
+         compact,
+         max_speed,
+         scale_mode,
+         annotations,
+         reference_lines
+       ) do
     effective_max = if traffic_series?(series), do: max_speed
     {stroke, _fill} = series_color(idx)
     display_name = humanize_series_name(series || "series")
@@ -1537,7 +1737,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     cap = points_cap(points)
     points = limit_points(points, cap)
     chart_points = chart_points(points, unit, compact, cap)
-    paths = chart_paths(chart_points, scale_bounds_for_unit(unit), scale_mode)
+    reference_values = reference_line_values(reference_lines, series, display_name)
+    paths = chart_paths(chart_points, scale_bounds_for_unit(unit), scale_mode, reference_values)
     utilization = compute_utilization(paths.avg, effective_max)
 
     %{
@@ -1557,6 +1758,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       chart_max: paths.scale_max,
       scale_mode: paths.scale_mode,
       annotations: annotation_markers(annotations, points, series, display_name),
+      reference_lines:
+        reference_line_markers(reference_lines, paths.scale_min, paths.scale_max, paths.scale_mode, series, display_name),
       first_dt: series_first_dt(points),
       last_dt: series_last_dt(points),
       max_speed: effective_max,
@@ -1600,6 +1803,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       chart_max: chart_max,
       scale_mode: effective_scale_mode,
       annotations: combined_annotation_markers(traffic_series),
+      reference_lines: combined_reference_line_markers(traffic_series, chart_min, chart_max, effective_scale_mode),
       x_ticks: x_ticks || [],
       y_ticks: y_ticks,
       first_dt: first_series && first_series.first_dt,
@@ -1626,6 +1830,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       chart_max: chart_max,
       scale_mode: effective_scale_mode,
       annotations: combined_annotation_markers(series_data),
+      reference_lines: combined_reference_line_markers(series_data, chart_min, chart_max, effective_scale_mode),
       x_ticks: x_ticks || [],
       y_ticks: y_ticks,
       first_dt: first_series && first_series.first_dt,
@@ -1832,6 +2037,39 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     """
   end
 
+  attr :reference_lines, :list, required: true
+  attr :chart_pad, :integer, required: true
+  attr :chart_width, :integer, required: true
+
+  defp reference_lines_svg(assigns) do
+    ~H"""
+    <g
+      :if={@reference_lines != []}
+      data-testid="timeseries-reference-lines"
+      stroke-linecap="round"
+    >
+      <%= for reference_line <- @reference_lines do %>
+        <line
+          data-testid="timeseries-reference-line"
+          data-reference-label={reference_line.label}
+          data-reference-severity={reference_line.severity}
+          data-reference-series={reference_line.series}
+          x1={@chart_pad}
+          x2={@chart_width - @chart_pad}
+          y1={reference_line.y}
+          y2={reference_line.y}
+          stroke={reference_line.color}
+          stroke-width="1.5"
+          stroke-dasharray="6 4"
+          opacity="0.9"
+        >
+          <title>{reference_line.title}</title>
+        </line>
+      <% end %>
+    </g>
+    """
+  end
+
   attr :id, :string, required: true
   attr :data, :map, required: true
   attr :chart_width, :integer, required: true
@@ -1965,6 +2203,12 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
             stroke-linecap="round"
             stroke-linejoin="round"
             stroke-dasharray={@data.dasharray}
+          />
+
+          <.reference_lines_svg
+            reference_lines={@data.reference_lines}
+            chart_pad={@chart_pad}
+            chart_width={@chart_width}
           />
         </svg>
         
@@ -2163,6 +2407,12 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
               stroke-dasharray={series.dasharray}
             />
           <% end %>
+
+          <.reference_lines_svg
+            reference_lines={@data.reference_lines}
+            chart_pad={@chart_pad}
+            chart_width={@chart_width}
+          />
         </svg>
         
     <!-- Hover tooltip - populated by JS -->

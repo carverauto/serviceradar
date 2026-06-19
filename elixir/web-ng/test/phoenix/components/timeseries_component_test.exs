@@ -66,6 +66,40 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
     assert html =~ "#EF4444"
   end
 
+  test "renders threshold reference lines and includes them in chart scale" do
+    points = [
+      {~U[2025-01-01 00:00:00Z], 10.0},
+      {~U[2025-01-01 00:10:00Z], 20.0},
+      {~U[2025-01-01 00:20:00Z], 30.0}
+    ]
+
+    html =
+      render_component(Timeseries, %{
+        id: "ts-reference-lines",
+        title: "Thresholds",
+        panel_assigns: %{
+          chart_mode: :single,
+          rate_mode: :none,
+          reference_lines: [
+            %{
+              value: 80.0,
+              label: "CPU >= 80%",
+              severity: "warning",
+              series: "cpu"
+            }
+          ]
+        },
+        series_points: [{"cpu", points}]
+      })
+
+    assert html =~ "data-testid=\"timeseries-reference-lines\""
+    assert html =~ "data-testid=\"timeseries-reference-line\""
+    assert html =~ "data-reference-label=\"CPU &gt;= 80%\""
+    assert html =~ "data-reference-severity=\"warning\""
+    assert html =~ "data-reference-series=\"cpu\""
+    assert html =~ "#EAB308"
+  end
+
   test "formats percent axis labels for usage percent metrics" do
     points = [
       {~U[2025-01-01 00:00:00Z], 10.0},
