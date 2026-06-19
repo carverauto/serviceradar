@@ -7,6 +7,8 @@
 //! (`metric-feed:v1`), runs the shared detector per series, and emits anomaly
 //! verdicts upstream over the native telemetry stream (`native-telemetry:v1`).
 
+use std::fmt::Display;
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 use addon_sdk::metric_pb::{
@@ -20,6 +22,7 @@ use addon_sdk::{
 };
 use async_trait::async_trait;
 use prost::Message;
+use serde::{Deserialize as _, de::Error as _};
 use serviceradar_anomaly_core::{ReasonVerdict, SaturationGate};
 use sha2::{Digest as _, Sha256};
 use tokio::sync::{broadcast, mpsc};
@@ -34,7 +37,7 @@ use crate::engine::{
 };
 
 const ADDON_ID: &str = "anomaly";
-const ADDON_VERSION: &str = "0.1.3";
+const ADDON_VERSION: &str = "0.1.4";
 const VERDICT_CHANNEL_DEPTH: usize = 256;
 const ACK_CHANNEL_DEPTH: usize = 64;
 const OCSF_CLASS_EVENT_LOG_ACTIVITY: i64 = 1008;
@@ -52,10 +55,15 @@ const DEFAULT_CHECKPOINT_WRITE_EVERY: u64 = 100;
 /// `config.schema.json`). All fields optional; omitted ones keep the defaults.
 #[derive(Debug, Default, serde::Deserialize)]
 struct AddonConfig {
+    #[serde(default, deserialize_with = "deserialize_optional_usize")]
     window_size: Option<usize>,
+    #[serde(default, deserialize_with = "deserialize_optional_usize")]
     min_samples: Option<usize>,
+    #[serde(default, deserialize_with = "deserialize_optional_f64")]
     n_sigma: Option<f64>,
+    #[serde(default, deserialize_with = "deserialize_optional_usize")]
     confirm_slots: Option<usize>,
+    #[serde(default, deserialize_with = "deserialize_optional_usize")]
     max_series: Option<usize>,
     /// Optional GLOBAL dispersion-floor overrides (fix #2). When set, these only
     /// ever RAISE a series' built-in per-class floor (max), letting an operator
@@ -63,14 +71,64 @@ struct AddonConfig {
     /// series on its built-in default (0 for non-gauges, the gauge defaults for
     /// cpu/mem/disk). The central metric_class override channel remains a
     /// follow-up; this flat knob is the edge-only global override.
+    #[serde(default, deserialize_with = "deserialize_optional_f64")]
     min_std_floor: Option<f64>,
+    #[serde(default, deserialize_with = "deserialize_optional_f64")]
     min_cv: Option<f64>,
     /// Local path the add-on persists its per-series checkpoint to so a restart
     /// re-warms baselines instead of cold-starting. Unset disables checkpointing.
     checkpoint_path: Option<String>,
     /// Restart staleness bound in seconds (default 6h); series older than this
     /// are not reseeded.
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
     checkpoint_max_age_secs: Option<u64>,
+}
+
+fn deserialize_optional_usize<'de, D>(deserializer: D) -> Result<Option<usize>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserialize_optional_number(deserializer)
+}
+
+fn deserialize_optional_u64<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserialize_optional_number(deserializer)
+}
+
+fn deserialize_optional_f64<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserialize_optional_number(deserializer)
+}
+
+fn deserialize_optional_number<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned + FromStr,
+    T::Err: Display,
+{
+    let Some(value) = Option::<serde_json::Value>::deserialize(deserializer)? else {
+        return Ok(None);
+    };
+
+    match value {
+        serde_json::Value::Null => Ok(None),
+        serde_json::Value::String(value) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                Ok(None)
+            } else {
+                trimmed.parse::<T>().map(Some).map_err(D::Error::custom)
+            }
+        }
+        value => serde_json::from_value::<T>(value)
+            .map(Some)
+            .map_err(D::Error::custom),
+    }
 }
 
 /// Resolved checkpoint behavior derived from [`AddonConfig`]. `path` unset means
@@ -93,11 +151,20 @@ impl Default for CheckpointSettings {
 }
 
 impl AddonConfig {
-    fn into_engine_config(self) -> EngineConfig {
+    fn into_engine_config(self) -> Result<EngineConfig, String> {
         let base = EngineConfig::default();
-        EngineConfig {
-            window_size: self.window_size.unwrap_or(base.window_size).max(1),
-            min_samples: self.min_samples.unwrap_or(base.min_samples).max(1),
+        let window_size = self.window_size.unwrap_or(base.window_size).max(1);
+        let min_samples = self.min_samples.unwrap_or(base.min_samples).max(1);
+
+        if min_samples > window_size {
+            return Err(format!(
+                "min_samples ({min_samples}) must be less than or equal to window_size ({window_size})"
+            ));
+        }
+
+        Ok(EngineConfig {
+            window_size,
+            min_samples,
             n_sigma: self.n_sigma.unwrap_or(base.n_sigma),
             confirm_slots: self.confirm_slots.unwrap_or(base.confirm_slots).max(1),
             max_series: self.max_series.unwrap_or(base.max_series).max(1),
@@ -105,7 +172,7 @@ impl AddonConfig {
             // treated as "unset" so it can never weaken a gauge's safe floor.
             min_std_floor: self.min_std_floor.filter(|v| v.is_finite() && *v > 0.0),
             min_cv: self.min_cv.filter(|v| v.is_finite() && *v > 0.0),
-        }
+        })
     }
 }
 
@@ -168,10 +235,21 @@ impl Addon for AnomalyAddon {
 
         let settings = resolve_checkpoint_settings(&parsed);
 
+        let engine_config = match parsed.into_engine_config() {
+            Ok(config) => config,
+            Err(err) => {
+                return Ok(ConfigureResult {
+                    config_hash,
+                    accepted: false,
+                    error: format!("invalid anomaly add-on config: {err}"),
+                });
+            }
+        };
+
         self.engine
             .lock()
             .expect("engine mutex poisoned")
-            .set_config(parsed.into_engine_config());
+            .set_config(engine_config);
 
         // Re-warm from the on-disk checkpoint before scoring resumes, so a
         // restart does not storm false positives while windows refill.
@@ -975,6 +1053,90 @@ mod tests {
 
     fn empty_telemetry_batch(source_instance: &str) -> TelemetryBatch {
         TelemetryBatchBuilder::new("test", source_instance).build()
+    }
+
+    #[test]
+    fn config_empty_optional_numbers_fall_back_to_defaults() {
+        let config: AddonConfig = serde_json::from_value(serde_json::json!({
+            "window_size": "",
+            "min_samples": "",
+            "n_sigma": "",
+            "confirm_slots": "",
+            "max_series": "",
+            "min_std_floor": "",
+            "min_cv": "",
+            "checkpoint_max_age_secs": ""
+        }))
+        .expect("empty strings should deserialize as unset optional knobs");
+
+        let base = EngineConfig::default();
+        let resolved = config.into_engine_config().expect("default config");
+        assert_eq!(resolved.window_size, base.window_size);
+        assert_eq!(resolved.min_samples, base.min_samples);
+        assert_eq!(resolved.n_sigma, base.n_sigma);
+        assert_eq!(resolved.confirm_slots, base.confirm_slots);
+        assert_eq!(resolved.max_series, base.max_series);
+        assert_eq!(resolved.min_std_floor, None);
+        assert_eq!(resolved.min_cv, None);
+    }
+
+    #[test]
+    fn config_accepts_numeric_strings_for_optional_numbers() {
+        let config: AddonConfig = serde_json::from_value(serde_json::json!({
+            "window_size": "42",
+            "min_samples": "7",
+            "n_sigma": "2.5",
+            "confirm_slots": "3",
+            "max_series": "1234",
+            "min_std_floor": "0.25",
+            "min_cv": "0.10",
+            "checkpoint_max_age_secs": "60"
+        }))
+        .expect("numeric strings should deserialize");
+
+        let checkpoint = resolve_checkpoint_settings(&config);
+        assert_eq!(checkpoint.max_age_ns, 60_000_000_000);
+
+        let resolved = config.into_engine_config().expect("valid config");
+        assert_eq!(resolved.window_size, 42);
+        assert_eq!(resolved.min_samples, 7);
+        assert_eq!(resolved.n_sigma, 2.5);
+        assert_eq!(resolved.confirm_slots, 3);
+        assert_eq!(resolved.max_series, 1234);
+        assert_eq!(resolved.min_std_floor, Some(0.25));
+        assert_eq!(resolved.min_cv, Some(0.10));
+    }
+
+    #[test]
+    fn config_rejects_min_samples_larger_than_window_size() {
+        let config: AddonConfig = serde_json::from_value(serde_json::json!({
+            "window_size": 5,
+            "min_samples": 6
+        }))
+        .expect("shape is valid");
+
+        let err = config
+            .into_engine_config()
+            .expect_err("must reject cold window");
+        assert!(err.contains("min_samples (6)"));
+        assert!(err.contains("window_size (5)"));
+    }
+
+    #[tokio::test]
+    async fn configure_rejects_min_samples_larger_than_window_size() {
+        let addon = AnomalyAddon::new();
+
+        let result = addon
+            .configure(br#"{"window_size":5,"min_samples":6}"#)
+            .await
+            .expect("configure returns result");
+
+        assert!(!result.accepted);
+        assert!(
+            result
+                .error
+                .contains("min_samples (6) must be less than or equal to window_size (5)")
+        );
     }
 
     #[test]
