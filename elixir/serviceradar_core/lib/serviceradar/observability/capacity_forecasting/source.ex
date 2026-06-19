@@ -85,7 +85,14 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
         query:
           "in:timeseries_metric_interface_hourly time:#{time_range} sort:bucket:desc limit:#{limit}",
         value_field: "avg_rate_per_second",
-        key_fields: ["device_id", "target_device_ip", "if_index", "metric_name", "series_key"],
+        key_fields: [
+          "partition",
+          "device_id",
+          "target_device_ip",
+          "if_index",
+          "metric_name",
+          "series_key"
+        ],
         label_fields: ["target_device_ip", "if_index", "metric_name"],
         threshold: 100.0
       },

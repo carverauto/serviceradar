@@ -41,5 +41,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.SourceTest do
              sources,
              &String.contains?(&1.query, "in:timeseries_metric_interface_hourly")
            )
+
+    interface_source = Enum.find(sources, &(&1.name == "interface_rate"))
+    assert "partition" in interface_source.key_fields
   end
 end

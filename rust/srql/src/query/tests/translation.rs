@@ -261,8 +261,7 @@ fn translate_downsample_emits_time_bucket_query() {
 fn translate_timeseries_metric_interface_hourly_reads_interface_cagg() {
     let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
     let request = QueryRequest {
-        query: "in:timeseries_metric_interface_hourly time:last_180d sort:bucket:asc limit:5000"
-            .to_string(),
+        query: "in:timeseries_metric_interface_hourly partition:edge-a time:last_180d sort:bucket:asc limit:5000".to_string(),
         limit: None,
         cursor: None,
         direction: QueryDirection::Next,
@@ -281,6 +280,11 @@ fn translate_timeseries_metric_interface_hourly_reads_interface_cagg() {
     assert!(
         response.sql.contains("ORDER BY bucket ASC"),
         "expected bucket ordering, got: {}",
+        response.sql
+    );
+    assert!(
+        response.sql.contains("partition"),
+        "expected partition column/filter in interface hourly SQL, got: {}",
         response.sql
     );
 

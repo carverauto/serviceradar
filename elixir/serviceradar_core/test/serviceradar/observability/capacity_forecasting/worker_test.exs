@@ -468,7 +468,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
                min_points: 24
              )
 
-    assert_received {:interface_capacity_row, %{"if_index" => 7}}
+    assert_received {:interface_capacity_row, %{"if_index" => 7, "partition" => "edge-a"}}
     assert_received {:capacity_forecast_interface, attrs}
 
     assert attrs.metric_name == "utilization_percent"
@@ -834,6 +834,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
         for hour <- 0..47 do
           %{
             "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "partition" => "edge-a",
             "device_id" => "device-a",
             "target_device_ip" => "10.0.0.10",
             "if_index" => 7,
@@ -856,6 +857,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
         for hour <- 0..47 do
           %{
             "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "partition" => "edge-a",
             "device_id" => "device-a",
             "target_device_ip" => "10.0.0.10",
             "if_index" => 7,
@@ -882,6 +884,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
 
           %{
             "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "partition" => "edge-a",
             "device_id" => "device-a",
             "target_device_ip" => "10.0.0.10",
             "if_index" => 7,
@@ -903,7 +906,14 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       metric_name: "utilization_percent",
       query: "in:timeseries_metric_interface_hourly time:last_180d",
       value_field: "avg_rate_per_second",
-      key_fields: ["device_id", "target_device_ip", "if_index", "metric_name", "series_key"],
+      key_fields: [
+        "partition",
+        "device_id",
+        "target_device_ip",
+        "if_index",
+        "metric_name",
+        "series_key"
+      ],
       label_fields: ["target_device_ip", "if_index", "metric_name"],
       threshold: 100.0,
       model: "linear"
