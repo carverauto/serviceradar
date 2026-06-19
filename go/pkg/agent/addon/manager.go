@@ -812,6 +812,7 @@ func (m *Manager) PublishMetricFeed(source string, payload []byte) int {
 
 func (r *runner) drainTelemetry(ctx context.Context, telemetryClient coreaddon.TelemetryClient) {
 	attempt := 0
+	diagnostics := streamDiagnostics(telemetryClient)
 
 	for ctx.Err() == nil {
 		batches, err := telemetryClient.StreamTelemetry(ctx)
@@ -832,7 +833,16 @@ func (r *runner) drainTelemetry(ctx context.Context, telemetryClient coreaddon.T
 			case batch, ok := <-batches:
 				if !ok {
 					delay := nextStreamReconnectDelay(attempt, r.cfg.RestartBackoffInitial, r.cfg.RestartBackoffMax)
-					r.cfg.Logger.Warn().Str("addon", r.id).Dur("retry_after", delay).Msg("addon telemetry stream closed; reconnecting")
+					diagnostic := readStreamDiagnostic(diagnostics)
+					event := r.cfg.Logger.Warn().
+						Str("addon", r.id).
+						Str("stream", "telemetry").
+						Str("stream_end", string(diagnostic.Kind)).
+						Dur("retry_after", delay)
+					if diagnostic.Err != nil {
+						event = event.Err(diagnostic.Err)
+					}
+					event.Msg("addon telemetry stream closed; reconnecting")
 					if !waitStreamReconnect(ctx, delay) {
 						return
 					}
@@ -849,6 +859,30 @@ func (r *runner) drainTelemetry(ctx context.Context, telemetryClient coreaddon.T
 			}
 		}
 	reopen:
+	}
+}
+
+func streamDiagnostics(client interface{}) <-chan coreaddon.StreamDiagnostic {
+	diagnostics, ok := client.(coreaddon.StreamDiagnosticsClient)
+	if !ok {
+		return nil
+	}
+	return diagnostics.StreamDiagnostics()
+}
+
+func readStreamDiagnostic(diagnostics <-chan coreaddon.StreamDiagnostic) coreaddon.StreamDiagnostic {
+	if diagnostics == nil {
+		return coreaddon.StreamDiagnostic{Kind: "unknown"}
+	}
+
+	select {
+	case diagnostic := <-diagnostics:
+		if diagnostic.Kind == "" {
+			diagnostic.Kind = "unknown"
+		}
+		return diagnostic
+	default:
+		return coreaddon.StreamDiagnostic{Kind: "unknown"}
 	}
 }
 

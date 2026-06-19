@@ -17,7 +17,10 @@
 package addon
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -55,6 +58,30 @@ func (c *reconnectingTelemetryClient) StreamTelemetry(
 	return batches, nil
 }
 
+type diagnosticTelemetryClient struct {
+	diagnostics chan coreaddon.StreamDiagnostic
+}
+
+func (c *diagnosticTelemetryClient) StreamTelemetry(context.Context) (<-chan *coreaddon.TelemetryBatch, error) {
+	batches := make(chan *coreaddon.TelemetryBatch)
+	close(batches)
+
+	select {
+	case c.diagnostics <- coreaddon.StreamDiagnostic{
+		Stream: "telemetry",
+		Kind:   coreaddon.StreamEndError,
+		Err:    errors.New("transport reset"),
+	}:
+	default:
+	}
+
+	return batches, nil
+}
+
+func (c *diagnosticTelemetryClient) StreamDiagnostics() <-chan coreaddon.StreamDiagnostic {
+	return c.diagnostics
+}
+
 func TestRunnerDrainTelemetryReconnectsAfterStreamClose(t *testing.T) {
 	handled := make(chan string, 1)
 	client := &reconnectingTelemetryClient{}
@@ -86,5 +113,35 @@ func TestRunnerDrainTelemetryReconnectsAfterStreamClose(t *testing.T) {
 
 	if got := client.calls.Load(); got < 2 {
 		t.Fatalf("StreamTelemetry calls = %d, want at least 2", got)
+	}
+}
+
+func TestRunnerDrainTelemetryLogsStreamLossDiagnostic(t *testing.T) {
+	var logs bytes.Buffer
+	client := &diagnosticTelemetryClient{
+		diagnostics: make(chan coreaddon.StreamDiagnostic, 1),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+	defer cancel()
+
+	cfg := applyDefaults(Config{
+		RestartBackoffInitial: time.Millisecond,
+		RestartBackoffMax:     time.Millisecond,
+		Logger:                zerolog.New(&logs),
+	})
+	r := newRunner(Spec{ID: "telemetry-addon"}, cfg)
+
+	r.drainTelemetry(ctx, client)
+
+	got := logs.String()
+	if !strings.Contains(got, `"stream":"telemetry"`) {
+		t.Fatalf("expected stream field in logs, got %s", got)
+	}
+	if !strings.Contains(got, `"stream_end":"error"`) {
+		t.Fatalf("expected stream_end error in logs, got %s", got)
+	}
+	if !strings.Contains(got, "transport reset") {
+		t.Fatalf("expected transport error in logs, got %s", got)
 	}
 }

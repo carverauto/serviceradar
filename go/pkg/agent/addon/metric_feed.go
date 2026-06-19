@@ -169,6 +169,7 @@ func (l *metricFeedLifecycle) publish(source string, payload []byte) bool {
 
 func (l *metricFeedLifecycle) run(ctx context.Context) {
 	attempt := 0
+	diagnostics := streamDiagnostics(l.client)
 
 	for ctx.Err() == nil {
 		frames, acks, err := l.client.StreamMetricFeed(ctx)
@@ -194,7 +195,16 @@ func (l *metricFeedLifecycle) run(ctx context.Context) {
 		}
 
 		delay := nextStreamReconnectDelay(attempt, l.initialReconnectBackoff, l.maxReconnectBackoff)
-		l.logger.Warn().Str("addon", l.addonID).Dur("retry_after", delay).Msg("addon metric feed stream closed; reconnecting")
+		diagnostic := readStreamDiagnostic(diagnostics)
+		event := l.logger.Warn().
+			Str("addon", l.addonID).
+			Str("stream", "metric_feed").
+			Str("stream_end", string(diagnostic.Kind)).
+			Dur("retry_after", delay)
+		if diagnostic.Err != nil {
+			event = event.Err(diagnostic.Err)
+		}
+		event.Msg("addon metric feed stream closed; reconnecting")
 		if !waitStreamReconnect(ctx, delay) {
 			return
 		}
