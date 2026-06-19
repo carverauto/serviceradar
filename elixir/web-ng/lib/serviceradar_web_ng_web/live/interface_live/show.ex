@@ -1556,7 +1556,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
       # Build panels for ungrouped metrics
       ungrouped_results =
         Enum.filter(results, fn result ->
-          metric_name = Map.get(result, "metric_name") || Map.get(result, :metric_name)
+          metric_name = metric_result_name(result)
           metric_name not in grouped_metric_names
         end)
 
@@ -1618,7 +1618,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
   defp filter_results_by_metrics(results, group_metrics) do
     Enum.filter(results, fn result ->
-      metric_name = Map.get(result, "metric_name") || Map.get(result, :metric_name)
+      metric_name = metric_result_name(result)
       metric_name in group_metrics
     end)
   end
@@ -1632,11 +1632,29 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
   defp extract_metric_point(result) do
     %{
-      name: Map.get(result, "metric_name") || Map.get(result, :metric_name),
-      time: Map.get(result, "time") || Map.get(result, :time),
+      name: metric_result_name(result),
+      time: metric_result_time(result),
       value: Map.get(result, "value") || Map.get(result, :value)
     }
   end
+
+  defp metric_result_name(result) when is_map(result) do
+    Map.get(result, "metric_name") ||
+      Map.get(result, :metric_name) ||
+      Map.get(result, "series") ||
+      Map.get(result, :series)
+  end
+
+  defp metric_result_name(_), do: nil
+
+  defp metric_result_time(result) when is_map(result) do
+    Map.get(result, "time") ||
+      Map.get(result, :time) ||
+      Map.get(result, "timestamp") ||
+      Map.get(result, :timestamp)
+  end
+
+  defp metric_result_time(_), do: nil
 
   defp format_series({name, points}) do
     data =
