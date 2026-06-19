@@ -1184,6 +1184,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       phx-hook="TimeseriesChart"
       data-points={Jason.encode!(@data.point_data)}
       data-unit={unit_to_string(@data.unit)}
+      data-chart-width={@chart_width}
+      data-chart-pad={@chart_pad}
     >
       <div class="flex items-center justify-between gap-3 mb-2">
         <div class="flex items-center gap-2 min-w-0">
@@ -1355,6 +1357,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       ]}
       phx-hook="TimeseriesCombinedChart"
       data-series={@series_tooltip_data}
+      data-chart-width={@chart_width}
+      data-chart-pad={@chart_pad}
     >
       <!-- Header with title and legend -->
       <div class="flex items-center justify-between gap-3 mb-2">
