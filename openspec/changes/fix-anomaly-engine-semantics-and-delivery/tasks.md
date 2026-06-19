@@ -136,7 +136,7 @@
 - [x] 23.1 Add `alert_generator.ex` handling for anomaly findings: alert only on confirmed anomaly-open and clear transitions, never on `pending_anomaly` or per-sample.
 - [x] 23.2 Dedup/coalesce per canonical series with a cooldown/suppression window so one ongoing condition is one alert.
 - [x] 23.3 Add capacity alerting on a real exhaustion-ETA crossing the warning horizon, not on every `projected` re-emit.
-- [ ] 23.4 Map detector/finding severity to alert severity; exclude floor-less counter false-criticals until F17 lands.
+- [x] 23.4 Map detector/finding severity to alert severity; exclude floor-less counter false-criticals until F17 lands.
 - [x] 23.5 Add tests proving no alert storm: a sustained anomaly yields one open + one clear, and pending/duplicate findings produce no alert.
 
 ## 24. Chart Aggregation Fidelity (F30)

@@ -443,6 +443,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   end
 
   test "causal anomaly alerts only on open transitions and resolves on clear", %{actor: actor} do
+    use_single_alert_shard()
+
     unique = System.unique_integer([:positive])
     device_uid = "sr:anomaly-alert-device-#{unique}"
     series_key = "sysmon:cpu:#{device_uid}:0"
@@ -482,7 +484,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
             "log_name" => "alert.health.anomaly_detection",
             "message" => "Anomaly detection finding detected"
           },
-          alert: %{"title" => alert_title, "severity" => "warning"}
+          alert: %{"title" => alert_title, "severity_from" => "source"}
         },
         actor: actor
       )
@@ -519,6 +521,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert :ok = StatefulAlertEngine.evaluate_events([event.("anomaly_open", 10)])
     assert [active_alert] = active_alerts_by_title(actor, alert_title)
 
+    assert active_alert.severity == :critical
     assert active_alert.metadata["incident_rule_id"] == to_string(rule.id)
 
     assert active_alert.metadata["incident_group_values"] == %{
@@ -541,6 +544,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   test "capacity forecast alerts coalesce by resource and resolve on inactive status", %{
     actor: actor
   } do
+    use_single_alert_shard()
+
     unique = System.unique_integer([:positive])
     device_uid = "sr:capacity-alert-device-#{unique}"
     resource_key = "disk_usage:#{device_uid}:/var"
@@ -580,7 +585,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
             "log_name" => "alert.health.capacity_forecast",
             "message" => "Capacity forecast warning-horizon finding detected"
           },
-          alert: %{"title" => alert_title, "severity" => "warning"}
+          alert: %{"title" => alert_title, "severity_from" => "source"}
         },
         actor: actor
       )
@@ -617,6 +622,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
     assert :ok = StatefulAlertEngine.evaluate_events([event.("projected", 10)])
     assert [active_alert] = active_alerts_by_title(actor, alert_title)
+
+    assert active_alert.severity == :critical
 
     assert active_alert.metadata["incident_group_values"] == %{
              "capacity_forecast.resource_key" => resource_key,
@@ -921,6 +928,22 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     |> Ash.read!()
     |> Page.unwrap!()
     |> Enum.filter(fn alert -> alert.title == title end)
+  end
+
+  defp use_single_alert_shard do
+    previous = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
+
+    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 1)
+    reset_engine()
+
+    on_exit(fn ->
+      reset_engine()
+
+      case previous do
+        nil -> Application.delete_env(:serviceradar_core, :stateful_alert_engine_shards)
+        value -> Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, value)
+      end
+    end)
   end
 
   defp reset_engine do
