@@ -111,6 +111,52 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       end
     end
 
+    test "emits bounded diagnostics when malformed producer time falls back to ingest time" do
+      test_pid = self()
+      handler_id = {__MODULE__, :timestamp_fallback, make_ref()}
+
+      :telemetry.attach(
+        handler_id,
+        [:serviceradar, :event_writer, :causal_signals, :timestamp_fallback],
+        fn event, measurements, metadata, _config ->
+          send(test_pid, {:timestamp_fallback, event, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      payload = %{
+        "event_id" => "anomaly-bad-time",
+        "signal_type" => "causal",
+        "event_type" => "anomaly",
+        "class_uid" => 2004,
+        "time" => "not-a-timestamp",
+        "severity_id" => 4,
+        "device_uid" => "sr:anomaly-device",
+        "anomaly" => %{
+          "series_key" => "sysmon:cpu:sr:anomaly-device:0",
+          "metric_class" => "sysmon.cpu",
+          "state" => "anomaly_open"
+        }
+      }
+
+      row =
+        CausalSignals.parse_message(%{
+          data: Jason.encode!(payload),
+          metadata: %{
+            subject: "signals.causal.predictions.sysmon:cpu:sr:anomaly-device:0",
+            received_at: ~U[2026-06-12 12:00:00Z]
+          }
+        })
+
+      assert %DateTime{} = row.time
+
+      assert_receive {:timestamp_fallback,
+                      [:serviceradar, :event_writer, :causal_signals, :timestamp_fallback],
+                      %{count: 1}, %{subject_class: "causal", reason: :malformed_timestamp}}
+    end
+
     test "uses SNMP target IP as anomaly device identity when polling agent reports verdict" do
       target_ip = "10.0.0.20"
 
@@ -719,6 +765,8 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       assert finding_info["group_uid"] == finding_info["uid"]
       refute finding_info["uid"] == "stale-producer-uid"
       refute finding_info["group_uid"] == "stale-producer-group"
+      refute finding_info["title"] == "Producer supplied title"
+      assert finding_info["title"] == "Anomaly detection: sysmon.cpu canonical-series-key"
 
       assert finding_info["dimensions"]["device_uid"] == "sr:canonical-device"
       assert finding_info["dimensions"]["series_key"] == "canonical-series-key"

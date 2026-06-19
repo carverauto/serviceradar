@@ -16,6 +16,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.DeviceCorrelation
+  alias ServiceRadar.EventWriter.Telemetry, as: EventWriterTelemetry
   alias ServiceRadar.Observability.BmpSettingsRuntime
   alias ServiceRadar.Observability.CausalPubSub
   alias ServiceRadar.Observability.StatefulAlertEvaluationQueue
@@ -429,7 +430,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
         "source" => normalize_source(payload, subject),
         "source_identity" => source_identity(payload),
         "event_identity" => stable_event_identity(subject, payload, raw_data),
-        "event_time" => normalize_time(event_time),
+        "event_time" => normalize_time(event_time, subject),
         "routing_correlation" => routing_correlation,
         "grouped_contexts" => truncated_contexts,
         "signal_domains" => domains,
@@ -892,50 +893,65 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     end
   end
 
-  defp normalize_time(%DateTime{} = dt), do: dt
+  defp normalize_time(value, subject)
 
-  defp normalize_time(value) when is_integer(value) do
+  defp normalize_time(%DateTime{} = dt, _subject), do: dt
+
+  defp normalize_time(value, subject) when is_integer(value) do
     value
     |> unix_time_unit()
     |> then(&DateTime.from_unix(value, &1))
     |> case do
       {:ok, dt} -> dt
-      _ -> DateTime.utc_now()
+      _ -> fallback_ingest_time(subject, :invalid_unix_time)
     end
   rescue
-    _ -> DateTime.utc_now()
+    _ -> fallback_ingest_time(subject, :invalid_unix_time)
   end
 
-  defp normalize_time(value) when is_float(value) do
+  defp normalize_time(value, subject) when is_float(value) do
     value
     |> trunc()
-    |> normalize_time()
+    |> normalize_time(subject)
   end
 
-  defp normalize_time(value) when is_binary(value) do
+  defp normalize_time(value, subject) when is_binary(value) do
     trimmed = String.trim(value)
 
     case Integer.parse(trimmed) do
       {int, ""} ->
-        normalize_time(int)
+        normalize_time(int, subject)
 
       _ ->
         case DateTime.from_iso8601(trimmed) do
           {:ok, dt, _} -> dt
-          _ -> DateTime.utc_now()
+          _ -> fallback_ingest_time(subject, :malformed_timestamp)
         end
     end
   rescue
-    _ -> DateTime.utc_now()
+    _ -> fallback_ingest_time(subject, :malformed_timestamp)
   end
 
-  defp normalize_time(value) do
+  defp normalize_time(value, subject) do
     case DateTime.from_iso8601(to_string(value)) do
       {:ok, dt, _} -> dt
-      _ -> DateTime.utc_now()
+      _ -> fallback_ingest_time(subject, :malformed_timestamp)
     end
   rescue
-    _ -> DateTime.utc_now()
+    _ -> fallback_ingest_time(subject, :malformed_timestamp)
+  end
+
+  defp fallback_ingest_time(subject, reason) do
+    :telemetry.execute(
+      [:serviceradar, :event_writer, :causal_signals, :timestamp_fallback],
+      %{count: 1},
+      %{
+        subject_class: EventWriterTelemetry.subject_class(subject),
+        reason: reason
+      }
+    )
+
+    DateTime.utc_now()
   end
 
   defp unix_time_unit(value) do
@@ -1175,7 +1191,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     existing
     |> Map.put("uid", uid)
     |> Map.put("group_uid", uid)
-    |> Map.put_new(
+    |> Map.put(
       "title",
       "Anomaly detection: #{metric_class || "metric"} #{series_key || "series"}"
     )
