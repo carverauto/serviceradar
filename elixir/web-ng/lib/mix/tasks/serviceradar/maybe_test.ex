@@ -3,6 +3,9 @@ defmodule Mix.Tasks.Serviceradar.MaybeTest do
 
   @moduledoc """
   Runs web-ng tests only when the database is reachable.
+
+  Set `SERVICERADAR_ALLOW_DB_FREE_TESTS=1` to run selected tests that do not
+  need the database through the normal Mix test task when local CNPG is absent.
   """
 
   use Boundary,
@@ -11,20 +14,39 @@ defmodule Mix.Tasks.Serviceradar.MaybeTest do
 
   use Mix.Task
 
+  alias Mix.Tasks.Test
+
   @dialyzer {:nowarn_function, [run: 1, run_db_tests: 3, maybe_migrate: 0]}
 
   def run(args) do
-    if require_db_tests?() do
-      repo_config = Application.get_env(:serviceradar_core, ServiceRadar.Repo, [])
-      {hostname, port} = db_target(repo_config)
-      run_db_tests(args, hostname, port)
-    else
-      Mix.shell().info("Skipping web-ng tests; set SERVICERADAR_REQUIRE_DB_TESTS=1 to enable")
+    cond do
+      require_db_tests?() ->
+        repo_config = Application.get_env(:serviceradar_core, ServiceRadar.Repo, [])
+        {hostname, port} = db_target(repo_config)
+        run_db_tests(args, hostname, port)
+
+      allow_db_free_tests?() ->
+        Test.run(add_no_start(args))
+
+      true ->
+        Mix.shell().info("Skipping web-ng tests; set SERVICERADAR_REQUIRE_DB_TESTS=1 to enable")
     end
   end
 
   defp require_db_tests? do
     env_true?("SERVICERADAR_REQUIRE_DB_TESTS") or env_true?("CI")
+  end
+
+  defp allow_db_free_tests? do
+    env_true?("SERVICERADAR_ALLOW_DB_FREE_TESTS")
+  end
+
+  defp add_no_start(args) do
+    if "--no-start" in args do
+      args
+    else
+      ["--no-start" | args]
+    end
   end
 
   defp env_true?(key) do
@@ -35,7 +57,7 @@ defmodule Mix.Tasks.Serviceradar.MaybeTest do
     if db_reachable?(hostname, port) do
       Mix.Task.run("app.start")
       maybe_migrate()
-      Mix.Tasks.Test.run(args)
+      Test.run(args)
     else
       Mix.raise("Skipping web-ng tests; database unavailable at #{hostname}:#{port}")
     end
