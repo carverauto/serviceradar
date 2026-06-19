@@ -33,6 +33,31 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
     assert first.changes.unique.fields == [:args, :queue, :worker]
   end
 
+  defmodule QueryRecorderRunner do
+    @moduledoc false
+    def query(query, _opts) do
+      send(self(), {:seasonal_query, query})
+      {:ok, []}
+    end
+  end
+
+  test "runtime profile timezone is applied to default seasonal source queries" do
+    AnomalyConfigRuntime.put_cache_for_test(%{
+      seasonal_disposition_opts: [seasonal_profile_timezone: "America/Chicago"]
+    })
+
+    assert :ok = Worker.run(job(), runner: QueryRecorderRunner)
+
+    queries =
+      for _ <- 1..3 do
+        assert_receive {:seasonal_query, query}
+        query
+      end
+
+    assert Enum.all?(queries, &String.contains?(&1, ~s|timezone:"America/Chicago"|))
+    refute Enum.any?(queries, &String.contains?(&1, ~s|timezone:"Etc/UTC"|))
+  end
+
   # A profile row carrying the SQL-aggregated (dow,hod) bucket summary INCLUDING the
   # sample under test (the natural CAGG aggregate the mean/stddev kernel de-aggregates).
   defp profile_row(series, dow, hod, baseline_points, sample_value) do

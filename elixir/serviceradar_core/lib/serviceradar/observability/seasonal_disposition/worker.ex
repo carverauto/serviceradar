@@ -606,9 +606,13 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   # --- config / opts plumbing ---
 
   defp sources(opts) do
-    opts
-    |> Keyword.get(:sources, Source.defaults())
-    |> Enum.map(&Source.from_config/1)
+    sources =
+      case Keyword.fetch(opts, :sources) do
+        {:ok, sources} -> sources
+        :error -> Source.defaults(opts)
+      end
+
+    Enum.map(sources, &Source.from_config/1)
   end
 
   defp metric_class_override(opts, metric_class) do
