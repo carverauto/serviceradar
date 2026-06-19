@@ -38,7 +38,7 @@ use crate::engine::{
 };
 
 const ADDON_ID: &str = "anomaly";
-const ADDON_VERSION: &str = "0.1.7";
+const ADDON_VERSION: &str = "0.1.14";
 const VERDICT_CHANNEL_DEPTH: usize = 256;
 const ACK_CHANNEL_DEPTH: usize = 64;
 const OCSF_CLASS_EVENT_LOG_ACTIVITY: i64 = 1008;
@@ -207,10 +207,19 @@ impl AnomalyAddon {
         }
     }
 
+    fn flush_checkpoint(&self) {
+        let checkpoint = lock_checkpoint_settings(&self.checkpoint).clone();
+
+        if let Some(path) = checkpoint.path.as_ref() {
+            write_checkpoint(&self.engine, path);
+        }
+    }
+
     async fn stop_feed_task(&self) {
         let handle = lock_feed_task(&self.feed_task).take();
 
         if let Some(handle) = handle {
+            self.flush_checkpoint();
             handle.abort();
             let _ = handle.await;
         }
@@ -378,6 +387,7 @@ impl Addon for AnomalyAddon {
         let (ack_tx, ack_rx) = mpsc::channel::<Result<MetricFeedAck, Status>>(ACK_CHANNEL_DEPTH);
 
         if let Some(prior) = lock_feed_task(&self.feed_task).take() {
+            self.flush_checkpoint();
             prior.abort();
         }
 
@@ -2103,6 +2113,49 @@ mod tests {
             feed_tx.send(Ok(metric_feed_frame(2, 200.0))).await.is_err(),
             "shutdown must drop the feed receiver"
         );
+    }
+
+    #[tokio::test]
+    async fn shutdown_flushes_final_metric_feed_checkpoint() {
+        let path = std::env::temp_dir().join(format!(
+            "sr-anomaly-shutdown-ckpt-{}-{}.json",
+            std::process::id(),
+            now_unix_nano()
+        ));
+        let _ = std::fs::remove_file(&path);
+
+        let addon = AnomalyAddon::new();
+        let config = serde_json::json!({
+            "checkpoint_path": path.to_string_lossy()
+        });
+        let configured = addon
+            .configure(config.to_string().as_bytes())
+            .await
+            .expect("configure ok");
+        assert!(configured.accepted, "config accepted: {}", configured.error);
+
+        let (feed_tx, frames) = metric_feed_stream();
+        let mut acks = addon.stream_metric_feed(frames).expect("metric feed opens");
+
+        feed_tx
+            .send(Ok(metric_feed_frame(1, 100.0)))
+            .await
+            .expect("feed receiver");
+        let ack = acks.next().await.expect("ack item").expect("ack ok");
+        assert_eq!(ack.acked_feed_id, 1);
+        assert!(
+            !path.exists(),
+            "write_every cadence should not have flushed yet"
+        );
+
+        addon.shutdown().await.expect("shutdown ok");
+
+        assert!(path.exists(), "shutdown must write a final checkpoint");
+        let restored = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig::default())));
+        load_checkpoint(&restored, &path, u64::MAX);
+        assert_eq!(restored.lock().unwrap().series_count(), 1);
+
+        let _ = std::fs::remove_file(&path);
     }
 
     #[tokio::test]
