@@ -73,12 +73,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
   test "SRQL task timeouts return an error result without hanging" do
     {data, log} =
       with_log(fn ->
-        AnomalyCapacityData.load(SlowSRQL, %{device_uid: "router-1"}, nil)
+        AnomalyCapacityData.load(SlowSRQL, %{device_uid: "router-1"}, nil, query_timeout_ms: 50)
       end)
 
     assert data.status == :error
     assert data.anomaly_rows == []
-    assert data.anomaly_error =~ "anomaly SRQL query timed out"
+    assert data.anomaly_error =~ "anomaly SRQL query timed out after 50ms"
     assert log =~ "anomaly SRQL query timed out"
   end
 end
