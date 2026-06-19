@@ -29,10 +29,12 @@ use tonic::Status;
 
 use std::path::{Path, PathBuf};
 
-use crate::engine::{DetectorEngine, EngineCheckpoint, EngineConfig, SeriesProfile};
+use crate::engine::{
+    AnomalyTransition, DetectorEngine, EngineCheckpoint, EngineConfig, SeriesProfile,
+};
 
 const ADDON_ID: &str = "anomaly";
-const ADDON_VERSION: &str = "0.1.1";
+const ADDON_VERSION: &str = "0.1.2";
 const VERDICT_CHANNEL_DEPTH: usize = 256;
 const ACK_CHANNEL_DEPTH: usize = 64;
 const OCSF_CLASS_EVENT_LOG_ACTIVITY: i64 = 1008;
@@ -326,16 +328,22 @@ async fn process_frame(
                     point.value
                 };
 
-                if let Some(verdict) =
-                    engine.evaluate(&series_key, value, point.observed_at_unix_nano, profile)
-                    && (verdict.breached || verdict.anomalous)
-                {
+                if let Some(evaluated) = engine.evaluate_transition(
+                    &series_key,
+                    value,
+                    point.observed_at_unix_nano,
+                    profile,
+                ) && matches!(
+                    evaluated.transition,
+                    AnomalyTransition::Open | AnomalyTransition::Clear
+                ) {
                     records.push(verdict_record(
                         &resource,
                         metric,
                         point,
                         &series_key,
-                        &verdict,
+                        &evaluated.verdict,
+                        evaluated.transition,
                     ));
                 }
             }
@@ -634,12 +642,16 @@ fn verdict_record(
     point: &MetricPoint,
     series_key: &str,
     verdict: &ReasonVerdict,
+    transition: AnomalyTransition,
 ) -> TelemetryRecord {
     let ts_nano = verdict
         .observed_at_unix_nano
         .unwrap_or(point.observed_at_unix_nano);
     let ts_ms = (ts_nano / 1_000_000) as i64;
     let severity_id = severity_id_from_score(verdict.score);
+    let lifecycle_state = anomaly_lifecycle_state(transition);
+    let status = anomaly_lifecycle_status(transition);
+    let message = anomaly_lifecycle_message(transition, &verdict.reason);
 
     let metric_class = if metric.metric_type.is_empty() {
         "metric"
@@ -653,7 +665,7 @@ fn verdict_record(
         resource.host_ip.as_str(),
     ]);
 
-    let event_id = format!("anomaly:{series_key}:{ts_nano}:{}", verdict.state);
+    let event_id = format!("anomaly:{series_key}:{ts_nano}:{lifecycle_state}");
     let finding_uid =
         format!("anomaly:finding:2004:anomaly_detection:{device_uid}:{series_key}:{metric_class}");
 
@@ -671,12 +683,12 @@ fn verdict_record(
         "source": "serviceradar",
         "collector": "anomaly_addon",
         "verdict_source": "edge-spike",
-        "status": "open",
+        "status": status,
         "time": ts_ms,
         "severity_id": severity_id,
         "device_uid": device_uid,
         "device_id": device_uid,
-        "message": &verdict.reason,
+        "message": message,
         "finding_info": {
             "uid": finding_uid,
             "title": format!("{metric_class} anomaly on {device_uid}"),
@@ -703,7 +715,8 @@ fn verdict_record(
         "anomaly": {
             "series_key": series_key,
             "metric_class": metric_class,
-            "state": &verdict.state,
+            "state": lifecycle_state,
+            "detector_state": &verdict.state,
             "reason": &verdict.reason,
             "score": verdict.score,
             "baseline_count": verdict.baseline_count,
@@ -717,6 +730,30 @@ fn verdict_record(
     let payload = serde_json::to_vec(&body).unwrap_or_default();
     let record = ocsf_event_record(event_id, ts_nano as i64, ts_nano as i64, payload);
     attach_signal_schema_ref(record, &anomaly_signal_schema_ref())
+}
+
+fn anomaly_lifecycle_state(transition: AnomalyTransition) -> &'static str {
+    match transition {
+        AnomalyTransition::Open => "anomaly_open",
+        AnomalyTransition::Clear => "anomaly_clear",
+        AnomalyTransition::None => "none",
+    }
+}
+
+fn anomaly_lifecycle_status(transition: AnomalyTransition) -> &'static str {
+    match transition {
+        AnomalyTransition::Open => "open",
+        AnomalyTransition::Clear => "inactive",
+        AnomalyTransition::None => "suppressed",
+    }
+}
+
+fn anomaly_lifecycle_message(transition: AnomalyTransition, reason: &str) -> String {
+    match transition {
+        AnomalyTransition::Open => reason.to_string(),
+        AnomalyTransition::Clear => format!("anomaly cleared: {reason}"),
+        AnomalyTransition::None => reason.to_string(),
+    }
 }
 
 fn severity_id_from_score(score: f64) -> i64 {
@@ -852,6 +889,7 @@ fn shed_signal_schema_ref() -> SignalSchemaRef {
 mod tests {
     use super::*;
     use addon_sdk::metric_pb::StringMapEntry;
+    use tokio::sync::mpsc::error::TryRecvError;
 
     fn entry(key: &str, value: &str) -> StringMapEntry {
         StringMapEntry {
@@ -874,6 +912,57 @@ mod tests {
             metric_type: metric_type.to_string(),
             ..Default::default()
         }
+    }
+
+    fn anomaly_metric_batch(value: f64, observed_at_unix_nano: u64) -> MetricBatch {
+        MetricBatch {
+            resource: Some(MetricResource {
+                agent_id: "agent-a".to_string(),
+                host_id: "host-a".to_string(),
+                device_id: "device-a".to_string(),
+                partition: "demo".to_string(),
+                ..Default::default()
+            }),
+            metrics: vec![Metric {
+                name: "custom.value".to_string(),
+                metric_type: "custom".to_string(),
+                points: vec![MetricPoint {
+                    value,
+                    observed_at_unix_nano,
+                    series_identity_hint: "series-a".to_string(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    async fn process_anomaly_value(
+        engine: &Arc<Mutex<DetectorEngine>>,
+        tx: &mpsc::Sender<Result<TelemetryBatch, Status>>,
+        value: f64,
+        observed_at_unix_nano: u64,
+    ) {
+        let frame = MetricFeedFrame {
+            feed_id: observed_at_unix_nano,
+            source: None,
+            payload: anomaly_metric_batch(value, observed_at_unix_nano).encode_to_vec(),
+        };
+
+        process_frame(engine, tx, &frame).await;
+    }
+
+    fn assert_no_batch(rx: &mut mpsc::Receiver<Result<TelemetryBatch, Status>>) {
+        assert!(matches!(rx.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    fn recv_single_event(
+        rx: &mut mpsc::Receiver<Result<TelemetryBatch, Status>>,
+    ) -> serde_json::Value {
+        let batch = rx.try_recv().expect("telemetry batch").expect("batch ok");
+        assert_eq!(batch.records.len(), 1);
+        serde_json::from_slice(&batch.records[0].payload).expect("event json")
     }
 
     #[test]
@@ -1117,6 +1206,48 @@ mod tests {
         assert_eq!(event["unmapped"]["dropped_series_delta"], 2);
         assert_eq!(event["unmapped"]["feed_id"], 7);
         assert_eq!(engine.lock().unwrap().dropped_at_capacity, 2);
+    }
+
+    #[tokio::test]
+    async fn process_frame_emits_only_anomaly_open_and_clear_transitions() {
+        let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig {
+            window_size: 50,
+            min_samples: 5,
+            n_sigma: 3.0,
+            confirm_slots: 2,
+            max_series: 10,
+            ..EngineConfig::default()
+        })));
+        let (tx, mut rx) = mpsc::channel(4);
+
+        for ts in 1..=20 {
+            process_anomaly_value(&engine, &tx, 100.0, ts).await;
+        }
+        assert_no_batch(&mut rx);
+
+        process_anomaly_value(&engine, &tx, 1_000.0, 21).await;
+        assert_no_batch(&mut rx);
+
+        process_anomaly_value(&engine, &tx, 1_000.0, 22).await;
+        let open = recv_single_event(&mut rx);
+        assert_eq!(open["status"], "open");
+        assert_eq!(open["anomaly"]["state"], "anomaly_open");
+        assert_eq!(open["anomaly"]["detector_state"], "anomalous");
+
+        process_anomaly_value(&engine, &tx, 1_000.0, 23).await;
+        assert_no_batch(&mut rx);
+
+        process_anomaly_value(&engine, &tx, 100.0, 24).await;
+        let clear = recv_single_event(&mut rx);
+        assert_eq!(clear["status"], "inactive");
+        assert_eq!(clear["anomaly"]["state"], "anomaly_clear");
+        assert_eq!(clear["anomaly"]["detector_state"], "clean");
+        assert!(
+            !clear["message"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("pending_anomaly")
+        );
     }
 
     #[test]

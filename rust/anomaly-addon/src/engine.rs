@@ -13,6 +13,24 @@ use serviceradar_anomaly_core::{
     ReasonContext, ReasonSample, ReasonVerdict, SaturationGate, reason_impl,
 };
 
+/// Lifecycle transition produced by edge state after scoring one sample.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AnomalyTransition {
+    /// No externally visible lifecycle change.
+    None,
+    /// A series moved from clean/inactive into confirmed anomalous.
+    Open,
+    /// A previously active anomaly returned clean.
+    Clear,
+}
+
+/// A scored verdict plus the edge lifecycle transition it caused.
+#[derive(Debug, PartialEq)]
+pub struct TransitionVerdict {
+    pub verdict: ReasonVerdict,
+    pub transition: AnomalyTransition,
+}
+
 /// Per-series fidelity tuning the detector applies on top of the global
 /// [`EngineConfig`]. The add-on computes this from the metric class (it knows
 /// `metric_type` + whether the series is a rate-normalized counter), so the
@@ -79,6 +97,8 @@ const COUNTER32_MODULUS: f64 = 4_294_967_296.0;
 struct SeriesState {
     window_tail: Vec<f64>,
     consecutive_anomalous: usize,
+    /// Whether this series currently has an emitted-but-not-cleared anomaly.
+    active_anomalous: bool,
     /// Observed time of the most recent sample, for the restart staleness bound:
     /// a baseline whose last reading is too old is not reseeded (it would
     /// mis-score current traffic).
@@ -231,6 +251,7 @@ impl DetectorEngine {
             .or_insert_with(|| SeriesState {
                 window_tail: Vec::new(),
                 consecutive_anomalous: 0,
+                active_anomalous: false,
                 last_observed_at_unix_nano: observed_at_unix_nano,
             });
 
@@ -284,6 +305,38 @@ impl DetectorEngine {
             Err(_) => None,
         }
     }
+
+    /// Evaluate one sample and update per-series anomaly lifecycle state.
+    ///
+    /// The detector core still decides whether a sample is clean, pending, or
+    /// confirmed anomalous. The edge add-on owns only delivery lifecycle: one
+    /// open when a series first confirms, no duplicate opens while it remains
+    /// active, and one clear when that active series returns clean.
+    pub fn evaluate_transition(
+        &mut self,
+        series_key: &str,
+        value: f64,
+        observed_at_unix_nano: u64,
+        profile: SeriesProfile,
+    ) -> Option<TransitionVerdict> {
+        let verdict = self.evaluate(series_key, value, observed_at_unix_nano, profile)?;
+        let state = self.series.get_mut(series_key)?;
+
+        let transition = if verdict.anomalous && !state.active_anomalous {
+            state.active_anomalous = true;
+            AnomalyTransition::Open
+        } else if state.active_anomalous && verdict.state == "clean" {
+            state.active_anomalous = false;
+            AnomalyTransition::Clear
+        } else {
+            AnomalyTransition::None
+        };
+
+        Some(TransitionVerdict {
+            verdict,
+            transition,
+        })
+    }
 }
 
 /// One series' retained detector baseline, serialized for the restart checkpoint.
@@ -292,6 +345,8 @@ pub struct SeriesCheckpoint {
     pub series_key: String,
     pub window_tail: Vec<f64>,
     pub consecutive_anomalous: usize,
+    #[serde(default)]
+    pub active_anomalous: bool,
     pub last_observed_at_unix_nano: u64,
 }
 
@@ -326,6 +381,7 @@ impl DetectorEngine {
                     series_key: key.clone(),
                     window_tail: state.window_tail.clone(),
                     consecutive_anomalous: state.consecutive_anomalous,
+                    active_anomalous: state.active_anomalous,
                     last_observed_at_unix_nano: state.last_observed_at_unix_nano,
                 })
                 .collect(),
@@ -378,6 +434,7 @@ impl DetectorEngine {
                 SeriesState {
                     window_tail,
                     consecutive_anomalous: series.consecutive_anomalous,
+                    active_anomalous: series.active_anomalous,
                     last_observed_at_unix_nano: series.last_observed_at_unix_nano,
                 },
             );
@@ -642,6 +699,48 @@ mod tests {
         let n = restored.restore_checkpoint(checkpoint, 1_000_000_000_000, 1_000);
         assert_eq!(n, 0);
         assert_eq!(restored.series_count(), 0);
+    }
+
+    #[test]
+    fn transition_state_round_trips_through_checkpoint() {
+        let cfg = EngineConfig {
+            window_size: 50,
+            min_samples: 5,
+            n_sigma: 3.0,
+            confirm_slots: 2,
+            max_series: 10,
+            ..EngineConfig::default()
+        };
+        let mut engine = DetectorEngine::new(cfg.clone());
+
+        for i in 0..20 {
+            let verdict = engine
+                .evaluate_transition("series-a", 100.0, i, SeriesProfile::default())
+                .expect("verdict");
+            assert_eq!(verdict.transition, AnomalyTransition::None);
+        }
+
+        let pending = engine
+            .evaluate_transition("series-a", 1_000.0, 21, SeriesProfile::default())
+            .expect("pending verdict");
+        assert_eq!(pending.verdict.state, "pending_anomaly");
+        assert_eq!(pending.transition, AnomalyTransition::None);
+
+        let opened = engine
+            .evaluate_transition("series-a", 1_000.0, 22, SeriesProfile::default())
+            .expect("open verdict");
+        assert_eq!(opened.verdict.state, "anomalous");
+        assert_eq!(opened.transition, AnomalyTransition::Open);
+
+        let checkpoint = engine.export_checkpoint();
+        let mut restored = DetectorEngine::new(cfg);
+        assert_eq!(restored.restore_checkpoint(checkpoint, 23, u64::MAX), 1);
+
+        let cleared = restored
+            .evaluate_transition("series-a", 100.0, 23, SeriesProfile::default())
+            .expect("clear verdict");
+        assert_eq!(cleared.verdict.state, "clean");
+        assert_eq!(cleared.transition, AnomalyTransition::Clear);
     }
 
     #[test]

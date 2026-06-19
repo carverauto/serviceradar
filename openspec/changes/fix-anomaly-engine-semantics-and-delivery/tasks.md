@@ -4,11 +4,11 @@
 - [ ] 1.3 Review and approve proposal before implementation.
 
 ## 2. Edge Add-on Semantics
-- [ ] 2.1 Add per-series active anomaly state to the edge engine/checkpoint.
-- [ ] 2.2 Emit an anomaly-open finding only when a series transitions from inactive to confirmed anomalous.
-- [ ] 2.3 Emit an anomaly-clear finding when an active anomalous series returns clean.
-- [ ] 2.4 Suppress `pending_anomaly` from OCSF Detection Finding emission.
-- [ ] 2.5 Add Rust tests for confirm-slot suppression, one open per active anomaly, clear emission, and checkpoint restore of active state.
+- [x] 2.1 Add per-series active anomaly state to the edge engine/checkpoint.
+- [x] 2.2 Emit an anomaly-open finding only when a series transitions from inactive to confirmed anomalous.
+- [x] 2.3 Emit an anomaly-clear finding when an active anomalous series returns clean.
+- [x] 2.4 Suppress `pending_anomaly` from OCSF Detection Finding emission.
+- [x] 2.5 Add Rust tests for confirm-slot suppression, one open per active anomaly, clear emission, and checkpoint restore of active state.
 
 ## 3. Delivery Resilience
 - [ ] 3.1 Replace the anomaly add-on single-use telemetry receiver with reconnect-safe broadcast/drop delivery.
