@@ -204,6 +204,26 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
     assert html =~ ~r/d="M [^"]+ M /
   end
 
+  test "precomputed rate mode preserves backend rates without counter differencing" do
+    points = [
+      {~U[2025-01-01 00:00:00Z], 125.0},
+      {~U[2025-01-01 00:05:00Z], 250.0}
+    ]
+
+    html =
+      render_component(Timeseries, %{
+        id: "ts-precomputed-rate",
+        title: "Traffic",
+        panel_assigns: %{chart_mode: :single, rate_mode: :rate},
+        series_points: [{"ifInOctets", points}]
+      })
+
+    chart_points = decode_chart_points(html)
+
+    assert Enum.map(chart_points, & &1["v"]) == [125.0, 250.0]
+    assert html =~ "250.0 B/s"
+  end
+
   test "counter speed clamp applies only to octet traffic series" do
     points = [
       {~U[2025-01-01 00:00:00Z], 0.0},

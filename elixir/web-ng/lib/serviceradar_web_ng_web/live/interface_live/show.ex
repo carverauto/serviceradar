@@ -1481,11 +1481,10 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   defp fetch_interface_metrics(srql_module, device_uid, interface, settings, scope) do
     if_index = Map.get(interface, "if_index")
 
-    # Use agg:max to pull the latest counter values per bucket.
-    # Rate deltas are calculated client-side for SNMP counter metrics.
+    # SRQL agg:rate computes per-second counter rates and leaves resets/wraps as gaps.
     query =
       "in:snmp_metrics device_id:\"#{escape_value(device_uid)}\" if_index:#{if_index} " <>
-        "time:last_24h bucket:5m agg:max series:metric_name limit:#{@snmp_metrics_limit}"
+        "time:last_24h bucket:5m agg:rate series:metric_name limit:#{@snmp_metrics_limit}"
 
     # Get interface speed for proper graph scaling (bps -> bytes per second)
     if_speed_bps = Map.get(interface, "speed_bps") || Map.get(interface, "if_speed")
@@ -1524,7 +1523,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
       assigns =
         panel.assigns
         |> Map.put(:max_speed_bytes_per_sec, max_speed_bytes_per_sec)
-        |> Map.put(:rate_mode, :counter)
+        |> Map.put(:rate_mode, :rate)
 
       %{panel | assigns: assigns}
     end)
@@ -1584,7 +1583,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
       panel.assigns
       |> Map.put(:max_speed_bytes_per_sec, max_speed_bytes_per_sec)
       |> Map.put(:chart_mode, :combined)
-      |> Map.put(:rate_mode, :counter)
+      |> Map.put(:rate_mode, :rate)
 
     %{panel | assigns: assigns}
   end
@@ -1611,7 +1610,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
           max_speed_bytes_per_sec: max_speed_bytes_per_sec,
           chart_mode: :combined,
           group_id: group["id"],
-          rate_mode: :counter
+          rate_mode: :rate
         }
       }
     end

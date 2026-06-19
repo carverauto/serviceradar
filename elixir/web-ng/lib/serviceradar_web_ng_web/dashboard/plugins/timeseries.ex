@@ -821,7 +821,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       unit = series_unit_for(spec, series) ->
         unit
 
-      rate_mode == :counter ->
+      rate_mode in [:counter, :rate] ->
         if traffic_series?(series), do: :bytes_per_sec, else: :count_per_sec
 
       percent_field?(spec) ->
@@ -991,6 +991,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   defp traffic_series?("ifOutOctets"), do: true
   defp traffic_series?("ifHCInOctets"), do: true
   defp traffic_series?("ifHCOutOctets"), do: true
+  defp traffic_series?("Inbound"), do: true
+  defp traffic_series?("Outbound"), do: true
+  defp traffic_series?("Inbound (64-bit)"), do: true
+  defp traffic_series?("Outbound (64-bit)"), do: true
   defp traffic_series?(_), do: false
 
   # Compute utilization percentage from current value and max speed
@@ -1016,7 +1020,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     chart_mode = Map.get(panel_assigns || %{}, :chart_mode, :single)
     combine_all_series = Map.get(panel_assigns || %{}, :combine_all_series, false)
     combined_title = Map.get(panel_assigns || %{}, :combined_title)
-    # Rate mode: :counter (compute deltas) or :none (use values directly)
+    # Rate mode: :counter (compute deltas), :rate (precomputed rates), or :none.
     rate_mode = Map.get(panel_assigns || %{}, :rate_mode, :none)
     series_points = series_points_from_assigns(assigns, panel_assigns)
     spec = fetch_panel_value(panel_assigns, :spec, Map.get(assigns, :spec))
