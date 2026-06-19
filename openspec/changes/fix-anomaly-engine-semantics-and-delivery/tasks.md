@@ -109,10 +109,11 @@
 - [ ] 18.7 Add an end-to-end smoke test that fires `sysmon.debug_spike` and asserts one open finding (not one-per-sample-per-core), sample-time `time`, and coherent device identity.
 
 ## 19. Device-Details Panel Performance (F25)
-- [ ] 19.1 Query `device_uid_exact` first as a bare indexed equality; stop trying `agent_id`/`host_id` first (which seq-scan the OCSF hypertable).
-- [ ] 19.2 Drop the capacity `resource_key '%<id>%'` leading-wildcard ILIKE; add a btree index on capacity `resource_id`.
-- [ ] 19.3 Run the anomaly and capacity loads concurrently (Task.async) instead of sequential `load_first`; short-circuit empty candidates.
-- [ ] 19.4 Lower the anomaly/capacity query `limit` and project only rendered fields (not full metadata/raw_data/unmapped).
+- [x] 19.1 Query canonical `source_device_uid` first via the indexed device-UID equality path; stop trying `agent_id`/`host_id` before the canonical lookup.
+- [x] 19.2 Drop the capacity `resource_key '%<id>%'` leading-wildcard ILIKE; add a btree index on capacity `resource_id`.
+- [x] 19.3 Run the anomaly and capacity loads concurrently (Task.async) instead of sequential `load_first`; short-circuit empty candidates.
+- [x] 19.4 Lower the anomaly/capacity query `limit`.
+- [ ] 19.5 Project only rendered fields once SRQL supports row projection for events/capacity rows (avoid fetching full metadata/raw_data/unmapped).
 
 ## 20. Operator-Actionable Anomaly/Capacity Rows (F26)
 - [ ] 20.1 Make finding rows and capacity rows clickable (`phx-click` + uid) opening a detail modal.
