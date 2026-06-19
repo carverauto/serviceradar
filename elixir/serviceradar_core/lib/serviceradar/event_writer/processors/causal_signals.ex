@@ -883,6 +883,41 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   defp normalize_time(%DateTime{} = dt), do: dt
 
+  defp normalize_time(value) when is_integer(value) do
+    value
+    |> unix_time_unit()
+    |> then(&DateTime.from_unix(value, &1))
+    |> case do
+      {:ok, dt} -> dt
+      _ -> DateTime.utc_now()
+    end
+  rescue
+    _ -> DateTime.utc_now()
+  end
+
+  defp normalize_time(value) when is_float(value) do
+    value
+    |> trunc()
+    |> normalize_time()
+  end
+
+  defp normalize_time(value) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    case Integer.parse(trimmed) do
+      {int, ""} ->
+        normalize_time(int)
+
+      _ ->
+        case DateTime.from_iso8601(trimmed) do
+          {:ok, dt, _} -> dt
+          _ -> DateTime.utc_now()
+        end
+    end
+  rescue
+    _ -> DateTime.utc_now()
+  end
+
   defp normalize_time(value) do
     case DateTime.from_iso8601(to_string(value)) do
       {:ok, dt, _} -> dt
@@ -890,6 +925,17 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     end
   rescue
     _ -> DateTime.utc_now()
+  end
+
+  defp unix_time_unit(value) do
+    value
+    |> abs()
+    |> case do
+      unix when unix >= 100_000_000_000_000_000 -> :nanosecond
+      unix when unix >= 100_000_000_000_000 -> :microsecond
+      unix when unix >= 100_000_000_000 -> :millisecond
+      _ -> :second
+    end
   end
 
   defp normalize_severity(payload) do
@@ -1110,36 +1156,39 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   end
 
   defp anomaly_detection_finding_info(payload, device_uid) do
-    case payload["finding_info"] do
-      %{"uid" => uid} = finding_info when is_binary(uid) and uid != "" ->
-        finding_info
+    existing = if is_map(payload["finding_info"]), do: payload["finding_info"], else: %{}
+    series_key = get_in(payload, ["anomaly", "series_key"])
+    metric_class = get_in(payload, ["anomaly", "metric_class"])
+    uid = anomaly_detection_finding_uid(device_uid, series_key, metric_class)
 
-      _ ->
-        series_key = get_in(payload, ["anomaly", "series_key"])
-        metric_class = get_in(payload, ["anomaly", "metric_class"])
-        uid = anomaly_detection_finding_uid(device_uid, series_key, metric_class)
+    existing
+    |> Map.put("uid", uid)
+    |> Map.put("group_uid", uid)
+    |> Map.put_new(
+      "title",
+      "Anomaly detection: #{metric_class || "metric"} #{series_key || "series"}"
+    )
+    |> Map.put_new("type", "ServiceRadar Anomaly")
+    |> Map.put_new("type_id", 99)
+    |> Map.put("source", "anomaly_detection")
+    |> Map.put(
+      "dimensions",
+      anomaly_detection_finding_dimensions(payload, device_uid, series_key, metric_class)
+    )
+  end
 
-        %{
-          "uid" => uid,
-          "group_uid" => uid,
-          "title" => "Anomaly detection: #{metric_class || "metric"} #{series_key || "series"}",
-          "type" => "ServiceRadar Anomaly",
-          "type_id" => 99,
-          "source" => "anomaly_detection",
-          "dimensions" =>
-            %{
-              "class_uid" => @ocsf_detection_finding_class_uid,
-              "source" => "anomaly_detection",
-              "device_uid" => device_uid,
-              "series_key" => series_key,
-              "metric_class" => metric_class,
-              "state" => get_in(payload, ["anomaly", "state"]),
-              "subject" => get_in(payload, ["anomaly", "subject"])
-            }
-            |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-            |> Map.new()
-        }
-    end
+  defp anomaly_detection_finding_dimensions(payload, device_uid, series_key, metric_class) do
+    %{
+      "class_uid" => @ocsf_detection_finding_class_uid,
+      "source" => "anomaly_detection",
+      "device_uid" => device_uid,
+      "series_key" => series_key,
+      "metric_class" => metric_class,
+      "state" => get_in(payload, ["anomaly", "state"]),
+      "subject" => get_in(payload, ["anomaly", "subject"])
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
   end
 
   defp anomaly_detection_finding_uid(device_uid, series_key, metric_class) do

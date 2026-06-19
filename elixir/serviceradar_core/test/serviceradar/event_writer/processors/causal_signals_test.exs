@@ -74,6 +74,43 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       assert row.metadata["primary_domain"] == "security"
     end
 
+    test "preserves causal finding producer timestamps in common Unix units" do
+      event_time = ~U[2026-06-12 12:00:00Z]
+
+      for {unit, value} <- [
+            second: DateTime.to_unix(event_time, :second),
+            millisecond: DateTime.to_unix(event_time, :millisecond),
+            microsecond: DateTime.to_unix(event_time, :microsecond),
+            nanosecond: DateTime.to_unix(event_time, :nanosecond)
+          ] do
+        payload = %{
+          "event_id" => "anomaly-time-#{unit}",
+          "signal_type" => "causal",
+          "event_type" => "anomaly",
+          "class_uid" => 2004,
+          "time" => value,
+          "severity_id" => 4,
+          "device_uid" => "sr:anomaly-device",
+          "anomaly" => %{
+            "series_key" => "sysmon:cpu:sr:anomaly-device:0",
+            "metric_class" => "sysmon.cpu",
+            "state" => "anomaly_open"
+          }
+        }
+
+        row =
+          CausalSignals.parse_message(%{
+            data: Jason.encode!(payload),
+            metadata: %{
+              subject: "signals.causal.predictions.sysmon:cpu:sr:anomaly-device:0",
+              received_at: DateTime.add(event_time, 1_000, :second)
+            }
+          })
+
+        assert DateTime.compare(row.time, event_time) == :eq
+      end
+    end
+
     test "returns nil on invalid JSON" do
       row =
         CausalSignals.parse_message(%{data: "not-json", metadata: %{subject: "bmp.events.peer"}})
@@ -593,6 +630,62 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         })
 
       assert central_row.metadata["service_radar"]["verdict_source"] == "central"
+    end
+
+    test "overwrites stale edge finding_info with canonical device and series identity" do
+      edge = %{
+        "event_id" => "anomaly-edge-stale-finding-info",
+        "signal_type" => "causal",
+        "event_type" => "anomaly",
+        "class_uid" => 2004,
+        "time" => 1_812_456_000_000,
+        "severity_id" => 4,
+        "device_uid" => "sr:canonical-device",
+        "verdict_source" => "edge-spike",
+        "finding_info" => %{
+          "uid" => "stale-producer-uid",
+          "group_uid" => "stale-producer-group",
+          "title" => "Producer supplied title",
+          "dimensions" => %{
+            "device_uid" => "raw-agent-device",
+            "series_key" => "edge-hint-provisional",
+            "metric_class" => "sysmon.cpu"
+          }
+        },
+        "anomaly" => %{
+          "series_key" => "canonical-series-key",
+          "metric_class" => "sysmon.cpu",
+          "state" => "anomaly_open"
+        }
+      }
+
+      meta = %{
+        subject: "signals.causal.predictions.canonical-series-key",
+        received_at: DateTime.utc_now()
+      }
+
+      stale_row = CausalSignals.parse_message(%{data: Jason.encode!(edge), metadata: meta})
+
+      canonical_row =
+        CausalSignals.parse_message(%{
+          data: Jason.encode!(Map.delete(edge, "finding_info")),
+          metadata: meta
+        })
+
+      finding_info = stale_row.metadata["finding_info"]
+
+      assert finding_info["uid"] == canonical_row.metadata["finding_info"]["uid"]
+      assert finding_info["group_uid"] == finding_info["uid"]
+      refute finding_info["uid"] == "stale-producer-uid"
+      refute finding_info["group_uid"] == "stale-producer-group"
+
+      assert finding_info["dimensions"]["device_uid"] == "sr:canonical-device"
+      assert finding_info["dimensions"]["series_key"] == "canonical-series-key"
+      assert finding_info["dimensions"]["metric_class"] == "sysmon.cpu"
+
+      assert stale_row.metadata["service_radar"]["finding_uid"] == finding_info["uid"]
+      assert stale_row.metadata["service_radar"]["series_key"] == "canonical-series-key"
+      assert stale_row.metadata["security_signal"]["finding_uid"] == finding_info["uid"]
     end
 
     test "selects capacity causal prediction findings for stateful alert evaluation" do

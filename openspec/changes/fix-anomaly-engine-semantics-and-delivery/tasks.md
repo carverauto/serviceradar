@@ -17,10 +17,10 @@
 - [ ] 3.4 Decide whether agent-side stream drain should reconnect on stream close for native telemetry and metric-feed streams.
 
 ## 4. Core Ingestion Fidelity
-- [ ] 4.1 Parse causal signal timestamps from ISO8601 and Unix seconds/milliseconds/microseconds/nanoseconds.
-- [ ] 4.2 Recompute or overwrite anomaly `finding_info.uid`, `group_uid`, and dimensions after canonical device/series re-keying.
-- [ ] 4.3 Add tests proving edge add-on numeric OCSF `time` persists as sample time, not ingest time.
-- [ ] 4.4 Add tests proving canonical re-keying updates finding identity consistently.
+- [x] 4.1 Parse causal signal timestamps from ISO8601 and Unix seconds/milliseconds/microseconds/nanoseconds.
+- [x] 4.2 Recompute or overwrite anomaly `finding_info.uid`, `group_uid`, and dimensions after canonical device/series re-keying.
+- [x] 4.3 Add tests proving edge add-on numeric OCSF `time` persists as sample time, not ingest time.
+- [x] 4.4 Add tests proving canonical re-keying updates finding identity consistently.
 
 ## 5. Seasonal State
 - [ ] 5.1 Add production persistence for seasonal confirmation counters keyed by source, series, day-of-week, and hour-of-day.
