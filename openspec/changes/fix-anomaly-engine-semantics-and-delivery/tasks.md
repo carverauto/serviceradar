@@ -70,7 +70,7 @@
 - [x] 12.2 Make the worker fail loudly with telemetry when the profiling query returns no profile columns.
 - [x] 12.3 Emit seasonal clears; fix the zero-width bucket window (distinct started/ended).
 - [x] 12.4 Fix the Oban uniqueness key so per-run `evaluated_at` does not defeat dedup; align dow/hod bucketing to a configured time zone.
-- [ ] 12.5 Add an integration test that exercises the real SRQL path end-to-end (not mock rows).
+- [x] 12.5 Add an integration test that exercises the real SRQL path end-to-end (not mock rows).
 
 ## 13. Capacity Forecast Correctness (F16)
 - [x] 13.1 Fix the flow-capacity source unit label and add a threshold so it can alert.
