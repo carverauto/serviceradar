@@ -861,6 +861,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     srql_mod = srql_module()
     bucket = timeseries_bucket(tw)
     bucket_secs = bucket_seconds(bucket)
+    limit = interface_downsample_limit(tw, bucket_secs, 2)
 
     case decode_interface_key(interface_key) do
       {:ok, sampler, interface_name} ->
@@ -868,7 +869,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
         value_field = if(um == "pps", do: "packets_total", else: "bytes_total")
 
         {ingress, egress} =
-          load_interface_direction_points(srql_mod, scope, base, interface_name, bucket, value_field)
+          srql_mod
+          |> load_interface_direction_points(scope, base, interface_name, bucket, value_field, limit)
+          |> split_interface_direction_points()
 
         points =
           ingress
@@ -889,20 +892,21 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     end
   end
 
-  defp load_interface_direction_points(srql_mod, scope, base, interface_name, bucket, value_field) do
-    tasks = [
-      Task.async(fn ->
-        ingress_base = "#{base} direction:ingress in_if_name:#{srql_quote(interface_name)}"
-        {:ingress, load_iface_downsample(srql_mod, scope, ingress_base, bucket, value_field)}
-      end),
-      Task.async(fn ->
-        egress_base = "#{base} direction:egress out_if_name:#{srql_quote(interface_name)}"
-        {:egress, load_iface_downsample(srql_mod, scope, egress_base, bucket, value_field)}
-      end)
-    ]
+  defp load_interface_direction_points(srql_mod, scope, base, interface_name, bucket, value_field, limit) do
+    query =
+      "#{base} interface:#{srql_quote(interface_name)} bucket:#{bucket} agg:sum " <>
+        "value_field:#{value_field} series:interface limit:#{limit}"
 
-    results = safe_await_many(tasks, to_timeout(second: 10))
-    {Map.get(results, :ingress, []), Map.get(results, :egress, [])}
+    srql_mod
+    |> srql_results(query, scope)
+    |> Enum.map(&interface_direction_point/1)
+    |> Enum.filter(& &1)
+  end
+
+  defp split_interface_direction_points(rows) do
+    rows
+    |> Enum.group_by(&Map.get(&1, :direction))
+    |> then(fn grouped -> {Map.get(grouped, :ingress, []), Map.get(grouped, :egress, [])} end)
   end
 
   defp interface_direction_points(ingress, egress, bucket_secs, unit_mode) do
@@ -924,23 +928,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
         "egress" => Map.get(egress_map, t, 0)
       }
     end)
-  end
-
-  defp load_iface_downsample(srql_mod, scope, base, bucket, value_field) do
-    query = "#{base} bucket:#{bucket} agg:sum value_field:#{value_field}"
-
-    case srql_mod.query(query, %{scope: scope}) do
-      {:ok, %{"results" => results}} when is_list(results) ->
-        Enum.map(results, fn row ->
-          %{
-            t: row["timestamp"] || row["bucket"] || row["time_bucket"],
-            v: to_number(row["value"] || row[value_field] || 0)
-          }
-        end)
-
-      _ ->
-        []
-    end
   end
 
   defp load_summary(srql_mod, scope, base) do
@@ -986,10 +973,14 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   end
 
   defp load_top_interfaces(srql_mod, scope, base) do
-    ingress = load_top_interface_direction(srql_mod, scope, base, :ingress)
-    egress = load_top_interface_direction(srql_mod, scope, base, :egress)
+    query =
+      "#{base} stats:sum(bytes_total) as bytes_total by sampler_address,interface,if_speed_bps " <>
+        "sort:bytes_total:desc limit:#{@top_n * 2}"
 
-    (ingress ++ egress)
+    srql_mod
+    |> srql_results(query, scope)
+    |> Enum.map(&top_interface_row/1)
+    |> Enum.filter(& &1)
     |> Enum.reduce(%{}, &merge_interface_direction_row/2)
     |> Map.values()
     |> Enum.map(&finalize_interface_row/1)
@@ -997,35 +988,24 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     |> Enum.take(5)
   end
 
-  defp load_top_interface_direction(srql_mod, scope, base, direction) when direction in [:ingress, :egress] do
-    {name_field, speed_field} =
-      case direction do
-        :ingress -> {"in_if_name", "in_if_speed_bps"}
-        :egress -> {"out_if_name", "out_if_speed_bps"}
-      end
+  defp top_interface_row(row) do
+    p = row_payload(row)
+    sampler = get_field(p, "sampler_address")
+    interface_name = p |> get_field("interface") |> normalize_interface_name()
 
-    query =
-      "#{base} direction:#{direction} stats:sum(bytes_total) as bytes_total by sampler_address,#{name_field},#{speed_field} sort:bytes_total:desc limit:#{@top_n}"
-
-    srql_mod
-    |> srql_results(query, scope)
-    |> Enum.map(fn row ->
-      p = row_payload(row)
-      sampler = get_field(p, "sampler_address")
-      interface_name = p |> get_field(name_field) |> normalize_interface_name()
-
+    with true <- is_binary(sampler) and String.trim(sampler) != "",
+         true <- is_binary(interface_name) and interface_name != "",
+         {:ok, direction} <- normalize_if_direction(get_field(p, "if_direction")) do
       %{
         sampler: sampler,
         interface_name: interface_name,
         direction: direction,
         bytes: to_number(get_field(p, "bytes_total")),
-        capacity_bps: p |> get_field(speed_field) |> to_number() |> trunc()
+        capacity_bps: p |> get_field("if_speed_bps") |> to_number() |> trunc()
       }
-    end)
-    |> Enum.filter(fn row ->
-      is_binary(row.sampler) and String.trim(row.sampler) != "" and
-        is_binary(row.interface_name) and row.interface_name != ""
-    end)
+    else
+      _ -> nil
+    end
   end
 
   defp merge_interface_direction_row(row, acc) do
@@ -1074,7 +1054,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   defp load_interfaces_p95(srql_mod, scope, tw, interfaces) do
     bucket = timeseries_bucket(tw)
     bucket_secs = bucket_seconds(bucket)
-    limit = batched_interface_downsample_limit(tw, bucket_secs, interfaces)
+    limit = interface_downsample_limit(tw, bucket_secs, length(interfaces) * 2)
 
     tasks =
       interfaces
@@ -1094,10 +1074,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
         else
           [
             Task.async(fn ->
-              load_interface_p95_direction(srql_mod, scope, tw, sampler, interface_names, bucket, limit, :ingress)
-            end),
-            Task.async(fn ->
-              load_interface_p95_direction(srql_mod, scope, tw, sampler, interface_names, bucket, limit, :egress)
+              load_interface_p95_points(srql_mod, scope, tw, sampler, interface_names, bucket, limit)
             end)
           ]
         end
@@ -1120,36 +1097,21 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     end)
   end
 
-  defp load_interface_p95_direction(srql_mod, scope, tw, sampler, interface_names, bucket, limit, direction) do
-    {series_field, interface_filter} =
-      case direction do
-        :ingress -> {"in_if_name", "in_if_name:#{srql_list(interface_names)}"}
-        :egress -> {"out_if_name", "out_if_name:#{srql_list(interface_names)}"}
-      end
-
+  defp load_interface_p95_points(srql_mod, scope, tw, sampler, interface_names, bucket, limit) do
     query =
-      "in:flows time:last_#{tw} sampler_address:#{srql_quote(sampler)} direction:#{direction} " <>
-        "#{interface_filter} bucket:#{bucket} agg:sum value_field:bytes_total series:#{series_field} limit:#{limit}"
+      "in:flows time:last_#{tw} sampler_address:#{srql_quote(sampler)} " <>
+        "interface:#{srql_list(interface_names)} bucket:#{bucket} agg:sum " <>
+        "value_field:bytes_total series:interface limit:#{limit}"
 
     srql_mod
     |> srql_results(query, scope)
-    |> Enum.map(fn row ->
-      p = row_payload(row)
-
-      %{
-        sampler: sampler,
-        interface_name: p |> get_field("series") |> normalize_interface_name(),
-        direction: direction,
-        t: get_field(p, "timestamp") || get_field(p, "bucket") || get_field(p, "time_bucket"),
-        v: p |> get_field("value") |> to_number()
-      }
-    end)
-    |> Enum.filter(fn row -> is_binary(row.interface_name) and row.t end)
+    |> Enum.map(&interface_direction_point(&1, sampler))
+    |> Enum.filter(& &1)
   end
 
-  defp batched_interface_downsample_limit(tw, bucket_secs, interfaces) do
+  defp interface_downsample_limit(tw, bucket_secs, series_count) do
     bucket_count = ceil(time_window_seconds(tw) / max(bucket_secs, 1)) + 2
-    max(length(interfaces) * bucket_count, 100)
+    max(max(series_count, 1) * bucket_count, 100)
   end
 
   defp bucket_interface_direction_values(rows) do
@@ -1161,6 +1123,57 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
       end)
     end)
   end
+
+  defp interface_direction_point(row, sampler \\ nil) do
+    p = row_payload(row)
+
+    with {:ok, direction, interface_name} <- parse_interface_series(get_field(p, "series")),
+         true <- is_binary(interface_name),
+         t when not is_nil(t) <- get_field(p, "timestamp") || get_field(p, "bucket") || get_field(p, "time_bucket") do
+      %{
+        sampler: sampler,
+        interface_name: interface_name,
+        direction: direction,
+        t: t,
+        v: p |> get_field("value") |> to_number()
+      }
+    else
+      _ -> nil
+    end
+  end
+
+  defp parse_interface_series(series) when is_binary(series) do
+    case String.split(series, ":", parts: 2) do
+      [direction, interface_name] ->
+        with {:ok, direction} <- normalize_if_direction(direction),
+             interface_name when is_binary(interface_name) <- normalize_interface_name(interface_name) do
+          {:ok, direction, interface_name}
+        else
+          _ -> :error
+        end
+
+      _ ->
+        :error
+    end
+  end
+
+  defp parse_interface_series(_), do: :error
+
+  defp normalize_if_direction(direction) when is_atom(direction) do
+    direction
+    |> Atom.to_string()
+    |> normalize_if_direction()
+  end
+
+  defp normalize_if_direction(direction) when is_binary(direction) do
+    case direction |> String.trim() |> String.downcase() do
+      "ingress" -> {:ok, :ingress}
+      "egress" -> {:ok, :egress}
+      _ -> :error
+    end
+  end
+
+  defp normalize_if_direction(_), do: :error
 
   defp normalize_interface_name(name) when is_binary(name) do
     name = String.trim(name)
