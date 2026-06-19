@@ -129,6 +129,11 @@ pub struct DetectorEngine {
     series: HashMap<String, SeriesState>,
     /// Last cumulative-counter reading per series, for rate normalization.
     counters: HashMap<String, CounterState>,
+    /// Last sample timestamp that attempted stale-state eviction at capacity.
+    /// Metric-feed frames commonly carry many new keys with the same observation
+    /// time; scanning both maps once per timestamp bounds a fruitless full scan
+    /// under cap-pressure churn.
+    last_capacity_eviction_at_unix_nano: Option<u64>,
     /// Number of new series dropped because the `max_series` cap was reached.
     pub dropped_at_capacity: u64,
 }
@@ -139,6 +144,7 @@ impl DetectorEngine {
             config,
             series: HashMap::new(),
             counters: HashMap::new(),
+            last_capacity_eviction_at_unix_nano: None,
             dropped_at_capacity: 0,
         }
     }
@@ -171,6 +177,15 @@ impl DetectorEngine {
         self.counters.retain(|_, counter| {
             now_unix_nano.saturating_sub(counter.timestamp) <= STATE_EVICTION_MAX_AGE_NS
         });
+    }
+
+    fn evict_stale_state_once_per_timestamp(&mut self, now_unix_nano: u64) {
+        if self.last_capacity_eviction_at_unix_nano == Some(now_unix_nano) {
+            return;
+        }
+
+        self.last_capacity_eviction_at_unix_nano = Some(now_unix_nano);
+        self.evict_stale_state(now_unix_nano);
     }
 
     /// Rate-normalize one cumulative-monotonic counter reading against this
@@ -220,7 +235,7 @@ impl DetectorEngine {
         let Some(previous) = self.counters.get_mut(series_key) else {
             // Warmup: store the first reading, emit nothing (a rate needs two).
             if self.counters.len() >= self.config.max_series {
-                self.evict_stale_state(observed_at_unix_nano);
+                self.evict_stale_state_once_per_timestamp(observed_at_unix_nano);
             }
             if self.counters.len() >= self.config.max_series {
                 self.dropped_at_capacity = self.dropped_at_capacity.saturating_add(1);
@@ -301,7 +316,7 @@ impl DetectorEngine {
 
         if !self.series.contains_key(series_key) {
             if self.series.len() >= self.config.max_series {
-                self.evict_stale_state(observed_at_unix_nano);
+                self.evict_stale_state_once_per_timestamp(observed_at_unix_nano);
             }
             if self.series.len() >= self.config.max_series {
                 self.dropped_at_capacity = self.dropped_at_capacity.saturating_add(1);
@@ -501,7 +516,14 @@ impl DetectorEngine {
         let fresh = |ts: u64| now_unix_nano.saturating_sub(ts) <= max_age_ns;
         let mut restored = 0;
 
-        for series in checkpoint.series {
+        let mut series_entries = checkpoint.series;
+        series_entries.sort_by(|left, right| {
+            right
+                .last_observed_at_unix_nano
+                .cmp(&left.last_observed_at_unix_nano)
+        });
+
+        for series in series_entries {
             if !fresh(series.last_observed_at_unix_nano) {
                 continue;
             }
@@ -530,7 +552,10 @@ impl DetectorEngine {
             restored += 1;
         }
 
-        for counter in checkpoint.counters {
+        let mut counter_entries = checkpoint.counters;
+        counter_entries.sort_by(|left, right| right.timestamp.cmp(&left.timestamp));
+
+        for counter in counter_entries {
             if !fresh(counter.timestamp) {
                 continue;
             }
@@ -979,6 +1004,52 @@ mod tests {
 
         assert_eq!(restored.restore_checkpoint(checkpoint, 4, u64::MAX), 0);
         assert_eq!(restored.counter_count(), 2);
+        assert!(!restored.counters.contains_key("c1"));
+        assert!(restored.counters.contains_key("c2"));
+        assert!(restored.counters.contains_key("c3"));
+    }
+
+    #[test]
+    fn restore_checkpoint_caps_series_state_by_freshness() {
+        let checkpoint = EngineCheckpoint {
+            series: vec![
+                SeriesCheckpoint {
+                    series_key: "oldest".to_string(),
+                    window_tail: vec![1.0],
+                    consecutive_anomalous: 0,
+                    consecutive_clean: 0,
+                    active_anomalous: false,
+                    last_observed_at_unix_nano: 1,
+                },
+                SeriesCheckpoint {
+                    series_key: "freshest".to_string(),
+                    window_tail: vec![3.0],
+                    consecutive_anomalous: 0,
+                    consecutive_clean: 0,
+                    active_anomalous: false,
+                    last_observed_at_unix_nano: 3,
+                },
+                SeriesCheckpoint {
+                    series_key: "middle".to_string(),
+                    window_tail: vec![2.0],
+                    consecutive_anomalous: 0,
+                    consecutive_clean: 0,
+                    active_anomalous: false,
+                    last_observed_at_unix_nano: 2,
+                },
+            ],
+            counters: Vec::new(),
+        };
+        let mut restored = DetectorEngine::new(EngineConfig {
+            max_series: 2,
+            ..EngineConfig::default()
+        });
+
+        assert_eq!(restored.restore_checkpoint(checkpoint, 4, u64::MAX), 2);
+        assert_eq!(restored.series_count(), 2);
+        assert!(!restored.series.contains_key("oldest"));
+        assert!(restored.series.contains_key("middle"));
+        assert!(restored.series.contains_key("freshest"));
     }
 
     #[test]
