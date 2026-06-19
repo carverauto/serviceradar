@@ -2349,7 +2349,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <.ui_panel class="p-3">
           <div class="flex items-center justify-between">
             <div>
-              <p class="text-sm font-medium text-base-content/60">Avg Bandwidth (covered)</p>
+              <p class="text-sm font-medium text-base-content/60">Avg Bandwidth</p>
               <p class="text-xl font-bold">
                 {format_netflow_bps(Map.get(@summary, :avg_bps, 0.0))}
               </p>
@@ -2361,7 +2361,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <.ui_panel class="p-3">
           <div class="flex items-center justify-between">
             <div>
-              <p class="text-sm font-medium text-base-content/60">Avg PPS (covered)</p>
+              <p class="text-sm font-medium text-base-content/60">Avg PPS</p>
               <p class="text-xl font-bold">
                 {format_netflow_pps(Map.get(@summary, :avg_pps, 0.0))}
               </p>
@@ -7811,7 +7811,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     packets_alt_query = ~s|#{base_query} stats:"sum(packets) as total_packets" limit:1|
     packets_in_query = ~s|#{base_query} stats:"sum(packets_in) as total_packets_in" limit:1|
     packets_out_query = ~s|#{base_query} stats:"sum(packets_out) as total_packets_out" limit:1|
-    coverage_query = ~s|#{base_query} stats:"min(time) as first_time, max(time) as last_time" limit:1|
 
     proto_query =
       ~s|#{base_query} stats:"count(*) as total by protocol_num" sort:total:desc limit:50|
@@ -7864,21 +7863,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     other = max(total - tcp - udp, 0)
 
-    min_covered_seconds =
-      case resolve_srql_time(time_token) do
-        {:ok, %{start: start_dt, end: end_dt}} -> choose_netflow_bucket_seconds(start_dt, end_dt)
-        _ -> 60
-      end
-
-    covered_seconds =
-      netflow_summary_covered_seconds(
-        srql_module.query(coverage_query, %{scope: scope}),
-        window_seconds,
-        min_covered_seconds
-      )
-
-    avg_bps = total_bytes * 8.0 / covered_seconds
-    avg_pps = total_packets * 1.0 / covered_seconds
+    avg_bps = total_bytes * 8.0 / window_seconds
+    avg_pps = total_packets * 1.0 / window_seconds
 
     %{
       total: total,
@@ -7889,26 +7875,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       total_packets: total_packets,
       avg_bps: avg_bps,
       avg_pps: avg_pps,
-      window_seconds: covered_seconds
+      window_seconds: window_seconds
     }
   rescue
     e ->
       Logger.warning("Failed to load netflow summary stats: #{inspect(e)}")
       empty_netflow_summary()
-  end
-
-  defp netflow_summary_covered_seconds(result, fallback_seconds, min_covered_seconds) do
-    row = extract_stats_row(result)
-    minimum = max(to_int(min_covered_seconds), 1)
-
-    with {:ok, first_time} <- row |> Map.get("first_time") |> parse_timestamp(),
-         {:ok, last_time} <- row |> Map.get("last_time") |> parse_timestamp() do
-      last_time
-      |> DateTime.diff(first_time, :second)
-      |> max(minimum)
-    else
-      _ -> max(to_int(fallback_seconds), 1)
-    end
   end
 
   defp load_netflow_top_talkers(srql_module, current_query, scope, talker_cidr, limit \\ 10) do
