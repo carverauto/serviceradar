@@ -19,6 +19,7 @@ package addon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -34,6 +35,34 @@ const (
 	defaultMetricFeedMaxInFlight = 32
 	metricFeedPollInterval       = 10 * time.Millisecond
 )
+
+var errMetricFeedStreamClosed = errors.New("metric feed stream closed")
+
+type metricFeedStreamClosedError struct {
+	cause error
+}
+
+func (e metricFeedStreamClosedError) Error() string {
+	if e.cause == nil {
+		return errMetricFeedStreamClosed.Error()
+	}
+	return errMetricFeedStreamClosed.Error() + ": " + e.cause.Error()
+}
+
+func (e metricFeedStreamClosedError) Unwrap() error {
+	return e.cause
+}
+
+func (e metricFeedStreamClosedError) Is(target error) bool {
+	return target == errMetricFeedStreamClosed
+}
+
+func metricFeedStreamClosedWithCause(cause error) error {
+	if cause == nil {
+		return errMetricFeedStreamClosed
+	}
+	return metricFeedStreamClosedError{cause: cause}
+}
 
 type metricFeedPublication struct {
 	source  string
@@ -162,15 +191,53 @@ func (l *metricFeedLifecycle) publish(source string, payload []byte) bool {
 }
 
 func (l *metricFeedLifecycle) run(ctx context.Context) {
-	frames, acks, err := l.client.StreamMetricFeed(ctx)
+	backoff := addonStreamReconnectInitial
+
+	for ctx.Err() == nil {
+		err := l.runStream(ctx)
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			l.logger.Warn().Err(err).Str("addon", l.addonID).Msg("addon metric feed stream lost")
+		}
+
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+
+		backoff *= 2
+		if backoff > addonStreamReconnectMax {
+			backoff = addonStreamReconnectMax
+		}
+	}
+}
+
+func (l *metricFeedLifecycle) runStream(ctx context.Context) error {
+	var (
+		frames    chan<- *addonpb.MetricFeedFrame
+		acks      <-chan uint64
+		streamErr <-chan error
+		err       error
+	)
+	if diagnosticClient, ok := l.client.(coreaddon.MetricFeedDiagnosticClient); ok {
+		frames, acks, streamErr, err = diagnosticClient.StreamMetricFeedWithDiagnostics(ctx)
+	} else {
+		frames, acks, err = l.client.StreamMetricFeed(ctx)
+	}
 	if err != nil {
-		l.logger.Warn().Err(err).Str("addon", l.addonID).Msg("addon metric feed stream failed to open")
-		return
+		return err
 	}
 	defer close(frames)
 
 	var acked atomic.Uint64
+	ackDone := make(chan struct{})
 	go func() {
+		defer close(ackDone)
 		for {
 			select {
 			case <-ctx.Done():
@@ -188,13 +255,33 @@ func (l *metricFeedLifecycle) run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return nil
+		case err, ok := <-streamErr:
+			if !ok {
+				streamErr = nil
+				continue
+			}
+			if ok && err != nil {
+				return metricFeedStreamClosedWithCause(err)
+			}
+		case <-ackDone:
+			return metricFeedStreamClosedWithCause(readStreamCause(streamErr))
 		case publication := <-l.queue:
 			nextID := seq + 1
 			for nextID-acked.Load() > defaultMetricFeedMaxInFlight {
 				select {
 				case <-ctx.Done():
-					return
+					return nil
+				case err, ok := <-streamErr:
+					if !ok {
+						streamErr = nil
+						continue
+					}
+					if ok && err != nil {
+						return metricFeedStreamClosedWithCause(err)
+					}
+				case <-ackDone:
+					return metricFeedStreamClosedWithCause(readStreamCause(streamErr))
 				case <-time.After(metricFeedPollInterval):
 				}
 			}
@@ -213,7 +300,17 @@ func (l *metricFeedLifecycle) run(ctx context.Context) {
 
 			select {
 			case <-ctx.Done():
-				return
+				return nil
+			case err, ok := <-streamErr:
+				if !ok {
+					streamErr = nil
+					continue
+				}
+				if ok && err != nil {
+					return metricFeedStreamClosedWithCause(err)
+				}
+			case <-ackDone:
+				return metricFeedStreamClosedWithCause(readStreamCause(streamErr))
 			case frames <- frame:
 				seq = nextID
 			}

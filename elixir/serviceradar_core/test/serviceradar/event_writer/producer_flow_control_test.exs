@@ -174,6 +174,55 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
       assert state.demand == 2
     end
 
+    test "emitted JetStream messages carry delivery metadata for terminal-delivery alerts" do
+      config = build_config(max_ack_pending: 8, max_deliver: 5)
+      pull_subject = "_INBOX.serviceradar.event_writer.pull.test.events"
+
+      state =
+        config
+        |> init_state()
+        |> Map.merge(%{
+          demand: 1,
+          consumer_context: %{
+            consumers: [
+              %{
+                pull_subject: pull_subject,
+                max_deliver: 3
+              }
+            ],
+            pull_subjects: MapSet.new([pull_subject])
+          },
+          pull_subjects: MapSet.new([pull_subject])
+        })
+
+      reply_to = "$JS.ACK.EVENTS.event_writer_events.2.10.8.0.4"
+
+      {:noreply, [event], state} =
+        Producer.handle_info(
+          {:msg,
+           %{
+             body: "payload",
+             topic: pull_subject,
+             reply_to: reply_to,
+             headers: %{"nats-subject" => "events.test"}
+           }},
+          state
+        )
+
+      assert state.pending_count == 0
+      assert event.metadata.subject == "events.test"
+      assert event.ack_data.max_deliver == 3
+
+      assert event.ack_data.jetstream_ack == %{
+               stream: "EVENTS",
+               consumer: "event_writer_events",
+               delivery_count: 2,
+               stream_sequence: 10,
+               consumer_sequence: 8,
+               pending: 4
+             }
+    end
+
     test "pull request sizing is bounded by available demand and configured batch size" do
       assert Producer.pull_request_batch_size(0, 16) == 0
       assert Producer.pull_request_batch_size(3, 16) == 3

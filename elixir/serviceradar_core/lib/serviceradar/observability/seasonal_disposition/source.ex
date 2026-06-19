@@ -29,6 +29,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
           metric_class: String.t(),
           metric_name: String.t(),
           query: String.t(),
+          time_zone: String.t(),
           robust_statistic: robust_statistic(),
           series_field: String.t(),
           dow_field: String.t(),
@@ -50,6 +51,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
             metric_class: nil,
             metric_name: nil,
             query: nil,
+            time_zone: "UTC",
             robust_statistic: :mean_stddev,
             series_field: "series",
             dow_field: "dow",
@@ -69,6 +71,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
   def defaults(opts \\ []) do
     time_range = Keyword.get(opts, :time_range, @default_time_range)
     limit = Keyword.get(opts, :limit, @default_limit)
+    time_zone = opts |> Keyword.get(:time_zone, "UTC") |> normalize_time_zone()
 
     [
       %__MODULE__{
@@ -76,8 +79,9 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
         resource_type: "cpu",
         metric_class: "cpu",
         metric_name: "usage_percent",
+        time_zone: time_zone,
         query:
-          ~s|in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:#{time_range} bucket:1h agg:avg series:uid stats:profile_hour_of_week(value) sort:dow:asc,hod:asc limit:#{limit}|,
+          ~s|in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" timezone:"#{time_zone}" time:#{time_range} bucket:1h agg:avg series:uid stats:profile_hour_of_week(value) sort:dow:asc,hod:asc limit:#{limit}|,
         robust_statistic: :mean_stddev,
         label_fields: ["series"]
       },
@@ -86,8 +90,9 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
         resource_type: "memory",
         metric_class: "memory",
         metric_name: "usage_percent",
+        time_zone: time_zone,
         query:
-          ~s|in:timeseries_metrics metric_type:"sysmon.memory" metric_name:"memory.used_percent" time:#{time_range} bucket:1h agg:avg series:uid stats:profile_hour_of_week(value) sort:dow:asc,hod:asc limit:#{limit}|,
+          ~s|in:timeseries_metrics metric_type:"sysmon.memory" metric_name:"memory.used_percent" timezone:"#{time_zone}" time:#{time_range} bucket:1h agg:avg series:uid stats:profile_hour_of_week(value) sort:dow:asc,hod:asc limit:#{limit}|,
         robust_statistic: :mean_stddev,
         label_fields: ["series"]
       },
@@ -96,8 +101,9 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
         resource_type: "disk",
         metric_class: "disk",
         metric_name: "usage_percent",
+        time_zone: time_zone,
         query:
-          ~s|in:timeseries_metrics metric_type:"sysmon.disk" metric_name:"disk.used_percent" time:#{time_range} bucket:1h agg:avg series:uid stats:profile_hour_of_week(value) sort:dow:asc,hod:asc limit:#{limit}|,
+          ~s|in:timeseries_metrics metric_type:"sysmon.disk" metric_name:"disk.used_percent" timezone:"#{time_zone}" time:#{time_range} bucket:1h agg:avg series:uid stats:profile_hour_of_week(value) sort:dow:asc,hod:asc limit:#{limit}|,
         robust_statistic: :mean_stddev,
         label_fields: ["series"]
       }
@@ -116,6 +122,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
       metric_class: string_value(values, :metric_class),
       metric_name: string_value(values, :metric_name),
       query: string_value(values, :query),
+      time_zone: values |> string_value(:time_zone, "UTC") |> normalize_time_zone(),
       robust_statistic: robust_statistic_value(values, :robust_statistic),
       series_field: string_value(values, :series_field, "series"),
       dow_field: string_value(values, :dow_field, "dow"),
@@ -178,4 +185,16 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
     |> List.wrap()
     |> Enum.map(&to_string/1)
   end
+
+  defp normalize_time_zone(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> case do
+      "" -> "UTC"
+      "Etc/UTC" -> "UTC"
+      time_zone -> time_zone
+    end
+  end
+
+  defp normalize_time_zone(_value), do: "UTC"
 end

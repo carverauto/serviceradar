@@ -55,6 +55,8 @@ var (
 	// ErrAddonAssignmentNotFound indicates no running add-on assignment matched a
 	// command invocation.
 	ErrAddonAssignmentNotFound = errors.New("addon assignment not found")
+
+	errAddonStreamClosed = errors.New("addon stream closed")
 )
 
 // State is the lifecycle state reported for a supervised add-on.
@@ -115,19 +117,23 @@ func (r Resources) IsZero() bool {
 
 // Status is a snapshot of one supervised add-on.
 type Status struct {
-	ID                string    `json:"id"`
-	State             State     `json:"state"`
-	Version           string    `json:"version,omitempty"`
-	Arch              string    `json:"arch,omitempty"`
-	Capabilities      []string  `json:"capabilities,omitempty"`
-	DegradationReason string    `json:"degradation_reason,omitempty"`
-	ConfigHash        string    `json:"config_hash,omitempty"`
-	PID               int       `json:"pid,omitempty"`
-	RestartCount      int       `json:"restart_count"`
-	LastError         string    `json:"last_error,omitempty"`
-	LastHealthAt      time.Time `json:"last_health_at,omitempty"`
-	LastStartedAt     time.Time `json:"last_started_at,omitempty"`
-	LastExitedAt      time.Time `json:"last_exited_at,omitempty"`
+	ID                      string    `json:"id"`
+	State                   State     `json:"state"`
+	Version                 string    `json:"version,omitempty"`
+	Arch                    string    `json:"arch,omitempty"`
+	Capabilities            []string  `json:"capabilities,omitempty"`
+	DegradationReason       string    `json:"degradation_reason,omitempty"`
+	ConfigHash              string    `json:"config_hash,omitempty"`
+	PID                     int       `json:"pid,omitempty"`
+	RestartCount            int       `json:"restart_count"`
+	LastError               string    `json:"last_error,omitempty"`
+	LastHealthAt            time.Time `json:"last_health_at,omitempty"`
+	LastStartedAt           time.Time `json:"last_started_at,omitempty"`
+	LastExitedAt            time.Time `json:"last_exited_at,omitempty"`
+	ResourceLimitsRequested bool      `json:"resource_limits_requested,omitempty"`
+	ResourceLimitsEnforced  bool      `json:"resource_limits_enforced,omitempty"`
+	ResourceLimitCgroupPath string    `json:"resource_limit_cgroup_path,omitempty"`
+	ResourceLimitError      string    `json:"resource_limit_error,omitempty"`
 }
 
 // CommandInvocation identifies one native add-on action invocation delivered
@@ -164,4 +170,43 @@ type AddonManager interface {
 	PublishMetricFeed(source string, payload []byte) int
 	// Stop terminates all add-ons and waits for their supervisors to exit.
 	Stop(ctx context.Context) error
+}
+
+type addonStreamClosedError struct {
+	cause error
+}
+
+func (e addonStreamClosedError) Error() string {
+	if e.cause == nil {
+		return errAddonStreamClosed.Error()
+	}
+	return errAddonStreamClosed.Error() + ": " + e.cause.Error()
+}
+
+func (e addonStreamClosedError) Unwrap() error {
+	return e.cause
+}
+
+func (e addonStreamClosedError) Is(target error) bool {
+	return target == errAddonStreamClosed
+}
+
+func addonStreamClosedWithCause(cause error) error {
+	if cause == nil {
+		return errAddonStreamClosed
+	}
+	return addonStreamClosedError{cause: cause}
+}
+
+func readStreamCause(errs <-chan error) error {
+	if errs == nil {
+		return nil
+	}
+
+	select {
+	case err := <-errs:
+		return err
+	default:
+		return nil
+	}
 }

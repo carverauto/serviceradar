@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	coreaddon "github.com/carverauto/serviceradar/go/pkg/addon"
 )
@@ -76,10 +77,45 @@ type activeArtifact struct {
 }
 
 func (r *runner) drainArtifacts(ctx context.Context, artifactClient coreaddon.ArtifactClient) {
-	chunks, err := artifactClient.StreamArtifacts(ctx)
+	backoff := addonStreamReconnectInitial
+
+	for ctx.Err() == nil {
+		err := r.drainArtifactStream(ctx, artifactClient)
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			r.cfg.Logger.Warn().Err(err).Str("addon", r.id).Msg("addon artifact stream lost")
+		}
+
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+
+		backoff *= 2
+		if backoff > addonStreamReconnectMax {
+			backoff = addonStreamReconnectMax
+		}
+	}
+}
+
+func (r *runner) drainArtifactStream(ctx context.Context, artifactClient coreaddon.ArtifactClient) error {
+	var (
+		chunks    <-chan *coreaddon.ArtifactUploadChunk
+		streamErr <-chan error
+		err       error
+	)
+	if diagnosticClient, ok := artifactClient.(coreaddon.ArtifactDiagnosticClient); ok {
+		chunks, streamErr, err = diagnosticClient.StreamArtifactsWithDiagnostics(ctx)
+	} else {
+		chunks, err = artifactClient.StreamArtifacts(ctx)
+	}
 	if err != nil {
-		r.cfg.Logger.Warn().Err(err).Str("addon", r.id).Msg("addon artifact stream failed to open")
-		return
+		return err
 	}
 
 	var current *activeArtifact
@@ -92,10 +128,18 @@ func (r *runner) drainArtifacts(ctx context.Context, artifactClient coreaddon.Ar
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return nil
+		case err, ok := <-streamErr:
+			if !ok {
+				streamErr = nil
+				continue
+			}
+			if ok && err != nil {
+				return addonStreamClosedWithCause(err)
+			}
 		case chunk, ok := <-chunks:
 			if !ok {
-				return
+				return addonStreamClosedWithCause(readStreamCause(streamErr))
 			}
 			if chunk == nil {
 				continue

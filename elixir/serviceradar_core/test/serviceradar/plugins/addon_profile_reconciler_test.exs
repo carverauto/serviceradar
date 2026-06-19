@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Observability.AnomalyConfigRuntime
   alias ServiceRadar.Plugins.AddonProfileReconciler
 
   defmodule ResolverV1 do
@@ -193,7 +194,13 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
 
   setup do
     {:ok, _pid} = MemoryStore.start_link()
-    on_exit(fn -> MemoryStore.stop() end)
+    AnomalyConfigRuntime.clear_cache_for_test()
+
+    on_exit(fn ->
+      AnomalyConfigRuntime.clear_cache_for_test()
+      MemoryStore.stop()
+    end)
+
     :ok
   end
 
@@ -250,6 +257,48 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     assert third.upserted == 1
     assert third.unchanged == 0
     assert third.disabled == 1
+  end
+
+  test "anomaly profile assignments project runtime edge detector knobs and drop blank scalars" do
+    AnomalyConfigRuntime.put_cache_for_test(%{
+      edge_addon_params: %{
+        "n_sigma" => 4.5,
+        "window_size" => 600,
+        "confirm_slots" => 7,
+        "min_samples" => 45
+      }
+    })
+
+    profile = %{
+      id: Ecto.UUID.generate(),
+      name: "Default Edge Anomaly Detection",
+      addon_id: "anomaly",
+      addon_package_id: Ecto.UUID.generate(),
+      target_query: "in:agents name:agent-*",
+      params: %{
+        "metric_feed" => %{"sources" => ["sysmon", "snmp"]},
+        "n_sigma" => "",
+        "confirm_slots" => 9,
+        "min_samples" => nil
+      },
+      args: [],
+      priority: 100,
+      enabled: true
+    }
+
+    assert {:ok, preview} =
+             AddonProfileReconciler.preview(profile,
+               resolver: ResolverV2,
+               store: MemoryStore,
+               sample_limit: 1
+             )
+
+    assert [%{params: params}] = preview.sample_assignments
+    assert params["metric_feed"] == %{"sources" => ["sysmon", "snmp"]}
+    assert params["n_sigma"] == 4.5
+    assert params["window_size"] == 600
+    assert params["confirm_slots"] == 9
+    assert params["min_samples"] == 45
   end
 
   test "preview reports resolved targets and skip reasons" do

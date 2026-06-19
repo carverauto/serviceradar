@@ -129,6 +129,35 @@ fn decreasing_trend_has_no_eta() {
     }
 }
 
+#[test]
+fn seasonal_negative_slope_has_no_eta_even_if_next_season_crosses() {
+    let cfg = config(Some(150.0), 24 * 3_600, CapacityModelKind::Seasonal);
+    let points: Vec<CapacityPoint> = (0..72)
+        .map(|h| {
+            let declining_base = 100.0 - h as f64 * 0.2;
+            let seasonal_spike = if h % 24 == 0 { 100.0 } else { 0.0 };
+            point(h, declining_base + seasonal_spike)
+        })
+        .collect();
+
+    let out = dispose_capacity(
+        CapacityRow {
+            series_key: "seasonal".to_string(),
+            points,
+        },
+        &cfg,
+    );
+
+    match out.disposition {
+        Disposition::Projected(f) => {
+            assert_eq!(f.model, "holt_winters_additive");
+            assert!(f.slope_per_second <= 0.0);
+            assert_eq!(f.projected_exhaustion_at_unix_micros, None);
+        }
+        other => panic!("expected Projected, got {other:?}"),
+    }
+}
+
 /// A near-zero positive slope whose crossing lands beyond `10×` the horizon ⇒ no
 /// ETA (the year-5256 collapse, model_test.exs:80).
 #[test]

@@ -37,11 +37,21 @@ func TestToProtoStatusesMapsFields(t *testing.T) {
 			State:             StateUnhealthy,
 			DegradationReason: "CAP_BPF not granted",
 		},
+		{
+			ID:                "anomaly",
+			State:             StateRunning,
+			DegradationReason: `{"kind":"anomaly_scoring_liveness","samples_scored_total":42}`,
+		},
+		{
+			ID:                 "capacity-limited",
+			State:              StateRunning,
+			ResourceLimitError: "addon resource limits declared but addon_cgroup_root is not configured",
+		},
 	}
 
 	out := ToProtoStatuses(statuses)
-	if len(out) != 2 {
-		t.Fatalf("expected 2 proto statuses, got %d", len(out))
+	if len(out) != 4 {
+		t.Fatalf("expected 4 proto statuses, got %d", len(out))
 	}
 
 	if out[0].GetName() != "addon:bumblebee" {
@@ -69,6 +79,16 @@ func TestToProtoStatusesMapsFields(t *testing.T) {
 	// Degradation reason is surfaced through last_error when no other error.
 	if out[1].GetLastError() != "CAP_BPF not granted" {
 		t.Fatalf("expected degradation reason via last_error, got %q", out[1].GetLastError())
+	}
+
+	// Healthy liveness diagnostics are preserved for add-ons that expose them via Health.
+	if out[2].GetLastError() != `{"kind":"anomaly_scoring_liveness","samples_scored_total":42}` {
+		t.Fatalf("expected liveness diagnostics via last_error, got %q", out[2].GetLastError())
+	}
+
+	// Resource enforcement failures are surfaced even when the add-on process is running.
+	if out[3].GetLastError() != "addon resource limits declared but addon_cgroup_root is not configured" {
+		t.Fatalf("expected resource-limit warning via last_error, got %q", out[3].GetLastError())
 	}
 }
 

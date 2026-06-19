@@ -16,10 +16,17 @@ import (
 // applyResourceLimits is a no-op on non-Linux platforms: cgroup v2 enforcement
 // is Linux-only. Edge add-ons run on Linux agents; this stub keeps the agent
 // buildable on darwin/windows for development.
-func applyResourceLimits(_ *exec.Cmd, id string, res Resources, _ string, log zerolog.Logger) (func(), error) {
+func applyResourceLimits(
+	_ *exec.Cmd,
+	id string,
+	res Resources,
+	_ string,
+	log zerolog.Logger,
+) (func(), resourceLimitStatus, error) {
 	if !res.IsZero() {
-		log.Debug().Str("addon", id).
-			Msg("add-on resource limits declared but cgroup enforcement is unavailable on this platform")
+		status := resourceLimitWarning("add-on resource limits declared but cgroup enforcement is unavailable on this platform")
+		log.Warn().Str("addon", id).Msg(status.Warning)
+		return noResourceLimitCleanup, status, nil
 	}
-	return func() {}, nil
+	return noResourceLimitCleanup, resourceLimitStatus{}, nil
 }

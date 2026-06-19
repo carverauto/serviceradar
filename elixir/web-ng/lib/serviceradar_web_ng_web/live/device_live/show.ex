@@ -390,6 +390,89 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp term_type(term) when is_bitstring(term), do: :bitstring
   defp term_type(_term), do: :unknown
 
+  defp anomaly_capacity_row(%{anomaly_rows: rows}, "anomaly", uid, index) do
+    row_by_uid(rows, uid, &anomaly_row_uid/2) || row_at(rows, index)
+  end
+
+  defp anomaly_capacity_row(%{capacity_rows: rows}, "capacity", uid, index) do
+    row_by_uid(rows, uid, &capacity_row_uid/2) || row_at(rows, index)
+  end
+
+  defp anomaly_capacity_row(_overview, _kind, _uid, _index), do: nil
+
+  defp row_by_uid(rows, uid, uid_fun) when is_list(rows) and is_binary(uid) and uid != "" do
+    rows
+    |> Enum.with_index()
+    |> Enum.find_value(fn {row, index} ->
+      if uid_fun.(row, index) == uid, do: row
+    end)
+  end
+
+  defp row_by_uid(_rows, _uid, _uid_fun), do: nil
+
+  defp row_at(rows, index) when is_list(rows) and is_binary(index) do
+    case Integer.parse(index) do
+      {index, ""} when index >= 0 -> Enum.at(rows, index)
+      _ -> nil
+    end
+  end
+
+  defp row_at(_rows, _index), do: nil
+
+  defp anomaly_row_uid(row, index) do
+    row_value(row, "finding_info", "uid") ||
+      row_value(row, "metadata", "finding_info", "uid") ||
+      row_value(row, "metadata", "source_identity", "series_key") ||
+      row_value(row, "series_key") ||
+      "anomaly-#{index}"
+  end
+
+  defp capacity_row_uid(row, index) do
+    [
+      row_value(row, "resource_id"),
+      row_value(row, "metric_name"),
+      row_value(row, "projected_exhaustion_at")
+    ]
+    |> Enum.reject(&blank_value?/1)
+    |> Enum.join("|")
+    |> case do
+      "" -> "capacity-#{index}"
+      uid -> uid
+    end
+  end
+
+  defp row_value(row, key), do: row_path_value(row, [key])
+  defp row_value(row, key1, key2), do: row_path_value(row, [key1, key2])
+  defp row_value(row, key1, key2, key3), do: row_path_value(row, [key1, key2, key3])
+
+  defp row_path_value(value, []), do: value
+
+  defp row_path_value(%{} = row, [key | rest]) do
+    row
+    |> Map.get(key)
+    |> case do
+      nil -> Map.get(row, known_anomaly_capacity_atom_key(key))
+      value -> value
+    end
+    |> row_path_value(rest)
+  end
+
+  defp row_path_value(_value, _path), do: nil
+
+  defp blank_value?(nil), do: true
+  defp blank_value?(""), do: true
+  defp blank_value?(_value), do: false
+
+  defp known_anomaly_capacity_atom_key("finding_info"), do: :finding_info
+  defp known_anomaly_capacity_atom_key("metadata"), do: :metadata
+  defp known_anomaly_capacity_atom_key("metric_name"), do: :metric_name
+  defp known_anomaly_capacity_atom_key("projected_exhaustion_at"), do: :projected_exhaustion_at
+  defp known_anomaly_capacity_atom_key("resource_id"), do: :resource_id
+  defp known_anomaly_capacity_atom_key("series_key"), do: :series_key
+  defp known_anomaly_capacity_atom_key("source_identity"), do: :source_identity
+  defp known_anomaly_capacity_atom_key("uid"), do: :uid
+  defp known_anomaly_capacity_atom_key(_key), do: nil
+
   defp maybe_refresh_current_device(socket, uid) when is_binary(uid) do
     if uid == socket.assigns.device_uid do
       params =
@@ -902,6 +985,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def handle_event("endpoint_inventory_close_package", _params, socket) do
     {:noreply, EndpointInventoryRuntime.close_package_detail(socket)}
+  end
+
+  def handle_event("open_anomaly_capacity_row", %{"kind" => kind} = params, socket) do
+    selection =
+      socket.assigns.anomaly_capacity
+      |> anomaly_capacity_row(kind, params["uid"], params["index"])
+      |> case do
+        nil -> nil
+        row -> %{kind: kind, row: row}
+      end
+
+    {:noreply, assign(socket, :anomaly_capacity_selected, selection)}
+  end
+
+  def handle_event("close_anomaly_capacity_row", _params, socket) do
+    {:noreply, assign(socket, :anomaly_capacity_selected, nil)}
   end
 
   def handle_event("view_mtr_trace", %{"id" => trace_id}, socket) do

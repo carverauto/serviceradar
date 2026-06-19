@@ -434,6 +434,47 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     interface_source = Enum.find(sources, &(&1.resource_type == "interface"))
     assert interface_source.metric_name == "utilization_percent"
     assert interface_source.threshold == 100.0
+
+    flow_source = Enum.find(sources, &(&1.name == "flow_bps"))
+    assert flow_source.metric_name == "bps"
+    assert flow_source.value_field == "bytes_per_hour"
+    assert flow_source.threshold == 1_000_000_000.0
+  end
+
+  test "flow forecasts convert hourly byte buckets into bps with an alert threshold" do
+    source =
+      Source.defaults()
+      |> Enum.find(&(&1.name == "flow_bps"))
+      |> Map.put(:model, "linear")
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_flow, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: __MODULE__.FlowRunner,
+               upsert_fun: upsert_fun,
+               emit_verdicts?: false,
+               horizon_seconds: 72 * 3_600,
+               min_points: 24
+             )
+
+    assert_received {:capacity_forecast_query, query}
+    assert query =~ "sum(bytes_total) as bytes_per_hour"
+
+    assert_received {:capacity_forecast_flow, attrs}
+
+    assert attrs.metric_name == "bps"
+    assert attrs.exhaustion_threshold == 1_000_000_000.0
+    assert_in_delta attrs.current_value, 570_000_000.0, 0.1
+    assert attrs.projected_exhaustion_at
+    assert attrs.metadata["forecast_value_unit"] == "bits_per_second"
+    assert attrs.metadata["raw_value_unit"] == "bytes_per_hour"
   end
 
   test "interface forecasts convert byte rates to utilization percent using live speed" do
@@ -481,7 +522,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert attrs.metadata["raw_value_unit"] == "bytes_per_second"
   end
 
-  test "interface forecasts drop SNMP counter-wrap spikes instead of projecting impossible utilization" do
+  test "interface forecasts break the model window at SNMP counter-wrap spikes" do
     source = interface_source()
 
     resolver = fn _row, _opts ->
@@ -508,11 +549,19 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
 
     assert_received {:capacity_forecast_interface, attrs}
 
-    # With the wrap sample dropped, the projection stays in the real ~10% range — never an
-    # 8e8% value, and no millennia-out / past-dated exhaustion.
+    # The wrap bucket is retained as a gap marker, so the model fits the newest
+    # contiguous segment instead of compacting history across the reset.
     assert attrs.status == "projected"
+    assert attrs.sample_count == 47
+
+    expected_window_start =
+      DateTime.add(__MODULE__.InterfaceWrapRunner.start(), 25 * 3_600, :second)
+
+    assert DateTime.compare(attrs.window_started_at, expected_window_start) == :eq
+
     assert attrs.projected_value < 100.0
     assert attrs.current_value < 100.0
+    assert attrs.metadata["diagnostics"]["gap_count"] == 1
   end
 
   test "interface forecasts are skipped when live speed is missing" do
@@ -748,6 +797,48 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert verdict_attrs.resource_key == attrs.resource_key
   end
 
+  test "worker clamps warning horizon to the forecast horizon" do
+    source = %Source{
+      name: "cpu_usage",
+      resource_type: "cpu",
+      metric_class: "cpu",
+      metric_name: "usage_percent",
+      query: "in:cpu_metrics time:last_180d bucket:1h",
+      value_field: "avg_usage_percent",
+      key_fields: ["device_id", "host_id"],
+      label_fields: ["host_id", "device_id"],
+      threshold: 100.0,
+      model: "linear"
+    }
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_clamped_warning, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: RecentRunner,
+               upsert_fun: upsert_fun,
+               verdict_emitter: VerdictEmitter,
+               test_pid: self(),
+               horizon_seconds: 24 * 3_600,
+               warning_horizon_seconds: 72 * 3_600,
+               min_points: 24
+             )
+
+    assert_received {:capacity_forecast_clamped_warning, attrs}
+    assert attrs.status == "projected"
+    assert attrs.projected_exhaustion_at
+    assert DateTime.after?(attrs.projected_exhaustion_at, attrs.horizon_ends_at)
+    assert_received {:capacity_forecast_verdict, verdict_attrs}
+    assert verdict_attrs.status == "inactive"
+    assert verdict_attrs.resource_key == attrs.resource_key
+  end
+
   test "worker emits a skipped verdict to clear stale capacity evidence" do
     source = %Source{
       name: "disk_usage",
@@ -847,6 +938,27 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     end
   end
 
+  defmodule FlowRunner do
+    @moduledoc false
+    @start ~U[2026-06-01 00:00:00Z]
+
+    def query(query, _opts) do
+      send(self(), {:capacity_forecast_query, query})
+
+      rows =
+        for hour <- 0..47 do
+          bps = 100_000_000.0 + hour * 10_000_000.0
+
+          %{
+            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "bytes_per_hour" => bps * 3_600.0 / 8.0
+          }
+        end
+
+      {:ok, rows}
+    end
+  end
+
   defmodule InterfacePacketRunner do
     @moduledoc false
     @start ~U[2026-06-01 00:00:00Z]
@@ -873,11 +985,13 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     @moduledoc false
     @start ~U[2026-06-01 00:00:00Z]
 
+    def start, do: @start
+
     # Clean ~8-12% utilization at 10 Mbps, except one bucket carrying a counter-wrap spike
     # (1.728e14 B/s) — the exact artifact that poisoned Holt-Winters in production.
     def query(_query, _opts) do
       rows =
-        for hour <- 0..47 do
+        for hour <- 0..71 do
           rate = if hour == 24, do: 1.728e14, else: 100_000.0 + hour * 1_000.0
 
           %{

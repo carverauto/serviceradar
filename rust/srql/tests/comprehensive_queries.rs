@@ -58,6 +58,20 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
+            query: r#"in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" timezone:"UTC" time:last_30d bucket:1h agg:avg series:uid stats:profile_hour_of_week(value) sort:dow:asc,hod:asc limit:50000"#,
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let row = &body["results"][0];
+                assert_eq!(row["series"], "device-alpha");
+                assert_eq!(row["sample_value"].as_f64(), Some(95.0));
+                assert_eq!(row["bucket_count"].as_i64(), Some(3));
+                assert_eq!(row["bucket_sum"].as_f64(), Some(117.0));
+                assert_eq!(row["bucket_sum_sq"].as_f64(), Some(9259.0));
+                assert!(row["dow"].as_i64().is_some());
+                assert!(row["hod"].as_i64().is_some());
+            })),
+        },
+        TestCase {
             query: "in:events device_id:\"device-alpha\" class_uid:4001 time:last_10m",
             expected_count: 1,
             validator: Some(Box::new(|body| {

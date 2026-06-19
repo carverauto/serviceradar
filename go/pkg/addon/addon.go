@@ -107,6 +107,17 @@ type TelemetryClient interface {
 	StreamTelemetry(ctx context.Context) (<-chan *addonpb.TelemetryBatch, error)
 }
 
+// TelemetryDiagnosticClient is implemented by client-side adapters that can
+// report the terminal receive error for a telemetry stream. The error channel
+// yields at most one error, then closes after the batch channel closes.
+type TelemetryDiagnosticClient interface {
+	StreamTelemetryWithDiagnostics(ctx context.Context) (
+		batches <-chan *addonpb.TelemetryBatch,
+		streamErr <-chan error,
+		err error,
+	)
+}
+
 // ArtifactSource is implemented by add-ons that can produce durable artifacts.
 // Add-ons advertise this support with CapabilityArtifactStagingV1 in Info.
 type ArtifactSource interface {
@@ -117,6 +128,17 @@ type ArtifactSource interface {
 // add-on's artifact staging stream.
 type ArtifactClient interface {
 	StreamArtifacts(ctx context.Context) (<-chan *addonpb.ArtifactUploadChunk, error)
+}
+
+// ArtifactDiagnosticClient is implemented by client-side adapters that can
+// report the terminal receive error for an artifact stream. The error channel
+// yields at most one error, then closes after the chunk channel closes.
+type ArtifactDiagnosticClient interface {
+	StreamArtifactsWithDiagnostics(ctx context.Context) (
+		chunks <-chan *addonpb.ArtifactUploadChunk,
+		streamErr <-chan error,
+		err error,
+	)
 }
 
 // CommandHandler is implemented by add-ons that can execute bounded commands
@@ -175,6 +197,18 @@ type MetricFeedSink interface {
 // frames rather than block when an add-on falls behind.
 type MetricFeedClient interface {
 	StreamMetricFeed(ctx context.Context) (frames chan<- *addonpb.MetricFeedFrame, acks <-chan uint64, err error)
+}
+
+// MetricFeedDiagnosticClient is implemented by client-side adapters that can
+// report the terminal transport error for the bidirectional metric-feed stream.
+// The error channel yields at most one error, then closes after the stream ends.
+type MetricFeedDiagnosticClient interface {
+	StreamMetricFeedWithDiagnostics(ctx context.Context) (
+		frames chan<- *addonpb.MetricFeedFrame,
+		acks <-chan uint64,
+		streamErr <-chan error,
+		err error,
+	)
 }
 
 type TelemetryBatch = addonpb.TelemetryBatch

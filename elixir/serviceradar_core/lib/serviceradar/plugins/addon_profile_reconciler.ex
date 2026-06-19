@@ -8,12 +8,26 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Observability.AnomalyConfigRuntime
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.MapUtils
   alias ServiceRadar.Plugins.SRQLInputResolver
   alias ServiceRadar.Plugins.ValueUtils
 
   require Ash.Query
+
+  @anomaly_addon_id "anomaly"
+  @edge_scalar_param_keys MapSet.new(~w(
+    confirm_slots
+    checkpoint_max_age_secs
+    max_series
+    min_cv
+    min_samples
+    min_std_floor
+    n_sigma
+    state_max_age_secs
+    window_size
+  ))
 
   @type reconcile_result :: %{
           matched_rows: non_neg_integer(),
@@ -677,7 +691,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
       addon_package_id: profile.addon_package_id,
       addon_profile_id: profile.profile_id,
       enabled: profile.enabled,
-      params: profile.params,
+      params: assignment_params(profile),
       args: profile.args,
       profile_reconcile_status: "matched",
       profile_reconcile_error: nil,
@@ -690,6 +704,25 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
       }
     }
   end
+
+  defp assignment_params(%{addon_id: @anomaly_addon_id, params: params}) do
+    profile_params = drop_blank_edge_scalar_params(params || %{})
+    Map.merge(AnomalyConfigRuntime.edge_addon_params(), profile_params)
+  end
+
+  defp assignment_params(%{params: params}), do: params || %{}
+
+  defp drop_blank_edge_scalar_params(params) when is_map(params) do
+    Map.reject(params, fn {key, value} ->
+      MapSet.member?(@edge_scalar_param_keys, to_string(key)) and blank?(value)
+    end)
+  end
+
+  defp drop_blank_edge_scalar_params(_params), do: %{}
+
+  defp blank?(nil), do: true
+  defp blank?(value) when is_binary(value), do: String.trim(value) == ""
+  defp blank?(_value), do: false
 
   defp normalize_profile(profile) do
     with {:ok, profile_id} <- required_profile_id(profile),

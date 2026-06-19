@@ -5,6 +5,10 @@
 
 //! Welford rolling statistics and the z-score breach function.
 
+const NEAR_ZERO_STDDEV: f64 = 1.0e-9;
+const IMPLICIT_ZERO_VARIANCE_CV: f64 = 0.10;
+const IMPLICIT_ZERO_VARIANCE_MIN_FLOOR: f64 = 1.0;
+
 /// A computed baseline: mean and standard deviation of a window of samples.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BaselineStats {
@@ -58,6 +62,9 @@ impl WelfordAcc {
 
     pub fn add(&mut self, value: f64) {
         if !value.is_finite() {
+            self.count = self.count.saturating_add(1);
+            self.mean = f64::NAN;
+            self.m2 = f64::NAN;
             return;
         }
 
@@ -138,16 +145,37 @@ impl WelfordAcc {
 /// Two-pass mean/variance for a full slice (used to rebuild a baseline from a
 /// retained window tail when the incremental accumulator is invalidated).
 pub fn sample_stats(values: &[f64]) -> BaselineStats {
-    let count = values.len() as f64;
-    let mean = values.iter().sum::<f64>() / count;
+    let mut count = 0usize;
+    let mut sum = 0.0;
+
+    for value in values.iter().copied().filter(|value| value.is_finite()) {
+        count = count.saturating_add(1);
+        sum += value;
+    }
+
+    if count == 0 {
+        return BaselineStats {
+            mean: 0.0,
+            stddev: 0.0,
+        };
+    }
+
+    let mean = sum / count as f64;
+
+    if count == 1 {
+        return BaselineStats { mean, stddev: 0.0 };
+    }
+
     let variance = values
         .iter()
+        .copied()
+        .filter(|value| value.is_finite())
         .map(|value| {
             let delta = value - mean;
             delta * delta
         })
         .sum::<f64>()
-        / (count - 1.0);
+        / (count as f64 - 1.0);
 
     BaselineStats {
         mean,
@@ -156,9 +184,10 @@ pub fn sample_stats(values: &[f64]) -> BaselineStats {
 }
 
 /// The breach score for `sample_value` against a baseline. Returns the absolute
-/// z-score in the normal case; for a zero-variance baseline it returns a
-/// magnitude-aware score that always clears `threshold` on any deviation but
-/// grows with the relative excursion so larger spikes outrank smaller ones.
+/// z-score in the normal case; for a zero/near-zero-variance baseline it uses an
+/// implicit 10%-of-level dispersion floor. That keeps a floor-less counter rate
+/// from firing Critical on a single tick while still letting a material jump
+/// breach.
 ///
 /// `min_std_floor` / `min_cv` raise the effective dispersion before dividing
 /// (see [`BaselineStats::effective_stddev`]); pass `0.0` for both to recover the
@@ -168,20 +197,20 @@ pub fn sample_stats(values: &[f64]) -> BaselineStats {
 pub fn z_score(
     sample_value: f64,
     stats: BaselineStats,
-    threshold: f64,
+    _threshold: f64,
     min_std_floor: f64,
     min_cv: f64,
 ) -> f64 {
     let effective_stddev = stats.effective_stddev(min_std_floor, min_cv);
 
-    if effective_stddev <= f64::EPSILON {
+    if effective_stddev <= NEAR_ZERO_STDDEV {
         let deviation = (sample_value - stats.mean).abs();
-        if deviation <= f64::EPSILON {
+        if deviation <= NEAR_ZERO_STDDEV {
             0.0
         } else {
-            let floor = stats.mean.abs().max(1.0) * f64::EPSILON.sqrt();
-            let magnitude = (deviation / floor).max(0.0);
-            (threshold + 1.0) + magnitude.ln_1p()
+            let floor = (stats.mean.abs() * IMPLICIT_ZERO_VARIANCE_CV)
+                .max(IMPLICIT_ZERO_VARIANCE_MIN_FLOOR);
+            deviation / floor
         }
     } else {
         ((sample_value - stats.mean) / effective_stddev).abs()
@@ -203,7 +232,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn zero_variance_score_is_magnitude_aware() {
+    fn zero_variance_score_uses_magnitude_floor() {
         let stats = BaselineStats {
             mean: 100.0,
             stddev: 0.0,
@@ -213,13 +242,15 @@ mod tests {
         let small = z_score(101.0, stats, threshold, 0.0, 0.0);
         let large = z_score(10_000.0, stats, threshold, 0.0, 0.0);
 
-        assert!(small >= threshold, "small deviation must still breach");
+        assert!(
+            small < threshold,
+            "small deviation must not auto-breach a zero-variance baseline"
+        );
         assert!(large >= threshold, "large deviation must still breach");
         assert!(
             large > small,
             "large deviation ({large}) must outrank small deviation ({small})"
         );
-        assert!(small >= threshold + 1.0);
     }
 
     #[test]
@@ -241,9 +272,34 @@ mod tests {
         let small = z_score(1.0, stats, threshold, 0.0, 0.0);
         let large = z_score(1_000_000.0, stats, threshold, 0.0, 0.0);
 
-        assert!(small >= threshold);
+        assert!(small < threshold);
         assert!(large > small);
+        assert!(large >= threshold);
         assert!(small.is_finite() && large.is_finite());
+    }
+
+    #[test]
+    fn sample_stats_is_defined_for_empty_and_singleton_windows() {
+        let empty = sample_stats(&[]);
+        assert_eq!(empty.mean, 0.0);
+        assert_eq!(empty.stddev, 0.0);
+        assert!(empty.mean.is_finite() && empty.stddev.is_finite());
+
+        let singleton = sample_stats(&[42.0]);
+        assert_eq!(singleton.mean, 42.0);
+        assert_eq!(singleton.stddev, 0.0);
+        assert!(singleton.mean.is_finite() && singleton.stddev.is_finite());
+    }
+
+    #[test]
+    fn welford_non_finite_input_invalidates_instead_of_silent_drop() {
+        let mut acc = WelfordAcc::default();
+        acc.add(10.0);
+        acc.add(f64::NAN);
+
+        assert_eq!(acc.count, 2, "logical sample count must advance");
+        assert!(!acc.valid_for_count(2));
+        assert!(acc.stats().is_none());
     }
 
     #[test]

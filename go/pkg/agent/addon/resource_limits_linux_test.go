@@ -36,16 +36,20 @@ func TestApplyResourceLimitsPlacesChildInCgroup(t *testing.T) {
 		MemoryMaxBytes:  64 << 20,
 		MemoryHighBytes: 48 << 20,
 		TasksMax:        16,
+		Slice:           "serviceradar-addons.slice",
 	}
 
 	cmd := exec.CommandContext(context.Background(), "/bin/sleep", "30")
-	cleanup, err := applyResourceLimits(cmd, "itest", res, parent, zerolog.Nop())
+	cleanup, status, err := applyResourceLimits(cmd, "itest", res, parent, zerolog.Nop())
 	if err != nil {
 		t.Fatalf("applyResourceLimits: %v", err)
 	}
 	t.Cleanup(cleanup)
 
-	dir := filepath.Join(parent, "serviceradar-addon-itest")
+	dir := filepath.Join(parent, "serviceradar-addons.slice", "serviceradar-addon-itest")
+	if !status.Requested || !status.Enforced || status.CgroupPath != dir {
+		t.Fatalf("resource limit status = %+v, want enforced at %s", status, dir)
+	}
 	assertCgroupFile(t, filepath.Join(dir, "memory.max"), strconv.Itoa(64<<20))
 	assertCgroupFile(t, filepath.Join(dir, "memory.high"), strconv.Itoa(48<<20))
 	assertCgroupFile(t, filepath.Join(dir, "pids.max"), "16")

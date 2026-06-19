@@ -31,11 +31,17 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
+    unique: [
+      period: :infinity,
+      states: [:available, :scheduled, :executing, :retryable],
+      fields: [:args, :worker],
+      keys: [:trigger]
+    ]
 
   alias ServiceRadar.Observability.AnomalyConfigRuntime
   alias ServiceRadar.Observability.CausalReasoner
   alias ServiceRadar.Observability.SeasonalDisposition.Source
+  alias ServiceRadar.Observability.SeasonalDisposition.StateStore
   alias ServiceRadar.Observability.SeasonalDisposition.VerdictEmitter
   alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -45,6 +51,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   @default_n_sigma 3.0
   @default_min_bucket_samples 4
   @default_confirm_slots 1
+  @bucket_seconds 3_600
 
   @impl Oban.Worker
   def perform(%Oban.Job{} = job) do
@@ -62,14 +69,33 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
       evaluated_at = evaluated_at(job)
       opts = Keyword.put(opts, :evaluated_at, evaluated_at)
 
-      opts
-      |> sources()
-      |> Enum.reduce_while(:ok, fn source, :ok ->
-        case refresh_source(source, opts) do
-          :ok -> {:cont, :ok}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
+      result =
+        opts
+        |> sources()
+        |> Enum.reduce_while(:ok, fn source, :ok ->
+          case refresh_source(source, opts) do
+            :ok -> {:cont, :ok}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+        end)
+
+      with :ok <- result do
+        cleanup_state(opts)
+      end
+    else
+      :ok
+    end
+  end
+
+  defp cleanup_state(opts) do
+    if persistent_state?(opts) do
+      case state_store(opts).cleanup(opts) do
+        {:ok, _deleted} ->
+          :ok
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     else
       :ok
     end
@@ -114,28 +140,64 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   defp dispose_source(%Source{} = source, raw_rows, opts) do
     config = seasonal_config(source, opts)
 
-    rows =
-      raw_rows
-      |> Enum.map(&seasonal_row(&1, source, config))
-      |> Enum.reject(&is_nil/1)
-      |> Enum.map(&%{&1 | consecutive_anomalous: load_consecutive(source, &1, opts)})
+    case validate_profile_columns(source, raw_rows) do
+      :ok ->
+        case hydrate_rows(raw_rows, source, config, opts) do
+          {:ok, rows} ->
+            case rows do
+              [] ->
+                emit_source_telemetry(source, %{}, 0, :ok, 0)
+                :ok
 
-    case rows do
-      [] ->
-        emit_source_telemetry(source, [], 0, :ok)
-        :ok
+              rows ->
+                inputs = Enum.map(rows, &{:seasonal, %{config: config, row: row_struct(&1)}})
 
-      rows ->
-        inputs = Enum.map(rows, &{:seasonal, %{config: config, row: row_struct(&1)}})
-
-        case dispose_batch(inputs, opts) do
-          {:ok, results, nif_us} ->
-            handle_results(source, rows, results, nif_us, opts)
+                with {:ok, results, nif_us} <- dispose_batch(inputs, opts) do
+                  handle_results(source, rows, results, nif_us, opts)
+                end
+            end
 
           {:error, reason} ->
-            emit_source_error_telemetry(source, :nif, reason)
+            Logger.warning("Seasonal disposition state load failed",
+              source: source.name,
+              reason: inspect(reason)
+            )
+
+            emit_source_error_telemetry(source, :state, reason)
             {:error, reason}
         end
+
+      {:error, reason} ->
+        Logger.warning("Seasonal disposition profile rows missing required columns",
+          source: source.name,
+          reason: inspect(reason)
+        )
+
+        emit_source_error_telemetry(source, :profile, reason)
+        {:error, reason}
+    end
+  end
+
+  defp hydrate_rows(raw_rows, source, config, opts) do
+    raw_rows
+    |> Enum.reduce_while({:ok, []}, fn raw, {:ok, acc} ->
+      case seasonal_row(raw, source, config) do
+        nil ->
+          {:cont, {:ok, acc}}
+
+        row ->
+          case load_consecutive(source, row, opts) do
+            {:ok, consecutive} ->
+              {:cont, {:ok, [%{row | consecutive_anomalous: consecutive} | acc]}}
+
+            {:error, reason} ->
+              {:halt, {:error, reason}}
+          end
+      end
+    end)
+    |> case do
+      {:ok, rows} -> {:ok, Enum.reverse(rows)}
+      other -> other
     end
   end
 
@@ -177,28 +239,40 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   end
 
   defp maybe_emit_verdict(source, row, verdict, score, consecutive, opts) do
-    if surfaces?(verdict) and emit_verdicts?(opts) do
-      emitter = Keyword.get(opts, :verdict_emitter, VerdictEmitter)
-      attrs = verdict_attrs(source, row, verdict, score, consecutive, opts)
+    cond do
+      surfaces?(verdict) and emit_verdicts?(opts) ->
+        emit_verdict(source, row, verdict, score, consecutive, "breach", opts)
 
-      case emitter.emit(attrs, opts) do
-        :ok ->
-          :ok
+      clear_transition?(source, row, verdict, opts) and emit_verdicts?(opts) ->
+        emit_verdict(source, row, verdict, score, consecutive, "cleared", opts)
 
-        other ->
-          Logger.warning("Seasonal disposition verdict emit failed: #{inspect(other)}",
-            series_key: row.series_key,
-            reason: inspect(other)
-          )
-
-          :ok
-      end
-    else
-      :ok
+      true ->
+        :ok
     end
   end
 
-  defp verdict_attrs(%Source{} = source, row, verdict, score, consecutive, opts) do
+  defp emit_verdict(source, row, verdict, score, consecutive, status, opts) do
+    emitter = Keyword.get(opts, :verdict_emitter, VerdictEmitter)
+    attrs = verdict_attrs(source, row, verdict, score, consecutive, status, opts)
+
+    case emitter.emit(attrs, opts) do
+      :ok ->
+        :ok
+
+      other ->
+        Logger.warning("Seasonal disposition verdict emit failed: #{inspect(other)}",
+          series_key: row.series_key,
+          reason: inspect(other)
+        )
+
+        :ok
+    end
+  end
+
+  defp verdict_attrs(%Source{} = source, row, verdict, score, consecutive, status, opts) do
+    disposition =
+      if status == "cleared", do: "seasonal_clear", else: disposition_tag(verdict)
+
     %{
       series_key: row.series_key,
       resource_type: source.resource_type,
@@ -206,8 +280,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
       resource_label: row.label,
       metric_class: source.metric_class,
       metric_name: source.metric_name,
-      disposition: disposition_tag(verdict),
-      status: "breach",
+      disposition: disposition,
+      status: status,
       score: score,
       consecutive_anomalous: consecutive,
       dow: row.dow,
@@ -223,6 +297,12 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
       }
     }
   end
+
+  defp clear_transition?(source, row, :suppress, opts) do
+    row.consecutive_anomalous >= seasonal_config(source, opts).confirm_slots
+  end
+
+  defp clear_transition?(_source, _row, _verdict, _opts), do: false
 
   # --- NIF call (typed ABI, timed) ---
 
@@ -250,10 +330,15 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   defp load_consecutive(source, row, opts) do
     loader = Keyword.get(opts, :state_loader)
 
-    if is_function(loader, 1) do
-      loader.(state_key(row)) || 0
-    else
-      Map.get(carried_overrides(source, opts), state_key(row), 0)
+    cond do
+      is_function(loader, 1) ->
+        {:ok, loader.(state_key(row)) || 0}
+
+      persistent_state?(opts) ->
+        state_store(opts).load(source.name, state_key(row), opts)
+
+      true ->
+        {:ok, Map.get(carried_overrides(source, opts), state_key(row), 0)}
     end
   end
 
@@ -264,12 +349,34 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
     end
   end
 
-  defp persist_state(_source, row, next, opts) do
+  defp persist_state(source, row, next, opts) do
     case Keyword.get(opts, :state_persister) do
-      persister when is_function(persister, 2) -> persister.(state_key(row), next)
-      _ -> :ok
+      persister when is_function(persister, 2) ->
+        persister.(state_key(row), next)
+
+      _ ->
+        if persistent_state?(opts) do
+          state_store(opts).persist(source.name, state_key(row), next, opts)
+        else
+          :ok
+        end
     end
   end
+
+  defp persistent_state?(opts) do
+    cond do
+      Keyword.has_key?(opts, :persistent_state?) ->
+        Keyword.get(opts, :persistent_state?) == true
+
+      Keyword.has_key?(opts, :state_store) ->
+        true
+
+      true ->
+        Keyword.get(opts, :runner, SRQLRunner) == SRQLRunner
+    end
+  end
+
+  defp state_store(opts), do: Keyword.get(opts, :state_store, StateStore)
 
   # --- row hydration (SQL profile row -> SeasonalRow inputs) ---
 
@@ -292,13 +399,67 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
         p05: number_value(raw, source.p05_field) || 0.0,
         p95: number_value(raw, source.p95_field) || 0.0,
         label: label(raw, source, series_key),
-        bucket_started_at: datetime_value(raw, source.bucket_field),
-        bucket_ended_at: datetime_value(raw, source.bucket_field),
+        bucket_started_at: bucket_started_at(raw, source),
+        bucket_ended_at: bucket_ended_at(raw, source),
         consecutive_anomalous: 0,
         baseline_excludes_latest: Source.robust?(source)
       }
     else
       _ -> nil
+    end
+  end
+
+  defp validate_profile_columns(_source, []), do: :ok
+
+  defp validate_profile_columns(%Source{} = source, [first | _]) when is_map(first) do
+    missing =
+      source
+      |> required_profile_fields()
+      |> Enum.reject(&has_field?(first, &1))
+
+    case missing do
+      [] -> :ok
+      fields -> {:error, {:missing_seasonal_profile_columns, Enum.sort(fields)}}
+    end
+  end
+
+  defp validate_profile_columns(_source, _rows),
+    do: {:error, {:missing_seasonal_profile_columns, ["row"]}}
+
+  defp required_profile_fields(%Source{} = source) do
+    base = [
+      source.series_field,
+      source.dow_field,
+      source.hod_field,
+      source.sample_field,
+      source.bucket_field,
+      source.count_field,
+      source.sum_field,
+      source.sum_sq_field
+    ]
+
+    robust =
+      if Source.robust?(source) do
+        [source.center_field, source.mad_field, source.p05_field, source.p95_field]
+      else
+        []
+      end
+
+    Enum.uniq(base ++ robust)
+  end
+
+  defp has_field?(row, field) when is_map(row) do
+    Map.has_key?(row, field) or Map.has_key?(row, existing_atom(field))
+  rescue
+    ArgumentError -> false
+  end
+
+  defp bucket_started_at(raw, source), do: datetime_value(raw, source.bucket_field)
+
+  defp bucket_ended_at(raw, source) do
+    case bucket_started_at(raw, source) do
+      %DateTime{} = started_at -> DateTime.add(started_at, @bucket_seconds, :second)
+      nil -> nil
     end
   end
 
@@ -366,7 +527,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
 
   defp bump(acc, key), do: Map.update(acc, key, 1, &(&1 + 1))
 
-  defp emit_source_telemetry(source, counts, row_count, result, nif_us \\ 0) do
+  defp emit_source_telemetry(source, counts, row_count, result, nif_us) do
     :telemetry.execute(
       [:serviceradar, :observability, :seasonal_disposition, :source],
       %{
@@ -446,7 +607,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
 
     case runner.query_page(query, page_opts) do
       {:ok, %{rows: rows, next_cursor: next_cursor}} when is_list(rows) ->
-        pages = [rows | pages]
+        pages = prepend_page_rows(rows, pages)
 
         if is_binary(next_cursor) and next_cursor != "" do
           fetch_rows_page(
@@ -459,11 +620,11 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
             max_pages
           )
         else
-          {:ok, pages |> Enum.reverse() |> List.flatten()}
+          {:ok, Enum.reverse(pages)}
         end
 
       {:ok, %{rows: rows}} when is_list(rows) ->
-        {:ok, [rows | pages] |> Enum.reverse() |> List.flatten()}
+        {:ok, rows |> prepend_page_rows(pages) |> Enum.reverse()}
 
       {:ok, other} ->
         {:error, {:unexpected_seasonal_disposition_page, other}}
@@ -473,11 +634,15 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
     end
   end
 
+  defp prepend_page_rows(rows, acc) do
+    Enum.reduce(rows, acc, fn row, rows_acc -> [row | rows_acc] end)
+  end
+
   # --- config / opts plumbing ---
 
   defp sources(opts) do
     opts
-    |> Keyword.get(:sources, Source.defaults())
+    |> Keyword.get(:sources, Source.defaults(time_zone: Keyword.get(opts, :time_zone, "UTC")))
     |> Enum.map(&Source.from_config/1)
   end
 

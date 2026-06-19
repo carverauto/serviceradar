@@ -4,6 +4,51 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.CausalSignals
   alias ServiceRadar.Observability.CapacityForecasting.VerdictEmitter
+  alias ServiceRadar.Observability.SeasonalDisposition.VerdictEmitter, as: SeasonalVerdictEmitter
+
+  defmodule BulkInsertStub do
+    @moduledoc false
+    def insert_all(table, rows, opts) do
+      send(Process.get(:causal_signals_test_pid), {:bulk_insert, table, rows, opts})
+      {length(rows), []}
+    end
+  end
+
+  defmodule AlertQueueStub do
+    @moduledoc false
+    def enqueue_events(events) do
+      send(Process.get(:causal_signals_test_pid), {:alert_evaluation_events, events})
+      :ok
+    end
+  end
+
+  defmodule DedupingBulkInsertStub do
+    @moduledoc false
+    def insert_all(table, rows, opts) do
+      seen = Process.get(:causal_signals_seen_rows, MapSet.new())
+
+      {new_rows, next_seen} =
+        Enum.reduce(rows, {[], seen}, fn row, {new_rows, seen_rows} ->
+          key = {table, Map.fetch!(row, :time), Map.fetch!(row, :id)}
+
+          if MapSet.member?(seen_rows, key) do
+            {new_rows, seen_rows}
+          else
+            {[row | new_rows], MapSet.put(seen_rows, key)}
+          end
+        end)
+
+      new_rows = Enum.reverse(new_rows)
+      Process.put(:causal_signals_seen_rows, next_seen)
+
+      send(
+        Process.get(:causal_signals_test_pid),
+        {:deduping_bulk_insert, table, rows, new_rows, opts}
+      )
+
+      {length(new_rows), []}
+    end
+  end
 
   describe "table_name/0" do
     test "returns ocsf_events" do
@@ -558,6 +603,193 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       assert alert_row.device == %{"uid" => "sr:anomaly-device"}
     end
 
+    test "process_batch bulk-inserts causal prediction findings without per-row Ash lookup" do
+      previous_bulk_insert = Application.get_env(:serviceradar_core, :event_writer_bulk_insert)
+
+      previous_alert_queue =
+        Application.get_env(:serviceradar_core, :stateful_alert_evaluation_queue)
+
+      Process.put(:causal_signals_test_pid, self())
+
+      Application.put_env(:serviceradar_core, :event_writer_bulk_insert, BulkInsertStub)
+      Application.put_env(:serviceradar_core, :stateful_alert_evaluation_queue, AlertQueueStub)
+
+      on_exit(fn ->
+        restore_env(:event_writer_bulk_insert, previous_bulk_insert)
+        restore_env(:stateful_alert_evaluation_queue, previous_alert_queue)
+      end)
+
+      payload = %{
+        "event_id" => "anomaly-bulk-insert-1",
+        "signal_type" => "causal",
+        "event_type" => "anomaly",
+        "class_uid" => 2004,
+        "timestamp" => "2026-06-12T12:00:00Z",
+        "severity_id" => 4,
+        "device_uid" => "sr:anomaly-device",
+        "anomaly" => %{
+          "series_key" => "sysmon:memory:sr:anomaly-device",
+          "metric_class" => "sysmon.memory",
+          "state" => "anomalous"
+        }
+      }
+
+      message = %{
+        data: Jason.encode!(payload),
+        metadata: %{
+          subject: "signals.causal.predictions.sysmon:memory:sr:anomaly-device",
+          received_at: DateTime.utc_now()
+        },
+        ack_data: %{}
+      }
+
+      assert {:ok, 1} = CausalSignals.process_batch([message])
+
+      assert_receive {:bulk_insert, "ocsf_events", [row],
+                      [on_conflict: :nothing, returning: false]}
+
+      assert row.class_uid == 2004
+      assert row.metadata["signal_type"] == "causal"
+      assert row.metadata["event_type"] == "anomaly"
+
+      assert_receive {:alert_evaluation_events, [alert_row]}
+      assert alert_row.id == row.metadata["event_identity"]
+    end
+
+    test "redelivered edge anomaly converges on one inserted event and alert evaluation" do
+      previous_bulk_insert = Application.get_env(:serviceradar_core, :event_writer_bulk_insert)
+
+      previous_alert_queue =
+        Application.get_env(:serviceradar_core, :stateful_alert_evaluation_queue)
+
+      Process.put(:causal_signals_test_pid, self())
+      Process.put(:causal_signals_seen_rows, MapSet.new())
+
+      Application.put_env(:serviceradar_core, :event_writer_bulk_insert, DedupingBulkInsertStub)
+      Application.put_env(:serviceradar_core, :stateful_alert_evaluation_queue, AlertQueueStub)
+
+      on_exit(fn ->
+        restore_env(:event_writer_bulk_insert, previous_bulk_insert)
+        restore_env(:stateful_alert_evaluation_queue, previous_alert_queue)
+      end)
+
+      payload = %{
+        "event_id" => "anomaly-redelivery-converges",
+        "signal_type" => "causal",
+        "event_type" => "anomaly",
+        "class_uid" => 2004,
+        "time" => 1_812_800_000_000,
+        "severity_id" => 4,
+        "device_uid" => "sr:anomaly-device",
+        "verdict_source" => "edge-spike",
+        "anomaly" => %{
+          "series_key" => "sysmon:cpu:sr:anomaly-device",
+          "metric_class" => "sysmon.cpu",
+          "state" => "anomalous"
+        }
+      }
+
+      message = %{
+        data: Jason.encode!(payload),
+        metadata: %{
+          subject: "signals.causal.predictions.sysmon:cpu:sr:anomaly-device",
+          received_at: ~U[2027-06-13 12:00:00Z]
+        },
+        ack_data: %{}
+      }
+
+      assert {:ok, 1} = CausalSignals.process_batch([message])
+
+      assert_receive {:deduping_bulk_insert, "ocsf_events", [first_row], [first_row],
+                      [on_conflict: :nothing, returning: false]}
+
+      assert_receive {:alert_evaluation_events, [first_alert_row]}
+
+      assert {:ok, 1} = CausalSignals.process_batch([message])
+
+      assert_receive {:deduping_bulk_insert, "ocsf_events", [replayed_row], [],
+                      [on_conflict: :nothing, returning: false]}
+
+      refute_receive {:alert_evaluation_events, [_duplicate_alert_row]}, 50
+
+      assert replayed_row.id == first_row.id
+      assert replayed_row.time == first_row.time
+
+      assert replayed_row.metadata["finding_info"]["uid"] ==
+               first_row.metadata["finding_info"]["uid"]
+
+      assert first_alert_row.id == first_row.metadata["event_identity"]
+    end
+
+    test "repeated central worker verdicts keep one finding identity across run timestamps" do
+      forecast = %{
+        forecasted_at: ~U[2026-06-12 12:00:00Z],
+        resource_key: "cpu_usage:device-a:host-a",
+        resource_type: "cpu",
+        resource_id: "device-a",
+        resource_label: "host-a / device-a",
+        metric_class: "cpu",
+        metric_name: "usage_percent",
+        horizon_seconds: 86_400,
+        horizon_ends_at: ~U[2026-06-13 12:00:00Z],
+        window_started_at: ~U[2026-06-01 00:00:00Z],
+        window_ended_at: ~U[2026-06-02 23:00:00Z],
+        sample_count: 48,
+        model: "linear",
+        status: "projected",
+        current_value: 86.0,
+        projected_value: 103.0,
+        projected_exhaustion_at: ~U[2026-06-12 22:00:00Z],
+        exhaustion_threshold: 100.0,
+        confidence: 0.82
+      }
+
+      later_forecast =
+        forecast
+        |> Map.put(:forecasted_at, ~U[2026-06-12 13:00:00Z])
+        |> Map.put(:horizon_ends_at, ~U[2026-06-13 13:00:00Z])
+
+      seasonal = %{
+        series_key: "partition:default|device:device-a|metric:cpu.usage_percent",
+        resource_type: "cpu",
+        resource_id: "device-a",
+        resource_label: "host-a",
+        metric_class: "cpu",
+        metric_name: "cpu.usage_percent",
+        disposition: "seasonal_breach",
+        status: "breach",
+        score: 4.2,
+        consecutive_anomalous: 3,
+        dow: 5,
+        hod: 13,
+        sample_value: 88.0,
+        evaluated_at: ~U[2026-06-12 13:15:00Z],
+        bucket_started_at: ~U[2026-06-12 13:00:00Z],
+        bucket_ended_at: ~U[2026-06-12 14:00:00Z]
+      }
+
+      later_seasonal =
+        seasonal
+        |> Map.put(:evaluated_at, ~U[2026-06-12 15:15:00Z])
+        |> Map.put(:bucket_started_at, ~U[2026-06-12 15:00:00Z])
+        |> Map.put(:bucket_ended_at, ~U[2026-06-12 16:00:00Z])
+
+      assert_same_processor_finding_identity(
+        VerdictEmitter.payload(forecast, VerdictEmitter.subject(forecast)),
+        VerdictEmitter.payload(later_forecast, VerdictEmitter.subject(later_forecast)),
+        VerdictEmitter.subject(forecast)
+      )
+
+      assert_same_processor_finding_identity(
+        SeasonalVerdictEmitter.payload(seasonal, SeasonalVerdictEmitter.subject(seasonal)),
+        SeasonalVerdictEmitter.payload(
+          later_seasonal,
+          SeasonalVerdictEmitter.subject(later_seasonal)
+        ),
+        SeasonalVerdictEmitter.subject(seasonal)
+      )
+    end
+
     test "carries the verdict_source label into service_radar metadata for the edge<->central join" do
       edge = %{
         "event_id" => "anomaly-edge-1",
@@ -593,6 +825,172 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         })
 
       assert central_row.metadata["service_radar"]["verdict_source"] == "central"
+    end
+
+    test "parses anomaly numeric Unix timestamps in seconds through nanoseconds" do
+      base = ~U[2026-06-12 12:00:00.123456Z]
+
+      cases = [
+        {"seconds", DateTime.to_unix(base, :second),
+         DateTime.from_unix!(DateTime.to_unix(base, :second), :second)},
+        {"milliseconds", DateTime.to_unix(base, :millisecond),
+         DateTime.from_unix!(DateTime.to_unix(base, :millisecond), :millisecond)},
+        {"microseconds", DateTime.to_unix(base, :microsecond),
+         DateTime.from_unix!(DateTime.to_unix(base, :microsecond), :microsecond)},
+        {"nanoseconds", DateTime.to_unix(base, :nanosecond),
+         DateTime.from_unix!(DateTime.to_unix(base, :nanosecond), :nanosecond)}
+      ]
+
+      Enum.each(cases, fn {label, timestamp, expected} ->
+        payload = %{
+          "event_id" => "anomaly-numeric-time-#{label}",
+          "signal_type" => "causal",
+          "event_type" => "anomaly",
+          "class_uid" => 2004,
+          "time" => timestamp,
+          "severity_id" => 4,
+          "device_uid" => "sr:anomaly-device",
+          "anomaly" => %{
+            "series_key" => "sysmon:cpu:sr:anomaly-device",
+            "metric_class" => "sysmon.cpu",
+            "state" => "anomalous"
+          }
+        }
+
+        row =
+          CausalSignals.parse_message(%{
+            data: Jason.encode!(payload),
+            metadata: %{
+              subject: "signals.causal.predictions.sysmon:cpu:sr:anomaly-device",
+              received_at: ~U[2026-06-13 12:00:00Z]
+            }
+          })
+
+        assert DateTime.to_unix(row.time, :microsecond) ==
+                 DateTime.to_unix(expected, :microsecond)
+      end)
+    end
+
+    test "overwrites stale anomaly finding identity after canonical re-keying" do
+      payload = %{
+        "event_id" => "anomaly-stale-finding-info",
+        "signal_type" => "causal",
+        "event_type" => "anomaly",
+        "class_uid" => 2004,
+        "timestamp" => "2026-06-12T12:00:00Z",
+        "severity_id" => 4,
+        "device_uid" => "sr:anomaly-device",
+        "finding_info" => %{
+          "uid" => "stale-producer-uid",
+          "group_uid" => "stale-producer-group",
+          "title" => "Edge supplied title",
+          "dimensions" => %{"series_key" => "provisional-series"}
+        },
+        "anomaly" => %{
+          "series_key" => "sysmon:cpu:sr:anomaly-device:core0",
+          "metric_class" => "sysmon.cpu",
+          "state" => "anomalous"
+        }
+      }
+
+      row =
+        CausalSignals.parse_message(%{
+          data: Jason.encode!(payload),
+          metadata: %{
+            subject: "signals.causal.predictions.sysmon:cpu:sr:anomaly-device",
+            received_at: DateTime.utc_now()
+          }
+        })
+
+      finding_info = row.metadata["finding_info"]
+
+      assert finding_info["uid"] != "stale-producer-uid"
+      assert finding_info["group_uid"] == finding_info["uid"]
+      assert finding_info["uid"] == row.metadata["service_radar"]["finding_uid"]
+      assert finding_info["title"] == "Edge supplied title"
+      assert finding_info["dimensions"]["device_uid"] == "sr:anomaly-device"
+      assert finding_info["dimensions"]["series_key"] == "sysmon:cpu:sr:anomaly-device:core0"
+      assert finding_info["dimensions"]["metric_class"] == "sysmon.cpu"
+    end
+
+    test "uses source_identity device uid as anomaly fallback identity" do
+      payload = %{
+        "event_id" => "anomaly-source-identity-device",
+        "signal_type" => "causal",
+        "event_type" => "anomaly",
+        "class_uid" => 2004,
+        "timestamp" => "2026-06-12T12:00:00Z",
+        "severity_id" => 4,
+        "source_identity" => %{
+          "device_id" => "device-a",
+          "host_id" => "host-a",
+          "partition" => "prod-east"
+        },
+        "anomaly" => %{
+          "series_key" => "sysmon.cpu:sysmon:cpu:prod-east:device-a:0",
+          "metric_class" => "sysmon.cpu",
+          "state" => "anomalous"
+        }
+      }
+
+      row =
+        CausalSignals.parse_message(%{
+          data: Jason.encode!(payload),
+          metadata: %{
+            subject: "signals.causal.predictions.sysmon_cpu:sysmon:cpu:prod-east:device-a:0",
+            received_at: DateTime.utc_now()
+          }
+        })
+
+      assert row.device == %{"uid" => "device-a"}
+      assert row.metadata["service_radar"]["device_uid"] == "device-a"
+      assert row.metadata["finding_info"]["dimensions"]["device_uid"] == "device-a"
+    end
+
+    test "uses SNMP target device IP instead of poller identity for remote target anomalies" do
+      payload = %{
+        "event_id" => "snmp-target-anomaly",
+        "signal_type" => "causal",
+        "event_type" => "anomaly",
+        "class_uid" => 2004,
+        "timestamp" => "2026-06-12T12:00:00Z",
+        "severity_id" => 4,
+        "device_uid" => "poller-device",
+        "target_device_ip" => "198.51.100.25",
+        "source_identity" => %{
+          "agent_id" => "poller-agent",
+          "host_id" => "poller-host",
+          "device_id" => "poller-device",
+          "target_device_ip" => "198.51.100.25",
+          "partition" => "prod-east",
+          "if_index" => 7
+        },
+        "anomaly" => %{
+          "series_key" => "198.51.100.25|snmp.ifInOctets|7",
+          "metric_class" => "snmp.interface",
+          "target_device_ip" => "198.51.100.25",
+          "metadata" => %{"target_device_ip" => "198.51.100.25"},
+          "state" => "confirmed_anomaly"
+        }
+      }
+
+      row =
+        CausalSignals.parse_message(%{
+          data: Jason.encode!(payload),
+          metadata: %{
+            subject: "signals.causal.predictions.snmp_interface:198.51.100.25:7",
+            received_at: DateTime.utc_now()
+          }
+        })
+
+      assert row.device == %{"uid" => "198.51.100.25"}
+      assert row.metadata["target_device_ip"] == "198.51.100.25"
+      assert row.metadata["source_identity"]["target_device_ip"] == "198.51.100.25"
+      assert row.metadata["service_radar"]["device_uid"] == "198.51.100.25"
+      assert row.metadata["finding_info"]["dimensions"]["device_uid"] == "198.51.100.25"
+
+      assert row.metadata["finding_info"]["dimensions"]["series_key"] ==
+               "198.51.100.25|snmp.ifInOctets|7"
     end
 
     test "selects capacity causal prediction findings for stateful alert evaluation" do
@@ -755,6 +1153,26 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
     |> Enum.sort()
   end
 
+  defp assert_same_processor_finding_identity(first_payload, second_payload, subject) do
+    first_row =
+      CausalSignals.parse_message(%{
+        data: Jason.encode!(first_payload),
+        metadata: %{subject: subject, received_at: ~U[2026-06-12 12:00:00Z]}
+      })
+
+    second_row =
+      CausalSignals.parse_message(%{
+        data: Jason.encode!(second_payload),
+        metadata: %{subject: subject, received_at: ~U[2026-06-12 13:00:00Z]}
+      })
+
+    assert first_row.id == second_row.id
+    assert first_row.metadata["finding_info"]["uid"] == second_row.metadata["finding_info"]["uid"]
+
+    assert first_row.metadata["service_radar"]["finding_uid"] ==
+             second_row.metadata["service_radar"]["finding_uid"]
+  end
+
   defp load_event_writer_fixture!(file_name) do
     fixture_path =
       Path.join([
@@ -787,4 +1205,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       assert Map.has_key?(payload, key), "missing required arancini key: #{key}"
     end
   end
+
+  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
+  defp restore_env(key, value), do: Application.put_env(:serviceradar_core, key, value)
 end

@@ -63,6 +63,35 @@ defmodule ServiceRadar.EventWriter.Telemetry do
   end
 
   @doc """
+  Emits an alert before a failed JetStream message is NAK'd at `max_deliver`.
+  """
+  @spec emit_max_deliver_exhausted(map(), String.t() | nil) :: :ok
+  def emit_max_deliver_exhausted(ack_data, subject) when is_map(ack_data) do
+    ack_metadata = Map.get(ack_data, :jetstream_ack, %{})
+    delivery_count = non_negative(ack_metadata[:delivery_count])
+    max_deliver = non_negative(Map.get(ack_data, :max_deliver))
+
+    :telemetry.execute(
+      [:serviceradar, :event_writer, :consumer, :max_deliver_exhausted],
+      %{
+        count: 1,
+        delivery_count: delivery_count,
+        max_deliver: max_deliver,
+        stream_sequence: non_negative(ack_metadata[:stream_sequence]),
+        consumer_sequence: non_negative(ack_metadata[:consumer_sequence]),
+        pending_messages: non_negative(ack_metadata[:pending])
+      },
+      %{
+        stream: ack_metadata[:stream] || "unknown",
+        durable: ack_metadata[:consumer] || "unknown",
+        subject_class: subject_class(subject)
+      }
+    )
+
+    :ok
+  end
+
+  @doc """
   Emits a batch completion/failure event. `duration` is native monotonic time.
   """
   @spec emit_batch(atom(), [term()], non_neg_integer(), non_neg_integer(), map()) :: :ok

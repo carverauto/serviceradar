@@ -7,7 +7,7 @@
 //! (`metric-feed:v1`), runs the shared detector per series, and emits anomaly
 //! verdicts upstream over the native telemetry stream (`native-telemetry:v1`).
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use addon_sdk::metric_pb::{
     Metric, MetricBatch, MetricKind, MetricPoint, MetricResource, MetricTemporality,
@@ -20,16 +20,22 @@ use addon_sdk::{
 };
 use async_trait::async_trait;
 use prost::Message;
+use serde::de::{self, Deserializer};
+use serde_json::Value;
 use serviceradar_anomaly_core::{ReasonVerdict, SaturationGate};
 use sha2::{Digest as _, Sha256};
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
+use tokio::task::JoinHandle;
 use tokio_stream::StreamExt as _;
-use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
+use tokio_stream::wrappers::{BroadcastStream, ReceiverStream};
 use tonic::Status;
 
 use std::path::{Path, PathBuf};
 
-use crate::engine::{DetectorEngine, EngineCheckpoint, EngineConfig, SeriesProfile};
+use crate::engine::{
+    AnomalyTransition, DetectorEngine, EngineCheckpoint, EngineConfig, SeriesProfile,
+};
 
 const ADDON_ID: &str = "anomaly";
 const ADDON_VERSION: &str = "0.1.1";
@@ -50,10 +56,15 @@ const DEFAULT_CHECKPOINT_WRITE_EVERY: u64 = 100;
 /// `config.schema.json`). All fields optional; omitted ones keep the defaults.
 #[derive(Debug, Default, serde::Deserialize)]
 struct AddonConfig {
+    #[serde(default, deserialize_with = "optional_usize")]
     window_size: Option<usize>,
+    #[serde(default, deserialize_with = "optional_usize")]
     min_samples: Option<usize>,
+    #[serde(default, deserialize_with = "optional_f64")]
     n_sigma: Option<f64>,
+    #[serde(default, deserialize_with = "optional_usize")]
     confirm_slots: Option<usize>,
+    #[serde(default, deserialize_with = "optional_usize")]
     max_series: Option<usize>,
     /// Optional GLOBAL dispersion-floor overrides (fix #2). When set, these only
     /// ever RAISE a series' built-in per-class floor (max), letting an operator
@@ -61,14 +72,126 @@ struct AddonConfig {
     /// series on its built-in default (0 for non-gauges, the gauge defaults for
     /// cpu/mem/disk). The central metric_class override channel remains a
     /// follow-up; this flat knob is the edge-only global override.
+    #[serde(default, deserialize_with = "optional_f64")]
     min_std_floor: Option<f64>,
+    #[serde(default, deserialize_with = "optional_f64")]
     min_cv: Option<f64>,
     /// Local path the add-on persists its per-series checkpoint to so a restart
     /// re-warms baselines instead of cold-starting. Unset disables checkpointing.
+    #[serde(default, deserialize_with = "optional_string")]
     checkpoint_path: Option<String>,
     /// Restart staleness bound in seconds (default 6h); series older than this
     /// are not reseeded.
+    #[serde(default, deserialize_with = "optional_u64")]
     checkpoint_max_age_secs: Option<u64>,
+    /// Live-state staleness bound in seconds (default 6h); stale series/counters
+    /// are evicted before rejecting new series at `max_series`.
+    #[serde(default, deserialize_with = "optional_u64")]
+    state_max_age_secs: Option<u64>,
+}
+
+fn optional_usize<'de, D>(deserializer: D) -> Result<Option<usize>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    match optional_value(deserializer)? {
+        None => Ok(None),
+        Some(Value::Number(number)) => number
+            .as_u64()
+            .and_then(|value| usize::try_from(value).ok())
+            .map(Some)
+            .ok_or_else(|| de::Error::custom("expected a non-negative integer")),
+        Some(Value::String(value)) => parse_optional_integer(&value).and_then(|value| {
+            value
+                .map(|number| {
+                    usize::try_from(number).map_err(|_| de::Error::custom("integer is too large"))
+                })
+                .transpose()
+        }),
+        Some(_) => Err(de::Error::custom("expected integer, string, or null")),
+    }
+}
+
+fn optional_u64<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    match optional_value(deserializer)? {
+        None => Ok(None),
+        Some(Value::Number(number)) => number
+            .as_u64()
+            .map(Some)
+            .ok_or_else(|| de::Error::custom("expected a non-negative integer")),
+        Some(Value::String(value)) => parse_optional_integer(&value),
+        Some(_) => Err(de::Error::custom("expected integer, string, or null")),
+    }
+}
+
+fn optional_f64<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    match optional_value(deserializer)? {
+        None => Ok(None),
+        Some(Value::Number(number)) => number
+            .as_f64()
+            .map(Some)
+            .ok_or_else(|| de::Error::custom("expected a finite number")),
+        Some(Value::String(value)) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                Ok(None)
+            } else {
+                trimmed
+                    .parse::<f64>()
+                    .map(Some)
+                    .map_err(|_| de::Error::custom("expected a number"))
+            }
+        }
+        Some(_) => Err(de::Error::custom("expected number, string, or null")),
+    }
+}
+
+fn optional_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    match optional_value(deserializer)? {
+        None => Ok(None),
+        Some(Value::String(value)) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(value))
+            }
+        }
+        Some(_) => Err(de::Error::custom("expected string or null")),
+    }
+}
+
+fn optional_value<'de, D>(deserializer: D) -> Result<Option<Value>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = <Option<Value> as serde::Deserialize>::deserialize(deserializer)?;
+
+    Ok(value.filter(|value| !value.is_null()))
+}
+
+fn parse_optional_integer<E>(value: &str) -> Result<Option<u64>, E>
+where
+    E: de::Error,
+{
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        Ok(None)
+    } else {
+        trimmed
+            .parse::<u64>()
+            .map(Some)
+            .map_err(|_| de::Error::custom("expected a non-negative integer"))
+    }
 }
 
 /// Resolved checkpoint behavior derived from [`AddonConfig`]. `path` unset means
@@ -91,6 +214,20 @@ impl Default for CheckpointSettings {
 }
 
 impl AddonConfig {
+    fn validation_error(&self) -> Option<String> {
+        let base = EngineConfig::default();
+        let window_size = self.window_size.unwrap_or(base.window_size).max(1);
+        let min_samples = self.min_samples.unwrap_or(base.min_samples).max(1);
+
+        if min_samples > window_size {
+            Some(format!(
+                "invalid anomaly add-on config: min_samples ({min_samples}) must be <= window_size ({window_size})"
+            ))
+        } else {
+            None
+        }
+    }
+
     fn into_engine_config(self) -> EngineConfig {
         let base = EngineConfig::default();
         EngineConfig {
@@ -103,7 +240,71 @@ impl AddonConfig {
             // treated as "unset" so it can never weaken a gauge's safe floor.
             min_std_floor: self.min_std_floor.filter(|v| v.is_finite() && *v > 0.0),
             min_cv: self.min_cv.filter(|v| v.is_finite() && *v > 0.0),
+            stale_series_max_age_ns: self
+                .state_max_age_secs
+                .map(|secs| secs.saturating_mul(1_000_000_000))
+                .unwrap_or(base.stale_series_max_age_ns),
         }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+struct ScoringLiveness {
+    frames_received: u64,
+    samples_scored: u64,
+    verdict_records_emitted: u64,
+    capacity_dropped_total: u64,
+    tracked_series: usize,
+    tracked_counters: usize,
+    max_series: usize,
+    last_scored_unix_nano: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct FrameLiveness {
+    samples_scored: u64,
+    verdict_records_emitted: u64,
+    capacity_dropped_total: u64,
+    tracked_series: usize,
+    tracked_counters: usize,
+    max_series: usize,
+    last_scored_unix_nano: Option<u64>,
+}
+
+fn scoring_liveness_json(liveness: &Arc<Mutex<ScoringLiveness>>) -> String {
+    let snapshot = liveness.lock().expect("liveness mutex poisoned").clone();
+
+    serde_json::json!({
+        "kind": "anomaly_scoring_liveness",
+        "frames_received": snapshot.frames_received,
+        "samples_scored_total": snapshot.samples_scored,
+        "verdict_records_emitted_total": snapshot.verdict_records_emitted,
+        "tracked_series": snapshot.tracked_series,
+        "tracked_counters": snapshot.tracked_counters,
+        "max_series": snapshot.max_series,
+        "capacity_dropped_total": snapshot.capacity_dropped_total,
+        "last_scored_unix_nano": snapshot.last_scored_unix_nano
+    })
+    .to_string()
+}
+
+fn record_frame_received(liveness: &Arc<Mutex<ScoringLiveness>>) {
+    let mut snapshot = liveness.lock().expect("liveness mutex poisoned");
+    snapshot.frames_received = snapshot.frames_received.saturating_add(1);
+}
+
+fn record_frame_liveness(liveness: &Arc<Mutex<ScoringLiveness>>, frame: FrameLiveness) {
+    let mut snapshot = liveness.lock().expect("liveness mutex poisoned");
+    snapshot.samples_scored = snapshot.samples_scored.saturating_add(frame.samples_scored);
+    snapshot.verdict_records_emitted = snapshot
+        .verdict_records_emitted
+        .saturating_add(frame.verdict_records_emitted);
+    snapshot.capacity_dropped_total = frame.capacity_dropped_total;
+    snapshot.tracked_series = frame.tracked_series;
+    snapshot.tracked_counters = frame.tracked_counters;
+    snapshot.max_series = frame.max_series;
+    if let Some(ts) = frame.last_scored_unix_nano {
+        snapshot.last_scored_unix_nano = Some(ts);
     }
 }
 
@@ -111,8 +312,9 @@ impl AddonConfig {
 /// mutable state is behind a `Mutex`.
 pub struct AnomalyAddon {
     engine: Arc<Mutex<DetectorEngine>>,
-    verdict_tx: mpsc::Sender<Result<TelemetryBatch, Status>>,
-    verdict_rx: Mutex<Option<mpsc::Receiver<Result<TelemetryBatch, Status>>>>,
+    verdict_tx: broadcast::Sender<TelemetryBatch>,
+    feed_task: Mutex<Option<JoinHandle<()>>>,
+    liveness: Arc<Mutex<ScoringLiveness>>,
     /// Resolved at `configure`; read when a feed stream opens.
     checkpoint: Mutex<CheckpointSettings>,
 }
@@ -125,12 +327,27 @@ impl Default for AnomalyAddon {
 
 impl AnomalyAddon {
     pub fn new() -> Self {
-        let (verdict_tx, verdict_rx) = mpsc::channel(VERDICT_CHANNEL_DEPTH);
+        let engine_config = EngineConfig::default();
+        let (verdict_tx, _) = broadcast::channel(VERDICT_CHANNEL_DEPTH);
         Self {
-            engine: Arc::new(Mutex::new(DetectorEngine::new(EngineConfig::default()))),
+            engine: Arc::new(Mutex::new(DetectorEngine::new(engine_config.clone()))),
             verdict_tx,
-            verdict_rx: Mutex::new(Some(verdict_rx)),
+            feed_task: Mutex::new(None),
+            liveness: Arc::new(Mutex::new(ScoringLiveness {
+                max_series: engine_config.max_series,
+                ..ScoringLiveness::default()
+            })),
             checkpoint: Mutex::new(CheckpointSettings::default()),
+        }
+    }
+}
+
+impl Drop for AnomalyAddon {
+    fn drop(&mut self) {
+        if let Ok(mut feed_task) = self.feed_task.lock()
+            && let Some(handle) = feed_task.take()
+        {
+            handle.abort();
         }
     }
 }
@@ -166,12 +383,22 @@ impl Addon for AnomalyAddon {
             }
         };
 
+        if let Some(error) = parsed.validation_error() {
+            return Ok(ConfigureResult {
+                config_hash,
+                accepted: false,
+                error,
+            });
+        }
+
         let settings = resolve_checkpoint_settings(&parsed);
 
-        self.engine
+        let engine_config = parsed.into_engine_config();
+        lock_engine(&self.engine).set_config(engine_config.clone());
+        self.liveness
             .lock()
-            .expect("engine mutex poisoned")
-            .set_config(parsed.into_engine_config());
+            .expect("liveness mutex poisoned")
+            .max_series = engine_config.max_series;
 
         // Re-warm from the on-disk checkpoint before scoring resumes, so a
         // restart does not storm false positives while windows refill.
@@ -191,22 +418,24 @@ impl Addon for AnomalyAddon {
         Ok(Health {
             status: HealthStatus::Healthy,
             version: ADDON_VERSION.to_string(),
-            degradation_reason: String::new(),
+            degradation_reason: scoring_liveness_json(&self.liveness),
         })
     }
 
-    /// Hand the agent the verdict stream. Called once when the agent opens the
-    /// native telemetry stream; later calls get an empty stream.
+    /// Hand the agent a reconnect-safe verdict stream. Delivery is lossy by
+    /// contract: a lagging receiver gets a RESOURCE_EXHAUSTED marker instead of
+    /// back-pressure on scoring or metric-feed acknowledgement.
     fn stream_telemetry(&self) -> TelemetryStream {
-        match self
-            .verdict_rx
-            .lock()
-            .expect("verdict_rx mutex poisoned")
-            .take()
-        {
-            Some(rx) => Box::pin(ReceiverStream::new(rx)),
-            None => Box::pin(tokio_stream::empty()),
-        }
+        let stream =
+            BroadcastStream::new(self.verdict_tx.subscribe()).filter_map(|item| match item {
+                Ok(batch) => Some(Ok(batch)),
+                Err(BroadcastStreamRecvError::Lagged(skipped)) => {
+                    Some(Err(Status::resource_exhausted(format!(
+                        "anomaly telemetry receiver lagged by {skipped} batches"
+                    ))))
+                }
+            });
+        Box::pin(stream)
     }
 
     /// Consume the agent's local metric feed, score each sample, and ack frames.
@@ -215,6 +444,7 @@ impl Addon for AnomalyAddon {
     fn stream_metric_feed(&self, frames: MetricFeedStream) -> Result<MetricFeedAckStream, Status> {
         let engine = self.engine.clone();
         let verdict_tx = self.verdict_tx.clone();
+        let liveness = self.liveness.clone();
         let checkpoint = self
             .checkpoint
             .lock()
@@ -222,7 +452,15 @@ impl Addon for AnomalyAddon {
             .clone();
         let (ack_tx, ack_rx) = mpsc::channel::<Result<MetricFeedAck, Status>>(ACK_CHANNEL_DEPTH);
 
-        tokio::spawn(async move {
+        let mut feed_task = self
+            .feed_task
+            .lock()
+            .map_err(|_| Status::internal("metric-feed task mutex poisoned"))?;
+        if let Some(handle) = feed_task.take() {
+            handle.abort();
+        }
+
+        let handle = tokio::spawn(async move {
             let mut frames = frames;
             let mut frame_count: u64 = 0;
             while let Some(item) = frames.next().await {
@@ -230,7 +468,7 @@ impl Addon for AnomalyAddon {
                     Ok(frame) => frame,
                     Err(_) => break,
                 };
-                process_frame(&engine, &verdict_tx, &frame).await;
+                process_frame(&engine, &verdict_tx, &liveness, &frame);
 
                 // Persist the re-warm checkpoint on a frame cadence (best-effort;
                 // a write failure never blocks or fails the feed).
@@ -259,6 +497,7 @@ impl Addon for AnomalyAddon {
                 write_checkpoint(&engine, path);
             }
         });
+        *feed_task = Some(handle);
 
         Ok(Box::pin(ReceiverStream::new(ack_rx)))
     }
@@ -266,11 +505,14 @@ impl Addon for AnomalyAddon {
 
 /// Decode one feed frame's `MetricBatch`, score every eligible point, and push a
 /// verdict telemetry batch for any breaches.
-async fn process_frame(
+fn process_frame(
     engine: &Arc<Mutex<DetectorEngine>>,
-    verdict_tx: &mpsc::Sender<Result<TelemetryBatch, Status>>,
+    verdict_tx: &broadcast::Sender<TelemetryBatch>,
+    liveness: &Arc<Mutex<ScoringLiveness>>,
     frame: &MetricFeedFrame,
 ) {
+    record_frame_received(liveness);
+
     let batch = match MetricBatch::decode(frame.payload.as_slice()) {
         Ok(batch) => batch,
         Err(_) => return, // poison payload: drop the frame, never block the feed
@@ -280,8 +522,9 @@ async fn process_frame(
     // Lock the engine only to score; never hold the std Mutex across an await.
     let mut records: Vec<TelemetryRecord> = Vec::new();
     let mut shed_report: Option<ShedReport> = None;
+    let mut frame_liveness = FrameLiveness::default();
     {
-        let mut engine = engine.lock().expect("engine mutex poisoned");
+        let mut engine = lock_engine(engine);
         let dropped_before = engine.dropped_at_capacity;
         for metric in &batch.metrics {
             if is_process_metric(metric) {
@@ -326,31 +569,53 @@ async fn process_frame(
                     point.value
                 };
 
-                if let Some(verdict) =
-                    engine.evaluate(&series_key, value, point.observed_at_unix_nano, profile)
-                    && (verdict.breached || verdict.anomalous)
-                {
-                    records.push(verdict_record(
-                        &resource,
-                        metric,
-                        point,
-                        &series_key,
-                        &verdict,
-                    ));
+                if let Some(result) = engine.evaluate_transition(
+                    &series_key,
+                    value,
+                    point.observed_at_unix_nano,
+                    profile,
+                ) {
+                    frame_liveness.samples_scored = frame_liveness.samples_scored.saturating_add(1);
+                    frame_liveness.last_scored_unix_nano = Some(
+                        frame_liveness
+                            .last_scored_unix_nano
+                            .map_or(point.observed_at_unix_nano, |current| {
+                                current.max(point.observed_at_unix_nano)
+                            }),
+                    );
+
+                    if let Some(transition) = result.transition {
+                        frame_liveness.verdict_records_emitted =
+                            frame_liveness.verdict_records_emitted.saturating_add(1);
+                        records.push(verdict_record(
+                            &resource,
+                            metric,
+                            point,
+                            &series_key,
+                            &result.verdict,
+                            transition,
+                        ));
+                    }
                 }
             }
         }
 
         let dropped_after = engine.dropped_at_capacity;
+        frame_liveness.capacity_dropped_total = dropped_after;
+        frame_liveness.tracked_series = engine.series_count();
+        frame_liveness.tracked_counters = engine.counter_count();
+        frame_liveness.max_series = engine.max_series();
         if dropped_after > dropped_before {
             shed_report = Some(ShedReport {
                 dropped_delta: dropped_after - dropped_before,
                 dropped_total: dropped_after,
                 tracked_series: engine.series_count(),
+                tracked_counters: engine.counter_count(),
                 max_series: engine.max_series(),
             });
         }
     }
+    record_frame_liveness(liveness, frame_liveness);
 
     if let Some(report) = shed_report {
         records.push(shed_record(&resource, frame.feed_id, report));
@@ -364,7 +629,19 @@ async fn process_frame(
     for record in records {
         builder = builder.push_record(record);
     }
-    let _ = verdict_tx.send(Ok(builder.build())).await;
+    let _ = verdict_tx.send(builder.build());
+}
+
+fn lock_engine(engine: &Arc<Mutex<DetectorEngine>>) -> MutexGuard<'_, DetectorEngine> {
+    match engine.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            let mut guard = poisoned.into_inner();
+            let config = guard.config();
+            *guard = DetectorEngine::new(config);
+            guard
+        }
+    }
 }
 
 /// Resolve checkpoint behavior from the parsed config: a blank/absent path
@@ -394,7 +671,7 @@ fn resolve_checkpoint_settings(config: &AddonConfig) -> CheckpointSettings {
 /// fresh checkpoint).
 fn write_checkpoint(engine: &Arc<Mutex<DetectorEngine>>, path: &Path) {
     let checkpoint = {
-        let engine = engine.lock().expect("engine mutex poisoned");
+        let engine = lock_engine(engine);
         engine.export_checkpoint()
     };
 
@@ -420,10 +697,7 @@ fn load_checkpoint(engine: &Arc<Mutex<DetectorEngine>>, path: &Path, max_age_ns:
     };
 
     let now = now_unix_nano();
-    engine
-        .lock()
-        .expect("engine mutex poisoned")
-        .restore_checkpoint(checkpoint, now, max_age_ns);
+    lock_engine(engine).restore_checkpoint(checkpoint, now, max_age_ns);
 }
 
 /// Wall-clock now in unix nanoseconds, for the restart staleness bound. Saturates
@@ -587,16 +861,88 @@ fn counter_reset_anchor(point: &MetricPoint) -> String {
 }
 
 fn series_key_for(resource: &MetricResource, metric: &Metric, point: &MetricPoint) -> String {
-    if !point.series_identity_hint.is_empty() {
+    if let Some(target_device_ip) = remote_snmp_target(resource, metric) {
+        format!(
+            "{}|{}|{}",
+            series_key_component(target_device_ip),
+            series_key_component(&metric.name),
+            series_key_component(&point_interface_component(point))
+        )
+    } else if !point.series_identity_hint.is_empty() {
         point.series_identity_hint.clone()
     } else {
         // Fallback when the producer did not stamp a hint: agent + metric +
         // interface keeps distinct series apart on one host.
         format!(
             "{}|{}|{}",
-            resource.agent_id, metric.name, point.interface_uid
+            series_key_component(&resource.agent_id),
+            series_key_component(&metric.name),
+            series_key_component(&point_interface_component(point))
         )
     }
+}
+
+fn identity_anchor_for<'a>(resource: &'a MetricResource, metric: &Metric) -> &'a str {
+    first_non_empty(&[
+        remote_snmp_target(resource, metric).unwrap_or_default(),
+        resource.device_id.as_str(),
+        resource.host_id.as_str(),
+        resource.agent_id.as_str(),
+        resource.host_ip.as_str(),
+    ])
+}
+
+fn remote_snmp_target<'a>(resource: &'a MetricResource, metric: &Metric) -> Option<&'a str> {
+    let target = resource.target_device_ip.trim();
+
+    if !snmp_metric(metric) || target.is_empty() {
+        return None;
+    }
+
+    let is_self = [
+        resource.host_ip.as_str(),
+        resource.device_id.as_str(),
+        resource.host_id.as_str(),
+    ]
+    .iter()
+    .any(|candidate| !candidate.trim().is_empty() && candidate.trim() == target);
+
+    if is_self { None } else { Some(target) }
+}
+
+fn snmp_metric(metric: &Metric) -> bool {
+    metric.metric_type == "snmp" || metric.metric_type.starts_with("snmp.")
+}
+
+fn point_interface_component(point: &MetricPoint) -> String {
+    if !point.interface_uid.trim().is_empty() {
+        point.interface_uid.clone()
+    } else if point.if_index > 0 {
+        point.if_index.to_string()
+    } else {
+        String::new()
+    }
+}
+
+fn series_key_component(value: &str) -> String {
+    if safe_series_key_component(value) {
+        value.to_string()
+    } else {
+        let digest = Sha256::digest(value.as_bytes());
+        format!("h_{}", hex::encode(digest))
+    }
+}
+
+fn safe_series_key_component(value: &str) -> bool {
+    !value.is_empty()
+        && !value.chars().any(|ch| {
+            ch == '|'
+                || ch == ':'
+                || ch == '*'
+                || ch == '>'
+                || ch.is_whitespace()
+                || ch.is_control()
+        })
 }
 
 /// Merge the attested distinguishing tags into a JSON object for `source_identity`:
@@ -634,26 +980,37 @@ fn verdict_record(
     point: &MetricPoint,
     series_key: &str,
     verdict: &ReasonVerdict,
+    transition: AnomalyTransition,
 ) -> TelemetryRecord {
     let ts_nano = verdict
         .observed_at_unix_nano
         .unwrap_or(point.observed_at_unix_nano);
     let ts_ms = (ts_nano / 1_000_000) as i64;
-    let severity_id = severity_id_from_score(verdict.score);
+    let severity_id = match transition {
+        AnomalyTransition::Open => severity_id_from_score(verdict.score),
+        AnomalyTransition::Clear => 1,
+    };
 
     let metric_class = if metric.metric_type.is_empty() {
         "metric"
     } else {
         metric.metric_type.as_str()
     };
-    let device_uid = first_non_empty(&[
-        resource.device_id.as_str(),
-        resource.host_id.as_str(),
-        resource.agent_id.as_str(),
-        resource.host_ip.as_str(),
-    ]);
+    let device_uid = identity_anchor_for(resource, metric);
 
-    let event_id = format!("anomaly:{series_key}:{ts_nano}:{}", verdict.state);
+    let transition_label = match transition {
+        AnomalyTransition::Open => "open",
+        AnomalyTransition::Clear => "clear",
+    };
+    let status = match transition {
+        AnomalyTransition::Open => "open",
+        AnomalyTransition::Clear => "closed",
+    };
+    let anomaly_state = match transition {
+        AnomalyTransition::Open => verdict.state.as_str(),
+        AnomalyTransition::Clear => "clear",
+    };
+    let event_id = format!("anomaly:{series_key}:{ts_nano}:{transition_label}");
     let finding_uid =
         format!("anomaly:finding:2004:anomaly_detection:{device_uid}:{series_key}:{metric_class}");
 
@@ -671,11 +1028,12 @@ fn verdict_record(
         "source": "serviceradar",
         "collector": "anomaly_addon",
         "verdict_source": "edge-spike",
-        "status": "open",
+        "status": status,
         "time": ts_ms,
         "severity_id": severity_id,
         "device_uid": device_uid,
         "device_id": device_uid,
+        "target_device_ip": &resource.target_device_ip,
         "message": &verdict.reason,
         "finding_info": {
             "uid": finding_uid,
@@ -703,12 +1061,16 @@ fn verdict_record(
         "anomaly": {
             "series_key": series_key,
             "metric_class": metric_class,
-            "state": &verdict.state,
+            "state": anomaly_state,
             "reason": &verdict.reason,
             "score": verdict.score,
             "baseline_count": verdict.baseline_count,
             "value": verdict.sample_value,
             "sample_value": verdict.sample_value,
+            "target_device_ip": &resource.target_device_ip,
+            "metadata": {
+                "target_device_ip": &resource.target_device_ip,
+            },
             "observed_at_unix_nano": ts_nano,
             "signals": [],
         },
@@ -758,6 +1120,7 @@ struct ShedReport {
     dropped_delta: u64,
     dropped_total: u64,
     tracked_series: usize,
+    tracked_counters: usize,
     max_series: usize,
 }
 
@@ -791,8 +1154,8 @@ fn shed_record(resource: &MetricResource, feed_id: u64, report: ShedReport) -> T
         "status": "Success",
         "status_code": "anomaly_capacity_shed",
         "message": format!(
-            "Anomaly add-on shed {} new series at capacity ({} tracked of max {})",
-            report.dropped_delta, report.tracked_series, report.max_series
+            "Anomaly add-on shed {} new series at capacity ({} detector series, {} counters tracked of max {})",
+            report.dropped_delta, report.tracked_series, report.tracked_counters, report.max_series
         ),
         "log_name": "anomaly.capacity",
         "log_provider": ADDON_ID,
@@ -825,6 +1188,7 @@ fn shed_record(resource: &MetricResource, feed_id: u64, report: ShedReport) -> T
             "dropped_series_delta": report.dropped_delta,
             "dropped_series_total": report.dropped_total,
             "tracked_series": report.tracked_series,
+            "tracked_counters": report.tracked_counters,
             "max_series": report.max_series
         }
     });
@@ -874,6 +1238,45 @@ mod tests {
             metric_type: metric_type.to_string(),
             ..Default::default()
         }
+    }
+
+    #[tokio::test]
+    async fn configure_rejects_min_samples_larger_than_window_size() {
+        let addon = AnomalyAddon::new();
+        let result = addon
+            .configure(br#"{"window_size":5,"min_samples":6}"#)
+            .await
+            .expect("configure result");
+
+        assert!(!result.accepted);
+        assert!(result.error.contains("min_samples"));
+        assert!(result.error.contains("window_size"));
+    }
+
+    #[tokio::test]
+    async fn configure_treats_empty_optional_scalars_as_unset() {
+        let addon = AnomalyAddon::new();
+        let result = addon
+            .configure(
+                br#"{
+                    "window_size":"",
+                    "min_samples":"",
+                    "n_sigma":"",
+                    "confirm_slots":"",
+                    "max_series":"",
+                    "min_std_floor":"",
+                    "min_cv":"",
+                    "checkpoint_path":"",
+                    "checkpoint_max_age_secs":"",
+                    "state_max_age_secs":"",
+                    "metric_feed":{"sources":["sysmon","snmp"]}
+                }"#,
+            )
+            .await
+            .expect("configure result");
+
+        assert!(result.accepted, "unexpected error: {}", result.error);
+        assert!(result.error.is_empty());
     }
 
     #[test]
@@ -1019,6 +1422,175 @@ mod tests {
     }
 
     #[test]
+    fn fallback_series_key_hashes_unsafe_components_to_avoid_delimiter_collisions() {
+        let left = series_key_for(
+            &MetricResource {
+                agent_id: "agent|a".to_string(),
+                ..Default::default()
+            },
+            &Metric {
+                name: "metric".to_string(),
+                ..Default::default()
+            },
+            &MetricPoint {
+                interface_uid: "if0".to_string(),
+                ..Default::default()
+            },
+        );
+        let right = series_key_for(
+            &MetricResource {
+                agent_id: "agent".to_string(),
+                ..Default::default()
+            },
+            &Metric {
+                name: "a|metric".to_string(),
+                ..Default::default()
+            },
+            &MetricPoint {
+                interface_uid: "if0".to_string(),
+                ..Default::default()
+            },
+        );
+
+        assert_ne!(left, right);
+        assert!(left.contains("h_"));
+        assert!(right.contains("h_"));
+        assert!(!left.contains("agent|a"));
+        assert!(!right.contains("a|metric"));
+    }
+
+    #[test]
+    fn remote_snmp_target_overrides_agent_identity_and_hint() {
+        let resource = MetricResource {
+            agent_id: "agent-host".to_string(),
+            host_id: "poller-host".to_string(),
+            host_ip: "192.0.2.10".to_string(),
+            device_id: "poller-device".to_string(),
+            target_device_ip: "198.51.100.25".to_string(),
+            partition: "demo".to_string(),
+            ..Default::default()
+        };
+        let metric = Metric {
+            name: "snmp.ifInOctets".to_string(),
+            metric_type: "snmp.interface".to_string(),
+            ..Default::default()
+        };
+        let point = MetricPoint {
+            observed_at_unix_nano: 1_765_000_123_456_789_000,
+            if_index: 7,
+            series_identity_hint: "snmp:agent-host:7".to_string(),
+            ..Default::default()
+        };
+
+        let series_key = series_key_for(&resource, &metric, &point);
+
+        assert_eq!(series_key, "198.51.100.25|snmp.ifInOctets|7");
+        assert_eq!(identity_anchor_for(&resource, &metric), "198.51.100.25");
+
+        let verdict = ReasonVerdict {
+            state: "confirmed_anomaly".to_string(),
+            anomalous: true,
+            breached: true,
+            include_in_baseline: false,
+            next_consecutive_anomalous: 3,
+            score: 4.0,
+            reason: "breach".to_string(),
+            baseline_count: 30,
+            next_rolling_acc: Default::default(),
+            next_window_tail: vec![],
+            sample_value: 99.0,
+            observed_at_unix_nano: Some(point.observed_at_unix_nano),
+            signals: vec![],
+        };
+        let record = verdict_record(
+            &resource,
+            &metric,
+            &point,
+            &series_key,
+            &verdict,
+            AnomalyTransition::Open,
+        );
+        let event: serde_json::Value = serde_json::from_slice(&record.payload).unwrap();
+
+        assert_eq!(event["device_uid"], "198.51.100.25");
+        assert_eq!(event["device_id"], "198.51.100.25");
+        assert_eq!(event["target_device_ip"], "198.51.100.25");
+        assert_eq!(event["anomaly"]["target_device_ip"], "198.51.100.25");
+        assert_eq!(
+            event["anomaly"]["metadata"]["target_device_ip"],
+            "198.51.100.25"
+        );
+        assert_eq!(
+            event["source_identity"]["target_device_ip"],
+            "198.51.100.25"
+        );
+        assert_eq!(event["source_identity"]["agent_id"], "agent-host");
+    }
+
+    #[test]
+    fn edge_verdict_identity_and_time_use_sample_timestamp() {
+        let resource = MetricResource {
+            agent_id: "agent-a".to_string(),
+            host_id: "host-a".to_string(),
+            device_id: "device-a".to_string(),
+            partition: "demo".to_string(),
+            ..Default::default()
+        };
+        let metric = Metric {
+            name: "cpu.usage_percent".to_string(),
+            metric_type: "sysmon.cpu".to_string(),
+            ..Default::default()
+        };
+        let point = MetricPoint {
+            observed_at_unix_nano: 1_765_000_123_456_789_000,
+            ..Default::default()
+        };
+        let verdict = ReasonVerdict {
+            state: "confirmed_anomaly".to_string(),
+            anomalous: true,
+            breached: true,
+            include_in_baseline: false,
+            next_consecutive_anomalous: 5,
+            score: 4.0,
+            reason: "breach".to_string(),
+            baseline_count: 30,
+            next_rolling_acc: Default::default(),
+            next_window_tail: vec![],
+            sample_value: 99.0,
+            observed_at_unix_nano: Some(point.observed_at_unix_nano),
+            signals: vec![],
+        };
+
+        let record = verdict_record(
+            &resource,
+            &metric,
+            &point,
+            "series-a",
+            &verdict,
+            AnomalyTransition::Open,
+        );
+        let event: serde_json::Value = serde_json::from_slice(&record.payload).unwrap();
+
+        assert_eq!(
+            record.event_time_unix_nano,
+            point.observed_at_unix_nano as i64
+        );
+        assert_eq!(
+            record.observed_time_unix_nano,
+            point.observed_at_unix_nano as i64
+        );
+        assert_eq!(event["time"], 1_765_000_123_456_i64);
+        assert_eq!(
+            event["anomaly"]["observed_at_unix_nano"],
+            point.observed_at_unix_nano
+        );
+        assert_eq!(
+            event["event_id"],
+            format!("anomaly:series-a:{}:open", point.observed_at_unix_nano)
+        );
+    }
+
+    #[test]
     fn shed_record_is_operational_ocsf_event_not_an_anomaly() {
         let resource = MetricResource {
             agent_id: "agent-a".to_string(),
@@ -1033,6 +1605,7 @@ mod tests {
                 dropped_delta: 3,
                 dropped_total: 10,
                 tracked_series: 1,
+                tracked_counters: 2,
                 max_series: 1,
             },
         );
@@ -1046,6 +1619,7 @@ mod tests {
         assert_eq!(event["status_code"], "anomaly_capacity_shed");
         assert_eq!(event["unmapped"]["dropped_series_delta"], 3);
         assert_eq!(event["unmapped"]["dropped_series_total"], 10);
+        assert_eq!(event["unmapped"]["tracked_counters"], 2);
         assert!(event.get("anomaly").is_none());
         assert_ne!(
             event.get("event_type").and_then(|v| v.as_str()),
@@ -1068,7 +1642,7 @@ mod tests {
             confirm_slots: 1,
             ..EngineConfig::default()
         })));
-        let (tx, mut rx) = mpsc::channel(1);
+        let (tx, mut rx) = broadcast::channel(1);
         let batch = MetricBatch {
             resource: Some(MetricResource {
                 agent_id: "agent-a".to_string(),
@@ -1108,15 +1682,229 @@ mod tests {
             payload: batch.encode_to_vec(),
         };
 
-        process_frame(&engine, &tx, &frame).await;
+        let liveness = Arc::new(Mutex::new(ScoringLiveness::default()));
+        process_frame(&engine, &tx, &liveness, &frame);
 
-        let sent = rx.recv().await.expect("telemetry batch").expect("batch ok");
+        let sent = rx.recv().await.expect("telemetry batch");
         assert_eq!(sent.records.len(), 1);
         let event: serde_json::Value = serde_json::from_slice(&sent.records[0].payload).unwrap();
         assert_eq!(event["status_code"], "anomaly_capacity_shed");
         assert_eq!(event["unmapped"]["dropped_series_delta"], 2);
         assert_eq!(event["unmapped"]["feed_id"], 7);
         assert_eq!(engine.lock().unwrap().dropped_at_capacity, 2);
+    }
+
+    #[tokio::test]
+    async fn process_frame_recovers_from_poisoned_engine_mutex() {
+        let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig {
+            max_series: 1,
+            min_samples: 1,
+            confirm_slots: 1,
+            ..EngineConfig::default()
+        })));
+        let poisoned = Arc::clone(&engine);
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoned.lock().expect("lock before panic");
+            panic!("poison engine mutex for test");
+        })
+        .join();
+
+        let (tx, mut rx) = broadcast::channel(1);
+        let batch = MetricBatch {
+            resource: Some(MetricResource {
+                agent_id: "agent-a".to_string(),
+                host_id: "host-a".to_string(),
+                ..Default::default()
+            }),
+            metrics: vec![Metric {
+                name: "cpu.usage_percent".to_string(),
+                metric_type: "sysmon.cpu".to_string(),
+                points: vec![
+                    MetricPoint {
+                        value: 10.0,
+                        observed_at_unix_nano: 1,
+                        series_identity_hint: "series-a".to_string(),
+                        ..Default::default()
+                    },
+                    MetricPoint {
+                        value: 20.0,
+                        observed_at_unix_nano: 2,
+                        series_identity_hint: "series-b".to_string(),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let frame = MetricFeedFrame {
+            feed_id: 8,
+            source: None,
+            payload: batch.encode_to_vec(),
+        };
+
+        let liveness = Arc::new(Mutex::new(ScoringLiveness::default()));
+        process_frame(&engine, &tx, &liveness, &frame);
+
+        let sent = rx.recv().await.expect("telemetry batch after poison");
+        assert_eq!(sent.records.len(), 1);
+        let event: serde_json::Value = serde_json::from_slice(&sent.records[0].payload).unwrap();
+        assert_eq!(event["status_code"], "anomaly_capacity_shed");
+        assert_eq!(event["unmapped"]["feed_id"], 8);
+    }
+
+    #[tokio::test]
+    async fn health_exposes_scoring_liveness_snapshot() {
+        let addon = AnomalyAddon::new();
+        {
+            addon.engine.lock().unwrap().set_config(EngineConfig {
+                min_samples: 1,
+                confirm_slots: 1,
+                max_series: 10,
+                ..EngineConfig::default()
+            });
+            addon.liveness.lock().unwrap().max_series = 10;
+        }
+
+        let batch = MetricBatch {
+            resource: Some(MetricResource {
+                agent_id: "agent-a".to_string(),
+                host_id: "host-a".to_string(),
+                ..Default::default()
+            }),
+            metrics: vec![Metric {
+                name: "cpu.usage_percent".to_string(),
+                metric_type: "sysmon.cpu".to_string(),
+                points: vec![MetricPoint {
+                    value: 10.0,
+                    observed_at_unix_nano: 123,
+                    series_identity_hint: "series-a".to_string(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let frame = MetricFeedFrame {
+            feed_id: 9,
+            source: None,
+            payload: batch.encode_to_vec(),
+        };
+
+        process_frame(&addon.engine, &addon.verdict_tx, &addon.liveness, &frame);
+
+        let health = addon.health().await.expect("health");
+        assert_eq!(health.status, HealthStatus::Healthy);
+
+        let liveness: serde_json::Value = serde_json::from_str(&health.degradation_reason).unwrap();
+        assert_eq!(liveness["kind"], "anomaly_scoring_liveness");
+        assert_eq!(liveness["frames_received"], 1);
+        assert_eq!(liveness["samples_scored_total"], 1);
+        assert_eq!(liveness["tracked_series"], 1);
+        assert_eq!(liveness["max_series"], 10);
+        assert_eq!(liveness["last_scored_unix_nano"], 123);
+    }
+
+    fn empty_feed_frame(feed_id: u64) -> MetricFeedFrame {
+        MetricFeedFrame {
+            feed_id,
+            source: None,
+            payload: MetricBatch::default().encode_to_vec(),
+        }
+    }
+
+    #[tokio::test]
+    async fn metric_feed_reopen_aborts_prior_scoring_task() {
+        let addon = AnomalyAddon::new();
+
+        let (old_tx, old_rx) = mpsc::channel(1);
+        let mut old_acks = addon
+            .stream_metric_feed(Box::pin(ReceiverStream::new(old_rx)))
+            .expect("old metric feed stream");
+
+        let (new_tx, new_rx) = mpsc::channel(1);
+        let mut new_acks = addon
+            .stream_metric_feed(Box::pin(ReceiverStream::new(new_rx)))
+            .expect("new metric feed stream");
+
+        let old_done = tokio::time::timeout(std::time::Duration::from_millis(250), old_acks.next())
+            .await
+            .expect("old ack stream should close after feed reopen");
+        assert!(old_done.is_none());
+        assert!(old_tx.send(Ok(empty_feed_frame(1))).await.is_err());
+
+        new_tx
+            .send(Ok(empty_feed_frame(2)))
+            .await
+            .expect("new metric feed receiver remains active");
+
+        let ack = tokio::time::timeout(std::time::Duration::from_millis(250), new_acks.next())
+            .await
+            .expect("new ack stream should receive ack")
+            .expect("new ack stream remains open")
+            .expect("new ack should be ok");
+        assert_eq!(ack.acked_feed_id, 2);
+    }
+
+    #[tokio::test]
+    async fn metric_feed_closes_promptly_when_addon_is_dropped() {
+        let addon = AnomalyAddon::new();
+
+        let (tx, rx) = mpsc::channel(1);
+        let mut acks = addon
+            .stream_metric_feed(Box::pin(ReceiverStream::new(rx)))
+            .expect("metric feed stream");
+
+        drop(addon);
+
+        let done = tokio::time::timeout(std::time::Duration::from_millis(250), acks.next())
+            .await
+            .expect("ack stream should close when addon drops");
+        assert!(done.is_none());
+        assert!(tx.send(Ok(empty_feed_frame(3))).await.is_err());
+    }
+
+    fn empty_telemetry_batch() -> TelemetryBatch {
+        TelemetryBatch {
+            source: None,
+            records: Vec::new(),
+            counters: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn telemetry_stream_is_reconnect_safe() {
+        let addon = AnomalyAddon::new();
+        let mut first = addon.stream_telemetry();
+        let mut second = addon.stream_telemetry();
+
+        addon
+            .verdict_tx
+            .send(empty_telemetry_batch())
+            .expect("broadcast to active subscribers");
+
+        assert!(first.next().await.expect("first item").is_ok());
+        assert!(second.next().await.expect("second item").is_ok());
+    }
+
+    #[tokio::test]
+    async fn telemetry_stream_reports_lag_without_backpressure() {
+        let addon = AnomalyAddon::new();
+        let mut stream = addon.stream_telemetry();
+
+        for _ in 0..(VERDICT_CHANNEL_DEPTH + 1) {
+            addon
+                .verdict_tx
+                .send(empty_telemetry_batch())
+                .expect("subscriber is active");
+        }
+
+        let err = stream
+            .next()
+            .await
+            .expect("lag marker")
+            .expect_err("lag should be reported as stream error");
+        assert_eq!(err.code(), tonic::Code::ResourceExhausted);
     }
 
     #[test]

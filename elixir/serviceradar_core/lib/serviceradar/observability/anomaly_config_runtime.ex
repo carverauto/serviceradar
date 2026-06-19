@@ -26,6 +26,7 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
   @type cache :: %{
           optional(:anomaly_series_config) => map(),
           optional(:capacity_forecasting_opts) => keyword(),
+          optional(:edge_addon_params) => map(),
           optional(:seasonal_disposition_opts) => keyword(),
           optional(:refreshed_at_ms) => integer()
         }
@@ -39,6 +40,11 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
   @spec anomaly_series_config() :: map()
   def anomaly_series_config do
     Map.get(cache(), :anomaly_series_config, %{})
+  end
+
+  @spec edge_addon_params() :: map()
+  def edge_addon_params do
+    Map.get(cache(), :edge_addon_params, %{})
   end
 
   @spec capacity_forecasting_opts() :: keyword()
@@ -103,6 +109,21 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
       |> Map.put("default", base)
 
     %{metric_class_defaults: metric_class_defaults}
+  end
+
+  @doc false
+  @spec edge_addon_params_from_settings(struct() | nil) :: map()
+  def edge_addon_params_from_settings(nil), do: %{}
+
+  def edge_addon_params_from_settings(%AnomalyDetectionConfig{} = settings) do
+    %{
+      "n_sigma" => settings.n_sigma,
+      "window_size" => settings.window_size,
+      "confirm_slots" => settings.confirm_slots,
+      "min_samples" => settings.min_samples
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
   end
 
   @doc false
@@ -201,6 +222,12 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
         :unchanged -> Map.get(existing, :anomaly_series_config, %{})
       end
 
+    edge_addon_params =
+      case anomaly_settings do
+        {:ok, settings} -> edge_addon_params_from_settings(settings)
+        :unchanged -> Map.get(existing, :edge_addon_params, %{})
+      end
+
     seasonal_disposition_opts =
       case anomaly_settings do
         {:ok, settings} -> seasonal_disposition_opts_from_settings(settings)
@@ -227,6 +254,7 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
       normalize_cache(%{
         anomaly_series_config: anomaly_series_config,
         capacity_forecasting_opts: capacity_forecasting_opts,
+        edge_addon_params: edge_addon_params,
         seasonal_disposition_opts: seasonal_disposition_opts,
         refreshed_at_ms: System.monotonic_time(:millisecond)
       })
@@ -257,6 +285,7 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
   defp normalize_cache(cache) do
     %{
       anomaly_series_config: Map.get(cache, :anomaly_series_config, %{}),
+      edge_addon_params: Map.get(cache, :edge_addon_params, %{}),
       capacity_forecasting_opts:
         cache
         |> Map.get(:capacity_forecasting_opts, [])
@@ -270,15 +299,9 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
   end
 
   defp normalize_metric_class_overrides(overrides) when is_map(overrides) do
-    overrides =
-      Map.new(overrides, fn {class, values} ->
-        {normalize_metric_class(class), normalize_override_values(values)}
-      end)
-
-    case Map.get(overrides, "memory") do
-      nil -> overrides
-      values -> Map.put_new(overrides, "mem", values)
-    end
+    Map.new(overrides, fn {class, values} ->
+      {normalize_metric_class(class), normalize_override_values(values)}
+    end)
   end
 
   defp normalize_metric_class_overrides(_overrides), do: %{}

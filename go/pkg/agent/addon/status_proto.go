@@ -43,6 +43,9 @@ func ToProtoStatuses(statuses []Status) []*proto.SidecarStatus {
 		if lastError == "" {
 			lastError = status.DegradationReason
 		}
+		if lastError == "" {
+			lastError = status.ResourceLimitError
+		}
 
 		out = append(out, &proto.SidecarStatus{
 			Name:         "addon:" + status.ID,

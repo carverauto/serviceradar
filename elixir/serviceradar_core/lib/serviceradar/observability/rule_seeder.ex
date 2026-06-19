@@ -41,7 +41,34 @@ defmodule ServiceRadar.Observability.RuleSeeder do
   end
 
   defp ensure_stateful_rules(opts) do
+    retire_legacy_causal_prediction_rule(opts)
     ensure_defaults(StatefulAlertRule, default_stateful_rules(), opts)
+  end
+
+  defp retire_legacy_causal_prediction_rule(opts) do
+    query =
+      StatefulAlertRule
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(name == "causal_prediction_health_finding")
+
+    case Ash.read(query, opts) do
+      {:ok, rules} ->
+        Enum.each(rules, fn rule ->
+          rule
+          |> Ash.Changeset.for_update(:update, %{enabled: false}, opts)
+          |> Ash.update()
+          |> case do
+            {:ok, _} ->
+              Logger.info("Retired legacy rule: causal_prediction_health_finding")
+
+            {:error, reason} ->
+              Logger.warning("Failed to retire legacy causal prediction rule: #{inspect(reason)}")
+          end
+        end)
+
+      {:error, reason} ->
+        Logger.warning("Failed to check legacy causal prediction rule: #{inspect(reason)}")
+    end
   end
 
   defp ensure_defaults(resource, defaults, opts) do
@@ -161,29 +188,96 @@ defmodule ServiceRadar.Observability.RuleSeeder do
         }
       },
       %{
-        name: "causal_prediction_health_finding",
+        name: "causal_prediction_anomaly_finding",
         description:
-          "Raise one active health incident per device from anomaly and capacity causal prediction findings.",
+          "Raise one active health incident per canonical anomaly finding and resolve it on clear.",
         priority: 44,
         enabled: true,
         signal: :event,
         match: %{
           "subject_prefix" => "signals.causal.predictions",
-          "attribute_equals" => %{"signal_type" => "causal"}
+          "resource_attribute_equals" => %{
+            "signal_type" => "causal",
+            "event_type" => "anomaly"
+          },
+          "attribute_equals" => %{
+            "status" => ["open", "breach"]
+          },
+          "attribute_not_equals" => %{
+            "anomaly.state" => "pending_anomaly"
+          },
+          "reset_when" => [
+            %{
+              "subject_prefix" => "signals.causal.predictions",
+              "resource_attribute_equals" => %{
+                "signal_type" => "causal",
+                "event_type" => "anomaly"
+              },
+              "attribute_equals" => %{
+                "status" => ["cleared", "closed", "resolved", "inactive", "clear"]
+              }
+            },
+            %{
+              "subject_prefix" => "signals.causal.predictions",
+              "resource_attribute_equals" => %{
+                "signal_type" => "causal",
+                "event_type" => "anomaly",
+                "detection_finding.state" => ["clean", "normal"]
+              }
+            }
+          ]
         },
-        group_by: ["device"],
+        group_by: ["finding_info.uid"],
         threshold: 1,
         window_seconds: 300,
         bucket_seconds: 60,
         cooldown_seconds: 300,
         renotify_seconds: 21_600,
         event: %{
-          "log_name" => "alert.health.causal_prediction",
-          "message" => "Causal prediction finding detected"
+          "log_name" => "alert.health.anomaly_detection",
+          "message" => "Anomaly detection finding detected"
         },
         alert: %{
-          "title" => "Causal Prediction Finding",
-          "severity" => "warning"
+          "title" => "Anomaly Detection Finding"
+        }
+      },
+      %{
+        name: "causal_prediction_capacity_exhaustion",
+        description:
+          "Raise one active health incident per capacity forecast that crosses the warning horizon.",
+        priority: 44,
+        enabled: true,
+        signal: :event,
+        match: %{
+          "subject_prefix" => "signals.causal.predictions",
+          "resource_attribute_equals" => %{
+            "signal_type" => "causal",
+            "event_type" => "capacity_forecast"
+          },
+          "attribute_equals" => %{"status" => "projected"},
+          "reset_when" => %{
+            "subject_prefix" => "signals.causal.predictions",
+            "resource_attribute_equals" => %{
+              "signal_type" => "causal",
+              "event_type" => "capacity_forecast"
+            },
+            "attribute_equals" => %{
+              "status" => ["inactive", "resolved", "closed", "skipped"]
+            }
+          }
+        },
+        group_by: ["finding_info.uid"],
+        threshold: 1,
+        window_seconds: 300,
+        bucket_seconds: 60,
+        cooldown_seconds: 300,
+        renotify_seconds: 21_600,
+        event: %{
+          "log_name" => "alert.health.capacity_forecast",
+          "message" => "Capacity forecast warning horizon crossed"
+        },
+        alert: %{
+          "title" => "Capacity Forecast Warning"
         }
       },
       %{

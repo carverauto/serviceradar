@@ -1396,15 +1396,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "beam.smp"
   end
 
-  test "renders device anomaly and capacity section using identity fallback", %{conn: conn} do
+  test "renders device anomaly and capacity section using canonical device scope", %{conn: conn} do
     unique = System.unique_integer([:positive])
-    uid = "sr:test-device-anomaly-fallback-#{unique}"
-    hostname = "anomaly-fallback-host-#{unique}"
-    agent_id = "agent-anomaly-fallback-#{unique}"
+    uid = "sr:test-device-anomaly-canonical-#{unique}"
+    hostname = "anomaly-canonical-host-#{unique}"
+    agent_id = "agent-anomaly-canonical-#{unique}"
+    test_pid = self()
     previous_srql_module = Application.get_env(:serviceradar_web_ng, :srql_module)
     previous_responder = Application.get_env(:serviceradar_web_ng, :device_live_srql_responder)
+    previous_test_pid = Application.get_env(:serviceradar_web_ng, :device_live_srql_test_pid)
 
     Application.put_env(:serviceradar_web_ng, :srql_module, __MODULE__.RecordingSRQLStub)
+    Application.put_env(:serviceradar_web_ng, :device_live_srql_test_pid, test_pid)
 
     Application.put_env(:serviceradar_web_ng, :device_live_srql_responder, fn query, _opts ->
       cond do
@@ -1424,16 +1427,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
         String.contains?(query, "in:events") and
           String.contains?(query, "event_type:(anomaly,anomaly_detection)") and
-            String.contains?(query, ~s|agent_id:"#{agent_id}"|) ->
+            String.contains?(query, ~s|device_uid_exact:"#{uid}"|) ->
           {:ok,
            %{
              "results" => [
                %{
                  "time" => "2026-06-13T12:00:00Z",
                  "finding_title" => "CPU anomaly detected",
+                 "message" => "breach pending confirmation at 2/3 consecutive anomalous slots",
                  "metric_class" => "cpu",
+                 "metric_name" => "cpu.usage_percent",
                  "source_type" => "anomaly_detection",
-                 "severity" => "High"
+                 "severity" => "High",
+                 "metadata" => %{
+                   "finding_info" => %{
+                     "title" => "CPU usage anomaly",
+                     "uid" => "finding-#{unique}"
+                   },
+                   "source_identity" => %{
+                     "metric_name" => "cpu.usage_percent",
+                     "series_key" => "#{uid}:sysmon.cpu:cpu.usage_percent:cpu0"
+                   },
+                   "anomaly" => %{
+                     "value" => 98.7,
+                     "score" => 4.2
+                   }
+                 }
                }
              ],
              "pagination" => %{}
@@ -1457,19 +1476,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         String.contains?(query, "in:capacity_forecasts") and
           String.contains?(query, "status:(projected,at_risk,exhaustion_projected)") and
           String.contains?(query, "has_exhaustion:true") and
-            String.contains?(query, ~s|resource_id:"#{agent_id}"|) ->
+            String.contains?(query, ~s|resource_id:"#{uid}"|) ->
           {:ok,
            %{
              "results" => [
                %{
                  "resource_label" => "Filesystem /",
-                 "resource_id" => agent_id,
+                 "resource_id" => uid,
                  "metric_name" => "disk.used_percent",
                  "status" => "projected",
                  "current_value" => 72.5,
                  "projected_value" => 91.2,
                  "projected_exhaustion_at" => "2026-06-20T00:00:00Z",
-                 "confidence" => 0.82
+                 "confidence" => 0.82,
+                 "exhaustion_threshold" => 95.0,
+                 "horizon_seconds" => 604_800,
+                 "unit" => "%"
                }
              ],
              "pagination" => %{}
@@ -1483,17 +1505,63 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     on_exit(fn ->
       restore_env(:srql_module, previous_srql_module)
       restore_env(:device_live_srql_responder, previous_responder)
+      restore_env(:device_live_srql_test_pid, previous_test_pid)
     end)
 
     {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
     html = render_until(view, "Anomaly &amp; Capacity", 10_000)
 
-    assert html =~ "CPU anomaly detected"
+    assert html =~ "CPU usage anomaly"
+    assert html =~ "breach pending confirmation"
+    assert html =~ "cpu.usage_percent"
+    assert html =~ "value 98.7 / score 4.20"
     refute html =~ "Unexpected connection to K8s API Server"
     assert html =~ "Filesystem /"
-    assert html =~ "agent agent_id=#{agent_id}"
-    assert html =~ "agent resource_id=#{agent_id}"
+    assert html =~ "91.20 %"
+    assert html =~ "now 72.50 %"
+    assert html =~ "device device_uid_exact=#{uid}"
+    assert html =~ "device resource_id=#{uid}"
     assert html =~ "active"
+
+    anomaly_modal =
+      render_click(view, "open_anomaly_capacity_row", %{
+        "kind" => "anomaly",
+        "uid" => "finding-#{unique}",
+        "index" => "0"
+      })
+
+    assert anomaly_modal =~ "CPU usage anomaly"
+    assert anomaly_modal =~ "finding-#{unique}"
+    assert anomaly_modal =~ "#{uid}:sysmon.cpu:cpu.usage_percent:cpu0"
+
+    capacity_modal =
+      render_click(view, "open_anomaly_capacity_row", %{
+        "kind" => "capacity",
+        "uid" => "#{uid}|disk.used_percent|2026-06-20T00:00:00Z",
+        "index" => "0"
+      })
+
+    assert capacity_modal =~ "threshold 95.00 %"
+    assert capacity_modal =~ "headroom 22.50 %"
+    assert capacity_modal =~ "horizon 7.0d"
+
+    all_queries = receive_all_srql_queries()
+
+    anomaly_query =
+      Enum.find(
+        all_queries,
+        &(String.contains?(&1, "in:events") and
+            String.contains?(&1, "event_type:(anomaly,anomaly_detection)"))
+      )
+
+    capacity_query = Enum.find(all_queries, &String.contains?(&1, "in:capacity_forecasts"))
+
+    assert is_binary(anomaly_query)
+    assert is_binary(capacity_query)
+    assert anomaly_query =~ ~s|device_uid_exact:"#{uid}"|
+    refute anomaly_query =~ ~s|agent_id:"#{agent_id}"|
+    assert capacity_query =~ ~s|resource_id:"#{uid}"|
+    refute capacity_query =~ "resource_key"
   end
 
   test "keeps device anomaly and capacity section visible when no rows exist", %{conn: conn} do
@@ -3679,6 +3747,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       true ->
         Process.sleep(50)
         render_until(view, expected, deadline, html)
+    end
+  end
+
+  defp receive_all_srql_queries(queries \\ []) do
+    receive do
+      {:srql_query, query} -> receive_all_srql_queries([query | queries])
+    after
+      0 -> Enum.reverse(queries)
     end
   end
 

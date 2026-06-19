@@ -34,33 +34,37 @@ import (
 )
 
 const (
-	defaultRuntimeDir            = "/run/serviceradar/addons"
-	defaultHealthInterval        = 5 * time.Second
-	defaultUnhealthyThreshold    = 3
-	defaultConfigureTimeout      = 10 * time.Second
-	defaultCommandTimeout        = 300 * time.Second
-	defaultHealthTimeout         = 5 * time.Second
-	defaultRestartBackoffInitial = time.Second
-	defaultRestartBackoffMax     = time.Minute
-	defaultRestartLimitPerMinute = 5
+	defaultRuntimeDir             = "/run/serviceradar/addons"
+	defaultHealthInterval         = 5 * time.Second
+	defaultUnhealthyThreshold     = 3
+	defaultConfigureTimeout       = 10 * time.Second
+	defaultCommandTimeout         = 300 * time.Second
+	defaultHealthTimeout          = 5 * time.Second
+	defaultRestartBackoffInitial  = time.Second
+	defaultRestartBackoffMax      = time.Minute
+	defaultRestartCircuitCooldown = time.Minute
+	defaultRestartLimitPerMinute  = 5
+	addonStreamReconnectInitial   = 100 * time.Millisecond
+	addonStreamReconnectMax       = 2 * time.Second
 )
 
 // Config controls add-on manager paths and supervision timing.
 type Config struct {
 	// RuntimeDir is the base directory under which go-plugin creates per-add-on
 	// Unix-domain sockets (UnixSocketConfig.TempDir).
-	RuntimeDir            string
-	HealthInterval        time.Duration
-	HealthTimeout         time.Duration
-	UnhealthyThreshold    int
-	ConfigureTimeout      time.Duration
-	RestartBackoffInitial time.Duration
-	RestartBackoffMax     time.Duration
-	RestartLimitPerMinute int
-	ArtifactMaxBytes      int64
-	CredentialResolver    coreaddon.CredentialResolver
-	TelemetryHandler      func(addonID string, batch *coreaddon.TelemetryBatch)
-	ArtifactHandler       ArtifactHandler
+	RuntimeDir             string
+	HealthInterval         time.Duration
+	HealthTimeout          time.Duration
+	UnhealthyThreshold     int
+	ConfigureTimeout       time.Duration
+	RestartBackoffInitial  time.Duration
+	RestartBackoffMax      time.Duration
+	RestartCircuitCooldown time.Duration
+	RestartLimitPerMinute  int
+	ArtifactMaxBytes       int64
+	CredentialResolver     coreaddon.CredentialResolver
+	TelemetryHandler       func(addonID string, batch *coreaddon.TelemetryBatch)
+	ArtifactHandler        ArtifactHandler
 	// OtlpRelayRunner, when set, is invoked on its own goroutine for every
 	// running add-on that advertises CapabilityOtlpRelayV1 and supports the
 	// client-side relay stream. It owns the acked OTLP relay pump for one
@@ -105,6 +109,9 @@ func applyDefaults(cfg Config) Config {
 	}
 	if cfg.RestartBackoffMax <= 0 {
 		cfg.RestartBackoffMax = defaultRestartBackoffMax
+	}
+	if cfg.RestartCircuitCooldown <= 0 {
+		cfg.RestartCircuitCooldown = defaultRestartCircuitCooldown
 	}
 	if cfg.RestartLimitPerMinute <= 0 {
 		cfg.RestartLimitPerMinute = defaultRestartLimitPerMinute
@@ -407,6 +414,7 @@ func (r *runner) needsRestart(spec Spec) bool {
 	return r.spec.Version != spec.Version ||
 		r.spec.BinaryPath != spec.BinaryPath ||
 		!equalStrings(r.spec.Args, spec.Args) ||
+		r.spec.Resources != spec.Resources ||
 		!equalStrings(metricFeedSourcesFromConfig(r.spec.ConfigJSON), metricFeedSourcesFromConfig(spec.ConfigJSON))
 }
 
@@ -446,7 +454,6 @@ func (r *runner) run(ctx context.Context) {
 			return
 		}
 
-		runStart := time.Now()
 		err := r.runOnce(ctx)
 		if ctx.Err() != nil {
 			r.setState(StateStopped, "")
@@ -455,11 +462,21 @@ func (r *runner) run(ctx context.Context) {
 
 		if !r.recordRestart(err) {
 			r.setState(StateCircuitOpen, errString(err))
-			return
+			timer := time.NewTimer(r.cfg.RestartCircuitCooldown)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				r.setState(StateStopped, "")
+				return
+			case <-timer.C:
+			}
+			r.clearRestartWindow()
+			backoff = r.cfg.RestartBackoffInitial
+			continue
 		}
 
 		r.setState(StateRestarting, errString(err))
-		if time.Since(runStart) >= r.cfg.RestartBackoffMax {
+		if r.ranStablyFor(r.cfg.RestartBackoffMax) {
 			backoff = r.cfg.RestartBackoffInitial
 		}
 
@@ -498,11 +515,14 @@ func (r *runner) runOnce(ctx context.Context) error {
 	// Enforce the manifest resource limits on the add-on subprocess (cgroup v2 on
 	// Linux; no-op elsewhere). Best-effort: a failure to enforce logs and launches
 	// without limits rather than blocking the add-on.
-	if cleanup, err := applyResourceLimits(cmd, r.id, r.spec.Resources, r.cfg.AddonCgroupRoot, r.cfg.Logger); err != nil {
-		r.cfg.Logger.Warn().Err(err).Str("addon", r.id).
-			Msg("addon resource limits not enforced; launching without limits")
-	} else {
+	cleanup, limitStatus, err := applyResourceLimits(cmd, r.id, r.spec.Resources, r.cfg.AddonCgroupRoot, r.cfg.Logger)
+	r.setResourceLimitStatus(limitStatus)
+	if cleanup != nil {
 		defer cleanup()
+	}
+	if err != nil {
+		r.cfg.Logger.Warn().Err(err).Str("addon", r.id).
+			Msg("addon resource limits not fully enforced; continuing")
 	}
 
 	client := goplugin.NewClient(&goplugin.ClientConfig{
@@ -796,19 +816,62 @@ func (m *Manager) PublishMetricFeed(source string, payload []byte) int {
 }
 
 func (r *runner) drainTelemetry(ctx context.Context, telemetryClient coreaddon.TelemetryClient) {
-	batches, err := telemetryClient.StreamTelemetry(ctx)
+	backoff := addonStreamReconnectInitial
+
+	for ctx.Err() == nil {
+		err := r.drainTelemetryStream(ctx, telemetryClient)
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			r.cfg.Logger.Warn().Err(err).Str("addon", r.id).Msg("addon telemetry stream lost")
+		}
+
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+
+		backoff *= 2
+		if backoff > addonStreamReconnectMax {
+			backoff = addonStreamReconnectMax
+		}
+	}
+}
+
+func (r *runner) drainTelemetryStream(ctx context.Context, telemetryClient coreaddon.TelemetryClient) error {
+	var (
+		batches   <-chan *coreaddon.TelemetryBatch
+		streamErr <-chan error
+		err       error
+	)
+	if diagnosticClient, ok := telemetryClient.(coreaddon.TelemetryDiagnosticClient); ok {
+		batches, streamErr, err = diagnosticClient.StreamTelemetryWithDiagnostics(ctx)
+	} else {
+		batches, err = telemetryClient.StreamTelemetry(ctx)
+	}
 	if err != nil {
-		r.cfg.Logger.Warn().Err(err).Str("addon", r.id).Msg("addon telemetry stream failed to open")
-		return
+		return err
 	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return nil
+		case err, ok := <-streamErr:
+			if !ok {
+				streamErr = nil
+				continue
+			}
+			if ok && err != nil {
+				return addonStreamClosedWithCause(err)
+			}
 		case batch, ok := <-batches:
 			if !ok {
-				return
+				return addonStreamClosedWithCause(readStreamCause(streamErr))
 			}
 			if batch == nil {
 				continue
@@ -930,16 +993,24 @@ func (r *runner) setRunning(pid int, version string, capabilities []string) {
 	r.status.LastError = ""
 }
 
+func (r *runner) setResourceLimitStatus(status resourceLimitStatus) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.status.ResourceLimitsRequested = status.Requested
+	r.status.ResourceLimitsEnforced = status.Enforced
+	r.status.ResourceLimitCgroupPath = status.CgroupPath
+	r.status.ResourceLimitError = status.Warning
+}
+
 func (r *runner) setHealthy(pid int, h coreaddon.Health) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if h.Status == coreaddon.HealthDegraded || h.Status == coreaddon.HealthUnhealthy {
 		r.status.State = StateUnhealthy
-		r.status.DegradationReason = h.DegradationReason
 	} else {
 		r.status.State = StateRunning
-		r.status.DegradationReason = ""
 	}
+	r.status.DegradationReason = h.DegradationReason
 	r.status.PID = pid
 	if h.Version != "" {
 		r.status.Version = h.Version
@@ -986,6 +1057,30 @@ func (r *runner) recordRestart(err error) bool {
 	r.restartWindow = append(r.restartWindow, now)
 	r.status.RestartCount++
 	return true
+}
+
+func (r *runner) clearRestartWindow() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.restartWindow = nil
+}
+
+func (r *runner) ranStablyFor(duration time.Duration) bool {
+	if duration <= 0 {
+		return true
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.status.LastStartedAt.IsZero() || r.status.LastHealthAt.IsZero() {
+		return false
+	}
+	if r.status.LastHealthAt.Before(r.status.LastStartedAt) {
+		return false
+	}
+
+	return r.status.LastHealthAt.Sub(r.status.LastStartedAt) >= duration
 }
 
 func errString(err error) string {

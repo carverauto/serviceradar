@@ -142,6 +142,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
     assert attrs.score >= 3.0
     assert attrs.consecutive_anomalous == 1
     assert attrs.metadata["verdict_source"] == "central-seasonal"
+    assert DateTime.diff(attrs.bucket_ended_at, attrs.bucket_started_at, :second) == 3_600
     refute_received {:seasonal_verdict, %{series_key: "svc/cpu/b"}}
 
     # Confirmed breach persists consecutive_anomalous = 1; the suppress resets to 0.
@@ -153,6 +154,20 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
     assert measurements.breached == 1
     assert measurements.suppressed == 1
     assert measurements.nif_duration_us >= 0
+  end
+
+  test "default worker sources propagate the configured profile timezone" do
+    assert :ok =
+             Worker.run(job(),
+               time_zone: "America/Chicago",
+               runner: __MODULE__.EmptyQueryCaptureRunner,
+               verdict_emitter: TestEmitter,
+               test_pid: self()
+             )
+
+    assert_received {:seasonal_query, query}
+    assert query =~ ~s|timezone:"America/Chicago"|
+    assert query =~ "stats:profile_hour_of_week(value)"
   end
 
   test "worker carries consecutive_anomalous in for confirm-slot hysteresis" do
@@ -198,6 +213,33 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
     assert_received {:seasonal_verdict, attrs}
     assert attrs.disposition == "seasonal_breach"
     assert attrs.consecutive_anomalous == 3
+  end
+
+  test "worker emits a seasonal clear when a previously confirmed breach suppresses" do
+    idle = for i <- 0..19, do: 5.0 + rem(i, 3) * 0.5
+    rows = [profile_row("svc/cpu/open", 0, 3, idle, 5.5)]
+    persisted = :ets.new(:seasonal_state_clear, [:public, :set])
+
+    assert :ok =
+             Worker.run(job(),
+               sources: [source()],
+               runner: make_runner(rows),
+               carried_state: %{{"svc/cpu/open", 0, 3} => 1},
+               verdict_emitter: TestEmitter,
+               state_persister: fn key, next ->
+                 :ets.insert(persisted, {key, next})
+                 :ok
+               end,
+               test_pid: self()
+             )
+
+    assert_received {:seasonal_verdict, attrs}
+    assert attrs.series_key == "svc/cpu/open"
+    assert attrs.disposition == "seasonal_clear"
+    assert attrs.status == "cleared"
+    assert attrs.consecutive_anomalous == 0
+    assert DateTime.diff(attrs.bucket_ended_at, attrs.bucket_started_at, :second) == 3_600
+    assert [{_, 0}] = :ets.lookup(persisted, {"svc/cpu/open", 0, 3})
   end
 
   test "worker gates a thin bucket to insufficient without surfacing a verdict" do
@@ -273,6 +315,109 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
              )
   end
 
+  test "Oban uniqueness ignores per-run evaluated_at while preserving it for execution" do
+    changeset =
+      Worker.new(%{
+        "trigger" => "manual",
+        "evaluated_at" => "2026-06-12T12:00:00Z"
+      })
+
+    assert changeset.changes.args["evaluated_at"] == "2026-06-12T12:00:00Z"
+    assert changeset.changes.unique.fields == [:args, :worker]
+    assert changeset.changes.unique.keys == [:trigger]
+  end
+
+  test "persistent state lets confirm_slots breaches survive repeated worker runs" do
+    Process.put(:seasonal_state_test_pid, self())
+
+    idle = for i <- 0..19, do: 5.0 + rem(i, 3) * 0.5
+    rows = [profile_row("svc/cpu/persisted", 0, 3, idle, 800.0)]
+
+    opts = [
+      sources: [source()],
+      runner: make_runner(rows),
+      reasoner: __MODULE__.ConfirmingReasoner,
+      verdict_emitter: TestEmitter,
+      state_store: __MODULE__.PersistentStateStore,
+      persistent_state?: true,
+      test_pid: self()
+    ]
+
+    assert :ok = Worker.run(job(), opts)
+
+    key = {"svc/cpu/persisted", 0, 3}
+    assert_received {:seasonal_state_load, "cpu_seasonal", ^key}
+    assert_received {:seasonal_state_persist, "cpu_seasonal", ^key, 1}
+    assert_received :seasonal_state_cleanup
+    refute_received {:seasonal_verdict, %{series_key: "svc/cpu/persisted"}}
+
+    assert :ok = Worker.run(job(), opts)
+
+    assert_received {:seasonal_state_load, "cpu_seasonal", ^key}
+    assert_received {:seasonal_state_persist, "cpu_seasonal", ^key, 2}
+    assert_received :seasonal_state_cleanup
+
+    assert_received {:seasonal_verdict,
+                     %{
+                       series_key: "svc/cpu/persisted",
+                       consecutive_anomalous: 2,
+                       disposition: "seasonal_breach"
+                     }}
+  end
+
+  test "worker fails observably when profile rows omit consumed profile columns" do
+    event = [:serviceradar, :observability, :seasonal_disposition, :source]
+    handler_id = {:seasonal_missing_profile_columns, make_ref()}
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      event,
+      fn ^event, measurements, metadata, _config ->
+        send(test_pid, {handler_id, measurements, metadata})
+      end,
+      nil
+    )
+
+    rows = [
+      %{
+        "series" => "svc/cpu/missing",
+        "dow" => 0,
+        "hod" => 3,
+        "sample_value" => 99.0,
+        "bucket" => @bucket_at
+      }
+    ]
+
+    result =
+      try do
+        Worker.run(job(),
+          sources: [source()],
+          runner: make_runner(rows),
+          verdict_emitter: TestEmitter,
+          test_pid: self()
+        )
+      after
+        :telemetry.detach(handler_id)
+      end
+
+    assert {:error, {:missing_seasonal_profile_columns, missing}} = result
+    assert "bucket_count" in missing
+    assert "bucket_sum" in missing
+    assert "bucket_sum_sq" in missing
+
+    assert_receive {^handler_id, measurements,
+                    %{
+                      source: "cpu_seasonal",
+                      phase: :profile,
+                      result: :error,
+                      reason_class: "missing_seasonal_profile_columns"
+                    }}
+
+    assert measurements.evaluated == 0
+    refute_received {:seasonal_verdict, _}
+  end
+
   defmodule PagedRunner do
     @moduledoc false
     def query_page(query, opts) do
@@ -290,6 +435,56 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
   defmodule ErrorRunner do
     @moduledoc false
     def query(_query, _opts), do: {:error, :db_down}
+  end
+
+  defmodule EmptyQueryCaptureRunner do
+    @moduledoc false
+    def query(query, _opts) do
+      send(self(), {:seasonal_query, query})
+      {:ok, []}
+    end
+  end
+
+  defmodule PersistentStateStore do
+    @moduledoc false
+    def load(source, key, _opts) do
+      send(Process.get(:seasonal_state_test_pid), {:seasonal_state_load, source, key})
+      {:ok, Process.get({:seasonal_state, source, key}, 0)}
+    end
+
+    def persist(source, key, next, _opts) do
+      Process.put({:seasonal_state, source, key}, next)
+      send(Process.get(:seasonal_state_test_pid), {:seasonal_state_persist, source, key, next})
+      :ok
+    end
+
+    def cleanup(_opts) do
+      send(Process.get(:seasonal_state_test_pid), :seasonal_state_cleanup)
+      {:ok, 0}
+    end
+  end
+
+  defmodule ConfirmingReasoner do
+    @moduledoc false
+    def dispose_batch(:seasonal, inputs) do
+      Enum.map(inputs, fn {:seasonal, %{row: row}} ->
+        next = row.consecutive_anomalous + 1
+
+        disposition =
+          if next >= 2 do
+            {:seasonal_breach, :zscore}
+          else
+            :suppress
+          end
+
+        {:ok,
+         %{
+           disposition: disposition,
+           next_consecutive_anomalous: next,
+           score: next * 1.0
+         }}
+      end)
+    end
   end
 
   # Build an anonymous-module-free single-page runner that returns `rows`.

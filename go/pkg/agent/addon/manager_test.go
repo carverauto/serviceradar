@@ -18,10 +18,13 @@ package addon
 
 import (
 	"context"
+	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -83,14 +86,15 @@ func requireSampleAddon(t *testing.T) {
 func testConfig(t *testing.T) Config {
 	t.Helper()
 	return Config{
-		RuntimeDir:            t.TempDir(),
-		HealthInterval:        100 * time.Millisecond,
-		HealthTimeout:         2 * time.Second,
-		UnhealthyThreshold:    3,
-		ConfigureTimeout:      2 * time.Second,
-		RestartBackoffInitial: 50 * time.Millisecond,
-		RestartBackoffMax:     500 * time.Millisecond,
-		RestartLimitPerMinute: 5,
+		RuntimeDir:             t.TempDir(),
+		HealthInterval:         100 * time.Millisecond,
+		HealthTimeout:          2 * time.Second,
+		UnhealthyThreshold:     3,
+		ConfigureTimeout:       2 * time.Second,
+		RestartBackoffInitial:  50 * time.Millisecond,
+		RestartBackoffMax:      500 * time.Millisecond,
+		RestartCircuitCooldown: 100 * time.Millisecond,
+		RestartLimitPerMinute:  5,
 	}
 }
 
@@ -123,6 +127,31 @@ func waitForState(t *testing.T, m *Manager, id string, timeout time.Duration) St
 	}
 	t.Fatalf("addon %s did not reach state %s within %s; status=%+v", id, StateRunning, timeout, m.Status())
 	return Status{}
+}
+
+func TestRunnerSetHealthyPreservesRunningDiagnostics(t *testing.T) {
+	r := &runner{
+		id:     "anomaly",
+		status: Status{ID: "anomaly", State: StateStopped},
+	}
+	diagnostics := `{"kind":"anomaly_scoring_liveness","samples_scored_total":42}`
+
+	r.setHealthy(1234, coreaddon.Health{
+		Status:            coreaddon.HealthHealthy,
+		Version:           "0.1.1",
+		DegradationReason: diagnostics,
+	})
+
+	status := r.snapshot()
+	if status.State != StateRunning {
+		t.Fatalf("expected running state, got %s", status.State)
+	}
+	if status.DegradationReason != diagnostics {
+		t.Fatalf("expected diagnostics to be preserved, got %q", status.DegradationReason)
+	}
+	if status.LastError != "" {
+		t.Fatalf("expected no last_error for healthy probe, got %q", status.LastError)
+	}
 }
 
 func stopManager(t *testing.T, m *Manager) {
@@ -203,6 +232,134 @@ func TestManagerKeepsLegacyAddonNonTelemetry(t *testing.T) {
 	time.Sleep(250 * time.Millisecond)
 	if got := telemetryBatches.Load(); got != 0 {
 		t.Fatalf("legacy addon emitted telemetry batches = %d, want 0", got)
+	}
+}
+
+func TestRunnerDrainTelemetryReconnectsAfterStreamClose(t *testing.T) {
+	handled := make(chan *coreaddon.TelemetryBatch, 1)
+	cfg := testConfig(t)
+	cfg.TelemetryHandler = func(_ string, batch *coreaddon.TelemetryBatch) {
+		handled <- batch
+	}
+	r := newRunner(Spec{ID: "anomaly"}, cfg)
+	client := &reconnectingTelemetryClient{
+		opened: make(chan int, 2),
+		batch:  &coreaddon.TelemetryBatch{},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go r.drainTelemetry(ctx, client)
+
+	waitForTelemetryStream(t, client.opened, 1)
+	waitForTelemetryStream(t, client.opened, 2)
+
+	select {
+	case <-handled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for telemetry batch after reconnect")
+	}
+}
+
+func TestRunnerRearmsCircuitBreakerAfterCooldown(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.RestartLimitPerMinute = 1
+	cfg.RestartBackoffInitial = 10 * time.Millisecond
+	cfg.RestartBackoffMax = 20 * time.Millisecond
+	cfg.RestartCircuitCooldown = 50 * time.Millisecond
+
+	r := newRunner(Spec{
+		ID:         "bad-addon",
+		BinaryPath: filepath.Join(t.TempDir(), "missing-addon"),
+	}, cfg)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer func() {
+		cancel()
+		<-r.done
+	}()
+
+	go r.run(ctx)
+
+	waitForRunnerState(t, r, StateCircuitOpen, 2*time.Second)
+	firstCircuit := runnerStatusSnapshot(r).RestartCount
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if runnerStatusSnapshot(r).RestartCount > firstCircuit {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("restart count did not advance after circuit cooldown; status=%+v", runnerStatusSnapshot(r))
+}
+
+func TestRunnerBackoffResetRequiresHealthyRuntime(t *testing.T) {
+	r := newRunner(Spec{ID: "sample"}, testConfig(t))
+	started := time.Now().Add(-time.Minute)
+
+	r.mu.Lock()
+	r.status.LastStartedAt = started
+	r.status.LastHealthAt = time.Time{}
+	r.mu.Unlock()
+
+	if r.ranStablyFor(30 * time.Second) {
+		t.Fatal("run without a successful health probe must not reset backoff")
+	}
+
+	r.mu.Lock()
+	r.status.LastHealthAt = started.Add(10 * time.Second)
+	r.mu.Unlock()
+
+	if r.ranStablyFor(30 * time.Second) {
+		t.Fatal("run with too little healthy time must not reset backoff")
+	}
+
+	r.mu.Lock()
+	r.status.LastHealthAt = started.Add(45 * time.Second)
+	r.mu.Unlock()
+
+	if !r.ranStablyFor(30 * time.Second) {
+		t.Fatal("run with enough healthy time should reset backoff")
+	}
+}
+
+func TestRunnerNeedsRestartWhenResourceLimitsChange(t *testing.T) {
+	r := newRunner(Spec{
+		ID:        "anomaly",
+		Resources: Resources{MemoryMaxBytes: 128 << 20},
+	}, testConfig(t))
+
+	if !r.needsRestart(Spec{
+		ID:        "anomaly",
+		Resources: Resources{MemoryMaxBytes: 256 << 20},
+	}) {
+		t.Fatal("resource-limit changes must restart the add-on so cgroup limits are re-applied")
+	}
+}
+
+func TestRunnerStatusReportsResourceLimitWarning(t *testing.T) {
+	r := newRunner(Spec{ID: "anomaly"}, testConfig(t))
+
+	r.setResourceLimitStatus(resourceLimitStatus{
+		Requested:  true,
+		Enforced:   false,
+		CgroupPath: "/sys/fs/cgroup/serviceradar-addons.slice/serviceradar-addon-anomaly",
+		Warning:    "addon resource limits declared but addon_cgroup_root is not configured",
+	})
+
+	status := r.snapshot()
+	if !status.ResourceLimitsRequested {
+		t.Fatal("expected resource limits to be marked requested")
+	}
+	if status.ResourceLimitsEnforced {
+		t.Fatal("expected resource limits to be marked unenforced")
+	}
+	if status.ResourceLimitCgroupPath == "" {
+		t.Fatal("expected cgroup path to be retained in status")
+	}
+	if !strings.Contains(status.ResourceLimitError, "addon_cgroup_root") {
+		t.Fatalf("resource limit error = %q, want addon_cgroup_root warning", status.ResourceLimitError)
 	}
 }
 
@@ -361,4 +518,120 @@ func TestManagerRestartsOnVersionChangeWithStableBinaryPath(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("expected relaunch with a new PID after version change; old pid=%d, status=%+v", s1.PID, mgr.Status())
+}
+
+type reconnectingTelemetryClient struct {
+	mu      sync.Mutex
+	streams int
+	opened  chan int
+	batch   *coreaddon.TelemetryBatch
+}
+
+func (c *reconnectingTelemetryClient) StreamTelemetry(ctx context.Context) (<-chan *coreaddon.TelemetryBatch, error) {
+	c.mu.Lock()
+	c.streams++
+	streamID := c.streams
+	c.mu.Unlock()
+
+	batches := make(chan *coreaddon.TelemetryBatch, 1)
+	c.opened <- streamID
+
+	if streamID == 1 {
+		close(batches)
+		return batches, nil
+	}
+
+	go func() {
+		defer close(batches)
+		select {
+		case batches <- c.batch:
+		case <-ctx.Done():
+			return
+		}
+		<-ctx.Done()
+	}()
+
+	return batches, nil
+}
+
+type diagnosticTelemetryClient struct {
+	batches <-chan *coreaddon.TelemetryBatch
+	errs    <-chan error
+	err     error
+}
+
+func (c diagnosticTelemetryClient) StreamTelemetry(context.Context) (<-chan *coreaddon.TelemetryBatch, error) {
+	return c.batches, c.err
+}
+
+func (c diagnosticTelemetryClient) StreamTelemetryWithDiagnostics(
+	context.Context,
+) (<-chan *coreaddon.TelemetryBatch, <-chan error, error) {
+	return c.batches, c.errs, c.err
+}
+
+func TestRunnerDrainTelemetryReportsEOFAndTransportErrors(t *testing.T) {
+	r := newRunner(Spec{ID: "anomaly"}, applyDefaults(Config{RuntimeDir: t.TempDir()}))
+
+	batches := make(chan *coreaddon.TelemetryBatch)
+	errs := make(chan error, 1)
+	errs <- io.EOF
+	close(errs)
+	close(batches)
+
+	err := r.drainTelemetryStream(context.Background(), diagnosticTelemetryClient{batches: batches, errs: errs})
+	if !errors.Is(err, errAddonStreamClosed) {
+		t.Fatalf("drainTelemetryStream error = %v, want addon stream closed", err)
+	}
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("drainTelemetryStream error = %v, want wrapped io.EOF", err)
+	}
+
+	transportErr := errors.New("transport unavailable")
+	batches = make(chan *coreaddon.TelemetryBatch)
+	errs = make(chan error, 1)
+	errs <- transportErr
+	close(errs)
+	close(batches)
+
+	err = r.drainTelemetryStream(context.Background(), diagnosticTelemetryClient{batches: batches, errs: errs})
+	if !errors.Is(err, errAddonStreamClosed) {
+		t.Fatalf("drainTelemetryStream transport error = %v, want addon stream closed", err)
+	}
+	if !errors.Is(err, transportErr) {
+		t.Fatalf("drainTelemetryStream transport error = %v, want wrapped transport error", err)
+	}
+}
+
+func waitForTelemetryStream(t *testing.T, opened <-chan int, want int) {
+	t.Helper()
+
+	select {
+	case got := <-opened:
+		if got != want {
+			t.Fatalf("opened telemetry stream = %d, want %d", got, want)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for telemetry stream %d", want)
+	}
+}
+
+func waitForRunnerState(t *testing.T, r *runner, want State, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if runnerStatusSnapshot(r).State == want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("runner state did not reach %s; status=%+v", want, runnerStatusSnapshot(r))
+}
+
+func runnerStatusSnapshot(r *runner) Status {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.status
 }

@@ -313,6 +313,8 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       ack_fun when is_function(ack_fun, 1) ->
         ack_started = System.monotonic_time()
 
+        maybe_emit_max_deliver_exhausted(action, ack_data, message)
+
         case safe_invoke_ack(ack_fun, action) do
           :ok ->
             EventWriterTelemetry.emit_ack(
@@ -346,6 +348,36 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   end
 
   defp ack_message(_message, _action), do: :ok
+
+  defp maybe_emit_max_deliver_exhausted(:nack, ack_data, message) when is_map(ack_data) do
+    ack_metadata = Map.get(ack_data, :jetstream_ack, %{})
+    delivery_count = Map.get(ack_metadata, :delivery_count)
+    max_deliver = Map.get(ack_data, :max_deliver)
+
+    if final_delivery?(delivery_count, max_deliver) do
+      subject = message.metadata[:subject]
+      EventWriterTelemetry.emit_max_deliver_exhausted(ack_data, subject)
+
+      Logger.error("EventWriter message exhausted JetStream max_deliver before NAK",
+        subject: subject,
+        stream: ack_metadata[:stream],
+        durable: ack_metadata[:consumer],
+        delivery_count: delivery_count,
+        max_deliver: max_deliver,
+        stream_sequence: ack_metadata[:stream_sequence],
+        consumer_sequence: ack_metadata[:consumer_sequence]
+      )
+    end
+  end
+
+  defp maybe_emit_max_deliver_exhausted(_action, _ack_data, _message), do: :ok
+
+  defp final_delivery?(delivery_count, max_deliver)
+       when is_integer(delivery_count) and is_integer(max_deliver) and max_deliver > 0 do
+    delivery_count >= max_deliver
+  end
+
+  defp final_delivery?(_delivery_count, _max_deliver), do: false
 
   defp ack_latency(%{metadata: %{received_monotonic: received_at}}, _ack_started)
        when is_integer(received_at) do

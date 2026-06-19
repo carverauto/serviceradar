@@ -180,55 +180,101 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   defp normalize_series_label(""), do: "overall"
   defp normalize_series_label(value), do: value
 
-  # Chart paths with optional max_y for fixed Y-axis scaling (e.g., interface speed)
-  # Always auto-scale Y-axis to actual data values for visibility
-  # max_y is kept for reference/display but not used for scaling
-  defp chart_paths(points, max_y) when is_list(points) do
+  defp chart_paths(points, max_y, scale_mode) when is_list(points) do
     values = Enum.map(points, fn {_dt, v} -> v end)
 
     case values do
       [] ->
-        %{line: "", area: "", min: 0.0, max: 0.0, avg: 0.0, latest: nil}
+        %{
+          line: "",
+          area: "",
+          min: 0.0,
+          max: 0.0,
+          avg: 0.0,
+          latest: nil,
+          scale_min: 0.0,
+          scale_max: 1.0,
+          scale_mode: :zero
+        }
 
       _ ->
         min_v = Enum.min(values, fn -> 0 end)
         max_v = Enum.max(values, fn -> 0 end)
         avg_v = Enum.sum(values) / length(values)
         latest = List.last(values)
-
-        # Use fixed max when provided (percent scale), otherwise auto-scale with padding
-        chart_max =
-          cond do
-            is_number(max_y) and max_y > 0 -> max_y
-            max_v > 0 -> max_v * 1.1
-            true -> 1.0
-          end
+        scale = chart_scale(values, max_y, scale_mode)
 
         coords =
           values
           |> Enum.with_index()
           |> Enum.map(fn {v, idx} ->
             x = idx_to_x(idx, length(values))
-            y = value_to_y(v, 0, chart_max)
+            y = scale_value_to_y(v, scale)
             {x, y}
           end)
 
         line = line_path(coords)
         area = area_path(coords)
 
-        %{line: line, area: area, min: min_v, max: max_v, avg: avg_v, latest: latest}
+        %{
+          line: line,
+          area: area,
+          min: min_v,
+          max: max_v,
+          avg: avg_v,
+          latest: latest,
+          scale_min: scale.min,
+          scale_max: scale.max,
+          scale_mode: scale.mode
+        }
     end
   end
 
-  defp chart_max_from_value(_max_v, _unit, scale_max) when is_number(scale_max) and scale_max > 0 do
-    scale_max
+  defp chart_scale(values, max_y, :zero) do
+    max_v = Enum.max(values, fn -> 0.0 end)
+
+    max =
+      cond do
+        is_number(max_y) and max_y > 0 -> max_y
+        max_v > 0 -> max_v * 1.1
+        true -> 1.0
+      end
+
+    %{min: 0.0, max: max, mode: :zero}
   end
 
-  defp chart_max_from_value(max_v, _unit, _scale_max) when is_number(max_v) and max_v > 0 do
-    max_v * 1.1
+  defp chart_scale(values, _max_y, :log) do
+    positive = Enum.filter(values, &(&1 > 0))
+
+    case positive do
+      [] ->
+        chart_scale(values, nil, :data_band)
+
+      _ ->
+        min_v = Enum.min(positive)
+        max_v = Enum.max(positive)
+        %{min: min_v, max: max(max_v, min_v * 10), mode: :log}
+    end
   end
 
-  defp chart_max_from_value(_, _unit, _scale_max), do: 1.0
+  defp chart_scale(values, _max_y, _scale_mode) do
+    min_v = Enum.min(values, fn -> 0.0 end)
+    max_v = Enum.max(values, fn -> 0.0 end)
+
+    cond do
+      min_v == max_v and min_v == 0.0 ->
+        %{min: -1.0, max: 1.0, mode: :data_band}
+
+      min_v == max_v ->
+        pad = max(abs(min_v) * 0.05, 1.0)
+        %{min: min_v - pad, max: max_v + pad, mode: :data_band}
+
+      true ->
+        range = max_v - min_v
+        pad = max(range * 0.1, abs(max_v) * 0.01)
+        %{min: min_v - pad, max: max_v + pad, mode: :data_band}
+    end
+  end
 
   defp combined_chart_max(series_data, unit) when is_list(series_data) do
     max_v =
@@ -237,7 +283,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       |> Enum.filter(&is_number/1)
       |> Enum.max(fn -> 0.0 end)
 
-    chart_max_from_value(max_v, unit, scale_max_for_unit(unit))
+    zero_scale_max(max_v, scale_max_for_unit(unit))
   end
 
   defp x_ticks(points, compact) when is_list(points) do
@@ -269,16 +315,38 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
   defp x_ticks(_points, _compact), do: []
 
-  defp y_ticks(max_v, compact, unit) when is_number(max_v) and max_v > 0 do
+  defp y_ticks(%{min: min_v, max: max_v, mode: :log}, compact, unit)
+       when is_number(min_v) and is_number(max_v) and min_v > 0 and max_v > min_v do
     ticks = if compact, do: 3, else: 5
 
+    log_min = :math.log10(min_v)
+    log_max = :math.log10(max_v)
+
     Enum.map(0..ticks, fn idx ->
-      value = max_v * idx / ticks
-      {value_to_y(value, 0, max_v), format_value(value, unit)}
+      log_value = log_min + (log_max - log_min) * idx / ticks
+      value = :math.pow(10, log_value)
+      {scale_value_to_y(value, %{min: min_v, max: max_v, mode: :log}), format_value(value, unit)}
     end)
   end
 
-  defp y_ticks(_max_v, _compact, unit), do: [{value_to_y(0, 0, 1), format_value(0, unit)}]
+  defp y_ticks(%{min: min_v, max: max_v}, compact, unit) when is_number(min_v) and is_number(max_v) and max_v > min_v do
+    ticks = if compact, do: 3, else: 5
+
+    Enum.map(0..ticks, fn idx ->
+      value = min_v + (max_v - min_v) * idx / ticks
+      {value_to_y(value, min_v, max_v), format_value(value, unit)}
+    end)
+  end
+
+  defp y_ticks(max_v, compact, unit) when is_number(max_v) and max_v > 0 do
+    y_ticks(%{min: 0.0, max: max_v, mode: :zero}, compact, unit)
+  end
+
+  defp y_ticks(_scale, _compact, unit), do: [{value_to_y(0, 0, 1), format_value(0, unit)}]
+
+  defp zero_scale_max(_max_v, scale_max) when is_number(scale_max) and scale_max > 0, do: scale_max
+  defp zero_scale_max(max_v, _scale_max) when is_number(max_v) and max_v > 0, do: max_v * 1.1
+  defp zero_scale_max(_max_v, _scale_max), do: 1.0
 
   defp tick_indices(len, tick_count) when tick_count >= len do
     Enum.to_list(0..(len - 1))
@@ -374,6 +442,14 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   end
 
   defp clamp_rate(rate, _max_speed), do: rate
+
+  defp scale_value_to_y(v, %{min: min_v, max: max_v, mode: :log}) when v > 0 and min_v > 0 and max_v > min_v do
+    value_to_y(:math.log10(v), :math.log10(min_v), :math.log10(max_v))
+  end
+
+  defp scale_value_to_y(v, %{min: min_v, max: max_v}) do
+    value_to_y(v, min_v, max_v)
+  end
 
   defp value_to_y(_v, min_v, max_v) when min_v == max_v, do: round(@chart_height / 2)
 
@@ -525,74 +601,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
   defp baseline_y, do: @chart_height - @chart_pad
 
-  defp chart_points(points, unit, compact, cap) when is_list(points) do
-    points
-    |> maybe_densify(unit, compact, cap)
-    |> maybe_smooth(unit, compact)
-  end
-
   defp chart_points(points, _unit, _compact, _cap), do: points
-
-  defp maybe_densify(points, :bytes_per_sec, compact, cap) do
-    factor = if compact, do: 2, else: 4
-    densified = densify_points(points, factor)
-    limit_points(densified, cap)
-  end
-
-  defp maybe_densify(points, _unit, _compact, _cap), do: points
-
-  defp maybe_smooth(points, :bytes_per_sec, compact) do
-    window = if compact, do: 1, else: 2
-    smooth_points(points, window)
-  end
-
-  defp maybe_smooth(points, _unit, _compact), do: points
-
-  defp densify_points([], _factor), do: []
-  defp densify_points([_] = points, _factor), do: points
-
-  defp densify_points(points, factor) when is_list(points) and factor > 1 do
-    points
-    |> Enum.chunk_every(2, 1, :discard)
-    |> Enum.reduce([List.first(points)], fn segment, acc ->
-      acc ++ densify_segment(segment, factor)
-    end)
-  end
-
-  defp densify_points(points, _factor), do: points
-
-  defp densify_segment([{dt0, v0}, {dt1, v1}], factor) do
-    total_secs = max(DateTime.diff(dt1, dt0, :second), 1)
-
-    intermediates =
-      Enum.map(1..(factor - 1), fn i ->
-        t = i / factor
-        dt = DateTime.add(dt0, round(total_secs * t), :second)
-        v = v0 + (v1 - v0) * t
-        {dt, v}
-      end)
-
-    intermediates ++ [{dt1, v1}]
-  end
-
-  defp smooth_points(points, window) when is_list(points) and window > 0 do
-    values = Enum.map(points, fn {_dt, v} -> v end)
-    len = length(values)
-
-    smoothed =
-      values
-      |> Enum.with_index()
-      |> Enum.map(fn {_v, idx} ->
-        from = max(idx - window, 0)
-        to = min(idx + window, len - 1)
-        slice = Enum.slice(values, from..to)
-        Enum.sum(slice) / max(length(slice), 1)
-      end)
-
-    Enum.zip(Enum.map(points, &elem(&1, 0)), smoothed)
-  end
-
-  defp smooth_points(points, _window), do: points
 
   defp points_cap(points) when is_list(points) do
     width_cap = @max_points
@@ -627,32 +636,58 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   end
 
   defp limit_points(points, max_points) when is_list(points) and length(points) > max_points do
-    total = length(points)
-    step = (total / max_points) |> Float.ceil() |> trunc()
-    sampled = Enum.take_every(points, step)
-    sampled = if length(sampled) > max_points, do: Enum.take(sampled, max_points), else: sampled
-
-    case {sampled, List.last(points)} do
-      {[], _} ->
-        []
-
-      {sampled, last_all} ->
-        sampled =
-          case {List.first(points), List.first(sampled)} do
-            {nil, _} -> sampled
-            {first_all, first_all} -> sampled
-            {first_all, _} -> List.replace_at(sampled, 0, first_all)
-          end
-
-        if List.last(sampled) == last_all do
-          sampled
-        else
-          List.replace_at(sampled, length(sampled) - 1, last_all)
-        end
-    end
+    envelope_points(points, max_points)
   end
 
   defp limit_points(points, _max_points), do: points
+
+  defp envelope_points(points, max_points) when is_list(points) and max_points >= 3 do
+    total = length(points)
+    first = {List.first(points), 0}
+    last = {List.last(points), total - 1}
+    bucket_count = max(1, div(max_points - 2, 2))
+
+    interior =
+      points
+      |> Enum.with_index()
+      |> Enum.slice(1, max(total - 2, 0))
+
+    bucket_size =
+      interior
+      |> length()
+      |> Kernel./(bucket_count)
+      |> Float.ceil()
+      |> trunc()
+      |> max(1)
+
+    ([first] ++ bucketed_extrema(interior, bucket_size) ++ [last])
+    |> Enum.uniq_by(fn {_point, index} -> index end)
+    |> Enum.sort_by(fn {_point, index} -> index end)
+    |> Enum.map(fn {point, _index} -> point end)
+  end
+
+  defp envelope_points(points, _max_points) do
+    case points do
+      [] -> []
+      [single] -> [single]
+      [first | _] -> [first, List.last(points)]
+    end
+  end
+
+  defp bucketed_extrema(indexed_points, bucket_size) do
+    indexed_points
+    |> Enum.chunk_every(bucket_size)
+    |> Enum.flat_map(&bucket_extrema/1)
+  end
+
+  defp bucket_extrema([]), do: []
+
+  defp bucket_extrema(bucket) do
+    min_point = Enum.min_by(bucket, fn {{_dt, value}, _index} -> value end)
+    max_point = Enum.max_by(bucket, fn {{_dt, value}, _index} -> value end)
+
+    [min_point, max_point]
+  end
 
   defp idx_to_x(_idx, 0), do: @chart_pad
   defp idx_to_x(0, _len), do: @chart_pad
@@ -980,15 +1015,24 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   defp build_series_data(series_points, assigns, compact, max_speed) do
     spec = Map.get(assigns, :spec)
     rate_mode = Map.get(assigns, :rate_mode, :none)
+    chart_mode = Map.get(assigns, :chart_mode, :single)
+    combine_all_series = Map.get(assigns, :combine_all_series, false)
+
+    scale_mode =
+      if chart_mode == :combined or combine_all_series do
+        :zero
+      else
+        y_scale_mode(assigns)
+      end
 
     series_points
     |> Enum.with_index()
     |> Enum.map(fn {{series, points}, idx} ->
-      series_data_for_points(series, points, idx, spec, rate_mode, compact, max_speed)
+      series_data_for_points(series, points, idx, spec, rate_mode, compact, max_speed, scale_mode)
     end)
   end
 
-  defp series_data_for_points(series, points, idx, spec, rate_mode, compact, max_speed) do
+  defp series_data_for_points(series, points, idx, spec, rate_mode, compact, max_speed, scale_mode) do
     effective_max = if traffic_series?(series), do: max_speed
     {stroke, _fill} = series_color(idx)
     display_name = humanize_series_name(series || "series")
@@ -998,9 +1042,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     points = limit_points(points, cap)
     chart_points = chart_points(points, unit, compact, cap)
     scale_max = scale_max_for_unit(unit)
-    paths = chart_paths(chart_points, scale_max)
+    paths = chart_paths(chart_points, scale_max, scale_mode)
     utilization = compute_utilization(paths.avg, effective_max)
-    chart_max = chart_max_from_value(paths.max, unit, scale_max)
+    scale = %{min: paths.scale_min, max: paths.scale_max, mode: paths.scale_mode}
 
     %{
       series: display_name,
@@ -1012,13 +1056,24 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       unit: unit,
       raw_points: points,
       x_ticks: x_ticks(points, compact),
-      y_ticks: y_ticks(chart_max, compact, unit),
-      chart_max: chart_max,
+      y_ticks: y_ticks(scale, compact, unit),
+      chart_max: paths.scale_max,
+      chart_min: paths.scale_min,
+      y_scale: paths.scale_mode,
       first_dt: series_first_dt(points),
       last_dt: series_last_dt(points),
       max_speed: effective_max,
       utilization: utilization
     }
+  end
+
+  defp y_scale_mode(assigns) do
+    case Map.get(assigns, :y_scale) || Map.get(assigns, "y_scale") || Map.get(assigns, :scale) ||
+           Map.get(assigns, "scale") do
+      value when value in [:log, "log"] -> :log
+      value when value in [:zero, "zero", :baseline_zero, "baseline_zero"] -> :zero
+      _ -> :data_band
+    end
   end
 
   defp resolve_chart_groups(series_data, combine_all_series, chart_mode, max_speed, compact, combined_title) do

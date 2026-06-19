@@ -24,6 +24,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   @default_min_points 24
   @default_seasonal_period 24
   @interface_octet_metrics ~w(ifInOctets ifOutOctets ifHCInOctets ifHCOutOctets)
+  @flow_bucket_seconds 3_600.0
 
   # SNMP octet counters wrap/reset; the hourly rollup then reports astronomically high
   # per-second "rates" for the affected bucket. Converted to utilization these become
@@ -157,7 +158,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
 
     case runner.query_page(query, page_opts) do
       {:ok, %{rows: rows, next_cursor: next_cursor}} when is_list(rows) ->
-        pages = [rows | pages]
+        pages = prepend_page_rows(rows, pages)
 
         if is_binary(next_cursor) and next_cursor != "" do
           fetch_rows_page(
@@ -170,11 +171,11 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
             max_pages
           )
         else
-          {:ok, pages |> Enum.reverse() |> List.flatten()}
+          {:ok, Enum.reverse(pages)}
         end
 
       {:ok, %{rows: rows}} when is_list(rows) ->
-        {:ok, [rows | pages] |> Enum.reverse() |> List.flatten()}
+        {:ok, rows |> prepend_page_rows(pages) |> Enum.reverse()}
 
       {:ok, other} ->
         {:error, {:unexpected_capacity_forecast_page, other}}
@@ -182,6 +183,10 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp prepend_page_rows(rows, acc) do
+    Enum.reduce(rows, acc, fn row, rows_acc -> [row | rows_acc] end)
   end
 
   defp forecast_rows(%Source{} = source, rows, opts) do
@@ -235,6 +240,9 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   end
 
   defp forecast_attrs(source, points, common, opts) do
+    forecast_points = latest_contiguous_forecast_points(points)
+    gap_count = Enum.count(points, &gap_point?/1)
+
     min_points =
       opts
       |> capacity_metric_class_override(source.metric_class)
@@ -244,7 +252,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
     seasonal_period =
       positive_integer(Keyword.get(opts, :seasonal_period), @default_seasonal_period)
 
-    case compute_forecast(points,
+    case compute_forecast(forecast_points,
            min_points: min_points,
            horizon_seconds: common.horizon_seconds,
            exhaustion_threshold: common.exhaustion_threshold,
@@ -253,7 +261,13 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
          ) do
       {:ok, forecast} ->
         if implausible_projection?(forecast, common.exhaustion_threshold) do
-          skipped_attrs(source, points, common, "implausible_projection", forecast.diagnostics)
+          skipped_attrs(
+            source,
+            forecast_points,
+            common,
+            "implausible_projection",
+            gap_diagnostics(forecast.diagnostics, gap_count)
+          )
         else
           Map.merge(common, %{
             window_started_at: forecast.window_started_at,
@@ -270,12 +284,23 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
             confidence: forecast.confidence,
             lower_bound: forecast.lower_bound,
             upper_bound: forecast.upper_bound,
-            metadata: Map.put(common.metadata, "diagnostics", forecast.diagnostics)
+            metadata:
+              Map.put(
+                common.metadata,
+                "diagnostics",
+                gap_diagnostics(forecast.diagnostics, gap_count)
+              )
           })
         end
 
       {:skip, reason, diagnostics} ->
-        skipped_attrs(source, points, common, reason, diagnostics)
+        skipped_attrs(
+          source,
+          forecast_points,
+          common,
+          reason,
+          gap_diagnostics(diagnostics, gap_count)
+        )
     end
   end
 
@@ -407,6 +432,27 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   # `:exhaustion_threshold` -> the NIF's `Option<f64>` (encoded as the value or nil).
   defp capacity_threshold(threshold) when is_number(threshold), do: threshold * 1.0
   defp capacity_threshold(_threshold), do: nil
+
+  defp latest_contiguous_forecast_points(points) do
+    points
+    |> Enum.sort_by(fn %{at: at} -> DateTime.to_unix(at, :microsecond) end)
+    |> Enum.reduce([], fn
+      point, _segment when is_map_key(point, :gap_reason) -> []
+      point, segment -> [point | segment]
+    end)
+    |> Enum.reverse()
+  end
+
+  defp gap_point?(point) when is_map(point), do: Map.has_key?(point, :gap_reason)
+  defp gap_point?(_point), do: false
+
+  defp gap_diagnostics(diagnostics, 0), do: diagnostics
+
+  defp gap_diagnostics(diagnostics, gap_count) do
+    diagnostics
+    |> Map.new(fn {key, value} -> {to_string(key), value} end)
+    |> Map.put("gap_count", gap_count)
+  end
 
   defp nif_point(%{at: %DateTime{} = at, value: value}) do
     %{at_unix_micros: DateTime.to_unix(at, :microsecond), value: value * 1.0}
@@ -560,6 +606,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
       opts
       |> Keyword.get(:warning_horizon_seconds, Keyword.fetch!(opts, :horizon_seconds))
       |> positive_integer(Keyword.fetch!(opts, :horizon_seconds))
+      |> min(Keyword.fetch!(opts, :horizon_seconds))
 
     warning_ends_at = DateTime.add(forecasted_at, warning_horizon_seconds, :second)
 
@@ -616,11 +663,23 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   end
 
   defp point_from_row(row, source, context) do
-    with %DateTime{} = at <- datetime_value(row, source.bucket_field),
-         value when is_number(value) <- source_value(row, source, context) do
-      %{at: at, value: value}
-    else
-      _ -> nil
+    case datetime_value(row, source.bucket_field) do
+      %DateTime{} = at ->
+        value = source_value(row, source, context)
+
+        case value do
+          number when is_number(number) ->
+            %{at: at, value: number}
+
+          {:gap, reason} ->
+            %{at: at, gap_reason: to_string(reason)}
+
+          _ ->
+            nil
+        end
+
+      _ ->
+        nil
     end
   end
 
@@ -629,11 +688,19 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
       value when is_number(value) ->
         utilization = InterfaceCapacity.utilization_percent(value, speed_bps)
 
-        # Drop counter-wrap/reset artifacts so they never reach the model.
-        if utilization > @max_interface_utilization_percent, do: nil, else: utilization
+        if utilization > @max_interface_utilization_percent,
+          do: {:gap, :counter_wrap_artifact},
+          else: utilization
 
       _ ->
         nil
+    end
+  end
+
+  defp source_value(row, %Source{resource_type: "flow", metric_name: "bps"} = source, _context) do
+    case number_value(row, source.value_field) do
+      value when is_number(value) -> value * 8.0 / @flow_bucket_seconds
+      _ -> nil
     end
   end
 
@@ -663,6 +730,9 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
     end
   end
 
+  defp value_context(%Source{resource_type: "flow", metric_name: "bps"}, _row, _opts),
+    do: {:ok, %{forecast_value_unit: "bits_per_second", raw_value_unit: "bytes_per_hour"}}
+
   defp value_context(_source, _row, _opts), do: {:ok, %{}}
 
   defp octet_interface_metric(row) do
@@ -686,6 +756,13 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
 
   defp context_metadata(%{skip_reason: reason}),
     do: %{"capacity_skip_reason" => to_string(reason)}
+
+  defp context_metadata(%{forecast_value_unit: forecast_unit, raw_value_unit: raw_unit}) do
+    %{
+      "forecast_value_unit" => forecast_unit,
+      "raw_value_unit" => raw_unit
+    }
+  end
 
   defp context_metadata(_context), do: %{}
 

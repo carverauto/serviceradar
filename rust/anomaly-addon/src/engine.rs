@@ -48,6 +48,7 @@ pub struct EngineConfig {
     /// gauge's safe default.
     pub min_std_floor: Option<f64>,
     pub min_cv: Option<f64>,
+    pub stale_series_max_age_ns: u64,
 }
 
 impl Default for EngineConfig {
@@ -60,6 +61,7 @@ impl Default for EngineConfig {
             max_series: 50_000,
             min_std_floor: None,
             min_cv: None,
+            stale_series_max_age_ns: DEFAULT_STATE_MAX_AGE_NS,
         }
     }
 }
@@ -69,9 +71,19 @@ impl Default for EngineConfig {
 /// matching central `CounterNormalizer`'s `@default_max_gap_ns`.
 const COUNTER_MAX_GAP_NS: u64 = 2 * 60 * 60 * 1_000_000_000;
 
-/// 2^32 — the 32-bit counter modulus and the default max plausible per-second
-/// rate used to sanity-check a wrap (central `@counter32_modulus`).
+/// 2^32 — the 32-bit counter modulus.
 const COUNTER32_MODULUS: f64 = 4_294_967_296.0;
+
+/// Maximum plausible 32-bit wrapped increment per elapsed second when the edge
+/// lacks central's interface-speed denominator. Central drops wrap artifacts
+/// after converting each sample to link utilization; edge can only enforce this
+/// conservative one-full-wrap-per-second ceiling.
+const COUNTER32_MAX_WRAP_RATE_PER_SECOND: f64 = COUNTER32_MODULUS;
+
+/// Default live-state staleness bound (6h), matching the restart checkpoint
+/// staleness bound. Stale state is evicted before applying `max_series` so a host
+/// can recover capacity from dead series without a restart.
+const DEFAULT_STATE_MAX_AGE_NS: u64 = 6 * 60 * 60 * 1_000_000_000;
 
 /// The retained baseline for one series. The rolling accumulator is recomputed
 /// from `window_tail` each evaluation (the stateless path), so only the bounded
@@ -79,10 +91,26 @@ const COUNTER32_MODULUS: f64 = 4_294_967_296.0;
 struct SeriesState {
     window_tail: Vec<f64>,
     consecutive_anomalous: usize,
+    active_anomaly: bool,
     /// Observed time of the most recent sample, for the restart staleness bound:
     /// a baseline whose last reading is too old is not reseeded (it would
     /// mis-score current traffic).
     last_observed_at_unix_nano: u64,
+}
+
+/// Lifecycle transition for an edge anomaly finding.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AnomalyTransition {
+    Open,
+    Clear,
+}
+
+/// One detector evaluation plus the incident lifecycle transition it caused, if
+/// any. `pending_anomaly` and repeated anomalous samples carry no transition.
+#[derive(Debug)]
+pub struct EvaluationResult {
+    pub verdict: ReasonVerdict,
+    pub transition: Option<AnomalyTransition>,
 }
 
 /// Per-series cumulative-counter reading retained for rate normalization. The
@@ -124,8 +152,16 @@ impl DetectorEngine {
         self.series.len()
     }
 
+    pub fn counter_count(&self) -> usize {
+        self.counters.len()
+    }
+
     pub fn max_series(&self) -> usize {
         self.config.max_series
+    }
+
+    pub fn config(&self) -> EngineConfig {
+        self.config.clone()
     }
 
     /// Rate-normalize one cumulative-monotonic counter reading against this
@@ -150,51 +186,51 @@ impl DetectorEngine {
             return None;
         }
 
-        let current = CounterState {
-            value: raw_value,
-            timestamp: observed_at_unix_nano,
-            reset_anchor: reset_anchor.to_owned(),
-        };
-
-        let previous = match self.counters.get(series_key) {
+        let Some(previous) = self.counters.get_mut(series_key) else {
             // Warmup: store the first reading, emit nothing (a rate needs two).
-            None => {
-                self.counters.insert(series_key.to_owned(), current);
+            if self.counters.len() >= self.config.max_series {
+                self.evict_stale(observed_at_unix_nano);
+            }
+            if self.counters.len() >= self.config.max_series {
+                self.dropped_at_capacity = self.dropped_at_capacity.saturating_add(1);
                 return None;
             }
-            Some(prev) => prev.clone(),
+            self.counters.insert(
+                series_key.to_owned(),
+                CounterState {
+                    value: raw_value,
+                    timestamp: observed_at_unix_nano,
+                    reset_anchor: reset_anchor.to_owned(),
+                },
+            );
+            return None;
         };
 
         // Reset lineage changed (counter restart): store, drop — a rate across a
         // reset is meaningless.
-        if reset_anchor_changed(&previous.reset_anchor, &current.reset_anchor) {
-            self.counters.insert(series_key.to_owned(), current);
+        if reset_anchor_changed(&previous.reset_anchor, reset_anchor) {
+            update_counter_state(previous, raw_value, observed_at_unix_nano, reset_anchor);
             return None;
         }
 
         // Non-monotonic time: drop WITHOUT advancing, keeping the older valid
         // reading as the baseline (matches central).
-        if current.timestamp <= previous.timestamp {
+        if observed_at_unix_nano <= previous.timestamp {
             return None;
         }
 
         // Over-long gap: store, drop — treat as a discontinuity, not a rate.
-        if current.timestamp - previous.timestamp > COUNTER_MAX_GAP_NS {
-            self.counters.insert(series_key.to_owned(), current);
+        if observed_at_unix_nano - previous.timestamp > COUNTER_MAX_GAP_NS {
+            update_counter_state(previous, raw_value, observed_at_unix_nano, reset_anchor);
             return None;
         }
 
-        let elapsed_seconds = (current.timestamp - previous.timestamp) as f64 / 1_000_000_000.0;
-        let delta = counter_delta(
-            previous.value,
-            current.value,
-            counter_width,
-            elapsed_seconds,
-        );
+        let elapsed_seconds = (observed_at_unix_nano - previous.timestamp) as f64 / 1_000_000_000.0;
+        let delta = counter_delta(previous.value, raw_value, counter_width, elapsed_seconds);
 
         // Advance across the interval whether or not a delta was salvageable
         // (central stores `current` on both the ok and decrease-drop branches).
-        self.counters.insert(series_key.to_owned(), current);
+        update_counter_state(previous, raw_value, observed_at_unix_nano, reset_anchor);
 
         match delta {
             Some(d) if elapsed_seconds > 0.0 => Some(d / elapsed_seconds),
@@ -216,13 +252,34 @@ impl DetectorEngine {
         observed_at_unix_nano: u64,
         profile: SeriesProfile,
     ) -> Option<ReasonVerdict> {
+        self.evaluate_transition(series_key, value, observed_at_unix_nano, profile)
+            .map(|result| result.verdict)
+    }
+
+    /// Evaluate one sample and report whether it opens or clears an active edge
+    /// finding. This is the method the add-on uses for OCSF emission; the
+    /// verdict-only [`Self::evaluate`] remains available for tests and callers
+    /// that only need the raw score.
+    pub fn evaluate_transition(
+        &mut self,
+        series_key: &str,
+        value: f64,
+        observed_at_unix_nano: u64,
+        profile: SeriesProfile,
+    ) -> Option<EvaluationResult> {
         if !value.is_finite() {
             return None;
         }
 
-        if !self.series.contains_key(series_key) && self.series.len() >= self.config.max_series {
-            self.dropped_at_capacity = self.dropped_at_capacity.saturating_add(1);
-            return None;
+        if !self.series.contains_key(series_key) {
+            if self.series.len() >= self.config.max_series {
+                self.evict_stale(observed_at_unix_nano);
+            }
+
+            if self.series.len() >= self.config.max_series {
+                self.dropped_at_capacity = self.dropped_at_capacity.saturating_add(1);
+                return None;
+            }
         }
 
         let state = self
@@ -231,8 +288,10 @@ impl DetectorEngine {
             .or_insert_with(|| SeriesState {
                 window_tail: Vec::new(),
                 consecutive_anomalous: 0,
+                active_anomaly: false,
                 last_observed_at_unix_nano: observed_at_unix_nano,
             });
+        let was_active = state.active_anomaly;
 
         // A global operator floor override (fix #2) only ever RAISES the floor:
         // take the max of the series' built-in per-class floor and any configured
@@ -279,10 +338,33 @@ impl DetectorEngine {
                 state.window_tail = verdict.next_window_tail.clone();
                 state.consecutive_anomalous = verdict.next_consecutive_anomalous;
                 state.last_observed_at_unix_nano = observed_at_unix_nano;
-                Some(verdict)
+                let transition = if verdict.anomalous && !was_active {
+                    state.active_anomaly = true;
+                    Some(AnomalyTransition::Open)
+                } else if was_active && !verdict.breached {
+                    state.active_anomaly = false;
+                    Some(AnomalyTransition::Clear)
+                } else {
+                    None
+                };
+
+                Some(EvaluationResult {
+                    verdict,
+                    transition,
+                })
             }
             Err(_) => None,
         }
+    }
+
+    fn evict_stale(&mut self, now_unix_nano: u64) {
+        let max_age_ns = self.config.stale_series_max_age_ns;
+
+        self.series.retain(|_, state| {
+            now_unix_nano.saturating_sub(state.last_observed_at_unix_nano) <= max_age_ns
+        });
+        self.counters
+            .retain(|_, counter| now_unix_nano.saturating_sub(counter.timestamp) <= max_age_ns);
     }
 }
 
@@ -292,6 +374,8 @@ pub struct SeriesCheckpoint {
     pub series_key: String,
     pub window_tail: Vec<f64>,
     pub consecutive_anomalous: usize,
+    #[serde(default)]
+    pub active_anomaly: bool,
     pub last_observed_at_unix_nano: u64,
 }
 
@@ -326,6 +410,7 @@ impl DetectorEngine {
                     series_key: key.clone(),
                     window_tail: state.window_tail.clone(),
                     consecutive_anomalous: state.consecutive_anomalous,
+                    active_anomaly: state.active_anomaly,
                     last_observed_at_unix_nano: state.last_observed_at_unix_nano,
                 })
                 .collect(),
@@ -378,6 +463,7 @@ impl DetectorEngine {
                 SeriesState {
                     window_tail,
                     consecutive_anomalous: series.consecutive_anomalous,
+                    active_anomaly: series.active_anomaly,
                     last_observed_at_unix_nano: series.last_observed_at_unix_nano,
                 },
             );
@@ -386,6 +472,11 @@ impl DetectorEngine {
 
         for counter in checkpoint.counters {
             if !fresh(counter.timestamp) {
+                continue;
+            }
+            if !self.counters.contains_key(&counter.series_key)
+                && self.counters.len() >= self.config.max_series
+            {
                 continue;
             }
             self.counters.insert(
@@ -409,10 +500,20 @@ fn reset_anchor_changed(previous: &str, current: &str) -> bool {
     !previous.is_empty() && !current.is_empty() && previous != current
 }
 
+fn update_counter_state(state: &mut CounterState, value: f64, timestamp: u64, reset_anchor: &str) {
+    state.value = value;
+    state.timestamp = timestamp;
+    if state.reset_anchor != reset_anchor {
+        state.reset_anchor.clear();
+        state.reset_anchor.push_str(reset_anchor);
+    }
+}
+
 /// The counter increment over one interval: a normal increase is `current -
-/// previous`; a decrease is salvaged only as a plausible 32-bit wrap (the wrapped
-/// delta must imply a per-second rate within the modulus). A 64-bit decrease, or
-/// an implausible 32-bit decrease, yields `None` (drop the interval).
+/// previous`; a decrease is salvaged only when the producer explicitly tagged
+/// the series as a 32-bit counter and the wrapped delta stays under the edge
+/// per-sample plausibility ceiling. Unknown-width and 64-bit decreases are
+/// treated as reset/gap artifacts and yield `None` (drop the interval).
 fn counter_delta(
     previous: f64,
     current: f64,
@@ -425,7 +526,8 @@ fn counter_delta(
 
     if counter_width == 32 {
         let wrapped = COUNTER32_MODULUS - previous + current;
-        if elapsed_seconds > 0.0 && wrapped / elapsed_seconds <= COUNTER32_MODULUS {
+        if elapsed_seconds > 0.0 && wrapped / elapsed_seconds <= COUNTER32_MAX_WRAP_RATE_PER_SECOND
+        {
             return Some(wrapped);
         }
     }
@@ -580,6 +682,41 @@ mod tests {
     }
 
     #[test]
+    fn unknown_counter_width_decrease_is_not_salvaged_as_wrap() {
+        let mut engine = DetectorEngine::new(EngineConfig::default());
+        let near_max = COUNTER32_MODULUS - 100.0;
+        engine.normalize_counter("c", near_max, 0, "b", 0);
+
+        assert_eq!(
+            engine.normalize_counter("c", 50.0, 1_000_000_000, "b", 0),
+            None,
+            "unknown-width counters must not assume 32-bit wrap semantics"
+        );
+
+        let rate = engine
+            .normalize_counter("c", 150.0, 2_000_000_000, "b", 0)
+            .expect("normal increase after dropped decrease should resume");
+        assert!((rate - 100.0).abs() < 1e-9, "rate was {rate}");
+    }
+
+    #[test]
+    fn counter32_implausible_subsecond_wrap_is_dropped() {
+        let mut engine = DetectorEngine::new(EngineConfig::default());
+        engine.normalize_counter("c", 1.0, 0, "b", 32);
+
+        assert_eq!(
+            engine.normalize_counter("c", 0.0, 1, "b", 32),
+            None,
+            "near-full wrap over one nanosecond exceeds the edge plausibility ceiling"
+        );
+
+        let rate = engine
+            .normalize_counter("c", 100.0, 1_000_000_001, "b", 32)
+            .expect("normal increase after dropped implausible wrap should resume");
+        assert!((rate - 100.0).abs() < 1e-6, "rate was {rate}");
+    }
+
+    #[test]
     fn counter_gap_too_large_drops() {
         let mut engine = DetectorEngine::new(EngineConfig::default());
         engine.normalize_counter("c", 1_000.0, 0, "b", 64);
@@ -673,6 +810,195 @@ mod tests {
                 .evaluate("a", 2.0, 2, SeriesProfile::default())
                 .is_some()
         );
+    }
+
+    #[test]
+    fn stale_series_eviction_reclaims_capacity() {
+        let mut engine = DetectorEngine::new(EngineConfig {
+            max_series: 1,
+            stale_series_max_age_ns: 10,
+            ..EngineConfig::default()
+        });
+
+        assert!(
+            engine
+                .evaluate("old", 1.0, 0, SeriesProfile::default())
+                .is_some()
+        );
+        assert_eq!(engine.series_count(), 1);
+
+        assert!(
+            engine
+                .evaluate("fresh", 1.0, 20, SeriesProfile::default())
+                .is_some(),
+            "fresh series should evict stale state instead of being dropped"
+        );
+        assert_eq!(engine.series_count(), 1);
+        assert_eq!(engine.dropped_at_capacity, 0);
+    }
+
+    #[test]
+    fn counter_cap_drops_new_counter_until_stale_state_evicts() {
+        let mut engine = DetectorEngine::new(EngineConfig {
+            max_series: 1,
+            stale_series_max_age_ns: 10,
+            ..EngineConfig::default()
+        });
+
+        assert_eq!(engine.normalize_counter("old", 100.0, 0, "boot", 64), None);
+        assert_eq!(engine.counter_count(), 1);
+
+        assert_eq!(
+            engine.normalize_counter("blocked", 100.0, 5, "boot", 64),
+            None
+        );
+        assert_eq!(
+            engine.counter_count(),
+            1,
+            "counter map must remain bounded at max_series"
+        );
+        assert_eq!(engine.dropped_at_capacity, 1);
+
+        assert_eq!(
+            engine.normalize_counter("fresh", 100.0, 20, "boot", 64),
+            None
+        );
+        assert_eq!(engine.counter_count(), 1);
+        let rate = engine.normalize_counter("fresh", 150.0, 1_000_000_020, "boot", 64);
+        assert!(
+            rate.is_some(),
+            "fresh counter should have been admitted after stale eviction"
+        );
+    }
+
+    #[test]
+    fn checkpoint_restore_caps_counters() {
+        let checkpoint = EngineCheckpoint {
+            series: Vec::new(),
+            counters: vec![
+                CounterCheckpoint {
+                    series_key: "a".to_string(),
+                    value: 1.0,
+                    timestamp: 10,
+                    reset_anchor: "boot".to_string(),
+                },
+                CounterCheckpoint {
+                    series_key: "b".to_string(),
+                    value: 2.0,
+                    timestamp: 10,
+                    reset_anchor: "boot".to_string(),
+                },
+            ],
+        };
+        let mut engine = DetectorEngine::new(EngineConfig {
+            max_series: 1,
+            ..EngineConfig::default()
+        });
+
+        let restored = engine.restore_checkpoint(checkpoint, 10, u64::MAX);
+        assert_eq!(restored, 0);
+        assert_eq!(engine.counter_count(), 1);
+    }
+
+    fn transition_cfg(confirm_slots: usize) -> EngineConfig {
+        EngineConfig {
+            window_size: 50,
+            min_samples: 5,
+            n_sigma: 3.0,
+            confirm_slots,
+            max_series: 10,
+            ..EngineConfig::default()
+        }
+    }
+
+    fn warm_transition_engine(engine: &mut DetectorEngine, series_key: &str) {
+        for i in 0..20 {
+            let v = 100.0 + if i % 2 == 0 { 0.5 } else { -0.5 };
+            let result = engine
+                .evaluate_transition(series_key, v, i as u64, SeriesProfile::default())
+                .expect("warmup verdict");
+            assert_eq!(result.transition, None, "warmup must not transition");
+        }
+    }
+
+    #[test]
+    fn transition_suppresses_pending_opens_once_and_clears() {
+        let mut engine = DetectorEngine::new(transition_cfg(3));
+        warm_transition_engine(&mut engine, "s");
+
+        let first = engine
+            .evaluate_transition("s", 10_000.0, 100, SeriesProfile::default())
+            .expect("first spike verdict");
+        assert_eq!(first.verdict.state, "pending_anomaly");
+        assert_eq!(
+            first.transition, None,
+            "first confirmed-slot breach must not emit"
+        );
+
+        let second = engine
+            .evaluate_transition("s", 10_000.0, 101, SeriesProfile::default())
+            .expect("second spike verdict");
+        assert_eq!(second.verdict.state, "pending_anomaly");
+        assert_eq!(
+            second.transition, None,
+            "second confirmed-slot breach must not emit"
+        );
+
+        let open = engine
+            .evaluate_transition("s", 10_000.0, 102, SeriesProfile::default())
+            .expect("open verdict");
+        assert!(open.verdict.anomalous);
+        assert_eq!(open.transition, Some(AnomalyTransition::Open));
+
+        let repeated = engine
+            .evaluate_transition("s", 10_000.0, 103, SeriesProfile::default())
+            .expect("repeated anomalous verdict");
+        assert!(repeated.verdict.anomalous);
+        assert_eq!(
+            repeated.transition, None,
+            "active anomaly must not open repeatedly"
+        );
+
+        let clear = engine
+            .evaluate_transition("s", 100.0, 104, SeriesProfile::default())
+            .expect("clear verdict");
+        assert_eq!(clear.verdict.state, "clean");
+        assert_eq!(clear.transition, Some(AnomalyTransition::Clear));
+
+        let stable = engine
+            .evaluate_transition("s", 100.0, 105, SeriesProfile::default())
+            .expect("stable clean verdict");
+        assert_eq!(stable.transition, None, "clean state must clear once");
+    }
+
+    #[test]
+    fn checkpoint_restore_keeps_active_anomaly_open_until_clear() {
+        let cfg = transition_cfg(1);
+        let mut engine = DetectorEngine::new(cfg.clone());
+        warm_transition_engine(&mut engine, "s");
+
+        let open = engine
+            .evaluate_transition("s", 10_000.0, 100, SeriesProfile::default())
+            .expect("open verdict");
+        assert_eq!(open.transition, Some(AnomalyTransition::Open));
+
+        let checkpoint = engine.export_checkpoint();
+        let mut restored = DetectorEngine::new(cfg);
+        let restored_count = restored.restore_checkpoint(checkpoint, 101, u64::MAX);
+        assert_eq!(restored_count, 1);
+
+        let still_active = restored
+            .evaluate_transition("s", 10_000.0, 102, SeriesProfile::default())
+            .expect("still active verdict");
+        assert_eq!(
+            still_active.transition, None,
+            "restored active anomaly must not reopen"
+        );
+
+        let clear = restored
+            .evaluate_transition("s", 100.0, 103, SeriesProfile::default())
+            .expect("clear verdict");
+        assert_eq!(clear.transition, Some(AnomalyTransition::Clear));
     }
 
     /// The disk saturation profile the add-on assigns to a `sysmon.disk` series:

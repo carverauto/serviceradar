@@ -14,10 +14,20 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.SourceTest do
     # The 168-bucket hour-of-week aggregation STAYS in SQL (data gravity, D6): every
     # source profiles by dow/hod in the query, not in the kernel.
     assert Enum.all?(queries, &String.contains?(&1, "profile_hour_of_week"))
+    assert Enum.all?(queries, &String.contains?(&1, ~s|timezone:"UTC"|))
 
     cpu = Enum.find(sources, &(&1.name == "cpu_seasonal"))
     assert cpu.metric_class == "cpu"
+    assert cpu.time_zone == "UTC"
     assert cpu.robust_statistic == :mean_stddev
+  end
+
+  test "default sources carry a configured timezone into the SRQL profile query" do
+    [cpu | _] = Source.defaults(time_zone: "America/Chicago")
+
+    assert cpu.time_zone == "America/Chicago"
+    assert cpu.query =~ ~s|timezone:"America/Chicago"|
+    assert cpu.query =~ "stats:profile_hour_of_week(value)"
   end
 
   test "from_config coerces a map into a source struct with field defaults" do
@@ -28,11 +38,13 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.SourceTest do
         "metric_class" => "latency",
         "metric_name" => "p95_ms",
         "query" => "in:timeseries_metrics stats:profile_hour_of_week(value)",
+        "time_zone" => "Etc/UTC",
         "robust_statistic" => "median_mad",
         "label_fields" => ["series"]
       })
 
     assert source.name == "lat_seasonal"
+    assert source.time_zone == "UTC"
     assert source.robust_statistic == :median_mad
     assert source.series_field == "series"
     assert source.sample_field == "sample_value"

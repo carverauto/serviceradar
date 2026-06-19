@@ -28,10 +28,19 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntimeTest do
     config = AnomalyConfigRuntime.anomaly_series_config_from_settings(settings)
 
     assert config.metric_class_defaults["default"]["n_sigma"] == 4.5
+    refute Map.has_key?(config.metric_class_defaults["default"], "window_duration_seconds")
     refute Map.has_key?(config.metric_class_defaults, "cpu")
     assert config.metric_class_defaults["interface"]["n_sigma"] == 5.5
     assert config.metric_class_defaults["interface"]["window_size"] == 600
-    assert config.metric_class_defaults["mem"]["window_size"] == 120
+    assert config.metric_class_defaults["memory"]["window_size"] == 120
+    refute Map.has_key?(config.metric_class_defaults, "mem")
+
+    assert AnomalyConfigRuntime.edge_addon_params_from_settings(settings) == %{
+             "n_sigma" => 4.5,
+             "window_size" => 600,
+             "confirm_slots" => 7,
+             "min_samples" => 45
+           }
   end
 
   test "converts anomaly settings into seasonal disposition worker options" do

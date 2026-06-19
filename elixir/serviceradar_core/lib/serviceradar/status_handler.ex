@@ -375,10 +375,16 @@ defmodule ServiceRadar.StatusHandler do
   defp canonical_series_key(_source_identity), do: nil
 
   defp causal_prediction_subject(series_key) when is_binary(series_key) and series_key != "" do
-    "signals.causal.predictions.#{series_key}"
+    "signals.causal.predictions.#{causal_prediction_subject_token(series_key)}"
   end
 
   defp causal_prediction_subject(_series_key), do: "signals.causal.predictions.anomaly"
+
+  defp causal_prediction_subject_token(series_key) do
+    series_key
+    |> to_string()
+    |> String.replace(~r/[.\s*>]/, "_")
+  end
 
   # Stamp the canonical key onto the persisted verdict so CausalSignals stores it
   # under the same series_key edge-derived consumers use (and the producer hint becomes dead

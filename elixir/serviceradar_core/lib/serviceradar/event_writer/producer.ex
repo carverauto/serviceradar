@@ -243,6 +243,7 @@ defmodule ServiceRadar.EventWriter.Producer do
   defp buffer_message(state, body, subject, reply_to, msg) do
     headers = Map.get(msg, :headers, %{})
     original_subject = extract_original_subject(subject, headers)
+    ack_metadata = jetstream_ack_metadata(reply_to)
 
     broadway_event = %{
       data: body,
@@ -256,6 +257,8 @@ defmodule ServiceRadar.EventWriter.Producer do
       ack_data: %{
         conn: state.conn,
         reply_to: reply_to,
+        jetstream_ack: ack_metadata,
+        max_deliver: max_deliver_for_pull_subject(state, subject),
         ack_fun: build_ack_fun(state.conn, reply_to)
       }
     }
@@ -423,6 +426,8 @@ defmodule ServiceRadar.EventWriter.Producer do
         pull_subject = pull_subject(config.consumer_name, stream.name)
         pull_batch_size = Map.get(stream, :consumer_pull_batch_size, default_pull_batch_size)
 
+        stream_max_deliver = Map.get(stream, :consumer_max_deliver, max_deliver)
+
         with {:ok, ensured} <-
                JetstreamConsumer.ensure_durable(conn,
                  stream_name: Map.get(stream, :stream_name) || stream.name,
@@ -433,7 +438,7 @@ defmodule ServiceRadar.EventWriter.Producer do
                  ack_wait: Map.get(stream, :consumer_ack_wait_ns, ack_wait_ns),
                  deliver_policy: Map.get(stream, :consumer_deliver_policy, :all),
                  max_ack_pending: Map.get(stream, :consumer_max_ack_pending, max_ack_pending),
-                 max_deliver: Map.get(stream, :consumer_max_deliver, max_deliver),
+                 max_deliver: stream_max_deliver,
                  inactive_threshold: Map.get(stream, :consumer_inactive_threshold),
                  stream_retention: Map.get(stream, :stream_retention),
                  stream_storage: Map.get(stream, :stream_storage),
@@ -459,7 +464,8 @@ defmodule ServiceRadar.EventWriter.Producer do
             sid: sid,
             subject: stream.subject,
             pull_subject: pull_subject,
-            pull_batch_size: pull_batch_size
+            pull_batch_size: pull_batch_size,
+            max_deliver: stream_max_deliver
           }
         else
           {:error, reason} ->
@@ -704,6 +710,58 @@ defmodule ServiceRadar.EventWriter.Producer do
       find_header_value(headers, "nats-subject-token") ||
       topic
   end
+
+  defp max_deliver_for_pull_subject(state, pull_subject) do
+    state
+    |> consumer_for_pull_subject(pull_subject)
+    |> case do
+      %{max_deliver: max_deliver} when is_integer(max_deliver) and max_deliver > 0 ->
+        max_deliver
+
+      _ ->
+        state.config.max_deliver || Config.default_max_deliver()
+    end
+  end
+
+  defp consumer_for_pull_subject(%{consumer_context: %{consumers: consumers}}, pull_subject)
+       when is_list(consumers) do
+    Enum.find(consumers, fn consumer -> consumer[:pull_subject] == pull_subject end)
+  end
+
+  defp consumer_for_pull_subject(_state, _pull_subject), do: nil
+
+  defp jetstream_ack_metadata(reply_to) when is_binary(reply_to) do
+    tokens = String.split(reply_to, ".")
+
+    with ack_index when is_integer(ack_index) <- Enum.find_index(tokens, &(&1 == "ACK")),
+         true <- length(tokens) >= ack_index + 8,
+         {:ok, delivery_count} <- parse_non_negative_integer(Enum.at(tokens, -5)),
+         {:ok, stream_sequence} <- parse_non_negative_integer(Enum.at(tokens, -4)),
+         {:ok, consumer_sequence} <- parse_non_negative_integer(Enum.at(tokens, -3)),
+         {:ok, pending} <- parse_non_negative_integer(Enum.at(tokens, -1)) do
+      %{
+        stream: Enum.at(tokens, ack_index + 1),
+        consumer: Enum.at(tokens, ack_index + 2),
+        delivery_count: delivery_count,
+        stream_sequence: stream_sequence,
+        consumer_sequence: consumer_sequence,
+        pending: pending
+      }
+    else
+      _ -> %{}
+    end
+  end
+
+  defp jetstream_ack_metadata(_reply_to), do: %{}
+
+  defp parse_non_negative_integer(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {integer, ""} when integer >= 0 -> {:ok, integer}
+      _ -> :error
+    end
+  end
+
+  defp parse_non_negative_integer(_value), do: :error
 
   defp find_header_value(headers, key) when is_map(headers) do
     Enum.find_value(headers, fn {k, v} ->

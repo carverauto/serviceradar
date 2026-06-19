@@ -73,6 +73,13 @@ fn translate_param_arity_matches_sql_placeholders() {
                 direction: QueryDirection::Next,
                 mode: None,
             },
+            QueryRequest {
+                query: r#"in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" timezone:"America/Chicago" time:last_180d bucket:1h agg:avg series:uid stats:profile_hour_of_week(value) sort:dow:asc,hod:asc limit:50000"#.to_string(),
+                limit: None,
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: None,
+            },
         ];
 
     for request in cases {

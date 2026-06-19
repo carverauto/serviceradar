@@ -1286,7 +1286,8 @@ if config_env() == :prod do
         System.get_env("SERVICERADAR_SEASONAL_DISPOSITION_MIN_BUCKET_SAMPLES") || "4"
       ),
     confirm_slots:
-      String.to_integer(System.get_env("SERVICERADAR_SEASONAL_DISPOSITION_CONFIRM_SLOTS") || "1")
+      String.to_integer(System.get_env("SERVICERADAR_SEASONAL_DISPOSITION_CONFIRM_SLOTS") || "1"),
+    time_zone: System.get_env("SERVICERADAR_SEASONAL_DISPOSITION_TIME_ZONE", "UTC")
 
   config :serviceradar_core, :object_store_retention,
     enabled?: object_store_retention_enabled,

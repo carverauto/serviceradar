@@ -442,6 +442,157 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert active_alert.metadata["incident_group_values"] == %{"device" => device_uid}
   end
 
+  test "causal anomaly alerts are transition-gated by finding uid and resolve on clear", %{
+    actor: actor
+  } do
+    unique = System.unique_integer([:positive])
+    finding_uid = "finding-anomaly-#{unique}"
+    device_uid = "sr:anomaly-transition-#{unique}"
+    series_key = "sysmon:cpu:#{device_uid}:core0"
+    alert_title = "Transition Gated Anomaly #{unique}"
+
+    {:ok, rule} =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "transition-gated-anomaly-#{unique}",
+          enabled: true,
+          signal: :event,
+          match: %{
+            "subject_prefix" => "signals.causal.predictions",
+            "resource_attribute_equals" => %{
+              "signal_type" => "causal",
+              "event_type" => "anomaly"
+            },
+            "attribute_equals" => %{"status" => ["open", "breach"]},
+            "attribute_not_equals" => %{"anomaly.state" => "pending_anomaly"},
+            "reset_when" => %{
+              "subject_prefix" => "signals.causal.predictions",
+              "resource_attribute_equals" => %{
+                "signal_type" => "causal",
+                "event_type" => "anomaly"
+              },
+              "attribute_equals" => %{"status" => ["closed", "cleared"]}
+            }
+          },
+          group_by: ["finding_info.uid"],
+          threshold: 1,
+          window_seconds: 300,
+          bucket_seconds: 60,
+          cooldown_seconds: 300,
+          renotify_seconds: 3600,
+          event: %{
+            "log_name" => "alert.health.anomaly_detection",
+            "message" => "Anomaly detection finding detected"
+          },
+          alert: %{"title" => alert_title}
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    base_time = DateTime.utc_now()
+
+    event =
+      causal_prediction_event_builder(base_time, unique, device_uid, finding_uid, series_key)
+
+    assert :ok = StatefulAlertEngine.evaluate_events([event.("pending", "open", 4, 0)])
+    assert [] = active_alerts_by_title(actor, alert_title)
+
+    assert :ok = StatefulAlertEngine.evaluate_events([event.("anomalous", "open", 5, 1)])
+    assert :ok = StatefulAlertEngine.evaluate_events([event.("anomalous", "open", 5, 2)])
+
+    assert [active_alert] = active_alerts_by_title(actor, alert_title)
+    assert active_alert.severity == :critical
+    assert active_alert.metadata["incident_group_key"] == "finding_info.uid=#{finding_uid}"
+    assert active_alert.metadata["incident_occurrence_count"] == 2
+
+    assert :ok = StatefulAlertEngine.evaluate_events([event.("clear", "closed", 1, 3)])
+    assert [] = active_alerts_by_title(actor, alert_title)
+
+    {:ok, resolved} = Alert.get_by_id(active_alert.id, actor: actor)
+    assert resolved.status == :resolved
+    assert resolved.metadata["incident_group_values"] == %{"finding_info.uid" => finding_uid}
+
+    history =
+      rule.id
+      |> StatefulAlertRuleHistory.list_by_rule(actor: actor)
+      |> Page.unwrap!()
+
+    assert Enum.count(Enum.filter(history, &(&1.event_type == :fired))) == 1
+    assert Enum.count(Enum.filter(history, &(&1.event_type == :recovered))) == 1
+  end
+
+  test "capacity forecast alerts fire only for warning-horizon projected findings", %{
+    actor: actor
+  } do
+    unique = System.unique_integer([:positive])
+    finding_uid = "finding-capacity-#{unique}"
+    device_uid = "sr:capacity-transition-#{unique}"
+    resource_key = "cpu:#{device_uid}:usage_percent"
+    alert_title = "Capacity Forecast #{unique}"
+
+    {:ok, _rule} =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "transition-gated-capacity-#{unique}",
+          enabled: true,
+          signal: :event,
+          match: %{
+            "subject_prefix" => "signals.causal.predictions",
+            "resource_attribute_equals" => %{
+              "signal_type" => "causal",
+              "event_type" => "capacity_forecast"
+            },
+            "attribute_equals" => %{"status" => "projected"},
+            "reset_when" => %{
+              "subject_prefix" => "signals.causal.predictions",
+              "resource_attribute_equals" => %{
+                "signal_type" => "causal",
+                "event_type" => "capacity_forecast"
+              },
+              "attribute_equals" => %{"status" => ["inactive", "resolved", "closed", "skipped"]}
+            }
+          },
+          group_by: ["finding_info.uid"],
+          threshold: 1,
+          window_seconds: 300,
+          bucket_seconds: 60,
+          cooldown_seconds: 300,
+          renotify_seconds: 3600,
+          event: %{
+            "log_name" => "alert.health.capacity_forecast",
+            "message" => "Capacity forecast warning horizon crossed"
+          },
+          alert: %{"title" => alert_title}
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    base_time = DateTime.utc_now()
+
+    event =
+      capacity_prediction_event_builder(base_time, unique, device_uid, finding_uid, resource_key)
+
+    assert :ok = StatefulAlertEngine.evaluate_events([event.("inactive", 2, 0)])
+    assert [] = active_alerts_by_title(actor, alert_title)
+
+    assert :ok = StatefulAlertEngine.evaluate_events([event.("projected", 5, 1)])
+    assert :ok = StatefulAlertEngine.evaluate_events([event.("projected", 5, 2)])
+
+    assert [active_alert] = active_alerts_by_title(actor, alert_title)
+    assert active_alert.severity == :critical
+    assert active_alert.metadata["incident_occurrence_count"] == 2
+    assert active_alert.metadata["incident_group_key"] == "finding_info.uid=#{finding_uid}"
+
+    assert :ok = StatefulAlertEngine.evaluate_events([event.("inactive", 2, 3)])
+    assert [] = active_alerts_by_title(actor, alert_title)
+  end
+
   test "deduplicates repeated event bursts into one active incident and rolls over after cooldown gap",
        %{actor: actor} do
     unique = System.unique_integer([:positive])
@@ -719,6 +870,115 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     for {_index, title, _rule} <- rules do
       assert Enum.count(active_alerts, fn alert -> alert.title == title end) == 1,
              "expected exactly one active alert titled #{title}"
+    end
+  end
+
+  defp active_alerts_by_title(actor, title) do
+    Alert
+    |> Ash.Query.for_read(:active, %{}, actor: actor)
+    |> Ash.read!()
+    |> Page.unwrap!()
+    |> Enum.filter(fn alert -> alert.title == title end)
+  end
+
+  defp causal_prediction_event_builder(base_time, _unique, device_uid, finding_uid, series_key) do
+    fn state, status, severity_id, offset ->
+      time = DateTime.add(base_time, offset, :second)
+
+      %{
+        id: Ash.UUID.generate(),
+        time: time,
+        class_uid: 2004,
+        severity_id: severity_id,
+        severity: OCSF.severity_name(severity_id),
+        message: "Anomaly #{state}",
+        log_name: "signals.causal.predictions.#{series_key}",
+        log_provider: "anomaly_detection",
+        device: %{"uid" => device_uid},
+        metadata: %{
+          "signal_type" => "causal",
+          "event_type" => "anomaly",
+          "finding_info" => %{
+            "uid" => finding_uid,
+            "group_uid" => finding_uid,
+            "dimensions" => %{
+              "device_uid" => device_uid,
+              "series_key" => series_key,
+              "metric_class" => "sysmon.cpu"
+            }
+          },
+          "detection_finding" => %{
+            "type" => "anomaly",
+            "source" => "edge-spike",
+            "series_key" => series_key,
+            "metric_class" => "sysmon.cpu",
+            "state" => state
+          }
+        },
+        unmapped: %{
+          "signal_type" => "causal",
+          "event_type" => "anomaly",
+          "status" => status,
+          "anomaly" => %{
+            "state" => state,
+            "series_key" => series_key,
+            "metric_class" => "sysmon.cpu"
+          }
+        }
+      }
+    end
+  end
+
+  defp capacity_prediction_event_builder(
+         base_time,
+         _unique,
+         device_uid,
+         finding_uid,
+         resource_key
+       ) do
+    fn status, severity_id, offset ->
+      time = DateTime.add(base_time, offset, :second)
+
+      %{
+        id: Ash.UUID.generate(),
+        time: time,
+        class_uid: 2004,
+        severity_id: severity_id,
+        severity: OCSF.severity_name(severity_id),
+        message: "Capacity forecast #{status}",
+        log_name: "signals.causal.predictions.#{resource_key}",
+        log_provider: "capacity_forecasting",
+        device: %{"uid" => device_uid},
+        metadata: %{
+          "signal_type" => "causal",
+          "event_type" => "capacity_forecast",
+          "finding_info" => %{
+            "uid" => finding_uid,
+            "group_uid" => finding_uid,
+            "dimensions" => %{
+              "resource_id" => device_uid,
+              "resource_key" => resource_key,
+              "metric_name" => "usage_percent"
+            }
+          },
+          "detection_finding" => %{
+            "type" => "capacity_forecast",
+            "source" => "capacity_forecasting",
+            "series_key" => resource_key,
+            "metric_class" => "cpu"
+          }
+        },
+        unmapped: %{
+          "signal_type" => "causal",
+          "event_type" => "capacity_forecast",
+          "status" => status,
+          "capacity_forecast" => %{
+            "status" => status,
+            "resource_key" => resource_key,
+            "metric_name" => "usage_percent"
+          }
+        }
+      }
     end
   end
 

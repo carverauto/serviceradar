@@ -6,8 +6,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   require Logger
 
   @metric_classes ~w(cpu memory disk interface red)
-  @anomaly_limit 50
-  @capacity_limit 25
+  @anomaly_limit 20
+  @capacity_limit 8
 
   def empty(status \\ :ok) do
     %{
@@ -33,8 +33,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
     if anomaly_candidates == [] and capacity_candidates == [] do
       empty()
     else
-      anomaly = load_first(srql_module, anomaly_candidates, scope, &anomaly_query/1)
-      capacity = load_first(srql_module, capacity_candidates, scope, &capacity_query/1)
+      anomaly_task =
+        Task.async(fn ->
+          load_first(srql_module, anomaly_candidates, scope, &anomaly_query/1, &project_anomaly_row/1)
+        end)
+
+      capacity_task =
+        Task.async(fn ->
+          load_first(srql_module, capacity_candidates, scope, &capacity_query/1, &project_capacity_row/1)
+        end)
+
+      anomaly = Task.await(anomaly_task, :infinity)
+      capacity = Task.await(capacity_task, :infinity)
 
       %{
         status: combined_status(anomaly, capacity),
@@ -51,7 +61,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
     end
   end
 
-  defp load_first(srql_module, candidates, scope, query_fun) do
+  defp load_first(srql_module, candidates, scope, query_fun, project_fun) do
     candidates
     |> Enum.reduce_while(nil, fn candidate, acc ->
       query = query_fun.(candidate)
@@ -59,7 +69,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       case srql_module.query(query, %{scope: scope}) do
         {:ok, %{"results" => rows}} when is_list(rows) ->
           result = %{
-            rows: Enum.filter(rows, &is_map/1),
+            rows: rows |> Enum.filter(&is_map/1) |> Enum.map(project_fun),
             query: query,
             filter: Map.take(candidate, [:field, :label, :value]),
             error: nil,
@@ -104,36 +114,35 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp combined_status(_anomaly, _capacity), do: :ok
 
   defp anomaly_filter_candidates(identity) do
-    Enum.reject(
-      [
-        candidate(identity, :agent_id, "agent_id", "agent"),
-        candidate(identity, :host_id, "host_id", "host"),
-        candidate(identity, :device_uid, "device_uid_exact", "device")
-      ],
-      &is_nil/1
-    )
+    case candidate(identity, :device_uid, "device_uid_exact", "device") do
+      nil ->
+        Enum.reject(
+          [
+            candidate(identity, :host_id, "host_id", "host"),
+            candidate(identity, :agent_id, "agent_id", "agent")
+          ],
+          &is_nil/1
+        )
+
+      candidate ->
+        [candidate]
+    end
   end
 
   defp capacity_filter_candidates(identity) do
-    identity
-    |> capacity_id_candidates()
-    |> Enum.flat_map(fn candidate ->
-      [
-        %{candidate | field: "resource_id"},
-        %{candidate | field: "resource_key", value: "%#{candidate.value}%"}
-      ]
-    end)
-  end
+    case candidate(identity, :device_uid, "resource_id", "device") do
+      nil ->
+        Enum.reject(
+          [
+            candidate(identity, :host_id, "resource_id", "host"),
+            candidate(identity, :agent_id, "resource_id", "agent")
+          ],
+          &is_nil/1
+        )
 
-  defp capacity_id_candidates(identity) do
-    Enum.reject(
-      [
-        candidate(identity, :device_uid, "resource_id", "device"),
-        candidate(identity, :agent_id, "resource_id", "agent"),
-        candidate(identity, :host_id, "resource_id", "host")
-      ],
-      &is_nil/1
-    )
+      candidate ->
+        [candidate]
+    end
   end
 
   defp candidate(identity, key, field, label) do
@@ -175,6 +184,102 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       " "
     )
   end
+
+  defp project_anomaly_row(row) do
+    row
+    |> take_fields([
+      "time",
+      "finding_title",
+      "message",
+      "metric_class",
+      "metric_name",
+      "source_type",
+      "severity",
+      "status",
+      "uid",
+      "id",
+      "series_key",
+      "device_uid",
+      "device_uid_exact",
+      "target_device_ip",
+      "interface_uid",
+      "interface_name",
+      "if_index"
+    ])
+    |> put_projected_map("metadata", map_value(row, "metadata"), [
+      "finding_info",
+      "source_identity",
+      "anomaly",
+      "verdict",
+      "service_radar",
+      "detection_finding",
+      "tags",
+      "source_type"
+    ])
+    |> put_projected_map("raw_data", map_value(row, "raw_data"), [
+      "message",
+      "metric_class",
+      "metric_name",
+      "source_type",
+      "series_key",
+      "device_uid",
+      "target_device_ip",
+      "interface_uid",
+      "interface_name",
+      "if_index",
+      "value",
+      "score",
+      "unit"
+    ])
+  end
+
+  defp project_capacity_row(row) do
+    row
+    |> take_fields([
+      "resource_label",
+      "resource_id",
+      "resource_key",
+      "metric_name",
+      "metric_class",
+      "status",
+      "skip_reason",
+      "current_value",
+      "projected_value",
+      "projected_exhaustion_at",
+      "exhaustion_threshold",
+      "confidence",
+      "horizon_seconds",
+      "window_started_at",
+      "window_ended_at",
+      "unit"
+    ])
+    |> put_projected_map("metadata", map_value(row, "metadata"), [
+      "unit",
+      "horizon_seconds",
+      "exhaustion_threshold"
+    ])
+  end
+
+  defp take_fields(row, fields) do
+    Enum.reduce(fields, %{}, fn field, acc ->
+      case map_value(row, field) do
+        nil -> acc
+        value -> Map.put(acc, field, value)
+      end
+    end)
+  end
+
+  defp put_projected_map(acc, key, %{} = value, fields) do
+    projected = take_fields(value, fields)
+
+    if map_size(projected) == 0 do
+      acc
+    else
+      Map.put(acc, key, projected)
+    end
+  end
+
+  defp put_projected_map(acc, _key, _value, _fields), do: acc
 
   defp metric_statuses(rows) do
     counts =

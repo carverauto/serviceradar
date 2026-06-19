@@ -9,9 +9,12 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
     handler_id = "pipeline-ack-test-#{System.unique_integer([:positive])}"
     test_pid = self()
 
-    :telemetry.attach(
+    :telemetry.attach_many(
       handler_id,
-      [:serviceradar, :event_writer, :ack],
+      [
+        [:serviceradar, :event_writer, :ack],
+        [:serviceradar, :event_writer, :consumer, :max_deliver_exhausted]
+      ],
       fn event, measurements, metadata, _config ->
         send(test_pid, {:telemetry, event, measurements, metadata})
       end,
@@ -61,6 +64,59 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
                     %{action: :nack, result: :ok, subject_class: "events"}}
 
     assert is_integer(duration) and duration >= 0
+  end
+
+  test "ack/3 emits an alert before NAKing a final JetStream delivery" do
+    parent = self()
+
+    message = %Message{
+      data: "",
+      metadata: %{
+        subject: "signals.causal.predictions",
+        reply_to: "$JS.ACK.CAUSAL_PREDICTIONS.event_writer.5.42.9.0.0",
+        received_monotonic: System.monotonic_time()
+      },
+      acknowledger:
+        {Pipeline, :ack_ref,
+         %{
+           max_deliver: 5,
+           jetstream_ack: %{
+             stream: "CAUSAL_PREDICTIONS",
+             consumer: "event_writer",
+             delivery_count: 5,
+             stream_sequence: 42,
+             consumer_sequence: 9,
+             pending: 0
+           },
+           ack_fun: fn
+             :nack ->
+               send(parent, :nacked_final_delivery)
+               :ok
+
+             :ack ->
+               :ok
+           end
+         }}
+    }
+
+    assert :ok == Pipeline.ack(:ack_ref, [], [message])
+
+    assert_receive {:telemetry, [:serviceradar, :event_writer, :consumer, :max_deliver_exhausted],
+                    %{
+                      count: 1,
+                      delivery_count: 5,
+                      max_deliver: 5,
+                      stream_sequence: 42,
+                      consumer_sequence: 9,
+                      pending_messages: 0
+                    },
+                    %{
+                      stream: "CAUSAL_PREDICTIONS",
+                      durable: "event_writer",
+                      subject_class: "other"
+                    }}
+
+    assert_receive :nacked_final_delivery
   end
 
   test "ack/3 does not crash when ack callback exits" do

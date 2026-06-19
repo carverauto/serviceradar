@@ -215,7 +215,7 @@ impl QueryEngine {
             ServiceError::Internal(anyhow::anyhow!("{err:?}"))
         })?;
 
-        let results = if plan.downsample.is_some() {
+        let results = if plan.downsample.is_some() && plan.stats.is_none() {
             downsample::execute(&mut conn, &plan).await?
         } else {
             match plan.entity {
@@ -917,7 +917,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
     let plan = build_query_plan(config, &request, ast)?;
     let viz = viz::meta_for_plan(&plan);
 
-    let (sql, params) = if plan.downsample.is_some() {
+    let (sql, params) = if plan.downsample.is_some() && plan.stats.is_none() {
         downsample::to_sql_and_params(&plan)?
     } else {
         match plan.entity {

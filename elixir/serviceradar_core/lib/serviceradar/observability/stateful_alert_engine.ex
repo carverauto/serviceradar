@@ -340,7 +340,18 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp maybe_process_event_rule(event, %{signal: :event} = rule, state) do
-    if rule_matches_event?(event, rule), do: process_event(rule, event, state)
+    cond do
+      rule_resets_event?(event, rule) ->
+        event
+        |> Map.put(:__stateful_alert_reset__, true)
+        |> process_event(rule, state)
+
+      rule_matches_event?(event, rule) ->
+        process_event(rule, event, state)
+
+      true ->
+        :ok
+    end
   end
 
   defp maybe_process_event_rule(_event, _rule, _state), do: :ok
@@ -360,14 +371,55 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     case build_group(rule.group_by, record) do
       {:ok, group_key, group_values} ->
         key = {rule.id, group_key}
-        snapshot = lookup_snapshot(state.table, key, rule, group_key, group_values, record)
-        updated = update_snapshot(snapshot, rule, record)
-        flushed = maybe_flush_snapshot(updated, rule, state)
-        :ets.insert(state.table, {key, flushed})
+
+        if fetch_attr(record, :__stateful_alert_reset__) == true do
+          reset_snapshot(state.table, key, rule, group_key, group_values, record, state)
+        else
+          snapshot = lookup_snapshot(state.table, key, rule, group_key, group_values, record)
+          updated = update_snapshot(snapshot, rule, record)
+          flushed = maybe_flush_snapshot(updated, rule, state)
+          :ets.insert(state.table, {key, flushed})
+        end
 
       :error ->
         :ok
     end
+  end
+
+  defp reset_snapshot(table, key, rule, group_key, group_values, record, state) do
+    case :ets.lookup(table, key) do
+      [{^key, snapshot}] ->
+        reset_existing_snapshot(table, key, snapshot, rule, record, state)
+
+      _ ->
+        snapshot = lookup_snapshot(table, key, rule, group_key, group_values, record)
+        reset_existing_snapshot(table, key, snapshot, rule, record, state)
+    end
+  end
+
+  defp reset_existing_snapshot(table, key, snapshot, rule, record, state) do
+    now = record_timestamp(record)
+
+    if is_binary(snapshot.alert_id) do
+      resolve_alert(snapshot.alert_id, rule, snapshot, now)
+    end
+
+    reset =
+      snapshot
+      |> Map.put(:bucket_counts, %{})
+      |> Map.put(:current_bucket_start, record_bucket_start(record, rule.bucket_seconds))
+      |> Map.put(:last_seen_at, now)
+      |> Map.put(:previous_last_seen_at, snapshot.last_seen_at)
+      |> Map.put(:window_count, 0)
+      |> Map.put(:alert_id, nil)
+      |> Map.put(:last_notification_at, nil)
+      |> Map.put(:cooldown_until, nil)
+      |> Map.put(:diagnostics, update_diagnostics(snapshot.diagnostics, record, now))
+      |> Map.put(:bucket_changed, true)
+      |> Map.put(:flush_required, true)
+      |> maybe_flush_snapshot(rule, state)
+
+    :ets.insert(table, {key, reset})
   end
 
   defp lookup_snapshot(table, key, rule, group_key, group_values, record) do
@@ -752,7 +804,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     activity_id = OCSF.activity_log_create()
     class_uid = OCSF.class_event_log_activity()
     category_uid = OCSF.category_system_activity()
-    severity_id = severity_id(rule.alert)
+    severity_id = severity_id(rule.alert, record)
     message_override = rule.event["message"] || rule.event[:message]
 
     message =
@@ -1061,17 +1113,25 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   defp iso8601(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp iso8601(value), do: value
 
-  defp severity_id(alert_overrides) do
+  defp severity_id(alert_overrides, record) do
     overrides = alert_overrides || %{}
 
     severity =
       overrides["severity"] ||
         overrides["severity_id"] ||
         overrides[:severity] ||
-        overrides[:severity_id] ||
-        :warning
+        overrides[:severity_id]
 
-    resolve_severity_id(severity)
+    cond do
+      not is_nil(severity) ->
+        resolve_severity_id(severity)
+
+      is_number(fetch_attr(record || %{}, :severity_id)) ->
+        resolve_severity_id(fetch_attr(record || %{}, :severity_id))
+
+      true ->
+        resolve_severity_id(:warning)
+    end
   end
 
   defp resolve_severity_id(severity) when is_integer(severity) and severity in 1..6, do: severity
@@ -1146,6 +1206,21 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     end
   end
 
+  defp rule_resets_event?(event, rule) do
+    case reset_match(rule.match || %{}) do
+      nil -> false
+      matches when is_list(matches) -> Enum.any?(matches, &event_matches?(event, &1))
+      %{} = match -> event_matches?(event, match)
+      _ -> false
+    end
+  end
+
+  defp reset_match(match) when is_map(match) do
+    match["reset_when"] || match["clear_when"] || match["resolve_when"]
+  end
+
+  defp reset_match(_match), do: nil
+
   defp rule_matches_metric?(metric, rule) do
     match = rule.match || %{}
 
@@ -1171,7 +1246,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       ),
       match_body_value(fetch_attr(log, :body), match),
       match_map(attributes, match["attribute_equals"]),
-      match_map(resource_attributes, match["resource_attribute_equals"])
+      match_map(resource_attributes, match["resource_attribute_equals"]),
+      match_not_map(attributes, match["attribute_not_equals"]),
+      match_not_map(resource_attributes, match["resource_attribute_not_equals"])
     ])
   end
 
@@ -1184,7 +1261,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       match_severity_values(fetch_attr(event, :severity_id), fetch_attr(event, :severity), match),
       match_body_value(fetch_attr(event, :message), match),
       match_map(attributes, match["attribute_equals"]),
-      match_map(resource_attributes, match["resource_attribute_equals"])
+      match_map(resource_attributes, match["resource_attribute_equals"]),
+      match_not_map(attributes, match["attribute_not_equals"]),
+      match_not_map(resource_attributes, match["resource_attribute_not_equals"])
     ])
   end
 
@@ -1203,7 +1282,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       match_map(fetch_attr(metric, :tags) || %{}, match["tag_equals"]),
       match_map(fetch_attr(metric, :metadata) || %{}, match["metadata_equals"]),
       match_map(attributes, match["attribute_equals"]),
-      match_map(resource_attributes, match["resource_attribute_equals"])
+      match_map(resource_attributes, match["resource_attribute_equals"]),
+      match_not_map(attributes, match["attribute_not_equals"]),
+      match_not_map(resource_attributes, match["resource_attribute_not_equals"])
     ])
   end
 
@@ -1415,6 +1496,18 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp match_map(_source, _match), do: false
+
+  defp match_not_map(_source, nil), do: true
+  defp match_not_map(_source, %{} = match) when map_size(match) == 0, do: true
+
+  defp match_not_map(source, %{} = match) do
+    Enum.all?(match, fn {key, value} ->
+      actual = get_nested_value(source, key)
+      not match_value(actual, value)
+    end)
+  end
+
+  defp match_not_map(_source, _match), do: false
 
   defp match_value(actual, expected) when is_list(expected) do
     Enum.any?(expected, &match_value(actual, &1))

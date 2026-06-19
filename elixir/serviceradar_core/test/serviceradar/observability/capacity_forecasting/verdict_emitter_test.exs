@@ -66,6 +66,18 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitterTest do
     assert payload["capacity_forecast"]["status"] == "inactive"
   end
 
+  test "event id is stable across worker run time for the same logical condition" do
+    later_run =
+      @forecast
+      |> Map.put(:forecasted_at, ~U[2026-06-12 13:00:00Z])
+      |> Map.put(:horizon_ends_at, ~U[2026-06-13 13:00:00Z])
+
+    assert VerdictEmitter.event_id(later_run) == VerdictEmitter.event_id(@forecast)
+
+    inactive = Map.put(@forecast, :status, "inactive")
+    refute VerdictEmitter.event_id(inactive) == VerdictEmitter.event_id(@forecast)
+  end
+
   test "payload routes through the existing causal signal processor" do
     subject = VerdictEmitter.subject(@forecast)
     payload = VerdictEmitter.payload(@forecast, subject)

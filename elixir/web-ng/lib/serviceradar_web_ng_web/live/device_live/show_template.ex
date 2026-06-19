@@ -407,6 +407,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
         matches={@endpoint_inventory_selected_package_matches}
       />
 
+      <.anomaly_capacity_detail_modal selection={@anomaly_capacity_selected} />
+
       <%!-- Interfaces Bulk Edit Modal --%>
       <.interfaces_bulk_edit_modal
         :if={@show_interfaces_bulk_edit}

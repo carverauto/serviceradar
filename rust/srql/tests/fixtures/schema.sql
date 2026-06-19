@@ -419,6 +419,7 @@ CREATE TABLE otel_metrics (
 );
 
 DROP TABLE IF EXISTS timeseries_metrics;
+DROP TABLE IF EXISTS timeseries_metrics_hourly;
 CREATE TABLE timeseries_metrics (
     timestamp        TIMESTAMPTZ NOT NULL,
     gateway_id        TEXT        NOT NULL,
@@ -438,6 +439,17 @@ CREATE TABLE timeseries_metrics (
     metadata         JSONB,
     created_at       TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (timestamp, gateway_id, series_key)
+);
+
+CREATE TABLE timeseries_metrics_hourly (
+    bucket       TIMESTAMPTZ NOT NULL,
+    device_id   TEXT,
+    metric_type TEXT NOT NULL,
+    metric_name TEXT NOT NULL,
+    avg_value   FLOAT8,
+    min_value   FLOAT8,
+    max_value   FLOAT8,
+    sample_count BIGINT NOT NULL
 );
 
 DROP TABLE IF EXISTS cpu_metrics;

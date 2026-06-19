@@ -34,6 +34,11 @@ params. This keeps the default profile focused on agents that actually collect
 host or network-device metrics, rather than every add-on-capable agent in the
 fleet.
 
+The global edge detector knobs shown in Settings are projected into anomaly
+add-on assignments when profiles reconcile. Explicit scalar detector values on a
+profile remain profile-level overrides; blank scalar values are ignored so the
+runtime Settings value or add-on default applies instead.
+
 A single outlier is not enough to create a finding; the detector waits until
 enough consecutive evaluation slots are anomalous.
 
@@ -46,10 +51,17 @@ Key settings:
   Increase it for stable metrics with long periodic behavior; decrease it for
   metrics that legitimately shift quickly.
 - **Window duration**: target wall-clock span represented by the rolling window.
-  Keep this aligned with the sampling cadence for the metric class.
-- **Confirm slots**: consecutive anomalous slots required before a finding is
-  emitted. Increase this for bursty signals; decrease it for signals where
-  delayed detection is worse than occasional noise.
+  Keep this aligned with the sampling cadence for the metric class. The edge
+  anomaly add-on uses the count-based `window_size`; `window_duration_seconds`
+  stays central/operator metadata until a cadence-aware edge window is added.
+- **Confirm slots**: consecutive breaching evaluation slots required before a
+  finding is emitted. One slot is one completed evaluation for one canonical
+  metric series after readiness checks and detector gates have passed. A clean
+  slot resets the pending count. After a finding is open, additional breaching
+  slots do not emit duplicate open findings; the first later clean slot emits a
+  clear. This definition applies to edge spike findings and central seasonal
+  findings. Capacity forecasts are threshold projections and do not use slot
+  confirmation.
 - **Minimum samples**: clean baseline samples required before findings may
   emit. Raise this when onboarding a new metric class with sparse or irregular
   data.
@@ -189,6 +201,13 @@ During rollout:
    shed records are clean.
 6. Keep remediation workflows manual until a separate guarded-remediation
    proposal is approved and implemented.
+
+The edge detector bounds memory with `max_series` and stale-series eviction, but
+each scored sample still recomputes statistics over that series' retained
+`window_size`. Treat scoring cost as O(window size) per active series sample
+when choosing assignment scope, feed sources, `window_size`, and `max_series`.
+If `anomaly_capacity_shed` records appear, narrow the target/feed first; raise
+`max_series` only after confirming host CPU and memory headroom.
 
 Runback is also assignment based. Disable the add-on assignment or retarget the
 previous approved package version, wait for the agent to receive the next

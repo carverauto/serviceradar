@@ -17,6 +17,8 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKey do
                                     "target",
                                     "interface_uid",
                                     "source",
+                                    "partition",
+                                    "partition_id",
                                     "payload_kind",
                                     "producer_id",
                                     "producer_kind",
@@ -41,7 +43,9 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKey do
           host_id: string(source_identity, "host_id"),
           agent_id: string(source_identity, "agent_id"),
           device_id: string(source_identity, "device_id"),
-          host_ip: string(source_identity, "host_ip")
+          host_ip: string(source_identity, "host_ip"),
+          partition_id:
+            string(source_identity, "partition_id") || string(source_identity, "partition")
         }
 
         identity = resource_identity(base)
@@ -56,17 +60,27 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKey do
 
   def from_source_identity(_source_identity), do: nil
 
+  defp resource_identity(%{device_id: device_id}) when is_binary(device_id), do: device_id
+
+  defp resource_identity(%{target_device_ip: target_device_ip}) when is_binary(target_device_ip),
+    do: target_device_ip
+
   defp resource_identity(%{host_id: host_id}) when is_binary(host_id), do: host_id
   defp resource_identity(%{agent_id: agent_id}) when is_binary(agent_id), do: agent_id
-  defp resource_identity(%{device_id: device_id}) when is_binary(device_id), do: device_id
   defp resource_identity(%{host_ip: host_ip}) when is_binary(host_ip), do: host_ip
   defp resource_identity(_base), do: nil
 
   defp readable_identity(metric_class, base, identity, tags, if_index) do
     {class_component, family} = class_and_family(metric_class, base.metric_name)
 
-    [class_component, family, identity_component(identity, base)]
+    [
+      class_component,
+      family,
+      partition_component(base.partition_id),
+      identity_component(identity, base)
+    ]
     |> Enum.reject(&is_nil/1)
+    |> Enum.map(&series_component/1)
     |> Kernel.++(series_dimensions(tags, if_index))
     |> Enum.join(":")
   end
@@ -95,12 +109,16 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKey do
 
   defp identity_component(nil, base), do: base.target_device_ip || "unknown"
   defp identity_component(identity, _base), do: identity
+  defp partition_component(nil), do: nil
+  defp partition_component("default"), do: nil
+  defp partition_component(partition_id), do: partition_id
 
   defp series_dimensions(tags, if_index) do
     leading =
       ["core_id", "mount_point"]
       |> Enum.map(&string(tags, &1))
       |> Enum.reject(&is_nil/1)
+      |> Enum.map(&series_component/1)
 
     if_index =
       case if_index do
@@ -118,9 +136,25 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKey do
           string_value(value) == nil
       end)
       |> Enum.sort_by(&to_string(elem(&1, 0)))
-      |> Enum.map(fn {_key, value} -> string_value(value) end)
+      |> Enum.map(fn {_key, value} -> value |> string_value() |> series_component() end)
 
     leading ++ if_index ++ extra
+  end
+
+  defp series_component(nil), do: nil
+
+  defp series_component(value) do
+    value = to_string(value)
+
+    if safe_series_component?(value) do
+      value
+    else
+      "h_" <> Base.encode16(:crypto.hash(:sha256, value), case: :lower)
+    end
+  end
+
+  defp safe_series_component?(value) do
+    value != "" and not String.match?(value, ~r/[:|*\s>]|[[:cntrl:]]/u)
   end
 
   defp prefix_series_key(readable_identity, metric_class) do

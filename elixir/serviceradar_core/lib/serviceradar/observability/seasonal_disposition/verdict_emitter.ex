@@ -139,9 +139,14 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitter do
       [
         @event_type,
         @verdict_source,
-        iso8601(Map.get(attrs, :bucket_ended_at) || Map.get(attrs, :evaluated_at)),
+        @provider,
+        Map.get(attrs, :resource_id),
         Map.get(attrs, :series_key),
-        Map.get(attrs, :metric_name)
+        Map.get(attrs, :metric_name),
+        Map.get(attrs, :dow),
+        Map.get(attrs, :hod),
+        Map.get(attrs, :disposition),
+        status(attrs)
       ],
       ":",
       &string_value/1

@@ -17,34 +17,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.InterfaceCapacity do
 
     with {:ok, if_index} <- if_index(row),
          identifiers when identifiers != [] <- identifiers(row) do
-      query =
-        from(i in "discovered_interfaces",
-          where: i.if_index == ^if_index,
-          where:
-            fragment(
-              "? = ANY(?) OR ? = ANY(?) OR ? = ANY(?)",
-              i.device_id,
-              type(^identifiers, {:array, :string}),
-              i.device_ip,
-              type(^identifiers, {:array, :string}),
-              i.gateway_id,
-              type(^identifiers, {:array, :string})
-            ),
-          order_by: [desc: i.timestamp],
-          limit: 1,
-          select: %{
-            device_id: i.device_id,
-            device_ip: i.device_ip,
-            if_index: i.if_index,
-            if_name: i.if_name,
-            if_alias: i.if_alias,
-            speed_bps: i.speed_bps,
-            if_speed: i.if_speed,
-            timestamp: i.timestamp
-          }
-        )
-
-      case repo.one(query) do
+      case repo.one(build_query(if_index, identifiers, partition(row))) do
         nil -> {:ok, nil}
         match -> {:ok, normalize_match(match)}
       end
@@ -54,6 +27,43 @@ defmodule ServiceRadar.Observability.CapacityForecasting.InterfaceCapacity do
     end
   rescue
     error -> {:error, error}
+  end
+
+  @doc false
+  def build_query(if_index, identifiers, partition)
+      when is_integer(if_index) and is_list(identifiers) and is_binary(partition) do
+    from(i in "discovered_interfaces",
+      where: i.if_index == ^if_index,
+      where:
+        fragment(
+          "COALESCE(?, 'default') = ?",
+          field(i, :partition),
+          type(^partition, :string)
+        ),
+      where:
+        fragment(
+          "? = ANY(?) OR ? = ANY(?) OR ? = ANY(?)",
+          i.device_id,
+          type(^identifiers, {:array, :string}),
+          i.device_ip,
+          type(^identifiers, {:array, :string}),
+          i.gateway_id,
+          type(^identifiers, {:array, :string})
+        ),
+      order_by: [desc: i.timestamp],
+      limit: 1,
+      select: %{
+        device_id: i.device_id,
+        device_ip: i.device_ip,
+        if_index: i.if_index,
+        if_name: i.if_name,
+        if_alias: i.if_alias,
+        partition: field(i, :partition),
+        speed_bps: i.speed_bps,
+        if_speed: i.if_speed,
+        timestamp: i.timestamp
+      }
+    )
   end
 
   @spec utilization_percent(number(), pos_integer()) :: float()
@@ -100,6 +110,22 @@ defmodule ServiceRadar.Observability.CapacityForecasting.InterfaceCapacity do
     |> Enum.reject(&(&1 == ""))
     |> Enum.uniq()
   end
+
+  defp partition(row) do
+    partition_id = value(row, "partition_id") || value(row, "partition")
+
+    normalize_partition(partition_id)
+  end
+
+  defp normalize_partition(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> "default"
+      partition -> partition
+    end
+  end
+
+  defp normalize_partition(nil), do: "default"
+  defp normalize_partition(value), do: value |> to_string() |> normalize_partition()
 
   defp identifier_values(row, fields) do
     fields
