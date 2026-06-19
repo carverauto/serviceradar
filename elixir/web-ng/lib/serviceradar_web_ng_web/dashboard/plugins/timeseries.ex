@@ -447,7 +447,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   defp counter_rates(series_points, max_speed) when is_list(series_points) do
     Enum.map(series_points, fn {series, points} ->
       sorted_points = Enum.sort_by(points, fn {dt, _v} -> dt end)
-      {series, counter_rate_points(sorted_points, series, max_speed)}
+      series_max_speed = if traffic_series?(series), do: max_speed
+      {series, counter_rate_points(sorted_points, series, series_max_speed)}
     end)
   end
 

@@ -133,4 +133,22 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
     refute html =~ "&quot;v&quot;:0.0"
     assert html =~ ~r/d="M [^"]+ M /
   end
+
+  test "counter speed clamp applies only to octet traffic series" do
+    points = [
+      {~U[2025-01-01 00:00:00Z], 0.0},
+      {~U[2025-01-01 00:05:00Z], 300_000.0}
+    ]
+
+    html =
+      render_component(Timeseries, %{
+        id: "ts-counter-errors",
+        title: "Errors",
+        panel_assigns: %{chart_mode: :single, rate_mode: :counter, max_speed_bytes_per_sec: 100},
+        series_points: [{"ifInErrors", points}]
+      })
+
+    assert html =~ "1.0 K/s"
+    refute html =~ "100.0 /s"
+  end
 end
