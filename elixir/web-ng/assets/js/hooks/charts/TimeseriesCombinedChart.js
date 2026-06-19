@@ -17,6 +17,22 @@ export default {
     if (!svg || !tooltip || !hoverLine || seriesData.length === 0) return
 
     const svgContainer = svg.parentElement
+    const viewBoxWidth = 800
+    const chartPad = 8
+    const plotMinX = chartPad
+    const plotMaxX = viewBoxWidth - chartPad
+    const plotWidth = plotMaxX - plotMinX
+
+    const pointerGeometry = (event) => {
+      const rect = svg.getBoundingClientRect()
+      const rawX = event.clientX - rect.left
+      const viewX = rect.width > 0 ? (rawX / rect.width) * viewBoxWidth : plotMinX
+      const clampedViewX = Math.max(plotMinX, Math.min(plotMaxX, viewX))
+      const pct = Math.max(0, Math.min(1, (clampedViewX - plotMinX) / plotWidth))
+      const cssX = (clampedViewX / viewBoxWidth) * rect.width
+
+      return {rect, pct, cssX}
+    }
 
     const formatBytes = (value) => {
       const abs = Math.abs(value)
@@ -60,9 +76,7 @@ export default {
     }
 
     const showTooltip = (e) => {
-      const rect = svg.getBoundingClientRect()
-      const x = e.clientX - rect.left
-      const pct = Math.max(0, Math.min(1, x / rect.width))
+      const {rect, pct, cssX} = pointerGeometry(e)
 
       const rows = seriesData
         .map((series) => {
@@ -97,11 +111,11 @@ export default {
 
       const tooltipX = Math.min(
         rect.width - tooltip.offsetWidth - 8,
-        Math.max(8, x - tooltip.offsetWidth / 2),
+        Math.max(8, cssX - tooltip.offsetWidth / 2),
       )
       tooltip.style.left = `${tooltipX}px`
       tooltip.style.top = "-24px"
-      hoverLine.style.left = `${x}px`
+      hoverLine.style.left = `${cssX}px`
     }
 
     const hideTooltip = () => {

@@ -53,6 +53,12 @@ export function attachTimeTooltip(el, opts) {
   const xScale = opts.x
   const valueAt = opts.valueAt
   const formatValue = opts.formatValue || ((v) => fmtNumber(v))
+  const margin = opts.margin || {}
+  const plotLeft = Number(opts.plotLeft ?? margin.left ?? 0)
+  const xRange = typeof xScale?.range === "function" ? xScale.range() : []
+  const plotWidth =
+    Number(opts.plotWidth) ||
+    (Array.isArray(xRange) && xRange.length >= 2 ? Math.abs(Number(xRange[1]) - Number(xRange[0])) : 0)
 
   if (!Array.isArray(data) || data.length === 0) return () => {}
   if (!Array.isArray(keys) || keys.length === 0) return () => {}
@@ -66,7 +72,8 @@ export function attachTimeTooltip(el, opts) {
     const rect = el.getBoundingClientRect()
     const x = evt.clientX - rect.left
     const y = evt.clientY - rect.top
-    const innerX = Math.max(0, Math.min(rect.width, x))
+    const innerWidth = plotWidth > 0 ? plotWidth : Math.max(1, rect.width - plotLeft)
+    const innerX = Math.max(0, Math.min(innerWidth, x - plotLeft))
     const t = xScale.invert(innerX)
     const idx = bisect(data, t)
     const row = data[idx]
@@ -91,7 +98,7 @@ export function attachTimeTooltip(el, opts) {
     const pad = 8
     const ttRect = tooltip.getBoundingClientRect()
     const maxLeft = rect.width - (ttRect.width || 180) - pad
-    const left = Math.max(pad, Math.min(maxLeft, innerX + 12))
+    const left = Math.max(pad, Math.min(maxLeft, plotLeft + innerX + 12))
     const top = Math.max(pad, Math.min(rect.height - 48, y - 12))
     tooltip.style.left = `${left}px`
     tooltip.style.top = `${top}px`

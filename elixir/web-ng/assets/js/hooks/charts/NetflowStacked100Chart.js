@@ -200,6 +200,8 @@ export default {
       data,
       keys: visibleKeys,
       x,
+      margin: m,
+      plotWidth: iw,
       valueAt: (row, k) => row?.[k] || 0,
       formatValue: (v) => nfFmtPct(v),
     })
