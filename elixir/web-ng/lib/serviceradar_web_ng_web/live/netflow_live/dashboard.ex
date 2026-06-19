@@ -6,7 +6,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   alias ServiceRadar.Observability.IpGeoEnrichmentCache
   alias ServiceRadar.Observability.IpRdnsCache
-  alias ServiceRadar.Observability.NetflowInterfaceCache
   alias ServiceRadar.Observability.NetflowLocalCidr
   alias ServiceRadar.ReferenceData.ServicePorts
 
@@ -190,19 +189,21 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     end
   end
 
-  def handle_event("select_interface", %{"sampler" => ""}, socket) do
-    {:noreply,
-     socket
-     |> assign(:selected_interface, nil)
-     |> assign(:iface_chart_keys_json, "[]")
-     |> assign(:iface_chart_points_json, "[]")}
-  end
+  def handle_event("select_interface", params, socket) do
+    selected = Map.get(params, "interface") || Map.get(params, "sampler") || ""
 
-  def handle_event("select_interface", %{"sampler" => sampler}, socket) do
-    {:noreply,
-     socket
-     |> assign(:selected_interface, sampler)
-     |> load_interface_timeseries(sampler)}
+    if selected == "" do
+      {:noreply,
+       socket
+       |> assign(:selected_interface, nil)
+       |> assign(:iface_chart_keys_json, "[]")
+       |> assign(:iface_chart_points_json, "[]")}
+    else
+      {:noreply,
+       socket
+       |> assign(:selected_interface, selected)
+       |> load_interface_timeseries(selected)}
+    end
   end
 
   @impl true
@@ -349,12 +350,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               <span class="text-sm font-semibold">Interface Traffic (Ingress vs Egress)</span>
             </div>
             <form phx-change="select_interface">
-              <select name="sampler" class="select select-xs select-bordered">
+              <select name="interface" class="select select-xs select-bordered">
                 <option value="">Select interface...</option>
                 <option
                   :for={iface <- @top_interfaces}
-                  value={iface.sampler}
-                  selected={iface.sampler == @selected_interface}
+                  value={iface.key}
+                  selected={iface.key == @selected_interface}
                 >
                   {iface.label} ({iface.sampler})
                 </option>
@@ -596,7 +597,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               :for={{iface, idx} <- Enum.with_index(@top_interfaces)}
               :if={iface.capacity_bps > 0}
               id={"iface-gauge-#{idx}"}
-              current_bps={iface.bytes / time_window_seconds(@time_window) * 8}
+              current_bps={Map.get(iface, :gauge_bytes, 0) / time_window_seconds(@time_window) * 8}
               capacity_bps={iface.capacity_bps * 1.0}
               label={iface.label}
               current_label={"Avg #{@time_window}"}
@@ -687,7 +688,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
       Task.Supervisor.async_nolink(task_sup, fn ->
         {:subnet_distribution, load_subnet_distribution(srql_mod, scope, base)}
       end),
-      Task.Supervisor.async_nolink(task_sup, fn -> {:p95, load_interface_p95(srql_mod, scope, tw)} end),
       Task.Supervisor.async_nolink(task_sup, fn ->
         {:tcp_flags, load_tcp_flag_distribution(srql_mod, scope, base)}
       end),
@@ -742,6 +742,11 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
       |> Enum.map(fn row -> %{label: row.bucket, value: row.count} end)
       |> Jason.encode!()
 
+    top_interfaces =
+      results
+      |> Map.get(:top_interfaces, [])
+      |> attach_interface_p95(srql_mod, scope, tw)
+
     socket
     |> assign(:loading, false)
     |> assign(:top_talkers, Map.get(results, :top_talkers, []))
@@ -756,10 +761,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     |> assign(:unique_talkers, Map.get(summary, :unique_talkers, 0))
     |> assign(:sparkline_json, sparkline_json)
     |> assign(:proto_breakdown_json, proto_breakdown)
-    |> assign(
-      :top_interfaces,
-      merge_p95(Map.get(results, :top_interfaces, []), Map.get(results, :p95, %{}))
-    )
+    |> assign(:top_interfaces, top_interfaces)
     |> assign(:subnet_distribution, Map.get(results, :subnet_distribution, []))
     |> assign(:tcp_flags_json, tcp_flags_json)
     |> assign(:flow_rate_points_json, flow_rate_points_json)
@@ -772,12 +774,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   defp ensure_selected_interface(%{assigns: %{top_interfaces: []}} = socket), do: assign(socket, :selected_interface, nil)
 
   defp ensure_selected_interface(%{assigns: %{selected_interface: selected, top_interfaces: top_interfaces}} = socket) do
-    samplers = MapSet.new(top_interfaces, & &1.sampler)
+    keys = MapSet.new(top_interfaces, & &1.key)
 
-    if is_binary(selected) and MapSet.member?(samplers, selected) do
+    if is_binary(selected) and MapSet.member?(keys, selected) do
       socket
     else
-      assign(socket, :selected_interface, top_interfaces |> List.first() |> Map.get(:sampler))
+      assign(socket, :selected_interface, top_interfaces |> List.first() |> Map.get(:key))
     end
   end
 
@@ -829,61 +831,76 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     end)
   end
 
-  defp load_interface_timeseries(socket, sampler) do
+  defp load_interface_timeseries(socket, interface_key) do
     tw = socket.assigns.time_window
     um = socket.assigns.unit_mode
     scope = Map.get(socket.assigns, :current_scope)
     srql_mod = srql_module()
     bucket = timeseries_bucket(tw)
     bucket_secs = bucket_seconds(bucket)
-    base = "in:flows time:last_#{tw} sampler_address:#{srql_quote(sampler)}"
 
-    value_field = if(um == "pps", do: "packets_total", else: "bytes_total")
+    case decode_interface_key(interface_key) do
+      {:ok, sampler, interface_name} ->
+        base = "in:flows time:last_#{tw} sampler_address:#{srql_quote(sampler)}"
+        value_field = if(um == "pps", do: "packets_total", else: "bytes_total")
 
+        {ingress, egress} =
+          load_interface_direction_points(srql_mod, scope, base, interface_name, bucket, value_field)
+
+        points =
+          ingress
+          |> interface_direction_points(egress, bucket_secs, um)
+          |> Jason.encode!()
+
+        keys = Jason.encode!(["ingress", "egress"])
+
+        socket
+        |> assign(:iface_chart_keys_json, keys)
+        |> assign(:iface_chart_points_json, points)
+
+      _ ->
+        socket
+        |> assign(:selected_interface, nil)
+        |> assign(:iface_chart_keys_json, "[]")
+        |> assign(:iface_chart_points_json, "[]")
+    end
+  end
+
+  defp load_interface_direction_points(srql_mod, scope, base, interface_name, bucket, value_field) do
     tasks = [
       Task.async(fn ->
-        {:ingress, load_iface_downsample(srql_mod, scope, "#{base} direction:ingress", bucket, value_field)}
+        ingress_base = "#{base} direction:ingress in_if_name:#{srql_quote(interface_name)}"
+        {:ingress, load_iface_downsample(srql_mod, scope, ingress_base, bucket, value_field)}
       end),
       Task.async(fn ->
-        {:egress, load_iface_downsample(srql_mod, scope, "#{base} direction:egress", bucket, value_field)}
+        egress_base = "#{base} direction:egress out_if_name:#{srql_quote(interface_name)}"
+        {:egress, load_iface_downsample(srql_mod, scope, egress_base, bucket, value_field)}
       end)
     ]
 
     results = safe_await_many(tasks, to_timeout(second: 10))
-    ingress = Map.get(results, :ingress, [])
-    egress = Map.get(results, :egress, [])
+    {Map.get(results, :ingress, []), Map.get(results, :egress, [])}
+  end
 
-    # Convert per-bucket sums to per-second rates.
-    # For "bps" mode, also multiply by 8 to convert bytes → bits
-    # (nfFormatRateValue expects bits for "bps", bytes for "Bps", packets for "pps").
-    rate_factor = if(um == "bps", do: 8, else: 1) / max(bucket_secs, 1)
-
+  defp interface_direction_points(ingress, egress, bucket_secs, unit_mode) do
+    rate_factor = if(unit_mode == "bps", do: 8, else: 1) / max(bucket_secs, 1)
     to_rate = fn v -> Float.round(v * rate_factor, 2) end
 
-    # Merge into stacked-area chart format using the union of ingress/egress timestamps.
     ingress_map = Map.new(ingress, fn %{t: t, v: v} -> {t, to_rate.(v)} end)
     egress_map = Map.new(egress, fn %{t: t, v: v} -> {t, to_rate.(v)} end)
 
-    points =
-      ingress_map
-      |> Map.keys()
-      |> Enum.concat(Map.keys(egress_map))
-      |> Enum.uniq()
-      |> Enum.sort()
-      |> Enum.map(fn t ->
-        %{
-          "t" => t,
-          "ingress" => Map.get(ingress_map, t, 0),
-          "egress" => Map.get(egress_map, t, 0)
-        }
-      end)
-      |> Jason.encode!()
-
-    keys = Jason.encode!(["ingress", "egress"])
-
-    socket
-    |> assign(:iface_chart_keys_json, keys)
-    |> assign(:iface_chart_points_json, points)
+    ingress_map
+    |> Map.keys()
+    |> Enum.concat(Map.keys(egress_map))
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.map(fn t ->
+      %{
+        "t" => t,
+        "ingress" => Map.get(ingress_map, t, 0),
+        "egress" => Map.get(egress_map, t, 0)
+      }
+    end)
   end
 
   defp load_iface_downsample(srql_mod, scope, base, bucket, value_field) do
@@ -946,99 +963,139 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   end
 
   defp load_top_interfaces(srql_mod, scope, base) do
+    ingress = load_top_interface_direction(srql_mod, scope, base, :ingress)
+    egress = load_top_interface_direction(srql_mod, scope, base, :egress)
+
+    (ingress ++ egress)
+    |> Enum.reduce(%{}, &merge_interface_direction_row/2)
+    |> Map.values()
+    |> Enum.map(&finalize_interface_row/1)
+    |> Enum.sort_by(&(-Map.get(&1, :bytes, 0)))
+    |> Enum.take(5)
+  end
+
+  defp load_top_interface_direction(srql_mod, scope, base, direction) when direction in [:ingress, :egress] do
+    {name_field, speed_field} =
+      case direction do
+        :ingress -> {"in_if_name", "in_if_speed_bps"}
+        :egress -> {"out_if_name", "out_if_speed_bps"}
+      end
+
     query =
-      "#{base} stats:sum(bytes_total) as bytes_total by sampler_address sort:bytes_total:desc limit:5"
-
-    interface_rows =
-      srql_mod
-      |> srql_results(query, scope)
-      |> Enum.map(fn row ->
-        p = row_payload(row)
-
-        %{
-          sampler: get_field(p, "sampler_address"),
-          bytes: to_number(get_field(p, "bytes_total")),
-          packets: 0
-        }
-      end)
-
-    # Enrich with interface cache for speed/name
-    cache_map = load_interface_cache_map(scope)
-
-    Enum.map(interface_rows, fn row ->
-      cache_entry = Map.get(cache_map, row.sampler, %{})
-
-      %{
-        sampler: row.sampler,
-        label: Map.get(cache_entry, :name, row.sampler),
-        bytes: row.bytes,
-        packets: row.packets,
-        capacity_bps: Map.get(cache_entry, :speed_bps, 0)
-      }
-    end)
-  end
-
-  defp load_interface_cache_map(scope) do
-    case NetflowInterfaceCache
-         |> Ash.Query.for_read(:read)
-         |> Ash.read(scope: scope) do
-      {:ok, entries} ->
-        entries = ash_results(entries)
-
-        entries
-        |> Enum.group_by(& &1.sampler_address)
-        |> Map.new(&best_interface_for_sampler/1)
-
-      _ ->
-        %{}
-    end
-  end
-
-  defp best_interface_for_sampler({sampler, ifaces}) do
-    best = Enum.max_by(ifaces, &(&1.if_speed_bps || 0), fn -> hd(ifaces) end)
-
-    {sampler,
-     %{
-       name: best.if_name || best.if_description || sampler,
-       speed_bps: best.if_speed_bps || 0
-     }}
-  end
-
-  defp load_interface_p95(srql_mod, scope, tw) do
-    bucket = timeseries_bucket(tw)
-    bucket_secs = bucket_seconds(bucket)
-    query = "in:flows time:last_#{tw} bucket:#{bucket} agg:sum value_field:bytes_total series:sampler_address"
+      "#{base} direction:#{direction} stats:sum(bytes_total) as bytes_total by sampler_address,#{name_field},#{speed_field} sort:bytes_total:desc limit:#{@top_n}"
 
     srql_mod
     |> srql_results(query, scope)
-    |> Enum.group_by(fn row ->
-      row
-      |> row_payload()
-      |> get_field("sampler_address")
+    |> Enum.map(fn row ->
+      p = row_payload(row)
+      sampler = get_field(p, "sampler_address")
+      interface_name = p |> get_field(name_field) |> normalize_interface_name()
+
+      %{
+        sampler: sampler,
+        interface_name: interface_name,
+        direction: direction,
+        bytes: to_number(get_field(p, "bytes_total")),
+        capacity_bps: p |> get_field(speed_field) |> to_number() |> trunc()
+      }
     end)
-    |> Map.new(&compute_sampler_p95(&1, bucket_secs))
+    |> Enum.filter(fn row ->
+      is_binary(row.sampler) and String.trim(row.sampler) != "" and
+        is_binary(row.interface_name) and row.interface_name != ""
+    end)
   end
 
-  defp compute_sampler_p95({sampler, rows}, bucket_secs) do
-    values =
-      rows
-      |> Enum.map(fn row ->
-        row
-        |> row_payload()
-        |> get_field("bytes_total")
-        |> to_number()
-      end)
-      |> Enum.reject(&is_nil/1)
+  defp merge_interface_direction_row(row, acc) do
+    key = {row.sampler, row.interface_name}
 
-    p95_bps = percentile_95(values) * 8 / max(bucket_secs, 1)
-    {sampler, p95_bps}
+    Map.update(acc, key, row_to_interface_acc(row), fn existing ->
+      direction_key = if(row.direction == :ingress, do: :ingress_bytes, else: :egress_bytes)
+
+      existing
+      |> Map.update!(:bytes, &(&1 + row.bytes))
+      |> Map.update!(direction_key, &(&1 + row.bytes))
+      |> Map.update!(:capacity_bps, &max(&1, row.capacity_bps))
+    end)
   end
 
-  defp merge_p95(interfaces, p95_map) do
+  defp row_to_interface_acc(row) do
+    %{
+      sampler: row.sampler,
+      interface_name: row.interface_name,
+      label: interface_label(row.interface_name),
+      bytes: row.bytes,
+      ingress_bytes: if(row.direction == :ingress, do: row.bytes, else: 0),
+      egress_bytes: if(row.direction == :egress, do: row.bytes, else: 0),
+      capacity_bps: row.capacity_bps,
+      p95_bps: 0
+    }
+  end
+
+  defp finalize_interface_row(row) do
+    row
+    |> Map.put(:key, interface_key(row.sampler, row.interface_name))
+    |> Map.put(:gauge_bytes, max(row.ingress_bytes, row.egress_bytes))
+  end
+
+  defp attach_interface_p95([], _srql_mod, _scope, _tw), do: []
+
+  defp attach_interface_p95(interfaces, srql_mod, scope, tw) do
     Enum.map(interfaces, fn iface ->
-      Map.put(iface, :p95_bps, Map.get(p95_map, iface.sampler, 0))
+      Map.put(iface, :p95_bps, load_interface_p95(srql_mod, scope, tw, iface))
     end)
   end
+
+  defp load_interface_p95(srql_mod, scope, tw, %{sampler: sampler, interface_name: interface_name}) do
+    bucket = timeseries_bucket(tw)
+    bucket_secs = bucket_seconds(bucket)
+    base = "in:flows time:last_#{tw} sampler_address:#{srql_quote(sampler)}"
+
+    {ingress, egress} =
+      load_interface_direction_points(srql_mod, scope, base, interface_name, bucket, "bytes_total")
+
+    ingress_map = Map.new(ingress, fn %{t: t, v: v} -> {t, v} end)
+    egress_map = Map.new(egress, fn %{t: t, v: v} -> {t, v} end)
+
+    ingress_map
+    |> Map.keys()
+    |> Enum.concat(Map.keys(egress_map))
+    |> Enum.uniq()
+    |> Enum.map(fn t -> max(Map.get(ingress_map, t, 0), Map.get(egress_map, t, 0)) end)
+    |> percentile_95()
+    |> Kernel.*(8)
+    |> Kernel./(max(bucket_secs, 1))
+  end
+
+  defp load_interface_p95(_srql_mod, _scope, _tw, _iface), do: 0
+
+  defp normalize_interface_name(name) when is_binary(name) do
+    name = String.trim(name)
+    if name in ["", "Unknown", "unknown"], do: nil, else: name
+  end
+
+  defp normalize_interface_name(_), do: nil
+
+  defp interface_label(interface_name) when is_binary(interface_name), do: interface_name
+  defp interface_label(_), do: "Unknown interface"
+
+  defp interface_key(sampler, interface_name) do
+    %{sampler: sampler, interface: interface_name}
+    |> Jason.encode!()
+    |> Base.url_encode64(padding: false)
+  end
+
+  defp decode_interface_key(key) when is_binary(key) do
+    with {:ok, json} <- Base.url_decode64(key, padding: false),
+         {:ok, %{"sampler" => sampler, "interface" => interface_name}} <- Jason.decode(json),
+         true <- is_binary(sampler) and String.trim(sampler) != "",
+         true <- is_binary(interface_name) and String.trim(interface_name) != "" do
+      {:ok, sampler, interface_name}
+    else
+      _ -> :error
+    end
+  end
+
+  defp decode_interface_key(_), do: :error
 
   defp percentile_95([]), do: 0
 
