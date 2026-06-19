@@ -599,6 +599,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               current_bps={iface.bytes / time_window_seconds(@time_window) * 8}
               capacity_bps={iface.capacity_bps * 1.0}
               label={iface.label}
+              current_label={"Avg #{@time_window}"}
             />
           </div>
 
@@ -614,7 +615,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
                 label: unit_suffix(@unit_mode),
                 format: &format_bytes_cell(&1, @unit_mode, @time_window)
               },
-              %{key: :p95_bps, label: "95th % (30d)", format: &format_p95_cell/1},
+              %{key: :p95_bps, label: "P95 Rate (#{@time_window})", format: &format_p95_cell/1},
               %{key: :capacity_bps, label: "Capacity", format: &format_capacity_cell/1}
             ]}
             loading={@loading}
@@ -686,7 +687,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
       Task.Supervisor.async_nolink(task_sup, fn ->
         {:subnet_distribution, load_subnet_distribution(srql_mod, scope, base)}
       end),
-      Task.Supervisor.async_nolink(task_sup, fn -> {:p95, load_interface_p95(srql_mod, scope)} end),
+      Task.Supervisor.async_nolink(task_sup, fn -> {:p95, load_interface_p95(srql_mod, scope, tw)} end),
       Task.Supervisor.async_nolink(task_sup, fn ->
         {:tcp_flags, load_tcp_flag_distribution(srql_mod, scope, base)}
       end),
@@ -1003,9 +1004,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
      }}
   end
 
-  defp load_interface_p95(srql_mod, scope) do
-    base_30d = "in:flows time:last_30d"
-    query = "#{base_30d} bucket:1h agg:sum value_field:bytes_total series:sampler_address"
+  defp load_interface_p95(srql_mod, scope, tw) do
+    bucket = timeseries_bucket(tw)
+    bucket_secs = bucket_seconds(bucket)
+    query = "in:flows time:last_#{tw} bucket:#{bucket} agg:sum value_field:bytes_total series:sampler_address"
 
     srql_mod
     |> srql_results(query, scope)
@@ -1014,10 +1016,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
       |> row_payload()
       |> get_field("sampler_address")
     end)
-    |> Map.new(&compute_sampler_p95/1)
+    |> Map.new(&compute_sampler_p95(&1, bucket_secs))
   end
 
-  defp compute_sampler_p95({sampler, rows}) do
+  defp compute_sampler_p95({sampler, rows}, bucket_secs) do
     values =
       rows
       |> Enum.map(fn row ->
@@ -1028,8 +1030,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
       end)
       |> Enum.reject(&is_nil/1)
 
-    # Convert bytes/hour to bits/sec: bytes_per_hour * 8 / 3600
-    p95_bps = percentile_95(values) * 8 / 3600
+    p95_bps = percentile_95(values) * 8 / max(bucket_secs, 1)
     {sampler, p95_bps}
   end
 
