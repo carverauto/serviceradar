@@ -565,17 +565,17 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
     end
   end
 
-  defp fetch_rows_page(_runner, _query, _runner_opts, _cursor, _pages, page_count, max_pages)
+  defp fetch_rows_page(_runner, _query, _runner_opts, _cursor, _rows_acc, page_count, max_pages)
        when page_count >= max_pages,
        do: {:error, {:seasonal_disposition_history_pages_exhausted, max_pages}}
 
-  defp fetch_rows_page(runner, query, runner_opts, cursor, pages, page_count, max_pages) do
+  defp fetch_rows_page(runner, query, runner_opts, cursor, rows_acc, page_count, max_pages) do
     page_opts =
       if is_binary(cursor), do: Keyword.put(runner_opts, :cursor, cursor), else: runner_opts
 
     case runner.query_page(query, page_opts) do
       {:ok, %{rows: rows, next_cursor: next_cursor}} when is_list(rows) ->
-        pages = [rows | pages]
+        rows_acc = Enum.reverse(rows, rows_acc)
 
         if is_binary(next_cursor) and next_cursor != "" do
           fetch_rows_page(
@@ -583,16 +583,17 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
             query,
             runner_opts,
             next_cursor,
-            pages,
+            rows_acc,
             page_count + 1,
             max_pages
           )
         else
-          {:ok, pages |> Enum.reverse() |> List.flatten()}
+          {:ok, Enum.reverse(rows_acc)}
         end
 
       {:ok, %{rows: rows}} when is_list(rows) ->
-        {:ok, [rows | pages] |> Enum.reverse() |> List.flatten()}
+        rows_acc = Enum.reverse(rows, rows_acc)
+        {:ok, Enum.reverse(rows_acc)}
 
       {:ok, other} ->
         {:error, {:unexpected_seasonal_disposition_page, other}}

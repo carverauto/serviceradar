@@ -95,7 +95,7 @@
 
 ## 17. Performance At Scale (F20, extends F8)
 - [ ] 17.1 Batch causal-prediction inserts (`insert_all` + `ON CONFLICT DO NOTHING`); drop the per-row existence SELECT.
-- [ ] 17.2 Stream worker history instead of `List.flatten`-ing the full result set into memory.
+- [x] 17.2 Stream worker history instead of `List.flatten`-ing the full result set into memory.
 - [x] 17.3 Reduce per-reading allocations in the counter normalization path.
 - [x] 17.4 Document or revisit F8's O(window) per-sample envelope under the F9 eviction changes.
 
