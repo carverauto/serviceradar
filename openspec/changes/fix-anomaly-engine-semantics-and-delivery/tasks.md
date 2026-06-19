@@ -97,7 +97,7 @@
 - [ ] 17.1 Batch causal-prediction inserts (`insert_all` + `ON CONFLICT DO NOTHING`); drop the per-row existence SELECT.
 - [ ] 17.2 Stream worker history instead of `List.flatten`-ing the full result set into memory.
 - [x] 17.3 Reduce per-reading allocations in the counter normalization path.
-- [ ] 17.4 Document or revisit F8's O(window) per-sample envelope under the F9 eviction changes.
+- [x] 17.4 Document or revisit F8's O(window) per-sample envelope under the F9 eviction changes.
 
 ## 18. Live-Confirmed Edge Delivery Fixes (F21-F24, demo 2026-06-19)
 - [x] 18.1 F21: stop the seeder/assignment from writing empty-string `""` for unset numeric add-on params (omit, or send number/null).

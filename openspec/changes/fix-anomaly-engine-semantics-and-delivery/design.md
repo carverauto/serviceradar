@@ -82,6 +82,18 @@ acceptable for current per-host caps, so it is not the first fix. It should be
 documented as the current performance envelope or replaced with a provenance-safe
 stateful accumulator if the cap/window targets grow.
 
+Post-F9/F20 decision: keep the current stateless recompute for this change. The
+important reliability fix is that F9 now bounds the number of retained per-series
+windows and counter states through `max_series` plus staleness eviction; it does
+not change the per-live-sample CPU class. The accepted envelope is therefore
+`O(live_series * window_size)` memory for retained rolling tails and `O(window_size)`
+CPU per evaluated sample in the stateless core path. That tradeoff is deliberate:
+`compact_rolling_state` rebuilds from the window so the transported accumulator
+cannot corrupt a baseline when provenance is not guaranteed. Revisit this only if
+benchmarks at the intended `max_series`, `window_size`, and feed cadence show the
+window scan is material, or if the core grows a provenance-safe stateful runtime
+API that can update/remove Welford samples without trusting cross-boundary state.
+
 ## Decisions
 - Treat F1-F7 as implementation blockers for reliable anomaly rollout.
 - Treat F8 as a measured performance follow-up unless new benchmarks show it is
