@@ -6262,7 +6262,7 @@ dependencies = [
 
 [[package]]
 name = "serviceradar-anomaly-addon"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "addon-sdk",
  "anyhow",
