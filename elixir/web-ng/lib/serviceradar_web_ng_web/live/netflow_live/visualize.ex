@@ -62,6 +62,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       |> assign(:netflow_chart_points_json, "[]")
       |> assign(:netflow_chart_colors_json, "{}")
       |> assign(:netflow_chart_overlays_json, "[]")
+      |> assign(:netflow_chart_error, nil)
       |> assign(:netflow_sankey_edges_json, "[]")
       |> assign(:nf_dims_ordered, @nf_dims_ordered)
       |> assign(:sankey_src_dims, @sankey_src_dims)
@@ -815,6 +816,15 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                   <div class="text-[11px] text-base-content/50 font-mono">
                     {Map.get(@netflow_viz_state, "graph")}
                   </div>
+                </div>
+
+                <div
+                  :if={is_binary(@netflow_chart_error) and String.trim(@netflow_chart_error) != ""}
+                  role="alert"
+                  class="alert alert-error alert-soft text-sm"
+                >
+                  <.icon name="hero-exclamation-triangle" class="size-4 shrink-0" />
+                  <span>{@netflow_chart_error}</span>
                 </div>
 
                 <div class="h-72 w-full">
@@ -1658,21 +1668,27 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       |> Enum.reject(&(&1 == ""))
       |> Enum.uniq()
 
-    query =
-      IpRdnsCache
-      |> Ash.Query.for_read(:read, %{})
-      |> Ash.Query.filter(ip in ^ips)
+    if ips == [] do
+      %{}
+    else
+      now = DateTime.utc_now()
 
-    case Ash.read(query, scope: scope) do
-      {:ok, rows} when is_list(rows) ->
-        rows
-        |> Enum.filter(fn row ->
-          row.status == "ok" and is_binary(row.hostname) and String.trim(row.hostname) != ""
-        end)
-        |> Map.new(fn row -> {row.ip, row.hostname} end)
+      query =
+        IpRdnsCache
+        |> Ash.Query.for_read(:read, %{})
+        |> Ash.Query.filter(ip in ^ips and (is_nil(expires_at) or expires_at > ^now))
 
-      _ ->
-        %{}
+      case Ash.read(query, scope: scope) do
+        {:ok, rows} when is_list(rows) ->
+          rows
+          |> Enum.filter(fn row ->
+            row.status == "ok" and is_binary(row.hostname) and String.trim(row.hostname) != ""
+          end)
+          |> Map.new(fn row -> {row.ip, row.hostname} end)
+
+        _ ->
+          %{}
+      end
     end
   end
 
@@ -1690,12 +1706,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       |> Enum.reject(&(&1 == ""))
       |> Enum.uniq()
 
-    query =
-      IpGeoEnrichmentCache
-      |> Ash.Query.for_read(:read, %{})
-      |> Ash.Query.filter(ip in ^ips)
+    now = DateTime.utc_now()
 
     with [_ | _] <- ips,
+         query =
+           IpGeoEnrichmentCache
+           |> Ash.Query.for_read(:read, %{})
+           |> Ash.Query.filter(ip in ^ips and (is_nil(expires_at) or expires_at > ^now)),
          {:ok, rows} when is_list(rows) <- Ash.read(query, scope: scope) do
       rows
       |> Enum.filter(fn row ->
@@ -3136,7 +3153,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   defp read_rdns(_user, nil), do: nil
 
   defp read_rdns(user, ip) when is_binary(ip) do
-    query = Ash.Query.for_read(IpRdnsCache, :by_ip, %{ip: ip})
+    now = DateTime.utc_now()
+
+    query =
+      IpRdnsCache
+      |> Ash.Query.for_read(:by_ip, %{ip: ip})
+      |> Ash.Query.filter(is_nil(expires_at) or expires_at > ^now)
 
     case Ash.read_one(query, actor: user) do
       {:ok, record} -> record
@@ -3157,7 +3179,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   defp read_geo(_user, nil), do: nil
 
   defp read_geo(user, ip) when is_binary(ip) do
-    query = Ash.Query.for_read(IpGeoEnrichmentCache, :by_ip, %{ip: ip})
+    now = DateTime.utc_now()
+
+    query =
+      IpGeoEnrichmentCache
+      |> Ash.Query.for_read(:by_ip, %{ip: ip})
+      |> Ash.Query.filter(is_nil(expires_at) or expires_at > ^now)
 
     case Ash.read_one(query, actor: user) do
       {:ok, record} -> record
@@ -3383,7 +3410,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       "sankey" ->
         max_edges = sankey_max_edges_from_state(state)
 
-        edges = load_sankey_edges(srql_module, chart_query, base, state, scope, max_edges)
+        {edges, chart_error} = load_sankey_edges(srql_module, chart_query, base, state, scope, max_edges)
 
         dims = state |> dims_from_state() |> sanitize_sankey_dims()
         edges = reduce_sankey_clutter(edges, dims, max_edges)
@@ -3392,28 +3419,36 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
         socket
         |> assign(:netflow_sankey_edges_json, edges_json)
+        |> assign(:netflow_chart_error, chart_error)
         |> assign(:netflow_chart_overlays_json, "[]")
 
       _ ->
         # Charts are SRQL-driven: the SRQL query in the top bar is the chart query.
-        {keys, points} =
+        {keys, points, chart_error} =
           case srql_module.query(chart_query, %{scope: scope}) do
             {:ok, %{"results" => results}} when is_list(results) ->
-              downsample_from_results(results)
+              {keys, points} = downsample_from_results(results)
 
-            _ ->
-              # Fallback to derived SRQL (still SRQL-only), in case the user typed a non-downsample query.
-              series_field = NFQuery.downsample_series_field_from_dims(dims)
-              bucket = @default_bucket
-              {value_field, _scale_fun} = units_to_value_field_and_scale(units, bucket)
+              if points == [] and results != [] do
+                {fallback_keys, fallback_points} =
+                  fallback_downsample_series(srql_module, base, scope, dims, units, series_limit)
 
-              NFQuery.load_downsample_series(srql_module, base, scope,
-                bucket: bucket,
-                series_field: series_field,
-                value_field: value_field,
-                agg: "sum",
-                limit: max(@chart_limit, series_limit * 200)
-              )
+                {fallback_keys, fallback_points, nil}
+              else
+                {keys, points, nil}
+              end
+
+            {:error, reason} ->
+              {keys, points} =
+                fallback_downsample_series(srql_module, base, scope, dims, units, series_limit)
+
+              {keys, points, empty_chart_error(points, "Chart query", reason)}
+
+            other ->
+              {keys, points} =
+                fallback_downsample_series(srql_module, base, scope, dims, units, series_limit)
+
+              {keys, points, empty_chart_error(points, "Chart query", other)}
           end
 
         # Apply Top-N bucketing and unit scaling (if chart_query is already scaled, this is a no-op).
@@ -3438,15 +3473,17 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
         |> assign(:netflow_chart_keys_json, Jason.encode!(keys))
         |> assign(:netflow_chart_points_json, Jason.encode!(points))
         |> assign(:netflow_chart_colors_json, Jason.encode!(%{}))
+        |> assign(:netflow_chart_error, chart_error)
         |> assign(:netflow_chart_overlays_json, Jason.encode!(overlays))
     end
   rescue
-    _ ->
+    error ->
       socket
       |> assign(:netflow_chart_keys_json, "[]")
       |> assign(:netflow_chart_points_json, "[]")
       |> assign(:netflow_chart_colors_json, "{}")
       |> assign(:netflow_chart_overlays_json, "[]")
+      |> assign(:netflow_chart_error, query_error_message("Chart query", error))
       |> assign(:netflow_sankey_edges_json, "[]")
   end
 
@@ -3458,6 +3495,20 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     |> NFQuery.flows_base_query(fallback_time)
     |> NFQuery.flows_sanitize_for_stats()
     |> String.trim()
+  end
+
+  defp fallback_downsample_series(srql_module, base, scope, dims, units, series_limit) do
+    series_field = NFQuery.downsample_series_field_from_dims(dims)
+    bucket = @default_bucket
+    {value_field, _scale_fun} = units_to_value_field_and_scale(units, bucket)
+
+    NFQuery.load_downsample_series(srql_module, base, scope,
+      bucket: bucket,
+      series_field: series_field,
+      value_field: value_field,
+      agg: "sum",
+      limit: max(@chart_limit, series_limit * 200)
+    )
   end
 
   defp load_sankey_edges(srql_module, chart_query, base, state, scope, max_edges)
@@ -3482,12 +3533,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
               max_edges: max_edges
             )
 
-          Map.get(sankey, :edges, [])
+          {Map.get(sankey, :edges, []), nil}
         else
-          edges
+          {edges, nil}
         end
 
-      _ ->
+      {:error, reason} ->
         sankey =
           NFQuery.load_sankey(srql_module, base, scope,
             prefix: prefix,
@@ -3495,10 +3546,35 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
             max_edges: max_edges
           )
 
-        Map.get(sankey, :edges, [])
+        edges = Map.get(sankey, :edges, [])
+        {edges, empty_chart_error(edges, "Sankey query", reason)}
+
+      other ->
+        sankey =
+          NFQuery.load_sankey(srql_module, base, scope,
+            prefix: prefix,
+            dims: dims,
+            max_edges: max_edges
+          )
+
+        edges = Map.get(sankey, :edges, [])
+        {edges, empty_chart_error(edges, "Sankey query", other)}
     end
   rescue
-    _ -> []
+    error -> {[], query_error_message("Sankey query", error)}
+  end
+
+  defp empty_chart_error([], prefix, reason), do: query_error_message(prefix, reason)
+  defp empty_chart_error(_rows, _prefix, _reason), do: nil
+
+  defp query_error_message(prefix, reason) when is_binary(prefix) do
+    detail =
+      reason
+      |> inspect(limit: 3, printable_limit: 240)
+      |> String.replace(~r/\s+/, " ")
+      |> String.slice(0, 240)
+
+    "#{prefix} failed: #{detail}"
   end
 
   defp reduce_sankey_clutter(edges, dims, max_edges) when is_list(edges) and is_list(dims) and is_integer(max_edges) do

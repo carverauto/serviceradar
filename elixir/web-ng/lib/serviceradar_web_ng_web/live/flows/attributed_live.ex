@@ -312,10 +312,12 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   defp rdns_map_for_ips(_ips, nil), do: %{}
 
   defp rdns_map_for_ips(ips, scope) when is_list(ips) do
+    now = DateTime.utc_now()
+
     query =
       IpRdnsCache
       |> Ash.Query.for_read(:read, %{})
-      |> Ash.Query.filter(ip in ^ips)
+      |> Ash.Query.filter(ip in ^ips and (is_nil(expires_at) or expires_at > ^now))
 
     case Ash.read(query, scope: scope) do
       {:ok, rows} when is_list(rows) ->

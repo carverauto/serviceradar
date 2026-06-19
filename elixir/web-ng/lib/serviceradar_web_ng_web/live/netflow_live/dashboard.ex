@@ -1403,10 +1403,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   end
 
   defp bulk_rdns(ips, scope) do
+    now = DateTime.utc_now()
+
     query =
       IpRdnsCache
       |> Ash.Query.for_read(:read, %{})
-      |> Ash.Query.filter(ip in ^ips)
+      |> Ash.Query.filter(ip in ^ips and (is_nil(expires_at) or expires_at > ^now))
 
     case Ash.read(query, scope: scope) do
       {:ok, rows} ->
@@ -1424,10 +1426,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   end
 
   defp bulk_geo_iso2(ips, scope) do
+    now = DateTime.utc_now()
+
     query =
       IpGeoEnrichmentCache
       |> Ash.Query.for_read(:read, %{})
-      |> Ash.Query.filter(ip in ^ips)
+      |> Ash.Query.filter(ip in ^ips and (is_nil(expires_at) or expires_at > ^now))
 
     case Ash.read(query, scope: scope) do
       {:ok, rows} ->
