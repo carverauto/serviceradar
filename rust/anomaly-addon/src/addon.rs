@@ -747,13 +747,58 @@ fn series_key_for(resource: &MetricResource, metric: &Metric, point: &MetricPoin
     if !point.series_identity_hint.is_empty() {
         point.series_identity_hint.clone()
     } else {
-        // Fallback when the producer did not stamp a hint: agent + metric +
-        // interface keeps distinct series apart on one host.
+        // Fallback when the producer did not stamp a hint: resource identity +
+        // metric + interface keeps distinct series apart on one host. Remote
+        // SNMP polls use the polled target, not the polling agent host.
+        let resource_identity = series_resource_identity(resource, metric);
+
         format!(
             "{}|{}|{}",
-            resource.agent_id, metric.name, point.interface_uid
+            resource_identity, metric.name, point.interface_uid
         )
     }
+}
+
+fn series_resource_identity(resource: &MetricResource, metric: &Metric) -> String {
+    let metric_class = metric_class(metric);
+    first_non_empty(&[
+        resource.device_id.as_str(),
+        snmp_target_identity(resource, metric_class),
+        resource.host_id.as_str(),
+        resource.agent_id.as_str(),
+        resource.host_ip.as_str(),
+    ])
+    .to_string()
+}
+
+fn anomaly_device_uid<'a>(resource: &'a MetricResource, metric_class: &str) -> &'a str {
+    first_non_empty(&[
+        resource.device_id.as_str(),
+        snmp_target_identity(resource, metric_class),
+        resource.host_id.as_str(),
+        resource.agent_id.as_str(),
+        resource.host_ip.as_str(),
+    ])
+}
+
+fn metric_class(metric: &Metric) -> &str {
+    if metric.metric_type.is_empty() {
+        "metric"
+    } else {
+        metric.metric_type.as_str()
+    }
+}
+
+fn snmp_target_identity<'a>(resource: &'a MetricResource, metric_class: &str) -> &'a str {
+    if is_snmp_metric_class(metric_class) && !resource.target_device_ip.is_empty() {
+        resource.target_device_ip.as_str()
+    } else {
+        ""
+    }
+}
+
+fn is_snmp_metric_class(metric_class: &str) -> bool {
+    metric_class == "snmp" || metric_class.starts_with("snmp.")
 }
 
 /// Merge the attested distinguishing tags into a JSON object for `source_identity`:
@@ -802,17 +847,8 @@ fn verdict_record(
     let status = anomaly_lifecycle_status(transition);
     let message = anomaly_lifecycle_message(transition, &verdict.reason);
 
-    let metric_class = if metric.metric_type.is_empty() {
-        "metric"
-    } else {
-        metric.metric_type.as_str()
-    };
-    let device_uid = first_non_empty(&[
-        resource.device_id.as_str(),
-        resource.host_id.as_str(),
-        resource.agent_id.as_str(),
-        resource.host_ip.as_str(),
-    ]);
+    let metric_class = metric_class(metric);
+    let device_uid = anomaly_device_uid(resource, metric_class);
 
     let event_id = format!("anomaly:{series_key}:{ts_nano}:{lifecycle_state}");
     let finding_uid =
@@ -837,6 +873,7 @@ fn verdict_record(
         "severity_id": severity_id,
         "device_uid": device_uid,
         "device_id": device_uid,
+        "target_device_ip": &resource.target_device_ip,
         "message": message,
         "finding_info": {
             "uid": finding_uid,
@@ -865,6 +902,7 @@ fn verdict_record(
             "series_key": series_key,
             "metric_class": metric_class,
             "state": lifecycle_state,
+            "target_device_ip": &resource.target_device_ip,
             "detector_state": &verdict.state,
             "reason": &verdict.reason,
             "score": verdict.score,
@@ -1361,6 +1399,64 @@ mod tests {
             ..Default::default()
         };
         assert!(attested_tags(&metric, &MetricPoint::default()).is_empty());
+    }
+
+    #[test]
+    fn snmp_remote_target_drives_edge_verdict_identity() {
+        let resource = MetricResource {
+            agent_id: "agent-ns03".to_string(),
+            host_id: "ns03".to_string(),
+            host_ip: "10.0.0.10".to_string(),
+            target_device_ip: "10.0.0.20".to_string(),
+            partition: "demo".to_string(),
+            ..Default::default()
+        };
+        let metric = Metric {
+            name: "ifHCInOctets".to_string(),
+            metric_type: "snmp".to_string(),
+            ..Default::default()
+        };
+        let point = MetricPoint {
+            value: 1234.0,
+            observed_at_unix_nano: 1_812_456_000_000_000_000,
+            if_index: 7,
+            interface_uid: "ifindex:7".to_string(),
+            ..Default::default()
+        };
+        let series_key = series_key_for(&resource, &metric, &point);
+        let verdict = ReasonVerdict {
+            state: "anomalous".to_string(),
+            anomalous: true,
+            breached: true,
+            include_in_baseline: false,
+            next_consecutive_anomalous: 1,
+            score: 4.2,
+            reason: "test breach".to_string(),
+            baseline_count: 30,
+            next_rolling_acc: serviceradar_anomaly_core::WelfordAcc::default(),
+            next_window_tail: Vec::new(),
+            sample_value: 1234.0,
+            observed_at_unix_nano: Some(1_812_456_000_000_000_000),
+            signals: Vec::new(),
+        };
+
+        let record = verdict_record(
+            &resource,
+            &metric,
+            &point,
+            &series_key,
+            &verdict,
+            AnomalyTransition::Open,
+        );
+        let event: serde_json::Value = serde_json::from_slice(&record.payload).unwrap();
+
+        assert_eq!(series_key, "10.0.0.20|ifHCInOctets|ifindex:7");
+        assert_eq!(event["device_uid"], "10.0.0.20");
+        assert_eq!(event["device_id"], "10.0.0.20");
+        assert_eq!(event["target_device_ip"], "10.0.0.20");
+        assert_eq!(event["anomaly"]["target_device_ip"], "10.0.0.20");
+        assert_eq!(event["source_identity"]["target_device_ip"], "10.0.0.20");
+        assert_eq!(event["source_identity"]["agent_id"], "agent-ns03");
     }
 
     #[test]

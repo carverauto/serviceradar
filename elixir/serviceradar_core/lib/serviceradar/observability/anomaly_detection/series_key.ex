@@ -44,7 +44,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKey do
           host_ip: string(source_identity, "host_ip")
         }
 
-        identity = resource_identity(base)
+        identity = resource_identity(metric_class, base)
         tags = tags(source_identity)
         if_index = int(source_identity, "if_index")
 
@@ -54,11 +54,27 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKey do
 
   def from_source_identity(_source_identity), do: nil
 
-  defp resource_identity(%{device_id: device_id}) when is_binary(device_id), do: device_id
-  defp resource_identity(%{host_id: host_id}) when is_binary(host_id), do: host_id
-  defp resource_identity(%{agent_id: agent_id}) when is_binary(agent_id), do: agent_id
-  defp resource_identity(%{host_ip: host_ip}) when is_binary(host_ip), do: host_ip
-  defp resource_identity(_base), do: nil
+  defp resource_identity(metric_class, base) do
+    Enum.find(
+      [
+        base.device_id,
+        snmp_target_identity(metric_class, base),
+        base.host_id,
+        base.agent_id,
+        base.host_ip
+      ],
+      &is_binary/1
+    )
+  end
+
+  defp snmp_target_identity(metric_class, %{target_device_ip: target_device_ip})
+       when is_binary(metric_class) and is_binary(target_device_ip) do
+    if metric_class == "snmp" or String.starts_with?(metric_class, "snmp.") do
+      target_device_ip
+    end
+  end
+
+  defp snmp_target_identity(_metric_class, _base), do: nil
 
   defp readable_identity(metric_class, base, identity, tags, if_index) do
     {class_component, family} = class_and_family(metric_class, base.metric_name)

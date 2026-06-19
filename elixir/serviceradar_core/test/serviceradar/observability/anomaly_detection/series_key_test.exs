@@ -33,6 +33,20 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKeyTest do
       assert SeriesKey.from_source_identity(source_identity) == "snmp:sr:ns03:7"
     end
 
+    test "uses target_device_ip before the polling host for remote SNMP target metrics" do
+      source_identity = %{
+        "metric_class" => "snmp",
+        "metric_name" => "ifHCInOctets",
+        "agent_id" => "agent-ns03",
+        "host_id" => "ns03",
+        "target_device_ip" => "10.0.0.20",
+        "if_index" => 7,
+        "tags" => %{"interface_uid" => "ifindex:7"}
+      }
+
+      assert SeriesKey.from_source_identity(source_identity) == "snmp:10.0.0.20:7"
+    end
+
     test "falls back to host_id when no canonical device_id is available" do
       source_identity = %{
         "metric_class" => "sysmon.memory",
