@@ -23,4 +23,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.DashboardWindowSpecTest do
              "1h"
            ) == 60
   end
+
+  test "interface rate labels distinguish window average from bucket percentile" do
+    assert Dashboard.netflow_interface_average_label("6h") == "Window avg 6h"
+    assert Dashboard.netflow_interface_p95_label("6h") == "P95 bucket rate (6h)"
+  end
 end
