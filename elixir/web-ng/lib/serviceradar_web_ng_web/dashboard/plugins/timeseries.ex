@@ -1050,6 +1050,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     chart_mode = Map.get(panel_assigns || %{}, :chart_mode, :single)
     combine_all_series = Map.get(panel_assigns || %{}, :combine_all_series, false)
     combined_title = Map.get(panel_assigns || %{}, :combined_title)
+    empty_state = empty_state_from_assigns(assigns, panel_assigns)
     # Rate mode: :counter (compute deltas), :rate (precomputed rates), or :none.
     rate_mode = Map.get(panel_assigns || %{}, :rate_mode, :none)
     series_points = series_points_from_assigns(assigns, panel_assigns)
@@ -1072,6 +1073,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       |> assign(:chart_mode, chart_mode)
       |> assign(:combine_all_series, combine_all_series)
       |> assign(:combined_title, combined_title)
+      |> assign(:empty_state, empty_state)
       |> assign(:rate_mode, rate_mode)
       |> assign(:chart_width, @chart_width)
       |> assign(:chart_height, @chart_height)
@@ -1119,8 +1121,154 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
   defp series_to_points(_), do: []
 
-  defp fetch_panel_value(panel_assigns, key, default \\ nil) when is_map(panel_assigns) do
+  defp fetch_panel_value(panel_assigns, key, default \\ nil)
+
+  defp fetch_panel_value(panel_assigns, key, default) when is_map(panel_assigns) do
     Map.get(panel_assigns, key, Map.get(panel_assigns, to_string(key), default))
+  end
+
+  defp fetch_panel_value(_panel_assigns, _key, default), do: default
+
+  defp empty_state_from_assigns(assigns, panel_assigns) do
+    source =
+      cond do
+        is_map(panel_assigns) and fetch_panel_value(panel_assigns, :empty_state) != nil ->
+          fetch_panel_value(panel_assigns, :empty_state)
+
+        Map.get(assigns, :empty_state) != nil ->
+          Map.get(assigns, :empty_state)
+
+        true ->
+          nil
+      end
+
+    normalize_empty_state(source, assigns, panel_assigns)
+  end
+
+  defp normalize_empty_state(nil, assigns, panel_assigns) do
+    cond do
+      empty_state_error(assigns, panel_assigns) != nil ->
+        normalize_empty_state(:query_error, assigns, panel_assigns)
+
+      fetch_panel_value(panel_assigns, :disabled, Map.get(assigns, :disabled)) == true ->
+        normalize_empty_state(:disabled, assigns, panel_assigns)
+
+      true ->
+        nil
+    end
+  end
+
+  defp normalize_empty_state(value, assigns, panel_assigns)
+       when value in [:query_error, "query_error", :error, "error"] do
+    %{
+      kind: :query_error,
+      title: empty_state_title(assigns, panel_assigns, "Chart query failed"),
+      detail:
+        empty_state_detail(
+          assigns,
+          panel_assigns,
+          empty_state_error(assigns, panel_assigns) || "The chart query failed before returning usable data."
+        ),
+      link_href: empty_state_link_href(assigns, panel_assigns),
+      link_label: empty_state_link_label(assigns, panel_assigns)
+    }
+  end
+
+  defp normalize_empty_state(value, assigns, panel_assigns) when value in [:disabled, "disabled"] do
+    %{
+      kind: :disabled,
+      title: empty_state_title(assigns, panel_assigns, "Metrics collection disabled"),
+      detail:
+        empty_state_detail(
+          assigns,
+          panel_assigns,
+          "Enable the relevant SNMP or polling configuration to populate this chart."
+        ),
+      link_href: empty_state_link_href(assigns, panel_assigns),
+      link_label: empty_state_link_label(assigns, panel_assigns)
+    }
+  end
+
+  defp normalize_empty_state(value, assigns, panel_assigns) when value in [:no_data, "no_data", :empty, "empty"] do
+    no_data_empty_state(assigns, panel_assigns)
+  end
+
+  defp normalize_empty_state(%{} = state, assigns, panel_assigns) do
+    kind = Map.get(state, :kind, Map.get(state, "kind", :no_data))
+
+    base = normalize_empty_state(kind, assigns, panel_assigns) || no_data_empty_state(assigns, panel_assigns)
+
+    base
+    |> Map.merge(%{
+      title: Map.get(state, :title, Map.get(state, "title")) || empty_state_title(assigns, panel_assigns, nil),
+      detail: Map.get(state, :detail, Map.get(state, "detail")) || empty_state_detail(assigns, panel_assigns, nil),
+      link_href: Map.get(state, :link_href, Map.get(state, "link_href")) || empty_state_link_href(assigns, panel_assigns),
+      link_label:
+        Map.get(state, :link_label, Map.get(state, "link_label")) || empty_state_link_label(assigns, panel_assigns)
+    })
+    |> normalize_empty_state_defaults()
+  end
+
+  defp normalize_empty_state(_value, _assigns, _panel_assigns), do: nil
+
+  defp normalize_empty_state_defaults(%{kind: :query_error} = state) do
+    state
+    |> Map.update!(:title, &(&1 || "Chart query failed"))
+    |> Map.update!(:detail, &(&1 || "The chart query failed before returning usable data."))
+  end
+
+  defp normalize_empty_state_defaults(%{kind: :disabled} = state) do
+    state
+    |> Map.update!(:title, &(&1 || "Metrics collection disabled"))
+    |> Map.update!(:detail, &(&1 || "Enable the relevant SNMP or polling configuration to populate this chart."))
+  end
+
+  defp normalize_empty_state_defaults(%{} = state) do
+    state
+    |> Map.put(:kind, :no_data)
+    |> Map.update!(:title, &(&1 || "No chart data"))
+    |> Map.update!(:detail, &(&1 || "No samples matched this chart's query window or filters."))
+  end
+
+  defp no_data_empty_state(assigns, panel_assigns) do
+    %{
+      kind: :no_data,
+      title: empty_state_title(assigns, panel_assigns, "No chart data"),
+      detail:
+        empty_state_detail(
+          assigns,
+          panel_assigns,
+          "No samples matched this chart's query window or filters."
+        ),
+      link_href: empty_state_link_href(assigns, panel_assigns),
+      link_label: empty_state_link_label(assigns, panel_assigns)
+    }
+  end
+
+  defp empty_state_error(assigns, panel_assigns) do
+    fetch_panel_value(panel_assigns, :query_error) ||
+      fetch_panel_value(panel_assigns, :error) ||
+      fetch_panel_value(panel_assigns, :error_message) ||
+      Map.get(assigns, :query_error) ||
+      Map.get(assigns, :error) ||
+      Map.get(assigns, :error_message)
+  end
+
+  defp empty_state_title(assigns, panel_assigns, default) do
+    fetch_panel_value(panel_assigns, :empty_title) || Map.get(assigns, :empty_title) || default
+  end
+
+  defp empty_state_detail(assigns, panel_assigns, default) do
+    fetch_panel_value(panel_assigns, :empty_detail) || Map.get(assigns, :empty_detail) || default
+  end
+
+  defp empty_state_link_href(assigns, panel_assigns) do
+    fetch_panel_value(panel_assigns, :empty_config_href) || Map.get(assigns, :empty_config_href)
+  end
+
+  defp empty_state_link_label(assigns, panel_assigns) do
+    fetch_panel_value(panel_assigns, :empty_config_label) || Map.get(assigns, :empty_config_label) ||
+      "Open configuration"
   end
 
   @impl true
@@ -1144,12 +1292,20 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         combined_title
       )
 
+    empty_state =
+      case {combined_charts, individual_series, Map.get(assigns, :empty_state)} do
+        {[], [], nil} -> no_data_empty_state(assigns, %{})
+        {[], [], %{} = state} -> state
+        {_, _, state} -> state
+      end
+
     assigns =
       assigns
       |> assign(:compact, compact)
       |> assign(:series_count, length(series_points))
       |> assign(:series_data, individual_series)
       |> assign(:combined_charts, combined_charts)
+      |> assign(:empty_state, empty_state)
       |> assign(:first_dt, first_dt(series_points))
       |> assign(:last_dt, last_dt(series_points))
 
@@ -1289,8 +1445,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   defp render_compact(assigns) do
     ~H"""
     <div id={"panel-#{@id}"} class="p-4">
+      <.empty_state_card :if={is_map(@empty_state)} state={@empty_state} compact={true} />
       <div class={[
         "grid gap-3",
+        is_map(@empty_state) && "hidden",
         @series_count > 1 && "grid-cols-1 lg:grid-cols-2 xl:grid-cols-3",
         @series_count == 1 && "grid-cols-1"
       ]}>
@@ -1328,27 +1486,35 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
             <div class="text-sm font-semibold">{@title || "Timeseries"}</div>
           </div>
           <div class="text-xs text-base-content/50 font-mono">
-            <span :if={is_struct(@first_dt, DateTime)}>{dt_label(@first_dt)}</span>
-            <span class="px-1">→</span>
-            <span :if={is_struct(@last_dt, DateTime)}>{dt_label(@last_dt)}</span>
+            <span :if={is_nil(@empty_state) and is_struct(@first_dt, DateTime)}>
+              {dt_label(@first_dt)}
+            </span>
+            <span :if={is_nil(@empty_state)} class="px-1">→</span>
+            <span :if={is_nil(@empty_state) and is_struct(@last_dt, DateTime)}>
+              {dt_label(@last_dt)}
+            </span>
           </div>
         </:header>
+
+        <.empty_state_card :if={is_map(@empty_state)} state={@empty_state} compact={false} />
         
     <!-- Combined charts (multi-series on same chart) -->
-        <%= for combined <- @combined_charts do %>
-          <.combined_chart_card
-            id={@id}
-            data={combined}
-            chart_width={@chart_width}
-            chart_height={@chart_height}
-            chart_pad={@chart_pad}
-            compact={false}
-          />
+        <%= if is_nil(@empty_state) do %>
+          <%= for combined <- @combined_charts do %>
+            <.combined_chart_card
+              id={@id}
+              data={combined}
+              chart_width={@chart_width}
+              chart_height={@chart_height}
+              chart_pad={@chart_pad}
+              compact={false}
+            />
+          <% end %>
         <% end %>
         
     <!-- Individual series charts -->
         <div
-          :if={@series_data != []}
+          :if={is_nil(@empty_state) and @series_data != []}
           class={[
             "grid gap-4",
             length(@series_data) > 1 && "grid-cols-1 md:grid-cols-2",
@@ -1370,6 +1536,55 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     </div>
     """
   end
+
+  attr :state, :map, required: true
+  attr :compact, :boolean, default: false
+
+  defp empty_state_card(assigns) do
+    ~H"""
+    <div class={[
+      "rounded-lg border bg-base-100",
+      empty_state_border_class(@state.kind),
+      @compact && "p-3",
+      not @compact && "p-4"
+    ]}>
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <div class={[
+            "font-semibold",
+            empty_state_title_class(@state.kind),
+            @compact && "text-xs",
+            not @compact && "text-sm"
+          ]}>
+            {@state.title}
+          </div>
+          <div class={[
+            "text-base-content/60",
+            @compact && "mt-1 text-[11px]",
+            not @compact && "mt-1 text-xs"
+          ]}>
+            {@state.detail}
+          </div>
+        </div>
+        <.link
+          :if={is_binary(@state.link_href) and @state.link_href != ""}
+          navigate={@state.link_href}
+          class="btn btn-xs btn-outline shrink-0"
+        >
+          {@state.link_label}
+        </.link>
+      </div>
+    </div>
+    """
+  end
+
+  defp empty_state_border_class(:query_error), do: "border-error/30 bg-error/5"
+  defp empty_state_border_class(:disabled), do: "border-warning/30 bg-warning/5"
+  defp empty_state_border_class(_), do: "border-base-200"
+
+  defp empty_state_title_class(:query_error), do: "text-error"
+  defp empty_state_title_class(:disabled), do: "text-warning"
+  defp empty_state_title_class(_), do: "text-base-content"
 
   attr :id, :string, required: true
   attr :data, :map, required: true

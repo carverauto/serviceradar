@@ -299,6 +299,59 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
     refute html =~ "100.0 /s"
   end
 
+  test "renders an explicit no-data state instead of an empty chart" do
+    html =
+      render_component(Timeseries, %{
+        id: "ts-empty",
+        title: "Empty",
+        panel_assigns: %{chart_mode: :single, rate_mode: :none},
+        series_points: []
+      })
+
+    assert html =~ "No chart data"
+    assert html =~ "No samples matched this chart"
+    refute html =~ "phx-hook=\"TimeseriesChart\""
+  end
+
+  test "renders query-error and disabled states distinctly" do
+    error_html =
+      render_component(Timeseries, %{
+        id: "ts-query-error",
+        title: "Query error",
+        panel_assigns: %{
+          chart_mode: :single,
+          rate_mode: :none,
+          empty_state: :query_error,
+          error_message: "SRQL timeout while loading samples"
+        },
+        series_points: []
+      })
+
+    assert error_html =~ "Chart query failed"
+    assert error_html =~ "SRQL timeout while loading samples"
+    assert error_html =~ "border-error"
+
+    disabled_html =
+      render_component(Timeseries, %{
+        id: "ts-disabled",
+        title: "Disabled",
+        panel_assigns: %{
+          chart_mode: :single,
+          rate_mode: :none,
+          empty_state: :disabled,
+          empty_config_href: "/settings/snmp",
+          empty_config_label: "SNMP settings"
+        },
+        series_points: []
+      })
+
+    assert disabled_html =~ "Metrics collection disabled"
+    assert disabled_html =~ "Enable the relevant SNMP or polling configuration"
+    assert disabled_html =~ "href=\"/settings/snmp\""
+    assert disabled_html =~ "SNMP settings"
+    assert disabled_html =~ "border-warning"
+  end
+
   defp decode_chart_points(html) do
     [_, encoded] = Regex.run(~r/data-points="([^"]+)"/, html)
 
