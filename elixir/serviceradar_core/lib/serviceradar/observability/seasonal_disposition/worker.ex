@@ -31,7 +31,11 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
+    unique: [
+      period: :infinity,
+      states: [:available, :scheduled, :executing, :retryable],
+      keys: [:trigger]
+    ]
 
   alias ServiceRadar.Observability.AnomalyConfigRuntime
   alias ServiceRadar.Observability.CausalReasoner

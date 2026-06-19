@@ -15,6 +15,24 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
     on_exit(fn -> AnomalyConfigRuntime.clear_cache_for_test() end)
   end
 
+  test "manual enqueue uniqueness ignores per-run evaluated_at" do
+    first =
+      Worker.new(%{
+        "trigger" => "manual",
+        "evaluated_at" => "2026-06-12T12:00:00Z"
+      })
+
+    second =
+      Worker.new(%{
+        "trigger" => "manual",
+        "evaluated_at" => "2026-06-12T12:05:00Z"
+      })
+
+    assert first.changes.unique.keys == [:trigger]
+    assert second.changes.unique.keys == [:trigger]
+    assert first.changes.unique.fields == [:args, :queue, :worker]
+  end
+
   # A profile row carrying the SQL-aggregated (dow,hod) bucket summary INCLUDING the
   # sample under test (the natural CAGG aggregate the mean/stddev kernel de-aggregates).
   defp profile_row(series, dow, hod, baseline_points, sample_value) do
