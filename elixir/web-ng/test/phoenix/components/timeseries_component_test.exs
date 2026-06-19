@@ -112,4 +112,25 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
     assert html =~ "2.51"
     assert html =~ "39.81"
   end
+
+  test "counter rates drop the synthetic first zero and render resets as gaps" do
+    points = [
+      {~U[2025-01-01 00:00:00Z], 1_000.0},
+      {~U[2025-01-01 00:05:00Z], 7_000.0},
+      {~U[2025-01-01 00:10:00Z], 100.0},
+      {~U[2025-01-01 00:15:00Z], 3_100.0}
+    ]
+
+    html =
+      render_component(Timeseries, %{
+        id: "ts-counter-gap",
+        title: "Traffic",
+        panel_assigns: %{chart_mode: :single, rate_mode: :counter},
+        series_points: [{"ifInOctets", points}]
+      })
+
+    assert html =~ "&quot;v&quot;:null"
+    refute html =~ "&quot;v&quot;:0.0"
+    assert html =~ ~r/d="M [^"]+ M /
+  end
 end

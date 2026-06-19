@@ -37,6 +37,7 @@ export default {
     }
 
     const formatValue = (value) => {
+      if (value === null || value === undefined) return "no data"
       if (typeof value !== "number") return value
       switch (unit) {
         case "percent":

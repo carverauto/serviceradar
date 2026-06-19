@@ -14,9 +14,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   @chart_width 800
   @chart_height 140
   @chart_pad 8
-  @counter_max_32 4_294_967_295.0
-  @counter_max_64 18_446_744_073_709_551_615.0
-
   @impl true
   def id, do: "timeseries"
 
@@ -236,7 +233,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   # Always auto-scale Y-axis to actual data values for visibility
   # max_y is kept for reference/display but not used for scaling
   defp chart_paths(points, scale_bounds, scale_mode) when is_list(points) do
-    values = Enum.map(points, fn {_dt, v} -> v end)
+    values = numeric_values(points)
 
     case values do
       [] ->
@@ -259,17 +256,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         latest = List.last(values)
         {scale_min, scale_max, effective_scale_mode} = chart_scale(values, scale_bounds, scale_mode)
 
-        coords =
-          values
-          |> Enum.with_index()
-          |> Enum.map(fn {v, idx} ->
-            x = idx_to_x(idx, length(values))
-            y = value_to_y(v, scale_min, scale_max, effective_scale_mode)
-            {x, y}
-          end)
-
-        line = line_path(coords)
-        area = area_path(coords)
+        segments = chart_coordinate_segments(points, scale_min, scale_max, effective_scale_mode)
+        line = path_for_segments(segments, &line_path/1)
+        area = path_for_segments(segments, &area_path/1)
 
         %{
           line: line,
@@ -283,6 +272,46 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
           scale_mode: effective_scale_mode
         }
     end
+  end
+
+  defp numeric_values(points) do
+    points
+    |> Enum.map(fn {_dt, v} -> v end)
+    |> Enum.filter(&is_number/1)
+  end
+
+  defp chart_coordinate_segments(points, scale_min, scale_max, scale_mode) do
+    len = length(points)
+
+    points
+    |> Enum.with_index()
+    |> Enum.chunk_while(
+      [],
+      fn
+        {{_dt, v}, idx}, acc when is_number(v) ->
+          x = idx_to_x(idx, len)
+          y = value_to_y(v, scale_min, scale_max, scale_mode)
+          {:cont, [{x, y} | acc]}
+
+        {_point, _idx}, [] ->
+          {:cont, []}
+
+        {_point, _idx}, acc ->
+          {:cont, Enum.reverse(acc), []}
+      end,
+      fn
+        [] -> {:cont, []}
+        acc -> {:cont, Enum.reverse(acc), []}
+      end
+    )
+    |> Enum.reject(&(&1 == []))
+  end
+
+  defp path_for_segments(segments, path_fun) do
+    segments
+    |> Enum.map(path_fun)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join(" ")
   end
 
   defp chart_scale(_values, {min_v, max_v}, :log)
@@ -434,53 +463,44 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   end
 
   defp counter_rate_step({dt, value}, {nil, acc}, _series, _max_speed) do
-    {{dt, value}, [{dt, 0.0} | acc]}
+    {{dt, value}, acc}
   end
 
   defp counter_rate_step({dt, value}, {{prev_dt, prev_value}, acc}, series, max_speed) do
     diff = DateTime.diff(dt, prev_dt, :second)
-    rate = counter_rate(diff, value, prev_value, series, max_speed)
-    {{dt, value}, [{dt, rate} | acc]}
+
+    case counter_rate(diff, value, prev_value, series, max_speed) do
+      {:ok, rate} -> {{dt, value}, [{dt, rate} | acc]}
+      :gap -> {{dt, value}, [{dt, nil} | acc]}
+    end
   end
 
-  defp counter_rate(diff, _value, _prev_value, _series, _max_speed) when diff <= 0, do: 0.0
+  defp counter_rate(diff, _value, _prev_value, _series, _max_speed) when diff <= 0, do: :gap
 
-  defp counter_rate(diff, value, prev_value, series, max_speed) do
-    value
-    |> counter_delta(prev_value, series)
-    |> Kernel./(diff)
-    |> clamp_rate(max_speed)
+  defp counter_rate(diff, value, prev_value, _series, max_speed) do
+    case counter_delta(value, prev_value) do
+      {:ok, delta} ->
+        rate =
+          delta
+          |> Kernel./(diff)
+          |> clamp_rate(max_speed)
+
+        {:ok, rate}
+
+      :gap ->
+        :gap
+    end
   end
 
-  defp counter_delta(current, previous, series) when is_number(current) and is_number(previous) do
+  defp counter_delta(current, previous) when is_number(current) and is_number(previous) do
     if current >= previous do
-      current - previous
+      {:ok, current - previous}
     else
-      rollover_delta(current, previous, series)
+      :gap
     end
   end
 
-  defp counter_delta(_, _, _), do: 0.0
-
-  defp rollover_delta(current, previous, series) do
-    max_value = counter_max(series, previous)
-
-    if max_value > previous do
-      max_value - previous + current
-    else
-      0.0
-    end
-  end
-
-  defp counter_max(series, previous) do
-    series_label = to_string(series || "")
-
-    cond do
-      String.contains?(series_label, "HC") -> @counter_max_64
-      previous > @counter_max_32 -> @counter_max_64
-      true -> @counter_max_32
-    end
-  end
+  defp counter_delta(_, _), do: :gap
 
   defp clamp_rate(rate, max_speed) when is_number(rate) and is_number(max_speed) and max_speed > 0 do
     if rate > max_speed do
@@ -659,20 +679,30 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
   defp chart_points(points, _unit, _compact, _cap), do: points
 
-  defp maybe_densify(points, :bytes_per_sec, compact, cap) do
-    factor = if compact, do: 2, else: 4
-    densified = densify_points(points, factor)
-    limit_points(densified, cap)
+  defp maybe_densify(points, :bytes_per_sec, compact, cap) when is_list(points) do
+    if gap_points?(points) do
+      points
+    else
+      factor = if compact, do: 2, else: 4
+      densified = densify_points(points, factor)
+      limit_points(densified, cap)
+    end
   end
 
   defp maybe_densify(points, _unit, _compact, _cap), do: points
 
-  defp maybe_smooth(points, :bytes_per_sec, compact) do
-    window = if compact, do: 1, else: 2
-    smooth_points(points, window)
+  defp maybe_smooth(points, :bytes_per_sec, compact) when is_list(points) do
+    if gap_points?(points) do
+      points
+    else
+      window = if compact, do: 1, else: 2
+      smooth_points(points, window)
+    end
   end
 
   defp maybe_smooth(points, _unit, _compact), do: points
+
+  defp gap_points?(points), do: Enum.any?(points, fn {_dt, v} -> is_nil(v) end)
 
   defp densify_points([], _factor), do: []
   defp densify_points([_] = points, _factor), do: points
