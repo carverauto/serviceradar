@@ -11,8 +11,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitter do
   """
 
   alias ServiceRadar.NATS.Connection
+  alias ServiceRadar.Observability.CausalPredictionSubject
 
-  @subject_root "signals.causal.predictions"
   @event_type "anomaly"
   @provider "seasonal_disposition"
   @verdict_source "central-seasonal"
@@ -130,7 +130,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitter do
 
   @spec subject(map()) :: String.t()
   def subject(attrs) when is_map(attrs) do
-    "#{@subject_root}.#{subject_token(Map.get(attrs, :series_key) || @event_type)}"
+    CausalPredictionSubject.build(Map.get(attrs, :series_key), @event_type)
   end
 
   @spec event_id(map()) :: String.t()
@@ -228,15 +228,6 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitter do
       4 -> 75
       3 -> 55
       2 -> 20
-    end
-  end
-
-  defp subject_token(value) do
-    value
-    |> string_value()
-    |> case do
-      nil -> @event_type
-      value -> String.replace(value, ~r/[.\s*>]/, "_")
     end
   end
 

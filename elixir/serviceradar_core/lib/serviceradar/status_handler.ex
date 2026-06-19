@@ -20,6 +20,7 @@ defmodule ServiceRadar.StatusHandler do
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.Observability.AnomalyDetection.SeriesKey
+  alias ServiceRadar.Observability.CausalPredictionSubject
   alias ServiceRadar.ResultsRouter
 
   require Logger
@@ -375,10 +376,10 @@ defmodule ServiceRadar.StatusHandler do
   defp canonical_series_key(_source_identity), do: nil
 
   defp causal_prediction_subject(series_key) when is_binary(series_key) and series_key != "" do
-    "signals.causal.predictions.#{series_key}"
+    CausalPredictionSubject.build(series_key)
   end
 
-  defp causal_prediction_subject(_series_key), do: "signals.causal.predictions.anomaly"
+  defp causal_prediction_subject(_series_key), do: CausalPredictionSubject.build(nil)
 
   # Stamp the canonical key onto the persisted verdict so CausalSignals stores it
   # under the same series_key edge-derived consumers use (and the producer hint becomes dead

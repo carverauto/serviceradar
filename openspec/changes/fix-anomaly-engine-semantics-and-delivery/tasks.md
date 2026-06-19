@@ -62,7 +62,7 @@
 - [ ] 11.1 Incorporate attested `partition_id` into the canonical `series_key` / finding identity.
 - [ ] 11.2 Escape or hash free-form producer tag/host/IP values before splicing into delimited keys (core `series_key.ex` and edge `series_key_for`).
 - [ ] 11.3 Scope the `InterfaceCapacity` link-speed join by `partition_id`.
-- [ ] 11.4 Route re-keyed edge verdicts through the central emitters' subject sanitization.
+- [x] 11.4 Route re-keyed edge verdicts through the central emitters' subject sanitization.
 - [ ] 11.5 Add tests for partition scoping, key collision resistance, and edge↔central subject parity.
 
 ## 12. Seasonal Data Feed And Semantics (F15, blocker)

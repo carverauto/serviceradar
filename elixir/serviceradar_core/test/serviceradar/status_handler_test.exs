@@ -6,6 +6,7 @@ defmodule ServiceRadar.StatusHandlerTest do
   alias Serviceradar.Agent.Addon.V1.TelemetryBatch
   alias Serviceradar.Agent.Addon.V1.TelemetryRecord
   alias Serviceradar.Agent.Addon.V1.TelemetrySource
+  alias ServiceRadar.Observability.CausalPredictionSubject
   alias ServiceRadar.StatusHandler
 
   setup do
@@ -387,11 +388,13 @@ defmodule ServiceRadar.StatusHandlerTest do
     test "re-keys an edge verdict to the canonical series_key from source_identity (§3.4b)" do
       source_identity = %{
         "series_key" => "edge-hint-provisional",
-        "metric_class" => "sysmon.cpu",
-        "metric_name" => "cpu.usage_percent",
+        "metric_class" => "snmp.if_octets",
+        "metric_name" => "ifHCInOctets",
         "agent_id" => "host-a",
         "host_id" => "",
-        "tags" => %{"core_id" => "0"}
+        "target_device_ip" => "10.0.0.20",
+        "if_index" => 7,
+        "tags" => %{"if_alias" => "core *> uplink"}
       }
 
       # The canonical key derived from attested identity differs from the producer hint, so a
@@ -462,7 +465,11 @@ defmodule ServiceRadar.StatusHandlerTest do
       assert {:noreply, %{}} = StatusHandler.handle_cast({:status_update, status}, %{})
 
       assert_receive {:published, subject, payload}
-      assert String.starts_with?(subject, "signals.causal.predictions.")
+      assert subject == CausalPredictionSubject.build(canonical)
+      refute subject =~ ".10.0.0.20"
+      refute subject =~ "*"
+      refute subject =~ ">"
+      refute subject =~ " "
 
       assert {:ok, decoded} = Jason.decode(payload)
       # Persisted under the canonical key (both the anomaly block and the carried
