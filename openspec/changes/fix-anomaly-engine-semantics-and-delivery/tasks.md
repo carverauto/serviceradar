@@ -79,9 +79,9 @@
 - [ ] 13.4 Constrain `warning_horizon_seconds <= horizon_seconds`.
 
 ## 14. Detector Numeric Safety (F17)
-- [ ] 14.1 Replace the unconditional zero-variance breach with a magnitude/floor-aware rule that does not fire for floor-less counter rates; widen the near-zero stddev guard beyond `f64::EPSILON`.
-- [ ] 14.2 Make `sample_stats` defined for windows of length 0/1 (no NaN/inf/panic).
-- [ ] 14.3 Keep Welford sample count consistent with logical samples (handle non-finite explicitly).
+- [x] 14.1 Replace the unconditional zero-variance breach with a magnitude/floor-aware rule that does not fire for floor-less counter rates; widen the near-zero stddev guard beyond `f64::EPSILON`.
+- [x] 14.2 Make `sample_stats` defined for windows of length 0/1 (no NaN/inf/panic).
+- [x] 14.3 Keep Welford sample count consistent with logical samples (handle non-finite explicitly).
 - [ ] 14.4 Pin a `confirm_slots` definition shared by edge and central seasonal confirmation.
 
 ## 15. Config Reconciliation (F18)
