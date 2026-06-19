@@ -100,7 +100,7 @@
 - [ ] 17.4 Document or revisit F8's O(window) per-sample envelope under the F9 eviction changes.
 
 ## 18. Live-Confirmed Edge Delivery Fixes (F21-F24, demo 2026-06-19)
-- [ ] 18.1 F21: stop the seeder/assignment from writing empty-string `""` for unset numeric add-on params (omit, or send number/null).
+- [x] 18.1 F21: stop the seeder/assignment from writing empty-string `""` for unset numeric add-on params (omit, or send number/null).
 - [x] 18.2 F21: make the Rust `AddonConfig` deserializer coerce empty/absent optional knobs to defaults instead of rejecting `""` ("invalid type: string, expected u64").
 - [ ] 18.3 F21: add a migration/repair to clear empty-string params already persisted for mis-seeded agents (`agent-k8s-cp2-worker1`, `k8s-agent`) and recover their `circuit_open` add-ons.
 - [ ] 18.4 F22: make the add-on `Shutdown` return promptly (abort the scoring task, close the feed) so the manager stops SIGKILLing it; test that stop completes within the grace window.
