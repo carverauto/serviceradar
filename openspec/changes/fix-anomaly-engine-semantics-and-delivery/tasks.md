@@ -193,7 +193,7 @@
 ## 34. Dashboard Query Safety (F40)
 - [x] 34.1 Parameterize/escape authored dashboard variable values; never interpolate them into the SRQL grammar; validate against the variable's declared type/allowed set.
 - [x] 34.2 Enforce a default time window and a max `LIMIT` on every authored panel query.
-- [ ] 34.3 Add tests proving a view-only user cannot rewrite a panel's collection/filters via a variable.
+- [x] 34.3 Add tests proving a view-only user cannot rewrite a panel's collection/filters via a variable.
 
 ## 35. Authored-Panel Readout Correctness (F41)
 - [ ] 35.1 Fix the Stat/Count trend to compare true first/last by enforced time sort (correct arrow + delta sign).
