@@ -165,7 +165,7 @@
 - [x] 27.3 Clamp only octet series to link speed; render byte-rate vs count-rate on separate axes (`timeseries.ex:335,368-376`).
 
 ## 28. Chart Finding/Threshold Annotation (F34)
-- [ ] 28.1 Add an `annotations` list ({dt, label, severity}) to the timeseries panel assigns, rendered as SVG marker lines/bands via the existing time mapping.
+- [x] 28.1 Add an `annotations` list ({dt, label, severity}) to the timeseries panel assigns, rendered as SVG marker lines/bands via the existing time mapping.
 - [ ] 28.2 Draw per-metric threshold reference lines on interface/sysmon charts.
 - [ ] 28.3 Make a finding click focus/mark its time + series on the chart.
 

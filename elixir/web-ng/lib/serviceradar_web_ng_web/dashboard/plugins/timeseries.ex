@@ -415,6 +415,101 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
   defp x_ticks(_points, _compact), do: []
 
+  defp annotation_markers(annotations, points, raw_series, display_name) when is_list(annotations) and is_list(points) do
+    annotations
+    |> Enum.filter(&annotation_applies_to_series?(&1, raw_series, display_name))
+    |> Enum.map(&annotation_marker(&1, points))
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp annotation_markers(_annotations, _points, _raw_series, _display_name), do: []
+
+  defp combined_annotation_markers(series_data) when is_list(series_data) do
+    series_data
+    |> Enum.flat_map(&Map.get(&1, :annotations, []))
+    |> Enum.uniq_by(fn marker -> {marker.x, marker.label, marker.severity} end)
+    |> Enum.sort_by(& &1.x)
+  end
+
+  defp combined_annotation_markers(_), do: []
+
+  defp annotation_applies_to_series?(%{series: nil}, _raw_series, _display_name), do: true
+
+  defp annotation_applies_to_series?(%{series: series}, raw_series, display_name) do
+    raw = raw_series |> safe_to_string() |> String.trim()
+    humanized = humanize_series_name(raw_series || "series")
+
+    series in [raw, display_name, humanized]
+  end
+
+  defp annotation_marker(%{dt: dt, label: label, severity: severity}, points) do
+    case annotation_x(dt, points) do
+      nil ->
+        nil
+
+      x ->
+        %{
+          x: x,
+          label: label,
+          severity: severity,
+          color: annotation_color(severity),
+          title: "#{label} - #{dt_label(dt)}"
+        }
+    end
+  end
+
+  defp annotation_x(_dt, []), do: nil
+
+  defp annotation_x(dt, [{point_dt, _value}]) do
+    if DateTime.compare(dt, point_dt) == :eq, do: @chart_pad
+  end
+
+  defp annotation_x(dt, points) when is_list(points) do
+    times = Enum.map(points, fn {point_dt, _value} -> DateTime.to_unix(point_dt, :millisecond) end)
+    target = DateTime.to_unix(dt, :millisecond)
+    first = List.first(times)
+    last = List.last(times)
+
+    cond do
+      target < first or target > last ->
+        nil
+
+      target == first ->
+        @chart_pad
+
+      target == last ->
+        idx_to_x(length(points) - 1, length(points))
+
+      true ->
+        annotation_x_between(target, times)
+    end
+  end
+
+  defp annotation_x_between(target, times) do
+    len = length(times)
+
+    times
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.with_index()
+    |> Enum.find_value(fn {[left, right], idx} ->
+      if target >= left and target <= right do
+        left_x = idx_to_x(idx, len)
+        right_x = idx_to_x(idx + 1, len)
+
+        if right == left do
+          left_x
+        else
+          Float.round(left_x + (target - left) / (right - left) * (right_x - left_x), 2)
+        end
+      end
+    end)
+  end
+
+  defp annotation_color(:critical), do: "#EF4444"
+  defp annotation_color(:high), do: "#F97316"
+  defp annotation_color(:warning), do: "#EAB308"
+  defp annotation_color(_), do: "#0EA5E9"
+
   defp y_ticks(min_v, max_v, compact, unit, scale_mode) when is_number(min_v) and is_number(max_v) and max_v > min_v do
     ticks = if compact, do: 3, else: 5
 
@@ -1051,6 +1146,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     combine_all_series = Map.get(panel_assigns || %{}, :combine_all_series, false)
     combined_title = Map.get(panel_assigns || %{}, :combined_title)
     empty_state = empty_state_from_assigns(assigns, panel_assigns)
+    annotations = annotations_from_assigns(assigns, panel_assigns)
     # Rate mode: :counter (compute deltas), :rate (precomputed rates), or :none.
     rate_mode = Map.get(panel_assigns || %{}, :rate_mode, :none)
     series_points = series_points_from_assigns(assigns, panel_assigns)
@@ -1074,6 +1170,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       |> assign(:combine_all_series, combine_all_series)
       |> assign(:combined_title, combined_title)
       |> assign(:empty_state, empty_state)
+      |> assign(:annotations, annotations)
       |> assign(:rate_mode, rate_mode)
       |> assign(:chart_width, @chart_width)
       |> assign(:chart_height, @chart_height)
@@ -1120,6 +1217,109 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   end
 
   defp series_to_points(_), do: []
+
+  defp annotations_from_assigns(assigns, panel_assigns) do
+    source =
+      cond do
+        is_map(panel_assigns) and fetch_panel_value(panel_assigns, :annotations) != nil ->
+          fetch_panel_value(panel_assigns, :annotations)
+
+        Map.get(assigns, :annotations) != nil ->
+          Map.get(assigns, :annotations)
+
+        true ->
+          []
+      end
+
+    normalize_annotations(source)
+  end
+
+  defp normalize_annotations(annotations) when is_list(annotations) do
+    annotations
+    |> Enum.map(&normalize_annotation/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.sort_by(fn annotation -> DateTime.to_unix(annotation.dt, :millisecond) end)
+  end
+
+  defp normalize_annotations(_), do: []
+
+  defp normalize_annotation(%{} = annotation) do
+    dt_value =
+      Map.get(annotation, :dt) ||
+        Map.get(annotation, "dt") ||
+        Map.get(annotation, :time) ||
+        Map.get(annotation, "time") ||
+        Map.get(annotation, :timestamp) ||
+        Map.get(annotation, "timestamp")
+
+    case parse_datetime(dt_value) do
+      {:ok, dt} ->
+        %{
+          dt: dt,
+          label: annotation_label(annotation),
+          severity: annotation_severity(annotation),
+          series: annotation_series(annotation)
+        }
+
+      _ ->
+        nil
+    end
+  end
+
+  defp normalize_annotation(_), do: nil
+
+  defp annotation_label(annotation) do
+    annotation
+    |> annotation_value([:label, "label", :title, "title"])
+    |> safe_to_string()
+    |> String.trim()
+    |> case do
+      "" -> "Finding"
+      value -> value
+    end
+  end
+
+  defp annotation_severity(annotation) do
+    annotation
+    |> annotation_value([:severity, "severity", :severity_text, "severity_text"])
+    |> safe_to_string()
+    |> String.trim()
+    |> String.downcase()
+    |> case do
+      "critical" -> :critical
+      "error" -> :critical
+      "high" -> :high
+      "warning" -> :warning
+      "warn" -> :warning
+      "medium" -> :warning
+      "low" -> :info
+      "info" -> :info
+      "informational" -> :info
+      _ -> :info
+    end
+  end
+
+  defp annotation_series(annotation) do
+    annotation
+    |> annotation_value([:series, "series", :series_key, "series_key"])
+    |> case do
+      nil ->
+        nil
+
+      value ->
+        value
+        |> safe_to_string()
+        |> String.trim()
+        |> case do
+          "" -> nil
+          series -> series
+        end
+    end
+  end
+
+  defp annotation_value(annotation, keys) do
+    Enum.find_value(keys, &Map.get(annotation, &1))
+  end
 
   defp fetch_panel_value(panel_assigns, key, default \\ nil)
 
@@ -1319,15 +1519,16 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     spec = Map.get(assigns, :spec)
     rate_mode = Map.get(assigns, :rate_mode, :none)
     scale_mode = scale_mode_for(assigns, spec)
+    annotations = Map.get(assigns, :annotations, [])
 
     series_points
     |> Enum.with_index()
     |> Enum.map(fn {{series, points}, idx} ->
-      series_data_for_points(series, points, idx, spec, rate_mode, compact, max_speed, scale_mode)
+      series_data_for_points(series, points, idx, spec, rate_mode, compact, max_speed, scale_mode, annotations)
     end)
   end
 
-  defp series_data_for_points(series, points, idx, spec, rate_mode, compact, max_speed, scale_mode) do
+  defp series_data_for_points(series, points, idx, spec, rate_mode, compact, max_speed, scale_mode, annotations) do
     effective_max = if traffic_series?(series), do: max_speed
     {stroke, _fill} = series_color(idx)
     display_name = humanize_series_name(series || "series")
@@ -1355,6 +1556,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       chart_min: paths.scale_min,
       chart_max: paths.scale_max,
       scale_mode: paths.scale_mode,
+      annotations: annotation_markers(annotations, points, series, display_name),
       first_dt: series_first_dt(points),
       last_dt: series_last_dt(points),
       max_speed: effective_max,
@@ -1397,6 +1599,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       chart_min: chart_min,
       chart_max: chart_max,
       scale_mode: effective_scale_mode,
+      annotations: combined_annotation_markers(traffic_series),
       x_ticks: x_ticks || [],
       y_ticks: y_ticks,
       first_dt: first_series && first_series.first_dt,
@@ -1422,6 +1625,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       chart_min: chart_min,
       chart_max: chart_max,
       scale_mode: effective_scale_mode,
+      annotations: combined_annotation_markers(series_data),
       x_ticks: x_ticks || [],
       y_ticks: y_ticks,
       first_dt: first_series && first_series.first_dt,
@@ -1586,6 +1790,48 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   defp empty_state_title_class(:disabled), do: "text-warning"
   defp empty_state_title_class(_), do: "text-base-content"
 
+  attr :annotations, :list, required: true
+  attr :chart_pad, :integer, required: true
+  attr :chart_height, :integer, required: true
+  attr :compact, :boolean, default: false
+
+  defp annotation_markers_svg(assigns) do
+    ~H"""
+    <g
+      :if={@annotations != []}
+      data-testid="timeseries-annotations"
+      stroke-linecap="round"
+    >
+      <%= for annotation <- @annotations do %>
+        <line
+          data-testid="timeseries-annotation"
+          data-annotation-label={annotation.label}
+          data-annotation-severity={annotation.severity}
+          x1={annotation.x}
+          x2={annotation.x}
+          y1={@chart_pad}
+          y2={@chart_height - @chart_pad}
+          stroke={annotation.color}
+          stroke-width="1.5"
+          stroke-dasharray="4 3"
+          opacity="0.85"
+        >
+          <title>{annotation.title}</title>
+        </line>
+        <circle
+          cx={annotation.x}
+          cy={@chart_pad + 4}
+          r={if @compact, do: 2.5, else: 3.5}
+          fill={annotation.color}
+          opacity="0.95"
+        >
+          <title>{annotation.title}</title>
+        </circle>
+      <% end %>
+    </g>
+    """
+  end
+
   attr :id, :string, required: true
   attr :data, :map, required: true
   attr :chart_width, :integer, required: true
@@ -1702,6 +1948,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
               <text x={x} y={@chart_height - 2} text-anchor="middle">{label}</text>
             <% end %>
           </g>
+
+          <.annotation_markers_svg
+            annotations={@data.annotations}
+            chart_pad={@chart_pad}
+            chart_height={@chart_height}
+            compact={@compact}
+          />
 
           <path d={@data.paths.area} fill={"url(#series-fill-#{@id}-#{@data.idx})"} />
           <path
@@ -1889,6 +2142,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
               <text x={x} y={@chart_height - 2} text-anchor="middle">{label}</text>
             <% end %>
           </g>
+
+          <.annotation_markers_svg
+            annotations={@data.annotations}
+            chart_pad={@chart_pad}
+            chart_height={@chart_height}
+            compact={@compact}
+          />
           
     <!-- Render each series -->
           <%= for series <- @data.series do %>

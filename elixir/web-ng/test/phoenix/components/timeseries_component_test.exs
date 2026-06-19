@@ -33,6 +33,39 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
     assert html =~ "12:00 AM"
   end
 
+  test "renders timestamp annotations as SVG markers" do
+    points = [
+      {~U[2025-01-01 00:00:00Z], 10.0},
+      {~U[2025-01-01 00:10:00Z], 20.0},
+      {~U[2025-01-01 00:20:00Z], 30.0}
+    ]
+
+    html =
+      render_component(Timeseries, %{
+        id: "ts-annotations",
+        title: "Annotated",
+        panel_assigns: %{
+          chart_mode: :single,
+          rate_mode: :none,
+          annotations: [
+            %{
+              dt: ~U[2025-01-01 00:05:00Z],
+              label: "Anomaly finding",
+              severity: "critical"
+            }
+          ]
+        },
+        series_points: [{"cpu", points}]
+      })
+
+    assert html =~ "data-testid=\"timeseries-annotations\""
+    assert html =~ "data-testid=\"timeseries-annotation\""
+    assert html =~ "data-annotation-label=\"Anomaly finding\""
+    assert html =~ "data-annotation-severity=\"critical\""
+    assert html =~ "x1=\"204.0\""
+    assert html =~ "#EF4444"
+  end
+
   test "formats percent axis labels for usage percent metrics" do
     points = [
       {~U[2025-01-01 00:00:00Z], 10.0},
