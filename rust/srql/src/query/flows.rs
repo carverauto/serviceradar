@@ -1579,6 +1579,10 @@ fn build_grouped_stats_query(
     let mut binds: Vec<FlowSqlBindValue> = Vec::new();
     let mut where_parts: Vec<String> = Vec::new();
 
+    if plan.other {
+        validate_flow_other_rollup(spec)?;
+    }
+
     // Guardrails: multi-dimension group-by can be expensive. Require explicit time window and cap limit.
     if spec.group_by.len() > 1 {
         if plan.time_range.is_none() {
@@ -1757,14 +1761,44 @@ fn build_grouped_stats_query(
             json_parts.push(format!("agg_value_{idx}"));
         }
 
-        format!(
-            "SELECT jsonb_build_object({json_args}) AS result FROM ({inner}) t{order_sql} LIMIT {limit} OFFSET {offset}",
-            json_args = json_parts.join(", "),
-            inner = inner,
-            order_sql = order_sql,
-            limit = plan.limit,
-            offset = plan.offset
-        )
+        if plan.other {
+            let rank_order_sql = build_stats_rank_order_sql(plan, &group_keys, &agg_aliases)?;
+            let mut top_json_parts = json_parts.clone();
+            top_json_parts.push("'__other__'".to_string());
+            top_json_parts.push("false".to_string());
+
+            let mut other_json_parts: Vec<String> =
+                Vec::with_capacity(group_keys.len() * 2 + spec.aggregations.len() * 2 + 2);
+            for key in &group_keys {
+                other_json_parts.push(format!("'{key}'"));
+                other_json_parts.push("NULL".to_string());
+            }
+            for (idx, agg) in spec.aggregations.iter().enumerate() {
+                other_json_parts.push(format!("'{}'", agg.alias));
+                other_json_parts.push(format!("COALESCE(SUM(agg_value_{idx}), 0)"));
+            }
+            other_json_parts.push("'__other__'".to_string());
+            other_json_parts.push("true".to_string());
+
+            format!(
+                "WITH grouped AS ({inner}), ranked AS (SELECT grouped.*, ROW_NUMBER() OVER ({rank_order_sql}) AS rn FROM grouped) SELECT result FROM (SELECT rn AS sort_rn, jsonb_build_object({top_json_args}) AS result FROM ranked WHERE rn <= {limit} UNION ALL SELECT {other_sort_rn} AS sort_rn, jsonb_build_object({other_json_args}) AS result FROM ranked WHERE rn > {limit} HAVING COUNT(*) > 0) final ORDER BY sort_rn",
+                inner = inner,
+                rank_order_sql = rank_order_sql,
+                top_json_args = top_json_parts.join(", "),
+                other_json_args = other_json_parts.join(", "),
+                limit = plan.limit,
+                other_sort_rn = plan.limit + 1
+            )
+        } else {
+            format!(
+                "SELECT jsonb_build_object({json_args}) AS result FROM ({inner}) t{order_sql} LIMIT {limit} OFFSET {offset}",
+                json_args = json_parts.join(", "),
+                inner = inner,
+                order_sql = order_sql,
+                limit = plan.limit,
+                offset = plan.offset
+            )
+        }
     } else {
         let select_aggs = agg_sqls
             .iter()
@@ -1793,17 +1827,64 @@ fn build_grouped_stats_query(
     })
 }
 
+fn validate_flow_other_rollup(spec: &FlowStatsSpec) -> Result<()> {
+    if spec.group_by.is_empty() {
+        return Err(ServiceError::InvalidRequest(
+            "other:true requires grouped flow stats".into(),
+        ));
+    }
+
+    for agg in &spec.aggregations {
+        if !matches!(agg.agg_func, FlowAggFunc::Sum | FlowAggFunc::Count) {
+            return Err(ServiceError::InvalidRequest(
+                "other:true currently supports only sum(...) and count(...) aggregations".into(),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 fn build_stats_order_sql(
     plan: &QueryPlan,
     group_keys: &[&str],
     agg_aliases: &[&str],
 ) -> Result<String> {
+    let parts = build_stats_order_parts(plan, group_keys, agg_aliases)?;
+    Ok(if parts.is_empty() {
+        String::new()
+    } else {
+        format!(" ORDER BY {}", parts.join(", "))
+    })
+}
+
+fn build_stats_rank_order_sql(
+    plan: &QueryPlan,
+    group_keys: &[&str],
+    agg_aliases: &[&str],
+) -> Result<String> {
+    let mut parts = build_stats_order_parts(plan, group_keys, agg_aliases)?;
+    for idx in 0..group_keys.len() {
+        let group_expr = format!("group_value_{idx}");
+        if !parts.iter().any(|part| part.starts_with(&group_expr)) {
+            parts.push(format!("{group_expr} ASC"));
+        }
+    }
+
+    Ok(format!("ORDER BY {}", parts.join(", ")))
+}
+
+fn build_stats_order_parts(
+    plan: &QueryPlan,
+    group_keys: &[&str],
+    agg_aliases: &[&str],
+) -> Result<Vec<String>> {
     if plan.order.is_empty() {
         // Default ordering for grouped stats: highest first.
         return Ok(if !group_keys.is_empty() {
-            " ORDER BY agg_value_0 DESC".to_string()
+            vec!["agg_value_0 DESC".to_string()]
         } else {
-            String::new()
+            Vec::new()
         });
     }
 
@@ -1828,7 +1909,7 @@ fn build_stats_order_sql(
         parts.push(format!("{expr} {dir}"));
     }
 
-    Ok(format!(" ORDER BY {}", parts.join(", ")))
+    Ok(parts)
 }
 
 fn build_stats_text_filter(
@@ -2277,6 +2358,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 
@@ -2308,6 +2390,7 @@ mod tests {
             stats: Some(crate::parser::StatsSpec::from_raw("count(*) as total")),
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 
@@ -2339,6 +2422,7 @@ mod tests {
             )),
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 
@@ -2387,6 +2471,7 @@ mod tests {
             )),
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 
@@ -2414,6 +2499,7 @@ mod tests {
             )),
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 
@@ -2498,6 +2584,7 @@ mod tests {
             )),
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 
@@ -2539,6 +2626,7 @@ mod tests {
             )),
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 
@@ -2593,6 +2681,7 @@ mod tests {
             )),
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 
@@ -2604,6 +2693,95 @@ mod tests {
         assert!(
             sql.contains("ORDER BY agg_value_1 DESC"),
             "expected order by packets_total alias mapped to agg_value_1, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn translate_grouped_stats_other_rollup_ranks_full_result_and_sums_tail() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: Vec::new(),
+            order: vec![OrderClause {
+                field: "bytes_total".into(),
+                direction: OrderDirection::Desc,
+            }],
+            limit: 10,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "sum(bytes_total) as bytes_total, sum(packets_total) as packets_total by src_endpoint_ip",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            other: true,
+            include_deleted: false,
+        };
+
+        let (sql, _params) = to_sql_and_params_stats(&plan).unwrap();
+
+        assert!(
+            sql.contains("WITH grouped AS"),
+            "expected grouped CTE: {sql}"
+        );
+        assert!(
+            sql.contains("ranked AS")
+                && sql.contains(
+                    "ROW_NUMBER() OVER (ORDER BY agg_value_0 DESC, group_value_0 ASC) AS rn"
+                ),
+            "expected deterministic ranked CTE: {sql}"
+        );
+        assert!(
+            sql.contains("WHERE rn <= 10"),
+            "expected top-N filter: {sql}"
+        );
+        assert!(
+            sql.contains("UNION ALL") && sql.contains("WHERE rn > 10"),
+            "expected tail union: {sql}"
+        );
+        assert!(
+            sql.contains("'src_endpoint_ip', NULL")
+                && sql.contains("'bytes_total', COALESCE(SUM(agg_value_0), 0)")
+                && sql.contains("'packets_total', COALESCE(SUM(agg_value_1), 0)")
+                && sql.contains("'__other__', true"),
+            "expected Other JSON payload: {sql}"
+        );
+        assert!(
+            sql.contains("ORDER BY sort_rn"),
+            "expected final sort to keep Other last: {sql}"
+        );
+    }
+
+    #[test]
+    fn other_rollup_rejects_non_additive_flow_aggregates() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: Vec::new(),
+            order: vec![OrderClause {
+                field: "avg_bytes".into(),
+                direction: OrderDirection::Desc,
+            }],
+            limit: 10,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "avg(bytes_total) as avg_bytes by src_endpoint_ip",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            other: true,
+            include_deleted: false,
+        };
+
+        let err = to_sql_and_params_stats(&plan).unwrap_err();
+        assert!(
+            err.to_string().contains("sum(...) and count(...)"),
+            "expected additive aggregate error, got: {err}"
         );
     }
 
@@ -2627,6 +2805,7 @@ mod tests {
             )),
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 
@@ -2668,6 +2847,7 @@ mod tests {
             )),
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 
@@ -2696,6 +2876,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 
@@ -2728,6 +2909,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 
@@ -2751,6 +2933,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 
@@ -2790,6 +2973,7 @@ mod tests {
             )),
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 
@@ -2825,6 +3009,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 
@@ -2848,6 +3033,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 
@@ -2874,6 +3060,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 
@@ -2904,6 +3091,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 
@@ -2937,6 +3125,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 
@@ -2974,6 +3163,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 
