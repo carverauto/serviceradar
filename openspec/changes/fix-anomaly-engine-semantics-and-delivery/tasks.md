@@ -76,7 +76,7 @@
 - [x] 13.1 Fix the flow-capacity source unit label and add a threshold so it can alert.
 - [x] 13.2 Guard the Holt-Winters ETA against negative `slope_per_second`.
 - [x] 13.3 Insert a gap marker instead of deleting interior points on counter wrap.
-- [ ] 13.4 Constrain `warning_horizon_seconds <= horizon_seconds`.
+- [x] 13.4 Constrain `warning_horizon_seconds <= horizon_seconds`.
 
 ## 14. Detector Numeric Safety (F17)
 - [x] 14.1 Replace the unconditional zero-variance breach with a magnitude/floor-aware rule that does not fire for floor-less counter rates; widen the near-zero stddev guard beyond `f64::EPSILON`.
