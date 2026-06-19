@@ -37,6 +37,36 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     assert html =~ "Total Packets"
   end
 
+  test "/observability netflows summary rates use the covered data span", %{conn: conn} do
+    Application.put_env(
+      :serviceradar_web_ng,
+      :srql_module,
+      ServiceRadarWebNGWeb.LogLive.NetflowsTest.RecordingSRQLStub
+    )
+
+    test_pid = self()
+    :persistent_term.put({__MODULE__, :test_pid}, test_pid)
+
+    on_exit(fn ->
+      :persistent_term.erase({__MODULE__, :test_pid})
+    end)
+
+    q = "in:flows time:last_24h"
+
+    {:ok, _lv, html} = live(conn, ~p"/observability?#{%{q: q, limit: 50, tab: "netflows"}}")
+
+    assert html =~ "Avg Bandwidth (covered)"
+    assert html =~ "32 bps"
+    assert html =~ "Avg PPS (covered)"
+    assert html =~ "0.02 pps"
+
+    queries = collect_srql_queries([])
+
+    assert Enum.any?(queries, fn query ->
+             String.contains?(query, ~S|stats:"min(time) as first_time, max(time) as last_time"|)
+           end)
+  end
+
   test "/flows keeps canonical path when patching state", %{conn: conn} do
     Application.put_env(
       :serviceradar_web_ng,
@@ -129,6 +159,63 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
              "results" => [
                %{"timestamp" => "2026-02-27T21:00:00Z", "series" => "tcp", "value" => 1024}
              ],
+             "pagination" => %{},
+             "error" => nil
+           }}
+
+        String.contains?(query, ~S|stats:"min(time) as first_time, max(time) as last_time"|) ->
+          {:ok,
+           %{
+             "results" => [
+               %{
+                 "first_time" => "2026-02-27T21:00:00Z",
+                 "last_time" => "2026-02-27T21:30:00Z"
+               }
+             ],
+             "pagination" => %{},
+             "error" => nil
+           }}
+
+        String.contains?(query, ~S|stats:"sum(bytes_total) as total_bytes"|) ->
+          {:ok,
+           %{
+             "results" => [%{"total_bytes" => 7_200}],
+             "pagination" => %{},
+             "error" => nil
+           }}
+
+        String.contains?(query, ~S|stats:"sum(packets_total) as total_packets"|) ->
+          {:ok,
+           %{
+             "results" => [%{"total_packets" => 36}],
+             "pagination" => %{},
+             "error" => nil
+           }}
+
+        String.contains?(query, ~S|stats:"sum(packets_in) as total_packets_in"|) ->
+          {:ok, %{"results" => [], "pagination" => %{}, "error" => nil}}
+
+        String.contains?(query, ~S|stats:"sum(packets_out) as total_packets_out"|) ->
+          {:ok, %{"results" => [], "pagination" => %{}, "error" => nil}}
+
+        String.contains?(query, ~S|stats:"sum(packets) as total_packets"|) ->
+          {:ok, %{"results" => [], "pagination" => %{}, "error" => nil}}
+
+        String.contains?(query, ~S|stats:"count(*) as total by protocol_num"|) ->
+          {:ok,
+           %{
+             "results" => [
+               %{"protocol_num" => 6, "total" => 1},
+               %{"protocol_num" => 17, "total" => 1}
+             ],
+             "pagination" => %{},
+             "error" => nil
+           }}
+
+        String.contains?(query, ~S|stats:"count(*) as total"|) ->
+          {:ok,
+           %{
+             "results" => [%{"total" => 2}],
              "pagination" => %{},
              "error" => nil
            }}
