@@ -73,6 +73,29 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
     assert html =~ "4.1 KB"
   end
 
+  test "preserves measured bytes per second spikes without interpolation or smoothing" do
+    points = [
+      {~U[2025-01-01 00:00:00Z], 0.0},
+      {~U[2025-01-01 00:05:00Z], 1000.0},
+      {~U[2025-01-01 00:10:00Z], 0.0}
+    ]
+
+    html =
+      render_component(Timeseries, %{
+        id: "ts-measured-rate",
+        title: "Measured rate",
+        panel_assigns: %{chart_mode: :single, rate_mode: :none},
+        spec: %{x: "timestamp", y: "value", series: "label", series_units: %{"traffic" => :bytes_per_sec}},
+        series_points: [{"traffic", points}]
+      })
+
+    chart_points = decode_chart_points(html)
+
+    assert Enum.map(chart_points, & &1["v"]) == [0.0, 1000.0, 0.0]
+    assert length(chart_points) == 3
+    assert html =~ "1.0 KB/s"
+  end
+
   test "scales numeric y axis to the data band instead of forcing zero" do
     points = [
       {~U[2025-01-01 00:00:00Z], 80.0},
@@ -150,5 +173,13 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
 
     assert html =~ "1.0 K/s"
     refute html =~ "100.0 /s"
+  end
+
+  defp decode_chart_points(html) do
+    [_, encoded] = Regex.run(~r/data-points="([^"]+)"/, html)
+
+    encoded
+    |> String.replace("&quot;", "\"")
+    |> Jason.decode!()
   end
 end
