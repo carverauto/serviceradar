@@ -580,6 +580,8 @@ struct ScoringHealth {
     last_frame_at_unix_nano: u64,
 }
 
+const SCORING_STALE_AFTER_NS: u64 = 5 * 60 * 1_000_000_000;
+
 #[derive(Clone, Copy, Debug)]
 struct ScoringFrameUpdate {
     feed_id: u64,
@@ -617,13 +619,21 @@ impl ScoringHealth {
     }
 
     fn health_summary(&self, engine: EngineHealthSnapshot) -> HealthSummary {
+        self.health_summary_at(engine, now_unix_nano())
+    }
+
+    fn health_summary_at(&self, engine: EngineHealthSnapshot, now_unix_nano: u64) -> HealthSummary {
         let cap_pressure = engine.max_series > 0
             && (engine.tracked_series >= engine.max_series
                 || engine.tracked_counters >= engine.max_series);
+        let last_frame_age_ns = now_unix_nano.saturating_sub(self.last_frame_at_unix_nano);
+        let scoring_stalled = self.scored_samples > 0 && last_frame_age_ns > SCORING_STALE_AFTER_NS;
 
         let (status, state) = if self.scored_samples == 0 {
             (HealthStatus::Degraded, "no_scored_samples")
-        } else if engine.dropped_total > 0 {
+        } else if scoring_stalled {
+            (HealthStatus::Degraded, "scoring_stalled")
+        } else if cap_pressure && engine.dropped_total > 0 {
             (HealthStatus::Degraded, "capacity_shed")
         } else if cap_pressure {
             (HealthStatus::Degraded, "at_capacity")
@@ -634,13 +644,14 @@ impl ScoringHealth {
         HealthSummary {
             status,
             detail: format!(
-                "state={state};frames_seen={};scored_samples={};emitted_verdicts={};last_feed_id={};last_frame_at_unix_nano={};last_scored_at_unix_nano={};tracked_series={};tracked_counters={};max_series={};dropped_total={}",
+                "state={state};frames_seen={};scored_samples={};emitted_verdicts={};last_feed_id={};last_frame_at_unix_nano={};last_scored_at_unix_nano={};last_frame_age_ns={};stale_after_ns={SCORING_STALE_AFTER_NS};tracked_series={};tracked_counters={};max_series={};dropped_total={}",
                 self.frames_seen,
                 self.scored_samples,
                 self.emitted_verdicts,
                 self.last_feed_id,
                 self.last_frame_at_unix_nano,
                 self.last_scored_at_unix_nano,
+                last_frame_age_ns,
                 engine.tracked_series,
                 engine.tracked_counters,
                 engine.max_series,
@@ -1391,6 +1402,16 @@ mod tests {
         assert!(active.detail.contains("last_feed_id=9"));
         assert!(active.detail.contains("last_scored_at_unix_nano=123"));
 
+        let recovered_after_shed = scoring.health_summary(EngineHealthSnapshot {
+            tracked_series: 2,
+            tracked_counters: 1,
+            max_series: 50_000,
+            dropped_total: 2,
+        });
+        assert_eq!(recovered_after_shed.status, HealthStatus::Healthy);
+        assert!(recovered_after_shed.detail.contains("state=scoring_active"));
+        assert!(recovered_after_shed.detail.contains("dropped_total=2"));
+
         let shed = scoring.health_summary(EngineHealthSnapshot {
             tracked_series: 50_000,
             tracked_counters: 1,
@@ -1400,6 +1421,36 @@ mod tests {
         assert_eq!(shed.status, HealthStatus::Degraded);
         assert!(shed.detail.contains("state=capacity_shed"));
         assert!(shed.detail.contains("dropped_total=2"));
+    }
+
+    #[test]
+    fn health_summary_reports_stalled_scoring() {
+        let mut scoring = ScoringHealth::default();
+        scoring.record_frame(ScoringFrameUpdate {
+            feed_id: 9,
+            scored_samples: 3,
+            emitted_verdicts: 1,
+            last_scored_at_unix_nano: 123,
+        });
+        scoring.last_frame_at_unix_nano = 1_000;
+
+        let stalled = scoring.health_summary_at(
+            EngineHealthSnapshot {
+                tracked_series: 2,
+                tracked_counters: 1,
+                max_series: 50_000,
+                dropped_total: 0,
+            },
+            1_000 + SCORING_STALE_AFTER_NS + 1,
+        );
+
+        assert_eq!(stalled.status, HealthStatus::Degraded);
+        assert!(stalled.detail.contains("state=scoring_stalled"));
+        assert!(
+            stalled
+                .detail
+                .contains(&format!("last_frame_age_ns={}", SCORING_STALE_AFTER_NS + 1))
+        );
     }
 
     fn anomaly_metric_batch(value: f64, observed_at_unix_nano: u64) -> MetricBatch {
