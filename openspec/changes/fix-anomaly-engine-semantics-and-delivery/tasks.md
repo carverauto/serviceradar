@@ -180,7 +180,7 @@
 ## 31. Charted Coverage & Accessibility (F37)
 - [ ] 31.1 Chart `process.count`; add per-process history/sparklines so process spikes are visible.
 - [ ] 31.2 Show absolute volume alongside the NetFlow 100%-stacked view.
-- [ ] 31.3 Add non-color series encoding (shape/pattern/label) for color-blind operators.
+- [x] 31.3 Add non-color series encoding (shape/pattern/label) for color-blind operators.
 
 ## 32. Chart Renderer Modularization (F38)
 - [ ] 32.1 Break up `dashboard/plugins/timeseries.ex` (~1544 lines) into focused modules each under ~300 lines, e.g. point extraction/normalization, downsampling, counter-rate derivation, scale/units, SVG path geometry, hover/annotation, and the LiveComponent shell.
