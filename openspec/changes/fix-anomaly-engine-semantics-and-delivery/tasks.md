@@ -59,8 +59,8 @@
 - [ ] 10.4 Add tests proving redelivery and repeated worker runs converge on one finding.
 
 ## 11. Identity Partition Scoping And Correlation (F13, F14)
-- [ ] 11.1 Incorporate attested `partition_id` into the canonical `series_key` / finding identity.
-- [ ] 11.2 Escape or hash free-form producer tag/host/IP values before splicing into delimited keys (core `series_key.ex` and edge `series_key_for`).
+- [x] 11.1 Incorporate attested `partition_id` into the canonical `series_key` / finding identity.
+- [x] 11.2 Escape or hash free-form producer tag/host/IP values before splicing into delimited keys (core `series_key.ex` and edge `series_key_for`).
 - [x] 11.3 Scope the `InterfaceCapacity` link-speed join by `partition_id`.
 - [x] 11.4 Route re-keyed edge verdicts through the central emitters' subject sanitization.
 - [ ] 11.5 Add tests for partition scoping, key collision resistance, and edge↔central subject parity.

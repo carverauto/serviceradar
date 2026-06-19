@@ -744,19 +744,45 @@ fn counter_reset_anchor(point: &MetricPoint) -> String {
 }
 
 fn series_key_for(resource: &MetricResource, metric: &Metric, point: &MetricPoint) -> String {
+    let partition = if resource.partition.is_empty() {
+        "default"
+    } else {
+        resource.partition.as_str()
+    };
+
     if !point.series_identity_hint.is_empty() {
-        point.series_identity_hint.clone()
+        [
+            "v2".to_string(),
+            safe_component("partition", partition),
+            safe_component("hint", &point.series_identity_hint),
+        ]
+        .join("|")
     } else {
         // Fallback when the producer did not stamp a hint: resource identity +
         // metric + interface keeps distinct series apart on one host. Remote
         // SNMP polls use the polled target, not the polling agent host.
         let resource_identity = series_resource_identity(resource, metric);
+        let mut components = vec![
+            "v2".to_string(),
+            safe_component("partition", partition),
+            safe_component("identity", &resource_identity),
+            safe_component("metric", &metric.name),
+        ];
 
-        format!(
-            "{}|{}|{}",
-            resource_identity, metric.name, point.interface_uid
-        )
+        if !point.interface_uid.is_empty() {
+            components.push(safe_component("interface_uid", &point.interface_uid));
+        }
+
+        if point.if_index > 0 {
+            components.push(safe_component("if_index", &point.if_index.to_string()));
+        }
+
+        components.join("|")
     }
+}
+
+fn safe_component(name: &str, value: &str) -> String {
+    format!("{name}={}", hex::encode(value.as_bytes()))
 }
 
 fn series_resource_identity(resource: &MetricResource, metric: &Metric) -> String {
@@ -1450,13 +1476,59 @@ mod tests {
         );
         let event: serde_json::Value = serde_json::from_slice(&record.payload).unwrap();
 
-        assert_eq!(series_key, "10.0.0.20|ifHCInOctets|ifindex:7");
+        assert_eq!(
+            series_key,
+            [
+                "v2".to_string(),
+                safe_component("partition", "demo"),
+                safe_component("identity", "10.0.0.20"),
+                safe_component("metric", "ifHCInOctets"),
+                safe_component("interface_uid", "ifindex:7"),
+                safe_component("if_index", "7"),
+            ]
+            .join("|")
+        );
         assert_eq!(event["device_uid"], "10.0.0.20");
         assert_eq!(event["device_id"], "10.0.0.20");
         assert_eq!(event["target_device_ip"], "10.0.0.20");
         assert_eq!(event["anomaly"]["target_device_ip"], "10.0.0.20");
         assert_eq!(event["source_identity"]["target_device_ip"], "10.0.0.20");
         assert_eq!(event["source_identity"]["agent_id"], "agent-ns03");
+    }
+
+    #[test]
+    fn edge_series_key_encodes_partition_and_hint_boundaries() {
+        let metric = Metric {
+            name: "cpu.usage".to_string(),
+            metric_type: "sysmon.cpu".to_string(),
+            ..Default::default()
+        };
+        let point = MetricPoint {
+            series_identity_hint: "host:a|core:0".to_string(),
+            ..Default::default()
+        };
+
+        let first = MetricResource {
+            partition: "prod:east".to_string(),
+            ..Default::default()
+        };
+        let second = MetricResource {
+            partition: "prod".to_string(),
+            ..Default::default()
+        };
+        let second_point = MetricPoint {
+            series_identity_hint: "east|host:a|core:0".to_string(),
+            ..Default::default()
+        };
+
+        let first_key = series_key_for(&first, &metric, &point);
+        let second_key = series_key_for(&second, &metric, &second_point);
+
+        assert_ne!(first_key, second_key);
+        assert!(first_key.contains(&safe_component("partition", "prod:east")));
+        assert!(first_key.contains(&safe_component("hint", "host:a|core:0")));
+        assert!(!first_key.contains("prod:east"));
+        assert!(!first_key.contains("host:a|core:0"));
     }
 
     #[test]
