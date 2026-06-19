@@ -216,51 +216,53 @@ impl DetectorEngine {
             return None;
         }
 
-        let current = CounterState {
-            value: raw_value,
-            timestamp: observed_at_unix_nano,
-            reset_anchor: reset_anchor.to_owned(),
-        };
-
-        let previous = match self.counters.get(series_key) {
+        let Some(previous) = self.counters.get_mut(series_key) else {
             // Warmup: store the first reading, emit nothing (a rate needs two).
-            None => {
-                if self.counters.len() >= self.config.max_series {
-                    self.evict_stale_state(observed_at_unix_nano);
-                }
-                if self.counters.len() >= self.config.max_series {
-                    self.dropped_at_capacity = self.dropped_at_capacity.saturating_add(1);
-                    return None;
-                }
-                self.counters.insert(series_key.to_owned(), current);
+            if self.counters.len() >= self.config.max_series {
+                self.evict_stale_state(observed_at_unix_nano);
+            }
+            if self.counters.len() >= self.config.max_series {
+                self.dropped_at_capacity = self.dropped_at_capacity.saturating_add(1);
                 return None;
             }
-            Some(prev) => prev.clone(),
+            self.counters.insert(
+                series_key.to_owned(),
+                CounterState {
+                    value: raw_value,
+                    timestamp: observed_at_unix_nano,
+                    reset_anchor: reset_anchor.to_owned(),
+                },
+            );
+            return None;
         };
 
         // Reset lineage changed (counter restart): store, drop — a rate across a
         // reset is meaningless.
-        if reset_anchor_changed(&previous.reset_anchor, &current.reset_anchor) {
-            self.counters.insert(series_key.to_owned(), current);
+        if reset_anchor_changed(&previous.reset_anchor, reset_anchor) {
+            previous.value = raw_value;
+            previous.timestamp = observed_at_unix_nano;
+            replace_reset_anchor(&mut previous.reset_anchor, reset_anchor);
             return None;
         }
 
         // Non-monotonic time: drop WITHOUT advancing, keeping the older valid
         // reading as the baseline (matches central).
-        if current.timestamp <= previous.timestamp {
+        if observed_at_unix_nano <= previous.timestamp {
             return None;
         }
 
         // Over-long gap: store, drop — treat as a discontinuity, not a rate.
-        if current.timestamp - previous.timestamp > COUNTER_MAX_GAP_NS {
-            self.counters.insert(series_key.to_owned(), current);
+        if observed_at_unix_nano - previous.timestamp > COUNTER_MAX_GAP_NS {
+            previous.value = raw_value;
+            previous.timestamp = observed_at_unix_nano;
+            replace_reset_anchor(&mut previous.reset_anchor, reset_anchor);
             return None;
         }
 
-        let elapsed_seconds = (current.timestamp - previous.timestamp) as f64 / 1_000_000_000.0;
+        let elapsed_seconds = (observed_at_unix_nano - previous.timestamp) as f64 / 1_000_000_000.0;
         let delta = counter_delta(
             previous.value,
-            current.value,
+            raw_value,
             counter_width,
             elapsed_seconds,
             max_counter_rate_per_second,
@@ -268,7 +270,9 @@ impl DetectorEngine {
 
         // Advance across the interval whether or not a delta was salvageable
         // (central stores `current` on both the ok and decrease-drop branches).
-        self.counters.insert(series_key.to_owned(), current);
+        previous.value = raw_value;
+        previous.timestamp = observed_at_unix_nano;
+        replace_reset_anchor(&mut previous.reset_anchor, reset_anchor);
 
         match delta {
             Some(d) if elapsed_seconds > 0.0 => Some(d / elapsed_seconds),
@@ -528,6 +532,15 @@ impl DetectorEngine {
 /// nil-tolerant `reset_anchor_changed?`).
 fn reset_anchor_changed(previous: &str, current: &str) -> bool {
     !previous.is_empty() && !current.is_empty() && previous != current
+}
+
+fn replace_reset_anchor(target: &mut String, current: &str) {
+    if target == current {
+        return;
+    }
+
+    target.clear();
+    target.push_str(current);
 }
 
 /// The counter increment over one interval: a normal increase is `current -
