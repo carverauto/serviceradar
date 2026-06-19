@@ -184,3 +184,21 @@ a value labeled as a rate SHALL be a rate.
 - **WHEN** a value is presented in per-second units (bps, B/s, pps)
 - **THEN** it SHALL be the windowed total divided by the window duration, not the raw cumulative window total
 - **AND** SNMP interface counter charts SHALL present a derived per-second rate that handles counter wrap/reset as gaps rather than fabricated spikes
+
+#### Scenario: Sampling rate is carried end to end
+- **WHEN** a flow exporter reports a sampling rate (NetFlow options/sampler records, IPFIX/v9 sampling IEs, or sFlow)
+- **THEN** the collector SHALL capture it and core SHALL persist it on a queryable flow field (not only an unmapped blob)
+- **AND** continuous-aggregate rollups SHALL store sampling-scaled volume so historical traffic figures are also correct
+
+### Requirement: Authored Dashboard Query Safety
+A user-authored or user-parameterized dashboard SHALL NOT let a viewer read data
+outside the dashboard's intended scope or run unbounded queries.
+
+#### Scenario: Variable values cannot rewrite the query
+- **WHEN** a dashboard variable value is supplied by a viewer and used in a panel query
+- **THEN** the value SHALL be parameterized or escaped and validated against the variable's declared type/allowed set
+- **AND** it SHALL NOT be able to change the query's collection (`in:`), filters, or other grammar
+
+#### Scenario: Authored queries are bounded
+- **WHEN** an authored panel query runs
+- **THEN** it SHALL carry a default time window and a maximum row limit so it cannot trigger an unbounded scan

@@ -184,12 +184,51 @@
 - [ ] 32.2 Do the split as a behavior-preserving refactor first (no logic change), then land the F30/F31/F33/F34/F35 fixes against the smaller modules.
 - [ ] 32.3 Break up the other oversized chart/dashboard/flow modules into focused files under ~300 lines each (behavior-preserving): `netflow_live/visualize.ex` (~4532), `dashboard_live/data.ex` (~3148), `dashboards/authored.ex` (~1551), `dashboard_live/index.ex` (~1544), `netflow_live/dashboard.ex` (~1478), `device_live/sysmon_metrics.ex`, `device_live/flow_components.ex`.
 
-## 33. Verification
-- [x] 33.1 Run `sfw cargo test -p serviceradar-anomaly-addon -p serviceradar-anomaly-core -p serviceradar-causal-disposition`.
-- [x] 33.2 Run `sfw cargo test -p serviceradar-srql` if the seasonal profiling verb is implemented in SRQL.
-- [x] 33.3 Run `go test ./go/pkg/agent/addon/...` (and update bazel BUILD deps for any new test files/imports).
-- [ ] 33.4 Run focused core-elx tests for status handler, causal signals, seasonal disposition, capacity forecasting, anomaly profile seeding, and alert generation.
-- [ ] 33.5 Run web-ng tests for the device-details anomaly/capacity components, chart renderer, NetFlow/interface data layers, and JS chart hooks.
-- [ ] 33.6 Run `./scripts/elixir_quality.sh --project elixir/serviceradar_core` if the implementation changes shared core-elx behavior broadly.
-- [x] 33.7 Run native add-on manifest/version gates if add-on package metadata or Rust add-on sources change.
-- [ ] 33.8 Re-run the live `sysmon.debug_spike` trace in demo and confirm the F1/F3/F6/F12/F15/F21-F37 behaviors are resolved (one open finding, sample-time, coherent identity, visible+annotated chart spike, correct NetFlow units, no alert storm).
+## 33. Flow Sampling-Rate End-to-End (F39)
+- [ ] 33.1 Collector: capture NetFlow v9/IPFIX sampling IEs (incl. options/sampler records) per exporter; add a configured per-exporter fallback (esp. v5); set `sampling_rate` on the proto.
+- [ ] 33.2 Core: persist `sampling_rate` to a real flow column (stop `zero_to_nil`-dropping it into the `unmapped` blob).
+- [ ] 33.3 Scale bytes/packets by `sampling_rate` in flow queries (and rebuild/relearn the hierarchical continuous aggregates to store scaled volume).
+- [ ] 33.4 Normalize sFlow byte layer (L2 vs L3) and per-sample packet count; add a test that sampled exporters report true volume.
+
+## 34. Dashboard Query Safety (F40)
+- [ ] 34.1 Parameterize/escape authored dashboard variable values; never interpolate them into the SRQL grammar; validate against the variable's declared type/allowed set.
+- [ ] 34.2 Enforce a default time window and a max `LIMIT` on every authored panel query.
+- [ ] 34.3 Add tests proving a view-only user cannot rewrite a panel's collection/filters via a variable.
+
+## 35. Authored-Panel Readout Correctness (F41)
+- [ ] 35.1 Fix the Stat/Count trend to compare true first/last by enforced time sort (correct arrow + delta sign).
+- [ ] 35.2 Fix KPI sparklines to select the most-recent buckets (`ORDER BY bucket DESC LIMIT N` then reverse).
+- [ ] 35.3 Compute pivot/stat aggregations server-side over the full result, not the 250-row client-truncated set; stop type-inferring from a 100-row sample.
+
+## 36. Dashboard Table & Topology Plugins (F42)
+- [ ] 36.1 Table plugin: server-side pagination/cap + sort; preserve authored SELECT column order; format numeric cells (units/separators).
+- [ ] 36.2 Topology: cap nodes with an explicit "+N more" truncation indicator; use a stable node id (not `phash2` of the raw map).
+
+## 37. NetFlow Aggregation & Attribution (F43)
+- [ ] 37.1 Scope the interface bandwidth gauge to the interface (not whole-exporter bytes); label peak vs average correctly.
+- [ ] 37.2 Compute Sankey "Other" from the full result set (don't drop the tail at the DB); keep sort on limited timeseries.
+- [ ] 37.3 Canonicalize bidirectional flows (Top Conversations, device ingress+egress) to avoid double-counting; unify talker scoping with the device tab.
+- [ ] 37.4 Filter reverse-DNS/Geo enrichment by expiry; distinguish chart query-error from no-traffic.
+
+## 38. Flow Ingest Defaults (F44)
+- [ ] 38.1 Use NULL (not 0) for directional byte/packet counts a protocol does not carry; divide bps/pps by covered data span, not the full wall-clock window.
+
+## 39. Dashboard Load Performance (F45)
+- [ ] 39.1 Parallelize the ~20 dashboard data queries + ~30 schema probes (concurrent, not sequential).
+- [ ] 39.2 Split `dashboard_live/data.ex` (~3148 lines) per §32.3.
+
+## 40. Data Retention Coverage (F46)
+- [ ] 40.1 Verify a retention policy exists for every high-volume hypertable (`otel_traces`, `ocsf_network_activity` only got one 2026-06-19); add any missing.
+- [ ] 40.2 Track that the F1/F12/F17/F39 write-flood fixes reduce `ocsf_events`/`capacity_forecasts`/flow growth.
+- [ ] 40.3 (ops, separate) Resolve the failing CNPG scheduled base backup (Longhorn throughput) so there is a recovery point.
+
+## 41. Verification
+- [x] 41.1 Run `sfw cargo test -p serviceradar-anomaly-addon -p serviceradar-anomaly-core -p serviceradar-causal-disposition`.
+- [x] 41.2 Run `sfw cargo test -p serviceradar-srql` if the seasonal profiling verb is implemented in SRQL.
+- [x] 41.3 Run `go test ./go/pkg/agent/addon/...` (and update bazel BUILD deps for any new test files/imports).
+- [ ] 41.4 Run focused core-elx tests for status handler, causal signals, seasonal disposition, capacity forecasting, anomaly profile seeding, alert generation, and flow ingest.
+- [ ] 41.5 Run web-ng tests for device-details anomaly/capacity, chart renderer, NetFlow/interface data layers, JS chart hooks, dashboard authoring, and the table/topology plugins.
+- [ ] 41.6 Run `./scripts/elixir_quality.sh --project elixir/serviceradar_core` if the implementation changes shared core-elx behavior broadly.
+- [ ] 41.7 Run `sfw cargo test -p serviceradar-flow-collector` if collector sampling changes land.
+- [x] 41.8 Run native add-on manifest/version gates if add-on package metadata or Rust add-on sources change.
+- [ ] 41.9 Re-run the live `sysmon.debug_spike` trace + a sampled-flow check in demo and confirm F1/F3/F6/F12/F15/F21-F46 behaviors are resolved (one open finding, sample-time, coherent identity, visible+annotated chart spike, correct sampled NetFlow units, safe dashboard variables, no alert storm).

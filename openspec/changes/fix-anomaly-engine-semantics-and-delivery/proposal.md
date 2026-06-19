@@ -113,6 +113,24 @@ change also:
 - Add a chart annotation layer for findings/thresholds (F34); fix hover/tooltip
   x-alignment and add crosshairs (F35); render gaps/errors honestly (F36); chart
   collected-but-unshown signal and add non-color encoding (F37).
+- Break the chart/dashboard/flow god-modules (`timeseries.ex`, `visualize.ex`,
+  `dashboard_live/data.ex`, `authored.ex`, …) into <~300-line modules (F38).
+
+A flow-pipeline + dashboard-authoring end-to-end audit (2026-06-19, see `design.md`)
+added F39-F46. The change also:
+- Carry the flow sampling rate end to end (collector populates it for NetFlow too,
+  core persists it to a column, queries + continuous aggregates scale by it) (F39).
+- Close the authored-dashboard variable injection / viewer authz bypass and bound
+  authored queries (F40).
+- Fix authored-panel readouts (reversed trend, oldest-bucket sparklines,
+  client-truncated aggregations) (F41); fix the table/topology plugins (pagination,
+  column order, node truncation) (F42).
+- Fix NetFlow aggregation/attribution (interface-scoped gauge, full-set Sankey
+  "Other", bidirectional canonicalization, enrichment expiry) (F43); flow ingest
+  directional NULLs and partial-window rates (F44).
+- Parallelize dashboard load + split the data god-module (F45).
+- Verify retention coverage for all high-volume hypertables and confirm the
+  write-flood fixes cut DB growth (F46).
 
 ## Impact
 - Affected specs: `edge-architecture`, `observability-signals`
@@ -130,7 +148,12 @@ change also:
   seeders, `.../monitoring/alert_generator.ex` (anomaly/capacity alerting), web-ng
   device-details (`.../live/device_live/anomaly_capacity_components.ex`,
   `anomaly_capacity_data.ex`, `sysmon_metrics.ex`, `interface_data.ex`, `show.ex`),
-  the shared chart renderer (`.../dashboard/plugins/timeseries.ex`), the JS chart
-  hooks (`assets/js/hooks/charts/*`, `assets/js/netflow_charts/util.js`), NetFlow
-  dashboards (`.../live/netflow_live/dashboard.ex`), SRQL capacity/event indexes and
-  counter-rate path, and focused tests.
+  the shared chart renderer (`.../dashboard/plugins/timeseries.ex`, `table.ex`,
+  `topology.ex`), the JS chart hooks (`assets/js/hooks/charts/*`,
+  `assets/js/netflow_charts/util.js`), NetFlow dashboards
+  (`.../live/netflow_live/dashboard.ex`, `visualize.ex`), the flow ingest +
+  collector (`rust/flow-collector`, `.../event_writer/processors/flows.ex`, flow
+  caggs), dashboard authoring (`.../live/authored_dashboard_live/*`,
+  `.../dashboards/authored.ex`, `.../live/dashboard_live/data.ex`), SRQL
+  capacity/event/flow indexes and counter-rate path, TimescaleDB retention
+  coverage, and focused tests.
