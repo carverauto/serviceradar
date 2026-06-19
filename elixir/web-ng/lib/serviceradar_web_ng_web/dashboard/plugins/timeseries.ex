@@ -40,16 +40,16 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   @impl true
   def build(%{"results" => results, "viz" => viz} = _srql_response) when is_list(results) and is_map(viz) do
     with {:ok, spec} <- parse_timeseries_spec(viz),
-         {:ok, series_points} <- extract_series_points(results, spec) do
-      {:ok, %{spec: spec, series_points: series_points}}
+         {:ok, series_points, series_units} <- extract_series_points(results, spec) do
+      {:ok, %{spec: Map.put(spec, :series_units, series_units), series_points: series_points}}
     end
   end
 
   def build(%{"results" => results} = _srql_response) when is_list(results) do
     case infer_timeseries_spec(results) do
       {:ok, spec} ->
-        with {:ok, series_points} <- extract_series_points(results, spec) do
-          {:ok, %{spec: spec, series_points: series_points}}
+        with {:ok, series_points, series_units} <- extract_series_points(results, spec) do
+          {:ok, %{spec: Map.put(spec, :series_units, series_units), series_points: series_points}}
         end
 
       _ ->
@@ -91,8 +91,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   defp extract_series_points(results, %{x: x, y: y, series: series_key}) do
     rows = Enum.filter(results, &is_map/1)
 
-    points =
-      Enum.reduce(rows, %{}, fn row, acc ->
+    %{points: points, units: units} =
+      Enum.reduce(rows, %{points: %{}, units: %{}}, fn row, acc ->
         series =
           if is_binary(series_key) do
             row
@@ -106,7 +106,11 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
         with {:ok, dt} <- parse_datetime(Map.get(row, x)),
              {:ok, value} <- parse_number(Map.get(row, y)) do
-          Map.update(acc, series, [{dt, value}], fn existing -> existing ++ [{dt, value}] end)
+          acc
+          |> update_in([:points], fn points ->
+            Map.update(points, series, [{dt, value}], fn existing -> existing ++ [{dt, value}] end)
+          end)
+          |> maybe_put_series_unit(series, row_unit(row))
         else
           _ -> acc
         end
@@ -123,8 +127,56 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       |> Enum.sort_by(fn {series, _points} -> series end)
       |> Enum.take(@max_series)
 
-    {:ok, series_points}
+    {:ok, series_points, units}
   end
+
+  defp maybe_put_series_unit(acc, series, unit) when is_atom(unit) do
+    update_in(acc, [:units], fn units -> Map.put_new(units, series, unit) end)
+  end
+
+  defp maybe_put_series_unit(acc, _series, _unit), do: acc
+
+  defp row_unit(row) when is_map(row) do
+    Enum.find_value(
+      [
+        Map.get(row, "metric.unit"),
+        get_in(row, ["metric", "unit"]),
+        Map.get(row, "unit"),
+        Map.get(row, :unit),
+        Map.get(row, "metric_unit"),
+        Map.get(row, :metric_unit)
+      ],
+      &normalize_metric_unit/1
+    )
+  end
+
+  defp row_unit(_), do: nil
+
+  defp normalize_metric_unit(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.downcase()
+    |> case do
+      "" -> nil
+      "%" -> :percent
+      "percent" -> :percent
+      "by" -> :bytes
+      "byte" -> :bytes
+      "bytes" -> :bytes
+      "b/s" -> :bytes_per_sec
+      "by/s" -> :bytes_per_sec
+      "bytes/s" -> :bytes_per_sec
+      "hz" -> :hz
+      "1/s" -> :count_per_sec
+      "count/s" -> :count_per_sec
+      "counts/s" -> :count_per_sec
+      _ -> nil
+    end
+  end
+
+  defp normalize_metric_unit(unit) when unit in [:percent, :bytes, :bytes_per_sec, :hz, :count_per_sec], do: unit
+
+  defp normalize_metric_unit(_), do: nil
 
   defp parse_number(value) when is_integer(value), do: {:ok, value * 1.0}
   defp parse_number(value) when is_float(value), do: {:ok, value}
@@ -775,6 +827,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
   defp unit_for_series(series, spec, rate_mode) do
     cond do
+      unit = series_unit_for(spec, series) ->
+        unit
+
       rate_mode == :counter ->
         if traffic_series?(series), do: :bytes_per_sec, else: :count_per_sec
 
@@ -791,6 +846,17 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         :number
     end
   end
+
+  defp series_unit_for(spec, series) when is_map(spec) do
+    units = Map.get(spec, :series_units) || Map.get(spec, "series_units") || %{}
+    series_key = safe_to_string(series)
+
+    Map.get(units, series) ||
+      Map.get(units, series_key) ||
+      normalize_metric_unit(Map.get(spec, :unit) || Map.get(spec, "unit"))
+  end
+
+  defp series_unit_for(_spec, _series), do: nil
 
   defp percent_field?(%{y: y}) when is_binary(y), do: String.contains?(y, "percent")
   defp percent_field?(_), do: false
