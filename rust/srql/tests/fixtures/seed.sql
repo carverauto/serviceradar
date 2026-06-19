@@ -1137,6 +1137,7 @@ VALUES
     ('2026-01-18T03:00:00Z'::timestamptz, 'device-alpha', 'sysmon.cpu', 'cpu.usage_percent', 9.0, 9.0, 9.0, 12),
     ('2026-01-25T03:00:00Z'::timestamptz, 'device-alpha', 'sysmon.cpu', 'cpu.usage_percent', 800.0, 800.0, 800.0, 12),
     ('2026-01-25T03:00:00Z'::timestamptz, 'device-beta', 'sysmon.cpu', 'cpu.usage_percent', 42.0, 42.0, 42.0, 12),
+    ('2026-01-25T04:00:00Z'::timestamptz, 'device-sparse', 'sysmon.cpu', 'cpu.usage_percent', 123.0, 123.0, 123.0, 12),
     ('2026-01-25T03:00:00Z'::timestamptz, 'device-alpha', 'sysmon.memory', 'memory.used_percent', 55.0, 55.0, 55.0, 12);
 WITH base AS (
     SELECT NOW() AS now_ts

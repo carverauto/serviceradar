@@ -19,7 +19,14 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
   @default_time_range "last_180d"
   @default_limit 50_000
   @default_profile_timezone "Etc/UTC"
+  @profile_timezone_keys [
+    :profile_timezone,
+    "profile_timezone",
+    :seasonal_profile_timezone,
+    "seasonal_profile_timezone"
+  ]
   @timezone_pattern ~r/^[A-Za-z0-9_+\-]+(?:\/[A-Za-z0-9_+\-]+)*$/
+  @zoneinfo_dirs ["/usr/share/zoneinfo", "/usr/share/lib/zoneinfo"]
 
   # `:p05p95` (no underscore) is the exact NIF `RobustStatistic` ABI atom; see
   # `robust_statistic_value/2` for why the underscore form is normalized away.
@@ -206,19 +213,13 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
 
   defp profile_timezone_value(values) when is_map(values) do
     values
-    |> Map.get(
-      :profile_timezone,
-      Map.get(
-        values,
-        "profile_timezone",
-        Map.get(
-          values,
-          :seasonal_profile_timezone,
-          Map.get(values, "seasonal_profile_timezone", @default_profile_timezone)
-        )
-      )
-    )
+    |> profile_timezone_candidate()
     |> normalize_profile_timezone()
+  end
+
+  defp profile_timezone_candidate(values) do
+    Enum.find_value(@profile_timezone_keys, fn key -> Map.get(values, key) end) ||
+      @default_profile_timezone
   end
 
   defp normalize_profile_timezone(value) when value in [nil, ""], do: @default_profile_timezone
@@ -227,10 +228,33 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
   defp normalize_profile_timezone(value) do
     value = to_string(value)
 
-    if Regex.match?(@timezone_pattern, value) do
+    if Regex.match?(@timezone_pattern, value) and valid_profile_timezone?(value) do
       value
     else
       @default_profile_timezone
     end
+  end
+
+  defp valid_profile_timezone?(@default_profile_timezone), do: true
+
+  defp valid_profile_timezone?(value) do
+    calendar_timezone?(value) or zoneinfo_timezone?(value)
+  end
+
+  defp calendar_timezone?(value) do
+    case DateTime.shift_zone(DateTime.utc_now(), value) do
+      {:ok, _datetime} -> true
+      _ -> false
+    end
+  rescue
+    _ -> false
+  end
+
+  defp zoneinfo_timezone?(value) do
+    Enum.any?(@zoneinfo_dirs, fn dir ->
+      dir
+      |> Path.join(value)
+      |> File.regular?()
+    end)
   end
 end

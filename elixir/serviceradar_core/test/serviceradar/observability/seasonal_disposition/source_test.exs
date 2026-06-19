@@ -34,6 +34,10 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.SourceTest do
     assert utc.profile_timezone == "Etc/UTC"
     assert utc.query =~ ~s|timezone:"Etc/UTC"|
 
+    [unknown | _] = Source.defaults(profile_timezone: "Foo/Bar")
+    assert unknown.profile_timezone == "Etc/UTC"
+    assert unknown.query =~ ~s|timezone:"Etc/UTC"|
+
     [unsafe | _] = Source.defaults(profile_timezone: ~s|Etc/UTC" sort:sample_value:desc|)
     assert unsafe.profile_timezone == "Etc/UTC"
     assert unsafe.query =~ ~s|timezone:"Etc/UTC"|

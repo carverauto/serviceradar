@@ -343,6 +343,20 @@ async fn check_timeseries_metrics_profile_hour_of_week(harness: &SrqlTestHarness
     assert_json_f64(row, "mad", 1.0);
     assert_json_f64(row, "p05", 9.1);
     assert_json_f64(row, "p95", 10.9);
+
+    let sparse = rows
+        .iter()
+        .find(|row| row.get("series").and_then(|value| value.as_str()) == Some("device-sparse"))
+        .unwrap_or_else(|| panic!("device-sparse profile row missing: {body}"));
+
+    assert_eq!(sparse["dow"], serde_json::json!(0));
+    assert_eq!(sparse["hod"], serde_json::json!(4));
+    assert_json_f64(sparse, "sample_value", 123.0);
+    assert_eq!(sparse["bucket_count"], serde_json::json!(1));
+    assert_eq!(sparse["center"], serde_json::Value::Null);
+    assert_eq!(sparse["mad"], serde_json::Value::Null);
+    assert_eq!(sparse["p05"], serde_json::Value::Null);
+    assert_eq!(sparse["p95"], serde_json::Value::Null);
 }
 
 fn assert_json_f64(row: &serde_json::Value, field: &str, expected: f64) {
