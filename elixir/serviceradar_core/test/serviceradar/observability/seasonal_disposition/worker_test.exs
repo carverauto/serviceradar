@@ -216,6 +216,34 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
     refute_received {:seasonal_verdict, _}
   end
 
+  test "worker emits a clear when a previously confirmed seasonal breach suppresses" do
+    busy = for i <- 0..19, do: 800.0 + rem(i, 5) * 2.0
+    rows = [profile_row("svc/cpu/clear", 2, 9, busy, 805.0)]
+    persisted = :ets.new(:seasonal_state_clear, [:public, :set])
+
+    assert :ok =
+             Worker.run(job(),
+               sources: [source()],
+               runner: make_runner(rows),
+               carried_state: %{{"svc/cpu/clear", 2, 9} => 1},
+               state_persister: fn key, next ->
+                 :ets.insert(persisted, {key, next})
+                 :ok
+               end,
+               verdict_emitter: TestEmitter,
+               test_pid: self()
+             )
+
+    assert_received {:seasonal_verdict, attrs}
+    assert attrs.series_key == "svc/cpu/clear"
+    assert attrs.disposition == "suppress"
+    assert attrs.status == "cleared"
+    assert attrs.consecutive_anomalous == 0
+    assert attrs.bucket_started_at == ~U[2026-06-11 18:00:00Z]
+    assert attrs.bucket_ended_at == ~U[2026-06-11 19:00:00Z]
+    assert [{_, 0}] = :ets.lookup(persisted, {"svc/cpu/clear", 2, 9})
+  end
+
   test "worker pages profile rows instead of truncating at the first SRQL limit page" do
     idle = for i <- 0..19, do: 5.0 + rem(i, 3) * 0.5
 

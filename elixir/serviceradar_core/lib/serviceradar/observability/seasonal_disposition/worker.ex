@@ -20,7 +20,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
        selection; every gate is a typed `Disposition` value, never an unwind.
     4. Persist the returned `next_consecutive_anomalous` per `(series_key, dow, hod)`
        and emit `verdict_source: central-seasonal` verdicts for confirmed breaches
-       via the existing `VerdictEmitter` onto the signal path.
+       and confirmed-breach clears via the existing `VerdictEmitter` onto the signal path.
 
   Mirrors `ServiceRadar.Observability.CapacityForecasting.Worker`. Tests can inject
   `:runner`, `:sources`, `:reasoner`, `:state_loader`, `:state_persister`, and
@@ -130,7 +130,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
 
         case dispose_batch(inputs, opts) do
           {:ok, results, nif_us} ->
-            handle_results(source, rows, results, nif_us, opts)
+            handle_results(source, rows, results, config, nif_us, opts)
 
           {:error, reason} ->
             emit_source_error_telemetry(source, :nif, reason)
@@ -139,12 +139,12 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
     end
   end
 
-  defp handle_results(%Source{} = source, rows, results, nif_us, opts) do
+  defp handle_results(%Source{} = source, rows, results, config, nif_us, opts) do
     pairs = Enum.zip(rows, results)
 
     pairs
     |> Enum.reduce_while({:ok, %{}}, fn {row, result}, {:ok, acc} ->
-      case process_result(source, row, result, opts) do
+      case process_result(source, row, result, config, opts) do
         :ok -> {:cont, {:ok, bump(acc, classify(result))}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
@@ -160,26 +160,26 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
     end
   end
 
-  defp process_result(_source, _row, {:error, reason}, _opts) do
+  defp process_result(_source, _row, {:error, reason}, _config, _opts) do
     Logger.warning("Seasonal disposition row errored", reason: inspect(reason))
     :ok
   end
 
-  defp process_result(source, row, {:ok, disposition}, opts) do
+  defp process_result(source, row, {:ok, disposition}, config, opts) do
     next = Map.get(disposition, :next_consecutive_anomalous, 0)
     score = Map.get(disposition, :score, 0.0)
     verdict = Map.get(disposition, :disposition)
 
     case persist_state(source, row, next, opts) do
-      :ok -> maybe_emit_verdict(source, row, verdict, score, next, opts)
+      :ok -> maybe_emit_verdict(source, row, verdict, score, next, config, opts)
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp maybe_emit_verdict(source, row, verdict, score, consecutive, opts) do
-    if surfaces?(verdict) and emit_verdicts?(opts) do
+  defp maybe_emit_verdict(source, row, verdict, score, consecutive, config, opts) do
+    if surfaces?(row, verdict, config) and emit_verdicts?(opts) do
       emitter = Keyword.get(opts, :verdict_emitter, VerdictEmitter)
-      attrs = verdict_attrs(source, row, verdict, score, consecutive, opts)
+      attrs = verdict_attrs(source, row, verdict, score, consecutive, config, opts)
 
       case emitter.emit(attrs, opts) do
         :ok ->
@@ -198,7 +198,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
     end
   end
 
-  defp verdict_attrs(%Source{} = source, row, verdict, score, consecutive, opts) do
+  defp verdict_attrs(%Source{} = source, row, verdict, score, consecutive, config, opts) do
     %{
       series_key: row.series_key,
       resource_type: source.resource_type,
@@ -207,7 +207,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
       metric_class: source.metric_class,
       metric_name: source.metric_name,
       disposition: disposition_tag(verdict),
-      status: "breach",
+      status: status(row, verdict, config),
       score: score,
       consecutive_anomalous: consecutive,
       dow: row.dow,
@@ -361,8 +361,21 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   defp classify({:ok, %{disposition: {:skipped, _}}}), do: :skipped
   defp classify(_), do: :other
 
-  defp surfaces?({:seasonal_breach, _}), do: true
-  defp surfaces?(_), do: false
+  defp surfaces?(_row, {:seasonal_breach, _}, _config), do: true
+  defp surfaces?(row, :suppress, config), do: previously_confirmed?(row, config)
+  defp surfaces?(_row, _verdict, _config), do: false
+
+  defp status(_row, {:seasonal_breach, _}, _config), do: "breach"
+
+  defp status(row, :suppress, config) do
+    if previously_confirmed?(row, config), do: "cleared", else: "suppressed"
+  end
+
+  defp status(_row, _verdict, _config), do: "suppressed"
+
+  defp previously_confirmed?(row, %{confirm_slots: confirm_slots}) do
+    row.consecutive_anomalous >= max(confirm_slots, 1)
+  end
 
   defp disposition_tag({:seasonal_breach, _}), do: "seasonal_breach"
   defp disposition_tag({:seasonal_drift, _}), do: "seasonal_drift"
