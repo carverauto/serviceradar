@@ -184,6 +184,28 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
     assert preview.query == "series services time:last_30d limit:50"
   end
 
+  test "preview clamps oversized absolute time windows", %{scope: scope} do
+    assert {:ok, preview} =
+             Dashboards.preview_authored_query(
+               scope,
+               "series services time:[2000-01-01T00:00:00Z,2030-01-01T00:00:00Z]",
+               limit: 50
+             )
+
+    assert preview.query ==
+             "series services time:[2029-12-02T00:00:00Z,2030-01-01T00:00:00Z] limit:50"
+
+    assert {:ok, preview} =
+             Dashboards.preview_authored_query(
+               scope,
+               "series services time:[2026-01-01T00:00:00Z,2026-01-15T00:00:00Z]",
+               limit: 50
+             )
+
+    assert preview.query ==
+             "series services time:[2026-01-01T00:00:00Z,2026-01-15T00:00:00Z] limit:50"
+  end
+
   test "preview uses SRQL viz column types before sampled row values", %{scope: scope} do
     assert {:ok, preview} = Dashboards.preview_authored_query(scope, "viz typed services")
 
