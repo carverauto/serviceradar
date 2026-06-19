@@ -419,6 +419,9 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
   end
 
   defp sankey_stats_query(base_query, group_bys, limit) when is_binary(base_query) and is_list(group_bys) do
+    # `other:true` folds the non-top group tuples into one tail row. The Sankey
+    # therefore shows top conversation paths plus a combined tail, not per-column
+    # top endpoints with independent source/destination Other buckets.
     ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by #{Enum.join(group_bys, ", ")}" sort:total_bytes:desc limit:#{limit} other:true|
   end
 
