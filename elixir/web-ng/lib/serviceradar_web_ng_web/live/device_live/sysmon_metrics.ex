@@ -254,19 +254,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   end
 
   defp build_disk_section(srql_module, filter_tokens, scope) do
-    query =
-      timeseries_metric_query(
-        "sysmon.disk",
-        "disk.used_percent",
-        filter_tokens,
-        nil,
-        @disk_metrics_limit
-      )
+    query = disk_metric_query(filter_tokens, @disk_metrics_limit)
 
     base = %{
       key: "disk",
       title: "Disk",
-      subtitle: "last 24h · 5m buckets · used percent",
+      subtitle: "last 24h · 5m buckets · max per mount",
       unit: :percent,
       query: query,
       panels: [],
@@ -278,9 +271,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => results}} when is_list(results) and results != [] ->
         normalized = normalize_metric_results(results, "used_percent")
-        viz = timeseries_viz("used_percent", nil)
-        panels = build_metric_panels(%{"results" => normalized, "viz" => viz}, normalized, nil)
-        header_value = latest_metric_value(normalized, "used_percent")
+        viz = timeseries_viz("used_percent", "mount_point")
+        panels = build_metric_panels(%{"results" => normalized, "viz" => viz}, normalized, "mount_point")
+        header_value = latest_metric_max_value(normalized, "used_percent")
         header_stats = metric_stats(normalized, "used_percent")
         %{base | panels: panels, header_value: header_value, header_stats: header_stats}
 
@@ -659,18 +652,48 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   end
 
   defp sysmon_filter_has_data?(srql_module, filter_tokens, scope) do
-    Enum.any?(
+    sysmon_native_metric_has_data?(srql_module, "cpu_metrics", filter_tokens, scope) or
+      sysmon_native_metric_has_data?(srql_module, "disk_metrics", filter_tokens, scope) or
+      Enum.any?(
+        [
+          {"sysmon.memory", "memory.used_percent"},
+          {"sysmon.process", "process.cpu_usage"},
+          {"sysmon.process", "process.count"}
+        ],
+        fn {metric_type, metric_name} ->
+          sysmon_timeseries_has_data?(srql_module, metric_type, metric_name, filter_tokens, scope)
+        end
+      )
+  end
+
+  defp sysmon_native_metric_has_data?(srql_module, entity, filter_tokens, scope) do
+    query =
       [
-        {"sysmon.cpu", "cpu.usage_percent"},
-        {"sysmon.memory", "memory.used_percent"},
-        {"sysmon.disk", "disk.used_percent"},
-        {"sysmon.process", "process.cpu_usage"},
-        {"sysmon.process", "process.count"}
-      ],
-      fn {metric_type, metric_name} ->
-        sysmon_timeseries_has_data?(srql_module, metric_type, metric_name, filter_tokens, scope)
-      end
-    )
+        "in:#{entity}",
+        "time:last_24h"
+      ]
+      |> Kernel.++(filter_tokens)
+      |> Kernel.++(["sort:timestamp:desc", "limit:1"])
+      |> Enum.join(" ")
+
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => rows}} when is_list(rows) ->
+        rows != []
+
+      {:ok, other} ->
+        Logger.warning(
+          "Unexpected sysmon #{entity} presence probe response for filters #{inspect(filter_tokens)}: #{inspect(other)}"
+        )
+
+        false
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed sysmon #{entity} presence probe for filters #{inspect(filter_tokens)}: #{format_error(reason)}"
+        )
+
+        false
+    end
   end
 
   defp sysmon_timeseries_has_data?(srql_module, metric_type, metric_name, filter_tokens, scope) do
@@ -758,6 +781,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
       "bucket:5m",
       "agg:max",
       "series:core_id"
+    ]
+    |> Kernel.++(filter_tokens)
+    |> Kernel.++(["sort:timestamp:desc", "limit:#{limit}"])
+    |> Enum.join(" ")
+  end
+
+  defp disk_metric_query(filter_tokens, limit) do
+    [
+      "in:disk_metrics",
+      "time:last_24h",
+      "bucket:5m",
+      "agg:max",
+      "series:mount_point"
     ]
     |> Kernel.++(filter_tokens)
     |> Kernel.++(["sort:timestamp:desc", "limit:#{limit}"])
