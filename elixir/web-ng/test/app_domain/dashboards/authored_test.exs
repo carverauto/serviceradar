@@ -102,6 +102,10 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
       {:ok, %{"results" => [%{"limit" => Map.get(opts, :limit)}]}}
     end
 
+    def query("in:flows" <> _rest, _opts) do
+      {:ok, %{"results" => [%{"src_endpoint_ip" => "192.0.2.10", "bytes_total" => 42}]}}
+    end
+
     def query(_query, _opts), do: {:ok, %{"results" => []}}
   end
 
@@ -185,6 +189,38 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
              RuntimeData.preview_panel_query(scope, %{srql_query: "limit probe", visual_type: :table}, %{})
 
     assert query == "limit probe time:last_24h limit:250"
+  end
+
+  test "runtime asks SRQL for table Other rollups on flow grouped top-N queries", %{scope: scope} do
+    source_query =
+      ~s|in:flows time:last_1h stats:"sum(bytes_total) as bytes_total by src_endpoint_ip" sort:bytes_total:desc limit:10|
+
+    assert {:ok, %{query: query}} =
+             RuntimeData.preview_panel_query(scope, %{srql_query: source_query, visual_type: :table}, %{})
+
+    assert query ==
+             ~s|in:flows time:last_1h stats:"sum(bytes_total) as bytes_total by src_endpoint_ip" sort:bytes_total:desc other:true limit:250|
+  end
+
+  test "runtime leaves unsupported table Other rollup shapes unchanged", %{scope: scope} do
+    non_flow_query = ~s|in:devices stats:count() as count by type sort:count:desc limit:10|
+
+    assert {:ok, %{query: query}} =
+             RuntimeData.preview_panel_query(scope, %{srql_query: non_flow_query, visual_type: :table}, %{})
+
+    assert query == ~s|in:devices stats:count() as count by type sort:count:desc time:last_24h limit:250|
+    refute query =~ "other:true"
+
+    non_additive_flow_query =
+      ~s|in:flows time:last_1h stats:"avg(bytes_total) as bytes_total by src_endpoint_ip" sort:bytes_total:desc limit:10|
+
+    assert {:ok, %{query: query}} =
+             RuntimeData.preview_panel_query(scope, %{srql_query: non_additive_flow_query, visual_type: :table}, %{})
+
+    assert query ==
+             ~s|in:flows time:last_1h stats:"avg(bytes_total) as bytes_total by src_endpoint_ip" sort:bytes_total:desc limit:250|
+
+    refute query =~ "other:true"
   end
 
   test "gauge compatibility is limited to single metrics and availability ratios", %{scope: scope} do
