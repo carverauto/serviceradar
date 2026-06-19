@@ -163,15 +163,27 @@ defmodule ServiceRadar.Observability.RuleSeeder do
       %{
         name: "causal_prediction_health_finding",
         description:
-          "Raise one active health incident per device from anomaly and capacity causal prediction findings.",
+          "Raise one active health incident per canonical anomaly series from confirmed causal anomaly transitions.",
         priority: 44,
         enabled: true,
         signal: :event,
         match: %{
           "subject_prefix" => "signals.causal.predictions",
-          "attribute_equals" => %{"signal_type" => "causal"}
+          "attribute_equals" => %{
+            "signal_type" => "causal",
+            "event_type" => ["anomaly", "anomaly_detection"],
+            "anomaly.state" => ["anomaly_open", "open", "anomalous"]
+          },
+          "recovery" => %{
+            "subject_prefix" => "signals.causal.predictions",
+            "attribute_equals" => %{
+              "signal_type" => "causal",
+              "event_type" => ["anomaly", "anomaly_detection"],
+              "anomaly.state" => ["anomaly_clear", "clear", "inactive"]
+            }
+          }
         },
-        group_by: ["device"],
+        group_by: ["device", "anomaly.series_key"],
         threshold: 1,
         window_seconds: 300,
         bucket_seconds: 60,
@@ -182,7 +194,45 @@ defmodule ServiceRadar.Observability.RuleSeeder do
           "message" => "Causal prediction finding detected"
         },
         alert: %{
-          "title" => "Causal Prediction Finding",
+          "title" => "Anomaly Finding",
+          "severity" => "warning"
+        }
+      },
+      %{
+        name: "causal_capacity_health_finding",
+        description:
+          "Raise one active health incident per canonical capacity forecast resource inside the warning horizon.",
+        priority: 43,
+        enabled: true,
+        signal: :event,
+        match: %{
+          "subject_prefix" => "signals.causal.predictions",
+          "attribute_equals" => %{
+            "signal_type" => "causal",
+            "event_type" => "capacity_forecast",
+            "capacity_forecast.status" => "projected"
+          },
+          "recovery" => %{
+            "subject_prefix" => "signals.causal.predictions",
+            "attribute_equals" => %{
+              "signal_type" => "causal",
+              "event_type" => "capacity_forecast",
+              "capacity_forecast.status" => ["inactive", "skipped"]
+            }
+          }
+        },
+        group_by: ["device", "capacity_forecast.resource_key"],
+        threshold: 1,
+        window_seconds: 300,
+        bucket_seconds: 60,
+        cooldown_seconds: 300,
+        renotify_seconds: 21_600,
+        event: %{
+          "log_name" => "alert.health.capacity_forecast",
+          "message" => "Capacity forecast warning-horizon finding detected"
+        },
+        alert: %{
+          "title" => "Capacity Forecast Finding",
           "severity" => "warning"
         }
       },

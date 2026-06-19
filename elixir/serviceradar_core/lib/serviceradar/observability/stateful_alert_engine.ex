@@ -340,7 +340,16 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp maybe_process_event_rule(event, %{signal: :event} = rule, state) do
-    if rule_matches_event?(event, rule), do: process_event(rule, event, state)
+    cond do
+      rule_matches_event?(event, rule) ->
+        process_event(rule, event, state)
+
+      rule_recovers_event?(event, rule) ->
+        recover_event(rule, event, state)
+
+      true ->
+        :ok
+    end
   end
 
   defp maybe_process_event_rule(_event, _rule, _state), do: :ok
@@ -364,6 +373,38 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
         updated = update_snapshot(snapshot, rule, record)
         flushed = maybe_flush_snapshot(updated, rule, state)
         :ets.insert(state.table, {key, flushed})
+
+      :error ->
+        :ok
+    end
+  end
+
+  defp recover_event(rule, record, state) do
+    case build_group(rule.group_by, record) do
+      {:ok, group_key, group_values} ->
+        key = {rule.id, group_key}
+
+        case :ets.lookup(state.table, key) do
+          [{^key, snapshot}] ->
+            now = record_timestamp(record)
+
+            snapshot =
+              snapshot
+              |> Map.put(:group_values, group_values)
+              |> Map.put(:bucket_counts, %{})
+              |> Map.put(:current_bucket_start, record_bucket_start(record, rule.bucket_seconds))
+              |> Map.put(:window_count, 0)
+              |> Map.put(:last_seen_at, now)
+              |> Map.put(:cooldown_until, nil)
+              |> Map.put(:diagnostics, update_diagnostics(snapshot.diagnostics, record, now))
+              |> handle_recovery(rule, record, now)
+
+            flushed = maybe_flush_snapshot(snapshot, rule, state)
+            :ets.insert(state.table, {key, flushed})
+
+          _ ->
+            :ok
+        end
 
       :error ->
         :ok
@@ -1143,6 +1184,13 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       true
     else
       event_matches?(event, match)
+    end
+  end
+
+  defp rule_recovers_event?(event, rule) do
+    case rule.match || %{} do
+      %{"recovery" => recovery} when is_map(recovery) -> event_matches?(event, recovery)
+      _ -> false
     end
   end
 

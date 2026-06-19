@@ -133,11 +133,11 @@
 - [ ] 22.3 Annotate finding timestamps/series on the chart and let a finding click focus the chart on its series/time window.
 
 ## 23. Anomaly & Capacity Alerting (F29, gated on F1/F12/F17)
-- [ ] 23.1 Add `alert_generator.ex` handling for anomaly findings: alert only on confirmed anomaly-open and clear transitions, never on `pending_anomaly` or per-sample.
-- [ ] 23.2 Dedup/coalesce per canonical series with a cooldown/suppression window so one ongoing condition is one alert.
-- [ ] 23.3 Add capacity alerting on a real exhaustion-ETA crossing the warning horizon, not on every `projected` re-emit.
+- [x] 23.1 Add `alert_generator.ex` handling for anomaly findings: alert only on confirmed anomaly-open and clear transitions, never on `pending_anomaly` or per-sample.
+- [x] 23.2 Dedup/coalesce per canonical series with a cooldown/suppression window so one ongoing condition is one alert.
+- [x] 23.3 Add capacity alerting on a real exhaustion-ETA crossing the warning horizon, not on every `projected` re-emit.
 - [ ] 23.4 Map detector/finding severity to alert severity; exclude floor-less counter false-criticals until F17 lands.
-- [ ] 23.5 Add tests proving no alert storm: a sustained anomaly yields one open + one clear, and pending/duplicate findings produce no alert.
+- [x] 23.5 Add tests proving no alert storm: a sustained anomaly yields one open + one clear, and pending/duplicate findings produce no alert.
 
 ## 24. Chart Aggregation Fidelity (F30)
 - [ ] 24.1 Replace `limit_points` stride decimation with min/max-envelope (LTTB) downsampling so extremes survive (`timeseries.ex:629-655`).
