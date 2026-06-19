@@ -63,7 +63,7 @@
 - [x] 11.2 Escape or hash free-form producer tag/host/IP values before splicing into delimited keys (core `series_key.ex` and edge `series_key_for`).
 - [x] 11.3 Scope the `InterfaceCapacity` link-speed join by `partition_id`.
 - [x] 11.4 Route re-keyed edge verdicts through the central emitters' subject sanitization.
-- [ ] 11.5 Add tests for partition scoping, key collision resistance, and edge↔central subject parity.
+- [x] 11.5 Add tests for partition scoping, key collision resistance, and edge↔central subject parity.
 
 ## 12. Seasonal Data Feed And Semantics (F15, blocker)
 - [ ] 12.1 Implement the `profile_hour_of_week` SRQL stats verb (or an equivalent bucket-profile query) producing `dow/hod/center/mad/p05/p95/bucket_count/bucket_sum/bucket_sum_sq`.
