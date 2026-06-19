@@ -1336,6 +1336,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Process Count"
     assert html =~ "avg observed processes"
     assert html =~ "Processes"
+    assert html =~ "CPU Trend"
     assert html =~ "nginx"
   end
 

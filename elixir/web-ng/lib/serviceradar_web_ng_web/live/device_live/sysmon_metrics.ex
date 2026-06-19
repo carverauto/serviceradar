@@ -74,6 +74,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   end
 
   defp normalize_process_rows(cpu_rows, memory_rows) when is_list(cpu_rows) and is_list(memory_rows) do
+    cpu_history_by_process = process_metric_history_by_identity(cpu_rows, "cpu_usage")
     memory_by_process = latest_process_metric_by_identity(memory_rows, "memory_usage")
 
     cpu_rows
@@ -83,6 +84,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
 
       row
       |> Map.put("memory_usage", Map.get(memory_row, "memory_usage"))
+      |> Map.put("_cpu_sparkline", Map.get(cpu_history_by_process, identity, []))
       |> Map.put_new("status", Map.get(memory_row, "status"))
       |> Map.put_new("start_time", Map.get(memory_row, "start_time"))
     end)
@@ -99,6 +101,29 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
     |> Enum.sort_by(&timestamp_sort_key/1, :desc)
     |> Enum.reduce(%{}, fn row, acc ->
       Map.put_new(acc, process_identity(row), row)
+    end)
+  end
+
+  defp process_metric_history_by_identity(rows, value_field) do
+    rows
+    |> Enum.filter(&is_map/1)
+    |> Enum.map(&normalize_process_metric_row(&1, value_field))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.reduce(%{}, fn row, acc ->
+      with {:ok, dt} <- parse_datetime(Map.get(row, "timestamp")),
+           value when is_number(value) <- parse_number(Map.get(row, value_field)) do
+        Map.update(acc, process_identity(row), [{dt, value}], fn points -> [{dt, value} | points] end)
+      else
+        _ -> acc
+      end
+    end)
+    |> Map.new(fn {identity, points} ->
+      points =
+        points
+        |> Enum.sort_by(fn {dt, _value} -> DateTime.to_unix(dt, :millisecond) end)
+        |> Enum.take(-60)
+
+      {identity, points}
     end)
   end
 
