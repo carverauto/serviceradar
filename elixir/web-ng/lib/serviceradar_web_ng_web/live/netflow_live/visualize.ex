@@ -1779,9 +1779,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     mid = sankey_mid_group_by(mid_dim)
     dst = sankey_dst_group_by(dst_dim, cidr_prefix)
 
-    limit = sankey_max_edges_from_state(state)
-
-    ~s|#{base} stats:"sum(bytes_total) as total_bytes by #{src}, #{mid}, #{dst}" sort:total_bytes:desc limit:#{limit}|
+    ~s|#{base} stats:"sum(bytes_total) as total_bytes by #{src}, #{mid}, #{dst}" sort:total_bytes:desc|
   end
 
   defp chart_query_timeseries(base, %{} = state) when is_binary(base) do
@@ -3475,7 +3473,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
           |> Enum.map(&srql_sankey_edge_from_row/1)
           |> Enum.reject(&is_nil/1)
           |> Enum.sort_by(&(-Map.get(&1, :bytes, 0)))
-          |> Enum.take(max_edges)
 
         if edges == [] do
           sankey =

@@ -263,10 +263,9 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
 
     cidr_prefix = cidr_prefix_for(prefix)
     group_bys = group_bys_from_opts(opts, cidr_prefix)
-    max_edges = Keyword.get(opts, :max_edges, 200)
 
-    cidr_query = sankey_stats_query(base_query, group_bys, max_edges)
-    ip_query = sankey_ip_fallback_query(base_query, max_edges)
+    cidr_query = sankey_stats_query(base_query, group_bys)
+    ip_query = sankey_ip_fallback_query(base_query)
 
     {rows, mode} = sankey_rows_and_mode(srql_module, scope, cidr_query, ip_query)
 
@@ -274,7 +273,6 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
       rows
       |> sankey_edges(mode)
       |> Enum.filter(&valid_edge?/1)
-      |> Enum.take(max_edges)
 
     sankey_result(edges)
   rescue
@@ -416,13 +414,12 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
     end
   end
 
-  defp sankey_stats_query(base_query, group_bys, max_edges)
-       when is_binary(base_query) and is_list(group_bys) and is_integer(max_edges) do
-    ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by #{Enum.join(group_bys, ", ")}" sort:total_bytes:desc limit:#{max_edges}|
+  defp sankey_stats_query(base_query, group_bys) when is_binary(base_query) and is_list(group_bys) do
+    ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by #{Enum.join(group_bys, ", ")}" sort:total_bytes:desc|
   end
 
-  defp sankey_ip_fallback_query(base_query, max_edges) when is_binary(base_query) and is_integer(max_edges) do
-    ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by src_endpoint_ip, dst_endpoint_port, dst_endpoint_ip" sort:total_bytes:desc limit:#{max_edges}|
+  defp sankey_ip_fallback_query(base_query) when is_binary(base_query) do
+    ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by src_endpoint_ip, dst_endpoint_port, dst_endpoint_ip" sort:total_bytes:desc|
   end
 
   defp sankey_rows_and_mode(srql_module, scope, cidr_query, ip_query) do
