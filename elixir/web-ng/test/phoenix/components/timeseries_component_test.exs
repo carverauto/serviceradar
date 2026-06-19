@@ -96,6 +96,32 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
     assert html =~ "1.0 KB/s"
   end
 
+  test "downsamples with a min max envelope so narrow spikes survive" do
+    points =
+      Enum.map(0..1000, fn idx ->
+        value = if idx == 501, do: 10_000.0, else: 10.0
+        {DateTime.add(~U[2025-01-01 00:00:00Z], idx * 60, :second), value}
+      end)
+
+    html =
+      render_component(Timeseries, %{
+        id: "ts-envelope-downsample",
+        title: "Envelope",
+        panel_assigns: %{chart_mode: :single, rate_mode: :none},
+        spec: %{x: "timestamp", y: "value", series: "label"},
+        series_points: [{"samples", points}]
+      })
+
+    chart_points = decode_chart_points(html)
+    values = Enum.map(chart_points, & &1["v"])
+
+    assert length(chart_points) <= 800
+    assert List.first(values) == 10.0
+    assert List.last(values) == 10.0
+    assert 10_000.0 in values
+    assert html =~ "10000.0"
+  end
+
   test "scales numeric y axis to the data band instead of forcing zero" do
     points = [
       {~U[2025-01-01 00:00:00Z], 80.0},
