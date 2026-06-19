@@ -17,6 +17,7 @@ async fn srql_api_queries() {
         check_device_graph_query_rejects_invalid_device_id(&harness).await;
         check_timeseries_metrics_query_returns_rows(&harness).await;
         check_timeseries_metrics_profile_hour_of_week(&harness).await;
+        check_flow_interface_pairs_preserve_same_interface_directions(&harness).await;
         check_snmp_metrics_alias_filters_metric_type(&harness).await;
         check_rperf_metrics_queries_still_work(&harness).await;
         check_virtualization_inventory_queries(&harness).await;
@@ -316,6 +317,48 @@ async fn check_timeseries_metrics_profile_hour_of_week(harness: &SrqlTestHarness
     assert_json_f64(row, "mad", 1.0);
     assert_json_f64(row, "p05", 9.1);
     assert_json_f64(row, "p95", 10.9);
+}
+
+async fn check_flow_interface_pairs_preserve_same_interface_directions(harness: &SrqlTestHarness) {
+    let request = QueryRequest {
+        query: r#"in:flows sampler_address:"198.51.100.77" time:[2026-01-01T00:00:00Z,2026-02-01T00:00:00Z] stats:sum(bytes_total) as bytes_total by sampler_address,interface sort:if_direction:asc limit:10"#
+            .to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = harness.query(request).await;
+    let (status, body) = read_json(response).await;
+
+    assert_eq!(status, http::StatusCode::OK, "unexpected status: {body}");
+    let rows = body["results"]
+        .as_array()
+        .unwrap_or_else(|| panic!("results missing or not array: {body}"));
+    assert_eq!(
+        rows.len(),
+        2,
+        "same-interface flow should yield one ingress and one egress row: {body}"
+    );
+
+    let directions = rows
+        .iter()
+        .map(|row| {
+            assert_eq!(row["sampler_address"], serde_json::json!("198.51.100.77"));
+            assert_eq!(row["interface"], serde_json::json!("Loopback77"));
+            assert_eq!(row["bytes_total"], serde_json::json!(1234));
+            row["if_direction"]
+                .as_str()
+                .unwrap_or_else(|| panic!("missing if_direction in row: {row}"))
+                .to_string()
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+
+    assert_eq!(
+        directions,
+        std::collections::BTreeSet::from(["egress".to_string(), "ingress".to_string()])
+    );
 }
 
 fn assert_json_f64(row: &serde_json::Value, field: &str, expected: f64) {
