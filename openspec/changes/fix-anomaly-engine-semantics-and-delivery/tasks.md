@@ -74,7 +74,7 @@
 
 ## 13. Capacity Forecast Correctness (F16)
 - [x] 13.1 Fix the flow-capacity source unit label and add a threshold so it can alert.
-- [ ] 13.2 Guard the Holt-Winters ETA against negative `slope_per_second`.
+- [x] 13.2 Guard the Holt-Winters ETA against negative `slope_per_second`.
 - [ ] 13.3 Insert a gap marker instead of deleting interior points on counter wrap.
 - [ ] 13.4 Constrain `warning_horizon_seconds <= horizon_seconds`.
 
