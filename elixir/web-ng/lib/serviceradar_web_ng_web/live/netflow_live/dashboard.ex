@@ -17,13 +17,16 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   @refresh_interval_ms to_timeout(minute: 1)
 
-  @time_windows [
-    {"1h", "Last 1 Hour"},
-    {"6h", "Last 6 Hours"},
-    {"24h", "Last 24 Hours"},
-    {"7d", "Last 7 Days"},
-    {"30d", "Last 30 Days"}
+  @window_specs [
+    {"1h", %{label: "Last 1 Hour", seconds: 3_600, bucket: "1m", bucket_seconds: 60}},
+    {"6h", %{label: "Last 6 Hours", seconds: 21_600, bucket: "5m", bucket_seconds: 300}},
+    {"24h", %{label: "Last 24 Hours", seconds: 86_400, bucket: "15m", bucket_seconds: 900}},
+    {"7d", %{label: "Last 7 Days", seconds: 604_800, bucket: "1h", bucket_seconds: 3_600}},
+    {"30d", %{label: "Last 30 Days", seconds: 2_592_000, bucket: "6h", bucket_seconds: 21_600}}
   ]
+  @window_spec_map Map.new(@window_specs)
+  @default_window_spec Map.fetch!(@window_spec_map, "1h")
+  @time_windows Enum.map(@window_specs, fn {window, spec} -> {window, spec.label} end)
 
   @unit_modes [
     {"bps", "Bits/sec"},
@@ -45,6 +48,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   ]
 
   @top_n 10
+
+  @doc false
+  def netflow_window_specs, do: @window_specs
 
   @impl true
   def mount(_params, _session, socket) do
@@ -1203,26 +1209,20 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     |> Map.new()
   end
 
-  defp bucket_seconds("1m"), do: 60
-  defp bucket_seconds("5m"), do: 300
-  defp bucket_seconds("15m"), do: 900
-  defp bucket_seconds("1h"), do: 3_600
-  defp bucket_seconds("6h"), do: 21_600
-  defp bucket_seconds(_), do: 300
+  defp bucket_seconds(bucket) do
+    @window_specs
+    |> Enum.find_value(fn
+      {_window, %{bucket: ^bucket, bucket_seconds: seconds}} -> seconds
+      _ -> nil
+    end)
+    |> Kernel.||(@default_window_spec.bucket_seconds)
+  end
 
-  defp time_window_seconds("1h"), do: 3_600
-  defp time_window_seconds("6h"), do: 21_600
-  defp time_window_seconds("24h"), do: 86_400
-  defp time_window_seconds("7d"), do: 604_800
-  defp time_window_seconds("30d"), do: 2_592_000
-  defp time_window_seconds(_), do: 3_600
+  defp time_window_seconds(window), do: window_spec(window).seconds
 
-  defp timeseries_bucket("1h"), do: "1m"
-  defp timeseries_bucket("6h"), do: "5m"
-  defp timeseries_bucket("24h"), do: "15m"
-  defp timeseries_bucket("7d"), do: "1h"
-  defp timeseries_bucket("30d"), do: "6h"
-  defp timeseries_bucket(_), do: "5m"
+  defp timeseries_bucket(window), do: window_spec(window).bucket
+
+  defp window_spec(window), do: Map.get(@window_spec_map, window, @default_window_spec)
 
   defp drill_down(socket, filter) do
     base = base_flow_query(socket.assigns.query, socket.assigns.time_window)
