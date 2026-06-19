@@ -144,7 +144,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
       [
         build_cpu_section(srql_module, filter_tokens, scope),
         build_memory_section(srql_module, filter_tokens, scope),
-        build_disk_section(srql_module, filter_tokens, scope)
+        build_disk_section(srql_module, filter_tokens, scope),
+        build_process_count_section(srql_module, filter_tokens, scope)
       ],
       & &1
     )
@@ -164,6 +165,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
       key: "cpu",
       title: "CPU",
       subtitle: "last 24h · 5m buckets · avg across cores",
+      unit: :percent,
       query: query,
       panels: [],
       error: nil,
@@ -205,6 +207,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
       key: "memory",
       title: "Memory",
       subtitle: "last 24h · 5m buckets · used percent",
+      unit: :percent,
       query: query,
       panels: [],
       error: nil,
@@ -246,6 +249,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
       key: "disk",
       title: "Disk",
       subtitle: "last 24h · 5m buckets · used percent",
+      unit: :percent,
       query: query,
       panels: [],
       error: nil,
@@ -260,6 +264,48 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
         panels = build_metric_panels(%{"results" => normalized, "viz" => viz}, normalized, nil)
         header_value = latest_metric_value(normalized, "used_percent")
         header_stats = metric_stats(normalized, "used_percent")
+        %{base | panels: panels, header_value: header_value, header_stats: header_stats}
+
+      {:ok, %{"results" => results}} when is_list(results) ->
+        base
+
+      {:ok, other} ->
+        %{base | error: "unexpected SRQL response: #{inspect(other)}"}
+
+      {:error, reason} ->
+        %{base | error: "SRQL error: #{format_error(reason)}"}
+    end
+  end
+
+  defp build_process_count_section(srql_module, filter_tokens, scope) do
+    query =
+      timeseries_metric_query(
+        "sysmon.process",
+        "process.count",
+        filter_tokens,
+        nil,
+        @metrics_limit
+      )
+
+    base = %{
+      key: "process-count",
+      title: "Process Count",
+      subtitle: "last 24h · 5m buckets · avg observed processes",
+      unit: :count,
+      query: query,
+      panels: [],
+      error: nil,
+      header_value: nil,
+      header_stats: nil
+    }
+
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => results}} when is_list(results) and results != [] ->
+        normalized = normalize_metric_results(results, "process_count")
+        viz = timeseries_viz("process_count", nil)
+        panels = build_metric_panels(%{"results" => normalized, "viz" => viz}, normalized, nil)
+        header_value = latest_metric_value(normalized, "process_count")
+        header_stats = metric_stats(normalized, "process_count")
         %{base | panels: panels, header_value: header_value, header_stats: header_stats}
 
       {:ok, %{"results" => results}} when is_list(results) ->
