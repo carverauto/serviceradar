@@ -39,6 +39,10 @@ on:
     tags:
       - "palisade-v*"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   ImageOS: ubuntu24
 

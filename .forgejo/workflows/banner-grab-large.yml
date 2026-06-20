@@ -8,6 +8,10 @@ on:
     # go/pkg/scan/banner_grab/engine_test.go.
     - cron: '0 7 * * *'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
