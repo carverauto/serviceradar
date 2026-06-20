@@ -260,7 +260,7 @@
 - [x] 48.5 Support `other:true` for additive grouped timeseries stats (`timeseries_metrics`, `snmp`, `rperf`) and reject non-additive averages (#4021 follow-up).
 
 ## 49. UI Device List & Settings (F54)
-- [ ] 49.1 Fix Bulk-edit "Apply tags" to run with the actor/scope so the policy permits it (and add a test).
+- [x] 49.1 Fix Bulk-edit "Apply tags" to run with the actor/scope so the policy permits it (and add a test).
 - [x] 49.2 Batch the SNMP-profile count N+1; make interface target-count fail-closed like device count.
 - [ ] 49.3 Debounce the sweep-group count; align "Run Task" enablement+targets with select-all-matching; use a real CSV parser; bound `get_all_matching_uids`; run SNMP test-connection off-process.
 

@@ -62,6 +62,71 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "in:devices"
   end
 
+  test "bulk apply tags updates selected devices with the current scope", %{
+    conn: conn,
+    scope: scope
+  } do
+    unique = System.unique_integer([:positive])
+    prefix = "bulk-tag-scope-#{unique}"
+    first_uid = "test-device-#{prefix}-1"
+    second_uid = "test-device-#{prefix}-2"
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: first_uid,
+        type_id: 1,
+        type: "Server",
+        hostname: "#{prefix}-one",
+        tags: %{"existing" => "keep"},
+        is_available: true,
+        is_managed: true,
+        first_seen_time: now,
+        last_seen_time: now
+      },
+      %{
+        uid: second_uid,
+        type_id: 1,
+        type: "Server",
+        hostname: "#{prefix}-two",
+        tags: %{},
+        is_available: true,
+        is_managed: true,
+        first_seen_time: now,
+        last_seen_time: now
+      }
+    ])
+
+    {:ok, view, _html} =
+      live(conn, ~p"/devices?#{%{q: "in:devices hostname:%#{prefix}% limit:10", limit: 10}}")
+
+    html = render_until(view, "#{prefix}-two", 5_000)
+    assert html =~ "#{prefix}-one"
+
+    view
+    |> element("input[phx-click='toggle_device_select'][phx-value-uid='#{first_uid}']")
+    |> render_click()
+
+    view
+    |> element("input[phx-click='toggle_device_select'][phx-value-uid='#{second_uid}']")
+    |> render_click()
+
+    view
+    |> element("button[phx-click='open_bulk_edit_modal']")
+    |> render_click()
+
+    _html =
+      view
+      |> form("#bulk-tags-form", %{"bulk" => %{"tags" => "env=prod\nowner=ops"}})
+      |> render_submit()
+
+    {:ok, first_device} = Device.get_by_uid(first_uid, true, scope: scope)
+    {:ok, second_device} = Device.get_by_uid(second_uid, true, scope: scope)
+
+    assert first_device.tags == %{"existing" => "keep", "env" => "prod", "owner" => "ops"}
+    assert second_device.tags == %{"env" => "prod", "owner" => "ops"}
+  end
+
   test "device list SRQL submit routes catalog entity changes and drops stale filters", %{
     conn: conn
   } do
@@ -441,7 +506,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         id: "northbound_action_modal",
         title: "Run Task",
         subtitle: "Create a task invocation",
-        form: to_form(ServiceRadarWebNG.Northbound.ActionForm.default_params(action), as: :action),
+        form:
+          to_form(ServiceRadarWebNG.Northbound.ActionForm.default_params(action), as: :action),
         actions: [action],
         action: action,
         error: nil,
@@ -1362,7 +1428,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         gateway_id: gateway_id,
         agent_id: host_id
       ),
-      timeseries_metric_row(now, skewed_device_id, "memory.used_percent", "sysmon.memory", 33.3, "%",
+      timeseries_metric_row(
+        now,
+        skewed_device_id,
+        "memory.used_percent",
+        "sysmon.memory",
+        33.3,
+        "%",
         gateway_id: gateway_id,
         agent_id: host_id
       ),
@@ -1370,16 +1442,34 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         gateway_id: gateway_id,
         agent_id: host_id
       ),
-      timeseries_metric_row(now, skewed_device_id, "process.count", "sysmon.process", 1.0, "{process}",
+      timeseries_metric_row(
+        now,
+        skewed_device_id,
+        "process.count",
+        "sysmon.process",
+        1.0,
+        "{process}",
         gateway_id: gateway_id,
         agent_id: host_id
       ),
-      timeseries_metric_row(now, skewed_device_id, "process.cpu_usage", "sysmon.process", 19.6, "%",
+      timeseries_metric_row(
+        now,
+        skewed_device_id,
+        "process.cpu_usage",
+        "sysmon.process",
+        19.6,
+        "%",
         gateway_id: gateway_id,
         agent_id: host_id,
         tags: %{"pid" => "5252", "name" => "beam.smp", "status" => "Running"}
       ),
-      timeseries_metric_row(now, skewed_device_id, "process.memory_usage", "sysmon.process", 2_097_152, "By",
+      timeseries_metric_row(
+        now,
+        skewed_device_id,
+        "process.memory_usage",
+        "sysmon.process",
+        2_097_152,
+        "By",
         gateway_id: gateway_id,
         agent_id: host_id,
         tags: %{"pid" => "5252", "name" => "beam.smp", "status" => "Running"}
@@ -1439,7 +1529,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
              "pagination" => %{}
            }}
 
-        String.contains?(query, "in:events") and String.contains?(query, ~s|agent_id:"#{agent_id}"|) ->
+        String.contains?(query, "in:events") and
+            String.contains?(query, ~s|agent_id:"#{agent_id}"|) ->
           {:ok,
            %{
              "results" => [
@@ -1906,7 +1997,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         scan: nil,
         title: "No enrolled endpoint inventory agent",
         detail: "cannot run until this device is associated with an enrolled agent",
-        empty: "No enrolled endpoint inventory agent or package inventory is available for this device."
+        empty:
+          "No enrolled endpoint inventory agent or package inventory is available for this device."
       },
       %{
         suffix: "no-scan",
@@ -1959,7 +2051,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         },
         title: "Latest endpoint inventory scan is partial",
         detail: "rpm output truncated",
-        empty: "The latest endpoint inventory scan is partial and produced no current package rows."
+        empty:
+          "The latest endpoint inventory scan is partial and produced no current package rows."
       },
       %{
         suffix: "stale",
@@ -1987,7 +2080,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         },
         title: "Scan completed with no package rows",
         detail: "reported complete coverage",
-        empty: "The latest endpoint inventory scan completed, but it did not report current package rows."
+        empty:
+          "The latest endpoint inventory scan completed, but it did not report current package rows."
       }
     ]
 
@@ -2527,7 +2621,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
       # Click favorite star for first interface
       view
-      |> element("button[phx-click='toggle_interface_favorite'][phx-value-uid='#{device_uid}-eth0']")
+      |> element(
+        "button[phx-click='toggle_interface_favorite'][phx-value-uid='#{device_uid}-eth0']"
+      )
       |> render_click()
 
       # Should show favorited state (star icon changes)
@@ -3605,7 +3701,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
           source_summaries: [],
           artifact_count: 0,
           current: true,
-          last_changed_scan_at: Map.get(attrs, :last_successful_scan_at) || Map.get(attrs, :last_scan_at) || now,
+          last_changed_scan_at:
+            Map.get(attrs, :last_successful_scan_at) || Map.get(attrs, :last_scan_at) || now,
           ingested_at: now,
           package_set_hash: "sha256:package-set-#{Map.fetch!(attrs, :scan_id)}",
           artifact_hash: nil,
@@ -3682,7 +3779,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     end
   end
 
-  defp timeseries_metric_row(timestamp, device_id, metric_name, metric_type, value, unit, opts \\ []) do
+  defp timeseries_metric_row(
+         timestamp,
+         device_id,
+         metric_name,
+         metric_type,
+         value,
+         unit,
+         opts \\ []
+       ) do
     gateway_id = Keyword.get(opts, :gateway_id, "test-gw")
     agent_id = Keyword.get(opts, :agent_id, "test-agent")
     tags = Keyword.get(opts, :tags, %{})
@@ -3726,7 +3831,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         _ ->
           cond do
             String.contains?(query, "in:logs") ->
-              if delay_ms = Application.get_env(:serviceradar_web_ng, :device_live_log_query_delay_ms) do
+              if delay_ms =
+                   Application.get_env(:serviceradar_web_ng, :device_live_log_query_delay_ms) do
                 Process.sleep(delay_ms)
               end
 
