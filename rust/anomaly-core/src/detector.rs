@@ -337,3 +337,79 @@ fn finalize_detector_verdict(
         context,
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::reason_impl;
+    use crate::types::{ReasonContext, ReasonSample};
+
+    fn context(confirm_slots: usize, consecutive_anomalous: usize) -> ReasonContext {
+        ReasonContext {
+            baseline: (0..20)
+                .map(|i| 100.0 + if i % 2 == 0 { 0.5 } else { -0.5 })
+                .collect(),
+            rolling_acc: None,
+            window_tail: None,
+            seasonal_baseline: None,
+            trend_baseline: None,
+            rolling_enabled: Some(true),
+            seasonal_enabled: Some(false),
+            trend_enabled: Some(false),
+            min_samples: Some(5),
+            seasonal_min_samples: None,
+            trend_min_samples: None,
+            window_size: Some(50),
+            n_sigma: Some(3.0),
+            seasonal_n_sigma: None,
+            trend_n_sigma: None,
+            confirm_slots: Some(confirm_slots),
+            consecutive_anomalous: Some(consecutive_anomalous),
+            min_std_floor: None,
+            min_cv: None,
+            saturation_gate: None,
+        }
+    }
+
+    fn sample(value: f64) -> ReasonSample {
+        ReasonSample {
+            value,
+            observed_at_unix_nano: None,
+        }
+    }
+
+    #[test]
+    fn confirm_slots_nth_breach_confirms_not_before() {
+        let first = reason_impl(context(3, 0), sample(1_000.0)).expect("first pending verdict");
+        assert_eq!(first.state, "pending_anomaly");
+        assert!(!first.anomalous);
+        assert_eq!(first.next_consecutive_anomalous, 1);
+
+        let pending = reason_impl(context(3, 1), sample(1_000.0)).expect("pending verdict");
+        assert_eq!(pending.state, "pending_anomaly");
+        assert!(!pending.anomalous);
+        assert_eq!(pending.next_consecutive_anomalous, 2);
+
+        let confirmed = reason_impl(context(3, 2), sample(1_000.0)).expect("confirmed verdict");
+        assert_eq!(confirmed.state, "anomalous");
+        assert!(confirmed.anomalous);
+        assert_eq!(confirmed.next_consecutive_anomalous, 3);
+    }
+
+    #[test]
+    fn confirm_slots_one_confirms_first_breach() {
+        let confirmed = reason_impl(context(1, 0), sample(1_000.0)).expect("confirmed verdict");
+        assert_eq!(confirmed.state, "anomalous");
+        assert!(confirmed.anomalous);
+        assert_eq!(confirmed.next_consecutive_anomalous, 1);
+    }
+
+    #[test]
+    fn clean_slot_resets_pending_confirmation() {
+        let clean = reason_impl(context(3, 2), sample(100.0)).expect("clean verdict");
+        assert_eq!(clean.state, "clean");
+        assert!(!clean.anomalous);
+        assert!(!clean.breached);
+        assert_eq!(clean.next_consecutive_anomalous, 0);
+        assert!(clean.include_in_baseline);
+    }
+}

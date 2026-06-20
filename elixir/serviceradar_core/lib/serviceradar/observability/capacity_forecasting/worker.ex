@@ -61,12 +61,19 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
       horizon_seconds =
         positive_integer(Keyword.get(opts, :horizon_seconds), @default_horizon_seconds)
 
+      warning_horizon_seconds =
+        opts
+        |> Keyword.get(:warning_horizon_seconds, horizon_seconds)
+        |> positive_integer(horizon_seconds)
+        |> min(horizon_seconds)
+
       horizon_ends_at = DateTime.add(forecasted_at, horizon_seconds, :second)
 
       opts =
         opts
         |> Keyword.put(:forecasted_at, forecasted_at)
         |> Keyword.put(:horizon_seconds, horizon_seconds)
+        |> Keyword.put(:warning_horizon_seconds, warning_horizon_seconds)
         |> Keyword.put(:horizon_ends_at, horizon_ends_at)
 
       opts

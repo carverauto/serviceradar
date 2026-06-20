@@ -821,6 +821,48 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert verdict_attrs.resource_key == attrs.resource_key
   end
 
+  test "worker clamps warning horizon to the forecast horizon for verdicts" do
+    source = %Source{
+      name: "cpu_usage",
+      resource_type: "cpu",
+      metric_class: "cpu",
+      metric_name: "usage_percent",
+      query: "in:cpu_metrics time:last_180d bucket:1h",
+      value_field: "avg_usage_percent",
+      key_fields: ["device_id", "host_id"],
+      label_fields: ["host_id", "device_id"],
+      threshold: 100.0,
+      model: "linear"
+    }
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_clamped_warning, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: RecentRunner,
+               upsert_fun: upsert_fun,
+               verdict_emitter: VerdictEmitter,
+               test_pid: self(),
+               horizon_seconds: 24 * 3_600,
+               warning_horizon_seconds: 48 * 3_600,
+               min_points: 24
+             )
+
+    assert_received {:capacity_forecast_clamped_warning, attrs}
+    assert attrs.status == "projected"
+    assert attrs.projected_exhaustion_at
+    assert DateTime.after?(attrs.projected_exhaustion_at, attrs.horizon_ends_at)
+    assert_received {:capacity_forecast_verdict, verdict_attrs}
+    assert verdict_attrs.status == "inactive"
+    assert verdict_attrs.resource_key == attrs.resource_key
+  end
+
   test "worker emits a skipped verdict to clear stale capacity evidence" do
     source = %Source{
       name: "disk_usage",

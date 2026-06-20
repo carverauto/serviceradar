@@ -15,6 +15,7 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
 
   require Logger
 
+  @anomaly_runtime_override_keys ~w(n_sigma window_size confirm_slots min_samples)
   @cache_key {__MODULE__, :settings}
   @default_refresh_ms 30_000
   defstruct [
@@ -98,7 +99,7 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
       overrides
       |> Enum.filter(fn {_class, values} -> map_size(values) > 0 end)
       |> Map.new(fn {class, values} ->
-        {class, Map.merge(base, values)}
+        {class, Map.merge(base, Map.take(values, @anomaly_runtime_override_keys))}
       end)
       |> Map.put("default", base)
 
@@ -270,15 +271,9 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
   end
 
   defp normalize_metric_class_overrides(overrides) when is_map(overrides) do
-    overrides =
-      Map.new(overrides, fn {class, values} ->
-        {normalize_metric_class(class), normalize_override_values(values)}
-      end)
-
-    case Map.get(overrides, "memory") do
-      nil -> overrides
-      values -> Map.put_new(overrides, "mem", values)
-    end
+    Map.new(overrides, fn {class, values} ->
+      {normalize_metric_class(class), normalize_override_values(values)}
+    end)
   end
 
   defp normalize_metric_class_overrides(_overrides), do: %{}
