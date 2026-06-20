@@ -44,5 +44,12 @@ defmodule ServiceRadar.Observability.CapacityForecasting.SourceTest do
 
     interface_source = Enum.find(sources, &(&1.name == "interface_rate"))
     assert "partition" in interface_source.key_fields
+
+    flow_source = Enum.find(sources, &(&1.resource_type == "flow"))
+    assert flow_source.name == "flow_bytes_per_hour"
+    assert flow_source.metric_name == "bytes_per_hour"
+    assert flow_source.value_field == "bytes_total"
+    assert flow_source.threshold == 1_000_000_000_000.0
+    refute flow_source.metric_name == "bps"
   end
 end

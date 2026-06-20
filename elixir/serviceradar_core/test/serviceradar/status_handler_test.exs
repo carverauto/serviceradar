@@ -393,6 +393,7 @@ defmodule ServiceRadar.StatusHandlerTest do
         "agent_id" => "host-a",
         "host_id" => "",
         "target_device_ip" => "10.0.0.20",
+        "partition" => "spoofed-partition",
         "if_index" => 7,
         "tags" => %{"if_alias" => "core *> uplink"}
       }
@@ -401,7 +402,8 @@ defmodule ServiceRadar.StatusHandlerTest do
       # passing assertion proves the re-key actually happened (not a pass-through).
       canonical =
         ServiceRadar.Observability.AnomalyDetection.SeriesKey.from_source_identity(
-          source_identity
+          source_identity,
+          partition_id: "prod-east"
         )
 
       refute canonical == "edge-hint-provisional"
@@ -476,6 +478,9 @@ defmodule ServiceRadar.StatusHandlerTest do
       # source_identity), not the provisional producer hint.
       assert get_in(decoded, ["anomaly", "series_key"]) == canonical
       assert get_in(decoded, ["source_identity", "series_key"]) == canonical
+      assert decoded["source_identity"]["partition"] == "spoofed-partition"
+      assert canonical =~ "partition=#{Base.encode16("prod-east", case: :lower)}"
+      refute canonical =~ Base.encode16("spoofed-partition", case: :lower)
     end
 
     test "drops a metric body mislabeled as an OCSF event instead of publishing it to the events plane" do

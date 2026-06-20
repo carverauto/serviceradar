@@ -5,6 +5,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
 
   @default_time_range "last_180d"
   @default_limit 50_000
+  @default_flow_threshold_bytes_per_hour 1_000_000_000_000.0
 
   @type t :: %__MODULE__{
           name: String.t(),
@@ -97,15 +98,16 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
         threshold: 100.0
       },
       %__MODULE__{
-        name: "flow_bps",
+        name: "flow_bytes_per_hour",
         resource_type: "flow",
         metric_class: "flow",
-        metric_name: "bps",
+        metric_name: "bytes_per_hour",
         query:
           "in:flows time:#{time_range} bucket:1h stats:sum(bytes_total) as bytes_total by bucket sort:bucket:desc limit:#{limit}",
         value_field: "bytes_total",
         key_fields: [],
-        label_fields: []
+        label_fields: [],
+        threshold: @default_flow_threshold_bytes_per_hour
       }
     ]
   end
