@@ -1778,10 +1778,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     src = sankey_src_group_by(src_dim, cidr_prefix)
     mid = sankey_mid_group_by(mid_dim)
     dst = sankey_dst_group_by(dst_dim, cidr_prefix)
-
     limit = sankey_max_edges_from_state(state)
 
-    ~s|#{base} stats:"sum(bytes_total) as total_bytes by #{src}, #{mid}, #{dst}" sort:total_bytes:desc limit:#{limit}|
+    ~s|#{base} stats:"sum(bytes_total) as total_bytes by #{src}, #{mid}, #{dst}" sort:total_bytes:desc limit:#{limit} other:true|
   end
 
   defp chart_query_timeseries(base, %{} = state) when is_binary(base) do
@@ -3387,9 +3386,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
         edges = load_sankey_edges(srql_module, chart_query, base, state, scope, max_edges)
 
-        dims = state |> dims_from_state() |> sanitize_sankey_dims()
-        edges = reduce_sankey_clutter(edges, dims, max_edges)
-
         edges_json = Jason.encode!(edges)
 
         socket
@@ -3475,7 +3471,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
           |> Enum.map(&srql_sankey_edge_from_row/1)
           |> Enum.reject(&is_nil/1)
           |> Enum.sort_by(&(-Map.get(&1, :bytes, 0)))
-          |> Enum.take(max_edges)
 
         if edges == [] do
           sankey =
@@ -3502,89 +3497,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     end
   rescue
     _ -> []
-  end
-
-  defp reduce_sankey_clutter(edges, dims, max_edges) when is_list(edges) and is_list(dims) and is_integer(max_edges) do
-    # IP-mode Sankey gets unreadable quickly (too many unique endpoints). We bucket low-volume
-    # endpoints into "Other" and then re-aggregate the edge weights.
-    src_dim = Enum.at(dims, 0) || "src_cidr"
-    dst_dim = Enum.at(dims, 2) || "dst_cidr"
-
-    # Prefer more aggressive bucketing when showing per-IP.
-    top_src = if src_dim == "src_ip", do: 8, else: 12
-    top_dst = if dst_dim == "dst_ip", do: 8, else: 12
-
-    {top_src_set, top_dst_set} = sankey_top_endpoint_sets(edges, top_src, top_dst)
-
-    edges =
-      edges
-      |> Enum.map(fn
-        %{src: src, dst: dst} = e ->
-          # Use per-column "Other" labels to avoid Sankey cycles when labels collide across columns.
-          src = if src in top_src_set, do: src, else: "Other (src)"
-          dst = if dst in top_dst_set, do: dst, else: "Other (dst)"
-          %{e | src: src, dst: dst}
-
-        other ->
-          other
-      end)
-      |> sankey_aggregate_edges()
-      |> Enum.sort_by(&(-Map.get(&1, :bytes, 0)))
-      |> Enum.take(max_edges)
-
-    edges
-  rescue
-    _ -> edges
-  end
-
-  defp reduce_sankey_clutter(edges, _dims, _max_edges), do: edges
-
-  defp sankey_top_endpoint_sets(edges, top_src, top_dst)
-       when is_list(edges) and is_integer(top_src) and is_integer(top_dst) do
-    {src_bytes, dst_bytes} =
-      Enum.reduce(edges, {%{}, %{}}, fn
-        %{src: src, dst: dst, bytes: bytes}, {sa, da}
-        when is_binary(src) and is_binary(dst) and is_integer(bytes) ->
-          sa = Map.update(sa, src, bytes, &(&1 + bytes))
-          da = Map.update(da, dst, bytes, &(&1 + bytes))
-          {sa, da}
-
-        _e, acc ->
-          acc
-      end)
-
-    src_top =
-      src_bytes
-      |> Enum.sort_by(fn {_k, v} -> -v end)
-      |> Enum.take(max(top_src, 1))
-      |> MapSet.new(fn {k, _} -> k end)
-
-    dst_top =
-      dst_bytes
-      |> Enum.sort_by(fn {_k, v} -> -v end)
-      |> Enum.take(max(top_dst, 1))
-      |> MapSet.new(fn {k, _} -> k end)
-
-    {src_top, dst_top}
-  end
-
-  defp sankey_top_endpoint_sets(_edges, _top_src, _top_dst), do: {MapSet.new(), MapSet.new()}
-
-  defp sankey_aggregate_edges(edges) when is_list(edges) do
-    edges
-    |> Enum.reduce(%{}, fn
-      %{src: src, mid: mid, dst: dst, bytes: bytes} = e, acc
-      when is_binary(src) and is_binary(mid) and is_binary(dst) and is_integer(bytes) ->
-        key = {src, mid, dst}
-
-        Map.update(acc, key, e, fn prev ->
-          Map.update(prev, :bytes, bytes, &(&1 + bytes))
-        end)
-
-      _e, acc ->
-        acc
-    end)
-    |> Map.values()
   end
 
   defp extract_srql_rows(results) when is_list(results) do
@@ -3985,12 +3897,16 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   defp to_int(_), do: 0
 
   defp srql_sankey_edge_from_row(%{} = row) do
+    other? = sankey_other_row?(row)
     {src_field, src} = sankey_endpoint(row, :src)
     {dst_field, dst} = sankey_endpoint(row, :dst)
     {mid_field, mid_value, port} = sankey_mid(row)
 
     bytes = to_int(Map.get(row, "total_bytes"))
-    mid = sankey_mid_label(mid_field, mid_value, port)
+    src = if other?, do: sankey_other_label(src, "Other (src)"), else: src
+    dst = if other?, do: sankey_other_label(dst, "Other (dst)"), else: dst
+    port = if other?, do: 0, else: port
+    mid = if other?, do: "Other", else: sankey_mid_label(mid_field, mid_value, port)
 
     src = if is_binary(src), do: String.trim(src), else: src
     dst = if is_binary(dst), do: String.trim(dst), else: dst
@@ -4010,6 +3926,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
         mid_value: mid_value,
         attributed_count: attributed_count,
         ioc_count: ioc_count,
+        other?: other?,
         attributed?: attributed_count > 0,
         ioc?: ioc_count > 0
       }
@@ -4017,6 +3934,15 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   end
 
   defp srql_sankey_edge_from_row(_), do: nil
+
+  defp sankey_other_row?(%{} = row), do: Map.get(row, "__other__") in [true, "true", 1, "1"]
+
+  defp sankey_other_label(value, label) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: label, else: value
+  end
+
+  defp sankey_other_label(_value, label), do: label
 
   defp sankey_endpoint(%{} = row, :src) do
     # SRQL group-by expressions can surface as different column names (e.g. "src_cidr",

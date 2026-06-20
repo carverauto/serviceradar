@@ -48,7 +48,8 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
       "value_field",
       "series",
       "stats",
-      "rollup_stats"
+      "rollup_stats",
+      "other"
     ])
   end
 
@@ -263,7 +264,7 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
 
     cidr_prefix = cidr_prefix_for(prefix)
     group_bys = group_bys_from_opts(opts, cidr_prefix)
-    max_edges = Keyword.get(opts, :max_edges, 200)
+    max_edges = opts |> Keyword.get(:max_edges, 200) |> max(1)
 
     cidr_query = sankey_stats_query(base_query, group_bys, max_edges)
     ip_query = sankey_ip_fallback_query(base_query, max_edges)
@@ -274,7 +275,6 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
       rows
       |> sankey_edges(mode)
       |> Enum.filter(&valid_edge?/1)
-      |> Enum.take(max_edges)
 
     sankey_result(edges)
   rescue
@@ -324,20 +324,22 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
   defp extract_stats_rows(_), do: []
 
   defp sankey_edge_cidr(row) do
-    src = Map.get(row, "src_cidr")
-    dst = Map.get(row, "dst_cidr")
-    port = to_int(Map.get(row, "dst_endpoint_port"))
+    other? = other_row?(row)
+    src = other_label(Map.get(row, "src_cidr"), "Other (src)", other?)
+    dst = other_label(Map.get(row, "dst_cidr"), "Other (dst)", other?)
+    port = if other?, do: 0, else: to_int(Map.get(row, "dst_endpoint_port"))
     bytes = to_int(Map.get(row, "total_bytes"))
-    mid = port_mid_label(port)
+    mid = if other?, do: "Other", else: port_mid_label(port)
     %{src: src, mid: mid, port: port, dst: dst, bytes: bytes}
   end
 
   defp sankey_edge_ip(row) do
-    src = Map.get(row, "src_endpoint_ip")
-    dst = Map.get(row, "dst_endpoint_ip")
-    port = to_int(Map.get(row, "dst_endpoint_port"))
+    other? = other_row?(row)
+    src = other_label(Map.get(row, "src_endpoint_ip"), "Other (src)", other?)
+    dst = other_label(Map.get(row, "dst_endpoint_ip"), "Other (dst)", other?)
+    port = if other?, do: 0, else: to_int(Map.get(row, "dst_endpoint_port"))
     bytes = to_int(Map.get(row, "total_bytes"))
-    mid = port_mid_label(port)
+    mid = if other?, do: "Other", else: port_mid_label(port)
     %{src: src, mid: mid, port: port, dst: dst, bytes: bytes}
   end
 
@@ -416,13 +418,15 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
     end
   end
 
-  defp sankey_stats_query(base_query, group_bys, max_edges)
-       when is_binary(base_query) and is_list(group_bys) and is_integer(max_edges) do
-    ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by #{Enum.join(group_bys, ", ")}" sort:total_bytes:desc limit:#{max_edges}|
+  defp sankey_stats_query(base_query, group_bys, limit) when is_binary(base_query) and is_list(group_bys) do
+    # `other:true` folds the non-top group tuples into one tail row. The Sankey
+    # therefore shows top conversation paths plus a combined tail, not per-column
+    # top endpoints with independent source/destination Other buckets.
+    ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by #{Enum.join(group_bys, ", ")}" sort:total_bytes:desc limit:#{limit} other:true|
   end
 
-  defp sankey_ip_fallback_query(base_query, max_edges) when is_binary(base_query) and is_integer(max_edges) do
-    ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by src_endpoint_ip, dst_endpoint_port, dst_endpoint_ip" sort:total_bytes:desc limit:#{max_edges}|
+  defp sankey_ip_fallback_query(base_query, limit) when is_binary(base_query) do
+    ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by src_endpoint_ip, dst_endpoint_port, dst_endpoint_ip" sort:total_bytes:desc limit:#{limit} other:true|
   end
 
   defp sankey_rows_and_mode(srql_module, scope, cidr_query, ip_query) do
@@ -472,6 +476,17 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
   end
 
   defp bucket_other_keys(other, _other_keys), do: other
+
+  defp other_row?(%{} = row), do: Map.get(row, "__other__") in [true, "true", 1, "1"]
+
+  defp other_label(value, _label, false), do: value
+
+  defp other_label(value, label, true) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: label, else: value
+  end
+
+  defp other_label(_value, label, true), do: label
 
   defp ensure_prefix(query, prefix) do
     q = String.trim(query)
