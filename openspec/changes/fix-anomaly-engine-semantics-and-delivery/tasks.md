@@ -230,7 +230,7 @@
 ## 43. UniFi / UBNT Polling (F48)
 - [ ] 43.1 Paginate the UniFi `/clients` fetch (no silent truncation).
 - [ ] 43.2 Paginate the UniFi `/devices` fetch (remove the 500/100 hard caps).
-- [ ] 43.3 Fix uplink `parentPortIndex` selection (port 0 valid); stop logging full response bodies at Debug; unify ctx; fix Protect WS read cap and UTF-8-safe `trimBody`.
+- [x] 43.3 Fix uplink `parentPortIndex` selection (port 0 valid); stop logging full response bodies at Debug; unify ctx; fix Protect WS read cap and UTF-8-safe `trimBody`.
 
 ## 44. Sweeper / SYN Scanner (F49)
 - [x] 44.1 Fix SYN reply-to-port attribution after source-port reuse; reset per-scan stats counters between scans.

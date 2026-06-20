@@ -179,6 +179,7 @@ go_test(
         "plugin_runtime_action_test.go",
         "plugin_runtime_artifact_test.go",
         "plugin_runtime_local_test.go",
+        "plugin_runtime_network_test.go",
         "plugin_runtime_test.go",
         "proxmox_console_ssh_test.go",
         "proxmox_console_test.go",

@@ -63,12 +63,64 @@ type UniFiUplink struct {
 	ParentPortIdx     int32 `json:"parentPortIdx"`
 	ParentPortSnake   int32 `json:"parent_port_idx"`
 
+	localPortIdxSet      bool
+	localPortIdxSnakeSet bool
+	portIdxSet           bool
+	portIdxSnakeSet      bool
+	parentPortIdxSet     bool
+	parentPortSnakeSet   bool
+
 	LocalPortName      string `json:"localPortName"`
 	LocalPortNameSnake string `json:"local_port_name"`
 	PortName           string `json:"portName"`
 	PortNameSnake      string `json:"port_name"`
 	ParentPortName     string `json:"parentPortName"`
 	ParentPortNameSnk  string `json:"parent_port_name"`
+}
+
+func (u *UniFiUplink) UnmarshalJSON(data []byte) error {
+	type uplinkAlias UniFiUplink
+	var raw struct {
+		uplinkAlias
+		LocalPortIdx      *int32 `json:"localPortIdx"`
+		LocalPortIdxSnake *int32 `json:"local_port_idx"`
+		PortIdx           *int32 `json:"portIdx"`
+		PortIdxSnake      *int32 `json:"port_idx"`
+		ParentPortIdx     *int32 `json:"parentPortIdx"`
+		ParentPortSnake   *int32 `json:"parent_port_idx"`
+	}
+
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	*u = UniFiUplink(raw.uplinkAlias)
+	if raw.LocalPortIdx != nil {
+		u.LocalPortIdx = *raw.LocalPortIdx
+		u.localPortIdxSet = true
+	}
+	if raw.LocalPortIdxSnake != nil {
+		u.LocalPortIdxSnake = *raw.LocalPortIdxSnake
+		u.localPortIdxSnakeSet = true
+	}
+	if raw.PortIdx != nil {
+		u.PortIdx = *raw.PortIdx
+		u.portIdxSet = true
+	}
+	if raw.PortIdxSnake != nil {
+		u.PortIdxSnake = *raw.PortIdxSnake
+		u.portIdxSnakeSet = true
+	}
+	if raw.ParentPortIdx != nil {
+		u.ParentPortIdx = *raw.ParentPortIdx
+		u.parentPortIdxSet = true
+	}
+	if raw.ParentPortSnake != nil {
+		u.ParentPortSnake = *raw.ParentPortSnake
+		u.parentPortSnakeSet = true
+	}
+
+	return nil
 }
 
 func (u UniFiUplink) upstreamDeviceID() string {
@@ -86,21 +138,36 @@ func (u UniFiUplink) upstreamDeviceID() string {
 
 func (u UniFiUplink) parentPortIndex() int32 {
 	switch {
-	case u.LocalPortIdx > 0:
+	case (u.localPortIdxSet && u.LocalPortIdx >= 0) || u.LocalPortIdx > 0:
 		return u.LocalPortIdx
-	case u.LocalPortIdxSnake > 0:
+	case (u.localPortIdxSnakeSet && u.LocalPortIdxSnake >= 0) || u.LocalPortIdxSnake > 0:
 		return u.LocalPortIdxSnake
-	case u.PortIdx > 0:
+	case (u.portIdxSet && u.PortIdx >= 0) || u.PortIdx > 0:
 		return u.PortIdx
-	case u.PortIdxSnake > 0:
+	case (u.portIdxSnakeSet && u.PortIdxSnake >= 0) || u.PortIdxSnake > 0:
 		return u.PortIdxSnake
-	case u.ParentPortIdx > 0:
+	case (u.parentPortIdxSet && u.ParentPortIdx >= 0) || u.ParentPortIdx > 0:
 		return u.ParentPortIdx
-	case u.ParentPortSnake > 0:
+	case (u.parentPortSnakeSet && u.ParentPortSnake >= 0) || u.ParentPortSnake > 0:
 		return u.ParentPortSnake
 	default:
 		return 0
 	}
+}
+
+func (u UniFiUplink) parentPortIndexPresent() bool {
+	return (u.localPortIdxSet && u.LocalPortIdx >= 0) ||
+		(u.localPortIdxSnakeSet && u.LocalPortIdxSnake >= 0) ||
+		(u.portIdxSet && u.PortIdx >= 0) ||
+		(u.portIdxSnakeSet && u.PortIdxSnake >= 0) ||
+		(u.parentPortIdxSet && u.ParentPortIdx >= 0) ||
+		(u.parentPortSnakeSet && u.ParentPortSnake >= 0) ||
+		u.LocalPortIdx > 0 ||
+		u.LocalPortIdxSnake > 0 ||
+		u.PortIdx > 0 ||
+		u.PortIdxSnake > 0 ||
+		u.ParentPortIdx > 0 ||
+		u.ParentPortSnake > 0
 }
 
 func (u UniFiUplink) parentPortName() string {
@@ -542,7 +609,7 @@ func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
 	}
 
 	e.logger.Debug().Str("job_id", job.ID).Str("api_name", apiConfig.Name).
-		Str("site_name", site.Name).Str("response", string(body)).
+		Str("site_name", site.Name).Int("response_bytes", len(body)).
 		Msg("Devices response from UniFi API")
 
 	var deviceResp struct {
@@ -1100,7 +1167,7 @@ func (*DiscoveryEngine) processUplinkInfo(
 		if uplink, exists := deviceCache[uplinkID]; exists {
 			localIfIndex := uplinkInfo.parentPortIndex()
 			localIfName := uplinkInfo.parentPortName()
-			if localIfName == "" && localIfIndex > 0 {
+			if localIfName == "" && uplinkInfo.parentPortIndexPresent() {
 				localIfName = fmt.Sprintf("Port %d", localIfIndex)
 			}
 
@@ -1297,7 +1364,7 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 			continue
 		}
 
-		sites, err := e.fetchUniFiSites(job.ctx, job, apiConfig)
+		sites, err := e.fetchUniFiSites(ctx, job, apiConfig)
 		if err != nil {
 			e.logger.Error().Str("job_id", job.ID).Str("api_name", apiConfig.Name).Err(err).
 				Msg("Failed to fetch sites")
@@ -1465,8 +1532,8 @@ func (e *DiscoveryEngine) fetchUniFiDevices(
 	}
 
 	e.logger.Debug().Str("job_id", job.ID).Str("api_name", apiConfig.Name).
-		Str("site_name", site.Name).Str("response_preview", fmt.Sprintf("%.500s", string(body))).
-		Msg("Devices response from UniFi API (first 500 chars)")
+		Str("site_name", site.Name).Int("response_bytes", len(body)).
+		Msg("Devices response from UniFi API")
 
 	var deviceResp struct {
 		Data []*UniFiDevice `json:"data"`
