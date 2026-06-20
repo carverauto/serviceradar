@@ -208,10 +208,20 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
   defp bgp_load_error(errors) do
     errors
     |> Enum.reverse()
-    |> Enum.map_join("; ", fn {key, reason} ->
-      "#{bgp_stat_label(key)} failed: #{format_bgp_query_error(reason)}"
-    end)
+    |> Enum.map_join("; ", &bgp_stat_error_message/1)
     |> String.slice(0, 300)
+  end
+
+  defp bgp_stat_error_message({key, reason}) do
+    label = bgp_stat_label(key)
+
+    Logger.warning("BGP statistic failed to load",
+      bgp_stat: key,
+      bgp_stat_label: label,
+      reason: inspect(reason)
+    )
+
+    "#{label} failed to load - check logs"
   end
 
   defp bgp_stat_label(:traffic_data), do: "traffic by AS"
@@ -222,10 +232,6 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
   defp bgp_stat_label(:data_sources), do: "data sources"
   defp bgp_stat_label(:traffic_timeseries), do: "traffic time series"
   defp bgp_stat_label(:prefix_analysis), do: "prefix analysis"
-
-  defp format_bgp_query_error(%{postgres: %{message: message}}) when is_binary(message), do: message
-  defp format_bgp_query_error(%{message: message}) when is_binary(message), do: message
-  defp format_bgp_query_error(reason), do: inspect(reason)
 
   @impl true
   def render(assigns) do
