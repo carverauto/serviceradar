@@ -61,7 +61,7 @@ defmodule ServiceRadar.Observability.CapacityForecastConfigTest do
     assert attributes.model.constraints[:one_of] == [:linear, :seasonal_linear, :holt_winters]
 
     assert attributes.metric_class_overrides.default |> Map.keys() |> Enum.sort() ==
-             ["cpu", "disk", "interface", "memory"]
+             ["cpu", "disk", "flow", "interface", "memory"]
   end
 
   test "migration creates unseeded platform forecast config with guard constraints" do
