@@ -37,7 +37,7 @@ use crate::engine::{
 };
 
 const ADDON_ID: &str = "anomaly";
-const ADDON_VERSION: &str = "0.1.4";
+const ADDON_VERSION: &str = "0.1.5";
 const VERDICT_CHANNEL_DEPTH: usize = 256;
 const ACK_CHANNEL_DEPTH: usize = 64;
 const OCSF_CLASS_EVENT_LOG_ACTIVITY: i64 = 1008;
@@ -115,6 +115,9 @@ impl AddonConfig {
 #[derive(Default)]
 struct NativeTelemetryDropCounters {
     no_subscriber_batches: AtomicU64,
+    // Broadcast lag is reported per receiver. This is a delivery-failure volume
+    // counter, so one skipped batch observed by two lagging receivers counts as
+    // two lagged receiver-batches.
     lagged_batches: AtomicU64,
     outbound_full_batches: AtomicU64,
 }
@@ -155,7 +158,7 @@ impl NativeTelemetryDropSnapshot {
 
     fn health_message(self) -> String {
         format!(
-            "native telemetry dropped batches: total={} no_subscriber={} lagged={} outbound_full={}",
+            "native telemetry delivery drops: total={} no_subscriber_batches={} lagged_receiver_batches={} outbound_full_batches={}",
             self.total(),
             self.no_subscriber_batches,
             self.lagged_batches,
@@ -249,6 +252,9 @@ impl Addon for AnomalyAddon {
         Ok(Health {
             status: HealthStatus::Healthy,
             version: ADDON_VERSION.to_string(),
+            // Native telemetry is at-most-once. Drops are informational delivery
+            // diagnostics on an otherwise healthy scorer, and Health only exposes
+            // this freeform detail field for surfacing them to operators.
             degradation_reason: if drop_snapshot.total() == 0 {
                 String::new()
             } else {
@@ -1382,9 +1388,21 @@ mod tests {
         assert_eq!(health.status, HealthStatus::Healthy);
         assert_eq!(health.version, ADDON_VERSION);
         assert!(health.degradation_reason.contains("total=4"));
-        assert!(health.degradation_reason.contains("no_subscriber=1"));
-        assert!(health.degradation_reason.contains("lagged=2"));
-        assert!(health.degradation_reason.contains("outbound_full=1"));
+        assert!(
+            health
+                .degradation_reason
+                .contains("no_subscriber_batches=1")
+        );
+        assert!(
+            health
+                .degradation_reason
+                .contains("lagged_receiver_batches=2")
+        );
+        assert!(
+            health
+                .degradation_reason
+                .contains("outbound_full_batches=1")
+        );
     }
 
     #[tokio::test]
