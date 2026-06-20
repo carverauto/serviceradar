@@ -55,6 +55,10 @@ type MetricSample struct {
 
 	// Processes contains top process metrics.
 	Processes []ProcessMetric `json:"processes"`
+
+	// ProcessCount is the total number of processes observed before the top-N
+	// Processes list is capped.
+	ProcessCount int `json:"process_count,omitempty"`
 }
 
 // CPUMetric represents CPU utilization for a single core.

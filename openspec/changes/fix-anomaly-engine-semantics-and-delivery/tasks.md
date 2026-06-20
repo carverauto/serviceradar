@@ -175,7 +175,7 @@
 - [ ] 30.2 Distinguish query-error vs no-data vs disabled empty states; link empty states to the relevant SNMP/polling config.
 
 ## 31. Charted Coverage & Accessibility (F37)
-- [ ] 31.1 Chart `process.count`; add per-process history/sparklines so process spikes are visible.
+- [x] 31.1 Chart `process.count`; add per-process history/sparklines so process spikes are visible.
 - [ ] 31.2 Show absolute volume alongside the NetFlow 100%-stacked view.
 - [ ] 31.3 Add non-color series encoding (shape/pattern/label) for color-blind operators.
 

@@ -29,6 +29,7 @@ func TestMarshalSysmonMetricEnvelope(t *testing.T) {
 		Network: []sysmon.NetworkMetric{
 			{Interface: "eth0", BytesSent: 1000, BytesRecv: 2000, PacketsSent: 10, PacketsRecv: 20},
 		},
+		ProcessCount: 42,
 		Processes: []sysmon.ProcessMetric{
 			{
 				PID:         1234,
@@ -55,7 +56,7 @@ func TestMarshalSysmonMetricEnvelope(t *testing.T) {
 	require.Equal(t, metricpb.MetricTemporality_METRIC_TEMPORALITY_CUMULATIVE, metrics["network.bytes_sent"].Temporality)
 	require.True(t, metrics["network.bytes_sent"].IsMonotonic)
 	require.Equal(t, uint32(64), metrics["network.bytes_sent"].CounterWidth)
-	require.InDelta(t, 1.0, metrics["process.count"].Points[0].Value, 1e-9)
+	require.InDelta(t, 42.0, metrics["process.count"].Points[0].Value, 1e-9)
 
 	processCPU := metrics["process.cpu_usage"]
 	require.NotNil(t, processCPU)
@@ -69,6 +70,24 @@ func TestMarshalSysmonMetricEnvelope(t *testing.T) {
 	require.NotNil(t, processMemory)
 	require.Equal(t, metricpb.MetricValueType_METRIC_VALUE_TYPE_UINT64, processMemory.Points[0].RawValueType)
 	require.Equal(t, "104857600", processMemory.Points[0].RawValue)
+}
+
+func TestMarshalSysmonMetricEnvelopeFallsBackToProcessListLength(t *testing.T) {
+	t.Parallel()
+
+	payload, err := marshalSysmonMetricEnvelope(&sysmon.MetricSample{
+		Timestamp: "2026-06-12T00:00:00Z",
+		HostID:    "host-1",
+		HostIP:    "10.0.0.10",
+		Processes: []sysmon.ProcessMetric{
+			{PID: 1, Name: "init"},
+			{PID: 2, Name: "agent"},
+		},
+	}, metricEnvelopeContext{AgentID: "agent-1", GatewayID: "gateway-1", Partition: "default"})
+	require.NoError(t, err)
+
+	metrics := metricsByName(decodeMetricBatch(t, payload))
+	require.InDelta(t, 2.0, metrics["process.count"].Points[0].Value, 1e-9)
 }
 
 func TestMarshalSysmonMetricEnvelopeBatchIncludesMultipleSamples(t *testing.T) {
