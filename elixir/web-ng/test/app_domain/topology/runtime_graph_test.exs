@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
   alias ServiceRadarWebNG.Topology.Native
   alias ServiceRadarWebNG.Topology.RuntimeGraph
 
+  @moduletag :db_free
+
   test "topology_links_query/0 reads canonical layered backbone plus mapper attachment evidence" do
     query = RuntimeGraph.topology_links_query()
 
@@ -289,5 +291,22 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     assert Enum.take(prioritized, 3) == Enum.take(backbone_rows, 3)
     assert Enum.at(prioritized, 4_999) == Enum.at(backbone_rows, 4_999)
     assert Enum.at(prioritized, 5_000) == hd(attachment_rows)
+  end
+
+  test "refresh_due?/2 throttles repeated refresh attempts" do
+    assert RuntimeGraph.refresh_due?(
+             %{last_refresh_started_at_ms: nil, min_refresh_ms: 30_000},
+             1_000
+           )
+
+    refute RuntimeGraph.refresh_due?(
+             %{last_refresh_started_at_ms: 1_000, min_refresh_ms: 30_000},
+             30_999
+           )
+
+    assert RuntimeGraph.refresh_due?(
+             %{last_refresh_started_at_ms: 1_000, min_refresh_ms: 30_000},
+             31_000
+           )
   end
 end

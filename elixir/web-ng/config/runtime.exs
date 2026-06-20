@@ -465,6 +465,17 @@ god_view_runtime_graph_refresh_ms =
     _ -> 30_000
   end
 
+god_view_runtime_graph_min_refresh_ms =
+  case to_int.(
+         System.get_env(
+           "SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_MIN_REFRESH_MS",
+           Integer.to_string(god_view_runtime_graph_refresh_ms)
+         )
+       ) do
+    value when is_integer(value) and value > 0 -> value
+    _ -> god_view_runtime_graph_refresh_ms
+  end
+
 god_view_snapshot_budget_ms =
   case to_int.(System.get_env("SERVICERADAR_GOD_VIEW_SNAPSHOT_BUDGET_MS", "2000")) do
     value when is_integer(value) and value > 0 -> value
@@ -621,6 +632,7 @@ config :serviceradar_web_ng,
 
 config :serviceradar_web_ng,
   god_view_runtime_graph_refresh_ms: god_view_runtime_graph_refresh_ms,
+  god_view_runtime_graph_min_refresh_ms: god_view_runtime_graph_min_refresh_ms,
   god_view_runtime_graph_auto_refresh: god_view_runtime_graph_auto_refresh,
   god_view_snapshot_budget_ms: god_view_snapshot_budget_ms,
   god_view_snapshot_coalesce_ms: god_view_snapshot_coalesce_ms

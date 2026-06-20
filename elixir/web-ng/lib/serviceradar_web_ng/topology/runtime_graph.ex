@@ -23,7 +23,9 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   @type state :: %{
           graph_ref: term(),
           last_refresh_at: DateTime.t() | nil,
+          last_refresh_started_at_ms: integer() | nil,
           refresh_ms: pos_integer(),
+          min_refresh_ms: pos_integer(),
           auto_refresh?: boolean()
         }
 
@@ -62,6 +64,11 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       )
       |> normalize_positive_int(@default_refresh_ms)
 
+    min_refresh_ms =
+      :serviceradar_web_ng
+      |> Application.get_env(:god_view_runtime_graph_min_refresh_ms, refresh_ms)
+      |> normalize_positive_int(refresh_ms)
+
     auto_refresh? =
       Application.get_env(:serviceradar_web_ng, :god_view_runtime_graph_auto_refresh, true) ==
         true
@@ -69,7 +76,9 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     state = %{
       graph_ref: Native.runtime_graph_new(),
       last_refresh_at: nil,
+      last_refresh_started_at_ms: nil,
       refresh_ms: refresh_ms,
+      min_refresh_ms: min_refresh_ms,
       auto_refresh?: auto_refresh?
     }
 
@@ -94,7 +103,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
 
   @impl true
   def handle_call(:refresh_now_sync, _from, state) do
-    {:reply, :ok, refresh_state(state)}
+    {:reply, :ok, refresh_state(state, force?: true)}
   end
 
   @impl true
@@ -107,13 +116,36 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     next = refresh_state(state)
 
     if next.auto_refresh? do
-      Process.send_after(self(), :refresh, state.refresh_ms)
+      Process.send_after(self(), :refresh, next.refresh_ms)
     end
 
     {:noreply, next}
   end
 
-  defp refresh_state(state) do
+  defp refresh_state(state, opts \\ []) do
+    now_ms = System.monotonic_time(:millisecond)
+
+    if Keyword.get(opts, :force?, false) or refresh_due?(state, now_ms) do
+      state
+      |> Map.put(:last_refresh_started_at_ms, now_ms)
+      |> do_refresh_state()
+    else
+      state
+    end
+  end
+
+  @doc false
+  @spec refresh_due?(state(), integer()) :: boolean()
+  def refresh_due?(%{last_refresh_started_at_ms: nil}, _now_ms), do: true
+
+  def refresh_due?(%{last_refresh_started_at_ms: last_ms, min_refresh_ms: min_ms}, now_ms)
+      when is_integer(last_ms) and is_integer(min_ms) and is_integer(now_ms) do
+    now_ms - last_ms >= min_ms
+  end
+
+  def refresh_due?(_state, _now_ms), do: true
+
+  defp do_refresh_state(state) do
     case fetch_topology_links_from_graph() do
       {:ok, rows} when is_list(rows) ->
         normalized_rows = normalize_runtime_rows(rows)
