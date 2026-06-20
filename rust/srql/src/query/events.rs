@@ -1085,31 +1085,27 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
 fn apply_ordering<'a>(mut query: EventsQuery<'a>, order: &[OrderClause]) -> EventsQuery<'a> {
     let mut applied = false;
     for clause in order {
-        query = if !applied {
-            applied = true;
-            match clause.field.as_str() {
-                "time" | "event_timestamp" | "timestamp" => match clause.direction {
-                    OrderDirection::Asc => query.order(col_time.asc()),
-                    OrderDirection::Desc => query.order(col_time.desc()),
-                },
-                _ => query,
-            }
-        } else {
-            match clause.field.as_str() {
-                "time" | "event_timestamp" | "timestamp" => match clause.direction {
-                    OrderDirection::Asc => query.then_order_by(col_time.asc()),
-                    OrderDirection::Desc => query.then_order_by(col_time.desc()),
-                },
-                _ => query,
-            }
+        if !matches!(
+            clause.field.as_str(),
+            "time" | "event_timestamp" | "timestamp"
+        ) {
+            continue;
+        }
+
+        query = match (applied, clause.direction) {
+            (false, OrderDirection::Asc) => query.order(col_time.asc()),
+            (false, OrderDirection::Desc) => query.order(col_time.desc()),
+            (true, OrderDirection::Asc) => query.then_order_by(col_time.asc()),
+            (true, OrderDirection::Desc) => query.then_order_by(col_time.desc()),
         };
+        applied = true;
     }
 
     if !applied {
         query = query.order(col_time.desc());
     }
 
-    query
+    query.then_order_by(col_id.asc())
 }
 
 fn parse_i32(raw: &str) -> Result<i32> {

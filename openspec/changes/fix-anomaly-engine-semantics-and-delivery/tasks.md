@@ -254,7 +254,7 @@
 
 ## 48. SRQL Query Modules (F53)
 - [x] 48.1 Use array-overlap (`&&`) not contains-all (`@>`) for `discovery_sources` (and audit other list filters).
-- [ ] 48.2 Append a unique tie-breaker to the events and interfaces (non-latest) ORDER BY (stable pagination).
+- [x] 48.2 Append a unique tie-breaker to the events and interfaces (non-latest) ORDER BY (stable pagination).
 - [ ] 48.3 Make `field != x` / `not like` row vs stats populations consistent re: NULLs.
 - [ ] 48.4 Move interface error-metric LATERAL joins after LIMIT; fix CAGG partial-bucket truncation; guard the non-ASCII stats-expression case-fold panic (`flows.rs:1340`).
 - [x] 48.5 Support `other:true` for additive grouped timeseries stats (`timeseries_metrics`, `snmp`, `rperf`) and reject non-additive averages (#4021 follow-up).
