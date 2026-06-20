@@ -65,6 +65,9 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   @impl true
   def table_name, do: "ocsf_events"
 
+  @doc false
+  def causal_prediction_ocsf_event_replace_fields, do: @ocsf_event_replace_fields
+
   @impl true
   def process_batch(messages) do
     parsed_rows =
