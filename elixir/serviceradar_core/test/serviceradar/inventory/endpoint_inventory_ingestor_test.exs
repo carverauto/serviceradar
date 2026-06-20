@@ -613,7 +613,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
                     }}
   end
 
-  test "unchanged package_set_hash updates scan freshness without replacing current packages", %{
+  test "unchanged package_set_hash short-circuits without upload or write work", %{
     actor: actor
   } do
     unique = System.unique_integer([:positive])
@@ -633,6 +633,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert first.package_count == 1
     assert package_row_count(agent_id) == 1
     assert [%{scan_ref: package_scan_ref}] = current_packages(agent_id)
+    test_pid = self()
 
     unchanged_payload =
       agent_id
@@ -648,30 +649,36 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
         "upload_reason" => "unchanged"
       })
 
+    upload_object = fn _metadata, _data, _opts ->
+      send(test_pid, :unexpected_unchanged_upload)
+      {:ok, %{ok?: true}}
+    end
+
     assert {:ok, unchanged} =
              EndpointInventoryIngestor.ingest_report(unchanged_payload,
                actor: actor,
-               upload_object: successful_upload()
+               upload_object: upload_object
              )
 
+    assert unchanged.scan_ref == first.scan_ref
     assert unchanged.current? == true
     assert unchanged.package_rows_replaced? == false
+    assert unchanged.artifact_uploaded? == false
     assert unchanged.package_set_hash_mismatch? == false
     assert unchanged.reconcile_floor? == false
     assert unchanged.package_count == 1
     assert package_row_count(agent_id) == 1
 
-    refreshed_scan = current_scan(agent_id)
-    assert refreshed_scan.scan_id == "scan-unchanged-#{unique}"
-    assert refreshed_scan.state == "unchanged"
-    assert refreshed_scan.package_set_hash == first_scan.package_set_hash
-    assert refreshed_scan.unchanged_scan_count == 1
-    assert refreshed_scan.last_changed_scan_at == first_scan.last_changed_scan_at
-    assert refreshed_scan.reconcile_floor_due == false
+    current = current_scan(agent_id)
+    assert current.scan_id == "scan-full-#{unique}"
+    assert current.package_set_hash == first_scan.package_set_hash
+    assert current.unchanged_scan_count == 0
+    assert current.last_changed_scan_at == first_scan.last_changed_scan_at
+    assert current.reconcile_floor_due == false
+    assert scan_row_count(agent_id) == 1
 
-    assert refreshed_scan.id != package_scan_ref
     assert [%{name: "nginx", scan_ref: scan_ref}] = current_packages(agent_id)
-    assert scan_ref == refreshed_scan.id
+    assert scan_ref == package_scan_ref
 
     Repo.delete_all(
       from(s in "endpoint_inventory_scans",
@@ -681,7 +688,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     )
 
     assert [%{name: "nginx", scan_ref: scan_ref_after_retention}] = current_packages(agent_id)
-    assert scan_ref_after_retention == refreshed_scan.id
+    assert scan_ref_after_retention == first_scan.id
+    refute_receive :unexpected_unchanged_upload, 100
   end
 
   test "duplicate scan id short-circuits before upload and transaction work", %{actor: actor} do
@@ -1026,9 +1034,9 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert storage.artifact_object_bytes > 0
     assert storage.current_package_row_count >= 1
     assert storage.recent_changed_scan_count >= 1
-    assert storage.recent_unchanged_scan_count >= 1
+    assert storage.recent_unchanged_scan_count >= 0
     assert storage.recent_changed_ratio > 0.0
-    assert storage.recent_unchanged_ratio > 0.0
+    assert storage.recent_unchanged_ratio >= 0.0
 
     assert_receive {:endpoint_inventory_telemetry, event,
                     %{

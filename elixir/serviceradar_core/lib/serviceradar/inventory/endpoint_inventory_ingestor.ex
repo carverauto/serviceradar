@@ -43,6 +43,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
            {:ok, scan_id} <- Payload.required_string(payload, :scan_id),
            :continue <- maybe_short_circuit_noop(payload, agent_id, scan_id),
            {:ok, context} <- build_context(payload, agent_id, scan_id, actor, opts),
+           :continue <- maybe_short_circuit_hash_noop(context),
            {:ok, context} <- allocate_device_fleet_ordinal(context, opts),
            {:ok, artifact} <-
              EndpointInventoryArtifactPersistence.maybe_upload(payload, context, opts) do
@@ -108,6 +109,70 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   end
 
   def ingest_report(_payload, _opts), do: {:error, :invalid_endpoint_inventory_payload}
+
+  defp maybe_short_circuit_hash_noop(context) do
+    if hash_noop_candidate?(context) do
+      current = current_scan_snapshot(context.agent_id)
+
+      if hash_matches_current?(context, current) do
+        current_row_count = current_package_row_count(context.agent_id)
+        freshness_context = apply_hash_freshness(context, current, current_row_count)
+
+        if hash_freshness_short_circuit?(freshness_context, current) do
+          {:ok, emit_hash_noop_result(freshness_context, current)}
+        else
+          :continue
+        end
+      else
+        :continue
+      end
+    else
+      :continue
+    end
+  end
+
+  defp hash_matches_current?(context, current) do
+    current_package_set_hash(current) == reported_package_set_hash(context)
+  end
+
+  defp hash_noop_candidate?(context) do
+    successful_scan?(context) and context.upload_reason == @upload_reason_unchanged and
+      reported_package_set_hash(context) not in [nil, ""]
+  end
+
+  defp hash_freshness_short_circuit?(context, current) do
+    hash_matched_unchanged_noop?(context, current) and
+      context.package_replacement_noop? and
+      not context.degraded_empty_upload? and
+      not context.reconcile_floor_due?
+  end
+
+  defp emit_hash_noop_result(context, current) do
+    current
+    |> hash_noop_result(context)
+    |> tap(&EndpointInventoryTelemetry.emit_ingest_result/1)
+  end
+
+  defp hash_noop_result(current, context) do
+    %{
+      agent_id: context.agent_id,
+      device_uid: Map.get(current || %{}, :device_uid) || context.device_uid,
+      scan_id: Map.get(current || %{}, :scan_id) || context.scan_id,
+      scan_ref: Map.get(current || %{}, :id),
+      package_count: context.package_count,
+      artifact_uploaded?: false,
+      package_rows_replaced?: false,
+      scan_history_recorded?: false,
+      package_event_count: 0,
+      package_set_hash_mismatch?: context.package_set_hash_mismatch?,
+      reconcile_floor?: false,
+      upload_reason: @upload_reason_unchanged,
+      directives: %{},
+      current?: Map.get(current || %{}, :current, false),
+      package_change_signal_publish_count: 0,
+      short_circuited?: true
+    }
+  end
 
   defp maybe_short_circuit_noop(payload, agent_id, scan_id) do
     cond do
