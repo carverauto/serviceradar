@@ -565,6 +565,69 @@ var (
 	ErrUniFiLegacyStatsRequestFail  = errors.New("legacy UniFi device stats request failed")
 )
 
+const uniFiAPIPageLimit = 500
+
+func fetchUniFiPagedData[T any](
+	ctx context.Context,
+	client *http.Client,
+	headers map[string]string,
+	baseURL string,
+	resourceName string,
+	controllerName string,
+	siteName string,
+) ([]T, error) {
+	allData := make([]T, 0)
+
+	for offset := 0; ; offset += uniFiAPIPageLimit {
+		pageURL := fmt.Sprintf("%s?limit=%d&offset=%d", baseURL, uniFiAPIPageLimit, offset)
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, http.NoBody)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create %s request for %s, site %s, offset %d: %w",
+				resourceName, controllerName, siteName, offset, err)
+		}
+
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch %s from %s, site %s, offset %d: %w",
+				resourceName, controllerName, siteName, offset, err)
+		}
+
+		body, readErr := io.ReadAll(resp.Body)
+		closeErr := resp.Body.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("failed to read %s response body from %s, site %s, offset %d: %w",
+				resourceName, controllerName, siteName, offset, readErr)
+		}
+		if closeErr != nil {
+			return nil, fmt.Errorf("failed to close %s response body from %s, site %s, offset %d: %w",
+				resourceName, controllerName, siteName, offset, closeErr)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("%s request failed for %s, site %s, offset %d with status: %d, body: %s",
+				resourceName, controllerName, siteName, offset, resp.StatusCode, string(body))
+		}
+
+		var pageResp struct {
+			Data []T `json:"data"`
+		}
+		if err := json.Unmarshal(body, &pageResp); err != nil {
+			return nil, fmt.Errorf("failed to parse %s response from %s, site %s, offset %d: %w",
+				resourceName, controllerName, siteName, offset, err)
+		}
+
+		allData = append(allData, pageResp.Data...)
+		if len(pageResp.Data) < uniFiAPIPageLimit {
+			return allData, nil
+		}
+	}
+}
+
 // fetchUniFiDevicesForSite fetches devices from a UniFi site and creates a device cache
 func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
 	ctx context.Context,
@@ -578,47 +641,18 @@ func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
 	MAC      string
 	DeviceID string
 }, error) {
-	devicesURL := fmt.Sprintf("%s/sites/%s/devices?limit=500", apiConfig.BaseURL, site.ID)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, devicesURL, http.NoBody)
+	devicesURL := fmt.Sprintf("%s/sites/%s/devices", apiConfig.BaseURL, site.ID)
+	devices, err := fetchUniFiPagedData[UniFiDevice](
+		ctx,
+		client,
+		headers,
+		devicesURL,
+		"devices",
+		apiConfig.Name,
+		site.Name,
+	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create devices request for %s, site %s: %w",
-			apiConfig.Name, site.Name, err)
-	}
-
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to fetch devices from %s, site %s: %w",
-			apiConfig.Name, site.Name, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, nil, fmt.Errorf("%w for %s, site %s with status: %d",
-			ErrUniFiDevicesRequestFailed, apiConfig.Name, site.Name, resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read devices response body from %s, site %s: %w",
-			apiConfig.Name, site.Name, err)
-	}
-
-	e.logger.Debug().Str("job_id", job.ID).Str("api_name", apiConfig.Name).
-		Str("site_name", site.Name).Int("response_bytes", len(body)).
-		Msg("Devices response from UniFi API")
-
-	var deviceResp struct {
-		Data []UniFiDevice `json:"data"`
-	}
-
-	if err := json.Unmarshal(body, &deviceResp); err != nil {
-		return nil, nil, fmt.Errorf("failed to parse devices response from %s, site %s: %w",
-			apiConfig.Name, site.Name, err)
+		return nil, nil, fmt.Errorf("%w: %w", ErrUniFiDevicesRequestFailed, err)
 	}
 
 	deviceCache := make(map[string]struct {
@@ -628,8 +662,8 @@ func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
 		DeviceID string
 	})
 
-	for i := range deviceResp.Data {
-		device := &deviceResp.Data[i]
+	for i := range devices {
+		device := &devices[i]
 
 		deviceID := GenerateDeviceID(device.MAC)
 
@@ -641,7 +675,11 @@ func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
 		}{device.IPAddress, device.Name, device.MAC, deviceID}
 	}
 
-	return deviceResp.Data, deviceCache, nil
+	e.logger.Debug().Str("job_id", job.ID).Str("api_name", apiConfig.Name).
+		Str("site_name", site.Name).Int("device_count", len(devices)).
+		Msg("Fetched devices from UniFi API")
+
+	return devices, deviceCache, nil
 }
 
 var errUniFiClientsFetchFailed = errors.New("failed to fetch clients")
@@ -653,42 +691,22 @@ func (*DiscoveryEngine) fetchUniFiClientsForSite(
 	apiConfig UniFiAPIConfig,
 	site UniFiSite) ([]UniFiClient, error) {
 	clientsURL := fmt.Sprintf("%s/sites/%s/clients", apiConfig.BaseURL, site.ID)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, clientsURL, http.NoBody)
+	clients, err := fetchUniFiPagedData[UniFiClient](
+		ctx,
+		client,
+		headers,
+		clientsURL,
+		"clients",
+		apiConfig.Name,
+		site.Name,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create client request for site %s: %w", site.Name, err)
+		return nil, fmt.Errorf("%w: %w", errUniFiClientsFetchFailed, err)
 	}
 
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch clients for site %s: %w", site.Name, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%w: controller %s site %s status %d", errUniFiClientsFetchFailed, apiConfig.Name, site.Name, resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read clients for site %s: %w", site.Name, err)
-	}
-
-	var clientResp struct {
-		Data []UniFiClient `json:"data"`
-	}
-
-	if err := json.Unmarshal(body, &clientResp); err != nil {
-		return nil, fmt.Errorf("failed to parse clients for site %s: %w", site.Name, err)
-	}
-
-	wirelessClients := make([]UniFiClient, 0, len(clientResp.Data))
-	for i := range clientResp.Data {
-		client := clientResp.Data[i]
+	wirelessClients := make([]UniFiClient, 0, len(clients))
+	for i := range clients {
+		client := clients[i]
 		if client.normalizedType() != "WIRELESS" {
 			continue
 		}
@@ -1498,53 +1516,25 @@ func (e *DiscoveryEngine) fetchUniFiDevices(
 		"Content-Type": "application/json",
 	}
 
-	// Consider pagination if many devices per site: ?limit=X&offset=Y
-	devicesURL := fmt.Sprintf("%s/sites/%s/devices?limit=100", apiConfig.BaseURL, site.ID)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, devicesURL, http.NoBody)
+	devicesURL := fmt.Sprintf("%s/sites/%s/devices", apiConfig.BaseURL, site.ID)
+	devices, err := fetchUniFiPagedData[*UniFiDevice](
+		ctx,
+		client,
+		headers,
+		devicesURL,
+		"devices",
+		apiConfig.Name,
+		site.Name,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create devices request for %s, site %s: %w",
-			apiConfig.Name, site.Name, err)
-	}
-
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch devices from %s, site %s: %w",
-			apiConfig.Name, site.Name, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body) // Read body for error context
-
-		return nil, fmt.Errorf("%w for %s, site %s with status: %d, body: %s",
-			ErrUniFiDevicesRequestFailed, apiConfig.Name, site.Name, resp.StatusCode, string(bodyBytes))
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read devices response body from %s, site %s: %w",
-			apiConfig.Name, site.Name, err)
+		return nil, fmt.Errorf("%w: %w", ErrUniFiDevicesRequestFailed, err)
 	}
 
 	e.logger.Debug().Str("job_id", job.ID).Str("api_name", apiConfig.Name).
-		Str("site_name", site.Name).Int("response_bytes", len(body)).
-		Msg("Devices response from UniFi API")
+		Str("site_name", site.Name).Int("device_count", len(devices)).
+		Msg("Fetched devices from UniFi API")
 
-	var deviceResp struct {
-		Data []*UniFiDevice `json:"data"`
-	}
-
-	if err := json.Unmarshal(body, &deviceResp); err != nil {
-		return nil, fmt.Errorf("failed to parse devices response from %s, site %s: %w. Body: %s",
-			apiConfig.Name, site.Name, err, string(body))
-	}
-
-	return deviceResp.Data, nil
+	return devices, nil
 }
 
 func (e *DiscoveryEngine) createDiscoveredDevice(

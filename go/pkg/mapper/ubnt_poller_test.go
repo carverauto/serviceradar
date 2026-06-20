@@ -19,6 +19,7 @@ package mapper
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -198,6 +199,45 @@ func TestFetchUniFiSites(t *testing.T) {
 	}
 }
 
+func assertUniFiPageQuery(t *testing.T, r *http.Request, offset int) {
+	t.Helper()
+
+	assert.Equal(t, fmt.Sprint(uniFiAPIPageLimit), r.URL.Query().Get("limit"))
+	assert.Equal(t, fmt.Sprint(offset), r.URL.Query().Get("offset"))
+}
+
+func makeUniFiDevicePage(start, count int) []UniFiDevice {
+	devices := make([]UniFiDevice, 0, count)
+	for i := range count {
+		id := start + i
+		devices = append(devices, UniFiDevice{
+			ID:        fmt.Sprintf("device-%d", id),
+			IPAddress: fmt.Sprintf("192.168.%d.%d", id/254, (id%254)+1),
+			Name:      fmt.Sprintf("Device %d", id),
+			MAC:       fmt.Sprintf("00:11:22:%02x:%02x:%02x", (id>>16)&0xff, (id>>8)&0xff, id&0xff),
+		})
+	}
+
+	return devices
+}
+
+func makeUniFiClientPage(start, count int, clientType string) []UniFiClient {
+	clients := make([]UniFiClient, 0, count)
+	for i := range count {
+		id := start + i
+		clients = append(clients, UniFiClient{
+			ID:             fmt.Sprintf("client-%d", id),
+			Type:           clientType,
+			Name:           fmt.Sprintf("Client %d", id),
+			MACAddress:     fmt.Sprintf("aa:bb:cc:%02x:%02x:%02x", (id>>16)&0xff, (id>>8)&0xff, id&0xff),
+			IPAddress:      fmt.Sprintf("192.168.%d.%d", id/254, (id%254)+1),
+			UplinkDeviceID: "ap-1",
+		})
+	}
+
+	return clients
+}
+
 func TestFetchUniFiDevicesForSite(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -245,7 +285,7 @@ func TestFetchUniFiDevicesForSite(t *testing.T) {
 				// Check request method and path
 				assert.Equal(t, http.MethodGet, r.Method)
 				assert.Equal(t, "/sites/site1/devices", r.URL.Path)
-				assert.Contains(t, r.URL.RawQuery, "limit=50")
+				assertUniFiPageQuery(t, r, 0)
 
 				// Check headers
 				assert.Equal(t, "test-api-key", r.Header.Get("X-API-Key"))
@@ -337,6 +377,47 @@ func TestFetchUniFiDevicesForSite(t *testing.T) {
 	}
 }
 
+func TestFetchUniFiDevicesForSitePaginatesUntilShortPage(t *testing.T) {
+	requestedOffsets := make([]int, 0, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/sites/site1/devices", r.URL.Path)
+		assert.Equal(t, fmt.Sprint(uniFiAPIPageLimit), r.URL.Query().Get("limit"))
+
+		switch r.URL.Query().Get("offset") {
+		case "0":
+			requestedOffsets = append(requestedOffsets, 0)
+			w.WriteHeader(http.StatusOK)
+			require.NoError(t, json.NewEncoder(w).Encode(struct {
+				Data []UniFiDevice `json:"data"`
+			}{Data: makeUniFiDevicePage(0, uniFiAPIPageLimit)}))
+		case fmt.Sprint(uniFiAPIPageLimit):
+			requestedOffsets = append(requestedOffsets, uniFiAPIPageLimit)
+			w.WriteHeader(http.StatusOK)
+			require.NoError(t, json.NewEncoder(w).Encode(struct {
+				Data []UniFiDevice `json:"data"`
+			}{Data: makeUniFiDevicePage(uniFiAPIPageLimit, 1)}))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	engine := &DiscoveryEngine{logger: logger.NewTestLogger()}
+	job := &DiscoveryJob{ID: "test-job"}
+	client := &http.Client{Timeout: 30 * time.Second}
+	headers := map[string]string{"X-API-Key": "test-api-key", "Content-Type": "application/json"}
+	apiConfig := UniFiAPIConfig{Name: "Test API", BaseURL: server.URL, APIKey: "test-api-key"}
+	site := UniFiSite{ID: "site1", Name: "Site 1"}
+
+	devices, deviceCache, err := engine.fetchUniFiDevicesForSite(context.Background(), job, client, headers, apiConfig, site)
+	require.NoError(t, err)
+	assert.Equal(t, []int{0, uniFiAPIPageLimit}, requestedOffsets)
+	assert.Len(t, devices, uniFiAPIPageLimit+1)
+	assert.Len(t, deviceCache, uniFiAPIPageLimit+1)
+	assert.Contains(t, deviceCache, fmt.Sprintf("device-%d", uniFiAPIPageLimit))
+}
+
 func TestFetchUniFiClientsForSite(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -370,6 +451,7 @@ func TestFetchUniFiClientsForSite(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				assert.Equal(t, http.MethodGet, r.Method)
 				assert.Equal(t, "/sites/site1/clients", r.URL.Path)
+				assertUniFiPageQuery(t, r, 0)
 				assert.Equal(t, "test-api-key", r.Header.Get("X-API-Key"))
 				assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 				w.WriteHeader(tt.statusCode)
@@ -406,13 +488,99 @@ func TestFetchUniFiClientsForSite(t *testing.T) {
 	}
 }
 
+func TestFetchUniFiClientsForSitePaginatesBeforeFilteringWireless(t *testing.T) {
+	requestedOffsets := make([]int, 0, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/sites/site1/clients", r.URL.Path)
+		assert.Equal(t, fmt.Sprint(uniFiAPIPageLimit), r.URL.Query().Get("limit"))
+
+		switch r.URL.Query().Get("offset") {
+		case "0":
+			requestedOffsets = append(requestedOffsets, 0)
+			w.WriteHeader(http.StatusOK)
+			require.NoError(t, json.NewEncoder(w).Encode(struct {
+				Data []UniFiClient `json:"data"`
+			}{Data: makeUniFiClientPage(0, uniFiAPIPageLimit, "WIRELESS")}))
+		case fmt.Sprint(uniFiAPIPageLimit):
+			requestedOffsets = append(requestedOffsets, uniFiAPIPageLimit)
+			page := makeUniFiClientPage(uniFiAPIPageLimit, 1, "WIRELESS")
+			page = append(page, makeUniFiClientPage(uniFiAPIPageLimit+1, 1, "WIRED")...)
+			w.WriteHeader(http.StatusOK)
+			require.NoError(t, json.NewEncoder(w).Encode(struct {
+				Data []UniFiClient `json:"data"`
+			}{Data: page}))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	engine := &DiscoveryEngine{logger: logger.NewTestLogger()}
+	client := &http.Client{Timeout: 30 * time.Second}
+	headers := map[string]string{"X-API-Key": "test-api-key", "Content-Type": "application/json"}
+	apiConfig := UniFiAPIConfig{Name: "Test API", BaseURL: server.URL, APIKey: "test-api-key"}
+	site := UniFiSite{ID: "site1", Name: "Site 1"}
+
+	clients, err := engine.fetchUniFiClientsForSite(context.Background(), client, headers, apiConfig, site)
+	require.NoError(t, err)
+	assert.Equal(t, []int{0, uniFiAPIPageLimit}, requestedOffsets)
+	assert.Len(t, clients, uniFiAPIPageLimit+1)
+	for _, client := range clients {
+		assert.Equal(t, "WIRELESS", client.normalizedType())
+	}
+}
+
+func TestFetchUniFiDevicesPaginatesLegacyDiscoveryPath(t *testing.T) {
+	requestedOffsets := make([]int, 0, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/sites/site1/devices", r.URL.Path)
+		assert.Equal(t, fmt.Sprint(uniFiAPIPageLimit), r.URL.Query().Get("limit"))
+
+		switch r.URL.Query().Get("offset") {
+		case "0":
+			requestedOffsets = append(requestedOffsets, 0)
+			page := makeUniFiDevicePage(0, uniFiAPIPageLimit)
+			w.WriteHeader(http.StatusOK)
+			require.NoError(t, json.NewEncoder(w).Encode(struct {
+				Data []UniFiDevice `json:"data"`
+			}{Data: page}))
+		case fmt.Sprint(uniFiAPIPageLimit):
+			requestedOffsets = append(requestedOffsets, uniFiAPIPageLimit)
+			page := makeUniFiDevicePage(uniFiAPIPageLimit, 1)
+			w.WriteHeader(http.StatusOK)
+			require.NoError(t, json.NewEncoder(w).Encode(struct {
+				Data []UniFiDevice `json:"data"`
+			}{Data: page}))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	engine := &DiscoveryEngine{
+		config: &Config{Timeout: 30 * time.Second},
+		logger: logger.NewTestLogger(),
+	}
+	job := &DiscoveryJob{ID: "test-job"}
+	apiConfig := UniFiAPIConfig{Name: "Test API", BaseURL: server.URL, APIKey: "test-api-key"}
+	site := UniFiSite{ID: "site1", Name: "Site 1"}
+
+	devices, err := engine.fetchUniFiDevices(context.Background(), job, apiConfig, site)
+	require.NoError(t, err)
+	assert.Equal(t, []int{0, uniFiAPIPageLimit}, requestedOffsets)
+	assert.Len(t, devices, uniFiAPIPageLimit+1)
+	assert.Equal(t, fmt.Sprintf("device-%d", uniFiAPIPageLimit), devices[uniFiAPIPageLimit].ID)
+}
+
 func newUniFiInventoryUplinkServer(t *testing.T, deviceDetailPayload []byte) *httptest.Server {
 	t.Helper()
 
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/sites/site1/devices":
-			assert.Equal(t, "500", r.URL.Query().Get("limit"))
+			assertUniFiPageQuery(t, r, 0)
 			w.WriteHeader(http.StatusOK)
 			err := json.NewEncoder(w).Encode(struct {
 				Data []UniFiDevice `json:"data"`
@@ -617,7 +785,7 @@ func TestQuerySingleUniFiAPIFallsBackToLegacyStatDeviceWhenIntegrationDetailsDri
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/proxy/network/integration/v1/sites/site1/devices":
-			assert.Equal(t, "500", r.URL.Query().Get("limit"))
+			assertUniFiPageQuery(t, r, 0)
 			w.WriteHeader(http.StatusOK)
 			err := json.NewEncoder(w).Encode(struct {
 				Data []UniFiDevice `json:"data"`
@@ -938,7 +1106,7 @@ func TestQuerySingleUniFiAPIIncludesWirelessClientAssociations(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/sites/site1/devices":
-			assert.Equal(t, "500", r.URL.Query().Get("limit"))
+			assertUniFiPageQuery(t, r, 0)
 			w.WriteHeader(http.StatusOK)
 			err := json.NewEncoder(w).Encode(struct {
 				Data []UniFiDevice `json:"data"`
@@ -952,6 +1120,7 @@ func TestQuerySingleUniFiAPIIncludesWirelessClientAssociations(t *testing.T) {
 				t.Fatalf("encode devices response: %v", err)
 			}
 		case "/sites/site1/clients":
+			assertUniFiPageQuery(t, r, 0)
 			w.WriteHeader(http.StatusOK)
 			err := json.NewEncoder(w).Encode(struct {
 				Data []UniFiClient `json:"data"`
