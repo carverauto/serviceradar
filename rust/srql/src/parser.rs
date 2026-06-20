@@ -374,6 +374,11 @@ pub fn parse(input: &str) -> Result<QueryAst> {
             }
             _ => {
                 if let FilterValue::List(ref items) = value {
+                    if items.is_empty() {
+                        return Err(ServiceError::InvalidRequest(
+                            "list filters must contain at least one value".into(),
+                        ));
+                    }
                     if items.len() > MAX_FILTER_LIST_VALUES {
                         return Err(ServiceError::InvalidRequest(format!(
                             "list filters support at most {MAX_FILTER_LIST_VALUES} values"
@@ -800,7 +805,7 @@ fn build_filter(key: &str, value: FilterValue) -> Filter {
                 (FilterOp::Lte, FilterValue::Scalar(stripped.to_string()))
             } else if let Some(stripped) = v.strip_prefix('<') {
                 (FilterOp::Lt, FilterValue::Scalar(stripped.to_string()))
-            } else if v.contains('%') {
+            } else if v.contains('%') && supports_implicit_like(field) {
                 if negated {
                     (FilterOp::NotLike, FilterValue::Scalar(v))
                 } else {
@@ -826,6 +831,80 @@ fn build_filter(key: &str, value: FilterValue) -> Filter {
         op,
         value: final_value,
     }
+}
+
+fn supports_implicit_like(field: &str) -> bool {
+    let field = field.to_ascii_lowercase();
+    if field.starts_with("metadata.") {
+        return true;
+    }
+
+    matches!(
+        field.as_str(),
+        "activity"
+            | "agent_id"
+            | "aos_version"
+            | "app"
+            | "application"
+            | "attributes"
+            | "category"
+            | "classification"
+            | "cluster"
+            | "collector"
+            | "component"
+            | "cpe"
+            | "cpes"
+            | "description"
+            | "destination"
+            | "device"
+            | "device_id"
+            | "device_ip"
+            | "direction"
+            | "dst_port"
+            | "entity"
+            | "event"
+            | "event_name"
+            | "gateway_id"
+            | "host"
+            | "hostname"
+            | "id"
+            | "ingest_agent_id"
+            | "interface"
+            | "ip"
+            | "label"
+            | "mac"
+            | "manager"
+            | "message"
+            | "name"
+            | "namespace"
+            | "package"
+            | "parent_span_id"
+            | "protocol"
+            | "protocol_group"
+            | "provider"
+            | "purl"
+            | "resource"
+            | "root_span_id"
+            | "service"
+            | "service_name"
+            | "service_namespace"
+            | "service_type"
+            | "severity"
+            | "source"
+            | "source_type"
+            | "span_id"
+            | "src_port"
+            | "srql_query"
+            | "status"
+            | "summary"
+            | "target"
+            | "title"
+            | "trace_id"
+            | "type"
+            | "uid"
+            | "vendor"
+            | "version"
+    )
 }
 
 fn parse_order(raw: &str) -> Vec<OrderClause> {
@@ -1022,6 +1101,35 @@ mod tests {
         assert_eq!(ast.filters.len(), 1);
         assert!(matches!(ast.filters[0].value, FilterValue::List(_)));
         assert!(matches!(ast.filters[0].op, FilterOp::In));
+    }
+
+    #[test]
+    fn rejects_empty_list_filters() {
+        let err = parse("in:logs service:()").unwrap_err();
+        assert!(matches!(err, ServiceError::InvalidRequest(_)));
+
+        let err = parse("in:logs service:[]").unwrap_err();
+        assert!(matches!(err, ServiceError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn implicitly_promotes_wildcard_text_filters_to_like() {
+        let ast = parse("in:devices hostname:%cam%").unwrap();
+
+        assert_eq!(ast.filters.len(), 1);
+        assert!(matches!(ast.filters[0].op, FilterOp::Like));
+    }
+
+    #[test]
+    fn does_not_implicitly_promote_exact_filters_to_like() {
+        let ast = parse("in:interfaces if_index:%1%").unwrap();
+
+        assert_eq!(ast.filters.len(), 1);
+        assert!(matches!(ast.filters[0].op, FilterOp::Eq));
+
+        let ast = parse("in:interfaces !if_index:%1%").unwrap();
+        assert_eq!(ast.filters.len(), 1);
+        assert!(matches!(ast.filters[0].op, FilterOp::NotEq));
     }
 
     #[test]
