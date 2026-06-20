@@ -43,4 +43,32 @@ defmodule ServiceRadar.Plugins.ConfigSchemaTest do
     assert :ok =
              ConfigSchema.validate_params(schema, %{"enabled" => true, "batch_queue_size" => 1024})
   end
+
+  test "blank numeric form values are omitted instead of persisted as strings or defaults" do
+    schema = %{
+      "type" => "object",
+      "properties" => %{
+        "window_size" => %{"type" => "integer", "default" => 300},
+        "n_sigma" => %{"type" => "number", "default" => 3.0},
+        "enabled" => %{"type" => "boolean", "default" => true},
+        "label" => %{"type" => "string", "default" => "default label"}
+      }
+    }
+
+    assert %{"window_size" => 300, "n_sigma" => 3.0} =
+             ConfigSchema.normalize_params(schema, %{})
+
+    normalized =
+      ConfigSchema.normalize_params(schema, %{
+        "window_size" => "",
+        "n_sigma" => nil,
+        "enabled" => "",
+        "label" => ""
+      })
+
+    refute Map.has_key?(normalized, "window_size")
+    refute Map.has_key?(normalized, "n_sigma")
+    assert normalized["enabled"] == true
+    assert normalized["label"] == "default label"
+  end
 end
