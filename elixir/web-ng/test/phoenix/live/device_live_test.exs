@@ -1634,7 +1634,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert [%{label: "CPU saturation anomaly", series: nil}] = assigns.annotations
   end
 
-  test "sysmon percent metric sections carry anomaly gate reference lines" do
+  test "sysmon percent metric sections carry saturation gate reference lines" do
     previous_responder = Application.get_env(:serviceradar_web_ng, :device_live_srql_responder)
 
     Application.put_env(:serviceradar_web_ng, :device_live_srql_responder, fn query, _opts ->
@@ -1670,9 +1670,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         :scope
       )
 
-    assert_panel_reference_line(sections, "cpu", 85.0, "CPU anomaly gate 85%")
-    assert_panel_reference_line(sections, "memory", 80.0, "Memory anomaly gate 80%")
-    assert_panel_reference_line(sections, "disk", 80.0, "Disk anomaly gate 80%")
+    assert_panel_reference_line(sections, "cpu", 85.0, "CPU saturation gate 85%")
+    assert_panel_reference_line(sections, "memory", 80.0, "Memory saturation gate 80%")
+    assert_panel_reference_line(sections, "disk", 80.0, "Disk saturation gate 80%")
 
     process_count = Enum.find(sections, &(&1.key == "process-count"))
     assert process_count
