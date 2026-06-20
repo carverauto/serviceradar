@@ -84,6 +84,47 @@ defmodule ServiceRadar.StatusHandlerTest do
     assert_receive {:forwarded, ^status}
   end
 
+  test "returns timeout error when synchronous ResultsRouter call exits" do
+    original = Application.get_env(:serviceradar_core, StatusHandler, [])
+
+    Application.put_env(
+      :serviceradar_core,
+      StatusHandler,
+      Keyword.put(original, :results_router_timeout_ms, 10)
+    )
+
+    on_exit(fn ->
+      if original == [] do
+        Application.delete_env(:serviceradar_core, StatusHandler)
+      else
+        Application.put_env(:serviceradar_core, StatusHandler, original)
+      end
+    end)
+
+    router_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_call", _from, {:results_update, _status}} ->
+            Process.sleep(:infinity)
+        end
+      end)
+
+    Process.register(router_pid, ServiceRadar.ResultsRouter)
+
+    status = %{
+      source: "results",
+      service_type: "endpoint_inventory",
+      service_name: "endpoint_inventory",
+      message: Jason.encode!(%{"scan_id" => "scan-timeout"})
+    }
+
+    assert {:reply, {:error, :results_router_timeout}, %{}} =
+             StatusHandler.handle_call({:status_update, status}, self(), %{})
+
+    assert Process.alive?(router_pid)
+    Process.exit(router_pid, :kill)
+  end
+
   test "rejects all metric-only sources before ResultsRouter when they reach core" do
     parent = self()
 

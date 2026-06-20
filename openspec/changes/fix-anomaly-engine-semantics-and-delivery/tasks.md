@@ -281,3 +281,14 @@
 
 ## 52. CI Action Flood (ops/infra, separate) (F56)
 - [x] 52.1 Add Forgejo workflow concurrency groups with `cancel-in-progress` keyed on workflow/ref for build and scan workflows, while queueing same-tag publish reruns so in-flight publishes are not cancelled.
+
+## 53. StatusHandler endpoint_inventory {:results_update} Crash-Loop (F57) - fj #4136
+_From the 2026-06-20 demo RCA: `ServiceRadar.StatusHandler` can crash-loop when the synchronous `GenServer.call({:results_update}, 30_000)` to `ResultsRouter` times out under slow endpoint_inventory ingest. The immediate fault is an uncaught `GenServer.call` exit in the singleton StatusHandler path; broader endpoint_inventory async/cancellation hardening remains separate work._
+- [x] 53.1 Urgent stopgap: wrap StatusHandler's synchronous ResultsRouter call in `try`/`catch :exit`, returning `{:error, :results_router_timeout}` on timeout so the singleton does not crash and drop its mailbox.
+- [ ] 53.2 Root-cause: make the endpoint_inventory results path asynchronous with an ack-on-completion contract, so `StatusHandler`/`ResultsRouter` never block synchronously on ingest.
+- [ ] 53.3 Decouple nested timeout budgets by lowering the inner endpoint_inventory ingest timeout below the outer gateway/core call timeout; do not raise the outer timeout.
+- [ ] 53.4 Bound or cancel the in-flight ingest transaction on timeout so abandoned tasks cannot keep consuming the connection pool.
+- [ ] 53.5 Add a cheap core-side idempotency/short-circuit before `build_context`, upload, and transaction work for unchanged and empty/not-scanned payloads.
+- [ ] 53.6 Move hash-freshness/noop decisions before transaction reads/writes so unchanged scans skip unnecessary writes.
+- [ ] 53.7 Index or rewrite the agent-scoped scan lookup used by endpoint inventory context building.
+- [ ] 53.8 Add per-agent queue fairness/load-shedding and surface queue-full as a fast gateway-buffered reply.

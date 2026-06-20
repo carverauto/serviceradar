@@ -47,6 +47,7 @@ defmodule ServiceRadar.StatusHandler do
   @addon_otel_log_subject "logs.otel.addon"
   @plugin_ocsf_subject "events.ocsf.processed"
   @plugin_otel_log_subject "logs.otel.plugin"
+  @results_router_timeout_ms 30_000
   @signal_schema_metadata_keys %{
     producer_id: "serviceradar.signal_schema.producer_id",
     producer_version: "serviceradar.signal_schema.producer_version",
@@ -127,7 +128,7 @@ defmodule ServiceRadar.StatusHandler do
     case Process.whereis(ResultsRouter) do
       pid when is_pid(pid) ->
         if Keyword.get(opts, :sync_results?, false) do
-          GenServer.call(pid, {:results_update, status}, 30_000)
+          call_results_router(pid, status)
         else
           GenServer.cast(pid, {:results_update, status})
           :ok
@@ -165,6 +166,24 @@ defmodule ServiceRadar.StatusHandler do
   end
 
   defp process(_status, _opts), do: :ok
+
+  defp call_results_router(pid, status) do
+    GenServer.call(pid, {:results_update, status}, results_router_timeout_ms())
+  catch
+    :exit, {:timeout, _call} ->
+      Logger.warning("ResultsRouter status update timed out")
+      {:error, :results_router_timeout}
+
+    :exit, reason ->
+      Logger.warning("ResultsRouter status update failed: #{inspect(reason)}")
+      {:error, {:results_router_unavailable, reason}}
+  end
+
+  defp results_router_timeout_ms do
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:results_router_timeout_ms, @results_router_timeout_ms)
+  end
 
   defp handle_flow_attribution(status) do
     partition_id = status[:partition] || "default"
