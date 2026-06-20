@@ -241,6 +241,8 @@ fn lock_engine(engine: &Arc<Mutex<DetectorEngine>>) -> MutexGuard<'_, DetectorEn
         Ok(guard) => guard,
         Err(poisoned) => {
             let guard = poisoned.into_inner();
+            // Preserve warmed detector state after poison recovery; at most the
+            // series being mutated during the panic may be partially updated.
             engine.clear_poison();
             guard
         }
@@ -2340,6 +2342,9 @@ mod tests {
         assert_no_batch(&mut rx);
 
         process_anomaly_value(&engine, &tx, 100.0, 24).await;
+        assert_no_batch(&mut rx);
+
+        process_anomaly_value(&engine, &tx, 100.0, 25).await;
         let clear = recv_single_event(&mut rx);
         assert_eq!(clear["status"], "inactive");
         assert_eq!(clear["anomaly"]["state"], "anomaly_clear");

@@ -575,6 +575,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 

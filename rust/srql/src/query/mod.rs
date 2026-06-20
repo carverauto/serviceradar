@@ -330,7 +330,12 @@ fn build_query_plan(
     request: &QueryRequest,
     ast: QueryAst,
 ) -> Result<QueryPlan> {
-    let limit = determine_limit(config, request.limit.or(ast.limit));
+    let requested_limit = request.limit.or(ast.limit);
+    if ast.other {
+        validate_other_rollup_request(&ast, requested_limit, request.cursor.as_deref())?;
+    }
+
+    let limit = determine_limit(config, requested_limit);
     let offset = request
         .cursor
         .as_deref()
@@ -361,8 +366,45 @@ fn build_query_plan(
         stats: ast.stats,
         downsample,
         rollup_stats: ast.rollup_stats,
+        other: ast.other,
         include_deleted,
     })
+}
+
+fn validate_other_rollup_request(
+    ast: &QueryAst,
+    requested_limit: Option<i64>,
+    cursor: Option<&str>,
+) -> Result<()> {
+    if !matches!(ast.entity, Entity::Flows | Entity::AttributedFlows) {
+        return Err(ServiceError::InvalidRequest(
+            "other:true is currently supported only for flow stats".into(),
+        ));
+    }
+
+    ast.stats.as_ref().ok_or_else(|| {
+        ServiceError::InvalidRequest("other:true requires a grouped stats query".into())
+    })?;
+
+    if requested_limit.is_none() {
+        return Err(ServiceError::InvalidRequest(
+            "other:true requires an explicit limit".into(),
+        ));
+    }
+
+    if ast.order.is_empty() {
+        return Err(ServiceError::InvalidRequest(
+            "other:true requires an explicit sort".into(),
+        ));
+    }
+
+    if cursor.is_some() {
+        return Err(ServiceError::InvalidRequest(
+            "other:true does not support cursor pagination".into(),
+        ));
+    }
+
+    Ok(())
 }
 
 fn default_time_range_for_entity(
@@ -1015,6 +1057,7 @@ pub struct QueryPlan {
     pub downsample: Option<crate::parser::DownsampleSpec>,
     /// Rollup stats type for querying pre-computed CAGGs (e.g., "severity", "summary", "availability")
     pub rollup_stats: Option<String>,
+    pub other: bool,
     pub include_deleted: bool,
 }
 
