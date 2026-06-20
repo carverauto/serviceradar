@@ -155,8 +155,8 @@
 
 ## 26. NetFlow Traffic Correctness (F32)
 - [ ] 26.1 Carry `sampling_rate` into flow rows and weight every byte/packet sum by it (Total Bandwidth, Top-N, gauges, p95, subnet).
-- [ ] 26.2 Divide window-sum totals by the window seconds before labeling a per-second rate (`dashboard.ex:1241-1246,1283-1302`).
-- [ ] 26.3 Align the interface gauge and p95 to the selected time window; make peak vs average explicit.
+- [x] 26.2 Divide window-sum totals by the window seconds before labeling a per-second rate (`dashboard.ex:1241-1246,1283-1302`).
+- [x] 26.3 Align the interface gauge and p95 to the selected time window; make peak vs average explicit.
 - [ ] 26.4 Add tests pinning correct bandwidth math for a sampled exporter and each time window.
 
 ## 27. SNMP Counter Rendering Semantics (F33)
@@ -178,9 +178,9 @@
 - [ ] 30.2 Distinguish query-error vs no-data vs disabled empty states; link empty states to the relevant SNMP/polling config.
 
 ## 31. Charted Coverage & Accessibility (F37)
-- [ ] 31.1 Chart `process.count`; add per-process history/sparklines so process spikes are visible.
-- [ ] 31.2 Show absolute volume alongside the NetFlow 100%-stacked view.
-- [ ] 31.3 Add non-color series encoding (shape/pattern/label) for color-blind operators.
+- [x] 31.1 Chart `process.count`; add per-process history/sparklines so process spikes are visible.
+- [x] 31.2 Show absolute volume alongside the NetFlow 100%-stacked view.
+- [x] 31.3 Add non-color series encoding (shape/pattern/label) for color-blind operators.
 
 ## 32. Chart Renderer Modularization (F38)
 - [ ] 32.1 Break up `dashboard/plugins/timeseries.ex` (~1544 lines) into focused modules each under ~300 lines, e.g. point extraction/normalization, downsampling, counter-rate derivation, scale/units, SVG path geometry, hover/annotation, and the LiveComponent shell.
