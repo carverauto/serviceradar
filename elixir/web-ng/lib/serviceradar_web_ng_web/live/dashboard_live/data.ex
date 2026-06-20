@@ -1884,26 +1884,26 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     cutoff = cutoff_for_time_window(time_window)
 
     if relation_exists?("platform.ocsf_events") do
-      sql = """
-      SELECT bucket, total, low, medium, high, critical
-      FROM (
-        SELECT
+      sql =
+        recent_bucket_query(
+          "bucket, total, low, medium, high, critical",
+          ~s|
+          SELECT
           date_trunc('hour', time) AS bucket,
           COUNT(*)::bigint AS total,
           COUNT(*) FILTER (WHERE COALESCE(severity_id, 0) BETWEEN 1 AND 2)::bigint AS low,
           COUNT(*) FILTER (WHERE COALESCE(severity_id, 0) = 3)::bigint AS medium,
           COUNT(*) FILTER (WHERE COALESCE(severity_id, 0) = 4)::bigint AS high,
           COUNT(*) FILTER (WHERE COALESCE(severity_id, 0) >= 5)::bigint AS critical
-        FROM ocsf_events
-        WHERE time >= $1
-        GROUP BY 1
-        ORDER BY 1 DESC
-        LIMIT 48
-      ) recent
-      ORDER BY bucket ASC
-      """
+          FROM ocsf_events
+          WHERE time >= $1
+          GROUP BY 1
+          ORDER BY 1 DESC
+          LIMIT $2
+          |
+        )
 
-      case Repo.query(sql, [cutoff]) do
+      case Repo.query(sql, [cutoff, @dashboard_sparkline_limit]) do
         {:ok, %{rows: rows}} ->
           Enum.map(rows, fn [bucket, total, low, medium, high, critical] ->
             %{
@@ -1995,43 +1995,43 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
        ) do
     bucket_interval = bucket_interval_literal(sparkline_bucket_for_from_seconds(seconds))
 
-    sql = """
-    SELECT bucket, bytes_total, packets_total, flow_count
-    FROM (
-      SELECT
+    sql =
+      recent_bucket_query(
+        "bucket, bytes_total, packets_total, flow_count",
+        ~s|
+        SELECT
         time_bucket(#{bucket_interval}, #{time_column}) AS bucket,
         COALESCE(SUM(bytes_total), 0)::float8 AS bytes_total,
         COALESCE(SUM(packets_total), 0)::float8 AS packets_total,
         COUNT(*)::float8 AS flow_count
-      FROM #{relation}
-      WHERE #{time_column} >= $1
-      GROUP BY 1
-      ORDER BY 1 DESC
-      LIMIT $2
-    ) recent
-    ORDER BY bucket ASC
-    """
+        FROM #{relation}
+        WHERE #{time_column} >= $1
+        GROUP BY 1
+        ORDER BY 1 DESC
+        LIMIT $2
+        |
+      )
 
     sparkline_query_values(sql, [cutoff, @dashboard_sparkline_limit * 2], metric, seconds)
   end
 
   defp flow_traffic_sparkline_from_relation(relation, time_column, cutoff, seconds, metric) do
-    sql = """
-    SELECT bucket, bytes_total, packets_total, flow_count
-    FROM (
-      SELECT
+    sql =
+      recent_bucket_query(
+        "bucket, bytes_total, packets_total, flow_count",
+        ~s|
+        SELECT
         #{time_column} AS bucket,
         COALESCE(SUM(bytes_total), 0)::float8 AS bytes_total,
         COALESCE(SUM(packets_total), 0)::float8 AS packets_total,
         COALESCE(SUM(flow_count), 0)::float8 AS flow_count
-      FROM #{relation}
-      WHERE #{time_column} >= $1
-      GROUP BY 1
-      ORDER BY 1 DESC
-      LIMIT $2
-    ) recent
-    ORDER BY bucket ASC
-    """
+        FROM #{relation}
+        WHERE #{time_column} >= $1
+        GROUP BY 1
+        ORDER BY 1 DESC
+        LIMIT $2
+        |
+      )
 
     sparkline_query_values(sql, [cutoff, @dashboard_sparkline_limit * 2], metric, seconds)
   end
@@ -2057,23 +2057,23 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
 
   defp service_availability_sparkline(time_window) do
     if relation_exists?("platform.services_availability_5m") do
-      sql = """
-      SELECT bucket, availability_pct
-      FROM (
-        SELECT
+      sql =
+        recent_bucket_query(
+          "bucket, availability_pct",
+          ~s|
+          SELECT
           bucket,
           CASE
             WHEN COALESCE(SUM(total_count), 0) = 0 THEN 0.0
             ELSE COALESCE(SUM(available_count), 0)::float8 / COALESCE(SUM(total_count), 0)::float8 * 100.0
           END AS availability_pct
-        FROM platform.services_availability_5m
-        WHERE bucket >= $1
-        GROUP BY bucket
-        ORDER BY bucket DESC
-        LIMIT $2
-      ) recent
-      ORDER BY bucket ASC
-      """
+          FROM platform.services_availability_5m
+          WHERE bucket >= $1
+          GROUP BY bucket
+          ORDER BY bucket DESC
+          LIMIT $2
+          |
+        )
 
       one_value_sparkline(sql, [cutoff_for_time_window(time_window), @dashboard_sparkline_limit * 2])
     else
@@ -2101,40 +2101,40 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   end
 
   defp trace_rollup_sparkline(time_window, :latency_ms) do
-    sql = """
-    SELECT bucket, avg_duration_ms
-    FROM (
-      SELECT bucket, COALESCE(AVG(avg_duration_ms), 0)::float8 AS avg_duration_ms
-      FROM platform.traces_stats_5m
-      WHERE bucket >= $1
-      GROUP BY bucket
-      ORDER BY bucket DESC
-      LIMIT $2
-    ) recent
-    ORDER BY bucket ASC
-    """
+    sql =
+      recent_bucket_query(
+        "bucket, avg_duration_ms",
+        ~s|
+        SELECT bucket, COALESCE(AVG(avg_duration_ms), 0)::float8 AS avg_duration_ms
+        FROM platform.traces_stats_5m
+        WHERE bucket >= $1
+        GROUP BY bucket
+        ORDER BY bucket DESC
+        LIMIT $2
+        |
+      )
 
     one_value_sparkline(sql, [cutoff_for_time_window(time_window), @dashboard_sparkline_limit * 2])
   end
 
   defp trace_rollup_sparkline(time_window, :success_pct) do
-    sql = """
-    SELECT bucket, success_pct
-    FROM (
-      SELECT
+    sql =
+      recent_bucket_query(
+        "bucket, success_pct",
+        ~s|
+        SELECT
         bucket,
         CASE
           WHEN COALESCE(SUM(total_count), 0) = 0 THEN 100.0
           ELSE (1.0 - COALESCE(SUM(error_count), 0)::float8 / COALESCE(SUM(total_count), 0)::float8) * 100.0
         END AS success_pct
-      FROM platform.traces_stats_5m
-      WHERE bucket >= $1
-      GROUP BY bucket
-      ORDER BY bucket DESC
-      LIMIT $2
-    ) recent
-    ORDER BY bucket ASC
-    """
+        FROM platform.traces_stats_5m
+        WHERE bucket >= $1
+        GROUP BY bucket
+        ORDER BY bucket DESC
+        LIMIT $2
+        |
+      )
 
     one_value_sparkline(sql, [cutoff_for_time_window(time_window), @dashboard_sparkline_limit * 2])
   end
@@ -2143,22 +2143,22 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
 
   defp device_activity_sparkline(time_window) do
     if relation_exists?("platform.ocsf_devices") do
-      sql = """
-      SELECT bucket, value
-      FROM (
-        SELECT
+      sql =
+        recent_bucket_query(
+          "bucket, value",
+          ~s|
+          SELECT
           time_bucket(#{bucket_interval_literal(sparkline_bucket_for(time_window))}, last_seen_time) AS bucket,
           COUNT(*) FILTER (WHERE COALESCE(is_available, false) = true)::float8 AS value
-        FROM platform.ocsf_devices
-        WHERE deleted_at IS NULL
+          FROM platform.ocsf_devices
+          WHERE deleted_at IS NULL
           AND is_active = true
           AND last_seen_time >= $1
-        GROUP BY 1
-        ORDER BY 1 DESC
-        LIMIT $2
-      ) recent
-      ORDER BY bucket ASC
-      """
+          GROUP BY 1
+          ORDER BY 1 DESC
+          LIMIT $2
+          |
+        )
 
       one_value_sparkline(sql, [cutoff_for_time_window(time_window), @dashboard_sparkline_limit * 2])
     else
@@ -2170,20 +2170,20 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
 
   defp camera_activity_sparkline(time_window) do
     if relation_exists?("platform.camera_sources") do
-      sql = """
-      SELECT bucket, value
-      FROM (
-        SELECT
+      sql =
+        recent_bucket_query(
+          "bucket, value",
+          ~s|
+          SELECT
           time_bucket(#{bucket_interval_literal(sparkline_bucket_for(time_window))}, COALESCE(last_activity_at, last_event_at, updated_at)) AS bucket,
           COUNT(*) FILTER (WHERE availability_status IN ('available', 'online', 'active', 'healthy'))::float8 AS value
-        FROM platform.camera_sources
-        WHERE COALESCE(last_activity_at, last_event_at, updated_at) >= $1
-        GROUP BY 1
-        ORDER BY 1 DESC
-        LIMIT $2
-      ) recent
-      ORDER BY bucket ASC
-      """
+          FROM platform.camera_sources
+          WHERE COALESCE(last_activity_at, last_event_at, updated_at) >= $1
+          GROUP BY 1
+          ORDER BY 1 DESC
+          LIMIT $2
+          |
+        )
 
       one_value_sparkline(sql, [cutoff_for_time_window(time_window), @dashboard_sparkline_limit * 2])
     else
@@ -2196,41 +2196,41 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   defp survey_sample_sparkline(time_window) do
     cond do
       relation_exists?("platform.survey_rf_pose_matches") ->
-        sql = """
-        SELECT bucket, value
-        FROM (
-          SELECT
+        sql =
+          recent_bucket_query(
+            "bucket, value",
+            ~s|
+            SELECT
             time_bucket(#{bucket_interval_literal(sparkline_bucket_for(time_window))}, rf_captured_at) AS bucket,
             COUNT(*)::float8 AS value
-          FROM platform.survey_rf_pose_matches
-          WHERE rf_captured_at >= $1
+            FROM platform.survey_rf_pose_matches
+            WHERE rf_captured_at >= $1
             AND x IS NOT NULL
             AND z IS NOT NULL
             AND rssi_dbm IS NOT NULL
-          GROUP BY 1
-          ORDER BY 1 DESC
-          LIMIT $2
-        ) recent
-        ORDER BY bucket ASC
-        """
+            GROUP BY 1
+            ORDER BY 1 DESC
+            LIMIT $2
+            |
+          )
 
         one_value_sparkline(sql, [cutoff_for_time_window(time_window), @dashboard_sparkline_limit * 2])
 
       relation_exists?("platform.survey_samples") ->
-        sql = """
-        SELECT bucket, value
-        FROM (
-          SELECT
+        sql =
+          recent_bucket_query(
+            "bucket, value",
+            ~s|
+            SELECT
             time_bucket(#{bucket_interval_literal(sparkline_bucket_for(time_window))}, timestamp) AS bucket,
             COUNT(*)::float8 AS value
-          FROM platform.survey_samples
-          WHERE timestamp >= $1
-          GROUP BY 1
-          ORDER BY 1 DESC
-          LIMIT $2
-        ) recent
-        ORDER BY bucket ASC
-        """
+            FROM platform.survey_samples
+            WHERE timestamp >= $1
+            GROUP BY 1
+            ORDER BY 1 DESC
+            LIMIT $2
+            |
+          )
 
         one_value_sparkline(sql, [cutoff_for_time_window(time_window), @dashboard_sparkline_limit * 2])
 
@@ -2251,6 +2251,16 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       _ ->
         []
     end
+  end
+
+  defp recent_bucket_query(select_columns, aggregate_query) do
+    """
+    SELECT #{select_columns}
+    FROM (
+    #{String.trim(aggregate_query)}
+    ) recent
+    ORDER BY bucket ASC
+    """
   end
 
   defp mtr_overlay_sparkline([], _metric), do: []

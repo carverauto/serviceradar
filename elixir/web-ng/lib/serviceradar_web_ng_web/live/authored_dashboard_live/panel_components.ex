@@ -657,7 +657,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
   defp aggregate_values(values, _aggregate), do: Enum.sum(values)
 
   defp trend_summary({:ok, %{rows: rows, fields: fields}}, panel) do
-    value_key = first_numeric_field(fields)
+    value_key = trend_value_field(fields)
     lookback_days = trend_lookback_days(panel)
 
     values =
@@ -697,15 +697,41 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
   defp trend_summary(_trend, _panel), do: nil
 
   defp trend_ordered_rows(rows, fields) do
-    case first_field_of_type(fields, :datetime) do
+    case trend_time_field(fields) do
       nil -> rows
       time_key -> Enum.sort_by(rows, &datetime_sort_key(Map.get(&1, time_key)))
     end
   end
 
+  defp trend_time_field(fields) do
+    first_field_of_type(fields, :datetime) ||
+      Enum.find_value(fields, fn field ->
+        name = field_name(field)
+        type = field_type(field)
+
+        if trend_time_field_name?(name) and type in [:number, :integer, :datetime, :string] do
+          name
+        end
+      end)
+  end
+
+  defp trend_value_field(fields) do
+    Enum.find_value(fields, fn field ->
+      name = field_name(field)
+      if field_type(field) == :number and not trend_time_field_name?(name), do: name
+    end) || first_numeric_field(fields)
+  end
+
+  defp trend_time_field_name?(name) when is_binary(name) do
+    name in ["time", "timestamp", "bucket", "time_bucket", "bucket_start", "bucket_end"]
+  end
+
+  defp trend_time_field_name?(_name), do: false
+
   defp datetime_sort_key(%DateTime{} = value), do: {0, DateTime.to_unix(value, :microsecond)}
   defp datetime_sort_key(%NaiveDateTime{} = value), do: {0, NaiveDateTime.to_gregorian_seconds(value)}
   defp datetime_sort_key(%Date{} = value), do: {0, Date.to_gregorian_days(value)}
+  defp datetime_sort_key(value) when is_number(value), do: {0, value}
 
   defp datetime_sort_key(value) when is_binary(value) do
     with {:error, _reason} <- DateTime.from_iso8601(value),
@@ -885,6 +911,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
   defp field_type(%{type: type}) when is_binary(type), do: field_type(type)
   defp field_type(%{"type" => type}) when is_binary(type), do: field_type(type)
   defp field_type("number"), do: :number
+  defp field_type("integer"), do: :integer
   defp field_type("datetime"), do: :datetime
   defp field_type("boolean"), do: :boolean
   defp field_type("string"), do: :string

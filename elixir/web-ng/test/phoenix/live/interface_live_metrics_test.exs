@@ -181,9 +181,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsTest do
 
     test "series data is sorted by time" do
       results = [
-        %{"metric_name" => "ifInOctets", "time" => ~U[2100-01-01 00:10:00Z], "value" => 3000},
-        %{"metric_name" => "ifInOctets", "time" => ~U[2100-01-01 00:00:00Z], "value" => 1000},
-        %{"metric_name" => "ifInOctets", "time" => ~U[2100-01-01 00:05:00Z], "value" => 2000}
+        %{"series" => "ifInOctets", "timestamp" => ~U[2100-01-01 00:10:00Z], "value" => 3000},
+        %{"series" => "ifInOctets", "timestamp" => ~U[2100-01-01 00:00:00Z], "value" => 1000},
+        %{"series" => "ifInOctets", "timestamp" => ~U[2100-01-01 00:05:00Z], "value" => 2000}
       ]
 
       groups = [
@@ -238,12 +238,12 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsTest do
 
   defp build_sample_metric_results do
     [
-      %{"metric_name" => "ifInOctets", "time" => ~U[2100-01-01 00:00:00Z], "value" => 1000},
-      %{"metric_name" => "ifInOctets", "time" => ~U[2100-01-01 00:05:00Z], "value" => 2000},
-      %{"metric_name" => "ifOutOctets", "time" => ~U[2100-01-01 00:00:00Z], "value" => 500},
-      %{"metric_name" => "ifOutOctets", "time" => ~U[2100-01-01 00:05:00Z], "value" => 600},
-      %{"metric_name" => "ifInErrors", "time" => ~U[2100-01-01 00:00:00Z], "value" => 0},
-      %{"metric_name" => "ifInErrors", "time" => ~U[2100-01-01 00:05:00Z], "value" => 1}
+      %{"series" => "ifInOctets", "timestamp" => ~U[2100-01-01 00:00:00Z], "value" => 1000},
+      %{"series" => "ifInOctets", "timestamp" => ~U[2100-01-01 00:05:00Z], "value" => 2000},
+      %{"series" => "ifOutOctets", "timestamp" => ~U[2100-01-01 00:00:00Z], "value" => 500},
+      %{"series" => "ifOutOctets", "timestamp" => ~U[2100-01-01 00:05:00Z], "value" => 600},
+      %{"series" => "ifInErrors", "timestamp" => ~U[2100-01-01 00:00:00Z], "value" => 0},
+      %{"series" => "ifInErrors", "timestamp" => ~U[2100-01-01 00:05:00Z], "value" => 1}
     ]
   end
 
@@ -309,11 +309,11 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsTest do
     %{name: format_series_name(name), data: data}
   end
 
-  defp metric_result_name(result) when is_map(result), do: first_key(result, [:metric_name, :series])
+  defp metric_result_name(result) when is_map(result), do: first_key(result, [:series])
 
   defp metric_result_name(_), do: nil
 
-  defp metric_result_time(result) when is_map(result), do: first_key(result, [:time, :timestamp])
+  defp metric_result_time(result) when is_map(result), do: first_key(result, [:timestamp])
 
   defp metric_result_time(_), do: nil
 

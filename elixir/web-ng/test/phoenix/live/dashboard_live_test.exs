@@ -89,10 +89,15 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
 
     assert has_element?(view, "#srql-query-bar input[name='q'][value='#{expected_query}']")
 
-    html = render_click(view, "srql_builder_toggle", %{})
+    render_click(view, "srql_builder_toggle", %{})
 
     assert has_element?(view, "#srql-query-bar input[name='q'][value='#{expected_query}']")
-    assert html =~ "Entity"
+    assert has_element?(view, "form[phx-change='srql_builder_change']")
+    assert has_element?(view, "select[name='builder[entity]'] option[value='dashboards'][selected]", "Dashboards")
+
+    html = render(view)
+
+    assert html =~ "Query Builder"
     refute html =~ "can't be fully represented"
     refute html =~ "can’t be fully represented"
   end
@@ -221,13 +226,15 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
         description: "Still retained in the alert stream"
       })
 
+    {:ok, alert_id} = Ecto.UUID.dump(alert.id)
+
     Repo.query!(
       """
       UPDATE platform.alerts
       SET triggered_at = $2, created_at = $2
       WHERE id = $1
       """,
-      [alert.id, observed_at]
+      [alert_id, observed_at]
     )
 
     {:ok, view, _html} = live(conn, ~p"/dashboard")
