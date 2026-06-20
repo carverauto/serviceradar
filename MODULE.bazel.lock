@@ -5940,7 +5940,7 @@
           "REPO_MAPPING:rules_rust+,bazel_tools bazel_tools",
           "REPO_MAPPING:rules_rust+,rules_cc rules_cc+",
           "REPO_MAPPING:rules_rust+,rules_rust rules_rust+",
-          "FILE:@@//Cargo.lock 10acfc71503084b1c60569c0664b3ac2f38d251c8d34a04c088e538167a4a091",
+          "FILE:@@//Cargo.lock a9792610493330c69b1704cf086abbac96df977789f6000b41eb8fc6e36f1376",
           "FILE:@@//.cargo/config.toml 27c60a3b9d7893c0f4b12a98d0ebc58f6167511406c83ea185c3f661358ec6a9",
           "FILE:@@//Cargo.toml 17661287a6afe63841fcc32ee04e8c555361fbb64cd236fdb4335678dcc4ac46",
           "FILE:@@//rust/kvutil/Cargo.toml b3be705ec7c2fdc55874f79cc5629ae3ba1a50b228725f0c4f8785b34ae13fab",
