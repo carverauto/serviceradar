@@ -1634,6 +1634,52 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert [%{label: "CPU saturation anomaly", series: nil}] = assigns.annotations
   end
 
+  test "sysmon percent metric sections carry anomaly gate reference lines" do
+    previous_responder = Application.get_env(:serviceradar_web_ng, :device_live_srql_responder)
+
+    Application.put_env(:serviceradar_web_ng, :device_live_srql_responder, fn query, _opts ->
+      value =
+        cond do
+          query =~ ~s|metric_name:"cpu.usage_percent"| -> 42.0
+          query =~ ~s|metric_name:"memory.used_percent"| -> 67.0
+          query =~ ~s|metric_name:"disk.used_percent"| -> 73.0
+          query =~ ~s|metric_name:"process.count"| -> 22.0
+          true -> flunk("unexpected sysmon metric query: #{query}")
+        end
+
+      {:ok,
+       %{
+         "results" => [
+           %{
+             "timestamp" => "2026-06-19T12:00:00Z",
+             "value" => value
+           }
+         ],
+         "pagination" => %{}
+       }}
+    end)
+
+    on_exit(fn ->
+      restore_env(:device_live_srql_responder, previous_responder)
+    end)
+
+    sections =
+      SysmonMetrics.load_metric_sections(
+        __MODULE__.RecordingSRQLStub,
+        [~s|device_id:"sr:test"|],
+        :scope
+      )
+
+    assert_panel_reference_line(sections, "cpu", 85.0, "CPU anomaly gate 85%")
+    assert_panel_reference_line(sections, "memory", 80.0, "Memory anomaly gate 80%")
+    assert_panel_reference_line(sections, "disk", 80.0, "Disk anomaly gate 80%")
+
+    process_count = Enum.find(sections, &(&1.key == "process-count"))
+    assert process_count
+    assert [%{assigns: process_assigns}] = process_count.panels
+    refute Map.has_key?(process_assigns, :reference_lines)
+  end
+
   test "logs sysmon process metric SRQL failures" do
     Application.put_env(:serviceradar_web_ng, :device_live_srql_responder, fn query, _opts ->
       assert query =~ "in:timeseries_metrics"
@@ -3413,6 +3459,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
+
+  defp assert_panel_reference_line(sections, section_key, expected_value, expected_label) do
+    section = Enum.find(sections, &(&1.key == section_key))
+    assert section
+
+    assert [%{assigns: %{reference_lines: [reference_line]}}] = section.panels
+
+    assert %{
+             value: ^expected_value,
+             label: ^expected_label,
+             severity: :warning,
+             series: nil
+           } = reference_line
+  end
 
   defp drain_srql_queries(acc \\ []) do
     receive do

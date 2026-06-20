@@ -12,6 +12,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   @metrics_limit 300
   @disk_metrics_limit @metrics_limit
   @process_query_limit 10_000
+  # Mirrors the edge anomaly add-on saturation gates until sysmon exposes
+  # persisted per-device threshold metadata.
+  @cpu_saturation_gate_percent 85.0
+  @resource_saturation_gate_percent 80.0
 
   defp escape_value(value) when is_binary(value) do
     value
@@ -218,7 +222,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
       {:ok, %{"results" => results}} when is_list(results) and results != [] ->
         normalized = normalize_metric_results(results, "usage_percent")
         viz = timeseries_viz("usage_percent", nil)
-        panels = build_metric_panels(%{"results" => normalized, "viz" => viz}, normalized, nil)
+
+        panels =
+          %{"results" => normalized, "viz" => viz}
+          |> build_metric_panels(normalized, nil)
+          |> put_panel_reference_lines(sysmon_threshold_reference_lines(:cpu))
+
         header_value = latest_metric_value(normalized, "usage_percent")
         header_stats = metric_stats(normalized, "usage_percent")
         %{base | panels: panels, header_value: header_value, header_stats: header_stats}
@@ -260,7 +269,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
       {:ok, %{"results" => results}} when is_list(results) and results != [] ->
         normalized = normalize_metric_results(results, "used_percent")
         viz = timeseries_viz("used_percent", nil)
-        panels = build_metric_panels(%{"results" => normalized, "viz" => viz}, normalized, nil)
+
+        panels =
+          %{"results" => normalized, "viz" => viz}
+          |> build_metric_panels(normalized, nil)
+          |> put_panel_reference_lines(sysmon_threshold_reference_lines(:memory))
+
         header_value = latest_metric_value(normalized, "used_percent")
         header_stats = metric_stats(normalized, "used_percent")
         %{base | panels: panels, header_value: header_value, header_stats: header_stats}
@@ -302,7 +316,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
       {:ok, %{"results" => results}} when is_list(results) and results != [] ->
         normalized = normalize_metric_results(results, "used_percent")
         viz = timeseries_viz("used_percent", nil)
-        panels = build_metric_panels(%{"results" => normalized, "viz" => viz}, normalized, nil)
+
+        panels =
+          %{"results" => normalized, "viz" => viz}
+          |> build_metric_panels(normalized, nil)
+          |> put_panel_reference_lines(sysmon_threshold_reference_lines(:disk))
+
         header_value = latest_metric_value(normalized, "used_percent")
         header_stats = metric_stats(normalized, "used_percent")
         %{base | panels: panels, header_value: header_value, header_stats: header_stats}
@@ -776,6 +795,53 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
     |> maybe_force_timeseries(results, series_field)
     |> drop_category_panels_when_timeseries()
   end
+
+  defp put_panel_reference_lines(panels, []), do: panels
+
+  defp put_panel_reference_lines(panels, reference_lines) when is_list(panels) do
+    Enum.map(panels, fn
+      %{assigns: assigns} = panel when is_map(assigns) ->
+        %{panel | assigns: Map.put(assigns, :reference_lines, reference_lines)}
+
+      panel ->
+        panel
+    end)
+  end
+
+  defp sysmon_threshold_reference_lines(:cpu) do
+    [
+      %{
+        value: @cpu_saturation_gate_percent,
+        label: "CPU anomaly gate 85%",
+        severity: :warning,
+        series: nil
+      }
+    ]
+  end
+
+  defp sysmon_threshold_reference_lines(:memory) do
+    [
+      %{
+        value: @resource_saturation_gate_percent,
+        label: "Memory anomaly gate 80%",
+        severity: :warning,
+        series: nil
+      }
+    ]
+  end
+
+  defp sysmon_threshold_reference_lines(:disk) do
+    [
+      %{
+        value: @resource_saturation_gate_percent,
+        label: "Disk anomaly gate 80%",
+        severity: :warning,
+        series: nil
+      }
+    ]
+  end
+
+  defp sysmon_threshold_reference_lines(_section), do: []
 
   defp extract_viz(resp) do
     case Map.get(resp, "viz") do
