@@ -202,6 +202,7 @@ mod tests {
             stats: Some(crate::parser::StatsSpec::from_raw(stats)),
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         }
     }
@@ -279,6 +280,7 @@ mod tests {
             stats: Some(crate::parser::StatsSpec::from_raw("count() as total")),
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 
@@ -310,6 +312,7 @@ mod tests {
             stats: Some(crate::parser::StatsSpec::from_raw("count() as total")),
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 
@@ -349,6 +352,7 @@ mod tests {
             stats: Some(crate::parser::StatsSpec::from_raw("count() as total")),
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 

@@ -59,6 +59,9 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitterTest do
     assert decoded["device_id"] == "device-a"
     assert decoded["device_uid"] == "device-a"
     assert decoded["finding_info"]["source"] == "seasonal_disposition"
+    assert decoded["anomaly"]["state"] == "anomaly_open"
+    assert decoded["anomaly"]["series_key"] == @breach.series_key
+    assert decoded["anomaly"]["verdict_source"] == "central-seasonal"
     assert decoded["seasonal_disposition"]["bucket_ended_at"] == "2026-06-09T10:00:00Z"
   end
 
@@ -69,6 +72,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitterTest do
     assert payload["status"] == "cleared"
     assert payload["severity_id"] == 2
     assert payload["message"] =~ "Seasonal anomaly cleared"
+    assert payload["anomaly"]["state"] == "anomaly_clear"
+    assert payload["anomaly"]["detector_state"] == "cleared"
     assert payload["seasonal_disposition"]["status"] == "cleared"
   end
 
