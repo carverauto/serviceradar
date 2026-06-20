@@ -42,6 +42,7 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   alias Jetstream.API.Consumer, as: JetstreamConsumerApi
   alias ServiceRadar.EventWriter.Config
+  alias ServiceRadar.EventWriter.JetStreamAck
   alias ServiceRadar.EventWriter.Telemetry, as: EventWriterTelemetry
   alias ServiceRadar.NATS.JetstreamConsumer
 
@@ -243,6 +244,8 @@ defmodule ServiceRadar.EventWriter.Producer do
   defp buffer_message(state, body, subject, reply_to, msg) do
     headers = Map.get(msg, :headers, %{})
     original_subject = extract_original_subject(subject, headers)
+    jetstream_ack = JetStreamAck.parse(reply_to)
+    max_deliver = max_deliver_for(state.config, jetstream_ack, original_subject)
 
     broadway_event = %{
       data: body,
@@ -250,6 +253,8 @@ defmodule ServiceRadar.EventWriter.Producer do
         subject: original_subject,
         reply_to: reply_to,
         headers: headers,
+        jetstream_ack: jetstream_ack,
+        max_deliver: max_deliver,
         received_at: DateTime.utc_now(),
         received_monotonic: System.monotonic_time()
       },
@@ -645,6 +650,10 @@ defmodule ServiceRadar.EventWriter.Producer do
       :nack ->
         # Send -NAK to trigger redelivery
         safe_ack_publish(conn, reply_to, "-NAK")
+
+      :term ->
+        # Terminal ACK prevents JetStream from redelivering a known poison message.
+        safe_ack_publish(conn, reply_to, "+TERM")
     end
   end
 
@@ -749,4 +758,57 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   defp normalize_header_value(value) when is_atom(value), do: Atom.to_string(value)
   defp normalize_header_value(value), do: to_string(value)
+
+  defp max_deliver_for(%Config{} = config, jetstream_ack, subject) do
+    default = config.max_deliver || Config.default_max_deliver()
+
+    config.streams
+    |> Enum.find(&stream_matches_message?(&1, jetstream_ack, subject))
+    |> case do
+      %{consumer_max_deliver: max_deliver} when is_integer(max_deliver) and max_deliver > 0 ->
+        max_deliver
+
+      _ ->
+        default
+    end
+  end
+
+  defp stream_matches_message?(stream, %{stream: ack_stream}, subject)
+       when is_binary(ack_stream) do
+    stream_name = Map.get(stream, :stream_name) || Map.get(stream, :name)
+    subject_filter = Map.get(stream, :subject)
+
+    is_binary(stream_name) and stream_name == ack_stream and
+      (not is_binary(subject) or subject_covers?(subject_filter, subject))
+  end
+
+  defp stream_matches_message?(stream, _ack, subject) when is_binary(subject) do
+    stream
+    |> Map.get(:subject)
+    |> subject_covers?(subject)
+  end
+
+  defp stream_matches_message?(_stream, _ack, _subject), do: false
+
+  defp subject_covers?(candidate, subject) when is_binary(candidate) and is_binary(subject) do
+    covers_tokens?(String.split(candidate, "."), String.split(subject, "."))
+  end
+
+  defp subject_covers?(_candidate, _subject), do: false
+
+  defp covers_tokens?([""], []), do: true
+  defp covers_tokens?([">"], _subject_tokens), do: true
+  defp covers_tokens?([], []), do: true
+  defp covers_tokens?([], _subject_tokens), do: false
+  defp covers_tokens?(_candidate_tokens, []), do: false
+
+  defp covers_tokens?(["*" | candidate_rest], [_subject | subject_rest]) do
+    covers_tokens?(candidate_rest, subject_rest)
+  end
+
+  defp covers_tokens?([candidate | candidate_rest], [candidate | subject_rest]) do
+    covers_tokens?(candidate_rest, subject_rest)
+  end
+
+  defp covers_tokens?(_candidate_tokens, _subject_tokens), do: false
 end

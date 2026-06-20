@@ -27,6 +27,12 @@ defmodule ServiceRadar.BGP.Stats do
     List of maps: `%{as_number: integer, bytes: integer, flow_count: integer}`
   """
   def get_traffic_by_as(time_range \\ "last_1h", source_protocol \\ nil, limit \\ 10) do
+    time_range
+    |> get_traffic_by_as_result(source_protocol, limit)
+    |> unwrap([])
+  end
+
+  def get_traffic_by_as_result(time_range \\ "last_1h", source_protocol \\ nil, limit \\ 10) do
     {time_filter, params} = build_time_filter(time_range)
 
     protocol_filter =
@@ -52,19 +58,17 @@ defmodule ServiceRadar.BGP.Stats do
 
     params = params ++ [limit]
 
-    case Repo.query(query, params) do
-      {:ok, %{rows: rows}} ->
-        Enum.map(rows, fn [as_number, bytes, flow_count] ->
-          %{
-            as_number: as_number,
-            bytes: bytes || 0,
-            flow_count: flow_count || 0
-          }
-        end)
-
-      {:error, _} ->
-        []
-    end
+    query
+    |> Repo.query(params)
+    |> map_query_result(fn rows ->
+      Enum.map(rows, fn [as_number, bytes, flow_count] ->
+        %{
+          as_number: as_number,
+          bytes: bytes || 0,
+          flow_count: flow_count || 0
+        }
+      end)
+    end)
   end
 
   @doc """
@@ -81,6 +85,12 @@ defmodule ServiceRadar.BGP.Stats do
     List of maps: `%{community: integer, bytes: integer, flow_count: integer}`
   """
   def get_top_communities(time_range \\ "last_1h", source_protocol \\ nil, limit \\ 10) do
+    time_range
+    |> get_top_communities_result(source_protocol, limit)
+    |> unwrap([])
+  end
+
+  def get_top_communities_result(time_range \\ "last_1h", source_protocol \\ nil, limit \\ 10) do
     {time_filter, params} = build_time_filter(time_range)
 
     protocol_filter =
@@ -108,19 +118,17 @@ defmodule ServiceRadar.BGP.Stats do
 
     params = params ++ [limit]
 
-    case Repo.query(query, params) do
-      {:ok, %{rows: rows}} ->
-        Enum.map(rows, fn [community, bytes, flow_count] ->
-          %{
-            community: community,
-            bytes: bytes || 0,
-            flow_count: flow_count || 0
-          }
-        end)
-
-      {:error, _} ->
-        []
-    end
+    query
+    |> Repo.query(params)
+    |> map_query_result(fn rows ->
+      Enum.map(rows, fn [community, bytes, flow_count] ->
+        %{
+          community: community,
+          bytes: bytes || 0,
+          flow_count: flow_count || 0
+        }
+      end)
+    end)
   end
 
   @doc """
@@ -144,6 +152,12 @@ defmodule ServiceRadar.BGP.Stats do
     ```
   """
   def get_path_diversity(time_range \\ "last_1h", source_protocol \\ nil) do
+    time_range
+    |> get_path_diversity_result(source_protocol)
+    |> unwrap(%{unique_paths: 0, avg_path_length: 0.0, hop_distribution: %{}})
+  end
+
+  def get_path_diversity_result(time_range \\ "last_1h", source_protocol \\ nil) do
     {time_filter, params} = build_time_filter(time_range)
 
     protocol_filter =
@@ -180,14 +194,15 @@ defmodule ServiceRadar.BGP.Stats do
       hop_distribution =
         Map.new(hop_rows, fn [hops, count] -> {hops, count} end)
 
-      %{
-        unique_paths: unique_paths || 0,
-        avg_path_length: avg_length || 0.0,
-        hop_distribution: hop_distribution
-      }
+      {:ok,
+       %{
+         unique_paths: unique_paths || 0,
+         avg_path_length: avg_length || 0.0,
+         hop_distribution: hop_distribution
+       }}
     else
-      _ ->
-        %{unique_paths: 0, avg_path_length: 0.0, hop_distribution: %{}}
+      {:error, reason} -> {:error, reason}
+      reason -> {:error, reason}
     end
   end
 
@@ -206,6 +221,12 @@ defmodule ServiceRadar.BGP.Stats do
     List of edges: `%{from_as: integer, to_as: integer, bytes: integer}`
   """
   def get_as_topology(time_range \\ "last_1h", source_protocol \\ nil, limit \\ 50) do
+    time_range
+    |> get_as_topology_result(source_protocol, limit)
+    |> unwrap([])
+  end
+
+  def get_as_topology_result(time_range \\ "last_1h", source_protocol \\ nil, limit \\ 50) do
     {time_filter, params} = build_time_filter(time_range)
 
     protocol_filter =
@@ -240,19 +261,17 @@ defmodule ServiceRadar.BGP.Stats do
 
     params = params ++ [limit]
 
-    case Repo.query(query, params) do
-      {:ok, %{rows: rows}} ->
-        Enum.map(rows, fn [from_as, to_as, bytes] ->
-          %{
-            from_as: from_as,
-            to_as: to_as,
-            bytes: bytes || 0
-          }
-        end)
-
-      {:error, _} ->
-        []
-    end
+    query
+    |> Repo.query(params)
+    |> map_query_result(fn rows ->
+      Enum.map(rows, fn [from_as, to_as, bytes] ->
+        %{
+          from_as: from_as,
+          to_as: to_as,
+          bytes: bytes || 0
+        }
+      end)
+    end)
   end
 
   @doc """
@@ -269,6 +288,12 @@ defmodule ServiceRadar.BGP.Stats do
     List of maps: `%{as_path: [integer], path_length: integer, bytes: integer, packets: integer, flow_count: integer}`
   """
   def get_as_path_details(time_range \\ "last_1h", source_protocol \\ nil, limit \\ 50) do
+    time_range
+    |> get_as_path_details_result(source_protocol, limit)
+    |> unwrap([])
+  end
+
+  def get_as_path_details_result(time_range \\ "last_1h", source_protocol \\ nil, limit \\ 50) do
     {time_filter, params} = build_time_filter(time_range)
     {protocol_filter, params} = build_protocol_filter(source_protocol, params)
 
@@ -288,13 +313,9 @@ defmodule ServiceRadar.BGP.Stats do
 
     params = params ++ [limit]
 
-    case Repo.query(query, params) do
-      {:ok, %{rows: rows}} ->
-        Enum.map(rows, &map_as_path_row/1)
-
-      {:error, _} ->
-        []
-    end
+    query
+    |> Repo.query(params)
+    |> map_query_result(fn rows -> Enum.map(rows, &map_as_path_row/1) end)
   end
 
   @doc """
@@ -309,6 +330,12 @@ defmodule ServiceRadar.BGP.Stats do
     List of maps: `%{sampler_address: string, bytes: integer, flow_count: integer, observation_count: integer}`
   """
   def get_data_sources(time_range \\ "last_1h") do
+    time_range
+    |> get_data_sources_result()
+    |> unwrap([])
+  end
+
+  def get_data_sources_result(time_range \\ "last_1h") do
     {time_filter, params} = build_time_filter(time_range)
 
     query = """
@@ -326,20 +353,18 @@ defmodule ServiceRadar.BGP.Stats do
     LIMIT 20
     """
 
-    case Repo.query(query, params) do
-      {:ok, %{rows: rows}} ->
-        Enum.map(rows, fn [sampler_address, bytes, flow_count, observation_count] ->
-          %{
-            sampler_address: sampler_address,
-            bytes: bytes || 0,
-            flow_count: flow_count || 0,
-            observation_count: observation_count || 0
-          }
-        end)
-
-      {:error, _} ->
-        []
-    end
+    query
+    |> Repo.query(params)
+    |> map_query_result(fn rows ->
+      Enum.map(rows, fn [sampler_address, bytes, flow_count, observation_count] ->
+        %{
+          sampler_address: sampler_address,
+          bytes: bytes || 0,
+          flow_count: flow_count || 0,
+          observation_count: observation_count || 0
+        }
+      end)
+    end)
   end
 
   @doc """
@@ -356,6 +381,12 @@ defmodule ServiceRadar.BGP.Stats do
     Map with keys: `:series` (list of AS numbers), `:data` (list of time buckets with values per AS)
   """
   def get_traffic_timeseries(time_range \\ "last_1h", source_protocol \\ nil, top_n \\ 5) do
+    time_range
+    |> get_traffic_timeseries_result(source_protocol, top_n)
+    |> unwrap(%{series: [], data: []})
+  end
+
+  def get_traffic_timeseries_result(time_range \\ "last_1h", source_protocol \\ nil, top_n \\ 5) do
     {time_filter, params} = build_time_filter(time_range)
     {protocol_filter, params} = build_protocol_filter(source_protocol, params)
     bucket_size = bucket_size_for(time_range)
@@ -383,13 +414,11 @@ defmodule ServiceRadar.BGP.Stats do
 
     params = params ++ [top_n]
 
-    case Repo.query(query, params) do
-      {:ok, %{rows: rows}} ->
-        %{series: timeseries_series(rows), data: timeseries_data(rows)}
-
-      {:error, _} ->
-        %{series: [], data: []}
-    end
+    query
+    |> Repo.query(params)
+    |> map_query_result(fn rows ->
+      %{series: timeseries_series(rows), data: timeseries_data(rows)}
+    end)
   end
 
   @doc """
@@ -406,6 +435,12 @@ defmodule ServiceRadar.BGP.Stats do
     List of maps: `%{prefix: string, as_number: integer, bytes: integer, flow_count: integer}`
   """
   def get_prefix_analysis(time_range \\ "last_1h", source_protocol \\ nil, limit \\ 20) do
+    time_range
+    |> get_prefix_analysis_result(source_protocol, limit)
+    |> unwrap([])
+  end
+
+  def get_prefix_analysis_result(time_range \\ "last_1h", source_protocol \\ nil, limit \\ 20) do
     {time_filter, params} = build_time_filter(time_range)
 
     protocol_filter =
@@ -434,21 +469,25 @@ defmodule ServiceRadar.BGP.Stats do
 
     params = params ++ [limit]
 
-    case Repo.query(query, params) do
-      {:ok, %{rows: rows}} ->
-        Enum.map(rows, fn [prefix, as_number, bytes, flow_count] ->
-          %{
-            prefix: prefix,
-            as_number: as_number,
-            bytes: bytes || 0,
-            flow_count: flow_count || 0
-          }
-        end)
-
-      {:error, _} ->
-        []
-    end
+    query
+    |> Repo.query(params)
+    |> map_query_result(fn rows ->
+      Enum.map(rows, fn [prefix, as_number, bytes, flow_count] ->
+        %{
+          prefix: prefix,
+          as_number: as_number,
+          bytes: bytes || 0,
+          flow_count: flow_count || 0
+        }
+      end)
+    end)
   end
+
+  defp map_query_result({:ok, %{rows: rows}}, mapper), do: {:ok, mapper.(rows)}
+  defp map_query_result({:error, reason}, _mapper), do: {:error, reason}
+
+  defp unwrap({:ok, value}, _fallback), do: value
+  defp unwrap({:error, _reason}, fallback), do: fallback
 
   defp build_protocol_filter(nil, params), do: {"", params}
 

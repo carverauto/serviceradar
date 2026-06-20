@@ -263,6 +263,7 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
   attr :current_bps, :any, required: true
   attr :capacity_bps, :any, required: true
   attr :label, :string, default: nil
+  attr :current_label, :string, default: "Current"
   attr :class, :any, default: nil
 
   def bandwidth_gauge(assigns) do
@@ -302,7 +303,7 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
       </div>
       <div :if={@label} class="text-xs font-medium text-base-content/70">{@label}</div>
       <div class="text-xs text-base-content/50">
-        {@formatted_current} / {@formatted_capacity}
+        {@current_label}: {@formatted_current} / {@formatted_capacity}
       </div>
     </div>
     """

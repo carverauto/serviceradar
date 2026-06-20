@@ -16,6 +16,7 @@ async fn srql_api_queries() {
         check_device_graph_query_returns_neighborhood(&harness).await;
         check_device_graph_query_rejects_invalid_device_id(&harness).await;
         check_timeseries_metrics_query_returns_rows(&harness).await;
+        check_timeseries_metrics_profile_hour_of_week(&harness).await;
         check_snmp_metrics_alias_filters_metric_type(&harness).await;
         check_rperf_metrics_queries_still_work(&harness).await;
         check_virtualization_inventory_queries(&harness).await;
@@ -280,6 +281,52 @@ async fn check_timeseries_metrics_query_returns_rows(harness: &SrqlTestHarness) 
         rows.iter()
             .all(|row| row.get("uid").and_then(|v| v.as_str()) == Some("device-alpha")),
         "all rows should belong to device-alpha: {body}"
+    );
+}
+
+async fn check_timeseries_metrics_profile_hour_of_week(harness: &SrqlTestHarness) {
+    let request = QueryRequest {
+        query: r#"in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:[2026-01-01T00:00:00Z,2026-02-01T00:00:00Z] stats:profile_hour_of_week(value) timezone:"Etc/UTC" sort:dow:asc,hod:asc limit:10"#
+            .to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = harness.query(request).await;
+    let (status, body) = read_json(response).await;
+
+    assert_eq!(status, http::StatusCode::OK, "unexpected status: {body}");
+    let rows = body["results"]
+        .as_array()
+        .unwrap_or_else(|| panic!("results missing or not array: {body}"));
+    let row = rows
+        .iter()
+        .find(|row| row.get("series").and_then(|value| value.as_str()) == Some("device-alpha"))
+        .unwrap_or_else(|| panic!("device-alpha profile row missing: {body}"));
+
+    assert_eq!(row["dow"], serde_json::json!(0));
+    assert_eq!(row["hod"], serde_json::json!(3));
+    assert_json_f64(row, "sample_value", 800.0);
+    assert_eq!(row["bucket_count"], serde_json::json!(4));
+    assert_json_f64(row, "bucket_sum", 830.0);
+    assert_json_f64(row, "bucket_sum_sq", 640_302.0);
+    assert_json_f64(row, "center", 10.0);
+    assert_json_f64(row, "mad", 1.0);
+    assert_json_f64(row, "p05", 9.1);
+    assert_json_f64(row, "p95", 10.9);
+}
+
+fn assert_json_f64(row: &serde_json::Value, field: &str, expected: f64) {
+    let actual = row
+        .get(field)
+        .and_then(|value| value.as_f64())
+        .unwrap_or_else(|| panic!("{field} missing or not numeric in row: {row}"));
+
+    assert!(
+        (actual - expected).abs() < 0.000_001,
+        "{field} expected {expected}, got {actual}; row: {row}"
     );
 }
 
