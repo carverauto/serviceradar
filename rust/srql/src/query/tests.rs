@@ -24,6 +24,29 @@ fn plan_for(query: &str) -> QueryPlan {
     build_query_plan(&config, &request, ast).expect("should build plan for docs query")
 }
 
+#[test]
+fn other_rollup_rejects_non_flow_stats_entities() {
+    let config = test_config();
+    let query = "in:devices stats:count() as total by type sort:total:desc limit:10 other:true";
+    let ast = parser::parse(query).expect("query should parse");
+    let request = QueryRequest {
+        query: query.to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let err = build_query_plan(&config, &request, ast)
+        .expect_err("non-flow other rollup should fail during planning");
+
+    assert!(
+        err.to_string()
+            .contains("other:true is currently supported only for flow stats"),
+        "unexpected error: {err}"
+    );
+}
+
 fn has_availability_filter(plan: &QueryPlan, expected: bool) -> bool {
     plan.filters.iter().any(|filter| {
         filter.field == "is_available"
