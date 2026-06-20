@@ -868,6 +868,43 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       assert dimensions["resource_label"] == "10.0.0.20 uplink0 ifIndex 7"
     end
 
+    test "does not use future versioned opaque series keys as anomaly titles" do
+      opaque_series_key =
+        "v3:partition=64656661756c74:class=736e6d702e696e74657266616365:identity=31302e302e302e3230"
+
+      payload = %{
+        "event_id" => "anomaly-edge-future-opaque-series-key",
+        "signal_type" => "causal",
+        "event_type" => "anomaly",
+        "class_uid" => 2004,
+        "timestamp" => "2026-06-12T12:00:00Z",
+        "severity_id" => 4,
+        "device_uid" => "10.0.0.20",
+        "verdict_source" => "edge-spike",
+        "anomaly" => %{
+          "series_key" => opaque_series_key,
+          "metric_class" => "snmp.interface",
+          "state" => "anomaly_open"
+        }
+      }
+
+      row =
+        CausalSignals.parse_message(%{
+          data: Jason.encode!(payload),
+          metadata: %{
+            subject: "signals.causal.predictions.#{opaque_series_key}",
+            received_at: DateTime.utc_now()
+          }
+        })
+
+      finding_info = row.metadata["finding_info"]
+
+      assert finding_info["title"] == "Anomaly detection: snmp.interface series"
+      refute finding_info["title"] =~ "v3:"
+      assert finding_info["dimensions"]["series_key"] == opaque_series_key
+      refute Map.has_key?(finding_info["dimensions"], "resource_label")
+    end
+
     test "selects capacity causal prediction findings for stateful alert evaluation" do
       forecast = %{
         forecasted_at: ~U[2026-06-12 12:00:00Z],

@@ -241,6 +241,8 @@ fn lock_engine(engine: &Arc<Mutex<DetectorEngine>>) -> MutexGuard<'_, DetectorEn
         Ok(guard) => guard,
         Err(poisoned) => {
             let guard = poisoned.into_inner();
+            // Preserve warmed detector state after poison recovery; at most the
+            // series being mutated during the panic may be partially updated.
             engine.clear_poison();
             guard
         }
