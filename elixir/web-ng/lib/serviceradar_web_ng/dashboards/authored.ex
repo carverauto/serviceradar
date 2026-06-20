@@ -981,13 +981,40 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   defp limit_token?(token), do: token |> String.downcase() |> String.starts_with?("limit:")
 
   defp clamp_time_token(token) do
-    case parse_relative_time_token(token) do
+    case parse_time_token_window(token) do
       {:ok, seconds} when seconds > @max_panel_time_window_seconds ->
-        "time:last_30d"
+        clamp_oversized_time_token(token)
 
       _ ->
         token
     end
+  end
+
+  defp parse_time_token_window(token) do
+    case parse_relative_time_token(token) do
+      {:ok, seconds} -> {:ok, seconds}
+      :error -> parse_absolute_time_token(token)
+    end
+  end
+
+  defp clamp_oversized_time_token(token) do
+    case parse_absolute_time_token_range(token) do
+      {:ok, _start_dt, %DateTime{} = end_dt} ->
+        clamp_absolute_time_range_to_end(end_dt)
+
+      {:ok, %DateTime{} = _start_dt, nil} ->
+        DateTime.utc_now()
+        |> DateTime.truncate(:second)
+        |> clamp_absolute_time_range_to_end()
+
+      :error ->
+        "time:last_30d"
+    end
+  end
+
+  defp clamp_absolute_time_range_to_end(%DateTime{} = end_dt) do
+    start_dt = DateTime.add(end_dt, -@max_panel_time_window_seconds, :second)
+    "time:[#{DateTime.to_iso8601(start_dt)},#{DateTime.to_iso8601(end_dt)}]"
   end
 
   defp parse_relative_time_token(token) do
@@ -997,6 +1024,66 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
       {:ok, amount * seconds_per_unit}
     else
       _ -> :error
+    end
+  end
+
+  defp parse_absolute_time_token(token) do
+    case parse_absolute_time_token_range(token) do
+      {:ok, %DateTime{} = start_dt, %DateTime{} = end_dt} ->
+        absolute_time_token_seconds(start_dt, end_dt)
+
+      {:ok, %DateTime{} = start_dt, nil} ->
+        DateTime.utc_now()
+        |> DateTime.truncate(:second)
+        |> then(&absolute_time_token_seconds(start_dt, &1))
+
+      {:ok, nil, %DateTime{}} ->
+        {:ok, @max_panel_time_window_seconds + 1}
+
+      :error ->
+        :error
+    end
+  end
+
+  defp absolute_time_token_seconds(%DateTime{} = start_dt, %DateTime{} = end_dt) do
+    case DateTime.diff(end_dt, start_dt, :second) do
+      seconds when seconds >= 0 -> {:ok, seconds}
+      _seconds -> :error
+    end
+  end
+
+  defp parse_absolute_time_token_range(token) do
+    token_length = String.length(token)
+
+    with true <- String.starts_with?(String.downcase(token), "time:["),
+         true <- String.ends_with?(token, "]"),
+         inner when byte_size(inner) > 0 <- String.slice(token, 6, token_length - 7),
+         [start_raw, end_raw] <- String.split(inner, ",", parts: 2),
+         {:ok, start_dt} <- parse_optional_authored_time_endpoint(start_raw),
+         {:ok, end_dt} <- parse_optional_authored_time_endpoint(end_raw),
+         true <- not is_nil(start_dt) or not is_nil(end_dt) do
+      {:ok, start_dt, end_dt}
+    else
+      _ -> :error
+    end
+  end
+
+  defp parse_optional_authored_time_endpoint(value) do
+    case String.trim(value) do
+      "" -> {:ok, nil}
+      trimmed -> parse_authored_time_endpoint(trimmed)
+    end
+  end
+
+  defp parse_authored_time_endpoint(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, dt, _offset} ->
+        {:ok, dt}
+
+      {:error, _reason} ->
+        with {:ok, ndt} <- NaiveDateTime.from_iso8601(value) do
+          DateTime.from_naive(ndt, "Etc/UTC")
+        end
     end
   end
 
