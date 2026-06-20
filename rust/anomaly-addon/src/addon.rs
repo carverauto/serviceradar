@@ -12,7 +12,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use addon_sdk::metric_pb::{
-    Metric, MetricBatch, MetricKind, MetricPoint, MetricResource, MetricTemporality,
+    Metric, MetricBatch, MetricKind, MetricPoint, MetricResource, MetricTemporality, StringMapEntry,
 };
 use addon_sdk::pb::{MetricFeedAck, MetricFeedFrame, TelemetryBatch, TelemetryRecord};
 use addon_sdk::{
@@ -38,7 +38,7 @@ use crate::engine::{
 };
 
 const ADDON_ID: &str = "anomaly";
-const ADDON_VERSION: &str = "0.1.6";
+const ADDON_VERSION: &str = "0.1.7";
 const VERDICT_CHANNEL_DEPTH: usize = 256;
 const ACK_CHANNEL_DEPTH: usize = 64;
 const OCSF_CLASS_EVENT_LOG_ACTIVITY: i64 = 1008;
@@ -204,6 +204,15 @@ impl AnomalyAddon {
             feed_task: Mutex::new(None),
         }
     }
+
+    async fn stop_feed_task(&self) {
+        let handle = lock_feed_task(&self.feed_task).take();
+
+        if let Some(handle) = handle {
+            handle.abort();
+            let _ = handle.await;
+        }
+    }
 }
 
 impl Drop for AnomalyAddon {
@@ -321,6 +330,11 @@ impl Addon for AnomalyAddon {
         })
     }
 
+    async fn shutdown(&self) -> anyhow::Result<()> {
+        self.stop_feed_task().await;
+        Ok(())
+    }
+
     /// Hand the agent a verdict stream subscription. Every call gets a fresh
     /// receiver; lagging clients drop locally and reconnecting clients can
     /// subscribe without restarting the add-on.
@@ -431,12 +445,13 @@ async fn process_frame(
                 let series_key = series_key_for(&resource, metric, point);
 
                 let value = if counter {
-                    match engine.normalize_counter(
+                    match engine.normalize_counter_with_max_rate(
                         &series_key,
                         counter_raw_value(point),
                         point.observed_at_unix_nano,
                         &counter_reset_anchor(point),
-                        metric.counter_width,
+                        counter_width(metric, point),
+                        max_counter_rate_per_second(metric, point),
                     ) {
                         Some(rate) => rate,
                         // Warmup / reset / gap / non-monotonic: no sample this point.
@@ -729,17 +744,141 @@ fn counter_reset_anchor(point: &MetricPoint) -> String {
     }
 }
 
-fn series_key_for(resource: &MetricResource, metric: &Metric, point: &MetricPoint) -> String {
-    if !point.series_identity_hint.is_empty() {
-        point.series_identity_hint.clone()
-    } else {
-        // Fallback when the producer did not stamp a hint: agent + metric +
-        // interface keeps distinct series apart on one host.
-        format!(
-            "{}|{}|{}",
-            resource.agent_id, metric.name, point.interface_uid
-        )
+/// Counter width can arrive as the typed metric field or as legacy metadata keys.
+/// Preserve central's old metadata fallback so a zero proto field does not
+/// silently suppress otherwise-corroborated 32-bit wrap handling.
+fn counter_width(metric: &Metric, point: &MetricPoint) -> u32 {
+    if metric.counter_width > 0 {
+        return metric.counter_width;
     }
+
+    metadata_u32_value(point, &["counter_width", "counter_bits", "pdu_width"])
+        .or_else(|| metadata_u32_value(metric, &["counter_width", "counter_bits", "pdu_width"]))
+        .unwrap_or(0)
+}
+
+fn max_counter_rate_per_second(metric: &Metric, point: &MetricPoint) -> Option<f64> {
+    metadata_f64_value(point, &["max_counter_rate_per_second"])
+        .or_else(|| metadata_f64_value(metric, &["max_counter_rate_per_second"]))
+        .filter(|rate| rate.is_finite() && *rate > 0.0)
+}
+
+trait MetadataEntries {
+    fn metadata_entries(&self) -> &[StringMapEntry];
+}
+
+impl MetadataEntries for Metric {
+    fn metadata_entries(&self) -> &[StringMapEntry] {
+        &self.metadata
+    }
+}
+
+impl MetadataEntries for MetricPoint {
+    fn metadata_entries(&self) -> &[StringMapEntry] {
+        &self.metadata
+    }
+}
+
+fn metadata_u32_value(source: &impl MetadataEntries, keys: &[&str]) -> Option<u32> {
+    metadata_entry_value(source, keys).and_then(|value| value.parse::<u32>().ok())
+}
+
+fn metadata_f64_value(source: &impl MetadataEntries, keys: &[&str]) -> Option<f64> {
+    metadata_entry_value(source, keys).and_then(|value| value.parse::<f64>().ok())
+}
+
+fn metadata_entry_value<'a>(source: &'a impl MetadataEntries, keys: &[&str]) -> Option<&'a str> {
+    keys.iter().find_map(|key| {
+        source
+            .metadata_entries()
+            .iter()
+            .find(|entry| entry.key == *key)
+            .map(|entry| entry.value.as_str())
+    })
+}
+
+fn series_key_for(resource: &MetricResource, metric: &Metric, point: &MetricPoint) -> String {
+    let partition = if resource.partition.is_empty() {
+        "default"
+    } else {
+        resource.partition.as_str()
+    };
+
+    if !point.series_identity_hint.is_empty() {
+        [
+            "v2".to_string(),
+            safe_component("partition", partition),
+            safe_component("hint", &point.series_identity_hint),
+        ]
+        .join("|")
+    } else {
+        // Fallback when the producer did not stamp a hint: resource identity +
+        // metric + interface keeps distinct series apart on one host. Remote
+        // SNMP polls use the polled target, not the polling agent host.
+        let resource_identity = series_resource_identity(resource, metric);
+        let mut components = vec![
+            "v2".to_string(),
+            safe_component("partition", partition),
+            safe_component("identity", &resource_identity),
+            safe_component("metric", &metric.name),
+        ];
+
+        if !point.interface_uid.is_empty() {
+            components.push(safe_component("interface_uid", &point.interface_uid));
+        }
+
+        if point.if_index > 0 {
+            components.push(safe_component("if_index", &point.if_index.to_string()));
+        }
+
+        components.join("|")
+    }
+}
+
+fn safe_component(name: &str, value: &str) -> String {
+    format!("{name}={}", hex::encode(value.as_bytes()))
+}
+
+fn series_resource_identity(resource: &MetricResource, metric: &Metric) -> String {
+    let metric_class = metric_class(metric);
+    first_non_empty(&[
+        resource.device_id.as_str(),
+        snmp_target_identity(resource, metric_class),
+        resource.host_id.as_str(),
+        resource.agent_id.as_str(),
+        resource.host_ip.as_str(),
+    ])
+    .to_string()
+}
+
+fn anomaly_device_uid<'a>(resource: &'a MetricResource, metric_class: &str) -> &'a str {
+    first_non_empty(&[
+        resource.device_id.as_str(),
+        snmp_target_identity(resource, metric_class),
+        resource.host_id.as_str(),
+        resource.agent_id.as_str(),
+        resource.host_ip.as_str(),
+    ])
+}
+
+fn metric_class(metric: &Metric) -> &str {
+    if metric.metric_type.is_empty() {
+        "metric"
+    } else {
+        metric.metric_type.as_str()
+    }
+}
+
+fn snmp_target_identity<'a>(resource: &'a MetricResource, metric_class: &str) -> &'a str {
+    if is_snmp_metric_class(metric_class) && !resource.target_device_ip.is_empty() {
+        resource.target_device_ip.as_str()
+    } else {
+        ""
+    }
+}
+
+fn is_snmp_metric_class(metric_class: &str) -> bool {
+    metric_class == "snmp" || metric_class.starts_with("snmp.")
 }
 
 /// Merge the attested distinguishing tags into a JSON object for `source_identity`:
@@ -788,17 +927,8 @@ fn verdict_record(
     let status = anomaly_lifecycle_status(transition);
     let message = anomaly_lifecycle_message(transition, &verdict.reason);
 
-    let metric_class = if metric.metric_type.is_empty() {
-        "metric"
-    } else {
-        metric.metric_type.as_str()
-    };
-    let device_uid = first_non_empty(&[
-        resource.device_id.as_str(),
-        resource.host_id.as_str(),
-        resource.agent_id.as_str(),
-        resource.host_ip.as_str(),
-    ]);
+    let metric_class = metric_class(metric);
+    let device_uid = anomaly_device_uid(resource, metric_class);
 
     let event_id = format!("anomaly:{series_key}:{ts_nano}:{lifecycle_state}");
     let finding_uid =
@@ -823,6 +953,7 @@ fn verdict_record(
         "severity_id": severity_id,
         "device_uid": device_uid,
         "device_id": device_uid,
+        "target_device_ip": &resource.target_device_ip,
         "message": message,
         "finding_info": {
             "uid": finding_uid,
@@ -851,6 +982,7 @@ fn verdict_record(
             "series_key": series_key,
             "metric_class": metric_class,
             "state": lifecycle_state,
+            "target_device_ip": &resource.target_device_ip,
             "detector_state": &verdict.state,
             "reason": &verdict.reason,
             "score": verdict.score,
@@ -1052,6 +1184,50 @@ mod tests {
             metric_type: metric_type.to_string(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn counter_width_prefers_typed_metric_field() {
+        let metric = Metric {
+            counter_width: 64,
+            metadata: vec![entry("counter_width", "32")],
+            ..Default::default()
+        };
+
+        assert_eq!(counter_width(&metric, &MetricPoint::default()), 64);
+    }
+
+    #[test]
+    fn counter_width_falls_back_to_point_then_metric_metadata() {
+        let metric = Metric {
+            metadata: vec![entry("counter_bits", "64")],
+            ..Default::default()
+        };
+        let point = MetricPoint {
+            metadata: vec![entry("pdu_width", "32")],
+            ..Default::default()
+        };
+
+        assert_eq!(counter_width(&metric, &point), 32);
+        assert_eq!(counter_width(&metric, &MetricPoint::default()), 64);
+    }
+
+    #[test]
+    fn max_counter_rate_uses_point_metadata_before_metric_metadata() {
+        let metric = Metric {
+            metadata: vec![entry("max_counter_rate_per_second", "1000")],
+            ..Default::default()
+        };
+        let point = MetricPoint {
+            metadata: vec![entry("max_counter_rate_per_second", "250")],
+            ..Default::default()
+        };
+
+        assert_eq!(max_counter_rate_per_second(&metric, &point), Some(250.0));
+        assert_eq!(
+            max_counter_rate_per_second(&metric, &MetricPoint::default()),
+            Some(1000.0)
+        );
     }
 
     fn anomaly_metric_batch(value: f64, observed_at_unix_nano: u64) -> MetricBatch {
@@ -1350,6 +1526,110 @@ mod tests {
     }
 
     #[test]
+    fn snmp_remote_target_drives_edge_verdict_identity() {
+        let resource = MetricResource {
+            agent_id: "agent-ns03".to_string(),
+            host_id: "ns03".to_string(),
+            host_ip: "10.0.0.10".to_string(),
+            target_device_ip: "10.0.0.20".to_string(),
+            partition: "demo".to_string(),
+            ..Default::default()
+        };
+        let metric = Metric {
+            name: "ifHCInOctets".to_string(),
+            metric_type: "snmp".to_string(),
+            ..Default::default()
+        };
+        let point = MetricPoint {
+            value: 1234.0,
+            observed_at_unix_nano: 1_812_456_000_000_000_000,
+            if_index: 7,
+            interface_uid: "ifindex:7".to_string(),
+            ..Default::default()
+        };
+        let series_key = series_key_for(&resource, &metric, &point);
+        let verdict = ReasonVerdict {
+            state: "anomalous".to_string(),
+            anomalous: true,
+            breached: true,
+            include_in_baseline: false,
+            next_consecutive_anomalous: 1,
+            score: 4.2,
+            reason: "test breach".to_string(),
+            baseline_count: 30,
+            next_rolling_acc: serviceradar_anomaly_core::WelfordAcc::default(),
+            next_window_tail: Vec::new(),
+            sample_value: 1234.0,
+            observed_at_unix_nano: Some(1_812_456_000_000_000_000),
+            signals: Vec::new(),
+        };
+
+        let record = verdict_record(
+            &resource,
+            &metric,
+            &point,
+            &series_key,
+            &verdict,
+            AnomalyTransition::Open,
+        );
+        let event: serde_json::Value = serde_json::from_slice(&record.payload).unwrap();
+
+        assert_eq!(
+            series_key,
+            [
+                "v2".to_string(),
+                safe_component("partition", "demo"),
+                safe_component("identity", "10.0.0.20"),
+                safe_component("metric", "ifHCInOctets"),
+                safe_component("interface_uid", "ifindex:7"),
+                safe_component("if_index", "7"),
+            ]
+            .join("|")
+        );
+        assert_eq!(event["device_uid"], "10.0.0.20");
+        assert_eq!(event["device_id"], "10.0.0.20");
+        assert_eq!(event["target_device_ip"], "10.0.0.20");
+        assert_eq!(event["anomaly"]["target_device_ip"], "10.0.0.20");
+        assert_eq!(event["source_identity"]["target_device_ip"], "10.0.0.20");
+        assert_eq!(event["source_identity"]["agent_id"], "agent-ns03");
+    }
+
+    #[test]
+    fn edge_series_key_encodes_partition_and_hint_boundaries() {
+        let metric = Metric {
+            name: "cpu.usage".to_string(),
+            metric_type: "sysmon.cpu".to_string(),
+            ..Default::default()
+        };
+        let point = MetricPoint {
+            series_identity_hint: "host:a|core:0".to_string(),
+            ..Default::default()
+        };
+
+        let first = MetricResource {
+            partition: "prod:east".to_string(),
+            ..Default::default()
+        };
+        let second = MetricResource {
+            partition: "prod".to_string(),
+            ..Default::default()
+        };
+        let second_point = MetricPoint {
+            series_identity_hint: "east|host:a|core:0".to_string(),
+            ..Default::default()
+        };
+
+        let first_key = series_key_for(&first, &metric, &point);
+        let second_key = series_key_for(&second, &metric, &second_point);
+
+        assert_ne!(first_key, second_key);
+        assert!(first_key.contains(&safe_component("partition", "prod:east")));
+        assert!(first_key.contains(&safe_component("hint", "host:a|core:0")));
+        assert!(!first_key.contains("prod:east"));
+        assert!(!first_key.contains("host:a|core:0"));
+    }
+
+    #[test]
     fn shed_record_is_operational_ocsf_event_not_an_anomaly() {
         let resource = MetricResource {
             agent_id: "agent-a".to_string(),
@@ -1538,6 +1818,34 @@ mod tests {
             .expect("new ack item")
             .expect("new ack ok");
         assert_eq!(new_ack.acked_feed_id, 3);
+    }
+
+    #[tokio::test]
+    async fn shutdown_aborts_open_metric_feed_promptly() {
+        let addon = AnomalyAddon::new();
+        let (feed_tx, frames) = metric_feed_stream();
+        let mut acks = addon.stream_metric_feed(frames).expect("metric feed opens");
+
+        feed_tx
+            .send(Ok(metric_feed_frame(1, 100.0)))
+            .await
+            .expect("feed receiver");
+        let ack = acks.next().await.expect("ack item").expect("ack ok");
+        assert_eq!(ack.acked_feed_id, 1);
+
+        timeout(Duration::from_millis(200), addon.shutdown())
+            .await
+            .expect("shutdown completes inside grace window")
+            .expect("shutdown ok");
+
+        let end = timeout(Duration::from_millis(200), acks.next())
+            .await
+            .expect("ack stream closes after shutdown");
+        assert!(end.is_none(), "shutdown must close the ack stream");
+        assert!(
+            feed_tx.send(Ok(metric_feed_frame(2, 200.0))).await.is_err(),
+            "shutdown must drop the feed receiver"
+        );
     }
 
     #[tokio::test]
