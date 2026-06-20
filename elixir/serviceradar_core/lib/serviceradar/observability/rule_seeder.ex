@@ -179,7 +179,7 @@ defmodule ServiceRadar.Observability.RuleSeeder do
             "attribute_equals" => %{
               "signal_type" => "causal",
               "event_type" => ["anomaly", "anomaly_detection"],
-              "anomaly.state" => ["anomaly_clear", "clear", "inactive"]
+              "anomaly.state" => ["anomaly_clear", "clear", "cleared", "inactive"]
             }
           }
         },

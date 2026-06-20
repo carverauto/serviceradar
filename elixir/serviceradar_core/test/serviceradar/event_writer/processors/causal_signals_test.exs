@@ -5,9 +5,68 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
   alias ServiceRadar.EventWriter.Processors.CausalSignals
   alias ServiceRadar.Observability.CapacityForecasting.VerdictEmitter
 
+  defmodule ExistingTimeRepo do
+    def query(sql, [ids]) do
+      send(Process.get(:causal_signals_test_pid), {:existing_time_query, sql, ids})
+
+      rows =
+        Enum.flat_map(ids, fn id ->
+          case Process.get({:existing_ocsf_time, id}) do
+            %DateTime{} = time -> [[id, time]]
+            _ -> []
+          end
+        end)
+
+      {:ok, %{rows: rows}}
+    end
+  end
+
   describe "table_name/0" do
     test "returns ocsf_events" do
       assert CausalSignals.table_name() == "ocsf_events"
+    end
+  end
+
+  describe "align_existing_ocsf_event_times/2" do
+    test "reuses the first persisted time for a deterministic causal finding id" do
+      event_id = Ecto.UUID.generate()
+      existing_time = ~U[2026-06-12 12:00:00Z]
+      next_time = ~U[2026-06-12 12:05:00Z]
+
+      Process.put(:causal_signals_test_pid, self())
+      Process.put({:existing_ocsf_time, event_id}, existing_time)
+
+      row = %{
+        id: event_id,
+        time: next_time,
+        class_uid: 2004,
+        metadata: %{"signal_type" => "causal", "event_type" => "capacity_forecast"},
+        unmapped: %{}
+      }
+
+      assert [%{time: ^existing_time}] =
+               CausalSignals.align_existing_ocsf_event_times([row], ExistingTimeRepo)
+
+      assert_received {:existing_time_query, sql, [^event_id]}
+      assert sql =~ "min(time)"
+      assert sql =~ "platform.ocsf_events"
+    end
+  end
+
+  describe "causal prediction OCSF upsert contract" do
+    test "replaces mutable payload columns without mutating the conflict key" do
+      replace_fields = CausalSignals.causal_prediction_ocsf_event_replace_fields()
+
+      refute :id in replace_fields
+      refute :time in replace_fields
+
+      assert :severity_id in replace_fields
+      assert :severity in replace_fields
+      assert :message in replace_fields
+      assert :status in replace_fields
+      assert :metadata in replace_fields
+      assert :unmapped in replace_fields
+      assert :raw_data in replace_fields
     end
   end
 
@@ -775,6 +834,92 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       assert stale_row.metadata["service_radar"]["finding_uid"] == finding_info["uid"]
       assert stale_row.metadata["service_radar"]["series_key"] == "canonical-series-key"
       assert stale_row.metadata["security_signal"]["finding_uid"] == finding_info["uid"]
+    end
+
+    test "uses structured anomaly dimensions for titles when series keys are opaque" do
+      opaque_series_key =
+        "v2:partition=64656661756c74:class=736e6d702e696e74657266616365:identity=31302e302e302e3230"
+
+      payload = %{
+        "event_id" => "anomaly-edge-opaque-series-key",
+        "signal_type" => "causal",
+        "event_type" => "anomaly",
+        "class_uid" => 2004,
+        "timestamp" => "2026-06-12T12:00:00Z",
+        "severity_id" => 4,
+        "device_uid" => "10.0.0.20",
+        "target_device_ip" => "10.0.0.20",
+        "verdict_source" => "edge-spike",
+        "anomaly" => %{
+          "series_key" => opaque_series_key,
+          "metric_class" => "snmp.interface",
+          "metric_name" => "ifHCInOctets",
+          "target_device_ip" => "10.0.0.20",
+          "interface_name" => "uplink0",
+          "if_index" => 7,
+          "state" => "anomaly_open"
+        }
+      }
+
+      row =
+        CausalSignals.parse_message(%{
+          data: Jason.encode!(payload),
+          metadata: %{
+            subject: "signals.causal.predictions.#{opaque_series_key}",
+            received_at: DateTime.utc_now()
+          }
+        })
+
+      finding_info = row.metadata["finding_info"]
+      dimensions = finding_info["dimensions"]
+
+      assert finding_info["title"] ==
+               "Anomaly detection: ifHCInOctets 10.0.0.20 uplink0 ifIndex 7"
+
+      refute finding_info["title"] =~ "v2:"
+      assert dimensions["series_key"] == opaque_series_key
+      assert dimensions["metric_name"] == "ifHCInOctets"
+      assert dimensions["target_device_ip"] == "10.0.0.20"
+      assert dimensions["interface_name"] == "uplink0"
+      assert dimensions["if_index"] == 7
+      assert dimensions["resource_label"] == "10.0.0.20 uplink0 ifIndex 7"
+    end
+
+    test "does not use future versioned opaque series keys as anomaly titles" do
+      opaque_series_key =
+        "v3:partition=64656661756c74:class=736e6d702e696e74657266616365:identity=31302e302e302e3230"
+
+      payload = %{
+        "event_id" => "anomaly-edge-future-opaque-series-key",
+        "signal_type" => "causal",
+        "event_type" => "anomaly",
+        "class_uid" => 2004,
+        "timestamp" => "2026-06-12T12:00:00Z",
+        "severity_id" => 4,
+        "device_uid" => "10.0.0.20",
+        "verdict_source" => "edge-spike",
+        "anomaly" => %{
+          "series_key" => opaque_series_key,
+          "metric_class" => "snmp.interface",
+          "state" => "anomaly_open"
+        }
+      }
+
+      row =
+        CausalSignals.parse_message(%{
+          data: Jason.encode!(payload),
+          metadata: %{
+            subject: "signals.causal.predictions.#{opaque_series_key}",
+            received_at: DateTime.utc_now()
+          }
+        })
+
+      finding_info = row.metadata["finding_info"]
+
+      assert finding_info["title"] == "Anomaly detection: snmp.interface series"
+      refute finding_info["title"] =~ "v3:"
+      assert finding_info["dimensions"]["series_key"] == opaque_series_key
+      refute Map.has_key?(finding_info["dimensions"], "resource_label")
     end
 
     test "selects capacity causal prediction findings for stateful alert evaluation" do
