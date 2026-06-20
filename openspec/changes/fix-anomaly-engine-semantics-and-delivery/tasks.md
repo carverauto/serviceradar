@@ -288,9 +288,7 @@ _From the 2026-06-20 demo RCA: `ServiceRadar.StatusHandler` can crash-loop when 
 - [ ] 53.2 Root-cause: make the endpoint_inventory results path asynchronous with an ack-on-completion contract, so `StatusHandler`/`ResultsRouter` never block synchronously on ingest.
 - [x] 53.3 Decouple nested timeout budgets by lowering the inner endpoint_inventory ingest timeout below the outer gateway/core call timeout; do not raise the outer timeout.
 - [x] 53.4 Bound or cancel the in-flight ingest transaction on timeout so abandoned tasks cannot keep consuming the connection pool.
-- [ ] 53.5 Add a cheap core-side idempotency/short-circuit before `build_context`, upload, and transaction work for unchanged and empty/not-scanned payloads.
-- [x] 53.4 Bound or cancel the in-flight ingest transaction on timeout so abandoned tasks cannot keep consuming the connection pool.
 - [x] 53.5 Add a cheap core-side idempotency/short-circuit before `build_context`, upload, and transaction work for unchanged and empty/not-scanned payloads.
-- [ ] 53.6 Move hash-freshness/noop decisions before transaction reads/writes so unchanged scans skip unnecessary writes.
+- [x] 53.6 Move hash-freshness/noop decisions before transaction reads/writes so unchanged scans skip unnecessary writes.
 - [ ] 53.7 Index or rewrite the agent-scoped scan lookup used by endpoint inventory context building.
 - [ ] 53.8 Add per-agent queue fairness/load-shedding and surface queue-full as a fast gateway-buffered reply.
