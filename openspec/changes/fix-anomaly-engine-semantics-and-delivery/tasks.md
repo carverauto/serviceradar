@@ -278,3 +278,6 @@
 - [ ] 51.7 Run `sfw cargo test -p serviceradar-flow-collector` if collector sampling changes land.
 - [ ] 51.8 Run native add-on manifest/version gates if add-on package metadata or Rust add-on sources change.
 - [ ] 51.9 Re-run the live `sysmon.debug_spike` trace + a sampled-flow check in demo and confirm F1/F3/F6/F12/F15/F21-F55 behaviors are resolved (one open finding, sample-time, coherent identity, visible+annotated chart spike, correct sampled NetFlow units, safe dashboard variables, no alert storm, no SRQL panics).
+
+## 52. CI Action Flood (ops/infra, separate) (F56)
+- [x] 52.1 Add Forgejo workflow concurrency groups with `cancel-in-progress` keyed on workflow/ref for build and scan workflows, while queueing same-tag publish reruns so in-flight publishes are not cancelled.
