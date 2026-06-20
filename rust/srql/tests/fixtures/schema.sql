@@ -9,6 +9,8 @@ DROP TABLE IF EXISTS endpoint_inventory_current_package_counts;
 DROP TABLE IF EXISTS endpoint_inventory_current_cpe_counts;
 DROP TABLE IF EXISTS endpoint_inventory_package_counts_hourly;
 DROP TABLE IF EXISTS endpoint_inventory_cpe_counts_hourly;
+DROP TABLE IF EXISTS ocsf_network_activity;
+DROP TABLE IF EXISTS netflow_interface_cache;
 -- CASCADE: the virtualization_* tables (dropped further below) hold FKs to
 -- ocsf_devices, and seeding retries re-run this file over a populated schema.
 DROP TABLE IF EXISTS ocsf_devices CASCADE;
@@ -70,6 +72,67 @@ CREATE TABLE ocsf_devices (
 -- re-runs, so it is recreated here right after the table.
 CREATE SCHEMA IF NOT EXISTS platform;
 CREATE OR REPLACE VIEW platform.ocsf_devices AS SELECT * FROM public.ocsf_devices;
+
+CREATE TABLE ocsf_network_activity (
+    time                         TIMESTAMPTZ NOT NULL,
+    class_uid                    INT         NOT NULL DEFAULT 4001,
+    category_uid                 INT         NOT NULL DEFAULT 4,
+    activity_id                  INT         NOT NULL DEFAULT 6,
+    type_uid                     INT         NOT NULL DEFAULT 400106,
+    severity_id                  INT         NOT NULL DEFAULT 1,
+    start_time                   TIMESTAMPTZ,
+    end_time                     TIMESTAMPTZ,
+    src_endpoint_ip              TEXT,
+    src_endpoint_port            INT,
+    src_as_number                INT,
+    dst_endpoint_ip              TEXT,
+    dst_endpoint_port            INT,
+    dst_as_number                INT,
+    protocol_num                 INT,
+    protocol_name                TEXT,
+    protocol_source              TEXT,
+    tcp_flags                    INT,
+    tcp_flags_labels             TEXT[],
+    tcp_flags_source             TEXT,
+    dst_service_label            TEXT,
+    dst_service_source           TEXT,
+    bytes_total                  BIGINT      NOT NULL,
+    packets_total                BIGINT      NOT NULL,
+    bytes_in                     BIGINT,
+    bytes_out                    BIGINT,
+    packets_in                   BIGINT,
+    packets_out                  BIGINT,
+    direction_label              TEXT,
+    direction_source             TEXT,
+    src_hosting_provider         TEXT,
+    src_hosting_provider_source  TEXT,
+    dst_hosting_provider         TEXT,
+    dst_hosting_provider_source  TEXT,
+    src_mac                      TEXT,
+    dst_mac                      TEXT,
+    src_mac_vendor               TEXT,
+    src_mac_vendor_source        TEXT,
+    dst_mac_vendor               TEXT,
+    dst_mac_vendor_source        TEXT,
+    sampler_address              TEXT,
+    ocsf_payload                 JSONB       NOT NULL,
+    partition                    TEXT,
+    created_at                   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE netflow_interface_cache (
+    sampler_address TEXT      NOT NULL,
+    if_index        INT       NOT NULL,
+    device_uid      TEXT,
+    if_name         TEXT,
+    if_description  TEXT,
+    if_speed_bps    INT,
+    boundary        TEXT,
+    refreshed_at    TIMESTAMP NOT NULL,
+    inserted_at     TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (sampler_address, if_index)
+);
 
 CREATE TABLE device_agent_availability (
     id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),

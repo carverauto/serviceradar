@@ -1238,6 +1238,8 @@ impl FlowGroupField {
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum FlowGroupSpec {
     Field(FlowGroupField),
+    // Expands each flow into one ingress and one egress interface row.
+    // Consumers must not sum this dimension as a fleet total.
     Interface,
     InterfaceSpeedBps,
     SrcCidr { prefix: u8 },
