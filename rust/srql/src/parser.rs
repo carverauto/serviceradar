@@ -563,7 +563,12 @@ fn parse_bucket_seconds(raw: &str) -> Result<i64> {
     }
 
     let raw = raw.to_lowercase();
-    let (number_part, unit_part) = raw.split_at(raw.len().saturating_sub(1));
+    let Some((unit_start, unit)) = raw.char_indices().next_back() else {
+        return Err(ServiceError::InvalidRequest(
+            "bucket requires a duration like 5m, 1h".into(),
+        ));
+    };
+    let number_part = &raw[..unit_start];
     let value = number_part
         .parse::<i64>()
         .map_err(|_| ServiceError::InvalidRequest("bucket duration must be an integer".into()))?;
@@ -574,11 +579,11 @@ fn parse_bucket_seconds(raw: &str) -> Result<i64> {
         ));
     }
 
-    let multiplier = match unit_part {
-        "s" => 1,
-        "m" => 60,
-        "h" => 60 * 60,
-        "d" => 24 * 60 * 60,
+    let multiplier = match unit {
+        's' => 1,
+        'm' => 60,
+        'h' => 60 * 60,
+        'd' => 24 * 60 * 60,
         _ => {
             return Err(ServiceError::InvalidRequest(
                 "bucket supports only s|m|h|d suffixes".into(),
@@ -586,7 +591,12 @@ fn parse_bucket_seconds(raw: &str) -> Result<i64> {
         }
     };
 
-    let seconds = value.saturating_mul(multiplier);
+    let seconds = value.checked_mul(multiplier).ok_or_else(|| {
+        ServiceError::InvalidRequest(format!(
+            "bucket duration must be between 1s and {}d",
+            MAX_DOWNSAMPLE_BUCKET_SECS / (24 * 60 * 60)
+        ))
+    })?;
     if seconds <= 0 || seconds > MAX_DOWNSAMPLE_BUCKET_SECS {
         return Err(ServiceError::InvalidRequest(format!(
             "bucket duration must be between 1s and {}d",
@@ -1018,6 +1028,12 @@ mod tests {
     fn parses_time() {
         let ast = parse("in:devices time:last_7d").unwrap();
         assert!(ast.time_filter.is_some());
+    }
+
+    #[test]
+    fn rejects_multibyte_bucket_suffix_without_panic() {
+        let err = parse("in:timeseries_metrics time:last_1h bucket:5µ agg:avg").unwrap_err();
+        assert!(matches!(err, ServiceError::InvalidRequest(_)));
     }
 
     #[test]

@@ -36,20 +36,20 @@ impl TimeFilterSpec {
     }
 
     pub fn resolve_with_max_days(&self, now: DateTime<Utc>, max_days: i64) -> Result<TimeRange> {
-        let max_duration = Duration::days(max_days);
+        let max_duration = Duration::try_days(max_days).ok_or_else(invalid_time_range)?;
         let range = match self {
-            TimeFilterSpec::RelativeMinutes(minutes) => TimeRange {
-                start: now - Duration::minutes(*minutes),
-                end: now,
-            },
-            TimeFilterSpec::RelativeHours(hours) => TimeRange {
-                start: now - Duration::hours(*hours),
-                end: now,
-            },
-            TimeFilterSpec::RelativeDays(days) => TimeRange {
-                start: now - Duration::days(*days),
-                end: now,
-            },
+            TimeFilterSpec::RelativeMinutes(minutes) => relative_range(
+                now,
+                Duration::try_minutes(*minutes).ok_or_else(invalid_time_range)?,
+            )?,
+            TimeFilterSpec::RelativeHours(hours) => relative_range(
+                now,
+                Duration::try_hours(*hours).ok_or_else(invalid_time_range)?,
+            )?,
+            TimeFilterSpec::RelativeDays(days) => relative_range(
+                now,
+                Duration::try_days(*days).ok_or_else(invalid_time_range)?,
+            )?,
             TimeFilterSpec::Today => {
                 let start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
                 TimeRange {
@@ -109,6 +109,17 @@ impl TimeFilterSpec {
 }
 
 const MAX_TIME_RANGE_DAYS: i64 = 90;
+
+fn relative_range(now: DateTime<Utc>, duration: Duration) -> Result<TimeRange> {
+    let start = now
+        .checked_sub_signed(duration)
+        .ok_or_else(invalid_time_range)?;
+    Ok(TimeRange { start, end: now })
+}
+
+fn invalid_time_range() -> ServiceError {
+    ServiceError::InvalidRequest("time range is out of bounds".to_string())
+}
 
 pub fn parse_time_value(raw: &str) -> Result<TimeFilterSpec> {
     let value = raw
@@ -186,7 +197,7 @@ fn parse_numeric_suffix(value: &str) -> Option<TimeFilterSpec> {
         }
         "h" | "hour" | "hours" => Some(TimeFilterSpec::RelativeHours(amount)),
         "d" | "day" | "days" => Some(TimeFilterSpec::RelativeDays(amount)),
-        "y" | "year" | "years" => Some(TimeFilterSpec::RelativeDays(amount * 365)),
+        "y" | "year" | "years" => amount.checked_mul(365).map(TimeFilterSpec::RelativeDays),
         _ => None,
     }
 }
@@ -249,6 +260,22 @@ mod tests {
         let now = Utc::now();
         let range = spec.resolve(now).unwrap();
         assert!(range.start < range.end);
+    }
+
+    #[test]
+    fn rejects_huge_relative_time_without_panic() {
+        let spec = parse_time_value("last5000000000d").unwrap();
+        let now = DateTime::parse_from_rfc3339("2026-06-20T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let err = spec.resolve(now).unwrap_err();
+        assert!(matches!(err, ServiceError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn rejects_huge_relative_years_without_overflow() {
+        let err = parse_time_value("last50000000000000000y").unwrap_err();
+        assert!(matches!(err, ServiceError::InvalidRequest(_)));
     }
 
     #[test]
