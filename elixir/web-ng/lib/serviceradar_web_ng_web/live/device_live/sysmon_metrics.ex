@@ -12,10 +12,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   @metrics_limit 300
   @disk_metrics_limit @metrics_limit
   @process_query_limit 10_000
-  # Mirrors the edge anomaly add-on saturation gates until sysmon exposes
-  # persisted per-device threshold metadata.
-  @cpu_saturation_gate_percent 85.0
-  @resource_saturation_gate_percent 80.0
+  # V1 fallback values that mirror the edge add-on's saturation-gauge floors
+  # until sysmon exposes persisted per-device threshold metadata.
+  @edge_cpu_saturation_gate_percent 85.0
+  @edge_resource_saturation_gate_percent 80.0
 
   defp escape_value(value) when is_binary(value) do
     value
@@ -811,8 +811,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   defp sysmon_threshold_reference_lines(:cpu) do
     [
       %{
-        value: @cpu_saturation_gate_percent,
-        label: "CPU anomaly gate 85%",
+        value: @edge_cpu_saturation_gate_percent,
+        label: saturation_gate_label("CPU", @edge_cpu_saturation_gate_percent),
         severity: :warning,
         series: nil
       }
@@ -822,8 +822,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   defp sysmon_threshold_reference_lines(:memory) do
     [
       %{
-        value: @resource_saturation_gate_percent,
-        label: "Memory anomaly gate 80%",
+        value: @edge_resource_saturation_gate_percent,
+        label: saturation_gate_label("Memory", @edge_resource_saturation_gate_percent),
         severity: :warning,
         series: nil
       }
@@ -833,8 +833,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   defp sysmon_threshold_reference_lines(:disk) do
     [
       %{
-        value: @resource_saturation_gate_percent,
-        label: "Disk anomaly gate 80%",
+        value: @edge_resource_saturation_gate_percent,
+        label: saturation_gate_label("Disk", @edge_resource_saturation_gate_percent),
         severity: :warning,
         series: nil
       }
@@ -842,6 +842,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   end
 
   defp sysmon_threshold_reference_lines(_section), do: []
+
+  defp saturation_gate_label(name, percent), do: "#{name} saturation gate #{format_gate_percent(percent)}%"
+
+  defp format_gate_percent(percent) when is_float(percent) and percent == trunc(percent),
+    do: Integer.to_string(trunc(percent))
+
+  defp format_gate_percent(percent), do: to_string(percent)
 
   defp extract_viz(resp) do
     case Map.get(resp, "viz") do
