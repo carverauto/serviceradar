@@ -8,11 +8,13 @@
 package addon
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/rs/zerolog"
@@ -24,18 +26,28 @@ import (
 // cgroup v2 directory the agent may write to (a delegated sub-tree). On any hard
 // failure it returns an error and the caller launches the add-on WITHOUT
 // enforcement (best-effort, never blocks the add-on).
-func applyResourceLimits(cmd *exec.Cmd, id string, res Resources, cgroupRoot string, log zerolog.Logger) (func(), error) {
-	if res.IsZero() || cgroupRoot == "" {
-		return func() {}, nil
+func applyResourceLimits(cmd *exec.Cmd, id string, res Resources, cgroupRoot string, log zerolog.Logger) (func(), string, error) {
+	if res.IsZero() {
+		return func() {}, "", nil
 	}
 
-	dir := filepath.Join(cgroupRoot, "serviceradar-addon-"+id)
+	root, err := resolveAddonCgroupRoot(res, cgroupRoot)
+	if err != nil {
+		return nil, "", err
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return nil, "", fmt.Errorf("create addon cgroup root %s: %w", root, err)
+	}
+
+	dir := filepath.Join(root, "serviceradar-addon-"+id)
 	if err := os.Mkdir(dir, 0o755); err != nil && !os.IsExist(err) {
-		return nil, fmt.Errorf("create addon cgroup %s: %w", dir, err)
+		return nil, "", fmt.Errorf("create addon cgroup %s: %w", dir, err)
 	}
 
+	var writeErrs []error
 	writeLimit := func(file, value string) {
 		if err := os.WriteFile(filepath.Join(dir, file), []byte(value), 0o644); err != nil {
+			writeErrs = append(writeErrs, fmt.Errorf("write %s: %w", file, err))
 			log.Warn().Err(err).Str("addon", id).Str("cgroup_file", file).
 				Msg("addon cgroup limit not applied")
 		}
@@ -58,10 +70,14 @@ func applyResourceLimits(cmd *exec.Cmd, id string, res Resources, cgroupRoot str
 	if res.TasksMax > 0 {
 		writeLimit("pids.max", strconv.Itoa(res.TasksMax))
 	}
+	if err := errors.Join(writeErrs...); err != nil {
+		_ = os.Remove(dir)
+		return nil, "", fmt.Errorf("apply addon cgroup limits in %s: %w", dir, err)
+	}
 
 	fd, err := os.Open(dir)
 	if err != nil {
-		return nil, fmt.Errorf("open addon cgroup %s: %w", dir, err)
+		return nil, "", fmt.Errorf("open addon cgroup %s: %w", dir, err)
 	}
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
@@ -75,5 +91,38 @@ func applyResourceLimits(cmd *exec.Cmd, id string, res Resources, cgroupRoot str
 		// cgroup is empty.
 		_ = os.Remove(dir)
 	}
-	return cleanup, nil
+	return cleanup, dir, nil
+}
+
+func resolveAddonCgroupRoot(res Resources, cgroupRoot string) (string, error) {
+	// The manifest-declared systemd slice is the accounting boundary operators
+	// see. The legacy/additional cgroup root is only a fallback for manifests
+	// that declare hard limits without a slice.
+	if slice := strings.TrimSpace(res.Slice); slice != "" {
+		return systemdSliceCgroupPath(slice)
+	}
+	if root := strings.TrimSpace(cgroupRoot); root != "" {
+		return root, nil
+	}
+
+	return "", fmt.Errorf("resource limits declared but no addon cgroup root or systemd slice is configured")
+}
+
+func systemdSliceCgroupPath(slice string) (string, error) {
+	slice = strings.TrimSpace(slice)
+	if slice == "" {
+		return "", fmt.Errorf("empty systemd slice")
+	}
+	if strings.Contains(slice, "/") || !strings.HasSuffix(slice, ".slice") {
+		return "", fmt.Errorf("invalid systemd slice %q", slice)
+	}
+
+	name := strings.TrimSuffix(slice, ".slice")
+	parts := strings.Split(name, "-")
+	path := "/sys/fs/cgroup"
+	for i := range parts {
+		path = filepath.Join(path, strings.Join(parts[:i+1], "-")+".slice")
+	}
+
+	return path, nil
 }

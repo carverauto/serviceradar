@@ -55,6 +55,33 @@ defmodule ServiceRadar.Plugins.AnomalyAddonProfileSeederTest do
       assert :ok = ConfigSchema.validate_params(@config_schema, params)
     end
 
+    test "blank detector numeric params normalize to omission before assignment delivery" do
+      params =
+        ConfigSchema.normalize_params(@config_schema, %{
+          "window_size" => "",
+          "min_samples" => "",
+          "n_sigma" => "",
+          "confirm_slots" => "",
+          "max_series" => "",
+          "min_std_floor" => "",
+          "min_cv" => "",
+          "checkpoint_max_age_secs" => "",
+          "metric_feed" => %{"sources" => ["sysmon", "snmp"]}
+        })
+
+      refute Map.has_key?(params, "window_size")
+      refute Map.has_key?(params, "min_samples")
+      refute Map.has_key?(params, "n_sigma")
+      refute Map.has_key?(params, "confirm_slots")
+      refute Map.has_key?(params, "max_series")
+      refute Map.has_key?(params, "min_std_floor")
+      refute Map.has_key?(params, "min_cv")
+      refute Map.has_key?(params, "checkpoint_max_age_secs")
+
+      assert params["metric_feed"] == %{"sources" => ["sysmon", "snmp"]}
+      assert :ok = ConfigSchema.validate_params(@config_schema, params)
+    end
+
     test "the seeded metric_feed params validate alongside every scalar detector key" do
       params =
         Map.merge(AnomalyAddonProfileSeeder.default_params(), %{

@@ -28,8 +28,10 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKey do
   @doc """
   Computes a canonical anomaly `series_key` from an edge add-on `source_identity`.
   """
-  @spec from_source_identity(map()) :: String.t() | nil
-  def from_source_identity(source_identity) when is_map(source_identity) do
+  @spec from_source_identity(map(), keyword()) :: String.t() | nil
+  def from_source_identity(source_identity, opts \\ [])
+
+  def from_source_identity(source_identity, opts) when is_map(source_identity) do
     case string(source_identity, "metric_class") do
       nil ->
         nil
@@ -44,28 +46,49 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKey do
           host_ip: string(source_identity, "host_ip")
         }
 
-        identity = resource_identity(base)
+        identity = resource_identity(metric_class, base)
         tags = tags(source_identity)
         if_index = int(source_identity, "if_index")
+        partition = partition(source_identity, opts)
 
-        metric_class
-        |> readable_identity(base, identity, tags, if_index)
-        |> prefix_series_key(metric_class)
+        canonical_identity(metric_class, base, partition, identity, tags, if_index)
     end
   end
 
-  def from_source_identity(_source_identity), do: nil
+  def from_source_identity(_source_identity, _opts), do: nil
 
-  defp resource_identity(%{host_id: host_id}) when is_binary(host_id), do: host_id
-  defp resource_identity(%{agent_id: agent_id}) when is_binary(agent_id), do: agent_id
-  defp resource_identity(%{device_id: device_id}) when is_binary(device_id), do: device_id
-  defp resource_identity(%{host_ip: host_ip}) when is_binary(host_ip), do: host_ip
-  defp resource_identity(_base), do: nil
+  defp resource_identity(metric_class, base) do
+    Enum.find(
+      [
+        base.device_id,
+        snmp_target_identity(metric_class, base),
+        base.host_id,
+        base.agent_id,
+        base.host_ip
+      ],
+      &is_binary/1
+    )
+  end
 
-  defp readable_identity(metric_class, base, identity, tags, if_index) do
+  defp snmp_target_identity(metric_class, %{target_device_ip: target_device_ip})
+       when is_binary(metric_class) and is_binary(target_device_ip) do
+    if metric_class == "snmp" or String.starts_with?(metric_class, "snmp.") do
+      target_device_ip
+    end
+  end
+
+  defp snmp_target_identity(_metric_class, _base), do: nil
+
+  defp canonical_identity(metric_class, base, partition, identity, tags, if_index) do
     {class_component, family} = class_and_family(metric_class, base.metric_name)
 
-    [class_component, family, identity_component(identity, base)]
+    [
+      "v2",
+      component("partition", partition),
+      component("class", class_component),
+      component("family", family),
+      component("identity", identity_component(identity, base))
+    ]
     |> Enum.reject(&is_nil/1)
     |> Kernel.++(series_dimensions(tags, if_index))
     |> Enum.join(":")
@@ -96,16 +119,31 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKey do
   defp identity_component(nil, base), do: base.target_device_ip || "unknown"
   defp identity_component(identity, _base), do: identity
 
+  defp partition(source_identity, opts) do
+    opts
+    |> Keyword.get(:partition_id)
+    |> string_value()
+    |> Kernel.||(string(source_identity, "partition_id"))
+    |> Kernel.||(string(source_identity, "partition"))
+    |> Kernel.||("default")
+  end
+
   defp series_dimensions(tags, if_index) do
     leading =
-      ["core_id", "mount_point"]
-      |> Enum.map(&string(tags, &1))
-      |> Enum.reject(&is_nil/1)
+      Enum.flat_map(["core_id", "mount_point"], fn key ->
+        case string(tags, key) do
+          nil -> []
+          value -> [tag_component(key, value)]
+        end
+      end)
 
     if_index =
       case if_index do
-        value when is_integer(value) and value > 0 -> [Integer.to_string(value)]
-        _ -> []
+        value when is_integer(value) and value > 0 ->
+          [component("if_index", Integer.to_string(value))]
+
+        _ ->
+          []
       end
 
     extra =
@@ -118,17 +156,20 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKey do
           string_value(value) == nil
       end)
       |> Enum.sort_by(&to_string(elem(&1, 0)))
-      |> Enum.map(fn {_key, value} -> string_value(value) end)
+      |> Enum.map(fn {key, value} -> tag_component(to_string(key), string_value(value)) end)
 
     leading ++ if_index ++ extra
   end
 
-  defp prefix_series_key(readable_identity, metric_class) do
-    if String.starts_with?(readable_identity, "#{metric_class}:") do
-      readable_identity
-    else
-      "#{metric_class}:#{readable_identity}"
-    end
+  defp component(_name, nil), do: nil
+  defp component(name, value), do: "#{name}=#{encode_component(value)}"
+
+  defp tag_component(key, value), do: "tag_#{encode_component(key)}=#{encode_component(value)}"
+
+  defp encode_component(value) do
+    value
+    |> to_string()
+    |> Base.encode16(case: :lower)
   end
 
   defp tags(source_identity) do
