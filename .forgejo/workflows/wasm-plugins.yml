@@ -8,6 +8,10 @@ on:
         required: false
         type: string
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.inputs.tag || github.ref || github.run_id }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   id-token: write
