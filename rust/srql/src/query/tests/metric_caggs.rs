@@ -118,6 +118,12 @@ fn cpu_stats_without_group_by_translates_and_routes_to_cagg() {
         response.sql
     );
     assert!(
+        sql.contains("bucket >= time_bucket('1 hour', $1::timestamptz)")
+            && sql.contains("bucket < time_bucket('1 hour', $2::timestamptz) + interval '1 hour'"),
+        "expected CAGG bucket-overlap bounds for partial windows, got: {}",
+        response.sql
+    );
+    assert!(
         !sql.contains("group by device_id"),
         "ungrouped query should not force device grouping, got: {}",
         response.sql

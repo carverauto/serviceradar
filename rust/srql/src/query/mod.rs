@@ -633,6 +633,14 @@ pub(super) fn should_route_plan_to_hourly_cagg(plan: &QueryPlan) -> bool {
     )
 }
 
+pub(super) fn hourly_cagg_lower_bound_clause(time_col: &str) -> String {
+    format!("{time_col} >= time_bucket('1 hour', ?::timestamptz)")
+}
+
+pub(super) fn hourly_cagg_upper_bound_clause(time_col: &str) -> String {
+    format!("{time_col} < time_bucket('1 hour', ?::timestamptz) + INTERVAL '1 hour'")
+}
+
 fn extract_include_deleted(filters: Vec<Filter>) -> Result<(Vec<Filter>, bool)> {
     let mut include_deleted = false;
     let mut remaining = Vec::with_capacity(filters.len());

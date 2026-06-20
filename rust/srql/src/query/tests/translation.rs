@@ -287,6 +287,13 @@ fn translate_timeseries_metric_interface_hourly_reads_interface_cagg() {
         "expected partition column/filter in interface hourly SQL, got: {}",
         response.sql
     );
+    let sql = response.sql.to_lowercase();
+    assert!(
+        sql.contains("bucket >= time_bucket('1 hour', $1::timestamptz)")
+            && sql.contains("bucket < time_bucket('1 hour', $2::timestamptz) + interval '1 hour'"),
+        "expected interface CAGG bucket-overlap bounds for partial windows, got: {}",
+        response.sql
+    );
 
     let max_placeholder = super::max_dollar_placeholder(&response.sql);
     assert_eq!(
@@ -316,6 +323,12 @@ fn translate_downsample_respects_value_field() {
     assert!(
         sql.contains("avg(used_bytes)") || sql.contains("avg(avg_used_bytes)"),
         "expected downsample to use used_bytes or avg_used_bytes, got: {}",
+        response.sql
+    );
+    assert!(
+        sql.contains("bucket >= time_bucket('1 hour', $1::timestamptz)")
+            && sql.contains("bucket < time_bucket('1 hour', $2::timestamptz) + interval '1 hour'"),
+        "expected downsample CAGG bucket-overlap bounds for partial windows, got: {}",
         response.sql
     );
 }
