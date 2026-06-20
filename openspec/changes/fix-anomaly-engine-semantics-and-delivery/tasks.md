@@ -29,10 +29,10 @@
 - [ ] 5.4 Add cleanup/TTL for stale seasonal state keys.
 
 ## 6. Configuration
-- [ ] 6.1 Decide and implement the operator tuning path for edge spike detector params.
+- [x] 6.1 Decide and implement the operator tuning path for edge spike detector params.
 - [x] 6.2 Validate edge add-on assignment config with `min_samples <= window_size`.
-- [ ] 6.3 Add seeder/reconciler tests showing default anomaly profiles carry intended detector knobs or docs/UI clearly split the knobs.
-- [ ] 6.4 Update operator docs for the final tuning ownership model.
+- [x] 6.3 Add seeder/reconciler tests showing default anomaly profiles carry intended detector knobs or docs/UI clearly split the knobs.
+- [x] 6.4 Update operator docs for the final tuning ownership model.
 
 ## 7. Edge Detector State Bounds (F9)
 - [x] 7.1 Apply the `max_series` cap to the `counters` map on both the live normalize path and `restore_checkpoint`.
