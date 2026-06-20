@@ -37,25 +37,37 @@ pub fn decode_cursor(cursor: &str, secret: &str, max_offset: i64) -> Result<i64>
             "cursor offset exceeds maximum of {max_offset}"
         )));
     }
-    if payload.sig != sign_offset(payload.offset, secret)? {
-        return Err(ServiceError::InvalidRequest(
-            "invalid cursor signature".into(),
-        ));
-    }
+    verify_offset_signature(payload.offset, secret, &payload.sig)?;
     Ok(payload.offset)
 }
 
-pub fn encode_cursor(offset: i64, secret: &str) -> String {
+pub fn encode_cursor(offset: i64, secret: &str) -> Result<String> {
     let offset = offset.max(0);
     let payload = CursorPayload {
         v: 2,
         offset,
-        sig: sign_offset(offset, secret).unwrap_or_default(),
+        sig: sign_offset(offset, secret)?,
     };
-    URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap_or_default())
+    let bytes = serde_json::to_vec(&payload)
+        .map_err(|_| ServiceError::InvalidRequest("failed to encode cursor".into()))?;
+    Ok(URL_SAFE_NO_PAD.encode(bytes))
 }
 
 fn sign_offset(offset: i64, secret: &str) -> Result<String> {
+    Ok(URL_SAFE_NO_PAD.encode(cursor_mac(offset, secret)?.finalize().into_bytes()))
+}
+
+fn verify_offset_signature(offset: i64, secret: &str, signature: &str) -> Result<()> {
+    let signature_bytes = URL_SAFE_NO_PAD
+        .decode(signature.as_bytes())
+        .map_err(|_| ServiceError::InvalidRequest("invalid cursor signature".into()))?;
+
+    cursor_mac(offset, secret)?
+        .verify_slice(&signature_bytes)
+        .map_err(|_| ServiceError::InvalidRequest("invalid cursor signature".into()))
+}
+
+fn cursor_mac(offset: i64, secret: &str) -> Result<HmacSha256> {
     if secret.trim().is_empty() {
         return Err(ServiceError::InvalidRequest(
             "cursor signing secret must not be empty".into(),
@@ -65,7 +77,7 @@ fn sign_offset(offset: i64, secret: &str) -> Result<String> {
         .map_err(|_| ServiceError::InvalidRequest("invalid cursor signing secret".into()))?;
     mac.update(b"srql-cursor-v2:");
     mac.update(offset.to_string().as_bytes());
-    Ok(URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes()))
+    Ok(mac)
 }
 
 #[cfg(test)]
@@ -74,7 +86,7 @@ mod tests {
 
     #[test]
     fn round_trip_cursor() {
-        let encoded = encode_cursor(250, "secret");
+        let encoded = encode_cursor(250, "secret").unwrap();
         let decoded = decode_cursor(&encoded, "secret", 1_000).unwrap();
         assert_eq!(decoded, 250);
     }
@@ -87,15 +99,34 @@ mod tests {
 
     #[test]
     fn decode_rejects_tampered_signature() {
-        let encoded = encode_cursor(250, "secret");
+        let encoded = encode_cursor(250, "secret").unwrap();
         let err = decode_cursor(&encoded, "other-secret", 1_000).unwrap_err();
         assert!(matches!(err, ServiceError::InvalidRequest(_)));
     }
 
     #[test]
     fn decode_rejects_offset_above_bound() {
-        let encoded = encode_cursor(1_001, "secret");
+        let encoded = encode_cursor(1_001, "secret").unwrap();
         let err = decode_cursor(&encoded, "secret", 1_000).unwrap_err();
+        assert!(matches!(err, ServiceError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn decode_rejects_malformed_signature_encoding() {
+        let payload = CursorPayload {
+            v: 2,
+            offset: 250,
+            sig: "$$$".to_string(),
+        };
+        let encoded = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap());
+
+        let err = decode_cursor(&encoded, "secret", 1_000).unwrap_err();
+        assert!(matches!(err, ServiceError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn encode_rejects_empty_secret() {
+        let err = encode_cursor(250, "   ").unwrap_err();
         assert!(matches!(err, ServiceError::InvalidRequest(_)));
     }
 }

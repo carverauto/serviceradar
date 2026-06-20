@@ -145,8 +145,7 @@ impl AppConfig {
         let cursor_secret = raw
             .srql_cursor_secret
             .and_then(non_empty_string)
-            .or_else(|| api_key.clone())
-            .unwrap_or_else(|| database_url.clone());
+            .context("SRQL_CURSOR_SECRET must be set")?;
 
         Ok(Self {
             listen_addr,
@@ -175,8 +174,6 @@ impl AppConfig {
     }
 
     pub fn embedded(database_url: String) -> Self {
-        let cursor_secret = database_url.clone();
-
         Self {
             listen_addr: "127.0.0.1:0".parse().expect("valid socket addr"),
             database_url,
@@ -190,7 +187,7 @@ impl AppConfig {
             allowed_origins: None,
             default_limit: default_limit(),
             max_limit: default_max_limit(),
-            cursor_secret,
+            cursor_secret: "embedded-srql-cursor-secret".to_string(),
             max_cursor_offset: default_max_cursor_offset(),
             request_timeout: Duration::from_secs(default_timeout_secs()),
             db_statement_timeout: Duration::from_secs(default_db_statement_timeout_secs()),

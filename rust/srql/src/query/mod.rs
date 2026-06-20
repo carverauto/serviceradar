@@ -313,7 +313,7 @@ impl QueryEngine {
             }
         };
 
-        let pagination = self.build_pagination(&plan, results.len() as i64);
+        let pagination = self.build_pagination(&plan, results.len() as i64)?;
         Ok(QueryResponse {
             results,
             pagination,
@@ -325,26 +325,26 @@ impl QueryEngine {
         translate_request(self.config(), QueryRequest::from(request))
     }
 
-    fn build_pagination(&self, plan: &QueryPlan, fetched: i64) -> PaginationMeta {
+    fn build_pagination(&self, plan: &QueryPlan, fetched: i64) -> Result<PaginationMeta> {
         let next_offset = plan.offset.saturating_add(plan.limit);
         let next_cursor = if fetched >= plan.limit && next_offset <= self.config.max_cursor_offset {
-            Some(encode_cursor(next_offset, &self.config.cursor_secret))
+            Some(encode_cursor(next_offset, &self.config.cursor_secret)?)
         } else {
             None
         };
 
         let prev_cursor = if plan.offset > 0 {
             let prev = plan.offset.saturating_sub(plan.limit);
-            Some(encode_cursor(prev, &self.config.cursor_secret))
+            Some(encode_cursor(prev, &self.config.cursor_secret)?)
         } else {
             None
         };
 
-        PaginationMeta {
+        Ok(PaginationMeta {
             next_cursor,
             prev_cursor,
             limit: Some(plan.limit),
-        }
+        })
     }
 }
 
@@ -1063,7 +1063,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
 
     let next_offset = plan.offset.saturating_add(plan.limit);
     let next_cursor = if next_offset <= config.max_cursor_offset {
-        Some(encode_cursor(next_offset, &config.cursor_secret))
+        Some(encode_cursor(next_offset, &config.cursor_secret)?)
     } else {
         None
     };
@@ -1071,7 +1071,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
         Some(encode_cursor(
             plan.offset.saturating_sub(plan.limit),
             &config.cursor_secret,
-        ))
+        )?)
     } else {
         None
     };
