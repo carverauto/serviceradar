@@ -3,6 +3,7 @@ name: Netprobe eBPF Verifier
 on:
   workflow_dispatch:
   push:
+    branches: [staging]
     paths:
       - 'rust/netprobe/**'
       - 'build/platforms/**'
@@ -14,6 +15,23 @@ on:
       - 'scripts/ci/ensure-forgejo-tools.sh'
       - 'scripts/ci/install-sfw.sh'
       - 'scripts/ci/netprobe-ebpf-verify.sh'
+  pull_request:
+    branches: [staging]
+    paths:
+      - 'rust/netprobe/**'
+      - 'build/platforms/**'
+      - 'build/rust/**'
+      - 'build/toolchains/**'
+      - '.bazelrc'
+      - '.forgejo/workflows/netprobe-ebpf-verifier.yml'
+      - 'MODULE.bazel'
+      - 'scripts/ci/ensure-forgejo-tools.sh'
+      - 'scripts/ci/install-sfw.sh'
+      - 'scripts/ci/netprobe-ebpf-verify.sh'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

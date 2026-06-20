@@ -2,6 +2,7 @@ name: Fingerprint Licensing
 
 on:
   pull_request:
+    branches: [staging]
     paths:
       - 'Cargo.lock'
       - 'rust/netprobe/**'
@@ -9,12 +10,17 @@ on:
       - 'scripts/check-netprobe-fingerprint-licenses.sh'
       - '.forgejo/workflows/tests-fingerprint-licensing.yml'
   push:
+    branches: [staging]
     paths:
       - 'Cargo.lock'
       - 'rust/netprobe/**'
       - 'scripts/lint-recog-additions.sh'
       - 'scripts/check-netprobe-fingerprint-licenses.sh'
       - '.forgejo/workflows/tests-fingerprint-licensing.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

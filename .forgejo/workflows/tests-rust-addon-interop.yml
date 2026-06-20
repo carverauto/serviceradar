@@ -7,12 +7,25 @@ name: Rust Add-on Interop Test
 # SERVICERADAR_RUST_ADDON_BIN so the polyglot proof actually runs in CI.
 on:
   push:
+    branches: [staging]
     paths:
       - 'rust/addon-sdk/**'
       - 'go/pkg/agent/addon/**'
       - 'proto/agent/addon/v1/**'
       - 'Cargo.lock'
       - '.forgejo/workflows/tests-rust-addon-interop.yml'
+  pull_request:
+    branches: [staging]
+    paths:
+      - 'rust/addon-sdk/**'
+      - 'go/pkg/agent/addon/**'
+      - 'proto/agent/addon/v1/**'
+      - 'Cargo.lock'
+      - '.forgejo/workflows/tests-rust-addon-interop.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

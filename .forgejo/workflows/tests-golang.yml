@@ -1,8 +1,17 @@
 name: Golang Tests
 on:
   push:
+    branches: [staging]
     paths-ignore:
       - 'rust/**'  # Ignore changes in the Rust project directory
+  pull_request:
+    branches: [staging]
+    paths-ignore:
+      - 'rust/**'  # Ignore changes in the Rust project directory
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
