@@ -133,7 +133,9 @@ fn build_sql(plan: &QueryPlan) -> Result<String> {
     if is_rate_agg(downsample.agg) {
         // Rate calculation: (current_value - previous_value) / time_delta_seconds
         // This handles SNMP counter metrics properly by calculating the rate of change per second
-        // We skip rows where value < prev_value (counter wrap/reset) to avoid negative rates
+        // We skip rows where value < prev_value (counter wrap/reset) to avoid negative rates.
+        // This is deliberately conservative: until SRQL has counter-width metadata
+        // in this layer, a true wrap and a reset are indistinguishable.
         let sql = format!(
             r#"WITH ordered_data AS (
   SELECT
