@@ -624,11 +624,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       active_alert =
         eventually(
           fn -> seasonal_alert_row(rule.id, device_uid, series_key) end,
-          &match?(
-            %{"status" => status} when status in ["pending", "acknowledged", "escalated"],
-            &1
-          )
+          &match?(%{"status" => "pending"}, &1)
         )
+
+      assert active_alert["title"] == "Anomaly Finding"
+      assert active_alert["severity"] == "critical"
 
       assert :ok = StatefulAlertEngine.evaluate_events([event.("cleared", 60)])
 
@@ -1055,7 +1055,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
   defp seasonal_alert_row(rule_id, device_uid, series_key) do
     sql = """
-    SELECT id::text, status, severity
+    SELECT id::text, title, status, severity
     FROM platform.alerts
     WHERE title = 'Anomaly Finding'
       AND metadata ->> 'incident_rule_id' = $1
@@ -1066,8 +1066,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     """
 
     case ServiceRadar.Repo.query!(sql, [to_string(rule_id), device_uid, series_key]).rows do
-      [[id, status, severity]] -> %{"id" => id, "status" => status, "severity" => severity}
-      [] -> nil
+      [[id, title, status, severity]] ->
+        %{"id" => id, "title" => title, "status" => status, "severity" => severity}
+
+      [] ->
+        nil
     end
   end
 
