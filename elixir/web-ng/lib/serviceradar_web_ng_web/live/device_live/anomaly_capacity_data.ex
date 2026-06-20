@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   @metric_classes ~w(cpu memory disk interface snmp red)
   @anomaly_limit 20
   @capacity_limit 8
+  @query_timeout_ms 5_000
 
   def empty(status \\ :ok) do
     %{
@@ -32,13 +33,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
     if candidates == [] do
       empty()
     else
-      anomaly_task = Task.async(fn -> load_first(srql_module, candidates, scope, &anomaly_query/1) end)
+      anomaly_task =
+        Task.Supervisor.async_nolink(ServiceRadarWebNG.TaskSupervisor, fn ->
+          load_first(srql_module, candidates, scope, &anomaly_query/1)
+        end)
 
       capacity_task =
-        Task.async(fn -> load_first(srql_module, capacity_candidates(candidates), scope, &capacity_query/1) end)
+        Task.Supervisor.async_nolink(ServiceRadarWebNG.TaskSupervisor, fn ->
+          load_first(srql_module, capacity_candidates(candidates), scope, &capacity_query/1)
+        end)
 
-      anomaly = Task.await(anomaly_task, :infinity)
-      capacity = Task.await(capacity_task, :infinity)
+      anomaly = await_load_task(anomaly_task, "anomaly")
+      capacity = await_load_task(capacity_task, "capacity")
 
       %{
         status: combined_status(anomaly, capacity),
@@ -53,6 +59,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
         metric_statuses: metric_statuses(anomaly.rows)
       }
     end
+  end
+
+  defp await_load_task(task, label) do
+    case Task.yield(task, @query_timeout_ms) || Task.shutdown(task, :brutal_kill) do
+      {:ok, result} ->
+        result
+
+      {:exit, reason} ->
+        error = "#{label} SRQL task failed: #{Exception.format_exit(reason)}"
+        Logger.warning(error)
+        task_error_result(error)
+
+      nil ->
+        error = "#{label} SRQL query timed out after #{@query_timeout_ms}ms"
+        Logger.warning(error)
+        task_error_result(error)
+    end
+  end
+
+  defp task_error_result(error) do
+    %{rows: [], query: nil, filter: nil, error: error, status: :error}
   end
 
   defp load_first(srql_module, candidates, scope, query_fun) do

@@ -25,7 +25,8 @@ defmodule ServiceRadar.Observability.CapacityForecastConfig do
     "interface" => %{},
     "cpu" => %{},
     "memory" => %{},
-    "disk" => %{}
+    "disk" => %{},
+    "flow" => %{}
   }
 
   postgres do
@@ -135,7 +136,8 @@ defmodule ServiceRadar.Observability.CapacityForecastConfig do
       allow_nil? false
       default @default_metric_class_overrides
       public? true
-      description "Per-metric-class forecast overrides keyed by interface, cpu, memory, or disk"
+
+      description "Per-metric-class forecast overrides keyed by interface, cpu, memory, disk, or flow"
     end
 
     timestamps()

@@ -60,6 +60,7 @@ defmodule ServiceRadar.Observability.RuleSeederTest do
     assert rule.match["recovery"]["attribute_equals"]["anomaly.state"] == [
              "anomaly_clear",
              "clear",
+             "cleared",
              "inactive"
            ]
 

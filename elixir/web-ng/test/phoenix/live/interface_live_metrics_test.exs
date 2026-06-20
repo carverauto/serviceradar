@@ -65,7 +65,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsTest do
       results = [
         %{"series" => "ifInOctets", "timestamp" => ~U[2100-01-01 00:05:00Z], "value" => 20.0},
         %{"series" => "ifInOctets", "timestamp" => ~U[2100-01-01 00:00:00Z], "value" => 10.0},
-        %{"series" => "ifOutOctets", "timestamp" => ~U[2100-01-01 00:00:00Z], "value" => 7.0}
+        %{"series" => "ifOutOctets", "timestamp" => ~U[2100-01-01 00:00:00Z], "value" => 7.0},
+        %{series: "ifOutOctets", timestamp: ~U[2100-01-01 00:05:00Z], value: 9.0}
       ]
 
       groups = [
@@ -302,23 +303,25 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsTest do
   defp build_single_series({name, points}) do
     data =
       points
-      |> Enum.map(fn p -> %{time: metric_result_time(p), value: p["value"] || p[:value]} end)
+      |> Enum.map(fn p -> %{time: metric_result_time(p), value: first_key(p, [:value])} end)
       |> Enum.sort_by(& &1.time)
 
     %{name: format_series_name(name), data: data}
   end
 
-  defp metric_result_name(result) when is_map(result) do
-    result["metric_name"] || result[:metric_name] || result["series"] || result[:series]
-  end
+  defp metric_result_name(result) when is_map(result), do: first_key(result, [:metric_name, :series])
 
   defp metric_result_name(_), do: nil
 
-  defp metric_result_time(result) when is_map(result) do
-    result["time"] || result[:time] || result["timestamp"] || result[:timestamp]
-  end
+  defp metric_result_time(result) when is_map(result), do: first_key(result, [:time, :timestamp])
 
   defp metric_result_time(_), do: nil
+
+  defp first_key(map, keys) when is_map(map) and is_list(keys) do
+    Enum.find_value(keys, fn key ->
+      Map.get(map, to_string(key)) || Map.get(map, key)
+    end)
+  end
 
   defp format_series_name(name) when is_binary(name) do
     case name do

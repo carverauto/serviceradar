@@ -4,6 +4,17 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitterTest do
   alias ServiceRadar.EventWriter.Processors.CausalSignals
   alias ServiceRadar.Observability.CapacityForecasting.VerdictEmitter
 
+  defmodule ExistingTimeRepo do
+    def query(_sql, [ids]) do
+      rows =
+        Enum.map(ids, fn id ->
+          [id, Process.get({:capacity_existing_ocsf_time, id})]
+        end)
+
+      {:ok, %{rows: rows}}
+    end
+  end
+
   @forecast %{
     forecasted_at: ~U[2026-06-12 12:00:00Z],
     resource_key: "cpu_usage:device-a:host-a",
@@ -98,7 +109,14 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitterTest do
       })
 
     assert first_row.id == next_row.id
-    assert first_row.time != next_row.time
+
+    event_id = first_row.metadata["event_identity"]
+    Process.put({:capacity_existing_ocsf_time, event_id}, first_row.time)
+
+    assert [%{time: aligned_time}] =
+             CausalSignals.align_existing_ocsf_event_times([next_row], ExistingTimeRepo)
+
+    assert DateTime.compare(aligned_time, first_row.time) == :eq
   end
 
   test "payload routes through the existing causal signal processor" do
