@@ -17,8 +17,11 @@
 package mapper
 
 import (
+	"context"
 	"math"
+	"os"
 	"testing"
+	"time"
 
 	"github.com/gosnmp/gosnmp"
 	"github.com/stretchr/testify/assert"
@@ -31,6 +34,74 @@ const (
 	wrongTypeError = "wrong type"
 	originalValue  = "original"
 )
+
+func TestSetupSNMPClientDoesNotConnect(t *testing.T) {
+	engine := &DiscoveryEngine{
+		config: &Config{Timeout: 100 * time.Millisecond, Retries: 1},
+		logger: logger.NewTestLogger(),
+	}
+	job := testSNMPDiscoveryJob()
+
+	client, err := engine.setupSNMPClient(job, "127.0.0.1")
+	require.NoError(t, err)
+	require.NotNil(t, client)
+	assert.Nil(t, client.Conn)
+}
+
+func TestSNMPConnectPathDoesNotLeakFDs(t *testing.T) {
+	before, ok := openFDCount()
+	if !ok {
+		t.Skip("open FD count is not available on this platform")
+	}
+
+	engine := &DiscoveryEngine{
+		config: &Config{Timeout: 100 * time.Millisecond, Retries: 1},
+		logger: logger.NewTestLogger(),
+	}
+
+	for i := 0; i < 8; i++ {
+		job := testSNMPDiscoveryJob()
+		client, err := engine.setupSNMPClient(job, "127.0.0.1")
+		require.NoError(t, err)
+		require.Nil(t, client.Conn)
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		err = engine.connectSNMPClient(ctx, client, job, "127.0.0.1")
+		cancel()
+		require.NoError(t, err)
+		require.NotNil(t, client.Conn)
+		require.NoError(t, client.Conn.Close())
+	}
+
+	after, ok := openFDCount()
+	require.True(t, ok)
+	assert.LessOrEqual(t, after, before+1)
+}
+
+func testSNMPDiscoveryJob() *DiscoveryJob {
+	return &DiscoveryJob{
+		ID: "test-snmp-connect",
+		Params: &DiscoveryParams{
+			Credentials: &SNMPCredentials{
+				Version:   SNMPVersion2c,
+				Community: "public",
+			},
+			Timeout: 100 * time.Millisecond,
+			Retries: 1,
+		},
+	}
+}
+
+func openFDCount() (int, bool) {
+	for _, dir := range []string{"/proc/self/fd", "/dev/fd"} {
+		entries, err := os.ReadDir(dir)
+		if err == nil {
+			return len(entries), true
+		}
+	}
+
+	return 0, false
+}
 
 func TestSafeInt32(t *testing.T) {
 	tests := []struct {
