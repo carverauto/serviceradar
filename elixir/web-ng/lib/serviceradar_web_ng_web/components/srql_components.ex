@@ -484,11 +484,11 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
   defp srql_columns([], _max), do: []
 
-  defp srql_columns([first | _], max) when is_map(first) and is_integer(max) and max > 0 do
-    first
-    |> Map.keys()
-    |> Enum.map(&to_string/1)
-    |> Enum.sort()
+  defp srql_columns(rows, max) when is_list(rows) and is_integer(max) and max > 0 do
+    rows
+    |> Enum.filter(&is_map/1)
+    |> Enum.flat_map(fn row -> row |> Map.keys() |> Enum.map(&to_string/1) end)
+    |> Enum.uniq()
     |> Enum.take(max)
   end
 
@@ -555,8 +555,8 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     end
   end
 
-  defp format_cell_value(_col, value) when is_number(value) do
-    {:text, %{value: to_string(value), title: nil}}
+  defp format_cell_value(col, value) when is_number(value) do
+    format_numeric_cell(col, value)
   end
 
   defp format_cell_value(_col, value) when is_list(value) or is_map(value) do
@@ -569,6 +569,98 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   end
 
   defp format_cell_value(_col, value), do: {:text, %{value: to_string(value), title: nil}}
+
+  defp format_numeric_cell(col, value) do
+    raw = to_string(value)
+
+    formatted =
+      if byte_column?(col) do
+        format_bytes(value)
+      else
+        format_cell_number(value)
+      end
+
+    {:text, %{value: formatted, title: if(formatted == raw, do: nil, else: raw)}}
+  end
+
+  defp byte_column?(col) do
+    col
+    |> to_string()
+    |> String.downcase()
+    |> then(&Regex.match?(~r/(^|_)(bytes?|octets?)(_|$)/, &1))
+  end
+
+  defp format_bytes(value) when is_integer(value), do: format_bytes(value * 1.0)
+
+  defp format_bytes(value) when is_float(value) do
+    abs_value = abs(value)
+
+    cond do
+      abs_value >= 1_125_899_906_842_624 -> "#{format_scaled(value / 1_125_899_906_842_624)} PiB"
+      abs_value >= 1_099_511_627_776 -> "#{format_scaled(value / 1_099_511_627_776)} TiB"
+      abs_value >= 1_073_741_824 -> "#{format_scaled(value / 1_073_741_824)} GiB"
+      abs_value >= 1_048_576 -> "#{format_scaled(value / 1_048_576)} MiB"
+      abs_value >= 1024 -> "#{format_scaled(value / 1024)} KiB"
+      true -> "#{format_cell_number(value)} B"
+    end
+  end
+
+  defp format_cell_number(value) when is_integer(value), do: delimit_integer(value)
+
+  defp format_cell_number(value) when is_float(value) do
+    decimals =
+      cond do
+        abs(value) >= 100 -> 2
+        abs(value) >= 1 -> 3
+        true -> 4
+      end
+
+    value
+    |> :erlang.float_to_binary(decimals: decimals)
+    |> trim_decimal()
+    |> delimit_decimal()
+  end
+
+  defp format_scaled(value) when is_float(value) do
+    value
+    |> :erlang.float_to_binary(decimals: 2)
+    |> trim_decimal()
+  end
+
+  defp delimit_decimal("-" <> rest), do: "-" <> delimit_decimal(rest)
+
+  defp delimit_decimal(value) when is_binary(value) do
+    case String.split(value, ".", parts: 2) do
+      [integer, fraction] -> delimit_integer_string(integer) <> "." <> fraction
+      [integer] -> delimit_integer_string(integer)
+    end
+  end
+
+  defp delimit_integer(value) when is_integer(value) and value < 0 do
+    "-" <> delimit_integer(abs(value))
+  end
+
+  defp delimit_integer(value) when is_integer(value) do
+    value
+    |> Integer.to_string()
+    |> delimit_integer_string()
+  end
+
+  defp delimit_integer_string(value) when is_binary(value) do
+    value
+    |> String.graphemes()
+    |> Enum.reverse()
+    |> Enum.chunk_every(3)
+    |> Enum.map_join("", &Enum.join/1)
+    |> String.replace(~r/(.{3})(?=.)/, "\\1,")
+    |> String.reverse()
+  end
+
+  defp trim_decimal(value) when is_binary(value) do
+    value
+    |> String.trim_trailing("0")
+    |> String.trim_trailing(".")
+  end
 
   defp severity_column?(col) do
     col_key = String.downcase(col)
