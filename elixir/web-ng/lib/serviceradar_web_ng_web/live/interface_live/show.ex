@@ -1634,27 +1634,23 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     %{
       name: metric_result_name(result),
       time: metric_result_time(result),
-      value: Map.get(result, "value") || Map.get(result, :value)
+      value: first_key(result, [:value])
     }
   end
 
-  defp metric_result_name(result) when is_map(result) do
-    Map.get(result, "metric_name") ||
-      Map.get(result, :metric_name) ||
-      Map.get(result, "series") ||
-      Map.get(result, :series)
-  end
+  defp metric_result_name(result) when is_map(result), do: first_key(result, [:metric_name, :series])
 
   defp metric_result_name(_), do: nil
 
-  defp metric_result_time(result) when is_map(result) do
-    Map.get(result, "time") ||
-      Map.get(result, :time) ||
-      Map.get(result, "timestamp") ||
-      Map.get(result, :timestamp)
-  end
+  defp metric_result_time(result) when is_map(result), do: first_key(result, [:time, :timestamp])
 
   defp metric_result_time(_), do: nil
+
+  defp first_key(map, keys) when is_map(map) and is_list(keys) do
+    Enum.find_value(keys, fn key ->
+      Map.get(map, to_string(key)) || Map.get(map, key)
+    end)
+  end
 
   defp format_series({name, points}) do
     data =

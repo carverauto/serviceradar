@@ -26,7 +26,8 @@ defmodule ServiceRadar.Observability.AnomalyConfigSeeder do
     "interface" => %{},
     "cpu" => %{},
     "memory" => %{},
-    "disk" => %{}
+    "disk" => %{},
+    "flow" => %{}
   }
   @forecast_models [:linear, :seasonal_linear, :holt_winters]
 
