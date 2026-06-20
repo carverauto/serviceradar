@@ -9,7 +9,8 @@ use rustls_pemfile::certs;
 use std::fs::File;
 use std::io::BufReader;
 use std::time::Duration;
-use tokio_postgres::{Config as PgConfig, NoTls};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_postgres::{tls::MakeTlsConnect, Config as PgConfig, NoTls};
 use tokio_postgres_rustls::MakeRustlsConnect;
 use tracing::{error, info};
 
@@ -25,6 +26,7 @@ pub async fn connect_pool(config: &AppConfig) -> Result<PgPool> {
         config.pg_ssl_root_cert.as_deref(),
         config.pg_ssl_cert.as_deref(),
         config.pg_ssl_key.as_deref(),
+        config.pg_ssl_server_name.as_deref(),
         config.db_statement_timeout,
     )?;
     let pool = Pool::builder()
@@ -52,7 +54,36 @@ pub struct PgConnectionManager {
 #[derive(Clone)]
 enum PgTls {
     None,
-    Rustls(MakeRustlsConnect),
+    Rustls(PgRustlsConnect),
+}
+
+#[derive(Clone)]
+pub struct PgRustlsConnect {
+    inner: MakeRustlsConnect,
+    server_name: Option<String>,
+}
+
+impl PgRustlsConnect {
+    pub fn new(config: ClientConfig, server_name: Option<String>) -> Self {
+        Self {
+            inner: MakeRustlsConnect::new(config),
+            server_name,
+        }
+    }
+}
+
+impl<S> MakeTlsConnect<S> for PgRustlsConnect
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    type Stream = <MakeRustlsConnect as MakeTlsConnect<S>>::Stream;
+    type TlsConnect = <MakeRustlsConnect as MakeTlsConnect<S>>::TlsConnect;
+    type Error = <MakeRustlsConnect as MakeTlsConnect<S>>::Error;
+
+    fn make_tls_connect(&mut self, hostname: &str) -> Result<Self::TlsConnect, Self::Error> {
+        let hostname = self.server_name.as_deref().unwrap_or(hostname);
+        <MakeRustlsConnect as MakeTlsConnect<S>>::make_tls_connect(&mut self.inner, hostname)
+    }
 }
 
 impl PgConnectionManager {
@@ -61,13 +92,19 @@ impl PgConnectionManager {
         root_cert: Option<&str>,
         client_cert: Option<&str>,
         client_key: Option<&str>,
+        server_name: Option<&str>,
         statement_timeout: Duration,
     ) -> Result<Self> {
         let config = database_url
             .parse::<PgConfig>()
             .context("invalid DATABASE_URL")?;
         let tls = if let Some(path) = root_cert {
-            PgTls::Rustls(build_tls_connector(path, client_cert, client_key)?)
+            PgTls::Rustls(build_tls_connector(
+                path,
+                client_cert,
+                client_key,
+                server_name,
+            )?)
         } else {
             PgTls::None
         };
@@ -127,7 +164,8 @@ fn build_tls_connector(
     root_cert: &str,
     client_cert: Option<&str>,
     client_key: Option<&str>,
-) -> Result<MakeRustlsConnect> {
+    server_name: Option<&str>,
+) -> Result<PgRustlsConnect> {
     let mut reader = BufReader::new(File::open(root_cert).context("failed to open PGSSLROOTCERT")?);
     let mut root_store = RootCertStore::empty();
     for cert in certs(&mut reader) {
@@ -137,12 +175,10 @@ fn build_tls_connector(
             .map_err(|_| anyhow::anyhow!("invalid certificate in PGSSLROOTCERT"))?;
     }
 
-    Ok(MakeRustlsConnect::new(build_client_config(
-        root_store,
-        root_cert,
-        client_cert,
-        client_key,
-    )?))
+    Ok(PgRustlsConnect::new(
+        build_client_config(root_store, root_cert, client_cert, client_key)?,
+        server_name.map(str::to_string),
+    ))
 }
 
 fn build_client_config(

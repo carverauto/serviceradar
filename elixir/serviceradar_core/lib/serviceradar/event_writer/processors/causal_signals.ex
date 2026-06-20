@@ -14,10 +14,8 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
-  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.DeviceCorrelation
-  alias ServiceRadar.Monitoring.OcsfEvent
   alias ServiceRadar.Observability.BmpSettingsRuntime
   alias ServiceRadar.Observability.CausalPubSub
   alias ServiceRadar.Observability.StatefulAlertEvaluationQueue
@@ -33,6 +31,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   @ocsf_vulnerability_finding_type_uid 200_201
   @ocsf_detection_finding_type_uid 200_401
   @ocsf_create_activity_id 1
+  @ocsf_event_conflict_target [:time, :id]
 
   @impl true
   def table_name, do: "ocsf_events"
@@ -159,79 +158,91 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   defp record_ocsf_events([]), do: []
 
   defp record_ocsf_events(rows) when is_list(rows) do
-    actor = SystemActor.system(:causal_signals)
+    {valid_rows, invalid_rows} = Enum.split_with(rows, &recordable_ocsf_row?/1)
 
-    rows
-    |> Enum.reduce([], fn row, recorded ->
-      case record_ocsf_event(row, actor) do
-        {:ok, event} ->
-          [event | recorded]
-
-        :duplicate ->
-          recorded
-
-        {:error, reason} ->
-          Logger.warning("Failed to record CausalSignals OCSF event through Ash",
-            reason: inspect(reason),
-            event_id: inspect(row[:id])
-          )
-
-          recorded
-      end
+    Enum.each(invalid_rows, fn row ->
+      Logger.warning("Failed to record CausalSignals OCSF event through bulk insert",
+        reason: inspect(:missing_event_identity),
+        event_id: inspect(row[:id])
+      )
     end)
-    |> Enum.reverse()
+
+    {_count, inserted_rows} =
+      BulkInsert.insert_all(table_name(), valid_rows,
+        on_conflict: :nothing,
+        conflict_target: @ocsf_event_conflict_target,
+        returning: @ocsf_event_conflict_target
+      )
+
+    inserted_keys = MapSet.new(Enum.map(inserted_rows, &ocsf_event_conflict_key/1))
+
+    valid_rows
+    |> Enum.filter(&MapSet.member?(inserted_keys, ocsf_event_conflict_key(&1)))
+    |> dedupe_rows_by_conflict_key(&ocsf_event_conflict_key/1)
   end
 
-  defp record_ocsf_event(row, actor) do
-    attrs = ash_ocsf_event_attrs(row)
+  defp recordable_ocsf_row?(%{id: <<_::128>>, time: %DateTime{}}), do: true
 
-    cond do
-      is_nil(attrs[:id]) or is_nil(attrs[:time]) ->
-        {:error, :missing_event_identity}
-
-      ocsf_event_exists?(attrs[:id], attrs[:time]) ->
-        :duplicate
-
-      true ->
-        OcsfEvent
-        |> Ash.Changeset.for_create(:record, attrs, actor: actor)
-        |> Ash.create()
-    end
+  defp recordable_ocsf_row?(%{id: id, time: %DateTime{}}) when is_binary(id) do
+    match?({:ok, _uuid}, Ecto.UUID.cast(id))
   end
 
-  defp ash_ocsf_event_attrs(row) do
-    row
-    |> Map.delete(:created_at)
-    |> Map.update(:id, nil, &uuid_string/1)
-  end
+  defp recordable_ocsf_row?(_row), do: false
 
-  defp uuid_string(<<_::128>> = id) do
+  defp ocsf_event_conflict_key(%{id: id, time: time}),
+    do: {uuid_conflict_value(id), time_conflict_value(time)}
+
+  defp ocsf_event_conflict_key(%{"id" => id, "time" => time}),
+    do: {uuid_conflict_value(id), time_conflict_value(time)}
+
+  defp ocsf_event_conflict_key(_row), do: nil
+
+  defp uuid_conflict_value(<<_::128>> = id) do
     case Ecto.UUID.load(id) do
       {:ok, uuid} -> uuid
-      :error -> nil
+      :error -> id
     end
   end
 
-  defp uuid_string(id) when is_binary(id), do: id
-  defp uuid_string(_id), do: nil
-
-  defp ocsf_event_exists?(id, %DateTime{} = time) when is_binary(id) do
-    case Ecto.UUID.dump(id) do
-      {:ok, dumped_id} ->
-        case ServiceRadar.Repo.query(
-               "SELECT 1 FROM platform.ocsf_events WHERE time = $1 AND id = $2 LIMIT 1",
-               [time, dumped_id]
-             ) do
-          {:ok, %{num_rows: count}} -> count > 0
-          {:error, _reason} -> false
-        end
-
-      :error ->
-        false
+  defp uuid_conflict_value(id) when is_binary(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} -> uuid
+      :error -> id
     end
   end
 
-  defp ocsf_event_exists?(_id, _time), do: false
+  defp uuid_conflict_value(id), do: id
+
+  defp time_conflict_value(%DateTime{} = time), do: DateTime.to_unix(time, :microsecond)
+
+  defp time_conflict_value(%NaiveDateTime{} = time) do
+    time
+    |> DateTime.from_naive!("Etc/UTC")
+    |> DateTime.to_unix(:microsecond)
+  end
+
+  defp time_conflict_value(time), do: time
+
+  defp dedupe_rows_by_conflict_key(rows, key_fun)
+       when is_list(rows) and is_function(key_fun, 1) do
+    {latest_by_key, ordered_keys} =
+      Enum.reduce(rows, {%{}, []}, fn row, {acc, keys} ->
+        key = key_fun.(row)
+
+        keys =
+          if Map.has_key?(acc, key) do
+            keys
+          else
+            [key | keys]
+          end
+
+        {Map.put(acc, key, row), keys}
+      end)
+
+    ordered_keys
+    |> Enum.reverse()
+    |> Enum.map(&Map.fetch!(latest_by_key, &1))
+  end
 
   defp enqueue_alert_evaluation(_ocsf_rows, inserted_count)
        when not is_integer(inserted_count) or inserted_count <= 0,
