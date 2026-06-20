@@ -114,8 +114,13 @@ fn build_sql(plan: &QueryPlan) -> Result<String> {
     let bucket_secs = downsample.bucket_seconds;
 
     let mut clauses = Vec::new();
-    clauses.push(format!("{ts_col} >= ?"));
-    clauses.push(format!("{ts_col} <= ?"));
+    if use_hourly_cagg && !matches!(plan.entity, Entity::Flows) {
+        clauses.push(super::hourly_cagg_lower_bound_clause(ts_col));
+        clauses.push(super::hourly_cagg_upper_bound_clause(ts_col));
+    } else {
+        clauses.push(format!("{ts_col} >= ?"));
+        clauses.push(format!("{ts_col} <= ?"));
+    }
 
     if let Some(metric_type) = forced_metric_type {
         clauses.push("metric_type = ?".to_string());

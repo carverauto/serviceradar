@@ -427,17 +427,25 @@ fn build_stats_query_with_source(
     let mut clauses = Vec::new();
     let mut binds = Vec::new();
 
+    let cagg_mode = table == "cpu_metrics_hourly";
+
     if let Some(TimeRange { start, end }) = &plan.time_range {
-        clauses.push(format!("{time_col} >= ?"));
+        clauses.push(if cagg_mode {
+            super::hourly_cagg_lower_bound_clause(time_col)
+        } else {
+            format!("{time_col} >= ?")
+        });
         binds.push(SqlBindValue::Timestamp(*start));
-        clauses.push(format!("{time_col} <= ?"));
+        clauses.push(if cagg_mode {
+            super::hourly_cagg_upper_bound_clause(time_col)
+        } else {
+            format!("{time_col} <= ?")
+        });
         binds.push(SqlBindValue::Timestamp(*end));
     }
 
     for filter in &plan.filters {
-        if let Some((clause, mut values)) =
-            build_stats_filter_clause(filter, table == "cpu_metrics_hourly")?
-        {
+        if let Some((clause, mut values)) = build_stats_filter_clause(filter, cagg_mode)? {
             clauses.push(clause);
             binds.append(&mut values);
         }

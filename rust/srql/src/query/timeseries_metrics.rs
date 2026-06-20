@@ -227,7 +227,11 @@ fn build_interface_hourly_query(plan: &QueryPlan, payload: bool) -> Result<Inter
     let mut binds = Vec::new();
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
-        clauses.push("bucket >= ? AND bucket <= ?".to_string());
+        clauses.push(format!(
+            "{} AND {}",
+            super::hourly_cagg_lower_bound_clause("bucket"),
+            super::hourly_cagg_upper_bound_clause("bucket")
+        ));
         binds.push(BindParam::timestamptz(*start));
         binds.push(BindParam::timestamptz(*end));
     }
@@ -866,9 +870,17 @@ fn build_stats_query_with_source(
     }
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
-        clauses.push(format!("{time_col} >= ?"));
+        clauses.push(if cagg_mode {
+            super::hourly_cagg_lower_bound_clause(time_col)
+        } else {
+            format!("{time_col} >= ?")
+        });
         binds.push(SqlBindValue::Timestamp(*start));
-        clauses.push(format!("{time_col} <= ?"));
+        clauses.push(if cagg_mode {
+            super::hourly_cagg_upper_bound_clause(time_col)
+        } else {
+            format!("{time_col} <= ?")
+        });
         binds.push(SqlBindValue::Timestamp(*end));
     }
 
