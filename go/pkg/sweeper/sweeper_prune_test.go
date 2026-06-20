@@ -10,8 +10,9 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// Test that each sweep clears previous results so availability reflects current state only.
-func TestRunSweep_ClearsPreviousResults(t *testing.T) {
+// Test that each successful sweep prunes only pre-sweep results after the
+// current result set has been collected.
+func TestRunSweep_PrunesPreviousResultsAfterSuccessfulSweep(t *testing.T) {
 	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -36,8 +37,8 @@ func TestRunSweep_ClearsPreviousResults(t *testing.T) {
 	// Minimal processor (doesn't affect this test path)
 	processor := NewBaseProcessor(cfg, log)
 
-	// Expect PruneResults to be called once at the start of the sweep with age=0
-	mockStore.EXPECT().PruneResults(gomock.Any(), time.Duration(0)).Return(nil).Times(1)
+	mockStore.EXPECT().PruneResults(gomock.Any(), gomock.AssignableToTypeOf(time.Duration(0))).Return(nil).Times(1)
+	mockStore.EXPECT().GetSweepSummary(gomock.Any()).Return(&models.SweepSummary{}, nil).Times(1)
 
 	sweeper, err := NewNetworkSweeper(cfg, mockStore, processor, nil, log)
 	if err != nil {

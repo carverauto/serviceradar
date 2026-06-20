@@ -181,7 +181,7 @@ func TestNetworkSweeper_UpdateConfig_IntervalPreservation(t *testing.T) {
 	})
 }
 
-func TestNetworkSweeper_GetStatusDoesNotExposeInProgressLastSweep(t *testing.T) {
+func TestNetworkSweeper_GetStatusReturnsCompletedSnapshotDuringSweep(t *testing.T) {
 	config := &models.Config{
 		SweepModes: []models.SweepMode{models.ModeTCP},
 		Ports:      []int{80},
@@ -193,25 +193,77 @@ func TestNetworkSweeper_GetStatusDoesNotExposeInProgressLastSweep(t *testing.T) 
 	sweeper, err := NewNetworkSweeper(config, store, processor, nil, log)
 	require.NoError(t, err)
 
-	result := &models.Result{
-		Target:    models.Target{Host: "192.0.2.10", Port: 80, Mode: models.ModeTCP},
+	completedAt := time.Now().Add(-time.Minute).Truncate(time.Second)
+	sweeper.mu.Lock()
+	sweeper.lastSweep = completedAt
+	sweeper.lastSummary = &models.SweepSummary{
+		TotalHosts:     1,
+		AvailableHosts: 1,
+		LastSweep:      completedAt.Unix(),
+		Hosts: []models.HostResult{{
+			Host:      "192.0.2.10",
+			Available: true,
+			PortResults: []*models.PortResult{{
+				Port:      80,
+				Available: true,
+			}},
+		}},
+	}
+	sweeper.sweepInProgress = true
+	sweeper.mu.Unlock()
+
+	partialResult := &models.Result{
+		Target:    models.Target{Host: "192.0.2.11", Port: 443, Mode: models.ModeTCP},
 		Available: true,
 		FirstSeen: time.Now(),
 		LastSeen:  time.Now(),
 	}
-	require.NoError(t, sweeper.processBasicResult(context.Background(), result))
+	require.NoError(t, sweeper.processBasicResult(context.Background(), partialResult))
 
 	inProgress, err := sweeper.GetStatus(context.Background())
 	require.NoError(t, err)
 	require.Len(t, inProgress.Hosts, 1)
-	assert.Equal(t, int64(0), inProgress.LastSweep)
+	assert.Equal(t, "192.0.2.10", inProgress.Hosts[0].Host)
+	assert.Equal(t, completedAt.Unix(), inProgress.LastSweep)
 
-	completedAt := time.Now().Add(time.Second).Truncate(time.Second)
 	sweeper.mu.Lock()
-	sweeper.lastSweep = completedAt
+	sweeper.sweepInProgress = false
 	sweeper.mu.Unlock()
-
 	completed, err := sweeper.GetStatus(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, completedAt.Unix(), completed.LastSweep)
+	assert.Len(t, completed.Hosts, 1)
+	assert.Equal(t, "192.0.2.11", completed.Hosts[0].Host)
+}
+
+func TestNetworkSweeper_GetStatusHidesInitialInProgressPartialResults(t *testing.T) {
+	config := &models.Config{
+		SweepModes: []models.SweepMode{models.ModeTCP},
+		Ports:      []int{80},
+	}
+	log := logger.NewTestLogger()
+	processor := NewBaseProcessor(config, log)
+	store := NewInMemoryStore(processor, log, WithoutPreallocation())
+
+	sweeper, err := NewNetworkSweeper(config, store, processor, nil, log)
+	require.NoError(t, err)
+
+	sweeper.mu.Lock()
+	sweeper.sweepInProgress = true
+	sweeper.mu.Unlock()
+
+	partialResult := &models.Result{
+		Target:    models.Target{Host: "192.0.2.12", Port: 80, Mode: models.ModeTCP},
+		Available: true,
+		FirstSeen: time.Now(),
+		LastSeen:  time.Now(),
+	}
+	require.NoError(t, sweeper.processBasicResult(context.Background(), partialResult))
+
+	status, err := sweeper.GetStatus(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), status.LastSweep)
+	assert.Empty(t, status.Hosts)
+	assert.Equal(t, 0, status.TotalHosts)
+	assert.Equal(t, 0, status.AvailableHosts)
 }

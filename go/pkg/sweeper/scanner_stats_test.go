@@ -40,7 +40,7 @@ func (s statsCapabilityScanner) Stop() error {
 }
 
 func (s statsCapabilityScanner) GetStats() scan.ScannerStats {
-	return scan.ScannerStats{PacketsSent: 5, DialsStarted: 7}
+	return scan.ScannerStats{PacketsSent: 5, RetriesDropped: 3, DialsStarted: 7}
 }
 
 func (s statsCapabilityScanner) Capabilities() scan.ScannerCapabilities {
@@ -71,6 +71,9 @@ func TestGetScannerStatsLabelsRawSYNIPv4(t *testing.T) {
 	}
 	if stats.PacketsSent != 5 {
 		t.Fatalf("packets sent = %d, want 5", stats.PacketsSent)
+	}
+	if stats.RetriesDropped != 3 {
+		t.Fatalf("retries dropped = %d, want 3", stats.RetriesDropped)
 	}
 }
 

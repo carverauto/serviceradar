@@ -353,6 +353,7 @@ type ScannerStats struct {
 	// Retry statistics
 	RetriesAttempted  uint64 `json:"retries_attempted"`
 	RetriesSuccessful uint64 `json:"retries_successful"`
+	RetriesDropped    uint64 `json:"retries_dropped"`
 
 	// Port allocation statistics
 	PortsAllocated      uint64 `json:"ports_allocated"`
