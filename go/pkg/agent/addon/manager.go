@@ -43,6 +43,7 @@ const (
 	defaultRestartBackoffInitial = time.Second
 	defaultRestartBackoffMax     = time.Minute
 	defaultRestartLimitPerMinute = 5
+	restartLimitWindow           = time.Minute
 )
 
 // Config controls add-on manager paths and supervision timing.
@@ -185,6 +186,8 @@ func (m *Manager) Apply(_ context.Context, specs []Spec) error {
 		switch {
 		case !ok:
 			m.startRunnerLocked(spec)
+		case r.finished() && r.circuitOpenCoolingDown(time.Now().UTC()) && !r.needsRestart(spec):
+			r.update(spec)
 		case r.finished() || r.needsRestart(spec):
 			// Supervisor exited (circuit breaker) or a restart-boundary field
 			// (binary/args) changed: replace the runner so the new binary/args
@@ -338,6 +341,8 @@ type runner struct {
 	spec          Spec
 	status        Status
 	restartWindow []time.Time
+	circuitUntil  time.Time
+	healthySince  time.Time
 	commandClient coreaddon.CommandClient
 	// metricFeed is the source-aware local metric feed opened by a metric-feed:v1
 	// add-on, or nil when no subscribed feed is active. Guarded by mu.
@@ -454,12 +459,12 @@ func (r *runner) run(ctx context.Context) {
 		}
 
 		if !r.recordRestart(err) {
-			r.setState(StateCircuitOpen, errString(err))
+			r.setCircuitOpen(errString(err))
 			return
 		}
 
 		r.setState(StateRestarting, errString(err))
-		if time.Since(runStart) >= r.cfg.RestartBackoffMax {
+		if r.runWasStable(runStart, time.Now().UTC()) {
 			backoff = r.cfg.RestartBackoffInitial
 		}
 
@@ -807,6 +812,7 @@ func (m *Manager) PublishMetricFeed(source string, payload []byte) int {
 
 func (r *runner) drainTelemetry(ctx context.Context, telemetryClient coreaddon.TelemetryClient) {
 	attempt := 0
+	diagnostics := streamDiagnostics(telemetryClient)
 
 	for ctx.Err() == nil {
 		batches, err := telemetryClient.StreamTelemetry(ctx)
@@ -827,7 +833,16 @@ func (r *runner) drainTelemetry(ctx context.Context, telemetryClient coreaddon.T
 			case batch, ok := <-batches:
 				if !ok {
 					delay := nextStreamReconnectDelay(attempt, r.cfg.RestartBackoffInitial, r.cfg.RestartBackoffMax)
-					r.cfg.Logger.Warn().Str("addon", r.id).Dur("retry_after", delay).Msg("addon telemetry stream closed; reconnecting")
+					diagnostic := readStreamDiagnostic(diagnostics)
+					event := r.cfg.Logger.Warn().
+						Str("addon", r.id).
+						Str("stream", "telemetry").
+						Str("stream_end", string(diagnostic.Kind)).
+						Dur("retry_after", delay)
+					if diagnostic.Err != nil {
+						event = event.Err(diagnostic.Err)
+					}
+					event.Msg("addon telemetry stream closed; reconnecting")
 					if !waitStreamReconnect(ctx, delay) {
 						return
 					}
@@ -844,6 +859,30 @@ func (r *runner) drainTelemetry(ctx context.Context, telemetryClient coreaddon.T
 			}
 		}
 	reopen:
+	}
+}
+
+func streamDiagnostics(client interface{}) <-chan coreaddon.StreamDiagnostic {
+	diagnostics, ok := client.(coreaddon.StreamDiagnosticsClient)
+	if !ok {
+		return nil
+	}
+	return diagnostics.StreamDiagnostics()
+}
+
+func readStreamDiagnostic(diagnostics <-chan coreaddon.StreamDiagnostic) coreaddon.StreamDiagnostic {
+	if diagnostics == nil {
+		return coreaddon.StreamDiagnostic{Kind: "unknown"}
+	}
+
+	select {
+	case diagnostic := <-diagnostics:
+		if diagnostic.Kind == "" {
+			diagnostic.Kind = "unknown"
+		}
+		return diagnostic
+	default:
+		return coreaddon.StreamDiagnostic{Kind: "unknown"}
 	}
 }
 
@@ -936,12 +975,22 @@ func (r *runner) snapshot() Status {
 	return status
 }
 
+func (r *runner) circuitOpenCoolingDown(now time.Time) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.status.State == StateCircuitOpen && !r.circuitUntil.IsZero() && now.Before(r.circuitUntil)
+}
+
 func (r *runner) setState(state State, lastErr string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.status.State = state
 	r.status.PID = 0
 	r.status.LastError = lastErr
+	if state != StateCircuitOpen {
+		r.circuitUntil = time.Time{}
+	}
 }
 
 func (r *runner) setRunning(pid int, version string, capabilities []string) {
@@ -955,6 +1004,8 @@ func (r *runner) setRunning(pid int, version string, capabilities []string) {
 	r.status.LastStartedAt = time.Now().UTC()
 	r.status.LastExitedAt = time.Time{}
 	r.status.LastError = ""
+	r.circuitUntil = time.Time{}
+	r.healthySince = time.Time{}
 }
 
 func (r *runner) setResourceLimits(cgroupPath, limitErr string) {
@@ -967,18 +1018,24 @@ func (r *runner) setResourceLimits(cgroupPath, limitErr string) {
 func (r *runner) setHealthy(pid int, h coreaddon.Health) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	now := time.Now().UTC()
+
 	if h.Status == coreaddon.HealthDegraded || h.Status == coreaddon.HealthUnhealthy {
 		r.status.State = StateUnhealthy
 		r.status.DegradationReason = h.DegradationReason
+		r.healthySince = time.Time{}
 	} else {
 		r.status.State = StateRunning
 		r.status.DegradationReason = ""
+		if r.healthySince.IsZero() {
+			r.healthySince = now
+		}
 	}
 	r.status.PID = pid
 	if h.Version != "" {
 		r.status.Version = h.Version
 	}
-	r.status.LastHealthAt = time.Now().UTC()
+	r.status.LastHealthAt = now
 	r.status.LastError = ""
 }
 
@@ -998,12 +1055,30 @@ func (r *runner) setExited(lastErr string) {
 	r.status.LastError = lastErr
 }
 
+func (r *runner) setCircuitOpen(lastErr string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.circuitUntil.IsZero() {
+		r.circuitUntil = r.nextCircuitCooldownUntilLocked(time.Now().UTC())
+	}
+	if lastErr == "" {
+		lastErr = "restart circuit open"
+	}
+
+	r.status.State = StateCircuitOpen
+	r.status.PID = 0
+	r.status.LastExitedAt = time.Now().UTC()
+	r.status.LastError = lastErr
+	r.status.DegradationReason = lastErr
+}
+
 func (r *runner) recordRestart(err error) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	now := time.Now().UTC()
-	cutoff := now.Add(-time.Minute)
+	cutoff := now.Add(-restartLimitWindow)
 	kept := r.restartWindow[:0]
 	for _, ts := range r.restartWindow {
 		if ts.After(cutoff) {
@@ -1014,12 +1089,41 @@ func (r *runner) recordRestart(err error) bool {
 
 	if len(r.restartWindow) >= r.cfg.RestartLimitPerMinute {
 		r.status.LastError = errString(err)
+		r.circuitUntil = r.nextCircuitCooldownUntilLocked(now)
 		return false
 	}
 
 	r.restartWindow = append(r.restartWindow, now)
 	r.status.RestartCount++
 	return true
+}
+
+func (r *runner) nextCircuitCooldownUntilLocked(now time.Time) time.Time {
+	if len(r.restartWindow) == 0 {
+		return now.Add(restartLimitWindow)
+	}
+
+	oldest := r.restartWindow[0]
+	for _, candidate := range r.restartWindow[1:] {
+		if candidate.Before(oldest) {
+			oldest = candidate
+		}
+	}
+
+	until := oldest.Add(restartLimitWindow)
+	if until.Before(now) {
+		return now
+	}
+	return until
+}
+
+func (r *runner) runWasStable(runStart, now time.Time) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return !r.healthySince.IsZero() &&
+		r.healthySince.After(runStart) &&
+		now.Sub(r.healthySince) >= r.cfg.RestartBackoffMax
 }
 
 func errString(err error) string {

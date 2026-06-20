@@ -50,10 +50,54 @@ defmodule ServiceRadar.Observability.RuleSeederTest do
     assert rule.enabled
     assert rule.signal == :event
     assert rule.match["subject_prefix"] == "signals.causal.predictions"
-    assert rule.match["attribute_equals"] == %{"signal_type" => "causal"}
-    assert rule.group_by == ["device"]
+
+    assert rule.match["attribute_equals"] == %{
+             "signal_type" => "causal",
+             "event_type" => ["anomaly", "anomaly_detection"],
+             "anomaly.state" => ["anomaly_open", "open", "anomalous"]
+           }
+
+    assert rule.match["recovery"]["attribute_equals"]["anomaly.state"] == [
+             "anomaly_clear",
+             "clear",
+             "inactive"
+           ]
+
+    assert rule.group_by == ["device", "anomaly.series_key"]
     assert rule.threshold == 1
     assert rule.event["log_name"] == "alert.health.causal_prediction"
-    assert rule.alert["severity"] == "warning"
+    assert rule.alert["severity_from"] == "source"
+  end
+
+  test "seeds the capacity forecast health stateful alert rule" do
+    actor = SystemActor.system(:test)
+
+    assert :ok = RuleSeeder.seed_all()
+
+    query =
+      StatefulAlertRule
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(name == "causal_capacity_health_finding")
+
+    assert {:ok, [rule]} = Ash.read(query, actor: actor)
+    assert rule.enabled
+    assert rule.signal == :event
+    assert rule.match["subject_prefix"] == "signals.causal.predictions"
+
+    assert rule.match["attribute_equals"] == %{
+             "signal_type" => "causal",
+             "event_type" => "capacity_forecast",
+             "capacity_forecast.status" => "projected"
+           }
+
+    assert rule.match["recovery"]["attribute_equals"]["capacity_forecast.status"] == [
+             "inactive",
+             "skipped"
+           ]
+
+    assert rule.group_by == ["device", "capacity_forecast.resource_key"]
+    assert rule.threshold == 1
+    assert rule.event["log_name"] == "alert.health.capacity_forecast"
+    assert rule.alert["severity_from"] == "source"
   end
 end
