@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilderTest do
 
   # Tag this test module to run even without database
   @moduletag :unit
+  @moduletag :db_free
 
   describe "attribute string parsing (via parse_log_attributes)" do
     # We test through the component's expected behavior since parse_log_attributes is private

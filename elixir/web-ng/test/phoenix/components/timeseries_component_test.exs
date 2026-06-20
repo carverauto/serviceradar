@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries
 
   @moduletag :unit
+  @moduletag :db_free
 
   test "renders gridlines and axis labels" do
     points = [

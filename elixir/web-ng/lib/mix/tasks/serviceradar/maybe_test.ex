@@ -6,6 +6,8 @@ defmodule Mix.Tasks.Serviceradar.MaybeTest do
 
   Set `SERVICERADAR_ALLOW_DB_FREE_TESTS=1` to run selected tests that do not
   need the database through the normal Mix test task when local CNPG is absent.
+  DB-free modules must be tagged with `@moduletag :db_free`; untagged tests are
+  excluded in this mode so database-backed tests cannot run by accident.
   """
 
   use Boundary,

@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.Helpers.InterfaceTypesTest do
 
   alias ServiceRadarWebNGWeb.Helpers.InterfaceTypes
 
+  @moduletag :db_free
+
   describe "humanize/1" do
     test "returns human-readable name for known Ethernet types" do
       assert InterfaceTypes.humanize("ethernetCsmacd") == "Ethernet"
