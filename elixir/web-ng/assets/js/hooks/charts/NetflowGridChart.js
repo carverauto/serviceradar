@@ -11,6 +11,7 @@ import {
   normalizeTimeSeries as nfNormalizeTimeSeries,
   parseSeriesData as nfParseSeriesData,
 } from "../../netflow_charts/util"
+import {yGridTicks} from "../../utils/chart_axis_grid"
 import {nfFormatRateValue} from "../../utils/formatters"
 
 export function gridPanelAtPointer(clientX, clientY, rect, geometry) {
@@ -134,6 +135,33 @@ export default {
       const px = d3.scaleTime().domain(d3.extent(data, (d) => d.t)).range([10, cw - 10])
       const maxY = d3.max(data, (d) => d[k]) || 1
       const py = d3.scaleLinear().domain([0, maxY]).nice().range([ch - 18, 18])
+      const yTicks = yGridTicks(py, 3)
+
+      const grid = panel.append("g").attr("pointer-events", "none")
+
+      grid
+        .selectAll("line")
+        .data(yTicks)
+        .join("line")
+        .attr("x1", 10)
+        .attr("x2", cw - 10)
+        .attr("y1", (d) => py(d))
+        .attr("y2", (d) => py(d))
+        .attr("stroke", "currentColor")
+        .attr("stroke-opacity", 0.12)
+        .attr("stroke-width", 1)
+
+      grid
+        .selectAll("text")
+        .data(yTicks)
+        .join("text")
+        .attr("x", 8)
+        .attr("y", (d) => py(d) + 3)
+        .attr("text-anchor", "end")
+        .attr("font-size", 8)
+        .attr("fill", "currentColor")
+        .attr("opacity", 0.55)
+        .text((d) => nfFormatRateValue(el.dataset.units, d))
 
       const ln = d3
         .line()
