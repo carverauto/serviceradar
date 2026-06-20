@@ -20,7 +20,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
        selection; every gate is a typed `Disposition` value, never an unwind.
     4. Persist the returned `next_consecutive_anomalous` per `(series_key, dow, hod)`
        and emit `verdict_source: central-seasonal` verdicts for confirmed breaches
-       via the existing `VerdictEmitter` onto the signal path.
+       and confirmed-breach clears via the existing `VerdictEmitter` onto the signal path.
 
   Mirrors `ServiceRadar.Observability.CapacityForecasting.Worker`. Tests can inject
   `:runner`, `:sources`, `:reasoner`, `:state_loader`, `:state_persister`, and
@@ -31,7 +31,11 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
+    unique: [
+      period: :infinity,
+      states: [:available, :scheduled, :executing, :retryable],
+      keys: [:trigger]
+    ]
 
   alias ServiceRadar.Observability.AnomalyConfigRuntime
   alias ServiceRadar.Observability.CausalReasoner
@@ -114,37 +118,110 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   defp dispose_source(%Source{} = source, raw_rows, opts) do
     config = seasonal_config(source, opts)
 
-    rows =
-      raw_rows
-      |> Enum.map(&seasonal_row(&1, source, config))
-      |> Enum.reject(&is_nil/1)
-      |> Enum.map(&%{&1 | consecutive_anomalous: load_consecutive(source, &1, opts)})
-
-    case rows do
-      [] ->
+    case profile_rows(source, raw_rows, config, opts) do
+      {:ok, []} ->
         emit_source_telemetry(source, [], 0, :ok)
         :ok
 
-      rows ->
+      {:ok, rows} ->
         inputs = Enum.map(rows, &{:seasonal, %{config: config, row: row_struct(&1)}})
 
         case dispose_batch(inputs, opts) do
           {:ok, results, nif_us} ->
-            handle_results(source, rows, results, nif_us, opts)
+            handle_results(source, rows, results, config, nif_us, opts)
 
           {:error, reason} ->
             emit_source_error_telemetry(source, :nif, reason)
             {:error, reason}
         end
+
+      {:error, reason} ->
+        Logger.warning("Seasonal disposition profile rows missing required columns",
+          source: source.name,
+          reason: inspect(reason)
+        )
+
+        emit_source_error_telemetry(source, :profile, reason)
+        {:error, reason}
     end
   end
 
-  defp handle_results(%Source{} = source, rows, results, nif_us, opts) do
+  defp profile_rows(%Source{} = source, raw_rows, config, opts) when is_list(raw_rows) do
+    rows =
+      raw_rows
+      |> Enum.map(&seasonal_row(&1, source, config))
+      |> Enum.reject(&is_nil/1)
+
+    cond do
+      rows != [] ->
+        {:ok, Enum.map(rows, &%{&1 | consecutive_anomalous: load_consecutive(source, &1, opts)})}
+
+      raw_rows == [] ->
+        {:ok, []}
+
+      true ->
+        {:error, {:seasonal_profile_columns_missing, missing_profile_fields(source, raw_rows)}}
+    end
+  end
+
+  defp missing_profile_fields(%Source{} = source, raw_rows) do
+    required_fields = required_profile_fields(source)
+
+    present_fields =
+      raw_rows
+      |> Enum.filter(&is_map/1)
+      |> Enum.flat_map(&Map.keys/1)
+      |> MapSet.new(&to_string/1)
+
+    Enum.reject(required_fields, &MapSet.member?(present_fields, &1))
+  end
+
+  defp required_profile_fields(%Source{robust_statistic: :mean_stddev} = source) do
+    [
+      source.series_field,
+      source.dow_field,
+      source.hod_field,
+      source.sample_field,
+      source.bucket_field,
+      source.count_field,
+      source.sum_field,
+      source.sum_sq_field
+    ]
+  end
+
+  defp required_profile_fields(%Source{robust_statistic: :median_mad} = source) do
+    [
+      source.series_field,
+      source.dow_field,
+      source.hod_field,
+      source.sample_field,
+      source.bucket_field,
+      source.count_field,
+      source.center_field,
+      source.mad_field
+    ]
+  end
+
+  defp required_profile_fields(%Source{robust_statistic: :p05p95} = source) do
+    [
+      source.series_field,
+      source.dow_field,
+      source.hod_field,
+      source.sample_field,
+      source.bucket_field,
+      source.count_field,
+      source.center_field,
+      source.p05_field,
+      source.p95_field
+    ]
+  end
+
+  defp handle_results(%Source{} = source, rows, results, config, nif_us, opts) do
     pairs = Enum.zip(rows, results)
 
     pairs
     |> Enum.reduce_while({:ok, %{}}, fn {row, result}, {:ok, acc} ->
-      case process_result(source, row, result, opts) do
+      case process_result(source, row, result, config, opts) do
         :ok -> {:cont, {:ok, bump(acc, classify(result))}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
@@ -160,26 +237,26 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
     end
   end
 
-  defp process_result(_source, _row, {:error, reason}, _opts) do
+  defp process_result(_source, _row, {:error, reason}, _config, _opts) do
     Logger.warning("Seasonal disposition row errored", reason: inspect(reason))
     :ok
   end
 
-  defp process_result(source, row, {:ok, disposition}, opts) do
+  defp process_result(source, row, {:ok, disposition}, config, opts) do
     next = Map.get(disposition, :next_consecutive_anomalous, 0)
     score = Map.get(disposition, :score, 0.0)
     verdict = Map.get(disposition, :disposition)
 
     case persist_state(source, row, next, opts) do
-      :ok -> maybe_emit_verdict(source, row, verdict, score, next, opts)
+      :ok -> maybe_emit_verdict(source, row, verdict, score, next, config, opts)
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp maybe_emit_verdict(source, row, verdict, score, consecutive, opts) do
-    if surfaces?(verdict) and emit_verdicts?(opts) do
+  defp maybe_emit_verdict(source, row, verdict, score, consecutive, config, opts) do
+    if surfaces?(row, verdict, config) and emit_verdicts?(opts) do
       emitter = Keyword.get(opts, :verdict_emitter, VerdictEmitter)
-      attrs = verdict_attrs(source, row, verdict, score, consecutive, opts)
+      attrs = verdict_attrs(source, row, verdict, score, consecutive, config, opts)
 
       case emitter.emit(attrs, opts) do
         :ok ->
@@ -198,7 +275,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
     end
   end
 
-  defp verdict_attrs(%Source{} = source, row, verdict, score, consecutive, opts) do
+  defp verdict_attrs(%Source{} = source, row, verdict, score, consecutive, config, opts) do
     %{
       series_key: row.series_key,
       resource_type: source.resource_type,
@@ -207,7 +284,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
       metric_class: source.metric_class,
       metric_name: source.metric_name,
       disposition: disposition_tag(verdict),
-      status: "breach",
+      status: status(row, verdict, config),
       score: score,
       consecutive_anomalous: consecutive,
       dow: row.dow,
@@ -278,22 +355,25 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
          series_key when is_binary(series_key) <- string_value(raw, source.series_field),
          dow when is_integer(dow) <- integer_value(raw, source.dow_field),
          hod when is_integer(hod) <- integer_value(raw, source.hod_field),
-         sample when is_number(sample) <- number_value(raw, source.sample_field) do
+         sample when is_number(sample) <- number_value(raw, source.sample_field),
+         %{} = profile <- profile_stats(raw, source) do
+      bucket_started_at = datetime_value(raw, source.bucket_field)
+
       %{
         series_key: series_key,
         dow: dow,
         hod: hod,
         sample_value: sample * 1.0,
-        bucket_count: integer_value(raw, source.count_field) || 0,
-        bucket_sum: number_value(raw, source.sum_field) || 0.0,
-        bucket_sum_sq: number_value(raw, source.sum_sq_field) || 0.0,
-        center: number_value(raw, source.center_field) || 0.0,
-        mad: number_value(raw, source.mad_field) || 0.0,
-        p05: number_value(raw, source.p05_field) || 0.0,
-        p95: number_value(raw, source.p95_field) || 0.0,
+        bucket_count: profile.bucket_count,
+        bucket_sum: Map.get(profile, :bucket_sum, 0.0),
+        bucket_sum_sq: Map.get(profile, :bucket_sum_sq, 0.0),
+        center: Map.get(profile, :center, 0.0),
+        mad: Map.get(profile, :mad, 0.0),
+        p05: Map.get(profile, :p05, 0.0),
+        p95: Map.get(profile, :p95, 0.0),
         label: label(raw, source, series_key),
-        bucket_started_at: datetime_value(raw, source.bucket_field),
-        bucket_ended_at: datetime_value(raw, source.bucket_field),
+        bucket_started_at: bucket_started_at,
+        bucket_ended_at: bucket_ended_at(bucket_started_at),
         consecutive_anomalous: 0,
         baseline_excludes_latest: Source.robust?(source)
       }
@@ -301,6 +381,42 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
       _ -> nil
     end
   end
+
+  defp profile_stats(raw, %Source{robust_statistic: :mean_stddev} = source) do
+    with count when is_integer(count) <- integer_value(raw, source.count_field),
+         sum when is_number(sum) <- number_value(raw, source.sum_field),
+         sum_sq when is_number(sum_sq) <- number_value(raw, source.sum_sq_field) do
+      %{bucket_count: count, bucket_sum: sum * 1.0, bucket_sum_sq: sum_sq * 1.0}
+    else
+      _ -> nil
+    end
+  end
+
+  defp profile_stats(raw, %Source{robust_statistic: :median_mad} = source) do
+    with count when is_integer(count) <- integer_value(raw, source.count_field),
+         center when is_number(center) <- number_value(raw, source.center_field),
+         mad when is_number(mad) <- number_value(raw, source.mad_field) do
+      %{bucket_count: count, center: center * 1.0, mad: mad * 1.0}
+    else
+      _ -> nil
+    end
+  end
+
+  defp profile_stats(raw, %Source{robust_statistic: :p05p95} = source) do
+    with count when is_integer(count) <- integer_value(raw, source.count_field),
+         center when is_number(center) <- number_value(raw, source.center_field),
+         p05 when is_number(p05) <- number_value(raw, source.p05_field),
+         p95 when is_number(p95) <- number_value(raw, source.p95_field) do
+      %{bucket_count: count, center: center * 1.0, p05: p05 * 1.0, p95: p95 * 1.0}
+    else
+      _ -> nil
+    end
+  end
+
+  defp bucket_ended_at(%DateTime{} = bucket_started_at),
+    do: DateTime.add(bucket_started_at, 3_600, :second)
+
+  defp bucket_ended_at(_bucket_started_at), do: nil
 
   # Build the typed NIF row map (the inner `row` of `{:seasonal, %{config, row}}`).
   # `baseline_excludes_latest` is true only for the robust statistics, whose order
@@ -354,8 +470,21 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   defp classify({:ok, %{disposition: {:skipped, _}}}), do: :skipped
   defp classify(_), do: :other
 
-  defp surfaces?({:seasonal_breach, _}), do: true
-  defp surfaces?(_), do: false
+  defp surfaces?(_row, {:seasonal_breach, _}, _config), do: true
+  defp surfaces?(row, :suppress, config), do: previously_confirmed?(row, config)
+  defp surfaces?(_row, _verdict, _config), do: false
+
+  defp status(_row, {:seasonal_breach, _}, _config), do: "breach"
+
+  defp status(row, :suppress, config) do
+    if previously_confirmed?(row, config), do: "cleared", else: "suppressed"
+  end
+
+  defp status(_row, _verdict, _config), do: "suppressed"
+
+  defp previously_confirmed?(row, %{confirm_slots: confirm_slots}) do
+    row.consecutive_anomalous >= max(confirm_slots, 1)
+  end
 
   defp disposition_tag({:seasonal_breach, _}), do: "seasonal_breach"
   defp disposition_tag({:seasonal_drift, _}), do: "seasonal_drift"
