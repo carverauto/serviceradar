@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
 
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Dashboards
+  alias ServiceRadarWebNGWeb.AuthoredDashboardLive.RuntimeData
 
   defmodule DashboardSRQLStub do
     @moduledoc false
@@ -84,6 +85,31 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
        }}
     end
 
+    def query("viz typed" <> _rest, _opts) do
+      {:ok,
+       %{
+         "results" => [%{"label" => "core", "value" => nil}],
+         "viz" => %{
+           "columns" => [
+             %{"name" => "label", "type" => "text"},
+             %{"name" => "value", "type" => "float"}
+           ]
+         }
+       }}
+    end
+
+    def query("limit probe" <> _rest, opts) do
+      {:ok, %{"results" => [%{"limit" => Map.get(opts, :limit)}]}}
+    end
+
+    def query("wide values stats:\"sum(value) as value\"" <> _rest, _opts) do
+      {:ok, %{"results" => [%{"value" => 12_345}]}}
+    end
+
+    def query("wide values stats:\"count() as count\"" <> _rest, _opts) do
+      {:ok, %{"results" => [%{"count" => 12_345}]}}
+    end
+
     def query(_query, _opts), do: {:ok, %{"results" => []}}
   end
 
@@ -124,6 +150,71 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
     assert :category in preview.compatible_visuals
     assert :status_list in preview.compatible_visuals
     refute :gauge in preview.compatible_visuals
+  end
+
+  test "preview bounds authored queries with default time and capped limits", %{scope: scope} do
+    assert {:ok, preview} =
+             Dashboards.preview_authored_query(scope, "series services limit:999", limit: 250)
+
+    assert preview.query == "series services time:last_24h limit:200"
+
+    assert {:ok, preview} =
+             Dashboards.preview_authored_query(
+               scope,
+               ~s(series services time:last_7d status:"limit:999"),
+               limit: 50
+             )
+
+    assert preview.query == ~s(series services time:last_7d status:"limit:999" limit:50)
+
+    assert {:ok, preview} =
+             Dashboards.preview_authored_query(scope, "series services limit:999",
+               limit: 10_000,
+               max_limit: 10_000
+             )
+
+    assert preview.query == "series services time:last_24h limit:10000"
+  end
+
+  test "preview uses SRQL viz column types before sampled row values", %{scope: scope} do
+    assert {:ok, preview} = Dashboards.preview_authored_query(scope, "viz typed services")
+
+    assert %{type: :number, aggregate_compatible: true} =
+             Enum.find(preview.fields, &(&1.name == "value"))
+  end
+
+  test "runtime uses larger bounded results for aggregate panels", %{scope: scope} do
+    assert {:ok, %{rows: [%{"limit" => 10_000}], query: query}} =
+             RuntimeData.preview_panel_query(scope, %{srql_query: "limit probe", visual_type: :pivot}, %{})
+
+    assert query == "limit probe time:last_24h limit:10000"
+
+    assert {:ok, %{rows: [%{"limit" => 250}], query: query}} =
+             RuntimeData.preview_panel_query(scope, %{srql_query: "limit probe", visual_type: :table}, %{})
+
+    assert query == "limit probe time:last_24h limit:250"
+  end
+
+  test "runtime pushes stat aggregates into SRQL instead of aggregating preview rows", %{scope: scope} do
+    panel = %{
+      srql_query: "wide values",
+      visual_type: :stat,
+      data_binding: %{"value_field" => "value", "aggregate" => "sum"}
+    }
+
+    assert {:ok, %{rows: [%{"value" => 12_345}], query: query}} =
+             RuntimeData.preview_panel_query(scope, panel, %{})
+
+    assert query == ~s|wide values stats:"sum(value) as value" time:last_24h limit:10000|
+  end
+
+  test "runtime pushes count panels into SRQL instead of counting preview rows", %{scope: scope} do
+    panel = %{srql_query: "wide values", visual_type: :count, data_binding: %{}}
+
+    assert {:ok, %{rows: [%{"count" => 12_345}], query: query}} =
+             RuntimeData.preview_panel_query(scope, panel, %{})
+
+    assert query == ~s|wide values stats:"count() as count" time:last_24h limit:10000|
   end
 
   test "gauge compatibility is limited to single metrics and availability ratios", %{scope: scope} do

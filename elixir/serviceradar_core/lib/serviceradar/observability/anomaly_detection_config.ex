@@ -111,7 +111,8 @@ defmodule ServiceRadar.Observability.AnomalyDetectionConfig do
       default 900
       public? true
       constraints min: 1, max: 86_400
-      description "Target wall-clock duration represented by the rolling window"
+
+      description "Operator target duration for baseline planning; edge scoring uses window_size samples"
     end
 
     attribute :confirm_slots, :integer do
