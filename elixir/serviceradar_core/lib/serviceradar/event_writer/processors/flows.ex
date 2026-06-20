@@ -125,9 +125,11 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
   # Private functions
 
   defp build_processed_messages(messages) do
-    messages
-    |> Enum.map(&parse_processed_message/1)
-    |> Enum.reject(&is_nil/1)
+    FlowEnrichment.with_provider_cache(fn ->
+      messages
+      |> Enum.map(&parse_processed_message/1)
+      |> Enum.reject(&is_nil/1)
+    end)
   end
 
   defp parse_processed_message(%{data: data, metadata: metadata}) do

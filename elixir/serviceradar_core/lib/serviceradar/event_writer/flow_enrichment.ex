@@ -45,6 +45,9 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   LIMIT 1
   """
 
+  @provider_cache_key {__MODULE__, :provider_lookup_cache}
+  @provider_lookup_fun_key {__MODULE__, :provider_lookup_fun}
+
   @type enrichment_input :: %{
           optional(:protocol_num) => integer() | String.t() | nil,
           optional(:tcp_flags) => integer() | String.t() | nil,
@@ -58,6 +61,30 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
         }
 
   @type enrichment_output :: map()
+
+  @doc false
+  @spec with_provider_cache((-> result), keyword()) :: result when result: term()
+  def with_provider_cache(fun, opts \\ []) when is_function(fun, 0) do
+    previous_cache = Process.get(@provider_cache_key, :__serviceradar_unset__)
+    previous_lookup_fun = Process.get(@provider_lookup_fun_key, :__serviceradar_unset__)
+
+    Process.put(@provider_cache_key, %{})
+
+    case Keyword.fetch(opts, :provider_lookup) do
+      {:ok, lookup_fun} when is_function(lookup_fun, 1) ->
+        Process.put(@provider_lookup_fun_key, lookup_fun)
+
+      :error ->
+        :ok
+    end
+
+    try do
+      fun.()
+    after
+      restore_process_value(@provider_cache_key, previous_cache)
+      restore_process_value(@provider_lookup_fun_key, previous_lookup_fun)
+    end
+  end
 
   @spec enrich(enrichment_input()) :: enrichment_output()
   def enrich(attrs) when is_map(attrs) do
@@ -165,8 +192,39 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   def provider_for_ip(nil), do: nil
 
   def provider_for_ip(ip) when is_binary(ip) do
-    with {:ok, inet} <- Cidr.dump_to_native(ip, []),
-         {:ok, %{rows: [[provider]]}} <- SQL.query(Repo, @provider_lookup_sql, [inet]),
+    with normalized_ip when is_binary(normalized_ip) <- trim_or_nil(ip),
+         {:ok, %Postgrex.INET{} = inet} <- Cidr.dump_to_native(normalized_ip, []) do
+      cached_provider_for_inet(inet)
+    else
+      _ -> nil
+    end
+  end
+
+  defp cached_provider_for_inet(%Postgrex.INET{} = inet) do
+    key = provider_cache_key(inet)
+
+    case Process.get(@provider_cache_key) do
+      %{} = cache ->
+        if Map.has_key?(cache, key) do
+          Map.fetch!(cache, key)
+        else
+          provider = lookup_provider_for_inet(inet)
+          Process.put(@provider_cache_key, Map.put(cache, key, provider))
+          provider
+        end
+
+      _ ->
+        lookup_provider_for_inet(inet)
+    end
+  end
+
+  defp lookup_provider_for_inet(%Postgrex.INET{} = inet) do
+    lookup_fun = Process.get(@provider_lookup_fun_key, &query_provider_for_inet/1)
+    lookup_fun.(inet)
+  end
+
+  defp query_provider_for_inet(%Postgrex.INET{} = inet) do
+    with {:ok, %{rows: [[provider]]}} <- SQL.query(Repo, @provider_lookup_sql, [inet]),
          true <- is_binary(provider) and provider != "" do
       provider
     else
@@ -174,9 +232,20 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
     end
   rescue
     e ->
-      Logger.debug("FlowEnrichment provider lookup failed", ip: ip, error: Exception.message(e))
+      Logger.debug("FlowEnrichment provider lookup failed",
+        ip: provider_cache_key(inet),
+        error: Exception.message(e)
+      )
+
       nil
   end
+
+  defp provider_cache_key(%Postgrex.INET{address: address, netmask: netmask}) do
+    "#{address |> :inet.ntoa() |> to_string()}/#{netmask}"
+  end
+
+  defp restore_process_value(key, :__serviceradar_unset__), do: Process.delete(key)
+  defp restore_process_value(key, value), do: Process.put(key, value)
 
   @spec oui_vendor_for_mac(String.t() | nil) :: String.t() | nil
   def oui_vendor_for_mac(nil), do: nil

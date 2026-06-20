@@ -86,4 +86,48 @@ defmodule ServiceRadar.EventWriter.FlowEnrichmentTest do
       assert enriched.dst_service_source == "unknown"
     end
   end
+
+  describe "with_provider_cache/2" do
+    test "deduplicates provider lookups within the scoped batch cache" do
+      calls = start_supervised!({Agent, fn -> [] end})
+
+      lookup = fn %Postgrex.INET{} = inet ->
+        key = inet_key(inet)
+        Agent.update(calls, &[key | &1])
+        "provider:#{key}"
+      end
+
+      result =
+        FlowEnrichment.with_provider_cache(
+          fn ->
+            [
+              FlowEnrichment.provider_for_ip(" 203.0.113.10 "),
+              FlowEnrichment.provider_for_ip("203.0.113.10"),
+              FlowEnrichment.provider_for_ip("2001:DB8::1"),
+              FlowEnrichment.provider_for_ip("2001:db8:0:0:0:0:0:1"),
+              FlowEnrichment.provider_for_ip("198.51.100.8")
+            ]
+          end,
+          provider_lookup: lookup
+        )
+
+      assert result == [
+               "provider:203.0.113.10/32",
+               "provider:203.0.113.10/32",
+               "provider:2001:db8::1/128",
+               "provider:2001:db8::1/128",
+               "provider:198.51.100.8/32"
+             ]
+
+      assert Agent.get(calls, &Enum.reverse/1) == [
+               "203.0.113.10/32",
+               "2001:db8::1/128",
+               "198.51.100.8/32"
+             ]
+    end
+  end
+
+  defp inet_key(%Postgrex.INET{address: address, netmask: netmask}) do
+    "#{address |> :inet.ntoa() |> to_string()}/#{netmask}"
+  end
 end
