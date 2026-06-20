@@ -63,6 +63,105 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
     assert is_integer(duration) and duration >= 0
   end
 
+  test "ack/3 terminally acknowledges final failed JetStream delivery" do
+    parent = self()
+    handler_id = "pipeline-dead-letter-test-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach(
+      handler_id,
+      [:serviceradar, :event_writer, :dead_letter],
+      fn event, measurements, metadata, _config ->
+        send(parent, {:dead_letter_telemetry, event, measurements, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    failed_message =
+      Message.failed(
+        %Message{
+          data: "",
+          status: {:failed, :db_unavailable},
+          metadata: %{
+            subject: "signals.causal.predictions.test",
+            reply_to: "$JS.ACK.events.consumer.5.9.8.0.0",
+            jetstream_ack: %{stream: "events", consumer: "consumer", delivery_count: 5},
+            max_deliver: 5,
+            received_monotonic: System.monotonic_time()
+          },
+          acknowledger:
+            {Pipeline, :ack_ref,
+             %{
+               ack_fun: fn
+                 :term ->
+                   send(parent, :termed)
+                   :ok
+
+                 :nack ->
+                   send(parent, :nacked)
+                   :ok
+               end
+             }}
+        },
+        :db_unavailable
+      )
+
+    assert :ok == Pipeline.ack(:ack_ref, [], [failed_message])
+
+    assert_receive :termed
+    refute_receive :nacked, 50
+
+    assert_receive {:dead_letter_telemetry, [:serviceradar, :event_writer, :dead_letter],
+                    %{count: 1, delivery_count: 5, max_deliver: 5},
+                    %{
+                      subject_class: "causal",
+                      stream: "events",
+                      consumer: "consumer",
+                      reason_class: "db_unavailable"
+                    }}
+
+    assert_receive {:telemetry, [:serviceradar, :event_writer, :ack], %{count: 1},
+                    %{action: :term, result: :ok, subject_class: "causal"}}
+  end
+
+  test "ack/3 nacks failed messages before max_deliver" do
+    parent = self()
+
+    failed_message =
+      Message.failed(
+        %Message{
+          data: "",
+          status: {:failed, :transient},
+          metadata: %{
+            subject: "signals.causal.predictions.test",
+            reply_to: "$JS.ACK.events.consumer.4.9.8.0.0",
+            jetstream_ack: %{stream: "events", consumer: "consumer", delivery_count: 4},
+            max_deliver: 5
+          },
+          acknowledger:
+            {Pipeline, :ack_ref,
+             %{
+               ack_fun: fn
+                 :term ->
+                   send(parent, :termed)
+                   :ok
+
+                 :nack ->
+                   send(parent, :nacked)
+                   :ok
+               end
+             }}
+        },
+        :transient
+      )
+
+    assert :ok == Pipeline.ack(:ack_ref, [], [failed_message])
+
+    assert_receive :nacked
+    refute_receive :termed, 50
+  end
+
   test "ack/3 does not crash when ack callback exits" do
     message = %Message{
       data: "",

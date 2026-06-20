@@ -84,8 +84,10 @@ defmodule ServiceRadar.EventWriter.Pipeline do
     # Acknowledge successful messages
     Enum.each(successful, &ack_message(&1, :ack))
 
-    # NACK failed messages for retry
-    Enum.each(failed, &ack_message(&1, :nack))
+    # Retry failed messages until their final JetStream delivery, then terminally
+    # ack and emit a dead-letter signal so operators see poison messages before
+    # the server discards them at max_deliver.
+    Enum.each(failed, &ack_failed_message/1)
 
     :ok
   end
@@ -277,6 +279,55 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   end
 
   # Private functions
+
+  defp ack_failed_message(message) do
+    if terminal_delivery?(message) do
+      emit_dead_letter(message)
+      ack_message(message, :term)
+    else
+      ack_message(message, :nack)
+    end
+  end
+
+  defp terminal_delivery?(%{metadata: metadata}) when is_map(metadata) do
+    with %{delivery_count: delivery_count} <- metadata[:jetstream_ack],
+         max_deliver when is_integer(max_deliver) and max_deliver > 0 <- metadata[:max_deliver] do
+      delivery_count >= max_deliver
+    else
+      _ -> false
+    end
+  end
+
+  defp terminal_delivery?(_message), do: false
+
+  defp emit_dead_letter(%{metadata: metadata, status: status}) do
+    ack = metadata[:jetstream_ack] || %{}
+
+    EventWriterTelemetry.emit_dead_letter(%{
+      subject: metadata[:subject],
+      stream: ack[:stream],
+      consumer: ack[:consumer],
+      delivery_count: ack[:delivery_count],
+      max_deliver: metadata[:max_deliver],
+      reason_class: reason_class(status)
+    })
+
+    Logger.error("EventWriter message reached terminal JetStream delivery",
+      subject: metadata[:subject],
+      stream: ack[:stream],
+      consumer: ack[:consumer],
+      delivery_count: ack[:delivery_count],
+      max_deliver: metadata[:max_deliver],
+      reason: inspect(status)
+    )
+  end
+
+  defp reason_class(nil), do: "error"
+  defp reason_class({:failed, reason}), do: reason_class(reason)
+  defp reason_class(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp reason_class(%_{} = reason), do: reason.__struct__ |> Module.split() |> List.last()
+  defp reason_class({reason, _}) when is_atom(reason), do: Atom.to_string(reason)
+  defp reason_class(_reason), do: "error"
 
   defp build_batchers(config) do
     stream_batchers =

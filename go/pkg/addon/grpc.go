@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"sync"
 
 	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
 	goplugin "github.com/hashicorp/go-plugin"
@@ -298,7 +299,9 @@ func (s *grpcServer) RunCommand(
 
 // grpcClient adapts the generated AddonServiceClient to the Addon interface.
 type grpcClient struct {
-	client addonpb.AddonServiceClient
+	client          addonpb.AddonServiceClient
+	diagnostics     chan StreamDiagnostic
+	diagnosticsOnce sync.Once
 }
 
 var _ Addon = (*grpcClient)(nil)
@@ -307,6 +310,12 @@ var _ ArtifactClient = (*grpcClient)(nil)
 var _ CommandClient = (*grpcClient)(nil)
 var _ OtlpRelayClient = (*grpcClient)(nil)
 var _ MetricFeedClient = (*grpcClient)(nil)
+var _ StreamDiagnosticsClient = (*grpcClient)(nil)
+
+func (c *grpcClient) StreamDiagnostics() <-chan StreamDiagnostic {
+	c.ensureDiagnostics()
+	return c.diagnostics
+}
 
 func (c *grpcClient) Info(ctx context.Context) (Info, error) {
 	resp, err := c.client.Info(ctx, &addonpb.InfoRequest{})
@@ -358,9 +367,7 @@ func (c *grpcClient) StreamTelemetry(ctx context.Context) (<-chan *addonpb.Telem
 		for {
 			batch, err := stream.Recv()
 			if err != nil {
-				if errors.Is(err, io.EOF) {
-					return
-				}
+				c.emitStreamDiagnostic(ctx, "telemetry", err)
 				return
 			}
 			select {
@@ -388,9 +395,7 @@ func (c *grpcClient) StreamArtifacts(ctx context.Context) (<-chan *addonpb.Artif
 		for {
 			chunk, err := stream.Recv()
 			if err != nil {
-				if errors.Is(err, io.EOF) {
-					return
-				}
+				c.emitStreamDiagnostic(ctx, "artifacts", err)
 				return
 			}
 			select {
@@ -462,8 +467,10 @@ const metricFeedSendBuffer = 256
 // returned acks channel for flow control. The data direction is the inverse of
 // RelayOtlp: here the agent is the producer.
 func (c *grpcClient) StreamMetricFeed(ctx context.Context) (chan<- *addonpb.MetricFeedFrame, <-chan uint64, error) {
-	stream, err := c.client.StreamMetricFeed(ctx)
+	streamCtx, cancel := context.WithCancel(ctx)
+	stream, err := c.client.StreamMetricFeed(streamCtx)
 	if err != nil {
+		cancel()
 		return nil, nil, err
 	}
 
@@ -473,7 +480,7 @@ func (c *grpcClient) StreamMetricFeed(ctx context.Context) (chan<- *addonpb.Metr
 	go func() {
 		for {
 			select {
-			case <-ctx.Done():
+			case <-streamCtx.Done():
 				return
 			case frame, ok := <-frames:
 				if !ok {
@@ -484,6 +491,8 @@ func (c *grpcClient) StreamMetricFeed(ctx context.Context) (chan<- *addonpb.Metr
 					continue
 				}
 				if err := stream.Send(frame); err != nil {
+					c.emitStreamDiagnostic(streamCtx, "metric_feed_send", err)
+					cancel()
 					return
 				}
 			}
@@ -492,21 +501,60 @@ func (c *grpcClient) StreamMetricFeed(ctx context.Context) (chan<- *addonpb.Metr
 
 	acks := make(chan uint64)
 	go func() {
+		defer cancel()
 		defer close(acks)
 		for {
 			ack, err := stream.Recv()
 			if err != nil {
+				c.emitStreamDiagnostic(streamCtx, "metric_feed_ack", err)
 				return
 			}
 			select {
 			case acks <- ack.GetAckedFeedId():
-			case <-ctx.Done():
+			case <-streamCtx.Done():
 				return
 			}
 		}
 	}()
 
 	return frames, acks, nil
+}
+
+func (c *grpcClient) ensureDiagnostics() {
+	c.diagnosticsOnce.Do(func() {
+		c.diagnostics = make(chan StreamDiagnostic, 16)
+	})
+}
+
+func (c *grpcClient) emitStreamDiagnostic(ctx context.Context, stream string, err error) {
+	if err == nil {
+		return
+	}
+
+	diagnostic := StreamDiagnostic{
+		Stream: stream,
+		Kind:   classifyStreamEnd(ctx, err),
+		Err:    err,
+	}
+
+	c.ensureDiagnostics()
+	select {
+	case c.diagnostics <- diagnostic:
+	default:
+	}
+}
+
+func classifyStreamEnd(ctx context.Context, err error) StreamEndKind {
+	if errors.Is(err, io.EOF) {
+		return StreamEndEOF
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return StreamEndContext
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return StreamEndContext
+	}
+	return StreamEndError
 }
 
 func (c *grpcClient) RunCommand(ctx context.Context, request CommandRequest) (CommandResult, error) {

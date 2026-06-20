@@ -340,7 +340,16 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp maybe_process_event_rule(event, %{signal: :event} = rule, state) do
-    if rule_matches_event?(event, rule), do: process_event(rule, event, state)
+    cond do
+      rule_matches_event?(event, rule) ->
+        process_event(rule, event, state)
+
+      rule_recovers_event?(event, rule) ->
+        recover_event(rule, event, state)
+
+      true ->
+        :ok
+    end
   end
 
   defp maybe_process_event_rule(_event, _rule, _state), do: :ok
@@ -364,6 +373,38 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
         updated = update_snapshot(snapshot, rule, record)
         flushed = maybe_flush_snapshot(updated, rule, state)
         :ets.insert(state.table, {key, flushed})
+
+      :error ->
+        :ok
+    end
+  end
+
+  defp recover_event(rule, record, state) do
+    case build_group(rule.group_by, record) do
+      {:ok, group_key, group_values} ->
+        key = {rule.id, group_key}
+
+        case :ets.lookup(state.table, key) do
+          [{^key, snapshot}] ->
+            now = record_timestamp(record)
+
+            snapshot =
+              snapshot
+              |> Map.put(:group_values, group_values)
+              |> Map.put(:bucket_counts, %{})
+              |> Map.put(:current_bucket_start, record_bucket_start(record, rule.bucket_seconds))
+              |> Map.put(:window_count, 0)
+              |> Map.put(:last_seen_at, now)
+              |> Map.put(:cooldown_until, nil)
+              |> Map.put(:diagnostics, update_diagnostics(snapshot.diagnostics, record, now))
+              |> handle_recovery(rule, record, now)
+
+            flushed = maybe_flush_snapshot(snapshot, rule, state)
+            :ets.insert(state.table, {key, flushed})
+
+          _ ->
+            :ok
+        end
 
       :error ->
         :ok
@@ -752,7 +793,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     activity_id = OCSF.activity_log_create()
     class_uid = OCSF.class_event_log_activity()
     category_uid = OCSF.category_system_activity()
-    severity_id = severity_id(rule.alert)
+    severity_id = severity_id(rule.alert, record)
     message_override = rule.event["message"] || rule.event[:message]
 
     message =
@@ -1061,17 +1102,36 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   defp iso8601(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp iso8601(value), do: value
 
-  defp severity_id(alert_overrides) do
+  defp severity_id(alert_overrides, record) do
     overrides = alert_overrides || %{}
 
     severity =
-      overrides["severity"] ||
-        overrides["severity_id"] ||
-        overrides[:severity] ||
-        overrides[:severity_id] ||
-        :warning
+      if severity_from_source?(overrides) do
+        source_severity(record)
+      else
+        overrides["severity"] ||
+          overrides["severity_id"] ||
+          overrides[:severity] ||
+          overrides[:severity_id] ||
+          :warning
+      end
 
     resolve_severity_id(severity)
+  end
+
+  defp severity_from_source?(overrides) when is_map(overrides) do
+    severity_from = overrides["severity_from"] || overrides[:severity_from]
+    severity_from in ["source", "source_event", :source, :source_event]
+  end
+
+  defp severity_from_source?(_overrides), do: false
+
+  defp source_severity(nil), do: :warning
+
+  defp source_severity(record) do
+    record_field_value(record, "severity_number") ||
+      record_field_value(record, "severity_text") ||
+      :warning
   end
 
   defp resolve_severity_id(severity) when is_integer(severity) and severity in 1..6, do: severity
@@ -1143,6 +1203,13 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       true
     else
       event_matches?(event, match)
+    end
+  end
+
+  defp rule_recovers_event?(event, rule) do
+    case rule.match || %{} do
+      %{"recovery" => recovery} when is_map(recovery) -> event_matches?(event, recovery)
+      _ -> false
     end
   end
 

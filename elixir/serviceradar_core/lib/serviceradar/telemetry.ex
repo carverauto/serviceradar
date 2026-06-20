@@ -360,7 +360,13 @@ defmodule ServiceRadar.Telemetry do
         event_name: [:serviceradar, :event_writer, :ack],
         measurement: :count,
         tags: [:action, :result, :subject_class],
-        description: "EventWriter JetStream ack/nack publish attempts"
+        description: "EventWriter JetStream ack/nack/term publish attempts"
+      ),
+      counter("serviceradar.event_writer.dead_letter.count",
+        event_name: [:serviceradar, :event_writer, :dead_letter],
+        measurement: :count,
+        tags: [:subject_class, :stream, :consumer, :reason_class],
+        description: "EventWriter messages terminally acked at JetStream max_deliver"
       ),
       distribution("serviceradar.event_writer.ack.duration",
         event_name: [:serviceradar, :event_writer, :ack],
