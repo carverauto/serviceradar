@@ -672,84 +672,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
   defp baseline_y, do: @chart_height - @chart_pad
 
-  defp chart_points(points, unit, compact, cap) when is_list(points) do
-    points
-    |> maybe_densify(unit, compact, cap)
-    |> maybe_smooth(unit, compact)
-  end
-
+  defp chart_points(points, _unit, _compact, _cap) when is_list(points), do: points
   defp chart_points(points, _unit, _compact, _cap), do: points
-
-  defp maybe_densify(points, :bytes_per_sec, compact, cap) when is_list(points) do
-    if gap_points?(points) do
-      points
-    else
-      factor = if compact, do: 2, else: 4
-      densified = densify_points(points, factor)
-      limit_points(densified, cap)
-    end
-  end
-
-  defp maybe_densify(points, _unit, _compact, _cap), do: points
-
-  defp maybe_smooth(points, :bytes_per_sec, compact) when is_list(points) do
-    if gap_points?(points) do
-      points
-    else
-      window = if compact, do: 1, else: 2
-      smooth_points(points, window)
-    end
-  end
-
-  defp maybe_smooth(points, _unit, _compact), do: points
-
-  defp gap_points?(points), do: Enum.any?(points, fn {_dt, v} -> is_nil(v) end)
-
-  defp densify_points([], _factor), do: []
-  defp densify_points([_] = points, _factor), do: points
-
-  defp densify_points(points, factor) when is_list(points) and factor > 1 do
-    points
-    |> Enum.chunk_every(2, 1, :discard)
-    |> Enum.reduce([List.first(points)], fn segment, acc ->
-      acc ++ densify_segment(segment, factor)
-    end)
-  end
-
-  defp densify_points(points, _factor), do: points
-
-  defp densify_segment([{dt0, v0}, {dt1, v1}], factor) do
-    total_secs = max(DateTime.diff(dt1, dt0, :second), 1)
-
-    intermediates =
-      Enum.map(1..(factor - 1), fn i ->
-        t = i / factor
-        dt = DateTime.add(dt0, round(total_secs * t), :second)
-        v = v0 + (v1 - v0) * t
-        {dt, v}
-      end)
-
-    intermediates ++ [{dt1, v1}]
-  end
-
-  defp smooth_points(points, window) when is_list(points) and window > 0 do
-    values = Enum.map(points, fn {_dt, v} -> v end)
-    len = length(values)
-
-    smoothed =
-      values
-      |> Enum.with_index()
-      |> Enum.map(fn {_v, idx} ->
-        from = max(idx - window, 0)
-        to = min(idx + window, len - 1)
-        slice = Enum.slice(values, from..to)
-        Enum.sum(slice) / max(length(slice), 1)
-      end)
-
-    Enum.zip(Enum.map(points, &elem(&1, 0)), smoothed)
-  end
-
-  defp smooth_points(points, _window), do: points
 
   defp points_cap(points) when is_list(points) do
     width_cap = @max_points
@@ -783,33 +707,56 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     end
   end
 
-  defp limit_points(points, max_points) when is_list(points) and length(points) > max_points do
-    total = length(points)
-    step = (total / max_points) |> Float.ceil() |> trunc()
-    sampled = Enum.take_every(points, step)
-    sampled = if length(sampled) > max_points, do: Enum.take(sampled, max_points), else: sampled
+  defp limit_points(points, max_points) when is_list(points) and length(points) > max_points and max_points > 2 do
+    indexed_points = Enum.with_index(points)
+    first = List.first(indexed_points)
+    last = List.last(indexed_points)
+    middle = Enum.slice(indexed_points, 1, length(indexed_points) - 2)
+    bucket_count = max(div(max_points - 2, 2), 1)
+    bucket_size = max(ceil_div(length(middle), bucket_count), 1)
 
-    case {sampled, List.last(points)} do
-      {[], _} ->
-        []
+    middle_sample =
+      middle
+      |> Enum.chunk_every(bucket_size)
+      |> Enum.flat_map(&bucket_extremes/1)
 
-      {sampled, last_all} ->
-        sampled =
-          case {List.first(points), List.first(sampled)} do
-            {nil, _} -> sampled
-            {first_all, first_all} -> sampled
-            {first_all, _} -> List.replace_at(sampled, 0, first_all)
-          end
+    ([first] ++ middle_sample ++ [last])
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq_by(fn {_point, idx} -> idx end)
+    |> Enum.sort_by(fn {_point, idx} -> idx end)
+    |> Enum.map(fn {point, _idx} -> point end)
+  end
 
-        if List.last(sampled) == last_all do
-          sampled
-        else
-          List.replace_at(sampled, length(sampled) - 1, last_all)
-        end
-    end
+  defp limit_points(points, max_points) when is_list(points) and length(points) > max_points and max_points <= 2 do
+    [List.first(points), List.last(points)]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
   end
 
   defp limit_points(points, _max_points), do: points
+
+  defp bucket_extremes(bucket) do
+    numeric =
+      Enum.filter(bucket, fn
+        {{_dt, value}, _idx} -> is_number(value)
+        _ -> false
+      end)
+
+    case numeric do
+      [] ->
+        Enum.take(bucket, 1)
+
+      _ ->
+        min_point = Enum.min_by(numeric, fn {{_dt, value}, _idx} -> value end)
+        max_point = Enum.max_by(numeric, fn {{_dt, value}, _idx} -> value end)
+
+        [min_point, max_point]
+        |> Enum.uniq_by(fn {_point, idx} -> idx end)
+        |> Enum.sort_by(fn {_point, idx} -> idx end)
+    end
+  end
+
+  defp ceil_div(value, divisor), do: div(value + divisor - 1, divisor)
 
   defp idx_to_x(_idx, 0), do: @chart_pad
   defp idx_to_x(0, _len), do: @chart_pad
@@ -831,6 +778,19 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     ]
 
     Enum.at(colors, rem(index, length(colors)))
+  end
+
+  defp series_dasharray(index) do
+    patterns = [
+      nil,
+      "6 4",
+      "2 4",
+      "8 3 2 3",
+      "1 4",
+      "10 4"
+    ]
+
+    Enum.at(patterns, rem(index, length(patterns)))
   end
 
   defp dt_label(%DateTime{} = dt), do: Calendar.strftime(dt, "%b %-d %H:%M")
@@ -1194,6 +1154,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       raw_series: series,
       paths: paths,
       stroke: stroke,
+      dasharray: series_dasharray(idx),
       idx: idx,
       point_data: Enum.map(chart_points, fn {dt, v} -> %{dt: dt_label(dt), v: v} end),
       unit: unit,
@@ -1400,10 +1361,18 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     >
       <div class="flex items-center justify-between gap-3 mb-2">
         <div class="flex items-center gap-2 min-w-0">
-          <span
-            class="inline-block size-2 rounded-full shrink-0"
-            style={"background-color: #{@data.stroke}"}
-          />
+          <svg viewBox="0 0 24 8" class="h-2 w-6 shrink-0" aria-hidden="true">
+            <line
+              x1="1"
+              x2="23"
+              y1="4"
+              y2="4"
+              stroke={@data.stroke}
+              stroke-width="3"
+              stroke-linecap="round"
+              stroke-dasharray={@data.dasharray}
+            />
+          </svg>
           <span class={["font-medium truncate", @compact && "text-xs", not @compact && "text-sm"]}>
             {@data.series}
           </span>
@@ -1493,6 +1462,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
             stroke-width="2"
             stroke-linecap="round"
             stroke-linejoin="round"
+            stroke-dasharray={@data.dasharray}
           />
         </svg>
         
@@ -1582,10 +1552,18 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         <div class="flex items-center gap-3">
           <%= for series <- @data.series do %>
             <div class="flex items-center gap-1">
-              <span
-                class="inline-block size-2 rounded-full shrink-0"
-                style={"background-color: #{series.stroke}"}
-              />
+              <svg viewBox="0 0 24 8" class="h-2 w-6 shrink-0" aria-hidden="true">
+                <line
+                  x1="1"
+                  x2="23"
+                  y1="4"
+                  y2="4"
+                  stroke={series.stroke}
+                  stroke-width="3"
+                  stroke-linecap="round"
+                  stroke-dasharray={series.dasharray}
+                />
+              </svg>
               <span class={[
                 "text-base-content/70",
                 @compact && "text-[10px]",
@@ -1673,6 +1651,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
               stroke-width="2"
               stroke-linecap="round"
               stroke-linejoin="round"
+              stroke-dasharray={series.dasharray}
             />
           <% end %>
         </svg>
@@ -1699,10 +1678,18 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       ]}>
         <%= for series <- @data.series do %>
           <div class="flex items-center gap-1">
-            <span
-              class="inline-block size-1.5 rounded-full"
-              style={"background-color: #{series.stroke}"}
-            />
+            <svg viewBox="0 0 18 8" class="h-2 w-5 shrink-0" aria-hidden="true">
+              <line
+                x1="1"
+                x2="17"
+                y1="4"
+                y2="4"
+                stroke={series.stroke}
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-dasharray={series.dasharray}
+              />
+            </svg>
             <span class="font-mono">{format_value(series.paths.avg, series.unit)}</span>
           </div>
         <% end %>
