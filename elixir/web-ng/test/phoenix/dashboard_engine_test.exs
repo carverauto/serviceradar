@@ -71,10 +71,36 @@ defmodule ServiceRadarWebNGWeb.DashboardEngineTest do
       "schema" => %{"columns" => ["bytes_total", "count"]}
     }
 
-    assert [%{plugin: Plugins.Table, assigns: assigns}] = Engine.build_panels(response)
+    panels = Engine.build_panels(response)
+    assert %{plugin: Plugins.Table, assigns: assigns} = Enum.find(panels, &(&1.plugin == Plugins.Table))
     assert assigns.columns == ["bytes_total", "count"]
     assert length(assigns.results) == 500
+    assert length(assigns.source_results) == 501
     assert assigns.total_count == 501
     assert assigns.truncated
+  end
+
+  test "table plugin keeps blank values last when sorting descending" do
+    response = %{
+      "results" => [
+        %{"name" => "blank", "count" => ""},
+        %{"name" => "high", "count" => 10},
+        %{"name" => "low", "count" => 2},
+        %{"name" => "nil", "count" => nil}
+      ],
+      "schema" => %{"columns" => ["name", "count"]}
+    }
+
+    panels = Engine.build_panels(response)
+    assert %{plugin: Plugins.Table, assigns: assigns} = Enum.find(panels, &(&1.plugin == Plugins.Table))
+
+    socket = %Phoenix.LiveView.Socket{
+      assigns: Map.merge(assigns, %{__changed__: %{}, sort_col: "count", sort_dir: :asc})
+    }
+
+    assert {:noreply, sorted_socket} = Plugins.Table.handle_event("sort", %{"col" => "count"}, socket)
+
+    assert Enum.map(sorted_socket.assigns.results, & &1["name"]) == ["high", "low", "blank", "nil"]
+    assert sorted_socket.assigns.sort_dir == :desc
   end
 end

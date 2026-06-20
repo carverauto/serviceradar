@@ -51,6 +51,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitter do
       "device_uid" => string_value(Map.get(attrs, :resource_id)),
       "message" => message(attrs),
       "finding_info" => finding_info(attrs),
+      "anomaly" => anomaly_payload(attrs),
       "seasonal_disposition" => seasonal_payload(attrs),
       "explainability" => %{
         "classification" => @event_type,
@@ -72,6 +73,21 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitter do
       },
       "source_subject" => subject
     }
+  end
+
+  defp anomaly_payload(attrs) do
+    %{
+      "series_key" => string_value(Map.get(attrs, :series_key)),
+      "metric_class" => string_value(Map.get(attrs, :metric_class)),
+      "metric_name" => string_value(Map.get(attrs, :metric_name)),
+      "state" => anomaly_state(attrs),
+      "detector_state" => status(attrs),
+      "score" => Map.get(attrs, :score),
+      "reason" => reason(attrs),
+      "verdict_source" => @verdict_source
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
   end
 
   defp finding_info(attrs) do
@@ -207,6 +223,14 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitter do
   defp default_status(nil), do: "breach"
   defp default_status(""), do: "breach"
   defp default_status(status), do: status
+
+  defp anomaly_state(attrs) do
+    case status(attrs) do
+      "breach" -> "anomaly_open"
+      state when state in ["cleared", "inactive", "resolved", "closed"] -> "anomaly_clear"
+      state -> state
+    end
+  end
 
   defp active?(attrs), do: status(attrs) == "breach"
 
