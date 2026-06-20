@@ -37,11 +37,16 @@ func TestToProtoStatusesMapsFields(t *testing.T) {
 			State:             StateUnhealthy,
 			DegradationReason: "CAP_BPF not granted",
 		},
+		{
+			ID:               "anomaly",
+			State:            StateRunning,
+			ResourceLimitErr: "resource limits not enforced: no delegated cgroup",
+		},
 	}
 
 	out := ToProtoStatuses(statuses)
-	if len(out) != 2 {
-		t.Fatalf("expected 2 proto statuses, got %d", len(out))
+	if len(out) != 3 {
+		t.Fatalf("expected 3 proto statuses, got %d", len(out))
 	}
 
 	if out[0].GetName() != "addon:bumblebee" {
@@ -69,6 +74,9 @@ func TestToProtoStatusesMapsFields(t *testing.T) {
 	// Degradation reason is surfaced through last_error when no other error.
 	if out[1].GetLastError() != "CAP_BPF not granted" {
 		t.Fatalf("expected degradation reason via last_error, got %q", out[1].GetLastError())
+	}
+	if out[2].GetLastError() != "resource limits not enforced: no delegated cgroup" {
+		t.Fatalf("expected resource limit error via last_error, got %q", out[2].GetLastError())
 	}
 }
 

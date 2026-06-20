@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://serviceradar.carverauto.dev/schemas/addons/anomaly/detection_finding.schema.json",
   "title": "Anomaly Detection Finding (OCSF class_uid 2004)",
-  "description": "Payload the anomaly add-on emits per breached series. An OCSF Detection Finding shaped for the causal prediction spine so core (CausalSignals) ingests it like other causal findings. The canonical series_key is computed in core from gateway-attested fields; source_identity carries the raw resource identity for re-keying.",
+  "description": "Payload the anomaly add-on emits per anomaly-open or anomaly-clear transition. An OCSF Detection Finding shaped for the causal prediction spine so core (CausalSignals) ingests it like other causal findings. The canonical series_key is computed in core from gateway-attested fields; source_identity carries the raw resource identity for re-keying.",
   "type": "object",
   "required": [
     "event_id",

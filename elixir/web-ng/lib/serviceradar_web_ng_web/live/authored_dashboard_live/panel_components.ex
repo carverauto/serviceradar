@@ -170,8 +170,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
 
   def render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:stat, "stat", :count, "count"] do
     value =
-      bound_value(assigns.rows, assigns.panel, "value_field") ||
-        stat_value(assigns.rows, assigns.fields)
+      stat_value(assigns.rows, assigns.fields, assigns.panel)
 
     assigns =
       assigns
@@ -569,19 +568,40 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
 
   defp value_at_path(value, _path), do: value
 
-  defp stat_value([row | _], fields) do
-    key = first_numeric_field(fields)
-    if key, do: Map.get(row, key)
+  defp stat_value(rows, _fields, panel) when is_list(rows) do
+    binding = panel.data_binding || %{}
+    value_field = binding["value_field"]
+    aggregate = binding["aggregate"] || default_stat_aggregate(panel)
+
+    values =
+      rows
+      |> Enum.map(fn row -> numeric(Map.get(row, value_field)) end)
+      |> Enum.reject(&is_nil/1)
+
+    cond do
+      value_field in [nil, ""] -> first_numeric_value(rows)
+      aggregate == "count" -> length(rows)
+      values == [] -> first_numeric_value(rows)
+      true -> aggregate_values(values, aggregate)
+    end
   end
 
-  defp stat_value(_rows, _fields), do: "No data"
+  defp stat_value(_rows, _fields, _panel), do: "No data"
 
-  defp bound_value([row | _], panel, key) do
-    field = binding_value(panel, key)
-    if is_binary(field) and field != "", do: Map.get(row, field)
+  defp first_numeric_value([row | rows]) do
+    row
+    |> Map.values()
+    |> Enum.find_value(fn value -> numeric(value) end)
+    |> case do
+      nil -> first_numeric_value(rows)
+      value -> value
+    end
   end
 
-  defp bound_value(_rows, _panel, _key), do: nil
+  defp first_numeric_value(_rows), do: nil
+
+  defp default_stat_aggregate(%{visual_type: type}) when type in [:count, "count"], do: "count"
+  defp default_stat_aggregate(_panel), do: "sum"
 
   defp pivot_data(rows, panel, fields) do
     binding = panel.data_binding || %{}
@@ -637,11 +657,12 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
   defp aggregate_values(values, _aggregate), do: Enum.sum(values)
 
   defp trend_summary({:ok, %{rows: rows, fields: fields}}, panel) do
-    value_key = first_numeric_field(fields)
+    value_key = trend_value_field(fields)
     lookback_days = trend_lookback_days(panel)
 
     values =
       rows
+      |> trend_ordered_rows(fields)
       |> Enum.map(fn row -> numeric(Map.get(row, value_key)) end)
       |> Enum.reject(&is_nil/1)
 
@@ -674,6 +695,57 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
   end
 
   defp trend_summary(_trend, _panel), do: nil
+
+  defp trend_ordered_rows(rows, fields) do
+    case trend_time_field(fields) do
+      nil -> rows
+      time_key -> Enum.sort_by(rows, &datetime_sort_key(Map.get(&1, time_key)))
+    end
+  end
+
+  defp trend_time_field(fields) do
+    first_field_of_type(fields, :datetime) ||
+      Enum.find_value(fields, fn field ->
+        name = field_name(field)
+        type = field_type(field)
+
+        if trend_time_field_name?(name) and type in [:number, :integer, :datetime, :string] do
+          name
+        end
+      end)
+  end
+
+  defp trend_value_field(fields) do
+    Enum.find_value(fields, fn field ->
+      name = field_name(field)
+      if field_type(field) == :number and not trend_time_field_name?(name), do: name
+    end) || first_numeric_field(fields)
+  end
+
+  defp trend_time_field_name?(name) when is_binary(name) do
+    name in ["time", "timestamp", "bucket", "time_bucket", "bucket_start", "bucket_end"]
+  end
+
+  defp trend_time_field_name?(_name), do: false
+
+  defp datetime_sort_key(%DateTime{} = value), do: {0, DateTime.to_unix(value, :microsecond)}
+  defp datetime_sort_key(%NaiveDateTime{} = value), do: {0, NaiveDateTime.to_gregorian_seconds(value)}
+  defp datetime_sort_key(%Date{} = value), do: {0, Date.to_gregorian_days(value)}
+  defp datetime_sort_key(value) when is_number(value), do: {0, value}
+
+  defp datetime_sort_key(value) when is_binary(value) do
+    with {:error, _reason} <- DateTime.from_iso8601(value),
+         {:error, _reason} <- NaiveDateTime.from_iso8601(value),
+         {:ok, date} <- Date.from_iso8601(value) do
+      datetime_sort_key(date)
+    else
+      {:ok, datetime, _offset} -> datetime_sort_key(datetime)
+      {:ok, naive_datetime} -> datetime_sort_key(naive_datetime)
+      {:error, _reason} -> {1, 0}
+    end
+  end
+
+  defp datetime_sort_key(_value), do: {1, 0}
 
   defp trend_summary_text(%{"percent_delta" => percent_delta, "label" => label, "text" => text})
        when is_number(percent_delta) do
@@ -716,13 +788,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
     case panel.display_config || %{} do
       %{^key => value} when is_binary(value) and value != "" -> value
       _ -> fallback
-    end
-  end
-
-  defp binding_value(panel, key) do
-    case panel.data_binding || %{} do
-      %{^key => value} when is_binary(value) -> value
-      _ -> nil
     end
   end
 
@@ -846,6 +911,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
   defp field_type(%{type: type}) when is_binary(type), do: field_type(type)
   defp field_type(%{"type" => type}) when is_binary(type), do: field_type(type)
   defp field_type("number"), do: :number
+  defp field_type("integer"), do: :integer
   defp field_type("datetime"), do: :datetime
   defp field_type("boolean"), do: :boolean
   defp field_type("string"), do: :string
