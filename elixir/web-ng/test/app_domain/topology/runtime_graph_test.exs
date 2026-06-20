@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     assert query =~ "type(r) IN ['ATTACHED_TO', 'OBSERVED_TO']"
     assert query =~ "MATCH (a:Device {id: ai.device_id})"
     assert query =~ "MATCH (b:Device {id: bi.device_id})"
+    assert query =~ "observed_at: coalesce(r.last_observed_at, r.observed_at, '')"
 
     assert query =~
              "coalesce(r.relation_type, '') = '' AND toLower(coalesce(r.evidence_class, '')) IN ['direct', 'direct-physical', 'direct-logical', 'hosted-virtual']"
