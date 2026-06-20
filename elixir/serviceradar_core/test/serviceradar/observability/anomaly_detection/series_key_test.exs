@@ -71,6 +71,19 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKeyTest do
                key(partition: "default", class: "sysmon", family: "memory", identity: "ns03")
     end
 
+    test "uses default partition when trusted and producer partitions are absent or blank" do
+      source_identity = %{
+        "metric_class" => "sysmon.memory",
+        "metric_name" => "memory.used_percent",
+        "partition" => "",
+        "partition_id" => nil,
+        "host_id" => "ns03"
+      }
+
+      assert SeriesKey.from_source_identity(source_identity, partition_id: nil) ==
+               key(partition: "default", class: "sysmon", family: "memory", identity: "ns03")
+    end
+
     test "trusted partition option overrides producer supplied partition" do
       source_identity = %{
         "metric_class" => "sysmon.cpu",

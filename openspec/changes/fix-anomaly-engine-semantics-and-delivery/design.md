@@ -93,6 +93,10 @@ cannot corrupt a baseline when provenance is not guaranteed. Revisit this only i
 benchmarks at the intended `max_series`, `window_size`, and feed cadence show the
 window scan is material, or if the core grows a provenance-safe stateful runtime
 API that can update/remove Welford samples without trusting cross-boundary state.
+At current defaults, the edge cap is `max_series=50_000` and
+`window_size=300`, so the worst-case steady retained tail is roughly 15 million
+sample values per add-on process plus the counter-state map, and each evaluated
+sample performs a 300-value stats rebuild before scoring.
 
 ## Decisions
 - Treat F1-F7 as implementation blockers for reliable anomaly rollout.
