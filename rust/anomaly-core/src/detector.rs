@@ -379,6 +379,11 @@ mod tests {
 
     #[test]
     fn confirm_slots_nth_breach_confirms_not_before() {
+        let first = reason_impl(context(3, 0), sample(1_000.0)).expect("first pending verdict");
+        assert_eq!(first.state, "pending_anomaly");
+        assert!(!first.anomalous);
+        assert_eq!(first.next_consecutive_anomalous, 1);
+
         let pending = reason_impl(context(3, 1), sample(1_000.0)).expect("pending verdict");
         assert_eq!(pending.state, "pending_anomaly");
         assert!(!pending.anomalous);
@@ -388,6 +393,14 @@ mod tests {
         assert_eq!(confirmed.state, "anomalous");
         assert!(confirmed.anomalous);
         assert_eq!(confirmed.next_consecutive_anomalous, 3);
+    }
+
+    #[test]
+    fn confirm_slots_one_confirms_first_breach() {
+        let confirmed = reason_impl(context(1, 0), sample(1_000.0)).expect("confirmed verdict");
+        assert_eq!(confirmed.state, "anomalous");
+        assert!(confirmed.anomalous);
+        assert_eq!(confirmed.next_consecutive_anomalous, 1);
     }
 
     #[test]
