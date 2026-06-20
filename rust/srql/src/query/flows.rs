@@ -2786,6 +2786,37 @@ mod tests {
     }
 
     #[test]
+    fn other_rollup_rejects_ungrouped_flow_stats_after_parsing() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: Vec::new(),
+            order: vec![OrderClause {
+                field: "total_bytes".into(),
+                direction: OrderDirection::Desc,
+            }],
+            limit: 10,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "sum(bytes_total) as total_bytes",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            other: true,
+            include_deleted: false,
+        };
+
+        let err = to_sql_and_params_stats(&plan).unwrap_err();
+        assert!(
+            err.to_string().contains("requires grouped flow stats"),
+            "expected parsed grouped-stats error, got: {err}"
+        );
+    }
+
+    #[test]
     fn translate_grouped_stats_conversation_group_by_uses_canonical_endpoints() {
         let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
         let end = start + ChronoDuration::hours(1);
