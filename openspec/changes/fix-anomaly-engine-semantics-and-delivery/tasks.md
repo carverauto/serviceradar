@@ -14,7 +14,7 @@
 - [x] 3.1 Replace the anomaly add-on single-use telemetry receiver with reconnect-safe broadcast/drop delivery.
 - [x] 3.2 Ensure native telemetry backpressure cannot block metric-feed acknowledgement or scoring.
 - [x] 3.3 Add tests for telemetry reconnect and lag/drop behavior.
-- [ ] 3.4 Decide whether agent-side stream drain should reconnect on stream close for native telemetry and metric-feed streams.
+- [x] 3.4 Decide whether agent-side stream drain should reconnect on stream close for native telemetry and metric-feed streams.
 
 ## 4. Core Ingestion Fidelity
 - [x] 4.1 Parse causal signal timestamps from ISO8601 and Unix seconds/milliseconds/microseconds/nanoseconds.
@@ -46,10 +46,10 @@
 - [x] 8.3 Add tests for feed reopen (no double-scoring / no checkpoint race) and panic recovery.
 
 ## 9. Agent Delivery Self-Healing (F11)
-- [ ] 9.1 Reconnect `drainTelemetry`, `drainArtifacts`, and `metricFeedLifecycle.run` with bounded backoff while the subprocess is alive.
+- [x] 9.1 Reconnect `drainTelemetry`, `drainArtifacts`, and `metricFeedLifecycle.run` with bounded backoff while the subprocess is alive.
 - [x] 9.2 Re-arm the restart circuit breaker after a cooldown; surface circuit-open as a health failure.
 - [ ] 9.3 Distinguish EOF from transport errors in `grpc.go` stream loops and emit stream-loss diagnostics.
-- [ ] 9.4 Base the backoff reset on run stability, not last-run duration.
+- [x] 9.4 Base the backoff reset on run stability, not last-run duration.
 - [ ] 9.5 Add Go tests for drain reconnect, breaker recovery, and stream-loss reporting.
 
 ## 10. Verdict Idempotency (F12)

@@ -45,6 +45,65 @@ func nextStreamReconnectDelay(attempt int, initial, maxDelay time.Duration) time
 	return delay
 }
 
+func reconnectStreamLoop[T any](
+	ctx context.Context,
+	initial time.Duration,
+	maxDelay time.Duration,
+	open func(context.Context) (T, error),
+	drain func(context.Context, T) bool,
+	logOpenFailure func(error, time.Duration),
+	logStreamClosed func(time.Duration),
+) {
+	attempt := 0
+	resetAfter := streamReconnectResetDuration(initial, maxDelay)
+
+	for ctx.Err() == nil {
+		stream, err := open(ctx)
+		if err != nil {
+			delay := nextStreamReconnectDelay(attempt, initial, maxDelay)
+			if logOpenFailure != nil {
+				logOpenFailure(err, delay)
+			}
+			attempt++
+			if !waitStreamReconnect(ctx, delay) {
+				return
+			}
+			continue
+		}
+
+		startedAt := time.Now()
+		madeProgress := drain(ctx, stream)
+		if ctx.Err() != nil {
+			return
+		}
+		if madeProgress || time.Since(startedAt) >= resetAfter {
+			attempt = 0
+		}
+
+		delay := nextStreamReconnectDelay(attempt, initial, maxDelay)
+		if logStreamClosed != nil {
+			logStreamClosed(delay)
+		}
+		attempt++
+		if !waitStreamReconnect(ctx, delay) {
+			return
+		}
+	}
+}
+
+func streamReconnectResetDuration(initial, maxDelay time.Duration) time.Duration {
+	if initial <= 0 {
+		initial = defaultRestartBackoffInitial
+	}
+	if maxDelay <= 0 {
+		maxDelay = defaultRestartBackoffMax
+	}
+	if maxDelay < initial {
+		return initial
+	}
+	return maxDelay
+}
+
 func waitStreamReconnect(ctx context.Context, delay time.Duration) bool {
 	timer := time.NewTimer(delay)
 	defer timer.Stop()

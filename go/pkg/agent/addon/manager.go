@@ -812,23 +812,44 @@ func (m *Manager) PublishMetricFeed(source string, payload []byte) int {
 }
 
 func (r *runner) drainTelemetry(ctx context.Context, telemetryClient coreaddon.TelemetryClient) {
-	batches, err := telemetryClient.StreamTelemetry(ctx)
-	if err != nil {
-		r.cfg.Logger.Warn().Err(err).Str("addon", r.id).Msg("addon telemetry stream failed to open")
-		return
-	}
+	reconnectStreamLoop(
+		ctx,
+		r.cfg.RestartBackoffInitial,
+		r.cfg.RestartBackoffMax,
+		func(ctx context.Context) (<-chan *coreaddon.TelemetryBatch, error) {
+			return telemetryClient.StreamTelemetry(ctx)
+		},
+		r.drainTelemetryStream,
+		func(err error, delay time.Duration) {
+			r.cfg.Logger.Warn().
+				Err(err).
+				Str("addon", r.id).
+				Dur("retry_after", delay).
+				Msg("addon telemetry stream failed to open")
+		},
+		func(delay time.Duration) {
+			r.cfg.Logger.Warn().
+				Str("addon", r.id).
+				Dur("retry_after", delay).
+				Msg("addon telemetry stream closed; reconnecting")
+		},
+	)
+}
 
+func (r *runner) drainTelemetryStream(ctx context.Context, batches <-chan *coreaddon.TelemetryBatch) bool {
+	madeProgress := false
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return madeProgress
 		case batch, ok := <-batches:
 			if !ok {
-				return
+				return madeProgress
 			}
 			if batch == nil {
 				continue
 			}
+			madeProgress = true
 			if r.cfg.TelemetryHandler != nil {
 				r.cfg.TelemetryHandler(r.id, batch)
 			}

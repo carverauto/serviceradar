@@ -23,17 +23,26 @@ import (
 	"os"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	coreaddon "github.com/carverauto/serviceradar/go/pkg/addon"
+	"github.com/rs/zerolog"
 )
 
-type fakeArtifactClient struct {
+type reconnectingArtifactClient struct {
 	chunks <-chan *coreaddon.ArtifactUploadChunk
-	err    error
+	calls  atomic.Int32
 }
 
-func (c fakeArtifactClient) StreamArtifacts(context.Context) (<-chan *coreaddon.ArtifactUploadChunk, error) {
-	return c.chunks, c.err
+func (c *reconnectingArtifactClient) StreamArtifacts(context.Context) (<-chan *coreaddon.ArtifactUploadChunk, error) {
+	call := c.calls.Add(1)
+	if call == 1 {
+		closed := make(chan *coreaddon.ArtifactUploadChunk)
+		close(closed)
+		return closed, nil
+	}
+
+	return c.chunks, nil
 }
 
 func TestRunnerDrainsAddonArtifactsThroughHandler(t *testing.T) {
@@ -101,10 +110,56 @@ func TestRunnerDrainsAddonArtifactsThroughHandler(t *testing.T) {
 		DownloadURL:  "https://gateway.example:50053/artifacts/addons/pkg/blob/download",
 	}, cfg)
 
-	r.drainArtifacts(context.Background(), fakeArtifactClient{chunks: chunks})
+	r.drainArtifactStream(context.Background(), chunks)
 
 	if !handled.Load() {
 		t.Fatal("artifact handler was not called")
+	}
+}
+
+func TestRunnerDrainArtifactsReconnectsAfterStreamClose(t *testing.T) {
+	body := []byte(`{"advisories":[{"id":"CVE-2026-0002"}]}`)
+	sum := sha256.Sum256(body)
+	chunks := make(chan *coreaddon.ArtifactUploadChunk, 1)
+	chunks <- &coreaddon.ArtifactUploadChunk{
+		Metadata: &coreaddon.ArtifactMetadata{
+			ObjectKey: "feeds/reconnect.json",
+			Sha256:    hex.EncodeToString(sum[:]),
+			SizeBytes: int64(len(body)),
+		},
+		Data:       body,
+		ChunkIndex: 0,
+		IsFinal:    true,
+	}
+	close(chunks)
+
+	client := &reconnectingArtifactClient{chunks: chunks}
+	handled := make(chan struct{}, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cfg := applyDefaults(Config{
+		RuntimeDir:            t.TempDir(),
+		RestartBackoffInitial: time.Millisecond,
+		RestartBackoffMax:     2 * time.Millisecond,
+		Logger:                zerolog.Nop(),
+		ArtifactHandler: func(context.Context, ArtifactSubmission) error {
+			handled <- struct{}{}
+			return nil
+		},
+	})
+	r := newRunner(Spec{ID: "feed-addon"}, cfg)
+
+	go r.drainArtifacts(ctx, client)
+
+	select {
+	case <-handled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for artifact after reconnect")
+	}
+
+	if got := client.calls.Load(); got < 2 {
+		t.Fatalf("StreamArtifacts calls = %d, want at least 2", got)
 	}
 }
 
@@ -131,7 +186,7 @@ func TestRunnerRejectsAddonArtifactDigestMismatch(t *testing.T) {
 	})
 	r := newRunner(Spec{ID: "feed-addon"}, cfg)
 
-	r.drainArtifacts(context.Background(), fakeArtifactClient{chunks: chunks})
+	r.drainArtifactStream(context.Background(), chunks)
 
 	if handled.Load() {
 		t.Fatal("artifact handler called for digest mismatch")

@@ -40,6 +40,11 @@ type metricFeedPublication struct {
 	payload []byte
 }
 
+type metricFeedStream struct {
+	frames chan<- *addonpb.MetricFeedFrame
+	acks   <-chan uint64
+}
+
 type metricFeedLifecycle struct {
 	parent  context.Context
 	addonID string
@@ -162,15 +167,46 @@ func (l *metricFeedLifecycle) publish(source string, payload []byte) bool {
 }
 
 func (l *metricFeedLifecycle) run(ctx context.Context) {
-	frames, acks, err := l.client.StreamMetricFeed(ctx)
-	if err != nil {
-		l.logger.Warn().Err(err).Str("addon", l.addonID).Msg("addon metric feed stream failed to open")
-		return
-	}
-	defer close(frames)
+	reconnectStreamLoop(
+		ctx,
+		defaultRestartBackoffInitial,
+		defaultRestartBackoffMax,
+		func(ctx context.Context) (metricFeedStream, error) {
+			frames, acks, err := l.client.StreamMetricFeed(ctx)
+			return metricFeedStream{frames: frames, acks: acks}, err
+		},
+		func(ctx context.Context, stream metricFeedStream) bool {
+			madeProgress := l.runStream(ctx, stream.frames, stream.acks)
+			close(stream.frames)
+			return madeProgress
+		},
+		func(err error, delay time.Duration) {
+			l.logger.Warn().
+				Err(err).
+				Str("addon", l.addonID).
+				Dur("retry_after", delay).
+				Msg("addon metric feed stream failed to open")
+		},
+		func(delay time.Duration) {
+			l.logger.Warn().
+				Str("addon", l.addonID).
+				Dur("retry_after", delay).
+				Msg("addon metric feed stream closed; reconnecting")
+		},
+	)
+}
 
+func (l *metricFeedLifecycle) runStream(
+	ctx context.Context,
+	frames chan<- *addonpb.MetricFeedFrame,
+	acks <-chan uint64,
+) bool {
+	var madeProgress atomic.Bool
 	var acked atomic.Uint64
+	ackDone := make(chan struct{})
+
 	go func() {
+		defer close(ackDone)
 		for {
 			select {
 			case <-ctx.Done():
@@ -180,6 +216,7 @@ func (l *metricFeedLifecycle) run(ctx context.Context) {
 					return
 				}
 				acked.Store(ack)
+				madeProgress.Store(true)
 			}
 		}
 	}()
@@ -188,13 +225,17 @@ func (l *metricFeedLifecycle) run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return madeProgress.Load()
+		case <-ackDone:
+			return madeProgress.Load()
 		case publication := <-l.queue:
 			nextID := seq + 1
 			for nextID-acked.Load() > defaultMetricFeedMaxInFlight {
 				select {
 				case <-ctx.Done():
-					return
+					return madeProgress.Load()
+				case <-ackDone:
+					return madeProgress.Load()
 				case <-time.After(metricFeedPollInterval):
 				}
 			}
@@ -213,9 +254,12 @@ func (l *metricFeedLifecycle) run(ctx context.Context) {
 
 			select {
 			case <-ctx.Done():
-				return
+				return madeProgress.Load()
+			case <-ackDone:
+				return madeProgress.Load()
 			case frames <- frame:
 				seq = nextID
+				madeProgress.Store(true)
 			}
 		}
 	}

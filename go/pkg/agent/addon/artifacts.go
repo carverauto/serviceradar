@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	coreaddon "github.com/carverauto/serviceradar/go/pkg/addon"
 )
@@ -76,12 +77,32 @@ type activeArtifact struct {
 }
 
 func (r *runner) drainArtifacts(ctx context.Context, artifactClient coreaddon.ArtifactClient) {
-	chunks, err := artifactClient.StreamArtifacts(ctx)
-	if err != nil {
-		r.cfg.Logger.Warn().Err(err).Str("addon", r.id).Msg("addon artifact stream failed to open")
-		return
-	}
+	reconnectStreamLoop(
+		ctx,
+		r.cfg.RestartBackoffInitial,
+		r.cfg.RestartBackoffMax,
+		func(ctx context.Context) (<-chan *coreaddon.ArtifactUploadChunk, error) {
+			return artifactClient.StreamArtifacts(ctx)
+		},
+		r.drainArtifactStream,
+		func(err error, delay time.Duration) {
+			r.cfg.Logger.Warn().
+				Err(err).
+				Str("addon", r.id).
+				Dur("retry_after", delay).
+				Msg("addon artifact stream failed to open")
+		},
+		func(delay time.Duration) {
+			r.cfg.Logger.Warn().
+				Str("addon", r.id).
+				Dur("retry_after", delay).
+				Msg("addon artifact stream closed; reconnecting")
+		},
+	)
+}
 
+func (r *runner) drainArtifactStream(ctx context.Context, chunks <-chan *coreaddon.ArtifactUploadChunk) bool {
+	madeProgress := false
 	var current *activeArtifact
 	defer func() {
 		if current != nil {
@@ -92,14 +113,15 @@ func (r *runner) drainArtifacts(ctx context.Context, artifactClient coreaddon.Ar
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return madeProgress
 		case chunk, ok := <-chunks:
 			if !ok {
-				return
+				return madeProgress
 			}
 			if chunk == nil {
 				continue
 			}
+			madeProgress = true
 
 			if chunk.GetMetadata() != nil {
 				if current != nil {
@@ -107,6 +129,7 @@ func (r *runner) drainArtifacts(ctx context.Context, artifactClient coreaddon.Ar
 					current.cleanup()
 				}
 
+				var err error
 				current, err = r.newActiveArtifact(chunk.GetMetadata())
 				if err != nil {
 					r.cfg.Logger.Warn().Err(err).Str("addon", r.id).Msg("addon artifact metadata rejected")

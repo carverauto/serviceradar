@@ -19,6 +19,7 @@ package addon
 import (
 	"context"
 	"reflect"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -116,6 +117,61 @@ func TestManagerPublishMetricFeedFiltersSources(t *testing.T) {
 	}
 }
 
+func TestMetricFeedLifecycleReconnectsAfterAckStreamClose(t *testing.T) {
+	client := &reconnectingMetricFeedClient{received: make(chan *addonpb.MetricFeedFrame, 1)}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	lifecycle := newMetricFeedLifecycle(
+		ctx,
+		"anomaly",
+		client,
+		[]string{testMetricFeedSourceSysmon},
+		zerolog.Nop(),
+	)
+	lifecycle.start()
+	t.Cleanup(lifecycle.stop)
+
+	waitForMetricFeedCalls(t, client, 2)
+
+	if !lifecycle.publish("sysmon", []byte("sysmon-after-reconnect")) {
+		t.Fatal("expected sysmon frame to be accepted")
+	}
+
+	select {
+	case got := <-client.received:
+		if string(got.GetPayload()) != "sysmon-after-reconnect" {
+			t.Fatalf("payload = %q, want sysmon-after-reconnect", got.GetPayload())
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for metric feed frame after reconnect")
+	}
+
+	if got := client.calls.Load(); got < 2 {
+		t.Fatalf("StreamMetricFeed calls = %d, want at least 2", got)
+	}
+}
+
+func waitForMetricFeedCalls(t *testing.T, client *reconnectingMetricFeedClient, want int32) {
+	t.Helper()
+
+	deadline := time.After(3 * time.Second)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		if got := client.calls.Load(); got >= want {
+			return
+		}
+
+		select {
+		case <-deadline:
+			t.Fatalf("StreamMetricFeed calls = %d, want at least %d", client.calls.Load(), want)
+		case <-ticker.C:
+		}
+	}
+}
+
 type recordingMetricFeedClient struct {
 	received chan *addonpb.MetricFeedFrame
 }
@@ -125,6 +181,49 @@ func (c *recordingMetricFeedClient) StreamMetricFeed(
 ) (chan<- *addonpb.MetricFeedFrame, <-chan uint64, error) {
 	frames := make(chan *addonpb.MetricFeedFrame)
 	acks := make(chan uint64)
+
+	go func() {
+		defer close(acks)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case frame, ok := <-frames:
+				if !ok {
+					return
+				}
+				select {
+				case c.received <- frame:
+				case <-ctx.Done():
+					return
+				}
+				select {
+				case acks <- frame.GetFeedId():
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+
+	return frames, acks, nil
+}
+
+type reconnectingMetricFeedClient struct {
+	calls    atomic.Int32
+	received chan *addonpb.MetricFeedFrame
+}
+
+func (c *reconnectingMetricFeedClient) StreamMetricFeed(
+	ctx context.Context,
+) (chan<- *addonpb.MetricFeedFrame, <-chan uint64, error) {
+	frames := make(chan *addonpb.MetricFeedFrame)
+	acks := make(chan uint64)
+	call := c.calls.Add(1)
+	if call == 1 {
+		close(acks)
+		return frames, acks, nil
+	}
 
 	go func() {
 		defer close(acks)
