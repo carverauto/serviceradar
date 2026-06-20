@@ -23,6 +23,7 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCache do
       {:if_description, :string, []},
       {:if_speed_bps, :integer, []},
       {:boundary, :string, []},
+      {:last_observed_at, :utc_datetime_usec, []},
       {:refreshed_at, :utc_datetime_usec, [allow_nil?: false]}
     ],
     identity: :unique_sampler_ifindex,

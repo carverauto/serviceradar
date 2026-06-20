@@ -1,13 +1,14 @@
 defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
   @moduledoc """
-  Refreshes `platform.netflow_interface_cache` from recent flow interface indices and inventory.
+  Refreshes `platform.netflow_interface_cache` from observed flow interface indices and inventory.
 
   Flow events store interface indices (ifIndex) in the OCSF payload under:
   - `connection_info.input_snmp`
   - `connection_info.output_snmp`
 
-  This worker extracts `(sampler_address, if_index)` pairs from recent flows, maps exporter IP
-  to inventory device, then pulls the latest interface observation for the relevant `if_index`.
+  Flow ingest records `(sampler_address, if_index)` pairs incrementally in
+  `netflow_interface_cache`. This worker reads that small dimension table, maps exporter IP to
+  inventory device, then pulls the latest interface observation for the relevant `if_index`.
   """
 
   use Oban.Worker,
@@ -171,6 +172,59 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
 
   def scan_window_seconds(_config), do: @default_scan_window_seconds
 
+  @doc """
+  Records observed `(sampler_address, if_index)` pairs from parsed flow rows.
+
+  This is intentionally metadata-light: flow ingest only knows that an exporter reported traffic on
+  an ifIndex. The refresh worker later enriches that key with interface inventory.
+  """
+  @spec record_observed_interface_pairs([map()]) :: {:ok, non_neg_integer()} | {:error, term()}
+  def record_observed_interface_pairs(rows) when is_list(rows) do
+    pairs = observed_interface_pairs_from_rows(rows)
+
+    if pairs == [] do
+      {:ok, 0}
+    else
+      now = DateTime.utc_now()
+
+      attrs =
+        Enum.map(pairs, fn {sampler_address, if_index} ->
+          %{
+            sampler_address: sampler_address,
+            if_index: if_index,
+            refreshed_at: now,
+            last_observed_at: now,
+            inserted_at: now,
+            updated_at: now
+          }
+        end)
+
+      {count, _} =
+        Repo.insert_all("netflow_interface_cache", attrs,
+          prefix: "platform",
+          conflict_target: [:sampler_address, :if_index],
+          on_conflict: {:replace, [:last_observed_at, :updated_at]},
+          returning: false
+        )
+
+      {:ok, count}
+    end
+  rescue
+    e -> {:error, e}
+  end
+
+  def record_observed_interface_pairs(_rows), do: {:ok, 0}
+
+  @doc false
+  @spec observed_interface_pairs_from_rows([map()]) :: [{String.t(), pos_integer()}]
+  def observed_interface_pairs_from_rows(rows) when is_list(rows) do
+    rows
+    |> Enum.flat_map(&observed_interface_pairs_from_row/1)
+    |> Enum.uniq()
+  end
+
+  def observed_interface_pairs_from_rows(_rows), do: []
+
   defp legacy_days_to_seconds(days) when is_integer(days) and days > 0,
     do: days * @seconds_per_day
 
@@ -187,55 +241,106 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
       |> DateTime.add(-scan_window_seconds, :second)
       |> DateTime.truncate(:second)
 
-    base =
-      from(f in "ocsf_network_activity",
+    query =
+      from(c in "netflow_interface_cache",
         prefix: "platform",
-        where: f.time >= ^since,
-        where: not is_nil(f.sampler_address),
-        where: f.sampler_address != ""
-      )
-
-    # Note: interface indices live inside the JSON payload; extract as text, parse safely in Elixir.
-    input_q =
-      from(f in base,
-        where: not is_nil(fragment("? #>> '{connection_info,input_snmp}'", f.ocsf_payload)),
-        select:
-          {f.sampler_address, fragment("? #>> '{connection_info,input_snmp}'", f.ocsf_payload)},
-        distinct: true,
+        where: c.last_observed_at >= ^since,
+        where: not is_nil(c.sampler_address),
+        where: c.sampler_address != "",
+        where: c.if_index > 0,
+        order_by: [desc: c.last_observed_at],
+        select: {c.sampler_address, c.if_index},
         limit: ^limit
       )
 
-    output_q =
-      from(f in base,
-        where: not is_nil(fragment("? #>> '{connection_info,output_snmp}'", f.ocsf_payload)),
-        select:
-          {f.sampler_address, fragment("? #>> '{connection_info,output_snmp}'", f.ocsf_payload)},
-        distinct: true,
-        limit: ^limit
-      )
-
-    (Repo.all(input_q) ++ Repo.all(output_q))
-    |> Enum.flat_map(fn {sampler_address, idx_txt} ->
-      sampler_address = sampler_address |> to_string() |> String.trim()
-
-      idx_txt =
-        case idx_txt do
-          s when is_binary(s) -> String.trim(s)
-          _ -> ""
-        end
-
-      with true <- sampler_address != "",
-           {idx, ""} <- Integer.parse(idx_txt),
-           true <- idx > 0 do
-        [{sampler_address, idx}]
-      else
-        _ -> []
-      end
-    end)
+    query
+    |> Repo.all()
+    |> Enum.flat_map(&normalize_pair_tuple/1)
     |> Enum.uniq()
   end
 
   defp discover_interface_pairs(_scan_window_seconds, _limit), do: []
+
+  defp observed_interface_pairs_from_row(row) when is_map(row) do
+    sampler_address =
+      row
+      |> get_value(:sampler_address, "sampler_address")
+      |> normalize_sampler_address()
+
+    connection_info =
+      row
+      |> get_value(:ocsf_payload, "ocsf_payload")
+      |> connection_info()
+
+    if is_nil(sampler_address) do
+      []
+    else
+      Enum.reject(
+        [
+          normalize_pair(sampler_address, get_value(connection_info, :input_snmp, "input_snmp")),
+          normalize_pair(sampler_address, get_value(connection_info, :output_snmp, "output_snmp"))
+        ],
+        &is_nil/1
+      )
+    end
+  end
+
+  defp observed_interface_pairs_from_row(_row), do: []
+
+  defp normalize_pair_tuple({sampler_address, if_index}) do
+    case normalize_pair(sampler_address, if_index) do
+      nil -> []
+      pair -> [pair]
+    end
+  end
+
+  defp normalize_pair_tuple(_tuple), do: []
+
+  defp normalize_pair(sampler_address, if_index) do
+    with sampler_address when is_binary(sampler_address) <-
+           normalize_sampler_address(sampler_address),
+         if_index when is_integer(if_index) <- normalize_if_index(if_index) do
+      {sampler_address, if_index}
+    else
+      _ -> nil
+    end
+  end
+
+  defp normalize_sampler_address(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: nil, else: value
+  end
+
+  defp normalize_sampler_address(value) when is_list(value) do
+    value
+    |> List.to_string()
+    |> normalize_sampler_address()
+  rescue
+    _ -> nil
+  end
+
+  defp normalize_sampler_address(_value), do: nil
+
+  defp normalize_if_index(value) when is_integer(value) and value > 0, do: value
+
+  defp normalize_if_index(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {idx, ""} when idx > 0 -> idx
+      _ -> nil
+    end
+  end
+
+  defp normalize_if_index(_value), do: nil
+
+  defp connection_info(%{"connection_info" => info}) when is_map(info), do: info
+  defp connection_info(%{connection_info: info}) when is_map(info), do: info
+  defp connection_info(_payload), do: %{}
+
+  defp get_value(map, atom_key, string_key) when is_map(map) do
+    Map.get(map, atom_key) || Map.get(map, string_key)
+  end
+
+  defp get_value(_map, _atom_key, _string_key), do: nil
 
   defp load_devices_by_ip([], _actor), do: %{}
 

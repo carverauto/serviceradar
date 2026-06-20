@@ -33,6 +33,7 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
   alias ServiceRadar.EventWriter.FlowEnrichment
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Observability.FlowPubSub
+  alias ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker
 
   require Logger
 
@@ -79,6 +80,7 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
       {:ok, 0}
     else
       with {:ok, count} <- insert_rows(rows) do
+        record_netflow_interface_pairs(rows)
         persist_bgp_observations(processed_messages)
         {:ok, count}
       end
@@ -288,6 +290,17 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
 
     FlowPubSub.broadcast_ingest(%{count: count})
     {:ok, count}
+  end
+
+  defp record_netflow_interface_pairs(rows) do
+    case NetflowInterfaceCacheRefreshWorker.record_observed_interface_pairs(rows) do
+      {:ok, _count} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to record observed NetFlow interface pairs: #{inspect(reason)}")
+        :ok
+    end
   end
 
   defp persist_bgp_observations(processed_messages) do

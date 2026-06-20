@@ -295,7 +295,7 @@ _From the 2026-06-20 demo RCA: `ServiceRadar.StatusHandler` can crash-loop when 
 
 ## 54. NetFlow Cache-Refresh Full-Scan CPU (F58) - fj #4096
 _From the 2026-06-19 demo CNPG CPU investigation (`pg_stat_statements` on primary `cnpg-23`): the recurring `SELECT DISTINCT sampler_address, ocsf_payload #>> '{connection_info,input_snmp|output_snmp}'` full-scan of `platform.ocsf_network_activity` was the #1 DB-CPU consumer (~4.9s/call, ~22% of DB time). Code stopgap landed via #4102; documented here to reconcile the task list to staging-canonical (the section was missing despite the code landing)._
-- [ ] 54.1 Replace the periodic re-derive with an incrementally-maintained `(sampler, interface_index)` dimension or a TimescaleDB continuous aggregate (long-term fix — still open).
+- [x] 54.1 Replace the periodic re-derive with an incrementally-maintained `(sampler, interface_index)` dimension or a TimescaleDB continuous aggregate (long-term fix). **Recovered via incremental ingest-maintained interface observations.**
 - [x] 54.2 Stopgap: bound the cache-refresh `since` window (30m default / 1h cap) + add the partial time-first indexes on `ocsf_network_activity`. **Landed via #4102.**
 - [ ] 54.3 Secondary observability-query CPU (triage/track): `INSERT INTO logs`, `refresh_device_inventory_rollups()`, DIRE `stale_to_active`/`mac_to_active`, and the `netflow_provider_cidrs` per-row join (~741k calls).
 

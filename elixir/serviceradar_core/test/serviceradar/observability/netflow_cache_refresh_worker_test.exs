@@ -24,4 +24,61 @@ defmodule ServiceRadar.Observability.NetflowCacheRefreshWorkerTest do
       assert NetflowExporterCacheRefreshWorker.scan_window_seconds(config) == 3_600
     end
   end
+
+  describe "observed_interface_pairs_from_rows/1" do
+    test "extracts and deduplicates input/output ifIndex pairs from parsed flow rows" do
+      rows = [
+        %{
+          sampler_address: " 10.1.0.1 ",
+          ocsf_payload: %{
+            "connection_info" => %{
+              "input_snmp" => 10,
+              "output_snmp" => "20"
+            }
+          }
+        },
+        %{
+          sampler_address: "10.1.0.1",
+          ocsf_payload: %{
+            "connection_info" => %{
+              "input_snmp" => "10",
+              "output_snmp" => "not-an-index"
+            }
+          }
+        },
+        %{
+          "sampler_address" => "10.1.0.2",
+          "ocsf_payload" => %{
+            connection_info: %{
+              input_snmp: 30,
+              output_snmp: 0
+            }
+          }
+        }
+      ]
+
+      assert NetflowInterfaceCacheRefreshWorker.observed_interface_pairs_from_rows(rows) == [
+               {"10.1.0.1", 10},
+               {"10.1.0.1", 20},
+               {"10.1.0.2", 30}
+             ]
+    end
+
+    test "ignores rows without a sampler address or positive interface index" do
+      rows = [
+        %{sampler_address: "", ocsf_payload: %{"connection_info" => %{"input_snmp" => 10}}},
+        %{sampler_address: "10.1.0.1", ocsf_payload: %{"connection_info" => %{}}},
+        %{
+          sampler_address: "10.1.0.1",
+          ocsf_payload: %{"connection_info" => %{"input_snmp" => -1}}
+        },
+        %{
+          sampler_address: "10.1.0.1",
+          ocsf_payload: %{"connection_info" => %{"input_snmp" => "1.5"}}
+        }
+      ]
+
+      assert NetflowInterfaceCacheRefreshWorker.observed_interface_pairs_from_rows(rows) == []
+    end
+  end
 end
