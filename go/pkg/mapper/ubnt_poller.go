@@ -565,7 +565,10 @@ var (
 	ErrUniFiLegacyStatsRequestFail  = errors.New("legacy UniFi device stats request failed")
 )
 
-const uniFiAPIPageLimit = 500
+const (
+	uniFiAPIPageLimit = 500
+	uniFiAPIMaxPages  = 200
+)
 
 func fetchUniFiPagedData[T any](
 	ctx context.Context,
@@ -576,9 +579,33 @@ func fetchUniFiPagedData[T any](
 	controllerName string,
 	siteName string,
 ) ([]T, error) {
-	allData := make([]T, 0)
+	return fetchUniFiPagedDataWithPageCap[T](
+		ctx,
+		client,
+		headers,
+		baseURL,
+		resourceName,
+		controllerName,
+		siteName,
+		uniFiAPIMaxPages,
+	)
+}
 
-	for offset := 0; ; offset += uniFiAPIPageLimit {
+func fetchUniFiPagedDataWithPageCap[T any](
+	ctx context.Context,
+	client *http.Client,
+	headers map[string]string,
+	baseURL string,
+	resourceName string,
+	controllerName string,
+	siteName string,
+	maxPages int,
+) ([]T, error) {
+	allData := make([]T, 0)
+	previousFirstRecord := ""
+
+	for page := 0; page < maxPages; page++ {
+		offset := page * uniFiAPIPageLimit
 		pageURL := fmt.Sprintf("%s?limit=%d&offset=%d", baseURL, uniFiAPIPageLimit, offset)
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, http.NoBody)
@@ -621,11 +648,40 @@ func fetchUniFiPagedData[T any](
 				resourceName, controllerName, siteName, offset, err)
 		}
 
+		firstRecord, hasFirstRecord, err := uniFiFirstRecordFingerprint(pageResp.Data)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fingerprint %s response from %s, site %s, offset %d: %w",
+				resourceName, controllerName, siteName, offset, err)
+		}
+		if hasFirstRecord {
+			if previousFirstRecord != "" && firstRecord == previousFirstRecord {
+				return nil, fmt.Errorf("%s pagination repeated the first record for %s, site %s, offset %d; controller may not support offset paging",
+					resourceName, controllerName, siteName, offset)
+			}
+			previousFirstRecord = firstRecord
+		}
+
 		allData = append(allData, pageResp.Data...)
 		if len(pageResp.Data) < uniFiAPIPageLimit {
 			return allData, nil
 		}
 	}
+
+	return nil, fmt.Errorf("%s pagination exceeded %d pages (%d records) for %s, site %s; controller may not support offset paging",
+		resourceName, maxPages, maxPages*uniFiAPIPageLimit, controllerName, siteName)
+}
+
+func uniFiFirstRecordFingerprint[T any](data []T) (string, bool, error) {
+	if len(data) == 0 {
+		return "", false, nil
+	}
+
+	payload, err := json.Marshal(data[0])
+	if err != nil {
+		return "", false, err
+	}
+
+	return string(payload), true, nil
 }
 
 // fetchUniFiDevicesForSite fetches devices from a UniFi site and creates a device cache

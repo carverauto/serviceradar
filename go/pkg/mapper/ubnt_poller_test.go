@@ -24,6 +24,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -204,6 +205,15 @@ func assertUniFiPageQuery(t *testing.T, r *http.Request, offset int) {
 
 	assert.Equal(t, fmt.Sprint(uniFiAPIPageLimit), r.URL.Query().Get("limit"))
 	assert.Equal(t, fmt.Sprint(offset), r.URL.Query().Get("offset"))
+}
+
+func mustAtoi(t *testing.T, value string) int {
+	t.Helper()
+
+	n, err := strconv.Atoi(value)
+	require.NoError(t, err)
+
+	return n
 }
 
 func makeUniFiDevicePage(start, count int) []UniFiDevice {
@@ -416,6 +426,82 @@ func TestFetchUniFiDevicesForSitePaginatesUntilShortPage(t *testing.T) {
 	assert.Len(t, devices, uniFiAPIPageLimit+1)
 	assert.Len(t, deviceCache, uniFiAPIPageLimit+1)
 	assert.Contains(t, deviceCache, fmt.Sprintf("device-%d", uniFiAPIPageLimit))
+}
+
+func TestFetchUniFiPagedDataStopsWhenControllerRepeatsPage(t *testing.T) {
+	requestedOffsets := make([]int, 0, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/sites/site1/devices", r.URL.Path)
+		assert.Equal(t, fmt.Sprint(uniFiAPIPageLimit), r.URL.Query().Get("limit"))
+
+		switch r.URL.Query().Get("offset") {
+		case "0":
+			requestedOffsets = append(requestedOffsets, 0)
+		case fmt.Sprint(uniFiAPIPageLimit):
+			requestedOffsets = append(requestedOffsets, uniFiAPIPageLimit)
+		default:
+			t.Fatalf("unexpected offset %s", r.URL.Query().Get("offset"))
+		}
+
+		w.WriteHeader(http.StatusOK)
+		require.NoError(t, json.NewEncoder(w).Encode(struct {
+			Data []UniFiDevice `json:"data"`
+		}{Data: makeUniFiDevicePage(0, uniFiAPIPageLimit)}))
+	}))
+	defer server.Close()
+
+	devices, err := fetchUniFiPagedDataWithPageCap[UniFiDevice](
+		context.Background(),
+		server.Client(),
+		map[string]string{"X-API-Key": "test-api-key"},
+		server.URL+"/sites/site1/devices",
+		"devices",
+		"Test API",
+		"Site 1",
+		10,
+	)
+
+	require.Error(t, err)
+	assert.Nil(t, devices)
+	assert.Equal(t, []int{0, uniFiAPIPageLimit}, requestedOffsets)
+	assert.Contains(t, err.Error(), "repeated the first record")
+	assert.Contains(t, err.Error(), "controller may not support offset paging")
+}
+
+func TestFetchUniFiPagedDataEnforcesPageCap(t *testing.T) {
+	requestedOffsets := make([]int, 0, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/sites/site1/devices", r.URL.Path)
+		assert.Equal(t, fmt.Sprint(uniFiAPIPageLimit), r.URL.Query().Get("limit"))
+
+		offset := r.URL.Query().Get("offset")
+		requestedOffsets = append(requestedOffsets, mustAtoi(t, offset))
+
+		w.WriteHeader(http.StatusOK)
+		require.NoError(t, json.NewEncoder(w).Encode(struct {
+			Data []UniFiDevice `json:"data"`
+		}{Data: makeUniFiDevicePage(mustAtoi(t, offset), uniFiAPIPageLimit)}))
+	}))
+	defer server.Close()
+
+	devices, err := fetchUniFiPagedDataWithPageCap[UniFiDevice](
+		context.Background(),
+		server.Client(),
+		map[string]string{"X-API-Key": "test-api-key"},
+		server.URL+"/sites/site1/devices",
+		"devices",
+		"Test API",
+		"Site 1",
+		2,
+	)
+
+	require.Error(t, err)
+	assert.Nil(t, devices)
+	assert.Equal(t, []int{0, uniFiAPIPageLimit}, requestedOffsets)
+	assert.Contains(t, err.Error(), "pagination exceeded 2 pages")
+	assert.Contains(t, err.Error(), "1000 records")
 }
 
 func TestFetchUniFiClientsForSite(t *testing.T) {
