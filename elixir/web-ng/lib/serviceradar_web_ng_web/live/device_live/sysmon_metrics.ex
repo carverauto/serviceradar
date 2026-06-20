@@ -12,6 +12,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   @metrics_limit 300
   @disk_metrics_limit @metrics_limit
   @process_query_limit 10_000
+  # V1 fallback values that mirror the edge add-on's saturation-gauge floors
+  # until sysmon exposes persisted per-device threshold metadata.
+  @edge_cpu_saturation_gate_percent 85.0
+  @edge_resource_saturation_gate_percent 80.0
 
   defp escape_value(value) when is_binary(value) do
     value
@@ -176,6 +180,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
     )
   end
 
+  def annotate_metric_sections(sections, anomaly_overview, selected_row \\ nil)
+
+  def annotate_metric_sections(sections, anomaly_overview, selected_row) when is_list(sections) do
+    annotations_by_section =
+      anomaly_overview
+      |> anomaly_rows()
+      |> Enum.map(&finding_annotation(&1, false))
+      |> Enum.reject(&is_nil/1)
+      |> maybe_add_selected_annotation(selected_row)
+      |> Enum.group_by(& &1.section_key)
+
+    Enum.map(sections, &put_section_annotations(&1, annotations_by_section))
+  end
+
+  def annotate_metric_sections(sections, _anomaly_overview, _selected_row), do: sections
+
   defp build_cpu_section(srql_module, filter_tokens, scope) do
     query =
       timeseries_metric_query(
@@ -202,7 +222,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
       {:ok, %{"results" => results}} when is_list(results) and results != [] ->
         normalized = normalize_metric_results(results, "usage_percent")
         viz = timeseries_viz("usage_percent", nil)
-        panels = build_metric_panels(%{"results" => normalized, "viz" => viz}, normalized, nil)
+
+        panels =
+          %{"results" => normalized, "viz" => viz}
+          |> build_metric_panels(normalized, nil)
+          |> put_panel_reference_lines(sysmon_threshold_reference_lines(:cpu))
+
         header_value = latest_metric_value(normalized, "usage_percent")
         header_stats = metric_stats(normalized, "usage_percent")
         %{base | panels: panels, header_value: header_value, header_stats: header_stats}
@@ -244,7 +269,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
       {:ok, %{"results" => results}} when is_list(results) and results != [] ->
         normalized = normalize_metric_results(results, "used_percent")
         viz = timeseries_viz("used_percent", nil)
-        panels = build_metric_panels(%{"results" => normalized, "viz" => viz}, normalized, nil)
+
+        panels =
+          %{"results" => normalized, "viz" => viz}
+          |> build_metric_panels(normalized, nil)
+          |> put_panel_reference_lines(sysmon_threshold_reference_lines(:memory))
+
         header_value = latest_metric_value(normalized, "used_percent")
         header_stats = metric_stats(normalized, "used_percent")
         %{base | panels: panels, header_value: header_value, header_stats: header_stats}
@@ -286,7 +316,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
       {:ok, %{"results" => results}} when is_list(results) and results != [] ->
         normalized = normalize_metric_results(results, "used_percent")
         viz = timeseries_viz("used_percent", nil)
-        panels = build_metric_panels(%{"results" => normalized, "viz" => viz}, normalized, nil)
+
+        panels =
+          %{"results" => normalized, "viz" => viz}
+          |> build_metric_panels(normalized, nil)
+          |> put_panel_reference_lines(sysmon_threshold_reference_lines(:disk))
+
         header_value = latest_metric_value(normalized, "used_percent")
         header_stats = metric_stats(normalized, "used_percent")
         %{base | panels: panels, header_value: header_value, header_stats: header_stats}
@@ -479,6 +514,257 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
 
   defp normalize_metric_results(results, _target_field), do: results
 
+  defp anomaly_rows(%{anomaly_rows: rows}) when is_list(rows), do: Enum.filter(rows, &is_map/1)
+  defp anomaly_rows(_), do: []
+
+  defp maybe_add_selected_annotation(annotations, nil), do: annotations
+
+  defp maybe_add_selected_annotation(annotations, selected_row) when is_map(selected_row) do
+    case finding_annotation(selected_row, true) do
+      nil -> annotations
+      annotation -> [annotation | annotations]
+    end
+  end
+
+  defp maybe_add_selected_annotation(annotations, _selected_row), do: annotations
+
+  defp finding_annotation(row, selected?) when is_map(row) do
+    with section_key when is_binary(section_key) <- finding_section_key(row),
+         time when is_binary(time) <- finding_time(row) do
+      %{
+        section_key: section_key,
+        dt: time,
+        label: finding_annotation_label(row, selected?),
+        severity: finding_severity(row),
+        series: finding_annotation_series(row, section_key)
+      }
+    end
+  end
+
+  defp finding_annotation(_row, _selected?), do: nil
+
+  defp finding_section_key(row) do
+    metric_name =
+      row
+      |> first_present([
+        ["metric_name"],
+        ["metadata", "source_identity", "metric_name"],
+        ["metadata", "service_radar", "metric_name"],
+        ["metadata", "anomaly", "metric_name"],
+        ["metadata", "detection_finding", "metric_name"],
+        ["raw_data", "metric_name"],
+        ["unmapped", "metric_name"]
+      ])
+      |> normalize_text()
+
+    metric_class =
+      row
+      |> first_present([
+        ["metric_class"],
+        ["metadata", "service_radar", "metric_class"],
+        ["metadata", "anomaly", "metric_class"],
+        ["metadata", "detection_finding", "metric_class"],
+        ["raw_data", "metric_class"],
+        ["unmapped", "metric_class"]
+      ])
+      |> normalize_text()
+
+    cond do
+      String.contains?(metric_name, "cpu") or metric_class in ["cpu", "cpu_metrics"] ->
+        "cpu"
+
+      String.contains?(metric_name, "memory") or metric_class in ["memory", "memory_metrics"] ->
+        "memory"
+
+      String.contains?(metric_name, "disk") or metric_class in ["disk", "disk_metrics"] ->
+        "disk"
+
+      metric_name == "process.count" or metric_class == "process" ->
+        "process-count"
+
+      true ->
+        nil
+    end
+  end
+
+  defp finding_time(row) do
+    row
+    |> first_present([
+      ["time"],
+      ["timestamp"],
+      ["metadata", "time"],
+      ["metadata", "anomaly", "time"],
+      ["metadata", "detection_finding", "time"],
+      ["raw_data", "time"],
+      ["unmapped", "time"]
+    ])
+    |> case do
+      value when is_binary(value) ->
+        value
+        |> String.trim()
+        |> case do
+          "" -> nil
+          time -> time
+        end
+
+      %DateTime{} = dt ->
+        DateTime.to_iso8601(dt)
+
+      %NaiveDateTime{} = ndt ->
+        ndt |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_iso8601()
+
+      _ ->
+        nil
+    end
+  end
+
+  defp finding_annotation_label(row, true), do: "Selected: #{finding_title(row)}"
+  defp finding_annotation_label(row, false), do: finding_title(row)
+
+  defp finding_title(row) do
+    row
+    |> first_present([
+      ["finding_title"],
+      ["finding_info", "title"],
+      ["metadata", "finding_info", "title"],
+      ["metadata", "detection_finding", "title"],
+      ["message"],
+      ["raw_data", "finding_info", "title"],
+      ["unmapped", "finding_info", "title"]
+    ])
+    |> case do
+      value when is_binary(value) and value != "" -> value
+      value when is_atom(value) -> Atom.to_string(value)
+      value when is_number(value) -> to_string(value)
+      _ -> "Anomaly finding"
+    end
+  end
+
+  defp finding_severity(row) do
+    row
+    |> first_present([
+      ["severity"],
+      ["severity_name"],
+      ["metadata", "severity"],
+      ["metadata", "detection_finding", "severity"],
+      ["raw_data", "severity"],
+      ["unmapped", "severity"]
+    ])
+    |> case do
+      value when is_binary(value) and value != "" -> value
+      value when is_atom(value) -> Atom.to_string(value)
+      _ -> "warning"
+    end
+  end
+
+  defp finding_annotation_series(row, section_key) when section_key in ["cpu", "disk"] do
+    row
+    |> first_present([
+      ["series_key"],
+      ["metadata", "source_identity", "series_key"],
+      ["metadata", "service_radar", "series_key"],
+      ["raw_data", "series_key"],
+      ["unmapped", "series_key"]
+    ])
+    |> case do
+      value when is_binary(value) ->
+        value
+        |> format_sysmon_series()
+        |> case do
+          "" -> nil
+          series -> series
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp finding_annotation_series(_row, _section_key), do: nil
+
+  defp format_sysmon_series(series) when is_binary(series) do
+    series
+    |> String.split(":", trim: true)
+    |> List.last()
+    |> case do
+      nil -> series
+      "" -> series
+      value -> value
+    end
+  end
+
+  defp put_section_annotations(section, annotations_by_section) when is_map(section) do
+    annotations = Map.get(annotations_by_section, Map.get(section, :key), [])
+
+    if annotations == [] do
+      section
+    else
+      panels =
+        section
+        |> Map.get(:panels, [])
+        |> Enum.map(&put_panel_annotations(&1, annotations))
+
+      %{section | panels: panels}
+    end
+  end
+
+  defp put_section_annotations(section, _annotations_by_section), do: section
+
+  defp put_panel_annotations(panel, annotations) when is_map(panel) do
+    assigns =
+      panel
+      |> Map.get(:assigns, %{})
+      |> Map.put(:annotations, match_annotations_to_panel(annotations, panel))
+
+    %{panel | assigns: assigns}
+  end
+
+  defp put_panel_annotations(panel, _annotations), do: panel
+
+  defp match_annotations_to_panel(annotations, panel) do
+    panel_series =
+      panel
+      |> Map.get(:assigns, %{})
+      |> Map.get(:series_points, [])
+      |> Enum.map(fn
+        {series, _points} -> to_string(series)
+        _ -> nil
+      end)
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+
+    Enum.map(annotations, fn
+      %{series: series} = annotation when is_binary(series) ->
+        if MapSet.member?(panel_series, series) do
+          annotation
+        else
+          %{annotation | series: nil}
+        end
+
+      annotation ->
+        annotation
+    end)
+  end
+
+  defp first_present(row, paths) do
+    Enum.find_value(paths, &nested_value(row, &1))
+  end
+
+  defp nested_value(value, []), do: value
+
+  defp nested_value(%{} = row, [key | rest]) do
+    row
+    |> map_value(key)
+    |> nested_value(rest)
+  end
+
+  defp nested_value(_row, _path), do: nil
+
+  defp normalize_text(value) when is_binary(value), do: value |> String.trim() |> String.downcase()
+  defp normalize_text(value) when is_atom(value), do: value |> Atom.to_string() |> normalize_text()
+  defp normalize_text(value) when is_number(value), do: value |> to_string() |> normalize_text()
+  defp normalize_text(_), do: ""
+
   defp timeseries_viz(y_field, series_field) do
     suggestion =
       maybe_put_series(
@@ -509,6 +795,60 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
     |> maybe_force_timeseries(results, series_field)
     |> drop_category_panels_when_timeseries()
   end
+
+  defp put_panel_reference_lines(panels, []), do: panels
+
+  defp put_panel_reference_lines(panels, reference_lines) when is_list(panels) do
+    Enum.map(panels, fn
+      %{assigns: assigns} = panel when is_map(assigns) ->
+        %{panel | assigns: Map.put(assigns, :reference_lines, reference_lines)}
+
+      panel ->
+        panel
+    end)
+  end
+
+  defp sysmon_threshold_reference_lines(:cpu) do
+    [
+      %{
+        value: @edge_cpu_saturation_gate_percent,
+        label: saturation_gate_label("CPU", @edge_cpu_saturation_gate_percent),
+        severity: :warning,
+        series: nil
+      }
+    ]
+  end
+
+  defp sysmon_threshold_reference_lines(:memory) do
+    [
+      %{
+        value: @edge_resource_saturation_gate_percent,
+        label: saturation_gate_label("Memory", @edge_resource_saturation_gate_percent),
+        severity: :warning,
+        series: nil
+      }
+    ]
+  end
+
+  defp sysmon_threshold_reference_lines(:disk) do
+    [
+      %{
+        value: @edge_resource_saturation_gate_percent,
+        label: saturation_gate_label("Disk", @edge_resource_saturation_gate_percent),
+        severity: :warning,
+        series: nil
+      }
+    ]
+  end
+
+  defp sysmon_threshold_reference_lines(_section), do: []
+
+  defp saturation_gate_label(name, percent), do: "#{name} saturation gate #{format_gate_percent(percent)}%"
+
+  defp format_gate_percent(percent) when is_float(percent) and percent == trunc(percent),
+    do: Integer.to_string(trunc(percent))
+
+  defp format_gate_percent(percent), do: to_string(percent)
 
   defp extract_viz(resp) do
     case Map.get(resp, "viz") do
