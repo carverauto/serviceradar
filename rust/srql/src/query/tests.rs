@@ -45,6 +45,7 @@ fn test_config() -> AppConfig {
         pg_ssl_root_cert: None,
         pg_ssl_cert: None,
         pg_ssl_key: None,
+        pg_ssl_server_name: None,
         api_key: None,
         api_key_kv_key: None,
         allowed_origins: None,

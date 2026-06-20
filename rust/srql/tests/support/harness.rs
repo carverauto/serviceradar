@@ -9,7 +9,7 @@ use rustls::{ClientConfig, RootCertStore};
 use rustls_pemfile::certs;
 use serde::Serialize;
 use serde_json::Value;
-use srql::{config::AppConfig, query::QueryRequest, server::Server};
+use srql::{config::AppConfig, db::PgRustlsConnect, query::QueryRequest, server::Server};
 use std::{
     env,
     fs::{self, File},
@@ -27,7 +27,6 @@ use tokio::{
     time::{sleep, Duration as TokioDuration},
 };
 use tokio_postgres::{config::Host, error::SqlState, Client, Config as PgConfig, NoTls};
-use tokio_postgres_rustls::MakeRustlsConnect;
 use tower::ServiceExt;
 
 const API_KEY: &str = "test-api-key";
@@ -117,6 +116,7 @@ fn test_config(database_url: String) -> AppConfig {
             .expect("failed to resolve PGSSLROOTCERT for SRQL test harness"),
         pg_ssl_cert: env::var("PGSSLCERT").ok(),
         pg_ssl_key: env::var("PGSSLKEY").ok(),
+        pg_ssl_server_name: resolved_pg_ssl_server_name(),
         api_key: Some(API_KEY.to_string()),
         api_key_kv_key: None,
         allowed_origins: None,
@@ -710,7 +710,7 @@ async fn connect_with_env_tls(
     }
 }
 
-fn tls_connector_from_env() -> anyhow::Result<Option<MakeRustlsConnect>> {
+fn tls_connector_from_env() -> anyhow::Result<Option<PgRustlsConnect>> {
     let root_cert = match resolved_pg_ssl_root_cert_path()? {
         Some(value) => value,
         None => return Ok(None),
@@ -722,7 +722,20 @@ fn tls_connector_from_env() -> anyhow::Result<Option<MakeRustlsConnect>> {
         &root_cert,
         client_cert.as_deref(),
         client_key.as_deref(),
+        resolved_pg_ssl_server_name().as_deref(),
     )?))
+}
+
+fn resolved_pg_ssl_server_name() -> Option<String> {
+    [
+        "SRQL_TEST_DATABASE_TLS_SERVER_NAME",
+        "PGSSLSERVERNAME",
+        "PGSSLTARGETNAME",
+    ]
+    .into_iter()
+    .filter_map(|key| env::var(key).ok())
+    .map(|value| value.trim().to_string())
+    .find(|value| !value.is_empty())
 }
 
 fn resolved_pg_ssl_root_cert_path() -> anyhow::Result<Option<String>> {
@@ -772,7 +785,8 @@ fn build_tls_connector(
     root_cert: &str,
     client_cert: Option<&str>,
     client_key: Option<&str>,
-) -> anyhow::Result<MakeRustlsConnect> {
+    server_name: Option<&str>,
+) -> anyhow::Result<PgRustlsConnect> {
     let mut reader = BufReader::new(File::open(root_cert).context("failed to open PGSSLROOTCERT")?);
     let mut root_store = RootCertStore::empty();
     for cert in certs(&mut reader) {
@@ -782,12 +796,10 @@ fn build_tls_connector(
             .map_err(|_| anyhow::anyhow!("invalid certificate in PGSSLROOTCERT"))?;
     }
 
-    Ok(MakeRustlsConnect::new(build_client_config(
-        root_store,
-        root_cert,
-        client_cert,
-        client_key,
-    )?))
+    Ok(PgRustlsConnect::new(
+        build_client_config(root_store, root_cert, client_cert, client_key)?,
+        server_name.map(str::to_string),
+    ))
 }
 
 fn build_client_config(

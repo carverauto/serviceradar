@@ -42,8 +42,8 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
     %{state | connected: true, conn: nil}
   end
 
-  defp push_msg(state, body) do
-    msg = %{body: body, topic: "events.test", reply_to: @reply_to, headers: %{}}
+  defp push_msg(state, body, subject \\ "events.test") do
+    msg = %{body: body, topic: subject, reply_to: @reply_to, headers: %{}}
 
     {:noreply, emitted, new_state} =
       Producer.handle_info({:msg, msg}, state)
@@ -172,6 +172,66 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
       assert Enum.map(emitted, & &1.data) == ["live"]
       assert state.pending_count == 0
       assert state.demand == 2
+    end
+
+    test "emitted messages include JetStream delivery metadata and max_deliver" do
+      config =
+        build_config(
+          max_ack_pending: 8,
+          streams: [
+            %{
+              name: "EVENTS",
+              stream_name: "events",
+              subject: "events.>",
+              consumer_max_deliver: 9
+            }
+          ]
+        )
+
+      state = init_state(config)
+
+      {:noreply, [], state} = Producer.handle_demand(1, state)
+      {[message], _state} = push_msg(state, "live")
+
+      assert message.metadata.jetstream_ack == %{
+               stream: "events",
+               consumer: "consumer",
+               delivery_count: 1,
+               stream_sequence: 1,
+               consumer_sequence: 1,
+               timestamp: 0,
+               pending: 0
+             }
+
+      assert message.metadata.max_deliver == 9
+    end
+
+    test "max_deliver resolution uses subject filters when streams share a JetStream stream" do
+      config =
+        build_config(
+          max_ack_pending: 8,
+          streams: [
+            %{
+              name: "EVENTS",
+              stream_name: "events",
+              subject: "events.>",
+              consumer_max_deliver: 9
+            },
+            %{
+              name: "CAUSAL_PREDICTIONS",
+              stream_name: "events",
+              subject: "signals.causal.predictions.>",
+              consumer_max_deliver: 3
+            }
+          ]
+        )
+
+      state = init_state(config)
+
+      {:noreply, [], state} = Producer.handle_demand(1, state)
+      {[message], _state} = push_msg(state, "live", "signals.causal.predictions.test")
+
+      assert message.metadata.max_deliver == 3
     end
 
     test "pull request sizing is bounded by available demand and configured batch size" do
