@@ -780,6 +780,19 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     Enum.at(colors, rem(index, length(colors)))
   end
 
+  defp series_dasharray(index) do
+    patterns = [
+      nil,
+      "6 4",
+      "2 4",
+      "8 3 2 3",
+      "1 4",
+      "10 4"
+    ]
+
+    Enum.at(patterns, rem(index, length(patterns)))
+  end
+
   defp dt_label(%DateTime{} = dt), do: Calendar.strftime(dt, "%b %-d %H:%M")
   defp dt_label(_), do: ""
 
@@ -1141,6 +1154,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       raw_series: series,
       paths: paths,
       stroke: stroke,
+      dasharray: series_dasharray(idx),
       idx: idx,
       point_data: Enum.map(chart_points, fn {dt, v} -> %{dt: dt_label(dt), v: v} end),
       unit: unit,
@@ -1347,10 +1361,18 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     >
       <div class="flex items-center justify-between gap-3 mb-2">
         <div class="flex items-center gap-2 min-w-0">
-          <span
-            class="inline-block size-2 rounded-full shrink-0"
-            style={"background-color: #{@data.stroke}"}
-          />
+          <svg viewBox="0 0 24 8" class="h-2 w-6 shrink-0" aria-hidden="true">
+            <line
+              x1="1"
+              x2="23"
+              y1="4"
+              y2="4"
+              stroke={@data.stroke}
+              stroke-width="3"
+              stroke-linecap="round"
+              stroke-dasharray={@data.dasharray}
+            />
+          </svg>
           <span class={["font-medium truncate", @compact && "text-xs", not @compact && "text-sm"]}>
             {@data.series}
           </span>
@@ -1440,6 +1462,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
             stroke-width="2"
             stroke-linecap="round"
             stroke-linejoin="round"
+            stroke-dasharray={@data.dasharray}
           />
         </svg>
         
@@ -1529,10 +1552,18 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         <div class="flex items-center gap-3">
           <%= for series <- @data.series do %>
             <div class="flex items-center gap-1">
-              <span
-                class="inline-block size-2 rounded-full shrink-0"
-                style={"background-color: #{series.stroke}"}
-              />
+              <svg viewBox="0 0 24 8" class="h-2 w-6 shrink-0" aria-hidden="true">
+                <line
+                  x1="1"
+                  x2="23"
+                  y1="4"
+                  y2="4"
+                  stroke={series.stroke}
+                  stroke-width="3"
+                  stroke-linecap="round"
+                  stroke-dasharray={series.dasharray}
+                />
+              </svg>
               <span class={[
                 "text-base-content/70",
                 @compact && "text-[10px]",
@@ -1620,6 +1651,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
               stroke-width="2"
               stroke-linecap="round"
               stroke-linejoin="round"
+              stroke-dasharray={series.dasharray}
             />
           <% end %>
         </svg>
@@ -1646,10 +1678,18 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       ]}>
         <%= for series <- @data.series do %>
           <div class="flex items-center gap-1">
-            <span
-              class="inline-block size-1.5 rounded-full"
-              style={"background-color: #{series.stroke}"}
-            />
+            <svg viewBox="0 0 18 8" class="h-2 w-5 shrink-0" aria-hidden="true">
+              <line
+                x1="1"
+                x2="17"
+                y1="4"
+                y2="4"
+                stroke={series.stroke}
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-dasharray={series.dasharray}
+              />
+            </svg>
             <span class="font-mono">{format_value(series.paths.avg, series.unit)}</span>
           </div>
         <% end %>

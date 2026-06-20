@@ -258,6 +258,7 @@ defmodule ServiceRadarWebNG.SRQL do
     %{
       "results" => results,
       "pagination" => pagination,
+      "schema" => %{"columns" => columns},
       "viz" => viz,
       "error" => nil
     }

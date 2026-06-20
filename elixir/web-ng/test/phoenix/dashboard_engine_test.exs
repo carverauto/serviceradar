@@ -64,4 +64,17 @@ defmodule ServiceRadarWebNGWeb.DashboardEngineTest do
     response = %{"results" => [%{"a" => 1}], "viz" => %{"suggestions" => [%{"kind" => "table"}]}}
     assert [%{plugin: Plugins.Table}] = Engine.build_panels(response)
   end
+
+  test "table plugin preserves schema columns and caps rendered rows" do
+    response = %{
+      "results" => Enum.map(1..501, &%{"count" => &1, "bytes_total" => &1 * 1024}),
+      "schema" => %{"columns" => ["bytes_total", "count"]}
+    }
+
+    assert [%{plugin: Plugins.Table, assigns: assigns}] = Engine.build_panels(response)
+    assert assigns.columns == ["bytes_total", "count"]
+    assert length(assigns.results) == 500
+    assert assigns.total_count == 501
+    assert assigns.truncated
+  end
 end

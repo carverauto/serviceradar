@@ -54,6 +54,27 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
     assert html =~ "%"
   end
 
+  test "renders non-color stroke patterns for multi-series charts" do
+    points = [
+      {~U[2025-01-01 00:00:00Z], 10.0},
+      {~U[2025-01-01 00:05:00Z], 20.0},
+      {~U[2025-01-01 00:10:00Z], 30.0}
+    ]
+
+    html =
+      render_component(Timeseries, %{
+        id: "ts-patterns",
+        title: "Patterns",
+        panel_assigns: %{chart_mode: :single, rate_mode: :none, combine_all_series: true},
+        spec: %{x: "timestamp", y: "value", series: "label"},
+        series_points: [{"cpu0", points}, {"cpu1", points}]
+      })
+
+    assert html =~ "cpu0"
+    assert html =~ "cpu1"
+    assert html =~ "stroke-dasharray=\"6 4\""
+  end
+
   test "prefers SRQL metric unit metadata over value field-name inference" do
     points = [
       {~U[2025-01-01 00:00:00Z], 1024.0},
