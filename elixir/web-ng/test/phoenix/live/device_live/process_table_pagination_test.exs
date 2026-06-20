@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ProcessTablePaginationTest do
 
   alias ServiceRadarWebNGWeb.DeviceLive.ProcessTablePagination, as: Pagination
 
+  @moduletag :db_free
+
   defp rows(count) do
     for i <- 1..count do
       %{"name" => "proc-#{i}", "pid" => i, "status" => "running"}

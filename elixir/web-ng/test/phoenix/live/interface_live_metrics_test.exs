@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsTest do
   """
   use ExUnit.Case, async: true
 
+  @moduletag :db_free
+
   # ============================================================================
   # Task 7.2: Unit tests for combined chart path generation (metric grouping)
   # ============================================================================

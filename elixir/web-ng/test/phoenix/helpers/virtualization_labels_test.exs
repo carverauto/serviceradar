@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.Helpers.VirtualizationLabelsTest do
 
   alias ServiceRadarWebNGWeb.Helpers.VirtualizationLabels
 
+  @moduletag :db_free
+
   describe "provider_label/1" do
     test "formats known provider names" do
       assert VirtualizationLabels.provider_label("proxmox") == "Proxmox"
