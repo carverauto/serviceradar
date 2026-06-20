@@ -38,4 +38,29 @@ defmodule ServiceRadarWebNGWeb.Components.SRQLComponentsTest do
     assert html =~ ~s(data-completions=)
     refute html =~ ~s(phx-hook="SRQLInput")
   end
+
+  test "results table preserves explicit column order and formats numeric cells" do
+    html =
+      render_component(&SRQLComponents.srql_results_table/1,
+        id: "results",
+        rows: [%{"count" => 1_234_567, "bytes_total" => 2048}],
+        columns: ["bytes_total", "count"]
+      )
+
+    assert html =~ "2 KiB"
+    assert html =~ "1,234,567"
+    assert :binary.match(html, "bytes_total") < :binary.match(html, "count")
+  end
+
+  test "results table infers columns across rows without sorting them alphabetically" do
+    html =
+      render_component(&SRQLComponents.srql_results_table/1,
+        id: "results",
+        rows: [%{"zeta" => 1}, %{"alpha" => 2}]
+      )
+
+    assert html =~ "zeta"
+    assert html =~ "alpha"
+    assert :binary.match(html, "zeta") < :binary.match(html, "alpha")
+  end
 end
