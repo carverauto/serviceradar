@@ -5,6 +5,14 @@
 
 //! Welford rolling statistics and the z-score breach function.
 
+/// When a baseline has zero or near-zero dispersion and no explicit per-series
+/// floor, use a small magnitude-aware denominator instead of `f64::EPSILON`.
+/// This prevents floor-less counter/rate series from treating a one-unit wiggle
+/// on a flat baseline as a critical anomaly while still letting large excursions
+/// score high.
+const NEAR_ZERO_STDDEV_ABS_FLOOR: f64 = 1.0;
+const NEAR_ZERO_STDDEV_REL_FLOOR: f64 = 0.05;
+
 /// A computed baseline: mean and standard deviation of a window of samples.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BaselineStats {
@@ -138,27 +146,60 @@ impl WelfordAcc {
 /// Two-pass mean/variance for a full slice (used to rebuild a baseline from a
 /// retained window tail when the incremental accumulator is invalidated).
 pub fn sample_stats(values: &[f64]) -> BaselineStats {
-    let count = values.len() as f64;
-    let mean = values.iter().sum::<f64>() / count;
-    let variance = values
+    let values = values
         .iter()
-        .map(|value| {
-            let delta = value - mean;
-            delta * delta
-        })
-        .sum::<f64>()
-        / (count - 1.0);
+        .copied()
+        .filter(|value| value.is_finite())
+        .collect::<Vec<_>>();
 
-    BaselineStats {
-        mean,
-        stddev: variance.max(0.0).sqrt(),
+    match values.as_slice() {
+        [] => BaselineStats {
+            mean: 0.0,
+            stddev: 0.0,
+        },
+        [value] => BaselineStats {
+            mean: *value,
+            stddev: 0.0,
+        },
+        values => {
+            let count = values.len() as f64;
+            let mean = values.iter().sum::<f64>() / count;
+            let variance = values
+                .iter()
+                .map(|value| {
+                    let delta = value - mean;
+                    delta * delta
+                })
+                .sum::<f64>()
+                / (count - 1.0);
+
+            BaselineStats {
+                mean,
+                stddev: variance.max(0.0).sqrt(),
+            }
+        }
+    }
+}
+
+fn near_zero_stddev_floor(mean: f64) -> f64 {
+    (mean.abs() * NEAR_ZERO_STDDEV_REL_FLOOR).max(NEAR_ZERO_STDDEV_ABS_FLOOR)
+}
+
+fn effective_scoring_stddev(stats: BaselineStats, min_std_floor: f64, min_cv: f64) -> f64 {
+    let configured = stats.effective_stddev(min_std_floor, min_cv);
+    let near_zero_floor = near_zero_stddev_floor(stats.mean);
+
+    if configured < near_zero_floor {
+        near_zero_floor
+    } else {
+        configured
     }
 }
 
 /// The breach score for `sample_value` against a baseline. Returns the absolute
-/// z-score in the normal case; for a zero-variance baseline it returns a
-/// magnitude-aware score that always clears `threshold` on any deviation but
-/// grows with the relative excursion so larger spikes outrank smaller ones.
+/// z-score in the normal case; for a zero/near-zero-variance baseline it divides
+/// by a magnitude-aware denominator so tiny floor-less counter-rate wiggles do
+/// not breach while larger excursions still rank higher and clear `threshold`.
 ///
 /// `min_std_floor` / `min_cv` raise the effective dispersion before dividing
 /// (see [`BaselineStats::effective_stddev`]); pass `0.0` for both to recover the
@@ -172,9 +213,9 @@ pub fn z_score(
     min_std_floor: f64,
     min_cv: f64,
 ) -> f64 {
-    let effective_stddev = stats.effective_stddev(min_std_floor, min_cv);
+    let effective_stddev = effective_scoring_stddev(stats, min_std_floor, min_cv);
 
-    if effective_stddev <= f64::EPSILON {
+    if effective_stddev <= 0.0 || !effective_stddev.is_finite() {
         let deviation = (sample_value - stats.mean).abs();
         if deviation <= f64::EPSILON {
             0.0
@@ -213,13 +254,15 @@ mod tests {
         let small = z_score(101.0, stats, threshold, 0.0, 0.0);
         let large = z_score(10_000.0, stats, threshold, 0.0, 0.0);
 
-        assert!(small >= threshold, "small deviation must still breach");
+        assert!(
+            small < threshold,
+            "a one-unit wiggle on a flat baseline must not breach"
+        );
         assert!(large >= threshold, "large deviation must still breach");
         assert!(
             large > small,
             "large deviation ({large}) must outrank small deviation ({small})"
         );
-        assert!(small >= threshold + 1.0);
     }
 
     #[test]
@@ -241,31 +284,69 @@ mod tests {
         let small = z_score(1.0, stats, threshold, 0.0, 0.0);
         let large = z_score(1_000_000.0, stats, threshold, 0.0, 0.0);
 
-        assert!(small >= threshold);
+        assert!(small < threshold);
         assert!(large > small);
+        assert!(large >= threshold);
         assert!(small.is_finite() && large.is_finite());
     }
 
     #[test]
-    fn min_std_floor_collapses_near_constant_wiggle() {
+    fn near_zero_stddev_uses_magnitude_floor() {
+        let stats = BaselineStats {
+            mean: 1_000.0,
+            stddev: f64::EPSILON,
+        };
+
+        let small = z_score(1_001.0, stats, 3.0, 0.0, 0.0);
+        let large = z_score(1_500.0, stats, 3.0, 0.0, 0.0);
+
+        assert!(
+            small < 3.0,
+            "near-zero stddev must not amplify a tiny wiggle into score {small}"
+        );
+        assert!(large >= 3.0, "large move must still breach, score {large}");
+    }
+
+    #[test]
+    fn sample_stats_is_defined_for_empty_and_singleton_windows() {
+        let empty = sample_stats(&[]);
+        assert_eq!(empty.mean, 0.0);
+        assert_eq!(empty.stddev, 0.0);
+
+        let singleton = sample_stats(&[42.0]);
+        assert_eq!(singleton.mean, 42.0);
+        assert_eq!(singleton.stddev, 0.0);
+        assert!(singleton.mean.is_finite() && singleton.stddev.is_finite());
+    }
+
+    #[test]
+    fn sample_stats_ignores_non_finite_values() {
+        let stats = sample_stats(&[10.0, f64::NAN, 12.0, f64::INFINITY]);
+
+        assert_eq!(stats.mean, 11.0);
+        assert!((stats.stddev - std::f64::consts::SQRT_2).abs() < 1e-12);
+    }
+
+    #[test]
+    fn near_constant_wiggle_does_not_breach_without_explicit_floor() {
         // The live false-fire: disk used_percent hovering at ~1.36% with ~0.01
-        // jitter has a tiny *nonzero* stddev, so the unfloored z-score on a
-        // 0.1-point bump is enormous. A 1.0-point absolute floor (percent units)
-        // collapses it to well under any sane sigma threshold.
+        // jitter has a tiny *nonzero* stddev. The built-in near-zero dispersion
+        // guard now collapses a 0.1-point bump even when no explicit per-series
+        // floor is configured; an explicit floor remains at least as safe.
         let stats = BaselineStats {
             mean: 1.36,
             stddev: 0.012,
         };
-        let unfloored = z_score(1.46, stats, 3.0, 0.0, 0.0);
-        let floored = z_score(1.46, stats, 3.0, 1.0, 0.05);
+        let guarded = z_score(1.46, stats, 3.0, 0.0, 0.0);
+        let explicit_floor = z_score(1.46, stats, 3.0, 1.0, 0.05);
 
         assert!(
-            unfloored > 3.0,
-            "premise: unfloored z {unfloored} must breach (the bug)"
+            guarded < 1.0,
+            "near-zero guarded z {guarded} must be tiny so a benign wiggle never breaches"
         );
         assert!(
-            floored < 1.0,
-            "floored z {floored} must be tiny so a benign wiggle never breaches"
+            explicit_floor < 1.0,
+            "explicitly floored z {explicit_floor} must also stay tiny"
         );
     }
 

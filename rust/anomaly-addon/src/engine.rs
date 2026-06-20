@@ -91,6 +91,12 @@ const COUNTER_MAX_GAP_NS: u64 = 2 * 60 * 60 * 1_000_000_000;
 /// rate used to sanity-check a wrap (central `@counter32_modulus`).
 const COUNTER32_MODULUS: f64 = 4_294_967_296.0;
 
+/// A series/counter that has not been observed for this long is eligible for
+/// eviction when a new key would otherwise hit the memory cap. This matches the
+/// counter discontinuity gap: after two hours the old sample is no longer useful
+/// for rate derivation or anomaly baseline continuity.
+const STATE_EVICTION_MAX_AGE_NS: u64 = COUNTER_MAX_GAP_NS;
+
 /// The retained baseline for one series. The rolling accumulator is recomputed
 /// from `window_tail` each evaluation (the stateless path), so only the bounded
 /// window tail and the confirm-slot counter need to persist between samples.
@@ -140,12 +146,30 @@ impl DetectorEngine {
         self.config = config;
     }
 
+    pub fn config(&self) -> EngineConfig {
+        self.config.clone()
+    }
+
     pub fn series_count(&self) -> usize {
         self.series.len()
     }
 
+    pub fn counter_count(&self) -> usize {
+        self.counters.len()
+    }
+
     pub fn max_series(&self) -> usize {
         self.config.max_series
+    }
+
+    fn evict_stale_state(&mut self, now_unix_nano: u64) {
+        self.series.retain(|_, state| {
+            now_unix_nano.saturating_sub(state.last_observed_at_unix_nano)
+                <= STATE_EVICTION_MAX_AGE_NS
+        });
+        self.counters.retain(|_, counter| {
+            now_unix_nano.saturating_sub(counter.timestamp) <= STATE_EVICTION_MAX_AGE_NS
+        });
     }
 
     /// Rate-normalize one cumulative-monotonic counter reading against this
@@ -166,6 +190,28 @@ impl DetectorEngine {
         reset_anchor: &str,
         counter_width: u32,
     ) -> Option<f64> {
+        self.normalize_counter_with_max_rate(
+            series_key,
+            raw_value,
+            observed_at_unix_nano,
+            reset_anchor,
+            counter_width,
+            None,
+        )
+    }
+
+    /// Same as [`Self::normalize_counter`], but lets the caller pass a
+    /// per-sample plausible maximum rate when the producer knows the physical
+    /// counter bound (for example an interface speed).
+    pub fn normalize_counter_with_max_rate(
+        &mut self,
+        series_key: &str,
+        raw_value: f64,
+        observed_at_unix_nano: u64,
+        reset_anchor: &str,
+        counter_width: u32,
+        max_counter_rate_per_second: Option<f64>,
+    ) -> Option<f64> {
         if !raw_value.is_finite() || raw_value < 0.0 {
             return None;
         }
@@ -179,6 +225,13 @@ impl DetectorEngine {
         let previous = match self.counters.get(series_key) {
             // Warmup: store the first reading, emit nothing (a rate needs two).
             None => {
+                if self.counters.len() >= self.config.max_series {
+                    self.evict_stale_state(observed_at_unix_nano);
+                }
+                if self.counters.len() >= self.config.max_series {
+                    self.dropped_at_capacity = self.dropped_at_capacity.saturating_add(1);
+                    return None;
+                }
                 self.counters.insert(series_key.to_owned(), current);
                 return None;
             }
@@ -210,6 +263,7 @@ impl DetectorEngine {
             current.value,
             counter_width,
             elapsed_seconds,
+            max_counter_rate_per_second,
         );
 
         // Advance across the interval whether or not a delta was salvageable
@@ -240,9 +294,14 @@ impl DetectorEngine {
             return None;
         }
 
-        if !self.series.contains_key(series_key) && self.series.len() >= self.config.max_series {
-            self.dropped_at_capacity = self.dropped_at_capacity.saturating_add(1);
-            return None;
+        if !self.series.contains_key(series_key) {
+            if self.series.len() >= self.config.max_series {
+                self.evict_stale_state(observed_at_unix_nano);
+            }
+            if self.series.len() >= self.config.max_series {
+                self.dropped_at_capacity = self.dropped_at_capacity.saturating_add(1);
+                return None;
+            }
         }
 
         let state = self
@@ -445,6 +504,11 @@ impl DetectorEngine {
             if !fresh(counter.timestamp) {
                 continue;
             }
+            if !self.counters.contains_key(&counter.series_key)
+                && self.counters.len() >= self.config.max_series
+            {
+                continue;
+            }
             self.counters.insert(
                 counter.series_key,
                 CounterState {
@@ -468,26 +532,53 @@ fn reset_anchor_changed(previous: &str, current: &str) -> bool {
 
 /// The counter increment over one interval: a normal increase is `current -
 /// previous`; a decrease is salvaged only as a plausible 32-bit wrap (the wrapped
-/// delta must imply a per-second rate within the modulus). A 64-bit decrease, or
-/// an implausible 32-bit decrease, yields `None` (drop the interval).
+/// delta must imply a per-second rate within the supplied per-sample max, falling
+/// back to the 32-bit modulus). A 64-bit/unknown-width decrease, or an implausible
+/// 32-bit decrease, yields `None` (drop the interval).
 fn counter_delta(
     previous: f64,
     current: f64,
     counter_width: u32,
     elapsed_seconds: f64,
+    max_counter_rate_per_second: Option<f64>,
 ) -> Option<f64> {
+    if elapsed_seconds <= 0.0 {
+        return None;
+    }
+
     if current >= previous {
-        return Some(current - previous);
+        return plausible_counter_delta(
+            current - previous,
+            elapsed_seconds,
+            valid_counter_max_rate(max_counter_rate_per_second),
+        );
     }
 
     if counter_width == 32 {
         let wrapped = COUNTER32_MODULUS - previous + current;
-        if elapsed_seconds > 0.0 && wrapped / elapsed_seconds <= COUNTER32_MODULUS {
-            return Some(wrapped);
-        }
+        let max_rate =
+            valid_counter_max_rate(max_counter_rate_per_second).unwrap_or(COUNTER32_MODULUS);
+
+        return plausible_counter_delta(wrapped, elapsed_seconds, Some(max_rate));
     }
 
     None
+}
+
+fn valid_counter_max_rate(max_counter_rate_per_second: Option<f64>) -> Option<f64> {
+    max_counter_rate_per_second.filter(|rate| rate.is_finite() && *rate > 0.0)
+}
+
+fn plausible_counter_delta(delta: f64, elapsed_seconds: f64, max_rate: Option<f64>) -> Option<f64> {
+    if elapsed_seconds <= 0.0 {
+        return None;
+    }
+
+    if max_rate.is_some_and(|rate| delta / elapsed_seconds > rate) {
+        return None;
+    }
+
+    Some(delta)
 }
 
 #[cfg(test)]
@@ -637,6 +728,74 @@ mod tests {
     }
 
     #[test]
+    fn counter32_wrap_drops_when_max_rate_rules_it_out() {
+        let mut engine = DetectorEngine::new(EngineConfig::default());
+        let near_max = COUNTER32_MODULUS - 100.0;
+        engine.normalize_counter("c", near_max, 0, "b", 32);
+        // The wrapped delta would be 150/s, above the per-sample physical max.
+        assert_eq!(
+            engine.normalize_counter_with_max_rate("c", 50.0, 1_000_000_000, "b", 32, Some(100.0),),
+            None
+        );
+        // State still advances to the dropped point, so the next increase rates
+        // from 50 rather than repeatedly re-evaluating the same wrap.
+        let rate = engine
+            .normalize_counter("c", 75.0, 2_000_000_000, "b", 32)
+            .expect("rate");
+        assert!((rate - 25.0).abs() < 1e-9, "rate was {rate}");
+    }
+
+    #[test]
+    fn counter_increase_drops_when_max_rate_rules_it_out() {
+        let mut engine = DetectorEngine::new(EngineConfig::default());
+        engine.normalize_counter("c", 1_000.0, 0, "b", 64);
+
+        assert_eq!(
+            engine.normalize_counter_with_max_rate(
+                "c",
+                10_000.0,
+                1_000_000_000,
+                "b",
+                64,
+                Some(100.0),
+            ),
+            None
+        );
+
+        // State still advances to the dropped point, so the next plausible
+        // increase rates from 10000 rather than repeatedly scoring the jump.
+        let rate = engine
+            .normalize_counter_with_max_rate("c", 10_100.0, 2_000_000_000, "b", 64, Some(100.0))
+            .expect("rate");
+        assert!((rate - 100.0).abs() < 1e-9, "rate was {rate}");
+    }
+
+    #[test]
+    fn plausible_counter_delta_rejects_non_positive_elapsed() {
+        assert_eq!(plausible_counter_delta(100.0, 0.0, None), None);
+        assert_eq!(plausible_counter_delta(100.0, -1.0, None), None);
+        assert_eq!(plausible_counter_delta(100.0, 0.0, Some(1_000.0)), None);
+        assert_eq!(plausible_counter_delta(100.0, -1.0, Some(1_000.0)), None);
+    }
+
+    #[test]
+    fn unknown_width_decrease_drops() {
+        let mut engine = DetectorEngine::new(EngineConfig::default());
+        engine.normalize_counter("c", 5_000.0, 0, "b", 0);
+        assert_eq!(
+            engine.normalize_counter_with_max_rate(
+                "c",
+                1_000.0,
+                1_000_000_000,
+                "b",
+                0,
+                Some(COUNTER32_MODULUS),
+            ),
+            None
+        );
+    }
+
+    #[test]
     fn counter_gap_too_large_drops() {
         let mut engine = DetectorEngine::new(EngineConfig::default());
         engine.normalize_counter("c", 1_000.0, 0, "b", 64);
@@ -772,6 +931,96 @@ mod tests {
                 .evaluate("a", 2.0, 2, SeriesProfile::default())
                 .is_some()
         );
+    }
+
+    #[test]
+    fn counter_cap_drops_new_counter_series() {
+        let mut engine = DetectorEngine::new(EngineConfig {
+            max_series: 1,
+            ..EngineConfig::default()
+        });
+
+        assert_eq!(engine.normalize_counter("c1", 1_000.0, 1, "boot", 64), None);
+        assert_eq!(engine.counter_count(), 1);
+
+        assert_eq!(engine.normalize_counter("c2", 2_000.0, 2, "boot", 64), None);
+        assert_eq!(engine.counter_count(), 1);
+        assert_eq!(engine.dropped_at_capacity, 1);
+
+        let checkpoint = engine.export_checkpoint();
+        assert_eq!(checkpoint.counters.len(), 1);
+        assert_eq!(checkpoint.counters[0].series_key, "c1");
+    }
+
+    #[test]
+    fn restore_checkpoint_caps_counter_state() {
+        let checkpoint = EngineCheckpoint {
+            series: Vec::new(),
+            counters: vec![
+                CounterCheckpoint {
+                    series_key: "c1".to_string(),
+                    value: 1_000.0,
+                    timestamp: 1,
+                    reset_anchor: "boot".to_string(),
+                },
+                CounterCheckpoint {
+                    series_key: "c2".to_string(),
+                    value: 2_000.0,
+                    timestamp: 2,
+                    reset_anchor: "boot".to_string(),
+                },
+                CounterCheckpoint {
+                    series_key: "c3".to_string(),
+                    value: 3_000.0,
+                    timestamp: 3,
+                    reset_anchor: "boot".to_string(),
+                },
+            ],
+        };
+        let mut restored = DetectorEngine::new(EngineConfig {
+            max_series: 2,
+            ..EngineConfig::default()
+        });
+
+        assert_eq!(restored.restore_checkpoint(checkpoint, 4, u64::MAX), 0);
+        assert_eq!(restored.counter_count(), 2);
+    }
+
+    #[test]
+    fn stale_state_eviction_reclaims_capacity_for_fresh_series_and_counter() {
+        let mut engine = DetectorEngine::new(EngineConfig {
+            max_series: 1,
+            ..EngineConfig::default()
+        });
+        assert!(
+            engine
+                .evaluate("old-series", 1.0, 0, SeriesProfile::default())
+                .is_some()
+        );
+        assert_eq!(
+            engine.normalize_counter("old-counter", 1_000.0, 0, "boot", 64),
+            None
+        );
+        assert_eq!(engine.series_count(), 1);
+        assert_eq!(engine.counter_count(), 1);
+
+        let fresh_ts = STATE_EVICTION_MAX_AGE_NS + 1;
+        assert!(
+            engine
+                .evaluate("fresh-series", 2.0, fresh_ts, SeriesProfile::default())
+                .is_some(),
+            "stale detector state should be evicted before dropping a fresh series"
+        );
+        assert_eq!(engine.series_count(), 1);
+        assert_eq!(engine.counter_count(), 0);
+
+        assert_eq!(
+            engine.normalize_counter("fresh-counter", 2_000.0, fresh_ts, "boot", 64),
+            None,
+            "first fresh counter reading should be admitted as warmup"
+        );
+        assert_eq!(engine.counter_count(), 1);
+        assert_eq!(engine.dropped_at_capacity, 0);
     }
 
     /// The disk saturation profile the add-on assigns to a `sysmon.disk` series:

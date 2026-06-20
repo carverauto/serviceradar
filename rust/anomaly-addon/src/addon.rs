@@ -7,13 +7,15 @@
 //! (`metric-feed:v1`), runs the shared detector per series, and emits anomaly
 //! verdicts upstream over the native telemetry stream (`native-telemetry:v1`).
 
+use std::fmt::Display;
+use std::str::FromStr;
 use std::sync::{
-    Arc, Mutex,
+    Arc, Mutex, MutexGuard,
     atomic::{AtomicU64, Ordering},
 };
 
 use addon_sdk::metric_pb::{
-    Metric, MetricBatch, MetricKind, MetricPoint, MetricResource, MetricTemporality,
+    Metric, MetricBatch, MetricKind, MetricPoint, MetricResource, MetricTemporality, StringMapEntry,
 };
 use addon_sdk::pb::{MetricFeedAck, MetricFeedFrame, TelemetryBatch, TelemetryRecord};
 use addon_sdk::{
@@ -23,9 +25,11 @@ use addon_sdk::{
 };
 use async_trait::async_trait;
 use prost::Message;
+use serde::{Deserialize as _, de::Error as _};
 use serviceradar_anomaly_core::{ReasonVerdict, SaturationGate};
 use sha2::{Digest as _, Sha256};
 use tokio::sync::{broadcast, mpsc};
+use tokio::task::JoinHandle;
 use tokio_stream::StreamExt as _;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::Status;
@@ -37,7 +41,7 @@ use crate::engine::{
 };
 
 const ADDON_ID: &str = "anomaly";
-const ADDON_VERSION: &str = "0.1.5";
+const ADDON_VERSION: &str = "0.1.11";
 const VERDICT_CHANNEL_DEPTH: usize = 256;
 const ACK_CHANNEL_DEPTH: usize = 64;
 const OCSF_CLASS_EVENT_LOG_ACTIVITY: i64 = 1008;
@@ -55,10 +59,15 @@ const DEFAULT_CHECKPOINT_WRITE_EVERY: u64 = 100;
 /// `config.schema.json`). All fields optional; omitted ones keep the defaults.
 #[derive(Debug, Default, serde::Deserialize)]
 struct AddonConfig {
+    #[serde(default, deserialize_with = "deserialize_optional_usize")]
     window_size: Option<usize>,
+    #[serde(default, deserialize_with = "deserialize_optional_usize")]
     min_samples: Option<usize>,
+    #[serde(default, deserialize_with = "deserialize_optional_f64")]
     n_sigma: Option<f64>,
+    #[serde(default, deserialize_with = "deserialize_optional_usize")]
     confirm_slots: Option<usize>,
+    #[serde(default, deserialize_with = "deserialize_optional_usize")]
     max_series: Option<usize>,
     /// Optional GLOBAL dispersion-floor overrides (fix #2). When set, these only
     /// ever RAISE a series' built-in per-class floor (max), letting an operator
@@ -66,14 +75,64 @@ struct AddonConfig {
     /// series on its built-in default (0 for non-gauges, the gauge defaults for
     /// cpu/mem/disk). The central metric_class override channel remains a
     /// follow-up; this flat knob is the edge-only global override.
+    #[serde(default, deserialize_with = "deserialize_optional_f64")]
     min_std_floor: Option<f64>,
+    #[serde(default, deserialize_with = "deserialize_optional_f64")]
     min_cv: Option<f64>,
     /// Local path the add-on persists its per-series checkpoint to so a restart
     /// re-warms baselines instead of cold-starting. Unset disables checkpointing.
     checkpoint_path: Option<String>,
     /// Restart staleness bound in seconds (default 6h); series older than this
     /// are not reseeded.
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
     checkpoint_max_age_secs: Option<u64>,
+}
+
+fn deserialize_optional_usize<'de, D>(deserializer: D) -> Result<Option<usize>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserialize_optional_number(deserializer)
+}
+
+fn deserialize_optional_u64<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserialize_optional_number(deserializer)
+}
+
+fn deserialize_optional_f64<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserialize_optional_number(deserializer)
+}
+
+fn deserialize_optional_number<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned + FromStr,
+    T::Err: Display,
+{
+    let Some(value) = Option::<serde_json::Value>::deserialize(deserializer)? else {
+        return Ok(None);
+    };
+
+    match value {
+        serde_json::Value::Null => Ok(None),
+        serde_json::Value::String(value) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                Ok(None)
+            } else {
+                trimmed.parse::<T>().map(Some).map_err(D::Error::custom)
+            }
+        }
+        value => serde_json::from_value::<T>(value)
+            .map(Some)
+            .map_err(D::Error::custom),
+    }
 }
 
 /// Resolved checkpoint behavior derived from [`AddonConfig`]. `path` unset means
@@ -96,11 +155,20 @@ impl Default for CheckpointSettings {
 }
 
 impl AddonConfig {
-    fn into_engine_config(self) -> EngineConfig {
+    fn into_engine_config(self) -> Result<EngineConfig, String> {
         let base = EngineConfig::default();
-        EngineConfig {
-            window_size: self.window_size.unwrap_or(base.window_size).max(1),
-            min_samples: self.min_samples.unwrap_or(base.min_samples).max(1),
+        let window_size = self.window_size.unwrap_or(base.window_size).max(1);
+        let min_samples = self.min_samples.unwrap_or(base.min_samples).max(1);
+
+        if min_samples > window_size {
+            return Err(format!(
+                "min_samples ({min_samples}) must be less than or equal to window_size ({window_size})"
+            ));
+        }
+
+        Ok(EngineConfig {
+            window_size,
+            min_samples,
             n_sigma: self.n_sigma.unwrap_or(base.n_sigma),
             confirm_slots: self.confirm_slots.unwrap_or(base.confirm_slots).max(1),
             max_series: self.max_series.unwrap_or(base.max_series).max(1),
@@ -108,7 +176,7 @@ impl AddonConfig {
             // treated as "unset" so it can never weaken a gauge's safe floor.
             min_std_floor: self.min_std_floor.filter(|v| v.is_finite() && *v > 0.0),
             min_cv: self.min_cv.filter(|v| v.is_finite() && *v > 0.0),
-        }
+        })
     }
 }
 
@@ -175,6 +243,8 @@ pub struct AnomalyAddon {
     telemetry_drops: Arc<NativeTelemetryDropCounters>,
     /// Resolved at `configure`; read when a feed stream opens.
     checkpoint: Mutex<CheckpointSettings>,
+    /// The metric feed is single-owner: reconnecting replaces the prior scorer.
+    feed_task: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl Default for AnomalyAddon {
@@ -191,6 +261,63 @@ impl AnomalyAddon {
             verdict_tx,
             telemetry_drops: Arc::new(NativeTelemetryDropCounters::default()),
             checkpoint: Mutex::new(CheckpointSettings::default()),
+            feed_task: Mutex::new(None),
+        }
+    }
+
+    async fn stop_feed_task(&self) {
+        let handle = lock_feed_task(&self.feed_task).take();
+
+        if let Some(handle) = handle {
+            handle.abort();
+            let _ = handle.await;
+        }
+    }
+}
+
+impl Drop for AnomalyAddon {
+    fn drop(&mut self) {
+        if let Ok(slot) = self.feed_task.get_mut()
+            && let Some(handle) = slot.take()
+        {
+            handle.abort();
+        }
+    }
+}
+
+fn lock_engine(engine: &Arc<Mutex<DetectorEngine>>) -> MutexGuard<'_, DetectorEngine> {
+    match engine.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            let mut guard = poisoned.into_inner();
+            let config = guard.config();
+            *guard = DetectorEngine::new(config);
+            engine.clear_poison();
+            guard
+        }
+    }
+}
+
+fn lock_checkpoint_settings(
+    checkpoint: &Mutex<CheckpointSettings>,
+) -> MutexGuard<'_, CheckpointSettings> {
+    match checkpoint.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            let guard = poisoned.into_inner();
+            checkpoint.clear_poison();
+            guard
+        }
+    }
+}
+
+fn lock_feed_task(slot: &Mutex<Option<JoinHandle<()>>>) -> MutexGuard<'_, Option<JoinHandle<()>>> {
+    match slot.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            let guard = poisoned.into_inner();
+            slot.clear_poison();
+            guard
         }
     }
 }
@@ -228,17 +355,25 @@ impl Addon for AnomalyAddon {
 
         let settings = resolve_checkpoint_settings(&parsed);
 
-        self.engine
-            .lock()
-            .expect("engine mutex poisoned")
-            .set_config(parsed.into_engine_config());
+        let engine_config = match parsed.into_engine_config() {
+            Ok(config) => config,
+            Err(err) => {
+                return Ok(ConfigureResult {
+                    config_hash,
+                    accepted: false,
+                    error: format!("invalid anomaly add-on config: {err}"),
+                });
+            }
+        };
+
+        lock_engine(&self.engine).set_config(engine_config);
 
         // Re-warm from the on-disk checkpoint before scoring resumes, so a
         // restart does not storm false positives while windows refill.
         if let Some(path) = settings.path.clone() {
             load_checkpoint(&self.engine, &path, settings.max_age_ns);
         }
-        *self.checkpoint.lock().expect("checkpoint mutex poisoned") = settings;
+        *lock_checkpoint_settings(&self.checkpoint) = settings;
 
         Ok(ConfigureResult {
             config_hash,
@@ -263,6 +398,11 @@ impl Addon for AnomalyAddon {
         })
     }
 
+    async fn shutdown(&self) -> anyhow::Result<()> {
+        self.stop_feed_task().await;
+        Ok(())
+    }
+
     /// Hand the agent a verdict stream subscription. Every call gets a fresh
     /// receiver; lagging clients drop locally and reconnecting clients can
     /// subscribe without restarting the add-on. Native telemetry is at-most-once:
@@ -279,14 +419,14 @@ impl Addon for AnomalyAddon {
         let engine = self.engine.clone();
         let verdict_tx = self.verdict_tx.clone();
         let telemetry_drops = self.telemetry_drops.clone();
-        let checkpoint = self
-            .checkpoint
-            .lock()
-            .expect("checkpoint mutex poisoned")
-            .clone();
+        let checkpoint = lock_checkpoint_settings(&self.checkpoint).clone();
         let (ack_tx, ack_rx) = mpsc::channel::<Result<MetricFeedAck, Status>>(ACK_CHANNEL_DEPTH);
 
-        tokio::spawn(async move {
+        if let Some(prior) = lock_feed_task(&self.feed_task).take() {
+            prior.abort();
+        }
+
+        let handle = tokio::spawn(async move {
             let mut frames = frames;
             let mut frame_count: u64 = 0;
             while let Some(item) = frames.next().await {
@@ -323,6 +463,7 @@ impl Addon for AnomalyAddon {
                 write_checkpoint(&engine, path);
             }
         });
+        *lock_feed_task(&self.feed_task) = Some(handle);
 
         Ok(Box::pin(ReceiverStream::new(ack_rx)))
     }
@@ -346,7 +487,7 @@ async fn process_frame(
     let mut records: Vec<TelemetryRecord> = Vec::new();
     let mut shed_report: Option<ShedReport> = None;
     {
-        let mut engine = engine.lock().expect("engine mutex poisoned");
+        let mut engine = lock_engine(engine);
         let dropped_before = engine.dropped_at_capacity;
         for metric in &batch.metrics {
             if is_process_metric(metric) {
@@ -376,12 +517,13 @@ async fn process_frame(
                 let series_key = series_key_for(&resource, metric, point);
 
                 let value = if counter {
-                    match engine.normalize_counter(
+                    match engine.normalize_counter_with_max_rate(
                         &series_key,
                         counter_raw_value(point),
                         point.observed_at_unix_nano,
                         &counter_reset_anchor(point),
-                        metric.counter_width,
+                        counter_width(metric, point),
+                        max_counter_rate_per_second(metric, point),
                     ) {
                         Some(rate) => rate,
                         // Warmup / reset / gap / non-monotonic: no sample this point.
@@ -418,6 +560,7 @@ async fn process_frame(
                 dropped_delta: dropped_after - dropped_before,
                 dropped_total: dropped_after,
                 tracked_series: engine.series_count(),
+                tracked_counters: engine.counter_count(),
                 max_series: engine.max_series(),
             });
         }
@@ -494,7 +637,7 @@ fn resolve_checkpoint_settings(config: &AddonConfig) -> CheckpointSettings {
 /// fresh checkpoint).
 fn write_checkpoint(engine: &Arc<Mutex<DetectorEngine>>, path: &Path) {
     let checkpoint = {
-        let engine = engine.lock().expect("engine mutex poisoned");
+        let engine = lock_engine(engine);
         engine.export_checkpoint()
     };
 
@@ -520,10 +663,7 @@ fn load_checkpoint(engine: &Arc<Mutex<DetectorEngine>>, path: &Path, max_age_ns:
     };
 
     let now = now_unix_nano();
-    engine
-        .lock()
-        .expect("engine mutex poisoned")
-        .restore_checkpoint(checkpoint, now, max_age_ns);
+    lock_engine(engine).restore_checkpoint(checkpoint, now, max_age_ns);
 }
 
 /// Wall-clock now in unix nanoseconds, for the restart staleness bound. Saturates
@@ -686,17 +826,141 @@ fn counter_reset_anchor(point: &MetricPoint) -> String {
     }
 }
 
-fn series_key_for(resource: &MetricResource, metric: &Metric, point: &MetricPoint) -> String {
-    if !point.series_identity_hint.is_empty() {
-        point.series_identity_hint.clone()
-    } else {
-        // Fallback when the producer did not stamp a hint: agent + metric +
-        // interface keeps distinct series apart on one host.
-        format!(
-            "{}|{}|{}",
-            resource.agent_id, metric.name, point.interface_uid
-        )
+/// Counter width can arrive as the typed metric field or as legacy metadata keys.
+/// Preserve central's old metadata fallback so a zero proto field does not
+/// silently suppress otherwise-corroborated 32-bit wrap handling.
+fn counter_width(metric: &Metric, point: &MetricPoint) -> u32 {
+    if metric.counter_width > 0 {
+        return metric.counter_width;
     }
+
+    metadata_u32_value(point, &["counter_width", "counter_bits", "pdu_width"])
+        .or_else(|| metadata_u32_value(metric, &["counter_width", "counter_bits", "pdu_width"]))
+        .unwrap_or(0)
+}
+
+fn max_counter_rate_per_second(metric: &Metric, point: &MetricPoint) -> Option<f64> {
+    metadata_f64_value(point, &["max_counter_rate_per_second"])
+        .or_else(|| metadata_f64_value(metric, &["max_counter_rate_per_second"]))
+        .filter(|rate| rate.is_finite() && *rate > 0.0)
+}
+
+trait MetadataEntries {
+    fn metadata_entries(&self) -> &[StringMapEntry];
+}
+
+impl MetadataEntries for Metric {
+    fn metadata_entries(&self) -> &[StringMapEntry] {
+        &self.metadata
+    }
+}
+
+impl MetadataEntries for MetricPoint {
+    fn metadata_entries(&self) -> &[StringMapEntry] {
+        &self.metadata
+    }
+}
+
+fn metadata_u32_value(source: &impl MetadataEntries, keys: &[&str]) -> Option<u32> {
+    metadata_entry_value(source, keys).and_then(|value| value.parse::<u32>().ok())
+}
+
+fn metadata_f64_value(source: &impl MetadataEntries, keys: &[&str]) -> Option<f64> {
+    metadata_entry_value(source, keys).and_then(|value| value.parse::<f64>().ok())
+}
+
+fn metadata_entry_value<'a>(source: &'a impl MetadataEntries, keys: &[&str]) -> Option<&'a str> {
+    keys.iter().find_map(|key| {
+        source
+            .metadata_entries()
+            .iter()
+            .find(|entry| entry.key == *key)
+            .map(|entry| entry.value.as_str())
+    })
+}
+
+fn series_key_for(resource: &MetricResource, metric: &Metric, point: &MetricPoint) -> String {
+    let partition = if resource.partition.is_empty() {
+        "default"
+    } else {
+        resource.partition.as_str()
+    };
+
+    if !point.series_identity_hint.is_empty() {
+        [
+            "v2".to_string(),
+            safe_component("partition", partition),
+            safe_component("hint", &point.series_identity_hint),
+        ]
+        .join("|")
+    } else {
+        // Fallback when the producer did not stamp a hint: resource identity +
+        // metric + interface keeps distinct series apart on one host. Remote
+        // SNMP polls use the polled target, not the polling agent host.
+        let resource_identity = series_resource_identity(resource, metric);
+        let mut components = vec![
+            "v2".to_string(),
+            safe_component("partition", partition),
+            safe_component("identity", &resource_identity),
+            safe_component("metric", &metric.name),
+        ];
+
+        if !point.interface_uid.is_empty() {
+            components.push(safe_component("interface_uid", &point.interface_uid));
+        }
+
+        if point.if_index > 0 {
+            components.push(safe_component("if_index", &point.if_index.to_string()));
+        }
+
+        components.join("|")
+    }
+}
+
+fn safe_component(name: &str, value: &str) -> String {
+    format!("{name}={}", hex::encode(value.as_bytes()))
+}
+
+fn series_resource_identity(resource: &MetricResource, metric: &Metric) -> String {
+    let metric_class = metric_class(metric);
+    first_non_empty(&[
+        resource.device_id.as_str(),
+        snmp_target_identity(resource, metric_class),
+        resource.host_id.as_str(),
+        resource.agent_id.as_str(),
+        resource.host_ip.as_str(),
+    ])
+    .to_string()
+}
+
+fn anomaly_device_uid<'a>(resource: &'a MetricResource, metric_class: &str) -> &'a str {
+    first_non_empty(&[
+        resource.device_id.as_str(),
+        snmp_target_identity(resource, metric_class),
+        resource.host_id.as_str(),
+        resource.agent_id.as_str(),
+        resource.host_ip.as_str(),
+    ])
+}
+
+fn metric_class(metric: &Metric) -> &str {
+    if metric.metric_type.is_empty() {
+        "metric"
+    } else {
+        metric.metric_type.as_str()
+    }
+}
+
+fn snmp_target_identity<'a>(resource: &'a MetricResource, metric_class: &str) -> &'a str {
+    if is_snmp_metric_class(metric_class) && !resource.target_device_ip.is_empty() {
+        resource.target_device_ip.as_str()
+    } else {
+        ""
+    }
+}
+
+fn is_snmp_metric_class(metric_class: &str) -> bool {
+    metric_class == "snmp" || metric_class.starts_with("snmp.")
 }
 
 /// Merge the attested distinguishing tags into a JSON object for `source_identity`:
@@ -745,17 +1009,8 @@ fn verdict_record(
     let status = anomaly_lifecycle_status(transition);
     let message = anomaly_lifecycle_message(transition, &verdict.reason);
 
-    let metric_class = if metric.metric_type.is_empty() {
-        "metric"
-    } else {
-        metric.metric_type.as_str()
-    };
-    let device_uid = first_non_empty(&[
-        resource.device_id.as_str(),
-        resource.host_id.as_str(),
-        resource.agent_id.as_str(),
-        resource.host_ip.as_str(),
-    ]);
+    let metric_class = metric_class(metric);
+    let device_uid = anomaly_device_uid(resource, metric_class);
 
     let event_id = format!("anomaly:{series_key}:{ts_nano}:{lifecycle_state}");
     let finding_uid =
@@ -780,6 +1035,7 @@ fn verdict_record(
         "severity_id": severity_id,
         "device_uid": device_uid,
         "device_id": device_uid,
+        "target_device_ip": &resource.target_device_ip,
         "message": message,
         "finding_info": {
             "uid": finding_uid,
@@ -808,6 +1064,7 @@ fn verdict_record(
             "series_key": series_key,
             "metric_class": metric_class,
             "state": lifecycle_state,
+            "target_device_ip": &resource.target_device_ip,
             "detector_state": &verdict.state,
             "reason": &verdict.reason,
             "score": verdict.score,
@@ -887,6 +1144,7 @@ struct ShedReport {
     dropped_delta: u64,
     dropped_total: u64,
     tracked_series: usize,
+    tracked_counters: usize,
     max_series: usize,
 }
 
@@ -920,8 +1178,8 @@ fn shed_record(resource: &MetricResource, feed_id: u64, report: ShedReport) -> T
         "status": "Success",
         "status_code": "anomaly_capacity_shed",
         "message": format!(
-            "Anomaly add-on shed {} new series at capacity ({} tracked of max {})",
-            report.dropped_delta, report.tracked_series, report.max_series
+            "Anomaly add-on shed {} new series at capacity ({} detector series, {} counters of max {})",
+            report.dropped_delta, report.tracked_series, report.tracked_counters, report.max_series
         ),
         "log_name": "anomaly.capacity",
         "log_provider": ADDON_ID,
@@ -954,6 +1212,7 @@ fn shed_record(resource: &MetricResource, feed_id: u64, report: ShedReport) -> T
             "dropped_series_delta": report.dropped_delta,
             "dropped_series_total": report.dropped_total,
             "tracked_series": report.tracked_series,
+            "tracked_counters": report.tracked_counters,
             "max_series": report.max_series
         }
     });
@@ -982,6 +1241,9 @@ mod tests {
     use super::*;
     use addon_sdk::metric_pb::StringMapEntry;
     use broadcast::error::TryRecvError;
+    use tokio::sync::mpsc;
+    use tokio::time::{Duration, timeout};
+    use tokio_stream::wrappers::ReceiverStream;
 
     fn entry(key: &str, value: &str) -> StringMapEntry {
         StringMapEntry {
@@ -1006,6 +1268,50 @@ mod tests {
         }
     }
 
+    #[test]
+    fn counter_width_prefers_typed_metric_field() {
+        let metric = Metric {
+            counter_width: 64,
+            metadata: vec![entry("counter_width", "32")],
+            ..Default::default()
+        };
+
+        assert_eq!(counter_width(&metric, &MetricPoint::default()), 64);
+    }
+
+    #[test]
+    fn counter_width_falls_back_to_point_then_metric_metadata() {
+        let metric = Metric {
+            metadata: vec![entry("counter_bits", "64")],
+            ..Default::default()
+        };
+        let point = MetricPoint {
+            metadata: vec![entry("pdu_width", "32")],
+            ..Default::default()
+        };
+
+        assert_eq!(counter_width(&metric, &point), 32);
+        assert_eq!(counter_width(&metric, &MetricPoint::default()), 64);
+    }
+
+    #[test]
+    fn max_counter_rate_uses_point_metadata_before_metric_metadata() {
+        let metric = Metric {
+            metadata: vec![entry("max_counter_rate_per_second", "1000")],
+            ..Default::default()
+        };
+        let point = MetricPoint {
+            metadata: vec![entry("max_counter_rate_per_second", "250")],
+            ..Default::default()
+        };
+
+        assert_eq!(max_counter_rate_per_second(&metric, &point), Some(250.0));
+        assert_eq!(
+            max_counter_rate_per_second(&metric, &MetricPoint::default()),
+            Some(1000.0)
+        );
+    }
+
     fn anomaly_metric_batch(value: f64, observed_at_unix_nano: u64) -> MetricBatch {
         MetricBatch {
             resource: Some(MetricResource {
@@ -1028,6 +1334,22 @@ mod tests {
             }],
             ..Default::default()
         }
+    }
+
+    fn metric_feed_frame(feed_id: u64, value: f64) -> MetricFeedFrame {
+        MetricFeedFrame {
+            feed_id,
+            source: None,
+            payload: anomaly_metric_batch(value, feed_id).encode_to_vec(),
+        }
+    }
+
+    fn metric_feed_stream() -> (
+        mpsc::Sender<Result<MetricFeedFrame, Status>>,
+        MetricFeedStream,
+    ) {
+        let (tx, rx) = mpsc::channel(4);
+        (tx, Box::pin(ReceiverStream::new(rx)))
     }
 
     async fn process_anomaly_value(
@@ -1062,6 +1384,90 @@ mod tests {
 
     fn telemetry_drop_counters() -> Arc<NativeTelemetryDropCounters> {
         Arc::new(NativeTelemetryDropCounters::default())
+    }
+
+    #[test]
+    fn config_empty_optional_numbers_fall_back_to_defaults() {
+        let config: AddonConfig = serde_json::from_value(serde_json::json!({
+            "window_size": "",
+            "min_samples": "",
+            "n_sigma": "",
+            "confirm_slots": "",
+            "max_series": "",
+            "min_std_floor": "",
+            "min_cv": "",
+            "checkpoint_max_age_secs": ""
+        }))
+        .expect("empty strings should deserialize as unset optional knobs");
+
+        let base = EngineConfig::default();
+        let resolved = config.into_engine_config().expect("default config");
+        assert_eq!(resolved.window_size, base.window_size);
+        assert_eq!(resolved.min_samples, base.min_samples);
+        assert_eq!(resolved.n_sigma, base.n_sigma);
+        assert_eq!(resolved.confirm_slots, base.confirm_slots);
+        assert_eq!(resolved.max_series, base.max_series);
+        assert_eq!(resolved.min_std_floor, None);
+        assert_eq!(resolved.min_cv, None);
+    }
+
+    #[test]
+    fn config_accepts_numeric_strings_for_optional_numbers() {
+        let config: AddonConfig = serde_json::from_value(serde_json::json!({
+            "window_size": "42",
+            "min_samples": "7",
+            "n_sigma": "2.5",
+            "confirm_slots": "3",
+            "max_series": "1234",
+            "min_std_floor": "0.25",
+            "min_cv": "0.10",
+            "checkpoint_max_age_secs": "60"
+        }))
+        .expect("numeric strings should deserialize");
+
+        let checkpoint = resolve_checkpoint_settings(&config);
+        assert_eq!(checkpoint.max_age_ns, 60_000_000_000);
+
+        let resolved = config.into_engine_config().expect("valid config");
+        assert_eq!(resolved.window_size, 42);
+        assert_eq!(resolved.min_samples, 7);
+        assert_eq!(resolved.n_sigma, 2.5);
+        assert_eq!(resolved.confirm_slots, 3);
+        assert_eq!(resolved.max_series, 1234);
+        assert_eq!(resolved.min_std_floor, Some(0.25));
+        assert_eq!(resolved.min_cv, Some(0.10));
+    }
+
+    #[test]
+    fn config_rejects_min_samples_larger_than_window_size() {
+        let config: AddonConfig = serde_json::from_value(serde_json::json!({
+            "window_size": 5,
+            "min_samples": 6
+        }))
+        .expect("shape is valid");
+
+        let err = config
+            .into_engine_config()
+            .expect_err("must reject cold window");
+        assert!(err.contains("min_samples (6)"));
+        assert!(err.contains("window_size (5)"));
+    }
+
+    #[tokio::test]
+    async fn configure_rejects_min_samples_larger_than_window_size() {
+        let addon = AnomalyAddon::new();
+
+        let result = addon
+            .configure(br#"{"window_size":5,"min_samples":6}"#)
+            .await
+            .expect("configure returns result");
+
+        assert!(!result.accepted);
+        assert!(
+            result
+                .error
+                .contains("min_samples (6) must be less than or equal to window_size (5)")
+        );
     }
 
     #[test]
@@ -1207,6 +1613,110 @@ mod tests {
     }
 
     #[test]
+    fn snmp_remote_target_drives_edge_verdict_identity() {
+        let resource = MetricResource {
+            agent_id: "agent-ns03".to_string(),
+            host_id: "ns03".to_string(),
+            host_ip: "10.0.0.10".to_string(),
+            target_device_ip: "10.0.0.20".to_string(),
+            partition: "demo".to_string(),
+            ..Default::default()
+        };
+        let metric = Metric {
+            name: "ifHCInOctets".to_string(),
+            metric_type: "snmp".to_string(),
+            ..Default::default()
+        };
+        let point = MetricPoint {
+            value: 1234.0,
+            observed_at_unix_nano: 1_812_456_000_000_000_000,
+            if_index: 7,
+            interface_uid: "ifindex:7".to_string(),
+            ..Default::default()
+        };
+        let series_key = series_key_for(&resource, &metric, &point);
+        let verdict = ReasonVerdict {
+            state: "anomalous".to_string(),
+            anomalous: true,
+            breached: true,
+            include_in_baseline: false,
+            next_consecutive_anomalous: 1,
+            score: 4.2,
+            reason: "test breach".to_string(),
+            baseline_count: 30,
+            next_rolling_acc: serviceradar_anomaly_core::WelfordAcc::default(),
+            next_window_tail: Vec::new(),
+            sample_value: 1234.0,
+            observed_at_unix_nano: Some(1_812_456_000_000_000_000),
+            signals: Vec::new(),
+        };
+
+        let record = verdict_record(
+            &resource,
+            &metric,
+            &point,
+            &series_key,
+            &verdict,
+            AnomalyTransition::Open,
+        );
+        let event: serde_json::Value = serde_json::from_slice(&record.payload).unwrap();
+
+        assert_eq!(
+            series_key,
+            [
+                "v2".to_string(),
+                safe_component("partition", "demo"),
+                safe_component("identity", "10.0.0.20"),
+                safe_component("metric", "ifHCInOctets"),
+                safe_component("interface_uid", "ifindex:7"),
+                safe_component("if_index", "7"),
+            ]
+            .join("|")
+        );
+        assert_eq!(event["device_uid"], "10.0.0.20");
+        assert_eq!(event["device_id"], "10.0.0.20");
+        assert_eq!(event["target_device_ip"], "10.0.0.20");
+        assert_eq!(event["anomaly"]["target_device_ip"], "10.0.0.20");
+        assert_eq!(event["source_identity"]["target_device_ip"], "10.0.0.20");
+        assert_eq!(event["source_identity"]["agent_id"], "agent-ns03");
+    }
+
+    #[test]
+    fn edge_series_key_encodes_partition_and_hint_boundaries() {
+        let metric = Metric {
+            name: "cpu.usage".to_string(),
+            metric_type: "sysmon.cpu".to_string(),
+            ..Default::default()
+        };
+        let point = MetricPoint {
+            series_identity_hint: "host:a|core:0".to_string(),
+            ..Default::default()
+        };
+
+        let first = MetricResource {
+            partition: "prod:east".to_string(),
+            ..Default::default()
+        };
+        let second = MetricResource {
+            partition: "prod".to_string(),
+            ..Default::default()
+        };
+        let second_point = MetricPoint {
+            series_identity_hint: "east|host:a|core:0".to_string(),
+            ..Default::default()
+        };
+
+        let first_key = series_key_for(&first, &metric, &point);
+        let second_key = series_key_for(&second, &metric, &second_point);
+
+        assert_ne!(first_key, second_key);
+        assert!(first_key.contains(&safe_component("partition", "prod:east")));
+        assert!(first_key.contains(&safe_component("hint", "host:a|core:0")));
+        assert!(!first_key.contains("prod:east"));
+        assert!(!first_key.contains("host:a|core:0"));
+    }
+
+    #[test]
     fn shed_record_is_operational_ocsf_event_not_an_anomaly() {
         let resource = MetricResource {
             agent_id: "agent-a".to_string(),
@@ -1221,6 +1731,7 @@ mod tests {
                 dropped_delta: 3,
                 dropped_total: 10,
                 tracked_series: 1,
+                tracked_counters: 2,
                 max_series: 1,
             },
         );
@@ -1234,6 +1745,7 @@ mod tests {
         assert_eq!(event["status_code"], "anomaly_capacity_shed");
         assert_eq!(event["unmapped"]["dropped_series_delta"], 3);
         assert_eq!(event["unmapped"]["dropped_series_total"], 10);
+        assert_eq!(event["unmapped"]["tracked_counters"], 2);
         assert!(event.get("anomaly").is_none());
         assert_ne!(
             event.get("event_type").and_then(|v| v.as_str()),
@@ -1305,6 +1817,7 @@ mod tests {
         assert_eq!(event["status_code"], "anomaly_capacity_shed");
         assert_eq!(event["unmapped"]["dropped_series_delta"], 2);
         assert_eq!(event["unmapped"]["feed_id"], 7);
+        assert_eq!(event["unmapped"]["tracked_counters"], 0);
         assert_eq!(engine.lock().unwrap().dropped_at_capacity, 2);
     }
 
@@ -1350,6 +1863,79 @@ mod tests {
                 Some("after-reconnect")
             );
         }
+    }
+
+    #[tokio::test]
+    async fn metric_feed_reopen_aborts_prior_scorer() {
+        let addon = AnomalyAddon::new();
+        let (old_tx, old_frames) = metric_feed_stream();
+        let mut old_acks = addon
+            .stream_metric_feed(old_frames)
+            .expect("old metric feed opens");
+
+        old_tx
+            .send(Ok(metric_feed_frame(1, 100.0)))
+            .await
+            .expect("old feed receiver");
+        let old_ack = old_acks
+            .next()
+            .await
+            .expect("old ack item")
+            .expect("old ack ok");
+        assert_eq!(old_ack.acked_feed_id, 1);
+
+        let (new_tx, new_frames) = metric_feed_stream();
+        let mut new_acks = addon
+            .stream_metric_feed(new_frames)
+            .expect("new metric feed opens");
+
+        let old_end = timeout(Duration::from_secs(1), old_acks.next())
+            .await
+            .expect("old ack stream closes after feed replacement");
+        assert!(old_end.is_none(), "old feed ack stream must close");
+        assert!(
+            old_tx.send(Ok(metric_feed_frame(2, 200.0))).await.is_err(),
+            "old feed sender must observe the aborted receiver"
+        );
+
+        new_tx
+            .send(Ok(metric_feed_frame(3, 300.0)))
+            .await
+            .expect("new feed receiver");
+        let new_ack = new_acks
+            .next()
+            .await
+            .expect("new ack item")
+            .expect("new ack ok");
+        assert_eq!(new_ack.acked_feed_id, 3);
+    }
+
+    #[tokio::test]
+    async fn shutdown_aborts_open_metric_feed_promptly() {
+        let addon = AnomalyAddon::new();
+        let (feed_tx, frames) = metric_feed_stream();
+        let mut acks = addon.stream_metric_feed(frames).expect("metric feed opens");
+
+        feed_tx
+            .send(Ok(metric_feed_frame(1, 100.0)))
+            .await
+            .expect("feed receiver");
+        let ack = acks.next().await.expect("ack item").expect("ack ok");
+        assert_eq!(ack.acked_feed_id, 1);
+
+        timeout(Duration::from_millis(200), addon.shutdown())
+            .await
+            .expect("shutdown completes inside grace window")
+            .expect("shutdown ok");
+
+        let end = timeout(Duration::from_millis(200), acks.next())
+            .await
+            .expect("ack stream closes after shutdown");
+        assert!(end.is_none(), "shutdown must close the ack stream");
+        assert!(
+            feed_tx.send(Ok(metric_feed_frame(2, 200.0))).await.is_err(),
+            "shutdown must drop the feed receiver"
+        );
     }
 
     #[tokio::test]
@@ -1403,6 +1989,33 @@ mod tests {
                 .degradation_reason
                 .contains("outbound_full_batches=1")
         );
+    }
+
+    #[tokio::test]
+    async fn poisoned_engine_mutex_recovers_before_scoring() {
+        let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig {
+            max_series: 7,
+            ..EngineConfig::default()
+        })));
+        let poison_engine = engine.clone();
+
+        let hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let result = std::panic::catch_unwind(move || {
+            let _guard = poison_engine.lock().expect("lock before poison");
+            panic!("poison engine mutex");
+        });
+        std::panic::set_hook(hook);
+        assert!(result.is_err());
+        assert!(engine.lock().is_err(), "test must poison the engine mutex");
+
+        let (tx, _rx) = broadcast::channel(4);
+        let telemetry_drops = telemetry_drop_counters();
+        process_frame(&engine, &tx, &telemetry_drops, &metric_feed_frame(1, 100.0)).await;
+
+        let guard = engine.lock().expect("process_frame clears engine poison");
+        assert_eq!(guard.series_count(), 1);
+        assert_eq!(guard.max_series(), 7);
     }
 
     #[tokio::test]

@@ -122,6 +122,8 @@ type Status struct {
 	Capabilities      []string  `json:"capabilities,omitempty"`
 	DegradationReason string    `json:"degradation_reason,omitempty"`
 	ConfigHash        string    `json:"config_hash,omitempty"`
+	ResourceCgroup    string    `json:"resource_cgroup,omitempty"`
+	ResourceLimitErr  string    `json:"resource_limit_error,omitempty"`
 	PID               int       `json:"pid,omitempty"`
 	RestartCount      int       `json:"restart_count"`
 	LastError         string    `json:"last_error,omitempty"`

@@ -402,6 +402,13 @@ pub trait Addon: Send + Sync + 'static {
     /// degradation reason.
     async fn health(&self) -> anyhow::Result<Health>;
 
+    /// Called when the host asks the plugin process to terminate. Add-ons with
+    /// long-lived stream tasks should close/abort them here so tonic's graceful
+    /// shutdown is not held open by in-flight RPCs.
+    async fn shutdown(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     /// Optional native telemetry stream. Add-ons that advertise
     /// [`CAPABILITY_NATIVE_TELEMETRY_V1`] should override this method and return
     /// bounded telemetry batches. The default empty stream keeps legacy add-ons
