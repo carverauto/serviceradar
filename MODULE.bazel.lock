@@ -5940,7 +5940,7 @@
           "REPO_MAPPING:rules_rust+,bazel_tools bazel_tools",
           "REPO_MAPPING:rules_rust+,rules_cc rules_cc+",
           "REPO_MAPPING:rules_rust+,rules_rust rules_rust+",
-          "FILE:@@//Cargo.lock 8457fe2db3faf8eb76edbf8c801c71b432e962e24a8c20ae79e67e513438a228",
+          "FILE:@@//Cargo.lock a7597435643b2cd5fa878abe5eb6e27aceb8230f60487df6a04bf6a2c74b100a",
           "FILE:@@//.cargo/config.toml 27c60a3b9d7893c0f4b12a98d0ebc58f6167511406c83ea185c3f661358ec6a9",
           "FILE:@@//Cargo.toml 17661287a6afe63841fcc32ee04e8c555361fbb64cd236fdb4335678dcc4ac46",
           "FILE:@@//rust/kvutil/Cargo.toml b3be705ec7c2fdc55874f79cc5629ae3ba1a50b228725f0c4f8785b34ae13fab",
@@ -5969,7 +5969,7 @@
           "FILE:@@//rust/otel-addon/Cargo.toml 9d85ffbd34bd424358585cbe3074f51afba27d79d97f0247ab61a95c480f0046",
           "FILE:@@//rust/metrics-delta-writer/Cargo.toml cd155c72eed2c24798de0c1f1e03d053c93853df245d42fb2f9e18522d1264c9",
           "FILE:@@//rust/anomaly-core/Cargo.toml a72300f6bbcdcdd4fd9280f0954a56d3f3b7e5b558ef3b0f62b32313f8f40011",
-          "FILE:@@//rust/anomaly-addon/Cargo.toml c4f957525ad9ba4b939f4b329db0b91fdf75ce5e9f1c8e5d44e63c45d998c7ec",
+          "FILE:@@//rust/anomaly-addon/Cargo.toml c9ea4ea85a3428a5de88c9813ae03a4d386b99a9b3a3ab78397b115b84eb1788",
           "FILE:@@//rust/causal-disposition/Cargo.toml 589ecf0daf22e4ff61e9eebcc13b6a2f31451c5ecba1e64bf8f8bc6dfc0032da"
         ],
         "generatedRepoSpecs": {
