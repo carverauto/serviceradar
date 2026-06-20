@@ -149,6 +149,26 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
     assert result.directives["endpoint_inventory"]["accepted"] == true
   end
 
+  test "completion reply callers get an admission ack before queued acknowledgement directives" do
+    Application.put_env(:serviceradar_core, :endpoint_inventory_queue_test_delay_ms, 200)
+    restart_queue()
+    flush_mailbox()
+
+    payload = %{"agent_id" => "agent-queue-reply", "scan_id" => "scan-queue-reply"}
+    reply_ref = make_ref()
+
+    assert :ok = EndpointInventoryIngestorQueue.enqueue_and_reply(payload, {self(), reply_ref})
+
+    assert_receive {:endpoint_inventory_ingest_started, ^payload, _opts}, 500
+    refute_receive {^reply_ref, _result}, 50
+
+    assert_receive {:endpoint_inventory_ingest_finished, ^payload}, 500
+
+    assert_receive {^reply_ref, {:ok, result}}, 500
+    assert result.agent_id == "agent-queue-reply"
+    assert result.directives["endpoint_inventory"]["accepted"] == true
+  end
+
   test "configured synchronous timeout is below the outer status call budget" do
     configured_timeout =
       Application.fetch_env!(:serviceradar_core, :endpoint_inventory_ingestor_timeout_ms)

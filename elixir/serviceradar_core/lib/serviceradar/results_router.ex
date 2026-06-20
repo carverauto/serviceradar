@@ -33,17 +33,22 @@ defmodule ServiceRadar.ResultsRouter do
 
   @impl true
   def handle_cast({:results_update, status}, state) do
-    _result = process_and_publish(status, wait_for_endpoint_inventory?: false)
+    _result = process_and_publish(status)
 
     {:noreply, state}
   end
 
   @impl true
   def handle_call({:results_update, status}, _from, state) do
-    {:reply, process_and_publish(status, wait_for_endpoint_inventory?: true), state}
+    {:reply, process_and_publish(status), state}
   end
 
-  defp process_and_publish(status, opts) do
+  @impl true
+  def handle_call({:results_update_async_reply, status, reply_to}, _from, state) do
+    {:reply, process_and_publish(status, endpoint_inventory_reply_to: reply_to), state}
+  end
+
+  defp process_and_publish(status, opts \\ []) do
     service_type = status[:service_type] || "unknown"
     source = status[:source] || "unknown"
     service_name = status[:service_name] || "unknown"
@@ -193,10 +198,9 @@ defmodule ServiceRadar.ResultsRouter do
       payload = Map.put_new(payload, "agent_id", status[:agent_id])
 
       if Application.get_env(:serviceradar_core, :endpoint_inventory_ingestor_async, true) do
-        if Keyword.get(opts, :wait_for_endpoint_inventory?, false) do
-          EndpointInventoryIngestorQueue.enqueue_and_wait(payload)
-        else
-          EndpointInventoryIngestorQueue.enqueue(payload)
+        case Keyword.fetch(opts, :endpoint_inventory_reply_to) do
+          {:ok, reply_to} -> EndpointInventoryIngestorQueue.enqueue_and_reply(payload, reply_to)
+          :error -> EndpointInventoryIngestorQueue.enqueue(payload)
         end
       else
         EndpointInventoryIngestor.ingest_report(payload)

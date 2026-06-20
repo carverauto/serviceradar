@@ -42,6 +42,15 @@ defmodule ServiceRadar.ResultsRouterTest do
         send(pid, {:endpoint_inventory_ingest, payload, opts})
       end
 
+      case Application.get_env(:serviceradar_core, :endpoint_inventory_router_test_delay_ms, 0) do
+        delay_ms when is_integer(delay_ms) and delay_ms > 0 -> Process.sleep(delay_ms)
+        _delay_ms -> :ok
+      end
+
+      if pid = Application.get_env(:serviceradar_core, :endpoint_inventory_router_test_pid) do
+        send(pid, {:endpoint_inventory_ingest_finished, payload})
+      end
+
       {:ok,
        %{
          agent_id: payload["agent_id"],
@@ -63,6 +72,12 @@ defmodule ServiceRadar.ResultsRouterTest do
 
     previous_endpoint_test_pid =
       Application.get_env(:serviceradar_core, :endpoint_inventory_router_test_pid)
+
+    previous_endpoint_test_delay =
+      Application.get_env(:serviceradar_core, :endpoint_inventory_router_test_delay_ms)
+
+    previous_endpoint_callback =
+      Application.get_env(:serviceradar_core, :endpoint_inventory_after_ingest_callback)
 
     Application.put_env(:serviceradar_core, :sync_ingestor, TestIngestor)
     Application.put_env(:serviceradar_core, :sync_ingestor_async, false)
@@ -106,6 +121,8 @@ defmodule ServiceRadar.ResultsRouterTest do
       restore_env(:endpoint_inventory_ingestor, previous_endpoint)
       restore_env(:endpoint_inventory_ingestor_async, previous_endpoint_async)
       restore_env(:endpoint_inventory_router_test_pid, previous_endpoint_test_pid)
+      restore_env(:endpoint_inventory_router_test_delay_ms, previous_endpoint_test_delay)
+      restore_env(:endpoint_inventory_after_ingest_callback, previous_endpoint_callback)
     end)
 
     :ok
@@ -529,11 +546,15 @@ defmodule ServiceRadar.ResultsRouterTest do
     assert Keyword.keyword?(opts)
   end
 
-  test "waits for endpoint inventory queue acknowledgement on synchronous status call" do
+  test "sync endpoint inventory status calls admit work and reply on ingest completion" do
     Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_async, true)
+    Application.put_env(:serviceradar_core, :endpoint_inventory_router_test_delay_ms, 200)
+
     restart_endpoint_inventory_queue()
 
     payload = %{"scan_id" => "scan-router-sync"}
+    reply_ref = make_ref()
+    reply_to = {self(), reply_ref}
 
     status = %{
       source: "results",
@@ -542,17 +563,29 @@ defmodule ServiceRadar.ResultsRouterTest do
       agent_id: "agent-router-sync"
     }
 
-    assert {:reply,
-            {:ok,
-             %{
-               agent_id: "agent-router-sync",
-               scan_id: "scan-router-sync",
-               directives: %{"endpoint_inventory" => %{"reconcile_floor" => true}}
-             }}, %{}} = ResultsRouter.handle_call({:results_update, status}, self(), %{})
+    assert {:reply, :ok, %{}} =
+             ResultsRouter.handle_call(
+               {:results_update_async_reply, status, reply_to},
+               self(),
+               %{}
+             )
 
     expected_payload = Map.put(payload, "agent_id", "agent-router-sync")
     assert_receive {:endpoint_inventory_ingest, ^expected_payload, opts}, 500
     assert Keyword.keyword?(opts)
+    refute_receive {:endpoint_inventory_ingest_finished, ^expected_payload}, 50
+    refute_receive {^reply_ref, _reply}, 50
+
+    assert_receive {:endpoint_inventory_ingest_finished, ^expected_payload}, 500
+
+    assert_receive {^reply_ref,
+                    {:ok,
+                     %{
+                       agent_id: "agent-router-sync",
+                       scan_id: "scan-router-sync",
+                       directives: %{"endpoint_inventory" => %{"reconcile_floor" => true}}
+                     }}},
+                   500
   end
 
   defp metric_batch_fixture, do: <<10, 22, "serviceradar.metric.v1">>

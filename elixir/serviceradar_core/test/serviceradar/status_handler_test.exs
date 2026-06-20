@@ -52,17 +52,18 @@ defmodule ServiceRadar.StatusHandlerTest do
     assert_receive {:forwarded, ^status}
   end
 
-  test "returns results router acknowledgement on synchronous status update" do
+  test "endpoint inventory synchronous status update replies after async router completion" do
     parent = self()
 
     router_pid =
       spawn(fn ->
         receive do
-          {:"$gen_call", from, {:results_update, status}} ->
+          {:"$gen_call", from, {:results_update_async_reply, status, reply_to}} ->
             send(parent, {:forwarded, status})
+            GenServer.reply(from, :ok)
 
             GenServer.reply(
-              from,
+              reply_to,
               {:ok, %{directives: %{"endpoint_inventory" => %{"reconcile_floor" => true}}}}
             )
         end
@@ -77,11 +78,16 @@ defmodule ServiceRadar.StatusHandlerTest do
       message: Jason.encode!(%{"scan_id" => "scan-1"})
     }
 
-    assert {:reply, {:ok, %{directives: %{"endpoint_inventory" => %{"reconcile_floor" => true}}}},
-            %{}} =
-             StatusHandler.handle_call({:status_update, status}, self(), %{})
+    reply_ref = make_ref()
+
+    assert {:noreply, %{}} =
+             StatusHandler.handle_call({:status_update, status}, {self(), reply_ref}, %{})
 
     assert_receive {:forwarded, ^status}
+
+    assert_receive {^reply_ref,
+                    {:ok, %{directives: %{"endpoint_inventory" => %{"reconcile_floor" => true}}}}},
+                   500
   end
 
   test "returns timeout error when synchronous ResultsRouter call exits" do
