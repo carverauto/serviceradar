@@ -9,7 +9,10 @@
 
 use std::fmt::Display;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{
+    Arc, Mutex, MutexGuard,
+    atomic::{AtomicU64, Ordering},
+};
 
 use addon_sdk::metric_pb::{
     Metric, MetricBatch, MetricKind, MetricPoint, MetricResource, MetricTemporality, StringMapEntry,
@@ -38,7 +41,7 @@ use crate::engine::{
 };
 
 const ADDON_ID: &str = "anomaly";
-const ADDON_VERSION: &str = "0.1.7";
+const ADDON_VERSION: &str = "0.1.11";
 const VERDICT_CHANNEL_DEPTH: usize = 256;
 const ACK_CHANNEL_DEPTH: usize = 64;
 const OCSF_CLASS_EVENT_LOG_ACTIVITY: i64 = 1008;
@@ -177,11 +180,67 @@ impl AddonConfig {
     }
 }
 
+#[derive(Default)]
+struct NativeTelemetryDropCounters {
+    no_subscriber_batches: AtomicU64,
+    // Broadcast lag is reported per receiver. This is a delivery-failure volume
+    // counter, so one skipped batch observed by two lagging receivers counts as
+    // two lagged receiver-batches.
+    lagged_batches: AtomicU64,
+    outbound_full_batches: AtomicU64,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct NativeTelemetryDropSnapshot {
+    no_subscriber_batches: u64,
+    lagged_batches: u64,
+    outbound_full_batches: u64,
+}
+
+impl NativeTelemetryDropCounters {
+    fn record_no_subscriber_batch(&self) {
+        self.no_subscriber_batches.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn record_lagged_batches(&self, count: u64) {
+        self.lagged_batches.fetch_add(count, Ordering::Relaxed);
+    }
+
+    fn record_outbound_full_batch(&self) {
+        self.outbound_full_batches.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn snapshot(&self) -> NativeTelemetryDropSnapshot {
+        NativeTelemetryDropSnapshot {
+            no_subscriber_batches: self.no_subscriber_batches.load(Ordering::Relaxed),
+            lagged_batches: self.lagged_batches.load(Ordering::Relaxed),
+            outbound_full_batches: self.outbound_full_batches.load(Ordering::Relaxed),
+        }
+    }
+}
+
+impl NativeTelemetryDropSnapshot {
+    fn total(self) -> u64 {
+        self.no_subscriber_batches + self.lagged_batches + self.outbound_full_batches
+    }
+
+    fn health_message(self) -> String {
+        format!(
+            "native telemetry delivery drops: total={} no_subscriber_batches={} lagged_receiver_batches={} outbound_full_batches={}",
+            self.total(),
+            self.no_subscriber_batches,
+            self.lagged_batches,
+            self.outbound_full_batches
+        )
+    }
+}
+
 /// Edge anomaly add-on. Shared (`Arc`) across concurrent gRPC calls, so all
 /// mutable state is behind a `Mutex`.
 pub struct AnomalyAddon {
     engine: Arc<Mutex<DetectorEngine>>,
     verdict_tx: broadcast::Sender<TelemetryBatch>,
+    telemetry_drops: Arc<NativeTelemetryDropCounters>,
     /// Resolved at `configure`; read when a feed stream opens.
     checkpoint: Mutex<CheckpointSettings>,
     /// The metric feed is single-owner: reconnecting replaces the prior scorer.
@@ -200,6 +259,7 @@ impl AnomalyAddon {
         Self {
             engine: Arc::new(Mutex::new(DetectorEngine::new(EngineConfig::default()))),
             verdict_tx,
+            telemetry_drops: Arc::new(NativeTelemetryDropCounters::default()),
             checkpoint: Mutex::new(CheckpointSettings::default()),
             feed_task: Mutex::new(None),
         }
@@ -323,10 +383,18 @@ impl Addon for AnomalyAddon {
     }
 
     async fn health(&self) -> anyhow::Result<Health> {
+        let drop_snapshot = self.telemetry_drops.snapshot();
         Ok(Health {
             status: HealthStatus::Healthy,
             version: ADDON_VERSION.to_string(),
-            degradation_reason: String::new(),
+            // Native telemetry is at-most-once. Drops are informational delivery
+            // diagnostics on an otherwise healthy scorer, and Health only exposes
+            // this freeform detail field for surfacing them to operators.
+            degradation_reason: if drop_snapshot.total() == 0 {
+                String::new()
+            } else {
+                drop_snapshot.health_message()
+            },
         })
     }
 
@@ -337,9 +405,11 @@ impl Addon for AnomalyAddon {
 
     /// Hand the agent a verdict stream subscription. Every call gets a fresh
     /// receiver; lagging clients drop locally and reconnecting clients can
-    /// subscribe without restarting the add-on.
+    /// subscribe without restarting the add-on. Native telemetry is at-most-once:
+    /// records produced while no subscriber exists or while a receiver lags are
+    /// dropped and counted in health diagnostics, not replayed.
     fn stream_telemetry(&self) -> TelemetryStream {
-        telemetry_stream_from_receiver(self.verdict_tx.subscribe())
+        telemetry_stream_from_receiver(self.verdict_tx.subscribe(), self.telemetry_drops.clone())
     }
 
     /// Consume the agent's local metric feed, score each sample, and ack frames.
@@ -348,6 +418,7 @@ impl Addon for AnomalyAddon {
     fn stream_metric_feed(&self, frames: MetricFeedStream) -> Result<MetricFeedAckStream, Status> {
         let engine = self.engine.clone();
         let verdict_tx = self.verdict_tx.clone();
+        let telemetry_drops = self.telemetry_drops.clone();
         let checkpoint = lock_checkpoint_settings(&self.checkpoint).clone();
         let (ack_tx, ack_rx) = mpsc::channel::<Result<MetricFeedAck, Status>>(ACK_CHANNEL_DEPTH);
 
@@ -363,7 +434,7 @@ impl Addon for AnomalyAddon {
                     Ok(frame) => frame,
                     Err(_) => break,
                 };
-                process_frame(&engine, &verdict_tx, &frame).await;
+                process_frame(&engine, &verdict_tx, &telemetry_drops, &frame).await;
 
                 // Persist the re-warm checkpoint on a frame cadence (best-effort;
                 // a write failure never blocks or fails the feed).
@@ -403,6 +474,7 @@ impl Addon for AnomalyAddon {
 async fn process_frame(
     engine: &Arc<Mutex<DetectorEngine>>,
     verdict_tx: &broadcast::Sender<TelemetryBatch>,
+    telemetry_drops: &NativeTelemetryDropCounters,
     frame: &MetricFeedFrame,
 ) {
     let batch = match MetricBatch::decode(frame.payload.as_slice()) {
@@ -506,20 +578,30 @@ async fn process_frame(
     for record in records {
         builder = builder.push_record(record);
     }
-    let _ = verdict_tx.send(builder.build());
+    if verdict_tx.send(builder.build()).is_err() {
+        telemetry_drops.record_no_subscriber_batch();
+    }
 }
 
-fn telemetry_stream_from_receiver(mut rx: broadcast::Receiver<TelemetryBatch>) -> TelemetryStream {
+fn telemetry_stream_from_receiver(
+    mut rx: broadcast::Receiver<TelemetryBatch>,
+    telemetry_drops: Arc<NativeTelemetryDropCounters>,
+) -> TelemetryStream {
     let (tx, out_rx) = mpsc::channel::<Result<TelemetryBatch, Status>>(VERDICT_CHANNEL_DEPTH);
 
     tokio::spawn(async move {
         loop {
             match rx.recv().await {
                 Ok(batch) => match tx.try_send(Ok(batch)) {
-                    Ok(()) | Err(mpsc::error::TrySendError::Full(_)) => {}
+                    Ok(()) => {}
+                    Err(mpsc::error::TrySendError::Full(_)) => {
+                        telemetry_drops.record_outbound_full_batch();
+                    }
                     Err(mpsc::error::TrySendError::Closed(_)) => break,
                 },
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Lagged(count)) => {
+                    telemetry_drops.record_lagged_batches(count);
+                }
                 Err(broadcast::error::RecvError::Closed) => break,
             }
         }
@@ -1273,6 +1355,7 @@ mod tests {
     async fn process_anomaly_value(
         engine: &Arc<Mutex<DetectorEngine>>,
         tx: &broadcast::Sender<TelemetryBatch>,
+        telemetry_drops: &NativeTelemetryDropCounters,
         value: f64,
         observed_at_unix_nano: u64,
     ) {
@@ -1282,7 +1365,7 @@ mod tests {
             payload: anomaly_metric_batch(value, observed_at_unix_nano).encode_to_vec(),
         };
 
-        process_frame(engine, tx, &frame).await;
+        process_frame(engine, tx, telemetry_drops, &frame).await;
     }
 
     fn assert_no_batch(rx: &mut broadcast::Receiver<TelemetryBatch>) {
@@ -1297,6 +1380,10 @@ mod tests {
 
     fn empty_telemetry_batch(source_instance: &str) -> TelemetryBatch {
         TelemetryBatchBuilder::new("test", source_instance).build()
+    }
+
+    fn telemetry_drop_counters() -> Arc<NativeTelemetryDropCounters> {
+        Arc::new(NativeTelemetryDropCounters::default())
     }
 
     #[test]
@@ -1721,7 +1808,8 @@ mod tests {
             payload: batch.encode_to_vec(),
         };
 
-        process_frame(&engine, &tx, &frame).await;
+        let telemetry_drops = telemetry_drop_counters();
+        process_frame(&engine, &tx, &telemetry_drops, &frame).await;
 
         let sent = rx.recv().await.expect("telemetry batch");
         assert_eq!(sent.records.len(), 1);
@@ -1736,7 +1824,8 @@ mod tests {
     #[tokio::test]
     async fn telemetry_stream_can_reconnect_and_survives_lag() {
         let (tx, rx) = broadcast::channel(1);
-        let mut stream = telemetry_stream_from_receiver(rx);
+        let telemetry_drops = telemetry_drop_counters();
+        let mut stream = telemetry_stream_from_receiver(rx, telemetry_drops.clone());
 
         let _ = tx.send(empty_telemetry_batch("old-1"));
         let _ = tx.send(empty_telemetry_batch("old-2"));
@@ -1754,9 +1843,10 @@ mod tests {
                 .map(|source| source.source_instance.as_str()),
             Some("latest")
         );
+        assert_eq!(telemetry_drops.snapshot().lagged_batches, 2);
 
-        let mut first = telemetry_stream_from_receiver(tx.subscribe());
-        let mut second = telemetry_stream_from_receiver(tx.subscribe());
+        let mut first = telemetry_stream_from_receiver(tx.subscribe(), telemetry_drops.clone());
+        let mut second = telemetry_stream_from_receiver(tx.subscribe(), telemetry_drops.clone());
         let _ = tx.send(empty_telemetry_batch("after-reconnect"));
 
         for stream in [&mut first, &mut second] {
@@ -1849,6 +1939,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn telemetry_stream_counts_outbound_queue_drops() {
+        let (tx, rx) = broadcast::channel(VERDICT_CHANNEL_DEPTH + 32);
+        let telemetry_drops = telemetry_drop_counters();
+        let mut stream = telemetry_stream_from_receiver(rx, telemetry_drops.clone());
+
+        for idx in 0..(VERDICT_CHANNEL_DEPTH + 8) {
+            let _ = tx.send(empty_telemetry_batch(&format!("batch-{idx}")));
+        }
+
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if telemetry_drops.snapshot().outbound_full_batches > 0 {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("stream bridge must count full outbound queue");
+
+        drop(stream.next().await);
+    }
+
+    #[tokio::test]
+    async fn health_reports_native_telemetry_drop_counts_without_degrading() {
+        let addon = AnomalyAddon::new();
+        addon.telemetry_drops.record_no_subscriber_batch();
+        addon.telemetry_drops.record_lagged_batches(2);
+        addon.telemetry_drops.record_outbound_full_batch();
+
+        let health = addon.health().await.expect("health");
+
+        assert_eq!(health.status, HealthStatus::Healthy);
+        assert_eq!(health.version, ADDON_VERSION);
+        assert!(health.degradation_reason.contains("total=4"));
+        assert!(
+            health
+                .degradation_reason
+                .contains("no_subscriber_batches=1")
+        );
+        assert!(
+            health
+                .degradation_reason
+                .contains("lagged_receiver_batches=2")
+        );
+        assert!(
+            health
+                .degradation_reason
+                .contains("outbound_full_batches=1")
+        );
+    }
+
+    #[tokio::test]
     async fn poisoned_engine_mutex_recovers_before_scoring() {
         let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig {
             max_series: 7,
@@ -1867,11 +2010,37 @@ mod tests {
         assert!(engine.lock().is_err(), "test must poison the engine mutex");
 
         let (tx, _rx) = broadcast::channel(4);
-        process_frame(&engine, &tx, &metric_feed_frame(1, 100.0)).await;
+        let telemetry_drops = telemetry_drop_counters();
+        process_frame(&engine, &tx, &telemetry_drops, &metric_feed_frame(1, 100.0)).await;
 
         let guard = engine.lock().expect("process_frame clears engine poison");
         assert_eq!(guard.series_count(), 1);
         assert_eq!(guard.max_series(), 7);
+    }
+
+    #[tokio::test]
+    async fn process_frame_counts_telemetry_without_subscriber() {
+        let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig {
+            window_size: 50,
+            min_samples: 5,
+            n_sigma: 3.0,
+            confirm_slots: 2,
+            max_series: 10,
+            ..EngineConfig::default()
+        })));
+        let (tx, _) = broadcast::channel(8);
+        let telemetry_drops = telemetry_drop_counters();
+
+        for ts in 1..=20 {
+            process_anomaly_value(&engine, &tx, &telemetry_drops, 100.0, ts).await;
+        }
+        assert_eq!(telemetry_drops.snapshot().no_subscriber_batches, 0);
+
+        process_anomaly_value(&engine, &tx, &telemetry_drops, 1_000.0, 21).await;
+        assert_eq!(telemetry_drops.snapshot().no_subscriber_batches, 0);
+
+        process_anomaly_value(&engine, &tx, &telemetry_drops, 1_000.0, 22).await;
+        assert_eq!(telemetry_drops.snapshot().no_subscriber_batches, 1);
     }
 
     #[tokio::test]
@@ -1885,25 +2054,26 @@ mod tests {
             ..EngineConfig::default()
         })));
         let (tx, mut rx) = broadcast::channel(8);
+        let telemetry_drops = telemetry_drop_counters();
 
         for ts in 1..=20 {
-            process_anomaly_value(&engine, &tx, 100.0, ts).await;
+            process_anomaly_value(&engine, &tx, &telemetry_drops, 100.0, ts).await;
         }
         assert_no_batch(&mut rx);
 
-        process_anomaly_value(&engine, &tx, 1_000.0, 21).await;
+        process_anomaly_value(&engine, &tx, &telemetry_drops, 1_000.0, 21).await;
         assert_no_batch(&mut rx);
 
-        process_anomaly_value(&engine, &tx, 1_000.0, 22).await;
+        process_anomaly_value(&engine, &tx, &telemetry_drops, 1_000.0, 22).await;
         let open = recv_single_event(&mut rx);
         assert_eq!(open["status"], "open");
         assert_eq!(open["anomaly"]["state"], "anomaly_open");
         assert_eq!(open["anomaly"]["detector_state"], "anomalous");
 
-        process_anomaly_value(&engine, &tx, 1_000.0, 23).await;
+        process_anomaly_value(&engine, &tx, &telemetry_drops, 1_000.0, 23).await;
         assert_no_batch(&mut rx);
 
-        process_anomaly_value(&engine, &tx, 100.0, 24).await;
+        process_anomaly_value(&engine, &tx, &telemetry_drops, 100.0, 24).await;
         let clear = recv_single_event(&mut rx);
         assert_eq!(clear["status"], "inactive");
         assert_eq!(clear["anomaly"]["state"], "anomaly_clear");
