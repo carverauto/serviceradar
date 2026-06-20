@@ -403,11 +403,15 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
   def handle_event("refresh_panel", %{"id" => id}, socket) do
     panel = Enum.find(socket.assigns.dashboard.panels || [], &(&1.id == id))
+    variables = DashboardVariables.list(socket.assigns.dashboard)
 
     case require_record(panel) do
       {:ok, panel} ->
-        result = RuntimeData.preview_panel_query(socket.assigns.current_scope, panel, socket.assigns.variable_values)
-        trend = RuntimeData.preview_trend_query(socket.assigns.current_scope, panel, socket.assigns.variable_values)
+        result =
+          RuntimeData.preview_panel_query(socket.assigns.current_scope, panel, socket.assigns.variable_values, variables)
+
+        trend =
+          RuntimeData.preview_trend_query(socket.assigns.current_scope, panel, socket.assigns.variable_values, variables)
 
         {:noreply,
          socket
@@ -892,12 +896,13 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
   defp reload_dashboard_panels(%{assigns: %{dashboard: %{id: dashboard_id} = dashboard}} = socket) do
     panels = Dashboards.list_authored_panels(socket.assigns.current_scope, dashboard_id)
+    variables = DashboardVariables.list(dashboard)
 
     results =
-      RuntimeData.panel_results(socket.assigns.current_scope, panels, socket.assigns.variable_values)
+      RuntimeData.panel_results(socket.assigns.current_scope, panels, socket.assigns.variable_values, variables)
 
     trends =
-      RuntimeData.trend_results(socket.assigns.current_scope, panels, socket.assigns.variable_values)
+      RuntimeData.trend_results(socket.assigns.current_scope, panels, socket.assigns.variable_values, variables)
 
     socket
     |> assign(:dashboard, Map.put(dashboard, :panels, panels))

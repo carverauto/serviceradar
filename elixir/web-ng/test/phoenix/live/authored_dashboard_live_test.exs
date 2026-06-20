@@ -10,12 +10,24 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
   defmodule SRQLStub do
     @moduledoc false
 
-    def query("series site:ZZA" <> _rest, _opts) do
+    def query(~S(series site:"MSP\" in:flows) <> _rest, _opts) do
+      {:ok, %{"results" => [%{"service" => "escaped-literal", "status" => "ok", "value" => 30}]}}
+    end
+
+    def query(~s(series site:"ZZA) <> _rest, _opts) do
       {:ok, %{"results" => [%{"service" => "iah-core", "status" => "ok", "value" => 10}]}}
     end
 
-    def query("series site:MSP" <> _rest, _opts) do
+    def query(~s(series site:"MSP) <> _rest, _opts) do
       {:ok, %{"results" => [%{"service" => "msp-core", "status" => "ok", "value" => 20}]}}
+    end
+
+    def query(~s(series site:MSP" in:flows) <> _rest, _opts) do
+      {:ok, %{"results" => [%{"service" => "flow-secret", "status" => "leaked", "value" => 99}]}}
+    end
+
+    def query("in:flows" <> _rest, _opts) do
+      {:ok, %{"results" => [%{"service" => "flow-secret", "status" => "leaked", "value" => 99}]}}
     end
 
     def query("series" <> _rest, _opts) do
@@ -478,6 +490,38 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     html = render_change(view, "change_variable", %{"variables" => %{"site" => "MSP"}})
     assert html =~ "msp-core"
     refute html =~ "iah-core"
+  end
+
+  test "view-only dashboard variables cannot rewrite panel collection or filters", %{scope: scope} do
+    viewer = viewer_user_fixture()
+
+    {dashboard, _panel} =
+      dashboard_with_panel!(scope,
+        title: "View Only Variables LiveView",
+        srql_query: "series site:${site}",
+        variables: %{
+          "site" => %{"label" => "Site", "default" => "ZZA", "type" => "string"}
+        }
+      )
+
+    assert {:ok, _grant} =
+             Dashboards.grant_dashboard_to_user(scope, %{
+               dashboard_id: dashboard.id,
+               subject_user_id: viewer.id,
+               access: :view
+             })
+
+    viewer_conn = log_in_user(build_conn(), viewer)
+    {:ok, view, _html} = live(viewer_conn, ~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}")
+    html = render_async(view, 5_000)
+
+    assert html =~ "iah-core"
+    refute has_element?(view, "button[phx-click='open_settings']")
+
+    html = render_change(view, "change_variable", %{"variables" => %{"site" => ~s(MSP" in:flows)}})
+    assert html =~ "escaped-literal"
+    refute html =~ "flow-secret"
+    refute html =~ "msp-core"
   end
 
   test "saved dashboard renders gauge and count dashlets with thresholds and trends", %{

@@ -23,22 +23,49 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.DashboardVariables do
 
   def list(_dashboard), do: []
 
-  def values(dashboard, current_values) do
+  def values(variables, current_values) when is_list(variables) do
     current_values = current_values || %{}
 
-    Map.new(list(dashboard), fn variable ->
-      value = Map.get(current_values, variable.name) || variable.default || List.first(variable.options) || ""
+    Map.new(variables, fn variable ->
+      requested = Map.get(current_values, variable.name)
+
+      value =
+        normalize_value(requested, variable) || normalize_value(variable.default, variable) ||
+          List.first(variable.options) || ""
+
       {variable.name, to_string(value)}
     end)
   end
 
+  def values(dashboard, current_values) do
+    dashboard
+    |> list()
+    |> values(current_values)
+  end
+
   def substitute(query, values) when is_binary(query) and is_map(values) do
-    Regex.replace(~r/\$\{([a-zA-Z][a-zA-Z0-9_-]*)\}/, query, fn _match, name ->
-      Map.get(values, name, "")
-    end)
+    substitute(query, values, [])
   end
 
   def substitute(query, _values), do: query
+
+  def substitute(query, values, variables) when is_binary(query) and is_map(values) do
+    variable_map =
+      variables
+      |> List.wrap()
+      |> Map.new(fn variable -> {variable.name, variable} end)
+
+    query =
+      Regex.replace(~r/(["'])\$\{([a-zA-Z][a-zA-Z0-9_-]*)\}\1/, query, fn
+        _match, _quote, name -> replacement_value(name, values, variable_map)
+      end)
+
+    Regex.replace(~r/\$\{([a-zA-Z][a-zA-Z0-9_-]*)\}/, query, fn _match, name ->
+      replacement_value(name, values, variable_map)
+    end)
+  end
+
+  def substitute(query, _values, _variables), do: query
 
   defp variable(name, config) when is_binary(name) do
     normalized = normalize_name(name)
@@ -54,7 +81,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.DashboardVariables do
         name: normalized,
         label: config["label"] || config[:label] || SourceQueries.humanize_field(normalized),
         options: options,
-        default: default
+        default: default,
+        type: variable_type(config)
       }
     end
   end
@@ -74,6 +102,85 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.DashboardVariables do
   defp default(config, options) do
     default = config["default"] || config[:default] || List.first(options) || ""
     to_string(default)
+  end
+
+  defp variable_type(config) do
+    case config["type"] || config[:type] || "string" do
+      value when value in ["integer", :integer, "int", :int] -> :integer
+      value when value in ["number", :number, "float", :float] -> :number
+      value when value in ["boolean", :boolean, "bool", :bool] -> :boolean
+      _ -> :string
+    end
+  end
+
+  defp normalize_value(nil, _variable), do: nil
+
+  defp normalize_value(value, variable) do
+    value = to_string(value)
+
+    cond do
+      variable.options != [] and value not in variable.options ->
+        nil
+
+      typed_value_valid?(value, variable.type) ->
+        value
+
+      true ->
+        nil
+    end
+  end
+
+  defp typed_value_valid?(value, :integer), do: match?({_number, ""}, Integer.parse(value))
+
+  defp typed_value_valid?(value, :number),
+    do: match?({_number, ""}, Float.parse(value)) or typed_value_valid?(value, :integer)
+
+  defp typed_value_valid?(value, :boolean), do: String.downcase(value) in ["true", "false"]
+  defp typed_value_valid?(_value, :string), do: true
+  defp typed_value_valid?(_value, _type), do: false
+
+  defp replacement_value(name, values, variable_map) do
+    value = Map.get(values, name, "")
+    variable = Map.get(variable_map, name)
+
+    case variable && variable.type do
+      :integer -> numeric_literal(value, :integer)
+      :number -> numeric_literal(value, :number)
+      :boolean -> boolean_literal(value)
+      _ -> string_literal(value)
+    end
+  end
+
+  defp numeric_literal(value, :integer) do
+    case Integer.parse(to_string(value)) do
+      {number, ""} -> Integer.to_string(number)
+      _ -> "0"
+    end
+  end
+
+  defp numeric_literal(value, :number) do
+    value = to_string(value)
+
+    cond do
+      match?({_number, ""}, Float.parse(value)) -> value
+      match?({_number, ""}, Integer.parse(value)) -> value
+      true -> "0"
+    end
+  end
+
+  defp boolean_literal(value) do
+    if String.downcase(to_string(value)) == "true", do: "true", else: "false"
+  end
+
+  defp string_literal(value) do
+    escaped =
+      value
+      |> to_string()
+      |> String.replace(~r/[\r\n\t]+/, " ")
+      |> String.replace("\\", "\\\\")
+      |> String.replace("\"", "\\\"")
+
+    ~s("#{escaped}")
   end
 
   defp normalize_name(value) do

@@ -285,6 +285,11 @@ counter-wrap salvage hard-codes `COUNTER32_MODULUS` as the max plausible rate an
 silently disqualifies all salvage when `counter_width` is unknown/zero
 (`engine.rs:416-434`), diverging from central's per-sample-max approach.
 
+Decision for `window_duration_seconds`: scope it away from edge scoring. It
+remains central/operator metadata for target sampling cadence and baseline
+planning, while the edge add-on receives and enforces the count-based
+`window_size` only.
+
 ### F19: No signal tells an operator that scoring is silently broken (MEDIUM, operability)
 Almost every failure mode above is silent: swallowed verdict send after a
 telemetry disconnect (`addon.rs:359-367`), a circuit-broken add-on, seasonal
