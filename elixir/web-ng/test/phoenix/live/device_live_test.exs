@@ -3488,9 +3488,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   defp edge_addon_saturation_gate_floors do
     source = File.read!(@edge_saturation_profile_source)
 
-    ~r/\("([^"]+\.(?:usage|used)_percent)",\s+"sysmon\.([^"]+)",\s+([0-9.]+)\)/
-    |> Regex.scan(source)
-    |> Map.new(fn [_match, _metric_name, metric_class, floor] ->
+    # Parse the production `series_profile_for/1` match arms in
+    # rust/anomaly-addon/src/addon.rs. That function constructs the
+    # `SeriesProfile.saturation_gate.min_value` used by edge scoring; if those
+    # Rust literals move to constants or a different shape, update this parser
+    # rather than pointing it at the nearby Rust test fixtures.
+    Map.new([{"cpu", "Cpu"}, {"memory", "Mem"}, {"disk", "Disk"}], fn {metric_class, gauge_class} ->
+      regex =
+        Regex.compile!(
+          "Some\\(GaugeClass::#{gauge_class}\\) => SeriesProfile \\{.*?" <>
+            "saturation_gate: Some\\(SaturationGate \\{.*?min_value: ([0-9.]+),",
+          "s"
+        )
+
+      [_match, floor] = Regex.run(regex, source)
       {metric_class, String.to_float(floor)}
     end)
   end
