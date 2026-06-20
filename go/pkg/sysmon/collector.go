@@ -240,11 +240,12 @@ func (c *DefaultCollector) Collect(ctx context.Context) (*MetricSample, error) {
 
 	// Collect process metrics
 	if config.CollectProcesses {
-		processes, err := CollectProcesses(ctx, config.ProcessLimit)
+		processes, processCount, err := CollectProcessSnapshot(ctx, config.ProcessLimit)
 		if err != nil {
 			c.log.Warn().Err(err).Msg("process collection failed")
 		} else {
 			sample.Processes = processes
+			sample.ProcessCount = processCount
 		}
 	}
 

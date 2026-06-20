@@ -40,10 +40,18 @@ type processInfo struct {
 // Results are sorted by CPU usage (descending), then memory (descending), and
 // bounded by limit to avoid retaining or streaming unbounded process payloads.
 func CollectProcesses(ctx context.Context, limit int) ([]ProcessMetric, error) {
+	metrics, _, err := CollectProcessSnapshot(ctx, limit)
+	return metrics, err
+}
+
+// CollectProcessSnapshot gathers top process metrics plus the total process
+// count observed before the detail list is capped.
+func CollectProcessSnapshot(ctx context.Context, limit int) ([]ProcessMetric, int, error) {
 	procs, err := process.ProcessesWithContext(ctx)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
+	processCount := len(procs)
 
 	// Collect info for all processes
 	infos := make([]processInfo, 0, len(procs))
@@ -85,7 +93,7 @@ func CollectProcesses(ctx context.Context, limit int) ([]ProcessMetric, error) {
 		})
 	}
 
-	return metrics, nil
+	return metrics, processCount, nil
 }
 
 func limitProcessInfos(infos []processInfo, limit int) []processInfo {
