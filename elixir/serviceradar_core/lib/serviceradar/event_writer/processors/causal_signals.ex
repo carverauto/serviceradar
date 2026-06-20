@@ -32,6 +32,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   @ocsf_vulnerability_finding_type_uid 200_201
   @ocsf_detection_finding_type_uid 200_401
   @ocsf_create_activity_id 1
+  @structured_series_key_pattern ~r/^v\d+:/
   @ocsf_event_conflict_target [:time, :id]
   @ocsf_event_replace_fields [
     :class_uid,
@@ -64,6 +65,9 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   @impl true
   def table_name, do: "ocsf_events"
+
+  @doc false
+  def causal_prediction_ocsf_event_replace_fields, do: @ocsf_event_replace_fields
 
   @impl true
   def process_batch(messages) do
@@ -1380,9 +1384,13 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   defp if_index_label(nil), do: nil
   defp if_index_label(value), do: "ifIndex #{value}"
 
-  defp readable_series_key("v2:" <> _rest), do: nil
-  defp readable_series_key(value) when is_binary(value) and value != "", do: value
+  defp readable_series_key(value) when is_binary(value) and value != "" do
+    if structured_series_key?(value), do: nil, else: value
+  end
+
   defp readable_series_key(_value), do: nil
+
+  defp structured_series_key?(value), do: String.match?(value, @structured_series_key_pattern)
 
   defp anomaly_detection_finding_uid(device_uid, series_key, metric_class) do
     [
