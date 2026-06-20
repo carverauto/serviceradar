@@ -146,6 +146,10 @@ impl DetectorEngine {
         self.config = config;
     }
 
+    pub fn config(&self) -> EngineConfig {
+        self.config.clone()
+    }
+
     pub fn series_count(&self) -> usize {
         self.series.len()
     }
@@ -185,6 +189,28 @@ impl DetectorEngine {
         observed_at_unix_nano: u64,
         reset_anchor: &str,
         counter_width: u32,
+    ) -> Option<f64> {
+        self.normalize_counter_with_max_rate(
+            series_key,
+            raw_value,
+            observed_at_unix_nano,
+            reset_anchor,
+            counter_width,
+            None,
+        )
+    }
+
+    /// Same as [`Self::normalize_counter`], but lets the caller pass a
+    /// per-sample plausible maximum rate when the producer knows the physical
+    /// counter bound (for example an interface speed).
+    pub fn normalize_counter_with_max_rate(
+        &mut self,
+        series_key: &str,
+        raw_value: f64,
+        observed_at_unix_nano: u64,
+        reset_anchor: &str,
+        counter_width: u32,
+        max_counter_rate_per_second: Option<f64>,
     ) -> Option<f64> {
         if !raw_value.is_finite() || raw_value < 0.0 {
             return None;
@@ -237,6 +263,7 @@ impl DetectorEngine {
             current.value,
             counter_width,
             elapsed_seconds,
+            max_counter_rate_per_second,
         );
 
         // Advance across the interval whether or not a delta was salvageable
@@ -505,26 +532,53 @@ fn reset_anchor_changed(previous: &str, current: &str) -> bool {
 
 /// The counter increment over one interval: a normal increase is `current -
 /// previous`; a decrease is salvaged only as a plausible 32-bit wrap (the wrapped
-/// delta must imply a per-second rate within the modulus). A 64-bit decrease, or
-/// an implausible 32-bit decrease, yields `None` (drop the interval).
+/// delta must imply a per-second rate within the supplied per-sample max, falling
+/// back to the 32-bit modulus). A 64-bit/unknown-width decrease, or an implausible
+/// 32-bit decrease, yields `None` (drop the interval).
 fn counter_delta(
     previous: f64,
     current: f64,
     counter_width: u32,
     elapsed_seconds: f64,
+    max_counter_rate_per_second: Option<f64>,
 ) -> Option<f64> {
+    if elapsed_seconds <= 0.0 {
+        return None;
+    }
+
     if current >= previous {
-        return Some(current - previous);
+        return plausible_counter_delta(
+            current - previous,
+            elapsed_seconds,
+            valid_counter_max_rate(max_counter_rate_per_second),
+        );
     }
 
     if counter_width == 32 {
         let wrapped = COUNTER32_MODULUS - previous + current;
-        if elapsed_seconds > 0.0 && wrapped / elapsed_seconds <= COUNTER32_MODULUS {
-            return Some(wrapped);
-        }
+        let max_rate =
+            valid_counter_max_rate(max_counter_rate_per_second).unwrap_or(COUNTER32_MODULUS);
+
+        return plausible_counter_delta(wrapped, elapsed_seconds, Some(max_rate));
     }
 
     None
+}
+
+fn valid_counter_max_rate(max_counter_rate_per_second: Option<f64>) -> Option<f64> {
+    max_counter_rate_per_second.filter(|rate| rate.is_finite() && *rate > 0.0)
+}
+
+fn plausible_counter_delta(delta: f64, elapsed_seconds: f64, max_rate: Option<f64>) -> Option<f64> {
+    if elapsed_seconds <= 0.0 {
+        return None;
+    }
+
+    if max_rate.is_some_and(|rate| delta / elapsed_seconds > rate) {
+        return None;
+    }
+
+    Some(delta)
 }
 
 #[cfg(test)]
@@ -671,6 +725,74 @@ mod tests {
             .normalize_counter("c", 50.0, 1_000_000_000, "b", 32)
             .expect("rate");
         assert!((rate - 150.0).abs() < 1e-9, "rate was {rate}");
+    }
+
+    #[test]
+    fn counter32_wrap_drops_when_max_rate_rules_it_out() {
+        let mut engine = DetectorEngine::new(EngineConfig::default());
+        let near_max = COUNTER32_MODULUS - 100.0;
+        engine.normalize_counter("c", near_max, 0, "b", 32);
+        // The wrapped delta would be 150/s, above the per-sample physical max.
+        assert_eq!(
+            engine.normalize_counter_with_max_rate("c", 50.0, 1_000_000_000, "b", 32, Some(100.0),),
+            None
+        );
+        // State still advances to the dropped point, so the next increase rates
+        // from 50 rather than repeatedly re-evaluating the same wrap.
+        let rate = engine
+            .normalize_counter("c", 75.0, 2_000_000_000, "b", 32)
+            .expect("rate");
+        assert!((rate - 25.0).abs() < 1e-9, "rate was {rate}");
+    }
+
+    #[test]
+    fn counter_increase_drops_when_max_rate_rules_it_out() {
+        let mut engine = DetectorEngine::new(EngineConfig::default());
+        engine.normalize_counter("c", 1_000.0, 0, "b", 64);
+
+        assert_eq!(
+            engine.normalize_counter_with_max_rate(
+                "c",
+                10_000.0,
+                1_000_000_000,
+                "b",
+                64,
+                Some(100.0),
+            ),
+            None
+        );
+
+        // State still advances to the dropped point, so the next plausible
+        // increase rates from 10000 rather than repeatedly scoring the jump.
+        let rate = engine
+            .normalize_counter_with_max_rate("c", 10_100.0, 2_000_000_000, "b", 64, Some(100.0))
+            .expect("rate");
+        assert!((rate - 100.0).abs() < 1e-9, "rate was {rate}");
+    }
+
+    #[test]
+    fn plausible_counter_delta_rejects_non_positive_elapsed() {
+        assert_eq!(plausible_counter_delta(100.0, 0.0, None), None);
+        assert_eq!(plausible_counter_delta(100.0, -1.0, None), None);
+        assert_eq!(plausible_counter_delta(100.0, 0.0, Some(1_000.0)), None);
+        assert_eq!(plausible_counter_delta(100.0, -1.0, Some(1_000.0)), None);
+    }
+
+    #[test]
+    fn unknown_width_decrease_drops() {
+        let mut engine = DetectorEngine::new(EngineConfig::default());
+        engine.normalize_counter("c", 5_000.0, 0, "b", 0);
+        assert_eq!(
+            engine.normalize_counter_with_max_rate(
+                "c",
+                1_000.0,
+                1_000_000_000,
+                "b",
+                0,
+                Some(COUNTER32_MODULUS),
+            ),
+            None
+        );
     }
 
     #[test]

@@ -107,8 +107,9 @@ pub async fn serve_on_listener<A: Addon>(
     listener: UnixListener,
     tls_config: Option<tls::ServerMtls>,
 ) -> Result<(), ServeError> {
+    let inner: Arc<dyn Addon> = Arc::new(addon);
     let service = AddonServiceServer::new(AddonGrpc {
-        inner: Arc::new(addon),
+        inner: inner.clone(),
     });
 
     // The go-plugin client confirms liveness via grpc.health.v1.Health/Check for
@@ -158,7 +159,7 @@ pub async fn serve_on_listener<A: Addon>(
 
             let incoming = tokio_stream::wrappers::ReceiverStream::new(rx);
             router
-                .serve_with_incoming_shutdown(incoming, shutdown_signal())
+                .serve_with_incoming_shutdown(incoming, shutdown_signal(inner.clone()))
                 .await?;
         }
         // No AutoMTLS (host launched without PLUGIN_CLIENT_CERT): serve plaintext
@@ -166,7 +167,7 @@ pub async fn serve_on_listener<A: Addon>(
         None => {
             let incoming = UnixListenerStream::new(listener);
             router
-                .serve_with_incoming_shutdown(incoming, shutdown_signal())
+                .serve_with_incoming_shutdown(incoming, shutdown_signal(inner.clone()))
                 .await?;
         }
     }
@@ -177,7 +178,7 @@ pub async fn serve_on_listener<A: Addon>(
 /// Resolves when the process receives SIGINT or SIGTERM. go-plugin clients kill
 /// plugins with a signal on shutdown; we stop the server gracefully so the
 /// Unix-domain socket is cleaned up.
-async fn shutdown_signal() {
+async fn shutdown_signal(addon: Arc<dyn Addon>) {
     use tokio::signal::unix::{signal, SignalKind};
     let mut sigint = signal(SignalKind::interrupt()).expect("install SIGINT handler");
     let mut sigterm = signal(SignalKind::terminate()).expect("install SIGTERM handler");
@@ -185,6 +186,8 @@ async fn shutdown_signal() {
         _ = sigint.recv() => {}
         _ = sigterm.recv() => {}
     }
+
+    let _ = addon.shutdown().await;
 }
 
 /// Adapts an [`Addon`] to the generated `AddonService` gRPC server.

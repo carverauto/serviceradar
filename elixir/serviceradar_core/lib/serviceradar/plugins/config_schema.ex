@@ -307,13 +307,19 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
   end
 
   defp normalize_object_param(acc, key, prop_schema) do
+    if Map.has_key?(acc, key) do
+      normalize_present_object_param(acc, key, prop_schema)
+    else
+      maybe_put_default(acc, key, prop_schema)
+    end
+  end
+
+  defp normalize_present_object_param(acc, key, prop_schema) do
     case Map.get(acc, key) do
       value when value in [nil, ""] ->
-        # A blank form value means "not provided". Apply the schema default if any, else
-        # drop the key, so an optional field left empty in the form does not fail type
-        # validation as an empty string (e.g. a blank integer or object field — the
-        # one-touch case where the operator only toggled `enabled`).
-        acc |> Map.delete(key) |> maybe_put_default(key, prop_schema)
+        # A blank form value means "not provided". Numeric blanks stay omitted so
+        # add-ons can distinguish an explicit knob from runtime defaults.
+        acc |> Map.delete(key) |> maybe_put_default_for_blank(key, prop_schema)
 
       value ->
         Map.put(acc, key, normalize_value(prop_schema, value))
@@ -326,6 +332,12 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
       default -> Map.put(acc, key, default)
     end
   end
+
+  defp maybe_put_default_for_blank(acc, _key, %{"type" => type})
+       when type in ["integer", "number"], do: acc
+
+  defp maybe_put_default_for_blank(acc, key, prop_schema),
+    do: maybe_put_default(acc, key, prop_schema)
 
   defp normalize_value(%{"type" => "string"}, value) when is_binary(value), do: value
   defp normalize_value(%{"type" => "string"}, value), do: to_string(value)

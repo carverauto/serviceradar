@@ -9,10 +9,10 @@
 
 use std::fmt::Display;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use addon_sdk::metric_pb::{
-    Metric, MetricBatch, MetricKind, MetricPoint, MetricResource, MetricTemporality,
+    Metric, MetricBatch, MetricKind, MetricPoint, MetricResource, MetricTemporality, StringMapEntry,
 };
 use addon_sdk::pb::{MetricFeedAck, MetricFeedFrame, TelemetryBatch, TelemetryRecord};
 use addon_sdk::{
@@ -26,6 +26,7 @@ use serde::{Deserialize as _, de::Error as _};
 use serviceradar_anomaly_core::{ReasonVerdict, SaturationGate};
 use sha2::{Digest as _, Sha256};
 use tokio::sync::{broadcast, mpsc};
+use tokio::task::JoinHandle;
 use tokio_stream::StreamExt as _;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::Status;
@@ -37,7 +38,7 @@ use crate::engine::{
 };
 
 const ADDON_ID: &str = "anomaly";
-const ADDON_VERSION: &str = "0.1.5";
+const ADDON_VERSION: &str = "0.1.7";
 const VERDICT_CHANNEL_DEPTH: usize = 256;
 const ACK_CHANNEL_DEPTH: usize = 64;
 const OCSF_CLASS_EVENT_LOG_ACTIVITY: i64 = 1008;
@@ -183,6 +184,8 @@ pub struct AnomalyAddon {
     verdict_tx: broadcast::Sender<TelemetryBatch>,
     /// Resolved at `configure`; read when a feed stream opens.
     checkpoint: Mutex<CheckpointSettings>,
+    /// The metric feed is single-owner: reconnecting replaces the prior scorer.
+    feed_task: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl Default for AnomalyAddon {
@@ -198,6 +201,63 @@ impl AnomalyAddon {
             engine: Arc::new(Mutex::new(DetectorEngine::new(EngineConfig::default()))),
             verdict_tx,
             checkpoint: Mutex::new(CheckpointSettings::default()),
+            feed_task: Mutex::new(None),
+        }
+    }
+
+    async fn stop_feed_task(&self) {
+        let handle = lock_feed_task(&self.feed_task).take();
+
+        if let Some(handle) = handle {
+            handle.abort();
+            let _ = handle.await;
+        }
+    }
+}
+
+impl Drop for AnomalyAddon {
+    fn drop(&mut self) {
+        if let Ok(slot) = self.feed_task.get_mut()
+            && let Some(handle) = slot.take()
+        {
+            handle.abort();
+        }
+    }
+}
+
+fn lock_engine(engine: &Arc<Mutex<DetectorEngine>>) -> MutexGuard<'_, DetectorEngine> {
+    match engine.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            let mut guard = poisoned.into_inner();
+            let config = guard.config();
+            *guard = DetectorEngine::new(config);
+            engine.clear_poison();
+            guard
+        }
+    }
+}
+
+fn lock_checkpoint_settings(
+    checkpoint: &Mutex<CheckpointSettings>,
+) -> MutexGuard<'_, CheckpointSettings> {
+    match checkpoint.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            let guard = poisoned.into_inner();
+            checkpoint.clear_poison();
+            guard
+        }
+    }
+}
+
+fn lock_feed_task(slot: &Mutex<Option<JoinHandle<()>>>) -> MutexGuard<'_, Option<JoinHandle<()>>> {
+    match slot.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            let guard = poisoned.into_inner();
+            slot.clear_poison();
+            guard
         }
     }
 }
@@ -246,17 +306,14 @@ impl Addon for AnomalyAddon {
             }
         };
 
-        self.engine
-            .lock()
-            .expect("engine mutex poisoned")
-            .set_config(engine_config);
+        lock_engine(&self.engine).set_config(engine_config);
 
         // Re-warm from the on-disk checkpoint before scoring resumes, so a
         // restart does not storm false positives while windows refill.
         if let Some(path) = settings.path.clone() {
             load_checkpoint(&self.engine, &path, settings.max_age_ns);
         }
-        *self.checkpoint.lock().expect("checkpoint mutex poisoned") = settings;
+        *lock_checkpoint_settings(&self.checkpoint) = settings;
 
         Ok(ConfigureResult {
             config_hash,
@@ -273,6 +330,11 @@ impl Addon for AnomalyAddon {
         })
     }
 
+    async fn shutdown(&self) -> anyhow::Result<()> {
+        self.stop_feed_task().await;
+        Ok(())
+    }
+
     /// Hand the agent a verdict stream subscription. Every call gets a fresh
     /// receiver; lagging clients drop locally and reconnecting clients can
     /// subscribe without restarting the add-on.
@@ -286,14 +348,14 @@ impl Addon for AnomalyAddon {
     fn stream_metric_feed(&self, frames: MetricFeedStream) -> Result<MetricFeedAckStream, Status> {
         let engine = self.engine.clone();
         let verdict_tx = self.verdict_tx.clone();
-        let checkpoint = self
-            .checkpoint
-            .lock()
-            .expect("checkpoint mutex poisoned")
-            .clone();
+        let checkpoint = lock_checkpoint_settings(&self.checkpoint).clone();
         let (ack_tx, ack_rx) = mpsc::channel::<Result<MetricFeedAck, Status>>(ACK_CHANNEL_DEPTH);
 
-        tokio::spawn(async move {
+        if let Some(prior) = lock_feed_task(&self.feed_task).take() {
+            prior.abort();
+        }
+
+        let handle = tokio::spawn(async move {
             let mut frames = frames;
             let mut frame_count: u64 = 0;
             while let Some(item) = frames.next().await {
@@ -330,6 +392,7 @@ impl Addon for AnomalyAddon {
                 write_checkpoint(&engine, path);
             }
         });
+        *lock_feed_task(&self.feed_task) = Some(handle);
 
         Ok(Box::pin(ReceiverStream::new(ack_rx)))
     }
@@ -352,7 +415,7 @@ async fn process_frame(
     let mut records: Vec<TelemetryRecord> = Vec::new();
     let mut shed_report: Option<ShedReport> = None;
     {
-        let mut engine = engine.lock().expect("engine mutex poisoned");
+        let mut engine = lock_engine(engine);
         let dropped_before = engine.dropped_at_capacity;
         for metric in &batch.metrics {
             if is_process_metric(metric) {
@@ -382,12 +445,13 @@ async fn process_frame(
                 let series_key = series_key_for(&resource, metric, point);
 
                 let value = if counter {
-                    match engine.normalize_counter(
+                    match engine.normalize_counter_with_max_rate(
                         &series_key,
                         counter_raw_value(point),
                         point.observed_at_unix_nano,
                         &counter_reset_anchor(point),
-                        metric.counter_width,
+                        counter_width(metric, point),
+                        max_counter_rate_per_second(metric, point),
                     ) {
                         Some(rate) => rate,
                         // Warmup / reset / gap / non-monotonic: no sample this point.
@@ -491,7 +555,7 @@ fn resolve_checkpoint_settings(config: &AddonConfig) -> CheckpointSettings {
 /// fresh checkpoint).
 fn write_checkpoint(engine: &Arc<Mutex<DetectorEngine>>, path: &Path) {
     let checkpoint = {
-        let engine = engine.lock().expect("engine mutex poisoned");
+        let engine = lock_engine(engine);
         engine.export_checkpoint()
     };
 
@@ -517,10 +581,7 @@ fn load_checkpoint(engine: &Arc<Mutex<DetectorEngine>>, path: &Path, max_age_ns:
     };
 
     let now = now_unix_nano();
-    engine
-        .lock()
-        .expect("engine mutex poisoned")
-        .restore_checkpoint(checkpoint, now, max_age_ns);
+    lock_engine(engine).restore_checkpoint(checkpoint, now, max_age_ns);
 }
 
 /// Wall-clock now in unix nanoseconds, for the restart staleness bound. Saturates
@@ -683,17 +744,141 @@ fn counter_reset_anchor(point: &MetricPoint) -> String {
     }
 }
 
-fn series_key_for(resource: &MetricResource, metric: &Metric, point: &MetricPoint) -> String {
-    if !point.series_identity_hint.is_empty() {
-        point.series_identity_hint.clone()
-    } else {
-        // Fallback when the producer did not stamp a hint: agent + metric +
-        // interface keeps distinct series apart on one host.
-        format!(
-            "{}|{}|{}",
-            resource.agent_id, metric.name, point.interface_uid
-        )
+/// Counter width can arrive as the typed metric field or as legacy metadata keys.
+/// Preserve central's old metadata fallback so a zero proto field does not
+/// silently suppress otherwise-corroborated 32-bit wrap handling.
+fn counter_width(metric: &Metric, point: &MetricPoint) -> u32 {
+    if metric.counter_width > 0 {
+        return metric.counter_width;
     }
+
+    metadata_u32_value(point, &["counter_width", "counter_bits", "pdu_width"])
+        .or_else(|| metadata_u32_value(metric, &["counter_width", "counter_bits", "pdu_width"]))
+        .unwrap_or(0)
+}
+
+fn max_counter_rate_per_second(metric: &Metric, point: &MetricPoint) -> Option<f64> {
+    metadata_f64_value(point, &["max_counter_rate_per_second"])
+        .or_else(|| metadata_f64_value(metric, &["max_counter_rate_per_second"]))
+        .filter(|rate| rate.is_finite() && *rate > 0.0)
+}
+
+trait MetadataEntries {
+    fn metadata_entries(&self) -> &[StringMapEntry];
+}
+
+impl MetadataEntries for Metric {
+    fn metadata_entries(&self) -> &[StringMapEntry] {
+        &self.metadata
+    }
+}
+
+impl MetadataEntries for MetricPoint {
+    fn metadata_entries(&self) -> &[StringMapEntry] {
+        &self.metadata
+    }
+}
+
+fn metadata_u32_value(source: &impl MetadataEntries, keys: &[&str]) -> Option<u32> {
+    metadata_entry_value(source, keys).and_then(|value| value.parse::<u32>().ok())
+}
+
+fn metadata_f64_value(source: &impl MetadataEntries, keys: &[&str]) -> Option<f64> {
+    metadata_entry_value(source, keys).and_then(|value| value.parse::<f64>().ok())
+}
+
+fn metadata_entry_value<'a>(source: &'a impl MetadataEntries, keys: &[&str]) -> Option<&'a str> {
+    keys.iter().find_map(|key| {
+        source
+            .metadata_entries()
+            .iter()
+            .find(|entry| entry.key == *key)
+            .map(|entry| entry.value.as_str())
+    })
+}
+
+fn series_key_for(resource: &MetricResource, metric: &Metric, point: &MetricPoint) -> String {
+    let partition = if resource.partition.is_empty() {
+        "default"
+    } else {
+        resource.partition.as_str()
+    };
+
+    if !point.series_identity_hint.is_empty() {
+        [
+            "v2".to_string(),
+            safe_component("partition", partition),
+            safe_component("hint", &point.series_identity_hint),
+        ]
+        .join("|")
+    } else {
+        // Fallback when the producer did not stamp a hint: resource identity +
+        // metric + interface keeps distinct series apart on one host. Remote
+        // SNMP polls use the polled target, not the polling agent host.
+        let resource_identity = series_resource_identity(resource, metric);
+        let mut components = vec![
+            "v2".to_string(),
+            safe_component("partition", partition),
+            safe_component("identity", &resource_identity),
+            safe_component("metric", &metric.name),
+        ];
+
+        if !point.interface_uid.is_empty() {
+            components.push(safe_component("interface_uid", &point.interface_uid));
+        }
+
+        if point.if_index > 0 {
+            components.push(safe_component("if_index", &point.if_index.to_string()));
+        }
+
+        components.join("|")
+    }
+}
+
+fn safe_component(name: &str, value: &str) -> String {
+    format!("{name}={}", hex::encode(value.as_bytes()))
+}
+
+fn series_resource_identity(resource: &MetricResource, metric: &Metric) -> String {
+    let metric_class = metric_class(metric);
+    first_non_empty(&[
+        resource.device_id.as_str(),
+        snmp_target_identity(resource, metric_class),
+        resource.host_id.as_str(),
+        resource.agent_id.as_str(),
+        resource.host_ip.as_str(),
+    ])
+    .to_string()
+}
+
+fn anomaly_device_uid<'a>(resource: &'a MetricResource, metric_class: &str) -> &'a str {
+    first_non_empty(&[
+        resource.device_id.as_str(),
+        snmp_target_identity(resource, metric_class),
+        resource.host_id.as_str(),
+        resource.agent_id.as_str(),
+        resource.host_ip.as_str(),
+    ])
+}
+
+fn metric_class(metric: &Metric) -> &str {
+    if metric.metric_type.is_empty() {
+        "metric"
+    } else {
+        metric.metric_type.as_str()
+    }
+}
+
+fn snmp_target_identity<'a>(resource: &'a MetricResource, metric_class: &str) -> &'a str {
+    if is_snmp_metric_class(metric_class) && !resource.target_device_ip.is_empty() {
+        resource.target_device_ip.as_str()
+    } else {
+        ""
+    }
+}
+
+fn is_snmp_metric_class(metric_class: &str) -> bool {
+    metric_class == "snmp" || metric_class.starts_with("snmp.")
 }
 
 /// Merge the attested distinguishing tags into a JSON object for `source_identity`:
@@ -742,17 +927,8 @@ fn verdict_record(
     let status = anomaly_lifecycle_status(transition);
     let message = anomaly_lifecycle_message(transition, &verdict.reason);
 
-    let metric_class = if metric.metric_type.is_empty() {
-        "metric"
-    } else {
-        metric.metric_type.as_str()
-    };
-    let device_uid = first_non_empty(&[
-        resource.device_id.as_str(),
-        resource.host_id.as_str(),
-        resource.agent_id.as_str(),
-        resource.host_ip.as_str(),
-    ]);
+    let metric_class = metric_class(metric);
+    let device_uid = anomaly_device_uid(resource, metric_class);
 
     let event_id = format!("anomaly:{series_key}:{ts_nano}:{lifecycle_state}");
     let finding_uid =
@@ -777,6 +953,7 @@ fn verdict_record(
         "severity_id": severity_id,
         "device_uid": device_uid,
         "device_id": device_uid,
+        "target_device_ip": &resource.target_device_ip,
         "message": message,
         "finding_info": {
             "uid": finding_uid,
@@ -805,6 +982,7 @@ fn verdict_record(
             "series_key": series_key,
             "metric_class": metric_class,
             "state": lifecycle_state,
+            "target_device_ip": &resource.target_device_ip,
             "detector_state": &verdict.state,
             "reason": &verdict.reason,
             "score": verdict.score,
@@ -981,6 +1159,9 @@ mod tests {
     use super::*;
     use addon_sdk::metric_pb::StringMapEntry;
     use broadcast::error::TryRecvError;
+    use tokio::sync::mpsc;
+    use tokio::time::{Duration, timeout};
+    use tokio_stream::wrappers::ReceiverStream;
 
     fn entry(key: &str, value: &str) -> StringMapEntry {
         StringMapEntry {
@@ -1005,6 +1186,50 @@ mod tests {
         }
     }
 
+    #[test]
+    fn counter_width_prefers_typed_metric_field() {
+        let metric = Metric {
+            counter_width: 64,
+            metadata: vec![entry("counter_width", "32")],
+            ..Default::default()
+        };
+
+        assert_eq!(counter_width(&metric, &MetricPoint::default()), 64);
+    }
+
+    #[test]
+    fn counter_width_falls_back_to_point_then_metric_metadata() {
+        let metric = Metric {
+            metadata: vec![entry("counter_bits", "64")],
+            ..Default::default()
+        };
+        let point = MetricPoint {
+            metadata: vec![entry("pdu_width", "32")],
+            ..Default::default()
+        };
+
+        assert_eq!(counter_width(&metric, &point), 32);
+        assert_eq!(counter_width(&metric, &MetricPoint::default()), 64);
+    }
+
+    #[test]
+    fn max_counter_rate_uses_point_metadata_before_metric_metadata() {
+        let metric = Metric {
+            metadata: vec![entry("max_counter_rate_per_second", "1000")],
+            ..Default::default()
+        };
+        let point = MetricPoint {
+            metadata: vec![entry("max_counter_rate_per_second", "250")],
+            ..Default::default()
+        };
+
+        assert_eq!(max_counter_rate_per_second(&metric, &point), Some(250.0));
+        assert_eq!(
+            max_counter_rate_per_second(&metric, &MetricPoint::default()),
+            Some(1000.0)
+        );
+    }
+
     fn anomaly_metric_batch(value: f64, observed_at_unix_nano: u64) -> MetricBatch {
         MetricBatch {
             resource: Some(MetricResource {
@@ -1027,6 +1252,22 @@ mod tests {
             }],
             ..Default::default()
         }
+    }
+
+    fn metric_feed_frame(feed_id: u64, value: f64) -> MetricFeedFrame {
+        MetricFeedFrame {
+            feed_id,
+            source: None,
+            payload: anomaly_metric_batch(value, feed_id).encode_to_vec(),
+        }
+    }
+
+    fn metric_feed_stream() -> (
+        mpsc::Sender<Result<MetricFeedFrame, Status>>,
+        MetricFeedStream,
+    ) {
+        let (tx, rx) = mpsc::channel(4);
+        (tx, Box::pin(ReceiverStream::new(rx)))
     }
 
     async fn process_anomaly_value(
@@ -1285,6 +1526,110 @@ mod tests {
     }
 
     #[test]
+    fn snmp_remote_target_drives_edge_verdict_identity() {
+        let resource = MetricResource {
+            agent_id: "agent-ns03".to_string(),
+            host_id: "ns03".to_string(),
+            host_ip: "10.0.0.10".to_string(),
+            target_device_ip: "10.0.0.20".to_string(),
+            partition: "demo".to_string(),
+            ..Default::default()
+        };
+        let metric = Metric {
+            name: "ifHCInOctets".to_string(),
+            metric_type: "snmp".to_string(),
+            ..Default::default()
+        };
+        let point = MetricPoint {
+            value: 1234.0,
+            observed_at_unix_nano: 1_812_456_000_000_000_000,
+            if_index: 7,
+            interface_uid: "ifindex:7".to_string(),
+            ..Default::default()
+        };
+        let series_key = series_key_for(&resource, &metric, &point);
+        let verdict = ReasonVerdict {
+            state: "anomalous".to_string(),
+            anomalous: true,
+            breached: true,
+            include_in_baseline: false,
+            next_consecutive_anomalous: 1,
+            score: 4.2,
+            reason: "test breach".to_string(),
+            baseline_count: 30,
+            next_rolling_acc: serviceradar_anomaly_core::WelfordAcc::default(),
+            next_window_tail: Vec::new(),
+            sample_value: 1234.0,
+            observed_at_unix_nano: Some(1_812_456_000_000_000_000),
+            signals: Vec::new(),
+        };
+
+        let record = verdict_record(
+            &resource,
+            &metric,
+            &point,
+            &series_key,
+            &verdict,
+            AnomalyTransition::Open,
+        );
+        let event: serde_json::Value = serde_json::from_slice(&record.payload).unwrap();
+
+        assert_eq!(
+            series_key,
+            [
+                "v2".to_string(),
+                safe_component("partition", "demo"),
+                safe_component("identity", "10.0.0.20"),
+                safe_component("metric", "ifHCInOctets"),
+                safe_component("interface_uid", "ifindex:7"),
+                safe_component("if_index", "7"),
+            ]
+            .join("|")
+        );
+        assert_eq!(event["device_uid"], "10.0.0.20");
+        assert_eq!(event["device_id"], "10.0.0.20");
+        assert_eq!(event["target_device_ip"], "10.0.0.20");
+        assert_eq!(event["anomaly"]["target_device_ip"], "10.0.0.20");
+        assert_eq!(event["source_identity"]["target_device_ip"], "10.0.0.20");
+        assert_eq!(event["source_identity"]["agent_id"], "agent-ns03");
+    }
+
+    #[test]
+    fn edge_series_key_encodes_partition_and_hint_boundaries() {
+        let metric = Metric {
+            name: "cpu.usage".to_string(),
+            metric_type: "sysmon.cpu".to_string(),
+            ..Default::default()
+        };
+        let point = MetricPoint {
+            series_identity_hint: "host:a|core:0".to_string(),
+            ..Default::default()
+        };
+
+        let first = MetricResource {
+            partition: "prod:east".to_string(),
+            ..Default::default()
+        };
+        let second = MetricResource {
+            partition: "prod".to_string(),
+            ..Default::default()
+        };
+        let second_point = MetricPoint {
+            series_identity_hint: "east|host:a|core:0".to_string(),
+            ..Default::default()
+        };
+
+        let first_key = series_key_for(&first, &metric, &point);
+        let second_key = series_key_for(&second, &metric, &second_point);
+
+        assert_ne!(first_key, second_key);
+        assert!(first_key.contains(&safe_component("partition", "prod:east")));
+        assert!(first_key.contains(&safe_component("hint", "host:a|core:0")));
+        assert!(!first_key.contains("prod:east"));
+        assert!(!first_key.contains("host:a|core:0"));
+    }
+
+    #[test]
     fn shed_record_is_operational_ocsf_event_not_an_anomaly() {
         let resource = MetricResource {
             agent_id: "agent-a".to_string(),
@@ -1428,6 +1773,105 @@ mod tests {
                 Some("after-reconnect")
             );
         }
+    }
+
+    #[tokio::test]
+    async fn metric_feed_reopen_aborts_prior_scorer() {
+        let addon = AnomalyAddon::new();
+        let (old_tx, old_frames) = metric_feed_stream();
+        let mut old_acks = addon
+            .stream_metric_feed(old_frames)
+            .expect("old metric feed opens");
+
+        old_tx
+            .send(Ok(metric_feed_frame(1, 100.0)))
+            .await
+            .expect("old feed receiver");
+        let old_ack = old_acks
+            .next()
+            .await
+            .expect("old ack item")
+            .expect("old ack ok");
+        assert_eq!(old_ack.acked_feed_id, 1);
+
+        let (new_tx, new_frames) = metric_feed_stream();
+        let mut new_acks = addon
+            .stream_metric_feed(new_frames)
+            .expect("new metric feed opens");
+
+        let old_end = timeout(Duration::from_secs(1), old_acks.next())
+            .await
+            .expect("old ack stream closes after feed replacement");
+        assert!(old_end.is_none(), "old feed ack stream must close");
+        assert!(
+            old_tx.send(Ok(metric_feed_frame(2, 200.0))).await.is_err(),
+            "old feed sender must observe the aborted receiver"
+        );
+
+        new_tx
+            .send(Ok(metric_feed_frame(3, 300.0)))
+            .await
+            .expect("new feed receiver");
+        let new_ack = new_acks
+            .next()
+            .await
+            .expect("new ack item")
+            .expect("new ack ok");
+        assert_eq!(new_ack.acked_feed_id, 3);
+    }
+
+    #[tokio::test]
+    async fn shutdown_aborts_open_metric_feed_promptly() {
+        let addon = AnomalyAddon::new();
+        let (feed_tx, frames) = metric_feed_stream();
+        let mut acks = addon.stream_metric_feed(frames).expect("metric feed opens");
+
+        feed_tx
+            .send(Ok(metric_feed_frame(1, 100.0)))
+            .await
+            .expect("feed receiver");
+        let ack = acks.next().await.expect("ack item").expect("ack ok");
+        assert_eq!(ack.acked_feed_id, 1);
+
+        timeout(Duration::from_millis(200), addon.shutdown())
+            .await
+            .expect("shutdown completes inside grace window")
+            .expect("shutdown ok");
+
+        let end = timeout(Duration::from_millis(200), acks.next())
+            .await
+            .expect("ack stream closes after shutdown");
+        assert!(end.is_none(), "shutdown must close the ack stream");
+        assert!(
+            feed_tx.send(Ok(metric_feed_frame(2, 200.0))).await.is_err(),
+            "shutdown must drop the feed receiver"
+        );
+    }
+
+    #[tokio::test]
+    async fn poisoned_engine_mutex_recovers_before_scoring() {
+        let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig {
+            max_series: 7,
+            ..EngineConfig::default()
+        })));
+        let poison_engine = engine.clone();
+
+        let hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let result = std::panic::catch_unwind(move || {
+            let _guard = poison_engine.lock().expect("lock before poison");
+            panic!("poison engine mutex");
+        });
+        std::panic::set_hook(hook);
+        assert!(result.is_err());
+        assert!(engine.lock().is_err(), "test must poison the engine mutex");
+
+        let (tx, _rx) = broadcast::channel(4);
+        process_frame(&engine, &tx, &metric_feed_frame(1, 100.0)).await;
+
+        let guard = engine.lock().expect("process_frame clears engine poison");
+        assert_eq!(guard.series_count(), 1);
+        assert_eq!(guard.max_series(), 7);
     }
 
     #[tokio::test]
