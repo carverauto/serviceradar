@@ -23,6 +23,17 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardVariablesTest do
              ~s(in:devices site:"MSP")
   end
 
+  test "substitute preserves embedded variables inside quoted literals" do
+    variables = [
+      %{name: "q", label: "Search", options: [], default: "", type: :string}
+    ]
+
+    values = %{"q" => ~s(a" in:devices b)}
+
+    assert DashboardVariables.substitute(~s(in:logs message like:"%${q}%"), values, variables) ==
+             ~s(in:logs message like:"%a\\" in:devices b%")
+  end
+
   test "values reject option-backed variable values outside the allowed set" do
     dashboard = %{
       variables: %{

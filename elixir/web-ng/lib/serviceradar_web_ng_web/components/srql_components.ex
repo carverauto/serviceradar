@@ -216,6 +216,10 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   attr(:container, :boolean, default: true)
   attr(:class, :any, default: nil)
   attr(:empty_message, :string, default: "No results.")
+  attr(:sort_col, :string, default: nil)
+  attr(:sort_dir, :atom, default: :asc)
+  attr(:sort_event, :string, default: nil)
+  attr(:sort_target, :any, default: nil)
 
   def srql_results_table(assigns) do
     columns = normalize_columns(assigns.columns, assigns.rows, assigns.max_columns)
@@ -239,11 +243,31 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         <thead>
           <tr>
             <%= for col <- @columns do %>
-              <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+              <th
+                class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60"
+                aria-sort={sort_aria(col, @sort_col, @sort_dir)}
+              >
                 <%= if col == "_sparkline" do %>
                   Trend
                 <% else %>
-                  {col}
+                  <%= if sortable_column?(col, @sort_event, @sort_target) do %>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs -ml-2 gap-1 px-2 font-semibold normal-case"
+                      phx-click={@sort_event}
+                      phx-value-col={col}
+                      phx-target={@sort_target}
+                    >
+                      <span>{col}</span>
+                      <.icon
+                        :if={@sort_col == col}
+                        name={if @sort_dir == :desc, do: "hero-chevron-down", else: "hero-chevron-up"}
+                        class="size-3"
+                      />
+                    </button>
+                  <% else %>
+                    {col}
+                  <% end %>
                 <% end %>
               </th>
             <% end %>
@@ -522,6 +546,19 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     |> srql_columns(max_columns)
     |> filter_device_id_column()
   end
+
+  defp sortable_column?("_sparkline", _sort_event, _sort_target), do: false
+  defp sortable_column?(_col, sort_event, sort_target), do: is_binary(sort_event) and not is_nil(sort_target)
+
+  defp sort_aria(col, sort_col, sort_dir) when col == sort_col do
+    case sort_dir do
+      :desc -> "descending"
+      "desc" -> "descending"
+      _ -> "ascending"
+    end
+  end
+
+  defp sort_aria(_col, _sort_col, _sort_dir), do: nil
 
   defp filter_device_id_column(columns) when is_list(columns) do
     if "uid" in columns do
