@@ -883,6 +883,41 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   defp normalize_time(%DateTime{} = dt), do: dt
 
+  defp normalize_time(value) when is_integer(value) do
+    value
+    |> unix_time_unit()
+    |> then(&DateTime.from_unix(value, &1))
+    |> case do
+      {:ok, dt} -> dt
+      _ -> DateTime.utc_now()
+    end
+  rescue
+    _ -> DateTime.utc_now()
+  end
+
+  defp normalize_time(value) when is_float(value) do
+    value
+    |> trunc()
+    |> normalize_time()
+  end
+
+  defp normalize_time(value) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    case Integer.parse(trimmed) do
+      {int, ""} ->
+        normalize_time(int)
+
+      _ ->
+        case DateTime.from_iso8601(trimmed) do
+          {:ok, dt, _} -> dt
+          _ -> DateTime.utc_now()
+        end
+    end
+  rescue
+    _ -> DateTime.utc_now()
+  end
+
   defp normalize_time(value) do
     case DateTime.from_iso8601(to_string(value)) do
       {:ok, dt, _} -> dt
@@ -890,6 +925,17 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     end
   rescue
     _ -> DateTime.utc_now()
+  end
+
+  defp unix_time_unit(value) do
+    value
+    |> abs()
+    |> case do
+      unix when unix >= 100_000_000_000_000_000 -> :nanosecond
+      unix when unix >= 100_000_000_000_000 -> :microsecond
+      unix when unix >= 100_000_000_000 -> :millisecond
+      _ -> :second
+    end
   end
 
   defp normalize_severity(payload) do
@@ -1110,36 +1156,39 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   end
 
   defp anomaly_detection_finding_info(payload, device_uid) do
-    case payload["finding_info"] do
-      %{"uid" => uid} = finding_info when is_binary(uid) and uid != "" ->
-        finding_info
+    existing = if is_map(payload["finding_info"]), do: payload["finding_info"], else: %{}
+    series_key = get_in(payload, ["anomaly", "series_key"])
+    metric_class = get_in(payload, ["anomaly", "metric_class"])
+    uid = anomaly_detection_finding_uid(device_uid, series_key, metric_class)
 
-      _ ->
-        series_key = get_in(payload, ["anomaly", "series_key"])
-        metric_class = get_in(payload, ["anomaly", "metric_class"])
-        uid = anomaly_detection_finding_uid(device_uid, series_key, metric_class)
+    existing
+    |> Map.put("uid", uid)
+    |> Map.put("group_uid", uid)
+    |> Map.put_new(
+      "title",
+      "Anomaly detection: #{metric_class || "metric"} #{series_key || "series"}"
+    )
+    |> Map.put_new("type", "ServiceRadar Anomaly")
+    |> Map.put_new("type_id", 99)
+    |> Map.put("source", "anomaly_detection")
+    |> Map.put(
+      "dimensions",
+      anomaly_detection_finding_dimensions(payload, device_uid, series_key, metric_class)
+    )
+  end
 
-        %{
-          "uid" => uid,
-          "group_uid" => uid,
-          "title" => "Anomaly detection: #{metric_class || "metric"} #{series_key || "series"}",
-          "type" => "ServiceRadar Anomaly",
-          "type_id" => 99,
-          "source" => "anomaly_detection",
-          "dimensions" =>
-            %{
-              "class_uid" => @ocsf_detection_finding_class_uid,
-              "source" => "anomaly_detection",
-              "device_uid" => device_uid,
-              "series_key" => series_key,
-              "metric_class" => metric_class,
-              "state" => get_in(payload, ["anomaly", "state"]),
-              "subject" => get_in(payload, ["anomaly", "subject"])
-            }
-            |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-            |> Map.new()
-        }
-    end
+  defp anomaly_detection_finding_dimensions(payload, device_uid, series_key, metric_class) do
+    %{
+      "class_uid" => @ocsf_detection_finding_class_uid,
+      "source" => "anomaly_detection",
+      "device_uid" => device_uid,
+      "series_key" => series_key,
+      "metric_class" => metric_class,
+      "state" => get_in(payload, ["anomaly", "state"]),
+      "subject" => get_in(payload, ["anomaly", "subject"])
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
   end
 
   defp anomaly_detection_finding_uid(device_uid, series_key, metric_class) do
@@ -1174,8 +1223,19 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   # to the raw id label exactly as before — re-key is additive, never lossy.
   defp anomaly_detection_device_uid(payload) do
     raw = anomaly_detection_raw_device_uid(payload)
+    target_device_ip = anomaly_detection_target_device_ip(payload)
+    metric_class = get_in(payload, ["anomaly", "metric_class"])
 
-    case DeviceCorrelation.resolve(anomaly_detection_correlation_candidate(payload, raw)) do
+    raw =
+      if snmp_metric_class?(metric_class) and not is_nil(target_device_ip) do
+        target_device_ip
+      else
+        raw
+      end
+
+    case DeviceCorrelation.resolve(
+           anomaly_detection_correlation_candidate(payload, raw, target_device_ip)
+         ) do
       uid when is_binary(uid) and uid != "" -> uid
       _ -> raw
     end
@@ -1195,9 +1255,8 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     ])
   end
 
-  defp anomaly_detection_correlation_candidate(payload, raw) do
+  defp anomaly_detection_correlation_candidate(payload, raw, target_device_ip) do
     anomaly_metadata = get_in(payload, ["anomaly", "metadata"]) || %{}
-    source_identity = get_in(payload, ["source_identity"]) || %{}
 
     # `target_device_ip` is the SNMP target identity (see
     # Observability.AnomalyDetection.SeriesKey: it is the polled device, not the
@@ -1209,13 +1268,6 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     # target ip, omit `agent_id` so the polled target wins. Self-poll SNMP (no
     # target ip) keeps `agent_id`, which is the only path that resolves the
     # agent-keyed device.
-    target_device_ip =
-      first_non_blank([
-        payload["target_device_ip"],
-        get_in(payload, ["anomaly", "metadata", "target_device_ip"]),
-        source_identity["target_device_ip"]
-      ])
-
     metric_class = get_in(payload, ["anomaly", "metric_class"])
     snmp_target_poll? = snmp_metric_class?(metric_class) and not is_nil(target_device_ip)
 
@@ -1256,6 +1308,17 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
           anomaly_metadata["partition"]
         ])
     }
+  end
+
+  defp anomaly_detection_target_device_ip(payload) do
+    source_identity = get_in(payload, ["source_identity"]) || %{}
+
+    first_non_blank([
+      payload["target_device_ip"],
+      get_in(payload, ["anomaly", "target_device_ip"]),
+      get_in(payload, ["anomaly", "metadata", "target_device_ip"]),
+      source_identity["target_device_ip"]
+    ])
   end
 
   defp snmp_metric_class?(metric_class) when is_binary(metric_class) do

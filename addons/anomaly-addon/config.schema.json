@@ -15,6 +15,7 @@
     "min_samples": {
       "type": "integer",
       "title": "Minimum samples before a baseline is ready",
+      "description": "Must be less than or equal to window_size; otherwise the detector window can never warm up.",
       "minimum": 1,
       "default": 30
     },
