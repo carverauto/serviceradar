@@ -1319,10 +1319,15 @@ func (e *DiscoveryEngine) startWorkers(
 
 					targetCancel()
 
-					// Send result after processing target
+					// Send result after processing target. Progress tracking relies
+					// on one completion per target, so do not drop when the channel is
+					// briefly full.
 					select {
 					case resultChan <- success:
-					default:
+					case <-job.ctx.Done():
+						return
+					case <-e.done:
+						return
 					}
 				}
 			}

@@ -552,6 +552,10 @@ func fetchSystemVariables(
 		return result.Variables, nil
 	}
 
+	if isSNMPPacketNoDataError(result.Error) {
+		return nil, fmt.Errorf("%w %s", ErrNoSNMPDataReturned, result.Error)
+	}
+
 	if !isSNMPPacketUnsupportedError(result.Error) {
 		return nil, fmt.Errorf("%w %s", ErrSNMPError, result.Error)
 	}
@@ -573,6 +577,10 @@ func fetchSystemVariables(
 		}
 
 		if single.Error != gosnmp.NoError {
+			if isSNMPPacketNoDataError(single.Error) {
+				return nil, fmt.Errorf("%w %s", ErrNoSNMPDataReturned, single.Error)
+			}
+
 			if isSNMPPacketUnsupportedError(single.Error) {
 				continue
 			}
@@ -779,6 +787,10 @@ func isSNMPPacketUnsupportedError(err gosnmp.SNMPError) bool {
 		strings.Contains(msg, "nosuchobject") ||
 		strings.Contains(msg, "no such instance") ||
 		strings.Contains(msg, "nosuchinstance")
+}
+
+func isSNMPPacketNoDataError(err gosnmp.SNMPError) bool {
+	return err == gosnmp.AuthorizationError
 }
 
 func parseVLANIDFromOID(oid string) (int32, bool) {
@@ -2790,16 +2802,29 @@ func (e *DiscoveryEngine) bridgeIfIndexByMAC(client *gosnmp.GoSNMP) (map[string]
 		return nil
 	})
 
-	hasExplicitBridgePortMap := len(bridgePortToIfIndex) > 0
+	fdbPDUs := make([]gosnmp.SnmpPDU, 0)
+	_ = client.BulkWalk(oidDot1dTpFdbPort, func(pdu gosnmp.SnmpPDU) error {
+		fdbPDUs = append(fdbPDUs, pdu)
+		return nil
+	})
 
+	return e.bridgeIfIndexByMACFromFDBPDUs(bridgePortToIfIndex, fdbPDUs)
+}
+
+func (e *DiscoveryEngine) bridgeIfIndexByMACFromFDBPDUs(
+	bridgePortToIfIndex map[int32]int32,
+	fdbPDUs []gosnmp.SnmpPDU,
+) (map[string]int32, map[int32]int) {
+	hasExplicitBridgePortMap := len(bridgePortToIfIndex) > 0
 	result := make(map[string]int32)
+	ambiguousMACs := make(map[string]struct{})
 	fdbMacCountByIf := make(map[int32]int)
 	seenByIfMAC := make(map[string]struct{})
 
-	_ = client.BulkWalk(oidDot1dTpFdbPort, func(pdu gosnmp.SnmpPDU) error {
+	for _, pdu := range fdbPDUs {
 		bridgePort, ok := e.getInt32FromPDU(pdu, "dot1dTpFdbPort")
 		if !ok || bridgePort <= 0 {
-			return nil
+			continue
 		}
 
 		ifIndex, exists := bridgePortToIfIndex[bridgePort]
@@ -2807,27 +2832,40 @@ func (e *DiscoveryEngine) bridgeIfIndexByMAC(client *gosnmp.GoSNMP) (map[string]
 			// Some switches expose dot1dTpFdbPort but not dot1dBasePortIfIndex.
 			// On those agents, bridge port IDs are typically aligned with ifIndex.
 			// Use that as a fallback so FDB evidence can still drive topology attribution.
-			if hasExplicitBridgePortMap || bridgePort <= 0 {
-				return nil
+			if hasExplicitBridgePortMap {
+				continue
 			}
 			ifIndex = bridgePort
 		}
 
 		mac, ok := macFromFDBOID(pdu.Name)
 		if !ok || mac == "" {
-			return nil
+			continue
 		}
 
 		normalized := NormalizeMAC(mac)
-		result[normalized] = ifIndex
+		if normalized == "" {
+			continue
+		}
+
 		seenKey := fmt.Sprintf("%d|%s", ifIndex, normalized)
 		if _, exists := seenByIfMAC[seenKey]; !exists {
 			seenByIfMAC[seenKey] = struct{}{}
 			fdbMacCountByIf[ifIndex]++
 		}
 
-		return nil
-	})
+		if _, ambiguous := ambiguousMACs[normalized]; ambiguous {
+			continue
+		}
+
+		if previousIfIndex, exists := result[normalized]; exists && previousIfIndex != ifIndex {
+			delete(result, normalized)
+			ambiguousMACs[normalized] = struct{}{}
+			continue
+		}
+
+		result[normalized] = ifIndex
+	}
 
 	return result, fdbMacCountByIf
 }

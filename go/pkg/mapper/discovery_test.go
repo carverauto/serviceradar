@@ -760,6 +760,46 @@ func TestStartWorkersUsesSharedHostProber(t *testing.T) {
 	assert.Equal(t, 3, job.Results.Contract.ProbeSummary.Attempts)
 }
 
+func TestStartWorkersDoesNotDropResultsWhenResultChannelIsFull(t *testing.T) {
+	engine := &DiscoveryEngine{done: make(chan struct{}), logger: logger.NewTestLogger()}
+	job := &DiscoveryJob{
+		ID: "job-progress",
+		Results: &DiscoveryResults{
+			Contract: DiscoveryContract{},
+		},
+		ctx: context.Background(),
+	}
+
+	targetChan := make(chan string, 3)
+	for _, target := range []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"} {
+		targetChan <- target
+	}
+	close(targetChan)
+
+	resultChan := make(chan bool, 1)
+	var wg sync.WaitGroup
+	engine.startWorkers(job, &wg, targetChan, resultChan, 1, func(_ *DiscoveryJob, _ string) {})
+
+	// Let the first buffered send fill resultChan. Older code used a default
+	// case here and silently dropped later completions instead of waiting.
+	time.Sleep(20 * time.Millisecond)
+
+	var results []bool
+	done := make(chan struct{})
+	go func() {
+		for result := range resultChan {
+			results = append(results, result)
+		}
+		close(done)
+	}()
+
+	wg.Wait()
+	close(resultChan)
+	<-done
+
+	require.Len(t, results, 3)
+}
+
 func BenchmarkStartWorkersProbeComparison(b *testing.B) {
 	bench := func(b *testing.B, useProber bool) { //nolint:thelper // not a standalone test helper
 		for i := 0; i < b.N; i++ {
