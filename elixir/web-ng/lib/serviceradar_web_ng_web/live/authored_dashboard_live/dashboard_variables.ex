@@ -55,17 +55,64 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.DashboardVariables do
       |> List.wrap()
       |> Map.new(fn variable -> {variable.name, variable} end)
 
-    query =
-      Regex.replace(~r/(["'])\$\{([a-zA-Z][a-zA-Z0-9_-]*)\}\1/, query, fn
-        _match, _quote, name -> replacement_value(name, values, variable_map)
-      end)
-
-    Regex.replace(~r/\$\{([a-zA-Z][a-zA-Z0-9_-]*)\}/, query, fn _match, name ->
-      replacement_value(name, values, variable_map)
-    end)
+    query
+    |> String.graphemes()
+    |> substitute_tokens(values, variable_map, nil, [])
+    |> IO.iodata_to_binary()
   end
 
   def substitute(query, _values, _variables), do: query
+
+  defp substitute_tokens([], _values, _variable_map, _quote, acc), do: Enum.reverse(acc)
+
+  defp substitute_tokens(["\\" = slash, next | rest], values, variable_map, quote, acc) when not is_nil(quote) do
+    substitute_tokens(rest, values, variable_map, quote, [next, slash | acc])
+  end
+
+  defp substitute_tokens([quote | rest], values, variable_map, quote, acc) when quote in ["\"", "'", "`"] do
+    substitute_tokens(rest, values, variable_map, nil, [quote | acc])
+  end
+
+  defp substitute_tokens([quote | rest], values, variable_map, nil, acc) when quote in ["\"", "'", "`"] do
+    substitute_tokens(rest, values, variable_map, quote, [quote | acc])
+  end
+
+  defp substitute_tokens(["$", "{" | rest], values, variable_map, quote, acc) do
+    case take_variable_name(rest, []) do
+      {:ok, name, remaining} ->
+        replacement =
+          if is_nil(quote) do
+            replacement_value(name, values, variable_map)
+          else
+            escaped_string_content(Map.get(values, name, ""), quote)
+          end
+
+        substitute_tokens(remaining, values, variable_map, quote, [replacement | acc])
+
+      :error ->
+        substitute_tokens(rest, values, variable_map, quote, ["{", "$" | acc])
+    end
+  end
+
+  defp substitute_tokens([char | rest], values, variable_map, quote, acc) do
+    substitute_tokens(rest, values, variable_map, quote, [char | acc])
+  end
+
+  defp take_variable_name(["}" | rest], chars) do
+    name = chars |> Enum.reverse() |> IO.iodata_to_binary()
+
+    if Regex.match?(~r/^[a-zA-Z][a-zA-Z0-9_-]*$/, name) do
+      {:ok, name, rest}
+    else
+      :error
+    end
+  end
+
+  defp take_variable_name([char | rest], chars) when char != "}" do
+    take_variable_name(rest, [char | chars])
+  end
+
+  defp take_variable_name([], _chars), do: :error
 
   defp variable(name, config) when is_binary(name) do
     normalized = normalize_name(name)
@@ -173,14 +220,15 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.DashboardVariables do
   end
 
   defp string_literal(value) do
-    escaped =
-      value
-      |> to_string()
-      |> String.replace(~r/[\r\n\t]+/, " ")
-      |> String.replace("\\", "\\\\")
-      |> String.replace("\"", "\\\"")
+    ~s("#{escaped_string_content(value, "\"")}")
+  end
 
-    ~s("#{escaped}")
+  defp escaped_string_content(value, quote) do
+    value
+    |> to_string()
+    |> String.replace(~r/[\r\n\t]+/, " ")
+    |> String.replace("\\", "\\\\")
+    |> String.replace(quote, "\\#{quote}")
   end
 
   defp normalize_name(value) do

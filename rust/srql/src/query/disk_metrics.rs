@@ -700,6 +700,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 
@@ -739,6 +740,7 @@ mod tests {
             )),
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 
@@ -778,6 +780,7 @@ mod tests {
             )),
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         };
 
