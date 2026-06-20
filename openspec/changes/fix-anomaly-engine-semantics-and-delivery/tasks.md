@@ -279,7 +279,7 @@
 - [ ] 51.8 Run native add-on manifest/version gates if add-on package metadata or Rust add-on sources change.
 - [ ] 51.9 Re-run the live `sysmon.debug_spike` trace + a sampled-flow check in demo and confirm F1/F3/F6/F12/F15/F21-F55 behaviors are resolved (one open finding, sample-time, coherent identity, visible+annotated chart spike, correct sampled NetFlow units, safe dashboard variables, no alert storm, no SRQL panics).
 
-## 52. CI Action Flood (ops/infra, separate) (F56)
+## 52. CI Action Flood (ops/infra, separate) (F56) - fj #4098
 - [x] 52.1 Add Forgejo workflow concurrency groups with `cancel-in-progress` keyed on workflow/ref for build and scan workflows, while queueing same-tag publish reruns so in-flight publishes are not cancelled.
 
 ## 53. StatusHandler endpoint_inventory {:results_update} Crash-Loop (F57) - fj #4136
@@ -292,3 +292,14 @@ _From the 2026-06-20 demo RCA: `ServiceRadar.StatusHandler` can crash-loop when 
 - [x] 53.6 Move hash-freshness/noop decisions before transaction reads/writes so unchanged scans skip unnecessary writes.
 - [x] 53.7 Index or rewrite the agent-scoped scan lookup used by endpoint inventory context building.
 - [x] 53.8 Add per-agent queue fairness/load-shedding and surface queue-full as a fast gateway-buffered reply.
+
+## 54. NetFlow Cache-Refresh Full-Scan CPU (F58) - fj #4096
+_From the 2026-06-19 demo CNPG CPU investigation (`pg_stat_statements` on primary `cnpg-23`): the recurring `SELECT DISTINCT sampler_address, ocsf_payload #>> '{connection_info,input_snmp|output_snmp}'` full-scan of `platform.ocsf_network_activity` was the #1 DB-CPU consumer (~4.9s/call, ~22% of DB time). Code stopgap landed via #4102; documented here to reconcile the task list to staging-canonical (the section was missing despite the code landing)._
+- [ ] 54.1 Replace the periodic re-derive with an incrementally-maintained `(sampler, interface_index)` dimension or a TimescaleDB continuous aggregate (long-term fix — still open).
+- [x] 54.2 Stopgap: bound the cache-refresh `since` window (30m default / 1h cap) + add the partial time-first indexes on `ocsf_network_activity`. **Landed via #4102.**
+- [ ] 54.3 Secondary observability-query CPU (triage/track): `INSERT INTO logs`, `refresh_device_inventory_rollups()`, DIRE `stale_to_active`/`mac_to_active`, and the `netflow_provider_cidrs` per-row join (~741k calls).
+
+## 55. Topology Apache AGE Query Frequency (F59) - fj #4097
+_#2 demo DB-CPU consumer: 187k `ag_catalog.cypher` calls (~19.8% of DB time), the `MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)` runtime-graph query re-run per LiveView render/poll. Code partially landed; documented here to reconcile to staging-canonical._
+- [x] 55.1 Throttle/debounce the runtime-graph refresh so bursty render/poll casts collapse to at-most-once per interval. **Landed via #4103.**
+- [ ] 55.2 Make each topology read cheap: the AGE property indexes (#4104) do not help the full `MATCH … CANONICAL_TOPOLOGY` traversal (it's a full edge scan + graphid join, not a point lookup); the effective fix is the graphid join index (confirm the prod AGE install exposes the btree opclass) OR a materialized/mutation-invalidated topology projection. Still open.
