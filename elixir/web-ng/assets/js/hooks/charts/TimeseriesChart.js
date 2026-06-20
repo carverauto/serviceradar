@@ -1,3 +1,5 @@
+import {hoverPosition, plotGeometryFromDataset} from "../../utils/chart_hover_geometry"
+
 export default {
   mounted() {
     const el = this.el
@@ -35,6 +37,7 @@ export default {
     }
 
     const formatValue = (value) => {
+      if (value === null || value === undefined) return "no data"
       if (typeof value !== "number") return value
       switch (unit) {
         case "percent":
@@ -54,8 +57,9 @@ export default {
 
     const showTooltip = (e) => {
       const rect = svg.getBoundingClientRect()
-      const x = e.clientX - rect.left
-      const pct = Math.max(0, Math.min(1, x / rect.width))
+      const position = hoverPosition(e.clientX, rect, plotGeometryFromDataset(el, svg, rect))
+      const x = position.lineX
+      const pct = position.pct
       const idx = Math.round(pct * (pointsData.length - 1))
       const point = pointsData[idx]
 

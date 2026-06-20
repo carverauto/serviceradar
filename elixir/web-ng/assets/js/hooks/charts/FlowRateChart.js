@@ -5,7 +5,7 @@
  *   data-points — JSON array of {t: timestamp, v: number}
  *   data-color  — stroke/fill color
  */
-function parsePoints(raw) {
+export function parsePoints(raw) {
   let parsed = []
   try {
     parsed = JSON.parse(raw || "[]")
@@ -17,14 +17,32 @@ function parsePoints(raw) {
 
   return parsed
     .map((p) => {
-      const value = Number(p?.v)
+      const value = p?.v === null || p?.v === undefined ? null : Number(p.v)
       const time = p?.t
       return {
         t: time,
-        v: Number.isFinite(value) ? value : null,
+        v: value !== null && Number.isFinite(value) ? value : null,
       }
     })
-    .filter((p) => p.v !== null)
+}
+
+export function contiguousValidSegments(points) {
+  const segments = []
+  let current = []
+
+  for (let i = 0; i < points.length; i += 1) {
+    const point = points[i]
+    if (point?.v === null) {
+      if (current.length > 0) segments.push(current)
+      current = []
+      continue
+    }
+
+    current.push({...point, idx: i})
+  }
+
+  if (current.length > 0) segments.push(current)
+  return segments
 }
 
 function formatRate(value) {
@@ -88,14 +106,16 @@ export default {
 
     const color = this.el.dataset.color || "oklch(0.65 0.24 150)"
 
-    if (points.length < 2) {
+    const validPoints = points.filter((p) => p.v !== null)
+
+    if (validPoints.length < 2 || points.length < 2) {
       ctx.fillStyle = "rgba(115, 115, 115, 0.85)"
       ctx.font = "12px ui-sans-serif, system-ui, sans-serif"
       ctx.fillText("No flow-rate data", padLeft, padTop + 16)
       return
     }
 
-    const values = points.map((p) => p.v)
+    const values = validPoints.map((p) => p.v)
     const minVal = Math.min(0, ...values)
     const maxVal = Math.max(...values)
     const paddedMax = maxVal <= minVal ? minVal + 1 : maxVal * 1.05
@@ -137,30 +157,47 @@ export default {
       ctx.stroke()
     }
 
+    const segments = contiguousValidSegments(points)
+
     // Area
-    ctx.beginPath()
-    ctx.moveTo(xFor(0), h - padBottom)
-    for (let i = 0; i < points.length; i++) {
-      ctx.lineTo(xFor(i), yFor(points[i].v))
-    }
-    ctx.lineTo(xFor(points.length - 1), h - padBottom)
-    ctx.closePath()
     ctx.fillStyle = color
     ctx.globalAlpha = 0.15
-    ctx.fill()
+    for (const segment of segments) {
+      if (segment.length < 2) continue
+      ctx.beginPath()
+      ctx.moveTo(xFor(segment[0].idx), h - padBottom)
+      for (const point of segment) {
+        ctx.lineTo(xFor(point.idx), yFor(point.v))
+      }
+      ctx.lineTo(xFor(segment[segment.length - 1].idx), h - padBottom)
+      ctx.closePath()
+      ctx.fill()
+    }
 
     // Line
     ctx.globalAlpha = 1
-    ctx.beginPath()
-    for (let i = 0; i < points.length; i++) {
-      const x = xFor(i)
-      const y = yFor(points[i].v)
-      if (i === 0) ctx.moveTo(x, y)
-      else ctx.lineTo(x, y)
-    }
     ctx.strokeStyle = color
     ctx.lineWidth = 2
-    ctx.stroke()
+    for (const segment of segments) {
+      if (segment.length < 2) {
+        const point = segment[0]
+        ctx.beginPath()
+        ctx.arc(xFor(point.idx), yFor(point.v), 2, 0, Math.PI * 2)
+        ctx.fillStyle = color
+        ctx.fill()
+        continue
+      }
+
+      ctx.beginPath()
+      for (let i = 0; i < segment.length; i += 1) {
+        const point = segment[i]
+        const x = xFor(point.idx)
+        const y = yFor(point.v)
+        if (i === 0) ctx.moveTo(x, y)
+        else ctx.lineTo(x, y)
+      }
+      ctx.stroke()
+    }
 
     // X labels
     ctx.fillStyle = "rgba(100, 116, 139, 0.95)"
