@@ -32,6 +32,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   alias ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents
   alias ServiceRadarWebNGWeb.NorthboundActionComponents
 
+  @edge_saturation_profile_source Path.expand(
+                                    "../../../../../rust/anomaly-addon/src/addon.rs",
+                                    __DIR__
+                                  )
+  @external_resource @edge_saturation_profile_source
+
   setup %{conn: conn} do
     user = AshTestHelpers.admin_user_fixture()
 
@@ -1567,13 +1573,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "normal"
   end
 
-  test "sysmon metric sections carry anomaly annotations and selected finding marker" do
+  test "sysmon metric sections carry section-level anomaly annotations and selected finding marker" do
     section = %{
       key: "cpu",
       panels: [
         %{
           id: "cpu",
-          assigns: %{series_points: [{"CPU0", []}, {"CPU1", []}]}
+          assigns: %{series_points: [{"usage_percent", []}]}
         }
       ]
     }
@@ -1596,13 +1602,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
                dt: "2026-06-19T12:05:00Z",
                label: "Selected: CPU saturation anomaly",
                severity: "High",
-               series: "CPU1"
+               series: nil
              },
              %{
                dt: "2026-06-19T12:05:00Z",
                label: "CPU saturation anomaly",
                severity: "High",
-               series: "CPU1"
+               series: nil
              }
            ] = assigns.annotations
   end
@@ -1632,6 +1638,71 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       SysmonMetrics.annotate_metric_sections([section], %{anomaly_rows: [row]})
 
     assert [%{label: "CPU saturation anomaly", series: nil}] = assigns.annotations
+  end
+
+  test "sysmon percent metric sections carry saturation gate reference lines" do
+    previous_responder = Application.get_env(:serviceradar_web_ng, :device_live_srql_responder)
+
+    Application.put_env(:serviceradar_web_ng, :device_live_srql_responder, fn query, _opts ->
+      value =
+        cond do
+          query =~ ~s|metric_name:"cpu.usage_percent"| -> 42.0
+          query =~ ~s|metric_name:"memory.used_percent"| -> 67.0
+          query =~ ~s|metric_name:"disk.used_percent"| -> 73.0
+          query =~ ~s|metric_name:"process.count"| -> 22.0
+          true -> flunk("unexpected sysmon metric query: #{query}")
+        end
+
+      {:ok,
+       %{
+         "results" => [
+           %{
+             "timestamp" => "2026-06-19T12:00:00Z",
+             "value" => value
+           }
+         ],
+         "pagination" => %{}
+       }}
+    end)
+
+    on_exit(fn ->
+      restore_env(:device_live_srql_responder, previous_responder)
+    end)
+
+    sections =
+      SysmonMetrics.load_metric_sections(
+        __MODULE__.RecordingSRQLStub,
+        [~s|device_id:"sr:test"|],
+        :scope
+      )
+
+    edge_gate_floors = edge_addon_saturation_gate_floors()
+
+    assert_panel_reference_line(
+      sections,
+      "cpu",
+      Map.fetch!(edge_gate_floors, "cpu"),
+      expected_saturation_gate_label("CPU", Map.fetch!(edge_gate_floors, "cpu"))
+    )
+
+    assert_panel_reference_line(
+      sections,
+      "memory",
+      Map.fetch!(edge_gate_floors, "memory"),
+      expected_saturation_gate_label("Memory", Map.fetch!(edge_gate_floors, "memory"))
+    )
+
+    assert_panel_reference_line(
+      sections,
+      "disk",
+      Map.fetch!(edge_gate_floors, "disk"),
+      expected_saturation_gate_label("Disk", Map.fetch!(edge_gate_floors, "disk"))
+    )
+
+    process_count = Enum.find(sections, &(&1.key == "process-count"))
+    assert process_count
+    assert [%{assigns: process_assigns}] = process_count.panels
+    refute Map.has_key?(process_assigns, :reference_lines)
   end
 
   test "logs sysmon process metric SRQL failures" do
@@ -3413,6 +3484,48 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
+
+  defp edge_addon_saturation_gate_floors do
+    source = File.read!(@edge_saturation_profile_source)
+
+    # Parse the production `series_profile_for/1` match arms in
+    # rust/anomaly-addon/src/addon.rs. That function constructs the
+    # `SeriesProfile.saturation_gate.min_value` used by edge scoring; if those
+    # Rust literals move to constants or a different shape, update this parser
+    # rather than pointing it at the nearby Rust test fixtures.
+    Map.new([{"cpu", "Cpu"}, {"memory", "Mem"}, {"disk", "Disk"}], fn {metric_class, gauge_class} ->
+      regex =
+        Regex.compile!(
+          "Some\\(GaugeClass::#{gauge_class}\\) => SeriesProfile \\{.*?" <>
+            "saturation_gate: Some\\(SaturationGate \\{.*?min_value: ([0-9.]+),",
+          "s"
+        )
+
+      [_match, floor] = Regex.run(regex, source)
+      {metric_class, String.to_float(floor)}
+    end)
+  end
+
+  defp expected_saturation_gate_label(name, percent), do: "#{name} saturation gate #{expected_gate_percent(percent)}%"
+
+  defp expected_gate_percent(percent) when is_float(percent) and percent == trunc(percent),
+    do: Integer.to_string(trunc(percent))
+
+  defp expected_gate_percent(percent), do: to_string(percent)
+
+  defp assert_panel_reference_line(sections, section_key, expected_value, expected_label) do
+    section = Enum.find(sections, &(&1.key == section_key))
+    assert section
+
+    assert [%{assigns: %{reference_lines: [reference_line]}}] = section.panels
+
+    assert %{
+             value: ^expected_value,
+             label: ^expected_label,
+             severity: :warning,
+             series: nil
+           } = reference_line
+  end
 
   defp drain_srql_queries(acc \\ []) do
     receive do
