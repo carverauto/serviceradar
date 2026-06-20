@@ -199,7 +199,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
         panels = build_metric_panels(%{"results" => display_rows, "viz" => viz}, display_rows, "core_id")
         header_value = latest_metric_max_value(normalized, "usage_percent")
         header_stats = metric_stats(normalized, "usage_percent")
-        %{base | panels: panels, header_value: header_value, header_stats: header_stats}
+
+        %{
+          base
+          | subtitle: sysmon_display_subtitle(normalized, "core_id", "core", "cores"),
+            panels: panels,
+            header_value: header_value,
+            header_stats: header_stats
+        }
 
       {:ok, %{"results" => results}} when is_list(results) ->
         base
@@ -277,7 +284,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
         panels = build_metric_panels(%{"results" => display_rows, "viz" => viz}, display_rows, "mount_point")
         header_value = latest_metric_max_value(normalized, "used_percent")
         header_stats = metric_stats(normalized, "used_percent")
-        %{base | panels: panels, header_value: header_value, header_stats: header_stats}
+
+        %{
+          base
+          | subtitle: sysmon_display_subtitle(normalized, "mount_point", "mount", "mounts"),
+            panels: panels,
+            header_value: header_value,
+            header_stats: header_stats
+        }
 
       {:ok, %{"results" => results}} when is_list(results) ->
         base
@@ -549,6 +563,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   defp safe_series_key(value) when is_atom(value), do: value |> Atom.to_string() |> safe_series_key()
   defp safe_series_key(value) when is_number(value), do: value |> to_string() |> safe_series_key()
   defp safe_series_key(_value), do: nil
+
+  defp sysmon_display_subtitle(rows, series_field, singular, plural) when is_list(rows) do
+    count =
+      rows
+      |> Enum.map(&series_key(&1, series_field))
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+      |> MapSet.size()
+
+    noun = if count == 1, do: singular, else: plural
+
+    if count > @sysmon_display_series_limit do
+      "last 24h · 5m buckets · top #{@sysmon_display_series_limit} of #{count} #{plural} by max"
+    else
+      "last 24h · 5m buckets · all #{count} #{noun} by max"
+    end
+  end
+
+  defp sysmon_display_subtitle(_rows, _series_field, singular, _plural) do
+    "last 24h · 5m buckets · max per #{singular}"
+  end
 
   defp timeseries_viz(y_field, series_field) do
     suggestion =
