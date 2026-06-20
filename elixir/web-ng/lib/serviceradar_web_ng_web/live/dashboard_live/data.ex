@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   alias ServiceRadarWebNG.TenantUsage
   alias ServiceRadarWebNG.Topology.RuntimeGraph
   alias ServiceRadarWebNGWeb.Helpers.VirtualizationLabels
+  alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
   alias ServiceRadarWebNGWeb.Stats
 
   @default_time_window "last_24h"
@@ -627,10 +628,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
         """
         LEFT JOIN platform.ip_geo_enrichment_cache src_geo
           ON src_geo.ip = NULLIF(f.src_endpoint_ip, '')
-          AND (src_geo.expires_at IS NULL OR src_geo.expires_at > now())
+          AND #{EnrichmentExpiry.sql("src_geo")}
         LEFT JOIN platform.ip_geo_enrichment_cache dst_geo
           ON dst_geo.ip = NULLIF(f.dst_endpoint_ip, '')
-          AND (dst_geo.expires_at IS NULL OR dst_geo.expires_at > now())
+          AND #{EnrichmentExpiry.sql("dst_geo")}
         """
       else
         ""
