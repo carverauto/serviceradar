@@ -411,6 +411,7 @@ fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
                 "gateway_id" => "gateway_id".to_string(),
                 "agent_id" => "agent_id".to_string(),
                 "partition" => "partition".to_string(),
+                "series_key" => "series_key".to_string(),
                 "target_device_ip" => "target_device_ip".to_string(),
                 "if_index" => "if_index::text".to_string(),
                 other => {
