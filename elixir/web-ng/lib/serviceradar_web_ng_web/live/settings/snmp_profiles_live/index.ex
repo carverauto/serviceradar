@@ -3029,13 +3029,27 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   defp load_profile_target_counts(_scope, []), do: %{}
 
   defp load_profile_target_counts(scope, profiles) do
-    Enum.reduce(profiles, %{}, fn profile, acc ->
-      target_query = resolve_target_query(profile.target_query, profile.is_default)
-      normalized_query = normalize_target_query(target_query, profile.is_default)
-      count = count_target_devices(scope, normalized_query)
+    profile_queries =
+      Enum.map(profiles, fn profile ->
+        {profile.id, profile_target_query(profile)}
+      end)
 
-      Map.put(acc, profile.id, count)
+    counts_by_query =
+      profile_queries
+      |> Enum.map(fn {_profile_id, target_query} -> target_query end)
+      |> Enum.uniq()
+      |> Map.new(fn target_query ->
+        {target_query, count_target_devices(scope, target_query)}
+      end)
+
+    Map.new(profile_queries, fn {profile_id, target_query} ->
+      {profile_id, Map.get(counts_by_query, target_query, :unknown)}
     end)
+  end
+
+  defp profile_target_query(profile) do
+    target_query = resolve_target_query(profile.target_query, profile.is_default)
+    normalize_target_query(target_query, profile.is_default)
   end
 
   defp load_profile(scope, id) do
@@ -3248,13 +3262,20 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     query =
       Interface
       |> Ash.Query.for_read(:read, %{})
-      |> apply_srql_filters(filters)
-      # Add distinct on device_id to avoid counting historical snapshots
-      |> Ash.Query.distinct(:device_id)
+      |> apply_interface_filters(filters)
 
-    case Ash.count(query, scope: scope) do
-      {:ok, count} -> {:ok, count}
-      _ -> :unknown
+    case query do
+      {:error, :unsupported_filter} ->
+        :unknown
+
+      query ->
+        # Add distinct on device_id to avoid counting historical snapshots.
+        query = Ash.Query.distinct(query, :device_id)
+
+        case Ash.count(query, scope: scope) do
+          {:ok, count} -> {:ok, count}
+          _ -> :unknown
+        end
     end
   rescue
     _ -> :unknown
@@ -3308,22 +3329,25 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
 
   defp extract_srql_filters(_), do: []
 
-  defp apply_srql_filters(query, filters) do
-    Enum.reduce(filters, query, fn filter, q ->
-      apply_srql_filter(q, filter)
+  defp apply_interface_filters(query, filters) do
+    Enum.reduce_while(filters, query, fn filter, q ->
+      case apply_interface_filter(q, filter) do
+        {:ok, updated} -> {:cont, updated}
+        {:error, :unsupported_filter} -> {:halt, {:error, :unsupported_filter}}
+      end
     end)
   end
 
-  defp apply_srql_filter(query, %{field: field, op: op, value: value}) when is_binary(field) do
+  defp apply_interface_filter(query, %{field: field, op: op, value: value}) when is_binary(field) do
     case map_srql_field(field) do
-      nil -> query
-      mapped_field -> apply_field_filter(query, mapped_field, op, value)
+      nil -> {:error, :unsupported_filter}
+      mapped_field -> {:ok, apply_field_filter(query, mapped_field, op, value)}
     end
   rescue
-    _ -> query
+    _ -> {:error, :unsupported_filter}
   end
 
-  defp apply_srql_filter(query, _), do: query
+  defp apply_interface_filter(_query, _), do: {:error, :unsupported_filter}
 
   # Map SRQL interface fields to Ash attributes
   @srql_field_mapping %{

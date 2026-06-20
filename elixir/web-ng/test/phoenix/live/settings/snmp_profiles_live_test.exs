@@ -135,6 +135,52 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLiveTest do
     assert has_element?(lv, "#snmp-profile-#{profile.id}-targets", "1 target")
   end
 
+  test "renders target counts for duplicate SNMP profile target queries", %{
+    conn: conn,
+    scope: scope
+  } do
+    unique = System.unique_integer([:positive])
+    device_fixture(%{hostname: "target-duplicate-#{unique}"})
+    target_query = "in:devices hostname:target-duplicate-#{unique}"
+
+    {:ok, first_profile} =
+      SNMPProfile
+      |> Ash.Changeset.for_create(:create, %{
+        name: "First Duplicate #{unique}",
+        target_query: target_query
+      })
+      |> Ash.create(scope: scope)
+
+    {:ok, second_profile} =
+      SNMPProfile
+      |> Ash.Changeset.for_create(:create, %{
+        name: "Second Duplicate #{unique}",
+        target_query: target_query
+      })
+      |> Ash.create(scope: scope)
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/snmp")
+
+    assert has_element?(lv, "#snmp-profile-#{first_profile.id}-targets", "1 target")
+    assert has_element?(lv, "#snmp-profile-#{second_profile.id}-targets", "1 target")
+  end
+
+  test "interface target counts fail closed for unsupported filters", %{conn: conn, scope: scope} do
+    unique = System.unique_integer([:positive])
+
+    {:ok, profile} =
+      SNMPProfile
+      |> Ash.Changeset.for_create(:create, %{
+        name: "Unsupported Interface Filter #{unique}",
+        target_query: "in:interfaces unsupported_field:edge"
+      })
+      |> Ash.create(scope: scope)
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/snmp")
+
+    assert has_element?(lv, "#snmp-profile-#{profile.id}-targets", "Unknown")
+  end
+
   defp register_and_log_in_admin_user(%{conn: conn}) do
     user = AccountsFixtures.user_fixture(%{role: :admin})
     scope = Scope.for_user(user)
