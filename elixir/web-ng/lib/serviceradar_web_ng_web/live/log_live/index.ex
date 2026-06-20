@@ -25,6 +25,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadarWebNGWeb.NetflowVisualize.Query, as: NFQuery
   alias ServiceRadarWebNGWeb.NetflowVisualize.State, as: NFState
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
+  alias ServiceRadarWebNGWeb.SRQL.TimeWindow
   alias ServiceRadarWebNGWeb.Stats
   alias ServiceRadarWebNGWeb.Stats.Query, as: StatsQuery
 
@@ -2349,7 +2350,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <.ui_panel class="p-3">
           <div class="flex items-center justify-between">
             <div>
-              <p class="text-sm font-medium text-base-content/60">Avg Bandwidth (covered)</p>
+              <p class="text-sm font-medium text-base-content/60">Avg Bandwidth</p>
               <p class="text-xl font-bold">
                 {format_netflow_bps(Map.get(@summary, :avg_bps, 0.0))}
               </p>
@@ -2361,7 +2362,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <.ui_panel class="p-3">
           <div class="flex items-center justify-between">
             <div>
-              <p class="text-sm font-medium text-base-content/60">Avg PPS (covered)</p>
+              <p class="text-sm font-medium text-base-content/60">Avg PPS</p>
               <p class="text-xl font-bold">
                 {format_netflow_pps(Map.get(@summary, :avg_pps, 0.0))}
               </p>
@@ -6942,15 +6943,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  defp extract_time_from_query(""), do: nil
-
-  defp extract_time_from_query(query) when is_binary(query) do
-    case Regex.run(~r/(?:^|\s)time:(\S+)/, query) do
-      [_, time] -> time
-      _ -> nil
-    end
-  end
-
   defp extract_filter_from_query(nil, _field), do: nil
   defp extract_filter_from_query("", _field), do: nil
 
@@ -7170,7 +7162,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp apply_tab_assigns(socket, "events", _srql_module) do
     query = socket.assigns |> Map.get(:srql, %{}) |> Map.get(:query, "")
 
-    base_summary = Stats.events_summary(time: event_summary_time_window(query))
+    base_summary = Stats.events_summary(time: TimeWindow.token_from_query(query, "last_7d"))
 
     summary = Map.put(base_summary, :critical, Map.get(base_summary, :critical, 0) + Map.get(base_summary, :fatal, 0))
 
@@ -7542,7 +7534,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   # interpret the query bar.
   defp otlp_points_base_query(current_query) do
     query = to_string(current_query || "")
-    window = extract_time_from_query(query) || "last_24h"
+    window = TimeWindow.token_from_query(query, "last_24h")
     service = extract_filter_from_query(query, "service_name")
 
     base = "in:otel_metric_points time:#{window}"
@@ -7730,15 +7722,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     %{total: 0, critical: 0, high: 0, medium: 0, low: 0}
   end
 
-  defp event_summary_time_window(query) when is_binary(query) do
-    case Regex.run(~r/\btime:(last_\d+[hd])\b/i, query) do
-      [_, value] -> String.downcase(value)
-      _ -> "last_7d"
-    end
-  end
-
-  defp event_summary_time_window(_), do: "last_7d"
-
   defp empty_alert_summary do
     %{total: 0, pending: 0, acknowledged: 0, resolved: 0, escalated: 0, suppressed: 0}
   end
@@ -7797,13 +7780,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> netflow_base_query()
       |> sanitize_srql_for_stats()
 
-    time_token = extract_time_from_query(base_query) || @default_netflow_window
-
-    window_seconds =
-      case resolve_srql_time(time_token) do
-        {:ok, %{start: start_dt, end: end_dt}} -> max(DateTime.diff(end_dt, start_dt, :second), 1)
-        _ -> 60 * 60
-      end
+    time_token = TimeWindow.token_from_query(base_query, @default_netflow_window)
+    window_seconds = TimeWindow.seconds(time_token)
 
     total_query = ~s|#{base_query} stats:"count(*) as total" limit:1|
     bytes_query = ~s|#{base_query} stats:"sum(bytes_total) as total_bytes" limit:1|
@@ -7811,7 +7789,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     packets_alt_query = ~s|#{base_query} stats:"sum(packets) as total_packets" limit:1|
     packets_in_query = ~s|#{base_query} stats:"sum(packets_in) as total_packets_in" limit:1|
     packets_out_query = ~s|#{base_query} stats:"sum(packets_out) as total_packets_out" limit:1|
-    coverage_query = ~s|#{base_query} stats:"min(time) as first_time, max(time) as last_time" limit:1|
 
     proto_query =
       ~s|#{base_query} stats:"count(*) as total by protocol_num" sort:total:desc limit:50|
@@ -7863,10 +7840,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       end)
 
     other = max(total - tcp - udp, 0)
-    covered_seconds = netflow_summary_covered_seconds(srql_module.query(coverage_query, %{scope: scope}), window_seconds)
 
-    avg_bps = total_bytes * 8.0 / covered_seconds
-    avg_pps = total_packets * 1.0 / covered_seconds
+    avg_bps = total_bytes * 8.0 / window_seconds
+    avg_pps = total_packets * 1.0 / window_seconds
 
     %{
       total: total,
@@ -7877,25 +7853,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       total_packets: total_packets,
       avg_bps: avg_bps,
       avg_pps: avg_pps,
-      window_seconds: covered_seconds
+      window_seconds: window_seconds
     }
   rescue
     e ->
       Logger.warning("Failed to load netflow summary stats: #{inspect(e)}")
       empty_netflow_summary()
-  end
-
-  defp netflow_summary_covered_seconds(result, fallback_seconds) do
-    row = extract_stats_row(result)
-
-    with {:ok, first_time} <- row |> Map.get("first_time") |> parse_timestamp(),
-         {:ok, last_time} <- row |> Map.get("last_time") |> parse_timestamp() do
-      last_time
-      |> DateTime.diff(first_time, :second)
-      |> max(1)
-    else
-      _ -> max(to_int(fallback_seconds), 1)
-    end
   end
 
   defp load_netflow_top_talkers(srql_module, current_query, scope, talker_cidr, limit \\ 10) do
@@ -8105,10 +8068,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> netflow_base_query()
       |> sanitize_srql_for_stats()
 
-    time_token = extract_time_from_query(base_query) || @default_netflow_window
+    time_token = TimeWindow.token_from_query(base_query, @default_netflow_window)
 
     bucket_seconds =
-      case resolve_srql_time(time_token) do
+      case TimeWindow.resolve(time_token) do
         {:ok, %{start: start_dt, end: end_dt}} -> choose_netflow_bucket_seconds(start_dt, end_dt)
         _ -> 300
       end
@@ -8575,9 +8538,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> netflow_base_query()
       |> sanitize_srql_for_stats()
 
-    time_token = extract_time_from_query(base_query) || @default_netflow_window
+    time_token = TimeWindow.token_from_query(base_query, @default_netflow_window)
 
-    case resolve_srql_time(time_token) do
+    case TimeWindow.resolve(time_token) do
       {:ok, %{start: start_dt, end: end_dt}} ->
         span_seconds = max(DateTime.diff(end_dt, start_dt, :second), 1)
 
@@ -8815,92 +8778,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end)
     |> Map.to_list()
   end
-
-  defp resolve_srql_time(value) when is_binary(value) do
-    value
-    |> String.trim()
-    |> resolve_srql_time(DateTime.utc_now())
-  end
-
-  defp resolve_srql_time("today", now) do
-    start =
-      now
-      |> DateTime.to_date()
-      |> DateTime.new!(~T[00:00:00], "Etc/UTC")
-
-    {:ok, %{start: start, end: now}}
-  end
-
-  defp resolve_srql_time("yesterday", now) do
-    today = DateTime.to_date(now)
-    start = today |> Date.add(-1) |> DateTime.new!(~T[00:00:00], "Etc/UTC")
-    end_dt = DateTime.new!(today, ~T[00:00:00], "Etc/UTC")
-    {:ok, %{start: start, end: end_dt}}
-  end
-
-  defp resolve_srql_time(value, now) do
-    cond do
-      bracketed_time?(value) ->
-        parse_bracketed_time(value)
-
-      last_duration?(value) ->
-        resolve_last_duration(value, now)
-
-      true ->
-        {:error, :unsupported}
-    end
-  end
-
-  defp bracketed_time?(value) do
-    String.starts_with?(value, "[") and String.ends_with?(value, "]")
-  end
-
-  defp parse_bracketed_time(value) do
-    inner = value |> String.trim_leading("[") |> String.trim_trailing("]")
-
-    case String.split(inner, ",", parts: 2) do
-      [start_raw, end_raw] ->
-        with {:ok, start_dt, _} <- DateTime.from_iso8601(String.trim(start_raw)),
-             {:ok, end_dt, _} <- DateTime.from_iso8601(String.trim(end_raw)),
-             true <- DateTime.compare(start_dt, end_dt) in [:lt, :eq] do
-          {:ok, %{start: start_dt, end: end_dt}}
-        else
-          _ -> {:error, :bad_time}
-        end
-
-      _ ->
-        {:error, :bad_time}
-    end
-  end
-
-  defp last_duration?(value) do
-    Regex.match?(~r/^(?:last[_-])?\d+[mhd]$/i, value)
-  end
-
-  defp resolve_last_duration(value, now) do
-    normalized = value |> String.downcase() |> String.replace(~r/^last[_-]/, "")
-    amount = String.slice(normalized, 0, max(byte_size(normalized) - 1, 0))
-    unit = String.slice(normalized, -1, 1)
-
-    case Integer.parse(amount) do
-      {n, ""} when n > 0 ->
-        case duration_unit_multiplier(unit) do
-          seconds when is_integer(seconds) and seconds > 0 ->
-            {:ok, %{start: DateTime.add(now, -(n * seconds), :second), end: now}}
-
-          _ ->
-            {:error, :bad_time}
-        end
-
-      _ ->
-        {:error, :bad_time}
-    end
-  end
-
-  defp duration_unit_multiplier("m"), do: 60
-  defp duration_unit_multiplier("h"), do: 3_600
-  defp duration_unit_multiplier("d"), do: 86_400
-  defp duration_unit_multiplier(_), do: 0
 
   defp netflow_patch_opts(compact?, talker_cidr, compare_mode, geo_side, sankey_prefix, stack_mode, graph_mode, view) do
     %{

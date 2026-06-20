@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   alias ServiceRadar.Observability.NetflowLocalCidr
   alias ServiceRadar.ReferenceData.ServicePorts
   alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
+  alias ServiceRadarWebNGWeb.SRQL.TimeWindow
 
   require Ash.Query
   require Logger
@@ -598,7 +599,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               :for={{iface, idx} <- Enum.with_index(@top_interfaces)}
               :if={iface.capacity_bps > 0}
               id={"iface-gauge-#{idx}"}
-              current_bps={Map.get(iface, :gauge_bytes, 0) / time_window_seconds(@time_window) * 8}
+              current_bps={
+                Map.get(iface, :gauge_bytes, 0) / TimeWindow.preset_seconds(@time_window) * 8
+              }
               capacity_bps={iface.capacity_bps * 1.0}
               label={iface.label}
               current_label={"Avg #{@time_window}"}
@@ -1148,7 +1151,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   end
 
   defp batched_interface_downsample_limit(tw, bucket_secs, interfaces) do
-    bucket_count = ceil(time_window_seconds(tw) / max(bucket_secs, 1)) + 2
+    bucket_count = ceil(TimeWindow.preset_seconds(tw) / max(bucket_secs, 1)) + 2
     max(length(interfaces) * bucket_count, 100)
   end
 
@@ -1361,13 +1364,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   defp bucket_seconds("6h"), do: 21_600
   defp bucket_seconds(_), do: 300
 
-  defp time_window_seconds("1h"), do: 3_600
-  defp time_window_seconds("6h"), do: 21_600
-  defp time_window_seconds("24h"), do: 86_400
-  defp time_window_seconds("7d"), do: 604_800
-  defp time_window_seconds("30d"), do: 2_592_000
-  defp time_window_seconds(_), do: 3_600
-
   defp timeseries_bucket("1h"), do: "1m"
   defp timeseries_bucket("6h"), do: "5m"
   defp timeseries_bucket("24h"), do: "15m"
@@ -1397,11 +1393,11 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     |> then(&"(#{&1})")
   end
 
-  defp primary_metric(_bytes, packets, "pps", time_window), do: packets / time_window_seconds(time_window)
+  defp primary_metric(_bytes, packets, "pps", time_window), do: packets / TimeWindow.preset_seconds(time_window)
   defp primary_metric(bytes, _packets, unit_mode, time_window), do: display_rate(bytes, unit_mode, time_window)
 
-  defp display_rate(total_bytes, "bps", time_window), do: total_bytes * 8 / time_window_seconds(time_window)
-  defp display_rate(total_bytes, "Bps", time_window), do: total_bytes / time_window_seconds(time_window)
+  defp display_rate(total_bytes, "bps", time_window), do: total_bytes * 8 / TimeWindow.preset_seconds(time_window)
+  defp display_rate(total_bytes, "Bps", time_window), do: total_bytes / TimeWindow.preset_seconds(time_window)
   defp display_rate(total_bytes, _mode, _time_window), do: total_bytes
 
   defp unit_suffix("bps"), do: "bps"
@@ -1440,7 +1436,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   end
 
   defp format_bytes_cell(row, "pps", time_window) do
-    val = (row.packets || 0) / time_window_seconds(time_window)
+    val = (row.packets || 0) / TimeWindow.preset_seconds(time_window)
     ServiceRadarWebNGWeb.FlowStatComponents.format_si(val, unit: "pps")
   end
 

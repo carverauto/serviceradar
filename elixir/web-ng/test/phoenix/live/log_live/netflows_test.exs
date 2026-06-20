@@ -37,7 +37,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     assert html =~ "Total Packets"
   end
 
-  test "/observability netflows summary rates use the covered data span", %{conn: conn} do
+  test "/observability netflows summary rates use the selected query window", %{conn: conn} do
     Application.put_env(
       :serviceradar_web_ng,
       :srql_module,
@@ -55,14 +55,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
 
     {:ok, _lv, html} = live(conn, ~p"/observability?#{%{q: q, limit: 50, tab: "netflows"}}")
 
-    assert html =~ "Avg Bandwidth (covered)"
-    assert html =~ "32 bps"
-    assert html =~ "Avg PPS (covered)"
-    assert html =~ "0.02 pps"
+    assert html =~ "Avg Bandwidth"
+    assert html =~ "1.0 Kbps"
+    assert html =~ "Avg PPS"
+    assert html =~ "1.0 pps"
 
     queries = collect_srql_queries([])
 
-    assert Enum.any?(queries, fn query ->
+    refute Enum.any?(queries, fn query ->
              String.contains?(query, ~S|stats:"min(time) as first_time, max(time) as last_time"|)
            end)
   end
@@ -163,23 +163,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
              "error" => nil
            }}
 
-        String.contains?(query, ~S|stats:"min(time) as first_time, max(time) as last_time"|) ->
-          {:ok,
-           %{
-             "results" => [
-               %{
-                 "first_time" => "2026-02-27T21:00:00Z",
-                 "last_time" => "2026-02-27T21:30:00Z"
-               }
-             ],
-             "pagination" => %{},
-             "error" => nil
-           }}
-
         String.contains?(query, ~S|stats:"sum(bytes_total) as total_bytes"|) ->
           {:ok,
            %{
-             "results" => [%{"total_bytes" => 7_200}],
+             "results" => [%{"total_bytes" => 10_800_000}],
              "pagination" => %{},
              "error" => nil
            }}
@@ -187,7 +174,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
         String.contains?(query, ~S|stats:"sum(packets_total) as total_packets"|) ->
           {:ok,
            %{
-             "results" => [%{"total_packets" => 36}],
+             "results" => [%{"total_packets" => 86_400}],
              "pagination" => %{},
              "error" => nil
            }}
