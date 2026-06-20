@@ -35,6 +35,8 @@ import (
 	"github.com/tetratelabs/wazero/api"
 )
 
+const websocketReadLimitExceeded = "websocket: read limit exceeded"
+
 func (e *pluginExecution) hostTCPConnect(ctx context.Context, mod api.Module, addrPtr, addrLen, port, timeoutMS uint32) int32 {
 	if !e.hasCapability("tcp_connect") {
 		return pluginErrDenied
@@ -515,9 +517,13 @@ func (e *pluginExecution) hostWebSocketRecv(_ context.Context, mod api.Module, h
 		timeout = e.assignment.Timeout
 	}
 	_ = conn.SetReadDeadline(time.Now().Add(timeout))
+	conn.SetReadLimit(pluginWebSocketReadLimit(bufLen))
 
 	_, data, err := conn.ReadMessage()
 	if err != nil {
+		if strings.Contains(err.Error(), websocketReadLimitExceeded) {
+			return pluginErrTooLarge
+		}
 		if errors.Is(err, context.DeadlineExceeded) || websocket.IsCloseError(err, websocket.CloseNormalClosure) {
 			return pluginErrTimeout
 		}
@@ -533,6 +539,14 @@ func (e *pluginExecution) hostWebSocketRecv(_ context.Context, mod api.Module, h
 	}
 
 	return int32(len(data))
+}
+
+func pluginWebSocketReadLimit(bufLen uint32) int64 {
+	limit := int64(bufLen)
+	if limit <= 0 || limit > pluginMaxPayloadBytes {
+		return pluginMaxPayloadBytes
+	}
+	return limit
 }
 
 func (e *pluginExecution) hostWebSocketClose(_ context.Context, _ api.Module, handle uint32) int32 {

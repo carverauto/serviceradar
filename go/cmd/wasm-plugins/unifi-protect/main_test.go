@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -294,6 +295,15 @@ func TestProtectBootstrapResponseParsesLastUpdateID(t *testing.T) {
 	}
 	if len(payload.Cameras) != 1 {
 		t.Fatalf("unexpected camera count %d", len(payload.Cameras))
+	}
+}
+
+func TestTrimBodyPreservesUTF8Boundaries(t *testing.T) {
+	body := strings.Repeat("a", 255) + "☃tail"
+	got := trimBody(EndpointResult{Body: body})
+
+	if got.Body != strings.Repeat("a", 255) {
+		t.Fatalf("trimmed body split multibyte rune: %q", got.Body)
 	}
 }
 

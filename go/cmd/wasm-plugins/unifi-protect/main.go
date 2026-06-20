@@ -1375,10 +1375,27 @@ func truthy(value interface{}) bool {
 func trimBody(in EndpointResult) EndpointResult {
 	out := in
 	const maxBody = 256
-	if len(out.Body) > maxBody {
-		out.Body = out.Body[:maxBody]
-	}
+	out.Body = trimStringBytes(out.Body, maxBody)
 	return out
+}
+
+func trimStringBytes(value string, maxBytes int) string {
+	if maxBytes <= 0 {
+		return ""
+	}
+	if len(value) <= maxBytes {
+		return value
+	}
+
+	end := 0
+	for idx := range value {
+		if idx > maxBytes {
+			break
+		}
+		end = idx
+	}
+
+	return value[:end]
 }
 
 func main() {}

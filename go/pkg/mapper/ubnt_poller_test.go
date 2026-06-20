@@ -1128,6 +1128,57 @@ func TestUniFiDeviceDetailsCamelCaseCompatibility(t *testing.T) {
 	assert.Equal(t, "Port 26", details.Uplink.parentPortName())
 }
 
+func TestUniFiUplinkParentPortIndexAllowsZero(t *testing.T) {
+	raw := []byte(`{
+		"deviceId": "uplink-device",
+		"parentPortIdx": 0
+	}`)
+
+	var uplink UniFiUplink
+	require.NoError(t, json.Unmarshal(raw, &uplink))
+
+	assert.True(t, uplink.parentPortIndexPresent())
+	assert.Equal(t, int32(0), uplink.parentPortIndex())
+}
+
+func TestProcessUplinkInfoLabelsZeroParentPort(t *testing.T) {
+	deviceCache := map[string]struct {
+		IP       string
+		Name     string
+		MAC      string
+		DeviceID string
+	}{
+		"uplink-device": {
+			IP:       "192.168.1.10",
+			Name:     "Core Switch",
+			MAC:      "00:11:22:33:44:55",
+			DeviceID: "device-uplink",
+		},
+	}
+	raw := []byte(`{"deviceId":"uplink-device","parentPortIdx":0}`)
+	var uplink UniFiUplink
+	require.NoError(t, json.Unmarshal(raw, &uplink))
+
+	links := (&DiscoveryEngine{}).processUplinkInfo(
+		&DiscoveryJob{ID: "job-zero-port"},
+		&UniFiDevice{
+			ID:        "ap-1",
+			IPAddress: "192.168.1.20",
+			Name:      "AP",
+			MAC:       "aa:bb:cc:dd:ee:ff",
+			Uplink:    uplink,
+		},
+		nil,
+		deviceCache,
+		UniFiAPIConfig{Name: "controller", BaseURL: "https://unifi.example"},
+		UniFiSite{ID: "site-1", Name: "Default"},
+	)
+
+	require.Len(t, links, 1)
+	assert.Equal(t, int32(0), links[0].LocalIfIndex)
+	assert.Equal(t, "Port 0", links[0].LocalIfName)
+}
+
 func TestParseUniFiDeviceDetailsWithAdaptersFixtures(t *testing.T) {
 	engine := &DiscoveryEngine{
 		logger: logger.NewTestLogger(),
