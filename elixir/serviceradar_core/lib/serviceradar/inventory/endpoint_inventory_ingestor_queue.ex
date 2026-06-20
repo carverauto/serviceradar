@@ -44,6 +44,14 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
     call_queue({:enqueue, payload, opts, :async, ingest_timeout_ms()}, admission_timeout_ms())
   end
 
+  @spec enqueue_and_reply(map(), GenServer.from(), keyword()) :: enqueue_result()
+  def enqueue_and_reply(payload, reply_to, opts \\ []) when is_map(payload) do
+    call_queue(
+      {:enqueue, payload, opts, {:reply_to, reply_to}, ingest_timeout_ms()},
+      admission_timeout_ms()
+    )
+  end
+
   @spec enqueue_and_wait(map(), keyword(), timeout()) :: {:ok, map()} | {:error, term()}
   def enqueue_and_wait(payload, opts \\ [], timeout \\ ingest_timeout_ms())
       when is_map(payload) do
@@ -93,7 +101,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
           |> enqueue_job(job)
           |> maybe_start_jobs()
 
-        if mode == :async do
+        if admission_reply?(mode) do
           {:reply, :ok, state}
         else
           {:noreply, state}
@@ -335,6 +343,11 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
 
   defp reply_to(:async, _from), do: nil
   defp reply_to(:sync, from), do: from
+  defp reply_to({:reply_to, from}, _from), do: from
+
+  defp admission_reply?(:async), do: true
+  defp admission_reply?({:reply_to, _from}), do: true
+  defp admission_reply?(:sync), do: false
 
   defp at_capacity?(%State{} = state) do
     state.pending_count + map_size(state.inflight) >= state.max_pending

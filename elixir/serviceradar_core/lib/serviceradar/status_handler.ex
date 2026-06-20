@@ -102,8 +102,16 @@ defmodule ServiceRadar.StatusHandler do
   end
 
   @impl true
-  def handle_call({:status_update, status}, _from, state) do
-    {:reply, process_status_update(status, sync_results?: true), state}
+  def handle_call({:status_update, status}, from, state) do
+    if endpoint_inventory_result_status?(status) do
+      case process_status_update(status, sync_results?: true, endpoint_inventory_reply_to: from) do
+        :ok -> {:noreply, state}
+        {:error, _reason} = error -> {:reply, error, state}
+        {:ok, _result} = ok -> {:reply, ok, state}
+      end
+    else
+      {:reply, process_status_update(status, sync_results?: true), state}
+    end
   end
 
   defp process_status_update(status, opts) do
@@ -127,11 +135,16 @@ defmodule ServiceRadar.StatusHandler do
        when source in ["results", :results, "plugin-result", :plugin_result] do
     case Process.whereis(ResultsRouter) do
       pid when is_pid(pid) ->
-        if Keyword.get(opts, :sync_results?, false) do
-          call_results_router(pid, status)
-        else
-          GenServer.cast(pid, {:results_update, status})
-          :ok
+        cond do
+          reply_to = Keyword.get(opts, :endpoint_inventory_reply_to) ->
+            call_results_router_async_reply(pid, status, reply_to)
+
+          Keyword.get(opts, :sync_results?, false) ->
+            call_results_router(pid, status)
+
+          true ->
+            GenServer.cast(pid, {:results_update, status})
+            :ok
         end
 
       _ ->
@@ -178,6 +191,28 @@ defmodule ServiceRadar.StatusHandler do
       Logger.warning("ResultsRouter status update failed: #{inspect(reason)}")
       {:error, {:results_router_unavailable, reason}}
   end
+
+  defp call_results_router_async_reply(pid, status, reply_to) do
+    GenServer.call(
+      pid,
+      {:results_update_async_reply, status, reply_to},
+      results_router_timeout_ms()
+    )
+  catch
+    :exit, {:timeout, _call} ->
+      Logger.warning("ResultsRouter endpoint inventory admission timed out")
+      {:error, :results_router_timeout}
+
+    :exit, reason ->
+      Logger.warning("ResultsRouter endpoint inventory admission failed: #{inspect(reason)}")
+      {:error, {:results_router_unavailable, reason}}
+  end
+
+  defp endpoint_inventory_result_status?(%{source: source, service_type: service_type})
+       when source in ["results", :results] and
+              service_type in ["endpoint_inventory", :endpoint_inventory], do: true
+
+  defp endpoint_inventory_result_status?(_status), do: false
 
   defp results_router_timeout_ms do
     :serviceradar_core
