@@ -622,13 +622,13 @@ fn build_ip_addresses_clause(
 
     match filter.op {
         FilterOp::Eq | FilterOp::In => {
-            let clause = format!("coalesce(di.ip_addresses, ARRAY[]::text[]) @> ${bind_idx}");
+            let clause = format!("coalesce(di.ip_addresses, ARRAY[]::text[]) && ${bind_idx}");
             binds.push(BindParam::TextArray(values));
             *bind_idx += 1;
             Ok(Some(clause))
         }
         FilterOp::NotEq | FilterOp::NotIn => {
-            let clause = format!("NOT (coalesce(di.ip_addresses, ARRAY[]::text[]) @> ${bind_idx})");
+            let clause = format!("NOT (coalesce(di.ip_addresses, ARRAY[]::text[]) && ${bind_idx})");
             binds.push(BindParam::TextArray(values));
             *bind_idx += 1;
             Ok(Some(clause))

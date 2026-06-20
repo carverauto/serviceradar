@@ -183,7 +183,7 @@ pub(super) fn apply_filter<'a>(
             if values.is_empty() {
                 return Ok(query);
             }
-            let expr = sql::<Bool>("coalesce(discovery_sources, ARRAY[]::text[]) @> ")
+            let expr = sql::<Bool>("coalesce(discovery_sources, ARRAY[]::text[]) && ")
                 .bind::<Array<Text>, _>(values);
             query = if is_negated_membership_op(&filter.op) {
                 query.filter(not(expr))
