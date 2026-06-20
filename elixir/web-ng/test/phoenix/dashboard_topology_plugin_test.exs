@@ -28,4 +28,36 @@ defmodule ServiceRadarWebNGWeb.DashboardTopologyPluginTest do
     assert Enum.any?(assigns.nodes, &(&1.id == "dev-2"))
     assert [%{source: "dev-1", target: "dev-2"}] = assigns.edges
   end
+
+  test "build uses stable fallback ids for nodes without explicit ids" do
+    response = %{
+      "results" => [
+        %{
+          "nodes" => [
+            %{"label" => "implicit", "attrs" => %{"b" => 2, "a" => 1}},
+            %{"attrs" => %{"a" => 1, "b" => 2}, "label" => "implicit"}
+          ],
+          "edges" => []
+        }
+      ]
+    }
+
+    assert {:ok, assigns} = Topology.build(response)
+    assert [%{id: id, label: "implicit"}] = assigns.nodes
+    assert String.starts_with?(id, "node-")
+    assert byte_size(id) == byte_size("node-") + 16
+  end
+
+  test "build caps oversized topology with a visible truncation node" do
+    nodes =
+      Enum.map(1..122, fn idx ->
+        %{"id" => "node-#{idx}", "label" => "Node #{idx}"}
+      end)
+
+    response = %{"results" => [%{"nodes" => nodes, "edges" => []}]}
+
+    assert {:ok, assigns} = Topology.build(response)
+    assert length(assigns.nodes) == 120
+    assert %{id: "__truncated_nodes__", label: "+3 more", raw: %{"truncated" => true}} = List.last(assigns.nodes)
+  end
 end

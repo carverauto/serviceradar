@@ -42,11 +42,16 @@ func TestToProtoStatusesMapsFields(t *testing.T) {
 			State:            StateRunning,
 			ResourceLimitErr: "resource limits not enforced: no delegated cgroup",
 		},
+		{
+			ID:        "edge-anomaly",
+			State:     StateCircuitOpen,
+			LastError: "restart circuit open: addon exited",
+		},
 	}
 
 	out := ToProtoStatuses(statuses)
-	if len(out) != 3 {
-		t.Fatalf("expected 3 proto statuses, got %d", len(out))
+	if len(out) != 4 {
+		t.Fatalf("expected 4 proto statuses, got %d", len(out))
 	}
 
 	if out[0].GetName() != "addon:bumblebee" {
@@ -77,6 +82,12 @@ func TestToProtoStatusesMapsFields(t *testing.T) {
 	}
 	if out[2].GetLastError() != "resource limits not enforced: no delegated cgroup" {
 		t.Fatalf("expected resource limit error via last_error, got %q", out[2].GetLastError())
+	}
+	if out[3].GetState() != string(StateCircuitOpen) {
+		t.Fatalf("expected circuit_open state, got %q", out[3].GetState())
+	}
+	if out[3].GetLastError() != "restart circuit open: addon exited" {
+		t.Fatalf("expected circuit-open last_error, got %q", out[3].GetLastError())
 	}
 }
 

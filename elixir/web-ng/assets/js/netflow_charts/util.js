@@ -1,5 +1,7 @@
 import * as d3 from "d3"
 
+import {hoverPosition} from "../utils/chart_hover_geometry"
+
 export function parseJSON(value, fallback) {
   try {
     return JSON.parse(value)
@@ -51,6 +53,9 @@ export function attachTimeTooltip(el, opts) {
   const data = opts.data || []
   const keys = opts.keys || []
   const xScale = opts.x
+  const plotLeft = opts.plotLeft ?? 0
+  const plotWidth = opts.plotWidth
+  const viewBoxWidth = opts.viewBoxWidth
   const valueAt = opts.valueAt
   const formatValue = opts.formatValue || ((v) => fmtNumber(v))
 
@@ -64,9 +69,14 @@ export function attachTimeTooltip(el, opts) {
 
   const onMove = (evt) => {
     const rect = el.getBoundingClientRect()
-    const x = evt.clientX - rect.left
+    const position = hoverPosition(evt.clientX, rect, {
+      plotLeft,
+      plotWidth: plotWidth ?? rect.width,
+      viewBoxWidth: viewBoxWidth ?? rect.width,
+    })
+    const x = position.lineX
     const y = evt.clientY - rect.top
-    const innerX = Math.max(0, Math.min(rect.width, x))
+    const innerX = position.plotX
     const t = xScale.invert(innerX)
     const idx = bisect(data, t)
     const row = data[idx]
@@ -91,7 +101,7 @@ export function attachTimeTooltip(el, opts) {
     const pad = 8
     const ttRect = tooltip.getBoundingClientRect()
     const maxLeft = rect.width - (ttRect.width || 180) - pad
-    const left = Math.max(pad, Math.min(maxLeft, innerX + 12))
+    const left = Math.max(pad, Math.min(maxLeft, x + 12))
     const top = Math.max(pad, Math.min(rect.height - 48, y - 12))
     tooltip.style.left = `${left}px`
     tooltip.style.top = `${top}px`
