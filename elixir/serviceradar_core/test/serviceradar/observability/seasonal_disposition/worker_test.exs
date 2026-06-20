@@ -15,6 +15,24 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
     on_exit(fn -> AnomalyConfigRuntime.clear_cache_for_test() end)
   end
 
+  test "manual enqueue uniqueness ignores per-run evaluated_at" do
+    first =
+      Worker.new(%{
+        "trigger" => "manual",
+        "evaluated_at" => "2026-06-12T12:00:00Z"
+      })
+
+    second =
+      Worker.new(%{
+        "trigger" => "manual",
+        "evaluated_at" => "2026-06-12T12:05:00Z"
+      })
+
+    assert first.changes.unique.keys == [:trigger]
+    assert second.changes.unique.keys == [:trigger]
+    assert first.changes.unique.fields == [:args, :queue, :worker]
+  end
+
   # A profile row carrying the SQL-aggregated (dow,hod) bucket summary INCLUDING the
   # sample under test (the natural CAGG aggregate the mean/stddev kernel de-aggregates).
   defp profile_row(series, dow, hod, baseline_points, sample_value) do
@@ -200,6 +218,55 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
     assert_received {:seasonal_verdict, attrs}
     assert attrs.disposition == "seasonal_breach"
     assert attrs.consecutive_anomalous == 3
+  end
+
+  test "worker confirms the first breach when confirm_slots is one" do
+    AnomalyConfigRuntime.put_cache_for_test(%{
+      seasonal_disposition_opts: [confirm_slots: 1]
+    })
+
+    idle = for i <- 0..19, do: 5.0 + rem(i, 3) * 0.5
+    rows = [profile_row("svc/cpu/first-breach", 0, 3, idle, 800.0)]
+
+    assert :ok =
+             Worker.run(job(),
+               sources: [source()],
+               runner: make_runner(rows),
+               carried_state: %{},
+               verdict_emitter: TestEmitter,
+               test_pid: self()
+             )
+
+    assert_received {:seasonal_verdict, attrs}
+    assert attrs.series_key == "svc/cpu/first-breach"
+    assert attrs.disposition == "seasonal_breach"
+    assert attrs.consecutive_anomalous == 1
+  end
+
+  test "worker resets pending confirmation on clean slot without emitting clear" do
+    AnomalyConfigRuntime.put_cache_for_test(%{
+      seasonal_disposition_opts: [confirm_slots: 3]
+    })
+
+    busy = for i <- 0..19, do: 800.0 + rem(i, 5) * 2.0
+    rows = [profile_row("svc/cpu/pending-clean", 2, 9, busy, 805.0)]
+    persisted = :ets.new(:seasonal_state_pending_clean, [:public, :set])
+
+    assert :ok =
+             Worker.run(job(),
+               sources: [source()],
+               runner: make_runner(rows),
+               carried_state: %{{"svc/cpu/pending-clean", 2, 9} => 2},
+               state_persister: fn key, next ->
+                 :ets.insert(persisted, {key, next})
+                 :ok
+               end,
+               verdict_emitter: TestEmitter,
+               test_pid: self()
+             )
+
+    refute_received {:seasonal_verdict, _}
+    assert [{_, 0}] = :ets.lookup(persisted, {"svc/cpu/pending-clean", 2, 9})
   end
 
   test "worker gates a thin bucket to insufficient without surfacing a verdict" do
