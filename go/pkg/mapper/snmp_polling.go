@@ -260,7 +260,7 @@ func (e *DiscoveryEngine) publishTopologyEvidence(
 	}
 }
 
-// setupSNMPClient creates and configures an SNMP client
+// setupSNMPClient creates and configures an SNMP client without opening the socket.
 func (e *DiscoveryEngine) setupSNMPClient(job *DiscoveryJob, target string) (*gosnmp.GoSNMP, error) {
 	// Create SNMP client
 	client, err := e.createSNMPClient(target, job.Params.Credentials)
@@ -275,11 +275,6 @@ func (e *DiscoveryEngine) setupSNMPClient(job *DiscoveryJob, target string) (*go
 
 	if job.Params.Retries > 0 {
 		client.Retries = job.Params.Retries
-	}
-
-	// Connect to target
-	if err := client.Connect(); err != nil {
-		return nil, err
 	}
 
 	return client, nil
