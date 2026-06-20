@@ -334,11 +334,34 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp apply_device_metrics_assigns(socket, assigns) do
+    assigns = annotate_metric_section_assigns(assigns, Map.get(socket.assigns, :anomaly_capacity_detail))
+
     socket
     |> assign(assigns)
     |> assign(:metrics_loading, false)
     |> assign(:device_metrics_request_ref, nil)
   end
+
+  defp annotate_metric_section_assigns(assigns, selected_detail) when is_map(assigns) do
+    case {Map.get(assigns, :metric_sections), Map.get(assigns, :anomaly_capacity)} do
+      {sections, anomaly_capacity} when is_list(sections) and is_map(anomaly_capacity) ->
+        selected_row = selected_anomaly_row(selected_detail)
+
+        Map.put(
+          assigns,
+          :metric_sections,
+          SysmonMetrics.annotate_metric_sections(sections, anomaly_capacity, selected_row)
+        )
+
+      _ ->
+        assigns
+    end
+  end
+
+  defp annotate_metric_section_assigns(assigns, _selected_detail), do: assigns
+
+  defp selected_anomaly_row(%{kind: "anomaly", row: %{} = row}), do: row
+  defp selected_anomaly_row(_), do: nil
 
   defp apply_flow_stats_bundle(socket, stats_bundle) do
     {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json, top_destinations_json,
@@ -908,14 +931,35 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     with {index, ""} <- Integer.parse(raw_index),
          rows when is_list(rows) <- anomaly_capacity_detail_rows(socket.assigns.anomaly_capacity, kind),
          %{} = row <- Enum.at(rows, index) do
-      {:noreply, assign(socket, :anomaly_capacity_detail, %{kind: kind, row: row})}
+      detail = %{kind: kind, row: row}
+
+      {:noreply,
+       socket
+       |> assign(:anomaly_capacity_detail, detail)
+       |> assign(
+         :metric_sections,
+         SysmonMetrics.annotate_metric_sections(
+           Map.get(socket.assigns, :metric_sections),
+           Map.get(socket.assigns, :anomaly_capacity),
+           selected_anomaly_row(detail)
+         )
+       )}
     else
       _ -> {:noreply, socket}
     end
   end
 
   def handle_event("close_anomaly_capacity_detail", _params, socket) do
-    {:noreply, assign(socket, :anomaly_capacity_detail, nil)}
+    {:noreply,
+     socket
+     |> assign(:anomaly_capacity_detail, nil)
+     |> assign(
+       :metric_sections,
+       SysmonMetrics.annotate_metric_sections(
+         Map.get(socket.assigns, :metric_sections),
+         Map.get(socket.assigns, :anomaly_capacity)
+       )
+     )}
   end
 
   def handle_event("view_mtr_trace", %{"id" => trace_id}, socket) do
