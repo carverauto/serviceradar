@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.Components.PluginConfigFormTest do
   alias ServiceRadarWebNGWeb.PluginConfigForm
 
   @moduletag :unit
+  @moduletag :db_free
 
   test "renders fields from schema" do
     schema = %{

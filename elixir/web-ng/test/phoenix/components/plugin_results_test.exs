@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.Components.PluginResultsTest do
   alias ServiceRadarWebNGWeb.PluginResults
 
   @moduletag :unit
+  @moduletag :db_free
 
   test "renders stat card widget" do
     html =

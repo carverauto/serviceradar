@@ -12,6 +12,10 @@ allow_db_free_tests? = System.get_env("SERVICERADAR_ALLOW_DB_FREE_TESTS") in ["1
 ci? = System.get_env("CI") in ["1", "true", "TRUE"]
 db_required? = require_db_tests? or ci? or not allow_db_free_tests?
 
+if allow_db_free_tests? and not db_required? do
+  ExUnit.configure(exclude: [:test], include: [:db_free])
+end
+
 if db_required? do
   {:ok, _} = Application.ensure_all_started(:serviceradar_web_ng)
 end
@@ -35,17 +39,11 @@ db_tests_available? =
         {:error, reason} ->
           message = "web-ng test database unavailable: #{inspect(reason)}"
 
-          cond do
-            require_db_tests? ->
-              raise message
-
-            allow_db_free_tests? ->
-              IO.warn("Continuing without web-ng test database; #{message}")
-              false
-
-            true ->
-              IO.warn("Skipping web-ng tests; #{message}")
-              System.halt(0)
+          if require_db_tests? do
+            raise message
+          else
+            IO.warn("Skipping web-ng tests; #{message}")
+            System.halt(0)
           end
       end
   end
