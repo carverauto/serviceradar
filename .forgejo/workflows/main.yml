@@ -99,6 +99,13 @@ jobs:
           echo "Resolved Bazel: ${actual}"
           test "${actual}" = "${expected}"
 
+      - name: Check Gazelle BUILD drift for changed Go packages
+        run: |
+          set -euo pipefail
+          base_ref="${GITHUB_BASE_REF:-staging}"
+          git fetch --no-tags --depth=1 origin "${base_ref}"
+          scripts/check-gazelle-drift.sh FETCH_HEAD HEAD
+
       - name: Report unavailable SRQL fixture secrets
         if: ${{ secrets.SRQL_TEST_DATABASE_URL == '' || secrets.SRQL_TEST_ADMIN_URL == '' || secrets.SRQL_TEST_DATABASE_CA_CERT == '' }}
         run: |
