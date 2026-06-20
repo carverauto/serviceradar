@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowIpEnrichment do
   alias Phoenix.Component
   alias ServiceRadar.Observability.IpGeoEnrichmentCache
   alias ServiceRadar.Observability.IpRdnsCache
+  alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
 
   require Ash.Query
 
@@ -54,7 +55,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowIpEnrichment do
     query =
       IpRdnsCache
       |> Ash.Query.for_read(:read, %{})
-      |> Ash.Query.filter(ip in ^ips and (is_nil(expires_at) or expires_at > ^now))
+      |> EnrichmentExpiry.live_for_ips(ips, now)
 
     case Ash.read(query, scope: scope) do
       {:ok, rows} when is_list(rows) ->
@@ -87,7 +88,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowIpEnrichment do
     query =
       IpGeoEnrichmentCache
       |> Ash.Query.for_read(:read, %{})
-      |> Ash.Query.filter(ip in ^ips and (is_nil(expires_at) or expires_at > ^now))
+      |> EnrichmentExpiry.live_for_ips(ips, now)
 
     case Ash.read(query, scope: scope) do
       {:ok, rows} when is_list(rows) ->
