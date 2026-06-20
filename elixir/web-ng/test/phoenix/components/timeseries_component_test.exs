@@ -33,6 +33,73 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
     assert html =~ "12:00 AM"
   end
 
+  test "renders timestamp annotations as SVG markers" do
+    points = [
+      {~U[2025-01-01 00:00:00Z], 10.0},
+      {~U[2025-01-01 00:10:00Z], 20.0},
+      {~U[2025-01-01 00:20:00Z], 30.0}
+    ]
+
+    html =
+      render_component(Timeseries, %{
+        id: "ts-annotations",
+        title: "Annotated",
+        panel_assigns: %{
+          chart_mode: :single,
+          rate_mode: :none,
+          annotations: [
+            %{
+              dt: ~U[2025-01-01 00:05:00Z],
+              label: "Anomaly finding",
+              severity: "critical"
+            }
+          ]
+        },
+        series_points: [{"cpu", points}]
+      })
+
+    assert html =~ "data-testid=\"timeseries-annotations\""
+    assert html =~ "data-testid=\"timeseries-annotation\""
+    assert html =~ "data-annotation-label=\"Anomaly finding\""
+    assert html =~ "data-annotation-severity=\"critical\""
+    assert html =~ "x1=\"204.0\""
+    assert html =~ "#EF4444"
+  end
+
+  test "renders threshold reference lines and includes them in chart scale" do
+    points = [
+      {~U[2025-01-01 00:00:00Z], 10.0},
+      {~U[2025-01-01 00:10:00Z], 20.0},
+      {~U[2025-01-01 00:20:00Z], 30.0}
+    ]
+
+    html =
+      render_component(Timeseries, %{
+        id: "ts-reference-lines",
+        title: "Thresholds",
+        panel_assigns: %{
+          chart_mode: :single,
+          rate_mode: :none,
+          reference_lines: [
+            %{
+              value: 80.0,
+              label: "CPU >= 80%",
+              severity: "warning",
+              series: "cpu"
+            }
+          ]
+        },
+        series_points: [{"cpu", points}]
+      })
+
+    assert html =~ "data-testid=\"timeseries-reference-lines\""
+    assert html =~ "data-testid=\"timeseries-reference-line\""
+    assert html =~ "data-reference-label=\"CPU &gt;= 80%\""
+    assert html =~ "data-reference-severity=\"warning\""
+    assert html =~ "data-reference-series=\"cpu\""
+    assert html =~ "#EAB308"
+  end
+
   test "formats percent axis labels for usage percent metrics" do
     points = [
       {~U[2025-01-01 00:00:00Z], 10.0},
@@ -297,6 +364,77 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
 
     assert html =~ "1.0 K/s"
     refute html =~ "100.0 /s"
+  end
+
+  test "renders an explicit no-data state instead of an empty chart" do
+    html =
+      render_component(Timeseries, %{
+        id: "ts-empty",
+        title: "Empty",
+        panel_assigns: %{chart_mode: :single, rate_mode: :none},
+        series_points: []
+      })
+
+    assert html =~ "No chart data"
+    assert html =~ "No samples matched this chart"
+    refute html =~ "phx-hook=\"TimeseriesChart\""
+  end
+
+  test "renders query-error and disabled states distinctly" do
+    error_html =
+      render_component(Timeseries, %{
+        id: "ts-query-error",
+        title: "Query error",
+        panel_assigns: %{
+          chart_mode: :single,
+          rate_mode: :none,
+          empty_state: :query_error,
+          error_message: "SRQL timeout while loading samples"
+        },
+        series_points: []
+      })
+
+    assert error_html =~ "Chart query failed"
+    assert error_html =~ "The chart query failed before returning usable data."
+    refute error_html =~ "SRQL timeout while loading samples"
+    assert error_html =~ "border-error"
+
+    safe_detail_html =
+      render_component(Timeseries, %{
+        id: "ts-query-error-safe-detail",
+        title: "Query error",
+        panel_assigns: %{
+          chart_mode: :single,
+          rate_mode: :none,
+          empty_state: :query_error,
+          empty_detail: "Could not load metric samples for this chart.",
+          error_message: "SRQL timeout while loading samples"
+        },
+        series_points: []
+      })
+
+    assert safe_detail_html =~ "Could not load metric samples for this chart."
+    refute safe_detail_html =~ "SRQL timeout while loading samples"
+
+    disabled_html =
+      render_component(Timeseries, %{
+        id: "ts-disabled",
+        title: "Disabled",
+        panel_assigns: %{
+          chart_mode: :single,
+          rate_mode: :none,
+          empty_state: :disabled,
+          empty_config_href: "/settings/snmp",
+          empty_config_label: "SNMP settings"
+        },
+        series_points: []
+      })
+
+    assert disabled_html =~ "Metrics collection disabled"
+    assert disabled_html =~ "Enable the relevant SNMP or polling configuration"
+    assert disabled_html =~ "href=\"/settings/snmp\""
+    assert disabled_html =~ "SNMP settings"
+    assert disabled_html =~ "border-warning"
   end
 
   defp decode_chart_points(html) do
