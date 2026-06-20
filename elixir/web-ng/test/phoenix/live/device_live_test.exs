@@ -1704,6 +1704,97 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     refute disk_query =~ "limit:"
   end
 
+  test "native sysmon charts display hottest fanned series while stats use all rows" do
+    previous_responder = Application.get_env(:serviceradar_web_ng, :device_live_srql_responder)
+
+    cpu_rows =
+      Enum.map(0..7, fn core_id ->
+        %{
+          "timestamp" => "2026-06-19T12:00:00Z",
+          "core_id" => core_id,
+          "usage_percent" => (core_id + 1) * 10.0
+        }
+      end)
+
+    disk_rows =
+      Enum.map(0..7, fn mount_index ->
+        %{
+          "timestamp" => "2026-06-19T12:00:00Z",
+          "mount_point" => "/mnt#{mount_index}",
+          "used_percent" => (mount_index + 1) * 10.0
+        }
+      end)
+
+    Application.put_env(:serviceradar_web_ng, :device_live_srql_responder, fn query, _opts ->
+      rows =
+        cond do
+          query =~ "in:cpu_metrics" -> cpu_rows
+          query =~ "in:disk_metrics" -> disk_rows
+          true -> []
+        end
+
+      {:ok, %{"results" => rows, "pagination" => %{}}}
+    end)
+
+    on_exit(fn ->
+      restore_env(:device_live_srql_responder, previous_responder)
+    end)
+
+    sections =
+      SysmonMetrics.load_metric_sections(
+        __MODULE__.RecordingSRQLStub,
+        [~s|uid:"fanout-device"|],
+        :scope
+      )
+
+    cpu = section_by_key!(sections, "cpu")
+    disk = section_by_key!(sections, "disk")
+
+    assert cpu.subtitle == "last 24h · 5m buckets · top 6 of 8 cores by max"
+    assert cpu.header_stats.min == 10.0
+    assert cpu.header_stats.max == 80.0
+    assert panel_series_names(cpu) == ["2", "3", "4", "5", "6", "7"]
+
+    assert disk.subtitle == "last 24h · 5m buckets · top 6 of 8 mounts by max"
+    assert disk.header_stats.min == 10.0
+    assert disk.header_stats.max == 80.0
+    assert panel_series_names(disk) == ["/mnt2", "/mnt3", "/mnt4", "/mnt5", "/mnt6", "/mnt7"]
+  end
+
+  test "native sysmon chart subtitles avoid top-N wording when all series are displayed" do
+    previous_responder = Application.get_env(:serviceradar_web_ng, :device_live_srql_responder)
+
+    Application.put_env(:serviceradar_web_ng, :device_live_srql_responder, fn query, _opts ->
+      rows =
+        if query =~ "in:cpu_metrics" do
+          [
+            %{"timestamp" => "2026-06-19T12:00:00Z", "core_id" => 0, "usage_percent" => 25.0},
+            %{"timestamp" => "2026-06-19T12:00:00Z", "core_id" => 1, "usage_percent" => 50.0}
+          ]
+        else
+          []
+        end
+
+      {:ok, %{"results" => rows, "pagination" => %{}}}
+    end)
+
+    on_exit(fn ->
+      restore_env(:device_live_srql_responder, previous_responder)
+    end)
+
+    sections =
+      SysmonMetrics.load_metric_sections(
+        __MODULE__.RecordingSRQLStub,
+        [~s|uid:"small-fanout-device"|],
+        :scope
+      )
+
+    cpu = section_by_key!(sections, "cpu")
+
+    assert cpu.subtitle == "last 24h · 5m buckets · all 2 cores by max"
+    assert panel_series_names(cpu) == ["0", "1"]
+  end
+
   test "renders endpoint software inventory on device details", %{conn: conn, scope: scope} do
     unique = System.unique_integer([:positive])
     uid = "sr:test-device-endpoint-inventory-#{unique}"
@@ -3434,6 +3525,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
+
+  defp section_by_key!(sections, key) do
+    section = Enum.find(sections, &(&1.key == key))
+    assert section
+    section
+  end
+
+  defp panel_series_names(section) do
+    assert [%{assigns: %{series_points: series_points}}] = section.panels
+    Enum.map(series_points, fn {series, _points} -> series end)
+  end
 
   defp drain_srql_queries(acc \\ []) do
     receive do
