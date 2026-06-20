@@ -1750,13 +1750,49 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     cpu = section_by_key!(sections, "cpu")
     disk = section_by_key!(sections, "disk")
 
+    assert cpu.subtitle == "last 24h · 5m buckets · top 6 of 8 cores by max"
     assert cpu.header_stats.min == 10.0
     assert cpu.header_stats.max == 80.0
     assert panel_series_names(cpu) == ["2", "3", "4", "5", "6", "7"]
 
+    assert disk.subtitle == "last 24h · 5m buckets · top 6 of 8 mounts by max"
     assert disk.header_stats.min == 10.0
     assert disk.header_stats.max == 80.0
     assert panel_series_names(disk) == ["/mnt2", "/mnt3", "/mnt4", "/mnt5", "/mnt6", "/mnt7"]
+  end
+
+  test "native sysmon chart subtitles avoid top-N wording when all series are displayed" do
+    previous_responder = Application.get_env(:serviceradar_web_ng, :device_live_srql_responder)
+
+    Application.put_env(:serviceradar_web_ng, :device_live_srql_responder, fn query, _opts ->
+      rows =
+        if query =~ "in:cpu_metrics" do
+          [
+            %{"timestamp" => "2026-06-19T12:00:00Z", "core_id" => 0, "usage_percent" => 25.0},
+            %{"timestamp" => "2026-06-19T12:00:00Z", "core_id" => 1, "usage_percent" => 50.0}
+          ]
+        else
+          []
+        end
+
+      {:ok, %{"results" => rows, "pagination" => %{}}}
+    end)
+
+    on_exit(fn ->
+      restore_env(:device_live_srql_responder, previous_responder)
+    end)
+
+    sections =
+      SysmonMetrics.load_metric_sections(
+        __MODULE__.RecordingSRQLStub,
+        [~s|uid:"small-fanout-device"|],
+        :scope
+      )
+
+    cpu = section_by_key!(sections, "cpu")
+
+    assert cpu.subtitle == "last 24h · 5m buckets · all 2 cores by max"
+    assert panel_series_names(cpu) == ["0", "1"]
   end
 
   test "renders endpoint software inventory on device details", %{conn: conn, scope: scope} do
