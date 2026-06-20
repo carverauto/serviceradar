@@ -1223,8 +1223,19 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   # to the raw id label exactly as before — re-key is additive, never lossy.
   defp anomaly_detection_device_uid(payload) do
     raw = anomaly_detection_raw_device_uid(payload)
+    target_device_ip = anomaly_detection_target_device_ip(payload)
+    metric_class = get_in(payload, ["anomaly", "metric_class"])
 
-    case DeviceCorrelation.resolve(anomaly_detection_correlation_candidate(payload, raw)) do
+    raw =
+      if snmp_metric_class?(metric_class) and not is_nil(target_device_ip) do
+        target_device_ip
+      else
+        raw
+      end
+
+    case DeviceCorrelation.resolve(
+           anomaly_detection_correlation_candidate(payload, raw, target_device_ip)
+         ) do
       uid when is_binary(uid) and uid != "" -> uid
       _ -> raw
     end
@@ -1244,9 +1255,8 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     ])
   end
 
-  defp anomaly_detection_correlation_candidate(payload, raw) do
+  defp anomaly_detection_correlation_candidate(payload, raw, target_device_ip) do
     anomaly_metadata = get_in(payload, ["anomaly", "metadata"]) || %{}
-    source_identity = get_in(payload, ["source_identity"]) || %{}
 
     # `target_device_ip` is the SNMP target identity (see
     # Observability.AnomalyDetection.SeriesKey: it is the polled device, not the
@@ -1258,13 +1268,6 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     # target ip, omit `agent_id` so the polled target wins. Self-poll SNMP (no
     # target ip) keeps `agent_id`, which is the only path that resolves the
     # agent-keyed device.
-    target_device_ip =
-      first_non_blank([
-        payload["target_device_ip"],
-        get_in(payload, ["anomaly", "metadata", "target_device_ip"]),
-        source_identity["target_device_ip"]
-      ])
-
     metric_class = get_in(payload, ["anomaly", "metric_class"])
     snmp_target_poll? = snmp_metric_class?(metric_class) and not is_nil(target_device_ip)
 
@@ -1305,6 +1308,17 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
           anomaly_metadata["partition"]
         ])
     }
+  end
+
+  defp anomaly_detection_target_device_ip(payload) do
+    source_identity = get_in(payload, ["source_identity"]) || %{}
+
+    first_non_blank([
+      payload["target_device_ip"],
+      get_in(payload, ["anomaly", "target_device_ip"]),
+      get_in(payload, ["anomaly", "metadata", "target_device_ip"]),
+      source_identity["target_device_ip"]
+    ])
   end
 
   defp snmp_metric_class?(metric_class) when is_binary(metric_class) do

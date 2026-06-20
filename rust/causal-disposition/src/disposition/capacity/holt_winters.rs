@@ -80,17 +80,21 @@ pub(super) fn holt_winters(points: &[NormPoint], config: &CapacityConfig) -> Opt
     let rmse = rmse(&residuals_vec);
     let last = points[count - 1];
 
-    let projected_exhaustion = seasonal_exhaustion_at(
-        level,
-        trend,
-        &seasons,
-        count,
-        period,
-        step_seconds,
-        threshold,
-        last.at_unix_micros,
-        steps,
-    );
+    let projected_exhaustion = if slope > 0.0 {
+        seasonal_exhaustion_at(
+            level,
+            trend,
+            &seasons,
+            count,
+            period,
+            step_seconds,
+            threshold,
+            last.at_unix_micros,
+            steps,
+        )
+    } else {
+        None
+    };
 
     Some(Disposition::Projected(Box::new(CapacityForecast {
         model: "holt_winters_additive".to_string(),

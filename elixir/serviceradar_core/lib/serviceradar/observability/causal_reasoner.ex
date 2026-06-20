@@ -67,8 +67,10 @@ defmodule ServiceRadar.Observability.CausalReasoner do
     an as-yet-unimplemented kernel, or — via per-row panic isolation — a contained
     kernel panic). One bad row never crashes the batch.
 
-  Only `{:seasonal_breach, _}` surfaces upstream as an anomaly verdict; the worker
-  carries `next_consecutive_anomalous` back to Postgres for confirm-slot hysteresis.
+  `{:seasonal_breach, _}` surfaces upstream as an anomaly-open verdict. A later
+  `:suppress` surfaces as a clear only when the carried counter shows the series was
+  previously confirmed. The worker carries `next_consecutive_anomalous` back to
+  Postgres for confirm-slot hysteresis.
 
   ## Capacity
 
