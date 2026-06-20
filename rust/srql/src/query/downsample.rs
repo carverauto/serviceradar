@@ -170,7 +170,7 @@ SELECT
 FROM rate_data
 WHERE rate_value IS NOT NULL  -- Skip NULL rates from counter wraps
 GROUP BY 1, 2
-ORDER BY 1 ASC
+ORDER BY 1 ASC, 2 ASC NULLS FIRST
 LIMIT ? OFFSET ?"#,
             ts_col = ts_col,
             series_expr = series_expr,
@@ -200,7 +200,7 @@ LIMIT ? OFFSET ?"#,
         "SELECT to_timestamp(floor(extract(epoch from {ts_col}) / {bucket_secs}) * {bucket_secs}) AT TIME ZONE 'UTC' AS timestamp, {series_expr} AS series, {agg_expr} AS value\nFROM {table}\nWHERE ",
     );
     sql.push_str(&where_clause);
-    sql.push_str("\nGROUP BY 1, 2\nORDER BY 1 ASC\nLIMIT ? OFFSET ?");
+    sql.push_str("\nGROUP BY 1, 2\nORDER BY 1 ASC, 2 ASC NULLS FIRST\nLIMIT ? OFFSET ?");
 
     let _ = time_range;
     Ok(sql)

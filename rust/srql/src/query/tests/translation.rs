@@ -239,6 +239,14 @@ fn translate_downsample_emits_time_bucket_query() {
         "expected group by bucket+series, got: {}",
         response.sql
     );
+    assert!(
+        response
+            .sql
+            .to_lowercase()
+            .contains("order by 1 asc, 2 asc nulls first"),
+        "expected stable downsample ordering by bucket+series, got: {}",
+        response.sql
+    );
 
     let viz = response.viz.expect("viz metadata should be present");
     assert_eq!(viz.columns.len(), 3);
@@ -368,6 +376,11 @@ fn translate_flows_downsample_emits_time_bucket_query() {
         "expected group by bucket+series, got: {}",
         response.sql
     );
+    assert!(
+        sql.contains("order by 1 asc, 2 asc nulls first"),
+        "expected stable downsample ordering by bucket+series, got: {}",
+        response.sql
+    );
 
     let viz = response.viz.expect("viz metadata should be present");
     assert_eq!(viz.columns.len(), 3);
@@ -377,6 +390,32 @@ fn translate_flows_downsample_emits_time_bucket_query() {
             .any(|s| matches!(s.kind, viz::VizKind::Timeseries)),
         "expected timeseries suggestion, got: {:?}",
         viz.suggestions
+    );
+}
+
+#[test]
+fn translate_rate_downsample_orders_by_bucket_and_series() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:snmp time:last_1h bucket:5m agg:rate series:if_index limit:25".to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+    let sql = response.sql.to_lowercase();
+
+    assert!(
+        sql.contains("lag(value) over"),
+        "expected rate downsample window query, got: {}",
+        response.sql
+    );
+    assert!(
+        sql.contains("order by 1 asc, 2 asc nulls first"),
+        "expected stable rate downsample ordering by bucket+series, got: {}",
+        response.sql
     );
 }
 
