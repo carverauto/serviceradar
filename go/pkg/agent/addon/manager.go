@@ -496,12 +496,14 @@ func (r *runner) runOnce(ctx context.Context) error {
 	cmd.Env = addonProcessEnv(os.Environ(), r.id, localEndpoint)
 
 	// Enforce the manifest resource limits on the add-on subprocess (cgroup v2 on
-	// Linux; no-op elsewhere). Best-effort: a failure to enforce logs and launches
-	// without limits rather than blocking the add-on.
-	if cleanup, err := applyResourceLimits(cmd, r.id, r.spec.Resources, r.cfg.AddonCgroupRoot, r.cfg.Logger); err != nil {
+	// Linux). Best-effort: a failure to enforce logs, is surfaced through status,
+	// and launches without limits rather than blocking the add-on.
+	if cleanup, cgroupPath, err := applyResourceLimits(cmd, r.id, r.spec.Resources, r.cfg.AddonCgroupRoot, r.cfg.Logger); err != nil {
 		r.cfg.Logger.Warn().Err(err).Str("addon", r.id).
 			Msg("addon resource limits not enforced; launching without limits")
+		r.setResourceLimits("", fmt.Sprintf("resource limits not enforced: %v", err))
 	} else {
+		r.setResourceLimits(cgroupPath, "")
 		defer cleanup()
 	}
 
@@ -928,6 +930,13 @@ func (r *runner) setRunning(pid int, version string, capabilities []string) {
 	r.status.LastStartedAt = time.Now().UTC()
 	r.status.LastExitedAt = time.Time{}
 	r.status.LastError = ""
+}
+
+func (r *runner) setResourceLimits(cgroupPath, limitErr string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.status.ResourceCgroup = cgroupPath
+	r.status.ResourceLimitErr = limitErr
 }
 
 func (r *runner) setHealthy(pid int, h coreaddon.Health) {

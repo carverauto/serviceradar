@@ -16,9 +16,11 @@ defmodule ServiceRadar.Observability.CapacityForecasting.InterfaceCapacity do
     repo = Keyword.get(opts, :repo, Repo)
 
     with {:ok, if_index} <- if_index(row),
+         {:ok, partition} <- partition(row),
          identifiers when identifiers != [] <- identifiers(row) do
       query =
         from(i in "discovered_interfaces",
+          where: i.partition == ^partition,
           where: i.if_index == ^if_index,
           where:
             fragment(
@@ -40,7 +42,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.InterfaceCapacity do
             if_alias: i.if_alias,
             speed_bps: i.speed_bps,
             if_speed: i.if_speed,
-            timestamp: i.timestamp
+            timestamp: i.timestamp,
+            partition: i.partition
           }
         )
 
@@ -89,6 +92,19 @@ defmodule ServiceRadar.Observability.CapacityForecasting.InterfaceCapacity do
     case Integer.parse(value) do
       {integer, ""} when integer > 0 -> {:ok, integer}
       _ -> {:error, :missing_if_index}
+    end
+  end
+
+  defp partition(row) do
+    row
+    |> identifier_values(["partition", "partition_id"])
+    |> Enum.find_value(fn value ->
+      value = String.trim(value)
+      if value == "", do: nil, else: value
+    end)
+    |> case do
+      nil -> {:error, :missing_partition}
+      value -> {:ok, value}
     end
   end
 

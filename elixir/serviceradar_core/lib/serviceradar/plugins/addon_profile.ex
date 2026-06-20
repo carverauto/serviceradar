@@ -14,6 +14,7 @@ defmodule ServiceRadar.Plugins.AddonProfile do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Plugins.AddonProfileOps
+  alias ServiceRadar.Plugins.Changes.ApplyAddonConfigDefaults
   alias ServiceRadar.Plugins.Changes.SetAssignmentAddonId
   alias ServiceRadar.Plugins.Validations.AddonAssignmentParams
   alias ServiceRadar.Plugins.Validations.AddonPackageApproved
@@ -65,6 +66,7 @@ defmodule ServiceRadar.Plugins.AddonProfile do
       accept @mutable_fields
 
       change SetAssignmentAddonId
+      change ApplyAddonConfigDefaults
       validate AddonPackageApproved
       validate AddonAssignmentParams
     end
@@ -73,6 +75,7 @@ defmodule ServiceRadar.Plugins.AddonProfile do
       accept @mutable_fields ++ [:last_reconciled_at, :last_reconcile_summary]
 
       change SetAssignmentAddonId
+      change ApplyAddonConfigDefaults
       validate AddonPackageApproved
       validate AddonAssignmentParams
     end
