@@ -5,9 +5,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
 
   require Logger
 
-  @metric_classes ~w(cpu memory disk interface red)
-  @anomaly_limit 50
-  @capacity_limit 25
+  @metric_classes ~w(cpu memory disk interface snmp red)
+  @anomaly_limit 20
+  @capacity_limit 8
 
   def empty(status \\ :ok) do
     %{
@@ -32,8 +32,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
     if candidates == [] do
       empty()
     else
-      anomaly = load_first(srql_module, candidates, scope, &anomaly_query/1)
-      capacity = load_first(srql_module, capacity_candidates(candidates), scope, &capacity_query/1)
+      anomaly_task = Task.async(fn -> load_first(srql_module, candidates, scope, &anomaly_query/1) end)
+
+      capacity_task =
+        Task.async(fn -> load_first(srql_module, capacity_candidates(candidates), scope, &capacity_query/1) end)
+
+      anomaly = Task.await(anomaly_task, :infinity)
+      capacity = Task.await(capacity_task, :infinity)
 
       %{
         status: combined_status(anomaly, capacity),
@@ -105,21 +110,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp filter_candidates(identity) do
     Enum.reject(
       [
-        candidate(identity, :device_uid, "device_id", "device"),
-        candidate(identity, :agent_id, "agent_id", "agent"),
-        candidate(identity, :host_id, "host_id", "host")
+        candidate(identity, :device_uid, "source_device_uid", "device"),
+        candidate(identity, :agent_id, "source_device_uid", "agent"),
+        candidate(identity, :host_id, "source_device_uid", "host")
       ],
       &is_nil/1
     )
   end
 
   defp capacity_candidates(candidates) do
-    Enum.flat_map(candidates, fn candidate ->
-      [
-        %{candidate | field: "resource_id"},
-        %{candidate | field: "resource_key", value: "%#{candidate.value}%"}
-      ]
-    end)
+    Enum.map(candidates, &%{&1 | field: "resource_id"})
   end
 
   defp candidate(identity, key, field, label) do
@@ -253,6 +253,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       "cpu_metrics" -> "cpu"
       "disk_metrics" -> "disk"
       "interface_metrics" -> "interface"
+      "snmp" -> "snmp"
       class when class in @metric_classes -> class
       _ -> "red"
     end
@@ -272,6 +273,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp metric_label("memory"), do: "Memory"
   defp metric_label("disk"), do: "Disk"
   defp metric_label("interface"), do: "Interfaces"
+  defp metric_label("snmp"), do: "SNMP"
   defp metric_label("red"), do: "RED"
   defp metric_label(class), do: class
 end
