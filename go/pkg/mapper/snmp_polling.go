@@ -1340,6 +1340,9 @@ func (e *DiscoveryEngine) updateInterfaceFromOID(
 
 	case matchesOIDPrefix(oidPrefix, strings.TrimPrefix(oidIfAlias, ".")):
 		updateIfAlias(iface, pdu)
+
+	case matchesOIDPrefix(oidPrefix, strings.TrimPrefix(oidIfHighSpeed, ".")):
+		updateInterfaceHighSpeed(iface, pdu)
 	default:
 	}
 }
@@ -1374,7 +1377,7 @@ func (e *DiscoveryEngine) walkIfHighSpeed(client *gosnmp.GoSNMP, ifMap map[int]*
 		}
 
 		if iface, exists := ifMap[ifIndex]; exists {
-			e.updateInterfaceFromPDU(iface, oidIfHighSpeed, pdu)
+			updateInterfaceHighSpeed(iface, pdu)
 		}
 
 		return nil
@@ -1493,7 +1496,7 @@ func (e *DiscoveryEngine) processIfXTablePDU(pdu gosnmp.SnmpPDU, ifMap map[int]*
 	}
 
 	oidPrefix := strings.Join(parts[:len(parts)-1], ".")
-	e.updateInterfaceFromPDU(iface, "."+oidPrefix, pdu)
+	e.updateInterfaceFromOID(iface, "."+oidPrefix, pdu)
 
 	return nil
 }
@@ -1514,13 +1517,6 @@ const (
 	// Overflow heuristic constants
 	overflowHeuristicDivisor = 2 // Divisor used in overflow detection heuristic
 )
-
-// updateInterfaceFromPDU updates interface properties based on the OID prefix and PDU value
-func (*DiscoveryEngine) updateInterfaceFromPDU(iface *DiscoveredInterface, oidWithPrefix string, pdu gosnmp.SnmpPDU) {
-	if oidWithPrefix == oidIfHighSpeed {
-		updateInterfaceHighSpeed(iface, pdu)
-	}
-}
 
 // updateInterfaceHighSpeed updates the interface speed from ifHighSpeed value
 func updateInterfaceHighSpeed(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
