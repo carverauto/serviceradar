@@ -14,10 +14,34 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.SourceTest do
     # The 168-bucket hour-of-week aggregation STAYS in SQL (data gravity, D6): every
     # source profiles by dow/hod in the query, not in the kernel.
     assert Enum.all?(queries, &String.contains?(&1, "profile_hour_of_week"))
+    assert Enum.all?(queries, &String.contains?(&1, ~s|timezone:"Etc/UTC"|))
+    assert Enum.all?(sources, &(&1.profile_timezone == "Etc/UTC"))
 
     cpu = Enum.find(sources, &(&1.name == "cpu_seasonal"))
     assert cpu.metric_class == "cpu"
     assert cpu.robust_statistic == :mean_stddev
+  end
+
+  test "default sources carry configured timezone into the profile query" do
+    sources = Source.defaults(seasonal_profile_timezone: "America/Chicago")
+
+    assert Enum.all?(sources, &(&1.profile_timezone == "America/Chicago"))
+    assert Enum.all?(sources, &String.contains?(&1.query, ~s|timezone:"America/Chicago"|))
+  end
+
+  test "default sources normalize UTC alias and reject unsafe timezone strings" do
+    [utc | _] = Source.defaults(profile_timezone: "UTC")
+    assert utc.profile_timezone == "Etc/UTC"
+    assert utc.query =~ ~s|timezone:"Etc/UTC"|
+
+    [unknown | _] = Source.defaults(profile_timezone: "Foo/Bar")
+    assert unknown.profile_timezone == "Etc/UTC"
+    assert unknown.query =~ ~s|timezone:"Etc/UTC"|
+
+    [unsafe | _] = Source.defaults(profile_timezone: ~s|Etc/UTC" sort:sample_value:desc|)
+    assert unsafe.profile_timezone == "Etc/UTC"
+    assert unsafe.query =~ ~s|timezone:"Etc/UTC"|
+    refute unsafe.query =~ "sample_value"
   end
 
   test "from_config coerces a map into a source struct with field defaults" do
@@ -29,6 +53,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.SourceTest do
         "metric_name" => "p95_ms",
         "query" => "in:timeseries_metrics stats:profile_hour_of_week(value)",
         "robust_statistic" => "median_mad",
+        "profile_timezone" => "Europe/London",
         "label_fields" => ["series"]
       })
 
@@ -38,6 +63,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.SourceTest do
     assert source.sample_field == "sample_value"
     assert source.count_field == "bucket_count"
     assert source.center_field == "center"
+    assert source.profile_timezone == "Europe/London"
     assert source.label_fields == ["series"]
   end
 

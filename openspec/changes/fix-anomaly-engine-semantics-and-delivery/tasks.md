@@ -23,10 +23,10 @@
 - [x] 4.4 Add tests proving canonical re-keying updates finding identity consistently.
 
 ## 5. Seasonal State
-- [ ] 5.1 Add production persistence for seasonal confirmation counters keyed by source, series, day-of-week, and hour-of-day.
-- [ ] 5.2 Load persisted counters before NIF evaluation and write returned counters after each pass.
-- [ ] 5.3 Add restart/multi-run tests showing `confirm_slots > 1` can surface a sustained seasonal breach.
-- [ ] 5.4 Add cleanup/TTL for stale seasonal state keys.
+- [x] 5.1 Add production persistence for seasonal confirmation counters keyed by source, series, day-of-week, and hour-of-day.
+- [x] 5.2 Load persisted counters before NIF evaluation and write returned counters after each pass.
+- [x] 5.3 Add restart/multi-run tests showing `confirm_slots > 1` can surface a sustained seasonal breach.
+- [x] 5.4 Add cleanup/TTL for stale seasonal state keys.
 
 ## 6. Configuration
 - [x] 6.1 Decide and implement the operator tuning path for edge spike detector params.
@@ -66,11 +66,11 @@
 - [x] 11.5 Add tests for partition scoping, key collision resistance, and edge↔central subject parity.
 
 ## 12. Seasonal Data Feed And Semantics (F15, blocker)
-- [ ] 12.1 Implement the `profile_hour_of_week` SRQL stats verb (or an equivalent bucket-profile query) producing `dow/hod/center/mad/p05/p95/bucket_count/bucket_sum/bucket_sum_sq`.
+- [x] 12.1 Implement the `profile_hour_of_week` SRQL stats verb (or an equivalent bucket-profile query) producing `dow/hod/center/mad/p05/p95/bucket_count/bucket_sum/bucket_sum_sq`.
 - [x] 12.2 Make the worker fail loudly with telemetry when the profiling query returns no profile columns.
 - [x] 12.3 Emit seasonal clears; fix the zero-width bucket window (distinct started/ended).
-- [ ] 12.4 Fix the Oban uniqueness key so per-run `evaluated_at` does not defeat dedup; align dow/hod bucketing to a configured time zone.
-- [ ] 12.5 Add an integration test that exercises the real SRQL path end-to-end (not mock rows).
+- [x] 12.4 Fix the Oban uniqueness key so per-run `evaluated_at` does not defeat dedup; align dow/hod bucketing to a configured time zone.
+- [x] 12.5 Add an integration test that exercises the real SRQL path end-to-end (not mock rows).
 
 ## 13. Capacity Forecast Correctness (F16)
 - [x] 13.1 Fix the flow-capacity source unit label and add a threshold so it can alert.

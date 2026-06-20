@@ -18,6 +18,15 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
 
   @default_time_range "last_180d"
   @default_limit 50_000
+  @default_profile_timezone "Etc/UTC"
+  @profile_timezone_keys [
+    :profile_timezone,
+    "profile_timezone",
+    :seasonal_profile_timezone,
+    "seasonal_profile_timezone"
+  ]
+  @timezone_pattern ~r/^[A-Za-z0-9_+\-]+(?:\/[A-Za-z0-9_+\-]+)*$/
+  @zoneinfo_dirs ["/usr/share/zoneinfo", "/usr/share/lib/zoneinfo"]
 
   # `:p05p95` (no underscore) is the exact NIF `RobustStatistic` ABI atom; see
   # `robust_statistic_value/2` for why the underscore form is normalized away.
@@ -42,6 +51,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
           mad_field: String.t(),
           p05_field: String.t(),
           p95_field: String.t(),
+          profile_timezone: String.t(),
           label_fields: [String.t()]
         }
 
@@ -63,12 +73,14 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
             mad_field: "mad",
             p05_field: "p05",
             p95_field: "p95",
+            profile_timezone: @default_profile_timezone,
             label_fields: []
 
   @spec defaults(keyword()) :: [t()]
   def defaults(opts \\ []) do
     time_range = Keyword.get(opts, :time_range, @default_time_range)
     limit = Keyword.get(opts, :limit, @default_limit)
+    profile_timezone = profile_timezone_value(opts)
 
     [
       %__MODULE__{
@@ -77,8 +89,9 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
         metric_class: "cpu",
         metric_name: "usage_percent",
         query:
-          ~s|in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:#{time_range} bucket:1h agg:avg series:uid stats:profile_hour_of_week(value) sort:dow:asc,hod:asc limit:#{limit}|,
+          profile_query("sysmon.cpu", "cpu.usage_percent", time_range, limit, profile_timezone),
         robust_statistic: :mean_stddev,
+        profile_timezone: profile_timezone,
         label_fields: ["series"]
       },
       %__MODULE__{
@@ -87,8 +100,15 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
         metric_class: "memory",
         metric_name: "usage_percent",
         query:
-          ~s|in:timeseries_metrics metric_type:"sysmon.memory" metric_name:"memory.used_percent" time:#{time_range} bucket:1h agg:avg series:uid stats:profile_hour_of_week(value) sort:dow:asc,hod:asc limit:#{limit}|,
+          profile_query(
+            "sysmon.memory",
+            "memory.used_percent",
+            time_range,
+            limit,
+            profile_timezone
+          ),
         robust_statistic: :mean_stddev,
+        profile_timezone: profile_timezone,
         label_fields: ["series"]
       },
       %__MODULE__{
@@ -97,8 +117,9 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
         metric_class: "disk",
         metric_name: "usage_percent",
         query:
-          ~s|in:timeseries_metrics metric_type:"sysmon.disk" metric_name:"disk.used_percent" time:#{time_range} bucket:1h agg:avg series:uid stats:profile_hour_of_week(value) sort:dow:asc,hod:asc limit:#{limit}|,
+          profile_query("sysmon.disk", "disk.used_percent", time_range, limit, profile_timezone),
         robust_statistic: :mean_stddev,
+        profile_timezone: profile_timezone,
         label_fields: ["series"]
       }
     ]
@@ -129,8 +150,13 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
       mad_field: string_value(values, :mad_field, "mad"),
       p05_field: string_value(values, :p05_field, "p05"),
       p95_field: string_value(values, :p95_field, "p95"),
+      profile_timezone: profile_timezone_value(values),
       label_fields: string_list(values, :label_fields)
     })
+  end
+
+  defp profile_query(metric_type, metric_name, time_range, limit, profile_timezone) do
+    ~s|in:timeseries_metrics metric_type:"#{metric_type}" metric_name:"#{metric_name}" time:#{time_range} bucket:1h agg:avg series:uid stats:profile_hour_of_week(value) timezone:"#{profile_timezone}" sort:dow:asc,hod:asc limit:#{limit}|
   end
 
   @doc """
@@ -177,5 +203,58 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
     |> Map.get(key, Map.get(values, to_string(key), []))
     |> List.wrap()
     |> Enum.map(&to_string/1)
+  end
+
+  defp profile_timezone_value(values) when is_list(values) do
+    values
+    |> Map.new()
+    |> profile_timezone_value()
+  end
+
+  defp profile_timezone_value(values) when is_map(values) do
+    values
+    |> profile_timezone_candidate()
+    |> normalize_profile_timezone()
+  end
+
+  defp profile_timezone_candidate(values) do
+    Enum.find_value(@profile_timezone_keys, fn key -> Map.get(values, key) end) ||
+      @default_profile_timezone
+  end
+
+  defp normalize_profile_timezone(value) when value in [nil, ""], do: @default_profile_timezone
+  defp normalize_profile_timezone("UTC"), do: @default_profile_timezone
+
+  defp normalize_profile_timezone(value) do
+    value = to_string(value)
+
+    if Regex.match?(@timezone_pattern, value) and valid_profile_timezone?(value) do
+      value
+    else
+      @default_profile_timezone
+    end
+  end
+
+  defp valid_profile_timezone?(@default_profile_timezone), do: true
+
+  defp valid_profile_timezone?(value) do
+    calendar_timezone?(value) or zoneinfo_timezone?(value)
+  end
+
+  defp calendar_timezone?(value) do
+    case DateTime.shift_zone(DateTime.utc_now(), value) do
+      {:ok, _datetime} -> true
+      _ -> false
+    end
+  rescue
+    _ -> false
+  end
+
+  defp zoneinfo_timezone?(value) do
+    Enum.any?(@zoneinfo_dirs, fn dir ->
+      dir
+      |> Path.join(value)
+      |> File.regular?()
+    end)
   end
 end
