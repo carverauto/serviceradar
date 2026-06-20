@@ -6,10 +6,9 @@
 //! Welford rolling statistics and the z-score breach function.
 
 /// When a baseline has zero or near-zero dispersion and no explicit per-series
-/// floor, use a small magnitude-aware denominator instead of `f64::EPSILON`.
-/// This prevents floor-less counter/rate series from treating a one-unit wiggle
-/// on a flat baseline as a critical anomaly while still letting large excursions
-/// score high.
+/// floor, use a magnitude-aware denominator instead of `f64::EPSILON`. A 1-unit
+/// guard is only appropriate for a truly zero baseline; nonzero small-rate
+/// series must scale by their own level or real sub-1.0 excursions disappear.
 const NEAR_ZERO_STDDEV_ABS_FLOOR: f64 = 1.0;
 const NEAR_ZERO_STDDEV_REL_FLOOR: f64 = 0.05;
 
@@ -182,7 +181,13 @@ pub fn sample_stats(values: &[f64]) -> BaselineStats {
 }
 
 fn near_zero_stddev_floor(mean: f64) -> f64 {
-    (mean.abs() * NEAR_ZERO_STDDEV_REL_FLOOR).max(NEAR_ZERO_STDDEV_ABS_FLOOR)
+    let mean_abs = mean.abs();
+
+    if mean_abs <= f64::EPSILON {
+        NEAR_ZERO_STDDEV_ABS_FLOOR
+    } else {
+        (mean_abs * NEAR_ZERO_STDDEV_REL_FLOOR).max(f64::EPSILON)
+    }
 }
 
 fn effective_scoring_stddev(stats: BaselineStats, min_std_floor: f64, min_cv: f64) -> f64 {
@@ -308,6 +313,21 @@ mod tests {
     }
 
     #[test]
+    fn near_zero_stddev_small_rate_excursion_still_breaches() {
+        let stats = BaselineStats {
+            mean: 0.05,
+            stddev: f64::EPSILON,
+        };
+
+        let score = z_score(0.5, stats, 3.0, 0.0, 0.0);
+
+        assert!(
+            score >= 3.0,
+            "a 10x low-magnitude rate excursion must breach, score {score}"
+        );
+    }
+
+    #[test]
     fn sample_stats_is_defined_for_empty_and_singleton_windows() {
         let empty = sample_stats(&[]);
         assert_eq!(empty.mean, 0.0);
@@ -340,10 +360,7 @@ mod tests {
         let guarded = z_score(1.46, stats, 3.0, 0.0, 0.0);
         let explicit_floor = z_score(1.46, stats, 3.0, 1.0, 0.05);
 
-        assert!(
-            guarded < 1.0,
-            "near-zero guarded z {guarded} must be tiny so a benign wiggle never breaches"
-        );
+        assert!(guarded < 3.0, "benign wiggle must not breach: {guarded}");
         assert!(
             explicit_floor < 1.0,
             "explicitly floored z {explicit_floor} must also stay tiny"

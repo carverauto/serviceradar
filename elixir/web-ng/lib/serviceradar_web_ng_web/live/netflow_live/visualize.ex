@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   alias ServiceRadar.Observability.IpThreatIntelCache
   alias ServiceRadar.Observability.NetflowPortAnomalyFlag
   alias ServiceRadar.Observability.NetflowPortScanFlag
+  alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
   alias ServiceRadarWebNGWeb.NetflowVisualize.Query, as: NFQuery
   alias ServiceRadarWebNGWeb.NetflowVisualize.State, as: NFState
   alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
@@ -1676,7 +1677,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       query =
         IpRdnsCache
         |> Ash.Query.for_read(:read, %{})
-        |> Ash.Query.filter(ip in ^ips and (is_nil(expires_at) or expires_at > ^now))
+        |> EnrichmentExpiry.live_for_ips(ips, now)
 
       case Ash.read(query, scope: scope) do
         {:ok, rows} when is_list(rows) ->
@@ -1712,7 +1713,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
          query =
            IpGeoEnrichmentCache
            |> Ash.Query.for_read(:read, %{})
-           |> Ash.Query.filter(ip in ^ips and (is_nil(expires_at) or expires_at > ^now)),
+           |> EnrichmentExpiry.live_for_ips(ips, now),
          {:ok, rows} when is_list(rows) <- Ash.read(query, scope: scope) do
       rows
       |> Enum.filter(fn row ->
@@ -3158,7 +3159,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     query =
       IpRdnsCache
       |> Ash.Query.for_read(:by_ip, %{ip: ip})
-      |> Ash.Query.filter(is_nil(expires_at) or expires_at > ^now)
+      |> EnrichmentExpiry.live(now)
 
     case Ash.read_one(query, actor: user) do
       {:ok, record} -> record
@@ -3184,7 +3185,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     query =
       IpGeoEnrichmentCache
       |> Ash.Query.for_read(:by_ip, %{ip: ip})
-      |> Ash.Query.filter(is_nil(expires_at) or expires_at > ^now)
+      |> EnrichmentExpiry.live(now)
 
     case Ash.read_one(query, actor: user) do
       {:ok, record} -> record

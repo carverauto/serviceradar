@@ -52,6 +52,25 @@ defmodule ServiceRadarWebNGWeb.Components.SRQLComponentsTest do
     assert :binary.match(html, "bytes_total") < :binary.match(html, "count")
   end
 
+  test "results table can render sortable headers for dashboard table plugin" do
+    html =
+      render_component(&SRQLComponents.srql_results_table/1,
+        id: "results",
+        rows: [%{"count" => 1, "host" => "node-a"}],
+        columns: ["host", "count"],
+        sort_col: "count",
+        sort_dir: :desc,
+        sort_event: "sort",
+        sort_target: "table-plugin"
+      )
+
+    assert html =~ ~s(phx-click="sort")
+    assert html =~ ~s(phx-value-col="host")
+    assert html =~ ~s(phx-value-col="count")
+    assert html =~ ~s(aria-sort="descending")
+    assert html =~ "hero-chevron-down"
+  end
+
   test "results table infers columns across rows without sorting them alphabetically" do
     html =
       render_component(&SRQLComponents.srql_results_table/1,

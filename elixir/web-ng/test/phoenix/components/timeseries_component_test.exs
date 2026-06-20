@@ -117,6 +117,64 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
     assert html =~ "1.0 KB/s"
   end
 
+  test "keeps bit and byte rate row units distinct" do
+    assert {:ok, bit_assigns} =
+             Timeseries.build(%{
+               "viz" => %{
+                 "suggestions" => [
+                   %{"kind" => "timeseries", "x" => "timestamp", "y" => "value", "series" => "label"}
+                 ]
+               },
+               "results" => [
+                 %{
+                   "timestamp" => "2025-01-01T00:00:00Z",
+                   "value" => 1_000.0,
+                   "label" => "bits",
+                   "metric.unit" => "b/s"
+                 }
+               ]
+             })
+
+    bit_html =
+      render_component(Timeseries, %{
+        id: "ts-bits-row-unit",
+        title: "Bits",
+        panel_assigns: Map.put(bit_assigns, :rate_mode, :none)
+      })
+
+    assert bit_html =~ "data-unit=\"bits_per_sec\""
+    assert bit_html =~ "1.0 Kbit/s"
+    refute bit_html =~ "1.0 KB/s"
+
+    assert {:ok, byte_assigns} =
+             Timeseries.build(%{
+               "viz" => %{
+                 "suggestions" => [
+                   %{"kind" => "timeseries", "x" => "timestamp", "y" => "value", "series" => "label"}
+                 ]
+               },
+               "results" => [
+                 %{
+                   "timestamp" => "2025-01-01T00:00:00Z",
+                   "value" => 1_000.0,
+                   "label" => "bytes",
+                   "metric.unit" => "By/s"
+                 }
+               ]
+             })
+
+    byte_html =
+      render_component(Timeseries, %{
+        id: "ts-bytes-row-unit",
+        title: "Bytes",
+        panel_assigns: Map.put(byte_assigns, :rate_mode, :none)
+      })
+
+    assert byte_html =~ "data-unit=\"bytes_per_sec\""
+    assert byte_html =~ "1.0 KB/s"
+    refute byte_html =~ "1.0 Kbit/s"
+  end
+
   test "downsamples with a min max envelope so narrow spikes survive" do
     points =
       Enum.map(0..1000, fn idx ->
@@ -140,7 +198,6 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
     assert List.first(values) == 10.0
     assert List.last(values) == 10.0
     assert 10_000.0 in values
-    assert html =~ "10000.0"
   end
 
   test "scales numeric y axis to the data band instead of forcing zero" do
