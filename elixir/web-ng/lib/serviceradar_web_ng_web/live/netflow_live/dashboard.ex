@@ -17,13 +17,16 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   @refresh_interval_ms to_timeout(minute: 1)
 
-  @time_windows [
-    {"1h", "Last 1 Hour"},
-    {"6h", "Last 6 Hours"},
-    {"24h", "Last 24 Hours"},
-    {"7d", "Last 7 Days"},
-    {"30d", "Last 30 Days"}
+  @window_specs [
+    {"1h", %{label: "Last 1 Hour", seconds: 3_600, bucket: "1m", bucket_seconds: 60}},
+    {"6h", %{label: "Last 6 Hours", seconds: 21_600, bucket: "5m", bucket_seconds: 300}},
+    {"24h", %{label: "Last 24 Hours", seconds: 86_400, bucket: "15m", bucket_seconds: 900}},
+    {"7d", %{label: "Last 7 Days", seconds: 604_800, bucket: "1h", bucket_seconds: 3_600}},
+    {"30d", %{label: "Last 30 Days", seconds: 2_592_000, bucket: "6h", bucket_seconds: 21_600}}
   ]
+  @window_spec_map Map.new(@window_specs)
+  @default_window_spec Map.fetch!(@window_spec_map, "1h")
+  @time_windows Enum.map(@window_specs, fn {window, spec} -> {window, spec.label} end)
 
   @unit_modes [
     {"bps", "Bits/sec"},
@@ -45,6 +48,28 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   ]
 
   @top_n 10
+
+  @doc false
+  def netflow_window_specs, do: @window_specs
+
+  @doc false
+  def netflow_interface_average_label(seconds), do: "Window avg #{format_rate_window(seconds)}"
+
+  @doc false
+  def netflow_interface_p95_label(seconds), do: "P95 bucket rate (#{format_rate_window(seconds)})"
+
+  @doc false
+  def netflow_rate_denominator_seconds(query, fallback_window) when is_binary(query) do
+    time_token = extract_time_from_query(query)
+    bucket_floor = bucket_floor_seconds(time_token, fallback_window)
+
+    time_token
+    |> resolve_time_span_seconds()
+    |> Kernel.||(time_window_seconds(fallback_window))
+    |> max(bucket_floor)
+  end
+
+  def netflow_rate_denominator_seconds(_query, fallback_window), do: time_window_seconds(fallback_window)
 
   @impl true
   def mount(_params, _session, socket) do
@@ -76,6 +101,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
      |> assign(:total_packets, 0)
      |> assign(:active_flows, 0)
      |> assign(:unique_talkers, 0)
+     |> assign(:rate_denominator_seconds, @default_window_spec.seconds)
      |> assign(:sparkline_json, "[]")
      |> assign(:proto_breakdown_json, "[]")
      |> assign(:top_interfaces, [])
@@ -303,7 +329,14 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
           <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <.stat_card
               title={if @unit_mode == "pps", do: "Average Packet Rate", else: "Average Bandwidth"}
-              value={primary_metric(@total_bytes, @total_packets, @unit_mode, @time_window)}
+              value={
+                primary_metric(
+                  @total_bytes,
+                  @total_packets,
+                  @unit_mode,
+                  @rate_denominator_seconds
+                )
+              }
               unit={unit_suffix(@unit_mode)}
               loading={@loading}
             />
@@ -406,7 +439,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               %{
                 key: :bytes,
                 label: primary_metric_col_label(@unit_mode, @metric_mode),
-                format: &format_primary_cell(&1, @unit_mode, @metric_mode, @time_window)
+                format: &format_primary_cell(&1, @unit_mode, @metric_mode, @rate_denominator_seconds)
               },
               %{key: :packets, label: "Packets"}
             ]}
@@ -427,7 +460,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               %{
                 key: :bytes,
                 label: primary_metric_col_label(@unit_mode, @metric_mode),
-                format: &format_primary_cell(&1, @unit_mode, @metric_mode, @time_window)
+                format: &format_primary_cell(&1, @unit_mode, @metric_mode, @rate_denominator_seconds)
               },
               %{key: :packets, label: "Packets"}
             ]}
@@ -453,7 +486,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               %{
                 key: :bytes,
                 label: primary_metric_col_label(@unit_mode, @metric_mode),
-                format: &format_primary_cell(&1, @unit_mode, @metric_mode, @time_window)
+                format: &format_primary_cell(&1, @unit_mode, @metric_mode, @rate_denominator_seconds)
               }
             ]}
             on_row_click="drill_down_conversation"
@@ -469,7 +502,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               %{
                 key: :bytes,
                 label: primary_metric_col_label(@unit_mode, @metric_mode),
-                format: &format_primary_cell(&1, @unit_mode, @metric_mode, @time_window)
+                format: &format_primary_cell(&1, @unit_mode, @metric_mode, @rate_denominator_seconds)
               },
               %{key: :packets, label: "Packets"}
             ]}
@@ -486,7 +519,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               %{
                 key: :bytes,
                 label: primary_metric_col_label(@unit_mode, @metric_mode),
-                format: &format_primary_cell(&1, @unit_mode, @metric_mode, @time_window)
+                format: &format_primary_cell(&1, @unit_mode, @metric_mode, @rate_denominator_seconds)
               },
               %{key: :packets, label: "Packets"}
             ]}
@@ -503,7 +536,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               %{
                 key: :bytes,
                 label: primary_metric_col_label(@unit_mode, @metric_mode),
-                format: &format_primary_cell(&1, @unit_mode, @metric_mode, @time_window)
+                format: &format_primary_cell(&1, @unit_mode, @metric_mode, @rate_denominator_seconds)
               },
               %{key: :packets, label: "Packets"}
             ]}
@@ -598,10 +631,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               :for={{iface, idx} <- Enum.with_index(@top_interfaces)}
               :if={iface.capacity_bps > 0}
               id={"iface-gauge-#{idx}"}
-              current_bps={Map.get(iface, :gauge_bytes, 0) / time_window_seconds(@time_window) * 8}
+              current_bps={iface.bytes / max(@rate_denominator_seconds, 1) * 8}
               capacity_bps={iface.capacity_bps * 1.0}
               label={iface.label}
-              current_label={"Avg #{@time_window}"}
+              current_label={netflow_interface_average_label(@rate_denominator_seconds)}
             />
           </div>
 
@@ -615,9 +648,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               %{
                 key: :bytes,
                 label: unit_suffix(@unit_mode),
-                format: &format_bytes_cell(&1, @unit_mode, @time_window)
+                format: &format_bytes_cell(&1, @unit_mode, @rate_denominator_seconds)
               },
-              %{key: :p95_bps, label: "P95 Rate (#{@time_window})", format: &format_p95_cell/1},
+              %{
+                key: :p95_bps,
+                label: netflow_interface_p95_label(@rate_denominator_seconds),
+                format: &format_p95_cell/1
+              },
               %{key: :capacity_bps, label: "Capacity", format: &format_capacity_cell/1}
             ]}
             loading={@loading}
@@ -634,7 +671,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               %{
                 key: :bytes,
                 label: unit_suffix(@unit_mode),
-                format: &format_bytes_cell(&1, @unit_mode, @time_window)
+                format: &format_bytes_cell(&1, @unit_mode, @rate_denominator_seconds)
               }
             ]}
             loading={@loading}
@@ -656,6 +693,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     srql_mod = srql_module()
     task_sup = ServiceRadarWebNG.TaskSupervisor
     base = base_flow_query(socket.assigns.query, tw)
+    rate_denominator_seconds = netflow_rate_denominator_seconds(base, tw)
     sort_field = if mm == "packets", do: "packets_total", else: "bytes_total"
 
     tasks = [
@@ -760,6 +798,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     |> assign(:total_packets, Map.get(summary, :total_packets, 0))
     |> assign(:active_flows, Map.get(summary, :flow_count, 0))
     |> assign(:unique_talkers, Map.get(summary, :unique_talkers, 0))
+    |> assign(:rate_denominator_seconds, rate_denominator_seconds)
     |> assign(:sparkline_json, sparkline_json)
     |> assign(:proto_breakdown_json, proto_breakdown)
     |> assign(:top_interfaces, top_interfaces)
@@ -1354,26 +1393,104 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     |> Map.new()
   end
 
-  defp bucket_seconds("1m"), do: 60
-  defp bucket_seconds("5m"), do: 300
-  defp bucket_seconds("15m"), do: 900
-  defp bucket_seconds("1h"), do: 3_600
-  defp bucket_seconds("6h"), do: 21_600
-  defp bucket_seconds(_), do: 300
+  defp bucket_seconds(bucket) do
+    @window_specs
+    |> Enum.find_value(fn
+      {_window, %{bucket: ^bucket, bucket_seconds: seconds}} -> seconds
+      _ -> nil
+    end)
+    |> Kernel.||(@default_window_spec.bucket_seconds)
+  end
 
-  defp time_window_seconds("1h"), do: 3_600
-  defp time_window_seconds("6h"), do: 21_600
-  defp time_window_seconds("24h"), do: 86_400
-  defp time_window_seconds("7d"), do: 604_800
-  defp time_window_seconds("30d"), do: 2_592_000
-  defp time_window_seconds(_), do: 3_600
+  defp time_window_seconds(window), do: window_spec(window).seconds
 
-  defp timeseries_bucket("1h"), do: "1m"
-  defp timeseries_bucket("6h"), do: "5m"
-  defp timeseries_bucket("24h"), do: "15m"
-  defp timeseries_bucket("7d"), do: "1h"
-  defp timeseries_bucket("30d"), do: "6h"
-  defp timeseries_bucket(_), do: "5m"
+  defp timeseries_bucket(window), do: window_spec(window).bucket
+
+  defp format_rate_window(seconds) when is_integer(seconds) and seconds > 0 do
+    cond do
+      rem(seconds, 86_400) == 0 -> "#{div(seconds, 86_400)}d"
+      rem(seconds, 3_600) == 0 -> "#{div(seconds, 3_600)}h"
+      rem(seconds, 60) == 0 -> "#{div(seconds, 60)}m"
+      true -> "#{seconds}s"
+    end
+  end
+
+  defp format_rate_window(window), do: to_string(window)
+
+  defp window_spec(window), do: Map.get(@window_spec_map, window, @default_window_spec)
+
+  defp extract_time_from_query(query) when is_binary(query) do
+    case Regex.run(~r/(?:^|\s)time:(\S+)/, query) do
+      [_, time] -> time
+      _ -> nil
+    end
+  end
+
+  defp extract_time_from_query(_), do: nil
+
+  defp resolve_time_span_seconds(nil), do: nil
+
+  defp resolve_time_span_seconds(time_token) when is_binary(time_token) do
+    if bracketed_time?(time_token) do
+      time_token
+      |> parse_bracketed_time()
+      |> case do
+        {:ok, %{start: start_dt, end: end_dt}} -> max(DateTime.diff(end_dt, start_dt, :second), 1)
+        _ -> nil
+      end
+    else
+      relative_time_seconds(time_token)
+    end
+  end
+
+  defp bracketed_time?(value), do: String.starts_with?(value, "[") and String.ends_with?(value, "]")
+
+  defp parse_bracketed_time(value) do
+    inner = value |> String.trim_leading("[") |> String.trim_trailing("]")
+
+    case String.split(inner, ",", parts: 2) do
+      [start_raw, end_raw] ->
+        with {:ok, start_dt, _} <- DateTime.from_iso8601(String.trim(start_raw)),
+             {:ok, end_dt, _} <- DateTime.from_iso8601(String.trim(end_raw)),
+             true <- DateTime.compare(start_dt, end_dt) in [:lt, :eq] do
+          {:ok, %{start: start_dt, end: end_dt}}
+        else
+          _ -> {:error, :bad_time}
+        end
+
+      _ ->
+        {:error, :bad_time}
+    end
+  end
+
+  defp relative_time_seconds(value) do
+    normalized = value |> String.downcase() |> String.replace(~r/^last[_-]/, "")
+    amount = String.slice(normalized, 0, max(byte_size(normalized) - 1, 0))
+    unit = String.slice(normalized, -1, 1)
+
+    with {n, ""} when n > 0 <- Integer.parse(amount),
+         seconds when seconds > 0 <- duration_unit_multiplier(unit) do
+      n * seconds
+    else
+      _ -> nil
+    end
+  end
+
+  defp duration_unit_multiplier("m"), do: 60
+  defp duration_unit_multiplier("h"), do: 3_600
+  defp duration_unit_multiplier("d"), do: 86_400
+  defp duration_unit_multiplier(_), do: 0
+
+  defp bucket_floor_seconds(time_token, fallback_window) do
+    with token when is_binary(token) <- time_token,
+         seconds when is_integer(seconds) <- relative_time_seconds(token),
+         {_, %{bucket_seconds: bucket_seconds}} <-
+           Enum.find(@window_specs, fn {_, spec} -> spec.seconds == seconds end) do
+      bucket_seconds
+    else
+      _ -> window_spec(fallback_window).bucket_seconds
+    end
+  end
 
   defp drill_down(socket, filter) do
     base = base_flow_query(socket.assigns.query, socket.assigns.time_window)
@@ -1397,12 +1514,14 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     |> then(&"(#{&1})")
   end
 
-  defp primary_metric(_bytes, packets, "pps", time_window), do: packets / time_window_seconds(time_window)
-  defp primary_metric(bytes, _packets, unit_mode, time_window), do: display_rate(bytes, unit_mode, time_window)
+  defp primary_metric(_bytes, packets, "pps", denominator_seconds), do: packets / max(denominator_seconds, 1)
 
-  defp display_rate(total_bytes, "bps", time_window), do: total_bytes * 8 / time_window_seconds(time_window)
-  defp display_rate(total_bytes, "Bps", time_window), do: total_bytes / time_window_seconds(time_window)
-  defp display_rate(total_bytes, _mode, _time_window), do: total_bytes
+  defp primary_metric(bytes, _packets, unit_mode, denominator_seconds),
+    do: display_rate(bytes, unit_mode, denominator_seconds)
+
+  defp display_rate(total_bytes, "bps", denominator_seconds), do: total_bytes * 8 / max(denominator_seconds, 1)
+  defp display_rate(total_bytes, "Bps", denominator_seconds), do: total_bytes / max(denominator_seconds, 1)
+  defp display_rate(total_bytes, _mode, _denominator_seconds), do: total_bytes
 
   defp unit_suffix("bps"), do: "bps"
   defp unit_suffix("Bps"), do: "B/s"
@@ -1439,13 +1558,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     if cap > 0, do: format_si(cap * 1.0, unit: "bps"), else: "N/A"
   end
 
-  defp format_bytes_cell(row, "pps", time_window) do
-    val = (row.packets || 0) / time_window_seconds(time_window)
+  defp format_bytes_cell(row, "pps", denominator_seconds) do
+    val = (row.packets || 0) / max(denominator_seconds, 1)
     ServiceRadarWebNGWeb.FlowStatComponents.format_si(val, unit: "pps")
   end
 
-  defp format_bytes_cell(row, unit_mode, time_window) do
-    val = display_rate(row.bytes || 0, unit_mode, time_window)
+  defp format_bytes_cell(row, unit_mode, denominator_seconds) do
+    val = display_rate(row.bytes || 0, unit_mode, denominator_seconds)
     ServiceRadarWebNGWeb.FlowStatComponents.format_si(val, unit: unit_suffix(unit_mode))
   end
 
