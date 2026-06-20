@@ -5,13 +5,15 @@ defmodule ServiceRadar.Plugins.AnomalyAddonProfileSeederTest do
 
   The "Default Edge Anomaly Detection" profile seeds
   `params = %{"metric_feed" => %{"sources" => [...]}}`. That selection is a
-  legitimate config for the edge detector, so the package `config_schema`
+  legitimate config for the edge detector, and omitted scalar detector knobs
+  intentionally keep the native add-on defaults. The package `config_schema`
   (shipped in the bundle's `config.schema.json` and stored on the imported
-  `AddonPackage`) must model `metric_feed`. If a schema edit drops `metric_feed`
-  while keeping `additionalProperties: false`, the AddonProfile reconcile worker
-  rejects every assignment, freezing reconcile with a recurring
-  "Failed to reconcile add-on profile" warning. This test locks the schema and
-  the seeded params together so that regression cannot ship.
+  `AddonPackage`) must therefore model both the seeded `metric_feed` object and
+  the operator-tunable scalar fields. If a schema edit drops `metric_feed` while
+  keeping `additionalProperties: false`, the AddonProfile reconcile worker
+  rejects every assignment, freezing reconcile with a recurring "Failed to
+  reconcile add-on profile" warning. These tests lock the schema, seeded params,
+  and tuning ownership contract together so that regression cannot ship.
   """
 
   use ExUnit.Case, async: true
@@ -52,7 +54,23 @@ defmodule ServiceRadar.Plugins.AnomalyAddonProfileSeederTest do
       params = AnomalyAddonProfileSeeder.default_params()
 
       assert params == %{"metric_feed" => %{"sources" => ["sysmon", "snmp"]}}
+      refute Map.has_key?(params, "window_size")
+      refute Map.has_key?(params, "min_samples")
+      refute Map.has_key?(params, "n_sigma")
+      refute Map.has_key?(params, "confirm_slots")
+      refute Map.has_key?(params, "max_series")
       assert :ok = ConfigSchema.validate_params(@config_schema, params)
+    end
+
+    test "schema pins native defaults for omitted scalar detector knobs" do
+      assert get_in(@config_schema, ["properties", "window_size", "default"]) == 300
+      assert get_in(@config_schema, ["properties", "min_samples", "default"]) == 30
+      assert get_in(@config_schema, ["properties", "n_sigma", "default"]) == 3.0
+      assert get_in(@config_schema, ["properties", "confirm_slots", "default"]) == 5
+      assert get_in(@config_schema, ["properties", "max_series", "default"]) == 50_000
+
+      assert get_in(@config_schema, ["properties", "checkpoint_max_age_secs", "default"]) ==
+               21_600
     end
 
     test "blank detector numeric params normalize to omission before assignment delivery" do
