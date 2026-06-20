@@ -32,6 +32,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   @ocsf_vulnerability_finding_type_uid 200_201
   @ocsf_detection_finding_type_uid 200_401
   @ocsf_create_activity_id 1
+  @structured_series_key_pattern ~r/^v\d+:/
   @ocsf_event_conflict_target [:time, :id]
   @ocsf_event_replace_fields [
     :class_uid,
@@ -64,6 +65,9 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   @impl true
   def table_name, do: "ocsf_events"
+
+  @doc false
+  def causal_prediction_ocsf_event_replace_fields, do: @ocsf_event_replace_fields
 
   @impl true
   def process_batch(messages) do
@@ -1314,10 +1318,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     existing
     |> Map.put("uid", uid)
     |> Map.put("group_uid", uid)
-    |> Map.put(
-      "title",
-      "Anomaly detection: #{metric_class || "metric"} #{series_key || "series"}"
-    )
+    |> Map.put("title", anomaly_detection_title(payload, series_key, metric_class))
     |> Map.put_new("type", "ServiceRadar Anomaly")
     |> Map.put_new("type_id", 99)
     |> Map.put("source", "anomaly_detection")
@@ -1334,12 +1335,62 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       "device_uid" => device_uid,
       "series_key" => series_key,
       "metric_class" => metric_class,
+      "metric_name" => get_in(payload, ["anomaly", "metric_name"]),
+      "target_device_ip" => anomaly_detection_target_device_ip(payload),
+      "if_index" => get_in(payload, ["anomaly", "if_index"]),
+      "interface_name" => get_in(payload, ["anomaly", "interface_name"]),
+      "resource_label" => anomaly_detection_display_label(payload, series_key),
       "state" => get_in(payload, ["anomaly", "state"]),
       "subject" => get_in(payload, ["anomaly", "subject"])
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
   end
+
+  defp anomaly_detection_title(payload, series_key, metric_class) do
+    metric =
+      first_non_blank([
+        get_in(payload, ["anomaly", "metric_name"]),
+        metric_class
+      ]) || "metric"
+
+    label = anomaly_detection_display_label(payload, series_key) || "series"
+
+    "Anomaly detection: #{metric} #{label}"
+  end
+
+  defp anomaly_detection_display_label(payload, series_key) do
+    first_non_blank([
+      get_in(payload, ["anomaly", "resource_label"]),
+      get_in(payload, ["anomaly", "label"]),
+      anomaly_detection_interface_label(payload),
+      readable_series_key(series_key)
+    ])
+  end
+
+  defp anomaly_detection_interface_label(payload) do
+    target_device_ip = anomaly_detection_target_device_ip(payload)
+    if_index = get_in(payload, ["anomaly", "if_index"])
+    interface_name = get_in(payload, ["anomaly", "interface_name"])
+
+    [target_device_ip, interface_name, if_index_label(if_index)]
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> nil
+      parts -> Enum.join(parts, " ")
+    end
+  end
+
+  defp if_index_label(nil), do: nil
+  defp if_index_label(value), do: "ifIndex #{value}"
+
+  defp readable_series_key(value) when is_binary(value) and value != "" do
+    if structured_series_key?(value), do: nil, else: value
+  end
+
+  defp readable_series_key(_value), do: nil
+
+  defp structured_series_key?(value), do: String.match?(value, @structured_series_key_pattern)
 
   defp anomaly_detection_finding_uid(device_uid, series_key, metric_class) do
     [

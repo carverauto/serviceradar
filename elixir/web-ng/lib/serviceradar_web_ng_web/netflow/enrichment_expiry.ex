@@ -14,6 +14,6 @@ defmodule ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry do
   end
 
   def sql(alias_name) when is_binary(alias_name) do
-    "#{alias_name}.expires_at IS NULL OR #{alias_name}.expires_at > now()"
+    "(#{alias_name}.expires_at IS NULL OR #{alias_name}.expires_at > now())"
   end
 end
