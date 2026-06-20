@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
 
   @metrics_limit 300
   @process_query_limit 10_000
+  @sysmon_display_series_limit 6
 
   defp escape_value(value) when is_binary(value) do
     value
@@ -181,7 +182,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
     base = %{
       key: "cpu",
       title: "CPU",
-      subtitle: "last 24h · 5m buckets · max per core",
+      subtitle: "last 24h · 5m buckets · top 6 cores by max",
       unit: :percent,
       query: query,
       panels: [],
@@ -193,8 +194,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => results}} when is_list(results) and results != [] ->
         normalized = normalize_metric_results(results, "usage_percent")
+        display_rows = hottest_series_rows(normalized, "core_id", "usage_percent")
         viz = timeseries_viz("usage_percent", "core_id")
-        panels = build_metric_panels(%{"results" => normalized, "viz" => viz}, normalized, "core_id")
+        panels = build_metric_panels(%{"results" => display_rows, "viz" => viz}, display_rows, "core_id")
         header_value = latest_metric_max_value(normalized, "usage_percent")
         header_stats = metric_stats(normalized, "usage_percent")
         %{base | panels: panels, header_value: header_value, header_stats: header_stats}
@@ -258,7 +260,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
     base = %{
       key: "disk",
       title: "Disk",
-      subtitle: "last 24h · 5m buckets · max per mount",
+      subtitle: "last 24h · 5m buckets · top 6 mounts by max",
       unit: :percent,
       query: query,
       panels: [],
@@ -270,8 +272,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => results}} when is_list(results) and results != [] ->
         normalized = normalize_metric_results(results, "used_percent")
+        display_rows = hottest_series_rows(normalized, "mount_point", "used_percent")
         viz = timeseries_viz("used_percent", "mount_point")
-        panels = build_metric_panels(%{"results" => normalized, "viz" => viz}, normalized, "mount_point")
+        panels = build_metric_panels(%{"results" => display_rows, "viz" => viz}, display_rows, "mount_point")
         header_value = latest_metric_max_value(normalized, "used_percent")
         header_stats = metric_stats(normalized, "used_percent")
         %{base | panels: panels, header_value: header_value, header_stats: header_stats}
@@ -491,6 +494,61 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   end
 
   defp normalize_metric_results(results, _target_field), do: results
+
+  defp hottest_series_rows(rows, series_field, value_field) when is_list(rows) do
+    selected_series =
+      rows
+      |> series_max_values(series_field, value_field)
+      |> Enum.sort_by(fn {series, max_value} -> {-max_value, series} end)
+      |> Enum.take(@sysmon_display_series_limit)
+      |> MapSet.new(fn {series, _max_value} -> series end)
+
+    if MapSet.size(selected_series) == 0 do
+      rows
+    else
+      Enum.filter(rows, fn row ->
+        row
+        |> series_key(series_field)
+        |> then(&MapSet.member?(selected_series, &1))
+      end)
+    end
+  end
+
+  defp hottest_series_rows(rows, _series_field, _value_field), do: rows
+
+  defp series_max_values(rows, series_field, value_field) do
+    Enum.reduce(rows, %{}, fn
+      row, acc when is_map(row) ->
+        with series when is_binary(series) <- series_key(row, series_field),
+             value when is_number(value) <- parse_number(map_value(row, value_field)) do
+          Map.update(acc, series, value, &max(&1, value))
+        else
+          _ -> acc
+        end
+
+      _row, acc ->
+        acc
+    end)
+  end
+
+  defp series_key(row, series_field) when is_map(row) do
+    row
+    |> map_value(series_field)
+    |> safe_series_key()
+  end
+
+  defp series_key(_row, _series_field), do: nil
+
+  defp safe_series_key(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> "overall"
+      trimmed -> trimmed
+    end
+  end
+
+  defp safe_series_key(value) when is_atom(value), do: value |> Atom.to_string() |> safe_series_key()
+  defp safe_series_key(value) when is_number(value), do: value |> to_string() |> safe_series_key()
+  defp safe_series_key(_value), do: nil
 
   defp timeseries_viz(y_field, series_field) do
     suggestion =
