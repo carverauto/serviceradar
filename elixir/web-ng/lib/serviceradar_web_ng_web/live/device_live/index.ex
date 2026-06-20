@@ -380,16 +380,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           {:noreply, put_flash(socket, :error, "A device with this IP address already exists.")}
 
         {:error, {:hostname_resolution_failed, hostname, reason}} ->
-          Logger.warning(
-            "Device create failed: unable to resolve hostname #{inspect(hostname)}: #{inspect(reason)}"
-          )
+          Logger.warning("Device create failed: unable to resolve hostname #{inspect(hostname)}: #{inspect(reason)}")
 
-          {:noreply,
-           put_flash(socket, :error, "Unable to resolve hostname '#{hostname}' to an IP address.")}
+          {:noreply, put_flash(socket, :error, "Unable to resolve hostname '#{hostname}' to an IP address.")}
 
         {:error, :missing_device_address} ->
-          {:noreply,
-           put_flash(socket, :error, "Provide a hostname that resolves or an IP address.")}
+          {:noreply, put_flash(socket, :error, "Provide a hostname that resolves or an IP address.")}
 
         {:error, :missing_scope} ->
           Logger.error("Device create failed: missing scope for #{inspect(params)}")
@@ -1247,44 +1243,50 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp update_tags_for_uids(scope, uids, new_tags) do
-    query =
-      Device
-      |> Ash.Query.for_read(:read, %{}, scope: scope)
-      |> Ash.Query.filter(uid in ^uids)
-
-    case Ash.read(query, scope: scope) do
-      {:ok, devices} ->
-        devices = ash_page_results(devices)
-        requested_count = length(uids)
-        existing_count = length(devices)
-
-        if existing_count < requested_count do
-          {:error, "One or more devices were not found"}
-        else
-          apply_tags_to_device_records(devices, new_tags, scope, existing_count)
-        end
-
-      {:error, error} ->
-        {:error, format_changeset_errors(error)}
-    end
-  end
-
-  defp apply_tags_to_device_records(devices, new_tags, scope, existing_count) do
     resources = [Device]
 
     resources
     |> Ash.transaction(fn ->
-      case update_tagged_device_records(devices, new_tags, scope) do
-        :ok -> existing_count
-        {:error, reason} -> Ash.DataLayer.rollback(resources, reason)
+      case lock_devices_for_bulk_tag(scope, uids) do
+        {:ok, devices} ->
+          requested_count = length(uids)
+          existing_count = length(devices)
+
+          if existing_count < requested_count do
+            Ash.DataLayer.rollback(resources, "One or more devices were not found")
+          else
+            case update_tagged_device_records(devices, new_tags, scope) do
+              :ok -> existing_count
+              {:error, reason} -> Ash.DataLayer.rollback(resources, reason)
+            end
+          end
+
+        {:error, error} ->
+          Ash.DataLayer.rollback(resources, format_changeset_errors(error))
       end
     end)
-    |> case do
-      {:ok, count} -> {:ok, count}
-      {:error, reason} -> {:error, reason}
-      {:error, reason, _stacktrace} -> {:error, reason}
+    |> bulk_tag_transaction_result()
+  end
+
+  defp lock_devices_for_bulk_tag(scope, uids) do
+    query =
+      Device
+      |> Ash.Query.for_read(:read, %{}, scope: scope)
+      |> Ash.Query.filter(uid in ^uids)
+      |> Ash.Query.lock(:for_update)
+
+    case Ash.read(query, scope: scope) do
+      {:ok, devices} ->
+        {:ok, ash_page_results(devices)}
+
+      {:error, error} ->
+        {:error, error}
     end
   end
+
+  defp bulk_tag_transaction_result({:ok, count}), do: {:ok, count}
+  defp bulk_tag_transaction_result({:error, reason}), do: {:error, reason}
+  defp bulk_tag_transaction_result({:error, reason, _stacktrace}), do: {:error, reason}
 
   defp update_tagged_device_records(devices, new_tags, scope) do
     Enum.reduce_while(devices, :ok, fn device, :ok ->
@@ -3960,8 +3962,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp format_create_error(error), do: inspect(error)
 
-  defp format_single_device_error(%InvalidAttribute{field: field, message: msg}),
-    do: "#{field}: #{msg}"
+  defp format_single_device_error(%InvalidAttribute{field: field, message: msg}), do: "#{field}: #{msg}"
 
   defp format_single_device_error(%Required{field: field}), do: "#{field} is required"
 

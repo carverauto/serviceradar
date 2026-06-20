@@ -506,8 +506,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         id: "northbound_action_modal",
         title: "Run Task",
         subtitle: "Create a task invocation",
-        form:
-          to_form(ServiceRadarWebNG.Northbound.ActionForm.default_params(action), as: :action),
+        form: to_form(ServiceRadarWebNG.Northbound.ActionForm.default_params(action), as: :action),
         actions: [action],
         action: action,
         error: nil,
@@ -1997,8 +1996,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         scan: nil,
         title: "No enrolled endpoint inventory agent",
         detail: "cannot run until this device is associated with an enrolled agent",
-        empty:
-          "No enrolled endpoint inventory agent or package inventory is available for this device."
+        empty: "No enrolled endpoint inventory agent or package inventory is available for this device."
       },
       %{
         suffix: "no-scan",
@@ -2051,8 +2049,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         },
         title: "Latest endpoint inventory scan is partial",
         detail: "rpm output truncated",
-        empty:
-          "The latest endpoint inventory scan is partial and produced no current package rows."
+        empty: "The latest endpoint inventory scan is partial and produced no current package rows."
       },
       %{
         suffix: "stale",
@@ -2080,8 +2077,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         },
         title: "Scan completed with no package rows",
         detail: "reported complete coverage",
-        empty:
-          "The latest endpoint inventory scan completed, but it did not report current package rows."
+        empty: "The latest endpoint inventory scan completed, but it did not report current package rows."
       }
     ]
 
@@ -2621,9 +2617,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
       # Click favorite star for first interface
       view
-      |> element(
-        "button[phx-click='toggle_interface_favorite'][phx-value-uid='#{device_uid}-eth0']"
-      )
+      |> element("button[phx-click='toggle_interface_favorite'][phx-value-uid='#{device_uid}-eth0']")
       |> render_click()
 
       # Should show favorited state (star icon changes)
@@ -3701,8 +3695,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
           source_summaries: [],
           artifact_count: 0,
           current: true,
-          last_changed_scan_at:
-            Map.get(attrs, :last_successful_scan_at) || Map.get(attrs, :last_scan_at) || now,
+          last_changed_scan_at: Map.get(attrs, :last_successful_scan_at) || Map.get(attrs, :last_scan_at) || now,
           ingested_at: now,
           package_set_hash: "sha256:package-set-#{Map.fetch!(attrs, :scan_id)}",
           artifact_hash: nil,
@@ -3779,15 +3772,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     end
   end
 
-  defp timeseries_metric_row(
-         timestamp,
-         device_id,
-         metric_name,
-         metric_type,
-         value,
-         unit,
-         opts \\ []
-       ) do
+  defp timeseries_metric_row(timestamp, device_id, metric_name, metric_type, value, unit, opts \\ []) do
     gateway_id = Keyword.get(opts, :gateway_id, "test-gw")
     agent_id = Keyword.get(opts, :agent_id, "test-agent")
     tags = Keyword.get(opts, :tags, %{})
