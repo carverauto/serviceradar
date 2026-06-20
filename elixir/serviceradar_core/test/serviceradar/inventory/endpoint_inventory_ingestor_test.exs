@@ -684,6 +684,135 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert scan_ref_after_retention == refreshed_scan.id
   end
 
+  test "duplicate scan id short-circuits before upload and transaction work", %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    device = create_device!(actor, "endpoint-inventory-duplicate-device-#{unique}")
+    agent_id = "endpoint-inventory-duplicate-agent-#{unique}"
+    create_agent!(actor, agent_id, device.uid)
+
+    payload = scan_payload(agent_id, "scan-duplicate-#{unique}")
+
+    assert {:ok, first} =
+             EndpointInventoryIngestor.ingest_report(payload,
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    assert scan_row_count(agent_id) == 1
+    test_pid = self()
+
+    upload_object = fn _metadata, _data, _opts ->
+      send(test_pid, :unexpected_duplicate_upload)
+      {:ok, %{ok?: true}}
+    end
+
+    assert {:ok, duplicate} =
+             EndpointInventoryIngestor.ingest_report(payload,
+               actor: actor,
+               upload_object: upload_object
+             )
+
+    assert duplicate.scan_ref == first.scan_ref
+    assert duplicate.package_rows_replaced? == false
+    assert duplicate.scan_history_recorded? == false
+    assert duplicate.package_event_count == 0
+    assert scan_row_count(agent_id) == 1
+    refute_receive :unexpected_duplicate_upload, 100
+  end
+
+  test "already-acknowledged unchanged uploads short-circuit against current hash", %{
+    actor: actor
+  } do
+    unique = System.unique_integer([:positive])
+    device = create_device!(actor, "endpoint-inventory-acked-device-#{unique}")
+    agent_id = "endpoint-inventory-acked-agent-#{unique}"
+    create_agent!(actor, agent_id, device.uid)
+
+    assert {:ok, first} =
+             EndpointInventoryIngestor.ingest_report(
+               scan_payload(agent_id, "scan-acked-full-#{unique}"),
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    first_scan = current_scan(agent_id)
+    assert scan_row_count(agent_id) == 1
+    test_pid = self()
+
+    acknowledged_payload =
+      agent_id
+      |> scan_payload("scan-acked-unchanged-#{unique}", components: [])
+      |> Map.delete("sbom")
+      |> Map.merge(%{
+        "state" => "unchanged",
+        "coverage_state" => "unchanged",
+        "package_count" => first_scan.package_count,
+        "package_set_hash" => first_scan.package_set_hash,
+        "upload_reason" => "unchanged",
+        "metadata" => %{"reason" => "upload_already_acknowledged"}
+      })
+
+    upload_object = fn _metadata, _data, _opts ->
+      send(test_pid, :unexpected_acknowledged_upload)
+      {:ok, %{ok?: true}}
+    end
+
+    assert {:ok, acknowledged} =
+             EndpointInventoryIngestor.ingest_report(acknowledged_payload,
+               actor: actor,
+               upload_object: upload_object
+             )
+
+    assert acknowledged.scan_ref == first.scan_ref
+    assert acknowledged.current? == true
+    assert acknowledged.package_rows_replaced? == false
+    assert acknowledged.scan_history_recorded? == false
+    assert acknowledged.package_event_count == 0
+    assert acknowledged.package_change_signal_publish_count == 0
+    assert scan_row_count(agent_id) == 1
+    assert current_scan(agent_id).unchanged_scan_count == 0
+    refute_receive :unexpected_acknowledged_upload, 100
+  end
+
+  test "repeated empty not-scanned reports short-circuit after first status row", %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    agent_id = "endpoint-inventory-not-scanned-agent-#{unique}"
+
+    first_payload =
+      agent_id
+      |> scan_payload("scan-not-scanned-first-#{unique}", components: [])
+      |> Map.delete("sbom")
+      |> Map.merge(%{
+        "state" => "not_scanned",
+        "coverage_state" => "not_scanned",
+        "package_count" => 0,
+        "upload_reason" => "unchanged"
+      })
+
+    assert {:ok, first} =
+             EndpointInventoryIngestor.ingest_report(first_payload,
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    assert first.current? == false
+    assert scan_row_count(agent_id) == 1
+
+    second_payload = Map.put(first_payload, "scan_id", "scan-not-scanned-second-#{unique}")
+
+    assert {:ok, second} =
+             EndpointInventoryIngestor.ingest_report(second_payload,
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    assert second.current? == false
+    assert second.package_rows_replaced? == false
+    assert second.scan_history_recorded? == false
+    assert second.package_event_count == 0
+    assert scan_row_count(agent_id) == 1
+  end
+
   test "SBOM-less unchanged upload without a matching prior hash preserves current packages",
        %{actor: actor} do
     unique = System.unique_integer([:positive])
@@ -1375,6 +1504,16 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
       from(p in "endpoint_inventory_packages",
         where: p.agent_id == ^agent_id,
         select: count(p.id)
+      ),
+      prefix: "platform"
+    )
+  end
+
+  defp scan_row_count(agent_id) do
+    Repo.one!(
+      from(s in "endpoint_inventory_scans",
+        where: s.agent_id == ^agent_id,
+        select: count(s.id)
       ),
       prefix: "platform"
     )

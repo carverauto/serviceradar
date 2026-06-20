@@ -25,6 +25,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   @hash_algorithm "sha256-v1"
   @upload_reason_changed "changed"
   @upload_reason_unchanged "unchanged"
+  @metadata_reason_upload_already_acknowledged "upload_already_acknowledged"
+  @state_not_scanned "not_scanned"
   @coverage_state_unchanged "unchanged"
   @default_reconcile_floor_scan_count 24
   @default_reconcile_floor_max_age_days 7
@@ -36,72 +38,183 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   def ingest_report(payload, opts) when is_map(payload) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:endpoint_inventory_ingestor))
 
-    with {:ok, agent_id} <- Payload.required_string(payload, :agent_id),
-         {:ok, scan_id} <- Payload.required_string(payload, :scan_id),
-         {:ok, context} <- build_context(payload, agent_id, scan_id, actor, opts),
-         {:ok, context} <- allocate_device_fleet_ordinal(context, opts),
-         {:ok, artifact} <-
-           EndpointInventoryArtifactPersistence.maybe_upload(payload, context, opts) do
-      context = EndpointInventoryArtifactPersistence.apply_metadata(context, artifact)
+    with_result =
+      with {:ok, agent_id} <- Payload.required_string(payload, :agent_id),
+           {:ok, scan_id} <- Payload.required_string(payload, :scan_id),
+           :continue <- maybe_short_circuit_noop(payload, agent_id, scan_id),
+           {:ok, context} <- build_context(payload, agent_id, scan_id, actor, opts),
+           {:ok, context} <- allocate_device_fleet_ordinal(context, opts),
+           {:ok, artifact} <-
+             EndpointInventoryArtifactPersistence.maybe_upload(payload, context, opts) do
+        context = EndpointInventoryArtifactPersistence.apply_metadata(context, artifact)
 
-      case Repo.transaction(fn ->
-             current = current_scan_snapshot(context.agent_id)
-             current_row_count = current_package_row_count(context.agent_id)
-             previous_packages = current_package_rows(context)
-             context = maybe_apply_package_delta(context, current, previous_packages)
-             context = apply_hash_freshness(context, current, current_row_count)
-             scan_ref = upsert_scan(context, artifact)
-             insert_scan_activity_event(scan_ref, context)
-             EndpointInventoryArtifactPersistence.replace(scan_ref, context, artifact)
-             package_count = maybe_replace_packages(scan_ref, context)
+        case Repo.transaction(fn ->
+               current = current_scan_snapshot(context.agent_id)
+               current_row_count = current_package_row_count(context.agent_id)
+               previous_packages = current_package_rows(context)
+               context = maybe_apply_package_delta(context, current, previous_packages)
+               context = apply_hash_freshness(context, current, current_row_count)
+               scan_ref = upsert_scan(context, artifact)
+               insert_scan_activity_event(scan_ref, context)
+               EndpointInventoryArtifactPersistence.replace(scan_ref, context, artifact)
+               package_count = maybe_replace_packages(scan_ref, context)
 
-             history =
-               EndpointInventoryHistory.record_changed(
-                 scan_ref,
-                 current,
-                 previous_packages,
-                 Map.put(context, :successful_scan?, successful_scan?(context))
-               )
+               history =
+                 EndpointInventoryHistory.record_changed(
+                   scan_ref,
+                   current,
+                   previous_packages,
+                   Map.put(context, :successful_scan?, successful_scan?(context))
+                 )
 
-             maybe_promote_current(scan_ref, context)
+               maybe_promote_current(scan_ref, context)
 
-             %{
-               agent_id: context.agent_id,
-               device_uid: context.device_uid,
-               scan_id: context.scan_id,
-               scan_ref: scan_ref,
-               package_count: package_count,
-               artifact_uploaded?: not is_nil(artifact),
-               package_rows_replaced?: not context.package_replacement_noop?,
-               scan_history_recorded?: history.scan_history_recorded?,
-               package_event_count: history.package_event_count,
-               package_set_hash_mismatch?: context.package_set_hash_mismatch?,
-               reconcile_floor?: context.reconcile_floor_due?,
-               upload_reason: context.upload_reason,
-               directives: scan_ack_directives(context),
-               current?: successful_scan?(context),
-               package_change_signals: history.package_change_signals
-             }
-           end) do
-        {:ok, result} ->
-          published_count =
-            result
-            |> Map.get(:package_change_signals, [])
-            |> EndpointInventoryHistory.publish_package_change_signals(opts)
+               %{
+                 agent_id: context.agent_id,
+                 device_uid: context.device_uid,
+                 scan_id: context.scan_id,
+                 scan_ref: scan_ref,
+                 package_count: package_count,
+                 artifact_uploaded?: not is_nil(artifact),
+                 package_rows_replaced?: not context.package_replacement_noop?,
+                 scan_history_recorded?: history.scan_history_recorded?,
+                 package_event_count: history.package_event_count,
+                 package_set_hash_mismatch?: context.package_set_hash_mismatch?,
+                 reconcile_floor?: context.reconcile_floor_due?,
+                 upload_reason: context.upload_reason,
+                 directives: scan_ack_directives(context),
+                 current?: successful_scan?(context),
+                 package_change_signals: history.package_change_signals
+               }
+             end) do
+          {:ok, result} ->
+            published_count =
+              result
+              |> Map.get(:package_change_signals, [])
+              |> EndpointInventoryHistory.publish_package_change_signals(opts)
 
-          {:ok,
-           result
-           |> Map.delete(:package_change_signals)
-           |> Map.put(:package_change_signal_publish_count, published_count)
-           |> tap(&EndpointInventoryTelemetry.emit_ingest_result/1)}
+            {:ok,
+             result
+             |> Map.delete(:package_change_signals)
+             |> Map.put(:package_change_signal_publish_count, published_count)
+             |> tap(&EndpointInventoryTelemetry.emit_ingest_result/1)}
 
-        error ->
-          error
+          error ->
+            error
+        end
       end
-    end
+
+    normalize_short_circuit_result(with_result)
   end
 
   def ingest_report(_payload, _opts), do: {:error, :invalid_endpoint_inventory_payload}
+
+  defp maybe_short_circuit_noop(payload, agent_id, scan_id) do
+    cond do
+      scan = existing_scan_snapshot(agent_id, scan_id) ->
+        {:ok, emit_short_circuit_result(scan, agent_id, scan_id, short_circuit_reason(payload))}
+
+      upload_already_acknowledged?(payload) ->
+        short_circuit_acknowledged_unchanged(payload, agent_id, scan_id)
+
+      empty_not_scanned_payload?(payload) ->
+        short_circuit_repeated_not_scanned(payload, agent_id, scan_id)
+
+      true ->
+        :continue
+    end
+  end
+
+  defp short_circuit_acknowledged_unchanged(payload, agent_id, scan_id) do
+    reported_hash = Payload.string_value(payload, :package_set_hash)
+
+    case current_scan_snapshot(agent_id) do
+      %{package_set_hash: ^reported_hash} = scan when reported_hash not in [nil, ""] ->
+        {:ok,
+         emit_short_circuit_result(
+           scan,
+           agent_id,
+           scan_id,
+           @metadata_reason_upload_already_acknowledged
+         )}
+
+      _ ->
+        :continue
+    end
+  end
+
+  defp short_circuit_repeated_not_scanned(payload, agent_id, scan_id) do
+    coverage_state = Payload.string_value(payload, :coverage_state) || @state_not_scanned
+
+    case latest_scan_snapshot(agent_id) do
+      %{state: @state_not_scanned, coverage_state: ^coverage_state, package_count: 0} = scan ->
+        {:ok, emit_short_circuit_result(scan, agent_id, scan_id, "repeated_not_scanned")}
+
+      _ ->
+        :continue
+    end
+  end
+
+  defp normalize_short_circuit_result({:ok, %{short_circuited?: true} = result}) do
+    {:ok, Map.delete(result, :short_circuited?)}
+  end
+
+  defp normalize_short_circuit_result(other), do: other
+
+  defp emit_short_circuit_result(scan, agent_id, scan_id, reason) do
+    scan
+    |> short_circuit_result(agent_id, scan_id, reason)
+    |> tap(&EndpointInventoryTelemetry.emit_ingest_result/1)
+  end
+
+  defp short_circuit_result(scan, agent_id, scan_id, reason) do
+    %{
+      agent_id: agent_id,
+      device_uid: Map.get(scan, :device_uid),
+      scan_id: Map.get(scan, :scan_id) || scan_id,
+      scan_ref: Map.get(scan, :id),
+      package_count: Map.get(scan, :package_count, 0),
+      artifact_uploaded?: false,
+      package_rows_replaced?: false,
+      scan_history_recorded?: false,
+      package_event_count: 0,
+      package_set_hash_mismatch?: false,
+      reconcile_floor?: Map.get(scan, :reconcile_floor_due, false),
+      upload_reason: short_circuit_upload_reason(scan, reason),
+      directives:
+        scan_ack_directives(%{reconcile_floor_due?: Map.get(scan, :reconcile_floor_due, false)}),
+      current?: Map.get(scan, :current, false),
+      package_change_signal_publish_count: 0,
+      short_circuited?: true
+    }
+  end
+
+  defp short_circuit_upload_reason(_scan, @metadata_reason_upload_already_acknowledged),
+    do: @upload_reason_unchanged
+
+  defp short_circuit_upload_reason(scan, _reason),
+    do: Map.get(scan, :upload_reason) || @upload_reason_unchanged
+
+  defp upload_already_acknowledged?(payload) do
+    payload
+    |> Payload.map_value(:metadata)
+    |> Payload.string_value(:reason) == @metadata_reason_upload_already_acknowledged
+  end
+
+  defp empty_not_scanned_payload?(payload) do
+    EndpointInventoryPackageSet.scan_state(payload) == @state_not_scanned and
+      Payload.integer_value(payload, :package_count, 0) == 0 and
+      Payload.list_value(payload, :packages) == [] and
+      map_size(Payload.map_value(payload, :sbom)) == 0
+  end
+
+  defp short_circuit_reason(payload) do
+    cond do
+      upload_already_acknowledged?(payload) -> @metadata_reason_upload_already_acknowledged
+      empty_not_scanned_payload?(payload) -> "duplicate_not_scanned"
+      true -> "duplicate_scan"
+    end
+  end
 
   @spec ingest_vulnerability_match(map(), keyword()) :: {:ok, map()} | {:error, term()}
   def ingest_vulnerability_match(payload, opts \\ []) do
@@ -596,18 +709,69 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
 
   defp successful_scan?(context), do: context.state in @successful_states
 
+  defp existing_scan_snapshot(agent_id, scan_id) do
+    Repo.one(
+      from(s in "endpoint_inventory_scans",
+        where: s.agent_id == ^agent_id and s.scan_id == ^scan_id,
+        select: %{
+          id: s.id,
+          device_uid: s.device_uid,
+          scan_id: s.scan_id,
+          state: s.state,
+          coverage_state: s.coverage_state,
+          package_count: s.package_count,
+          package_set_hash: s.package_set_hash,
+          upload_reason: s.upload_reason,
+          reconcile_floor_due: s.reconcile_floor_due,
+          current: s.current
+        },
+        limit: 1
+      ),
+      prefix: "platform"
+    )
+  end
+
+  defp latest_scan_snapshot(agent_id) do
+    Repo.one(
+      from(s in "endpoint_inventory_scans",
+        where: s.agent_id == ^agent_id,
+        select: %{
+          id: s.id,
+          device_uid: s.device_uid,
+          scan_id: s.scan_id,
+          state: s.state,
+          coverage_state: s.coverage_state,
+          package_count: s.package_count,
+          package_set_hash: s.package_set_hash,
+          upload_reason: s.upload_reason,
+          reconcile_floor_due: s.reconcile_floor_due,
+          current: s.current
+        },
+        order_by: [desc: s.last_scan_at, desc: s.inserted_at],
+        limit: 1
+      ),
+      prefix: "platform"
+    )
+  end
+
   defp current_scan_snapshot(agent_id) do
     Repo.one(
       from(s in "endpoint_inventory_scans",
         where: s.agent_id == ^agent_id and s.current == true,
         select: %{
           id: s.id,
+          device_uid: s.device_uid,
           package_count: s.package_count,
           scan_id: s.scan_id,
+          state: s.state,
+          coverage_state: s.coverage_state,
           package_set_hash: s.package_set_hash,
+          upload_reason: s.upload_reason,
           server_package_set_hash: s.server_package_set_hash,
           last_changed_scan_at: s.last_changed_scan_at,
-          unchanged_scan_count: s.unchanged_scan_count
+          unchanged_scan_count: s.unchanged_scan_count,
+          reconcile_floor_due: s.reconcile_floor_due,
+          current: s.current
         },
         limit: 1
       ),
