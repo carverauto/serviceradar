@@ -125,10 +125,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitter do
     Enum.map_join(
       [
         @event_type,
-        iso8601(Map.get(attrs, :forecasted_at)),
-        Map.get(attrs, :resource_key),
-        Map.get(attrs, :metric_name),
-        Map.get(attrs, :horizon_seconds)
+        finding_uid(attrs)
       ],
       ":",
       &string_value/1
