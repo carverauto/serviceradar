@@ -222,13 +222,58 @@
 - [ ] 40.2 Track that the F1/F12/F17/F39 write-flood fixes reduce `ocsf_events`/`capacity_forecasts`/flow growth.
 - [ ] 40.3 (ops, separate) Resolve the failing CNPG scheduled base backup (Longhorn throughput) so there is a recovery point.
 
-## 41. Verification
-- [ ] 41.1 Run `sfw cargo test -p serviceradar-anomaly-addon -p serviceradar-anomaly-core -p serviceradar-causal-disposition`.
-- [ ] 41.2 Run `sfw cargo test -p serviceradar-srql` if the seasonal profiling verb is implemented in SRQL.
-- [ ] 41.3 Run `go test ./go/pkg/agent/addon/...` (and update bazel BUILD deps for any new test files/imports).
-- [ ] 41.4 Run focused core-elx tests for status handler, causal signals, seasonal disposition, capacity forecasting, anomaly profile seeding, alert generation, and flow ingest.
-- [ ] 41.5 Run web-ng tests for device-details anomaly/capacity, chart renderer, NetFlow/interface data layers, JS chart hooks, dashboard authoring, and the table/topology plugins.
-- [ ] 41.6 Run `./scripts/elixir_quality.sh --project elixir/serviceradar_core` if the implementation changes shared core-elx behavior broadly.
-- [ ] 41.7 Run `sfw cargo test -p serviceradar-flow-collector` if collector sampling changes land.
-- [ ] 41.8 Run native add-on manifest/version gates if add-on package metadata or Rust add-on sources change.
-- [ ] 41.9 Re-run the live `sysmon.debug_spike` trace + a sampled-flow check in demo and confirm F1/F3/F6/F12/F15/F21-F46 behaviors are resolved (one open finding, sample-time, coherent identity, visible+annotated chart spike, correct sampled NetFlow units, safe dashboard variables, no alert storm).
+## 42. Mapper SNMP Discovery (F47)
+- [ ] 42.1 Dispatch ifXTable PDUs through `updateInterfaceFromOID` so ifName/ifAlias populate (not just ifHighSpeed); add a synthetic-ifXTable test.
+- [ ] 42.2 Connect the SNMP client exactly once per target (drop the double `Connect()`); verify FDs are released; add a leak test.
+- [ ] 42.3 Fix FDB MAC-to-port last-walked collapse; return `ErrNoSNMPDataReturned` for wrong-community; implement or remove `selectDensePortNeighbors`; make worker-result send not undercount progress.
+
+## 43. UniFi / UBNT Polling (F48)
+- [ ] 43.1 Paginate the UniFi `/clients` fetch (no silent truncation).
+- [ ] 43.2 Paginate the UniFi `/devices` fetch (remove the 500/100 hard caps).
+- [ ] 43.3 Fix uplink `parentPortIndex` selection (port 0 valid); stop logging full response bodies at Debug; unify ctx; fix Protect WS read cap and UTF-8-safe `trimBody`.
+
+## 44. Sweeper / SYN Scanner (F49)
+- [ ] 44.1 Fix SYN reply-to-port attribution after source-port reuse; reset per-scan stats counters between scans.
+- [ ] 44.2 Don't prune results before concurrent scan (GetStatus partial-set race); treat ICMPv6 dest-unreachable as a clean closed result; account for retry packets so they aren't silently dropped.
+
+## 45. Topology Graph (F50)
+- [ ] 45.1 Escape backslashes (and audit all Cypher literal building) so attacker-controlled LLDP/CDP/ifAlias cannot inject (`graph.ex:106-110`).
+- [ ] 45.2 Preserve parallel links (LAG/redundant) instead of collapsing to one canonical edge; prune reverse `CONNECTS_TO` edges on one-endpoint re-report.
+- [ ] 45.3 Fix IPv6 device-id/IP `:`-split matching; make the Cypher read-only guard literal/comment-aware; link device-graph peer interfaces to their owning device.
+
+## 46. MTR Consensus / Baseline / UI (F51)
+- [ ] 46.1 Compute path RTT from the destination hop (or a true avg), not MAX over all hops, so transit ICMP-deprioritization doesn't fabricate `:degraded_path` signals.
+- [ ] 46.2 Re-emit non-incident (manual/baseline) cohorts on escalation so degraded-to-outage transitions surface.
+- [ ] 46.3 Report the chosen class's probability as confidence; scope "Page Reachability" correctly; add a timezone indicator to MTR timestamps.
+
+## 47. SRQL Engine Hardening (F52)
+- [ ] 47.1 Fix the bucket-duration multibyte-char panic (`parser.rs:550`) - char-boundary-safe parsing.
+- [ ] 47.2 Fix the relative-time overflow panic (`time.rs:42-50`) - checked arithmetic + validation bounds.
+- [ ] 47.3 Append a unique tie-breaker to downsample ORDER BY (stable pagination).
+- [ ] 47.4 Make empty IN/NOT-IN lists well-defined (not "all rows"); bound/authenticate cursor offset; only force LIKE when the field/op is wildcard-capable.
+
+## 48. SRQL Query Modules (F53)
+- [ ] 48.1 Use array-overlap (`&&`) not contains-all (`@>`) for `discovery_sources` (and audit other list filters).
+- [ ] 48.2 Append a unique tie-breaker to the events and interfaces (non-latest) ORDER BY (stable pagination).
+- [ ] 48.3 Make `field != x` / `not like` row vs stats populations consistent re: NULLs.
+- [ ] 48.4 Move interface error-metric LATERAL joins after LIMIT; fix CAGG partial-bucket truncation; guard the non-ASCII stats-expression case-fold panic (`flows.rs:1340`).
+
+## 49. UI Device List & Settings (F54)
+- [ ] 49.1 Fix Bulk-edit "Apply tags" to run with the actor/scope so the policy permits it (and add a test).
+- [ ] 49.2 Batch the SNMP-profile count N+1; make interface target-count fail-closed like device count.
+- [ ] 49.3 Debounce the sweep-group count; align "Run Task" enablement+targets with select-all-matching; use a real CSV parser; bound `get_all_matching_uids`; run SNMP test-connection off-process.
+
+## 50. Oversized-File Breakups, Round 2 (F55)
+- [ ] 50.1 Break up (behavior-preserving, <~300 lines): `device_live/index.ex` (3931), `go/pkg/scan/syn_scanner.go` (3831), `snmp_profiles_live/index.ex` (3596), `go/pkg/sweeper/sweeper.go` (3007), `go/pkg/mapper/snmp_polling.go` (2996), `go/pkg/mapper/discovery.go` (2741), `networks_live/index.ex` (2726), `topology_graph.ex` (2356), `diagnostics_live/mtr.ex` (2023), `ubnt_poller.go` (1728), `unifi-protect/main.go` (1385).
+- [ ] 50.2 Break up the SRQL modules: `flows.rs` (2914), `parser.rs` (1306), `query/mod.rs` (1091), `interfaces.rs` (954), `events.rs` (939), `devices/filters.rs` (817), `downsample.rs` (812), `devices/stats.rs` (792).
+
+## 51. Verification
+- [ ] 51.1 Run `sfw cargo test -p serviceradar-anomaly-addon -p serviceradar-anomaly-core -p serviceradar-causal-disposition`.
+- [ ] 51.2 Run `sfw cargo test -p serviceradar-srql` (parser/time DoS guards, list-filter and pagination tie-breaker fixes).
+- [ ] 51.3 Run `go test ./go/pkg/agent/addon/... ./go/pkg/mapper/... ./go/pkg/sweeper/... ./go/pkg/scan/...` (update bazel BUILD deps for new test files/imports).
+- [ ] 51.4 Run focused core-elx tests for status handler, causal signals, seasonal disposition, capacity forecasting, anomaly profile seeding, alert generation, flow ingest, topology graph, and MTR consensus.
+- [ ] 51.5 Run web-ng tests for device-details anomaly/capacity, chart renderer, NetFlow/interface data layers, JS chart hooks, dashboard authoring, table/topology plugins, device list bulk-edit, and SNMP/networks settings.
+- [ ] 51.6 Run `./scripts/elixir_quality.sh --project elixir/serviceradar_core` and `--project elixir/web-ng` if implementation changes shared behavior broadly.
+- [ ] 51.7 Run `sfw cargo test -p serviceradar-flow-collector` if collector sampling changes land.
+- [ ] 51.8 Run native add-on manifest/version gates if add-on package metadata or Rust add-on sources change.
+- [ ] 51.9 Re-run the live `sysmon.debug_spike` trace + a sampled-flow check in demo and confirm F1/F3/F6/F12/F15/F21-F55 behaviors are resolved (one open finding, sample-time, coherent identity, visible+annotated chart spike, correct sampled NetFlow units, safe dashboard variables, no alert storm, no SRQL panics).

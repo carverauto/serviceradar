@@ -132,6 +132,22 @@ added F39-F46. The change also:
 - Verify retention coverage for all high-volume hypertables and confirm the
   write-flood fixes cut DB growth (F46).
 
+A 9-subsystem bug hunt (mapper, sweep/scan, topology, MTR, SRQL engine + query
+modules, UI) added F47-F55 (51 verified bugs). The change also:
+- Mapper: dispatch ifXTable so ifName/ifAlias populate; connect SNMP once (FD leak)
+  (F47); paginate UniFi clients/devices fetches (F48); fix SYN scanner attribution +
+  per-scan stat reset (F49).
+- Topology: escape Cypher literals against LLDP/CDP/ifAlias injection; preserve
+  parallel links; prune reverse stale edges (F50).
+- MTR: compute path RTT from the destination hop (not MAX over hops) so transit hops
+  don't fabricate `:degraded_path` signals (F51).
+- SRQL: fix the two parser/time DoS panics, add stable pagination tie-breakers, and
+  fix `discovery_sources` overlap vs contains-all and `!=`/`not like` NULL semantics
+  (F52, F53).
+- UI: fix bulk-edit "Apply tags" (actor/scope), batch the settings count N+1, and
+  bound the unbounded select-all fetch (F54).
+- Break up the round-2 oversized files (Go/Rust/Elixir) into <~300-line modules (F55).
+
 ## Impact
 - Affected specs: `edge-architecture`, `observability-signals`
 - Affected code: `rust/anomaly-addon` (engine state bounds, feed task lifecycle,

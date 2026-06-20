@@ -202,3 +202,26 @@ outside the dashboard's intended scope or run unbounded queries.
 #### Scenario: Authored queries are bounded
 - **WHEN** an authored panel query runs
 - **THEN** it SHALL carry a default time window and a maximum row limit so it cannot trigger an unbounded scan
+
+### Requirement: Query Engine Robustness
+The SRQL query engine SHALL not crash on untrusted input and SHALL paginate and
+filter deterministically.
+
+#### Scenario: Malformed query does not panic
+- **WHEN** a client submits a query with a malformed duration, an out-of-range relative time, or a non-ASCII value
+- **THEN** the engine SHALL return a bounded error, not panic the request handler or worker
+
+#### Scenario: Pagination is stable
+- **WHEN** a result set is paginated over a non-unique sort key
+- **THEN** the engine SHALL append a unique tie-breaker to the ordering so no row is dropped or duplicated across pages
+
+#### Scenario: List and negation filters are correct
+- **WHEN** a multi-value list filter (e.g. `discovery_sources`) or a negation filter (`!=`, `not like`) is applied
+- **THEN** list membership SHALL use overlap semantics (any-of), an empty list SHALL not silently match all rows, and the row and aggregate paths SHALL return the same population with respect to NULLs
+
+### Requirement: Topology Query Injection Safety
+Topology and graph queries SHALL safely encode all attacker-influenceable values.
+
+#### Scenario: Discovered attributes cannot inject Cypher
+- **WHEN** a device-reported value (LLDP/CDP port description or system name, SNMP ifAlias, etc.) is used in a Cypher query
+- **THEN** it SHALL be fully escaped (including backslashes) or parameterized so it cannot alter the query structure

@@ -826,3 +826,135 @@ F17/F39 fixes cut write volume at the source.
 - F46: pruning is not broken; the DB growth is missing-retention-coverage plus the
   finding/flow write floods — fixing F1/F12/F17/F39 and adding retention to all
   high-volume hypertables addresses it.
+
+## Subsystem Bug Hunt: Mapper, Sweep, Topology, MTR, SRQL, UI (2026-06-19)
+
+A 9-subsystem fan-out (discovery/mapper, sweep/scan, topology, MTR, SRQL engine +
+query modules, UI) found 51 verified bugs (12 high, 9 medium, 30 low) plus 20
+oversized files. Consolidated as F47-F55. Two SRQL DoS panics and a Cypher
+injection are reachable from untrusted input.
+
+### F47: Mapper SNMP discovery (HIGH)
+- **[HIGH] ifXTable ifName/ifAlias silently dropped**: `processIfXTablePDU` dispatches
+  via `updateInterfaceFromPDU` which only handles `ifHighSpeed`; the ifName/ifAlias
+  handlers live in `updateInterfaceFromOID`, never called on the ifXTable walk
+  (`snmp_polling.go:1472-1516`). Every SNMP-discovered switch/router shows ifDescr or
+  synthetic `Interface-N` names. Fix: dispatch ifXTable through `updateInterfaceFromOID`.
+- **[HIGH] SNMP client connected twice per target -> UDP FD leak**: `setupSNMPClient`
+  already `Connect()`s, then `connectSNMPClient` `Connect()`s again, orphaning the
+  first socket (`snmp_polling.go:280-285,1690-1803`). One leaked FD per target per
+  job -> mapper eventually hits ulimit. Fix: connect once.
+- [LOW] FDB MAC-to-port collapses to last-walked port (`snmp_polling.go:2777-2838`);
+  `querySysInfo` never returns `ErrNoSNMPDataReturned` for wrong-community
+  (`:293-315`); `selectDensePortNeighbors` is a no-op despite the cap comment
+  (`:2545-2553`); non-blocking worker-result send undercounts progress
+  (`discovery.go:1322-1326`).
+
+### F48: UniFi / UBNT polling (HIGH)
+- **[HIGH] /clients fetch has no pagination/limit** -> wireless client lists silently
+  truncated on busy sites (`ubnt_poller.go:582-632`).
+- **[HIGH] /devices fetch hard-caps at 500 (topology) / 100 (inventory)** with no
+  pagination -> large-site devices silently lost (`ubnt_poller.go:514,1435`).
+- [LOW] uplink `parentPortIndex` preference can pick wrong port and treats index 0 as
+  missing (`ubnt_poller.go:87-104`); full response bodies logged at Debug (PII/secrets
+  exposure) (`:544-546`); site vs device fetch use inconsistent ctx (`:1300-1311`);
+  Protect WS caps at 4 reads (`unifi-protect/main.go:1124-1138`); `trimBody` splits a
+  UTF-8 rune (`:1375-1382`).
+
+### F49: Sweeper / SYN scanner
+- [LOW] SYN reply attributed to wrong port after source-port reuse within a scan
+  (`syn_scanner.go:2945-2974`); per-scan stats counters never reset between scans
+  (cumulative telemetry/drop-rate) (`:243-261`); `runSweep` prunes results then scans
+  concurrently so `GetStatus` sees a partial set (`sweeper.go:1306-1436`); ICMPv6
+  dest-unreachable clears Available but isn't a clean closed result (`:2810-2853`);
+  retry packets bypass `enqueueRetriesForBatch` accounting and can be silently dropped
+  (`:2246-2294`).
+
+### F50: Topology graph (HIGH security)
+- **[HIGH/security] `Graph.escape` does not escape backslashes** -> Cypher string-literal
+  injection via attacker-controlled LLDP/CDP port description, system name, or SNMP
+  ifAlias (`graph.ex:106-110`). A malicious device on the monitored network can break
+  out of the literal. Fix: escape backslashes (and audit all Cypher literal building).
+- [MED] Parallel links (LAG/redundant) collapse to a single CANONICAL edge
+  (`topology_graph.ex:1988-2048`); reverse `CONNECTS_TO` edges not pruned when one
+  endpoint re-reports (stale asymmetry) (`:730-755`).
+- [LOW] IPv6 device-id/IP fallback broken by naive `:` split (`:1588-1604`); Cypher
+  read-only guard flags keywords inside string literals/comments
+  (`graph_cypher.rs:114-136`); device-graph `peer_interfaces` returns peer Interface
+  nodes with no link to owning Device.
+
+### F51: MTR consensus / baseline / UI (HIGH)
+- **[HIGH] "avg RTT" actually takes MAX over all hops** (`mtr_consensus_worker.ex:232-259`),
+  so a healthy destination is classified `:degraded_path` and emitted as a causal
+  signal whenever any transit hop ICMP-deprioritizes - false anomaly signals. Fix:
+  use destination-hop RTT (or true avg), not max-over-hops.
+- [MED] Non-incident (manual/baseline) cohorts never re-emit on escalation, so
+  degraded-to-outage transitions are missed (`mtr_consensus_worker.ex:110-146`).
+- [LOW] Confidence reflects dominant probability, not the chosen class
+  (`mtr_consensus_evaluator.ex:100-104`); "Page Reachability" KPI computed only over
+  the current page (`mtr.ex:1831-1862`); MTR timestamps rendered with no tz
+  (`mtr.ex:1784-1794`).
+
+### F52: SRQL engine - parser / time / pagination / downsample (HIGH DoS)
+- **[HIGH/DoS] Panic on multibyte trailing char in bucket duration**: `bucket:5<micro>`
+  crashes the request thread via a non-char-boundary slice (`parser.rs:550`).
+- **[HIGH/DoS] Panic on large relative time**: `time:last5000000000d` overflows an
+  unchecked `DateTime` subtraction (`time.rs:42-50`).
+- [MED] Unstable ORDER BY in downsample queries -> duplicate/skipped rows across pages
+  (`downsample.rs:167-198`).
+- [LOW] Empty IN/NOT-IN list returns ALL rows in the main path (and diverges from
+  downsample) (`mod.rs:20-34`); unbounded/unauthenticated deep-offset cursor
+  (`pagination.rs:13-27`); a `%` anywhere in a scalar forces LIKE even for exact-match
+  fields (`parser.rs:777-787`).
+
+### F53: SRQL query modules - devices / interfaces / events / flows (HIGH)
+- **[HIGH] `discovery_sources` list filter uses contains-ALL (`@>`) not overlap** ->
+  multi-source device filters return far fewer (often zero) rows, no error
+  (`devices/filters.rs:178-193`). Powers the device list quick-filters.
+- **[HIGH] Events query has no stable tie-breaker** -> time-ordered pagination
+  drops/duplicates rows across pages (`events.rs:1085-1113`), affecting the
+  device-details anomaly/event panels.
+- **[HIGH] `field != x` / `not like` drops NULL rows in row queries but keeps them in
+  stats** -> same filter yields different populations in table vs aggregate
+  (`mod.rs:8-19`).
+- [MED] Interfaces non-latest query paginates over a non-unique sort (drop/dup)
+  (`interfaces.rs:646-679`); error-metric LATERAL joins run per history row before
+  LIMIT (unbounded) (`:200-224`); CAGG routing truncates partial buckets so widening
+  the window changes totals (`flows.rs:1518-1558`).
+- [LOW] Interfaces drop empty IN/NotIn lists, widening NotIn (`interfaces.rs:460-479`);
+  user stats expression can panic the worker via non-ASCII case-fold slice
+  (`flows.rs:1340-1342`) - a third SRQL DoS.
+
+### F54: UI device list & settings (HIGH)
+- **[HIGH] Bulk-edit "Apply tags" always fails**: the Ash update runs with no
+  actor/scope so policy denies it (`device_live/index.ex:1246-1271`) - tags never
+  written; feature effectively dead.
+- [MED] SNMP Profiles index N+1 of synchronous count queries on mount and every toggle
+  (`snmp_profiles_live/index.ex:3029-3039`); interface target-count fails open on
+  unsupported filter fields (over-counts), inconsistent with device count which fails
+  closed (`:3311-3326`).
+- [LOW] Sweep-group form runs a synchronous count query per keystroke (no debounce)
+  (`networks_live/index.ex:621-625`); "Run Task" disabled under select-all-matching
+  while Bulk Edit/Delete honor it (`device_live/index.ex:1473-1475`); CSV import splits
+  on raw commas (mis-parses quoted fields) (`:3805-3811`); `get_all_matching_uids`
+  unbounded fetch with a stale 10k guard (`:3594-3639`); SNMP test-connection blocks the
+  LiveView synchronously in `handle_info` (`snmp_profiles_live/index.ex:642-648`).
+
+### F55: Oversized files to break up (<~300 lines each, behavior-preserving)
+Beyond Section 32, the audit flagged: `device_live/index.ex` (3931), `go/pkg/scan/syn_scanner.go`
+(3831), `snmp_profiles_live/index.ex` (3596), `go/pkg/sweeper/sweeper.go` (3007),
+`go/pkg/mapper/snmp_polling.go` (2996), `rust/srql/.../flows.rs` (2914),
+`go/pkg/mapper/discovery.go` (2741), `networks_live/index.ex` (2726),
+`network_discovery/topology_graph.ex` (2356), `diagnostics_live/mtr.ex` (2023),
+`go/pkg/mapper/ubnt_poller.go` (1728), `unifi-protect/main.go` (1385),
+`rust/srql/.../parser.rs` (1306), `rust/srql/.../query/mod.rs` (1091),
+`diagnostics_live/mtr_data.ex` (1000), and the SRQL `interfaces.rs`/`events.rs`/
+`devices/filters.rs`/`downsample.rs`/`devices/stats.rs` modules.
+
+## Decisions (subsystem bug-hunt addendum)
+- Prioritize the reachable-from-untrusted-input bugs: F50 Cypher injection (malicious
+  device on the monitored network) and the F52/F53 SRQL DoS panics (any query client).
+- F51 (MTR avg=MAX) and F47 (ifName dropped) are high-impact correctness bugs that
+  also degrade the anomaly/topology signal quality this proposal otherwise improves.
+- SRQL pagination instability (F52/F53: events, interfaces, downsample) is a recurring
+  class - fix by always appending a unique tie-breaker to ORDER BY.
