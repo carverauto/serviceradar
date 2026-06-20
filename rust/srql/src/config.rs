@@ -20,6 +20,8 @@ pub struct AppConfig {
     pub allowed_origins: Option<Vec<String>>,
     pub default_limit: i64,
     pub max_limit: i64,
+    pub cursor_secret: String,
+    pub max_cursor_offset: i64,
     pub request_timeout: Duration,
     pub db_statement_timeout: Duration,
     pub rate_limit_max_requests: u64,
@@ -52,6 +54,10 @@ struct RawConfig {
     srql_default_limit: i64,
     #[serde(default = "default_max_limit")]
     srql_max_limit: i64,
+    #[serde(default)]
+    srql_cursor_secret: Option<String>,
+    #[serde(default = "default_max_cursor_offset")]
+    srql_max_cursor_offset: i64,
     #[serde(default = "default_timeout_secs")]
     srql_request_timeout_secs: u64,
     #[serde(default = "default_db_statement_timeout_secs")]
@@ -72,6 +78,10 @@ const fn default_limit() -> i64 {
 
 const fn default_max_limit() -> i64 {
     0
+}
+
+const fn default_max_cursor_offset() -> i64 {
+    100_000
 }
 
 const fn default_timeout_secs() -> u64 {
@@ -131,6 +141,13 @@ impl AppConfig {
             }
         });
 
+        let api_key = raw.srql_api_key.and_then(non_empty_string);
+        let cursor_secret = raw
+            .srql_cursor_secret
+            .and_then(non_empty_string)
+            .or_else(|| api_key.clone())
+            .unwrap_or_else(|| database_url.clone());
+
         Ok(Self {
             listen_addr,
             database_url,
@@ -139,7 +156,7 @@ impl AppConfig {
             pg_ssl_root_cert: env::var("PGSSLROOTCERT").ok(),
             pg_ssl_cert: env::var("PGSSLCERT").ok(),
             pg_ssl_key: env::var("PGSSLKEY").ok(),
-            api_key: raw.srql_api_key,
+            api_key,
             api_key_kv_key: raw.srql_api_key_kv_key,
             allowed_origins,
             default_limit: raw.srql_default_limit.max(1),
@@ -148,6 +165,8 @@ impl AppConfig {
             } else {
                 raw.srql_max_limit.max(raw.srql_default_limit)
             },
+            cursor_secret,
+            max_cursor_offset: raw.srql_max_cursor_offset.max(0),
             request_timeout: Duration::from_secs(raw.srql_request_timeout_secs.max(1)),
             db_statement_timeout: Duration::from_secs(raw.srql_db_statement_timeout_secs.max(1)),
             rate_limit_max_requests: raw.srql_rate_limit_max.max(1),
@@ -156,6 +175,8 @@ impl AppConfig {
     }
 
     pub fn embedded(database_url: String) -> Self {
+        let cursor_secret = database_url.clone();
+
         Self {
             listen_addr: "127.0.0.1:0".parse().expect("valid socket addr"),
             database_url,
@@ -169,11 +190,22 @@ impl AppConfig {
             allowed_origins: None,
             default_limit: default_limit(),
             max_limit: default_max_limit(),
+            cursor_secret,
+            max_cursor_offset: default_max_cursor_offset(),
             request_timeout: Duration::from_secs(default_timeout_secs()),
             db_statement_timeout: Duration::from_secs(default_db_statement_timeout_secs()),
             rate_limit_max_requests: default_rate_limit_requests(),
             rate_limit_window: Duration::from_secs(default_rate_limit_window_secs()),
         }
+    }
+}
+
+fn non_empty_string(value: String) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
     }
 }
 

@@ -250,7 +250,7 @@
 - [x] 47.1 Fix the bucket-duration multibyte-char panic (`parser.rs:550`) - char-boundary-safe parsing.
 - [x] 47.2 Fix the relative-time overflow panic (`time.rs:42-50`) - checked arithmetic + validation bounds.
 - [x] 47.3 Append a unique tie-breaker to downsample ORDER BY (stable pagination).
-- [ ] 47.4 Make empty IN/NOT-IN lists well-defined (not "all rows"); bound/authenticate cursor offset; only force LIKE when the field/op is wildcard-capable.
+- [x] 47.4 Make empty IN/NOT-IN lists well-defined (not "all rows"); bound/authenticate cursor offset; only force LIKE when the field/op is wildcard-capable.
 
 ## 48. SRQL Query Modules (F53)
 - [x] 48.1 Use array-overlap (`&&`) not contains-all (`@>`) for `discovery_sources` (and audit other list filters).

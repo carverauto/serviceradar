@@ -326,15 +326,16 @@ impl QueryEngine {
     }
 
     fn build_pagination(&self, plan: &QueryPlan, fetched: i64) -> PaginationMeta {
-        let next_cursor = if fetched >= plan.limit {
-            Some(encode_cursor(plan.offset.saturating_add(plan.limit)))
+        let next_offset = plan.offset.saturating_add(plan.limit);
+        let next_cursor = if fetched >= plan.limit && next_offset <= self.config.max_cursor_offset {
+            Some(encode_cursor(next_offset, &self.config.cursor_secret))
         } else {
             None
         };
 
         let prev_cursor = if plan.offset > 0 {
             let prev = plan.offset.saturating_sub(plan.limit);
-            Some(encode_cursor(prev))
+            Some(encode_cursor(prev, &self.config.cursor_secret))
         } else {
             None
         };
@@ -361,7 +362,7 @@ fn build_query_plan(
     let offset = request
         .cursor
         .as_deref()
-        .map(decode_cursor)
+        .map(|cursor| decode_cursor(cursor, &config.cursor_secret, config.max_cursor_offset))
         .transpose()?
         .unwrap_or(0)
         .max(0);
@@ -1060,9 +1061,17 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
         }
     };
 
-    let next_cursor = Some(encode_cursor(plan.offset.saturating_add(plan.limit)));
+    let next_offset = plan.offset.saturating_add(plan.limit);
+    let next_cursor = if next_offset <= config.max_cursor_offset {
+        Some(encode_cursor(next_offset, &config.cursor_secret))
+    } else {
+        None
+    };
     let prev_cursor = if plan.offset > 0 {
-        Some(encode_cursor(plan.offset.saturating_sub(plan.limit)))
+        Some(encode_cursor(
+            plan.offset.saturating_sub(plan.limit),
+            &config.cursor_secret,
+        ))
     } else {
         None
     };

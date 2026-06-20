@@ -120,6 +120,8 @@ fn test_config(database_url: String) -> AppConfig {
         api_key: Some(API_KEY.to_string()),
         api_key_kv_key: None,
         allowed_origins: None,
+        cursor_secret: "test-cursor-secret".to_string(),
+        max_cursor_offset: 100_000,
         default_limit: 100,
         max_limit: 500,
         request_timeout: Duration::from_secs(30),

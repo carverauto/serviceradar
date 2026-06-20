@@ -71,6 +71,8 @@ fn test_config() -> AppConfig {
         api_key: None,
         api_key_kv_key: None,
         allowed_origins: None,
+        cursor_secret: "test-cursor-secret".to_string(),
+        max_cursor_offset: 100_000,
         default_limit: 100,
         max_limit: 500,
         request_timeout: StdDuration::from_secs(30),

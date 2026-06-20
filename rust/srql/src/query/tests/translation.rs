@@ -4,7 +4,7 @@ use super::*;
 fn translate_param_arity_matches_sql_placeholders() {
     let config = test_config();
 
-    let cursor = encode_cursor(250);
+    let cursor = encode_cursor(250, &config.cursor_secret);
 
     let cases = [
             QueryRequest {
