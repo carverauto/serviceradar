@@ -199,7 +199,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                     type="number"
                     min="1"
                     max="86400"
-                    label="Window duration (seconds)"
+                    label="Core target duration (seconds)"
                   />
                   <.input
                     field={@anomaly_form[:confirm_slots]}

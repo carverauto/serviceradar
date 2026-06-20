@@ -196,6 +196,15 @@ fn drift_pending_until_confirm_slots_met() {
     );
     assert_eq!(first.next_consecutive_anomalous, 1);
 
+    // With 1 carried slot this is the 2nd of 3 → still pending.
+    let second = dispose_seasonal(mean_stddev_row(&baseline, 800.0, 1), &cfg);
+    assert!(
+        matches!(second.disposition, Disposition::SeasonalDrift { .. }),
+        "the N-1 over-threshold slot must remain pending, got {:?}",
+        second.disposition
+    );
+    assert_eq!(second.next_consecutive_anomalous, 2);
+
     // With 2 carried slots this is the 3rd → confirmed breach.
     let third = dispose_seasonal(mean_stddev_row(&baseline, 800.0, 2), &cfg);
     assert!(
@@ -204,6 +213,18 @@ fn drift_pending_until_confirm_slots_met() {
         third.disposition
     );
     assert_eq!(third.next_consecutive_anomalous, 3);
+}
+
+#[test]
+fn suppress_resets_pending_confirmation() {
+    let cfg = SeasonalConfig {
+        confirm_slots: 3,
+        ..config()
+    };
+    let baseline: Vec<f64> = (0..20).map(|i| 800.0 + (i % 3) as f64 * 0.5).collect();
+    let clean = dispose_seasonal(mean_stddev_row(&baseline, 800.0, 2), &cfg);
+    assert_eq!(clean.disposition, Disposition::Suppress);
+    assert_eq!(clean.next_consecutive_anomalous, 0);
 }
 
 #[test]
