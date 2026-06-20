@@ -206,6 +206,33 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
              "series services time:[2026-01-01T00:00:00Z,2026-01-15T00:00:00Z] limit:50"
   end
 
+  test "preview clamps oversized half-open absolute time windows", %{scope: scope} do
+    assert {:ok, preview} =
+             Dashboards.preview_authored_query(
+               scope,
+               "series services time:[,2030-01-01T00:00:00Z]",
+               limit: 50
+             )
+
+    assert preview.query ==
+             "series services time:[2029-12-02T00:00:00Z,2030-01-01T00:00:00Z] limit:50"
+
+    before_preview = DateTime.truncate(DateTime.utc_now(), :second)
+
+    assert {:ok, preview} =
+             Dashboards.preview_authored_query(
+               scope,
+               "series services time:[2000-01-01T00:00:00Z,]",
+               limit: 50
+             )
+
+    after_preview = DateTime.truncate(DateTime.utc_now(), :second)
+    assert {:ok, start_dt, end_dt} = parsed_time_range(preview.query)
+    assert DateTime.diff(end_dt, start_dt, :second) == 30 * 24 * 60 * 60
+    assert DateTime.compare(end_dt, before_preview) in [:eq, :gt]
+    assert DateTime.compare(end_dt, after_preview) in [:eq, :lt]
+  end
+
   test "preview uses SRQL viz column types before sampled row values", %{scope: scope} do
     assert {:ok, preview} = Dashboards.preview_authored_query(scope, "viz typed services")
 
@@ -632,5 +659,18 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
                cron: "0 8 * * *",
                timezone: "UTC"
              })
+  end
+
+  defp parsed_time_range(query) do
+    case Regex.run(~r/time:\[([^,]+),([^\]]+)\]/, query) do
+      [_match, start_raw, end_raw] ->
+        with {:ok, start_dt, _} <- DateTime.from_iso8601(start_raw),
+             {:ok, end_dt, _} <- DateTime.from_iso8601(end_raw) do
+          {:ok, start_dt, end_dt}
+        end
+
+      _ ->
+        :error
+    end
   end
 end
