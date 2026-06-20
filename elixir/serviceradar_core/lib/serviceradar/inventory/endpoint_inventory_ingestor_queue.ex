@@ -14,6 +14,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
 
   require Logger
 
+  @default_ingest_timeout_ms 20_000
+
   defmodule Job do
     @moduledoc false
     defstruct [:id, :payload, :opts, :reply_to, :enqueued_at]
@@ -285,6 +287,10 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
   end
 
   defp ingest_timeout_ms do
-    Application.get_env(:serviceradar_core, :endpoint_inventory_ingestor_timeout_ms, 30_000)
+    Application.get_env(
+      :serviceradar_core,
+      :endpoint_inventory_ingestor_timeout_ms,
+      @default_ingest_timeout_ms
+    )
   end
 end

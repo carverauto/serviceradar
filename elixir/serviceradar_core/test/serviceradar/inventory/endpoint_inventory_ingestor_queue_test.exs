@@ -46,6 +46,9 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
     previous_max_pending =
       Application.get_env(:serviceradar_core, :endpoint_inventory_ingestor_queue_max_pending)
 
+    previous_ingest_timeout =
+      Application.get_env(:serviceradar_core, :endpoint_inventory_ingestor_timeout_ms)
+
     Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor, TestIngestor)
     Application.put_env(:serviceradar_core, :endpoint_inventory_queue_test_pid, self())
     Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_max_concurrency, 1)
@@ -62,6 +65,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
       restore_env(:endpoint_inventory_queue_test_delay_ms, previous_delay)
       restore_env(:endpoint_inventory_ingestor_max_concurrency, previous_max_concurrency)
       restore_env(:endpoint_inventory_ingestor_queue_max_pending, previous_max_pending)
+      restore_env(:endpoint_inventory_ingestor_timeout_ms, previous_ingest_timeout)
     end)
 
     :ok
@@ -116,6 +120,27 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
     assert {:ok, result} = EndpointInventoryIngestorQueue.enqueue_and_wait(payload, [], 1_000)
     assert result.agent_id == "agent-queue-sync"
     assert result.directives["endpoint_inventory"]["accepted"] == true
+  end
+
+  test "configured synchronous timeout is below the outer status call budget" do
+    configured_timeout =
+      Application.fetch_env!(:serviceradar_core, :endpoint_inventory_ingestor_timeout_ms)
+
+    assert configured_timeout == 20_000
+    assert configured_timeout < 30_000
+  end
+
+  test "synchronous callers use configured timeout when no explicit timeout is passed" do
+    Application.put_env(:serviceradar_core, :endpoint_inventory_queue_test_delay_ms, 100)
+    Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_timeout_ms, 10)
+
+    payload = %{"agent_id" => "agent-queue-timeout", "scan_id" => "scan-queue-timeout"}
+
+    assert {:error, :endpoint_inventory_ingest_queue_timeout} =
+             EndpointInventoryIngestorQueue.enqueue_and_wait(payload)
+
+    assert_receive {:endpoint_inventory_ingest_started, ^payload, _opts}, 500
+    assert_receive {:endpoint_inventory_ingest_finished, ^payload}, 500
   end
 
   test "bounded admission rejects when pending and inflight jobs fill capacity" do
