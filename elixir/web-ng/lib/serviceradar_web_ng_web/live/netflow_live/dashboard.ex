@@ -53,6 +53,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   def netflow_window_specs, do: @window_specs
 
   @doc false
+  def netflow_interface_average_label(seconds), do: "Window avg #{format_rate_window(seconds)}"
+
+  @doc false
+  def netflow_interface_p95_label(seconds), do: "P95 bucket rate (#{format_rate_window(seconds)})"
+
+  @doc false
   def netflow_rate_denominator_seconds(query, fallback_window) when is_binary(query) do
     time_token = extract_time_from_query(query)
     bucket_floor = bucket_floor_seconds(time_token, fallback_window)
@@ -626,7 +632,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               current_bps={iface.bytes / max(@rate_denominator_seconds, 1) * 8}
               capacity_bps={iface.capacity_bps * 1.0}
               label={iface.label}
-              current_label={"Avg #{@time_window}"}
+              current_label={netflow_interface_average_label(@rate_denominator_seconds)}
             />
           </div>
 
@@ -642,7 +648,11 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
                 label: unit_suffix(@unit_mode),
                 format: &format_bytes_cell(&1, @unit_mode, @rate_denominator_seconds)
               },
-              %{key: :p95_bps, label: "P95 Rate (#{@time_window})", format: &format_p95_cell/1},
+              %{
+                key: :p95_bps,
+                label: netflow_interface_p95_label(@rate_denominator_seconds),
+                format: &format_p95_cell/1
+              },
               %{key: :capacity_bps, label: "Capacity", format: &format_capacity_cell/1}
             ]}
             loading={@loading}
@@ -1244,6 +1254,17 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   defp time_window_seconds(window), do: window_spec(window).seconds
 
   defp timeseries_bucket(window), do: window_spec(window).bucket
+
+  defp format_rate_window(seconds) when is_integer(seconds) and seconds > 0 do
+    cond do
+      rem(seconds, 86_400) == 0 -> "#{div(seconds, 86_400)}d"
+      rem(seconds, 3_600) == 0 -> "#{div(seconds, 3_600)}h"
+      rem(seconds, 60) == 0 -> "#{div(seconds, 60)}m"
+      true -> "#{seconds}s"
+    end
+  end
+
+  defp format_rate_window(window), do: to_string(window)
 
   defp window_spec(window), do: Map.get(@window_spec_map, window, @default_window_spec)
 
