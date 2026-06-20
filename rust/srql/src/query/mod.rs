@@ -122,6 +122,23 @@ pub(crate) fn normalize_mac_value(raw: &str, allow_wildcards: bool) -> Result<St
     Ok(normalized)
 }
 
+pub(super) fn build_other_rollup_sql(
+    inner: &str,
+    rank_order_sql: &str,
+    top_json_parts: &[String],
+    other_json_parts: &[String],
+    output_alias: &str,
+    limit: i64,
+) -> String {
+    let other_sort_rn = limit + 1;
+
+    format!(
+        "WITH grouped AS ({inner}), ranked AS (SELECT grouped.*, ROW_NUMBER() OVER ({rank_order_sql}) AS rn FROM grouped) SELECT {output_alias} FROM (SELECT rn AS sort_rn, jsonb_build_object({top_json_args}) AS {output_alias} FROM ranked WHERE rn <= {limit} UNION ALL SELECT {other_sort_rn} AS sort_rn, jsonb_build_object({other_json_args}) AS {output_alias} FROM ranked WHERE rn > {limit} HAVING COUNT(*) > 0) final ORDER BY sort_rn",
+        top_json_args = top_json_parts.join(", "),
+        other_json_args = other_json_parts.join(", "),
+    )
+}
+
 mod addon_statuses;
 mod agents;
 mod alerts;
@@ -376,9 +393,16 @@ fn validate_other_rollup_request(
     requested_limit: Option<i64>,
     cursor: Option<&str>,
 ) -> Result<()> {
-    if !matches!(ast.entity, Entity::Flows | Entity::AttributedFlows) {
+    if !matches!(
+        ast.entity,
+        Entity::Flows
+            | Entity::AttributedFlows
+            | Entity::TimeseriesMetrics
+            | Entity::SnmpMetrics
+            | Entity::RperfMetrics
+    ) {
         return Err(ServiceError::InvalidRequest(
-            "other:true is currently supported only for flow stats".into(),
+            "other:true is currently supported only for flow or timeseries stats".into(),
         ));
     }
 

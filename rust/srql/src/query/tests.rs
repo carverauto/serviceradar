@@ -42,7 +42,7 @@ fn other_rollup_rejects_non_flow_stats_entities() {
 
     assert!(
         err.to_string()
-            .contains("other:true is currently supported only for flow stats"),
+            .contains("other:true is currently supported only for flow or timeseries stats"),
         "unexpected error: {err}"
     );
 }
