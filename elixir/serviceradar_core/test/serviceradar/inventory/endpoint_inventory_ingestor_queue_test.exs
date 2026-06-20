@@ -12,7 +12,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
       end
 
       delay_ms =
-        Application.get_env(:serviceradar_core, :endpoint_inventory_queue_test_delay_ms, 0)
+        Map.get(payload, "delay_ms") ||
+          Application.get_env(:serviceradar_core, :endpoint_inventory_queue_test_delay_ms, 0)
 
       if is_integer(delay_ms) and delay_ms > 0, do: Process.sleep(delay_ms)
 
@@ -130,7 +131,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
     assert configured_timeout < 30_000
   end
 
-  test "synchronous callers use configured timeout when no explicit timeout is passed" do
+  test "synchronous timeout terminates the in-flight ingestion task" do
     Application.put_env(:serviceradar_core, :endpoint_inventory_queue_test_delay_ms, 100)
     Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_timeout_ms, 10)
 
@@ -140,7 +141,24 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
              EndpointInventoryIngestorQueue.enqueue_and_wait(payload)
 
     assert_receive {:endpoint_inventory_ingest_started, ^payload, _opts}, 500
-    assert_receive {:endpoint_inventory_ingest_finished, ^payload}, 500
+    refute_receive {:endpoint_inventory_ingest_finished, ^payload}, 200
+  end
+
+  test "timed-out async ingestion frees the slot for the next queued job" do
+    Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_timeout_ms, 20)
+
+    slow = %{"agent_id" => "agent-queue-slow", "scan_id" => "scan-queue-slow", "delay_ms" => 200}
+    fast = %{"agent_id" => "agent-queue-fast", "scan_id" => "scan-queue-fast", "delay_ms" => 0}
+
+    assert :ok = EndpointInventoryIngestorQueue.enqueue(slow)
+    assert_receive {:endpoint_inventory_ingest_started, ^slow, _opts}, 500
+
+    assert {:ok, result} = EndpointInventoryIngestorQueue.enqueue_and_wait(fast, [], 1_000)
+
+    assert result.agent_id == "agent-queue-fast"
+    assert_receive {:endpoint_inventory_ingest_started, ^fast, _opts}, 500
+    assert_receive {:endpoint_inventory_ingest_finished, ^fast}, 500
+    refute_receive {:endpoint_inventory_ingest_finished, ^slow}, 100
   end
 
   test "bounded admission rejects when pending and inflight jobs fill capacity" do

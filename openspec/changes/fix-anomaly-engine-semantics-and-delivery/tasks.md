@@ -287,7 +287,7 @@ _From the 2026-06-20 demo RCA: `ServiceRadar.StatusHandler` can crash-loop when 
 - [x] 53.1 Urgent stopgap: wrap StatusHandler's synchronous ResultsRouter call in `try`/`catch :exit`, returning `{:error, :results_router_timeout}` on timeout so the singleton does not crash and drop its mailbox.
 - [ ] 53.2 Root-cause: make the endpoint_inventory results path asynchronous with an ack-on-completion contract, so `StatusHandler`/`ResultsRouter` never block synchronously on ingest.
 - [x] 53.3 Decouple nested timeout budgets by lowering the inner endpoint_inventory ingest timeout below the outer gateway/core call timeout; do not raise the outer timeout.
-- [ ] 53.4 Bound or cancel the in-flight ingest transaction on timeout so abandoned tasks cannot keep consuming the connection pool.
+- [x] 53.4 Bound or cancel the in-flight ingest transaction on timeout so abandoned tasks cannot keep consuming the connection pool.
 - [ ] 53.5 Add a cheap core-side idempotency/short-circuit before `build_context`, upload, and transaction work for unchanged and empty/not-scanned payloads.
 - [ ] 53.6 Move hash-freshness/noop decisions before transaction reads/writes so unchanged scans skip unnecessary writes.
 - [ ] 53.7 Index or rewrite the agent-scoped scan lookup used by endpoint inventory context building.
