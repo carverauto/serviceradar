@@ -125,6 +125,19 @@ func waitForState(t *testing.T, m *Manager, id string, timeout time.Duration) St
 	return Status{}
 }
 
+func waitForLifecycleState(t *testing.T, m *Manager, id string, state State, timeout time.Duration) Status {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if s, ok := statusByID(m, id); ok && s.State == state {
+			return s
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("addon %s did not reach state %s within %s; status=%+v", id, state, timeout, m.Status())
+	return Status{}
+}
+
 func stopManager(t *testing.T, m *Manager) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -306,6 +319,87 @@ func TestManagerApplyAfterStopFails(t *testing.T) {
 	stopManager(t, mgr)
 	if err := mgr.Apply(context.Background(), nil); err == nil {
 		t.Fatalf("expected ErrManagerClosed after Stop")
+	}
+}
+
+func TestManagerCircuitBreakerCooldownPreventsImmediateRelaunch(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.RestartBackoffInitial = 5 * time.Millisecond
+	cfg.RestartBackoffMax = 10 * time.Millisecond
+	cfg.RestartLimitPerMinute = 1
+	cfg.CircuitBreakerCooldown = 150 * time.Millisecond
+
+	mgr := NewManager(cfg)
+	t.Cleanup(func() { stopManager(t, mgr) })
+
+	spec := Spec{
+		ID:         "broken",
+		BinaryPath: filepath.Join(t.TempDir(), "missing-addon"),
+		ConfigJSON: []byte(`{"generation":1}`),
+	}
+	if err := mgr.Apply(context.Background(), []Spec{spec}); err != nil {
+		t.Fatalf("apply broken addon: %v", err)
+	}
+
+	circuitOpen := waitForLifecycleState(t, mgr, "broken", StateCircuitOpen, 2*time.Second)
+	if circuitOpen.LastError == "" {
+		t.Fatalf("expected circuit-open status to include last error: %+v", circuitOpen)
+	}
+	if circuitOpen.LastExitedAt.IsZero() {
+		t.Fatalf("expected circuit-open status to record LastExitedAt: %+v", circuitOpen)
+	}
+
+	protoStatuses := ToProtoStatuses([]Status{circuitOpen})
+	if len(protoStatuses) != 1 {
+		t.Fatalf("expected one proto status, got %d", len(protoStatuses))
+	}
+	if got := protoStatuses[0].GetState(); got != string(StateCircuitOpen) {
+		t.Fatalf("proto state = %q, want %q", got, StateCircuitOpen)
+	}
+	if protoStatuses[0].GetLastError() == "" {
+		t.Fatal("expected circuit-open proto status to surface last_error")
+	}
+
+	mgr.mu.Lock()
+	firstRunner := mgr.runners["broken"]
+	mgr.mu.Unlock()
+	if firstRunner == nil {
+		t.Fatal("expected circuit-open runner to remain tracked")
+	}
+
+	spec.ConfigJSON = []byte(`{"generation":2}`)
+	if err := mgr.Apply(context.Background(), []Spec{spec}); err != nil {
+		t.Fatalf("apply during cooldown: %v", err)
+	}
+
+	mgr.mu.Lock()
+	duringCooldown := mgr.runners["broken"]
+	updatedConfig := append([]byte(nil), duringCooldown.spec.ConfigJSON...)
+	mgr.mu.Unlock()
+	if duringCooldown != firstRunner {
+		t.Fatal("runner relaunched before circuit-breaker cooldown elapsed")
+	}
+	if string(updatedConfig) != string(spec.ConfigJSON) {
+		t.Fatalf("config during cooldown = %s, want %s", updatedConfig, spec.ConfigJSON)
+	}
+	stillOpen := waitForLifecycleState(t, mgr, "broken", StateCircuitOpen, 200*time.Millisecond)
+	if stillOpen.RestartCount != circuitOpen.RestartCount {
+		t.Fatalf("restart count changed during cooldown: got %d, want %d", stillOpen.RestartCount, circuitOpen.RestartCount)
+	}
+
+	time.Sleep(cfg.CircuitBreakerCooldown + 50*time.Millisecond)
+	if err := mgr.Apply(context.Background(), []Spec{spec}); err != nil {
+		t.Fatalf("apply after cooldown: %v", err)
+	}
+
+	mgr.mu.Lock()
+	afterCooldown := mgr.runners["broken"]
+	mgr.mu.Unlock()
+	if afterCooldown == nil {
+		t.Fatal("expected runner after cooldown")
+	}
+	if afterCooldown == firstRunner {
+		t.Fatal("runner was not relaunched after circuit-breaker cooldown elapsed")
 	}
 }
 

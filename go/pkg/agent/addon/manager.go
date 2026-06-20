@@ -34,33 +34,35 @@ import (
 )
 
 const (
-	defaultRuntimeDir            = "/run/serviceradar/addons"
-	defaultHealthInterval        = 5 * time.Second
-	defaultUnhealthyThreshold    = 3
-	defaultConfigureTimeout      = 10 * time.Second
-	defaultCommandTimeout        = 300 * time.Second
-	defaultHealthTimeout         = 5 * time.Second
-	defaultRestartBackoffInitial = time.Second
-	defaultRestartBackoffMax     = time.Minute
-	defaultRestartLimitPerMinute = 5
+	defaultRuntimeDir             = "/run/serviceradar/addons"
+	defaultHealthInterval         = 5 * time.Second
+	defaultUnhealthyThreshold     = 3
+	defaultConfigureTimeout       = 10 * time.Second
+	defaultCommandTimeout         = 300 * time.Second
+	defaultHealthTimeout          = 5 * time.Second
+	defaultRestartBackoffInitial  = time.Second
+	defaultRestartBackoffMax      = time.Minute
+	defaultRestartLimitPerMinute  = 5
+	defaultCircuitBreakerCooldown = time.Minute
 )
 
 // Config controls add-on manager paths and supervision timing.
 type Config struct {
 	// RuntimeDir is the base directory under which go-plugin creates per-add-on
 	// Unix-domain sockets (UnixSocketConfig.TempDir).
-	RuntimeDir            string
-	HealthInterval        time.Duration
-	HealthTimeout         time.Duration
-	UnhealthyThreshold    int
-	ConfigureTimeout      time.Duration
-	RestartBackoffInitial time.Duration
-	RestartBackoffMax     time.Duration
-	RestartLimitPerMinute int
-	ArtifactMaxBytes      int64
-	CredentialResolver    coreaddon.CredentialResolver
-	TelemetryHandler      func(addonID string, batch *coreaddon.TelemetryBatch)
-	ArtifactHandler       ArtifactHandler
+	RuntimeDir             string
+	HealthInterval         time.Duration
+	HealthTimeout          time.Duration
+	UnhealthyThreshold     int
+	ConfigureTimeout       time.Duration
+	RestartBackoffInitial  time.Duration
+	RestartBackoffMax      time.Duration
+	RestartLimitPerMinute  int
+	CircuitBreakerCooldown time.Duration
+	ArtifactMaxBytes       int64
+	CredentialResolver     coreaddon.CredentialResolver
+	TelemetryHandler       func(addonID string, batch *coreaddon.TelemetryBatch)
+	ArtifactHandler        ArtifactHandler
 	// OtlpRelayRunner, when set, is invoked on its own goroutine for every
 	// running add-on that advertises CapabilityOtlpRelayV1 and supports the
 	// client-side relay stream. It owns the acked OTLP relay pump for one
@@ -108,6 +110,9 @@ func applyDefaults(cfg Config) Config {
 	}
 	if cfg.RestartLimitPerMinute <= 0 {
 		cfg.RestartLimitPerMinute = defaultRestartLimitPerMinute
+	}
+	if cfg.CircuitBreakerCooldown <= 0 {
+		cfg.CircuitBreakerCooldown = defaultCircuitBreakerCooldown
 	}
 	if cfg.ArtifactMaxBytes <= 0 {
 		cfg.ArtifactMaxBytes = defaultArtifactMaxBytes
@@ -185,10 +190,19 @@ func (m *Manager) Apply(_ context.Context, specs []Spec) error {
 		switch {
 		case !ok:
 			m.startRunnerLocked(spec)
-		case r.finished() || r.needsRestart(spec):
-			// Supervisor exited (circuit breaker) or a restart-boundary field
-			// (binary/args) changed: replace the runner so the new binary/args
-			// actually launch instead of reconfiguring the old process.
+		case r.needsRestart(spec):
+			// A restart-boundary field changed: replace the runner immediately
+			// so operator remediation is not held behind a circuit cooldown.
+			toStop = append(toStop, r)
+			delete(m.runners, id)
+			m.startRunnerLocked(spec)
+		case r.finished():
+			// Circuit-open runners stay visible until their cooldown expires,
+			// but still absorb config-only updates for the eventual restart.
+			r.update(spec)
+			if r.circuitBreakerCoolingDown(time.Now().UTC()) {
+				continue
+			}
 			toStop = append(toStop, r)
 			delete(m.runners, id)
 			m.startRunnerLocked(spec)
@@ -454,7 +468,7 @@ func (r *runner) run(ctx context.Context) {
 		}
 
 		if !r.recordRestart(err) {
-			r.setState(StateCircuitOpen, errString(err))
+			r.setCircuitOpen(errString(err))
 			return
 		}
 
@@ -965,12 +979,35 @@ func (r *runner) setUnhealthy(pid int, lastErr string) {
 	r.status.LastError = lastErr
 }
 
+func (r *runner) setCircuitOpen(lastErr string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.status.State = StateCircuitOpen
+	r.status.PID = 0
+	r.status.LastError = lastErr
+	r.status.LastExitedAt = time.Now().UTC()
+}
+
 func (r *runner) setExited(lastErr string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.status.PID = 0
 	r.status.LastExitedAt = time.Now().UTC()
 	r.status.LastError = lastErr
+}
+
+func (r *runner) circuitBreakerCoolingDown(now time.Time) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.status.State != StateCircuitOpen {
+		return false
+	}
+	if r.status.LastExitedAt.IsZero() {
+		return false
+	}
+
+	return now.Sub(r.status.LastExitedAt) < r.cfg.CircuitBreakerCooldown
 }
 
 func (r *runner) recordRestart(err error) bool {
