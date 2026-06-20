@@ -18,6 +18,7 @@ package addon
 
 import (
 	"context"
+	"io"
 	"net"
 	"testing"
 	"time"
@@ -136,6 +137,16 @@ func (a *metricFeedAddon) StreamMetricFeed(
 	return acks, nil
 }
 
+type telemetryClosingAddon struct {
+	baseAddon
+}
+
+func (a telemetryClosingAddon) StreamTelemetry(context.Context) (<-chan *addonpb.TelemetryBatch, error) {
+	batches := make(chan *addonpb.TelemetryBatch)
+	close(batches)
+	return batches, nil
+}
+
 // dialRelayClient serves impl over an in-memory bufconn transport and returns
 // the SDK client adapter plus a cleanup func.
 func dialRelayClient(t *testing.T, impl Addon) *grpcClient {
@@ -215,6 +226,74 @@ func TestStreamMetricFeedRoundTrip(t *testing.T) {
 		}
 	}
 	close(frames)
+}
+
+func TestStreamTelemetryEmitsEOFDiagnostic(t *testing.T) {
+	client := dialRelayClient(t, telemetryClosingAddon{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	batches, err := client.StreamTelemetry(ctx)
+	if err != nil {
+		t.Fatalf("StreamTelemetry: %v", err)
+	}
+	for range batches {
+		t.Fatal("unexpected telemetry batch")
+	}
+
+	select {
+	case event := <-client.StreamLossEvents():
+		if event.Stream != StreamNameTelemetry {
+			t.Fatalf("stream = %q, want %q", event.Stream, StreamNameTelemetry)
+		}
+		if event.Operation != StreamOperationRecv {
+			t.Fatalf("operation = %q, want %q", event.Operation, StreamOperationRecv)
+		}
+		if !event.EOF {
+			t.Fatalf("EOF = false, want true: %+v", event)
+		}
+		if event.Err != nil {
+			t.Fatalf("Err = %v, want nil for EOF", event.Err)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for stream-loss diagnostic")
+	}
+}
+
+func TestStreamLossDiagnosticDistinguishesTransportError(t *testing.T) {
+	client := &grpcClient{}
+	ctx := context.Background()
+
+	client.emitStreamLoss(ctx, StreamNameMetricFeed, StreamOperationSend, status.Error(codes.Unavailable, "transport down"))
+	client.emitStreamLoss(ctx, StreamNameTelemetry, StreamOperationRecv, io.EOF)
+
+	select {
+	case event := <-client.StreamLossEvents():
+		if event.Stream != StreamNameMetricFeed || event.Operation != StreamOperationSend {
+			t.Fatalf("event = %+v, want metric feed send", event)
+		}
+		if event.EOF {
+			t.Fatalf("EOF = true, want false: %+v", event)
+		}
+		if status.Code(event.Err) != codes.Unavailable {
+			t.Fatalf("Err = %v, want UNAVAILABLE", event.Err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for transport-error diagnostic")
+	}
+
+	select {
+	case event := <-client.StreamLossEvents():
+		if event.Stream != StreamNameTelemetry || event.Operation != StreamOperationRecv {
+			t.Fatalf("event = %+v, want telemetry recv", event)
+		}
+		if !event.EOF || event.Err != nil {
+			t.Fatalf("event = %+v, want clean EOF event", event)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for EOF diagnostic")
+	}
 }
 
 func TestStreamMetricFeedUnimplementedWithoutCapability(t *testing.T) {

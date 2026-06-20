@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"sync"
 
 	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
 	goplugin "github.com/hashicorp/go-plugin"
@@ -299,6 +300,9 @@ func (s *grpcServer) RunCommand(
 // grpcClient adapts the generated AddonServiceClient to the Addon interface.
 type grpcClient struct {
 	client addonpb.AddonServiceClient
+
+	streamLossOnce sync.Once
+	streamLoss     chan StreamLossEvent
 }
 
 var _ Addon = (*grpcClient)(nil)
@@ -307,6 +311,38 @@ var _ ArtifactClient = (*grpcClient)(nil)
 var _ CommandClient = (*grpcClient)(nil)
 var _ OtlpRelayClient = (*grpcClient)(nil)
 var _ MetricFeedClient = (*grpcClient)(nil)
+var _ StreamLossDiagnostics = (*grpcClient)(nil)
+
+func (c *grpcClient) StreamLossEvents() <-chan StreamLossEvent {
+	return c.streamLossEvents()
+}
+
+func (c *grpcClient) streamLossEvents() chan StreamLossEvent {
+	c.streamLossOnce.Do(func() {
+		c.streamLoss = make(chan StreamLossEvent, 32)
+	})
+	return c.streamLoss
+}
+
+func (c *grpcClient) emitStreamLoss(ctx context.Context, streamName string, operation string, err error) {
+	if err == nil || ctx.Err() != nil {
+		return
+	}
+
+	event := StreamLossEvent{
+		Stream:    streamName,
+		Operation: operation,
+		EOF:       errors.Is(err, io.EOF),
+	}
+	if !event.EOF {
+		event.Err = err
+	}
+
+	select {
+	case c.streamLossEvents() <- event:
+	default:
+	}
+}
 
 func (c *grpcClient) Info(ctx context.Context) (Info, error) {
 	resp, err := c.client.Info(ctx, &addonpb.InfoRequest{})
@@ -358,9 +394,7 @@ func (c *grpcClient) StreamTelemetry(ctx context.Context) (<-chan *addonpb.Telem
 		for {
 			batch, err := stream.Recv()
 			if err != nil {
-				if errors.Is(err, io.EOF) {
-					return
-				}
+				c.emitStreamLoss(ctx, StreamNameTelemetry, StreamOperationRecv, err)
 				return
 			}
 			select {
@@ -388,9 +422,7 @@ func (c *grpcClient) StreamArtifacts(ctx context.Context) (<-chan *addonpb.Artif
 		for {
 			chunk, err := stream.Recv()
 			if err != nil {
-				if errors.Is(err, io.EOF) {
-					return
-				}
+				c.emitStreamLoss(ctx, StreamNameArtifacts, StreamOperationRecv, err)
 				return
 			}
 			select {
@@ -421,6 +453,7 @@ func (c *grpcClient) RelayOtlp(ctx context.Context) (<-chan *addonpb.OtlpRelayFr
 		for {
 			frame, err := stream.Recv()
 			if err != nil {
+				c.emitStreamLoss(ctx, StreamNameOtlpRelay, StreamOperationRecv, err)
 				return
 			}
 			select {
@@ -443,6 +476,7 @@ func (c *grpcClient) RelayOtlp(ctx context.Context) (<-chan *addonpb.OtlpRelayFr
 					return
 				}
 				if err := stream.Send(&addonpb.OtlpRelayAck{AckedRelayId: watermark}); err != nil {
+					c.emitStreamLoss(ctx, StreamNameOtlpRelay, StreamOperationSend, err)
 					return
 				}
 			}
@@ -484,6 +518,7 @@ func (c *grpcClient) StreamMetricFeed(ctx context.Context) (chan<- *addonpb.Metr
 					continue
 				}
 				if err := stream.Send(frame); err != nil {
+					c.emitStreamLoss(ctx, StreamNameMetricFeed, StreamOperationSend, err)
 					return
 				}
 			}
@@ -496,6 +531,7 @@ func (c *grpcClient) StreamMetricFeed(ctx context.Context) (chan<- *addonpb.Metr
 		for {
 			ack, err := stream.Recv()
 			if err != nil {
+				c.emitStreamLoss(ctx, StreamNameMetricFeed, StreamOperationRecv, err)
 				return
 			}
 			select {
