@@ -8,7 +8,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   @metric_classes ~w(cpu memory disk interface snmp red)
   @anomaly_limit 20
   @capacity_limit 8
-  @query_timeout_ms 5_000
+  @default_query_timeout_ms 5_000
 
   def empty(status \\ :ok) do
     %{
@@ -25,10 +25,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
     }
   end
 
-  def load(_srql_module, identity, _scope) when identity in [nil, %{}], do: empty()
+  def load(srql_module, identity, scope, opts \\ [])
 
-  def load(srql_module, identity, scope) when is_map(identity) do
+  def load(_srql_module, identity, _scope, _opts) when identity in [nil, %{}], do: empty()
+
+  def load(srql_module, identity, scope, opts) when is_map(identity) do
     candidates = filter_candidates(identity)
+    timeout_ms = query_timeout_ms(opts)
 
     if candidates == [] do
       empty()
@@ -43,8 +46,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
           load_first(srql_module, capacity_candidates(candidates), scope, &capacity_query/1)
         end)
 
-      anomaly = await_load_task(anomaly_task, "anomaly")
-      capacity = await_load_task(capacity_task, "capacity")
+      anomaly = await_load_task(anomaly_task, "anomaly", timeout_ms)
+      capacity = await_load_task(capacity_task, "capacity", timeout_ms)
 
       %{
         status: combined_status(anomaly, capacity),
@@ -61,8 +64,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
     end
   end
 
-  defp await_load_task(task, label) do
-    case Task.yield(task, @query_timeout_ms) || Task.shutdown(task, :brutal_kill) do
+  defp query_timeout_ms(opts) when is_list(opts) do
+    opts
+    |> Keyword.get(:query_timeout_ms, Application.get_env(:serviceradar_web_ng, :anomaly_capacity_query_timeout_ms))
+    |> normalize_positive_integer(@default_query_timeout_ms)
+  end
+
+  defp query_timeout_ms(_opts), do: @default_query_timeout_ms
+
+  defp normalize_positive_integer(value, _default) when is_integer(value) and value > 0, do: value
+  defp normalize_positive_integer(_value, default), do: default
+
+  defp await_load_task(task, label, timeout_ms) do
+    case Task.yield(task, timeout_ms) || Task.shutdown(task, :brutal_kill) do
       {:ok, result} ->
         result
 
@@ -72,7 +86,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
         task_error_result(error)
 
       nil ->
-        error = "#{label} SRQL query timed out after #{@query_timeout_ms}ms"
+        error = "#{label} SRQL query timed out after #{timeout_ms}ms"
         Logger.warning(error)
         task_error_result(error)
     end

@@ -136,7 +136,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   def handle_event("drill_down_talker", %{"row-idx" => idx}, socket) do
     with {:ok, i} <- safe_parse_int(idx),
-         row when not is_nil(row) <- Enum.at(socket.assigns.top_talkers, i) do
+         row when not is_nil(row) <- Enum.at(socket.assigns.top_talkers, i),
+         false <- other_row?(row) do
       {:noreply, drill_down(socket, "src_ip:#{srql_quote(row.ip)}")}
     else
       _ -> {:noreply, socket}
@@ -145,7 +146,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   def handle_event("drill_down_listener", %{"row-idx" => idx}, socket) do
     with {:ok, i} <- safe_parse_int(idx),
-         row when not is_nil(row) <- Enum.at(socket.assigns.top_listeners, i) do
+         row when not is_nil(row) <- Enum.at(socket.assigns.top_listeners, i),
+         false <- other_row?(row) do
       {:noreply, drill_down(socket, "dst_ip:#{srql_quote(row.ip)}")}
     else
       _ -> {:noreply, socket}
@@ -154,7 +156,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   def handle_event("drill_down_conversation", %{"row-idx" => idx}, socket) do
     with {:ok, i} <- safe_parse_int(idx),
-         row when not is_nil(row) <- Enum.at(socket.assigns.top_conversations, i) do
+         row when not is_nil(row) <- Enum.at(socket.assigns.top_conversations, i),
+         false <- other_row?(row) do
       {:noreply, drill_down(socket, bidirectional_conversation_filter(row))}
     else
       _ -> {:noreply, socket}
@@ -163,7 +166,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   def handle_event("drill_down_app", %{"row-idx" => idx}, socket) do
     with {:ok, i} <- safe_parse_int(idx),
-         row when not is_nil(row) <- Enum.at(socket.assigns.top_apps, i) do
+         row when not is_nil(row) <- Enum.at(socket.assigns.top_apps, i),
+         false <- other_row?(row) do
       {:noreply, drill_down(socket, "app:#{srql_quote(row.app)}")}
     else
       _ -> {:noreply, socket}
@@ -172,7 +176,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   def handle_event("drill_down_protocol", %{"row-idx" => idx}, socket) do
     with {:ok, i} <- safe_parse_int(idx),
-         row when not is_nil(row) <- Enum.at(socket.assigns.top_protocols, i) do
+         row when not is_nil(row) <- Enum.at(socket.assigns.top_protocols, i),
+         false <- other_row?(row) do
       {:noreply, drill_down(socket, "protocol_name:#{srql_quote(row.protocol)}")}
     else
       _ -> {:noreply, socket}
@@ -182,6 +187,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   def handle_event("drill_down_port", %{"row-idx" => idx}, socket) do
     with {:ok, i} <- safe_parse_int(idx),
          row when not is_nil(row) <- Enum.at(socket.assigns.top_ports, i),
+         false <- other_row?(row),
          port when not is_nil(port) <- row.port,
          {:ok, port_int} <- safe_parse_int(to_string(port)),
          true <- port_int > 0 do
@@ -796,19 +802,21 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   defp load_top_n(srql_mod, scope, base, group_field, sort_field) do
     query =
-      "#{base} stats:sum(bytes_total) as bytes_total stats:sum(packets_total) as packets_total by #{group_field} sort:#{sort_field}:desc limit:#{@top_n}"
+      "#{base} stats:sum(bytes_total) as bytes_total stats:sum(packets_total) as packets_total by #{group_field} sort:#{sort_field}:desc limit:#{@top_n} other:true"
 
     srql_mod
     |> srql_results(query, scope)
     |> Enum.map(fn row ->
       p = row_payload(row)
-      name = get_field(p, group_field)
+      other? = srql_other_row?(p)
+      name = if other?, do: "Other", else: get_field(p, group_field)
 
       %{
         ip: name,
         app: name,
         protocol: name,
         port: name,
+        other?: other?,
         bytes: to_number(get_field(p, "bytes_total")),
         packets: to_number(get_field(p, "packets_total"))
       }
@@ -817,16 +825,18 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   defp load_top_conversations(srql_mod, scope, base, sort_field) do
     query =
-      "#{base} stats:sum(bytes_total) as bytes_total stats:sum(packets_total) as packets_total by conversation_a_ip,conversation_b_ip sort:#{sort_field}:desc limit:#{@top_n}"
+      "#{base} stats:sum(bytes_total) as bytes_total stats:sum(packets_total) as packets_total by conversation_a_ip,conversation_b_ip sort:#{sort_field}:desc limit:#{@top_n} other:true"
 
     srql_mod
     |> srql_results(query, scope)
     |> Enum.map(fn row ->
       p = row_payload(row)
+      other? = srql_other_row?(p)
 
       %{
-        src_ip: get_field(p, "conversation_a_ip"),
-        dst_ip: get_field(p, "conversation_b_ip"),
+        src_ip: if(other?, do: "Other", else: get_field(p, "conversation_a_ip")),
+        dst_ip: if(other?, do: "Other", else: get_field(p, "conversation_b_ip")),
+        other?: other?,
         bytes: to_number(get_field(p, "bytes_total")),
         packets: to_number(get_field(p, "packets_total"))
       }
@@ -1452,6 +1462,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     ArgumentError -> Map.get(payload, key)
   end
 
+  defp srql_other_row?(payload) when is_map(payload), do: Map.get(payload, "__other__") in [true, "true", 1, "1"]
+  defp srql_other_row?(_payload), do: false
+
+  defp other_row?(%{other?: true}), do: true
+  defp other_row?(_row), do: false
+
   defp row_payload(%{"payload" => payload}) when is_map(payload), do: payload
   defp row_payload(%{} = row), do: row
   defp row_payload(_), do: %{}
@@ -1538,7 +1554,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
       |> Enum.concat()
       |> Enum.filter(&is_binary/1)
       |> Enum.map(&String.trim/1)
-      |> Enum.reject(&(&1 == ""))
+      |> Enum.reject(&(&1 == "" or &1 == "Other"))
       |> Enum.uniq()
 
     if ips == [] do
