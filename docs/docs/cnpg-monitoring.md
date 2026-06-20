@@ -89,6 +89,24 @@ ORDER BY mb DESC;
 
 Watching the compressed/uncompressed split helps explain PVC growth and ensures operators run `refresh_continuous_aggregate` after backfills.
 
+### Write-Flood Growth Tracking
+
+After the anomaly/capacity/flow flood fixes land, track the actual write rate for
+the hot tables called out in F46:
+
+```bash
+psql "$DATABASE_URL" -f scripts/db/write_flood_growth.sql
+```
+
+Run the query before deployment, immediately after deployment, and then hourly
+for at least 24 hours. The output reports current table bytes plus 1-hour and
+24-hour row rates for `platform.ocsf_events`, `platform.capacity_forecasts`, and
+`platform.ocsf_network_activity`. The expected post-fix signal is a sustained
+drop in `ocsf_events` and `capacity_forecasts` rows per hour; flow rows may stay
+near the exporter packet rate, so use the flow row rate together with the
+sampling-adjusted logical volume to confirm F39 is no longer undercounting
+sampled traffic while retention bounds physical table growth.
+
 ## Query and pgx Error Watch
 
 Enable `pg_stat_statements` (`CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`) and add a “Top 10 Slow Queries” table:

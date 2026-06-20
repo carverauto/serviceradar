@@ -222,7 +222,7 @@
 
 ## 40. Data Retention Coverage (F46)
 - [x] 40.1 Verify a retention policy exists for every high-volume hypertable (`otel_traces`, `ocsf_network_activity` only got one 2026-06-19); add any missing.
-- [ ] 40.2 Track that the F1/F12/F17/F39 write-flood fixes reduce `ocsf_events`/`capacity_forecasts`/flow growth.
+- [x] 40.2 Track that the F1/F12/F17/F39 write-flood fixes reduce `ocsf_events`/`capacity_forecasts`/flow growth.
 - [ ] 40.3 (ops, separate) Resolve the failing CNPG scheduled base backup (Longhorn throughput) so there is a recovery point.
 
 ## 41. Verification
@@ -235,3 +235,27 @@
 - [ ] 41.7 Run `sfw cargo test -p serviceradar-flow-collector` if collector sampling changes land.
 - [ ] 41.8 Run native add-on manifest/version gates if add-on package metadata or Rust add-on sources change.
 - [ ] 41.9 Re-run the live `sysmon.debug_spike` trace + a sampled-flow check in demo and confirm F1/F3/F6/F12/F15/F21-F46 behaviors are resolved (one open finding, sample-time, coherent identity, visible+annotated chart spike, correct sampled NetFlow units, safe dashboard variables, no alert storm).
+
+## 42. NetFlow Cache-Refresh Full-Scan CPU (F47) — fj #4096
+_From the 2026-06-19 demo CNPG/core CPU investigation (`pg_stat_statements` on primary `cnpg-23`)._
+- [ ] 42.1 Replace the recurring `SELECT DISTINCT sampler_address, ocsf_payload #>> '{connection_info,input_snmp|output_snmp}'` over raw `platform.ocsf_network_activity` (`netflow_interface_cache_refresh_worker.ex` ~L158-180 `input_q`/`output_q` + `netflow_exporter_cache_refresh_worker.ex`) with an incrementally-maintained `(sampler, interface_index)` dimension or a TimescaleDB continuous aggregate. **#1 CPU consumer: ~4.9s/call, 22% of DB time; recurs hourly and grows with the hypertable.**
+- [ ] 42.2 Stopgap: tighten the worker `since` window (the interface set is stable) + add a supporting index for the time bound.
+- [ ] 42.3 Secondary observability-query CPU (triage/track): `INSERT INTO logs` 9.2% (32.7k calls), `refresh_device_inventory_rollups()` 3.4% (8045 calls), DIRE `stale_to_active`/`mac_to_active` ~1s ×1444 each, and `netflow_provider_cidrs` join called **741,215×** (cheap each but a hot per-row loop — batch/cache).
+
+## 43. Topology Apache AGE Query Frequency (F48) — fj #4097
+- [ ] 43.1 Cache the topology graph result (per scope) + invalidate on mutation instead of re-running the `MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)` cypher per LiveView render/poll (`topology/runtime_graph.ex`, `graph.ex`). **#2 CPU consumer: 187,455 cypher calls = 19.8% of DB time.**
+- [ ] 43.2 Add AGE indexes for the hot paths (a `Device.id` vertex index + a `CANONICAL_TOPOLOGY` edge index) and debounce the LiveView topology refresh.
+
+## 44. CI Action Flood (ops/infra, separate) — fj #4098
+- [ ] 44.1 (repo-wide, not anomaly-specific — flagged here per request) Add `concurrency:` groups with `cancel-in-progress` keyed on workflow+ref, and de-dup `push` vs `pull_request` triggers, in `.forgejo/workflows/*.yml` — ~900 runs flooding the act_runners (full `build`/`lint`/`test-go`/`interop`/`gitleaks` matrix ×2 events per stacked-PR merge), amplified by the stack relinearization.
+
+## 45. StatusHandler endpoint_inventory {:results_update} Crash-Loop (F49) — fj #4136
+_From the 2026-06-20 demo RCA (9-agent workflow + adversarial verification, high confidence). `ServiceRadar.StatusHandler` crash-loops ~30–35s (45×/24min, only the advisory-lock-owning core pod) — a synchronous `GenServer.call({:results_update}, 30_000)` to a slow endpoint_inventory ingest times out. Root cause is an **uncaught `GenServer.call` in a hot cluster singleton with equal nested 30s budgets**, amplified by the CNPG write contention tracked in §42/§43 (do NOT duplicate that DB-CPU work here)._
+- [ ] 45.1 **URGENT stopgap:** wrap StatusHandler's `GenServer.call` at `status_handler.ex:130` in `try/catch :exit` (mirroring the gateway `status_processor.ex:285-287` and queue `endpoint_inventory_ingestor_queue.ex:130-134`), returning `{:error, :results_router_timeout}`. Removes the crash class + mailbox-loss-on-restart with zero timeout retuning. Crash loop is **active on demo**.
+- [ ] 45.2 **Root-cause:** make the endpoint_inventory results path asynchronous (gateway `cast`, or `enqueue` + reply `:ok` + ack-on-completion) so the singleton `StatusHandler`/`ResultsRouter` never block synchronously. `ack_result_status?` (`status_processor.ex:324-327`) is the switch. Removes both the crash class AND the head-of-line serialization of all agents/services; needs an async-ack contract (don't silently drop on later ingest failure).
+- [ ] 45.3 Decouple the equal nested 30s budgets — lower inner `ingest_timeout_ms` (`config.exs:188`, e.g. 20_000) below the outer call so the queue's clean `{:error, :endpoint_inventory_ingest_queue_timeout}` fires first. **Do NOT raise the outer/gateway timeout** (aggravates singleton HOL). Stopgap only — inferior to 45.1.
+- [ ] 45.4 **Bound/cancel the in-flight ingest transaction** (a `statement_timeout` on the `Repo.transaction`, or task-kill on queue-timeout). Currently a queue timeout abandons the caller's wait but the Task keeps running → after 45.1/45.3 the crash loop becomes a pool-stall + gateway retry storm. No existing fix covers this.
+- [ ] 45.5 Cheap idempotency/short-circuit in core **before** `build_context`/`maybe_upload`/`Repo.transaction` (`endpoint_inventory_ingestor.ex:36-102`), covering **both** `(agent_id, package_set_hash)`-matches-current + unchanged/`upload_already_acknowledged` (16/45 crashes) **and** `not_scanned`/`package_count==0` (29/45). Core has no dedup gate today (`upload_already_acknowledged` is agent-side only).
+- [ ] 45.6 Move the `apply_hash_freshness`/noop decision (`ingestor.ex:52`) before the transaction reads/writes so an unchanged scan skips the upsert/ocsf-insert/artifact-replace/promote_current writes.
+- [ ] 45.7 Index `endpoint_inventory_scans(agent_id, last_scan_at)` (or rewrite `existing_scan_device_uid`, `ingestor.ex:860-870`, onto the `[:agent_id,:current]` path) to remove the unbounded agent-scoped sort in `build_context`.
+- [ ] 45.8 Per-agent fairness + load-shedding on the ingest queue (one agent can't monopolize concurrency-4 / 256-pending); surface `:endpoint_inventory_ingest_queue_full` as a fast gateway-buffered reply.
