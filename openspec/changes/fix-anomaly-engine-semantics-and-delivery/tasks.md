@@ -54,7 +54,7 @@
 
 ## 10. Verdict Idempotency (F12)
 - [x] 10.1 Remove per-run wall-clock time from capacity and seasonal `event_id`/finding identity.
-- [ ] 10.2 Make edge verdict `time` deterministic from the producer epoch (depends on 4.1) so `(id, time)` dedup holds on redelivery.
+- [x] 10.2 Make edge verdict `time` deterministic from the producer epoch (depends on 4.1) so `(id, time)` dedup holds on redelivery.
 - [ ] 10.3 Add a dead-letter path or alert for JetStream `max_deliver` exhaustion.
 - [ ] 10.4 Add tests proving redelivery and repeated worker runs converge on one finding.
 
@@ -63,7 +63,7 @@
 - [x] 11.2 Escape or hash free-form producer tag/host/IP values before splicing into delimited keys (core `series_key.ex` and edge `series_key_for`).
 - [x] 11.3 Scope the `InterfaceCapacity` link-speed join by `partition_id`.
 - [x] 11.4 Route re-keyed edge verdicts through the central emitters' subject sanitization.
-- [ ] 11.5 Add tests for partition scoping, key collision resistance, and edge↔central subject parity.
+- [x] 11.5 Add tests for partition scoping, key collision resistance, and edge↔central subject parity.
 
 ## 12. Seasonal Data Feed And Semantics (F15, blocker)
 - [ ] 12.1 Implement the `profile_hour_of_week` SRQL stats verb (or an equivalent bucket-profile query) producing `dow/hod/center/mad/p05/p95/bucket_count/bucket_sum/bucket_sum_sq`.
@@ -97,7 +97,7 @@
 - [ ] 17.1 Batch causal-prediction inserts (`insert_all` + `ON CONFLICT DO NOTHING`); drop the per-row existence SELECT.
 - [ ] 17.2 Stream worker history instead of `List.flatten`-ing the full result set into memory.
 - [x] 17.3 Reduce per-reading allocations in the counter normalization path.
-- [ ] 17.4 Document or revisit F8's O(window) per-sample envelope under the F9 eviction changes.
+- [x] 17.4 Document or revisit F8's O(window) per-sample envelope under the F9 eviction changes.
 
 ## 18. Live-Confirmed Edge Delivery Fixes (F21-F24, demo 2026-06-19)
 - [x] 18.1 F21: stop the seeder/assignment from writing empty-string `""` for unset numeric add-on params (omit, or send number/null).

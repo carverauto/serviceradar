@@ -1983,6 +1983,130 @@ mod tests {
     }
 
     #[test]
+    fn edge_verdict_identity_uses_producer_sample_time() {
+        let sample_time = 1_812_456_123_456_789_000_u64;
+        let point_time = sample_time - 42_000_000;
+        let resource = MetricResource {
+            agent_id: "agent-a".to_string(),
+            host_id: "host-a".to_string(),
+            device_id: "device-a".to_string(),
+            partition: "demo".to_string(),
+            ..Default::default()
+        };
+        let metric = Metric {
+            name: "cpu.usage_percent".to_string(),
+            metric_type: "sysmon.cpu".to_string(),
+            ..Default::default()
+        };
+        let point = MetricPoint {
+            value: 99.0,
+            observed_at_unix_nano: point_time,
+            series_identity_hint: "device-a|cpu0".to_string(),
+            ..Default::default()
+        };
+        let series_key = series_key_for(&resource, &metric, &point);
+        let verdict = ReasonVerdict {
+            state: "anomalous".to_string(),
+            anomalous: true,
+            breached: true,
+            include_in_baseline: false,
+            next_consecutive_anomalous: 5,
+            score: 6.0,
+            reason: "sample-time breach".to_string(),
+            baseline_count: 30,
+            next_rolling_acc: serviceradar_anomaly_core::WelfordAcc::default(),
+            next_window_tail: Vec::new(),
+            sample_value: 99.0,
+            observed_at_unix_nano: Some(sample_time),
+            signals: Vec::new(),
+        };
+
+        let first = verdict_record(
+            &resource,
+            &metric,
+            &point,
+            &series_key,
+            &verdict,
+            AnomalyTransition::Open,
+        );
+        let second = verdict_record(
+            &resource,
+            &metric,
+            &point,
+            &series_key,
+            &verdict,
+            AnomalyTransition::Open,
+        );
+        let event: serde_json::Value = serde_json::from_slice(&first.payload).unwrap();
+        let expected_event_id = format!("anomaly:{series_key}:{sample_time}:anomaly_open");
+
+        assert_eq!(first.event_id, expected_event_id);
+        assert_eq!(second.event_id, expected_event_id);
+        assert_eq!(first.event_time_unix_nano, sample_time as i64);
+        assert_eq!(first.observed_time_unix_nano, sample_time as i64);
+        assert_eq!(event["event_id"], expected_event_id);
+        assert_eq!(event["id"], expected_event_id);
+        assert_eq!(event["time"], (sample_time / 1_000_000) as i64);
+        assert_eq!(event["anomaly"]["observed_at_unix_nano"], sample_time);
+    }
+
+    #[test]
+    fn edge_verdict_identity_falls_back_to_point_time_without_sample_time() {
+        let point_time = 1_812_456_123_456_789_000_u64;
+        let resource = MetricResource {
+            agent_id: "agent-a".to_string(),
+            host_id: "host-a".to_string(),
+            device_id: "device-a".to_string(),
+            partition: "demo".to_string(),
+            ..Default::default()
+        };
+        let metric = Metric {
+            name: "cpu.usage_percent".to_string(),
+            metric_type: "sysmon.cpu".to_string(),
+            ..Default::default()
+        };
+        let point = MetricPoint {
+            value: 99.0,
+            observed_at_unix_nano: point_time,
+            series_identity_hint: "device-a|cpu0".to_string(),
+            ..Default::default()
+        };
+        let series_key = series_key_for(&resource, &metric, &point);
+        let verdict = ReasonVerdict {
+            state: "anomalous".to_string(),
+            anomalous: true,
+            breached: true,
+            include_in_baseline: false,
+            next_consecutive_anomalous: 5,
+            score: 6.0,
+            reason: "point-time breach".to_string(),
+            baseline_count: 30,
+            next_rolling_acc: serviceradar_anomaly_core::WelfordAcc::default(),
+            next_window_tail: Vec::new(),
+            sample_value: 99.0,
+            observed_at_unix_nano: None,
+            signals: Vec::new(),
+        };
+
+        let record = verdict_record(
+            &resource,
+            &metric,
+            &point,
+            &series_key,
+            &verdict,
+            AnomalyTransition::Open,
+        );
+        let event: serde_json::Value = serde_json::from_slice(&record.payload).unwrap();
+        let expected_event_id = format!("anomaly:{series_key}:{point_time}:anomaly_open");
+
+        assert_eq!(record.event_id, expected_event_id);
+        assert_eq!(record.event_time_unix_nano, point_time as i64);
+        assert_eq!(record.observed_time_unix_nano, point_time as i64);
+        assert_eq!(event["time"], (point_time / 1_000_000) as i64);
+        assert_eq!(event["anomaly"]["observed_at_unix_nano"], point_time);
+    }
+
+    #[test]
     fn edge_series_key_encodes_partition_and_hint_boundaries() {
         let metric = Metric {
             name: "cpu.usage".to_string(),
