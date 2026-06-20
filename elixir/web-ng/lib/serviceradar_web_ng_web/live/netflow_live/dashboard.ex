@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   alias ServiceRadar.Observability.NetflowLocalCidr
   alias ServiceRadar.ReferenceData.ServicePorts
   alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
+  alias ServiceRadarWebNGWeb.NetFlow.InterfaceSeries
 
   require Ash.Query
   require Logger
@@ -1083,18 +1084,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     tasks
     |> safe_await_values(to_timeout(second: 10))
     |> List.flatten()
-    |> bucket_interface_direction_values()
-    |> Map.new(fn {{sampler, interface_name}, buckets} ->
-      p95 =
-        buckets
-        |> Map.values()
-        |> Enum.map(fn values -> max(Map.get(values, :ingress, 0), Map.get(values, :egress, 0)) end)
-        |> percentile_95()
-        |> Kernel.*(8)
-        |> Kernel./(max(bucket_secs, 1))
-
-      {{sampler, interface_name}, p95}
-    end)
+    |> InterfaceSeries.busier_direction_p95_bps(bucket_secs)
   end
 
   defp load_interface_p95_points(srql_mod, scope, tw, sampler, interface_names, bucket, limit) do
@@ -1112,16 +1102,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   defp interface_downsample_limit(tw, bucket_secs, series_count) do
     bucket_count = ceil(time_window_seconds(tw) / max(bucket_secs, 1)) + 2
     max(max(series_count, 1) * bucket_count, 100)
-  end
-
-  defp bucket_interface_direction_values(rows) do
-    Enum.reduce(rows, %{}, fn row, acc ->
-      key = {row.sampler, row.interface_name}
-
-      Map.update(acc, key, %{row.t => %{row.direction => row.v}}, fn buckets ->
-        Map.update(buckets, row.t, %{row.direction => row.v}, &Map.put(&1, row.direction, row.v))
-      end)
-    end)
   end
 
   defp interface_direction_point(row, sampler \\ nil) do
@@ -1203,15 +1183,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   end
 
   defp decode_interface_key(_), do: :error
-
-  defp percentile_95([]), do: 0
-
-  defp percentile_95(values) do
-    sorted = Enum.sort(values)
-    n = length(sorted)
-    idx = min(n - 1, ceil(0.95 * n) - 1)
-    Enum.at(sorted, idx) || 0
-  end
 
   defp load_subnet_distribution(srql_mod, scope, base) do
     cidrs =
