@@ -1270,8 +1270,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp apply_tags_to_device_records(devices, new_tags, scope, existing_count) do
-    devices
-    |> Enum.reduce_while(:ok, fn device, :ok ->
+    resources = [Device]
+
+    resources
+    |> Ash.transaction(fn ->
+      case update_tagged_device_records(devices, new_tags, scope) do
+        :ok -> existing_count
+        {:error, reason} -> Ash.DataLayer.rollback(resources, reason)
+      end
+    end)
+    |> case do
+      {:ok, count} -> {:ok, count}
+      {:error, reason} -> {:error, reason}
+      {:error, reason, _stacktrace} -> {:error, reason}
+    end
+  end
+
+  defp update_tagged_device_records(devices, new_tags, scope) do
+    Enum.reduce_while(devices, :ok, fn device, :ok ->
       tags =
         device.tags
         |> normalize_device_tags()
@@ -1287,10 +1303,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         {:error, error} -> {:halt, {:error, format_changeset_errors(error)}}
       end
     end)
-    |> case do
-      :ok -> {:ok, existing_count}
-      {:error, reason} -> {:error, reason}
-    end
   end
 
   defp normalize_device_tags(tags) when is_map(tags), do: tags
