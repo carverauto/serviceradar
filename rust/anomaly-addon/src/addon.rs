@@ -41,7 +41,7 @@ use crate::engine::{
 };
 
 const ADDON_ID: &str = "anomaly";
-const ADDON_VERSION: &str = "0.1.11";
+const ADDON_VERSION: &str = "0.1.12";
 const VERDICT_CHANNEL_DEPTH: usize = 256;
 const ACK_CHANNEL_DEPTH: usize = 64;
 const OCSF_CLASS_EVENT_LOG_ACTIVITY: i64 = 1008;
@@ -54,6 +54,9 @@ const OCSF_VERSION: &str = "1.7.0";
 const DEFAULT_CHECKPOINT_MAX_AGE_NS: u64 = 6 * 60 * 60 * 1_000_000_000;
 /// Default checkpoint cadence: persist after every N processed feed frames.
 const DEFAULT_CHECKPOINT_WRITE_EVERY: u64 = 100;
+/// Default scoring liveness staleness bound (5m): once scoring has started,
+/// health degrades if no scored frame completes within this age.
+const DEFAULT_SCORING_STALE_AFTER_NS: u64 = 5 * 60 * 1_000_000_000;
 
 /// Operator-supplied configuration (validated by the control plane against
 /// `config.schema.json`). All fields optional; omitted ones keep the defaults.
@@ -86,6 +89,10 @@ struct AddonConfig {
     /// are not reseeded.
     #[serde(default, deserialize_with = "deserialize_optional_u64")]
     checkpoint_max_age_secs: Option<u64>,
+    /// Liveness staleness bound in seconds (default 5m); once scoring has
+    /// started, health degrades if no frame finishes scoring within this age.
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    scoring_stale_after_secs: Option<u64>,
 }
 
 fn deserialize_optional_usize<'de, D>(deserializer: D) -> Result<Option<usize>, D::Error>
@@ -241,6 +248,7 @@ pub struct AnomalyAddon {
     engine: Arc<Mutex<DetectorEngine>>,
     verdict_tx: broadcast::Sender<TelemetryBatch>,
     telemetry_drops: Arc<NativeTelemetryDropCounters>,
+    scoring_health: Arc<Mutex<ScoringHealth>>,
     /// Resolved at `configure`; read when a feed stream opens.
     checkpoint: Mutex<CheckpointSettings>,
     /// The metric feed is single-owner: reconnecting replaces the prior scorer.
@@ -260,6 +268,7 @@ impl AnomalyAddon {
             engine: Arc::new(Mutex::new(DetectorEngine::new(EngineConfig::default()))),
             verdict_tx,
             telemetry_drops: Arc::new(NativeTelemetryDropCounters::default()),
+            scoring_health: Arc::new(Mutex::new(ScoringHealth::default())),
             checkpoint: Mutex::new(CheckpointSettings::default()),
             feed_task: Mutex::new(None),
         }
@@ -322,6 +331,17 @@ fn lock_feed_task(slot: &Mutex<Option<JoinHandle<()>>>) -> MutexGuard<'_, Option
     }
 }
 
+fn lock_scoring_health(health: &Arc<Mutex<ScoringHealth>>) -> MutexGuard<'_, ScoringHealth> {
+    match health.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            let guard = poisoned.into_inner();
+            health.clear_poison();
+            guard
+        }
+    }
+}
+
 #[async_trait]
 impl Addon for AnomalyAddon {
     async fn info(&self) -> anyhow::Result<Info> {
@@ -354,6 +374,7 @@ impl Addon for AnomalyAddon {
         };
 
         let settings = resolve_checkpoint_settings(&parsed);
+        let scoring_stale_after_ns = resolve_scoring_stale_after_ns(&parsed);
 
         let engine_config = match parsed.into_engine_config() {
             Ok(config) => config,
@@ -367,6 +388,7 @@ impl Addon for AnomalyAddon {
         };
 
         lock_engine(&self.engine).set_config(engine_config);
+        lock_scoring_health(&self.scoring_health).set_stale_after_ns(scoring_stale_after_ns);
 
         // Re-warm from the on-disk checkpoint before scoring resumes, so a
         // restart does not storm false positives while windows refill.
@@ -384,17 +406,30 @@ impl Addon for AnomalyAddon {
 
     async fn health(&self) -> anyhow::Result<Health> {
         let drop_snapshot = self.telemetry_drops.snapshot();
+        let engine = lock_engine(&self.engine);
+        let engine_snapshot = EngineHealthSnapshot {
+            tracked_series: engine.series_count(),
+            tracked_counters: engine.counter_count(),
+            max_series: engine.max_series(),
+            dropped_total: engine.dropped_at_capacity,
+        };
+        drop(engine);
+
+        let scoring = lock_scoring_health(&self.scoring_health).clone();
+        let summary = scoring.health_summary(engine_snapshot);
+
+        let degradation_reason = if drop_snapshot.total() == 0 {
+            summary.detail
+        } else if summary.detail.is_empty() {
+            drop_snapshot.health_message()
+        } else {
+            format!("{};{}", summary.detail, drop_snapshot.health_message())
+        };
+
         Ok(Health {
-            status: HealthStatus::Healthy,
+            status: summary.status,
             version: ADDON_VERSION.to_string(),
-            // Native telemetry is at-most-once. Drops are informational delivery
-            // diagnostics on an otherwise healthy scorer, and Health only exposes
-            // this freeform detail field for surfacing them to operators.
-            degradation_reason: if drop_snapshot.total() == 0 {
-                String::new()
-            } else {
-                drop_snapshot.health_message()
-            },
+            degradation_reason,
         })
     }
 
@@ -419,6 +454,7 @@ impl Addon for AnomalyAddon {
         let engine = self.engine.clone();
         let verdict_tx = self.verdict_tx.clone();
         let telemetry_drops = self.telemetry_drops.clone();
+        let scoring_health = self.scoring_health.clone();
         let checkpoint = lock_checkpoint_settings(&self.checkpoint).clone();
         let (ack_tx, ack_rx) = mpsc::channel::<Result<MetricFeedAck, Status>>(ACK_CHANNEL_DEPTH);
 
@@ -434,7 +470,14 @@ impl Addon for AnomalyAddon {
                     Ok(frame) => frame,
                     Err(_) => break,
                 };
-                process_frame(&engine, &verdict_tx, &telemetry_drops, &frame).await;
+                process_frame(
+                    &engine,
+                    &verdict_tx,
+                    &telemetry_drops,
+                    &scoring_health,
+                    &frame,
+                )
+                .await;
 
                 // Persist the re-warm checkpoint on a frame cadence (best-effort;
                 // a write failure never blocks or fails the feed).
@@ -475,6 +518,7 @@ async fn process_frame(
     engine: &Arc<Mutex<DetectorEngine>>,
     verdict_tx: &broadcast::Sender<TelemetryBatch>,
     telemetry_drops: &NativeTelemetryDropCounters,
+    scoring_health: &Arc<Mutex<ScoringHealth>>,
     frame: &MetricFeedFrame,
 ) {
     let batch = match MetricBatch::decode(frame.payload.as_slice()) {
@@ -486,6 +530,8 @@ async fn process_frame(
     // Lock the engine only to score; never hold the std Mutex across an await.
     let mut records: Vec<TelemetryRecord> = Vec::new();
     let mut shed_report: Option<ShedReport> = None;
+    let mut scored_samples = 0_u64;
+    let mut last_scored_at_unix_nano = 0_u64;
     {
         let mut engine = lock_engine(engine);
         let dropped_before = engine.dropped_at_capacity;
@@ -533,6 +579,10 @@ async fn process_frame(
                     point.value
                 };
 
+                scored_samples = scored_samples.saturating_add(1);
+                last_scored_at_unix_nano =
+                    last_scored_at_unix_nano.max(point.observed_at_unix_nano);
+
                 if let Some(evaluated) = engine.evaluate_transition(
                     &series_key,
                     value,
@@ -566,9 +616,18 @@ async fn process_frame(
         }
     }
 
+    let emitted_records = records.len() as u64;
+
     if let Some(report) = shed_report {
         records.push(shed_record(&resource, frame.feed_id, report));
     }
+
+    lock_scoring_health(scoring_health).record_frame(ScoringFrameUpdate {
+        feed_id: frame.feed_id,
+        scored_samples,
+        emitted_verdicts: emitted_records,
+        last_scored_at_unix_nano,
+    });
 
     if records.is_empty() {
         return;
@@ -610,6 +669,115 @@ fn telemetry_stream_from_receiver(
     Box::pin(ReceiverStream::new(out_rx))
 }
 
+#[derive(Clone, Debug)]
+struct ScoringHealth {
+    frames_seen: u64,
+    scored_samples: u64,
+    emitted_verdicts: u64,
+    last_feed_id: u64,
+    last_scored_at_unix_nano: u64,
+    last_frame_at_unix_nano: u64,
+    stale_after_ns: u64,
+}
+
+impl Default for ScoringHealth {
+    fn default() -> Self {
+        Self {
+            frames_seen: 0,
+            scored_samples: 0,
+            emitted_verdicts: 0,
+            last_feed_id: 0,
+            last_scored_at_unix_nano: 0,
+            last_frame_at_unix_nano: 0,
+            stale_after_ns: DEFAULT_SCORING_STALE_AFTER_NS,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ScoringFrameUpdate {
+    feed_id: u64,
+    scored_samples: u64,
+    emitted_verdicts: u64,
+    last_scored_at_unix_nano: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct EngineHealthSnapshot {
+    tracked_series: usize,
+    tracked_counters: usize,
+    max_series: usize,
+    dropped_total: u64,
+}
+
+#[derive(Clone, Debug)]
+struct HealthSummary {
+    status: HealthStatus,
+    detail: String,
+}
+
+impl ScoringHealth {
+    fn set_stale_after_ns(&mut self, stale_after_ns: u64) {
+        self.stale_after_ns = stale_after_ns.max(1_000_000_000);
+    }
+
+    fn record_frame(&mut self, update: ScoringFrameUpdate) {
+        self.frames_seen = self.frames_seen.saturating_add(1);
+        self.scored_samples = self.scored_samples.saturating_add(update.scored_samples);
+        self.emitted_verdicts = self
+            .emitted_verdicts
+            .saturating_add(update.emitted_verdicts);
+        self.last_feed_id = update.feed_id;
+        self.last_frame_at_unix_nano = now_unix_nano();
+        self.last_scored_at_unix_nano = self
+            .last_scored_at_unix_nano
+            .max(update.last_scored_at_unix_nano);
+    }
+
+    fn health_summary(&self, engine: EngineHealthSnapshot) -> HealthSummary {
+        self.health_summary_at(engine, now_unix_nano())
+    }
+
+    fn health_summary_at(&self, engine: EngineHealthSnapshot, now_unix_nano: u64) -> HealthSummary {
+        let cap_pressure = engine.max_series > 0
+            && (engine.tracked_series >= engine.max_series
+                || engine.tracked_counters >= engine.max_series);
+        let last_frame_age_ns = now_unix_nano.saturating_sub(self.last_frame_at_unix_nano);
+        let scoring_stalled = self.scored_samples > 0 && last_frame_age_ns > self.stale_after_ns;
+
+        let (status, state) = if self.scored_samples == 0 {
+            (HealthStatus::Degraded, "no_scored_samples")
+        } else if scoring_stalled {
+            (HealthStatus::Degraded, "scoring_stalled")
+        } else if cap_pressure && engine.dropped_total > 0 {
+            (HealthStatus::Degraded, "capacity_shed")
+        } else if cap_pressure {
+            (HealthStatus::Degraded, "at_capacity")
+        } else {
+            (HealthStatus::Healthy, "scoring_active")
+        };
+
+        HealthSummary {
+            status,
+            detail: format!(
+                "state={state};frames_seen={};scored_samples={};emitted_verdicts={};last_feed_id={};last_frame_at_unix_nano={};last_scored_at_unix_nano={};last_frame_age_ns={};stale_after_ns={};tracked_series={};tracked_counters={};max_series={};dropped_total={}",
+                self.frames_seen,
+                self.scored_samples,
+                self.emitted_verdicts,
+                self.last_feed_id,
+                self.last_frame_at_unix_nano,
+                self.last_scored_at_unix_nano,
+                last_frame_age_ns,
+                self.stale_after_ns,
+                engine.tracked_series,
+                engine.tracked_counters,
+                engine.max_series,
+                engine.dropped_total
+            ),
+        }
+    }
+}
+
 /// Resolve checkpoint behavior from the parsed config: a blank/absent path
 /// disables checkpointing; `checkpoint_max_age_secs` overrides the staleness bound.
 fn resolve_checkpoint_settings(config: &AddonConfig) -> CheckpointSettings {
@@ -629,6 +797,13 @@ fn resolve_checkpoint_settings(config: &AddonConfig) -> CheckpointSettings {
     }
 
     settings
+}
+
+fn resolve_scoring_stale_after_ns(config: &AddonConfig) -> u64 {
+    config
+        .scoring_stale_after_secs
+        .map(|secs| secs.max(1).saturating_mul(1_000_000_000))
+        .unwrap_or(DEFAULT_SCORING_STALE_AFTER_NS)
 }
 
 /// Atomically persist the engine's per-series checkpoint: write a sibling `.tmp`
@@ -1312,6 +1487,123 @@ mod tests {
         );
     }
 
+    #[test]
+    fn health_summary_reports_no_scored_samples() {
+        let summary = ScoringHealth::default().health_summary(EngineHealthSnapshot {
+            tracked_series: 0,
+            tracked_counters: 0,
+            max_series: 50_000,
+            dropped_total: 0,
+        });
+
+        assert_eq!(summary.status, HealthStatus::Degraded);
+        assert!(summary.detail.contains("state=no_scored_samples"));
+        assert!(summary.detail.contains("scored_samples=0"));
+        assert!(summary.detail.contains("tracked_series=0"));
+    }
+
+    #[test]
+    fn health_summary_reports_active_scoring_and_capacity_pressure() {
+        let mut scoring = ScoringHealth::default();
+        scoring.record_frame(ScoringFrameUpdate {
+            feed_id: 9,
+            scored_samples: 3,
+            emitted_verdicts: 1,
+            last_scored_at_unix_nano: 123,
+        });
+
+        let active = scoring.health_summary(EngineHealthSnapshot {
+            tracked_series: 2,
+            tracked_counters: 1,
+            max_series: 50_000,
+            dropped_total: 0,
+        });
+        assert_eq!(active.status, HealthStatus::Healthy);
+        assert!(active.detail.contains("state=scoring_active"));
+        assert!(active.detail.contains("frames_seen=1"));
+        assert!(active.detail.contains("scored_samples=3"));
+        assert!(active.detail.contains("emitted_verdicts=1"));
+        assert!(active.detail.contains("last_feed_id=9"));
+        assert!(active.detail.contains("last_scored_at_unix_nano=123"));
+
+        let recovered_after_shed = scoring.health_summary(EngineHealthSnapshot {
+            tracked_series: 2,
+            tracked_counters: 1,
+            max_series: 50_000,
+            dropped_total: 2,
+        });
+        assert_eq!(recovered_after_shed.status, HealthStatus::Healthy);
+        assert!(recovered_after_shed.detail.contains("state=scoring_active"));
+        assert!(recovered_after_shed.detail.contains("dropped_total=2"));
+
+        let shed = scoring.health_summary(EngineHealthSnapshot {
+            tracked_series: 50_000,
+            tracked_counters: 1,
+            max_series: 50_000,
+            dropped_total: 2,
+        });
+        assert_eq!(shed.status, HealthStatus::Degraded);
+        assert!(shed.detail.contains("state=capacity_shed"));
+        assert!(shed.detail.contains("dropped_total=2"));
+    }
+
+    #[test]
+    fn health_summary_reports_stalled_scoring() {
+        let mut scoring = ScoringHealth::default();
+        scoring.record_frame(ScoringFrameUpdate {
+            feed_id: 9,
+            scored_samples: 3,
+            emitted_verdicts: 1,
+            last_scored_at_unix_nano: 123,
+        });
+        scoring.last_frame_at_unix_nano = 1_000;
+
+        let stalled = scoring.health_summary_at(
+            EngineHealthSnapshot {
+                tracked_series: 2,
+                tracked_counters: 1,
+                max_series: 50_000,
+                dropped_total: 0,
+            },
+            1_000 + DEFAULT_SCORING_STALE_AFTER_NS + 1,
+        );
+
+        assert_eq!(stalled.status, HealthStatus::Degraded);
+        assert!(stalled.detail.contains("state=scoring_stalled"));
+        assert!(stalled.detail.contains(&format!(
+            "last_frame_age_ns={}",
+            DEFAULT_SCORING_STALE_AFTER_NS + 1
+        )));
+    }
+
+    #[test]
+    fn health_summary_uses_configured_stale_threshold() {
+        let mut scoring = ScoringHealth::default();
+        scoring.set_stale_after_ns(10_000_000_000);
+        scoring.record_frame(ScoringFrameUpdate {
+            feed_id: 9,
+            scored_samples: 3,
+            emitted_verdicts: 1,
+            last_scored_at_unix_nano: 123,
+        });
+        scoring.last_frame_at_unix_nano = 1_000;
+
+        let engine = EngineHealthSnapshot {
+            tracked_series: 2,
+            tracked_counters: 1,
+            max_series: 50_000,
+            dropped_total: 0,
+        };
+
+        let active = scoring.health_summary_at(engine, 1_000 + 10_000_000_000);
+        assert_eq!(active.status, HealthStatus::Healthy);
+        assert!(active.detail.contains("stale_after_ns=10000000000"));
+
+        let stalled = scoring.health_summary_at(engine, 1_000 + 10_000_000_001);
+        assert_eq!(stalled.status, HealthStatus::Degraded);
+        assert!(stalled.detail.contains("state=scoring_stalled"));
+    }
+
     fn anomaly_metric_batch(value: f64, observed_at_unix_nano: u64) -> MetricBatch {
         MetricBatch {
             resource: Some(MetricResource {
@@ -1359,13 +1651,14 @@ mod tests {
         value: f64,
         observed_at_unix_nano: u64,
     ) {
+        let scoring_health = Arc::new(Mutex::new(ScoringHealth::default()));
         let frame = MetricFeedFrame {
             feed_id: observed_at_unix_nano,
             source: None,
             payload: anomaly_metric_batch(value, observed_at_unix_nano).encode_to_vec(),
         };
 
-        process_frame(engine, tx, telemetry_drops, &frame).await;
+        process_frame(engine, tx, telemetry_drops, &scoring_health, &frame).await;
     }
 
     fn assert_no_batch(rx: &mut broadcast::Receiver<TelemetryBatch>) {
@@ -1396,11 +1689,17 @@ mod tests {
             "max_series": "",
             "min_std_floor": "",
             "min_cv": "",
-            "checkpoint_max_age_secs": ""
+            "checkpoint_max_age_secs": "",
+            "scoring_stale_after_secs": ""
         }))
         .expect("empty strings should deserialize as unset optional knobs");
 
         let base = EngineConfig::default();
+        assert_eq!(
+            resolve_scoring_stale_after_ns(&config),
+            DEFAULT_SCORING_STALE_AFTER_NS
+        );
+
         let resolved = config.into_engine_config().expect("default config");
         assert_eq!(resolved.window_size, base.window_size);
         assert_eq!(resolved.min_samples, base.min_samples);
@@ -1421,12 +1720,14 @@ mod tests {
             "max_series": "1234",
             "min_std_floor": "0.25",
             "min_cv": "0.10",
-            "checkpoint_max_age_secs": "60"
+            "checkpoint_max_age_secs": "60",
+            "scoring_stale_after_secs": "42"
         }))
         .expect("numeric strings should deserialize");
 
         let checkpoint = resolve_checkpoint_settings(&config);
         assert_eq!(checkpoint.max_age_ns, 60_000_000_000);
+        assert_eq!(resolve_scoring_stale_after_ns(&config), 42_000_000_000);
 
         let resolved = config.into_engine_config().expect("valid config");
         assert_eq!(resolved.window_size, 42);
@@ -1809,7 +2110,8 @@ mod tests {
         };
 
         let telemetry_drops = telemetry_drop_counters();
-        process_frame(&engine, &tx, &telemetry_drops, &frame).await;
+        let scoring_health = Arc::new(Mutex::new(ScoringHealth::default()));
+        process_frame(&engine, &tx, &telemetry_drops, &scoring_health, &frame).await;
 
         let sent = rx.recv().await.expect("telemetry batch");
         assert_eq!(sent.records.len(), 1);
@@ -1817,6 +2119,21 @@ mod tests {
         assert_eq!(event["status_code"], "anomaly_capacity_shed");
         assert_eq!(event["unmapped"]["dropped_series_delta"], 2);
         assert_eq!(event["unmapped"]["feed_id"], 7);
+        let engine_snapshot = {
+            let engine = engine.lock().expect("engine");
+            EngineHealthSnapshot {
+                tracked_series: engine.series_count(),
+                tracked_counters: 0,
+                max_series: 1,
+                dropped_total: engine.dropped_at_capacity,
+            }
+        };
+        let health = scoring_health
+            .lock()
+            .expect("health")
+            .health_summary(engine_snapshot);
+        assert_eq!(health.status, HealthStatus::Degraded);
+        assert!(health.detail.contains("state=capacity_shed"));
         assert_eq!(event["unmapped"]["tracked_counters"], 0);
         assert_eq!(engine.lock().unwrap().dropped_at_capacity, 2);
     }
@@ -1965,6 +2282,12 @@ mod tests {
     #[tokio::test]
     async fn health_reports_native_telemetry_drop_counts_without_degrading() {
         let addon = AnomalyAddon::new();
+        lock_scoring_health(&addon.scoring_health).record_frame(ScoringFrameUpdate {
+            feed_id: 1,
+            scored_samples: 1,
+            emitted_verdicts: 0,
+            last_scored_at_unix_nano: 1,
+        });
         addon.telemetry_drops.record_no_subscriber_batch();
         addon.telemetry_drops.record_lagged_batches(2);
         addon.telemetry_drops.record_outbound_full_batch();
@@ -1973,6 +2296,7 @@ mod tests {
 
         assert_eq!(health.status, HealthStatus::Healthy);
         assert_eq!(health.version, ADDON_VERSION);
+        assert!(health.degradation_reason.contains("state=scoring_active"));
         assert!(health.degradation_reason.contains("total=4"));
         assert!(
             health
@@ -2011,7 +2335,15 @@ mod tests {
 
         let (tx, _rx) = broadcast::channel(4);
         let telemetry_drops = telemetry_drop_counters();
-        process_frame(&engine, &tx, &telemetry_drops, &metric_feed_frame(1, 100.0)).await;
+        let scoring_health = Arc::new(Mutex::new(ScoringHealth::default()));
+        process_frame(
+            &engine,
+            &tx,
+            &telemetry_drops,
+            &scoring_health,
+            &metric_feed_frame(1, 100.0),
+        )
+        .await;
 
         let guard = engine.lock().expect("process_frame clears engine poison");
         assert_eq!(guard.series_count(), 1);

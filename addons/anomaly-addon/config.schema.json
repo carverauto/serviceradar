@@ -110,6 +110,13 @@
       "description": "On restart, a series whose last reading is older than this is not reseeded (a stale baseline would mis-score current traffic). Default 21600 (6h).",
       "minimum": 1,
       "default": 21600
+    },
+    "scoring_stale_after_secs": {
+      "type": "integer",
+      "title": "Scoring liveness stale threshold (seconds)",
+      "description": "Once scoring has started, health degrades if no metric-feed frame finishes scoring within this age. Tune to match the expected local metric feed cadence. Default 300 (5m).",
+      "minimum": 1,
+      "default": 300
     }
   }
 }
