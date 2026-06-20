@@ -36,9 +36,17 @@ defmodule ServiceRadar.GraphTest do
 
     assert length(calls) == 2
 
-    assert Enum.all?(calls, fn {sql, opts} ->
-             String.contains?(sql, "$sr_") and opts == [prepare: :unnamed]
-           end)
+    assert Enum.all?(calls, fn {_sql, opts} -> opts == [prepare: :unnamed] end)
+
+    assert calls
+           |> Enum.at(0)
+           |> elem(0)
+           |> String.contains?("$sr_")
+
+    assert calls
+           |> Enum.at(1)
+           |> elem(0)
+           |> String.contains?("'RETURN 1'")
   end
 
   test "execute preserves the first failure when every AGE candidate fails" do
@@ -46,6 +54,16 @@ defmodule ServiceRadar.GraphTest do
 
     assert {:error, :first_failure} = Graph.execute("RETURN 1", repo: FailingRepo)
 
-    assert length(Process.get(:graph_failing_repo_calls)) == 3
+    assert length(Process.get(:graph_failing_repo_calls)) == 2
+  end
+
+  test "escape protects Cypher literals from backslash quote injection" do
+    assert Graph.escape("router\\") == "router\\\\"
+    assert Graph.escape("router's uplink") == "router\\'s uplink"
+
+    attacker_value = "ifAlias\\\\' }) MATCH (n) DETACH DELETE n //"
+
+    assert Graph.escape(attacker_value) ==
+             "ifAlias\\\\\\\\\\' }) MATCH (n) DETACH DELETE n //"
   end
 end

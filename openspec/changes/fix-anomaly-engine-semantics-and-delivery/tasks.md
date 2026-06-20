@@ -237,7 +237,7 @@
 - [ ] 44.2 Don't prune results before concurrent scan (GetStatus partial-set race); treat ICMPv6 dest-unreachable as a clean closed result; account for retry packets so they aren't silently dropped.
 
 ## 45. Topology Graph (F50)
-- [ ] 45.1 Escape backslashes (and audit all Cypher literal building) so attacker-controlled LLDP/CDP/ifAlias cannot inject (`graph.ex:106-110`).
+- [x] 45.1 Escape backslashes (and audit all Cypher literal building) so attacker-controlled LLDP/CDP/ifAlias cannot inject (`graph.ex:106-110`).
 - [ ] 45.2 Preserve parallel links (LAG/redundant) instead of collapsing to one canonical edge; prune reverse `CONNECTS_TO` edges on one-endpoint re-report.
 - [ ] 45.3 Fix IPv6 device-id/IP `:`-split matching; make the Cypher read-only guard literal/comment-aware; link device-graph peer interfaces to their owning device.
 

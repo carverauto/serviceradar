@@ -90,12 +90,13 @@ defmodule ServiceRadar.Graph do
   @doc """
   Escapes a value for safe inclusion in Cypher queries.
 
-  Single quotes are doubled to prevent injection.
+  Backslashes and single quotes are escaped so producer-controlled values cannot
+  alter Cypher string-literal structure.
 
   ## Examples
 
       iex> ServiceRadar.Graph.escape("it's")
-      "it''s"
+      "it\\'s"
 
       iex> ServiceRadar.Graph.escape(nil)
       ""
@@ -106,7 +107,8 @@ defmodule ServiceRadar.Graph do
   def escape(value) do
     value
     |> to_string()
-    |> String.replace("'", "''")
+    |> String.replace("\\", "\\\\")
+    |> String.replace("'", "\\'")
   end
 
   defp default_graph do
