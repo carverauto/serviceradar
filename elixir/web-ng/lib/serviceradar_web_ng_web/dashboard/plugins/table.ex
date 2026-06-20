@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
   import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_results_table: 1]
   import ServiceRadarWebNGWeb.UIComponents, only: [ui_panel: 1]
 
+  @max_table_rows 500
+
   @impl true
   def id, do: "table"
 
@@ -19,13 +21,28 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
 
   @impl true
   def build(%{} = srql_response) do
+    columns = extract_columns(srql_response)
+
     results =
       srql_response
       |> Map.get("results", [])
-      |> normalize_results()
+      |> normalize_results(columns)
+
+    total_count = length(results)
+
+    results =
+      results
+      |> Enum.take(@max_table_rows)
       |> attach_sparklines()
 
-    {:ok, %{results: results}}
+    {:ok,
+     %{
+       columns: columns,
+       max_rows: @max_table_rows,
+       results: results,
+       total_count: total_count,
+       truncated: total_count > @max_table_rows
+     }}
   end
 
   @impl true
@@ -38,14 +55,74 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
     {:ok, socket}
   end
 
-  defp normalize_results(results) when is_list(results) do
+  defp extract_columns(srql_response) do
+    Enum.find_value(
+      [
+        Map.get(srql_response, "columns"),
+        Map.get(srql_response, :columns),
+        get_in(srql_response, ["schema", "columns"]),
+        get_in(srql_response, [:schema, :columns]),
+        get_in(srql_response, ["viz", "columns"]),
+        get_in(srql_response, [:viz, :columns])
+      ],
+      &normalize_columns/1
+    )
+  end
+
+  defp normalize_columns(columns) when is_list(columns) do
+    columns =
+      columns
+      |> Enum.map(&column_name/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    if columns == [], do: nil, else: columns
+  end
+
+  defp normalize_columns(_), do: nil
+
+  defp column_name(%{} = column) do
+    column
+    |> fetch_first([:name, "name", :field, "field", :id, "id"])
+    |> column_name()
+  end
+
+  defp column_name(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: nil, else: value
+  end
+
+  defp column_name(value) when is_atom(value), do: value |> Atom.to_string() |> column_name()
+  defp column_name(_), do: nil
+
+  defp fetch_first(map, keys) do
+    Enum.find_value(keys, fn key ->
+      case Map.fetch(map, key) do
+        {:ok, value} -> value
+        :error -> nil
+      end
+    end)
+  end
+
+  defp normalize_results(results, [single_column]) when is_list(results) and is_binary(single_column) do
     Enum.map(results, fn
-      %{} = row -> row
+      %{} = row -> stringify_keys(row)
+      value -> %{single_column => value}
+    end)
+  end
+
+  defp normalize_results(results, _columns) when is_list(results) do
+    Enum.map(results, fn
+      %{} = row -> stringify_keys(row)
       value -> %{"value" => value}
     end)
   end
 
-  defp normalize_results(_), do: []
+  defp normalize_results(_, _), do: []
+
+  defp stringify_keys(row) when is_map(row) do
+    Map.new(row, fn {key, value} -> {to_string(key), value} end)
+  end
 
   defp attach_sparklines(results) when is_list(results) do
     with true <- length(results) >= 5,
@@ -235,7 +312,16 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
           <div class="text-sm font-semibold">Table</div>
         </:header>
 
-        <.srql_results_table id={"panel-#{@id}-table"} rows={@results} empty_message="No results." />
+        <div :if={@truncated} class="mb-3 text-xs text-base-content/60">
+          Showing first {@max_rows} of {@total_count} rows.
+        </div>
+
+        <.srql_results_table
+          id={"panel-#{@id}-table"}
+          rows={@results}
+          columns={@columns}
+          empty_message="No results."
+        />
       </.ui_panel>
     </div>
     """

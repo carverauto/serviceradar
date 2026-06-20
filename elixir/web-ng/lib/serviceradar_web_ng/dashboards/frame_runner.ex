@@ -153,6 +153,7 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
           "status" => "ok",
           "results" => results,
           "pagination" => Map.get(response, "pagination"),
+          "schema" => Map.get(response, "schema"),
           "viz" => Map.get(response, "viz")
         })
 
