@@ -76,13 +76,51 @@ type activeArtifact struct {
 }
 
 func (r *runner) drainArtifacts(ctx context.Context, artifactClient coreaddon.ArtifactClient) {
-	chunks, err := artifactClient.StreamArtifacts(ctx)
-	if err != nil {
-		r.cfg.Logger.Warn().Err(err).Str("addon", r.id).Msg("addon artifact stream failed to open")
-		return
-	}
+	attempt := 0
+	diagnostics := streamDiagnostics(artifactClient)
 
+	for ctx.Err() == nil {
+		chunks, err := artifactClient.StreamArtifacts(ctx)
+		if err != nil {
+			delay := nextStreamReconnectDelay(attempt, r.cfg.RestartBackoffInitial, r.cfg.RestartBackoffMax)
+			r.cfg.Logger.Warn().Err(err).Str("addon", r.id).Dur("retry_after", delay).Msg("addon artifact stream failed to open")
+			if !waitStreamReconnect(ctx, delay) {
+				return
+			}
+			attempt++
+			continue
+		}
+
+		if r.drainArtifactStream(ctx, chunks) {
+			attempt = 0
+		} else {
+			attempt++
+		}
+		if ctx.Err() != nil {
+			return
+		}
+
+		delay := nextStreamReconnectDelay(attempt, r.cfg.RestartBackoffInitial, r.cfg.RestartBackoffMax)
+		diagnostic := readStreamDiagnostic(diagnostics)
+		event := r.cfg.Logger.Warn().
+			Str("addon", r.id).
+			Str("stream", "artifacts").
+			Str("stream_end", string(diagnostic.Kind)).
+			Dur("retry_after", delay)
+		if diagnostic.Err != nil {
+			event = event.Err(diagnostic.Err)
+		}
+		event.Msg("addon artifact stream closed; reconnecting")
+		if !waitStreamReconnect(ctx, delay) {
+			return
+		}
+	}
+}
+
+func (r *runner) drainArtifactStream(ctx context.Context, chunks <-chan *coreaddon.ArtifactUploadChunk) bool {
 	var current *activeArtifact
+	var err error
+	received := false
 	defer func() {
 		if current != nil {
 			current.cleanup()
@@ -92,14 +130,15 @@ func (r *runner) drainArtifacts(ctx context.Context, artifactClient coreaddon.Ar
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return received
 		case chunk, ok := <-chunks:
 			if !ok {
-				return
+				return received
 			}
 			if chunk == nil {
 				continue
 			}
+			received = true
 
 			if chunk.GetMetadata() != nil {
 				if current != nil {

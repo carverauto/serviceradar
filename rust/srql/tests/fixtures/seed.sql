@@ -1042,6 +1042,7 @@ SELECT base.now_ts - INTERVAL '2 minutes',
     base.now_ts
 FROM base;
 TRUNCATE timeseries_metrics;
+TRUNCATE timeseries_metrics_hourly;
 WITH base AS (
     SELECT NOW() AS now_ts
 )
@@ -1120,6 +1121,23 @@ SELECT base.now_ts - INTERVAL '1 minute',
     '{"component":"cpu"}'::jsonb,
     base.now_ts
 FROM base;
+INSERT INTO timeseries_metrics_hourly (
+    bucket,
+    device_id,
+    metric_type,
+    metric_name,
+    avg_value,
+    min_value,
+    max_value,
+    sample_count
+)
+VALUES
+    ('2026-01-04T03:00:00Z'::timestamptz, 'device-alpha', 'sysmon.cpu', 'cpu.usage_percent', 10.0, 10.0, 10.0, 12),
+    ('2026-01-11T03:00:00Z'::timestamptz, 'device-alpha', 'sysmon.cpu', 'cpu.usage_percent', 11.0, 11.0, 11.0, 12),
+    ('2026-01-18T03:00:00Z'::timestamptz, 'device-alpha', 'sysmon.cpu', 'cpu.usage_percent', 9.0, 9.0, 9.0, 12),
+    ('2026-01-25T03:00:00Z'::timestamptz, 'device-alpha', 'sysmon.cpu', 'cpu.usage_percent', 800.0, 800.0, 800.0, 12),
+    ('2026-01-25T03:00:00Z'::timestamptz, 'device-beta', 'sysmon.cpu', 'cpu.usage_percent', 42.0, 42.0, 42.0, 12),
+    ('2026-01-25T03:00:00Z'::timestamptz, 'device-alpha', 'sysmon.memory', 'memory.used_percent', 55.0, 55.0, 55.0, 12);
 WITH base AS (
     SELECT NOW() AS now_ts
 )

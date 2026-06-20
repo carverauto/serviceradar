@@ -11,8 +11,45 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
   @bucket_at ~U[2026-06-09 09:00:00Z]
 
   setup do
+    previous_worker_config = Application.get_env(:serviceradar_core, Worker, [])
+
+    Application.put_env(
+      :serviceradar_core,
+      Worker,
+      Keyword.put(previous_worker_config, :state_store, __MODULE__.ProcessStateStore)
+    )
+
+    Process.delete(:seasonal_state_store)
     AnomalyConfigRuntime.clear_cache_for_test()
-    on_exit(fn -> AnomalyConfigRuntime.clear_cache_for_test() end)
+
+    on_exit(fn ->
+      if previous_worker_config == [] do
+        Application.delete_env(:serviceradar_core, Worker)
+      else
+        Application.put_env(:serviceradar_core, Worker, previous_worker_config)
+      end
+
+      AnomalyConfigRuntime.clear_cache_for_test()
+    end)
+  end
+
+  defmodule ProcessStateStore do
+    @moduledoc false
+
+    def load_many(_source, keys, _opts) do
+      state = Process.get(:seasonal_state_store, %{})
+      {:ok, Map.take(state, keys)}
+    end
+
+    def persist_many(_source, actions, _opts) do
+      state =
+        Enum.reduce(actions, Process.get(:seasonal_state_store, %{}), fn action, acc ->
+          Map.put(acc, action.key, action.consecutive_anomalous)
+        end)
+
+      Process.put(:seasonal_state_store, state)
+      :ok
+    end
   end
 
   test "manual enqueue uniqueness ignores per-run evaluated_at" do
@@ -243,6 +280,46 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
     assert_received {:seasonal_verdict, attrs}
     assert attrs.disposition == "seasonal_breach"
     assert attrs.consecutive_anomalous == 3
+  end
+
+  test "worker persists seasonal confirmation across independent runs" do
+    test_pid = self()
+
+    AnomalyConfigRuntime.put_cache_for_test(%{
+      seasonal_disposition_opts: [confirm_slots: 3]
+    })
+
+    idle = for i <- 0..19, do: 5.0 + rem(i, 3) * 0.5
+    rows = [profile_row("svc/cpu/restart", 0, 3, idle, 800.0)]
+    page_runner = make_runner(rows)
+
+    for _ <- 1..2 do
+      assert :ok =
+               Worker.run(job(),
+                 sources: [source()],
+                 runner: page_runner,
+                 verdict_emitter: TestEmitter,
+                 test_pid: test_pid
+               )
+
+      refute_received {:seasonal_verdict, _}
+    end
+
+    assert Process.get(:seasonal_state_store)[{"svc/cpu/restart", 0, 3}] == 2
+
+    assert :ok =
+             Worker.run(job(),
+               sources: [source()],
+               runner: page_runner,
+               verdict_emitter: TestEmitter,
+               test_pid: test_pid
+             )
+
+    assert_received {:seasonal_verdict, attrs}
+    assert attrs.series_key == "svc/cpu/restart"
+    assert attrs.disposition == "seasonal_breach"
+    assert attrs.consecutive_anomalous == 3
+    assert Process.get(:seasonal_state_store)[{"svc/cpu/restart", 0, 3}] == 3
   end
 
   test "worker resets pending confirmation on clean slot without emitting clear" do
