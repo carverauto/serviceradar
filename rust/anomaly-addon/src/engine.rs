@@ -103,6 +103,7 @@ const STATE_EVICTION_MAX_AGE_NS: u64 = COUNTER_MAX_GAP_NS;
 struct SeriesState {
     window_tail: Vec<f64>,
     consecutive_anomalous: usize,
+    consecutive_clean: usize,
     /// Whether this series currently has an emitted-but-not-cleared anomaly.
     active_anomalous: bool,
     /// Observed time of the most recent sample, for the restart staleness bound:
@@ -128,6 +129,11 @@ pub struct DetectorEngine {
     series: HashMap<String, SeriesState>,
     /// Last cumulative-counter reading per series, for rate normalization.
     counters: HashMap<String, CounterState>,
+    /// Last sample timestamp that attempted stale-state eviction at capacity.
+    /// Metric-feed frames commonly carry many new keys with the same observation
+    /// time; scanning both maps once per timestamp bounds a fruitless full scan
+    /// under cap-pressure churn.
+    last_capacity_eviction_at_unix_nano: Option<u64>,
     /// Number of new series dropped because the `max_series` cap was reached.
     pub dropped_at_capacity: u64,
 }
@@ -138,6 +144,7 @@ impl DetectorEngine {
             config,
             series: HashMap::new(),
             counters: HashMap::new(),
+            last_capacity_eviction_at_unix_nano: None,
             dropped_at_capacity: 0,
         }
     }
@@ -170,6 +177,15 @@ impl DetectorEngine {
         self.counters.retain(|_, counter| {
             now_unix_nano.saturating_sub(counter.timestamp) <= STATE_EVICTION_MAX_AGE_NS
         });
+    }
+
+    fn evict_stale_state_once_per_timestamp(&mut self, now_unix_nano: u64) {
+        if self.last_capacity_eviction_at_unix_nano == Some(now_unix_nano) {
+            return;
+        }
+
+        self.last_capacity_eviction_at_unix_nano = Some(now_unix_nano);
+        self.evict_stale_state(now_unix_nano);
     }
 
     /// Rate-normalize one cumulative-monotonic counter reading against this
@@ -219,7 +235,7 @@ impl DetectorEngine {
         let Some(previous) = self.counters.get_mut(series_key) else {
             // Warmup: store the first reading, emit nothing (a rate needs two).
             if self.counters.len() >= self.config.max_series {
-                self.evict_stale_state(observed_at_unix_nano);
+                self.evict_stale_state_once_per_timestamp(observed_at_unix_nano);
             }
             if self.counters.len() >= self.config.max_series {
                 self.dropped_at_capacity = self.dropped_at_capacity.saturating_add(1);
@@ -300,7 +316,7 @@ impl DetectorEngine {
 
         if !self.series.contains_key(series_key) {
             if self.series.len() >= self.config.max_series {
-                self.evict_stale_state(observed_at_unix_nano);
+                self.evict_stale_state_once_per_timestamp(observed_at_unix_nano);
             }
             if self.series.len() >= self.config.max_series {
                 self.dropped_at_capacity = self.dropped_at_capacity.saturating_add(1);
@@ -314,6 +330,7 @@ impl DetectorEngine {
             .or_insert_with(|| SeriesState {
                 window_tail: Vec::new(),
                 consecutive_anomalous: 0,
+                consecutive_clean: 0,
                 active_anomalous: false,
                 last_observed_at_unix_nano: observed_at_unix_nano,
             });
@@ -374,7 +391,8 @@ impl DetectorEngine {
     /// The detector core still decides whether a sample is clean, pending, or
     /// confirmed anomalous. The edge add-on owns only delivery lifecycle: one
     /// open when a series first confirms, no duplicate opens while it remains
-    /// active, and one clear when that active series returns clean.
+    /// active, and one clear when that active series stays clean for the same
+    /// confirmation window used to open.
     pub fn evaluate_transition(
         &mut self,
         series_key: &str,
@@ -384,14 +402,29 @@ impl DetectorEngine {
     ) -> Option<TransitionVerdict> {
         let verdict = self.evaluate(series_key, value, observed_at_unix_nano, profile)?;
         let state = self.series.get_mut(series_key)?;
+        let clear_slots = self.config.confirm_slots.max(1);
 
         let transition = if verdict.anomalous && !state.active_anomalous {
             state.active_anomalous = true;
+            state.consecutive_clean = 0;
             AnomalyTransition::Open
-        } else if state.active_anomalous && verdict.state == "clean" {
-            state.active_anomalous = false;
-            AnomalyTransition::Clear
+        } else if state.active_anomalous {
+            if is_clean_verdict(&verdict) {
+                state.consecutive_clean = state.consecutive_clean.saturating_add(1);
+
+                if state.consecutive_clean >= clear_slots {
+                    state.active_anomalous = false;
+                    state.consecutive_clean = 0;
+                    AnomalyTransition::Clear
+                } else {
+                    AnomalyTransition::None
+                }
+            } else {
+                state.consecutive_clean = 0;
+                AnomalyTransition::None
+            }
         } else {
+            state.consecutive_clean = 0;
             AnomalyTransition::None
         };
 
@@ -402,12 +435,18 @@ impl DetectorEngine {
     }
 }
 
+fn is_clean_verdict(verdict: &ReasonVerdict) -> bool {
+    !verdict.anomalous && verdict.next_consecutive_anomalous == 0
+}
+
 /// One series' retained detector baseline, serialized for the restart checkpoint.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct SeriesCheckpoint {
     pub series_key: String,
     pub window_tail: Vec<f64>,
     pub consecutive_anomalous: usize,
+    #[serde(default)]
+    pub consecutive_clean: usize,
     #[serde(default)]
     pub active_anomalous: bool,
     pub last_observed_at_unix_nano: u64,
@@ -444,6 +483,7 @@ impl DetectorEngine {
                     series_key: key.clone(),
                     window_tail: state.window_tail.clone(),
                     consecutive_anomalous: state.consecutive_anomalous,
+                    consecutive_clean: state.consecutive_clean,
                     active_anomalous: state.active_anomalous,
                     last_observed_at_unix_nano: state.last_observed_at_unix_nano,
                 })
@@ -476,7 +516,14 @@ impl DetectorEngine {
         let fresh = |ts: u64| now_unix_nano.saturating_sub(ts) <= max_age_ns;
         let mut restored = 0;
 
-        for series in checkpoint.series {
+        let mut series_entries = checkpoint.series;
+        series_entries.sort_by(|left, right| {
+            right
+                .last_observed_at_unix_nano
+                .cmp(&left.last_observed_at_unix_nano)
+        });
+
+        for series in series_entries {
             if !fresh(series.last_observed_at_unix_nano) {
                 continue;
             }
@@ -497,6 +544,7 @@ impl DetectorEngine {
                 SeriesState {
                     window_tail,
                     consecutive_anomalous: series.consecutive_anomalous,
+                    consecutive_clean: series.consecutive_clean,
                     active_anomalous: series.active_anomalous,
                     last_observed_at_unix_nano: series.last_observed_at_unix_nano,
                 },
@@ -504,7 +552,10 @@ impl DetectorEngine {
             restored += 1;
         }
 
-        for counter in checkpoint.counters {
+        let mut counter_entries = checkpoint.counters;
+        counter_entries.sort_by(|left, right| right.timestamp.cmp(&left.timestamp));
+
+        for counter in counter_entries {
             if !fresh(counter.timestamp) {
                 continue;
             }
@@ -854,8 +905,18 @@ mod tests {
         let mut restored = DetectorEngine::new(cfg);
         assert_eq!(restored.restore_checkpoint(checkpoint, 23, u64::MAX), 1);
 
-        let cleared = restored
+        let clean_pending_clear = restored
             .evaluate_transition("series-a", 100.0, 23, SeriesProfile::default())
+            .expect("first clean verdict");
+        assert_eq!(clean_pending_clear.verdict.state, "clean");
+        assert_eq!(
+            clean_pending_clear.transition,
+            AnomalyTransition::None,
+            "a single clean slot should not clear an active anomaly"
+        );
+
+        let cleared = restored
+            .evaluate_transition("series-a", 100.0, 24, SeriesProfile::default())
             .expect("clear verdict");
         assert_eq!(cleared.verdict.state, "clean");
         assert_eq!(cleared.transition, AnomalyTransition::Clear);
@@ -943,6 +1004,52 @@ mod tests {
 
         assert_eq!(restored.restore_checkpoint(checkpoint, 4, u64::MAX), 0);
         assert_eq!(restored.counter_count(), 2);
+        assert!(!restored.counters.contains_key("c1"));
+        assert!(restored.counters.contains_key("c2"));
+        assert!(restored.counters.contains_key("c3"));
+    }
+
+    #[test]
+    fn restore_checkpoint_caps_series_state_by_freshness() {
+        let checkpoint = EngineCheckpoint {
+            series: vec![
+                SeriesCheckpoint {
+                    series_key: "oldest".to_string(),
+                    window_tail: vec![1.0],
+                    consecutive_anomalous: 0,
+                    consecutive_clean: 0,
+                    active_anomalous: false,
+                    last_observed_at_unix_nano: 1,
+                },
+                SeriesCheckpoint {
+                    series_key: "freshest".to_string(),
+                    window_tail: vec![3.0],
+                    consecutive_anomalous: 0,
+                    consecutive_clean: 0,
+                    active_anomalous: false,
+                    last_observed_at_unix_nano: 3,
+                },
+                SeriesCheckpoint {
+                    series_key: "middle".to_string(),
+                    window_tail: vec![2.0],
+                    consecutive_anomalous: 0,
+                    consecutive_clean: 0,
+                    active_anomalous: false,
+                    last_observed_at_unix_nano: 2,
+                },
+            ],
+            counters: Vec::new(),
+        };
+        let mut restored = DetectorEngine::new(EngineConfig {
+            max_series: 2,
+            ..EngineConfig::default()
+        });
+
+        assert_eq!(restored.restore_checkpoint(checkpoint, 4, u64::MAX), 2);
+        assert_eq!(restored.series_count(), 2);
+        assert!(!restored.series.contains_key("oldest"));
+        assert!(restored.series.contains_key("middle"));
+        assert!(restored.series.contains_key("freshest"));
     }
 
     #[test]

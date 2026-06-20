@@ -113,6 +113,10 @@ defmodule ServiceRadar.Observability.AnomalyConfigSeederTest do
 
     assert forecast_attrs.model == :linear
     assert forecast_attrs.warning_threshold_percent == 80.0
+
+    assert forecast_attrs.metric_class_overrides |> Map.keys() |> Enum.sort() ==
+             ["cpu", "disk", "flow", "interface", "memory"]
+
     assert Map.has_key?(forecast_attrs.metric_class_overrides, "interface")
   end
 

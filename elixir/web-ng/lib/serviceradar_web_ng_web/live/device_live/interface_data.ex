@@ -314,7 +314,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
 
     query =
       "in:snmp_metrics device_id:\"#{escape_value(device_uid)}\" if_index:#{if_index} " <>
-        "time:last_24h bucket:5m agg:max series:metric_name limit:#{@snmp_metrics_limit}"
+        "time:last_24h bucket:5m agg:rate series:metric_name limit:#{@snmp_metrics_limit}"
 
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => results} = response} when is_list(results) and results != [] ->
@@ -342,7 +342,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
         |> Map.put(:interface_label, "#{iface_name} (ifIndex: #{if_index})")
         |> Map.put(:max_speed_bytes_per_sec, max_speed)
         |> Map.put(:chart_mode, :combined)
-        |> Map.put(:rate_mode, :counter)
+        |> Map.put(:rate_mode, :rate)
 
       %{panel | assigns: assigns}
     end)
