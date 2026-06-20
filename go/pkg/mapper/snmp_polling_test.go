@@ -402,11 +402,58 @@ func TestFetchSystemVariables_ReturnsFatalBatchError(t *testing.T) {
 	assert.ErrorIs(t, err, ErrSNMPError)
 }
 
+func TestFetchSystemVariables_ReturnsNoDataForAuthorizationError(t *testing.T) {
+	t.Parallel()
+
+	_, err := fetchSystemVariables(func(_ []string) (*gosnmp.SnmpPacket, error) {
+		return &gosnmp.SnmpPacket{Error: gosnmp.AuthorizationError}, nil
+	}, []string{oidSysDescr})
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNoSNMPDataReturned)
+}
+
 func TestLLDPManagementAddressLinkKey(t *testing.T) {
 	t.Parallel()
 
 	oid := ".1.0.8802.1.1.2.1.4.2.1.3.100.25.7.1.4.192.168.1.87"
 	assert.Equal(t, "100.25.7", lldpManagementAddressLinkKey(oid))
+}
+
+func TestBridgeIfIndexByMACFromFDBPDUsRejectsAmbiguousMACPorts(t *testing.T) {
+	t.Parallel()
+
+	engine := &DiscoveryEngine{}
+	bridgePorts := map[int32]int32{
+		1: 7,
+		2: 8,
+		3: 9,
+	}
+	fdbPDUs := []gosnmp.SnmpPDU{
+		{
+			Name:  oidDot1dTpFdbPort + ".170.187.204.221.238.1",
+			Type:  gosnmp.Integer,
+			Value: 1,
+		},
+		{
+			Name:  oidDot1dTpFdbPort + ".170.187.204.221.238.1",
+			Type:  gosnmp.Integer,
+			Value: 2,
+		},
+		{
+			Name:  oidDot1dTpFdbPort + ".170.187.204.221.238.2",
+			Type:  gosnmp.Integer,
+			Value: 3,
+		},
+	}
+
+	bridgeIfByMAC, fdbMacCountByIf := engine.bridgeIfIndexByMACFromFDBPDUs(bridgePorts, fdbPDUs)
+
+	assert.NotContains(t, bridgeIfByMAC, "aabbccddee01")
+	assert.Equal(t, int32(9), bridgeIfByMAC["aabbccddee02"])
+	assert.Equal(t, 1, fdbMacCountByIf[7])
+	assert.Equal(t, 1, fdbMacCountByIf[8])
+	assert.Equal(t, 1, fdbMacCountByIf[9])
 }
 
 func TestProcessLLDPManagementAddressAssignsMatchingLink(t *testing.T) {
