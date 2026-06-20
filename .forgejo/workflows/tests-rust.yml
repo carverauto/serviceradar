@@ -1,6 +1,7 @@
 name: Rust Tests
 on:
   push:
+    branches: [staging]
     paths:
       - 'rust/rperf-client/**'
       - 'rust/rperf-server/**'
@@ -19,6 +20,30 @@ on:
       - 'scripts/ci/assert-netprobe-libpcap-free.sh'
       - 'scripts/ci/ensure-forgejo-tools.sh'
       - 'scripts/ci/install-sfw.sh'
+  pull_request:
+    branches: [staging]
+    paths:
+      - 'rust/rperf-client/**'
+      - 'rust/rperf-server/**'
+      - 'rust/trapd/**'
+      - 'rust/log-collector/**'
+      - 'rust/netprobe/**'
+      - 'rust/rdp-adapter/**'
+      - 'rust/rdp-connector-probe/**'
+      - 'rust/srql/**'
+      - 'build/platforms/**'
+      - 'build/rust/**'
+      - 'build/toolchains/**'
+      - '.bazelrc'
+      - '.forgejo/workflows/tests-rust.yml'
+      - 'MODULE.bazel'
+      - 'scripts/ci/assert-netprobe-libpcap-free.sh'
+      - 'scripts/ci/ensure-forgejo-tools.sh'
+      - 'scripts/ci/install-sfw.sh'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write

@@ -13,7 +13,16 @@
 # limitations under the License.
 
 name: lint
-on: [push, pull_request]
+on:
+  push:
+    branches: [staging]
+  pull_request:
+    branches: [staging]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: read
