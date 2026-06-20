@@ -76,6 +76,60 @@ func TestApplyResourceLimitsPlacesChildInCgroup(t *testing.T) {
 	}
 }
 
+func TestSystemdSliceCgroupPath(t *testing.T) {
+	tests := []struct {
+		name  string
+		slice string
+		want  string
+	}{
+		{
+			name:  "top level slice",
+			slice: "serviceradar-addons.slice",
+			want:  "/sys/fs/cgroup/serviceradar.slice/serviceradar-addons.slice",
+		},
+		{
+			name:  "nested slice",
+			slice: "serviceradar-addons-anomaly.slice",
+			want:  "/sys/fs/cgroup/serviceradar.slice/serviceradar-addons.slice/serviceradar-addons-anomaly.slice",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := systemdSliceCgroupPath(tt.slice)
+			if err != nil {
+				t.Fatalf("systemdSliceCgroupPath: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("systemdSliceCgroupPath(%q) = %q, want %q", tt.slice, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveAddonCgroupRootRequiresRootOrSlice(t *testing.T) {
+	_, err := resolveAddonCgroupRoot(Resources{MemoryMaxBytes: 64 << 20}, "")
+	if err == nil {
+		t.Fatalf("expected error for declared limits without root or slice")
+	}
+
+	got, err := resolveAddonCgroupRoot(Resources{MemoryMaxBytes: 64 << 20}, "/tmp/addons")
+	if err != nil {
+		t.Fatalf("resolve explicit root: %v", err)
+	}
+	if got != "/tmp/addons" {
+		t.Fatalf("explicit root = %q, want /tmp/addons", got)
+	}
+
+	got, err = resolveAddonCgroupRoot(Resources{MemoryMaxBytes: 64 << 20, Slice: "serviceradar-addons.slice"}, "/tmp/addons")
+	if err != nil {
+		t.Fatalf("resolve slice root: %v", err)
+	}
+	if got != "/sys/fs/cgroup/serviceradar.slice/serviceradar-addons.slice" {
+		t.Fatalf("slice root = %q, want serviceradar-addons.slice path", got)
+	}
+}
+
 func assertCgroupFile(t *testing.T, path, want string) {
 	t.Helper()
 	got, err := os.ReadFile(path)

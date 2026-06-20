@@ -66,6 +66,41 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitterTest do
     assert payload["capacity_forecast"]["status"] == "inactive"
   end
 
+  test "event identity ignores per-run forecast wall-clock fields" do
+    next_run =
+      Map.merge(@forecast, %{
+        forecasted_at: ~U[2026-06-12 12:05:00Z],
+        horizon_ends_at: ~U[2026-06-13 12:05:00Z],
+        window_started_at: ~U[2026-06-01 00:05:00Z],
+        window_ended_at: ~U[2026-06-02 23:05:00Z],
+        projected_exhaustion_at: ~U[2026-06-12 22:05:00Z]
+      })
+
+    first_payload = VerdictEmitter.payload(@forecast)
+    next_payload = VerdictEmitter.payload(next_run)
+
+    assert first_payload["event_id"] == next_payload["event_id"]
+    assert first_payload["finding_info"]["uid"] == next_payload["finding_info"]["uid"]
+    assert first_payload["timestamp"] != next_payload["timestamp"]
+
+    subject = VerdictEmitter.subject(@forecast)
+
+    first_row =
+      CausalSignals.parse_message(%{
+        data: Jason.encode!(first_payload),
+        metadata: %{subject: subject, received_at: @forecast.forecasted_at}
+      })
+
+    next_row =
+      CausalSignals.parse_message(%{
+        data: Jason.encode!(next_payload),
+        metadata: %{subject: subject, received_at: next_run.forecasted_at}
+      })
+
+    assert first_row.id == next_row.id
+    assert first_row.time != next_row.time
+  end
+
   test "payload routes through the existing causal signal processor" do
     subject = VerdictEmitter.subject(@forecast)
     payload = VerdictEmitter.payload(@forecast, subject)
