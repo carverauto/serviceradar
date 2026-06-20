@@ -31,7 +31,11 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
+    unique: [
+      period: :infinity,
+      states: [:available, :scheduled, :executing, :retryable],
+      keys: [:trigger]
+    ]
 
   alias ServiceRadar.Observability.AnomalyConfigRuntime
   alias ServiceRadar.Observability.CausalReasoner
@@ -114,18 +118,12 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   defp dispose_source(%Source{} = source, raw_rows, opts) do
     config = seasonal_config(source, opts)
 
-    rows =
-      raw_rows
-      |> Enum.map(&seasonal_row(&1, source, config))
-      |> Enum.reject(&is_nil/1)
-      |> Enum.map(&%{&1 | consecutive_anomalous: load_consecutive(source, &1, opts)})
-
-    case rows do
-      [] ->
+    case profile_rows(source, raw_rows, config, opts) do
+      {:ok, []} ->
         emit_source_telemetry(source, [], 0, :ok)
         :ok
 
-      rows ->
+      {:ok, rows} ->
         inputs = Enum.map(rows, &{:seasonal, %{config: config, row: row_struct(&1)}})
 
         case dispose_batch(inputs, opts) do
@@ -136,7 +134,86 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
             emit_source_error_telemetry(source, :nif, reason)
             {:error, reason}
         end
+
+      {:error, reason} ->
+        Logger.warning("Seasonal disposition profile rows missing required columns",
+          source: source.name,
+          reason: inspect(reason)
+        )
+
+        emit_source_error_telemetry(source, :profile, reason)
+        {:error, reason}
     end
+  end
+
+  defp profile_rows(%Source{} = source, raw_rows, config, opts) when is_list(raw_rows) do
+    rows =
+      raw_rows
+      |> Enum.map(&seasonal_row(&1, source, config))
+      |> Enum.reject(&is_nil/1)
+
+    cond do
+      rows != [] ->
+        {:ok, Enum.map(rows, &%{&1 | consecutive_anomalous: load_consecutive(source, &1, opts)})}
+
+      raw_rows == [] ->
+        {:ok, []}
+
+      true ->
+        {:error, {:seasonal_profile_columns_missing, missing_profile_fields(source, raw_rows)}}
+    end
+  end
+
+  defp missing_profile_fields(%Source{} = source, raw_rows) do
+    required_fields = required_profile_fields(source)
+
+    present_fields =
+      raw_rows
+      |> Enum.filter(&is_map/1)
+      |> Enum.flat_map(&Map.keys/1)
+      |> MapSet.new(&to_string/1)
+
+    Enum.reject(required_fields, &MapSet.member?(present_fields, &1))
+  end
+
+  defp required_profile_fields(%Source{robust_statistic: :mean_stddev} = source) do
+    [
+      source.series_field,
+      source.dow_field,
+      source.hod_field,
+      source.sample_field,
+      source.bucket_field,
+      source.count_field,
+      source.sum_field,
+      source.sum_sq_field
+    ]
+  end
+
+  defp required_profile_fields(%Source{robust_statistic: :median_mad} = source) do
+    [
+      source.series_field,
+      source.dow_field,
+      source.hod_field,
+      source.sample_field,
+      source.bucket_field,
+      source.count_field,
+      source.center_field,
+      source.mad_field
+    ]
+  end
+
+  defp required_profile_fields(%Source{robust_statistic: :p05p95} = source) do
+    [
+      source.series_field,
+      source.dow_field,
+      source.hod_field,
+      source.sample_field,
+      source.bucket_field,
+      source.count_field,
+      source.center_field,
+      source.p05_field,
+      source.p95_field
+    ]
   end
 
   defp handle_results(%Source{} = source, rows, results, config, nif_us, opts) do
@@ -278,7 +355,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
          series_key when is_binary(series_key) <- string_value(raw, source.series_field),
          dow when is_integer(dow) <- integer_value(raw, source.dow_field),
          hod when is_integer(hod) <- integer_value(raw, source.hod_field),
-         sample when is_number(sample) <- number_value(raw, source.sample_field) do
+         sample when is_number(sample) <- number_value(raw, source.sample_field),
+         %{} = profile <- profile_stats(raw, source) do
       bucket_started_at = datetime_value(raw, source.bucket_field)
 
       %{
@@ -286,19 +364,50 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
         dow: dow,
         hod: hod,
         sample_value: sample * 1.0,
-        bucket_count: integer_value(raw, source.count_field) || 0,
-        bucket_sum: number_value(raw, source.sum_field) || 0.0,
-        bucket_sum_sq: number_value(raw, source.sum_sq_field) || 0.0,
-        center: number_value(raw, source.center_field) || 0.0,
-        mad: number_value(raw, source.mad_field) || 0.0,
-        p05: number_value(raw, source.p05_field) || 0.0,
-        p95: number_value(raw, source.p95_field) || 0.0,
+        bucket_count: profile.bucket_count,
+        bucket_sum: Map.get(profile, :bucket_sum, 0.0),
+        bucket_sum_sq: Map.get(profile, :bucket_sum_sq, 0.0),
+        center: Map.get(profile, :center, 0.0),
+        mad: Map.get(profile, :mad, 0.0),
+        p05: Map.get(profile, :p05, 0.0),
+        p95: Map.get(profile, :p95, 0.0),
         label: label(raw, source, series_key),
         bucket_started_at: bucket_started_at,
         bucket_ended_at: bucket_ended_at(bucket_started_at),
         consecutive_anomalous: 0,
         baseline_excludes_latest: Source.robust?(source)
       }
+    else
+      _ -> nil
+    end
+  end
+
+  defp profile_stats(raw, %Source{robust_statistic: :mean_stddev} = source) do
+    with count when is_integer(count) <- integer_value(raw, source.count_field),
+         sum when is_number(sum) <- number_value(raw, source.sum_field),
+         sum_sq when is_number(sum_sq) <- number_value(raw, source.sum_sq_field) do
+      %{bucket_count: count, bucket_sum: sum * 1.0, bucket_sum_sq: sum_sq * 1.0}
+    else
+      _ -> nil
+    end
+  end
+
+  defp profile_stats(raw, %Source{robust_statistic: :median_mad} = source) do
+    with count when is_integer(count) <- integer_value(raw, source.count_field),
+         center when is_number(center) <- number_value(raw, source.center_field),
+         mad when is_number(mad) <- number_value(raw, source.mad_field) do
+      %{bucket_count: count, center: center * 1.0, mad: mad * 1.0}
+    else
+      _ -> nil
+    end
+  end
+
+  defp profile_stats(raw, %Source{robust_statistic: :p05p95} = source) do
+    with count when is_integer(count) <- integer_value(raw, source.count_field),
+         center when is_number(center) <- number_value(raw, source.center_field),
+         p05 when is_number(p05) <- number_value(raw, source.p05_field),
+         p95 when is_number(p95) <- number_value(raw, source.p95_field) do
+      %{bucket_count: count, center: center * 1.0, p05: p05 * 1.0, p95: p95 * 1.0}
     else
       _ -> nil
     end

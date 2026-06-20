@@ -38,6 +38,25 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     end
   end
 
+  defmodule FlowRunner do
+    @moduledoc false
+    @start ~U[2026-06-01 00:00:00Z]
+
+    def query(query, _opts) do
+      send(self(), {:capacity_forecast_query, query})
+
+      rows =
+        for hour <- 0..47 do
+          %{
+            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "bytes_total" => 500_000_000_000.0 + hour * 10_000_000_000.0
+          }
+        end
+
+      {:ok, rows}
+    end
+  end
+
   defmodule RecentRunner do
     @moduledoc false
     @start ~U[2026-06-10 13:00:00Z]
@@ -434,6 +453,57 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     interface_source = Enum.find(sources, &(&1.resource_type == "interface"))
     assert interface_source.metric_name == "utilization_percent"
     assert interface_source.threshold == 100.0
+
+    flow_source = Enum.find(sources, &(&1.resource_type == "flow"))
+    assert flow_source.name == "flow_bytes_per_hour"
+    assert flow_source.metric_name == "bytes_per_hour"
+    assert flow_source.value_field == "bytes_total"
+    assert flow_source.threshold == 1_000_000_000_000.0
+  end
+
+  test "runtime percent threshold does not override non-percent flow capacity source" do
+    AnomalyConfigRuntime.put_cache_for_test(%{
+      capacity_forecasting_opts: [
+        horizon_seconds: 12 * 3_600,
+        warning_threshold_percent: 75.0,
+        min_points: 24,
+        capacity_metric_class_overrides: %{}
+      ]
+    })
+
+    source = %Source{
+      name: "flow_bytes_per_hour",
+      resource_type: "flow",
+      metric_class: "flow",
+      metric_name: "bytes_per_hour",
+      query: "in:flows time:last_180d bucket:1h stats:sum(bytes_total) as bytes_total by bucket",
+      value_field: "bytes_total",
+      threshold: 1_000_000_000_000.0,
+      model: "linear"
+    }
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_flow, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{
+      args: %{"trigger" => "cron"},
+      inserted_at: @forecasted_at,
+      scheduled_at: @forecasted_at
+    }
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: FlowRunner,
+               upsert_fun: upsert_fun,
+               emit_verdicts?: false
+             )
+
+    assert_received {:capacity_forecast_flow, attrs}
+    assert attrs.metric_name == "bytes_per_hour"
+    assert attrs.exhaustion_threshold == 1_000_000_000_000.0
   end
 
   test "interface forecasts convert byte rates to utilization percent using live speed" do
@@ -481,7 +551,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert attrs.metadata["raw_value_unit"] == "bytes_per_second"
   end
 
-  test "interface forecasts drop SNMP counter-wrap spikes instead of projecting impossible utilization" do
+  test "interface forecasts insert a gap for SNMP counter-wrap spikes" do
     source = interface_source()
 
     resolver = fn _row, _opts ->
@@ -508,11 +578,14 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
 
     assert_received {:capacity_forecast_interface, attrs}
 
-    # With the wrap sample dropped, the projection stays in the real ~10% range — never an
-    # 8e8% value, and no millennia-out / past-dated exhaustion.
-    assert attrs.status == "projected"
-    assert attrs.projected_value < 100.0
-    assert attrs.current_value < 100.0
+    # The wrap bucket becomes a gap, so the model does not stitch together the
+    # pre-wrap and post-wrap segments as one continuous time series.
+    assert attrs.status == "skipped"
+    assert attrs.skip_reason == "insufficient_history"
+    assert attrs.sample_count == 23
+    assert attrs.current_value == nil
+    assert attrs.metadata["gap_count"] == 1
+    assert attrs.window_started_at == ~U[2026-06-02 01:00:00Z]
   end
 
   test "interface forecasts are skipped when live speed is missing" do
@@ -743,6 +816,48 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert_received {:capacity_forecast_outside_warning, attrs}
     assert attrs.status == "projected"
     assert attrs.projected_exhaustion_at
+    assert_received {:capacity_forecast_verdict, verdict_attrs}
+    assert verdict_attrs.status == "inactive"
+    assert verdict_attrs.resource_key == attrs.resource_key
+  end
+
+  test "worker clamps warning horizon to the forecast horizon for verdicts" do
+    source = %Source{
+      name: "cpu_usage",
+      resource_type: "cpu",
+      metric_class: "cpu",
+      metric_name: "usage_percent",
+      query: "in:cpu_metrics time:last_180d bucket:1h",
+      value_field: "avg_usage_percent",
+      key_fields: ["device_id", "host_id"],
+      label_fields: ["host_id", "device_id"],
+      threshold: 100.0,
+      model: "linear"
+    }
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_clamped_warning, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: RecentRunner,
+               upsert_fun: upsert_fun,
+               verdict_emitter: VerdictEmitter,
+               test_pid: self(),
+               horizon_seconds: 24 * 3_600,
+               warning_horizon_seconds: 48 * 3_600,
+               min_points: 24
+             )
+
+    assert_received {:capacity_forecast_clamped_warning, attrs}
+    assert attrs.status == "projected"
+    assert attrs.projected_exhaustion_at
+    assert DateTime.after?(attrs.projected_exhaustion_at, attrs.horizon_ends_at)
     assert_received {:capacity_forecast_verdict, verdict_attrs}
     assert verdict_attrs.status == "inactive"
     assert verdict_attrs.resource_key == attrs.resource_key
