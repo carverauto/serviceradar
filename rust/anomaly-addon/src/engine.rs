@@ -570,6 +570,10 @@ fn valid_counter_max_rate(max_counter_rate_per_second: Option<f64>) -> Option<f6
 }
 
 fn plausible_counter_delta(delta: f64, elapsed_seconds: f64, max_rate: Option<f64>) -> Option<f64> {
+    if elapsed_seconds <= 0.0 {
+        return None;
+    }
+
     if max_rate.is_some_and(|rate| delta / elapsed_seconds > rate) {
         return None;
     }
@@ -764,6 +768,14 @@ mod tests {
             .normalize_counter_with_max_rate("c", 10_100.0, 2_000_000_000, "b", 64, Some(100.0))
             .expect("rate");
         assert!((rate - 100.0).abs() < 1e-9, "rate was {rate}");
+    }
+
+    #[test]
+    fn plausible_counter_delta_rejects_non_positive_elapsed() {
+        assert_eq!(plausible_counter_delta(100.0, 0.0, None), None);
+        assert_eq!(plausible_counter_delta(100.0, -1.0, None), None);
+        assert_eq!(plausible_counter_delta(100.0, 0.0, Some(1_000.0)), None);
+        assert_eq!(plausible_counter_delta(100.0, -1.0, Some(1_000.0)), None);
     }
 
     #[test]
