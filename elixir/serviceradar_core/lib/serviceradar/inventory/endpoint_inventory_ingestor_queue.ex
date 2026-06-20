@@ -15,10 +15,11 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
   require Logger
 
   @default_ingest_timeout_ms 20_000
+  @timeout_reply_grace_ms 1_000
 
   defmodule Job do
     @moduledoc false
-    defstruct [:id, :payload, :opts, :reply_to, :enqueued_at]
+    defstruct [:id, :payload, :opts, :reply_to, :timeout_ms, :enqueued_at]
   end
 
   defmodule State do
@@ -39,13 +40,13 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
 
   @spec enqueue(map(), keyword()) :: enqueue_result()
   def enqueue(payload, opts \\ []) when is_map(payload) do
-    call_queue({:enqueue, payload, opts, :async}, admission_timeout_ms())
+    call_queue({:enqueue, payload, opts, :async, ingest_timeout_ms()}, admission_timeout_ms())
   end
 
   @spec enqueue_and_wait(map(), keyword(), timeout()) :: {:ok, map()} | {:error, term()}
   def enqueue_and_wait(payload, opts \\ [], timeout \\ ingest_timeout_ms())
       when is_map(payload) do
-    call_queue({:enqueue, payload, opts, :sync}, timeout)
+    call_queue({:enqueue, payload, opts, :sync, timeout}, queue_call_timeout(timeout))
   end
 
   @spec ingest_now(map(), keyword()) :: {:ok, map()} | {:error, term()}
@@ -64,7 +65,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
   end
 
   @impl true
-  def handle_call({:enqueue, payload, opts, mode}, from, state) do
+  def handle_call({:enqueue, payload, opts, mode, timeout_ms}, from, state) do
     if at_capacity?(state) do
       {:reply, {:error, :endpoint_inventory_ingest_queue_full}, state}
     else
@@ -73,6 +74,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
         payload: payload,
         opts: opts,
         reply_to: reply_to(mode, from),
+        timeout_ms: timeout_ms,
         enqueued_at: System.monotonic_time(:millisecond)
       }
 
@@ -97,7 +99,32 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
 
       {inflight_job, inflight} ->
         Process.demonitor(inflight_job.monitor_ref, [:flush])
+        cancel_timeout_timer(inflight_job.timeout_ref)
         reply(inflight_job.job, result)
+
+        state
+        |> Map.put(:inflight, inflight)
+        |> maybe_start_jobs()
+        |> then(&{:noreply, &1})
+    end
+  end
+
+  @impl true
+  def handle_info({:endpoint_inventory_ingest_timeout, job_id}, state) do
+    case Map.pop(state.inflight, job_id) do
+      {nil, _inflight} ->
+        {:noreply, state}
+
+      {inflight_job, inflight} ->
+        Process.demonitor(inflight_job.monitor_ref, [:flush])
+        Process.exit(inflight_job.pid, :kill)
+
+        Logger.warning("Endpoint inventory ingestion task timed out",
+          job_id: job_id,
+          timeout_ms: inspect(inflight_job.job.timeout_ms)
+        )
+
+        reply(inflight_job.job, {:error, :endpoint_inventory_ingest_queue_timeout})
 
         state
         |> Map.put(:inflight, inflight)
@@ -116,6 +143,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
         {:noreply, state}
 
       {inflight_job, inflight} ->
+        cancel_timeout_timer(inflight_job.timeout_ref)
+
         Logger.warning("Endpoint inventory ingestion task exited", reason: inspect(reason))
 
         reply(inflight_job.job, {:error, {:endpoint_inventory_ingest_task_exit, reason}})
@@ -134,6 +163,9 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
     :exit, {:noproc, _call} -> {:error, :endpoint_inventory_ingest_queue_unavailable}
     :exit, reason -> {:error, {:endpoint_inventory_ingest_queue_unavailable, reason}}
   end
+
+  defp queue_call_timeout(:infinity), do: :infinity
+  defp queue_call_timeout(timeout) when is_integer(timeout), do: timeout + @timeout_reply_grace_ms
 
   defp enqueue_job(%State{} = state, %Job{} = job) do
     %{
@@ -173,10 +205,13 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
 
     case start_task(task_fun) do
       {:ok, pid, monitor_ref} ->
+        timeout_ref = start_timeout_timer(job)
+
         put_in(state.inflight[job.id], %{
           job: job,
           pid: pid,
-          monitor_ref: monitor_ref
+          monitor_ref: monitor_ref,
+          timeout_ref: timeout_ref
         })
 
       {:error, reason} ->
@@ -188,6 +223,16 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
         state
     end
   end
+
+  defp start_timeout_timer(%Job{timeout_ms: :infinity}), do: nil
+
+  defp start_timeout_timer(%Job{id: job_id, timeout_ms: timeout_ms})
+       when is_integer(timeout_ms) and timeout_ms >= 0 do
+    Process.send_after(self(), {:endpoint_inventory_ingest_timeout, job_id}, timeout_ms)
+  end
+
+  defp cancel_timeout_timer(nil), do: :ok
+  defp cancel_timeout_timer(timer_ref), do: Process.cancel_timer(timer_ref)
 
   defp start_task(task_fun) do
     start_task_with_supervisor(task_fun)
