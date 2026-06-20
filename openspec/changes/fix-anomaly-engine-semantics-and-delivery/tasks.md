@@ -53,45 +53,45 @@
 - [ ] 9.5 Add Go tests for drain reconnect, breaker recovery, and stream-loss reporting.
 
 ## 10. Verdict Idempotency (F12)
-- [ ] 10.1 Remove per-run wall-clock time from capacity and seasonal `event_id`/finding identity.
+- [x] 10.1 Remove per-run wall-clock time from capacity and seasonal `event_id`/finding identity.
 - [ ] 10.2 Make edge verdict `time` deterministic from the producer epoch (depends on 4.1) so `(id, time)` dedup holds on redelivery.
 - [ ] 10.3 Add a dead-letter path or alert for JetStream `max_deliver` exhaustion.
 - [ ] 10.4 Add tests proving redelivery and repeated worker runs converge on one finding.
 
 ## 11. Identity Partition Scoping And Correlation (F13, F14)
-- [ ] 11.1 Incorporate attested `partition_id` into the canonical `series_key` / finding identity.
-- [ ] 11.2 Escape or hash free-form producer tag/host/IP values before splicing into delimited keys (core `series_key.ex` and edge `series_key_for`).
-- [ ] 11.3 Scope the `InterfaceCapacity` link-speed join by `partition_id`.
-- [ ] 11.4 Route re-keyed edge verdicts through the central emitters' subject sanitization.
+- [x] 11.1 Incorporate attested `partition_id` into the canonical `series_key` / finding identity.
+- [x] 11.2 Escape or hash free-form producer tag/host/IP values before splicing into delimited keys (core `series_key.ex` and edge `series_key_for`).
+- [x] 11.3 Scope the `InterfaceCapacity` link-speed join by `partition_id`.
+- [x] 11.4 Route re-keyed edge verdicts through the central emitters' subject sanitization.
 - [ ] 11.5 Add tests for partition scoping, key collision resistance, and edge↔central subject parity.
 
 ## 12. Seasonal Data Feed And Semantics (F15, blocker)
 - [ ] 12.1 Implement the `profile_hour_of_week` SRQL stats verb (or an equivalent bucket-profile query) producing `dow/hod/center/mad/p05/p95/bucket_count/bucket_sum/bucket_sum_sq`.
-- [ ] 12.2 Make the worker fail loudly with telemetry when the profiling query returns no profile columns.
-- [ ] 12.3 Emit seasonal clears; fix the zero-width bucket window (distinct started/ended).
+- [x] 12.2 Make the worker fail loudly with telemetry when the profiling query returns no profile columns.
+- [x] 12.3 Emit seasonal clears; fix the zero-width bucket window (distinct started/ended).
 - [ ] 12.4 Fix the Oban uniqueness key so per-run `evaluated_at` does not defeat dedup; align dow/hod bucketing to a configured time zone.
 - [ ] 12.5 Add an integration test that exercises the real SRQL path end-to-end (not mock rows).
 
 ## 13. Capacity Forecast Correctness (F16)
-- [ ] 13.1 Fix the flow-capacity source unit label and add a threshold so it can alert.
-- [ ] 13.2 Guard the Holt-Winters ETA against negative `slope_per_second`.
-- [ ] 13.3 Insert a gap marker instead of deleting interior points on counter wrap.
-- [ ] 13.4 Constrain `warning_horizon_seconds <= horizon_seconds`.
+- [x] 13.1 Fix the flow-capacity source unit label and add a threshold so it can alert.
+- [x] 13.2 Guard the Holt-Winters ETA against negative `slope_per_second`.
+- [x] 13.3 Insert a gap marker instead of deleting interior points on counter wrap.
+- [x] 13.4 Constrain `warning_horizon_seconds <= horizon_seconds`.
 
 ## 14. Detector Numeric Safety (F17)
 - [x] 14.1 Replace the unconditional zero-variance breach with a magnitude/floor-aware rule that does not fire for floor-less counter rates; widen the near-zero stddev guard beyond `f64::EPSILON`.
 - [x] 14.2 Make `sample_stats` defined for windows of length 0/1 (no NaN/inf/panic).
 - [x] 14.3 Keep Welford sample count consistent with logical samples (handle non-finite explicitly).
-- [ ] 14.4 Pin a `confirm_slots` definition shared by edge and central seasonal confirmation.
+- [x] 14.4 Pin a `confirm_slots` definition shared by edge and central seasonal confirmation.
 
 ## 15. Config Reconciliation (F18)
-- [ ] 15.1 Decide and document the role of `window_duration_seconds` for the count-based edge window (map or scope away).
-- [ ] 15.2 Remove or correctly map the `mem` runtime alias to a real tier/gauge class.
-- [ ] 15.3 Align edge 32-bit counter-wrap salvage (modulus / unknown `counter_width`) with central's per-sample-max behavior.
+- [x] 15.1 Decide and document the role of `window_duration_seconds` for the count-based edge window (map or scope away).
+- [x] 15.2 Remove or correctly map the `mem` runtime alias to a real tier/gauge class.
+- [x] 15.3 Align edge 32-bit counter-wrap salvage (modulus / unknown `counter_width`) with central's per-sample-max behavior.
 
 ## 16. Operability (F19)
 - [ ] 16.1 Add a scoring-liveness/health surface (verdict throughput, tracked-series vs cap, last-scored time).
-- [ ] 16.2 Emit a signal when cgroup resource enforcement is absent or a limit write failed.
+- [x] 16.2 Emit a signal when cgroup resource enforcement is absent or a limit write failed.
 
 ## 17. Performance At Scale (F20, extends F8)
 - [ ] 17.1 Batch causal-prediction inserts (`insert_all` + `ON CONFLICT DO NOTHING`); drop the per-row existence SELECT.
@@ -104,8 +104,8 @@
 - [x] 18.2 F21: make the Rust `AddonConfig` deserializer coerce empty/absent optional knobs to defaults instead of rejecting `""` ("invalid type: string, expected u64").
 - [x] 18.3 F21: add a migration/repair to clear empty-string params already persisted for mis-seeded agents (`agent-k8s-cp2-worker1`, `k8s-agent`) and recover their `circuit_open` add-ons.
 - [x] 18.4 F22: make the add-on `Shutdown` return promptly (abort the scoring task, close the feed) so the manager stops SIGKILLing it; test that stop completes within the grace window.
-- [ ] 18.5 F23: place the add-on in `serviceradar-addons.slice` with the declared `memory.max`/`tasks.max`, and emit a health signal when enforcement is absent (ties F19).
-- [ ] 18.6 F24: unify device identity (uid + hostname) and series-key host component across sysmon and SNMP edge findings on the canonical re-key path (ties F4/F13).
+- [x] 18.5 F23: place the add-on in `serviceradar-addons.slice` with the declared `memory.max`/`tasks.max`, and emit a health signal when enforcement is absent (ties F19).
+- [x] 18.6 F24: unify device identity (uid + hostname) and series-key host component across sysmon and SNMP edge findings on the canonical re-key path (ties F4/F13).
 - [ ] 18.7 Add an end-to-end smoke test that fires `sysmon.debug_spike` and asserts one open finding (not one-per-sample-per-core), sample-time `time`, and coherent device identity.
 
 ## 19. Device-Details Panel Performance (F25)
@@ -122,9 +122,9 @@
 - [ ] 20.5 Label capacity with units/metric-type/threshold/headroom; hide or aggregate `skipped` rows; reconcile the metric_class row label vs the RED chip bucketing.
 
 ## 21. SNMP Anomaly Target Attribution (F27)
-- [ ] 21.1 Edge: prefer `resource.target_device_ip` for non-self SNMP polls when choosing `device_uid`/`series_key` (`addon.rs:857-862`).
-- [ ] 21.2 Core: for `snmp_target_poll?` rows, set the leading `device_uid` resolution candidate to the target (not the agent host) (`causal_signals.ex:1356-1357`).
-- [ ] 21.3 Emit `target_device_ip` at a stable top-level/anomaly path, not only under `source_identity`; add a regression test for resolved device_uid on an SNMP poll.
+- [x] 21.1 Edge: prefer `resource.target_device_ip` for non-self SNMP polls when choosing `device_uid`/`series_key` (`addon.rs:857-862`).
+- [x] 21.2 Core: for `snmp_target_poll?` rows, set the leading `device_uid` resolution candidate to the target (not the agent host) (`causal_signals.ex:1356-1357`).
+- [x] 21.3 Emit `target_device_ip` at a stable top-level/anomaly path, not only under `source_identity`; add a regression test for resolved device_uid on an SNMP poll.
 - [ ] 21.4 Once attribution is correct, scope the web-ng device-finding query by canonical device/series instead of `agent_id`-first.
 
 ## 22. Metric Chart Fidelity (F28)

@@ -6,6 +6,7 @@ defmodule ServiceRadar.StatusHandlerTest do
   alias Serviceradar.Agent.Addon.V1.TelemetryBatch
   alias Serviceradar.Agent.Addon.V1.TelemetryRecord
   alias Serviceradar.Agent.Addon.V1.TelemetrySource
+  alias ServiceRadar.Observability.CausalPredictionSubject
   alias ServiceRadar.StatusHandler
 
   setup do
@@ -387,18 +388,22 @@ defmodule ServiceRadar.StatusHandlerTest do
     test "re-keys an edge verdict to the canonical series_key from source_identity (§3.4b)" do
       source_identity = %{
         "series_key" => "edge-hint-provisional",
-        "metric_class" => "sysmon.cpu",
-        "metric_name" => "cpu.usage_percent",
+        "metric_class" => "snmp.if_octets",
+        "metric_name" => "ifHCInOctets",
         "agent_id" => "host-a",
         "host_id" => "",
-        "tags" => %{"core_id" => "0"}
+        "target_device_ip" => "10.0.0.20",
+        "partition" => "spoofed-partition",
+        "if_index" => 7,
+        "tags" => %{"if_alias" => "core *> uplink"}
       }
 
       # The canonical key derived from attested identity differs from the producer hint, so a
       # passing assertion proves the re-key actually happened (not a pass-through).
       canonical =
         ServiceRadar.Observability.AnomalyDetection.SeriesKey.from_source_identity(
-          source_identity
+          source_identity,
+          partition_id: "prod-east"
         )
 
       refute canonical == "edge-hint-provisional"
@@ -462,13 +467,20 @@ defmodule ServiceRadar.StatusHandlerTest do
       assert {:noreply, %{}} = StatusHandler.handle_cast({:status_update, status}, %{})
 
       assert_receive {:published, subject, payload}
-      assert String.starts_with?(subject, "signals.causal.predictions.")
+      assert subject == CausalPredictionSubject.build(canonical)
+      refute subject =~ ".10.0.0.20"
+      refute subject =~ "*"
+      refute subject =~ ">"
+      refute subject =~ " "
 
       assert {:ok, decoded} = Jason.decode(payload)
       # Persisted under the canonical key (both the anomaly block and the carried
       # source_identity), not the provisional producer hint.
       assert get_in(decoded, ["anomaly", "series_key"]) == canonical
       assert get_in(decoded, ["source_identity", "series_key"]) == canonical
+      assert decoded["source_identity"]["partition"] == "spoofed-partition"
+      assert canonical =~ "partition=#{Base.encode16("prod-east", case: :lower)}"
+      refute canonical =~ Base.encode16("spoofed-partition", case: :lower)
     end
 
     test "drops a metric body mislabeled as an OCSF event instead of publishing it to the events plane" do

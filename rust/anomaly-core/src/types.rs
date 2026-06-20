@@ -57,6 +57,10 @@ pub struct ReasonContext {
     pub n_sigma: Option<f64>,
     pub seasonal_n_sigma: Option<f64>,
     pub trend_n_sigma: Option<f64>,
+    /// Consecutive completed evaluation slots that must breach before the detector
+    /// reports `anomalous`. `confirm_slots = N` means the first `N - 1` breaching
+    /// slots are `pending_anomaly`, the Nth breaching slot confirms, and any clean
+    /// slot resets the pending count to zero.
     pub confirm_slots: Option<usize>,
     pub consecutive_anomalous: Option<usize>,
     /// Absolute dispersion floor (metric units) applied before the z-score
