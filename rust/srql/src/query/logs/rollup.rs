@@ -150,6 +150,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: Some("severity".to_string()),
+            other: false,
             include_deleted: false,
         };
 
@@ -193,6 +194,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: Some("severity".to_string()),
+            other: false,
             include_deleted: false,
         };
 
@@ -222,6 +224,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: Some("unknown".to_string()),
+            other: false,
             include_deleted: false,
         };
 
