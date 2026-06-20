@@ -80,6 +80,7 @@ pub struct QueryAst {
     pub downsample: Option<DownsampleSpec>,
     /// Rollup stats type for querying pre-computed CAGGs (e.g., "severity", "summary", "availability")
     pub rollup_stats: Option<String>,
+    pub other: bool,
 }
 
 /// Parsed stats specification with structured aggregation info
@@ -228,6 +229,7 @@ pub fn parse(input: &str) -> Result<QueryAst> {
     let mut downsample_series: Option<String> = None;
     let mut downsample_value_field: Option<String> = None;
     let mut rollup_stats: Option<String> = None;
+    let mut other = false;
 
     let mut tokens = tokenize(input).into_iter().peekable();
     while let Some(token) = tokens.next() {
@@ -363,6 +365,9 @@ pub fn parse(input: &str) -> Result<QueryAst> {
                 }
                 rollup_stats = Some(stat_type);
             }
+            "other" => {
+                other = parse_bool_flag(value.as_scalar()?, "other")?;
+            }
             "window" | "bounded" | "mode" => {
                 // Aggregations and streaming hints are ignored for now.
                 continue;
@@ -400,7 +405,18 @@ pub fn parse(input: &str) -> Result<QueryAst> {
         stats,
         downsample,
         rollup_stats,
+        other,
     })
+}
+
+fn parse_bool_flag(raw: &str, key: &str) -> Result<bool> {
+    match raw.trim().to_lowercase().as_str() {
+        "true" | "1" | "yes" => Ok(true),
+        "false" | "0" | "no" => Ok(false),
+        other => Err(ServiceError::InvalidRequest(format!(
+            "{key} expects boolean true/false, got '{other}'"
+        ))),
+    }
 }
 
 fn parse_entity(raw: &str) -> Result<Entity> {
@@ -1232,6 +1248,24 @@ mod tests {
         assert_eq!(stats.aggregations.len(), 2);
         assert_eq!(stats.aggregations[0].alias, "bytes_total");
         assert_eq!(stats.aggregations[1].alias, "packets_total");
+    }
+
+    #[test]
+    fn parses_other_rollup_flag() {
+        let ast = parse(
+            "in:flows stats:sum(bytes_total) as bytes_total by src_endpoint_ip sort:bytes_total:desc limit:10 other:true",
+        )
+        .unwrap();
+
+        assert!(ast.other);
+    }
+
+    #[test]
+    fn rejects_invalid_other_rollup_flag() {
+        let err =
+            parse("in:flows stats:count() as total by src_endpoint_ip other:maybe").unwrap_err();
+
+        assert!(matches!(err, ServiceError::InvalidRequest(_)));
     }
 
     #[test]

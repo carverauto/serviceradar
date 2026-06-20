@@ -343,6 +343,7 @@ mod tests {
             stats: None,
             downsample: None,
             rollup_stats: None,
+            other: false,
             include_deleted: false,
         }
     }
@@ -364,6 +365,7 @@ mod tests {
             stats: ast.stats,
             downsample: ast.downsample,
             rollup_stats: ast.rollup_stats,
+            other: false,
             include_deleted: false,
         };
 
