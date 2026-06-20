@@ -41,11 +41,13 @@ type metricFeedPublication struct {
 }
 
 type metricFeedLifecycle struct {
-	parent  context.Context
-	addonID string
-	client  coreaddon.MetricFeedClient
-	sources map[string]struct{}
-	logger  zerolog.Logger
+	parent                  context.Context
+	addonID                 string
+	client                  coreaddon.MetricFeedClient
+	sources                 map[string]struct{}
+	logger                  zerolog.Logger
+	initialReconnectBackoff time.Duration
+	maxReconnectBackoff     time.Duration
 
 	queue chan metricFeedPublication
 
@@ -60,6 +62,8 @@ func newMetricFeedLifecycle(
 	client coreaddon.MetricFeedClient,
 	sources []string,
 	logger zerolog.Logger,
+	initialReconnectBackoff time.Duration,
+	maxReconnectBackoff time.Duration,
 ) *metricFeedLifecycle {
 	normalized := make(map[string]struct{}, len(sources))
 	for _, source := range sources {
@@ -69,12 +73,14 @@ func newMetricFeedLifecycle(
 	}
 
 	return &metricFeedLifecycle{
-		parent:  parent,
-		addonID: addonID,
-		client:  client,
-		sources: normalized,
-		logger:  logger,
-		queue:   make(chan metricFeedPublication, defaultMetricFeedQueueDepth),
+		parent:                  parent,
+		addonID:                 addonID,
+		client:                  client,
+		sources:                 normalized,
+		logger:                  logger,
+		initialReconnectBackoff: initialReconnectBackoff,
+		maxReconnectBackoff:     maxReconnectBackoff,
+		queue:                   make(chan metricFeedPublication, defaultMetricFeedQueueDepth),
 	}
 }
 
@@ -162,15 +168,61 @@ func (l *metricFeedLifecycle) publish(source string, payload []byte) bool {
 }
 
 func (l *metricFeedLifecycle) run(ctx context.Context) {
-	frames, acks, err := l.client.StreamMetricFeed(ctx)
-	if err != nil {
-		l.logger.Warn().Err(err).Str("addon", l.addonID).Msg("addon metric feed stream failed to open")
-		return
+	attempt := 0
+	diagnostics := streamDiagnostics(l.client)
+
+	for ctx.Err() == nil {
+		frames, acks, err := l.client.StreamMetricFeed(ctx)
+		if err != nil {
+			delay := nextStreamReconnectDelay(attempt, l.initialReconnectBackoff, l.maxReconnectBackoff)
+			l.logger.Warn().Err(err).Str("addon", l.addonID).Dur("retry_after", delay).Msg("addon metric feed stream failed to open")
+			if !waitStreamReconnect(ctx, delay) {
+				return
+			}
+			attempt++
+			continue
+		}
+
+		stop, delivered := l.runStream(ctx, frames, acks)
+		if stop {
+			return
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		if delivered {
+			attempt = 0
+		}
+
+		delay := nextStreamReconnectDelay(attempt, l.initialReconnectBackoff, l.maxReconnectBackoff)
+		diagnostic := readStreamDiagnostic(diagnostics)
+		event := l.logger.Warn().
+			Str("addon", l.addonID).
+			Str("stream", "metric_feed").
+			Str("stream_end", string(diagnostic.Kind)).
+			Dur("retry_after", delay)
+		if diagnostic.Err != nil {
+			event = event.Err(diagnostic.Err)
+		}
+		event.Msg("addon metric feed stream closed; reconnecting")
+		if !waitStreamReconnect(ctx, delay) {
+			return
+		}
+		attempt++
 	}
+}
+
+func (l *metricFeedLifecycle) runStream(
+	ctx context.Context,
+	frames chan<- *addonpb.MetricFeedFrame,
+	acks <-chan uint64,
+) (bool, bool) {
 	defer close(frames)
 
 	var acked atomic.Uint64
+	ackClosed := make(chan struct{})
 	go func() {
+		defer close(ackClosed)
 		for {
 			select {
 			case <-ctx.Done():
@@ -185,16 +237,21 @@ func (l *metricFeedLifecycle) run(ctx context.Context) {
 	}()
 
 	var seq uint64
+	delivered := false
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return true, delivered
+		case <-ackClosed:
+			return false, delivered
 		case publication := <-l.queue:
 			nextID := seq + 1
 			for nextID-acked.Load() > defaultMetricFeedMaxInFlight {
 				select {
 				case <-ctx.Done():
-					return
+					return true, delivered
+				case <-ackClosed:
+					return false, delivered
 				case <-time.After(metricFeedPollInterval):
 				}
 			}
@@ -213,9 +270,12 @@ func (l *metricFeedLifecycle) run(ctx context.Context) {
 
 			select {
 			case <-ctx.Done():
-				return
+				return true, delivered
+			case <-ackClosed:
+				return false, delivered
 			case frames <- frame:
 				seq = nextID
+				delivered = true
 			}
 		}
 	}

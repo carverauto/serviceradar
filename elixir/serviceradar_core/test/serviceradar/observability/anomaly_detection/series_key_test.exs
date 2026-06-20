@@ -85,6 +85,25 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKeyTest do
       refute key =~ hex("spoofed")
     end
 
+    test "same source identity stays isolated across partitions" do
+      source_identity = %{
+        "metric_class" => "snmp.if_octets",
+        "metric_name" => "ifHCInOctets",
+        "target_device_ip" => "10.0.0.20",
+        "if_index" => 7,
+        "tags" => %{"if_alias" => "core-uplink"}
+      }
+
+      prod_key = SeriesKey.from_source_identity(source_identity, partition_id: "prod-east")
+      lab_key = SeriesKey.from_source_identity(source_identity, partition_id: "lab-west")
+
+      refute prod_key == lab_key
+      assert prod_key =~ "partition=#{hex("prod-east")}"
+      assert lab_key =~ "partition=#{hex("lab-west")}"
+      assert prod_key =~ "identity=#{hex("10.0.0.20")}"
+      assert lab_key =~ "identity=#{hex("10.0.0.20")}"
+    end
+
     test "free-form delimiters cannot collide or leak raw into canonical keys" do
       first = %{
         "metric_class" => "sysmon.cpu",
@@ -109,6 +128,40 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKeyTest do
       refute first_key =~ "prod:east"
       refute first_key =~ "host:a"
       refute second_key =~ "east:host:a:b"
+    end
+
+    test "component names and hex values make delimiter-shaped producer values collision resistant" do
+      split_components = %{
+        "metric_class" => "sysmon.cpu",
+        "metric_name" => "cpu.usage_percent",
+        "partition" => "tenant:a",
+        "device_id" => "host",
+        "tags" => %{"core_id" => "b:c"}
+      }
+
+      shifted_delimiters = %{
+        "metric_class" => "sysmon.cpu",
+        "metric_name" => "cpu.usage_percent",
+        "partition" => "tenant",
+        "device_id" => "a:host:b",
+        "tags" => %{"core_id" => "c"}
+      }
+
+      first_key = SeriesKey.from_source_identity(split_components)
+      second_key = SeriesKey.from_source_identity(shifted_delimiters)
+
+      refute first_key == second_key
+      assert first_key =~ "partition=#{hex("tenant:a")}"
+      assert first_key =~ "identity=#{hex("host")}"
+      assert first_key =~ "tag_#{hex("core_id")}=#{hex("b:c")}"
+      assert second_key =~ "partition=#{hex("tenant")}"
+      assert second_key =~ "identity=#{hex("a:host:b")}"
+      assert second_key =~ "tag_#{hex("core_id")}=#{hex("c")}"
+
+      for raw <- ["tenant:a", "a:host:b", "b:c"] do
+        refute first_key =~ raw
+        refute second_key =~ raw
+      end
     end
   end
 

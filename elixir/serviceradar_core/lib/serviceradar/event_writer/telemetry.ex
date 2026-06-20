@@ -50,13 +50,39 @@ defmodule ServiceRadar.EventWriter.Telemetry do
   Emits a per-message ack/nack result. `duration` is native monotonic time.
   """
   @spec emit_ack(atom(), :ok | :error, non_neg_integer() | nil, String.t() | nil) :: :ok
-  def emit_ack(action, result, duration, subject) when action in [:ack, :nack] do
+  def emit_ack(action, result, duration, subject) when action in [:ack, :nack, :term] do
     measurements = maybe_put(%{count: 1}, :duration, duration)
 
     :telemetry.execute(
       [:serviceradar, :event_writer, :ack],
       measurements,
       %{action: action, result: result, subject_class: subject_class(subject)}
+    )
+
+    :ok
+  end
+
+  @doc """
+  Emits a terminal delivery event before EventWriter sends `+TERM`.
+  """
+  @spec emit_dead_letter(map()) :: :ok
+  def emit_dead_letter(metadata) when is_map(metadata) do
+    delivery_count = non_negative(metadata[:delivery_count])
+    max_deliver = non_negative(metadata[:max_deliver])
+
+    :telemetry.execute(
+      [:serviceradar, :event_writer, :dead_letter],
+      %{
+        count: 1,
+        delivery_count: delivery_count,
+        max_deliver: max_deliver
+      },
+      %{
+        subject_class: subject_class(metadata[:subject]),
+        stream: metadata[:stream] || "unknown",
+        consumer: metadata[:consumer] || "unknown",
+        reason_class: metadata[:reason_class] || "error"
+      }
     )
 
     :ok
@@ -135,6 +161,7 @@ defmodule ServiceRadar.EventWriter.Telemetry do
       String.starts_with?(subject, "falco.") -> "falco"
       String.starts_with?(subject, "trivy.") -> "trivy"
       String.starts_with?(subject, "sweep.") -> "sweep"
+      String.starts_with?(subject, "signals.causal.") -> "causal"
       String.starts_with?(subject, "causal.") -> "causal"
       subject == "" -> "unknown"
       true -> "other"

@@ -440,6 +440,19 @@ CREATE TABLE timeseries_metrics (
     PRIMARY KEY (timestamp, gateway_id, series_key)
 );
 
+DROP TABLE IF EXISTS timeseries_metrics_hourly;
+CREATE TABLE timeseries_metrics_hourly (
+    bucket       TIMESTAMPTZ NOT NULL,
+    device_id    TEXT,
+    metric_type  TEXT        NOT NULL,
+    metric_name  TEXT        NOT NULL,
+    avg_value    FLOAT8,
+    min_value    FLOAT8,
+    max_value    FLOAT8,
+    sample_count BIGINT      NOT NULL,
+    PRIMARY KEY (bucket, device_id, metric_type, metric_name)
+);
+
 DROP TABLE IF EXISTS cpu_metrics;
 CREATE TABLE cpu_metrics (
     timestamp     TIMESTAMPTZ NOT NULL,
