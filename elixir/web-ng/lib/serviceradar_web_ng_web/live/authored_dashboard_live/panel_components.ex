@@ -170,8 +170,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
 
   def render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:stat, "stat", :count, "count"] do
     value =
-      bound_value(assigns.rows, assigns.panel, "value_field") ||
-        stat_value(assigns.rows, assigns.fields)
+      stat_value(assigns.rows, assigns.fields, assigns.panel)
 
     assigns =
       assigns
@@ -569,19 +568,40 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
 
   defp value_at_path(value, _path), do: value
 
-  defp stat_value([row | _], fields) do
-    key = first_numeric_field(fields)
-    if key, do: Map.get(row, key)
+  defp stat_value(rows, _fields, panel) when is_list(rows) do
+    binding = panel.data_binding || %{}
+    value_field = binding["value_field"]
+    aggregate = binding["aggregate"] || default_stat_aggregate(panel)
+
+    values =
+      rows
+      |> Enum.map(fn row -> numeric(Map.get(row, value_field)) end)
+      |> Enum.reject(&is_nil/1)
+
+    cond do
+      value_field in [nil, ""] -> first_numeric_value(rows)
+      aggregate == "count" -> length(rows)
+      values == [] -> first_numeric_value(rows)
+      true -> aggregate_values(values, aggregate)
+    end
   end
 
-  defp stat_value(_rows, _fields), do: "No data"
+  defp stat_value(_rows, _fields, _panel), do: "No data"
 
-  defp bound_value([row | _], panel, key) do
-    field = binding_value(panel, key)
-    if is_binary(field) and field != "", do: Map.get(row, field)
+  defp first_numeric_value([row | rows]) do
+    row
+    |> Map.values()
+    |> Enum.find_value(fn value -> numeric(value) end)
+    |> case do
+      nil -> first_numeric_value(rows)
+      value -> value
+    end
   end
 
-  defp bound_value(_rows, _panel, _key), do: nil
+  defp first_numeric_value(_rows), do: nil
+
+  defp default_stat_aggregate(%{visual_type: type}) when type in [:count, "count"], do: "count"
+  defp default_stat_aggregate(_panel), do: "sum"
 
   defp pivot_data(rows, panel, fields) do
     binding = panel.data_binding || %{}
@@ -742,13 +762,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
     case panel.display_config || %{} do
       %{^key => value} when is_binary(value) and value != "" -> value
       _ -> fallback
-    end
-  end
-
-  defp binding_value(panel, key) do
-    case panel.data_binding || %{} do
-      %{^key => value} when is_binary(value) -> value
-      _ -> nil
     end
   end
 

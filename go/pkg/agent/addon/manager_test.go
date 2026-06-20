@@ -173,6 +173,40 @@ func TestManagerLaunchesConfiguresAndSupervises(t *testing.T) {
 	}
 }
 
+func TestManagerSurfacesResourceLimitEnforcementFailure(t *testing.T) {
+	requireSampleAddon(t)
+
+	mgr := NewManager(testConfig(t))
+	t.Cleanup(func() { stopManager(t, mgr) })
+
+	err := mgr.Apply(context.Background(), []Spec{{
+		ID:         "sample",
+		Version:    "0.1.0",
+		BinaryPath: sampleAddonBin,
+		ConfigJSON: []byte(`{"message":"hi"}`),
+		Resources: Resources{
+			MemoryMaxBytes: 64 << 20,
+			TasksMax:       16,
+		},
+	}})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	s := waitForState(t, mgr, "sample", 15*time.Second)
+	if s.ResourceLimitErr == "" {
+		t.Fatalf("expected resource limit enforcement error in status, got %+v", s)
+	}
+
+	protoStatuses := ToProtoStatuses([]Status{s})
+	if len(protoStatuses) != 1 {
+		t.Fatalf("expected one proto status, got %d", len(protoStatuses))
+	}
+	if got := protoStatuses[0].GetLastError(); !strings.Contains(got, "resource limits not enforced") {
+		t.Fatalf("expected resource warning in proto last_error, got %q", got)
+	}
+}
+
 func TestManagerKeepsLegacyAddonNonTelemetry(t *testing.T) {
 	requireSampleAddon(t)
 
