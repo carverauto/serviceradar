@@ -1488,6 +1488,41 @@ func TestUpdateInterfaceFromOID(t *testing.T) {
 	}
 }
 
+func TestProcessIfXTablePDUUpdatesNamesAliasAndHighSpeed(t *testing.T) {
+	engine := &DiscoveryEngine{logger: logger.NewTestLogger()}
+	ifMap := map[int]*DiscoveredInterface{
+		7: {
+			IfIndex: 7,
+		},
+	}
+
+	pdus := []gosnmp.SnmpPDU{
+		{
+			Name:  oidIfName + ".7",
+			Type:  gosnmp.OctetString,
+			Value: []byte("xe-0/0/7"),
+		},
+		{
+			Name:  oidIfAlias + ".7",
+			Type:  gosnmp.OctetString,
+			Value: []byte("Backbone uplink"),
+		},
+		{
+			Name:  oidIfHighSpeed + ".7",
+			Type:  gosnmp.Gauge32,
+			Value: uint(10_000),
+		},
+	}
+
+	for _, pdu := range pdus {
+		require.NoError(t, engine.processIfXTablePDU(pdu, ifMap))
+	}
+
+	assert.Equal(t, "xe-0/0/7", ifMap[7].IfName)
+	assert.Equal(t, "Backbone uplink", ifMap[7].IfAlias)
+	assert.Equal(t, uint64(10_000_000_000), ifMap[7].IfSpeed)
+}
+
 func TestHandleIPAdEntIfIndex(t *testing.T) {
 	tests := []struct {
 		name        string

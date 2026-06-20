@@ -223,7 +223,7 @@
 - [ ] 40.3 (ops, separate) Resolve the failing CNPG scheduled base backup (Longhorn throughput) so there is a recovery point.
 
 ## 42. Mapper SNMP Discovery (F47)
-- [ ] 42.1 Dispatch ifXTable PDUs through `updateInterfaceFromOID` so ifName/ifAlias populate (not just ifHighSpeed); add a synthetic-ifXTable test.
+- [x] 42.1 Dispatch ifXTable PDUs through `updateInterfaceFromOID` so ifName/ifAlias populate (not just ifHighSpeed); add a synthetic-ifXTable test.
 - [x] 42.2 Connect the SNMP client exactly once per target (drop the double `Connect()`); verify FDs are released; add a leak test.
 - [x] 42.3 Fix FDB MAC-to-port last-walked collapse; return `ErrNoSNMPDataReturned` for wrong-community; implement or remove `selectDensePortNeighbors`; make worker-result send not undercount progress.
 
