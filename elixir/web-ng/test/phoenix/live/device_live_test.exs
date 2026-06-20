@@ -1567,13 +1567,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "normal"
   end
 
-  test "sysmon metric sections carry anomaly annotations and selected finding marker" do
+  test "sysmon metric sections carry section-level anomaly annotations and selected finding marker" do
     section = %{
       key: "cpu",
       panels: [
         %{
           id: "cpu",
-          assigns: %{series_points: [{"CPU0", []}, {"CPU1", []}]}
+          assigns: %{series_points: [{"usage_percent", []}]}
         }
       ]
     }
@@ -1596,13 +1596,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
                dt: "2026-06-19T12:05:00Z",
                label: "Selected: CPU saturation anomaly",
                severity: "High",
-               series: "CPU1"
+               series: nil
              },
              %{
                dt: "2026-06-19T12:05:00Z",
                label: "CPU saturation anomaly",
                severity: "High",
-               series: "CPU1"
+               series: nil
              }
            ] = assigns.annotations
   end
