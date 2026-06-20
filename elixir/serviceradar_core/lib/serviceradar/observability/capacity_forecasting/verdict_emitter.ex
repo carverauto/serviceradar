@@ -4,8 +4,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitter do
   """
 
   alias ServiceRadar.NATS.Connection
+  alias ServiceRadar.Observability.CausalPredictionSubject
 
-  @subject_root "signals.causal.predictions"
   @event_type "capacity_forecast"
   @provider "capacity_forecasting"
 
@@ -117,7 +117,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitter do
 
   @spec subject(map()) :: String.t()
   def subject(attrs) when is_map(attrs) do
-    "#{@subject_root}.#{subject_token(Map.get(attrs, :resource_key) || @event_type)}"
+    CausalPredictionSubject.build(Map.get(attrs, :resource_key), @event_type)
   end
 
   @spec event_id(map()) :: String.t()
@@ -125,10 +125,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitter do
     Enum.map_join(
       [
         @event_type,
-        iso8601(Map.get(attrs, :forecasted_at)),
-        Map.get(attrs, :resource_key),
-        Map.get(attrs, :metric_name),
-        Map.get(attrs, :horizon_seconds)
+        finding_uid(attrs)
       ],
       ":",
       &string_value/1
@@ -230,15 +227,6 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitter do
       4 -> 75
       3 -> 55
       2 -> 20
-    end
-  end
-
-  defp subject_token(value) do
-    value
-    |> string_value()
-    |> case do
-      nil -> @event_type
-      value -> String.replace(value, ~r/[.\s*>]/, "_")
     end
   end
 

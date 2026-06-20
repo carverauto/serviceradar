@@ -55,11 +55,12 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.DashboardVariables do
       |> List.wrap()
       |> Map.new(fn variable -> {variable.name, variable} end)
 
-    query
-    |> Regex.replace(~r/(["'])\$\{([a-zA-Z][a-zA-Z0-9_-]*)\}\1/, fn _match, _quote, name ->
-      replacement_value(name, values, variable_map)
-    end)
-    |> Regex.replace(~r/\$\{([a-zA-Z][a-zA-Z0-9_-]*)\}/, fn _match, name ->
+    query =
+      Regex.replace(~r/(["'])\$\{([a-zA-Z][a-zA-Z0-9_-]*)\}\1/, query, fn
+        _match, _quote, name -> replacement_value(name, values, variable_map)
+      end)
+
+    Regex.replace(~r/\$\{([a-zA-Z][a-zA-Z0-9_-]*)\}/, query, fn _match, name ->
       replacement_value(name, values, variable_map)
     end)
   end

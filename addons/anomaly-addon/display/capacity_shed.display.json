@@ -27,6 +27,7 @@
         {"label": "Dropped This Frame", "path": "unmapped.dropped_series_delta"},
         {"label": "Dropped Total", "path": "unmapped.dropped_series_total"},
         {"label": "Tracked Series", "path": "unmapped.tracked_series"},
+        {"label": "Tracked Counters", "path": "unmapped.tracked_counters"},
         {"label": "Max Series", "path": "unmapped.max_series"}
       ]
     },

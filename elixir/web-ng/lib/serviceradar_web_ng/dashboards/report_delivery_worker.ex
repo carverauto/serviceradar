@@ -24,6 +24,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportDeliveryWorker do
   require Logger
 
   @preview_limit 100
+  @aggregate_preview_limit 10_000
   @max_report_panels 20
 
   @impl Oban.Worker
@@ -87,7 +88,13 @@ defmodule ServiceRadarWebNG.Dashboards.ReportDeliveryWorker do
 
     panel_results =
       Enum.map(panels, fn panel ->
-        {panel, Dashboards.preview_authored_query(system_scope, panel.srql_query, limit: @preview_limit)}
+        limit = panel_preview_limit(panel)
+
+        {panel,
+         Dashboards.preview_authored_query(system_scope, panel.srql_query,
+           limit: limit,
+           max_limit: limit
+         )}
       end)
 
     {:ok,
@@ -380,6 +387,11 @@ defmodule ServiceRadarWebNG.Dashboards.ReportDeliveryWorker do
       {_panel, {:error, _reason}}, acc -> acc
     end)
   end
+
+  defp panel_preview_limit(%{visual_type: visual_type})
+       when visual_type in [:stat, "stat", :count, "count", :pivot, "pivot"], do: @aggregate_preview_limit
+
+  defp panel_preview_limit(_panel), do: @preview_limit
 
   defp system_actor, do: SystemActor.system(:dashboard_report_delivery)
 
