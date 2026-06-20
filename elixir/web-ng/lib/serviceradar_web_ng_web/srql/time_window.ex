@@ -161,31 +161,32 @@ defmodule ServiceRadarWebNGWeb.SRQL.TimeWindow do
     end
   end
 
-  defp scrub_quoted_segments(value), do: scrub_quoted_segments(value, false, false, [])
+  defp scrub_quoted_segments(value), do: scrub_quoted_segments(value, nil, false, [])
 
-  defp scrub_quoted_segments(<<>>, _quoted?, _escaped?, acc), do: acc |> Enum.reverse() |> IO.iodata_to_binary()
+  defp scrub_quoted_segments(<<>>, _quote_char, _escaped?, acc), do: acc |> Enum.reverse() |> IO.iodata_to_binary()
 
-  defp scrub_quoted_segments(<<"\\", rest::binary>>, true, false, acc) do
-    scrub_quoted_segments(rest, true, true, [" " | acc])
+  defp scrub_quoted_segments(<<"\\", rest::binary>>, quote_char, false, acc) when quote_char in [?", ?'] do
+    scrub_quoted_segments(rest, quote_char, true, [" " | acc])
   end
 
-  defp scrub_quoted_segments(<<_char::utf8, rest::binary>>, true, true, acc) do
-    scrub_quoted_segments(rest, true, false, [" " | acc])
+  defp scrub_quoted_segments(<<_char::utf8, rest::binary>>, quote_char, true, acc) when quote_char in [?", ?'] do
+    scrub_quoted_segments(rest, quote_char, false, [" " | acc])
   end
 
-  defp scrub_quoted_segments(<<"\"", rest::binary>>, false, false, acc) do
-    scrub_quoted_segments(rest, true, false, [" " | acc])
+  defp scrub_quoted_segments(<<char::utf8, rest::binary>>, nil, false, acc) when char in [?", ?'] do
+    scrub_quoted_segments(rest, char, false, [" " | acc])
   end
 
-  defp scrub_quoted_segments(<<"\"", rest::binary>>, true, false, acc) do
-    scrub_quoted_segments(rest, false, false, [" " | acc])
+  defp scrub_quoted_segments(<<char::utf8, rest::binary>>, quote_char, false, acc)
+       when quote_char in [?", ?'] and char == quote_char do
+    scrub_quoted_segments(rest, nil, false, [" " | acc])
   end
 
-  defp scrub_quoted_segments(<<_char::utf8, rest::binary>>, true, false, acc) do
-    scrub_quoted_segments(rest, true, false, [" " | acc])
+  defp scrub_quoted_segments(<<_char::utf8, rest::binary>>, quote_char, false, acc) when quote_char in [?", ?'] do
+    scrub_quoted_segments(rest, quote_char, false, [" " | acc])
   end
 
-  defp scrub_quoted_segments(<<char::utf8, rest::binary>>, false, false, acc) do
-    scrub_quoted_segments(rest, false, false, [<<char::utf8>> | acc])
+  defp scrub_quoted_segments(<<char::utf8, rest::binary>>, nil, false, acc) do
+    scrub_quoted_segments(rest, nil, false, [<<char::utf8>> | acc])
   end
 end
