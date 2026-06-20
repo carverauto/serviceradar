@@ -44,9 +44,12 @@ Key settings:
   Lower values catch smaller changes and can increase false positives.
 - **Window size**: maximum number of samples retained for the rolling baseline.
   Increase it for stable metrics with long periodic behavior; decrease it for
-  metrics that legitimately shift quickly.
-- **Window duration**: target wall-clock span represented by the rolling window.
-  Keep this aligned with the sampling cadence for the metric class.
+  metrics that legitimately shift quickly. Edge spike scoring is count-based:
+  the native add-on receives `window_size`, not a wall-clock duration.
+- **Core target duration**: target wall-clock span for operator cadence and
+  baseline-planning metadata in the central settings model. It is not sent to
+  the edge add-on; keep it aligned with the intended sampling cadence so future
+  central workflows and documentation reflect the same baseline horizon.
 - **Confirm slots**: consecutive anomalous slots required before a finding is
   emitted. Increase this for bursty signals; decrease it for signals where
   delayed detection is worse than occasional noise.

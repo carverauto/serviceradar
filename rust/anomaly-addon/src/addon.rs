@@ -12,7 +12,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use addon_sdk::metric_pb::{
-    Metric, MetricBatch, MetricKind, MetricPoint, MetricResource, MetricTemporality,
+    Metric, MetricBatch, MetricKind, MetricPoint, MetricResource, MetricTemporality, StringMapEntry,
 };
 use addon_sdk::pb::{MetricFeedAck, MetricFeedFrame, TelemetryBatch, TelemetryRecord};
 use addon_sdk::{
@@ -445,12 +445,13 @@ async fn process_frame(
                 let series_key = series_key_for(&resource, metric, point);
 
                 let value = if counter {
-                    match engine.normalize_counter(
+                    match engine.normalize_counter_with_max_rate(
                         &series_key,
                         counter_raw_value(point),
                         point.observed_at_unix_nano,
                         &counter_reset_anchor(point),
-                        metric.counter_width,
+                        counter_width(metric, point),
+                        max_counter_rate_per_second(metric, point),
                     ) {
                         Some(rate) => rate,
                         // Warmup / reset / gap / non-monotonic: no sample this point.
@@ -741,6 +742,59 @@ fn counter_reset_anchor(point: &MetricPoint) -> String {
     } else {
         point.reset_anchor.clone()
     }
+}
+
+/// Counter width can arrive as the typed metric field or as legacy metadata keys.
+/// Preserve central's old metadata fallback so a zero proto field does not
+/// silently suppress otherwise-corroborated 32-bit wrap handling.
+fn counter_width(metric: &Metric, point: &MetricPoint) -> u32 {
+    if metric.counter_width > 0 {
+        return metric.counter_width;
+    }
+
+    metadata_u32_value(point, &["counter_width", "counter_bits", "pdu_width"])
+        .or_else(|| metadata_u32_value(metric, &["counter_width", "counter_bits", "pdu_width"]))
+        .unwrap_or(0)
+}
+
+fn max_counter_rate_per_second(metric: &Metric, point: &MetricPoint) -> Option<f64> {
+    metadata_f64_value(point, &["max_counter_rate_per_second"])
+        .or_else(|| metadata_f64_value(metric, &["max_counter_rate_per_second"]))
+        .filter(|rate| rate.is_finite() && *rate > 0.0)
+}
+
+trait MetadataEntries {
+    fn metadata_entries(&self) -> &[StringMapEntry];
+}
+
+impl MetadataEntries for Metric {
+    fn metadata_entries(&self) -> &[StringMapEntry] {
+        &self.metadata
+    }
+}
+
+impl MetadataEntries for MetricPoint {
+    fn metadata_entries(&self) -> &[StringMapEntry] {
+        &self.metadata
+    }
+}
+
+fn metadata_u32_value(source: &impl MetadataEntries, keys: &[&str]) -> Option<u32> {
+    metadata_entry_value(source, keys).and_then(|value| value.parse::<u32>().ok())
+}
+
+fn metadata_f64_value(source: &impl MetadataEntries, keys: &[&str]) -> Option<f64> {
+    metadata_entry_value(source, keys).and_then(|value| value.parse::<f64>().ok())
+}
+
+fn metadata_entry_value<'a>(source: &'a impl MetadataEntries, keys: &[&str]) -> Option<&'a str> {
+    keys.iter().find_map(|key| {
+        source
+            .metadata_entries()
+            .iter()
+            .find(|entry| entry.key == *key)
+            .map(|entry| entry.value.as_str())
+    })
 }
 
 fn series_key_for(resource: &MetricResource, metric: &Metric, point: &MetricPoint) -> String {
@@ -1130,6 +1184,50 @@ mod tests {
             metric_type: metric_type.to_string(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn counter_width_prefers_typed_metric_field() {
+        let metric = Metric {
+            counter_width: 64,
+            metadata: vec![entry("counter_width", "32")],
+            ..Default::default()
+        };
+
+        assert_eq!(counter_width(&metric, &MetricPoint::default()), 64);
+    }
+
+    #[test]
+    fn counter_width_falls_back_to_point_then_metric_metadata() {
+        let metric = Metric {
+            metadata: vec![entry("counter_bits", "64")],
+            ..Default::default()
+        };
+        let point = MetricPoint {
+            metadata: vec![entry("pdu_width", "32")],
+            ..Default::default()
+        };
+
+        assert_eq!(counter_width(&metric, &point), 32);
+        assert_eq!(counter_width(&metric, &MetricPoint::default()), 64);
+    }
+
+    #[test]
+    fn max_counter_rate_uses_point_metadata_before_metric_metadata() {
+        let metric = Metric {
+            metadata: vec![entry("max_counter_rate_per_second", "1000")],
+            ..Default::default()
+        };
+        let point = MetricPoint {
+            metadata: vec![entry("max_counter_rate_per_second", "250")],
+            ..Default::default()
+        };
+
+        assert_eq!(max_counter_rate_per_second(&metric, &point), Some(250.0));
+        assert_eq!(
+            max_counter_rate_per_second(&metric, &MetricPoint::default()),
+            Some(1000.0)
+        );
     }
 
     fn anomaly_metric_batch(value: f64, observed_at_unix_nano: u64) -> MetricBatch {
