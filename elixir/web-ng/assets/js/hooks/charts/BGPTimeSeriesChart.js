@@ -1,6 +1,7 @@
 import * as d3 from "d3"
 
 import {ensureTooltip, escapeHtml} from "../../netflow_charts/util"
+import {yGridTicks} from "../../utils/chart_axis_grid"
 
 export function bgpSeriesValue(row, asNumber) {
   const raw = row?.values?.[asNumber]
@@ -8,6 +9,21 @@ export function bgpSeriesValue(row, asNumber) {
 
   const value = Number(raw)
   return Number.isFinite(value) ? value : null
+}
+
+export function isolatedSeriesPoints(values) {
+  if (!Array.isArray(values)) return []
+
+  return values
+    .map((value, index) => ({value, index}))
+    .filter(({value, index}) => {
+      if (value === null || value === undefined) return false
+
+      const previous = values[index - 1] ?? null
+      const next = values[index + 1] ?? null
+
+      return previous === null && next === null
+    })
 }
 
 export default {
@@ -60,11 +76,26 @@ export default {
       .range([height, 0])
 
     const color = d3.scaleOrdinal(d3.schemeCategory10)
+    const yTicks = yGridTicks(y, 4)
 
     svg
       .append("g")
       .attr("transform", `translate(0,${height})`)
       .call(d3.axisBottom(x))
+
+    svg
+      .append("g")
+      .attr("pointer-events", "none")
+      .selectAll("line")
+      .data(yTicks)
+      .join("line")
+      .attr("x1", 0)
+      .attr("x2", width)
+      .attr("y1", (d) => y(d))
+      .attr("y2", (d) => y(d))
+      .attr("stroke", "currentColor")
+      .attr("stroke-opacity", 0.12)
+      .attr("stroke-width", 1)
 
     svg.append("g").call(d3.axisLeft(y))
 
@@ -76,14 +107,28 @@ export default {
 
     series.forEach((as_number) => {
       const values = data.map((d) => bgpSeriesValue(d, as_number))
+      const seriesColor = color(as_number)
 
       svg
         .append("path")
         .datum(values)
         .attr("fill", "none")
-        .attr("stroke", color(as_number))
+        .attr("stroke", seriesColor)
         .attr("stroke-width", 2)
         .attr("d", line)
+
+      svg
+        .append("g")
+        .attr("aria-hidden", "true")
+        .selectAll("circle")
+        .data(isolatedSeriesPoints(values))
+        .join("circle")
+        .attr("cx", (d) => x(times[d.index]))
+        .attr("cy", (d) => y(d.value))
+        .attr("r", 2.5)
+        .attr("fill", seriesColor)
+        .attr("stroke", "currentColor")
+        .attr("stroke-width", 1)
 
       const legend = svg
         .append("g")
