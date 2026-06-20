@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
   attr :overview, :map, required: true
   attr :detail, :map, default: nil
+  attr :device_uid, :string, default: nil
+  attr :device_display_name, :string, default: nil
 
   def anomaly_capacity_section(assigns) do
     ~H"""
@@ -87,6 +89,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                         </span>
                         <span :if={anomaly_value_label(row)}>{anomaly_value_label(row)}</span>
                         <span :if={anomaly_score_label(row)}>{anomaly_score_label(row)}</span>
+                        <span
+                          :if={source_device_label(row, @device_uid, @device_display_name)}
+                          title={source_device_title(row, @device_uid, @device_display_name)}
+                        >
+                          {source_device_label(row, @device_uid, @device_display_name)}
+                        </span>
                         <span>{format_timestamp(value(row, "time"))}</span>
                       </div>
                     </div>
@@ -142,8 +150,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                       phx-value-kind="capacity"
                       phx-value-index={index}
                     >
-                      <td class="max-w-48 truncate" title={resource_title(row)}>
-                        {resource_label(row)}
+                      <td
+                        class="max-w-48 truncate"
+                        title={resource_title(row, @device_uid, @device_display_name)}
+                      >
+                        {resource_label(row, @device_uid, @device_display_name)}
                       </td>
                       <td title={capacity_metric_title(row)}>
                         <div class="whitespace-nowrap">{capacity_metric_label(row)}</div>
@@ -185,7 +196,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
         </div>
       </section>
 
-      <.anomaly_capacity_detail_modal detail={@detail} />
+      <.anomaly_capacity_detail_modal
+        detail={@detail}
+        device_uid={@device_uid}
+        device_display_name={@device_display_name}
+      />
     </div>
     """
   end
@@ -209,6 +224,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   end
 
   attr :detail, :map, default: nil
+  attr :device_uid, :string, default: nil
+  attr :device_display_name, :string, default: nil
 
   defp anomaly_capacity_detail_modal(%{detail: nil} = assigns) do
     ~H"""
@@ -225,7 +242,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
               {detail_kind_label(@detail.kind)}
             </div>
             <h3 class="mt-1 break-words text-lg font-semibold [overflow-wrap:anywhere]">
-              {detail_title(@detail)}
+              {detail_title(@detail, @device_uid, @device_display_name)}
             </h3>
           </div>
           <button
@@ -242,7 +259,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
           <.detail_item label="Severity / Status" value={detail_status(@detail)} />
           <.detail_item label="Interface" value={detail_interface(@detail)} />
           <.detail_item label="Value / Score" value={detail_value_score(@detail)} />
-          <.detail_item label="Resource" value={detail_resource(@detail)} />
+          <.detail_item
+            label="Resource"
+            value={detail_resource(@detail, @device_uid, @device_display_name)}
+          />
           <.detail_item label="Series" value={detail_series(@detail)} />
           <.detail_item label="Observed" value={detail_time(@detail)} />
           <.detail_item label="Confidence" value={detail_confidence(@detail)} />
@@ -453,6 +473,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
     ])
   end
 
+  defp source_device_label(row, device_uid, device_display_name) do
+    row
+    |> source_device_uid()
+    |> friendly_device_label(device_uid, device_display_name)
+  end
+
+  defp source_device_title(row, device_uid, device_display_name) do
+    row
+    |> source_device_uid()
+    |> friendly_device_title(device_uid, device_display_name)
+  end
+
   defp metric_class_label(row) do
     row
     |> metric_class()
@@ -488,17 +520,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
     end
   end
 
-  defp resource_label(row) do
+  defp resource_label(row, device_uid, device_display_name) do
     value(row, "resource_label") ||
+      friendly_device_label(value(row, "resource_id"), device_uid, device_display_name) ||
       value(row, "resource_key") ||
       value(row, "resource_id") ||
       "resource"
   end
 
-  defp resource_title(row) do
+  defp resource_title(row, device_uid, device_display_name) do
     [
       value(row, "resource_label"),
-      value(row, "resource_id"),
+      friendly_device_title(value(row, "resource_id"), device_uid, device_display_name),
       value(row, "resource_key")
     ]
     |> Enum.reject(&blank?/1)
@@ -579,9 +612,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   defp detail_kind_label("capacity"), do: "Capacity forecast"
   defp detail_kind_label(_), do: "Anomaly finding"
 
-  defp detail_title(%{kind: "capacity", row: row}), do: resource_label(row)
-  defp detail_title(%{row: row}), do: finding_title(row)
-  defp detail_title(_), do: "Detail"
+  defp detail_title(detail, device_uid, device_display_name)
+
+  defp detail_title(%{kind: "capacity", row: row}, device_uid, device_display_name) do
+    resource_label(row, device_uid, device_display_name)
+  end
+
+  defp detail_title(%{row: row}, _device_uid, _device_display_name), do: finding_title(row)
+  defp detail_title(_detail, _device_uid, _device_display_name), do: "Detail"
 
   defp detail_metric(%{kind: "capacity", row: row}), do: capacity_metric_title(row)
   defp detail_metric(%{row: row}), do: finding_metric_name(row) || metric_class_label(row)
@@ -616,9 +654,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
   defp detail_value_score(_), do: nil
 
-  defp detail_resource(%{kind: "capacity", row: row}), do: resource_title(row)
-  defp detail_resource(%{row: row}), do: source_device_uid(row)
-  defp detail_resource(_), do: nil
+  defp detail_resource(detail, device_uid, device_display_name)
+
+  defp detail_resource(%{kind: "capacity", row: row}, device_uid, device_display_name) do
+    resource_title(row, device_uid, device_display_name)
+  end
+
+  defp detail_resource(%{row: row}, device_uid, device_display_name) do
+    source_device_title(row, device_uid, device_display_name) || source_device_uid(row)
+  end
+
+  defp detail_resource(_detail, _device_uid, _device_display_name), do: nil
 
   defp detail_series(%{kind: "capacity", row: row}), do: value(row, "resource_key")
   defp detail_series(%{row: row}), do: series_key(row)
@@ -805,6 +851,29 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   defp known_atom_key("unit"), do: :unit
   defp known_atom_key("verdict"), do: :verdict
   defp known_atom_key(_), do: nil
+
+  defp friendly_device_label(value, device_uid, device_display_name) do
+    if same_device?(value, device_uid) and present?(device_display_name) and device_display_name != device_uid do
+      device_display_name
+    end
+  end
+
+  defp friendly_device_title(value, device_uid, device_display_name) do
+    cond do
+      same_device?(value, device_uid) and present?(device_display_name) and device_display_name != device_uid ->
+        "#{device_display_name} (#{device_uid})"
+
+      present?(value) ->
+        to_string(value)
+
+      true ->
+        nil
+    end
+  end
+
+  defp same_device?(value, device_uid) do
+    present?(value) and present?(device_uid) and to_string(value) == device_uid
+  end
 
   defp present?(value), do: not blank?(value)
 

@@ -1,16 +1,50 @@
 import * as d3 from "d3"
 
 import {
-  attachTimeTooltip as nfAttachTimeTooltip,
   buildLegend as nfBuildLegend,
   chartDims as nfChartDims,
   clearSVG as nfClearSVG,
   colorScale as nfColorScale,
+  ensureTooltip as nfEnsureTooltip,
   ensureSVG as nfEnsureSVG,
+  escapeHtml as nfEscapeHtml,
   normalizeTimeSeries as nfNormalizeTimeSeries,
   parseSeriesData as nfParseSeriesData,
 } from "../../netflow_charts/util"
+import {yGridTicks} from "../../utils/chart_axis_grid"
 import {nfFormatRateValue} from "../../utils/formatters"
+
+export function gridPanelAtPointer(clientX, clientY, rect, geometry) {
+  const widthScale = Number(geometry.viewBoxWidth || rect.width || 1) / Math.max(1, Number(rect.width || 1))
+  const heightScale = Number(geometry.viewBoxHeight || rect.height || 1) / Math.max(1, Number(rect.height || 1))
+  const rootX = (Number(clientX || 0) - Number(rect.left || 0)) * widthScale - Number(geometry.marginLeft || 0)
+  const rootY = (Number(clientY || 0) - Number(rect.top || 0)) * heightScale - Number(geometry.marginTop || 0)
+  const stepX = Number(geometry.cellWidth || 0) + Number(geometry.pad || 0)
+  const stepY = Number(geometry.cellHeight || 0) + Number(geometry.pad || 0)
+
+  if (stepX <= 0 || stepY <= 0 || rootX < 0 || rootY < 0) return null
+
+  const col = Math.floor(rootX / stepX)
+  const row = Math.floor(rootY / stepY)
+  const localX = rootX - col * stepX
+  const localY = rootY - row * stepY
+
+  if (
+    col < 0 ||
+    row < 0 ||
+    col >= Number(geometry.cols || 0) ||
+    row >= Number(geometry.rows || 0) ||
+    localX < 0 ||
+    localY < 0 ||
+    localX > Number(geometry.cellWidth || 0) ||
+    localY > Number(geometry.cellHeight || 0)
+  ) {
+    return null
+  }
+
+  const index = row * Number(geometry.cols || 0) + col
+  return index < Number(geometry.count || 0) ? {index, row, col, localX, localY, rootX, rootY} : null
+}
 
 export default {
   mounted() {
@@ -77,6 +111,8 @@ export default {
       this._render()
     })
 
+    const panelStates = []
+
     for (let i = 0; i < n; i += 1) {
       const k = visibleKeys[i]
       const c = i % cols
@@ -99,6 +135,33 @@ export default {
       const px = d3.scaleTime().domain(d3.extent(data, (d) => d.t)).range([10, cw - 10])
       const maxY = d3.max(data, (d) => d[k]) || 1
       const py = d3.scaleLinear().domain([0, maxY]).nice().range([ch - 18, 18])
+      const yTicks = yGridTicks(py, 3)
+
+      const grid = panel.append("g").attr("pointer-events", "none")
+
+      grid
+        .selectAll("line")
+        .data(yTicks)
+        .join("line")
+        .attr("x1", 10)
+        .attr("x2", cw - 10)
+        .attr("y1", (d) => py(d))
+        .attr("y2", (d) => py(d))
+        .attr("stroke", "currentColor")
+        .attr("stroke-opacity", 0.12)
+        .attr("stroke-width", 1)
+
+      grid
+        .selectAll("text")
+        .data(yTicks)
+        .join("text")
+        .attr("x", 8)
+        .attr("y", (d) => py(d) + 3)
+        .attr("text-anchor", "end")
+        .attr("font-size", 8)
+        .attr("fill", "currentColor")
+        .attr("opacity", 0.55)
+        .text((d) => nfFormatRateValue(el.dataset.units, d))
 
       const ln = d3
         .line()
@@ -123,19 +186,98 @@ export default {
         .attr("opacity", 0.75)
         .attr("fill", "currentColor")
         .text(String(k).length > 18 ? `${String(k).slice(0, 15)}...` : String(k))
+
+      const hover = panel.append("g").attr("pointer-events", "none").style("display", "none")
+
+      hover
+        .append("line")
+        .attr("y1", 0)
+        .attr("y2", ch)
+        .attr("stroke", "currentColor")
+        .attr("stroke-opacity", 0.35)
+        .attr("stroke-width", 1)
+        .attr("stroke-dasharray", "3,3")
+
+      hover
+        .append("circle")
+        .attr("r", 3)
+        .attr("fill", color(k))
+        .attr("stroke", "currentColor")
+        .attr("stroke-width", 1)
+
+      panelStates.push({key: k, px, py, hover})
     }
 
-    // Shared tooltip across all series (matches other time-series charts).
-    const x = d3.scaleTime().domain(d3.extent(data, (d) => d.t)).range([0, iw])
     try {
       this._tooltipCleanup?.()
     } catch (_e) {}
-    this._tooltipCleanup = nfAttachTimeTooltip(el, {
-      data,
-      keys: visibleKeys,
-      x,
-      valueAt: (row, k) => row?.[k] || 0,
-      formatValue: (v) => nfFormatRateValue(el.dataset.units, v),
-    })
+
+    const tooltip = nfEnsureTooltip(el)
+    const bisect = d3.bisector((d) => d.t).center
+    const hideTooltip = () => {
+      tooltip.classList.add("hidden")
+      for (const state of panelStates) state.hover.style("display", "none")
+    }
+
+    const onMove = (event) => {
+      const rect = el.getBoundingClientRect()
+      const hit = gridPanelAtPointer(event.clientX, event.clientY, rect, {
+        viewBoxWidth: width,
+        viewBoxHeight: height,
+        marginLeft: m.left,
+        marginTop: m.top,
+        cellWidth: cw,
+        cellHeight: ch,
+        pad,
+        cols,
+        rows,
+        count: n,
+      })
+
+      if (!hit) {
+        hideTooltip()
+        return
+      }
+
+      const state = panelStates[hit.index]
+      const t = state.px.invert(Math.max(10, Math.min(cw - 10, hit.localX)))
+      const row = data[bisect(data, t)]
+      if (!row) {
+        hideTooltip()
+        return
+      }
+
+      for (const candidate of panelStates) candidate.hover.style("display", "none")
+
+      const x = state.px(row.t)
+      const y = state.py(row[state.key] || 0)
+      state.hover.style("display", null)
+      state.hover.select("line").attr("x1", x).attr("x2", x)
+      state.hover.select("circle").attr("cx", x).attr("cy", y)
+
+      tooltip.innerHTML = `<div class="flex items-center justify-between gap-3"><span>${nfEscapeHtml(
+        state.key
+      )}</span><span class="font-mono">${nfEscapeHtml(
+        nfFormatRateValue(el.dataset.units, row[state.key] || 0)
+      )}</span></div><div class="mt-1 text-[10px] text-base-content/60 font-mono">${nfEscapeHtml(
+        row.t instanceof Date ? row.t.toISOString() : String(row.t || "")
+      )}</div>`
+      tooltip.classList.remove("hidden")
+
+      const padPx = 8
+      const ttRect = tooltip.getBoundingClientRect()
+      const panelX = m.left + hit.col * (cw + pad) + x
+      const panelY = m.top + hit.row * (ch + pad) + y
+      const maxLeft = rect.width - (ttRect.width || 180) - padPx
+      tooltip.style.left = `${Math.max(padPx, Math.min(maxLeft, panelX + 12))}px`
+      tooltip.style.top = `${Math.max(padPx, Math.min(rect.height - 48, panelY - 12))}px`
+    }
+
+    el.addEventListener("mousemove", onMove)
+    el.addEventListener("mouseleave", hideTooltip)
+    this._tooltipCleanup = () => {
+      el.removeEventListener("mousemove", onMove)
+      el.removeEventListener("mouseleave", hideTooltip)
+    }
   },
 }
