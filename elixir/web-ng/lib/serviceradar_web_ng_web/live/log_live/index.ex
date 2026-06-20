@@ -21,6 +21,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadar.ReferenceData.ServicePorts
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.MetricSeries
+  alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
   alias ServiceRadarWebNGWeb.NetflowVisualize.Query, as: NFQuery
   alias ServiceRadarWebNGWeb.NetflowVisualize.State, as: NFState
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
@@ -829,7 +830,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     if ip in ["", "—", "-"] do
       nil
     else
-      query = Ash.Query.for_read(IpRdnsCache, :by_ip, %{ip: ip})
+      now = DateTime.utc_now()
+
+      query =
+        IpRdnsCache
+        |> Ash.Query.for_read(:by_ip, %{ip: ip})
+        |> EnrichmentExpiry.live(now)
 
       case Ash.read_one(query, actor: user) do
         {:ok, record} -> record
@@ -915,7 +921,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     if ip in ["", "—", "-"] do
       nil
     else
-      query = Ash.Query.for_read(IpGeoEnrichmentCache, :by_ip, %{ip: ip})
+      now = DateTime.utc_now()
+
+      query =
+        IpGeoEnrichmentCache
+        |> Ash.Query.for_read(:by_ip, %{ip: ip})
+        |> EnrichmentExpiry.live(now)
 
       case Ash.read_one(query, actor: user) do
         {:ok, record} -> record
@@ -8000,10 +8011,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp rdns_map_for_ips([], _user), do: %{}
 
   defp rdns_map_for_ips(ips, user) when is_list(ips) do
+    now = DateTime.utc_now()
+
     query =
       IpRdnsCache
       |> Ash.Query.for_read(:read, %{})
-      |> Ash.Query.filter(ip in ^ips)
+      |> EnrichmentExpiry.live_for_ips(ips, now)
 
     case Ash.read(query, actor: user) do
       {:ok, rows} when is_list(rows) ->

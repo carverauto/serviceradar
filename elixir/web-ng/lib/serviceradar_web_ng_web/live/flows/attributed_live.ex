@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   use ServiceRadarWebNGWeb, :live_view
 
   alias ServiceRadar.Observability.IpRdnsCache
+  alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   require Ash.Query
@@ -312,10 +313,12 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   defp rdns_map_for_ips(_ips, nil), do: %{}
 
   defp rdns_map_for_ips(ips, scope) when is_list(ips) do
+    now = DateTime.utc_now()
+
     query =
       IpRdnsCache
       |> Ash.Query.for_read(:read, %{})
-      |> Ash.Query.filter(ip in ^ips)
+      |> EnrichmentExpiry.live_for_ips(ips, now)
 
     case Ash.read(query, scope: scope) do
       {:ok, rows} when is_list(rows) ->

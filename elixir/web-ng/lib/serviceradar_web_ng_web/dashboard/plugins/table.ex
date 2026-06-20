@@ -23,23 +23,21 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
   def build(%{} = srql_response) do
     columns = extract_columns(srql_response)
 
-    results =
+    source_results =
       srql_response
       |> Map.get("results", [])
       |> normalize_results(columns)
 
-    total_count = length(results)
-
-    results =
-      results
-      |> Enum.take(@max_table_rows)
-      |> attach_sparklines()
+    total_count = length(source_results)
 
     {:ok,
      %{
        columns: columns,
+       source_results: source_results,
        max_rows: @max_table_rows,
-       results: results,
+       results: display_results(source_results, nil, :asc, @max_table_rows),
+       sort_col: nil,
+       sort_dir: :asc,
        total_count: total_count,
        truncated: total_count > @max_table_rows
      }}
@@ -47,12 +45,42 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
 
   @impl true
   def update(%{panel_assigns: panel_assigns} = assigns, socket) do
+    panel_assigns = panel_assigns || %{}
+    source_results = fetch_panel_value(panel_assigns, :source_results, fetch_panel_value(panel_assigns, :results, []))
+    max_rows = fetch_panel_value(panel_assigns, :max_rows, @max_table_rows)
+    sort_col = Map.get(socket.assigns, :sort_col, fetch_panel_value(panel_assigns, :sort_col))
+    sort_dir = Map.get(socket.assigns, :sort_dir, fetch_panel_value(panel_assigns, :sort_dir, :asc))
+    results = display_results(source_results, sort_col, sort_dir, max_rows)
+
     socket =
       socket
       |> assign(Map.delete(assigns, :panel_assigns))
-      |> assign(panel_assigns || %{})
+      |> assign(panel_assigns)
+      |> assign(:source_results, source_results)
+      |> assign(:results, results)
+      |> assign(:sort_col, sort_col)
+      |> assign(:sort_dir, normalize_sort_dir(sort_dir))
 
     {:ok, socket}
+  end
+
+  @impl true
+  def handle_event("sort", %{"col" => col}, socket) do
+    columns = socket.assigns[:columns] || []
+
+    if col in columns do
+      sort_dir = next_sort_dir(socket.assigns[:sort_col], socket.assigns[:sort_dir], col)
+      max_rows = socket.assigns[:max_rows] || @max_table_rows
+      source_results = socket.assigns[:source_results] || []
+
+      {:noreply,
+       socket
+       |> assign(:sort_col, col)
+       |> assign(:sort_dir, sort_dir)
+       |> assign(:results, display_results(source_results, col, sort_dir, max_rows))}
+    else
+      {:noreply, socket}
+    end
   end
 
   defp extract_columns(srql_response) do
@@ -119,6 +147,91 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
   end
 
   defp normalize_results(_, _), do: []
+
+  defp fetch_panel_value(panel_assigns, key, default \\ nil) when is_map(panel_assigns) do
+    Map.get(panel_assigns, key, Map.get(panel_assigns, to_string(key), default))
+  end
+
+  defp display_results(results, sort_col, sort_dir, max_rows) when is_list(results) do
+    results
+    |> sort_results(sort_col, normalize_sort_dir(sort_dir))
+    |> Enum.take(max_rows)
+    |> attach_sparklines()
+  end
+
+  defp display_results(_results, _sort_col, _sort_dir, _max_rows), do: []
+
+  defp sort_results(results, sort_col, sort_dir) when is_binary(sort_col) do
+    results
+    |> Enum.with_index()
+    |> Enum.sort(fn {left, left_idx}, {right, right_idx} ->
+      left_value = Map.get(left, sort_col)
+      right_value = Map.get(right, sort_col)
+
+      cond do
+        blank_value?(left_value) and blank_value?(right_value) ->
+          left_idx <= right_idx
+
+        blank_value?(left_value) ->
+          false
+
+        blank_value?(right_value) ->
+          true
+
+        true ->
+          case compare_present_values(left_value, right_value) do
+            :eq -> left_idx <= right_idx
+            :lt -> sort_dir == :asc
+            :gt -> sort_dir == :desc
+          end
+      end
+    end)
+    |> Enum.map(fn {row, _idx} -> row end)
+  end
+
+  defp sort_results(results, _sort_col, _sort_dir), do: results
+
+  defp compare_present_values(left, right) do
+    with {:ok, left_dt} <- parse_datetime(left),
+         {:ok, right_dt} <- parse_datetime(right) do
+      compare_terms(DateTime.to_unix(left_dt, :microsecond), DateTime.to_unix(right_dt, :microsecond))
+    else
+      _ ->
+        with {:ok, left_num} <- parse_number(left),
+             {:ok, right_num} <- parse_number(right) do
+          compare_terms(left_num, right_num)
+        else
+          _ -> compare_terms(sort_string(left), sort_string(right))
+        end
+    end
+  end
+
+  defp compare_terms(left, right) when left < right, do: :lt
+  defp compare_terms(left, right) when left > right, do: :gt
+  defp compare_terms(_left, _right), do: :eq
+
+  defp blank_value?(nil), do: true
+  defp blank_value?(""), do: true
+  defp blank_value?(_), do: false
+
+  defp sort_string(value) do
+    value
+    |> safe_to_string()
+    |> String.downcase()
+  end
+
+  defp next_sort_dir(current_col, current_dir, col) when current_col == col do
+    case normalize_sort_dir(current_dir) do
+      :asc -> :desc
+      :desc -> :asc
+    end
+  end
+
+  defp next_sort_dir(_current_col, _current_dir, _col), do: :asc
+
+  defp normalize_sort_dir(:desc), do: :desc
+  defp normalize_sort_dir("desc"), do: :desc
+  defp normalize_sort_dir(_), do: :asc
 
   defp stringify_keys(row) when is_map(row) do
     Map.new(row, fn {key, value} -> {to_string(key), value} end)
@@ -320,6 +433,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
           id={"panel-#{@id}-table"}
           rows={@results}
           columns={@columns}
+          sort_col={@sort_col}
+          sort_dir={@sort_dir}
+          sort_event="sort"
+          sort_target={@myself}
           empty_message="No results."
         />
       </.ui_panel>
