@@ -107,6 +107,30 @@ type TelemetryClient interface {
 	StreamTelemetry(ctx context.Context) (<-chan *addonpb.TelemetryBatch, error)
 }
 
+// StreamEndKind classifies why a client-side stream ended.
+type StreamEndKind string
+
+const (
+	StreamEndEOF     StreamEndKind = "eof"
+	StreamEndContext StreamEndKind = "context"
+	StreamEndError   StreamEndKind = "error"
+)
+
+// StreamDiagnostic reports the terminal condition observed by a client-side
+// stream loop. It is best-effort and non-blocking so diagnostics cannot stall
+// the stream path.
+type StreamDiagnostic struct {
+	Stream string
+	Kind   StreamEndKind
+	Err    error
+}
+
+// StreamDiagnosticsClient is optionally implemented by client-side adapters
+// that can report why a remote stream ended.
+type StreamDiagnosticsClient interface {
+	StreamDiagnostics() <-chan StreamDiagnostic
+}
+
 // ArtifactSource is implemented by add-ons that can produce durable artifacts.
 // Add-ons advertise this support with CapabilityArtifactStagingV1 in Info.
 type ArtifactSource interface {

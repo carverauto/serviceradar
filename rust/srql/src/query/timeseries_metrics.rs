@@ -31,8 +31,9 @@ type TimeseriesFromClause = FromClause<TimeseriesTable>;
 type TimeseriesQuery<'a> =
     BoxedSelectStatement<'a, <TimeseriesTable as AsQuery>::SqlType, TimeseriesFromClause, Pg>;
 #[derive(Debug, Clone)]
-struct TimeseriesStatsSpec {
-    alias: String,
+enum TimeseriesStatsSpec {
+    AvgByDevice { alias: String },
+    ProfileHourOfWeek { field: String },
 }
 
 #[derive(Debug, Clone)]
@@ -113,7 +114,9 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
     let scope = ensure_entity(plan)?;
 
     if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
-        let sql = if should_route_stats_to_cagg(plan) {
+        let sql = if matches!(spec, TimeseriesStatsSpec::ProfileHourOfWeek { .. }) {
+            build_profile_hour_of_week_query(plan, scope, &spec)?
+        } else if should_route_stats_to_cagg(plan) {
             build_cagg_stats_query(plan, scope, &spec)?
         } else {
             build_stats_query(plan, scope, &spec)?
@@ -765,7 +768,9 @@ async fn execute_stats(
     scope: MetricScope<'static>,
     spec: &TimeseriesStatsSpec,
 ) -> Result<Vec<Value>> {
-    let sql = if should_route_stats_to_cagg(plan) {
+    let sql = if matches!(spec, TimeseriesStatsSpec::ProfileHourOfWeek { .. }) {
+        build_profile_hour_of_week_query(plan, scope, spec)?
+    } else if should_route_stats_to_cagg(plan) {
         build_cagg_stats_query(plan, scope, spec)?
     } else {
         build_stats_query(plan, scope, spec)?
@@ -805,6 +810,12 @@ fn build_cagg_stats_query(
     scope: MetricScope<'static>,
     spec: &TimeseriesStatsSpec,
 ) -> Result<TimeseriesStatsSql> {
+    let TimeseriesStatsSpec::AvgByDevice { .. } = spec else {
+        return Err(ServiceError::InvalidRequest(
+            "profile_hour_of_week cannot use hourly CAGG stats routing".into(),
+        ));
+    };
+
     let avg_col = super::cagg_column_for_entity(&plan.entity, "avg", "value").ok_or_else(|| {
         ServiceError::InvalidRequest("missing CAGG mapping for avg(value)".into())
     })?;
@@ -831,6 +842,12 @@ fn build_stats_query_with_source(
     agg_expr: &str,
     cagg_mode: bool,
 ) -> Result<TimeseriesStatsSql> {
+    let TimeseriesStatsSpec::AvgByDevice { alias } = spec else {
+        return Err(ServiceError::InvalidRequest(
+            "profile_hour_of_week requires the profile stats route".into(),
+        ));
+    };
+
     let mut clauses = Vec::new();
     let mut binds = Vec::new();
 
@@ -854,7 +871,7 @@ fn build_stats_query_with_source(
     }
 
     let mut sql = String::from("SELECT jsonb_build_object('device_id', device_id, '");
-    sql.push_str(&spec.alias);
+    sql.push_str(alias);
     sql.push_str("', ");
     sql.push_str(agg_expr);
     sql.push_str(") AS payload\nFROM ");
@@ -864,8 +881,184 @@ fn build_stats_query_with_source(
         sql.push_str(&clauses.join(" AND "));
     }
     sql.push_str("\nGROUP BY device_id");
-    sql.push_str(&build_stats_order_clause(plan, &spec.alias, agg_expr));
+    sql.push_str(&build_stats_order_clause(plan, alias, agg_expr));
     sql.push_str(&format!("\nLIMIT {} OFFSET {}", plan.limit, plan.offset));
+
+    Ok(TimeseriesStatsSql { sql, binds })
+}
+
+fn build_profile_hour_of_week_query(
+    plan: &QueryPlan,
+    scope: MetricScope<'static>,
+    spec: &TimeseriesStatsSpec,
+) -> Result<TimeseriesStatsSql> {
+    let TimeseriesStatsSpec::ProfileHourOfWeek { field } = spec else {
+        return Err(ServiceError::InvalidRequest(
+            "profile route requires profile_hour_of_week stats".into(),
+        ));
+    };
+
+    if field != "value" {
+        return Err(ServiceError::InvalidRequest(
+            "profile_hour_of_week only supports value".into(),
+        ));
+    }
+
+    let mut clauses = Vec::new();
+    let mut binds = Vec::new();
+
+    clauses.push("device_id IS NOT NULL".to_string());
+
+    if let MetricScope::Forced(metric_type) = scope {
+        clauses.push("metric_type = ?".to_string());
+        binds.push(SqlBindValue::Text(metric_type.to_string()));
+    }
+
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        clauses.push("bucket >= ?".to_string());
+        binds.push(SqlBindValue::Timestamp(*start));
+        clauses.push("bucket < time_bucket('1 hour', ?::timestamptz)".to_string());
+        binds.push(SqlBindValue::Timestamp(*end));
+    } else {
+        return Err(ServiceError::InvalidRequest(
+            "profile_hour_of_week requires an explicit time range".into(),
+        ));
+    }
+
+    let timezone = profile_timezone(plan)?;
+
+    for filter in &plan.filters {
+        if filter.field.eq_ignore_ascii_case("timezone") {
+            continue;
+        }
+
+        match build_stats_filter_clause(filter, true)? {
+            Some((clause, mut values)) => {
+                clauses.push(clause);
+                binds.append(&mut values);
+            }
+            None => {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "unsupported filter field for profile_hour_of_week: '{}'",
+                    filter.field
+                )))
+            }
+        }
+    }
+
+    let where_sql = if clauses.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", clauses.join(" AND "))
+    };
+
+    for _ in 0..4 {
+        binds.push(SqlBindValue::Text(timezone.clone()));
+    }
+
+    let sql = format!(
+        r#"WITH hourly AS (
+  SELECT
+    device_id AS series,
+    bucket,
+    avg_value::float8 AS sample_value
+  FROM timeseries_metrics_hourly
+  {where_sql}
+),
+local_hourly AS (
+  SELECT
+    series,
+    bucket,
+    sample_value,
+    EXTRACT(DOW FROM timezone(?, bucket))::int AS dow,
+    EXTRACT(HOUR FROM timezone(?, bucket))::int AS hod
+  FROM hourly
+),
+latest AS (
+  SELECT DISTINCT ON (series)
+    series,
+    bucket,
+    sample_value,
+    EXTRACT(DOW FROM timezone(?, bucket))::int AS dow,
+    EXTRACT(HOUR FROM timezone(?, bucket))::int AS hod
+  FROM hourly
+  ORDER BY series, bucket DESC
+),
+mean_profile AS (
+  SELECT
+    series,
+    dow,
+    hod,
+    COUNT(*)::bigint AS bucket_count,
+    SUM(sample_value)::float8 AS bucket_sum,
+    SUM(sample_value * sample_value)::float8 AS bucket_sum_sq
+  FROM local_hourly
+  GROUP BY 1, 2, 3
+),
+robust_values AS (
+  SELECT h.*
+  FROM local_hourly h
+  JOIN latest l
+    ON l.series = h.series
+   AND l.dow = h.dow
+   AND l.hod = h.hod
+  WHERE h.bucket <> l.bucket
+),
+robust_base AS (
+  SELECT
+    series,
+    dow,
+    hod,
+    percentile_cont(0.5) WITHIN GROUP (ORDER BY sample_value)::float8 AS center,
+    percentile_cont(0.05) WITHIN GROUP (ORDER BY sample_value)::float8 AS p05,
+    percentile_cont(0.95) WITHIN GROUP (ORDER BY sample_value)::float8 AS p95
+  FROM robust_values
+  GROUP BY 1, 2, 3
+),
+robust_profile AS (
+  SELECT
+    b.series,
+    b.dow,
+    b.hod,
+    b.center,
+    percentile_cont(0.5) WITHIN GROUP (ORDER BY abs(v.sample_value - b.center))::float8 AS mad,
+    b.p05,
+    b.p95
+  FROM robust_base b
+  JOIN robust_values v
+    ON v.series = b.series
+   AND v.dow = b.dow
+   AND v.hod = b.hod
+  GROUP BY b.series, b.dow, b.hod, b.center, b.p05, b.p95
+)
+SELECT jsonb_build_object(
+  'series', l.series,
+  'dow', l.dow,
+  'hod', l.hod,
+  'sample_value', l.sample_value,
+  'bucket', l.bucket,
+  'bucket_count', p.bucket_count,
+  'bucket_sum', p.bucket_sum,
+  'bucket_sum_sq', p.bucket_sum_sq,
+  'center', r.center,
+  'mad', r.mad,
+  'p05', r.p05,
+  'p95', r.p95
+) AS payload
+FROM latest l
+JOIN mean_profile p
+  ON p.series = l.series
+ AND p.dow = l.dow
+ AND p.hod = l.hod
+LEFT JOIN robust_profile r
+  ON r.series = l.series
+ AND r.dow = l.dow
+ AND r.hod = l.hod{}
+LIMIT {} OFFSET {}"#,
+        build_profile_order_clause(plan),
+        plan.limit,
+        plan.offset
+    );
 
     Ok(TimeseriesStatsSql { sql, binds })
 }
@@ -896,6 +1089,57 @@ fn build_stats_order_clause(plan: &QueryPlan, alias: &str, aggregate_expr: &str)
         format!("\nORDER BY {aggregate_expr} DESC")
     } else {
         format!("\nORDER BY {}", parts.join(", "))
+    }
+}
+
+fn build_profile_order_clause(plan: &QueryPlan) -> String {
+    if plan.order.is_empty() {
+        return "\nORDER BY l.series ASC".to_string();
+    }
+
+    let mut parts = Vec::new();
+    for clause in &plan.order {
+        let column = match clause.field.as_str() {
+            "series" | "series_key" => "l.series",
+            "dow" => "l.dow",
+            "hod" => "l.hod",
+            "bucket" => "l.bucket",
+            "sample_value" => "l.sample_value",
+            "bucket_count" => "p.bucket_count",
+            _ => continue,
+        };
+
+        let dir = match clause.direction {
+            OrderDirection::Asc => "ASC",
+            OrderDirection::Desc => "DESC",
+        };
+        parts.push(format!("{column} {dir}"));
+    }
+
+    if parts.is_empty() {
+        "\nORDER BY l.series ASC".to_string()
+    } else {
+        format!("\nORDER BY {}", parts.join(", "))
+    }
+}
+
+fn profile_timezone(plan: &QueryPlan) -> Result<String> {
+    let timezone = plan
+        .filters
+        .iter()
+        .find(|filter| filter.field.eq_ignore_ascii_case("timezone"))
+        .map(|filter| filter.value.as_scalar())
+        .transpose()?
+        .map(normalize_profile_timezone)
+        .unwrap_or_else(|| "Etc/UTC".to_string());
+
+    Ok(timezone)
+}
+
+fn normalize_profile_timezone(timezone: &str) -> String {
+    match timezone {
+        "UTC" => "Etc/UTC".to_string(),
+        value => value.to_string(),
     }
 }
 
@@ -981,6 +1225,10 @@ fn parse_stats_spec(raw: Option<&str>) -> Result<Option<TimeseriesStatsSpec>> {
         ));
     }
 
+    if let Some(field) = parse_profile_hour_of_week(stats_raw)? {
+        return Ok(Some(TimeseriesStatsSpec::ProfileHourOfWeek { field }));
+    }
+
     let (expr_segment, group_segment) = split_group_clause(stats_raw).ok_or_else(|| {
         ServiceError::InvalidRequest("stats expression must include 'by device_id'".into())
     })?;
@@ -1000,7 +1248,26 @@ fn parse_stats_spec(raw: Option<&str>) -> Result<Option<TimeseriesStatsSpec>> {
         ));
     }
 
-    Ok(Some(TimeseriesStatsSpec { alias }))
+    Ok(Some(TimeseriesStatsSpec::AvgByDevice { alias }))
+}
+
+fn parse_profile_hour_of_week(raw: &str) -> Result<Option<String>> {
+    let normalized = raw.trim().to_lowercase();
+    let Some(inner) = normalized
+        .strip_prefix("profile_hour_of_week(")
+        .and_then(|value| value.strip_suffix(')'))
+    else {
+        return Ok(None);
+    };
+
+    let field = inner.trim();
+    if field != "value" {
+        return Err(ServiceError::InvalidRequest(
+            "profile_hour_of_week only supports value".into(),
+        ));
+    }
+
+    Ok(Some(field.to_string()))
 }
 
 fn split_group_clause(raw: &str) -> Option<(String, String)> {
@@ -1205,5 +1472,146 @@ mod tests {
             sql.sql
         );
         assert!(should_route_stats_to_cagg(&plan));
+    }
+
+    #[test]
+    fn profile_hour_of_week_builds_timezone_aware_profile_sql() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::days(30);
+        let plan = QueryPlan {
+            entity: Entity::TimeseriesMetrics,
+            filters: vec![
+                Filter {
+                    field: "metric_type".into(),
+                    op: FilterOp::Eq,
+                    value: FilterValue::Scalar("sysmon.cpu".to_string()),
+                },
+                Filter {
+                    field: "metric_name".into(),
+                    op: FilterOp::Eq,
+                    value: FilterValue::Scalar("cpu.usage_percent".to_string()),
+                },
+                Filter {
+                    field: "timezone".into(),
+                    op: FilterOp::Eq,
+                    value: FilterValue::Scalar("America/Chicago".to_string()),
+                },
+            ],
+            order: vec![
+                OrderClause {
+                    field: "dow".into(),
+                    direction: OrderDirection::Asc,
+                },
+                OrderClause {
+                    field: "hod".into(),
+                    direction: OrderDirection::Asc,
+                },
+            ],
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "profile_hour_of_week(value)",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
+            .unwrap()
+            .unwrap();
+        let sql = build_profile_hour_of_week_query(&plan, MetricScope::Any, &spec)
+            .expect("profile SQL should build");
+
+        assert!(sql.sql.contains("FROM timeseries_metrics_hourly"));
+        assert!(sql.sql.contains("device_id IS NOT NULL"));
+        assert!(sql.sql.contains("avg_value::float8 AS sample_value"));
+        assert!(sql.sql.contains("bucket < time_bucket('1 hour'"));
+        assert!(sql.sql.contains("EXTRACT(DOW FROM timezone(?"));
+        assert!(sql.sql.contains("'bucket_sum_sq', p.bucket_sum_sq"));
+        assert!(sql.sql.contains("'center', r.center"));
+        assert!(sql.sql.contains("ORDER BY l.dow ASC, l.hod ASC"));
+
+        let text_binds = sql
+            .binds
+            .iter()
+            .filter(|bind| matches!(bind, SqlBindValue::Text(value) if value == "America/Chicago"))
+            .count();
+        assert_eq!(text_binds, 4);
+    }
+
+    #[test]
+    fn profile_hour_of_week_rejects_non_value_field() {
+        let err = parse_stats_spec(Some("profile_hour_of_week(avg_value)")).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("profile_hour_of_week only supports value"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn profile_hour_of_week_requires_time_range() {
+        let plan = QueryPlan {
+            entity: Entity::TimeseriesMetrics,
+            filters: Vec::new(),
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: None,
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "profile_hour_of_week(value)",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
+            .unwrap()
+            .unwrap();
+        let err = build_profile_hour_of_week_query(&plan, MetricScope::Any, &spec).unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("profile_hour_of_week requires an explicit time range"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn profile_hour_of_week_rejects_filters_not_available_on_hourly_rollup() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::days(30);
+        let plan = QueryPlan {
+            entity: Entity::TimeseriesMetrics,
+            filters: vec![Filter {
+                field: "partition".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("edge-a".to_string()),
+            }],
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "profile_hour_of_week(value)",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
+            .unwrap()
+            .unwrap();
+        let err = build_profile_hour_of_week_query(&plan, MetricScope::Any, &spec).unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("unsupported filter field for profile_hour_of_week: 'partition'"),
+            "unexpected error: {err}"
+        );
     }
 }

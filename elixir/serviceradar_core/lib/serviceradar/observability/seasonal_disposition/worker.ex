@@ -25,7 +25,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   Mirrors `ServiceRadar.Observability.CapacityForecasting.Worker`. Tests can inject
   `:runner`, `:sources`, `:reasoner`, `:state_loader`, `:state_persister`, and
   `:verdict_emitter`; production uses `SRQLRunner`, the `CausalReasoner` NIF facade,
-  and the in-memory carried state defaults.
+  and the Postgres-backed seasonal state store.
   """
 
   use Oban.Worker,
@@ -40,6 +40,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   alias ServiceRadar.Observability.AnomalyConfigRuntime
   alias ServiceRadar.Observability.CausalReasoner
   alias ServiceRadar.Observability.SeasonalDisposition.Source
+  alias ServiceRadar.Observability.SeasonalDisposition.StateStore
   alias ServiceRadar.Observability.SeasonalDisposition.VerdictEmitter
   alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -147,14 +148,14 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   end
 
   defp profile_rows(%Source{} = source, raw_rows, config, opts) when is_list(raw_rows) do
-    rows =
+    hydrated_rows =
       raw_rows
       |> Enum.map(&seasonal_row(&1, source, config))
       |> Enum.reject(&is_nil/1)
 
     cond do
-      rows != [] ->
-        {:ok, Enum.map(rows, &%{&1 | consecutive_anomalous: load_consecutive(source, &1, opts)})}
+      hydrated_rows != [] ->
+        hydrate_state(source, hydrated_rows, opts)
 
       raw_rows == [] ->
         {:ok, []}
@@ -219,17 +220,29 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   defp handle_results(%Source{} = source, rows, results, config, nif_us, opts) do
     pairs = Enum.zip(rows, results)
 
-    pairs
-    |> Enum.reduce_while({:ok, %{}}, fn {row, result}, {:ok, acc} ->
-      case process_result(source, row, result, config, opts) do
-        :ok -> {:cont, {:ok, bump(acc, classify(result))}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-    |> case do
-      {:ok, counts} ->
-        emit_source_telemetry(source, counts, length(rows), :ok, nif_us)
-        :ok
+    case build_result_actions(pairs) do
+      {:ok, actions, counts} ->
+        case persist_states(source, actions, opts) do
+          :ok ->
+            Enum.each(actions, fn action ->
+              maybe_emit_verdict(
+                source,
+                action.row,
+                action.verdict,
+                action.score,
+                action.consecutive_anomalous,
+                config,
+                opts
+              )
+            end)
+
+            emit_source_telemetry(source, counts, length(rows), :ok, nif_us)
+            :ok
+
+          {:error, reason} ->
+            emit_source_error_telemetry(source, :persist, reason)
+            {:error, reason}
+        end
 
       {:error, reason} ->
         emit_source_error_telemetry(source, :persist, reason)
@@ -237,20 +250,42 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
     end
   end
 
-  defp process_result(_source, _row, {:error, reason}, _config, _opts) do
-    Logger.warning("Seasonal disposition row errored", reason: inspect(reason))
-    :ok
+  defp build_result_actions(pairs) do
+    pairs
+    |> Enum.reduce_while({:ok, [], %{}}, fn {row, result}, {:ok, actions, counts} ->
+      counts = bump(counts, classify(result))
+
+      case result_action(row, result) do
+        {:ok, nil} -> {:cont, {:ok, actions, counts}}
+        {:ok, action} -> {:cont, {:ok, [action | actions], counts}}
+      end
+    end)
+    |> case do
+      {:ok, actions, counts} -> {:ok, Enum.reverse(actions), counts}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
-  defp process_result(source, row, {:ok, disposition}, config, opts) do
+  defp result_action(_row, {:error, reason}) do
+    Logger.warning("Seasonal disposition row errored", reason: inspect(reason))
+    {:ok, nil}
+  end
+
+  defp result_action(row, {:ok, disposition}) do
     next = Map.get(disposition, :next_consecutive_anomalous, 0)
     score = Map.get(disposition, :score, 0.0)
     verdict = Map.get(disposition, :disposition)
 
-    case persist_state(source, row, next, opts) do
-      :ok -> maybe_emit_verdict(source, row, verdict, score, next, config, opts)
-      {:error, reason} -> {:error, reason}
-    end
+    {:ok,
+     %{
+       key: state_key(row),
+       row: row,
+       verdict: verdict,
+       score: score,
+       consecutive_anomalous: next,
+       bucket_started_at: row.bucket_started_at,
+       bucket_ended_at: row.bucket_ended_at
+     }}
   end
 
   defp maybe_emit_verdict(source, row, verdict, score, consecutive, config, opts) do
@@ -324,13 +359,29 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
 
   defp state_key(row), do: {row.series_key, row.dow, row.hod}
 
-  defp load_consecutive(source, row, opts) do
+  defp hydrate_state(source, rows, opts) do
+    with {:ok, states} <- load_state_map(source, rows, opts) do
+      {:ok,
+       Enum.map(rows, fn row ->
+         %{row | consecutive_anomalous: Map.get(states, state_key(row), 0)}
+       end)}
+    end
+  end
+
+  defp load_state_map(source, rows, opts) do
     loader = Keyword.get(opts, :state_loader)
 
-    if is_function(loader, 1) do
-      loader.(state_key(row)) || 0
-    else
-      Map.get(carried_overrides(source, opts), state_key(row), 0)
+    cond do
+      is_function(loader, 1) ->
+        {:ok, Map.new(rows, fn row -> {state_key(row), loader.(state_key(row)) || 0} end)}
+
+      Keyword.has_key?(opts, :carried_state) ->
+        carried = carried_overrides(source, opts)
+        {:ok, Map.take(carried, Enum.map(rows, &state_key/1))}
+
+      true ->
+        state_store = Keyword.get(opts, :state_store, StateStore)
+        state_store.load_many(source, Enum.map(rows, &state_key/1), opts)
     end
   end
 
@@ -341,10 +392,20 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
     end
   end
 
-  defp persist_state(_source, row, next, opts) do
+  defp persist_states(source, actions, opts) do
     case Keyword.get(opts, :state_persister) do
-      persister when is_function(persister, 2) -> persister.(state_key(row), next)
-      _ -> :ok
+      persister when is_function(persister, 2) ->
+        Enum.reduce_while(actions, :ok, fn action, :ok ->
+          case persister.(action.key, action.consecutive_anomalous) do
+            :ok -> {:cont, :ok}
+            {:error, reason} -> {:halt, {:error, reason}}
+            other -> {:halt, {:error, {:seasonal_state_persist_failed, other}}}
+          end
+        end)
+
+      _ ->
+        state_store = Keyword.get(opts, :state_store, StateStore)
+        state_store.persist_many(source, actions, opts)
     end
   end
 
@@ -606,9 +667,13 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   # --- config / opts plumbing ---
 
   defp sources(opts) do
-    opts
-    |> Keyword.get(:sources, Source.defaults())
-    |> Enum.map(&Source.from_config/1)
+    sources =
+      case Keyword.fetch(opts, :sources) do
+        {:ok, sources} -> sources
+        :error -> Source.defaults(opts)
+      end
+
+    Enum.map(sources, &Source.from_config/1)
   end
 
   defp metric_class_override(opts, metric_class) do
