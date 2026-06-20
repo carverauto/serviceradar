@@ -310,6 +310,8 @@ Sortable fields: `timestamp`, `severity_number`.
 | `device_id` | | Associated device |
 | `src_endpoint_ip` | `src_ip` | Source IP (supports wildcards) |
 | `dst_endpoint_ip` | `dst_ip` | Destination IP (supports wildcards) |
+| `conversation_a_ip` | `conversation_min_ip` | Canonical first endpoint for bidirectional conversation grouping |
+| `conversation_b_ip` | `conversation_max_ip` | Canonical second endpoint for bidirectional conversation grouping |
 | `src_cidr` | | Source CIDR containment match |
 | `dst_cidr` | | Destination CIDR containment match |
 | `src_endpoint_port` | `src_port` | Source port |

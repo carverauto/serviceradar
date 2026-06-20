@@ -1481,11 +1481,10 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   defp fetch_interface_metrics(srql_module, device_uid, interface, settings, scope) do
     if_index = Map.get(interface, "if_index")
 
-    # Use agg:max to pull the latest counter values per bucket.
-    # Rate deltas are calculated client-side for SNMP counter metrics.
+    # SRQL agg:rate computes per-second counter rates and leaves resets/wraps as gaps.
     query =
       "in:snmp_metrics device_id:\"#{escape_value(device_uid)}\" if_index:#{if_index} " <>
-        "time:last_24h bucket:5m agg:max series:metric_name limit:#{@snmp_metrics_limit}"
+        "time:last_24h bucket:5m agg:rate series:metric_name limit:#{@snmp_metrics_limit}"
 
     # Get interface speed for proper graph scaling (bps -> bytes per second)
     if_speed_bps = Map.get(interface, "speed_bps") || Map.get(interface, "if_speed")
@@ -1524,7 +1523,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
       assigns =
         panel.assigns
         |> Map.put(:max_speed_bytes_per_sec, max_speed_bytes_per_sec)
-        |> Map.put(:rate_mode, :counter)
+        |> Map.put(:rate_mode, :rate)
 
       %{panel | assigns: assigns}
     end)
@@ -1557,7 +1556,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
       # Build panels for ungrouped metrics
       ungrouped_results =
         Enum.filter(results, fn result ->
-          metric_name = Map.get(result, "metric_name") || Map.get(result, :metric_name)
+          metric_name = metric_result_name(result)
           metric_name not in grouped_metric_names
         end)
 
@@ -1584,7 +1583,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
       panel.assigns
       |> Map.put(:max_speed_bytes_per_sec, max_speed_bytes_per_sec)
       |> Map.put(:chart_mode, :combined)
-      |> Map.put(:rate_mode, :counter)
+      |> Map.put(:rate_mode, :rate)
 
     %{panel | assigns: assigns}
   end
@@ -1611,7 +1610,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
           max_speed_bytes_per_sec: max_speed_bytes_per_sec,
           chart_mode: :combined,
           group_id: group["id"],
-          rate_mode: :counter
+          rate_mode: :rate
         }
       }
     end
@@ -1619,7 +1618,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
   defp filter_results_by_metrics(results, group_metrics) do
     Enum.filter(results, fn result ->
-      metric_name = Map.get(result, "metric_name") || Map.get(result, :metric_name)
+      metric_name = metric_result_name(result)
       metric_name in group_metrics
     end)
   end
@@ -1633,10 +1632,24 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
   defp extract_metric_point(result) do
     %{
-      name: Map.get(result, "metric_name") || Map.get(result, :metric_name),
-      time: Map.get(result, "time") || Map.get(result, :time),
-      value: Map.get(result, "value") || Map.get(result, :value)
+      name: metric_result_name(result),
+      time: metric_result_time(result),
+      value: first_key(result, [:value])
     }
+  end
+
+  defp metric_result_name(result) when is_map(result), do: first_key(result, [:metric_name, :series])
+
+  defp metric_result_name(_), do: nil
+
+  defp metric_result_time(result) when is_map(result), do: first_key(result, [:time, :timestamp])
+
+  defp metric_result_time(_), do: nil
+
+  defp first_key(map, keys) when is_map(map) and is_list(keys) do
+    Enum.find_value(keys, fn key ->
+      Map.get(map, to_string(key)) || Map.get(map, key)
+    end)
   end
 
   defp format_series({name, points}) do
