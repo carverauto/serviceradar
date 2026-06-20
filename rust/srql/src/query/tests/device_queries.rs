@@ -135,6 +135,78 @@ fn devices_stats_discovery_sources_uses_overlap() {
 }
 
 #[test]
+fn devices_negative_uid_filter_keeps_null_population_in_rows_and_stats() {
+    let row_plan = plan_for("in:devices !uid:sr:device-1");
+    let (row_sql, row_params) =
+        devices::to_sql_and_params(&row_plan).expect("should build devices SQL");
+    let row_lower = row_sql.to_lowercase();
+
+    assert!(
+        row_lower.contains("\"ocsf_devices\".\"uid\" is null"),
+        "negative row filter should keep NULL uid rows, got: {row_sql}"
+    );
+    assert!(
+        row_lower.contains("\"ocsf_devices\".\"uid\" != $1"),
+        "negative row filter should still exclude matching uid rows, got: {row_sql}"
+    );
+    assert!(
+        matches!(row_params.first(), Some(BindParam::Text(value)) if value == "sr:device-1"),
+        "expected uid bind param, got: {row_params:?}"
+    );
+
+    let stats_plan =
+        plan_for("in:devices !uid:sr:device-1 stats:count() as total by type limit:10");
+    let (stats_sql, stats_params) =
+        devices::to_sql_and_params(&stats_plan).expect("should build grouped stats SQL");
+    let stats_lower = stats_sql.to_lowercase();
+
+    assert!(
+        stats_lower.contains("(uid is null or uid <> $1)"),
+        "negative stats filter should keep NULL uid rows, got: {stats_sql}"
+    );
+    assert!(
+        matches!(stats_params.first(), Some(BindParam::Text(value)) if value == "sr:device-1"),
+        "expected stats uid bind param, got: {stats_params:?}"
+    );
+}
+
+#[test]
+fn devices_not_like_filter_keeps_null_population_in_rows_and_stats() {
+    let row_plan = plan_for("in:devices !hostname:%edge%");
+    let (row_sql, row_params) =
+        devices::to_sql_and_params(&row_plan).expect("should build devices SQL");
+    let row_lower = row_sql.to_lowercase();
+
+    assert!(
+        row_lower.contains("\"ocsf_devices\".\"hostname\" is null"),
+        "negative row filter should keep NULL hostname rows, got: {row_sql}"
+    );
+    assert!(
+        row_lower.contains("\"ocsf_devices\".\"hostname\" not ilike $1"),
+        "negative row filter should still exclude matching hostname rows, got: {row_sql}"
+    );
+    assert!(
+        matches!(row_params.first(), Some(BindParam::Text(value)) if value == "%edge%"),
+        "expected hostname bind param, got: {row_params:?}"
+    );
+
+    let stats_plan =
+        plan_for("in:devices !hostname:%edge% stats:count() as total by type limit:10");
+    let (stats_sql, stats_params) =
+        devices::to_sql_and_params(&stats_plan).expect("should build grouped stats SQL");
+    let stats_lower = stats_sql.to_lowercase();
+
+    assert!(
+        stats_lower.contains("(hostname is null or hostname not ilike $1)"),
+        "negative stats filter should keep NULL hostname rows, got: {stats_sql}"
+    );
+    assert!(
+        matches!(stats_params.first(), Some(BindParam::Text(value)) if value == "%edge%"),
+        "expected stats hostname bind param, got: {stats_params:?}"
+    );
+}
+
+#[test]
 fn devices_default_order_uses_safe_ip_cast() {
     let query = "in:devices";
     let plan = plan_for(query);

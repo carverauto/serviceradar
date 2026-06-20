@@ -7,7 +7,8 @@ macro_rules! apply_text_filter {
             }
             crate::parser::FilterOp::NotEq => {
                 let value = $filter.value.as_scalar()?.to_string();
-                $query.filter($column.ne(value))
+                let column = $column;
+                $query.filter(column.clone().is_null().or(column.ne(value)))
             }
             crate::parser::FilterOp::Like => {
                 let value = $filter.value.as_scalar()?.to_string();
@@ -15,7 +16,8 @@ macro_rules! apply_text_filter {
             }
             crate::parser::FilterOp::NotLike => {
                 let value = $filter.value.as_scalar()?.to_string();
-                $query.filter($column.not_ilike(value))
+                let column = $column;
+                $query.filter(column.clone().is_null().or(column.not_ilike(value)))
             }
             crate::parser::FilterOp::In => {
                 let values = $filter.value.as_list()?.to_vec();
@@ -30,7 +32,8 @@ macro_rules! apply_text_filter {
                 if values.is_empty() {
                     $query
                 } else {
-                    $query.filter($column.ne_all(values))
+                    let column = $column;
+                    $query.filter(column.clone().is_null().or(column.ne_all(values)))
                 }
             }
             _ => {
@@ -53,7 +56,8 @@ macro_rules! apply_text_filter_no_lists {
             }
             crate::parser::FilterOp::NotEq => {
                 let value = $filter.value.as_scalar()?.to_string();
-                $query.filter($column.ne(value))
+                let column = $column;
+                $query.filter(column.clone().is_null().or(column.ne(value)))
             }
             crate::parser::FilterOp::Like => {
                 let value = $filter.value.as_scalar()?.to_string();
@@ -61,7 +65,8 @@ macro_rules! apply_text_filter_no_lists {
             }
             crate::parser::FilterOp::NotLike => {
                 let value = $filter.value.as_scalar()?.to_string();
-                $query.filter($column.not_ilike(value))
+                let column = $column;
+                $query.filter(column.clone().is_null().or(column.not_ilike(value)))
             }
             crate::parser::FilterOp::In | crate::parser::FilterOp::NotIn => {
                 return Err(crate::error::ServiceError::InvalidRequest($error.into()));
