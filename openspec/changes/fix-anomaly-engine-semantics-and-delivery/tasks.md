@@ -228,8 +228,8 @@
 - [x] 42.3 Fix FDB MAC-to-port last-walked collapse; return `ErrNoSNMPDataReturned` for wrong-community; implement or remove `selectDensePortNeighbors`; make worker-result send not undercount progress.
 
 ## 43. UniFi / UBNT Polling (F48)
-- [ ] 43.1 Paginate the UniFi `/clients` fetch (no silent truncation).
-- [ ] 43.2 Paginate the UniFi `/devices` fetch (remove the 500/100 hard caps).
+- [x] 43.1 Paginate the UniFi `/clients` fetch (no silent truncation).
+- [x] 43.2 Paginate the UniFi `/devices` fetch (remove the 500/100 hard caps).
 - [x] 43.3 Fix uplink `parentPortIndex` selection (port 0 valid); stop logging full response bodies at Debug; unify ctx; fix Protect WS read cap and UTF-8-safe `trimBody`.
 
 ## 44. Sweeper / SYN Scanner (F49)
