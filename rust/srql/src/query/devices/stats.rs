@@ -493,10 +493,10 @@ fn build_grouped_stats_filter_clause(
             binds.push(DeviceSqlBindValue::TextArray(values));
             match &filter.op {
                 FilterOp::In | FilterOp::Eq => {
-                    "coalesce(discovery_sources, ARRAY[]::text[]) @> ?".to_string()
+                    "coalesce(discovery_sources, ARRAY[]::text[]) && ?".to_string()
                 }
                 op if is_negated_membership_op(op) => {
-                    "NOT (coalesce(discovery_sources, ARRAY[]::text[]) @> ?)".to_string()
+                    "NOT (coalesce(discovery_sources, ARRAY[]::text[]) && ?)".to_string()
                 }
                 _ => {
                     return Err(ServiceError::InvalidRequest(

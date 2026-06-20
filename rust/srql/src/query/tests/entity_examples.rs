@@ -43,6 +43,14 @@ fn interfaces_docs_example_ip_addresses_contains_any() {
         lower.contains("discovered_interfaces") && lower.contains("ip_addresses"),
         "expected interface query against discovered_interfaces, got: {sql}"
     );
+    assert!(
+        lower.contains("coalesce(di.ip_addresses, array[]::text[]) &&"),
+        "expected ip_addresses to use overlap semantics, got: {sql}"
+    );
+    assert!(
+        !lower.contains("@>"),
+        "ip_addresses should not require contains-all semantics, got: {sql}"
+    );
     assert!(lower.contains("order by timestamp asc"));
 }
 

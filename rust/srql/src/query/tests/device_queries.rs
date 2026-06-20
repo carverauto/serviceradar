@@ -41,14 +41,15 @@ fn devices_docs_example_available_false() {
 }
 
 #[test]
-fn devices_docs_example_discovery_sources_contains_all() {
-    let query = "in:devices discovery_sources:(sweep) discovery_sources:(armis) time:last_7d sort:last_seen:desc";
+fn devices_docs_example_discovery_sources_matches_any_source() {
+    let query = "in:devices discovery_sources:(sweep,armis) time:last_7d sort:last_seen:desc";
     let plan = plan_for(query);
 
     assert!(matches!(plan.entity, Entity::Devices));
     assert_eq!(plan.order[0].field, "last_seen");
     let range = plan
         .time_range
+        .as_ref()
         .expect("docs example includes explicit time window");
     let span = range.end.signed_duration_since(range.start);
     assert_eq!(span, ChronoDuration::days(7));
@@ -60,22 +61,28 @@ fn devices_docs_example_discovery_sources_contains_all() {
         .collect();
     assert_eq!(
         discovery_filters.len(),
-        2,
-        "expected repeated discovery_sources filters"
+        1,
+        "expected one discovery_sources filter"
     );
-    let seen_values = discovery_filters
-        .iter()
-        .map(|filter| match &filter.value {
-            FilterValue::List(items) => items.clone(),
-            _ => panic!("discovery_sources filters should be list-valued"),
-        })
-        .collect::<Vec<_>>();
-    assert!(seen_values
-        .iter()
-        .any(|values| values == &vec!["sweep".to_string()]));
-    assert!(seen_values
-        .iter()
-        .any(|values| values == &vec!["armis".to_string()]));
+    assert!(
+        matches!(&discovery_filters[0].value, FilterValue::List(values) if values == &vec!["sweep".to_string(), "armis".to_string()])
+    );
+
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+    assert!(
+        sql.contains("coalesce(discovery_sources, ARRAY[]::text[]) &&"),
+        "expected discovery_sources overlap filter, got: {sql}"
+    );
+    assert!(
+        !sql.contains("@>"),
+        "discovery_sources should not require contains-all semantics, got: {sql}"
+    );
+    assert!(
+        params
+            .iter()
+            .any(|param| matches!(param, BindParam::TextArray(values) if values == &vec!["sweep".to_string(), "armis".to_string()])),
+        "expected sweep/armis text-array bind param, got: {params:?}"
+    );
 }
 
 #[test]
@@ -92,8 +99,8 @@ fn devices_discovery_sources_negation_builds_negative_array_filter() {
 
     let (sql, params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
     assert!(
-        sql.contains("NOT (coalesce(discovery_sources, ARRAY[]::text[]) @>"),
-        "expected SQL to negate discovery_sources containment, got: {sql}"
+        sql.contains("NOT (coalesce(discovery_sources, ARRAY[]::text[]) &&"),
+        "expected SQL to negate discovery_sources overlap, got: {sql}"
     );
     assert!(
             params
@@ -101,6 +108,30 @@ fn devices_discovery_sources_negation_builds_negative_array_filter() {
                 .any(|param| matches!(param, BindParam::TextArray(values) if values == &vec!["armis".to_string()])),
             "expected an armis text-array bind param, got: {params:?}"
         );
+}
+
+#[test]
+fn devices_stats_discovery_sources_uses_overlap() {
+    let query =
+        "in:devices discovery_sources:(sweep,armis) stats:count() as total by type limit:10";
+    let plan = plan_for(query);
+
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("coalesce(discovery_sources, array[]::text[]) &&"),
+        "expected grouped stats discovery_sources overlap filter, got: {sql}"
+    );
+    assert!(
+        !lower.contains("@>"),
+        "grouped stats discovery_sources should not require contains-all semantics, got: {sql}"
+    );
+    assert!(
+        params
+            .iter()
+            .any(|param| matches!(param, BindParam::TextArray(values) if values == &vec!["sweep".to_string(), "armis".to_string()])),
+        "expected sweep/armis text-array bind param, got: {params:?}"
+    );
 }
 
 #[test]
