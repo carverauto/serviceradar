@@ -24,7 +24,9 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
   require Ash.Query
   require Logger
 
-  @default_scan_window_days 7
+  @seconds_per_day 86_400
+  @default_scan_window_seconds 1_800
+  @max_scan_window_seconds 3_600
   @default_limit 5_000
   @default_reschedule_seconds 3_600
 
@@ -58,14 +60,14 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
   @impl Oban.Worker
   def perform(_job) do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
-    scan_window_days = Keyword.get(config, :scan_window_days, @default_scan_window_days)
+    scan_window_seconds = scan_window_seconds(config)
     limit = Keyword.get(config, :limit, @default_limit)
     reschedule_seconds = Keyword.get(config, :reschedule_seconds, @default_reschedule_seconds)
 
     actor = SystemActor.system(:netflow_exporter_cache_refresh)
     now = DateTime.utc_now()
 
-    sampler_addresses = discover_sampler_addresses(scan_window_days, limit)
+    sampler_addresses = discover_sampler_addresses(scan_window_seconds, limit)
 
     devices_by_ip = load_devices_by_ip(sampler_addresses, actor)
 
@@ -100,12 +102,44 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
     end
   end
 
-  defp discover_sampler_addresses(scan_window_days, limit)
-       when is_integer(scan_window_days) and scan_window_days > 0 and is_integer(limit) and
+  @doc false
+  def scan_window_seconds(config) when is_list(config) do
+    max_seconds =
+      config
+      |> Keyword.get(:max_scan_window_seconds, @max_scan_window_seconds)
+      |> positive_integer_or(@max_scan_window_seconds)
+
+    seconds =
+      case Keyword.get(config, :scan_window_seconds) do
+        seconds when is_integer(seconds) and seconds > 0 ->
+          seconds
+
+        _ ->
+          config
+          |> Keyword.get(:scan_window_days)
+          |> legacy_days_to_seconds()
+          |> positive_integer_or(@default_scan_window_seconds)
+      end
+
+    min(seconds, max_seconds)
+  end
+
+  def scan_window_seconds(_config), do: @default_scan_window_seconds
+
+  defp legacy_days_to_seconds(days) when is_integer(days) and days > 0,
+    do: days * @seconds_per_day
+
+  defp legacy_days_to_seconds(_days), do: @default_scan_window_seconds
+
+  defp positive_integer_or(value, _default) when is_integer(value) and value > 0, do: value
+  defp positive_integer_or(_value, default), do: default
+
+  defp discover_sampler_addresses(scan_window_seconds, limit)
+       when is_integer(scan_window_seconds) and scan_window_seconds > 0 and is_integer(limit) and
               limit > 0 do
     since =
       DateTime.utc_now()
-      |> DateTime.add(-scan_window_days * 86_400, :second)
+      |> DateTime.add(-scan_window_seconds, :second)
       |> DateTime.truncate(:second)
 
     query =
@@ -127,7 +161,7 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
     |> Enum.uniq()
   end
 
-  defp discover_sampler_addresses(_scan_window_days, _limit), do: []
+  defp discover_sampler_addresses(_scan_window_seconds, _limit), do: []
 
   defp load_devices_by_ip([], _actor), do: %{}
 
