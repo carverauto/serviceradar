@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Dashboard.Engine
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
+  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries
   alias ServiceRadarWebNGWeb.Helpers.InterfaceTypes
 
   require Logger
@@ -295,9 +296,22 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
       case upsert_interface_setting(scope, device_uid, interface_uid, attrs) do
         {:ok, updated_settings} ->
+          srql_module =
+            Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
+
+          metrics =
+            load_interface_metrics(
+              srql_module,
+              device_uid,
+              socket.assigns.interface,
+              updated_settings,
+              scope
+            )
+
           {:noreply,
            socket
            |> assign(:settings, updated_settings)
+           |> assign(:metrics, metrics)
            |> assign(:metric_modal_open, false)
            |> assign(:metric_modal_metric, nil)
            |> put_flash(:info, "Metric settings saved")}
@@ -1468,10 +1482,30 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     cond do
       not settings_value(settings, :metrics_enabled) or
           settings_list_value(settings, :metrics_selected) == [] ->
-        %{panels: [], error: nil, message: "Metrics collection is disabled for this interface."}
+        %{
+          panels: [
+            interface_metrics_empty_panel(
+              :disabled,
+              "Metrics collection disabled",
+              "Enable SNMP metrics collection and select at least one metric for this interface."
+            )
+          ],
+          error: nil,
+          message: nil
+        }
 
       is_nil(Map.get(interface, "if_index")) ->
-        %{panels: [], error: nil, message: "Interface has no if_index for SNMP metrics"}
+        %{
+          panels: [
+            interface_metrics_empty_panel(
+              :disabled,
+              "Missing SNMP interface index",
+              "This interface has no ifIndex, so SNMP metric samples cannot be matched to it."
+            )
+          ],
+          error: nil,
+          message: nil
+        }
 
       true ->
         fetch_interface_metrics(srql_module, device_uid, interface, settings, scope)
@@ -1493,28 +1527,77 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     # Get user-defined metric groups for composite charts
     metric_groups = settings_list_value(settings, :metric_groups)
 
+    reference_lines_by_metric =
+      metric_threshold_reference_lines(settings, if_speed_bytes_per_sec)
+
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => results} = response} when is_list(results) and results != [] ->
-        panels = build_metrics_panels(response, if_speed_bytes_per_sec, metric_groups)
+        panels = build_metrics_panels(response, if_speed_bytes_per_sec, metric_groups, reference_lines_by_metric)
         %{panels: panels, error: nil, message: nil}
 
       {:ok, %{"results" => []}} ->
-        %{panels: [], error: nil, message: "No metrics data available yet"}
+        %{
+          panels: [
+            interface_metrics_empty_panel(
+              :no_data,
+              "No metrics data available yet",
+              "SNMP metrics are enabled, but no samples matched this interface in the last 24 hours."
+            )
+          ],
+          error: nil,
+          message: nil
+        }
 
       {:error, reason} ->
-        %{panels: [], error: "Failed to load metrics: #{inspect(reason)}", message: nil}
+        Logger.warning("Interface metrics failed to load",
+          device_uid: device_uid,
+          if_index: if_index,
+          reason: inspect(reason)
+        )
+
+        %{
+          panels: [
+            interface_metrics_empty_panel(
+              :query_error,
+              "Metrics query failed",
+              "SNMP metric samples could not be loaded for this interface. Check logs and SNMP settings."
+            )
+          ],
+          error: nil,
+          message: nil
+        }
 
       _ ->
         %{panels: [], error: nil, message: nil}
     end
   end
 
+  defp interface_metrics_empty_panel(kind, title, detail) do
+    %{
+      id: "empty-state",
+      plugin: Timeseries,
+      title: "Metrics History",
+      assigns: %{
+        series_points: [],
+        chart_mode: :single,
+        rate_mode: :rate,
+        empty_state: %{
+          kind: kind,
+          title: title,
+          detail: detail,
+          link_href: ~p"/settings/snmp",
+          link_label: "SNMP settings"
+        }
+      }
+    }
+  end
+
   # Build panels for interface metrics with speed scaling and combined chart mode
   # Takes the full SRQL response (including viz) to properly handle series grouping
   # If metric_groups is provided and non-empty, group panels according to user configuration
-  defp build_metrics_panels(srql_response, max_speed_bytes_per_sec, metric_groups)
+  defp build_metrics_panels(srql_response, max_speed_bytes_per_sec, metric_groups, reference_lines_by_metric)
 
-  defp build_metrics_panels(srql_response, max_speed_bytes_per_sec, []) do
+  defp build_metrics_panels(srql_response, max_speed_bytes_per_sec, [], reference_lines_by_metric) do
     # No user-defined groups - build individual panels for each metric
     srql_response
     |> Engine.build_panels()
@@ -1524,12 +1607,13 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         panel.assigns
         |> Map.put(:max_speed_bytes_per_sec, max_speed_bytes_per_sec)
         |> Map.put(:rate_mode, :rate)
+        |> maybe_put_reference_lines(reference_lines_for_panel(panel, reference_lines_by_metric))
 
       %{panel | assigns: assigns}
     end)
   end
 
-  defp build_metrics_panels(srql_response, max_speed_bytes_per_sec, metric_groups) do
+  defp build_metrics_panels(srql_response, max_speed_bytes_per_sec, metric_groups, reference_lines_by_metric) do
     results = Map.get(srql_response, "results", [])
 
     if results == [] do
@@ -1543,7 +1627,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
           metrics != []
         end)
         |> Enum.map(fn group ->
-          build_grouped_panel(group, results, max_speed_bytes_per_sec)
+          build_grouped_panel(group, results, max_speed_bytes_per_sec, reference_lines_by_metric)
         end)
         |> Enum.filter(&(&1 != nil))
 
@@ -1561,35 +1645,36 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         end)
 
       ungrouped_panels =
-        build_ungrouped_panels(srql_response, ungrouped_results, max_speed_bytes_per_sec)
+        build_ungrouped_panels(srql_response, ungrouped_results, max_speed_bytes_per_sec, reference_lines_by_metric)
 
       grouped_panels ++ ungrouped_panels
     end
   end
 
-  defp build_ungrouped_panels(_srql_response, [], _max_speed_bytes_per_sec), do: []
+  defp build_ungrouped_panels(_srql_response, [], _max_speed_bytes_per_sec, _reference_lines_by_metric), do: []
 
-  defp build_ungrouped_panels(srql_response, ungrouped_results, max_speed_bytes_per_sec) do
+  defp build_ungrouped_panels(srql_response, ungrouped_results, max_speed_bytes_per_sec, reference_lines_by_metric) do
     ungrouped_response = Map.put(srql_response, "results", ungrouped_results)
 
     ungrouped_response
     |> Engine.build_panels()
     |> Enum.reject(&(&1.plugin == TablePlugin))
-    |> Enum.map(&add_panel_assigns(&1, max_speed_bytes_per_sec))
+    |> Enum.map(&add_panel_assigns(&1, max_speed_bytes_per_sec, reference_lines_by_metric))
   end
 
-  defp add_panel_assigns(panel, max_speed_bytes_per_sec) do
+  defp add_panel_assigns(panel, max_speed_bytes_per_sec, reference_lines_by_metric) do
     assigns =
       panel.assigns
       |> Map.put(:max_speed_bytes_per_sec, max_speed_bytes_per_sec)
       |> Map.put(:chart_mode, :combined)
       |> Map.put(:rate_mode, :rate)
+      |> maybe_put_reference_lines(reference_lines_for_panel(panel, reference_lines_by_metric))
 
     %{panel | assigns: assigns}
   end
 
   # Build a single panel for a group of metrics
-  defp build_grouped_panel(group, results, max_speed_bytes_per_sec) do
+  defp build_grouped_panel(group, results, max_speed_bytes_per_sec, reference_lines_by_metric) do
     group_name = group["name"] || "Combined Chart"
     group_metrics = group["metrics"] || []
 
@@ -1603,17 +1688,139 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
       %{
         id: "group-#{group["id"]}",
-        plugin: ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries,
+        plugin: Timeseries,
         title: group_name,
         assigns: %{
           series: series,
           max_speed_bytes_per_sec: max_speed_bytes_per_sec,
           chart_mode: :combined,
           group_id: group["id"],
-          rate_mode: :rate
+          rate_mode: :rate,
+          reference_lines: reference_lines_for_group(group_metrics, reference_lines_by_metric)
         }
       }
     end
+  end
+
+  defp metric_threshold_reference_lines(settings, max_speed_bytes_per_sec) do
+    settings
+    |> settings_map_value(:metric_thresholds)
+    |> Enum.reduce(%{}, fn {metric_name, config}, acc ->
+      metric_name = to_string(metric_name)
+
+      case metric_threshold_reference_line(metric_name, config, max_speed_bytes_per_sec) do
+        nil -> acc
+        reference_line -> Map.put(acc, metric_name, [reference_line])
+      end
+    end)
+  end
+
+  defp metric_threshold_reference_line(metric_name, config, max_speed_bytes_per_sec) do
+    with true <- config_enabled?(config),
+         threshold_value when is_number(threshold_value) <-
+           threshold_chart_value(metric_name, config, max_speed_bytes_per_sec) do
+      %{
+        value: threshold_value,
+        label: threshold_reference_label(metric_name, config),
+        severity: threshold_reference_severity(config),
+        series: metric_name
+      }
+    else
+      _ -> nil
+    end
+  end
+
+  defp threshold_chart_value(metric_name, config, max_speed_bytes_per_sec) do
+    value = parse_number(config_value(config, :value))
+
+    case {config_value(config, :threshold_type), traffic_metric?(metric_name), max_speed_bytes_per_sec, value} do
+      {"percentage", true, speed, percent} when is_number(speed) and speed > 0 and is_number(percent) ->
+        speed * percent / 100.0
+
+      {"percentage", _, _, _} ->
+        nil
+
+      {_, _, _, number} when is_number(number) ->
+        number
+
+      _ ->
+        nil
+    end
+  end
+
+  defp threshold_reference_label(metric_name, config) do
+    comparison =
+      config
+      |> config_value(:comparison)
+      |> comparison_symbol()
+
+    value = config_value(config, :value)
+
+    case config_value(config, :threshold_type) do
+      "percentage" -> "#{format_metric_series_name(metric_name)} #{comparison} #{value}%"
+      _ -> "#{format_metric_series_name(metric_name)} #{comparison} #{value}"
+    end
+  end
+
+  defp threshold_reference_severity(config) do
+    event = config_value(config, :event, %{})
+    config_value(event, :severity) || config_value(config, :severity) || "warning"
+  end
+
+  defp comparison_symbol("gt"), do: ">"
+  defp comparison_symbol("gte"), do: ">="
+  defp comparison_symbol("lt"), do: "<"
+  defp comparison_symbol("lte"), do: "<="
+  defp comparison_symbol("eq"), do: "="
+  defp comparison_symbol(_), do: "threshold"
+
+  defp maybe_put_reference_lines(assigns, []), do: assigns
+  defp maybe_put_reference_lines(assigns, reference_lines), do: Map.put(assigns, :reference_lines, reference_lines)
+
+  defp reference_lines_for_panel(panel, reference_lines_by_metric) when is_map(reference_lines_by_metric) do
+    panel
+    |> panel_series_names()
+    |> Enum.flat_map(&Map.get(reference_lines_by_metric, &1, []))
+    |> Enum.uniq_by(&{&1.value, &1.label, &1.severity, &1.series})
+  end
+
+  defp reference_lines_for_panel(_panel, _reference_lines_by_metric), do: []
+
+  defp panel_series_names(panel) do
+    assigns = Map.get(panel, :assigns, %{})
+
+    series_point_names =
+      assigns
+      |> Map.get(:series_points, [])
+      |> Enum.map(fn
+        {series, _points} -> to_string(series)
+        _ -> nil
+      end)
+
+    series_names =
+      assigns
+      |> Map.get(:series, [])
+      |> Enum.map(fn
+        %{name: name} -> to_string(name)
+        %{"name" => name} -> to_string(name)
+        _ -> nil
+      end)
+
+    (series_point_names ++ series_names)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp reference_lines_for_group(group_metrics, reference_lines_by_metric) do
+    group_metrics
+    |> Enum.flat_map(fn metric_name ->
+      metric_name = to_string(metric_name)
+
+      reference_lines_by_metric
+      |> Map.get(metric_name, [])
+      |> Enum.map(&Map.put(&1, :series, format_metric_series_name(metric_name)))
+    end)
+    |> Enum.uniq_by(&{&1.value, &1.label, &1.severity, &1.series})
   end
 
   defp filter_results_by_metrics(results, group_metrics) do
