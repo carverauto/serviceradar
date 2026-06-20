@@ -233,7 +233,7 @@
 - [ ] 43.3 Fix uplink `parentPortIndex` selection (port 0 valid); stop logging full response bodies at Debug; unify ctx; fix Protect WS read cap and UTF-8-safe `trimBody`.
 
 ## 44. Sweeper / SYN Scanner (F49)
-- [ ] 44.1 Fix SYN reply-to-port attribution after source-port reuse; reset per-scan stats counters between scans.
+- [x] 44.1 Fix SYN reply-to-port attribution after source-port reuse; reset per-scan stats counters between scans.
 - [ ] 44.2 Don't prune results before concurrent scan (GetStatus partial-set race); treat ICMPv6 dest-unreachable as a clean closed result; account for retry packets so they aren't silently dropped.
 
 ## 45. Topology Graph (F50)

@@ -223,6 +223,28 @@ func TestProcessEthernetFrameIPv6IgnoresWrongSource(t *testing.T) {
 	}
 }
 
+func TestProcessEthernetFrameIPv6IgnoresReusedSourcePortWrongTargetPort(t *testing.T) {
+	t.Parallel()
+
+	local := net.ParseIP("2001:db8::10")
+	remote := net.ParseIP("2001:db8::20")
+	ourSrc := uint16(40000)
+	activeTargetPort := uint16(443)
+	staleReplyPort := uint16(80)
+	key := net.JoinHostPort(remote.String(), "443")
+
+	resultCh := make(chan models.Result, 1)
+	scanner := newTestSYNScannerForIPv6Reply(key, remote.String(), ourSrc, activeTargetPort, resultCh)
+
+	scanner.processEthernetFrame(buildTCPReplyFrameIPv6(local, remote, ourSrc, staleReplyPort, synFlag|ackFlag))
+
+	select {
+	case result := <-resultCh:
+		t.Fatalf("unexpected result from reused source port with wrong target port: %#v", result)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
 func TestProcessEthernetFrameICMPv6Errors(t *testing.T) {
 	t.Parallel()
 
@@ -345,6 +367,29 @@ func TestScanStreamBatchedKeepsTargetBatchesBounded(t *testing.T) {
 	}
 }
 
+func TestProcessEthernetFrameICMPv6IgnoresWrongEmbeddedTargetPort(t *testing.T) {
+	t.Parallel()
+
+	local := net.ParseIP("2001:db8::10")
+	remote := net.ParseIP("2001:db8::20")
+	router := net.ParseIP("2001:db8::1")
+	ourSrc := uint16(40000)
+	activeTargetPort := uint16(443)
+	staleTargetPort := uint16(80)
+	key := net.JoinHostPort(remote.String(), "443")
+
+	resultCh := make(chan models.Result, 1)
+	scanner := newTestSYNScannerForIPv6Reply(key, remote.String(), ourSrc, activeTargetPort, resultCh)
+
+	scanner.processEthernetFrame(buildICMPv6ErrorFrame(local, remote, router, ourSrc, staleTargetPort, icmpv6DstUnreach))
+
+	select {
+	case result := <-resultCh:
+		t.Fatalf("unexpected ICMPv6 result from reused source port with wrong target port: %#v", result)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
 func TestSYNScannerRetryAndRateMetricAccounting(t *testing.T) {
 	t.Parallel()
 
@@ -370,6 +415,41 @@ func TestSYNScannerRetryAndRateMetricAccounting(t *testing.T) {
 	assert.Equal(t, uint64(1), stats.SourcePortWaits)
 	assert.Equal(t, uint64(25*time.Millisecond), stats.RateLimitWaitNanos)
 	assert.Equal(t, uint64(10*time.Millisecond), stats.SourcePortWaitNanos)
+}
+
+func TestSYNScannerScanResetsStatsAtStart(t *testing.T) {
+	t.Parallel()
+
+	scanner := &SYNScanner{
+		timeout:       10 * time.Millisecond,
+		concurrency:   1,
+		logger:        logger.NewTestLogger(),
+		sendBatchSize: defaultSendBatchSize,
+		portAlloc:     NewPortAllocator(40000, 40001),
+		rand:          rand.New(rand.NewSource(1)),
+	}
+	scanner.SetRateLimit(0, 0)
+
+	atomic.StoreUint64(&scanner.stats.PacketsSent, 99)
+	atomic.StoreUint64(&scanner.stats.PacketsRecv, 88)
+	atomic.StoreUint64(&scanner.stats.RetriesAttempted, 77)
+	atomic.StoreUint64(&scanner.stats.DialsStarted, 66)
+	atomic.StoreUint64(&scanner.stats.MaxQueueDepth, 55)
+	atomic.StoreInt64(&scanner.stats.LastStatsReset, 1)
+
+	results, err := scanner.Scan(context.Background(), []models.Target{
+		{Host: "127.0.0.1", Port: 1, Mode: models.ModeTCP},
+	})
+	require.NoError(t, err)
+	_ = drainChannel(results)
+
+	stats := scanner.GetStats()
+	assert.Zero(t, stats.PacketsSent)
+	assert.Zero(t, stats.PacketsRecv)
+	assert.Zero(t, stats.RetriesAttempted)
+	assert.Zero(t, stats.DialsStarted)
+	assert.Zero(t, stats.MaxQueueDepth)
+	assert.Greater(t, stats.LastStatsReset, int64(1))
 }
 
 func TestSYNScannerRunRingReaderPersistsCursor(t *testing.T) {

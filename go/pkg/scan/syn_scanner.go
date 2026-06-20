@@ -237,6 +237,15 @@ func (s *SYNScanner) GetStats() ScannerStats {
 		RateLimitWaitNanos:  atomic.LoadUint64(&s.stats.RateLimitWaitNanos),
 		SourcePortWaitNanos: atomic.LoadUint64(&s.stats.SourcePortWaitNanos),
 		LastStatsReset:      atomic.LoadInt64(&s.stats.LastStatsReset),
+		DialsStarted:        atomic.LoadUint64(&s.stats.DialsStarted),
+		DialsSucceeded:      atomic.LoadUint64(&s.stats.DialsSucceeded),
+		DialTimeouts:        atomic.LoadUint64(&s.stats.DialTimeouts),
+		DialResets:          atomic.LoadUint64(&s.stats.DialResets),
+		DialResourceErrors:  atomic.LoadUint64(&s.stats.DialResourceErrors),
+		ActiveDials:         atomic.LoadUint64(&s.stats.ActiveDials),
+		MaxActiveDials:      atomic.LoadUint64(&s.stats.MaxActiveDials),
+		QueueDepth:          atomic.LoadUint64(&s.stats.QueueDepth),
+		MaxQueueDepth:       atomic.LoadUint64(&s.stats.MaxQueueDepth),
 	}
 }
 
@@ -257,6 +266,15 @@ func (s *SYNScanner) ResetStats() {
 	atomic.StoreUint64(&s.stats.SourcePortWaits, 0)
 	atomic.StoreUint64(&s.stats.RateLimitWaitNanos, 0)
 	atomic.StoreUint64(&s.stats.SourcePortWaitNanos, 0)
+	atomic.StoreUint64(&s.stats.DialsStarted, 0)
+	atomic.StoreUint64(&s.stats.DialsSucceeded, 0)
+	atomic.StoreUint64(&s.stats.DialTimeouts, 0)
+	atomic.StoreUint64(&s.stats.DialResets, 0)
+	atomic.StoreUint64(&s.stats.DialResourceErrors, 0)
+	atomic.StoreUint64(&s.stats.ActiveDials, 0)
+	atomic.StoreUint64(&s.stats.MaxActiveDials, 0)
+	atomic.StoreUint64(&s.stats.QueueDepth, 0)
+	atomic.StoreUint64(&s.stats.MaxQueueDepth, 0)
 	atomic.StoreInt64(&s.stats.LastStatsReset, time.Now().UnixNano())
 }
 
@@ -2306,6 +2324,7 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 	}
 
 	scanCtx, cancel := context.WithCancel(ctx)
+
 	// Create wake eventfd (optional, gated by env SR_SYN_USE_EVENTFD=1)
 	if s.wakeFD == 0 {
 		if os.Getenv("SR_SYN_USE_EVENTFD") == "1" {
@@ -2334,6 +2353,8 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 		cancel() // Ensure we don't leak the context
 		return nil, ErrScanAlreadyRunning
 	}
+
+	s.ResetStats()
 
 	s.cancel = cancel
 	s.readersWG.Add(1) // MUST come before Stop() can see non-nil cancel
@@ -2802,9 +2823,10 @@ func parseTCPReplyFromEthernet(frame []byte) (tcpReplyFrame, bool) {
 }
 
 type icmpv6ErrorFrame struct {
-	targetIP net.IP
-	srcPort  uint16
-	err      error
+	targetIP   net.IP
+	srcPort    uint16
+	targetPort uint16
+	err        error
 }
 
 func parseICMPv6ErrorFromEthernet(frame []byte) (icmpv6ErrorFrame, bool) {
@@ -2849,7 +2871,7 @@ func parseICMPv6ErrorFromEthernet(frame []byte) (icmpv6ErrorFrame, bool) {
 		return icmpv6ErrorFrame{}, false
 	}
 
-	return icmpv6ErrorFrame{targetIP: embeddedIP.DstIP, srcPort: tcp.SrcPort, err: resultErr}, true
+	return icmpv6ErrorFrame{targetIP: embeddedIP.DstIP, srcPort: tcp.SrcPort, targetPort: tcp.DstPort, err: resultErr}, true
 }
 
 func parseIPv4TCPReply(frame []byte, l3off int) (tcpReplyFrame, bool) {
@@ -2913,14 +2935,14 @@ func (s *SYNScanner) processTCPReply(srcIP net.IP, tcp *TCPHdr) {
 		return
 	}
 
-	s.processTCPFinalResult(srcIP, tcp.DstPort, available, resultErr)
+	s.processTCPFinalResult(srcIP, tcp.DstPort, tcp.SrcPort, available, resultErr)
 }
 
 func (s *SYNScanner) processICMPv6Error(reply icmpv6ErrorFrame) {
-	s.processTCPFinalResult(reply.targetIP, reply.srcPort, false, reply.err)
+	s.processTCPFinalResult(reply.targetIP, reply.srcPort, reply.targetPort, false, reply.err)
 }
 
-func (s *SYNScanner) processTCPFinalResult(peerIP net.IP, localSrcPort uint16, available bool, resultErr error) {
+func (s *SYNScanner) processTCPFinalResult(peerIP net.IP, localSrcPort, targetPort uint16, available bool, resultErr error) {
 	// Update stats counter for each parsed packet
 	atomic.AddUint64(&s.stats.PacketsRecv, 1)
 
@@ -2958,6 +2980,11 @@ func (s *SYNScanner) processTCPFinalResult(peerIP net.IP, localSrcPort uint16, a
 	}
 
 	result := s.results[targetKey]
+	if result.Target.Port != int(targetPort) {
+		s.mu.Unlock()
+		return
+	}
+
 	if result.Available || result.Error != nil {
 		s.mu.Unlock()
 		return
