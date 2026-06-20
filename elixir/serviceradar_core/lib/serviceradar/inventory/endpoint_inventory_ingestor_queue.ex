@@ -19,7 +19,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
 
   defmodule Job do
     @moduledoc false
-    defstruct [:id, :payload, :opts, :reply_to, :timeout_ms, :enqueued_at]
+    defstruct [:id, :agent_id, :payload, :opts, :reply_to, :timeout_ms, :enqueued_at]
   end
 
   defmodule State do
@@ -28,7 +28,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
               pending_count: 0,
               inflight: %{},
               max_concurrency: 4,
-              max_pending: 256
+              max_pending: 256,
+              max_pending_per_agent: 32
   end
 
   @type enqueue_result :: :ok | {:error, term()}
@@ -58,7 +59,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
   def init(opts) do
     state = %State{
       max_concurrency: Keyword.get(opts, :max_concurrency, max_concurrency()),
-      max_pending: Keyword.get(opts, :max_pending, max_pending())
+      max_pending: Keyword.get(opts, :max_pending, max_pending()),
+      max_pending_per_agent: Keyword.get(opts, :max_pending_per_agent, max_pending_per_agent())
     }
 
     {:ok, state}
@@ -66,28 +68,36 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
 
   @impl true
   def handle_call({:enqueue, payload, opts, mode, timeout_ms}, from, state) do
-    if at_capacity?(state) do
-      {:reply, {:error, :endpoint_inventory_ingest_queue_full}, state}
-    else
-      job = %Job{
-        id: System.unique_integer([:positive, :monotonic]),
-        payload: payload,
-        opts: opts,
-        reply_to: reply_to(mode, from),
-        timeout_ms: timeout_ms,
-        enqueued_at: System.monotonic_time(:millisecond)
-      }
+    agent_id = agent_id(payload)
 
-      state =
-        state
-        |> enqueue_job(job)
-        |> maybe_start_jobs()
+    cond do
+      at_capacity?(state) ->
+        {:reply, {:error, :endpoint_inventory_ingest_queue_full}, state}
 
-      if mode == :async do
-        {:reply, :ok, state}
-      else
-        {:noreply, state}
-      end
+      agent_at_capacity?(state, agent_id) ->
+        {:reply, {:error, :endpoint_inventory_ingest_queue_full}, state}
+
+      true ->
+        job = %Job{
+          id: System.unique_integer([:positive, :monotonic]),
+          agent_id: agent_id,
+          payload: payload,
+          opts: opts,
+          reply_to: reply_to(mode, from),
+          timeout_ms: timeout_ms,
+          enqueued_at: System.monotonic_time(:millisecond)
+        }
+
+        state =
+          state
+          |> enqueue_job(job)
+          |> maybe_start_jobs()
+
+        if mode == :async do
+          {:reply, :ok, state}
+        else
+          {:noreply, state}
+        end
     end
   end
 
@@ -190,8 +200,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
   end
 
   defp start_next_job(%State{} = state) do
-    {{:value, job}, pending} = :queue.out(state.pending)
-    state = %{state | pending: pending, pending_count: state.pending_count - 1}
+    {job, state} = dequeue_next_job(state)
     parent = self()
 
     task_fun = fn ->
@@ -233,6 +242,37 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
 
   defp cancel_timeout_timer(nil), do: :ok
   defp cancel_timeout_timer(timer_ref), do: Process.cancel_timer(timer_ref)
+
+  defp dequeue_next_job(%State{} = state) do
+    busy_agents =
+      state.inflight
+      |> Map.values()
+      |> MapSet.new(& &1.job.agent_id)
+
+    jobs = :queue.to_list(state.pending)
+
+    {job, remaining} =
+      case split_next_fair_job(jobs, busy_agents, []) do
+        {:ok, job, remaining} ->
+          {job, remaining}
+
+        :none ->
+          [job | remaining] = jobs
+          {job, remaining}
+      end
+
+    {job, %{state | pending: :queue.from_list(remaining), pending_count: state.pending_count - 1}}
+  end
+
+  defp split_next_fair_job([], _busy_agents, _seen), do: :none
+
+  defp split_next_fair_job([job | rest], busy_agents, seen) do
+    if MapSet.member?(busy_agents, job.agent_id) do
+      split_next_fair_job(rest, busy_agents, [job | seen])
+    else
+      {:ok, job, Enum.reverse(seen, rest)}
+    end
+  end
 
   defp start_task(task_fun) do
     start_task_with_supervisor(task_fun)
@@ -300,6 +340,37 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
     state.pending_count + map_size(state.inflight) >= state.max_pending
   end
 
+  defp agent_at_capacity?(%State{} = state, agent_id) do
+    max_per_agent = state.max_pending_per_agent
+
+    is_integer(max_per_agent) and max_per_agent > 0 and
+      agent_load(state, agent_id) >= max_per_agent
+  end
+
+  defp agent_load(%State{} = state, agent_id) do
+    pending_count =
+      state.pending
+      |> :queue.to_list()
+      |> Enum.count(&(&1.agent_id == agent_id))
+
+    inflight_count =
+      state.inflight
+      |> Map.values()
+      |> Enum.count(&(&1.job.agent_id == agent_id))
+
+    pending_count + inflight_count
+  end
+
+  defp agent_id(payload) do
+    (Map.get(payload, "agent_id") || Map.get(payload, :agent_id) || "__unknown__")
+    |> to_string()
+    |> String.trim()
+    |> case do
+      "" -> "__unknown__"
+      value -> value
+    end
+  end
+
   defp pop_inflight_by_monitor_ref(inflight, monitor_ref) do
     case Enum.find(inflight, fn {_job_id, job} -> job.monitor_ref == monitor_ref end) do
       nil -> {nil, inflight}
@@ -321,6 +392,14 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
 
   defp max_pending do
     Application.get_env(:serviceradar_core, :endpoint_inventory_ingestor_queue_max_pending, 256)
+  end
+
+  defp max_pending_per_agent do
+    Application.get_env(
+      :serviceradar_core,
+      :endpoint_inventory_ingestor_queue_max_pending_per_agent,
+      32
+    )
   end
 
   defp admission_timeout_ms do

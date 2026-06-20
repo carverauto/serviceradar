@@ -13,7 +13,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
 
       delay_ms =
         Map.get(payload, "delay_ms") ||
-          Application.get_env(:serviceradar_core, :endpoint_inventory_queue_test_delay_ms, 0)
+          endpoint_inventory_queue_test_delay_ms(payload, opts)
 
       if is_integer(delay_ms) and delay_ms > 0, do: Process.sleep(delay_ms)
 
@@ -27,6 +27,14 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
          scan_id: payload["scan_id"],
          directives: %{"endpoint_inventory" => %{"accepted" => true}}
        }}
+    end
+
+    defp endpoint_inventory_queue_test_delay_ms(payload, opts) do
+      case Application.get_env(:serviceradar_core, :endpoint_inventory_queue_test_delay_ms, 0) do
+        fun when is_function(fun, 2) -> fun.(payload, opts)
+        delays when is_map(delays) -> Map.get(delays, payload["scan_id"], 0)
+        delay_ms -> delay_ms
+      end
     end
   end
 
@@ -47,6 +55,12 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
     previous_max_pending =
       Application.get_env(:serviceradar_core, :endpoint_inventory_ingestor_queue_max_pending)
 
+    previous_max_pending_per_agent =
+      Application.get_env(
+        :serviceradar_core,
+        :endpoint_inventory_ingestor_queue_max_pending_per_agent
+      )
+
     previous_ingest_timeout =
       Application.get_env(:serviceradar_core, :endpoint_inventory_ingestor_timeout_ms)
 
@@ -54,6 +68,12 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
     Application.put_env(:serviceradar_core, :endpoint_inventory_queue_test_pid, self())
     Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_max_concurrency, 1)
     Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_queue_max_pending, 10)
+
+    Application.put_env(
+      :serviceradar_core,
+      :endpoint_inventory_ingestor_queue_max_pending_per_agent,
+      10
+    )
 
     restart_task_supervisor(ServiceRadar.EndpointInventoryIngestor.TaskSupervisor)
     restart_queue()
@@ -66,6 +86,12 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
       restore_env(:endpoint_inventory_queue_test_delay_ms, previous_delay)
       restore_env(:endpoint_inventory_ingestor_max_concurrency, previous_max_concurrency)
       restore_env(:endpoint_inventory_ingestor_queue_max_pending, previous_max_pending)
+
+      restore_env(
+        :endpoint_inventory_ingestor_queue_max_pending_per_agent,
+        previous_max_pending_per_agent
+      )
+
       restore_env(:endpoint_inventory_ingestor_timeout_ms, previous_ingest_timeout)
     end)
 
@@ -182,6 +208,74 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
     assert_receive {:endpoint_inventory_ingest_started, ^second, _opts}, 1_000
   end
 
+  test "per-agent admission rejects a noisy agent without filling global capacity" do
+    Application.put_env(:serviceradar_core, :endpoint_inventory_queue_test_delay_ms, 200)
+    Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_queue_max_pending, 10)
+
+    Application.put_env(
+      :serviceradar_core,
+      :endpoint_inventory_ingestor_queue_max_pending_per_agent,
+      2
+    )
+
+    restart_queue()
+    flush_mailbox()
+
+    first = %{"agent_id" => "agent-noisy", "scan_id" => "scan-noisy-a"}
+    second = %{"agent_id" => "agent-noisy", "scan_id" => "scan-noisy-b"}
+    third = %{"agent_id" => "agent-noisy", "scan_id" => "scan-noisy-c"}
+    other_agent = %{"agent_id" => "agent-other", "scan_id" => "scan-other-a"}
+
+    assert :ok = EndpointInventoryIngestorQueue.enqueue(first)
+    assert_receive {:endpoint_inventory_ingest_started, ^first, _opts}, 500
+
+    assert :ok = EndpointInventoryIngestorQueue.enqueue(second)
+
+    assert {:error, :endpoint_inventory_ingest_queue_full} =
+             EndpointInventoryIngestorQueue.enqueue(third)
+
+    assert :ok = EndpointInventoryIngestorQueue.enqueue(other_agent)
+  end
+
+  test "fair dequeue prefers an agent without an in-flight ingest when a slot opens" do
+    Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_max_concurrency, 2)
+    Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_queue_max_pending, 10)
+    Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_timeout_ms, 2_000)
+
+    Application.put_env(
+      :serviceradar_core,
+      :endpoint_inventory_ingestor_queue_max_pending_per_agent,
+      10
+    )
+
+    Application.put_env(:serviceradar_core, :endpoint_inventory_queue_test_delay_ms, %{
+      "scan-fair-a1" => 80,
+      "scan-fair-a2" => 500,
+      "scan-fair-a3" => 0,
+      "scan-fair-b1" => 300
+    })
+
+    restart_queue()
+    flush_mailbox()
+
+    first = %{"agent_id" => "agent-fair-a", "scan_id" => "scan-fair-a1"}
+    second = %{"agent_id" => "agent-fair-a", "scan_id" => "scan-fair-a2"}
+    third = %{"agent_id" => "agent-fair-a", "scan_id" => "scan-fair-a3"}
+    other_agent = %{"agent_id" => "agent-fair-b", "scan_id" => "scan-fair-b1"}
+
+    assert :ok = EndpointInventoryIngestorQueue.enqueue(first)
+    assert :ok = EndpointInventoryIngestorQueue.enqueue(second)
+    assert :ok = EndpointInventoryIngestorQueue.enqueue(third)
+    assert :ok = EndpointInventoryIngestorQueue.enqueue(other_agent)
+
+    assert_receive {:endpoint_inventory_ingest_started, ^first, _opts}, 500
+    assert_receive {:endpoint_inventory_ingest_started, ^second, _opts}, 500
+    assert_receive {:endpoint_inventory_ingest_finished, ^first}, 1_000
+
+    assert_receive {:endpoint_inventory_ingest_started, ^other_agent, _opts}, 500
+    refute_receive {:endpoint_inventory_ingest_started, ^third, _opts}, 50
+  end
+
   test "returns unavailable when queue is not running instead of ingesting inline" do
     queue_pid = Process.whereis(EndpointInventoryIngestorQueue)
 
@@ -217,11 +311,18 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
   end
 
   defp restart_queue do
-    stop_process(EndpointInventoryIngestorQueue)
+    stop_supervised_child(EndpointInventoryIngestorQueue)
 
     case start_supervised(EndpointInventoryIngestorQueue) do
       {:ok, pid} -> pid
       {:error, {:already_started, pid}} -> pid
+    end
+  end
+
+  defp stop_supervised_child(child_id) do
+    case stop_supervised(child_id) do
+      :ok -> :ok
+      {:error, :not_found} -> stop_process(child_id)
     end
   end
 
