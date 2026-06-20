@@ -169,6 +169,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
             <div class="rounded-xl border border-base-200 bg-base-100 p-4">
               <div class="mb-4">
                 <h2 class="text-base font-semibold">Streaming Detector</h2>
+                <p class="mt-1 text-sm text-base-content/70">
+                  These deployment defaults feed central seasonal evaluation and shared
+                  runtime context. Edge spike scalar knobs are managed on anomaly add-on
+                  assignments or profiles; the default profile seeds only metric feed
+                  sources.
+                </p>
               </div>
 
               <.form

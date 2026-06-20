@@ -15,6 +15,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLiveTest do
     assert html =~ "Streaming Detector"
     assert html =~ "Capacity Forecast"
     assert html =~ "N-sigma threshold"
+    assert html =~ "Edge spike scalar knobs are managed"
+    assert html =~ "default profile seeds only metric feed"
   end
 
   test "updates anomaly detector settings", %{conn: conn} do
