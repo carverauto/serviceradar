@@ -6,6 +6,9 @@ defmodule ServiceRadar.EventWriter.JetStreamAck do
   `$JS.ACK.<stream>.<consumer>.<delivered>.<stream_seq>.<consumer_seq>.<timestamp>.<pending>`.
   Domain/account-prefixed variants keep the same numeric suffix, so parsing is
   anchored from the right.
+
+  EventWriter dead-letter handling is a terminal-delivery telemetry/log signal;
+  it does not persist poison payloads into a replayable DLQ.
   """
 
   @type t :: %{

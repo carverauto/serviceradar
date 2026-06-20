@@ -234,6 +234,29 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
       assert message.metadata.max_deliver == 3
     end
 
+    test "max_deliver subject filter tail wildcard requires a trailing token" do
+      config =
+        build_config(
+          max_ack_pending: 8,
+          max_deliver: 11,
+          streams: [
+            %{
+              name: "EVENTS",
+              stream_name: "events",
+              subject: "events.>",
+              consumer_max_deliver: 3
+            }
+          ]
+        )
+
+      state = init_state(config)
+
+      {:noreply, [], state} = Producer.handle_demand(1, state)
+      {[message], _state} = push_msg(state, "live", "events")
+
+      assert message.metadata.max_deliver == 11
+    end
+
     test "pull request sizing is bounded by available demand and configured batch size" do
       assert Producer.pull_request_batch_size(0, 16) == 0
       assert Producer.pull_request_batch_size(3, 16) == 3

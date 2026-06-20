@@ -797,7 +797,8 @@ defmodule ServiceRadar.EventWriter.Producer do
   defp subject_covers?(_candidate, _subject), do: false
 
   defp covers_tokens?([""], []), do: true
-  defp covers_tokens?([">"], _subject_tokens), do: true
+  defp covers_tokens?([">"], [_subject | _subject_rest]), do: true
+  defp covers_tokens?([">"], []), do: false
   defp covers_tokens?([], []), do: true
   defp covers_tokens?([], _subject_tokens), do: false
   defp covers_tokens?(_candidate_tokens, []), do: false

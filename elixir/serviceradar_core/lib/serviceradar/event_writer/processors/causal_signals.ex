@@ -167,6 +167,9 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       )
     end)
 
+    # Raw insert is intentional: build_ocsf_event_row/4 creates DB-complete rows,
+    # including id, time, and created_at; the former Ash action was not providing
+    # load-bearing normalization on this hot path.
     {_count, inserted_rows} =
       BulkInsert.insert_all(table_name(), valid_rows,
         on_conflict: :nothing,
@@ -236,6 +239,8 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
             [key | keys]
           end
 
+        # Preserve first-seen key order but keep the latest row value for that DB
+        # identity; the conflict key is the uniqueness contract enforced below.
         {Map.put(acc, key, row), keys}
       end)
 

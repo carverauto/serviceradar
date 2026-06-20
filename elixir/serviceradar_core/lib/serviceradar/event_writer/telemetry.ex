@@ -78,6 +78,8 @@ defmodule ServiceRadar.EventWriter.Telemetry do
         max_deliver: max_deliver
       },
       %{
+        # Keep raw subjects out of labels; stream/consumer are bounded configured
+        # JetStream identifiers used to locate the terminal-delivery source.
         subject_class: subject_class(metadata[:subject]),
         stream: metadata[:stream] || "unknown",
         consumer: metadata[:consumer] || "unknown",
