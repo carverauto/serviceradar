@@ -576,6 +576,9 @@ func (r *runner) runOnce(ctx context.Context) error {
 
 	telemetryCtx, telemetryCancel := context.WithCancel(ctx)
 	defer telemetryCancel()
+	if diagnostics, ok := ac.(coreaddon.StreamLossDiagnostics); ok {
+		go r.drainStreamLossDiagnostics(telemetryCtx, diagnostics.StreamLossEvents())
+	}
 	if hasCapability(capabilities, coreaddon.CapabilityNativeTelemetryV1) {
 		if telemetryClient, ok := ac.(coreaddon.TelemetryClient); ok {
 			go r.drainTelemetry(telemetryCtx, telemetryClient)
@@ -809,6 +812,28 @@ func (m *Manager) PublishMetricFeed(source string, payload []byte) int {
 		}
 	}
 	return accepted
+}
+
+func (r *runner) drainStreamLossDiagnostics(ctx context.Context, events <-chan coreaddon.StreamLossEvent) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event, ok := <-events:
+			if !ok {
+				return
+			}
+			log := r.cfg.Logger.Warn().
+				Str("addon", r.id).
+				Str("stream", event.Stream).
+				Str("operation", event.Operation)
+			if event.EOF {
+				log.Str("reason", "eof").Msg("addon stream ended")
+				continue
+			}
+			log.Err(event.Err).Str("reason", "error").Msg("addon stream ended")
+		}
+	}
 }
 
 func (r *runner) drainTelemetry(ctx context.Context, telemetryClient coreaddon.TelemetryClient) {

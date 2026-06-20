@@ -119,6 +119,31 @@ type ArtifactClient interface {
 	StreamArtifacts(ctx context.Context) (<-chan *addonpb.ArtifactUploadChunk, error)
 }
 
+const (
+	StreamNameTelemetry  = "telemetry"
+	StreamNameArtifacts  = "artifacts"
+	StreamNameOtlpRelay  = "otlp_relay"
+	StreamNameMetricFeed = "metric_feed"
+
+	StreamOperationRecv = "recv"
+	StreamOperationSend = "send"
+)
+
+// StreamLossEvent reports why an already-open add-on stream ended. EOF is a
+// clean remote half-close; Err carries transport or stream send/receive errors.
+type StreamLossEvent struct {
+	Stream    string
+	Operation string
+	EOF       bool
+	Err       error
+}
+
+// StreamLossDiagnostics is optionally implemented by client adapters that can
+// report why an opened stream ended after its channel closes.
+type StreamLossDiagnostics interface {
+	StreamLossEvents() <-chan StreamLossEvent
+}
+
 // CommandHandler is implemented by add-ons that can execute bounded commands
 // requested through the agent control stream. Add-ons advertise schedule-driven
 // command support with CapabilityProducerScheduleV1 in their package manifest.
