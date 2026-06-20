@@ -470,8 +470,14 @@ impl Addon for AnomalyAddon {
                     Ok(frame) => frame,
                     Err(_) => break,
                 };
-                process_frame(&engine, &verdict_tx, &telemetry_drops, &scoring_health, &frame)
-                    .await;
+                process_frame(
+                    &engine,
+                    &verdict_tx,
+                    &telemetry_drops,
+                    &scoring_health,
+                    &frame,
+                )
+                .await;
 
                 // Persist the re-warm checkpoint on a frame cadence (best-effort;
                 // a write failure never blocks or fails the feed).
@@ -2276,6 +2282,12 @@ mod tests {
     #[tokio::test]
     async fn health_reports_native_telemetry_drop_counts_without_degrading() {
         let addon = AnomalyAddon::new();
+        lock_scoring_health(&addon.scoring_health).record_frame(ScoringFrameUpdate {
+            feed_id: 1,
+            scored_samples: 1,
+            emitted_verdicts: 0,
+            last_scored_at_unix_nano: 1,
+        });
         addon.telemetry_drops.record_no_subscriber_batch();
         addon.telemetry_drops.record_lagged_batches(2);
         addon.telemetry_drops.record_outbound_full_batch();
@@ -2284,6 +2296,7 @@ mod tests {
 
         assert_eq!(health.status, HealthStatus::Healthy);
         assert_eq!(health.version, ADDON_VERSION);
+        assert!(health.degradation_reason.contains("state=scoring_active"));
         assert!(health.degradation_reason.contains("total=4"));
         assert!(
             health
