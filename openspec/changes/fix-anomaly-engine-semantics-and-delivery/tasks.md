@@ -257,6 +257,7 @@
 - [ ] 48.2 Append a unique tie-breaker to the events and interfaces (non-latest) ORDER BY (stable pagination).
 - [ ] 48.3 Make `field != x` / `not like` row vs stats populations consistent re: NULLs.
 - [ ] 48.4 Move interface error-metric LATERAL joins after LIMIT; fix CAGG partial-bucket truncation; guard the non-ASCII stats-expression case-fold panic (`flows.rs:1340`).
+- [x] 48.5 Support `other:true` for additive grouped timeseries stats (`timeseries_metrics`, `snmp`, `rperf`) and reject non-additive averages (#4021 follow-up).
 
 ## 49. UI Device List & Settings (F54)
 - [ ] 49.1 Fix Bulk-edit "Apply tags" to run with the actor/scope so the policy permits it (and add a test).

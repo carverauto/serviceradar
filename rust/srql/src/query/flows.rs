@@ -1,6 +1,6 @@
 //! Query execution for OCSF network_activity (flows) entity.
 
-use super::{BindParam, QueryPlan};
+use super::{build_other_rollup_sql, BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
@@ -1766,14 +1766,13 @@ fn build_grouped_stats_query(
             other_json_parts.push("'__other__'".to_string());
             other_json_parts.push("true".to_string());
 
-            format!(
-                "WITH grouped AS ({inner}), ranked AS (SELECT grouped.*, ROW_NUMBER() OVER ({rank_order_sql}) AS rn FROM grouped) SELECT result FROM (SELECT rn AS sort_rn, jsonb_build_object({top_json_args}) AS result FROM ranked WHERE rn <= {limit} UNION ALL SELECT {other_sort_rn} AS sort_rn, jsonb_build_object({other_json_args}) AS result FROM ranked WHERE rn > {limit} HAVING COUNT(*) > 0) final ORDER BY sort_rn",
-                inner = inner,
-                rank_order_sql = rank_order_sql,
-                top_json_args = top_json_parts.join(", "),
-                other_json_args = other_json_parts.join(", "),
-                limit = plan.limit,
-                other_sort_rn = plan.limit + 1
+            build_other_rollup_sql(
+                &inner,
+                &rank_order_sql,
+                &top_json_parts,
+                &other_json_parts,
+                "result",
+                plan.limit,
             )
         } else {
             format!(

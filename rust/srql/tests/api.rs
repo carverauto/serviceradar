@@ -16,6 +16,7 @@ async fn srql_api_queries() {
         check_device_graph_query_returns_neighborhood(&harness).await;
         check_device_graph_query_rejects_invalid_device_id(&harness).await;
         check_timeseries_metrics_query_returns_rows(&harness).await;
+        check_timeseries_other_rollup_returns_tail_row(&harness).await;
         check_snmp_metrics_alias_filters_metric_type(&harness).await;
         check_rperf_metrics_queries_still_work(&harness).await;
         check_virtualization_inventory_queries(&harness).await;
@@ -281,6 +282,32 @@ async fn check_timeseries_metrics_query_returns_rows(harness: &SrqlTestHarness) 
             .all(|row| row.get("uid").and_then(|v| v.as_str()) == Some("device-alpha")),
         "all rows should belong to device-alpha: {body}"
     );
+}
+
+async fn check_timeseries_other_rollup_returns_tail_row(harness: &SrqlTestHarness) {
+    let request = QueryRequest {
+        query: r#"in:timeseries_metrics time:last_1h stats:"sum(value) as total_value, count(*) as sample_count by device_id" sort:total_value:desc limit:1 other:true"#
+            .to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = harness.query(request).await;
+    let (status, body) = read_json(response).await;
+
+    assert_eq!(status, http::StatusCode::OK, "unexpected status: {body}");
+    let rows = body["results"]
+        .as_array()
+        .unwrap_or_else(|| panic!("results missing or not array: {body}"));
+    assert_eq!(rows.len(), 2, "expected top row plus Other row: {body}");
+    assert_eq!(rows[0]["__other__"], serde_json::json!(false));
+    assert_eq!(rows[0]["device_id"], serde_json::json!("device-alpha"));
+    assert_eq!(rows[0]["sample_count"], serde_json::json!(2));
+    assert_eq!(rows[1]["__other__"], serde_json::json!(true));
+    assert_eq!(rows[1]["device_id"], serde_json::Value::Null);
+    assert_eq!(rows[1]["sample_count"], serde_json::json!(1));
 }
 
 async fn check_snmp_metrics_alias_filters_metric_type(harness: &SrqlTestHarness) {

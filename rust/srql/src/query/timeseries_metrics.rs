@@ -1,6 +1,6 @@
 //! SRQL support for timeseries-backed metrics (generic, SNMP, and rperf).
 
-use super::{BindParam, QueryPlan};
+use super::{build_other_rollup_sql, BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
@@ -32,7 +32,27 @@ type TimeseriesQuery<'a> =
     BoxedSelectStatement<'a, <TimeseriesTable as AsQuery>::SqlType, TimeseriesFromClause, Pg>;
 #[derive(Debug, Clone)]
 struct TimeseriesStatsSpec {
+    aggregations: Vec<TimeseriesAggregationSpec>,
+    group_by: Vec<TimeseriesGroupSpec>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TimeseriesAggFunc {
+    Avg,
+    Sum,
+    Count,
+}
+
+#[derive(Debug, Clone)]
+struct TimeseriesAggregationSpec {
+    func: TimeseriesAggFunc,
+    field: Option<String>,
     alias: String,
+}
+
+#[derive(Debug, Clone)]
+struct TimeseriesGroupSpec {
+    field: String,
 }
 
 #[derive(Debug, Clone)]
@@ -113,7 +133,7 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
     let scope = ensure_entity(plan)?;
 
     if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
-        let sql = if should_route_stats_to_cagg(plan) {
+        let sql = if should_route_stats_to_cagg(plan, &spec) {
             build_cagg_stats_query(plan, scope, &spec)?
         } else {
             build_stats_query(plan, scope, &spec)?
@@ -765,7 +785,7 @@ async fn execute_stats(
     scope: MetricScope<'static>,
     spec: &TimeseriesStatsSpec,
 ) -> Result<Vec<Value>> {
-    let sql = if should_route_stats_to_cagg(plan) {
+    let sql = if should_route_stats_to_cagg(plan, spec) {
         build_cagg_stats_query(plan, scope, spec)?
     } else {
         build_stats_query(plan, scope, spec)?
@@ -795,7 +815,7 @@ fn build_stats_query(
         spec,
         "timeseries_metrics",
         "timestamp",
-        "AVG(value)",
+        None,
         false,
     )
 }
@@ -805,6 +825,12 @@ fn build_cagg_stats_query(
     scope: MetricScope<'static>,
     spec: &TimeseriesStatsSpec,
 ) -> Result<TimeseriesStatsSql> {
+    if !spec.is_avg_value_by_device() {
+        return Err(ServiceError::InvalidRequest(
+            "hourly CAGG stats routing only supports avg(value) by device_id".into(),
+        ));
+    }
+
     let avg_col = super::cagg_column_for_entity(&plan.entity, "avg", "value").ok_or_else(|| {
         ServiceError::InvalidRequest("missing CAGG mapping for avg(value)".into())
     })?;
@@ -817,7 +843,7 @@ fn build_cagg_stats_query(
         spec,
         "timeseries_metrics_hourly",
         "bucket",
-        &agg_expr,
+        Some(&agg_expr),
         true,
     )
 }
@@ -828,7 +854,7 @@ fn build_stats_query_with_source(
     spec: &TimeseriesStatsSpec,
     table: &str,
     time_col: &str,
-    agg_expr: &str,
+    cagg_avg_expr: Option<&str>,
     cagg_mode: bool,
 ) -> Result<TimeseriesStatsSql> {
     let mut clauses = Vec::new();
@@ -853,50 +879,200 @@ fn build_stats_query_with_source(
         }
     }
 
-    let mut sql = String::from("SELECT jsonb_build_object('device_id', device_id, '");
-    sql.push_str(&spec.alias);
-    sql.push_str("', ");
-    sql.push_str(agg_expr);
-    sql.push_str(") AS payload\nFROM ");
-    sql.push_str(table);
+    let group_keys: Vec<&str> = spec
+        .group_by
+        .iter()
+        .map(|group| group.field.as_str())
+        .collect();
+    let group_exprs: Vec<String> = spec
+        .group_by
+        .iter()
+        .map(|group| group.field.clone())
+        .collect();
+    let agg_sqls: Vec<String> = spec
+        .aggregations
+        .iter()
+        .map(|agg| timeseries_agg_sql(agg, cagg_avg_expr))
+        .collect::<Result<Vec<_>>>()?;
+
+    let select_groups = group_exprs
+        .iter()
+        .enumerate()
+        .map(|(idx, expr)| format!("{expr} AS group_value_{idx}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let select_aggs = agg_sqls
+        .iter()
+        .enumerate()
+        .map(|(idx, expr)| format!("{expr} AS agg_value_{idx}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let mut inner = format!("SELECT {select_groups}, {select_aggs} FROM {table}");
     if !clauses.is_empty() {
-        sql.push_str("\nWHERE ");
-        sql.push_str(&clauses.join(" AND "));
+        inner.push_str("\nWHERE ");
+        inner.push_str(&clauses.join(" AND "));
     }
-    sql.push_str("\nGROUP BY device_id");
-    sql.push_str(&build_stats_order_clause(plan, &spec.alias, agg_expr));
-    sql.push_str(&format!("\nLIMIT {} OFFSET {}", plan.limit, plan.offset));
+
+    inner.push_str("\nGROUP BY ");
+    inner.push_str(&group_exprs.join(", "));
+
+    let agg_aliases: Vec<&str> = spec
+        .aggregations
+        .iter()
+        .map(|aggregation| aggregation.alias.as_str())
+        .collect();
+
+    let mut json_parts: Vec<String> =
+        Vec::with_capacity(group_keys.len() * 2 + spec.aggregations.len() * 2);
+    for (idx, key) in group_keys.iter().enumerate() {
+        json_parts.push(format!("'{key}'"));
+        json_parts.push(format!("group_value_{idx}"));
+    }
+    for (idx, agg) in spec.aggregations.iter().enumerate() {
+        json_parts.push(format!("'{}'", agg.alias));
+        json_parts.push(format!("agg_value_{idx}"));
+    }
+
+    let sql = if plan.other {
+        validate_timeseries_other_rollup(spec)?;
+
+        let rank_order_sql =
+            build_timeseries_stats_rank_order_sql(plan, &group_keys, &agg_aliases)?;
+        let mut top_json_parts = json_parts.clone();
+        top_json_parts.push("'__other__'".to_string());
+        top_json_parts.push("false".to_string());
+
+        let mut other_json_parts: Vec<String> =
+            Vec::with_capacity(group_keys.len() * 2 + spec.aggregations.len() * 2 + 2);
+        for key in &group_keys {
+            other_json_parts.push(format!("'{key}'"));
+            other_json_parts.push("NULL".to_string());
+        }
+        for (idx, agg) in spec.aggregations.iter().enumerate() {
+            other_json_parts.push(format!("'{}'", agg.alias));
+            other_json_parts.push(format!("COALESCE(SUM(agg_value_{idx}), 0)"));
+        }
+        other_json_parts.push("'__other__'".to_string());
+        other_json_parts.push("true".to_string());
+
+        build_other_rollup_sql(
+            &inner,
+            &rank_order_sql,
+            &top_json_parts,
+            &other_json_parts,
+            "payload",
+            plan.limit,
+        )
+    } else {
+        let order_sql = build_timeseries_stats_order_sql(plan, &group_keys, &agg_aliases)?;
+        format!(
+            "SELECT jsonb_build_object({json_args}) AS payload FROM ({inner}) t{order_sql} LIMIT {limit} OFFSET {offset}",
+            json_args = json_parts.join(", "),
+            inner = inner,
+            order_sql = order_sql,
+            limit = plan.limit,
+            offset = plan.offset
+        )
+    };
 
     Ok(TimeseriesStatsSql { sql, binds })
 }
 
-fn build_stats_order_clause(plan: &QueryPlan, alias: &str, aggregate_expr: &str) -> String {
-    if plan.order.is_empty() {
-        return format!("\nORDER BY {aggregate_expr} DESC");
+fn timeseries_agg_sql(
+    aggregation: &TimeseriesAggregationSpec,
+    cagg_avg_expr: Option<&str>,
+) -> Result<String> {
+    match aggregation.func {
+        TimeseriesAggFunc::Avg => cagg_avg_expr
+            .map(str::to_string)
+            .or_else(|| {
+                aggregation
+                    .field
+                    .as_deref()
+                    .map(|field| format!("AVG({field})"))
+            })
+            .ok_or_else(|| ServiceError::InvalidRequest("avg aggregation requires a field".into())),
+        TimeseriesAggFunc::Sum => aggregation
+            .field
+            .as_deref()
+            .map(|field| format!("SUM({field})"))
+            .ok_or_else(|| ServiceError::InvalidRequest("sum aggregation requires a field".into())),
+        TimeseriesAggFunc::Count => Ok("COUNT(*)".to_string()),
+    }
+}
+
+fn validate_timeseries_other_rollup(spec: &TimeseriesStatsSpec) -> Result<()> {
+    for agg in &spec.aggregations {
+        if !matches!(agg.func, TimeseriesAggFunc::Sum | TimeseriesAggFunc::Count) {
+            return Err(ServiceError::InvalidRequest(
+                "other:true currently supports only sum(...) and count(...) aggregations".into(),
+            ));
+        }
     }
 
-    let mut parts = Vec::new();
+    Ok(())
+}
+
+fn build_timeseries_stats_order_sql(
+    plan: &QueryPlan,
+    group_keys: &[&str],
+    agg_aliases: &[&str],
+) -> Result<String> {
+    let parts = build_timeseries_stats_order_parts(plan, group_keys, agg_aliases)?;
+    Ok(if parts.is_empty() {
+        String::new()
+    } else {
+        format!(" ORDER BY {}", parts.join(", "))
+    })
+}
+
+fn build_timeseries_stats_rank_order_sql(
+    plan: &QueryPlan,
+    group_keys: &[&str],
+    agg_aliases: &[&str],
+) -> Result<String> {
+    let mut parts = build_timeseries_stats_order_parts(plan, group_keys, agg_aliases)?;
+    for idx in 0..group_keys.len() {
+        let group_expr = format!("group_value_{idx}");
+        if !parts.iter().any(|part| part.starts_with(&group_expr)) {
+            parts.push(format!("{group_expr} ASC"));
+        }
+    }
+
+    Ok(format!("ORDER BY {}", parts.join(", ")))
+}
+
+fn build_timeseries_stats_order_parts(
+    plan: &QueryPlan,
+    group_keys: &[&str],
+    agg_aliases: &[&str],
+) -> Result<Vec<String>> {
+    if plan.order.is_empty() {
+        return Ok(vec!["agg_value_0 DESC".to_string()]);
+    }
+
+    let mut parts: Vec<String> = Vec::new();
     for clause in &plan.order {
-        let column = if clause.field.eq_ignore_ascii_case(alias) {
-            aggregate_expr
-        } else if clause.field.eq_ignore_ascii_case("device_id") {
-            "device_id"
+        let expr = if let Some(idx) = agg_aliases.iter().position(|a| clause.field == *a) {
+            format!("agg_value_{idx}")
+        } else if let Some(idx) = group_keys.iter().position(|k| *k == clause.field) {
+            format!("group_value_{idx}")
         } else {
-            continue;
+            return Err(ServiceError::InvalidRequest(format!(
+                "unsupported sort field '{}' for timeseries stats",
+                clause.field
+            )));
         };
 
         let dir = match clause.direction {
             OrderDirection::Asc => "ASC",
             OrderDirection::Desc => "DESC",
         };
-        parts.push(format!("{column} {dir}"));
+        parts.push(format!("{expr} {dir}"));
     }
 
-    if parts.is_empty() {
-        format!("\nORDER BY {aggregate_expr} DESC")
-    } else {
-        format!("\nORDER BY {}", parts.join(", "))
-    }
+    Ok(parts)
 }
 
 fn build_stats_filter_clause(
@@ -975,32 +1151,46 @@ fn parse_stats_spec(raw: Option<&str>) -> Result<Option<TimeseriesStatsSpec>> {
         _ => return Ok(None),
     };
 
-    if stats_raw.contains(',') {
-        return Err(ServiceError::InvalidRequest(
-            "timeseries metrics stats only support a single expression".into(),
-        ));
-    }
-
     let (expr_segment, group_segment) = split_group_clause(stats_raw).ok_or_else(|| {
-        ServiceError::InvalidRequest("stats expression must include 'by device_id'".into())
+        ServiceError::InvalidRequest(
+            "timeseries metrics stats expression must include a by clause".into(),
+        )
     })?;
 
-    if !group_segment.eq_ignore_ascii_case("device_id") {
+    let mut aggregations = Vec::new();
+    for segment in expr_segment
+        .split(',')
+        .map(str::trim)
+        .filter(|segment| !segment.is_empty())
+    {
+        aggregations.push(parse_timeseries_stats_aggregation(segment)?);
+    }
+
+    if aggregations.is_empty() {
         return Err(ServiceError::InvalidRequest(
-            "timeseries metrics stats only support grouping by device_id".into(),
+            "timeseries metrics stats expression must include at least one aggregation".into(),
         ));
     }
 
-    let (expr, alias_raw) = split_alias(&expr_segment)?;
-    let alias = sanitize_alias(alias_raw)?;
-    let expr_lower = expr.trim().to_lowercase();
-    if expr_lower != "avg(value)" {
+    let mut group_by = Vec::new();
+    for token in group_segment
+        .split(',')
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+    {
+        group_by.push(parse_timeseries_group(token)?);
+    }
+
+    if group_by.is_empty() {
         return Err(ServiceError::InvalidRequest(
-            "timeseries metrics stats only support avg(value)".into(),
+            "timeseries metrics stats expression must include at least one group key".into(),
         ));
     }
 
-    Ok(Some(TimeseriesStatsSpec { alias }))
+    Ok(Some(TimeseriesStatsSpec {
+        aggregations,
+        group_by,
+    }))
 }
 
 fn split_group_clause(raw: &str) -> Option<(String, String)> {
@@ -1044,6 +1234,72 @@ fn split_alias(segment: &str) -> Result<(String, String)> {
     }
 }
 
+fn parse_timeseries_stats_aggregation(segment: &str) -> Result<TimeseriesAggregationSpec> {
+    let (expr, alias_raw) = split_alias(segment)?;
+    let alias = sanitize_alias(alias_raw)?;
+    let expr = expr.trim();
+    let open = expr.find('(').ok_or_else(|| {
+        ServiceError::InvalidRequest("invalid timeseries stats aggregation expression".into())
+    })?;
+    let close = expr.rfind(')').ok_or_else(|| {
+        ServiceError::InvalidRequest("invalid timeseries stats aggregation expression".into())
+    })?;
+    if close <= open {
+        return Err(ServiceError::InvalidRequest(
+            "invalid timeseries stats aggregation expression".into(),
+        ));
+    }
+
+    let func_raw = expr[..open].trim().to_lowercase();
+    let field_raw = expr[open + 1..close].trim().to_lowercase();
+    let func = match func_raw.as_str() {
+        "avg" => TimeseriesAggFunc::Avg,
+        "sum" => TimeseriesAggFunc::Sum,
+        "count" => TimeseriesAggFunc::Count,
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "unsupported timeseries aggregation function '{func_raw}'"
+            )))
+        }
+    };
+
+    let field = match func {
+        TimeseriesAggFunc::Count if field_raw == "*" => None,
+        TimeseriesAggFunc::Count => {
+            return Err(ServiceError::InvalidRequest(
+                "timeseries count aggregation only supports count(*)".into(),
+            ))
+        }
+        TimeseriesAggFunc::Avg | TimeseriesAggFunc::Sum => {
+            if field_raw != "value" {
+                return Err(ServiceError::InvalidRequest(
+                    "timeseries avg/sum aggregations only support value".into(),
+                ));
+            }
+            Some("value".to_string())
+        }
+    };
+
+    Ok(TimeseriesAggregationSpec { func, field, alias })
+}
+
+fn parse_timeseries_group(raw: &str) -> Result<TimeseriesGroupSpec> {
+    let field = raw
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .to_lowercase();
+    match field.as_str() {
+        "gateway_id" | "agent_id" | "series_key" | "metric_name" | "metric_type" | "device_id"
+        | "unit" | "partition" | "target_device_ip" | "if_index" => {
+            Ok(TimeseriesGroupSpec { field })
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "unsupported timeseries stats group field '{field}'"
+        ))),
+    }
+}
+
 fn sanitize_alias(raw: String) -> Result<String> {
     let alias = raw.trim().to_lowercase();
     if alias.is_empty()
@@ -1058,8 +1314,11 @@ fn sanitize_alias(raw: String) -> Result<String> {
     Ok(alias)
 }
 
-fn should_route_stats_to_cagg(plan: &QueryPlan) -> bool {
-    if !super::should_route_plan_to_hourly_cagg(plan) {
+fn should_route_stats_to_cagg(plan: &QueryPlan, spec: &TimeseriesStatsSpec) -> bool {
+    if plan.other
+        || !spec.is_avg_value_by_device()
+        || !super::should_route_plan_to_hourly_cagg(plan)
+    {
         return false;
     }
 
@@ -1069,6 +1328,16 @@ fn should_route_stats_to_cagg(plan: &QueryPlan) -> bool {
             "device_id" | "metric_type" | "metric_name"
         )
     })
+}
+
+impl TimeseriesStatsSpec {
+    fn is_avg_value_by_device(&self) -> bool {
+        self.aggregations.len() == 1
+            && self.group_by.len() == 1
+            && self.group_by[0].field == "device_id"
+            && self.aggregations[0].func == TimeseriesAggFunc::Avg
+            && self.aggregations[0].field.as_deref() == Some("value")
+    }
 }
 
 fn rewrite_placeholders(sql: &str) -> String {
@@ -1207,6 +1476,112 @@ mod tests {
             "unexpected cagg stats SQL: {}",
             sql.sql
         );
-        assert!(should_route_stats_to_cagg(&plan));
+        assert!(should_route_stats_to_cagg(&plan, &spec));
+    }
+
+    #[test]
+    fn stats_query_other_rollup_ranks_full_result_and_sums_tail() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+        let plan = QueryPlan {
+            entity: Entity::TimeseriesMetrics,
+            filters: vec![Filter {
+                field: "metric_type".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("snmp".to_string()),
+            }],
+            order: vec![OrderClause {
+                field: "total_value".into(),
+                direction: OrderDirection::Desc,
+            }],
+            limit: 10,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "sum(value) as total_value, count(*) as sample_count by device_id",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            other: true,
+            include_deleted: false,
+        };
+
+        let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
+            .unwrap()
+            .unwrap();
+        let sql = build_stats_query(&plan, MetricScope::Any, &spec)
+            .expect("other rollup stats SQL should build");
+
+        assert!(
+            sql.sql.contains("WITH grouped AS"),
+            "expected grouped CTE: {}",
+            sql.sql
+        );
+        assert!(
+            sql.sql.contains("ranked AS")
+                && sql.sql.contains(
+                    "ROW_NUMBER() OVER (ORDER BY agg_value_0 DESC, group_value_0 ASC) AS rn"
+                ),
+            "expected deterministic ranked CTE: {}",
+            sql.sql
+        );
+        assert!(
+            sql.sql.contains("WHERE rn <= 10")
+                && sql.sql.contains("UNION ALL")
+                && sql.sql.contains("WHERE rn > 10"),
+            "expected top-N plus tail union: {}",
+            sql.sql
+        );
+        assert!(
+            sql.sql.contains("'device_id', NULL")
+                && sql
+                    .sql
+                    .contains("'total_value', COALESCE(SUM(agg_value_0), 0)")
+                && sql
+                    .sql
+                    .contains("'sample_count', COALESCE(SUM(agg_value_1), 0)")
+                && sql.sql.contains("'__other__', true"),
+            "expected Other JSON payload: {}",
+            sql.sql
+        );
+        assert!(
+            !should_route_stats_to_cagg(&plan, &spec),
+            "other:true additive stats must stay on raw grouped rows"
+        );
+    }
+
+    #[test]
+    fn other_rollup_rejects_non_additive_timeseries_aggregates() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+        let plan = QueryPlan {
+            entity: Entity::TimeseriesMetrics,
+            filters: Vec::new(),
+            order: vec![OrderClause {
+                field: "avg_value".into(),
+                direction: OrderDirection::Desc,
+            }],
+            limit: 10,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "avg(value) as avg_value by device_id",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            other: true,
+            include_deleted: false,
+        };
+
+        let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
+            .unwrap()
+            .unwrap();
+        let err = build_stats_query(&plan, MetricScope::Any, &spec)
+            .expect_err("avg with other:true should fail");
+
+        assert!(
+            err.to_string().contains("sum(...) and count(...)"),
+            "expected additive aggregate error, got: {err}"
+        );
     }
 }
