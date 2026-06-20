@@ -75,19 +75,19 @@
 ## 13. Capacity Forecast Correctness (F16)
 - [x] 13.1 Fix the flow-capacity source unit label and add a threshold so it can alert.
 - [x] 13.2 Guard the Holt-Winters ETA against negative `slope_per_second`.
-- [ ] 13.3 Insert a gap marker instead of deleting interior points on counter wrap.
-- [ ] 13.4 Constrain `warning_horizon_seconds <= horizon_seconds`.
+- [x] 13.3 Insert a gap marker instead of deleting interior points on counter wrap.
+- [x] 13.4 Constrain `warning_horizon_seconds <= horizon_seconds`.
 
 ## 14. Detector Numeric Safety (F17)
 - [x] 14.1 Replace the unconditional zero-variance breach with a magnitude/floor-aware rule that does not fire for floor-less counter rates; widen the near-zero stddev guard beyond `f64::EPSILON`.
 - [x] 14.2 Make `sample_stats` defined for windows of length 0/1 (no NaN/inf/panic).
 - [x] 14.3 Keep Welford sample count consistent with logical samples (handle non-finite explicitly).
-- [ ] 14.4 Pin a `confirm_slots` definition shared by edge and central seasonal confirmation.
+- [x] 14.4 Pin a `confirm_slots` definition shared by edge and central seasonal confirmation.
 
 ## 15. Config Reconciliation (F18)
-- [ ] 15.1 Decide and document the role of `window_duration_seconds` for the count-based edge window (map or scope away).
-- [ ] 15.2 Remove or correctly map the `mem` runtime alias to a real tier/gauge class.
-- [ ] 15.3 Align edge 32-bit counter-wrap salvage (modulus / unknown `counter_width`) with central's per-sample-max behavior.
+- [x] 15.1 Decide and document the role of `window_duration_seconds` for the count-based edge window (map or scope away).
+- [x] 15.2 Remove or correctly map the `mem` runtime alias to a real tier/gauge class.
+- [x] 15.3 Align edge 32-bit counter-wrap salvage (modulus / unknown `counter_width`) with central's per-sample-max behavior.
 
 ## 16. Operability (F19)
 - [ ] 16.1 Add a scoring-liveness/health surface (verdict throughput, tracked-series vs cap, last-scored time).
