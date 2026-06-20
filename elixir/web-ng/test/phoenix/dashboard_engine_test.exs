@@ -26,6 +26,29 @@ defmodule ServiceRadarWebNGWeb.DashboardEngineTest do
     assert timeseries_panel.assigns.spec[:x] == "timestamp"
   end
 
+  test "threads SRQL metric units into timeseries panel spec" do
+    response = %{
+      "results" => [
+        %{
+          "timestamp" => "2025-01-01T00:00:00Z",
+          "series" => "disk",
+          "value" => 2048.0,
+          "metric" => %{"unit" => "By"}
+        }
+      ],
+      "viz" => %{
+        "suggestions" => [
+          %{"kind" => "timeseries", "x" => "timestamp", "y" => "value", "series" => "series"}
+        ]
+      }
+    }
+
+    panels = Engine.build_panels(response)
+    timeseries_panel = Enum.find(panels, &(&1.plugin == Plugins.Timeseries))
+
+    assert timeseries_panel.assigns.spec[:series_units] == %{"disk" => :bytes}
+  end
+
   test "selects topology plugin when graph payload includes nodes and edges" do
     response = %{
       "results" => [%{"nodes" => [%{"id" => "n1", "label" => "Node"}], "edges" => []}],
@@ -40,5 +63,18 @@ defmodule ServiceRadarWebNGWeb.DashboardEngineTest do
   test "falls back to table plugin when no other plugin matches" do
     response = %{"results" => [%{"a" => 1}], "viz" => %{"suggestions" => [%{"kind" => "table"}]}}
     assert [%{plugin: Plugins.Table}] = Engine.build_panels(response)
+  end
+
+  test "table plugin preserves schema columns and caps rendered rows" do
+    response = %{
+      "results" => Enum.map(1..501, &%{"count" => &1, "bytes_total" => &1 * 1024}),
+      "schema" => %{"columns" => ["bytes_total", "count"]}
+    }
+
+    assert [%{plugin: Plugins.Table, assigns: assigns}] = Engine.build_panels(response)
+    assert assigns.columns == ["bytes_total", "count"]
+    assert length(assigns.results) == 500
+    assert assigns.total_count == 501
+    assert assigns.truncated
   end
 end
