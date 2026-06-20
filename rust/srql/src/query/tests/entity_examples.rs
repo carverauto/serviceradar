@@ -51,7 +51,7 @@ fn interfaces_docs_example_ip_addresses_contains_any() {
         !lower.contains("@>"),
         "ip_addresses should not require contains-all semantics, got: {sql}"
     );
-    assert!(lower.contains("order by timestamp asc"));
+    assert!(lower.contains("order by timestamp asc, device_id asc, interface_uid asc"));
 }
 
 #[test]
@@ -190,8 +190,8 @@ fn security_findings_alias_filters_to_ocsf_findings_category() {
         "expected security_findings to constrain OCSF Findings category, got: {sql}"
     );
     assert!(
-        lower.contains("order by \"ocsf_events\".\"time\" desc"),
-        "expected time desc ordering, got: {sql}"
+        lower.contains("order by \"ocsf_events\".\"time\" desc, \"ocsf_events\".\"id\" asc"),
+        "expected stable time desc ordering, got: {sql}"
     );
 }
 

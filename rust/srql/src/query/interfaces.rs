@@ -273,7 +273,7 @@ fn build_query_sql(plan: &QueryPlan) -> Result<SqlBuildResult> {
         outer.push_str(") AS latest");
         outer.push_str(&interface_enrichment_joins("latest"));
 
-        if let Some(order_clause) = build_order_clause(&plan.order) {
+        if let Some(order_clause) = build_order_clause(&plan.order, false) {
             outer.push(' ');
             outer.push_str(&order_clause);
         }
@@ -292,7 +292,7 @@ fn build_query_sql(plan: &QueryPlan) -> Result<SqlBuildResult> {
         );
         sql.push_str(&discovered_interfaces_from);
         sql.push_str(&interface_enrichment_joins("di"));
-        if let Some(order_clause) = build_order_clause(&plan.order) {
+        if let Some(order_clause) = build_order_clause(&plan.order, true) {
             sql.push(' ');
             sql.push_str(&order_clause);
         }
@@ -643,23 +643,24 @@ fn build_ip_addresses_clause(
     }
 }
 
-fn build_order_clause(order: &[OrderClause]) -> Option<String> {
+fn build_order_clause(order: &[OrderClause], stable_history_order: bool) -> Option<String> {
     let mut clauses = Vec::new();
+    let mut ordered_fields = Vec::new();
 
     for clause in order {
-        let column = match clause.field.as_str() {
-            "timestamp" => "timestamp",
-            "device_ip" => "device_ip",
-            "device_id" => "device_id",
-            "interface_uid" => "interface_uid",
-            "if_name" => "if_name",
-            "if_descr" => "if_descr",
-            "if_index" => "if_index",
-            "if_type" => "if_type",
-            "if_type_name" => "if_type_name",
-            "interface_kind" => "interface_kind",
-            "speed_bps" | "if_speed" | "speed" => "speed_bps",
-            "mtu" => "mtu",
+        let (field, column) = match clause.field.as_str() {
+            "timestamp" => ("timestamp", "timestamp"),
+            "device_ip" => ("device_ip", "device_ip"),
+            "device_id" => ("device_id", "device_id"),
+            "interface_uid" => ("interface_uid", "interface_uid"),
+            "if_name" => ("if_name", "if_name"),
+            "if_descr" => ("if_descr", "if_descr"),
+            "if_index" => ("if_index", "if_index"),
+            "if_type" => ("if_type", "if_type"),
+            "if_type_name" => ("if_type_name", "if_type_name"),
+            "interface_kind" => ("interface_kind", "interface_kind"),
+            "speed_bps" | "if_speed" | "speed" => ("speed_bps", "speed_bps"),
+            "mtu" => ("mtu", "mtu"),
             _ => continue,
         };
 
@@ -669,12 +670,31 @@ fn build_order_clause(order: &[OrderClause]) -> Option<String> {
         };
 
         clauses.push(format!("{column} {direction}"));
+        ordered_fields.push(field);
     }
 
     if clauses.is_empty() {
-        Some("ORDER BY timestamp DESC, created_at DESC".to_string())
-    } else {
-        Some(format!("ORDER BY {}", clauses.join(", ")))
+        clauses.push("timestamp DESC".to_string());
+        clauses.push("created_at DESC".to_string());
+        ordered_fields.push("timestamp");
+    }
+
+    if stable_history_order {
+        append_interface_history_tiebreakers(&mut clauses, &ordered_fields);
+    }
+
+    Some(format!("ORDER BY {}", clauses.join(", ")))
+}
+
+fn append_interface_history_tiebreakers(clauses: &mut Vec<String>, ordered_fields: &[&str]) {
+    if !ordered_fields.contains(&"timestamp") {
+        clauses.push("timestamp DESC".to_string());
+    }
+    if !ordered_fields.contains(&"device_id") {
+        clauses.push("device_id ASC".to_string());
+    }
+    if !ordered_fields.contains(&"interface_uid") {
+        clauses.push("interface_uid ASC".to_string());
     }
 }
 
@@ -822,6 +842,28 @@ mod tests {
             lower.contains("ifouterrors"),
             "expected ifOutErrors join, got: {sql}"
         );
+        assert!(
+            lower.contains("order by timestamp desc, device_id asc, interface_uid asc"),
+            "expected stable historical interface ordering, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn historical_interfaces_default_order_is_stable() {
+        let plan = base_plan_with_filter(Filter {
+            field: "device_id".into(),
+            value: FilterValue::Scalar("dev-1".into()),
+            op: FilterOp::Eq,
+        });
+
+        let (sql, _) = to_sql_and_params(&plan).expect("interfaces SQL should be generated");
+        let lower = sql.to_lowercase();
+        assert!(
+            lower.contains(
+                "order by timestamp desc, created_at desc, device_id asc, interface_uid asc"
+            ),
+            "expected stable default historical interface ordering, got: {sql}"
+        );
     }
 
     #[test]
@@ -872,6 +914,10 @@ mod tests {
         assert!(
             !lower.contains("tm.device_id = di.device_id"),
             "expected no per-history-row timeseries join, got: {sql}"
+        );
+        assert!(
+            lower.contains("order by if_name asc limit"),
+            "latest interfaces should keep the existing outer order shape, got: {sql}"
         );
     }
 
