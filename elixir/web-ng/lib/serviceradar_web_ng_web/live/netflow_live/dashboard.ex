@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   alias ServiceRadar.Observability.NetflowLocalCidr
   alias ServiceRadar.ReferenceData.ServicePorts
   alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
+  alias ServiceRadarWebNGWeb.NetFlow.InterfaceSeries
 
   require Ash.Query
   require Logger
@@ -135,7 +136,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   def handle_event("drill_down_talker", %{"row-idx" => idx}, socket) do
     with {:ok, i} <- safe_parse_int(idx),
-         row when not is_nil(row) <- Enum.at(socket.assigns.top_talkers, i) do
+         row when not is_nil(row) <- Enum.at(socket.assigns.top_talkers, i),
+         false <- other_row?(row) do
       {:noreply, drill_down(socket, "src_ip:#{srql_quote(row.ip)}")}
     else
       _ -> {:noreply, socket}
@@ -144,7 +146,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   def handle_event("drill_down_listener", %{"row-idx" => idx}, socket) do
     with {:ok, i} <- safe_parse_int(idx),
-         row when not is_nil(row) <- Enum.at(socket.assigns.top_listeners, i) do
+         row when not is_nil(row) <- Enum.at(socket.assigns.top_listeners, i),
+         false <- other_row?(row) do
       {:noreply, drill_down(socket, "dst_ip:#{srql_quote(row.ip)}")}
     else
       _ -> {:noreply, socket}
@@ -153,7 +156,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   def handle_event("drill_down_conversation", %{"row-idx" => idx}, socket) do
     with {:ok, i} <- safe_parse_int(idx),
-         row when not is_nil(row) <- Enum.at(socket.assigns.top_conversations, i) do
+         row when not is_nil(row) <- Enum.at(socket.assigns.top_conversations, i),
+         false <- other_row?(row) do
       {:noreply, drill_down(socket, bidirectional_conversation_filter(row))}
     else
       _ -> {:noreply, socket}
@@ -162,7 +166,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   def handle_event("drill_down_app", %{"row-idx" => idx}, socket) do
     with {:ok, i} <- safe_parse_int(idx),
-         row when not is_nil(row) <- Enum.at(socket.assigns.top_apps, i) do
+         row when not is_nil(row) <- Enum.at(socket.assigns.top_apps, i),
+         false <- other_row?(row) do
       {:noreply, drill_down(socket, "app:#{srql_quote(row.app)}")}
     else
       _ -> {:noreply, socket}
@@ -171,7 +176,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   def handle_event("drill_down_protocol", %{"row-idx" => idx}, socket) do
     with {:ok, i} <- safe_parse_int(idx),
-         row when not is_nil(row) <- Enum.at(socket.assigns.top_protocols, i) do
+         row when not is_nil(row) <- Enum.at(socket.assigns.top_protocols, i),
+         false <- other_row?(row) do
       {:noreply, drill_down(socket, "protocol_name:#{srql_quote(row.protocol)}")}
     else
       _ -> {:noreply, socket}
@@ -181,6 +187,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   def handle_event("drill_down_port", %{"row-idx" => idx}, socket) do
     with {:ok, i} <- safe_parse_int(idx),
          row when not is_nil(row) <- Enum.at(socket.assigns.top_ports, i),
+         false <- other_row?(row),
          port when not is_nil(port) <- row.port,
          {:ok, port_int} <- safe_parse_int(to_string(port)),
          true <- port_int > 0 do
@@ -795,19 +802,21 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   defp load_top_n(srql_mod, scope, base, group_field, sort_field) do
     query =
-      "#{base} stats:sum(bytes_total) as bytes_total stats:sum(packets_total) as packets_total by #{group_field} sort:#{sort_field}:desc limit:#{@top_n}"
+      "#{base} stats:sum(bytes_total) as bytes_total stats:sum(packets_total) as packets_total by #{group_field} sort:#{sort_field}:desc limit:#{@top_n} other:true"
 
     srql_mod
     |> srql_results(query, scope)
     |> Enum.map(fn row ->
       p = row_payload(row)
-      name = get_field(p, group_field)
+      other? = srql_other_row?(p)
+      name = if other?, do: "Other", else: get_field(p, group_field)
 
       %{
         ip: name,
         app: name,
         protocol: name,
         port: name,
+        other?: other?,
         bytes: to_number(get_field(p, "bytes_total")),
         packets: to_number(get_field(p, "packets_total"))
       }
@@ -816,16 +825,18 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
 
   defp load_top_conversations(srql_mod, scope, base, sort_field) do
     query =
-      "#{base} stats:sum(bytes_total) as bytes_total stats:sum(packets_total) as packets_total by conversation_a_ip,conversation_b_ip sort:#{sort_field}:desc limit:#{@top_n}"
+      "#{base} stats:sum(bytes_total) as bytes_total stats:sum(packets_total) as packets_total by conversation_a_ip,conversation_b_ip sort:#{sort_field}:desc limit:#{@top_n} other:true"
 
     srql_mod
     |> srql_results(query, scope)
     |> Enum.map(fn row ->
       p = row_payload(row)
+      other? = srql_other_row?(p)
 
       %{
-        src_ip: get_field(p, "conversation_a_ip"),
-        dst_ip: get_field(p, "conversation_b_ip"),
+        src_ip: if(other?, do: "Other", else: get_field(p, "conversation_a_ip")),
+        dst_ip: if(other?, do: "Other", else: get_field(p, "conversation_b_ip")),
+        other?: other?,
         bytes: to_number(get_field(p, "bytes_total")),
         packets: to_number(get_field(p, "packets_total"))
       }
@@ -861,6 +872,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     srql_mod = srql_module()
     bucket = timeseries_bucket(tw)
     bucket_secs = bucket_seconds(bucket)
+    limit = interface_downsample_limit(tw, bucket_secs, 2)
 
     case decode_interface_key(interface_key) do
       {:ok, sampler, interface_name} ->
@@ -868,7 +880,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
         value_field = if(um == "pps", do: "packets_total", else: "bytes_total")
 
         {ingress, egress} =
-          load_interface_direction_points(srql_mod, scope, base, interface_name, bucket, value_field)
+          srql_mod
+          |> load_interface_direction_points(scope, base, interface_name, bucket, value_field, limit)
+          |> split_interface_direction_points()
 
         points =
           ingress
@@ -889,20 +903,21 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     end
   end
 
-  defp load_interface_direction_points(srql_mod, scope, base, interface_name, bucket, value_field) do
-    tasks = [
-      Task.async(fn ->
-        ingress_base = "#{base} direction:ingress in_if_name:#{srql_quote(interface_name)}"
-        {:ingress, load_iface_downsample(srql_mod, scope, ingress_base, bucket, value_field)}
-      end),
-      Task.async(fn ->
-        egress_base = "#{base} direction:egress out_if_name:#{srql_quote(interface_name)}"
-        {:egress, load_iface_downsample(srql_mod, scope, egress_base, bucket, value_field)}
-      end)
-    ]
+  defp load_interface_direction_points(srql_mod, scope, base, interface_name, bucket, value_field, limit) do
+    query =
+      "#{base} interface:#{srql_quote(interface_name)} bucket:#{bucket} agg:sum " <>
+        "value_field:#{value_field} series:interface limit:#{limit}"
 
-    results = safe_await_many(tasks, to_timeout(second: 10))
-    {Map.get(results, :ingress, []), Map.get(results, :egress, [])}
+    srql_mod
+    |> srql_results(query, scope)
+    |> Enum.map(&interface_direction_point/1)
+    |> Enum.filter(& &1)
+  end
+
+  defp split_interface_direction_points(rows) do
+    rows
+    |> Enum.group_by(&Map.get(&1, :direction))
+    |> then(fn grouped -> {Map.get(grouped, :ingress, []), Map.get(grouped, :egress, [])} end)
   end
 
   defp interface_direction_points(ingress, egress, bucket_secs, unit_mode) do
@@ -924,23 +939,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
         "egress" => Map.get(egress_map, t, 0)
       }
     end)
-  end
-
-  defp load_iface_downsample(srql_mod, scope, base, bucket, value_field) do
-    query = "#{base} bucket:#{bucket} agg:sum value_field:#{value_field}"
-
-    case srql_mod.query(query, %{scope: scope}) do
-      {:ok, %{"results" => results}} when is_list(results) ->
-        Enum.map(results, fn row ->
-          %{
-            t: row["timestamp"] || row["bucket"] || row["time_bucket"],
-            v: to_number(row["value"] || row[value_field] || 0)
-          }
-        end)
-
-      _ ->
-        []
-    end
   end
 
   defp load_summary(srql_mod, scope, base) do
@@ -986,10 +984,14 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   end
 
   defp load_top_interfaces(srql_mod, scope, base) do
-    ingress = load_top_interface_direction(srql_mod, scope, base, :ingress)
-    egress = load_top_interface_direction(srql_mod, scope, base, :egress)
+    query =
+      "#{base} stats:sum(bytes_total) as bytes_total by sampler_address,interface,if_speed_bps " <>
+        "sort:bytes_total:desc limit:#{@top_n * 2}"
 
-    (ingress ++ egress)
+    srql_mod
+    |> srql_results(query, scope)
+    |> Enum.map(&top_interface_row/1)
+    |> Enum.filter(& &1)
     |> Enum.reduce(%{}, &merge_interface_direction_row/2)
     |> Map.values()
     |> Enum.map(&finalize_interface_row/1)
@@ -997,35 +999,24 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     |> Enum.take(5)
   end
 
-  defp load_top_interface_direction(srql_mod, scope, base, direction) when direction in [:ingress, :egress] do
-    {name_field, speed_field} =
-      case direction do
-        :ingress -> {"in_if_name", "in_if_speed_bps"}
-        :egress -> {"out_if_name", "out_if_speed_bps"}
-      end
+  defp top_interface_row(row) do
+    p = row_payload(row)
+    sampler = get_field(p, "sampler_address")
+    interface_name = p |> get_field("interface") |> normalize_interface_name()
 
-    query =
-      "#{base} direction:#{direction} stats:sum(bytes_total) as bytes_total by sampler_address,#{name_field},#{speed_field} sort:bytes_total:desc limit:#{@top_n}"
-
-    srql_mod
-    |> srql_results(query, scope)
-    |> Enum.map(fn row ->
-      p = row_payload(row)
-      sampler = get_field(p, "sampler_address")
-      interface_name = p |> get_field(name_field) |> normalize_interface_name()
-
+    with true <- is_binary(sampler) and String.trim(sampler) != "",
+         true <- is_binary(interface_name) and interface_name != "",
+         {:ok, direction} <- normalize_if_direction(get_field(p, "if_direction")) do
       %{
         sampler: sampler,
         interface_name: interface_name,
         direction: direction,
         bytes: to_number(get_field(p, "bytes_total")),
-        capacity_bps: p |> get_field(speed_field) |> to_number() |> trunc()
+        capacity_bps: p |> get_field("if_speed_bps") |> to_number() |> trunc()
       }
-    end)
-    |> Enum.filter(fn row ->
-      is_binary(row.sampler) and String.trim(row.sampler) != "" and
-        is_binary(row.interface_name) and row.interface_name != ""
-    end)
+    else
+      _ -> nil
+    end
   end
 
   defp merge_interface_direction_row(row, acc) do
@@ -1074,7 +1065,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   defp load_interfaces_p95(srql_mod, scope, tw, interfaces) do
     bucket = timeseries_bucket(tw)
     bucket_secs = bucket_seconds(bucket)
-    limit = batched_interface_downsample_limit(tw, bucket_secs, interfaces)
+    limit = interface_downsample_limit(tw, bucket_secs, length(interfaces) * 2)
 
     tasks =
       interfaces
@@ -1094,10 +1085,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
         else
           [
             Task.async(fn ->
-              load_interface_p95_direction(srql_mod, scope, tw, sampler, interface_names, bucket, limit, :ingress)
-            end),
-            Task.async(fn ->
-              load_interface_p95_direction(srql_mod, scope, tw, sampler, interface_names, bucket, limit, :egress)
+              load_interface_p95_points(srql_mod, scope, tw, sampler, interface_names, bucket, limit)
             end)
           ]
         end
@@ -1106,61 +1094,76 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     tasks
     |> safe_await_values(to_timeout(second: 10))
     |> List.flatten()
-    |> bucket_interface_direction_values()
-    |> Map.new(fn {{sampler, interface_name}, buckets} ->
-      p95 =
-        buckets
-        |> Map.values()
-        |> Enum.map(fn values -> max(Map.get(values, :ingress, 0), Map.get(values, :egress, 0)) end)
-        |> percentile_95()
-        |> Kernel.*(8)
-        |> Kernel./(max(bucket_secs, 1))
-
-      {{sampler, interface_name}, p95}
-    end)
+    |> InterfaceSeries.busier_direction_p95_bps(bucket_secs)
   end
 
-  defp load_interface_p95_direction(srql_mod, scope, tw, sampler, interface_names, bucket, limit, direction) do
-    {series_field, interface_filter} =
-      case direction do
-        :ingress -> {"in_if_name", "in_if_name:#{srql_list(interface_names)}"}
-        :egress -> {"out_if_name", "out_if_name:#{srql_list(interface_names)}"}
-      end
-
+  defp load_interface_p95_points(srql_mod, scope, tw, sampler, interface_names, bucket, limit) do
     query =
-      "in:flows time:last_#{tw} sampler_address:#{srql_quote(sampler)} direction:#{direction} " <>
-        "#{interface_filter} bucket:#{bucket} agg:sum value_field:bytes_total series:#{series_field} limit:#{limit}"
+      "in:flows time:last_#{tw} sampler_address:#{srql_quote(sampler)} " <>
+        "interface:#{srql_list(interface_names)} bucket:#{bucket} agg:sum " <>
+        "value_field:bytes_total series:interface limit:#{limit}"
 
     srql_mod
     |> srql_results(query, scope)
-    |> Enum.map(fn row ->
-      p = row_payload(row)
+    |> Enum.map(&interface_direction_point(&1, sampler))
+    |> Enum.filter(& &1)
+  end
 
+  defp interface_downsample_limit(tw, bucket_secs, series_count) do
+    bucket_count = ceil(time_window_seconds(tw) / max(bucket_secs, 1)) + 2
+    max(max(series_count, 1) * bucket_count, 100)
+  end
+
+  defp interface_direction_point(row, sampler \\ nil) do
+    p = row_payload(row)
+
+    with {:ok, direction, interface_name} <- parse_interface_series(get_field(p, "series")),
+         true <- is_binary(interface_name),
+         t when not is_nil(t) <- get_field(p, "timestamp") || get_field(p, "bucket") || get_field(p, "time_bucket") do
       %{
         sampler: sampler,
-        interface_name: p |> get_field("series") |> normalize_interface_name(),
+        interface_name: interface_name,
         direction: direction,
-        t: get_field(p, "timestamp") || get_field(p, "bucket") || get_field(p, "time_bucket"),
+        t: t,
         v: p |> get_field("value") |> to_number()
       }
-    end)
-    |> Enum.filter(fn row -> is_binary(row.interface_name) and row.t end)
+    else
+      _ -> nil
+    end
   end
 
-  defp batched_interface_downsample_limit(tw, bucket_secs, interfaces) do
-    bucket_count = ceil(time_window_seconds(tw) / max(bucket_secs, 1)) + 2
-    max(length(interfaces) * bucket_count, 100)
+  defp parse_interface_series(series) when is_binary(series) do
+    case String.split(series, ":", parts: 2) do
+      [direction, interface_name] ->
+        with {:ok, direction} <- normalize_if_direction(direction),
+             interface_name when is_binary(interface_name) <- normalize_interface_name(interface_name) do
+          {:ok, direction, interface_name}
+        else
+          _ -> :error
+        end
+
+      _ ->
+        :error
+    end
   end
 
-  defp bucket_interface_direction_values(rows) do
-    Enum.reduce(rows, %{}, fn row, acc ->
-      key = {row.sampler, row.interface_name}
+  defp parse_interface_series(_), do: :error
 
-      Map.update(acc, key, %{row.t => %{row.direction => row.v}}, fn buckets ->
-        Map.update(buckets, row.t, %{row.direction => row.v}, &Map.put(&1, row.direction, row.v))
-      end)
-    end)
+  defp normalize_if_direction(direction) when is_atom(direction) do
+    direction
+    |> Atom.to_string()
+    |> normalize_if_direction()
   end
+
+  defp normalize_if_direction(direction) when is_binary(direction) do
+    case direction |> String.trim() |> String.downcase() do
+      "ingress" -> {:ok, :ingress}
+      "egress" -> {:ok, :egress}
+      _ -> :error
+    end
+  end
+
+  defp normalize_if_direction(_), do: :error
 
   defp normalize_interface_name(name) when is_binary(name) do
     name = String.trim(name)
@@ -1190,15 +1193,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   end
 
   defp decode_interface_key(_), do: :error
-
-  defp percentile_95([]), do: 0
-
-  defp percentile_95(values) do
-    sorted = Enum.sort(values)
-    n = length(sorted)
-    idx = min(n - 1, ceil(0.95 * n) - 1)
-    Enum.at(sorted, idx) || 0
-  end
 
   defp load_subnet_distribution(srql_mod, scope, base) do
     cidrs =
@@ -1468,6 +1462,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     ArgumentError -> Map.get(payload, key)
   end
 
+  defp srql_other_row?(payload) when is_map(payload), do: Map.get(payload, "__other__") in [true, "true", 1, "1"]
+  defp srql_other_row?(_payload), do: false
+
+  defp other_row?(%{other?: true}), do: true
+  defp other_row?(_row), do: false
+
   defp row_payload(%{"payload" => payload}) when is_map(payload), do: payload
   defp row_payload(%{} = row), do: row
   defp row_payload(_), do: %{}
@@ -1554,7 +1554,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
       |> Enum.concat()
       |> Enum.filter(&is_binary/1)
       |> Enum.map(&String.trim/1)
-      |> Enum.reject(&(&1 == ""))
+      |> Enum.reject(&(&1 == "" or &1 == "Other"))
       |> Enum.uniq()
 
     if ips == [] do
