@@ -793,7 +793,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     activity_id = OCSF.activity_log_create()
     class_uid = OCSF.class_event_log_activity()
     category_uid = OCSF.category_system_activity()
-    severity_id = severity_id(rule.alert)
+    severity_id = severity_id(rule.alert, record)
     message_override = rule.event["message"] || rule.event[:message]
 
     message =
@@ -1102,17 +1102,36 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   defp iso8601(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp iso8601(value), do: value
 
-  defp severity_id(alert_overrides) do
+  defp severity_id(alert_overrides, record) do
     overrides = alert_overrides || %{}
 
     severity =
-      overrides["severity"] ||
-        overrides["severity_id"] ||
-        overrides[:severity] ||
-        overrides[:severity_id] ||
-        :warning
+      if severity_from_source?(overrides) do
+        source_severity(record)
+      else
+        overrides["severity"] ||
+          overrides["severity_id"] ||
+          overrides[:severity] ||
+          overrides[:severity_id] ||
+          :warning
+      end
 
     resolve_severity_id(severity)
+  end
+
+  defp severity_from_source?(overrides) when is_map(overrides) do
+    severity_from = overrides["severity_from"] || overrides[:severity_from]
+    severity_from in ["source", "source_event", :source, :source_event]
+  end
+
+  defp severity_from_source?(_overrides), do: false
+
+  defp source_severity(nil), do: :warning
+
+  defp source_severity(record) do
+    record_field_value(record, "severity_number") ||
+      record_field_value(record, "severity_text") ||
+      :warning
   end
 
   defp resolve_severity_id(severity) when is_integer(severity) and severity in 1..6, do: severity
