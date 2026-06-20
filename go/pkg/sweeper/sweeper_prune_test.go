@@ -55,3 +55,40 @@ func TestRunSweep_PrunesPreviousResultsAfterSuccessfulSweep(t *testing.T) {
 
 	// gomock assertion will validate the expectation
 }
+
+func TestCompleteSuccessfulSweep_SkipsPruneWhenStartedAtIsFuture(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := NewMockStore(ctrl)
+	log := logger.NewTestLogger()
+
+	cfg := &models.Config{
+		Networks:      []string{},
+		DeviceTargets: []models.DeviceTarget{},
+		SweepModes:    []models.SweepMode{},
+		Ports:         []int{},
+		Interval:      1 * time.Minute,
+		Timeout:       2 * time.Second,
+		Concurrency:   10,
+		AgentID:       "test-agent",
+		GatewayID:     "test-agent",
+		Partition:     "default",
+	}
+
+	processor := NewBaseProcessor(cfg, log)
+	mockStore.EXPECT().GetSweepSummary(gomock.Any()).Return(&models.SweepSummary{}, nil).Times(1)
+
+	sweeper, err := NewNetworkSweeper(cfg, mockStore, processor, nil, log)
+	if err != nil {
+		t.Fatalf("failed to create sweeper: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := sweeper.completeSuccessfulSweep(ctx, time.Now().Add(1*time.Minute)); err != nil {
+		t.Fatalf("completeSuccessfulSweep returned error: %v", err)
+	}
+}

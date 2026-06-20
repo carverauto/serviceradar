@@ -1471,12 +1471,10 @@ func (s *NetworkSweeper) markSweepFinished() {
 func (s *NetworkSweeper) completeSuccessfulSweep(ctx context.Context, startedAt time.Time) error {
 	if s.store != nil {
 		age := time.Since(startedAt)
-		if age < 0 {
-			age = 0
-		}
-
-		if err := s.store.PruneResults(ctx, age); err != nil {
-			return fmt.Errorf("failed to prune pre-sweep results: %w", err)
+		if age > 0 {
+			if err := s.store.PruneResults(ctx, age); err != nil {
+				return fmt.Errorf("failed to prune pre-sweep results: %w", err)
+			}
 		}
 	}
 
