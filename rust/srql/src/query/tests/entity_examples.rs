@@ -51,7 +51,15 @@ fn interfaces_docs_example_ip_addresses_contains_any() {
         !lower.contains("@>"),
         "ip_addresses should not require contains-all semantics, got: {sql}"
     );
-    assert!(lower.contains("order by timestamp asc, device_id asc, interface_uid asc"));
+    assert!(
+        lower.contains("order by di.timestamp asc, di.device_id asc, di.interface_uid asc"),
+        "expected page-forming order before metrics joins, got: {sql}"
+    );
+    assert!(
+        lower
+            .contains("order by paged.timestamp asc, paged.device_id asc, paged.interface_uid asc"),
+        "expected final order after metrics joins, got: {sql}"
+    );
 }
 
 #[test]

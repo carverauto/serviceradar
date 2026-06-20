@@ -197,10 +197,23 @@ fn interface_select_columns(alias: &str) -> String {
     )
 }
 
-fn interface_enrichment_joins(alias: &str) -> String {
+fn interface_settings_join(alias: &str) -> String {
     format!(
-        " LEFT JOIN interface_settings ifs ON ifs.device_id = {alias}.device_id AND ifs.interface_uid = {alias}.interface_uid \
-        LEFT JOIN LATERAL ( \
+        " LEFT JOIN interface_settings ifs ON ifs.device_id = {alias}.device_id AND ifs.interface_uid = {alias}.interface_uid"
+    )
+}
+
+fn interface_settings_columns(alias: &str) -> String {
+    format!("{alias}.favorited, {alias}.metrics_enabled")
+}
+
+fn interface_settings_projection() -> &'static str {
+    "COALESCE(ifs.favorited, false) AS favorited, COALESCE(ifs.metrics_enabled, false) AS metrics_enabled"
+}
+
+fn interface_error_metric_joins(alias: &str) -> String {
+    format!(
+        " LEFT JOIN LATERAL ( \
           SELECT tm.value \
           FROM timeseries_metrics tm \
           WHERE tm.device_id = {alias}.device_id \
@@ -247,6 +260,7 @@ fn build_query_sql(plan: &QueryPlan) -> Result<SqlBuildResult> {
     }
 
     let mut discovered_interfaces_from = String::from("FROM discovered_interfaces di");
+    discovered_interfaces_from.push_str(&interface_settings_join("di"));
     if !clauses.is_empty() {
         discovered_interfaces_from.push_str(" WHERE ");
         discovered_interfaces_from.push_str(&clauses.join(" AND "));
@@ -255,52 +269,70 @@ fn build_query_sql(plan: &QueryPlan) -> Result<SqlBuildResult> {
     let (sql, binds) = if latest_only {
         let mut inner = String::from("SELECT DISTINCT ON (di.device_id, di.interface_uid) ");
         inner.push_str(&interface_select_columns("di"));
+        inner.push_str(", ");
+        inner.push_str(interface_settings_projection());
         inner.push(' ');
         inner.push_str(&discovered_interfaces_from);
         inner.push_str(
             " ORDER BY di.device_id, di.interface_uid, di.timestamp DESC, di.created_at DESC",
         );
 
-        let mut outer = String::from("SELECT ");
-        outer.push_str(&interface_select_columns("latest"));
-        outer.push_str(
-            ", tm_in.value AS in_errors, tm_out.value AS out_errors, \
-            COALESCE(ifs.favorited, false) AS favorited, \
-            COALESCE(ifs.metrics_enabled, false) AS metrics_enabled \
-            FROM (",
-        );
-        outer.push_str(&inner);
-        outer.push_str(") AS latest");
-        outer.push_str(&interface_enrichment_joins("latest"));
+        let mut page = String::from("SELECT * FROM (");
+        page.push_str(&inner);
+        page.push_str(") AS latest");
+        if let Some(order_clause) = build_order_clause(&plan.order, false, Some("latest")) {
+            page.push(' ');
+            page.push_str(&order_clause);
+        }
+        page.push_str(&format!(" LIMIT ${} OFFSET ${}", bind_idx, bind_idx + 1));
 
-        if let Some(order_clause) = build_order_clause(&plan.order, false) {
+        let mut outer = String::from("SELECT ");
+        outer.push_str(&interface_select_columns("paged"));
+        outer.push_str(", tm_in.value AS in_errors, tm_out.value AS out_errors, ");
+        outer.push_str(&interface_settings_columns("paged"));
+        outer.push_str(" FROM (");
+        outer.push_str(&page);
+        outer.push_str(") AS paged");
+        outer.push_str(&interface_error_metric_joins("paged"));
+        if let Some(order_clause) = build_order_clause(&plan.order, false, Some("paged")) {
             outer.push(' ');
             outer.push_str(&order_clause);
         }
-        outer.push_str(&format!(" LIMIT ${} OFFSET ${}", bind_idx, bind_idx + 1));
+
         let mut binds = binds;
         binds.push(BindParam::Int(plan.limit));
         binds.push(BindParam::Int(plan.offset));
         (outer, binds)
     } else {
-        let mut sql = String::from("SELECT ");
-        sql.push_str(&interface_select_columns("di"));
-        sql.push_str(
-            ", tm_in.value AS in_errors, tm_out.value AS out_errors, \
-            COALESCE(ifs.favorited, false) AS favorited, \
-            COALESCE(ifs.metrics_enabled, false) AS metrics_enabled ",
-        );
-        sql.push_str(&discovered_interfaces_from);
-        sql.push_str(&interface_enrichment_joins("di"));
-        if let Some(order_clause) = build_order_clause(&plan.order, true) {
-            sql.push(' ');
-            sql.push_str(&order_clause);
+        let mut page = String::from("SELECT ");
+        page.push_str(&interface_select_columns("di"));
+        page.push_str(", ");
+        page.push_str(interface_settings_projection());
+        page.push(' ');
+        page.push_str(&discovered_interfaces_from);
+        if let Some(order_clause) = build_order_clause(&plan.order, true, Some("di")) {
+            page.push(' ');
+            page.push_str(&order_clause);
         }
-        sql.push_str(&format!(" LIMIT ${} OFFSET ${}", bind_idx, bind_idx + 1));
+        page.push_str(&format!(" LIMIT ${} OFFSET ${}", bind_idx, bind_idx + 1));
+
+        let mut outer = String::from("SELECT ");
+        outer.push_str(&interface_select_columns("paged"));
+        outer.push_str(", tm_in.value AS in_errors, tm_out.value AS out_errors, ");
+        outer.push_str(&interface_settings_columns("paged"));
+        outer.push_str(" FROM (");
+        outer.push_str(&page);
+        outer.push_str(") AS paged");
+        outer.push_str(&interface_error_metric_joins("paged"));
+        if let Some(order_clause) = build_order_clause(&plan.order, true, Some("paged")) {
+            outer.push(' ');
+            outer.push_str(&order_clause);
+        }
+
         let mut binds = binds;
         binds.push(BindParam::Int(plan.limit));
         binds.push(BindParam::Int(plan.offset));
-        (sql, binds)
+        (outer, binds)
     };
 
     Ok(SqlBuildResult { sql, binds })
@@ -331,6 +363,9 @@ fn build_stats_sql(plan: &QueryPlan, spec: &CountStatsSpec) -> Result<SqlBuildRe
 
     let mut base =
         String::from("SELECT di.device_id, di.interface_uid FROM discovered_interfaces di");
+    if filters_need_interface_settings(&filters) {
+        base.push_str(&interface_settings_join("di"));
+    }
     if !clauses.is_empty() {
         base.push_str(" WHERE ");
         base.push_str(&clauses.join(" AND "));
@@ -372,6 +407,12 @@ fn extract_latest_filter(filters: &[Filter]) -> Result<(bool, Vec<Filter>)> {
     }
 
     Ok((latest_only, remaining))
+}
+
+fn filters_need_interface_settings(filters: &[Filter]) -> bool {
+    filters
+        .iter()
+        .any(|filter| matches!(filter.field.as_str(), "favorited" | "metrics_enabled"))
 }
 
 fn build_filter_clause(
@@ -643,7 +684,11 @@ fn build_ip_addresses_clause(
     }
 }
 
-fn build_order_clause(order: &[OrderClause], stable_history_order: bool) -> Option<String> {
+fn build_order_clause(
+    order: &[OrderClause],
+    stable_history_order: bool,
+    alias: Option<&str>,
+) -> Option<String> {
     let mut clauses = Vec::new();
     let mut ordered_fields = Vec::new();
 
@@ -669,32 +714,43 @@ fn build_order_clause(order: &[OrderClause], stable_history_order: bool) -> Opti
             OrderDirection::Desc => "DESC",
         };
 
-        clauses.push(format!("{column} {direction}"));
+        clauses.push(format!("{} {direction}", column_ref(alias, column)));
         ordered_fields.push(field);
     }
 
     if clauses.is_empty() {
-        clauses.push("timestamp DESC".to_string());
-        clauses.push("created_at DESC".to_string());
+        clauses.push(format!("{} DESC", column_ref(alias, "timestamp")));
+        clauses.push(format!("{} DESC", column_ref(alias, "created_at")));
         ordered_fields.push("timestamp");
     }
 
     if stable_history_order {
-        append_interface_history_tiebreakers(&mut clauses, &ordered_fields);
+        append_interface_history_tiebreakers(&mut clauses, &ordered_fields, alias);
     }
 
     Some(format!("ORDER BY {}", clauses.join(", ")))
 }
 
-fn append_interface_history_tiebreakers(clauses: &mut Vec<String>, ordered_fields: &[&str]) {
+fn append_interface_history_tiebreakers(
+    clauses: &mut Vec<String>,
+    ordered_fields: &[&str],
+    alias: Option<&str>,
+) {
     if !ordered_fields.contains(&"timestamp") {
-        clauses.push("timestamp DESC".to_string());
+        clauses.push(format!("{} DESC", column_ref(alias, "timestamp")));
     }
     if !ordered_fields.contains(&"device_id") {
-        clauses.push("device_id ASC".to_string());
+        clauses.push(format!("{} ASC", column_ref(alias, "device_id")));
     }
     if !ordered_fields.contains(&"interface_uid") {
-        clauses.push("interface_uid ASC".to_string());
+        clauses.push(format!("{} ASC", column_ref(alias, "interface_uid")));
+    }
+}
+
+fn column_ref(alias: Option<&str>, column: &str) -> String {
+    match alias {
+        Some(alias) => format!("{alias}.{column}"),
+        None => column.to_string(),
     }
 }
 
@@ -843,8 +899,25 @@ mod tests {
             "expected ifOutErrors join, got: {sql}"
         );
         assert!(
-            lower.contains("order by timestamp desc, device_id asc, interface_uid asc"),
+            lower.find(" limit ").expect("expected limit")
+                < lower
+                    .find("left join lateral")
+                    .expect("expected metric lateral join"),
+            "expected pagination before error metric joins, got: {sql}"
+        );
+        assert!(
+            lower.contains("tm.device_id = paged.device_id"),
+            "expected timeseries join on paged rows, got: {sql}"
+        );
+        assert!(
+            lower.contains("order by di.timestamp desc, di.device_id asc, di.interface_uid asc"),
             "expected stable historical interface ordering, got: {sql}"
+        );
+        assert!(
+            lower.contains(
+                "order by paged.timestamp desc, paged.device_id asc, paged.interface_uid asc"
+            ),
+            "expected stable outer interface ordering after metric joins, got: {sql}"
         );
     }
 
@@ -860,9 +933,15 @@ mod tests {
         let lower = sql.to_lowercase();
         assert!(
             lower.contains(
-                "order by timestamp desc, created_at desc, device_id asc, interface_uid asc"
+                "order by di.timestamp desc, di.created_at desc, di.device_id asc, di.interface_uid asc"
             ),
             "expected stable default historical interface ordering, got: {sql}"
+        );
+        assert!(
+            lower.contains(
+                "order by paged.timestamp desc, paged.created_at desc, paged.device_id asc, paged.interface_uid asc"
+            ),
+            "expected stable outer default historical interface ordering, got: {sql}"
         );
     }
 
@@ -900,23 +979,31 @@ mod tests {
         let lower = sql.to_lowercase();
 
         assert!(
-            lower.contains("from (select distinct on"),
-            "expected latest subquery, got: {sql}"
+            lower.contains("from (select * from (select distinct on"),
+            "expected latest pagination subquery, got: {sql}"
         );
         assert!(
-            lower.contains("ifs.device_id = latest.device_id"),
-            "expected interface settings join on latest rows, got: {sql}"
+            lower.contains("ifs.device_id = di.device_id"),
+            "expected interface settings join before latest dedupe, got: {sql}"
         );
         assert!(
-            lower.contains("tm.device_id = latest.device_id"),
-            "expected timeseries join on latest rows, got: {sql}"
+            lower.find(" limit ").expect("expected limit")
+                < lower
+                    .find("left join lateral")
+                    .expect("expected metric lateral join"),
+            "expected pagination before latest error metric joins, got: {sql}"
         );
         assert!(
-            !lower.contains("tm.device_id = di.device_id"),
-            "expected no per-history-row timeseries join, got: {sql}"
+            lower.contains("tm.device_id = paged.device_id"),
+            "expected timeseries join on paged latest rows, got: {sql}"
         );
         assert!(
-            lower.contains("order by if_name asc limit"),
+            !lower.contains("tm.device_id = latest.device_id")
+                && !lower.contains("tm.device_id = di.device_id"),
+            "expected no pre-page timeseries join, got: {sql}"
+        );
+        assert!(
+            lower.contains("order by latest.if_name asc limit"),
             "latest interfaces should keep the existing outer order shape, got: {sql}"
         );
     }
