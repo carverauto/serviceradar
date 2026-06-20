@@ -230,33 +230,97 @@ defmodule ServiceRadar.Observability.MtrConsensusWorker do
   defp payload_trace(_), do: %{}
 
   defp aggregate_loss_pct(trace) do
-    hops = List.wrap(trace["hops"])
-
-    if hops == [] do
-      0.0
-    else
-      hops
-      |> Enum.map(fn hop -> to_float(hop["loss_pct"], 0.0) end)
-      |> Enum.max(fn -> 0.0 end)
+    trace
+    |> destination_hop()
+    |> case do
+      nil -> 0.0
+      hop -> to_float(get(hop, [:loss_pct, "loss_pct"]), 0.0)
     end
   end
 
   defp aggregate_avg_rtt_ms(trace) do
-    hops = List.wrap(trace["hops"])
-
-    case hops do
-      [] -> 0.0
-      _ -> hops |> Enum.map(&hop_avg_rtt_ms/1) |> Enum.max(fn -> 0.0 end)
+    trace
+    |> destination_hop()
+    |> case do
+      nil -> 0.0
+      hop -> hop_avg_rtt_ms(hop)
     end
   end
 
   defp hop_avg_rtt_ms(hop) do
-    case {hop["avg_rtt_ms"], hop["avg_rtt_us"]} do
-      {ms, _us} when not is_nil(ms) -> to_float(ms, 0.0)
-      {_ms, us} when not is_nil(us) -> to_float(us, 0.0) / 1000.0
-      _ -> 0.0
+    case {
+      get(hop, [:avg_rtt_ms, "avg_rtt_ms"]),
+      get(hop, [:avg_rtt_us, "avg_rtt_us", :avg_us, "avg_us"])
+    } do
+      {ms, _us} when not is_nil(ms) ->
+        to_float(ms, 0.0)
+
+      {_ms, us} when not is_nil(us) ->
+        to_float(us, 0.0) / 1000.0
+
+      _ ->
+        0.0
     end
   end
+
+  defp destination_hop(trace) when is_map(trace) do
+    hops = List.wrap(get(trace, [:hops, "hops"]))
+    target_ip = normalize_text(get(trace, [:target_ip, "target_ip"]))
+
+    cond do
+      hops == [] ->
+        nil
+
+      target_ip not in [nil, ""] ->
+        Enum.find(Enum.reverse(hops), &hop_matches_target_ip?(&1, target_ip)) ||
+          highest_numbered_hop(hops)
+
+      true ->
+        highest_numbered_hop(hops)
+    end
+  end
+
+  defp destination_hop(_trace), do: nil
+
+  defp highest_numbered_hop(hops) do
+    hops
+    |> Enum.with_index()
+    |> Enum.max_by(fn {hop, index} -> {hop_number(hop), index} end, fn -> nil end)
+    |> case do
+      {hop, _index} -> hop
+      nil -> nil
+    end
+  end
+
+  defp hop_number(hop) do
+    hop
+    |> get([:hop_number, "hop_number"])
+    |> to_float(0.0)
+  end
+
+  defp hop_matches_target_ip?(hop, target_ip) do
+    hop_ip = normalize_text(get(hop, [:addr, "addr"]))
+
+    ecmp_ips =
+      hop
+      |> get([:ecmp_addrs, "ecmp_addrs"])
+      |> List.wrap()
+      |> Enum.map(&normalize_text/1)
+
+    hop_ip == target_ip or target_ip in ecmp_ips
+  end
+
+  defp normalize_text(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> case do
+      "" -> nil
+      text -> text
+    end
+  end
+
+  defp normalize_text(value) when not is_nil(value), do: value |> to_string() |> normalize_text()
+  defp normalize_text(_value), do: nil
 
   defp to_float(value, _default) when is_float(value), do: value
   defp to_float(value, _default) when is_integer(value), do: value / 1.0
