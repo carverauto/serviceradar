@@ -140,6 +140,76 @@ pub(super) const FLOW_IN_IF_SPEED_BPS_GROUP_EXPR: &str =
 pub(super) const FLOW_OUT_IF_SPEED_BPS_GROUP_EXPR: &str =
     "COALESCE((SELECT ic.if_speed_bps::text FROM netflow_interface_cache ic WHERE ic.sampler_address = sampler_address AND ic.if_index = (CASE WHEN (ocsf_payload #>> '{connection_info,output_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,output_snmp}')::int ELSE NULL END) LIMIT 1), 'Unknown')";
 
+pub(super) const FLOW_INTERFACE_LATERAL_JOIN: &str = r#"
+ CROSS JOIN LATERAL (
+   VALUES
+     (
+       COALESCE(
+         (SELECT ic.if_name
+          FROM netflow_interface_cache ic
+          WHERE ic.sampler_address = f.sampler_address
+            AND ic.if_index = (CASE
+              WHEN (f.ocsf_payload #>> '{connection_info,input_snmp}') ~ '^[0-9]+$'
+              THEN (f.ocsf_payload #>> '{connection_info,input_snmp}')::int
+              ELSE NULL
+            END)
+          LIMIT 1),
+         'Unknown'
+       ),
+       'ingress'::text,
+       (CASE
+         WHEN (f.ocsf_payload #>> '{connection_info,input_snmp}') ~ '^[0-9]+$'
+         THEN (f.ocsf_payload #>> '{connection_info,input_snmp}')::int
+         ELSE NULL
+       END),
+       COALESCE(
+         (SELECT ic.if_speed_bps::text
+          FROM netflow_interface_cache ic
+          WHERE ic.sampler_address = f.sampler_address
+            AND ic.if_index = (CASE
+              WHEN (f.ocsf_payload #>> '{connection_info,input_snmp}') ~ '^[0-9]+$'
+              THEN (f.ocsf_payload #>> '{connection_info,input_snmp}')::int
+              ELSE NULL
+            END)
+          LIMIT 1),
+         'Unknown'
+       )
+     ),
+     (
+       COALESCE(
+         (SELECT ic.if_name
+          FROM netflow_interface_cache ic
+          WHERE ic.sampler_address = f.sampler_address
+            AND ic.if_index = (CASE
+              WHEN (f.ocsf_payload #>> '{connection_info,output_snmp}') ~ '^[0-9]+$'
+              THEN (f.ocsf_payload #>> '{connection_info,output_snmp}')::int
+              ELSE NULL
+            END)
+          LIMIT 1),
+         'Unknown'
+       ),
+       'egress'::text,
+       (CASE
+         WHEN (f.ocsf_payload #>> '{connection_info,output_snmp}') ~ '^[0-9]+$'
+         THEN (f.ocsf_payload #>> '{connection_info,output_snmp}')::int
+         ELSE NULL
+       END),
+       COALESCE(
+         (SELECT ic.if_speed_bps::text
+          FROM netflow_interface_cache ic
+          WHERE ic.sampler_address = f.sampler_address
+            AND ic.if_index = (CASE
+              WHEN (f.ocsf_payload #>> '{connection_info,output_snmp}') ~ '^[0-9]+$'
+              THEN (f.ocsf_payload #>> '{connection_info,output_snmp}')::int
+              ELSE NULL
+            END)
+          LIMIT 1),
+         'Unknown'
+       )
+     )
+ ) AS i(interface, if_direction, snmp_idx, if_speed_bps)
+"#;
+
 pub(super) const FLOW_CONVERSATION_A_IP_EXPR: &str =
     "CASE WHEN COALESCE(NULLIF(src_endpoint_ip, ''), 'Unknown') <= COALESCE(NULLIF(dst_endpoint_ip, ''), 'Unknown') THEN COALESCE(NULLIF(src_endpoint_ip, ''), 'Unknown') ELSE COALESCE(NULLIF(dst_endpoint_ip, ''), 'Unknown') END";
 
@@ -1168,6 +1238,10 @@ impl FlowGroupField {
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum FlowGroupSpec {
     Field(FlowGroupField),
+    // Expands each flow into one ingress and one egress interface row.
+    // Consumers must not sum this dimension as a fleet total.
+    Interface,
+    InterfaceSpeedBps,
     SrcCidr { prefix: u8 },
     DstCidr { prefix: u8 },
 }
@@ -1193,6 +1267,12 @@ impl FlowGroupSpec {
             }
         }
 
+        match token.to_lowercase().as_str() {
+            "interface" => return Ok(Self::Interface),
+            "if_speed_bps" => return Ok(Self::InterfaceSpeedBps),
+            _ => {}
+        }
+
         if let Some(field) = FlowGroupField::from_str(token) {
             return Ok(Self::Field(field));
         }
@@ -1205,6 +1285,8 @@ impl FlowGroupSpec {
     fn response_key(&self) -> &'static str {
         match self {
             Self::Field(field) => field.response_key(),
+            Self::Interface => "interface",
+            Self::InterfaceSpeedBps => "if_speed_bps",
             Self::SrcCidr { .. } => "src_cidr",
             Self::DstCidr { .. } => "dst_cidr",
         }
@@ -1213,6 +1295,8 @@ impl FlowGroupSpec {
     fn group_expr(&self) -> String {
         match self {
             Self::Field(field) => field.group_expr().to_string(),
+            Self::Interface => "i.interface".to_string(),
+            Self::InterfaceSpeedBps => "i.if_speed_bps".to_string(),
             Self::SrcCidr { prefix } => format!(
                 "COALESCE(set_masklen(try_inet(NULLIF(src_endpoint_ip, '')), {prefix})::text, 'Unknown')"
             ),
@@ -1275,7 +1359,7 @@ struct FlowStatsPayload {
 }
 
 struct FlowGroupedStatsSql {
-    sql: String, // uses '?' placeholders for Diesel binds
+    sql: String,
     binds: Vec<FlowSqlBindValue>,
 }
 
@@ -1306,7 +1390,7 @@ async fn execute_stats(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result
     )?;
 
     let grouped = build_grouped_stats_query(plan, &spec)?;
-    let mut query = diesel::sql_query(&grouped.sql).into_boxed();
+    let mut query = diesel::sql_query(rewrite_placeholders(&grouped.sql)).into_boxed();
     for bind in &grouped.binds {
         query = bind.apply(query);
     }
@@ -1572,16 +1656,64 @@ fn should_route_flow_stats_to_cagg(
     Some((table, "bucket"))
 }
 
+fn flow_stats_uses_interface_lateral(spec: &FlowStatsSpec, filters: &[Filter]) -> bool {
+    spec.group_by.iter().any(|group| {
+        matches!(
+            group,
+            FlowGroupSpec::Interface | FlowGroupSpec::InterfaceSpeedBps
+        )
+    }) || filters.iter().any(|filter| {
+        matches!(
+            filter.field.as_str(),
+            "interface" | "if_direction" | "if_speed_bps"
+        )
+    })
+}
+
+fn validate_interface_grouping(spec: &FlowStatsSpec) -> Result<()> {
+    let has_interface = spec
+        .group_by
+        .iter()
+        .any(|group| matches!(group, FlowGroupSpec::Interface));
+
+    if !has_interface {
+        return Ok(());
+    }
+
+    for group in &spec.group_by {
+        if matches!(
+            group,
+            FlowGroupSpec::Field(
+                FlowGroupField::InIfName
+                    | FlowGroupField::OutIfName
+                    | FlowGroupField::InIfSpeedBps
+                    | FlowGroupField::OutIfSpeedBps
+                    | FlowGroupField::Direction
+            )
+        ) {
+            return Err(ServiceError::InvalidRequest(
+                "interface group-by cannot be mixed with in_if_name, out_if_name, direction, in_if_speed_bps, or out_if_speed_bps"
+                    .into(),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 fn build_grouped_stats_query(
     plan: &QueryPlan,
     spec: &FlowStatsSpec,
 ) -> Result<FlowGroupedStatsSql> {
     let mut binds: Vec<FlowSqlBindValue> = Vec::new();
     let mut where_parts: Vec<String> = Vec::new();
+    let uses_interface_lateral = flow_stats_uses_interface_lateral(spec, &plan.filters);
 
     if plan.other {
         validate_flow_other_rollup(spec)?;
     }
+
+    validate_interface_grouping(spec)?;
 
     // Guardrails: multi-dimension group-by can be expensive. Require explicit time window and cap limit.
     if spec.group_by.len() > 1 {
@@ -1641,6 +1773,9 @@ fn build_grouped_stats_query(
     };
 
     let mut join_sql = String::new();
+    if uses_interface_lateral {
+        join_sql.push_str(FLOW_INTERFACE_LATERAL_JOIN);
+    }
     if needs_src_geo {
         join_sql.push_str(
             " LEFT JOIN ip_geo_enrichment_cache src_geo ON src_geo.ip = NULLIF(f.src_endpoint_ip, '')",
@@ -1653,7 +1788,11 @@ fn build_grouped_stats_query(
     }
 
     // Check if this query can be served from a CAGG
-    let cagg_route = should_route_flow_stats_to_cagg(plan, spec);
+    let cagg_route = if uses_interface_lateral {
+        None
+    } else {
+        should_route_flow_stats_to_cagg(plan, spec)
+    };
 
     let (from_table, time_col) = if let Some((cagg_table, ts_col)) = cagg_route {
         (cagg_table, ts_col)
@@ -1722,6 +1861,17 @@ fn build_grouped_stats_query(
             }
             group_keys.push(key);
             group_exprs.push(g.group_expr());
+
+            if matches!(g, FlowGroupSpec::Interface) {
+                let direction_key = "if_direction";
+                if !seen.insert(direction_key) {
+                    return Err(ServiceError::InvalidRequest(format!(
+                        "duplicate group-by key for flows stats: '{direction_key}'"
+                    )));
+                }
+                group_keys.push(direction_key);
+                group_exprs.push("i.if_direction".to_string());
+            }
         }
 
         let select_groups = group_exprs
@@ -2077,6 +2227,9 @@ fn build_stats_filter_clause(filter: &Filter, binds: &mut Vec<FlowSqlBindValue>)
             build_stats_text_filter(ATTRIBUTION_RUNTIME_SOURCE_EXPR_ALIASED, filter, binds)
         }
         "exporter_name" => build_stats_text_filter(FLOW_EXPORTER_NAME_GROUP_EXPR, filter, binds),
+        "interface" => build_stats_text_filter("i.interface", filter, binds),
+        "if_direction" => build_stats_text_filter("i.if_direction", filter, binds),
+        "if_speed_bps" => build_stats_text_filter("i.if_speed_bps", filter, binds),
         "in_if_name" => build_stats_text_filter(FLOW_IN_IF_NAME_GROUP_EXPR, filter, binds),
         "out_if_name" => build_stats_text_filter(FLOW_OUT_IF_NAME_GROUP_EXPR, filter, binds),
         "in_if_speed_bps" => {
@@ -2455,6 +2608,20 @@ mod tests {
     }
 
     #[test]
+    fn parse_stats_expr_supports_paired_interface_group_by() {
+        let expr = "sum(bytes_total) as total_bytes by sampler_address, interface, if_speed_bps";
+        let spec = parse_stats_expr(expr).unwrap();
+
+        assert_eq!(spec.group_by.len(), 3);
+        assert_eq!(
+            spec.group_by[0],
+            FlowGroupSpec::Field(FlowGroupField::SamplerAddress)
+        );
+        assert_eq!(spec.group_by[1], FlowGroupSpec::Interface);
+        assert_eq!(spec.group_by[2], FlowGroupSpec::InterfaceSpeedBps);
+    }
+
+    #[test]
     fn translate_grouped_stats_exporter_name_includes_cache_table() {
         let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
         let end = start + ChronoDuration::hours(1);
@@ -2507,6 +2674,91 @@ mod tests {
         assert!(
             sql.contains("netflow_interface_cache"),
             "expected interface cache in SQL, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn translate_grouped_stats_interface_uses_lateral_direction_pairs() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: vec![Filter {
+                field: "if_direction".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("ingress".to_string()),
+            }],
+            order: vec![OrderClause {
+                field: "total_bytes".into(),
+                direction: OrderDirection::Desc,
+            }],
+            limit: 50,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "sum(bytes_total) as total_bytes by sampler_address, interface, if_speed_bps",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        };
+
+        let (sql, params) = to_sql_and_params_stats(&plan).unwrap();
+
+        assert!(
+            sql.contains("CROSS JOIN LATERAL")
+                && sql.contains("AS i(interface, if_direction, snmp_idx, if_speed_bps)"),
+            "expected interface lateral source, got: {sql}"
+        );
+        assert!(
+            sql.contains("ic.sampler_address = f.sampler_address"),
+            "expected sampler-scoped interface cache lookup, got: {sql}"
+        );
+        assert!(
+            sql.contains("'interface', group_value_1")
+                && sql.contains("'if_direction', group_value_2")
+                && sql.contains("'if_speed_bps', group_value_3"),
+            "expected interface, direction, and speed result keys, got: {sql}"
+        );
+        assert!(
+            sql.contains("GROUP BY sampler_address, i.interface, i.if_direction, i.if_speed_bps"),
+            "expected direction-preserving grouping, got: {sql}"
+        );
+        assert!(
+            sql.contains("i.if_direction = $3"),
+            "expected paired direction filter, got: {sql}"
+        );
+        assert_eq!(params.len(), 3);
+    }
+
+    #[test]
+    fn interface_group_by_rejects_ambiguous_direction_mix() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: Vec::new(),
+            order: Vec::new(),
+            limit: 50,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "sum(bytes_total) as total_bytes by interface, direction",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        };
+
+        let err = to_sql_and_params_stats(&plan).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("interface group-by cannot be mixed"),
+            "expected interface mix guardrail, got: {err}"
         );
     }
 

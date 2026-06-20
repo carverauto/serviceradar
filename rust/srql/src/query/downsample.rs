@@ -1,8 +1,8 @@
 use super::{BindParam, QueryPlan};
 use crate::query::flows::{
-    FLOW_APP_EXPR, FLOW_DIRECTION_EXPR, FLOW_EXPORTER_NAME_EXPR, FLOW_IN_IF_NAME_EXPR,
-    FLOW_IN_IF_SPEED_BPS_EXPR, FLOW_OUT_IF_NAME_EXPR, FLOW_OUT_IF_SPEED_BPS_EXPR,
-    FLOW_PROTOCOL_GROUP_EXPR,
+    FLOW_APP_EXPR, FLOW_DIRECTION_EXPR, FLOW_EXPORTER_NAME_EXPR, FLOW_INTERFACE_LATERAL_JOIN,
+    FLOW_IN_IF_NAME_EXPR, FLOW_IN_IF_SPEED_BPS_EXPR, FLOW_OUT_IF_NAME_EXPR,
+    FLOW_OUT_IF_SPEED_BPS_EXPR, FLOW_PROTOCOL_GROUP_EXPR,
 };
 use crate::{
     error::{Result, ServiceError},
@@ -52,6 +52,7 @@ fn build_sql(plan: &QueryPlan) -> Result<String> {
     let downsample = plan.downsample.as_ref().ok_or_else(|| {
         ServiceError::InvalidRequest("downsample requires bucket:<duration>".into())
     })?;
+    let uses_flow_interface_lateral = flow_downsample_uses_interface_lateral(plan);
 
     let cagg_safe_shape =
         plan.filters.is_empty() && downsample.series.as_deref().unwrap_or("").trim().is_empty();
@@ -105,6 +106,21 @@ fn build_sql(plan: &QueryPlan) -> Result<String> {
         downsample.value_field.as_deref(),
         use_hourly_cagg,
     )?;
+    let value_expr = if uses_flow_interface_lateral && matches!(plan.entity, Entity::Flows) {
+        format!("f.{value_col}")
+    } else {
+        value_col.to_string()
+    };
+    let ts_expr = if uses_flow_interface_lateral && matches!(plan.entity, Entity::Flows) {
+        format!("f.{ts_col}")
+    } else {
+        ts_col.to_string()
+    };
+    let from_expr = if uses_flow_interface_lateral && matches!(plan.entity, Entity::Flows) {
+        format!("{table} f{FLOW_INTERFACE_LATERAL_JOIN}")
+    } else {
+        table.to_string()
+    };
 
     let time_range = plan.time_range.as_ref().ok_or_else(|| {
         ServiceError::InvalidRequest("downsample queries require time:<range>".into())
@@ -114,8 +130,8 @@ fn build_sql(plan: &QueryPlan) -> Result<String> {
     let bucket_secs = downsample.bucket_seconds;
 
     let mut clauses = Vec::new();
-    clauses.push(format!("{ts_col} >= ?"));
-    clauses.push(format!("{ts_col} <= ?"));
+    clauses.push(format!("{ts_expr} >= ?"));
+    clauses.push(format!("{ts_expr} <= ?"));
 
     if let Some(metric_type) = forced_metric_type {
         clauses.push("metric_type = ?".to_string());
@@ -137,23 +153,23 @@ fn build_sql(plan: &QueryPlan) -> Result<String> {
         let sql = format!(
             r#"WITH ordered_data AS (
   SELECT
-    {ts_col},
+    {ts_expr},
     {series_expr} AS series,
-    {value_col},
-    LAG({value_col}) OVER (PARTITION BY {series_expr} ORDER BY {ts_col}) AS prev_value,
-    LAG({ts_col}) OVER (PARTITION BY {series_expr} ORDER BY {ts_col}) AS prev_timestamp
-  FROM {table}
+    {value_expr},
+    LAG({value_expr}) OVER (PARTITION BY {series_expr} ORDER BY {ts_expr}) AS prev_value,
+    LAG({ts_expr}) OVER (PARTITION BY {series_expr} ORDER BY {ts_expr}) AS prev_timestamp
+  FROM {from_expr}
   WHERE {where_clause}
 ),
 rate_data AS (
   SELECT
-    {ts_col} AS timestamp,
+    {ts_expr} AS timestamp,
     series,
     CASE
       -- Skip counter wraps/resets (when current < previous, counter wrapped or reset)
-      WHEN {value_col} < prev_value THEN NULL
+      WHEN {value_expr} < prev_value THEN NULL
       -- Calculate rate: delta_value / delta_time_seconds
-      ELSE ({value_col} - prev_value) / NULLIF(EXTRACT(EPOCH FROM ({ts_col} - prev_timestamp)), 0)
+      ELSE ({value_expr} - prev_value) / NULLIF(EXTRACT(EPOCH FROM ({ts_expr} - prev_timestamp)), 0)
     END AS rate_value
   FROM ordered_data
   WHERE prev_value IS NOT NULL  -- Skip first row which has no previous
@@ -167,10 +183,10 @@ WHERE rate_value IS NOT NULL  -- Skip NULL rates from counter wraps
 GROUP BY 1, 2
 ORDER BY 1 ASC
 LIMIT ? OFFSET ?"#,
-            ts_col = ts_col,
+            ts_expr = ts_expr,
             series_expr = series_expr,
-            value_col = value_col,
-            table = table,
+            value_expr = value_expr,
+            from_expr = from_expr,
             where_clause = where_clause,
             bucket_secs = bucket_secs
         );
@@ -186,13 +202,13 @@ LIMIT ? OFFSET ?"#,
     {
         "SUM(flow_count)".to_string()
     } else {
-        agg_expr(downsample.agg, value_col)
+        agg_expr(downsample.agg, &value_expr)
     };
 
     // Use standard PostgreSQL floor-based bucketing instead of TimescaleDB's time_bucket
     // This floors the timestamp to the nearest bucket boundary
     let mut sql = format!(
-        "SELECT to_timestamp(floor(extract(epoch from {ts_col}) / {bucket_secs}) * {bucket_secs}) AT TIME ZONE 'UTC' AS timestamp, {series_expr} AS series, {agg_expr} AS value\nFROM {table}\nWHERE ",
+        "SELECT to_timestamp(floor(extract(epoch from {ts_expr}) / {bucket_secs}) * {bucket_secs}) AT TIME ZONE 'UTC' AS timestamp, {series_expr} AS series, {agg_expr} AS value\nFROM {from_expr}\nWHERE ",
     );
     sql.push_str(&where_clause);
     sql.push_str("\nGROUP BY 1, 2\nORDER BY 1 ASC\nLIMIT ? OFFSET ?");
@@ -233,6 +249,32 @@ fn build_bind_values(plan: &QueryPlan) -> Result<Vec<SqlBindValue>> {
     binds.push(SqlBindValue::BigInt(plan.offset));
 
     Ok(binds)
+}
+
+fn flow_downsample_uses_interface_lateral(plan: &QueryPlan) -> bool {
+    if !matches!(plan.entity, Entity::Flows) {
+        return false;
+    }
+
+    let series_uses_interface = plan
+        .downsample
+        .as_ref()
+        .and_then(|downsample| downsample.series.as_deref())
+        .map(|series| {
+            matches!(
+                series.trim().to_lowercase().as_str(),
+                "interface" | "if_direction" | "if_speed_bps"
+            )
+        })
+        .unwrap_or(false);
+
+    series_uses_interface
+        || plan.filters.iter().any(|filter| {
+            matches!(
+                filter.field.as_str(),
+                "interface" | "if_direction" | "if_speed_bps"
+            )
+        })
 }
 
 fn resolve_value_column(
@@ -445,6 +487,9 @@ fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
             "src_endpoint_port" | "src_port" => "src_endpoint_port::text".to_string(),
             "sampler_address" => "sampler_address".to_string(),
             "exporter_name" => format!("({})", FLOW_EXPORTER_NAME_EXPR),
+            "interface" => "(i.if_direction || ':' || i.interface)".to_string(),
+            "if_direction" => "i.if_direction".to_string(),
+            "if_speed_bps" => "i.if_speed_bps".to_string(),
             "in_if_name" => format!("({})", FLOW_IN_IF_NAME_EXPR),
             "out_if_name" => format!("({})", FLOW_OUT_IF_NAME_EXPR),
             "in_if_speed_bps" => format!("({})::text", FLOW_IN_IF_SPEED_BPS_EXPR),
@@ -509,6 +554,9 @@ fn flows_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
         "protocol_name" => text_clause("protocol_name", filter),
         "sampler_address" => text_clause("sampler_address", filter),
         "exporter_name" => expr_text_clause(FLOW_EXPORTER_NAME_EXPR, filter),
+        "interface" => text_clause("i.interface", filter),
+        "if_direction" => text_clause("i.if_direction", filter),
+        "if_speed_bps" => text_clause("i.if_speed_bps", filter),
         "in_if_name" => expr_text_clause(FLOW_IN_IF_NAME_EXPR, filter),
         "out_if_name" => expr_text_clause(FLOW_OUT_IF_NAME_EXPR, filter),
         "in_if_speed_bps" => expr_text_clause(FLOW_IN_IF_SPEED_BPS_EXPR, filter),
@@ -808,4 +856,62 @@ fn rewrite_placeholders(sql: &str) -> String {
         }
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::{DownsampleAgg, DownsampleSpec, Entity, Filter, FilterOp, FilterValue};
+    use chrono::{Duration as ChronoDuration, TimeZone, Utc};
+
+    #[test]
+    fn flow_interface_downsample_uses_lateral_direction_series() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: vec![Filter {
+                field: "interface".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("xe-0/0/0".to_string()),
+            }],
+            order: Vec::new(),
+            limit: 500,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: None,
+            downsample: Some(DownsampleSpec {
+                bucket_seconds: 60,
+                agg: DownsampleAgg::Sum,
+                series: Some("interface".to_string()),
+                value_field: Some("bytes_total".to_string()),
+            }),
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        };
+
+        let (sql, params) = to_sql_and_params(&plan).unwrap();
+
+        assert!(
+            sql.contains("FROM ocsf_network_activity f")
+                && sql.contains("CROSS JOIN LATERAL")
+                && sql.contains("AS i(interface, if_direction, snmp_idx, if_speed_bps)"),
+            "expected paired interface lateral source, got: {sql}"
+        );
+        assert!(
+            sql.contains("i.if_direction || ':' || i.interface"),
+            "expected direction-qualified downsample series, got: {sql}"
+        );
+        assert!(
+            sql.contains("ic.sampler_address = f.sampler_address"),
+            "expected sampler-scoped interface cache lookup, got: {sql}"
+        );
+        assert!(
+            sql.contains("SUM(f.bytes_total)") && sql.contains("i.interface = $3"),
+            "expected aliased flow value and interface filter, got: {sql}"
+        );
+        assert_eq!(params.len(), 5);
+    }
 }
