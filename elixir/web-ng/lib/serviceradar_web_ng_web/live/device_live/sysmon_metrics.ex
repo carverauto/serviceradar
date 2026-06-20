@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   @metrics_limit 300
   @disk_metrics_limit @metrics_limit
   @process_query_limit 10_000
+  @sysmon_display_series_limit 6
 
   defp escape_value(value) when is_binary(value) do
     value
@@ -156,14 +157,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
         "sysmon.cpu",
         "cpu.usage_percent",
         filter_tokens,
+        "core_id",
         nil,
-        @metrics_limit
+        agg: "max"
       )
 
     base = %{
       key: "cpu",
       title: "CPU",
-      subtitle: "last 24h · 5m buckets · avg across cores",
+      subtitle: "last 24h · 5m buckets · max per core",
       query: query,
       panels: [],
       error: nil,
@@ -174,11 +176,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => results}} when is_list(results) and results != [] ->
         normalized = normalize_metric_results(results, "usage_percent")
-        viz = timeseries_viz("usage_percent", nil)
-        panels = build_metric_panels(%{"results" => normalized, "viz" => viz}, normalized, nil)
-        header_value = latest_metric_value(normalized, "usage_percent")
+        display_rows = hottest_series_rows(normalized, "core_id", "usage_percent")
+        viz = timeseries_viz("usage_percent", "core_id")
+        panels = build_metric_panels(%{"results" => display_rows, "viz" => viz}, display_rows, "core_id")
+        header_value = latest_metric_value(normalized, "usage_percent", tie: :max)
         header_stats = metric_stats(normalized, "usage_percent")
-        %{base | panels: panels, header_value: header_value, header_stats: header_stats}
+
+        %{
+          base
+          | subtitle: sysmon_display_subtitle(normalized, "core_id", "core", "cores"),
+            panels: panels,
+            header_value: header_value,
+            header_stats: header_stats
+        }
 
       {:ok, %{"results" => results}} when is_list(results) ->
         base
@@ -327,35 +337,45 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
 
   defp parse_number(_), do: nil
 
-  defp latest_metric_value(rows, field) when is_list(rows) do
+  defp latest_metric_value(rows, field, opts \\ [])
+
+  defp latest_metric_value(rows, field, opts) when is_list(rows) do
     rows
-    |> latest_metric_tuple(field)
+    |> latest_metric_tuple(field, Keyword.get(opts, :tie))
     |> extract_metric_value()
   end
 
-  defp latest_metric_value(_rows, _field), do: nil
+  defp latest_metric_value(_rows, _field, _opts), do: nil
 
-  defp latest_metric_tuple(rows, field) do
+  defp latest_metric_tuple(rows, field, tie) do
     rows
     |> Enum.filter(&is_map/1)
-    |> Enum.reduce(nil, &update_latest_metric(&1, field, &2))
+    |> Enum.reduce(nil, &update_latest_metric(&1, field, tie, &2))
   end
 
   defp extract_metric_value({_dt, value}), do: value
   defp extract_metric_value(_), do: nil
 
-  defp update_latest_metric(row, field, acc) do
+  defp update_latest_metric(row, field, tie, acc) do
     with {:ok, dt} <- parse_datetime(Map.get(row, "timestamp")),
          value when is_number(value) <- parse_number(Map.get(row, field)) do
-      pick_latest_metric({dt, value}, acc)
+      pick_latest_metric({dt, value}, acc, tie)
     else
       _ -> acc
     end
   end
 
-  defp pick_latest_metric(current, nil), do: current
+  defp pick_latest_metric(current, nil, _tie), do: current
 
-  defp pick_latest_metric({dt, _} = current, {prev_dt, _} = previous) do
+  defp pick_latest_metric({dt, value} = current, {prev_dt, prev_value} = previous, :max) do
+    case DateTime.compare(dt, prev_dt) do
+      :gt -> current
+      :eq when value > prev_value -> current
+      _ -> previous
+    end
+  end
+
+  defp pick_latest_metric({dt, _} = current, {prev_dt, _} = previous, _tie) do
     if DateTime.after?(dt, prev_dt), do: current, else: previous
   end
 
@@ -407,6 +427,82 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   end
 
   defp normalize_metric_results(results, _target_field), do: results
+
+  defp hottest_series_rows(rows, series_field, value_field) when is_list(rows) do
+    selected_series =
+      rows
+      |> series_max_values(series_field, value_field)
+      |> Enum.sort_by(fn {series, max_value} -> {-max_value, series} end)
+      |> Enum.take(@sysmon_display_series_limit)
+      |> MapSet.new(fn {series, _max_value} -> series end)
+
+    if MapSet.size(selected_series) == 0 do
+      rows
+    else
+      Enum.filter(rows, fn row ->
+        row
+        |> series_key(series_field)
+        |> then(&MapSet.member?(selected_series, &1))
+      end)
+    end
+  end
+
+  defp hottest_series_rows(rows, _series_field, _value_field), do: rows
+
+  defp series_max_values(rows, series_field, value_field) do
+    Enum.reduce(rows, %{}, fn
+      row, acc when is_map(row) ->
+        with series when is_binary(series) <- series_key(row, series_field),
+             value when is_number(value) <- parse_number(map_value(row, value_field)) do
+          Map.update(acc, series, value, &max(&1, value))
+        else
+          _ -> acc
+        end
+
+      _row, acc ->
+        acc
+    end)
+  end
+
+  defp series_key(row, series_field) when is_map(row) do
+    row
+    |> map_value(series_field)
+    |> safe_series_key()
+  end
+
+  defp series_key(_row, _series_field), do: nil
+
+  defp safe_series_key(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> "overall"
+      trimmed -> trimmed
+    end
+  end
+
+  defp safe_series_key(value) when is_atom(value), do: value |> Atom.to_string() |> safe_series_key()
+  defp safe_series_key(value) when is_number(value), do: value |> to_string() |> safe_series_key()
+  defp safe_series_key(_value), do: nil
+
+  defp sysmon_display_subtitle(rows, series_field, singular, plural) when is_list(rows) do
+    count =
+      rows
+      |> Enum.map(&series_key(&1, series_field))
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+      |> MapSet.size()
+
+    noun = if count == 1, do: singular, else: plural
+
+    if count > @sysmon_display_series_limit do
+      "last 24h · 5m buckets · top #{@sysmon_display_series_limit} of #{count} #{plural} by max"
+    else
+      "last 24h · 5m buckets · all #{count} #{noun} by max"
+    end
+  end
+
+  defp sysmon_display_subtitle(_rows, _series_field, singular, _plural) do
+    "last 24h · 5m buckets · max per #{singular}"
+  end
 
   defp timeseries_viz(y_field, series_field) do
     suggestion =
@@ -639,7 +735,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
           ~s|metric_name:"#{escape_value(metric_name)}"|,
           "time:#{Keyword.get(opts, :time_range, "last_24h")}",
           "bucket:5m",
-          "agg:avg"
+          "agg:#{Keyword.get(opts, :agg, "avg")}"
         ]
       else
         [
@@ -654,10 +750,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
       tokens
       |> maybe_add_token("series", series_field)
       |> Kernel.++(filter_tokens)
-      |> Kernel.++(["sort:timestamp:desc", "limit:#{limit}"])
+      |> Kernel.++(["sort:timestamp:desc"])
+      |> maybe_add_limit(limit)
 
     Enum.join(tokens, " ")
   end
+
+  defp maybe_add_limit(tokens, nil), do: tokens
+  defp maybe_add_limit(tokens, ""), do: tokens
+  defp maybe_add_limit(tokens, limit), do: tokens ++ ["limit:#{limit}"]
 
   defp maybe_add_token(tokens, _key, nil), do: tokens
   defp maybe_add_token(tokens, _key, ""), do: tokens
