@@ -183,14 +183,15 @@ func (l *metricFeedLifecycle) run(ctx context.Context) {
 			continue
 		}
 
-		stop, delivered := l.runStream(ctx, frames, acks)
+		streamOpened := time.Now()
+		stop := l.runStream(ctx, frames, acks)
 		if stop {
 			return
 		}
 		if ctx.Err() != nil {
 			return
 		}
-		if delivered {
+		if streamRunWasStable(streamOpened, time.Now(), l.maxReconnectBackoff) {
 			attempt = 0
 		}
 
@@ -216,7 +217,7 @@ func (l *metricFeedLifecycle) runStream(
 	ctx context.Context,
 	frames chan<- *addonpb.MetricFeedFrame,
 	acks <-chan uint64,
-) (bool, bool) {
+) bool {
 	defer close(frames)
 
 	var acked atomic.Uint64
@@ -237,21 +238,20 @@ func (l *metricFeedLifecycle) runStream(
 	}()
 
 	var seq uint64
-	delivered := false
 	for {
 		select {
 		case <-ctx.Done():
-			return true, delivered
+			return true
 		case <-ackClosed:
-			return false, delivered
+			return false
 		case publication := <-l.queue:
 			nextID := seq + 1
 			for nextID-acked.Load() > defaultMetricFeedMaxInFlight {
 				select {
 				case <-ctx.Done():
-					return true, delivered
+					return true
 				case <-ackClosed:
-					return false, delivered
+					return false
 				case <-time.After(metricFeedPollInterval):
 				}
 			}
@@ -270,12 +270,11 @@ func (l *metricFeedLifecycle) runStream(
 
 			select {
 			case <-ctx.Done():
-				return true, delivered
+				return true
 			case <-ackClosed:
-				return false, delivered
+				return false
 			case frames <- frame:
 				seq = nextID
-				delivered = true
 			}
 		}
 	}

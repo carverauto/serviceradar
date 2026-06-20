@@ -133,7 +133,7 @@
 ## 22. Metric Chart Fidelity (F28)
 - [ ] 22.1 For per-core metrics, render per-core series (or a max-across-cores line); stop collapsing to `series=nil` avg-across-cores.
 - [ ] 22.2 Offer `agg:max` (or an avg+max envelope) per bucket so short spikes are visible; make the header min/avg/max match the plotted aggregation.
-- [ ] 22.3 Annotate finding timestamps/series on the chart and let a finding click focus the chart on its series/time window.
+- [x] 22.3 Annotate finding timestamps/series on the chart and let a finding click focus the chart on its series/time window.
 
 ## 23. Anomaly & Capacity Alerting (F29, gated on F1/F12/F17)
 - [x] 23.1 Add `alert_generator.ex` handling for anomaly findings: alert only on confirmed anomaly-open and clear transitions, never on `pending_anomaly` or per-sample.
@@ -165,9 +165,9 @@
 - [x] 27.3 Clamp only octet series to link speed; render byte-rate vs count-rate on separate axes (`timeseries.ex:335,368-376`).
 
 ## 28. Chart Finding/Threshold Annotation (F34)
-- [ ] 28.1 Add an `annotations` list ({dt, label, severity}) to the timeseries panel assigns, rendered as SVG marker lines/bands via the existing time mapping.
-- [ ] 28.2 Draw per-metric threshold reference lines on interface/sysmon charts.
-- [ ] 28.3 Make a finding click focus/mark its time + series on the chart.
+- [x] 28.1 Add an `annotations` list ({dt, label, severity}) to the timeseries panel assigns, rendered as SVG marker lines/bands via the existing time mapping.
+- [x] 28.2 Draw per-metric threshold reference lines on interface/sysmon charts.
+- [x] 28.3 Make a finding click focus/mark its time + series on the chart.
 
 ## 29. Chart Hover/Tooltip Correctness (F35)
 - [x] 29.1 Invert mouse-x with the same geometry as `idx_to_x` (8px pad + viewBox scaling) in `TimeseriesChart.js`/`TimeseriesCombinedChart.js` and `netflow_charts/util.js`.
@@ -175,7 +175,7 @@
 
 ## 30. Chart Gap/Error Honesty (F36)
 - [x] 30.1 Use `null` sentinels + `.defined()` so missing buckets render as breaks, not drops-to-zero (`FlowRateChart.js`, `BGPTimeSeriesChart.js:53-62`).
-- [ ] 30.2 Distinguish query-error vs no-data vs disabled empty states; link empty states to the relevant SNMP/polling config.
+- [x] 30.2 Distinguish query-error vs no-data vs disabled empty states; link empty states to the relevant SNMP/polling config.
 
 ## 31. Charted Coverage & Accessibility (F37)
 - [x] 31.1 Chart `process.count`; add per-process history/sparklines so process spikes are visible.
@@ -214,7 +214,7 @@
 - [x] 37.4 Filter reverse-DNS/Geo enrichment by expiry; distinguish chart query-error from no-traffic.
 
 ## 38. Flow Ingest Defaults (F44)
-- [ ] 38.1 Use NULL (not 0) for directional byte/packet counts a protocol does not carry; divide bps/pps by covered data span, not the full wall-clock window.
+- [x] 38.1 Use NULL (not 0) for directional byte/packet counts a protocol does not carry; divide bps/pps by covered data span, not the full wall-clock window.
 
 ## 39. Dashboard Load Performance (F45)
 - [ ] 39.1 Parallelize the ~20 dashboard data queries + ~30 schema probes (concurrent, not sequential).

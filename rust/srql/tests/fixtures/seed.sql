@@ -9,6 +9,8 @@ TRUNCATE endpoint_inventory_current_cpe_counts;
 TRUNCATE endpoint_inventory_package_counts_hourly;
 TRUNCATE endpoint_inventory_cpe_counts_hourly;
 TRUNCATE ocsf_devices CASCADE;
+TRUNCATE ocsf_network_activity;
+TRUNCATE netflow_interface_cache;
 WITH base AS (
     SELECT NOW() AS now_ts
 )
@@ -136,6 +138,68 @@ SELECT 'device-delta',
     TRUE,
     '{"site":"phx-edge","packet_loss_bucket":"low"}'::jsonb
 FROM base;
+
+INSERT INTO netflow_interface_cache (
+    sampler_address,
+    if_index,
+    device_uid,
+    if_name,
+    if_description,
+    if_speed_bps,
+    boundary,
+    refreshed_at
+)
+VALUES (
+    '198.51.100.77',
+    77,
+    'device-alpha',
+    'Loopback77',
+    'fixture same-interface flow',
+    1000000000,
+    'edge',
+    NOW()
+);
+
+INSERT INTO ocsf_network_activity (
+    time,
+    start_time,
+    end_time,
+    src_endpoint_ip,
+    src_endpoint_port,
+    dst_endpoint_ip,
+    dst_endpoint_port,
+    protocol_num,
+    protocol_name,
+    bytes_total,
+    packets_total,
+    bytes_in,
+    bytes_out,
+    packets_in,
+    packets_out,
+    sampler_address,
+    ocsf_payload,
+    partition
+)
+VALUES (
+    '2026-01-15 12:00:00+00',
+    '2026-01-15 12:00:00+00',
+    '2026-01-15 12:00:30+00',
+    '10.77.0.10',
+    443,
+    '10.77.0.20',
+    8443,
+    6,
+    'TCP',
+    1234,
+    12,
+    617,
+    617,
+    6,
+    6,
+    '198.51.100.77',
+    '{"connection_info":{"input_snmp":77,"output_snmp":77},"flow_source":"fixture"}'::jsonb,
+    'default'
+);
 
 WITH base AS (
     SELECT NOW() AS now_ts
