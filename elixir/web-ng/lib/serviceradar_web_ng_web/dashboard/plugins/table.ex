@@ -165,25 +165,31 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
     results
     |> Enum.with_index()
     |> Enum.sort(fn {left, left_idx}, {right, right_idx} ->
-      case compare_values(Map.get(left, sort_col), Map.get(right, sort_col)) do
-        :eq -> left_idx <= right_idx
-        :lt -> sort_dir == :asc
-        :gt -> sort_dir == :desc
+      left_value = Map.get(left, sort_col)
+      right_value = Map.get(right, sort_col)
+
+      cond do
+        blank_value?(left_value) and blank_value?(right_value) ->
+          left_idx <= right_idx
+
+        blank_value?(left_value) ->
+          false
+
+        blank_value?(right_value) ->
+          true
+
+        true ->
+          case compare_present_values(left_value, right_value) do
+            :eq -> left_idx <= right_idx
+            :lt -> sort_dir == :asc
+            :gt -> sort_dir == :desc
+          end
       end
     end)
     |> Enum.map(fn {row, _idx} -> row end)
   end
 
   defp sort_results(results, _sort_col, _sort_dir), do: results
-
-  defp compare_values(left, right) do
-    cond do
-      blank_value?(left) and blank_value?(right) -> :eq
-      blank_value?(left) -> :gt
-      blank_value?(right) -> :lt
-      true -> compare_present_values(left, right)
-    end
-  end
 
   defp compare_present_values(left, right) do
     with {:ok, left_dt} <- parse_datetime(left),

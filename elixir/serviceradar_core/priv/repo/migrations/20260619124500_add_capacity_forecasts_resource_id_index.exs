@@ -4,20 +4,20 @@ defmodule ServiceRadar.Repo.Migrations.AddCapacityForecastsResourceIdIndex do
   """
   use Ecto.Migration
 
+  # Timescale hypertables do not support CREATE INDEX CONCURRENTLY. Keep this
+  # migration outside the transaction/lock path, but build the index normally.
   @disable_ddl_transaction true
   @disable_migration_lock true
 
   def up do
     execute("""
-    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_capacity_forecasts_resource_id
+    CREATE INDEX IF NOT EXISTS idx_capacity_forecasts_resource_id
     ON #{schema()}.capacity_forecasts (resource_id)
     """)
   end
 
   def down do
-    execute("""
-    DROP INDEX CONCURRENTLY IF EXISTS #{schema()}.idx_capacity_forecasts_resource_id
-    """)
+    execute("DROP INDEX IF EXISTS #{schema()}.idx_capacity_forecasts_resource_id")
   end
 
   defp schema, do: prefix() || "platform"

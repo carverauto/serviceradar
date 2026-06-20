@@ -152,6 +152,16 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   defp normalize_metric_unit(value) when is_binary(value) do
     value
     |> String.trim()
+    |> normalize_metric_unit_string()
+  end
+
+  defp normalize_metric_unit(unit) when unit in [:percent, :bytes, :bits_per_sec, :bytes_per_sec, :hz, :count_per_sec],
+    do: unit
+
+  defp normalize_metric_unit(_), do: nil
+
+  defp normalize_metric_unit_string(value) do
+    value
     |> String.downcase()
     |> case do
       "" -> nil
@@ -160,8 +170,12 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       "by" -> :bytes
       "byte" -> :bytes
       "bytes" -> :bytes
-      "b/s" -> :bytes_per_sec
+      "b/s" -> :bits_per_sec
+      "bit/s" -> :bits_per_sec
+      "bits/s" -> :bits_per_sec
+      "bps" -> :bits_per_sec
       "by/s" -> :bytes_per_sec
+      "byte/s" -> :bytes_per_sec
       "bytes/s" -> :bytes_per_sec
       "hz" -> :hz
       "1/s" -> :count_per_sec
@@ -170,10 +184,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       _ -> nil
     end
   end
-
-  defp normalize_metric_unit(unit) when unit in [:percent, :bytes, :bytes_per_sec, :hz, :count_per_sec], do: unit
-
-  defp normalize_metric_unit(_), do: nil
 
   defp parse_number(value) when is_integer(value), do: {:ok, value * 1.0}
   defp parse_number(value) when is_float(value), do: {:ok, value}
@@ -871,6 +881,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   defp unit_to_string(unit) do
     case unit do
       :percent -> "percent"
+      :bits_per_sec -> "bits_per_sec"
       :bytes_per_sec -> "bytes_per_sec"
       :bytes -> "bytes"
       :hz -> "hz"
@@ -884,6 +895,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
     case unit do
       :percent -> "#{Float.round(value, 1)}%"
+      :bits_per_sec -> format_bits_per_sec(value)
       :bytes_per_sec -> format_bytes_per_sec(value)
       :bytes -> format_bytes(value)
       :hz -> format_hz(value)
@@ -922,6 +934,24 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     # Negative values (shouldn't happen with rate calc, but just in case)
     "#{Float.round(bps, 2)}"
   end
+
+  defp format_bits_per_sec(bps) when bps >= 1_000_000_000 do
+    "#{Float.round(bps / 1_000_000_000, 2)} Gbit/s"
+  end
+
+  defp format_bits_per_sec(bps) when bps >= 1_000_000 do
+    "#{Float.round(bps / 1_000_000, 2)} Mbit/s"
+  end
+
+  defp format_bits_per_sec(bps) when bps >= 1_000 do
+    "#{Float.round(bps / 1_000, 2)} Kbit/s"
+  end
+
+  defp format_bits_per_sec(bps) when bps >= 0 do
+    "#{Float.round(bps, 1)} bit/s"
+  end
+
+  defp format_bits_per_sec(bps), do: "#{Float.round(bps, 2)}"
 
   defp format_bytes(bytes) when bytes >= 1_000_000_000 do
     "#{Float.round(bytes / 1_000_000_000, 2)} GB"
