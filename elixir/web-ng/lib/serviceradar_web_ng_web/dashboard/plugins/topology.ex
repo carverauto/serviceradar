@@ -220,13 +220,14 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
         {nodes_acc ++ nodes, edges_acc ++ edges}
       end)
 
-    nodes =
+    normalized_nodes =
       nodes
       |> Enum.filter(&is_map/1)
       |> Enum.map(&normalize_node/1)
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq_by(& &1.id)
-      |> Enum.take(@max_nodes)
+
+    nodes = truncate_nodes(normalized_nodes)
 
     node_ids = MapSet.new(Enum.map(nodes, & &1.id))
 
@@ -251,6 +252,22 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
   defp graph_parts(%{"vertices" => nodes, "edges" => edges}) when is_list(nodes) and is_list(edges), do: {nodes, edges}
 
   defp graph_parts(_), do: {[], []}
+
+  defp truncate_nodes(nodes) when length(nodes) > @max_nodes do
+    visible_count = max(@max_nodes - 1, 0)
+    hidden_count = length(nodes) - visible_count
+
+    Enum.take(nodes, visible_count) ++
+      [
+        %{
+          id: "__truncated_nodes__",
+          label: "+#{hidden_count} more",
+          raw: %{"truncated_count" => hidden_count, "truncated" => true}
+        }
+      ]
+  end
+
+  defp truncate_nodes(nodes), do: nodes
 
   defp normalize_node(%{} = raw) do
     id =
@@ -357,10 +374,24 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
 
   defp fallback_id(raw) do
     raw
+    |> canonical_value()
     |> Jason.encode!()
-    |> :erlang.phash2()
-    |> Integer.to_string()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+    |> binary_part(0, 16)
+    |> then(&"node-#{&1}")
   rescue
     _ -> ""
   end
+
+  defp canonical_value(%{} = map) do
+    map
+    |> Enum.map(fn {key, value} -> [to_string(key), canonical_value(value)] end)
+    |> Enum.sort_by(&List.first/1)
+  end
+
+  defp canonical_value(list) when is_list(list), do: Enum.map(list, &canonical_value/1)
+  defp canonical_value(value) when is_binary(value) or is_number(value) or is_boolean(value) or is_nil(value), do: value
+  defp canonical_value(value) when is_atom(value), do: Atom.to_string(value)
+  defp canonical_value(value), do: inspect(value)
 end

@@ -74,6 +74,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   end
 
   defp normalize_process_rows(cpu_rows, memory_rows) when is_list(cpu_rows) and is_list(memory_rows) do
+    cpu_history_by_process = process_metric_history_by_identity(cpu_rows, "cpu_usage")
     memory_by_process = latest_process_metric_by_identity(memory_rows, "memory_usage")
 
     cpu_rows
@@ -83,6 +84,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
 
       row
       |> Map.put("memory_usage", Map.get(memory_row, "memory_usage"))
+      |> Map.put("_cpu_sparkline", Map.get(cpu_history_by_process, identity, []))
       |> Map.put_new("status", Map.get(memory_row, "status"))
       |> Map.put_new("start_time", Map.get(memory_row, "start_time"))
     end)
@@ -99,6 +101,29 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
     |> Enum.sort_by(&timestamp_sort_key/1, :desc)
     |> Enum.reduce(%{}, fn row, acc ->
       Map.put_new(acc, process_identity(row), row)
+    end)
+  end
+
+  defp process_metric_history_by_identity(rows, value_field) do
+    rows
+    |> Enum.filter(&is_map/1)
+    |> Enum.map(&normalize_process_metric_row(&1, value_field))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.reduce(%{}, fn row, acc ->
+      with {:ok, dt} <- parse_datetime(Map.get(row, "timestamp")),
+           value when is_number(value) <- parse_number(Map.get(row, value_field)) do
+        Map.update(acc, process_identity(row), [{dt, value}], fn points -> [{dt, value} | points] end)
+      else
+        _ -> acc
+      end
+    end)
+    |> Map.new(fn {identity, points} ->
+      points =
+        points
+        |> Enum.sort_by(fn {dt, _value} -> DateTime.to_unix(dt, :millisecond) end)
+        |> Enum.take(-60)
+
+      {identity, points}
     end)
   end
 
@@ -144,7 +169,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
       [
         build_cpu_section(srql_module, filter_tokens, scope),
         build_memory_section(srql_module, filter_tokens, scope),
-        build_disk_section(srql_module, filter_tokens, scope)
+        build_disk_section(srql_module, filter_tokens, scope),
+        build_process_count_section(srql_module, filter_tokens, scope)
       ],
       & &1
     )
@@ -164,6 +190,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
       key: "cpu",
       title: "CPU",
       subtitle: "last 24h · 5m buckets · avg across cores",
+      unit: :percent,
       query: query,
       panels: [],
       error: nil,
@@ -205,6 +232,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
       key: "memory",
       title: "Memory",
       subtitle: "last 24h · 5m buckets · used percent",
+      unit: :percent,
       query: query,
       panels: [],
       error: nil,
@@ -246,6 +274,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
       key: "disk",
       title: "Disk",
       subtitle: "last 24h · 5m buckets · used percent",
+      unit: :percent,
       query: query,
       panels: [],
       error: nil,
@@ -260,6 +289,48 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
         panels = build_metric_panels(%{"results" => normalized, "viz" => viz}, normalized, nil)
         header_value = latest_metric_value(normalized, "used_percent")
         header_stats = metric_stats(normalized, "used_percent")
+        %{base | panels: panels, header_value: header_value, header_stats: header_stats}
+
+      {:ok, %{"results" => results}} when is_list(results) ->
+        base
+
+      {:ok, other} ->
+        %{base | error: "unexpected SRQL response: #{inspect(other)}"}
+
+      {:error, reason} ->
+        %{base | error: "SRQL error: #{format_error(reason)}"}
+    end
+  end
+
+  defp build_process_count_section(srql_module, filter_tokens, scope) do
+    query =
+      timeseries_metric_query(
+        "sysmon.process",
+        "process.count",
+        filter_tokens,
+        nil,
+        @metrics_limit
+      )
+
+    base = %{
+      key: "process-count",
+      title: "Process Count",
+      subtitle: "last 24h · 5m buckets · avg observed processes",
+      unit: :count,
+      query: query,
+      panels: [],
+      error: nil,
+      header_value: nil,
+      header_stats: nil
+    }
+
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => results}} when is_list(results) and results != [] ->
+        normalized = normalize_metric_results(results, "process_count")
+        viz = timeseries_viz("process_count", nil)
+        panels = build_metric_panels(%{"results" => normalized, "viz" => viz}, normalized, nil)
+        header_value = latest_metric_value(normalized, "process_count")
+        header_stats = metric_stats(normalized, "process_count")
         %{base | panels: panels, header_value: header_value, header_stats: header_stats}
 
       {:ok, %{"results" => results}} when is_list(results) ->
