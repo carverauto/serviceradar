@@ -1845,11 +1845,11 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     }
   end
 
-  defp metric_result_name(result) when is_map(result), do: first_key(result, [:metric_name, :series])
+  defp metric_result_name(result) when is_map(result), do: first_key(result, [:series])
 
   defp metric_result_name(_), do: nil
 
-  defp metric_result_time(result) when is_map(result), do: first_key(result, [:time, :timestamp])
+  defp metric_result_time(result) when is_map(result), do: first_key(result, [:timestamp])
 
   defp metric_result_time(_), do: nil
 
