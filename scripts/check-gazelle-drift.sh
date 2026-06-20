@@ -73,4 +73,16 @@ fi
 echo "Checking Gazelle drift for:"
 printf '  %s\n' "${dirs[@]}"
 
-bazel run //:gazelle -- -mode=diff "${dirs[@]}"
+diff_output="$(mktemp)"
+trap 'rm -f "${diff_output}"' EXIT
+
+if ! bazel run //:gazelle -- -mode=diff "${dirs[@]}" >"${diff_output}"; then
+  cat "${diff_output}"
+  exit 1
+fi
+
+if [[ -s "${diff_output}" ]]; then
+  echo "Gazelle would modify BUILD files. Run 'bazel run //:gazelle' and commit the result." >&2
+  cat "${diff_output}"
+  exit 1
+fi
