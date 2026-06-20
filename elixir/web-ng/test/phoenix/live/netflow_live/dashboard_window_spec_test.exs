@@ -14,4 +14,21 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.DashboardWindowSpecTest do
              {"30d", %{label: "Last 30 Days", seconds: 2_592_000, bucket: "6h", bucket_seconds: 21_600}}
            ]
   end
+
+  test "rate denominator follows the query time token and floors short spans by bucket" do
+    assert Dashboard.netflow_rate_denominator_seconds("in:flows time:last_6h", "1h") == 21_600
+
+    assert Dashboard.netflow_rate_denominator_seconds(
+             "in:flows time:[2026-06-19T12:00:00Z,2026-06-19T12:00:30Z]",
+             "1h"
+           ) == 60
+  end
+
+  test "interface rate labels distinguish window average from bucket percentile" do
+    assert Dashboard.netflow_interface_average_label(21_600) == "Window avg 6h"
+    assert Dashboard.netflow_interface_p95_label(21_600) == "P95 bucket rate (6h)"
+
+    assert Dashboard.netflow_interface_average_label(60) == "Window avg 1m"
+    assert Dashboard.netflow_interface_p95_label(60) == "P95 bucket rate (1m)"
+  end
 end
