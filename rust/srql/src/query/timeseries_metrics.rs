@@ -25,6 +25,14 @@ use diesel::sql_types::{Array, BigInt, Float8, Jsonb, Nullable, Text, Timestampt
 use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
+use std::path::Path;
+
+const DEFAULT_PROFILE_TIMEZONE: &str = "Etc/UTC";
+const ZONEINFO_DIRS: &[&str] = &[
+    "/usr/share/zoneinfo",
+    "/usr/share/lib/zoneinfo",
+    "/etc/zoneinfo",
+];
 
 type TimeseriesTable = crate::schema::timeseries_metrics::table;
 type TimeseriesFromClause = FromClause<TimeseriesTable>;
@@ -1311,16 +1319,48 @@ fn profile_timezone(plan: &QueryPlan) -> Result<String> {
         .map(|filter| filter.value.as_scalar())
         .transpose()?
         .map(normalize_profile_timezone)
-        .unwrap_or_else(|| "Etc/UTC".to_string());
+        .unwrap_or_else(|| DEFAULT_PROFILE_TIMEZONE.to_string());
 
     Ok(timezone)
 }
 
 fn normalize_profile_timezone(timezone: &str) -> String {
-    match timezone {
-        "UTC" => "Etc/UTC".to_string(),
-        value => value.to_string(),
+    let timezone = timezone.trim();
+
+    if timezone == "UTC" || timezone == DEFAULT_PROFILE_TIMEZONE {
+        return DEFAULT_PROFILE_TIMEZONE.to_string();
     }
+
+    if safe_profile_timezone(timezone) && zoneinfo_timezone(timezone) {
+        timezone.to_string()
+    } else {
+        DEFAULT_PROFILE_TIMEZONE.to_string()
+    }
+}
+
+fn safe_profile_timezone(timezone: &str) -> bool {
+    if timezone.is_empty()
+        || timezone.len() > 128
+        || timezone.starts_with('/')
+        || timezone.ends_with('/')
+    {
+        return false;
+    }
+
+    timezone.split('/').all(|part| {
+        !part.is_empty()
+            && part != "."
+            && part != ".."
+            && part
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '+' | '.'))
+    })
+}
+
+fn zoneinfo_timezone(timezone: &str) -> bool {
+    ZONEINFO_DIRS
+        .iter()
+        .any(|dir| Path::new(dir).join(timezone).is_file())
 }
 
 fn build_stats_filter_clause(
@@ -1930,6 +1970,51 @@ mod tests {
             !should_route_stats_to_cagg(&plan, &spec),
             "profile stats must use the dedicated hourly profile route"
         );
+    }
+
+    #[test]
+    fn profile_hour_of_week_falls_back_for_unknown_or_unsafe_timezone() {
+        assert_eq!(normalize_profile_timezone("UTC"), DEFAULT_PROFILE_TIMEZONE);
+        assert_eq!(
+            normalize_profile_timezone("Foo/Bar"),
+            DEFAULT_PROFILE_TIMEZONE
+        );
+        assert_eq!(
+            normalize_profile_timezone("Etc/UTC\" sort:sample_value:desc"),
+            DEFAULT_PROFILE_TIMEZONE
+        );
+
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::days(30);
+        let plan = QueryPlan {
+            entity: Entity::TimeseriesMetrics,
+            filters: vec![Filter {
+                field: "timezone".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("Foo/Bar".to_string()),
+            }],
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "profile_hour_of_week(value)",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        };
+
+        let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
+            .unwrap()
+            .unwrap();
+        let sql = build_profile_hour_of_week_query(&plan, MetricScope::Any, &spec)
+            .expect("profile SQL should build with fallback timezone");
+
+        assert!(sql.binds.iter().rev().take(4).all(|bind| {
+            matches!(bind, SqlBindValue::Text(value) if value == DEFAULT_PROFILE_TIMEZONE)
+        }));
     }
 
     #[test]
