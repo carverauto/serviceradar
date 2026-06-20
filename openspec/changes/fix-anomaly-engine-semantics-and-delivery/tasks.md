@@ -128,8 +128,8 @@
 - [ ] 21.4 Once attribution is correct, scope the web-ng device-finding query by canonical device/series instead of `agent_id`-first.
 
 ## 22. Metric Chart Fidelity (F28)
-- [ ] 22.1 For per-core metrics, render per-core series (or a max-across-cores line); stop collapsing to `series=nil` avg-across-cores.
-- [ ] 22.2 Offer `agg:max` (or an avg+max envelope) per bucket so short spikes are visible; make the header min/avg/max match the plotted aggregation.
+- [x] 22.1 For per-core metrics, render per-core series (or a max-across-cores line); stop collapsing to `series=nil` avg-across-cores.
+- [x] 22.2 Offer `agg:max` (or an avg+max envelope) per bucket so short spikes are visible; make the header min/avg/max match the plotted aggregation.
 - [ ] 22.3 Annotate finding timestamps/series on the chart and let a finding click focus the chart on its series/time window.
 
 ## 23. Anomaly & Capacity Alerting (F29, gated on F1/F12/F17)
