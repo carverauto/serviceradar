@@ -1091,7 +1091,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
       from(s in "endpoint_inventory_scans",
         where: s.agent_id == ^agent_id and not is_nil(s.device_uid),
         select: s.device_uid,
-        order_by: [desc: s.last_scan_at],
+        order_by: [desc_nulls_last: s.last_scan_at, desc: s.inserted_at],
         limit: 1
       )
 
