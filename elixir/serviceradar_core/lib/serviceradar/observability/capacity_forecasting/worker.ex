@@ -15,6 +15,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   alias ServiceRadar.Observability.CapacityForecasting.Source
   alias ServiceRadar.Observability.CapacityForecasting.VerdictEmitter
   alias ServiceRadar.Observability.CausalReasoner
+  alias ServiceRadar.Observability.PagedQuery
   alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -110,11 +111,9 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
     runner = Keyword.get(opts, :runner, SRQLRunner)
     runner_opts = Keyword.get(opts, :runner_opts, [])
 
-    case fetch_rows(runner, source.query, runner_opts, opts) do
-      {:ok, rows} ->
-        rows
-        |> group_rows(source)
-        |> Enum.reduce_while(:ok, fn {_resource_key, rows}, :ok ->
+    case fetch_row_groups(runner, source, runner_opts, opts) do
+      {:ok, row_groups} ->
+        Enum.reduce_while(row_groups, :ok, fn {_resource_key, rows}, :ok ->
           case forecast_rows(source, rows, opts) do
             {:ok, attrs} ->
               attrs
@@ -146,49 +145,24 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
     end
   end
 
-  defp fetch_rows(runner, query, runner_opts, opts) do
+  defp fetch_row_groups(runner, source, runner_opts, opts) do
     if function_exported?(runner, :query_page, 2) do
-      max_pages = positive_integer(Keyword.get(opts, :max_history_pages), 100)
-      fetch_rows_page(runner, query, runner_opts, nil, [], 0, max_pages)
+      PagedQuery.fetch(
+        runner,
+        source.query,
+        runner_opts,
+        opts,
+        %{},
+        fn groups, rows -> merge_row_groups(groups, rows, source) end,
+        &finalize_row_groups/1,
+        fn max_pages -> {:capacity_forecast_history_pages_exhausted, max_pages} end,
+        fn other -> {:unexpected_capacity_forecast_page, other} end
+      )
     else
-      runner.query(query, runner_opts)
-    end
-  end
-
-  defp fetch_rows_page(_runner, _query, _runner_opts, _cursor, _pages, page_count, max_pages)
-       when page_count >= max_pages,
-       do: {:error, {:capacity_forecast_history_pages_exhausted, max_pages}}
-
-  defp fetch_rows_page(runner, query, runner_opts, cursor, pages, page_count, max_pages) do
-    page_opts =
-      if is_binary(cursor), do: Keyword.put(runner_opts, :cursor, cursor), else: runner_opts
-
-    case runner.query_page(query, page_opts) do
-      {:ok, %{rows: rows, next_cursor: next_cursor}} when is_list(rows) ->
-        pages = [rows | pages]
-
-        if is_binary(next_cursor) and next_cursor != "" do
-          fetch_rows_page(
-            runner,
-            query,
-            runner_opts,
-            next_cursor,
-            pages,
-            page_count + 1,
-            max_pages
-          )
-        else
-          {:ok, pages |> Enum.reverse() |> List.flatten()}
-        end
-
-      {:ok, %{rows: rows}} when is_list(rows) ->
-        {:ok, [rows | pages] |> Enum.reverse() |> List.flatten()}
-
-      {:ok, other} ->
-        {:error, {:unexpected_capacity_forecast_page, other}}
-
-      {:error, reason} ->
-        {:error, reason}
+      case runner.query(source.query, runner_opts) do
+        {:ok, rows} when is_list(rows) -> {:ok, group_rows(rows, source)}
+        other -> other
+      end
     end
   end
 
@@ -645,6 +619,16 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
 
   defp group_rows(rows, source) do
     Enum.group_by(rows, &resource_key(source, &1))
+  end
+
+  defp merge_row_groups(groups, rows, source) do
+    Enum.reduce(rows, groups, fn row, acc ->
+      Map.update(acc, resource_key(source, row), [row], &[row | &1])
+    end)
+  end
+
+  defp finalize_row_groups(groups) do
+    Map.new(groups, fn {resource_key, rows} -> {resource_key, Enum.reverse(rows)} end)
   end
 
   defp latest_contiguous_points(points) do

@@ -404,7 +404,8 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     covers_tokens?(String.split(candidate, "."), String.split(subject, "."))
   end
 
-  defp covers_tokens?([">"], _subject_tokens), do: true
+  defp covers_tokens?([">"], [_subject | _subject_rest]), do: true
+  defp covers_tokens?([">"], []), do: false
   defp covers_tokens?([], []), do: true
   defp covers_tokens?([], _subject_tokens), do: false
   defp covers_tokens?(_candidate_tokens, []), do: false

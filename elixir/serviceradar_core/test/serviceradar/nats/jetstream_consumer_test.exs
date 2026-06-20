@@ -88,6 +88,15 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
              ["metrics.sysmon.*", "metrics.snmp.>"]
   end
 
+  test "normalized subjects treats tail wildcard as one-or-more trailing tokens" do
+    assert JetstreamConsumer.normalized_subjects(["events.>"], "events.test") == ["events.>"]
+
+    assert JetstreamConsumer.normalized_subjects(["events.>"], "events") == [
+             "events.>",
+             "events"
+           ]
+  end
+
   test "consumer payload carries declared durable config for create and update" do
     payload =
       JetstreamConsumer.consumer_payload(
