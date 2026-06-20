@@ -224,6 +224,7 @@ fn build_interface_hourly_query(plan: &QueryPlan, payload: bool) -> Result<Inter
     let select_sql = if payload {
         "jsonb_build_object(\
             'bucket', bucket, \
+            'partition', partition, \
             'device_id', device_id, \
             'target_device_ip', target_device_ip, \
             'if_index', if_index, \
@@ -239,7 +240,7 @@ fn build_interface_hourly_query(plan: &QueryPlan, payload: bool) -> Result<Inter
             'sample_count', sample_count\
         ) AS payload"
     } else {
-        "bucket, device_id, target_device_ip, if_index, metric_type, metric_name, \
+        "bucket, partition, device_id, target_device_ip, if_index, metric_type, metric_name, \
          series_key, avg_value, min_value, max_value, delta_value, duration_seconds, \
          avg_rate_per_second, sample_count"
     };
@@ -264,9 +265,8 @@ fn build_interface_hourly_filter_clause(
     binds: &mut Vec<BindParam>,
 ) -> Result<Option<String>> {
     match filter.field.as_str() {
-        "device_id" | "target_device_ip" | "metric_type" | "metric_name" | "series_key" => {
-            build_interface_hourly_text_filter(filter.field.as_str(), filter, binds)
-        }
+        "partition" | "device_id" | "target_device_ip" | "metric_type" | "metric_name"
+        | "series_key" => build_interface_hourly_text_filter(filter.field.as_str(), filter, binds),
         "if_index" => build_interface_hourly_int_filter("if_index", filter, binds),
         "avg_value"
         | "min_value"
@@ -426,6 +426,7 @@ fn build_interface_hourly_order_clause(order: &[OrderClause]) -> String {
 fn interface_hourly_order_column(field: &str) -> Option<&'static str> {
     match field {
         "bucket" | "time" | "timestamp" => Some("bucket"),
+        "partition" => Some("partition"),
         "device_id" => Some("device_id"),
         "target_device_ip" => Some("target_device_ip"),
         "if_index" => Some("if_index"),

@@ -111,6 +111,47 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       end
     end
 
+    test "uses SNMP target IP as anomaly device identity when polling agent reports verdict" do
+      target_ip = "10.0.0.20"
+
+      payload = %{
+        "event_id" => "snmp-target-anomaly",
+        "signal_type" => "causal",
+        "event_type" => "anomaly",
+        "class_uid" => 2004,
+        "time" => 1_812_456_000_000,
+        "severity_id" => 4,
+        "device_uid" => "agent-ns03",
+        "agent_id" => "agent-ns03",
+        "target_device_ip" => target_ip,
+        "anomaly" => %{
+          "series_key" => "snmp:#{target_ip}:7",
+          "metric_class" => "snmp",
+          "state" => "anomaly_open",
+          "target_device_ip" => target_ip
+        },
+        "source_identity" => %{
+          "agent_id" => "agent-ns03",
+          "host_id" => "ns03",
+          "target_device_ip" => target_ip
+        }
+      }
+
+      row =
+        CausalSignals.parse_message(%{
+          data: Jason.encode!(payload),
+          metadata: %{
+            subject: "signals.causal.predictions.snmp:#{target_ip}:7",
+            received_at: DateTime.utc_now()
+          }
+        })
+
+      assert row.device["uid"] == target_ip
+      assert row.metadata["service_radar"]["device_uid"] == target_ip
+      assert row.metadata["finding_info"]["dimensions"]["device_uid"] == target_ip
+      assert row.metadata["finding_info"]["dimensions"]["series_key"] == "snmp:#{target_ip}:7"
+    end
+
     test "returns nil on invalid JSON" do
       row =
         CausalSignals.parse_message(%{data: "not-json", metadata: %{subject: "bmp.events.peer"}})
