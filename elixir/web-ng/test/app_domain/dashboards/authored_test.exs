@@ -102,6 +102,14 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
       {:ok, %{"results" => [%{"limit" => Map.get(opts, :limit)}]}}
     end
 
+    def query("wide values stats:\"sum(value) as value\"" <> _rest, _opts) do
+      {:ok, %{"results" => [%{"value" => 12_345}]}}
+    end
+
+    def query("wide values stats:\"count() as count\"" <> _rest, _opts) do
+      {:ok, %{"results" => [%{"count" => 12_345}]}}
+    end
+
     def query(_query, _opts), do: {:ok, %{"results" => []}}
   end
 
@@ -185,6 +193,28 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
              RuntimeData.preview_panel_query(scope, %{srql_query: "limit probe", visual_type: :table}, %{})
 
     assert query == "limit probe time:last_24h limit:250"
+  end
+
+  test "runtime pushes stat aggregates into SRQL instead of aggregating preview rows", %{scope: scope} do
+    panel = %{
+      srql_query: "wide values",
+      visual_type: :stat,
+      data_binding: %{"value_field" => "value", "aggregate" => "sum"}
+    }
+
+    assert {:ok, %{rows: [%{"value" => 12_345}], query: query}} =
+             RuntimeData.preview_panel_query(scope, panel, %{})
+
+    assert query == ~s|wide values stats:"sum(value) as value" time:last_24h limit:10000|
+  end
+
+  test "runtime pushes count panels into SRQL instead of counting preview rows", %{scope: scope} do
+    panel = %{srql_query: "wide values", visual_type: :count, data_binding: %{}}
+
+    assert {:ok, %{rows: [%{"count" => 12_345}], query: query}} =
+             RuntimeData.preview_panel_query(scope, panel, %{})
+
+    assert query == ~s|wide values stats:"count() as count" time:last_24h limit:10000|
   end
 
   test "gauge compatibility is limited to single metrics and availability ratios", %{scope: scope} do
