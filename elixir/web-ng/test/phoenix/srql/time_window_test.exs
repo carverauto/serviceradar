@@ -13,6 +13,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.TimeWindowTest do
 
     assert TimeWindow.token_from_query(query) == "last_7d"
     assert TimeWindow.token_from_query(~s|in:logs message:"time:last_1h inside body"|, "last_24h") == "last_24h"
+    assert TimeWindow.token_from_query("in:logs message:'time:last_99y inside body'", "last_24h") == "last_24h"
+    assert TimeWindow.token_from_query(~s|in:logs message:'quoted "time:last_99y"' time:last_6h|) == "last_6h"
+    assert TimeWindow.token_from_query(~s|in:logs message:"quoted 'time:last_99y'" time:last_6h|) == "last_6h"
   end
 
   test "resolves relative time windows against a supplied clock" do
