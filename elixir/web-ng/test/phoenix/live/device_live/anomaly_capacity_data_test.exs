@@ -39,6 +39,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
     def query("in:capacity_forecasts" <> _rest, _opts), do: {:ok, %{"results" => []}}
   end
 
+  defmodule SlowSRQL do
+    @moduledoc false
+
+    def query("in:events" <> _rest, _opts), do: Process.sleep(:infinity)
+    def query("in:capacity_forecasts" <> _rest, _opts), do: {:ok, %{"results" => []}}
+  end
+
   test "SNMP metric subclasses are grouped into the SNMP anomaly status bucket" do
     data = AnomalyCapacityData.load(FakeSRQL, %{device_uid: "router-1"}, nil)
 
@@ -61,5 +68,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
     assert data.anomaly_rows == []
     assert data.anomaly_error =~ "anomaly SRQL task failed"
     assert log =~ "anomaly SRQL task failed"
+  end
+
+  test "SRQL task timeouts return an error result without hanging" do
+    {data, log} =
+      with_log(fn ->
+        AnomalyCapacityData.load(SlowSRQL, %{device_uid: "router-1"}, nil, query_timeout_ms: 50)
+      end)
+
+    assert data.status == :error
+    assert data.anomaly_rows == []
+    assert data.anomaly_error =~ "anomaly SRQL query timed out after 50ms"
+    assert log =~ "anomaly SRQL query timed out"
   end
 end
