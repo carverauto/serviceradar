@@ -1337,8 +1337,7 @@ fn parse_stats_expr(expr: &str) -> Result<FlowStatsSpec> {
         ));
     }
 
-    let lower = trimmed.to_lowercase();
-    let (agg_part, group_part) = if let Some(idx) = lower.find(" by ") {
+    let (agg_part, group_part) = if let Some(idx) = find_ascii_case_insensitive(trimmed, " by ") {
         (&trimmed[..idx], Some(trimmed[idx + 4..].trim()))
     } else {
         (trimmed, None)
@@ -1385,8 +1384,7 @@ fn parse_stats_expr(expr: &str) -> Result<FlowStatsSpec> {
 
 fn parse_single_stats_aggregation(segment: &str) -> Result<FlowAggregationSpec> {
     let segment = segment.trim();
-    let segment_lower = segment.to_lowercase();
-    let as_idx = segment_lower.find(" as ").ok_or_else(|| {
+    let as_idx = find_ascii_case_insensitive(segment, " as ").ok_or_else(|| {
         ServiceError::InvalidRequest("stats expression must include 'as <alias>'".into())
     })?;
 
@@ -1445,6 +1443,13 @@ fn parse_single_stats_aggregation(segment: &str) -> Result<FlowAggregationSpec> 
         agg_field,
         alias: alias.to_string(),
     })
+}
+
+fn find_ascii_case_insensitive(haystack: &str, needle: &str) -> Option<usize> {
+    haystack
+        .as_bytes()
+        .windows(needle.len())
+        .position(|window| window.eq_ignore_ascii_case(needle.as_bytes()))
 }
 
 /// Minimum time range (hours) before we consider routing flow stats to a CAGG.
@@ -2277,6 +2282,28 @@ mod tests {
         assert_eq!(spec.aggregations[0].agg_field, FlowAggField::Star);
         assert_eq!(spec.aggregations[0].alias, "total_flows");
         assert!(spec.group_by.is_empty());
+    }
+
+    #[test]
+    fn parse_stats_expr_handles_non_ascii_before_by_delimiter() {
+        let expr = "count(*) as İtotal by src_endpoint_ip";
+        let spec = parse_stats_expr(expr).unwrap();
+
+        assert_eq!(spec.aggregations.len(), 1);
+        assert_eq!(spec.aggregations[0].alias, "İtotal");
+        assert_eq!(spec.group_by.len(), 1);
+        assert_eq!(
+            spec.group_by[0],
+            FlowGroupSpec::Field(FlowGroupField::SrcEndpointIp)
+        );
+    }
+
+    #[test]
+    fn parse_stats_expr_rejects_non_ascii_before_as_without_panic() {
+        let expr = "count(İ*) as total";
+        let err = parse_stats_expr(expr).expect_err("invalid field should return a bounded error");
+
+        assert!(matches!(err, ServiceError::InvalidRequest(_)));
     }
 
     #[test]
