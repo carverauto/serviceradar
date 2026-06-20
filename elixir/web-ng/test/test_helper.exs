@@ -7,221 +7,240 @@ if System.get_env("SERVICERADAR_MIGRATIONS_GATE") in [nil, ""] do
   System.put_env("SERVICERADAR_MIGRATIONS_GATE", "false")
 end
 
-{:ok, _} = Application.ensure_all_started(:serviceradar_web_ng)
+require_db_tests? = System.get_env("SERVICERADAR_REQUIRE_DB_TESTS") in ["1", "true", "TRUE"]
+allow_db_free_tests? = System.get_env("SERVICERADAR_ALLOW_DB_FREE_TESTS") in ["1", "true", "TRUE"]
+ci? = System.get_env("CI") in ["1", "true", "TRUE"]
+db_required? = require_db_tests? or ci? or not allow_db_free_tests?
+
+if allow_db_free_tests? and not db_required? do
+  ExUnit.configure(exclude: [:test], include: [:db_free])
+end
+
+if db_required? do
+  {:ok, _} = Application.ensure_all_started(:serviceradar_web_ng)
+end
 
 # Use ServiceRadar.Repo from serviceradar_core directly for SQL adapter operations
 repo = ServiceRadar.Repo
 
-require_db_tests? = System.get_env("SERVICERADAR_REQUIRE_DB_TESTS") in ["1", "true", "TRUE"]
+db_tests_available? =
+  cond do
+    ci? ->
+      true
 
-if System.get_env("CI") not in ["1", "true", "TRUE"] do
-  case SQL.query(repo, "SELECT 1", []) do
-    {:ok, _} ->
-      :ok
+    not db_required? ->
+      false
 
-    {:error, reason} ->
-      message = "web-ng test database unavailable: #{inspect(reason)}"
+    true ->
+      case SQL.query(repo, "SELECT 1", []) do
+        {:ok, _} ->
+          true
 
-      if require_db_tests? do
-        raise message
-      else
-        IO.warn("Skipping web-ng tests; #{message}")
-        System.halt(0)
+        {:error, reason} ->
+          message = "web-ng test database unavailable: #{inspect(reason)}"
+
+          if require_db_tests? do
+            raise message
+          else
+            IO.warn("Skipping web-ng tests; #{message}")
+            System.halt(0)
+          end
       end
   end
-end
 
-# Create OCSF-aligned device inventory table (OCSF v1.7.0 Device object)
-_ =
-  SQL.query!(
-    repo,
-    """
-    CREATE TABLE IF NOT EXISTS ocsf_devices (
-      uid text PRIMARY KEY
-    )
-    """,
-    []
-  )
-
-_ =
-  Enum.each(
-    [
-      # OCSF Core Identity
-      {"type_id", "integer DEFAULT 0"},
-      {"type", "text"},
-      {"name", "text"},
-      {"hostname", "text"},
-      {"ip", "text"},
-      {"mac", "text"},
-      # OCSF Extended Identity
-      {"uid_alt", "text"},
-      {"vendor_name", "text"},
-      {"model", "text"},
-      {"domain", "text"},
-      {"zone", "text"},
-      {"subnet_uid", "text"},
-      {"vlan_uid", "text"},
-      {"region", "text"},
-      # OCSF Temporal
-      {"first_seen_time", "timestamptz"},
-      {"last_seen_time", "timestamptz"},
-      {"created_time", "timestamptz DEFAULT NOW()"},
-      {"modified_time", "timestamptz DEFAULT NOW()"},
-      # OCSF Risk and Compliance
-      {"risk_level_id", "integer"},
-      {"risk_level", "text"},
-      {"risk_score", "integer"},
-      {"is_managed", "boolean"},
-      {"is_compliant", "boolean"},
-      {"is_trusted", "boolean"},
-      {"is_active", "boolean DEFAULT true"},
-      # OCSF Nested Objects (JSONB)
-      {"os", "jsonb"},
-      {"hw_info", "jsonb"},
-      {"network_interfaces", "jsonb"},
-      {"owner", "jsonb"},
-      {"org", "jsonb"},
-      {"groups", "jsonb"},
-      {"agent_list", "jsonb"},
-      # ServiceRadar-specific fields
-      {"gateway_id", "text"},
-      {"agent_id", "text"},
-      {"availability_source_agent_id", "text"},
-      {"management_device_id", "text"},
-      {"discovery_sources", "text[]"},
-      {"is_available", "boolean"},
-      {"metadata", "jsonb"}
-    ],
-    fn {col, type} ->
-      SQL.query!(
-        repo,
-        "ALTER TABLE ocsf_devices ADD COLUMN IF NOT EXISTS #{col} #{type}",
-        []
+if db_tests_available? do
+  # Create OCSF-aligned device inventory table (OCSF v1.7.0 Device object)
+  _ =
+    SQL.query!(
+      repo,
+      """
+      CREATE TABLE IF NOT EXISTS ocsf_devices (
+        uid text PRIMARY KEY
       )
-    end
-  )
-
-_ =
-  SQL.query!(
-    repo,
-    """
-    CREATE TABLE IF NOT EXISTS gateways (
-      gateway_id text PRIMARY KEY
+      """,
+      []
     )
-    """,
-    []
-  )
 
-_ =
-  Enum.each(
-    [
-      {"component_id", "text"},
-      {"registration_source", "text"},
-      {"status", "text"},
-      {"spiffe_identity", "text"},
-      {"first_registered", "timestamptz"},
-      {"first_seen", "timestamptz"},
-      {"last_seen", "timestamptz"},
-      {"metadata", "jsonb"},
-      {"created_by", "text"},
-      {"is_healthy", "boolean"},
-      {"agent_count", "integer"},
-      {"checker_count", "integer"},
-      {"updated_at", "timestamptz"},
-      {"partition_id", "uuid"}
-    ],
-    fn {col, type} ->
-      SQL.query!(
-        repo,
-        "ALTER TABLE gateways ADD COLUMN IF NOT EXISTS #{col} #{type}",
-        []
+  _ =
+    Enum.each(
+      [
+        # OCSF Core Identity
+        {"type_id", "integer DEFAULT 0"},
+        {"type", "text"},
+        {"name", "text"},
+        {"hostname", "text"},
+        {"ip", "text"},
+        {"mac", "text"},
+        # OCSF Extended Identity
+        {"uid_alt", "text"},
+        {"vendor_name", "text"},
+        {"model", "text"},
+        {"domain", "text"},
+        {"zone", "text"},
+        {"subnet_uid", "text"},
+        {"vlan_uid", "text"},
+        {"region", "text"},
+        # OCSF Temporal
+        {"first_seen_time", "timestamptz"},
+        {"last_seen_time", "timestamptz"},
+        {"created_time", "timestamptz DEFAULT NOW()"},
+        {"modified_time", "timestamptz DEFAULT NOW()"},
+        # OCSF Risk and Compliance
+        {"risk_level_id", "integer"},
+        {"risk_level", "text"},
+        {"risk_score", "integer"},
+        {"is_managed", "boolean"},
+        {"is_compliant", "boolean"},
+        {"is_trusted", "boolean"},
+        {"is_active", "boolean DEFAULT true"},
+        # OCSF Nested Objects (JSONB)
+        {"os", "jsonb"},
+        {"hw_info", "jsonb"},
+        {"network_interfaces", "jsonb"},
+        {"owner", "jsonb"},
+        {"org", "jsonb"},
+        {"groups", "jsonb"},
+        {"agent_list", "jsonb"},
+        # ServiceRadar-specific fields
+        {"gateway_id", "text"},
+        {"agent_id", "text"},
+        {"availability_source_agent_id", "text"},
+        {"management_device_id", "text"},
+        {"discovery_sources", "text[]"},
+        {"is_available", "boolean"},
+        {"metadata", "jsonb"}
+      ],
+      fn {col, type} ->
+        SQL.query!(
+          repo,
+          "ALTER TABLE ocsf_devices ADD COLUMN IF NOT EXISTS #{col} #{type}",
+          []
+        )
+      end
+    )
+
+  _ =
+    SQL.query!(
+      repo,
+      """
+      CREATE TABLE IF NOT EXISTS gateways (
+        gateway_id text PRIMARY KEY
       )
-    end
-  )
-
-_ =
-  SQL.query!(
-    repo,
-    """
-    CREATE TABLE IF NOT EXISTS northbound_action_event_handlers (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      name text NOT NULL,
-      description text,
-      state text NOT NULL DEFAULT 'disabled',
-      descriptor_id uuid NOT NULL,
-      match_expression jsonb NOT NULL DEFAULT '{}'::jsonb,
-      target_resolver jsonb NOT NULL DEFAULT '{}'::jsonb,
-      input_template jsonb NOT NULL DEFAULT '{}'::jsonb,
-      dedupe_key_template text,
-      cooldown_seconds integer NOT NULL DEFAULT 300,
-      rate_limit jsonb NOT NULL DEFAULT '{}'::jsonb,
-      approval_mode text NOT NULL DEFAULT 'manual',
-      service_principal text NOT NULL DEFAULT 'northbound-event-handler',
-      last_triggered_at timestamptz,
-      metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
-      inserted_at timestamptz NOT NULL DEFAULT now(),
-      updated_at timestamptz NOT NULL DEFAULT now()
+      """,
+      []
     )
-    """,
-    []
-  )
 
-# Create logs table for SRQL UUID parameter testing
-_ =
-  SQL.query!(
-    repo,
-    """
-    CREATE TABLE IF NOT EXISTS logs (
-      timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      observed_timestamp TIMESTAMPTZ,
-      id UUID NOT NULL DEFAULT gen_random_uuid(),
-      trace_id TEXT,
-      span_id TEXT,
-      trace_flags INT,
-      severity_text TEXT,
-      severity_number INT,
-      body TEXT,
-      event_name TEXT,
-      service_name TEXT,
-      service_version TEXT,
-      service_instance TEXT,
-      scope_name TEXT,
-      scope_version TEXT,
-      scope_attributes TEXT,
-      attributes TEXT,
-      resource_attributes TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      ingest_identity TEXT NOT NULL DEFAULT '',
-      ingest_agent_id TEXT NOT NULL DEFAULT '',
-      ingest_partition TEXT NOT NULL DEFAULT '',
-      PRIMARY KEY (timestamp, id)
+  _ =
+    Enum.each(
+      [
+        {"component_id", "text"},
+        {"registration_source", "text"},
+        {"status", "text"},
+        {"spiffe_identity", "text"},
+        {"first_registered", "timestamptz"},
+        {"first_seen", "timestamptz"},
+        {"last_seen", "timestamptz"},
+        {"metadata", "jsonb"},
+        {"created_by", "text"},
+        {"is_healthy", "boolean"},
+        {"agent_count", "integer"},
+        {"checker_count", "integer"},
+        {"updated_at", "timestamptz"},
+        {"partition_id", "uuid"}
+      ],
+      fn {col, type} ->
+        SQL.query!(
+          repo,
+          "ALTER TABLE gateways ADD COLUMN IF NOT EXISTS #{col} #{type}",
+          []
+        )
+      end
     )
-    """,
-    []
-  )
 
-# Older test databases may have a logs table predating the ingest
-# attribution columns; align them with the migration contract.
-_ =
-  SQL.query!(
-    repo,
-    """
-    ALTER TABLE logs
-      ADD COLUMN IF NOT EXISTS ingest_identity TEXT NOT NULL DEFAULT '',
-      ADD COLUMN IF NOT EXISTS ingest_agent_id TEXT NOT NULL DEFAULT '',
-      ADD COLUMN IF NOT EXISTS ingest_partition TEXT NOT NULL DEFAULT ''
-    """,
-    []
-  )
+  _ =
+    SQL.query!(
+      repo,
+      """
+      CREATE TABLE IF NOT EXISTS northbound_action_event_handlers (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        name text NOT NULL,
+        description text,
+        state text NOT NULL DEFAULT 'disabled',
+        descriptor_id uuid NOT NULL,
+        match_expression jsonb NOT NULL DEFAULT '{}'::jsonb,
+        target_resolver jsonb NOT NULL DEFAULT '{}'::jsonb,
+        input_template jsonb NOT NULL DEFAULT '{}'::jsonb,
+        dedupe_key_template text,
+        cooldown_seconds integer NOT NULL DEFAULT 300,
+        rate_limit jsonb NOT NULL DEFAULT '{}'::jsonb,
+        approval_mode text NOT NULL DEFAULT 'manual',
+        service_principal text NOT NULL DEFAULT 'northbound-event-handler',
+        last_triggered_at timestamptz,
+        metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+        inserted_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
+      """,
+      []
+    )
 
-# Ensure RBAC system role profiles exist for tests that depend on them.
-# In test env we keep seeders disabled to avoid async sandbox ownership issues,
-# so we seed once here during boot.
-try do
-  ServiceRadar.Identity.RoleProfileSeeder.seed()
-rescue
-  e ->
-    IO.warn("Failed to seed role profiles: #{Exception.message(e)}")
+  # Create logs table for SRQL UUID parameter testing
+  _ =
+    SQL.query!(
+      repo,
+      """
+      CREATE TABLE IF NOT EXISTS logs (
+        timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        observed_timestamp TIMESTAMPTZ,
+        id UUID NOT NULL DEFAULT gen_random_uuid(),
+        trace_id TEXT,
+        span_id TEXT,
+        trace_flags INT,
+        severity_text TEXT,
+        severity_number INT,
+        body TEXT,
+        event_name TEXT,
+        service_name TEXT,
+        service_version TEXT,
+        service_instance TEXT,
+        scope_name TEXT,
+        scope_version TEXT,
+        scope_attributes TEXT,
+        attributes TEXT,
+        resource_attributes TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        ingest_identity TEXT NOT NULL DEFAULT '',
+        ingest_agent_id TEXT NOT NULL DEFAULT '',
+        ingest_partition TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY (timestamp, id)
+      )
+      """,
+      []
+    )
+
+  # Older test databases may have a logs table predating the ingest
+  # attribution columns; align them with the migration contract.
+  _ =
+    SQL.query!(
+      repo,
+      """
+      ALTER TABLE logs
+        ADD COLUMN IF NOT EXISTS ingest_identity TEXT NOT NULL DEFAULT '',
+        ADD COLUMN IF NOT EXISTS ingest_agent_id TEXT NOT NULL DEFAULT '',
+        ADD COLUMN IF NOT EXISTS ingest_partition TEXT NOT NULL DEFAULT ''
+      """,
+      []
+    )
+
+  # Ensure RBAC system role profiles exist for tests that depend on them.
+  # In test env we keep seeders disabled to avoid async sandbox ownership issues,
+  # so we seed once here during boot.
+  try do
+    ServiceRadar.Identity.RoleProfileSeeder.seed()
+  rescue
+    e ->
+      IO.warn("Failed to seed role profiles: #{Exception.message(e)}")
+  end
+
+  Ecto.Adapters.SQL.Sandbox.mode(ServiceRadar.Repo, :manual)
 end
-
-Ecto.Adapters.SQL.Sandbox.mode(ServiceRadar.Repo, :manual)
