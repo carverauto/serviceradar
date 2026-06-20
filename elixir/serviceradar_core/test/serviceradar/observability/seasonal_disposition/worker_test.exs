@@ -15,6 +15,24 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
     on_exit(fn -> AnomalyConfigRuntime.clear_cache_for_test() end)
   end
 
+  test "manual enqueue uniqueness ignores per-run evaluated_at" do
+    first =
+      Worker.new(%{
+        "trigger" => "manual",
+        "evaluated_at" => "2026-06-12T12:00:00Z"
+      })
+
+    second =
+      Worker.new(%{
+        "trigger" => "manual",
+        "evaluated_at" => "2026-06-12T12:05:00Z"
+      })
+
+    assert first.changes.unique.keys == [:trigger]
+    assert second.changes.unique.keys == [:trigger]
+    assert first.changes.unique.fields == [:args, :queue, :worker]
+  end
+
   # A profile row carrying the SQL-aggregated (dow,hod) bucket summary INCLUDING the
   # sample under test (the natural CAGG aggregate the mean/stddev kernel de-aggregates).
   defp profile_row(series, dow, hod, baseline_points, sample_value) do
@@ -202,6 +220,55 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
     assert attrs.consecutive_anomalous == 3
   end
 
+  test "worker confirms the first breach when confirm_slots is one" do
+    AnomalyConfigRuntime.put_cache_for_test(%{
+      seasonal_disposition_opts: [confirm_slots: 1]
+    })
+
+    idle = for i <- 0..19, do: 5.0 + rem(i, 3) * 0.5
+    rows = [profile_row("svc/cpu/first-breach", 0, 3, idle, 800.0)]
+
+    assert :ok =
+             Worker.run(job(),
+               sources: [source()],
+               runner: make_runner(rows),
+               carried_state: %{},
+               verdict_emitter: TestEmitter,
+               test_pid: self()
+             )
+
+    assert_received {:seasonal_verdict, attrs}
+    assert attrs.series_key == "svc/cpu/first-breach"
+    assert attrs.disposition == "seasonal_breach"
+    assert attrs.consecutive_anomalous == 1
+  end
+
+  test "worker resets pending confirmation on clean slot without emitting clear" do
+    AnomalyConfigRuntime.put_cache_for_test(%{
+      seasonal_disposition_opts: [confirm_slots: 3]
+    })
+
+    busy = for i <- 0..19, do: 800.0 + rem(i, 5) * 2.0
+    rows = [profile_row("svc/cpu/pending-clean", 2, 9, busy, 805.0)]
+    persisted = :ets.new(:seasonal_state_pending_clean, [:public, :set])
+
+    assert :ok =
+             Worker.run(job(),
+               sources: [source()],
+               runner: make_runner(rows),
+               carried_state: %{{"svc/cpu/pending-clean", 2, 9} => 2},
+               state_persister: fn key, next ->
+                 :ets.insert(persisted, {key, next})
+                 :ok
+               end,
+               verdict_emitter: TestEmitter,
+               test_pid: self()
+             )
+
+    refute_received {:seasonal_verdict, _}
+    assert [{_, 0}] = :ets.lookup(persisted, {"svc/cpu/pending-clean", 2, 9})
+  end
+
   test "worker gates a thin bucket to insufficient without surfacing a verdict" do
     rows = [profile_row("svc/cpu/thin", 1, 4, [10.0, 11.0, 9.0], 50.0)]
 
@@ -214,6 +281,34 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
              )
 
     refute_received {:seasonal_verdict, _}
+  end
+
+  test "worker emits a clear when a previously confirmed seasonal breach suppresses" do
+    busy = for i <- 0..19, do: 800.0 + rem(i, 5) * 2.0
+    rows = [profile_row("svc/cpu/clear", 2, 9, busy, 805.0)]
+    persisted = :ets.new(:seasonal_state_clear, [:public, :set])
+
+    assert :ok =
+             Worker.run(job(),
+               sources: [source()],
+               runner: make_runner(rows),
+               carried_state: %{{"svc/cpu/clear", 2, 9} => 1},
+               state_persister: fn key, next ->
+                 :ets.insert(persisted, {key, next})
+                 :ok
+               end,
+               verdict_emitter: TestEmitter,
+               test_pid: self()
+             )
+
+    assert_received {:seasonal_verdict, attrs}
+    assert attrs.series_key == "svc/cpu/clear"
+    assert attrs.disposition == "suppress"
+    assert attrs.status == "cleared"
+    assert attrs.consecutive_anomalous == 0
+    assert attrs.bucket_started_at == ~U[2026-06-11 18:00:00Z]
+    assert attrs.bucket_ended_at == ~U[2026-06-11 19:00:00Z]
+    assert [{_, 0}] = :ets.lookup(persisted, {"svc/cpu/clear", 2, 9})
   end
 
   test "worker pages profile rows instead of truncating at the first SRQL limit page" do
@@ -273,6 +368,59 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
                verdict_emitter: TestEmitter,
                test_pid: self()
              )
+  end
+
+  test "worker fails loudly when SRQL rows omit profile columns" do
+    event = [:serviceradar, :observability, :seasonal_disposition, :source]
+    handler_id = {:seasonal_profile_error, make_ref()}
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      event,
+      fn ^event, measurements, metadata, _config ->
+        send(test_pid, {handler_id, measurements, metadata})
+      end,
+      nil
+    )
+
+    rows = [
+      %{
+        "series" => "svc/cpu/missing-profile",
+        "dow" => 0,
+        "hod" => 3,
+        "sample_value" => 42.0,
+        "bucket" => @bucket_at
+      }
+    ]
+
+    log =
+      try do
+        capture_log(fn ->
+          assert {:error, {:seasonal_profile_columns_missing, missing}} =
+                   Worker.run(job(),
+                     sources: [source()],
+                     runner: make_runner(rows),
+                     verdict_emitter: TestEmitter,
+                     test_pid: self()
+                   )
+
+          assert "bucket_count" in missing
+          assert "bucket_sum" in missing
+          assert "bucket_sum_sq" in missing
+        end)
+      after
+        :telemetry.detach(handler_id)
+      end
+
+    assert log =~ "Seasonal disposition profile rows missing required columns"
+    refute_received {:seasonal_verdict, _}
+
+    assert_receive {^handler_id, measurements,
+                    %{source: "cpu_seasonal", phase: :profile, result: :error} = metadata}
+
+    assert measurements.rows == 0
+    assert metadata.reason_class == "seasonal_profile_columns_missing"
   end
 
   defmodule PagedRunner do

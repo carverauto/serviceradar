@@ -256,6 +256,39 @@ fn auto_with_seasonality_is_holt_winters() {
     }
 }
 
+#[test]
+fn holt_winters_negative_horizon_slope_has_no_eta() {
+    let cfg = CapacityConfig {
+        min_history: 48,
+        ..config(Some(70.0), 24 * 3_600, CapacityModelKind::Seasonal)
+    };
+    let points: Vec<CapacityPoint> = (0..72)
+        .map(|h| {
+            let seasonal = if (h % 24) >= 8 && (h % 24) <= 17 {
+                35.0
+            } else {
+                -5.0
+            };
+            point(h, 55.0 + seasonal - h as f64 * 0.2)
+        })
+        .collect();
+    let out = dispose_capacity(
+        CapacityRow {
+            series_key: "s".to_string(),
+            points,
+        },
+        &cfg,
+    );
+    match out.disposition {
+        Disposition::Projected(f) => {
+            assert_eq!(f.model, "holt_winters_additive");
+            assert!(f.slope_per_second < 0.0);
+            assert_eq!(f.projected_exhaustion_at_unix_micros, None);
+        }
+        other => panic!("expected Projected, got {other:?}"),
+    }
+}
+
 /// A non-finite value in the window is dropped by normalize (mirrors
 /// `normalize_point/1` rejecting non-numbers); if that drops below the gate it
 /// Skips rather than panicking.
