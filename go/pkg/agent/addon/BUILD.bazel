@@ -10,6 +10,7 @@ go_library(
         "resource_limits_linux.go",
         "resource_limits_other.go",
         "status_proto.go",
+        "stream_backoff.go",
         "telemetry_env.go",
         "types.go",
     ],
