@@ -24,10 +24,11 @@ pub struct SeasonalConfig {
     /// verdict can be issued; below this the row resolves to
     /// [`Disposition::InsufficientSeasonalBaseline`].
     pub min_bucket_samples: usize,
-    /// Consecutive anomalous slots required to confirm a breach. With the carried
-    /// `consecutive_anomalous`, a residual over threshold reads as
-    /// [`Disposition::SeasonalDrift`] until it reaches `confirm_slots`, then
-    /// [`Disposition::SeasonalBreach`].
+    /// Consecutive completed evaluation slots that must breach before the kernel
+    /// reports [`Disposition::SeasonalBreach`]. `confirm_slots = N` means the
+    /// first `N - 1` breaching slots are [`Disposition::SeasonalDrift`], the Nth
+    /// breaching slot confirms, and any clean slot resets the pending count to
+    /// zero.
     pub confirm_slots: usize,
     /// Which robust statistic to score the residual against (D6 / task 3.4).
     pub robust_statistic: RobustStatistic,

@@ -20,6 +20,7 @@ defmodule ServiceRadar.StatusHandler do
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.Observability.AnomalyDetection.SeriesKey
+  alias ServiceRadar.Observability.CausalPredictionSubject
   alias ServiceRadar.ResultsRouter
 
   require Logger
@@ -354,7 +355,7 @@ defmodule ServiceRadar.StatusHandler do
     # edge<->central + seasonal joins). Fall back to the hint only when no
     # source_identity is present (move-anomaly-detection-to-edge §3.4b).
     hint = get_in(event, ["anomaly", "series_key"])
-    series_key = canonical_series_key(Map.get(event, "source_identity")) || hint
+    series_key = canonical_series_key(Map.get(event, "source_identity"), metadata) || hint
 
     event = rekey_anomaly_verdict(event, series_key)
     subject = causal_prediction_subject(series_key)
@@ -368,17 +369,17 @@ defmodule ServiceRadar.StatusHandler do
     end
   end
 
-  defp canonical_series_key(source_identity) when is_map(source_identity) do
-    SeriesKey.from_source_identity(source_identity)
+  defp canonical_series_key(source_identity, metadata) when is_map(source_identity) do
+    SeriesKey.from_source_identity(source_identity, partition_id: metadata.partition_id)
   end
 
-  defp canonical_series_key(_source_identity), do: nil
+  defp canonical_series_key(_source_identity, _metadata), do: nil
 
   defp causal_prediction_subject(series_key) when is_binary(series_key) and series_key != "" do
-    "signals.causal.predictions.#{series_key}"
+    CausalPredictionSubject.build(series_key)
   end
 
-  defp causal_prediction_subject(_series_key), do: "signals.causal.predictions.anomaly"
+  defp causal_prediction_subject(_series_key), do: CausalPredictionSubject.build(nil)
 
   # Stamp the canonical key onto the persisted verdict so CausalSignals stores it
   # under the same series_key edge-derived consumers use (and the producer hint becomes dead
