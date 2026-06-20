@@ -62,6 +62,71 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "in:devices"
   end
 
+  test "bulk apply tags updates selected devices with the current scope", %{
+    conn: conn,
+    scope: scope
+  } do
+    unique = System.unique_integer([:positive])
+    prefix = "bulk-tag-scope-#{unique}"
+    first_uid = "test-device-#{prefix}-1"
+    second_uid = "test-device-#{prefix}-2"
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: first_uid,
+        type_id: 1,
+        type: "Server",
+        hostname: "#{prefix}-one",
+        tags: %{"existing" => "keep"},
+        is_available: true,
+        is_managed: true,
+        first_seen_time: now,
+        last_seen_time: now
+      },
+      %{
+        uid: second_uid,
+        type_id: 1,
+        type: "Server",
+        hostname: "#{prefix}-two",
+        tags: %{},
+        is_available: true,
+        is_managed: true,
+        first_seen_time: now,
+        last_seen_time: now
+      }
+    ])
+
+    {:ok, view, _html} =
+      live(conn, ~p"/devices?#{%{q: "in:devices hostname:%#{prefix}% limit:10", limit: 10}}")
+
+    html = render_until(view, "#{prefix}-two", 5_000)
+    assert html =~ "#{prefix}-one"
+
+    view
+    |> element("input[phx-click='toggle_device_select'][phx-value-uid='#{first_uid}']")
+    |> render_click()
+
+    view
+    |> element("input[phx-click='toggle_device_select'][phx-value-uid='#{second_uid}']")
+    |> render_click()
+
+    view
+    |> element("button[phx-click='open_bulk_edit_modal']")
+    |> render_click()
+
+    _html =
+      view
+      |> form("#bulk-tags-form", %{"bulk" => %{"tags" => "env=prod\nowner=ops"}})
+      |> render_submit()
+
+    {:ok, first_device} = Device.get_by_uid(first_uid, true, scope: scope)
+    {:ok, second_device} = Device.get_by_uid(second_uid, true, scope: scope)
+
+    assert first_device.tags == %{"existing" => "keep", "env" => "prod", "owner" => "ops"}
+    assert second_device.tags == %{"env" => "prod", "owner" => "ops"}
+  end
+
   test "device list SRQL submit routes catalog entity changes and drops stale filters", %{
     conn: conn
   } do
@@ -1362,7 +1427,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         gateway_id: gateway_id,
         agent_id: host_id
       ),
-      timeseries_metric_row(now, skewed_device_id, "memory.used_percent", "sysmon.memory", 33.3, "%",
+      timeseries_metric_row(
+        now,
+        skewed_device_id,
+        "memory.used_percent",
+        "sysmon.memory",
+        33.3,
+        "%",
         gateway_id: gateway_id,
         agent_id: host_id
       ),
@@ -1370,16 +1441,34 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         gateway_id: gateway_id,
         agent_id: host_id
       ),
-      timeseries_metric_row(now, skewed_device_id, "process.count", "sysmon.process", 1.0, "{process}",
+      timeseries_metric_row(
+        now,
+        skewed_device_id,
+        "process.count",
+        "sysmon.process",
+        1.0,
+        "{process}",
         gateway_id: gateway_id,
         agent_id: host_id
       ),
-      timeseries_metric_row(now, skewed_device_id, "process.cpu_usage", "sysmon.process", 19.6, "%",
+      timeseries_metric_row(
+        now,
+        skewed_device_id,
+        "process.cpu_usage",
+        "sysmon.process",
+        19.6,
+        "%",
         gateway_id: gateway_id,
         agent_id: host_id,
         tags: %{"pid" => "5252", "name" => "beam.smp", "status" => "Running"}
       ),
-      timeseries_metric_row(now, skewed_device_id, "process.memory_usage", "sysmon.process", 2_097_152, "By",
+      timeseries_metric_row(
+        now,
+        skewed_device_id,
+        "process.memory_usage",
+        "sysmon.process",
+        2_097_152,
+        "By",
         gateway_id: gateway_id,
         agent_id: host_id,
         tags: %{"pid" => "5252", "name" => "beam.smp", "status" => "Running"}
@@ -1439,7 +1528,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
              "pagination" => %{}
            }}
 
-        String.contains?(query, "in:events") and String.contains?(query, ~s|agent_id:"#{agent_id}"|) ->
+        String.contains?(query, "in:events") and
+            String.contains?(query, ~s|agent_id:"#{agent_id}"|) ->
           {:ok,
            %{
              "results" => [
@@ -3726,7 +3816,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         _ ->
           cond do
             String.contains?(query, "in:logs") ->
-              if delay_ms = Application.get_env(:serviceradar_web_ng, :device_live_log_query_delay_ms) do
+              if delay_ms =
+                   Application.get_env(:serviceradar_web_ng, :device_live_log_query_delay_ms) do
                 Process.sleep(delay_ms)
               end
 

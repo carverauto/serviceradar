@@ -2,7 +2,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
-  import Ash.Expr
   import ServiceRadarWebNGWeb.NorthboundActionComponents, only: [northbound_action_modal: 1]
   import ServiceRadarWebNGWeb.UIComponents
 
@@ -1243,32 +1242,76 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     end
   end
 
-  defp update_tags_for_uids(_scope, uids, new_tags) do
+  defp update_tags_for_uids(scope, uids, new_tags) do
+    resources = [Device]
+
+    resources
+    |> Ash.transaction(fn ->
+      case lock_devices_for_bulk_tag(scope, uids) do
+        {:ok, devices} ->
+          requested_count = length(uids)
+          existing_count = length(devices)
+
+          if existing_count < requested_count do
+            Ash.DataLayer.rollback(resources, "One or more devices were not found")
+          else
+            case update_tagged_device_records(devices, new_tags, scope) do
+              :ok -> existing_count
+              {:error, reason} -> Ash.DataLayer.rollback(resources, reason)
+            end
+          end
+
+        {:error, error} ->
+          Ash.DataLayer.rollback(resources, format_changeset_errors(error))
+      end
+    end)
+    |> bulk_tag_transaction_result()
+  end
+
+  defp lock_devices_for_bulk_tag(scope, uids) do
     query =
       Device
-      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.for_read(:read, %{}, scope: scope)
       |> Ash.Query.filter(uid in ^uids)
+      |> Ash.Query.lock(:for_update)
 
-    case Ash.count(query) do
-      {:ok, existing_count} ->
-        requested_count = length(uids)
-        result = bulk_update_tags(query, new_tags)
-        handle_bulk_update_result(result, existing_count, requested_count)
+    case Ash.read(query, scope: scope) do
+      {:ok, devices} ->
+        {:ok, ash_page_results(devices)}
 
       {:error, error} ->
-        {:error, format_changeset_errors(error)}
+        {:error, error}
     end
   end
 
-  defp bulk_update_tags(query, new_tags) do
-    Ash.bulk_update(query, :update, %{},
-      return_records?: false,
-      return_errors?: true,
-      atomic_update: %{
-        tags: expr(fragment("coalesce(?, '{}'::jsonb) || (?::jsonb)", ^ref(:tags), ^new_tags))
-      }
-    )
+  defp bulk_tag_transaction_result({:ok, count}), do: {:ok, count}
+  defp bulk_tag_transaction_result({:error, reason}), do: {:error, reason}
+  defp bulk_tag_transaction_result({:error, reason, _stacktrace}), do: {:error, reason}
+
+  defp update_tagged_device_records(devices, new_tags, scope) do
+    Enum.reduce_while(devices, :ok, fn device, :ok ->
+      tags =
+        device.tags
+        |> normalize_device_tags()
+        |> Map.merge(new_tags)
+
+      result =
+        device
+        |> Ash.Changeset.for_update(:update, %{tags: tags}, scope: scope)
+        |> Ash.update(scope: scope)
+
+      case result do
+        {:ok, _device} -> {:cont, :ok}
+        {:error, error} -> {:halt, {:error, format_changeset_errors(error)}}
+      end
+    end)
   end
+
+  defp normalize_device_tags(tags) when is_map(tags), do: tags
+  defp normalize_device_tags(_tags), do: %{}
+
+  defp ash_page_results(%{results: results}) when is_list(results), do: results
+  defp ash_page_results(results) when is_list(results), do: results
 
   defp handle_bulk_update_result(result, existing_count, requested_count) do
     case result do
