@@ -98,8 +98,9 @@ type ScannerStats struct {
 	RingBlocksDropped   uint64 // TPACKET_V3 blocks lost due to buffer overruns
 
 	// Retry statistics
-	RetriesAttempted  uint64 // Number of retry attempts made
+	RetriesAttempted  uint64 // Number of retry packets actually sent
 	RetriesSuccessful uint64 // Number of successful retries
+	RetriesDropped    uint64 // Number of retry attempts dropped before send
 
 	// Port allocation statistics
 	PortsAllocated uint64 // Total port allocations

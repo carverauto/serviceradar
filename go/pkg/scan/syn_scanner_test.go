@@ -253,7 +253,7 @@ func TestProcessEthernetFrameICMPv6Errors(t *testing.T) {
 		icmpTyp uint8
 		wantErr error
 	}{
-		{name: "destination unreachable", icmpTyp: icmpv6DstUnreach, wantErr: ErrICMPv6Unreachable},
+		{name: "destination unreachable", icmpTyp: icmpv6DstUnreach, wantErr: ErrPortClosed},
 		{name: "packet too big", icmpTyp: icmpv6PacketTooBig, wantErr: ErrICMPv6PacketTooBig},
 		{name: "time exceeded", icmpTyp: icmpv6TimeExceeded, wantErr: ErrICMPv6TimeExceeded},
 	}
@@ -408,13 +408,35 @@ func TestSYNScannerRetryAndRateMetricAccounting(t *testing.T) {
 	scanner.recordSourcePortWait(10 * time.Millisecond)
 
 	stats := scanner.GetStats()
-	assert.Equal(t, uint64(2), stats.RetriesAttempted)
+	assert.Equal(t, uint64(0), stats.RetriesAttempted)
 	assert.Len(t, scanner.retryCh, 2)
+	assert.Equal(t, uint64(0), stats.RetriesDropped)
 	assert.Equal(t, uint64(2), stats.RateLimitDeferrals)
 	assert.Equal(t, uint64(1), stats.RateLimitWaits)
 	assert.Equal(t, uint64(1), stats.SourcePortWaits)
 	assert.Equal(t, uint64(25*time.Millisecond), stats.RateLimitWaitNanos)
 	assert.Equal(t, uint64(10*time.Millisecond), stats.SourcePortWaitNanos)
+}
+
+func TestSYNScannerRetryAccountingCountsDroppedEnqueues(t *testing.T) {
+	t.Parallel()
+
+	scanner := &SYNScanner{
+		retryAttempts:  3,
+		retryMinJitter: time.Millisecond,
+		retryMaxJitter: time.Millisecond,
+		retryCh:        make(chan retryItem, 1),
+		rand:           rand.New(rand.NewSource(1)),
+	}
+
+	scanner.enqueueRetriesForBatch([]models.Target{
+		{Host: "2001:db8::20", Port: 443, Mode: models.ModeTCP},
+	})
+
+	stats := scanner.GetStats()
+	assert.Equal(t, uint64(0), stats.RetriesAttempted)
+	assert.Equal(t, uint64(1), stats.RetriesDropped)
+	assert.Len(t, scanner.retryCh, 1)
 }
 
 func TestSYNScannerScanResetsStatsAtStart(t *testing.T) {

@@ -100,6 +100,8 @@ type NetworkSweeper struct {
 	bannerPhase     *banner_grab.Engine
 	lastBannerStats *models.BannerGrabStats
 	bannerHandler   BannerObservationHandler
+	sweepInProgress bool
+	lastSummary     *models.SweepSummary
 }
 
 // DeviceResultAggregator aggregates scan results for a device with multiple IPs
@@ -441,10 +443,6 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 
 	initialCancel()
 
-	s.mu.Lock()
-	s.lastSweep = time.Now()
-	s.mu.Unlock()
-
 	ticker := time.NewTicker(s.config.Interval)
 	defer ticker.Stop()
 
@@ -478,9 +476,6 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 
 			sweepCancel()
 
-			s.mu.Lock()
-			s.lastSweep = time.Now()
-			s.mu.Unlock()
 		}
 	}
 }
@@ -505,10 +500,6 @@ func (s *NetworkSweeper) RunOnce(ctx context.Context) error {
 		s.logger.Error().Err(err).Msg("Run-once sweep failed")
 		return err
 	}
-
-	s.mu.Lock()
-	s.lastSweep = time.Now()
-	s.mu.Unlock()
 
 	return nil
 }
@@ -598,6 +589,18 @@ func (s *NetworkSweeper) ensureScannersInitialized() {
 
 // GetStatus returns current sweep status.
 func (s *NetworkSweeper) GetStatus(ctx context.Context) (*models.SweepSummary, error) {
+	s.mu.RLock()
+	inProgress := s.sweepInProgress
+	cachedSummary := cloneSweepSummary(s.lastSummary)
+	s.mu.RUnlock()
+
+	if inProgress && cachedSummary != nil {
+		return cachedSummary, nil
+	}
+	if inProgress {
+		return &models.SweepSummary{LastSweep: 0}, nil
+	}
+
 	summary, err := s.store.GetSweepSummary(ctx)
 	if err != nil {
 		return nil, err
@@ -617,6 +620,22 @@ func (s *NetworkSweeper) GetStatus(ctx context.Context) (*models.SweepSummary, e
 	}
 
 	return summary, nil
+}
+
+func cloneSweepSummary(summary *models.SweepSummary) *models.SweepSummary {
+	if summary == nil {
+		return nil
+	}
+
+	clone := *summary
+	clone.Ports = append([]models.PortCount(nil), summary.Ports...)
+	clone.Hosts = make([]models.HostResult, 0, len(summary.Hosts))
+
+	for i := range summary.Hosts {
+		clone.Hosts = append(clone.Hosts, models.DeepCopyHostResult(&summary.Hosts[i]))
+	}
+
+	return &clone
 }
 
 // GetResults retrieves sweep results based on filter.
@@ -663,6 +682,7 @@ func (s *NetworkSweeper) GetScannerStats() *models.ScannerStats {
 			RingBlocksDropped:    scanStats.RingBlocksDropped,
 			RetriesAttempted:     scanStats.RetriesAttempted,
 			RetriesSuccessful:    scanStats.RetriesSuccessful,
+			RetriesDropped:       scanStats.RetriesDropped,
 			PortsAllocated:       scanStats.PortsAllocated,
 			PortsReleased:        scanStats.PortsReleased,
 			PortExhaustionCount:  scanStats.PortExhaustion,
@@ -1304,16 +1324,17 @@ func (s *NetworkSweeper) runSweepWithLock(ctx context.Context) error {
 }
 
 func (s *NetworkSweeper) runSweep(ctx context.Context) error {
-	// Clear previous results so availability reflects the current sweep only
-	// This prevents stale positives from lingering across sweeps when targets change
-	if s.store != nil {
-		// Using age=0 clears all stored results
-		_ = s.store.PruneResults(context.Background(), 0)
-	}
+	startedAt := time.Now()
+	s.markSweepStarted()
+	defer s.markSweepFinished()
 
 	targetEstimate := estimateTargetCount(s.config)
 	if targetEstimate > defaultTargetBatch {
-		return s.runBatchedSweep(ctx, targetEstimate)
+		if err := s.runBatchedSweep(ctx, targetEstimate); err != nil {
+			return err
+		}
+
+		return s.completeSuccessfulSweep(ctx, startedAt)
 	}
 
 	targets, err := s.generateTargets()
@@ -1431,6 +1452,54 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	s.finalizeDeviceAggregators(ctx)
 
 	s.logger.Info().Msg("Sweep completed successfully")
+
+	return s.completeSuccessfulSweep(ctx, startedAt)
+}
+
+func (s *NetworkSweeper) markSweepStarted() {
+	s.mu.Lock()
+	s.sweepInProgress = true
+	s.mu.Unlock()
+}
+
+func (s *NetworkSweeper) markSweepFinished() {
+	s.mu.Lock()
+	s.sweepInProgress = false
+	s.mu.Unlock()
+}
+
+func (s *NetworkSweeper) completeSuccessfulSweep(ctx context.Context, startedAt time.Time) error {
+	if s.store != nil {
+		age := time.Since(startedAt)
+		if age > 0 {
+			if err := s.store.PruneResults(ctx, age); err != nil {
+				return fmt.Errorf("failed to prune pre-sweep results: %w", err)
+			}
+		}
+	}
+
+	completedAt := time.Now()
+
+	if s.store != nil {
+		summary, err := s.store.GetSweepSummary(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to cache sweep summary: %w", err)
+		}
+
+		summary.LastSweep = completedAt.Unix()
+
+		s.mu.Lock()
+		s.lastSweep = completedAt
+		s.lastSummary = cloneSweepSummary(summary)
+		s.mu.Unlock()
+
+		return nil
+	}
+
+	s.mu.Lock()
+	s.lastSweep = completedAt
+	s.lastSummary = nil
+	s.mu.Unlock()
 
 	return nil
 }

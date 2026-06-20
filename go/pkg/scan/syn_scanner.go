@@ -186,8 +186,9 @@ type ScannerStats struct {
 	RingBlocksDropped   uint64 // TPACKET_V3 blocks lost due to buffer overruns (TP_STATUS_LOSING)
 
 	// Retry statistics
-	RetriesAttempted  uint64 // Number of retry attempts made
+	RetriesAttempted  uint64 // Number of retry packets actually sent
 	RetriesSuccessful uint64 // Number of successful retries
+	RetriesDropped    uint64 // Number of retry attempts dropped before send
 
 	// Port allocation statistics
 	PortsAllocated uint64 // Total port allocations
@@ -228,6 +229,7 @@ func (s *SYNScanner) GetStats() ScannerStats {
 		RingBlocksDropped:   atomic.LoadUint64(&s.stats.RingBlocksDropped),
 		RetriesAttempted:    atomic.LoadUint64(&s.stats.RetriesAttempted),
 		RetriesSuccessful:   atomic.LoadUint64(&s.stats.RetriesSuccessful),
+		RetriesDropped:      atomic.LoadUint64(&s.stats.RetriesDropped),
 		PortsAllocated:      atomic.LoadUint64(&s.stats.PortsAllocated),
 		PortsReleased:       atomic.LoadUint64(&s.stats.PortsReleased),
 		PortExhaustion:      atomic.LoadUint64(&s.stats.PortExhaustion),
@@ -258,6 +260,7 @@ func (s *SYNScanner) ResetStats() {
 	atomic.StoreUint64(&s.stats.RingBlocksDropped, 0)
 	atomic.StoreUint64(&s.stats.RetriesAttempted, 0)
 	atomic.StoreUint64(&s.stats.RetriesSuccessful, 0)
+	atomic.StoreUint64(&s.stats.RetriesDropped, 0)
 	atomic.StoreUint64(&s.stats.PortsAllocated, 0)
 	atomic.StoreUint64(&s.stats.PortsReleased, 0)
 	atomic.StoreUint64(&s.stats.PortExhaustion, 0)
@@ -371,6 +374,7 @@ func (s *SYNScanner) logTelemetry(ctx context.Context) {
 					Uint64("ring_blocks_dropped", stats.RingBlocksDropped).
 					Uint64("retries_attempted", stats.RetriesAttempted).
 					Uint64("retries_successful", stats.RetriesSuccessful).
+					Uint64("retries_dropped", stats.RetriesDropped).
 					Uint64("ports_allocated", stats.PortsAllocated).
 					Uint64("rate_limit_deferrals", stats.RateLimitDeferrals).
 					Uint64("rate_limit_waits", stats.RateLimitWaits).
@@ -739,6 +743,7 @@ type synBatchEntry struct {
 	packet    []byte
 	pooled    bool
 	targetKey string
+	target    models.Target
 }
 
 // IPv4
@@ -2163,7 +2168,8 @@ func (s *SYNScanner) sendPendingWithLimiter(ctx context.Context, pending *[]mode
 			continue
 		}
 
-		s.sendSynBatch(ctx, (*pending)[:allowed])
+		sent := s.sendSynBatch(ctx, (*pending)[:allowed])
+		atomic.AddUint64(&s.stats.RetriesAttempted, uint64(len(sent)))
 		*pending = (*pending)[allowed:]
 	}
 }
@@ -2294,9 +2300,6 @@ func (s *SYNScanner) enqueueRetriesForBatch(batch []models.Target) {
 			due := now.Add(time.Duration(attempt) * d)
 			it := retryItem{due: due, target: t, key: key}
 
-			// Track retry attempts
-			atomic.AddUint64(&s.stats.RetriesAttempted, 1)
-
 			select {
 			case rc <- it:
 			case <-time.After(2 * time.Millisecond):
@@ -2305,6 +2308,7 @@ func (s *SYNScanner) enqueueRetriesForBatch(batch []models.Target) {
 				case rc <- it:
 				default:
 					// drop this retry rather than risk a stall
+					atomic.AddUint64(&s.stats.RetriesDropped, 1)
 				}
 			}
 		}
@@ -2563,6 +2567,8 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 			Uint64("rateLimitDeferrals", stats.RateLimitDeferrals).
 			Uint64("rateLimitWaits", stats.RateLimitWaits).
 			Uint64("sourcePortWaits", stats.SourcePortWaits).
+			Uint64("retriesAttempted", stats.RetriesAttempted).
+			Uint64("retriesDropped", stats.RetriesDropped).
 			Msg("Scan completed")
 
 		close(stopEmit) // signal emitter to drain and close resultCh
@@ -2759,10 +2765,10 @@ func (s *SYNScanner) worker(ctx context.Context, workCh <-chan models.Target) {
 
 		// Slice to send now
 		toSend := pending[:allowed]
-		s.sendSynBatch(ctx, toSend)
+		sent := s.sendSynBatch(ctx, toSend)
 
 		// Enqueue retries for what we *actually* sent now
-		s.enqueueRetriesForBatch(toSend)
+		s.enqueueRetriesForBatch(sent)
 
 		// Remove the sent prefix; keep remainder for next loop
 		pending = pending[allowed:]
@@ -2846,7 +2852,7 @@ func parseICMPv6ErrorFromEthernet(frame []byte) (icmpv6ErrorFrame, bool) {
 	var resultErr error
 	switch icmpType {
 	case icmpv6DstUnreach:
-		resultErr = ErrICMPv6Unreachable
+		resultErr = ErrPortClosed
 	case icmpv6PacketTooBig:
 		resultErr = ErrICMPv6PacketTooBig
 	case icmpv6TimeExceeded:
@@ -3080,11 +3086,11 @@ func (s *SYNScanner) handleLoopbackTarget(ctx context.Context, target models.Tar
 
 // sendSynBatch crafts and sends SYNs for a slice of targets using sendmmsg().
 // Only the *first attempt* should use this fast path; retries can go through sendSyn() or another batcher.
-func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) {
+func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) []models.Target {
 	entries := s.prepareSynBatchEntries(ctx, targets)
 
 	if len(entries) == 0 {
-		return
+		return nil
 	}
 
 	entries4 := make([]synBatchEntry, 0, len(entries))
@@ -3097,8 +3103,19 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 		}
 	}
 
-	s.sendSynBatchFamily(s.sendSocket, entries4, false)
-	s.sendSynBatchFamily(s.sendSocket6, entries6, true)
+	sent4 := s.sendSynBatchFamily(s.sendSocket, entries4, false)
+	sent6 := s.sendSynBatchFamily(s.sendSocket6, entries6, true)
+	sent := make([]models.Target, 0, len(sent4)+len(sent6))
+
+	for i := range sent4 {
+		sent = append(sent, sent4[i].target)
+	}
+
+	for i := range sent6 {
+		sent = append(sent, sent6[i].target)
+	}
+
+	return sent
 }
 
 func (s *SYNScanner) prepareSynBatchEntries(ctx context.Context, targets []models.Target) []synBatchEntry {
@@ -3214,6 +3231,7 @@ func (s *SYNScanner) buildSynBatchEntry(target models.Target, key string, srcPor
 		ipv6:      ipv6,
 		srcPort:   srcPort,
 		targetKey: key,
+		target:    target,
 	}
 
 	if ipv6 {
@@ -3228,13 +3246,13 @@ func (s *SYNScanner) buildSynBatchEntry(target models.Target, key string, srcPor
 	return entry
 }
 
-func (s *SYNScanner) sendSynBatchFamily(socket int, familyEntries []synBatchEntry, ipv6 bool) {
+func (s *SYNScanner) sendSynBatchFamily(socket int, familyEntries []synBatchEntry, ipv6 bool) []synBatchEntry {
 	if len(familyEntries) == 0 || socket == 0 {
 		for _, entry := range familyEntries {
 			s.tryReleaseMapping(entry.srcPort, entry.targetKey)
 		}
 
-		return
+		return nil
 	}
 
 	ba := s.batchPool.Get().(*batchArrays)
@@ -3264,6 +3282,8 @@ func (s *SYNScanner) sendSynBatchFamily(socket int, familyEntries []synBatchEntr
 	for i := off; i < len(familyEntries); i++ {
 		s.tryReleaseMapping(familyEntries[i].srcPort, familyEntries[i].targetKey)
 	}
+
+	return familyEntries[:off]
 }
 
 func (s *SYNScanner) prepareBatchMessageArrays(ba *batchArrays, familyEntries []synBatchEntry, ipv6 bool) {

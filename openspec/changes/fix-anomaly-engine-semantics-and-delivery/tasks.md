@@ -234,7 +234,7 @@
 
 ## 44. Sweeper / SYN Scanner (F49)
 - [x] 44.1 Fix SYN reply-to-port attribution after source-port reuse; reset per-scan stats counters between scans.
-- [ ] 44.2 Don't prune results before concurrent scan (GetStatus partial-set race); treat ICMPv6 dest-unreachable as a clean closed result; account for retry packets so they aren't silently dropped.
+- [x] 44.2 Don't prune results before concurrent scan (GetStatus partial-set race); treat ICMPv6 dest-unreachable as a clean closed result; account for retry packets so they aren't silently dropped.
 
 ## 45. Topology Graph (F50)
 - [x] 45.1 Escape backslashes (and audit all Cypher literal building) so attacker-controlled LLDP/CDP/ifAlias cannot inject (`graph.ex:106-110`).
