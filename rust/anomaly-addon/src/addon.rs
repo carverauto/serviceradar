@@ -1628,6 +1628,47 @@ mod tests {
         }
     }
 
+    fn sysmon_cpu_debug_spike_batch(value: f64, observed_at_unix_nano: u64) -> MetricBatch {
+        let metrics = (0..4)
+            .map(|core_id| Metric {
+                name: "cpu.usage_percent".to_string(),
+                metric_type: "sysmon.cpu".to_string(),
+                unit: "%".to_string(),
+                points: vec![MetricPoint {
+                    value,
+                    observed_at_unix_nano,
+                    attributes: vec![
+                        entry("core_id", &core_id.to_string()),
+                        entry("label", &format!("cpu{core_id}")),
+                    ],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            })
+            .collect();
+
+        MetricBatch {
+            resource: Some(MetricResource {
+                agent_id: "agent-a".to_string(),
+                host_id: "host-a".to_string(),
+                device_id: "device-a".to_string(),
+                host_ip: "10.0.0.10".to_string(),
+                partition: "demo".to_string(),
+                ..Default::default()
+            }),
+            metrics,
+            ..Default::default()
+        }
+    }
+
+    fn metric_feed_frame_from_batch(feed_id: u64, batch: MetricBatch) -> MetricFeedFrame {
+        MetricFeedFrame {
+            feed_id,
+            source: None,
+            payload: batch.encode_to_vec(),
+        }
+    }
+
     fn metric_feed_frame(feed_id: u64, value: f64) -> MetricFeedFrame {
         MetricFeedFrame {
             feed_id,
@@ -2540,6 +2581,69 @@ mod tests {
                 .unwrap_or_default()
                 .contains("pending_anomaly")
         );
+    }
+
+    #[tokio::test]
+    async fn sysmon_debug_spike_smoke_emits_one_open_finding() {
+        let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig {
+            window_size: 50,
+            min_samples: 5,
+            n_sigma: 3.0,
+            confirm_slots: 2,
+            max_series: 10,
+            ..EngineConfig::default()
+        })));
+        let (tx, mut rx) = broadcast::channel(8);
+        let telemetry_drops = telemetry_drop_counters();
+        let scoring_health = Arc::new(Mutex::new(ScoringHealth::default()));
+        let start = 1_812_456_000_000_000_000_u64;
+        let sample_time = |seconds: u64| start + (seconds * 1_000_000_000);
+
+        for ts in 1..=20 {
+            let frame = metric_feed_frame_from_batch(
+                ts,
+                sysmon_cpu_debug_spike_batch(25.0, sample_time(ts)),
+            );
+            process_frame(&engine, &tx, &telemetry_drops, &scoring_health, &frame).await;
+        }
+        assert_no_batch(&mut rx);
+
+        for ts in 21..=26 {
+            let frame = metric_feed_frame_from_batch(
+                ts,
+                sysmon_cpu_debug_spike_batch(95.0, sample_time(ts)),
+            );
+            process_frame(&engine, &tx, &telemetry_drops, &scoring_health, &frame).await;
+        }
+
+        let open = recv_single_event(&mut rx);
+        assert_no_batch(&mut rx);
+        let expected_open_time = sample_time(21);
+
+        assert_eq!(open["status"], "open");
+        assert_eq!(open["anomaly"]["state"], "anomaly_open");
+        assert_eq!(open["time"], (expected_open_time / 1_000_000) as i64);
+        assert_eq!(open["anomaly"]["observed_at_unix_nano"], expected_open_time);
+        assert_eq!(open["device_uid"], "device-a");
+        assert_eq!(open["device_id"], "device-a");
+        assert_eq!(open["source_identity"]["agent_id"], "agent-a");
+        assert_eq!(open["source_identity"]["host_id"], "host-a");
+        assert_eq!(open["source_identity"]["device_id"], "device-a");
+        assert_eq!(open["source_identity"]["partition"], "demo");
+        assert_eq!(open["source_identity"]["metric_name"], "cpu.usage_percent");
+        assert_eq!(open["source_identity"]["metric_class"], "sysmon.cpu");
+        assert_eq!(
+            open["source_identity"]["series_key"],
+            [
+                "v2".to_string(),
+                safe_component("partition", "demo"),
+                safe_component("identity", "device-a"),
+                safe_component("metric", "cpu.usage_percent"),
+            ]
+            .join("|")
+        );
+        assert_eq!(open["source_identity"]["tags"]["core_id"], "1");
+        assert_eq!(open["source_identity"]["tags"]["label"], "cpu1");
     }
 
     #[test]
