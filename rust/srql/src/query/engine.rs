@@ -1,0 +1,152 @@
+use super::{
+    addon_statuses, agents, alerts, bmp_events, build_query_plan, capacity_forecasts, cpu_metrics,
+    dashboard_service_views, dashboards, device_graph, devices, disk_metrics, downsample,
+    endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages, events, field_survey,
+    flows, gateways, graph_cypher, interfaces, logs, memory_metrics, otel_metric_points,
+    otel_metrics, process_metrics, services, timeseries_metrics, trace_summaries, traces,
+    translate_request, virtualization, wifi_map, PaginationMeta, QueryPlan, QueryRequest,
+    QueryResponse, TranslateRequest, TranslateResponse,
+};
+use crate::{
+    config::AppConfig,
+    db::PgPool,
+    error::{Result, ServiceError},
+    pagination::encode_cursor,
+    parser::{self, Entity},
+};
+use std::sync::Arc;
+use tracing::error;
+
+#[derive(Clone)]
+pub struct QueryEngine {
+    pool: PgPool,
+    config: Arc<AppConfig>,
+}
+
+impl QueryEngine {
+    pub fn new(pool: PgPool, config: Arc<AppConfig>) -> Self {
+        Self { pool, config }
+    }
+
+    pub fn config(&self) -> &AppConfig {
+        &self.config
+    }
+
+    pub async fn execute_query(&self, request: QueryRequest) -> Result<QueryResponse> {
+        let ast = parser::parse(&request.query)?;
+        let plan = build_query_plan(&self.config, &request, ast)?;
+        let mut conn = self.pool.get().await.map_err(|err| {
+            error!(error = ?err, "failed to acquire database connection");
+            ServiceError::Internal(anyhow::anyhow!("{err:?}"))
+        })?;
+
+        let results = if plan.downsample.is_some() {
+            downsample::execute(&mut conn, &plan).await?
+        } else {
+            match plan.entity {
+                Entity::Agents => agents::execute(&mut conn, &plan).await?,
+                Entity::AddonStatuses => addon_statuses::execute(&mut conn, &plan).await?,
+                Entity::EndpointInventoryScans => {
+                    endpoint_inventory_scans::execute(&mut conn, &plan).await?
+                }
+                Entity::EndpointPackageCatalog => {
+                    endpoint_package_catalog::execute(&mut conn, &plan).await?
+                }
+                Entity::EndpointPackages => endpoint_packages::execute(&mut conn, &plan).await?,
+                Entity::Devices => devices::execute(&mut conn, &plan).await?,
+                Entity::DeviceGraph => device_graph::execute(&mut conn, &plan).await?,
+                Entity::GraphCypher => {
+                    graph_cypher::execute(&mut conn, &plan, &self.config.age_graph_name).await?
+                }
+                Entity::Events
+                | Entity::SecurityFindings
+                | Entity::ScanActivity
+                | Entity::DnsActivity => events::execute(&mut conn, &plan).await?,
+                Entity::BmpEvents => bmp_events::execute(&mut conn, &plan).await?,
+                Entity::CapacityForecasts => capacity_forecasts::execute(&mut conn, &plan).await?,
+                Entity::FieldSurveySessions
+                | Entity::FieldSurveyRasters
+                | Entity::FieldSurveyArtifacts
+                | Entity::FieldSurveyRfObservations
+                | Entity::FieldSurveyPoseSamples
+                | Entity::FieldSurveyRfPoseMatches
+                | Entity::FieldSurveySpectrumObservations => {
+                    field_survey::execute(&mut conn, &plan).await?
+                }
+                Entity::WifiSites
+                | Entity::WifiSiteSnapshots
+                | Entity::WifiAccessPoints
+                | Entity::WifiControllers
+                | Entity::WifiRadiusGroups
+                | Entity::WifiFleetHistory
+                | Entity::WifiSiteReferences => wifi_map::execute(&mut conn, &plan).await?,
+                Entity::Flows | Entity::AttributedFlows => flows::execute(&mut conn, &plan).await?,
+                Entity::Interfaces => interfaces::execute(&mut conn, &plan).await?,
+                Entity::Logs => logs::execute(&mut conn, &plan).await?,
+                Entity::Gateways => gateways::execute(&mut conn, &plan).await?,
+                Entity::OtelMetrics => otel_metrics::execute(&mut conn, &plan).await?,
+                Entity::OtelMetricPoints => otel_metric_points::execute(&mut conn, &plan).await?,
+                Entity::RperfMetrics
+                | Entity::TimeseriesMetrics
+                | Entity::TimeseriesMetricInterfaceHourly
+                | Entity::SnmpMetrics => timeseries_metrics::execute(&mut conn, &plan).await?,
+                Entity::CpuMetrics => cpu_metrics::execute(&mut conn, &plan).await?,
+                Entity::MemoryMetrics => memory_metrics::execute(&mut conn, &plan).await?,
+                Entity::DiskMetrics => disk_metrics::execute(&mut conn, &plan).await?,
+                Entity::ProcessMetrics => process_metrics::execute(&mut conn, &plan).await?,
+                Entity::Services => services::execute(&mut conn, &plan).await?,
+                Entity::ServiceAvailability
+                | Entity::MonitoredServices
+                | Entity::SloEvaluations => {
+                    dashboard_service_views::execute(&mut conn, &plan).await?
+                }
+                Entity::Dashboards => dashboards::execute(&mut conn, &plan).await?,
+                Entity::TraceSummaries => trace_summaries::execute(&mut conn, &plan).await?,
+                Entity::Traces => traces::execute(&mut conn, &plan).await?,
+                Entity::Alerts => alerts::execute(&mut conn, &plan).await?,
+                Entity::VirtualizationClusters
+                | Entity::VirtualizationHosts
+                | Entity::VirtualizationGuests
+                | Entity::VirtualizationDatastores
+                | Entity::VirtualizationHostDisks
+                | Entity::VirtualizationNetworkInterfaces
+                | Entity::VirtualizationStorageSystems => {
+                    virtualization::execute(&mut conn, &plan).await?
+                }
+            }
+        };
+
+        let pagination = self.build_pagination(&plan, results.len() as i64)?;
+        Ok(QueryResponse {
+            results,
+            pagination,
+            error: None,
+        })
+    }
+
+    pub async fn translate(&self, request: TranslateRequest) -> Result<TranslateResponse> {
+        translate_request(self.config(), QueryRequest::from(request))
+    }
+
+    fn build_pagination(&self, plan: &QueryPlan, fetched: i64) -> Result<PaginationMeta> {
+        let next_offset = plan.offset.saturating_add(plan.limit);
+        let next_cursor = if fetched >= plan.limit && next_offset <= self.config.max_cursor_offset {
+            Some(encode_cursor(next_offset, &self.config.cursor_secret)?)
+        } else {
+            None
+        };
+
+        let prev_cursor = if plan.offset > 0 {
+            let prev = plan.offset.saturating_sub(plan.limit);
+            Some(encode_cursor(prev, &self.config.cursor_secret)?)
+        } else {
+            None
+        };
+
+        Ok(PaginationMeta {
+            next_cursor,
+            prev_cursor,
+            limit: Some(plan.limit),
+        })
+    }
+}
