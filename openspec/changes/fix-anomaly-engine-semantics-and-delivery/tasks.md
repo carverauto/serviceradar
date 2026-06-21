@@ -269,7 +269,7 @@
 - [ ] 50.2 Break up the SRQL modules: `flows.rs` (2914), `parser.rs` (1306), `query/mod.rs` (1091), `interfaces.rs` (954), `events.rs` (939), `devices/filters.rs` (817), `downsample.rs` (812), `devices/stats.rs` (792).
 
 ## 51. Verification
-- [ ] 51.1 Run `sfw cargo test -p serviceradar-anomaly-addon -p serviceradar-anomaly-core -p serviceradar-causal-disposition`.
+- [x] 51.1 Run `sfw cargo test -p serviceradar-anomaly-addon -p serviceradar-anomaly-core -p serviceradar-causal-disposition`.
 - [ ] 51.2 Run `sfw cargo test -p serviceradar-srql` (parser/time DoS guards, list-filter and pagination tie-breaker fixes).
 - [ ] 51.3 Run `go test ./go/pkg/agent/addon/... ./go/pkg/mapper/... ./go/pkg/sweeper/... ./go/pkg/scan/...` (update bazel BUILD deps for new test files/imports).
 - [ ] 51.4 Run focused core-elx tests for status handler, causal signals, seasonal disposition, capacity forecasting, anomaly profile seeding, alert generation, flow ingest, topology graph, and MTR consensus.
