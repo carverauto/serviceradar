@@ -2,7 +2,7 @@
   "version": 1,
   "included_through": 20260621133000,
   "schema_file": "platform_schema.sql",
-  "schema_sha256": "315553272bfce555333c76bdb835badc615aa1e1cdff0eb9e18e12fe3793b7a9",
+  "schema_sha256": "21a66de6c0ad6833db9704a546128d888f5c58b6bf3c72d9713cd16e8f3852a7",
   "postgres_major": 18,
-  "generated_from": "docker-compose migrated schema"
+  "generated_from": "migration-replayed empty database"
 }
