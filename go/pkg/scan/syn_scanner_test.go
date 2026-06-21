@@ -424,6 +424,9 @@ func TestSYNScannerRateLimiterAllowsDisabledAndLowRateShards(t *testing.T) {
 	scanner := &SYNScanner{concurrency: 64}
 	scanner.SetRateLimit(0, 0)
 	assert.Equal(t, 10, scanner.allowN(10))
+	scanner.SetRateLimit(10, 10)
+	scanner.SetRateLimit(0, 0)
+	assert.Equal(t, 10, scanner.allowN(10))
 
 	limiter := newShardedTokenBucket(64, 1, 1)
 	require.Len(t, limiter.buckets, 64)

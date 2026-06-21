@@ -302,12 +302,6 @@ type rateLimiter interface {
 	AllowN(n int) int
 }
 
-type unlimitedRateLimiter struct{}
-
-func (unlimitedRateLimiter) AllowN(n int) int {
-	return n
-}
-
 // tokenBucket is a tiny limiter (tokens/sec with a burst).
 type tokenBucket struct {
 	rate  float64 // tokens per second
@@ -371,14 +365,15 @@ func (tb *tokenBucket) AllowN(n int) int {
 // across several independent token buckets. Each AllowN selects a shard
 // using a fast pseudo-random counter to spread callers across shards.
 type shardedTokenBucket struct {
-	shards  int
-	buckets []*tokenBucket
-	ctr     uint64 // atomically incremented to spread calls
+	shards   int
+	buckets  []*tokenBucket
+	disabled bool
+	ctr      uint64 // atomically incremented to spread calls
 }
 
 func newShardedTokenBucket(shards, pps, burst int) *shardedTokenBucket {
 	if pps <= 0 {
-		return &shardedTokenBucket{shards: 1, buckets: []*tokenBucket{newTokenBucket(1, 1)}}
+		return &shardedTokenBucket{shards: 1, disabled: true}
 	}
 
 	if shards <= 1 {
@@ -422,15 +417,19 @@ func newShardedTokenBucket(shards, pps, burst int) *shardedTokenBucket {
 }
 
 func (s *shardedTokenBucket) AllowN(n int) int {
-	// Round-robin across shards by incrementing a counter.
-	idx := int(atomic.AddUint64(&s.ctr, 1))
-	if s.shards > 0 {
-		idx %= s.shards
-	} else {
-		idx = 0
+	if s == nil || s.disabled {
+		return n
 	}
 
-	if idx >= len(s.buckets) || s.buckets[idx] == nil {
+	// Round-robin across shards by incrementing a counter.
+	idx := int(atomic.AddUint64(&s.ctr, 1))
+	if len(s.buckets) > 0 {
+		idx %= len(s.buckets)
+	} else {
+		return n
+	}
+
+	if s.buckets[idx] == nil {
 		return n
 	}
 
@@ -1964,7 +1963,7 @@ func (s *SYNScanner) hasFinalResult(targetKey string) bool {
 // Safe to call anytime, including during active scans.
 func (s *SYNScanner) SetRateLimit(pps, burst int) {
 	if pps <= 0 {
-		s.rl.Store(rateLimiter(unlimitedRateLimiter{}))
+		s.rl.Store(rateLimiter(newShardedTokenBucket(1, 0, 0)))
 		return
 	}
 
