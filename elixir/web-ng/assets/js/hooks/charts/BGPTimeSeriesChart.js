@@ -1,5 +1,22 @@
 import * as d3 from "d3"
 
+export function numberOrNull(value) {
+  if (value === null || value === undefined || value === "") return null
+
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
+export function valuesForSeries(data, asNumber) {
+  return (Array.isArray(data) ? data : []).map((d) => numberOrNull(d?.values?.[asNumber]))
+}
+
+export function finiteSeriesValues(data, series) {
+  return (Array.isArray(data) ? data : [])
+    .flatMap((d) => (Array.isArray(series) ? series : []).map((asNumber) => numberOrNull(d?.values?.[asNumber])))
+    .filter((value) => Number.isFinite(value))
+}
+
 export default {
   mounted() {
     this.renderChart()
@@ -30,10 +47,10 @@ export default {
     const times = data.map((d) => new Date(d.time))
     const x = d3.scaleTime().domain(d3.extent(times)).range([0, width])
 
-    const allValues = data.flatMap((d) => Object.values(d.values))
+    const allValues = finiteSeriesValues(data, series)
     const y = d3
       .scaleLinear()
-      .domain([0, d3.max(allValues)])
+      .domain([0, d3.max(allValues) || 1])
       .range([height, 0])
 
     const color = d3.scaleOrdinal(d3.schemeCategory10)
@@ -47,11 +64,12 @@ export default {
 
     const line = d3
       .line()
+      .defined((d) => d !== null)
       .x((d, i) => x(times[i]))
-      .y((d) => y(d || 0))
+      .y((d) => y(d))
 
     series.forEach((as_number) => {
-      const values = data.map((d) => d.values[as_number] || 0)
+      const values = valuesForSeries(data, as_number)
 
       svg
         .append("path")
