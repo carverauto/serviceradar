@@ -5,7 +5,14 @@
  *   data-points — JSON array of {t: timestamp, v: number}
  *   data-color  — stroke/fill color
  */
-function parsePoints(raw) {
+export function numberOrNull(value) {
+  if (value === null || value === undefined || value === "") return null
+
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
+export function parsePoints(raw) {
   let parsed = []
   try {
     parsed = JSON.parse(raw || "[]")
@@ -16,15 +23,30 @@ function parsePoints(raw) {
   if (!Array.isArray(parsed)) return []
 
   return parsed
-    .map((p) => {
-      const value = Number(p?.v)
-      const time = p?.t
-      return {
-        t: time,
-        v: Number.isFinite(value) ? value : null,
-      }
-    })
-    .filter((p) => p.v !== null)
+    .map((p) => ({
+      t: p?.t,
+      v: numberOrNull(p?.v),
+    }))
+}
+
+export function contiguousValueRuns(points) {
+  const runs = []
+  let current = []
+
+  for (const point of Array.isArray(points) ? points : []) {
+    if (Number.isFinite(point?.v)) {
+      current.push(point)
+      continue
+    }
+
+    if (current.length > 0) {
+      runs.push(current)
+      current = []
+    }
+  }
+
+  if (current.length > 0) runs.push(current)
+  return runs
 }
 
 function formatRate(value) {
@@ -88,14 +110,15 @@ export default {
 
     const color = this.el.dataset.color || "oklch(0.65 0.24 150)"
 
-    if (points.length < 2) {
+    const values = points.map((p) => p.v).filter((value) => Number.isFinite(value))
+
+    if (points.length < 2 || values.length < 2) {
       ctx.fillStyle = "rgba(115, 115, 115, 0.85)"
       ctx.font = "12px ui-sans-serif, system-ui, sans-serif"
       ctx.fillText("No flow-rate data", padLeft, padTop + 16)
       return
     }
 
-    const values = points.map((p) => p.v)
     const minVal = Math.min(0, ...values)
     const maxVal = Math.max(...values)
     const paddedMax = maxVal <= minVal ? minVal + 1 : maxVal * 1.05
@@ -103,6 +126,8 @@ export default {
 
     const xFor = (i) => padLeft + (i / (points.length - 1)) * plotW
     const yFor = (v) => padTop + (1 - (v - minVal) / range) * plotH
+    const runs = contiguousValueRuns(points)
+    const pointIndices = new Map(points.map((point, idx) => [point, idx]))
 
     // Horizontal grid + y labels
     const yTicks = 4
@@ -137,30 +162,42 @@ export default {
       ctx.stroke()
     }
 
-    // Area
-    ctx.beginPath()
-    ctx.moveTo(xFor(0), h - padBottom)
-    for (let i = 0; i < points.length; i++) {
-      ctx.lineTo(xFor(i), yFor(points[i].v))
-    }
-    ctx.lineTo(xFor(points.length - 1), h - padBottom)
-    ctx.closePath()
     ctx.fillStyle = color
     ctx.globalAlpha = 0.15
-    ctx.fill()
+    for (const run of runs) {
+      if (run.length < 2) continue
+
+      const firstIdx = pointIndices.get(run[0])
+      const lastIdx = pointIndices.get(run[run.length - 1])
+
+      ctx.beginPath()
+      ctx.moveTo(xFor(firstIdx), h - padBottom)
+      for (const point of run) {
+        const idx = pointIndices.get(point)
+        ctx.lineTo(xFor(idx), yFor(point.v))
+      }
+      ctx.lineTo(xFor(lastIdx), h - padBottom)
+      ctx.closePath()
+      ctx.fill()
+    }
 
     // Line
     ctx.globalAlpha = 1
-    ctx.beginPath()
-    for (let i = 0; i < points.length; i++) {
-      const x = xFor(i)
-      const y = yFor(points[i].v)
-      if (i === 0) ctx.moveTo(x, y)
-      else ctx.lineTo(x, y)
-    }
     ctx.strokeStyle = color
     ctx.lineWidth = 2
-    ctx.stroke()
+    for (const run of runs) {
+      if (run.length < 2) continue
+
+      ctx.beginPath()
+      for (const point of run) {
+        const idx = pointIndices.get(point)
+        const x = xFor(idx)
+        const y = yFor(point.v)
+        if (point === run[0]) ctx.moveTo(x, y)
+        else ctx.lineTo(x, y)
+      }
+      ctx.stroke()
+    }
 
     // X labels
     ctx.fillStyle = "rgba(100, 116, 139, 0.95)"
