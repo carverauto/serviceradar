@@ -5,8 +5,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
 
   use Phoenix.LiveComponent
 
+  import ServiceRadarWebNGWeb.CoreComponents, only: [icon: 1]
   import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_results_table: 1]
   import ServiceRadarWebNGWeb.UIComponents, only: [ui_panel: 1]
+
+  @row_cap 500
+  @page_size 50
+  @max_columns 20
 
   @impl true
   def id, do: "table"
@@ -19,13 +24,30 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
 
   @impl true
   def build(%{} = srql_response) do
-    results =
+    raw_results =
       srql_response
       |> Map.get("results", [])
       |> normalize_results()
-      |> attach_sparklines()
 
-    {:ok, %{results: results}}
+    columns = table_columns(srql_response, raw_results)
+
+    results =
+      raw_results
+      |> attach_sparklines()
+      |> Enum.take(@row_cap)
+
+    total_rows = length(raw_results)
+
+    {:ok,
+     results
+     |> table_state(columns, nil, "asc", 1)
+     |> Map.merge(%{
+       result_count: total_rows,
+       capped?: total_rows > @row_cap,
+       row_cap: @row_cap,
+       page_size: @page_size,
+       max_columns: @max_columns
+     })}
   end
 
   @impl true
@@ -38,6 +60,36 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
     {:ok, socket}
   end
 
+  @impl true
+  def handle_event("table_sort", %{"field" => field}, socket) do
+    field = to_string(field)
+    columns = socket.assigns.columns || []
+
+    socket =
+      if field in columns and not socket.assigns.capped? do
+        sort_dir = next_sort_dir(socket.assigns.sort_field, socket.assigns.sort_dir, field)
+
+        assign_table_state(socket, field, sort_dir, 1)
+      else
+        socket
+      end
+
+    {:noreply, socket}
+  end
+
+  def handle_event("table_page", %{"page" => page}, socket) do
+    {:noreply, assign_table_state(socket, socket.assigns.sort_field, socket.assigns.sort_dir, page)}
+  end
+
+  defp assign_table_state(socket, sort_field, sort_dir, page) do
+    state =
+      socket.assigns.results
+      |> table_state(socket.assigns.columns, sort_field, sort_dir, page)
+      |> Map.drop([:results, :columns])
+
+    assign(socket, state)
+  end
+
   defp normalize_results(results) when is_list(results) do
     Enum.map(results, fn
       %{} = row -> row
@@ -46,6 +98,173 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
   end
 
   defp normalize_results(_), do: []
+
+  defp table_columns(srql_response, rows) do
+    srql_response
+    |> viz_columns()
+    |> case do
+      [] -> infer_columns(rows)
+      columns -> Enum.take(columns, @max_columns)
+    end
+    |> filter_device_id_column()
+  end
+
+  defp viz_columns(%{"viz" => %{"columns" => columns}}) when is_list(columns) do
+    columns
+    |> Enum.map(fn
+      %{"name" => name} -> name
+      %{name: name} -> name
+      name -> name
+    end)
+    |> normalize_column_list()
+  end
+
+  defp viz_columns(_srql_response), do: []
+
+  defp infer_columns(rows) do
+    Enum.reduce_while(rows, [], fn
+      %{} = row, acc ->
+        next =
+          row
+          |> Map.keys()
+          |> Enum.map(&to_string/1)
+          |> Enum.reduce(acc, fn key, columns ->
+            if key in columns, do: columns, else: columns ++ [key]
+          end)
+
+        if length(next) >= @max_columns do
+          {:halt, Enum.take(next, @max_columns)}
+        else
+          {:cont, next}
+        end
+
+      _row, acc ->
+        {:cont, acc}
+    end)
+  end
+
+  defp normalize_column_list(columns) do
+    columns
+    |> Enum.map(&safe_to_string/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp filter_device_id_column(columns) when is_list(columns) do
+    if "uid" in columns do
+      Enum.reject(columns, &(&1 == "device_id"))
+    else
+      columns
+    end
+  end
+
+  defp table_state(results, columns, sort_field, sort_dir, page) do
+    sorted = sort_results(results, sort_field, sort_dir)
+    total = length(sorted)
+    page_count = max(div(total + @page_size - 1, @page_size), 1)
+    page = page |> parse_page() |> min(page_count) |> max(1)
+    offset = (page - 1) * @page_size
+    page_rows = sorted |> Enum.drop(offset) |> Enum.take(@page_size)
+
+    %{
+      results: results,
+      columns: columns,
+      page_rows: page_rows,
+      page: page,
+      page_count: page_count,
+      page_from: if(total == 0, do: 0, else: offset + 1),
+      page_to: min(offset + length(page_rows), total),
+      visible_rows: total,
+      sort_field: sort_field,
+      sort_dir: normalize_sort_dir(sort_dir)
+    }
+  end
+
+  defp parse_page(value) when is_integer(value), do: value
+
+  defp parse_page(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {page, ""} -> page
+      _ -> 1
+    end
+  end
+
+  defp parse_page(_), do: 1
+
+  defp next_sort_dir(current_field, "asc", field) when current_field == field, do: "desc"
+  defp next_sort_dir(_current_field, _current_dir, _field), do: "asc"
+
+  defp normalize_sort_dir("desc"), do: "desc"
+  defp normalize_sort_dir(_), do: "asc"
+
+  defp sort_results(results, nil, _sort_dir), do: results
+  defp sort_results(results, "", _sort_dir), do: results
+
+  defp sort_results(results, sort_field, sort_dir) do
+    direction = normalize_sort_dir(sort_dir)
+
+    results
+    |> Enum.with_index()
+    |> Enum.sort(fn left, right -> row_precedes?(left, right, sort_field, direction) end)
+    |> Enum.map(&elem(&1, 0))
+  end
+
+  defp row_precedes?({left, left_idx}, {right, right_idx}, field, direction) do
+    case compare_sort_values(Map.get(left, field), Map.get(right, field)) do
+      :lt -> direction == "asc"
+      :gt -> direction == "desc"
+      :eq -> left_idx <= right_idx
+    end
+  end
+
+  defp compare_sort_values(left, right) do
+    left = sortable_value(left)
+    right = sortable_value(right)
+
+    cond do
+      left == :blank and right == :blank -> :eq
+      left == :blank -> :gt
+      right == :blank -> :lt
+      left < right -> :lt
+      left > right -> :gt
+      true -> :eq
+    end
+  end
+
+  defp sortable_value(nil), do: :blank
+  defp sortable_value(""), do: :blank
+  defp sortable_value(value) when is_integer(value), do: {0, value * 1.0}
+  defp sortable_value(value) when is_float(value), do: {0, value}
+  defp sortable_value(%DateTime{} = value), do: {1, DateTime.to_unix(value, :microsecond)}
+  defp sortable_value(%NaiveDateTime{} = value), do: {1, NaiveDateTime.to_gregorian_seconds(value)}
+  defp sortable_value(%Date{} = value), do: {1, Date.to_gregorian_days(value)}
+
+  defp sortable_value(value) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    cond do
+      trimmed == "" ->
+        :blank
+
+      match?({_, ""}, Float.parse(trimmed)) ->
+        {number, ""} = Float.parse(trimmed)
+        {0, number}
+
+      match?({:ok, _, _}, DateTime.from_iso8601(trimmed)) ->
+        {:ok, dt, _offset} = DateTime.from_iso8601(trimmed)
+        {1, DateTime.to_unix(dt, :microsecond)}
+
+      match?({:ok, _}, NaiveDateTime.from_iso8601(trimmed)) ->
+        {:ok, ndt} = NaiveDateTime.from_iso8601(trimmed)
+        {1, NaiveDateTime.to_gregorian_seconds(ndt)}
+
+      true ->
+        {2, String.downcase(trimmed)}
+    end
+  end
+
+  defp sortable_value(value), do: {3, safe_to_string(value)}
 
   defp attach_sparklines(results) when is_list(results) do
     with true <- length(results) >= 5,
@@ -223,8 +442,57 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
   defp safe_to_string(nil), do: ""
   defp safe_to_string(value) when is_binary(value), do: value
   defp safe_to_string(value) when is_integer(value), do: Integer.to_string(value)
+  defp safe_to_string(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 2)
   defp safe_to_string(value) when is_atom(value), do: Atom.to_string(value)
   defp safe_to_string(value), do: inspect(value)
+
+  defp table_summary(assigns) do
+    ~H"""
+    <div class="text-xs text-base-content/60">
+      <span :if={@visible_rows > 0}>
+        Showing {@page_from}-{@page_to} of {@visible_rows}
+      </span>
+      <span :if={@visible_rows == 0}>No rows</span>
+      <span :if={@capped?}>
+        {" "}(showing first {@row_cap} of {@result_count}; sorting disabled)
+      </span>
+    </div>
+    """
+  end
+
+  defp pagination_controls(assigns) do
+    ~H"""
+    <div :if={@page_count > 1} class="mt-3 flex items-center justify-between gap-3">
+      <div class="text-xs text-base-content/60">Page {@page} of {@page_count}</div>
+      <div class="join">
+        <button
+          type="button"
+          class="btn btn-xs join-item"
+          phx-click="table_page"
+          phx-target={@myself}
+          phx-value-page={@page - 1}
+          disabled={@page <= 1}
+          aria-label="Previous page"
+          title="Previous page"
+        >
+          <.icon name="hero-chevron-left" class="size-3" />
+        </button>
+        <button
+          type="button"
+          class="btn btn-xs join-item"
+          phx-click="table_page"
+          phx-target={@myself}
+          phx-value-page={@page + 1}
+          disabled={@page >= @page_count}
+          aria-label="Next page"
+          title="Next page"
+        >
+          <.icon name="hero-chevron-right" class="size-3" />
+        </button>
+      </div>
+    </div>
+    """
+  end
 
   @impl true
   def render(assigns) do
@@ -232,10 +500,31 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
     <div id={"panel-#{@id}"}>
       <.ui_panel>
         <:header>
-          <div class="text-sm font-semibold">Table</div>
+          <div class="min-w-0">
+            <div class="text-sm font-semibold">Table</div>
+            <.table_summary
+              visible_rows={@visible_rows}
+              page_from={@page_from}
+              page_to={@page_to}
+              capped?={@capped?}
+              row_cap={@row_cap}
+              result_count={@result_count}
+            />
+          </div>
         </:header>
 
-        <.srql_results_table id={"panel-#{@id}-table"} rows={@results} empty_message="No results." />
+        <.srql_results_table
+          id={"panel-#{@id}-table"}
+          rows={@page_rows}
+          columns={@columns}
+          max_columns={@max_columns}
+          empty_message="No results."
+          sortable={not @capped?}
+          sort_target={@myself}
+          sort_field={@sort_field}
+          sort_dir={@sort_dir}
+        />
+        <.pagination_controls page={@page} page_count={@page_count} myself={@myself} />
       </.ui_panel>
     </div>
     """

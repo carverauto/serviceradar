@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   import ServiceRadarWebNGWeb.UIComponents
 
   alias Phoenix.HTML.FormField
+  alias ServiceRadarWebNGWeb.FlowStatComponents
   alias ServiceRadarWebNGWeb.SRQL.Catalog
 
   attr(:id, :string, default: nil)
@@ -216,6 +217,10 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   attr(:container, :boolean, default: true)
   attr(:class, :any, default: nil)
   attr(:empty_message, :string, default: "No results.")
+  attr(:sortable, :boolean, default: false)
+  attr(:sort_target, :any, default: nil)
+  attr(:sort_field, :string, default: nil)
+  attr(:sort_dir, :string, default: nil)
 
   def srql_results_table(assigns) do
     columns = normalize_columns(assigns.columns, assigns.rows, assigns.max_columns)
@@ -240,11 +245,28 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
           <tr>
             <%= for col <- @columns do %>
               <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
-                <%= if col == "_sparkline" do %>
-                  Trend
-                <% else %>
-                  {col}
-                <% end %>
+                <button
+                  :if={(@sortable and @sort_target) && col != "_sparkline"}
+                  type="button"
+                  class="group inline-flex items-center gap-1 text-left hover:text-base-content"
+                  phx-click="table_sort"
+                  phx-target={@sort_target}
+                  phx-value-field={col}
+                  aria-label={"Sort by #{col}"}
+                >
+                  <span>{table_header_label(col)}</span>
+                  <.icon
+                    name={sort_icon(col, @sort_field, @sort_dir)}
+                    class={[
+                      "size-3 transition-opacity",
+                      col == @sort_field && "opacity-100",
+                      col != @sort_field && "opacity-30 group-hover:opacity-70"
+                    ]}
+                  />
+                </button>
+                <span :if={!((@sortable and @sort_target) && col != "_sparkline")}>
+                  {table_header_label(col)}
+                </span>
               </th>
             <% end %>
           </tr>
@@ -484,12 +506,26 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
   defp srql_columns([], _max), do: []
 
-  defp srql_columns([first | _], max) when is_map(first) and is_integer(max) and max > 0 do
-    first
-    |> Map.keys()
-    |> Enum.map(&to_string/1)
-    |> Enum.sort()
-    |> Enum.take(max)
+  defp srql_columns(rows, max) when is_list(rows) and is_integer(max) and max > 0 do
+    Enum.reduce_while(rows, [], fn
+      %{} = row, columns ->
+        next =
+          row
+          |> Map.keys()
+          |> Enum.map(&to_string/1)
+          |> Enum.reduce(columns, fn key, acc ->
+            if key in acc, do: acc, else: acc ++ [key]
+          end)
+
+        if length(next) >= max do
+          {:halt, Enum.take(next, max)}
+        else
+          {:cont, next}
+        end
+
+      _row, columns ->
+        {:cont, columns}
+    end)
   end
 
   defp srql_columns(_, _max), do: []
@@ -555,8 +591,9 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     end
   end
 
-  defp format_cell_value(_col, value) when is_number(value) do
-    {:text, %{value: to_string(value), title: nil}}
+  defp format_cell_value(col, value) when is_number(value) do
+    formatted = format_numeric_cell(col, value)
+    {:text, %{value: formatted, title: to_string(value)}}
   end
 
   defp format_cell_value(_col, value) when is_list(value) or is_map(value) do
@@ -701,6 +738,80 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     label = host <> path
 
     append_query_hint(label, uri)
+  end
+
+  defp table_header_label("_sparkline"), do: "Trend"
+  defp table_header_label(col), do: col
+
+  defp sort_icon(col, sort_field, "asc") when col == sort_field, do: "hero-chevron-up"
+  defp sort_icon(col, sort_field, "desc") when col == sort_field, do: "hero-chevron-down"
+  defp sort_icon(_col, _sort_field, _sort_dir), do: "hero-chevron-up-down"
+
+  defp format_numeric_cell(col, value) when is_number(value) do
+    case unit_for_numeric_column(col) do
+      nil -> format_plain_numeric_cell(value)
+      unit -> FlowStatComponents.format_si(value, unit: unit)
+    end
+  end
+
+  defp unit_for_numeric_column(col) do
+    col_key = col |> to_string() |> String.trim() |> String.downcase()
+
+    cond do
+      col_key in ["bps", "bits_per_sec"] or String.ends_with?(col_key, "_bps") ->
+        "bps"
+
+      col_key in ["pps", "packets_per_sec"] or String.ends_with?(col_key, "_pps") ->
+        "pps"
+
+      col_key in ["bytes", "bytes_total", "total_bytes"] or String.ends_with?(col_key, "_bytes") ->
+        "B"
+
+      true ->
+        nil
+    end
+  end
+
+  defp format_plain_numeric_cell(value) when is_integer(value) do
+    value
+    |> Integer.to_string()
+    |> add_thousands_separators()
+  end
+
+  defp format_plain_numeric_cell(value) when is_float(value) do
+    value
+    |> :erlang.float_to_binary(decimals: 2)
+    |> trim_decimal_zeroes()
+    |> split_numeric_parts()
+    |> format_numeric_parts()
+  end
+
+  defp split_numeric_parts(value) when is_binary(value) do
+    case String.split(value, ".", parts: 2) do
+      [whole, fraction] -> {whole, fraction}
+      [whole] -> {whole, nil}
+    end
+  end
+
+  defp format_numeric_parts({whole, nil}), do: add_thousands_separators(whole)
+  defp format_numeric_parts({whole, fraction}), do: "#{add_thousands_separators(whole)}.#{fraction}"
+
+  defp trim_decimal_zeroes(value) when is_binary(value) do
+    value
+    |> String.trim_trailing("0")
+    |> String.trim_trailing(".")
+  end
+
+  defp add_thousands_separators("-" <> rest), do: "-" <> add_thousands_separators(rest)
+
+  defp add_thousands_separators(value) when is_binary(value) do
+    value
+    |> String.graphemes()
+    |> Enum.reverse()
+    |> Enum.chunk_every(3)
+    |> Enum.map(&Enum.reverse/1)
+    |> Enum.reverse()
+    |> Enum.map_join(",", &Enum.join/1)
   end
 
   defp url_host_label(uri, fallback) do

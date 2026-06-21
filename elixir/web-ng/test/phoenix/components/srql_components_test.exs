@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.Components.SRQLComponentsTest do
 
   alias ServiceRadarWebNGWeb.SRQLComponents
 
+  @moduletag :db_free
+
   test "compact editor keeps the SRQLInput hook and datalist fallback" do
     html =
       render_component(&SRQLComponents.srql_editor/1,
@@ -37,5 +39,47 @@ defmodule ServiceRadarWebNGWeb.Components.SRQLComponentsTest do
     assert html =~ ~s(data-input-id="rich-query-input")
     assert html =~ ~s(data-completions=)
     refute html =~ ~s(phx-hook="SRQLInput")
+  end
+
+  test "results table preserves explicit column order and formats numeric cells" do
+    html =
+      render_component(&SRQLComponents.srql_results_table/1,
+        id: "results",
+        rows: [
+          %{
+            "alpha" => "first",
+            "beta" => 1234,
+            "bytes_total" => 1_234_567.5,
+            "gamma" => 1_234_567.5
+          }
+        ],
+        columns: ["alpha", "beta", "bytes_total", "gamma"]
+      )
+
+    assert html =~ "first"
+    assert html =~ "1,234"
+    assert html =~ "1.2 MB"
+    assert html =~ "1,234,567.5"
+    assert :binary.match(html, "alpha") < :binary.match(html, "beta")
+    assert :binary.match(html, "beta") < :binary.match(html, "bytes_total")
+    assert :binary.match(html, "bytes_total") < :binary.match(html, "gamma")
+  end
+
+  test "results table can render sortable headers for dashboard table plugin" do
+    html =
+      render_component(&SRQLComponents.srql_results_table/1,
+        id: "results",
+        rows: [%{"count" => 2, "service" => "api"}],
+        columns: ["service", "count"],
+        sortable: true,
+        sort_target: "table-plugin",
+        sort_field: "count",
+        sort_dir: "desc"
+      )
+
+    assert html =~ ~s(phx-click="table_sort")
+    assert html =~ ~s(phx-target="table-plugin")
+    assert html =~ ~s(phx-value-field="count")
+    assert html =~ ~s(hero-chevron-down)
   end
 end

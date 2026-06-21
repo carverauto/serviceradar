@@ -1,8 +1,12 @@
 defmodule ServiceRadarWebNGWeb.DashboardEngineTest do
   use ExUnit.Case, async: true
 
+  import Phoenix.LiveViewTest
+
   alias ServiceRadarWebNGWeb.Dashboard.Engine
   alias ServiceRadarWebNGWeb.Dashboard.Plugins
+
+  @moduletag :db_free
 
   test "selects timeseries plugin when SRQL viz suggests timeseries" do
     response = %{
@@ -40,5 +44,40 @@ defmodule ServiceRadarWebNGWeb.DashboardEngineTest do
   test "falls back to table plugin when no other plugin matches" do
     response = %{"results" => [%{"a" => 1}], "viz" => %{"suggestions" => [%{"kind" => "table"}]}}
     assert [%{plugin: Plugins.Table}] = Engine.build_panels(response)
+  end
+
+  test "table plugin preserves schema columns and caps rendered rows" do
+    rows =
+      for idx <- 1..525 do
+        %{"service" => "svc-#{idx}", "count" => idx, "status" => "ok"}
+      end
+
+    response = %{
+      "results" => rows,
+      "viz" => %{
+        "columns" => [
+          %{"name" => "service"},
+          %{"name" => "status"},
+          %{"name" => "count"}
+        ],
+        "suggestions" => [%{"kind" => "table"}]
+      }
+    }
+
+    panels = Engine.build_panels(response)
+    assert %{plugin: Plugins.Table, assigns: assigns} = Enum.find(panels, &(&1.plugin == Plugins.Table))
+    assert assigns.columns == ["service", "status", "count"]
+    assert assigns.result_count == 525
+    assert assigns.capped?
+    assert length(assigns.results) == 500
+    assert length(assigns.page_rows) == 50
+    assert assigns.page == 1
+    assert assigns.page_count == 10
+
+    html =
+      render_component(&Plugins.Table.render/1, Map.merge(assigns, %{id: "capped", myself: "capped"}))
+
+    refute html =~ ~s(phx-click="table_sort")
+    assert html =~ "sorting disabled"
   end
 end
