@@ -35,6 +35,25 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   require Logger
 
   @snmp_varbind_prefix ~r/^[^:]+:\s*(.*)$/
+  @common_insert_placeholders %{
+    trace_id: :logs_trace_id,
+    span_id: :logs_span_id,
+    severity_text: :logs_severity_text,
+    body: :logs_body,
+    event_name: :logs_event_name,
+    source: :logs_source,
+    service_name: :logs_service_name,
+    service_version: :logs_service_version,
+    service_instance: :logs_service_instance,
+    scope_name: :logs_scope_name,
+    scope_version: :logs_scope_version,
+    attributes: :logs_attributes,
+    resource_attributes: :logs_resource_attributes,
+    scope_attributes: :logs_scope_attributes,
+    ingest_identity: :logs_ingest_identity,
+    ingest_agent_id: :logs_ingest_agent_id,
+    ingest_partition: :logs_ingest_partition
+  }
 
   @impl true
   def table_name, do: "logs"
@@ -71,6 +90,13 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     IngestAttribution.attach(case_result, attribution)
   end
 
+  @doc false
+  def prepare_rows_for_insert(rows) when is_list(rows) do
+    rows
+    |> Enum.map(&encode_text_columns/1)
+    |> replace_repeated_values_with_placeholders()
+  end
+
   # Private functions
 
   defp build_rows(messages) do
@@ -86,15 +112,15 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   end
 
   defp insert_log_rows(rows) do
-    rows_for_insert = Enum.map(rows, &encode_text_columns/1)
+    {rows_for_insert, placeholders} = prepare_rows_for_insert(rows)
+    insert_opts = insert_options(placeholders)
 
     # DB connection's search_path determines the schema
     {count, _} =
       BulkInsert.insert_all(
         table_name(),
         rows_for_insert,
-        on_conflict: :nothing,
-        returning: false
+        insert_opts
       )
 
     maybe_promote_logs(rows)
@@ -513,6 +539,57 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       value when is_binary(value) -> row
       value -> Map.put(row, key, to_string(value))
     end
+  end
+
+  defp replace_repeated_values_with_placeholders(rows) do
+    {prepared_rows, placeholders} =
+      Enum.reduce(@common_insert_placeholders, {rows, %{}}, fn {column, placeholder},
+                                                               {current_rows,
+                                                                current_placeholders} ->
+        case repeated_value(current_rows, column) do
+          {:ok, value} ->
+            rows_with_placeholder =
+              Enum.map(current_rows, fn row ->
+                if Map.get(row, column) == value do
+                  Map.put(row, column, {:placeholder, placeholder})
+                else
+                  row
+                end
+              end)
+
+            {rows_with_placeholder, Map.put(current_placeholders, placeholder, value)}
+
+          :skip ->
+            {current_rows, current_placeholders}
+        end
+      end)
+
+    {prepared_rows, placeholders}
+  end
+
+  defp repeated_value(rows, column) do
+    values =
+      Enum.flat_map(rows, fn row ->
+        case Map.fetch(row, column) do
+          {:ok, nil} -> []
+          {:ok, {:placeholder, _}} -> []
+          {:ok, value} -> [value]
+          :error -> []
+        end
+      end)
+
+    case Enum.uniq(values) do
+      [value] when length(values) > 1 -> {:ok, value}
+      _ -> :skip
+    end
+  end
+
+  defp insert_options(placeholders) when map_size(placeholders) == 0 do
+    [on_conflict: :nothing, returning: false]
+  end
+
+  defp insert_options(placeholders) do
+    [on_conflict: :nothing, returning: false, placeholders: placeholders]
   end
 
   defp maybe_promote_logs(rows) do
