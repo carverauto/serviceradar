@@ -6,7 +6,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
   @chart_pad 8
 
   def chart_paths(points, max_y) when is_list(points) do
-    values = Enum.map(points, fn {_dt, v} -> v end)
+    values =
+      points
+      |> Enum.map(fn {_dt, v} -> v end)
+      |> Enum.filter(&is_number/1)
 
     case values do
       [] ->
@@ -23,20 +26,35 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
           end
 
         coords =
-          values
+          points
           |> Enum.with_index()
-          |> Enum.map(fn {v, idx} ->
-            x = idx_to_x(idx, length(values))
-            y = value_to_y(v, 0, chart_max)
-            {x, y}
+          |> Enum.map(fn
+            {{_dt, v}, idx} when is_number(v) ->
+              x = idx_to_x(idx, length(points))
+              y = value_to_y(v, 0, chart_max)
+              {x, y}
+
+            {_point, _idx} ->
+              :gap
           end)
 
-        Map.merge(%{line: line_path(coords), area: area_path(coords)}, point_stats)
+        segments = contiguous_segments(coords)
+
+        Map.merge(
+          %{
+            line: segments_path(segments, &line_path/1),
+            area: segments_path(segments, &area_path/1)
+          },
+          point_stats
+        )
     end
   end
 
   def stats(points) when is_list(points) do
-    values = Enum.map(points, fn {_dt, v} -> v end)
+    values =
+      points
+      |> Enum.map(fn {_dt, v} -> v end)
+      |> Enum.filter(&is_number/1)
 
     case values do
       [] ->
@@ -113,6 +131,23 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
     base = baseline_y()
 
     "M #{x0},#{base} L #{x0},#{y0} #{segments} L #{last_x},#{base} Z"
+  end
+
+  defp contiguous_segments(coords) do
+    coords
+    |> Enum.chunk_by(&(&1 == :gap))
+    |> Enum.reject(fn
+      [:gap | _] -> true
+      [] -> true
+      _segment -> false
+    end)
+  end
+
+  defp segments_path(segments, path_fun) do
+    segments
+    |> Enum.map(path_fun)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join(" ")
   end
 
   defp monotone_segments(coords) do

@@ -183,12 +183,18 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
   defp bucket_extremes([]), do: []
 
   defp bucket_extremes(points) do
-    min_point = Enum.min_by(points, fn {_dt, value} -> value end)
-    max_point = Enum.max_by(points, fn {_dt, value} -> value end)
+    points = Enum.filter(points, fn {_dt, value} -> is_number(value) end)
 
-    [min_point, max_point]
-    |> Enum.uniq()
-    |> Enum.sort_by(fn {dt, _value} -> DateTime.to_unix(dt, :microsecond) end)
+    if points == [] do
+      []
+    else
+      min_point = Enum.min_by(points, fn {_dt, value} -> value end)
+      max_point = Enum.max_by(points, fn {_dt, value} -> value end)
+
+      [min_point, max_point]
+      |> Enum.uniq()
+      |> Enum.sort_by(fn {dt, _value} -> DateTime.to_unix(dt, :microsecond) end)
+    end
   end
 
   defp median_delta_seconds(points) when is_list(points) do

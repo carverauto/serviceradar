@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics do
 
   @counter_max_32 4_294_967_295.0
   @counter_max_64 18_446_744_073_709_551_615.0
+  @rollover_floor_ratio 0.9
 
   def counter_rates(series_points, max_speed) when is_list(series_points) do
     Enum.map(series_points, fn entry ->
@@ -152,44 +153,55 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics do
     Enum.reverse(acc)
   end
 
-  defp counter_rate_step({dt, value}, {nil, acc}, _metadata, _max_speed) do
-    {{dt, value}, [{dt, 0.0} | acc]}
+  defp counter_rate_step({dt, value}, {nil, acc}, _metadata, _max_speed) when is_number(value) do
+    {{dt, value}, acc}
   end
 
   defp counter_rate_step({dt, value}, {{prev_dt, prev_value}, acc}, metadata, max_speed) do
     diff = DateTime.diff(dt, prev_dt, :second)
-    rate = counter_rate(diff, value, prev_value, metadata, max_speed)
-    {{dt, value}, [{dt, rate} | acc]}
+
+    case counter_rate(diff, value, prev_value, metadata, max_speed) do
+      {:ok, rate} -> {{dt, value}, [{dt, rate} | acc]}
+      :gap when is_number(value) -> {{dt, value}, [{dt, nil} | acc]}
+      :gap -> {nil, [{dt, nil} | acc]}
+    end
   end
 
-  defp counter_rate(diff, _value, _prev_value, _metadata, _max_speed) when diff <= 0, do: 0.0
+  defp counter_rate_step({_dt, _value}, state, _metadata, _max_speed), do: state
+
+  defp counter_rate(diff, _value, _prev_value, _metadata, _max_speed) when diff <= 0, do: :gap
 
   defp counter_rate(diff, value, prev_value, metadata, max_speed) do
-    value
-    |> counter_delta(prev_value, metadata)
-    |> Kernel./(diff)
-    |> clamp_rate(max_speed)
+    with {:ok, delta} <- counter_delta(value, prev_value, metadata) do
+      {:ok, clamp_rate(delta / diff, max_speed)}
+    end
   end
 
   defp counter_delta(current, previous, metadata) when is_number(current) and is_number(previous) do
     if current >= previous do
-      current - previous
+      {:ok, current - previous}
     else
       rollover_delta(current, previous, metadata)
     end
   end
 
-  defp counter_delta(_, _, _), do: 0.0
+  defp counter_delta(_, _, _), do: :gap
 
   defp rollover_delta(current, previous, metadata) do
     max_value = counter_max(metadata, previous)
 
-    if max_value > previous do
-      max_value - previous + current
+    if plausible_rollover?(previous, max_value) do
+      {:ok, max_value - previous + current}
     else
-      0.0
+      :gap
     end
   end
+
+  defp plausible_rollover?(previous, max_value) when is_number(previous) and is_number(max_value) and max_value > 0 do
+    previous >= max_value * @rollover_floor_ratio
+  end
+
+  defp plausible_rollover?(_previous, _max_value), do: false
 
   defp counter_max(metadata, previous) do
     case counter_width(metadata) do
