@@ -10,13 +10,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
 
     case values do
       [] ->
-        %{line: "", area: "", min: 0.0, max: 0.0, avg: 0.0, latest: nil}
+        Map.merge(%{line: "", area: ""}, stats(points))
 
       _ ->
-        min_v = Enum.min(values, fn -> 0 end)
-        max_v = Enum.max(values, fn -> 0 end)
-        avg_v = Enum.sum(values) / length(values)
-        latest = List.last(values)
+        %{max: max_v} = point_stats = stats(points)
 
         chart_max =
           cond do
@@ -34,7 +31,24 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
             {x, y}
           end)
 
-        %{line: line_path(coords), area: area_path(coords), min: min_v, max: max_v, avg: avg_v, latest: latest}
+        Map.merge(%{line: line_path(coords), area: area_path(coords)}, point_stats)
+    end
+  end
+
+  def stats(points) when is_list(points) do
+    values = Enum.map(points, fn {_dt, v} -> v end)
+
+    case values do
+      [] ->
+        %{min: 0.0, max: 0.0, avg: 0.0, latest: nil}
+
+      _ ->
+        %{
+          min: Enum.min(values, fn -> 0 end),
+          max: Enum.max(values, fn -> 0 end),
+          avg: Enum.sum(values) / length(values),
+          latest: List.last(values)
+        }
     end
   end
 

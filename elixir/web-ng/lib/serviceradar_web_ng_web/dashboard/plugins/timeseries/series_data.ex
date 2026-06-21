@@ -34,11 +34,12 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
     display_name = Metrics.humanize_series_name(series || "series")
     unit = Metrics.unit_for_series(series, spec, rate_mode)
     points = Enum.sort_by(points, fn {dt, _} -> DateTime.to_unix(dt, :millisecond) end)
+    raw_stats = Paths.stats(points)
     cap = Points.points_cap(points)
     points = Points.limit_points(points, cap)
     chart_points = Points.chart_points(points, unit, compact, cap)
     scale_max = Metrics.scale_max_for_unit(unit)
-    paths = Paths.chart_paths(chart_points, scale_max)
+    paths = chart_points |> Paths.chart_paths(scale_max) |> Map.merge(raw_stats)
     utilization = Metrics.compute_utilization(paths.avg, effective_max)
     chart_max = Points.chart_max_from_value(paths.max, unit, scale_max)
 

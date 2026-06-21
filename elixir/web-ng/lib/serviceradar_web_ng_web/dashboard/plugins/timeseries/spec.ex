@@ -39,16 +39,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Spec do
 
     {points, units} =
       Enum.reduce(rows, {%{}, %{}}, fn row, {points_acc, units_acc} ->
-        series =
-          if is_binary(series_key) do
-            row
-            |> Map.get(series_key)
-            |> safe_to_string()
-            |> String.trim()
-            |> normalize_series_label()
-          else
-            "series"
-          end
+        series = row_series(row, series_key)
 
         units_acc = record_series_unit(units_acc, series, row)
 
@@ -236,6 +227,40 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Spec do
   defp safe_to_string(value) when is_integer(value), do: Integer.to_string(value)
   defp safe_to_string(value) when is_atom(value), do: Atom.to_string(value)
   defp safe_to_string(value), do: inspect(value)
+
+  defp row_series(row, series_key) when is_map(row) and is_binary(series_key) do
+    row
+    |> Map.get(series_key)
+    |> normalize_series_value()
+  end
+
+  defp row_series(row, _series_key) when is_map(row) do
+    row
+    |> inferred_series_value()
+    |> normalize_series_value()
+  end
+
+  defp row_series(_row, _series_key), do: "series"
+
+  defp inferred_series_value(row) do
+    first_present([
+      Map.get(row, "mount_point"),
+      Map.get(row, :mount_point),
+      Map.get(row, "core_id"),
+      Map.get(row, :core_id),
+      Map.get(row, "series_key"),
+      Map.get(row, :series_key)
+    ])
+  end
+
+  defp normalize_series_value(nil), do: "series"
+
+  defp normalize_series_value(value) do
+    value
+    |> safe_to_string()
+    |> String.trim()
+    |> normalize_series_label()
+  end
 
   defp normalize_series_label(""), do: "overall"
   defp normalize_series_label(value), do: value
