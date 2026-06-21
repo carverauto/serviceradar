@@ -67,13 +67,19 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
 
   @impl true
   def render(assigns) do
+    nodes = if is_list(assigns[:nodes]), do: assigns[:nodes], else: []
+    edges = if is_list(assigns[:edges]), do: assigns[:edges], else: []
+    selected_node_id = assigns[:selected_node_id]
+
     assigns =
       assigns
-      |> assign_new(:nodes, fn -> [] end)
-      |> assign_new(:edges, fn -> [] end)
-      |> assign_new(:selected_node_id, fn -> nil end)
-      |> assign(:layout, layout(assigns.nodes))
-      |> assign(:selected_node, find_node(assigns.nodes, assigns.selected_node_id))
+      |> assign(:nodes, nodes)
+      |> assign(:edges, edges)
+      |> assign(:selected_node_id, selected_node_id)
+      |> assign_new(:total_node_count, fn -> length(nodes) end)
+      |> assign_new(:truncated_node_count, fn -> 0 end)
+      |> assign(:layout, layout(nodes))
+      |> assign(:selected_node, find_node(nodes, selected_node_id))
 
     ~H"""
     <div id={"panel-#{@id}"}>
@@ -83,6 +89,15 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
             <div class="text-sm font-semibold">Topology</div>
             <div class="text-xs text-base-content/70">
               Nodes: <span class="font-mono">{length(@nodes)}</span>
+              <span :if={truncated_node_count(@truncated_node_count) > 0}>
+                of <span class="font-mono">{@total_node_count}</span>
+              </span>
+              <span
+                :if={truncated_node_count(@truncated_node_count) > 0}
+                class="ml-1 badge badge-warning badge-xs"
+              >
+                +{truncated_node_count(@truncated_node_count)} more
+              </span>
               <span class="opacity-60">·</span>
               Edges: <span class="font-mono">{length(@edges)}</span>
               <span :if={@selected_node_id} class="opacity-60">
@@ -220,13 +235,16 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
         {nodes_acc ++ nodes, edges_acc ++ edges}
       end)
 
-    nodes =
+    all_nodes =
       nodes
       |> Enum.filter(&is_map/1)
       |> Enum.map(&normalize_node/1)
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq_by(& &1.id)
-      |> Enum.take(@max_nodes)
+
+    total_node_count = length(all_nodes)
+    nodes = Enum.take(all_nodes, @max_nodes)
+    truncated_node_count = max(total_node_count - length(nodes), 0)
 
     node_ids = MapSet.new(Enum.map(nodes, & &1.id))
 
@@ -241,7 +259,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
       |> Enum.uniq_by(fn e -> {e.source, e.target, e.label} end)
       |> Enum.take(@max_edges)
 
-    {:ok, %{nodes: nodes, edges: edges}}
+    {:ok,
+     %{
+       nodes: nodes,
+       edges: edges,
+       total_node_count: total_node_count,
+       truncated_node_count: truncated_node_count
+     }}
   end
 
   defp merge_graph_payloads(_), do: {:error, :invalid_payloads}
@@ -356,11 +380,29 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
   end
 
   defp fallback_id(raw) do
-    raw
-    |> Jason.encode!()
-    |> :erlang.phash2()
-    |> Integer.to_string()
+    digest =
+      raw
+      |> canonicalize()
+      |> Jason.encode!()
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.encode16(case: :lower)
+      |> binary_part(0, 16)
+
+    "node:#{digest}"
   rescue
     _ -> ""
   end
+
+  defp canonicalize(%{} = map) do
+    map
+    |> Enum.map(fn {key, value} -> {to_string(key), canonicalize(value)} end)
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Map.new()
+  end
+
+  defp canonicalize(values) when is_list(values), do: Enum.map(values, &canonicalize/1)
+  defp canonicalize(value), do: value
+
+  defp truncated_node_count(value) when is_integer(value), do: max(value, 0)
+  defp truncated_node_count(_), do: 0
 end
