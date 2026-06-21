@@ -101,6 +101,77 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
     assert displayed_cores == MapSet.new(~w(0 1 4 5 6 7))
   end
 
+  test "process metrics carry a per-process CPU history series for sparklines" do
+    previous_responder = Application.get_env(:serviceradar_web_ng, :sysmon_metrics_test_responder)
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+    # Several CPU samples spread across the window for one process so the
+    # sparkline has a real history series; a single latest-only sample (the
+    # pre-§31.1 behavior) hides process spikes.
+    cpu_offsets_values = [{-480, 5.0}, {-360, 22.0}, {-240, 41.0}, {-120, 13.0}, {0, 64.0}]
+
+    Application.put_env(:serviceradar_web_ng, :sysmon_metrics_test_responder, fn query, _opts ->
+      cond do
+        String.contains?(query, ~s|metric_name:"process.cpu_usage"|) ->
+          cpu_rows =
+            Enum.map(cpu_offsets_values, fn {offset, value} ->
+              dt = now |> DateTime.add(offset, :second) |> DateTime.truncate(:second)
+
+              %{
+                "timestamp" => DateTime.to_iso8601(dt),
+                "value" => value,
+                "tags" => %{"pid" => "4242", "name" => "nginx", "status" => "Running"}
+              }
+            end)
+
+          {:ok, %{"results" => cpu_rows, "pagination" => %{}}}
+
+        String.contains?(query, ~s|metric_name:"process.memory_usage"|) ->
+          {:ok,
+           %{
+             "results" => [
+               %{
+                 "timestamp" => DateTime.to_iso8601(now),
+                 "value" => 1_048_576,
+                 "tags" => %{"pid" => "4242", "name" => "nginx", "status" => "Running"}
+               }
+             ],
+             "pagination" => %{}
+           }}
+
+        true ->
+          {:ok, %{"results" => [], "pagination" => %{}}}
+      end
+    end)
+
+    on_exit(fn ->
+      restore_env(:sysmon_metrics_test_responder, previous_responder)
+    end)
+
+    [row] =
+      SysmonMetrics.load_process_metrics(
+        RecordingSRQLStub,
+        [~s|device_id:"sysmon-process-sparkline-test"|],
+        :scope
+      )
+
+    assert Map.get(row, "name") == "nginx"
+    assert Map.get(row, "pid") == "4242"
+
+    # The latest CPU sample is retained as the headline value…
+    assert parse_number(Map.get(row, "cpu_usage")) == 64.0
+    # …and the full history series is attached for the sparkline, time-sorted
+    # ascending so the line renders oldest → newest.
+    sparkline = Map.get(row, "_cpu_sparkline")
+    assert is_list(sparkline) and length(sparkline) == 5
+    assert Enum.map(sparkline, &elem(&1, 1)) == [5.0, 22.0, 41.0, 13.0, 64.0]
+
+    unix_list = Enum.map(sparkline, fn {dt, _} -> DateTime.to_unix(dt, :millisecond) end)
+    assert unix_list == Enum.sort(unix_list)
+  end
+
+  defp parse_number(value) when is_number(value), do: value * 1.0
+  defp parse_number(_), do: nil
+
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
 end

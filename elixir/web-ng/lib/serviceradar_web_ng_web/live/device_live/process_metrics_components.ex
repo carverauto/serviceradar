@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ProcessMetricsComponents do
   use ServiceRadarWebNGWeb, :html
 
   import ServiceRadarWebNGWeb.DeviceLive.ProcessTablePagination, only: [search_bar: 1, paginator: 1]
+  import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_sparkline: 1]
 
   alias ServiceRadarWebNGWeb.DeviceLive.ProcessTablePagination
 
@@ -87,6 +88,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ProcessMetricsComponents do
               <th>Process</th>
               <th class="text-right">PID</th>
               <th class="text-right">CPU %</th>
+              <th>CPU Trend</th>
               <th class="text-right">Memory</th>
               <th>Status</th>
               <th>Sampled</th>
@@ -99,6 +101,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ProcessMetricsComponents do
                 <td class="text-xs font-mono text-right">{format_value(Map.get(row, "pid"))}</td>
                 <td class="text-xs font-mono text-right">
                   {format_pct(parse_number(Map.get(row, "cpu_usage")))}%
+                </td>
+                <td class="text-primary">
+                  <.srql_sparkline points={Map.get(row, "_cpu_sparkline", [])} />
                 </td>
                 <td class="text-xs font-mono text-right">
                   {format_bytes(Map.get(row, "memory_usage"))}
