@@ -15,6 +15,7 @@ go_library(
         "ports.go",
         "scanner_utils.go",
         "syn_scanner.go",
+        "syn_scanner_config_linux.go",
         "syn_scanner_stub.go",
         "tcp_scanner.go",
     ],
