@@ -334,6 +334,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               flow_chart_points_json={@flow_chart_points_json}
               top_talkers_json={@flow_top_talkers_json}
               top_destinations_json={@flow_top_destinations_json}
+              top_peers_json={@flow_top_peers_json}
               top_ports_json={@flow_top_ports_json}
               top_protocols_json={@flow_top_protocols_json}
               facets={@flow_facets}

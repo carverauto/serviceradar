@@ -41,7 +41,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
   end
 
   def empty_flow_stats_bundle do
-    {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]", "[]", %{protocols: [], directions: [], services: []}}
+    {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]", "[]", "[]", %{protocols: [], directions: [], services: []}}
   end
 
   def load_device_flow_stats(srql_mod, device_uid, scope) do
@@ -107,6 +107,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
 
     top_talkers_json = encode_top_n(talkers)
     top_destinations_json = encode_top_n(destinations)
+    # §37.3: the device is scoped by device_id: which matches BOTH directions, so
+    # the talkers (src) and destinations (dst) widgets split each peer across two
+    # lists. Merge them into one canonical per-peer ranking so a peer appears
+    # once with its summed bidirectional volume — same canonicalization as the
+    # dashboard's Top Conversations (#4202).
+    top_peers_json =
+      talkers
+      |> merge_device_peers(destinations)
+      |> encode_top_n()
+
     top_ports_json = encode_top_n(ports)
     top_protocols_json = encode_top_n(protocols)
 
@@ -132,7 +142,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
     }
 
     {summary, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json, top_destinations_json,
-     top_ports_json, top_protocols_json, facets}
+     top_peers_json, top_ports_json, top_protocols_json, facets}
   end
 
   defp load_device_flow_summary(srql_mod, scope, base) do
@@ -259,6 +269,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
       }
     end)
     |> Jason.encode!()
+  end
+
+  # §37.3: merge the device's talkers (rows where the device was src) and
+  # destinations (rows where it was dst) into one canonical per-peer ranking.
+  # Because the device is scoped by device_id: which matches BOTH directions, a
+  # peer appears in each list once; summing by peer IP folds the two directions
+  # so a peer shows once with its total bidirectional volume.
+  defp merge_device_peers(talkers, destinations) do
+    (talkers ++ destinations)
+    |> Enum.reject(fn row -> is_nil(row[:name]) or row[:name] == "" end)
+    |> Enum.group_by(& &1[:name])
+    |> Enum.map(fn {name, group} ->
+      %{name: name, bytes: Enum.sum(Enum.map(group, &(&1[:bytes] || 0)))}
+    end)
+    |> Enum.sort_by(& &1[:bytes], :desc)
   end
 
   defp protocol_label(protocol_num, protocol_name) do

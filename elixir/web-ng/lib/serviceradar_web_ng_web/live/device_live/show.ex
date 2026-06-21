@@ -343,7 +343,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp apply_flow_stats_bundle(socket, stats_bundle) do
     {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json, top_destinations_json,
-     top_ports_json, top_protocols_json, facets} = stats_bundle
+     top_peers_json, top_ports_json, top_protocols_json, facets} = stats_bundle
 
     socket
     |> assign(:flow_stats, flow_stats)
@@ -354,6 +354,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:flow_chart_points_json, chart_points)
     |> assign(:flow_top_talkers_json, top_talkers_json)
     |> assign(:flow_top_destinations_json, top_destinations_json)
+    |> assign(:flow_top_peers_json, top_peers_json)
     |> assign(:flow_top_ports_json, top_ports_json)
     |> assign(:flow_top_protocols_json, top_protocols_json)
     |> assign(:flow_facets, facets)

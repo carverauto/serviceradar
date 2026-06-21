@@ -24,6 +24,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
   attr(:flow_chart_points_json, :string, default: "[]")
   attr(:top_talkers_json, :string, default: "[]")
   attr(:top_destinations_json, :string, default: "[]")
+  # §37.3: canonical per-peer ranking (device's peers merged across both
+  # directions). Renders as "Top Peers", replacing the direction-split widgets.
+  attr(:top_peers_json, :string, default: "[]")
   attr(:top_ports_json, :string, default: "[]")
   attr(:top_protocols_json, :string, default: "[]")
   attr(:facets, :map, default: %{protocols: [], directions: [], services: []})
@@ -119,24 +122,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
       <%!-- Top-N widgets --%>
       <div
         :if={
-          @top_talkers_json != "[]" or @top_destinations_json != "[]" or @top_ports_json != "[]" or
+          @top_peers_json != "[]" or @top_ports_json != "[]" or
             @top_protocols_json != "[]"
         }
         class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3"
       >
         <.top_n_widget
-          :if={@top_talkers_json != "[]"}
-          title="Top Talkers"
+          :if={@top_peers_json != "[]"}
+          title="Top Peers"
           icon="hero-user-group"
-          items_json={@top_talkers_json}
+          items_json={@top_peers_json}
           filter_field="src_endpoint_ip"
-        />
-        <.top_n_widget
-          :if={@top_destinations_json != "[]"}
-          title="Top Destinations"
-          icon="hero-server-stack"
-          items_json={@top_destinations_json}
-          filter_field="dst_endpoint_ip"
         />
         <.top_n_widget
           :if={@top_ports_json != "[]"}

@@ -101,6 +101,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
     |> assign(:flow_chart_points_json, "[]")
     |> assign(:flow_top_talkers_json, "[]")
     |> assign(:flow_top_destinations_json, "[]")
+    |> assign(:flow_top_peers_json, "[]")
     |> assign(:flow_top_ports_json, "[]")
     |> assign(:flow_top_protocols_json, "[]")
     |> assign(:flow_facets, %{protocols: [], directions: [], services: []})
