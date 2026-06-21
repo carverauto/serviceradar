@@ -83,29 +83,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
   end
 
   def limit_points(points, max_points) when is_list(points) and length(points) > max_points do
-    total = length(points)
-    step = (total / max_points) |> Float.ceil() |> trunc()
-    sampled = Enum.take_every(points, step)
-    sampled = if length(sampled) > max_points, do: Enum.take(sampled, max_points), else: sampled
-
-    case {sampled, List.last(points)} do
-      {[], _} ->
-        []
-
-      {sampled, last_all} ->
-        sampled =
-          case {List.first(points), List.first(sampled)} do
-            {nil, _} -> sampled
-            {first_all, first_all} -> sampled
-            {first_all, _} -> List.replace_at(sampled, 0, first_all)
-          end
-
-        if List.last(sampled) == last_all do
-          sampled
-        else
-          List.replace_at(sampled, length(sampled) - 1, last_all)
-        end
-    end
+    min_max_envelope(points, max_points)
   end
 
   def limit_points(points, _max_points), do: points
@@ -155,6 +133,67 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
 
   defp time_label(%DateTime{} = dt), do: Calendar.strftime(dt, "%-I:%M %p")
   defp time_label(_), do: ""
+
+  defp min_max_envelope(points, max_points) when max_points < 3 do
+    points
+    |> take_endpoints()
+    |> Enum.take(max_points)
+  end
+
+  defp min_max_envelope(points, max_points) do
+    first = List.first(points)
+    last = List.last(points)
+    middle = points |> Enum.drop(1) |> Enum.drop(-1)
+    bucket_count = max(div(max_points - 2, 2), 1)
+
+    envelope =
+      middle
+      |> bucket_by_index(bucket_count)
+      |> Enum.flat_map(&bucket_extremes/1)
+
+    [first | envelope]
+    |> append_last(last)
+    |> Enum.uniq()
+    |> trim_preserving_last(max_points, last)
+  end
+
+  defp take_endpoints([]), do: []
+  defp take_endpoints([_point] = points), do: points
+  defp take_endpoints(points), do: [List.first(points), List.last(points)]
+
+  defp append_last([], nil), do: []
+  defp append_last(points, nil), do: points
+  defp append_last(points, last), do: points ++ [last]
+
+  defp trim_preserving_last(points, max_points, _last) when length(points) <= max_points, do: points
+
+  defp trim_preserving_last(points, max_points, last) do
+    points
+    |> Enum.take(max(max_points - 1, 0))
+    |> append_last(last)
+    |> Enum.uniq()
+  end
+
+  defp bucket_by_index([], _bucket_count), do: []
+
+  defp bucket_by_index(points, bucket_count) do
+    points
+    |> Enum.with_index()
+    |> Enum.group_by(fn {_point, idx} -> min(div(idx * bucket_count, length(points)), bucket_count - 1) end)
+    |> Enum.sort_by(fn {bucket_idx, _points} -> bucket_idx end)
+    |> Enum.map(fn {_bucket_idx, indexed_points} -> Enum.map(indexed_points, &elem(&1, 0)) end)
+  end
+
+  defp bucket_extremes([]), do: []
+
+  defp bucket_extremes(points) do
+    min_point = Enum.min_by(points, fn {_dt, value} -> value end)
+    max_point = Enum.max_by(points, fn {_dt, value} -> value end)
+
+    [min_point, max_point]
+    |> Enum.uniq()
+    |> Enum.sort_by(fn {dt, _value} -> DateTime.to_unix(dt, :microsecond) end)
+  end
 
   defp maybe_densify(points, :bytes_per_sec, compact, cap) do
     factor = if compact, do: 2, else: 4

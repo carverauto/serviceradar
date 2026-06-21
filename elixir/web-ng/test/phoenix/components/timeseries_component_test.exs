@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
   import Phoenix.LiveViewTest
 
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries
+  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points
 
   @moduletag :unit
   @moduletag :db_free
@@ -105,5 +106,36 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
 
     assert html =~ ~s(data-unit="bytes")
     assert html =~ "4.1 KB"
+  end
+
+  test "downsampling preserves bucket minima and maxima" do
+    start_dt = ~U[2025-01-01 00:00:00Z]
+    spike_dt = DateTime.add(start_dt, 457, :second)
+    dip_dt = DateTime.add(start_dt, 612, :second)
+
+    points =
+      for idx <- 0..999 do
+        dt = DateTime.add(start_dt, idx, :second)
+
+        value =
+          cond do
+            dt == spike_dt -> 999.0
+            dt == dip_dt -> -50.0
+            true -> 10.0
+          end
+
+        {dt, value}
+      end
+
+    limited = Points.limit_points(points, 80)
+
+    assert length(limited) <= 80
+    assert List.first(limited) == List.first(points)
+    assert List.last(limited) == List.last(points)
+    assert {spike_dt, 999.0} in limited
+    assert {dip_dt, -50.0} in limited
+
+    assert limited ==
+             Enum.sort_by(limited, fn {dt, _value} -> DateTime.to_unix(dt, :microsecond) end)
   end
 end

@@ -140,7 +140,7 @@
 - [x] 23.5 Add tests proving no alert storm: a sustained anomaly yields one open + one clear, and pending/duplicate findings produce no alert.
 
 ## 24. Chart Aggregation Fidelity (F30)
-- [ ] 24.1 Replace `limit_points` stride decimation with min/max-envelope (LTTB) downsampling so extremes survive (`timeseries.ex:629-655`).
+- [x] 24.1 Replace `limit_points` stride decimation with min/max-envelope (LTTB) downsampling so extremes survive (`timeseries.ex:629-655`).
 - [ ] 24.2 Stop interpolating/box-smoothing measured `bytes_per_sec` series (`timeseries.ex:528-595`); interpolate visually only.
 - [ ] 24.3 Split per-series: disk by `mount_point`, CPU by core/`series_key`; offer `agg:max` alongside avg; compute header min/max from raw rows.
 - [ ] 24.4 For counter/interface charts offer finer buckets or a raw window so microbursts are visible.
