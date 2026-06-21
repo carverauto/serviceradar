@@ -79,6 +79,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     combine_all_series = Map.get(panel_assigns || %{}, :combine_all_series, false)
     combined_title = Map.get(panel_assigns || %{}, :combined_title)
     rate_mode = Map.get(panel_assigns || %{}, :rate_mode, :none)
+    y_scale = Points.scale_mode(Spec.fetch_panel_value(panel_assigns, :y_scale, :linear))
     series_points = series_points_from_assigns(assigns, panel_assigns)
     spec = Spec.fetch_panel_value(panel_assigns, :spec, Map.get(assigns, :spec))
 
@@ -105,6 +106,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       |> assign(:combine_all_series, combine_all_series)
       |> assign(:combined_title, combined_title)
       |> assign(:rate_mode, rate_mode)
+      |> assign(:y_scale, y_scale)
       |> assign(:chart_width, @chart_width)
       |> assign(:chart_height, @chart_height)
       |> assign(:chart_pad, @chart_pad)
@@ -121,6 +123,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     combine_all_series = Map.get(assigns, :combine_all_series, false)
     combined_title = Map.get(assigns, :combined_title, "Combined")
     annotations = annotations_from_assigns(assigns)
+    y_scale = Points.scale_mode(Map.get(assigns, :y_scale, :linear))
 
     series_data =
       SeriesData.build_series_data(
@@ -129,7 +132,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         Map.get(assigns, :rate_mode, :none),
         compact,
         max_speed,
-        annotations
+        annotations,
+        y_scale
       )
 
     {combined_charts, individual_series} =
@@ -139,7 +143,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         chart_mode,
         max_speed,
         compact,
-        combined_title
+        combined_title,
+        y_scale
       )
 
     assigns =

@@ -5,7 +5,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
   @chart_height 140
   @chart_pad 8
 
-  def chart_paths(points, max_y) when is_list(points) do
+  def chart_paths(points, %{min: min_v, max: max_v, scale: scale}) when is_list(points) do
     values =
       points
       |> Enum.map(fn {_dt, v} -> v end)
@@ -16,14 +16,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
         Map.merge(%{line: "", area: ""}, stats(points))
 
       _ ->
-        %{max: max_v} = point_stats = stats(points)
-
-        chart_max =
-          cond do
-            is_number(max_y) and max_y > 0 -> max_y
-            max_v > 0 -> max_v * 1.1
-            true -> 1.0
-          end
+        point_stats = stats(points)
 
         coords =
           points
@@ -31,8 +24,11 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
           |> Enum.map(fn
             {{_dt, v}, idx} when is_number(v) ->
               x = idx_to_x(idx, length(points))
-              y = value_to_y(v, 0, chart_max)
-              {x, y}
+
+              case value_to_y(v, min_v, max_v, scale) do
+                y when is_number(y) -> {x, y}
+                _ -> :gap
+              end
 
             {_point, _idx} ->
               :gap
@@ -48,6 +44,19 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
           point_stats
         )
     end
+  end
+
+  def chart_paths(points, max_y) when is_list(points) do
+    %{max: max_v} = stats(points)
+
+    chart_max =
+      cond do
+        is_number(max_y) and max_y > 0 -> max_y
+        max_v > 0 -> max_v * 1.1
+        true -> 1.0
+      end
+
+    chart_paths(points, %{min: 0.0, max: chart_max, scale: :linear})
   end
 
   def stats(points) when is_list(points) do
@@ -85,6 +94,18 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
     scaled = (v - min_v) / (max_v - min_v)
     round(@chart_height - @chart_pad - scaled * usable)
   end
+
+  def value_to_y(v, min_v, max_v, :log) when v > 0 and min_v > 0 and max_v > min_v do
+    usable = @chart_height - @chart_pad * 2
+    min_log = :math.log10(min_v)
+    max_log = :math.log10(max_v)
+    scaled = (:math.log10(v) - min_log) / (max_log - min_log)
+    round(@chart_height - @chart_pad - scaled * usable)
+  end
+
+  def value_to_y(v, min_v, max_v, :linear), do: value_to_y(v, min_v, max_v)
+  def value_to_y(_v, _min_v, _max_v, :log), do: nil
+  def value_to_y(v, min_v, max_v, _scale), do: value_to_y(v, min_v, max_v)
 
   defp line_path([]), do: ""
   defp line_path([{x, y}]), do: "M #{x},#{y}"

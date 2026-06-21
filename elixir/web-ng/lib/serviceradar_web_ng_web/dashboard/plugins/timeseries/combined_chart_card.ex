@@ -38,6 +38,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
       ]}
       phx-hook="TimeseriesCombinedChart"
       data-series={@series_tooltip_data}
+      data-y-min={@data.chart_min}
+      data-y-max={@data.chart_max}
+      data-y-scale={@data.y_scale}
     >
       <div class="flex items-center justify-between gap-3 mb-2">
         <div class="flex items-center gap-2 min-w-0">

@@ -5,30 +5,38 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points
 
-  def build_series_data(series_points, spec, rate_mode, compact, max_speed, annotations \\ []) do
+  def build_series_data(series_points, spec, rate_mode, compact, max_speed, annotations \\ [], y_scale \\ :linear) do
     series_points
     |> Enum.with_index()
     |> Enum.map(fn {{series, points}, idx} ->
-      series_data_for_points(series, points, idx, spec, rate_mode, compact, max_speed, annotations)
+      series_data_for_points(series, points, idx, spec, rate_mode, compact, max_speed, annotations, y_scale)
     end)
   end
 
-  def resolve_chart_groups(series_data, combine_all_series, chart_mode, max_speed, compact, combined_title) do
+  def resolve_chart_groups(
+        series_data,
+        combine_all_series,
+        chart_mode,
+        max_speed,
+        compact,
+        combined_title,
+        y_scale \\ :linear
+      ) do
     {traffic_series, other_series} = Enum.split_with(series_data, &Metrics.traffic_series?(&1.raw_series))
 
     cond do
       combine_all_series && length(series_data) > 1 ->
-        {[build_combined_series_data(series_data, compact, combined_title)], []}
+        {[build_combined_series_data(series_data, compact, combined_title, y_scale)], []}
 
       chart_mode == :combined and length(traffic_series) > 1 ->
-        {[build_combined_traffic_data(traffic_series, max_speed, compact)], other_series}
+        {[build_combined_traffic_data(traffic_series, max_speed, compact, y_scale)], other_series}
 
       true ->
         {[], series_data}
     end
   end
 
-  defp series_data_for_points(series, points, idx, spec, rate_mode, compact, max_speed, annotations) do
+  defp series_data_for_points(series, points, idx, spec, rate_mode, compact, max_speed, annotations, y_scale) do
     effective_max = if Metrics.traffic_series?(series), do: max_speed
     {stroke, _fill} = Metrics.series_color(idx)
     display_name = Metrics.humanize_series_name(series || "series")
@@ -38,10 +46,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
     cap = Points.points_cap(points)
     points = Points.limit_points(points, cap)
     chart_points = Points.chart_points(points, unit, compact, cap)
-    scale_max = Metrics.scale_max_for_unit(unit)
-    paths = chart_points |> Paths.chart_paths(scale_max) |> Map.merge(raw_stats)
+    y_domain = Points.y_domain(chart_points, unit, y_scale)
+    paths = chart_points |> Paths.chart_paths(y_domain) |> Map.merge(raw_stats)
     utilization = Metrics.compute_utilization(paths.avg, effective_max)
-    chart_max = Points.chart_max_from_value(paths.max, unit, scale_max)
 
     %{
       series: display_name,
@@ -52,9 +59,12 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
       point_data: Enum.map(chart_points, fn {dt, v} -> %{dt: Points.dt_label(dt), v: v} end),
       unit: unit,
       raw_points: points,
+      y_domain: y_domain,
       x_ticks: Points.x_ticks(points, compact),
-      y_ticks: Points.y_ticks(chart_max, compact, unit),
-      chart_max: chart_max,
+      y_ticks: Points.y_ticks(y_domain, compact, unit),
+      chart_min: y_domain.min,
+      chart_max: y_domain.max,
+      y_scale: y_domain.scale,
       annotations: annotation_markers(annotations, points, series, display_name),
       first_dt: Points.series_first_dt(points),
       last_dt: Points.series_last_dt(points),
@@ -63,12 +73,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
     }
   end
 
-  defp build_combined_traffic_data(traffic_series, max_speed, compact) do
+  defp build_combined_traffic_data(traffic_series, max_speed, compact, y_scale) do
     first_series = List.first(traffic_series)
     unit = Metrics.combined_unit(traffic_series)
-    chart_max = Points.combined_chart_max(traffic_series, unit)
+    y_domain = Points.combined_y_domain(traffic_series, unit, y_scale)
+    traffic_series = apply_shared_domain(traffic_series, y_domain, unit, compact)
     x_ticks = first_series && Points.x_ticks(first_series.raw_points || [], compact)
-    y_ticks = Points.y_ticks(chart_max, compact, unit)
+    y_ticks = Points.y_ticks(y_domain, compact, unit)
 
     %{
       type: :combined,
@@ -76,7 +87,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
       series: traffic_series,
       max_speed: max_speed,
       unit: unit,
-      chart_max: chart_max,
+      y_domain: y_domain,
+      chart_min: y_domain.min,
+      chart_max: y_domain.max,
+      y_scale: y_domain.scale,
       annotations: combined_annotation_markers(traffic_series),
       x_ticks: x_ticks || [],
       y_ticks: y_ticks,
@@ -85,12 +99,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
     }
   end
 
-  defp build_combined_series_data(series_data, compact, title) do
+  defp build_combined_series_data(series_data, compact, title, y_scale) do
     first_series = List.first(series_data)
     unit = Metrics.combined_unit(series_data)
-    chart_max = Points.combined_chart_max(series_data, unit)
+    y_domain = Points.combined_y_domain(series_data, unit, y_scale)
+    series_data = apply_shared_domain(series_data, y_domain, unit, compact)
     x_ticks = first_series && Points.x_ticks(first_series.raw_points || [], compact)
-    y_ticks = Points.y_ticks(chart_max, compact, unit)
+    y_ticks = Points.y_ticks(y_domain, compact, unit)
 
     %{
       type: :combined,
@@ -98,7 +113,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
       series: series_data,
       max_speed: nil,
       unit: unit,
-      chart_max: chart_max,
+      y_domain: y_domain,
+      chart_min: y_domain.min,
+      chart_max: y_domain.max,
+      y_scale: y_domain.scale,
       annotations: combined_annotation_markers(series_data),
       x_ticks: x_ticks || [],
       y_ticks: y_ticks,
@@ -115,6 +133,25 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
   end
 
   defp combined_annotation_markers(_series_data), do: []
+
+  defp apply_shared_domain(series_data, y_domain, unit, compact) do
+    Enum.map(series_data, fn series ->
+      points = Map.get(series, :raw_points, [])
+      chart_points = Points.chart_points(points, unit, compact, length(points))
+      raw_stats = Paths.stats(points)
+      paths = chart_points |> Paths.chart_paths(y_domain) |> Map.merge(raw_stats)
+
+      %{
+        series
+        | paths: paths,
+          y_domain: y_domain,
+          y_ticks: Points.y_ticks(y_domain, compact, series.unit),
+          chart_min: y_domain.min,
+          chart_max: y_domain.max,
+          y_scale: y_domain.scale
+      }
+    end)
+  end
 
   defp annotation_markers(annotations, points, raw_series, display_name) when is_list(annotations) and is_list(points) do
     annotations

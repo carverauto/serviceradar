@@ -5,20 +5,48 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths
 
   @max_points 800
+  @linear_padding_ratio 0.08
+  @constant_padding_ratio 0.05
+  @log_padding_ratio 0.05
+  @log_constant_factor :math.sqrt(10)
 
   def chart_max_from_value(_max_v, _unit, scale_max) when is_number(scale_max) and scale_max > 0, do: scale_max
   def chart_max_from_value(max_v, _unit, _scale_max) when is_number(max_v) and max_v > 0, do: max_v * 1.1
   def chart_max_from_value(_, _unit, _scale_max), do: 1.0
 
-  def combined_chart_max(series_data, unit) when is_list(series_data) do
-    max_v =
-      series_data
-      |> Enum.map(&Map.get(&1.paths, :max))
-      |> Enum.filter(&is_number/1)
-      |> Enum.max(fn -> 0.0 end)
+  def y_domain(points, unit, scale_mode \\ :linear)
 
-    chart_max_from_value(max_v, unit, Metrics.scale_max_for_unit(unit))
+  def y_domain(points, unit, :log) when is_list(points) do
+    values =
+      points
+      |> numeric_values()
+      |> Enum.filter(&(&1 > 0))
+
+    case values do
+      [] -> y_domain(points, unit, :linear)
+      _ -> values |> padded_log_domain() |> maybe_clamp_percent_domain(unit)
+    end
   end
+
+  def y_domain(points, unit, _scale_mode) when is_list(points) do
+    points
+    |> numeric_values()
+    |> padded_linear_domain()
+    |> maybe_clamp_percent_domain(unit)
+  end
+
+  def y_domain(_points, unit, scale_mode), do: y_domain([], unit, scale_mode)
+
+  def combined_y_domain(series_data, unit, scale_mode) when is_list(series_data) do
+    series_data
+    |> Enum.flat_map(&Map.get(&1, :raw_points, []))
+    |> y_domain(unit, scale_mode)
+  end
+
+  def scale_mode(:log), do: :log
+  def scale_mode("log"), do: :log
+  def scale_mode("logarithmic"), do: :log
+  def scale_mode(_), do: :linear
 
   def x_ticks(points, compact) when is_list(points) do
     len = length(points)
@@ -49,13 +77,18 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
 
   def x_ticks(_points, _compact), do: []
 
-  def y_ticks(max_v, compact, unit) when is_number(max_v) and max_v > 0 do
+  def y_ticks(%{min: min_v, max: max_v, scale: scale}, compact, unit)
+      when is_number(min_v) and is_number(max_v) and max_v > min_v do
     ticks = if compact, do: 3, else: 5
 
     Enum.map(0..ticks, fn idx ->
-      value = max_v * idx / ticks
-      {Paths.value_to_y(value, 0, max_v), Metrics.format_value(value, unit)}
+      value = tick_value(min_v, max_v, scale, idx, ticks)
+      {Paths.value_to_y(value, min_v, max_v, scale), Metrics.format_value(value, unit)}
     end)
+  end
+
+  def y_ticks(max_v, compact, unit) when is_number(max_v) and max_v > 0 do
+    y_ticks(%{min: 0.0, max: max_v, scale: :linear}, compact, unit)
   end
 
   def y_ticks(_max_v, _compact, unit), do: [{Paths.value_to_y(0, 0, 1), Metrics.format_value(0, unit)}]
@@ -129,6 +162,78 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
 
   defp time_label(%DateTime{} = dt), do: Calendar.strftime(dt, "%-I:%M %p")
   defp time_label(_), do: ""
+
+  defp tick_value(min_v, max_v, :log, idx, ticks) do
+    min_log = :math.log10(min_v)
+    max_log = :math.log10(max_v)
+    :math.pow(10, min_log + (max_log - min_log) * idx / ticks)
+  end
+
+  defp tick_value(min_v, max_v, _scale, idx, ticks), do: min_v + (max_v - min_v) * idx / ticks
+
+  defp numeric_values(points) do
+    points
+    |> Enum.map(fn {_dt, value} -> value end)
+    |> Enum.filter(&is_number/1)
+  end
+
+  defp padded_linear_domain([]), do: %{min: 0.0, max: 1.0, scale: :linear}
+
+  defp padded_linear_domain(values) do
+    min_v = Enum.min(values)
+    max_v = Enum.max(values)
+
+    {domain_min, domain_max} =
+      if min_v == max_v do
+        pad = max(abs_value(max_v) * @constant_padding_ratio, 1.0)
+        {min_v - pad, max_v + pad}
+      else
+        pad = max((max_v - min_v) * @linear_padding_ratio, 0.01)
+        {min_v - pad, max_v + pad}
+      end
+
+    domain_min =
+      if min_v >= 0 and domain_min < 0 do
+        0.0
+      else
+        domain_min
+      end
+
+    %{min: domain_min * 1.0, max: domain_max * 1.0, scale: :linear}
+  end
+
+  defp padded_log_domain(values) do
+    min_v = Enum.min(values)
+    max_v = Enum.max(values)
+
+    {domain_min, domain_max} =
+      if min_v == max_v do
+        {min_v / @log_constant_factor, max_v * @log_constant_factor}
+      else
+        min_log = :math.log10(min_v)
+        max_log = :math.log10(max_v)
+        pad = max((max_log - min_log) * @log_padding_ratio, 0.01)
+        {:math.pow(10, min_log - pad), :math.pow(10, max_log + pad)}
+      end
+
+    %{min: domain_min * 1.0, max: domain_max * 1.0, scale: :log}
+  end
+
+  defp maybe_clamp_percent_domain(%{min: min_v, max: max_v} = domain, :percent) do
+    min_v = if min_v >= 0, do: max(min_v, 0.0), else: min_v
+    max_v = if max_v <= 100.0, do: min(max_v, 100.0), else: max_v
+
+    if max_v > min_v do
+      %{domain | min: min_v, max: max_v}
+    else
+      %{domain | min: min_v, max: min_v + 1.0}
+    end
+  end
+
+  defp maybe_clamp_percent_domain(domain, _unit), do: domain
+
+  defp abs_value(value) when value < 0, do: -value
+  defp abs_value(value), do: value
 
   defp min_max_envelope(points, max_points) when max_points < 3 do
     points
