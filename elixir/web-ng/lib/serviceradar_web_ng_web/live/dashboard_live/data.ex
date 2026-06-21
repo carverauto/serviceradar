@@ -86,24 +86,62 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   def load(scope, opts \\ []) do
     time_window = Keyword.get(opts, :time_window, @default_time_window)
     srql_module = Keyword.get(opts, :srql_module, default_srql_module())
-    collector_counts = TenantUsage.collector_counts_by_type()
-    device_summary = device_summary(scope)
-    services_summary = services_summary(scope, time_window)
-    flow_summary = flow_summary(time_window)
-    traffic_links = traffic_links(time_window)
-    topology_links = topology_links(time_window)
-    flow_summary = Map.put(flow_summary, :link_count, max(length(traffic_links), length(topology_links)))
-    mtr_overlays = mtr_overlays()
+
+    # Wave 1 — the independent queries run concurrently. Each underlying function
+    # already rescues its own exceptions and returns its empty/default shape, so
+    # a failing query degrades gracefully and never aborts the load (preserving
+    # the pre-§39.1 failure semantics). mtr_summary / link_count / sparklines
+    # are derived from these results in wave 2 below (their only true deps).
+    # A {name, fun, default} triple is supplied so that even an unrescued raise
+    # (e.g. the external TenantUsage/Stats calls, which are NOT individually
+    # rescued in load/2) degrades to its default instead of aborting the load.
+    wave1 =
+      run_concurrent(
+        collector_counts: {fn -> TenantUsage.collector_counts_by_type() end, %{}},
+        device_summary: {fn -> device_summary(scope) end, empty_device_summary()},
+        services_summary: {fn -> services_summary(scope, time_window) end, empty_services_summary()},
+        flow_summary: {fn -> flow_summary(time_window) end, empty_flow_summary()},
+        traffic_links: {fn -> traffic_links(time_window) end, []},
+        topology_links: {fn -> topology_links(time_window) end, []},
+        mtr_overlays: {fn -> mtr_overlays() end, []},
+        camera_summary: {fn -> camera_summary(scope) end, empty_camera_summary()},
+        alert_summary: {fn -> Stats.alerts_summary(scope: scope) end, %{}},
+        alert_feed: {fn -> alert_feed(time_window) end, []},
+        event_summary: {fn -> Stats.events_summary(time: time_window) end, %{}},
+        threat_intel_summary: {fn -> threat_intel_summary() end, empty_threat_intel_summary()},
+        trace_summary: {fn -> trace_summary(srql_module, scope, time_window) end, empty_trace_summary()},
+        virtualization_summary: {fn -> virtualization_summary(srql_module, scope) end, empty_virtualization_summary()},
+        security_trend: {fn -> security_trend(time_window) end, []}
+      )
+
+    %{
+      collector_counts: collector_counts,
+      device_summary: device_summary,
+      services_summary: services_summary,
+      flow_summary: flow_summary_raw,
+      traffic_links: traffic_links,
+      topology_links: topology_links,
+      mtr_overlays: mtr_overlays,
+      camera_summary: camera_summary,
+      alert_summary: alert_summary,
+      alert_feed: alert_feed,
+      event_summary: event_summary,
+      threat_intel_summary: threat_intel_summary,
+      trace_summary: trace_summary,
+      virtualization_summary: virtualization_summary,
+      security_trend: security_trend
+    } = wave1
+
+    # Wave 2 — derived results that depend on wave 1 (pure post-processing).
+    flow_summary =
+      Map.put(
+        flow_summary_raw,
+        :link_count,
+        max(length(traffic_links), length(topology_links))
+      )
+
     mtr_summary = summarize_mtr_overlays(mtr_overlays)
-    camera_summary = camera_summary(scope)
     survey_summary = empty_survey_summary()
-    alert_summary = Stats.alerts_summary(scope: scope)
-    alert_feed = alert_feed(time_window)
-    event_summary = Stats.events_summary(time: time_window)
-    threat_intel_summary = threat_intel_summary()
-    trace_summary = trace_summary(srql_module, scope, time_window)
-    virtualization_summary = virtualization_summary(srql_module, scope)
-    security_trend = security_trend(time_window)
     sparklines = dashboard_sparklines(time_window, security_trend, mtr_overlays)
 
     module_states =
@@ -158,15 +196,69 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     }
   end
 
+  # Runs a keyword list of {name, {fun, default}} pairs concurrently via
+  # Task.async_stream and collects results into a map keyed by name. Tasks run
+  # unordered. A task that raises, exits, or times out degrades to its supplied
+  # default — so the load never aborts on a single failing/external query
+  # (preserving and extending the per-query graceful-degradation semantics).
+  defp run_concurrent(tasks) when is_list(tasks) do
+    tasks
+    |> Task.async_stream(
+      fn {name, {fun, default}} ->
+        try do
+          {name, {:ok, fun.()}}
+        catch
+          _kind, _reason -> {name, {:error, default}}
+        end
+      end,
+      ordered: false,
+      timeout: 15_000,
+      on_timeout: :kill_task
+    )
+    |> Enum.reduce(%{}, fn
+      {:ok, {name, {:ok, value}}}, acc -> Map.put(acc, name, value)
+      {:ok, {name, {:error, default}}}, acc -> Map.put(acc, name, default)
+      {:exit, _reason}, acc -> acc
+    end)
+    |> fill_defaults(tasks)
+  end
+
+  # Any task that did not return at all (killed before reporting) keeps its
+  # declared default so downstream destructuring never raises MatchError.
+  defp fill_defaults(results, tasks) do
+    Enum.reduce(tasks, results, fn {name, {_fun, default}}, acc ->
+      Map.put_new(acc, name, default)
+    end)
+  end
+
   @spec load_netflow_map(term(), keyword()) :: map()
   def load_netflow_map(_scope, opts \\ []) do
     time_window = Keyword.get(opts, :time_window, @default_time_window)
-    collector_counts = TenantUsage.collector_counts_by_type()
-    flow_summary = flow_summary(time_window)
-    traffic_links = traffic_links(time_window)
-    topology_links = topology_links(time_window)
-    flow_summary = Map.put(flow_summary, :link_count, max(length(traffic_links), length(topology_links)))
-    mtr_overlays = mtr_overlays()
+
+    wave1 =
+      run_concurrent(
+        collector_counts: {fn -> TenantUsage.collector_counts_by_type() end, %{}},
+        flow_summary: {fn -> flow_summary(time_window) end, empty_flow_summary()},
+        traffic_links: {fn -> traffic_links(time_window) end, []},
+        topology_links: {fn -> topology_links(time_window) end, []},
+        mtr_overlays: {fn -> mtr_overlays() end, []}
+      )
+
+    %{
+      collector_counts: collector_counts,
+      flow_summary: flow_summary_raw,
+      traffic_links: traffic_links,
+      topology_links: topology_links,
+      mtr_overlays: mtr_overlays
+    } = wave1
+
+    flow_summary =
+      Map.put(
+        flow_summary_raw,
+        :link_count,
+        max(length(traffic_links), length(topology_links))
+      )
+
     mtr_summary = summarize_mtr_overlays(mtr_overlays)
     netflow_state = netflow_source_state(collector_counts, flow_summary, traffic_links)
 

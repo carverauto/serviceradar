@@ -214,7 +214,7 @@
 - [ ] 38.1 Use NULL (not 0) for directional byte/packet counts a protocol does not carry; divide bps/pps by covered data span, not the full wall-clock window.
 
 ## 39. Dashboard Load Performance (F45)
-- [ ] 39.1 Parallelize the ~20 dashboard data queries + ~30 schema probes (concurrent, not sequential).
+- [x] 39.1 Parallelize the ~20 dashboard data queries + ~30 schema probes (concurrent, not sequential).
 - [ ] 39.2 Split `dashboard_live/data.ex` (~3148 lines) per §32.3.
 
 ## 40. Data Retention Coverage (F46)
