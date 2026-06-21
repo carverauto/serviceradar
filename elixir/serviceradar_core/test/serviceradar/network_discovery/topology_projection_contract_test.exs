@@ -559,13 +559,18 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
     test "upsert query keeps canonical relation syntax stable" do
       query = TopologyGraph.canonical_rebuild_upsert_query("2026-02-25T00:00:00Z")
 
-      assert query =~ "MERGE (a)-[cr:CANONICAL_TOPOLOGY]->(b)"
+      assert query =~ "MERGE (a)-[cr:CANONICAL_TOPOLOGY {link_key: link_key}]->(b)"
       refute query =~ "CNONICAL_TOPOLOGY"
       refute query =~ "[]->"
-      assert query =~ "WITH src_id, dst_id, collect({"
+
+      assert query =~
+               "WITH src_id, dst_id, local_interface_key + '|' + neighbor_interface_key AS link_key, collect({"
+
+      assert query =~ "WITH src_id, dst_id, link_key, head(candidates) AS best, candidates"
       assert query =~ "UNWIND candidates AS c"
       assert query =~ "support_rank"
       assert query =~ "pair_support_rank"
+      assert query =~ "SET cr.link_key = link_key"
 
       assert query =~
                "type(r) IN ['CONNECTS_TO', 'LOGICAL_PEER', 'HOSTED_ON', 'INFERRED_TO', 'ATTACHED_TO']"
@@ -597,6 +602,25 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       assert query =~ "SET cr.telemetry_eligible = coalesce(cr.telemetry_eligible, false)"
       assert query =~ "SET cr.telemetry_source = coalesce(cr.telemetry_source, 'none')"
       assert query =~ "SET cr.telemetry_observed_at = coalesce(cr.telemetry_observed_at, '')"
+    end
+
+    test "unseen projected link prune deletes reverse mapper edge before forward edge" do
+      [reverse_query, forward_query] =
+        TopologyGraph.prune_unseen_projected_links_queries(
+          "sr:device-a",
+          MapSet.new(["sr:device-b"])
+        )
+
+      assert reverse_query =~ "MATCH (a:Interface)-[r:CONNECTS_TO]->(b:Interface)"
+      assert reverse_query =~ "a.device_id = 'sr:device-a'"
+      assert reverse_query =~ "NOT b.device_id IN ['sr:device-b']"
+      assert reverse_query =~ "MATCH (b)-[rr:CONNECTS_TO]->(a)"
+      assert reverse_query =~ "DELETE rr"
+
+      assert forward_query =~ "MATCH (a:Interface)-[r:CONNECTS_TO]->(b:Interface)"
+      assert forward_query =~ "a.device_id = 'sr:device-a'"
+      assert forward_query =~ "NOT b.device_id IN ['sr:device-b']"
+      assert forward_query =~ "DELETE r"
     end
 
     test "prune query targets canonical topology edges" do
