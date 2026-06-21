@@ -1621,6 +1621,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
     assert Enum.any?(anomaly_queries, &String.contains?(&1, ~s|device_uid_exact:"#{uid}"|))
     assert Enum.any?(capacity_queries, &String.contains?(&1, ~s|resource_id:"#{uid}"|))
+    assert Enum.all?(anomaly_queries, &String.contains?(&1, "limit:20"))
+    assert Enum.all?(capacity_queries, &String.contains?(&1, "limit:12"))
     refute Enum.any?(anomaly_queries, &String.contains?(&1, "agent_id:"))
     refute Enum.any?(anomaly_queries, &String.contains?(&1, "host_id:"))
     refute Enum.any?(capacity_queries, &String.contains?(&1, "resource_key:"))
