@@ -5,9 +5,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics do
   @counter_max_64 18_446_744_073_709_551_615.0
 
   def counter_rates(series_points, max_speed) when is_list(series_points) do
-    Enum.map(series_points, fn {series, points} ->
+    Enum.map(series_points, fn entry ->
+      {series, points, metadata} = normalize_counter_series(entry)
       sorted_points = Enum.sort_by(points, fn {dt, _v} -> dt end)
-      {series, counter_rate_points(sorted_points, series, max_speed)}
+      {series, counter_rate_points(sorted_points, metadata, max_speed)}
     end)
   end
 
@@ -121,46 +122,67 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics do
   def utilization_badge_class(pct) when pct >= 50, do: "badge-info"
   def utilization_badge_class(_), do: "badge-success"
 
-  defp counter_rate_points(points, series, max_speed) do
+  defp normalize_counter_series({series, points}), do: {series, normalize_points(points), %{}}
+
+  defp normalize_counter_series({series, points, metadata}) when is_map(metadata) do
+    {series, normalize_points(points), metadata}
+  end
+
+  defp normalize_counter_series(%{} = entry) do
+    series =
+      Map.get(entry, :series) || Map.get(entry, "series") || Map.get(entry, :name) ||
+        Map.get(entry, "name") || "series"
+
+    points = Map.get(entry, :points) || Map.get(entry, "points") || []
+
+    {series, normalize_points(points), entry}
+  end
+
+  defp normalize_counter_series(entry), do: {to_string(entry || "series"), [], %{}}
+
+  defp normalize_points(points) when is_list(points), do: points
+  defp normalize_points(_), do: []
+
+  defp counter_rate_points(points, metadata, max_speed) do
     {_prev, acc} =
       Enum.reduce(points, {nil, []}, fn point, state ->
-        counter_rate_step(point, state, series, max_speed)
+        counter_rate_step(point, state, metadata, max_speed)
       end)
 
     Enum.reverse(acc)
   end
 
-  defp counter_rate_step({dt, value}, {nil, acc}, _series, _max_speed) do
+  defp counter_rate_step({dt, value}, {nil, acc}, _metadata, _max_speed) do
     {{dt, value}, [{dt, 0.0} | acc]}
   end
 
-  defp counter_rate_step({dt, value}, {{prev_dt, prev_value}, acc}, series, max_speed) do
+  defp counter_rate_step({dt, value}, {{prev_dt, prev_value}, acc}, metadata, max_speed) do
     diff = DateTime.diff(dt, prev_dt, :second)
-    rate = counter_rate(diff, value, prev_value, series, max_speed)
+    rate = counter_rate(diff, value, prev_value, metadata, max_speed)
     {{dt, value}, [{dt, rate} | acc]}
   end
 
-  defp counter_rate(diff, _value, _prev_value, _series, _max_speed) when diff <= 0, do: 0.0
+  defp counter_rate(diff, _value, _prev_value, _metadata, _max_speed) when diff <= 0, do: 0.0
 
-  defp counter_rate(diff, value, prev_value, series, max_speed) do
+  defp counter_rate(diff, value, prev_value, metadata, max_speed) do
     value
-    |> counter_delta(prev_value, series)
+    |> counter_delta(prev_value, metadata)
     |> Kernel./(diff)
     |> clamp_rate(max_speed)
   end
 
-  defp counter_delta(current, previous, series) when is_number(current) and is_number(previous) do
+  defp counter_delta(current, previous, metadata) when is_number(current) and is_number(previous) do
     if current >= previous do
       current - previous
     else
-      rollover_delta(current, previous, series)
+      rollover_delta(current, previous, metadata)
     end
   end
 
   defp counter_delta(_, _, _), do: 0.0
 
-  defp rollover_delta(current, previous, series) do
-    max_value = counter_max(series, previous)
+  defp rollover_delta(current, previous, metadata) do
+    max_value = counter_max(metadata, previous)
 
     if max_value > previous do
       max_value - previous + current
@@ -169,15 +191,62 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics do
     end
   end
 
-  defp counter_max(series, previous) do
-    series_label = to_string(series || "")
-
-    cond do
-      String.contains?(series_label, "HC") -> @counter_max_64
-      previous > @counter_max_32 -> @counter_max_64
-      true -> @counter_max_32
+  defp counter_max(metadata, previous) do
+    case counter_width(metadata) do
+      32 -> @counter_max_32
+      64 -> @counter_max_64
+      _ when previous > @counter_max_32 -> @counter_max_64
+      _ -> @counter_max_32
     end
   end
+
+  defp counter_width(metadata) when is_map(metadata) do
+    metadata
+    |> counter_width_candidates()
+    |> Enum.find_value(&normalize_counter_width/1)
+  end
+
+  defp counter_width(_), do: nil
+
+  defp counter_width_candidates(metadata) do
+    nested_metadata =
+      metadata
+      |> Map.get(:metadata, Map.get(metadata, "metadata", %{}))
+      |> metadata_map()
+
+    [
+      Map.get(metadata, :counter_width),
+      Map.get(metadata, "counter_width"),
+      Map.get(metadata, :counter_bits),
+      Map.get(metadata, "counter_bits"),
+      Map.get(metadata, :pdu_width),
+      Map.get(metadata, "pdu_width"),
+      Map.get(nested_metadata, :counter_width),
+      Map.get(nested_metadata, "counter_width"),
+      Map.get(nested_metadata, :counter_bits),
+      Map.get(nested_metadata, "counter_bits"),
+      Map.get(nested_metadata, :pdu_width),
+      Map.get(nested_metadata, "pdu_width")
+    ]
+  end
+
+  defp metadata_map(value) when is_map(value), do: value
+  defp metadata_map(_), do: %{}
+
+  defp normalize_counter_width(value) when value in [32, 64], do: value
+
+  defp normalize_counter_width(value) when is_float(value) and value in [32.0, 64.0] do
+    trunc(value)
+  end
+
+  defp normalize_counter_width(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {width, ""} when width in [32, 64] -> width
+      _ -> nil
+    end
+  end
+
+  defp normalize_counter_width(_), do: nil
 
   defp clamp_rate(rate, max_speed) when is_number(rate) and is_number(max_speed) and max_speed > 0 do
     if rate > max_speed, do: max_speed, else: rate

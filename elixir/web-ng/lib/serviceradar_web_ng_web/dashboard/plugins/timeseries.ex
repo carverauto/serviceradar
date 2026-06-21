@@ -42,8 +42,12 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   @impl true
   def build(%{"results" => results, "viz" => viz} = _srql_response) when is_list(results) and is_map(viz) do
     with {:ok, spec} <- Spec.parse_timeseries_spec(viz),
-         {:ok, series_points, series_units} <- Spec.extract_series_points(results, spec) do
-      spec = Map.put(spec, :series_units, series_units)
+         {:ok, series_points, series_units, series_metadata} <- Spec.extract_series_points(results, spec) do
+      spec =
+        spec
+        |> Map.put(:series_units, series_units)
+        |> Map.put(:series_metadata, series_metadata)
+
       {:ok, %{spec: spec, series_points: series_points}}
     end
   end
@@ -51,8 +55,12 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   def build(%{"results" => results} = _srql_response) when is_list(results) do
     case Spec.infer_timeseries_spec(results) do
       {:ok, spec} ->
-        with {:ok, series_points, series_units} <- Spec.extract_series_points(results, spec) do
-          spec = Map.put(spec, :series_units, series_units)
+        with {:ok, series_points, series_units, series_metadata} <- Spec.extract_series_points(results, spec) do
+          spec =
+            spec
+            |> Map.put(:series_units, series_units)
+            |> Map.put(:series_metadata, series_metadata)
+
           {:ok, %{spec: spec, series_points: series_points}}
         end
 
@@ -76,8 +84,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
     series_points =
       case rate_mode do
-        :counter -> Metrics.counter_rates(series_points, max_speed)
-        _ -> series_points
+        :counter ->
+          series_points
+          |> attach_series_metadata(series_metadata_from_assigns(panel_assigns, spec))
+          |> Metrics.counter_rates(max_speed)
+
+        _ ->
+          series_points
       end
 
     socket =
@@ -153,6 +166,44 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         Map.get(assigns, :series_points, [])
     end
   end
+
+  defp series_metadata_from_assigns(panel_assigns, spec) do
+    %{}
+    |> Map.merge(spec_series_metadata(spec))
+    |> Map.merge(normalize_series_metadata(Spec.fetch_panel_value(panel_assigns, :series_metadata, %{})))
+    |> Map.merge(Spec.series_metadata(Spec.fetch_panel_value(panel_assigns, :series, [])))
+  end
+
+  defp attach_series_metadata(series_points, metadata_by_series) when is_list(series_points) do
+    Enum.map(series_points, fn
+      {series, points, metadata} ->
+        {series, points, metadata}
+
+      {series, points} ->
+        case series_metadata(metadata_by_series, series) do
+          metadata when is_map(metadata) and metadata != %{} -> {series, points, metadata}
+          _ -> {series, points}
+        end
+
+      entry ->
+        entry
+    end)
+  end
+
+  defp attach_series_metadata(series_points, _metadata_by_series), do: series_points
+
+  defp spec_series_metadata(%{series_metadata: metadata}) when is_map(metadata), do: metadata
+  defp spec_series_metadata(%{"series_metadata" => metadata}) when is_map(metadata), do: metadata
+  defp spec_series_metadata(_), do: %{}
+
+  defp normalize_series_metadata(metadata) when is_map(metadata), do: metadata
+  defp normalize_series_metadata(_), do: %{}
+
+  defp series_metadata(metadata_by_series, series) when is_map(metadata_by_series) do
+    Map.get(metadata_by_series, series) || Map.get(metadata_by_series, to_string(series || ""))
+  end
+
+  defp series_metadata(_metadata_by_series, _series), do: nil
 
   defp annotations_from_assigns(assigns) do
     assigns
