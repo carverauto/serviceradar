@@ -5,6 +5,48 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
 
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics
 
+  attr :annotations, :list, required: true
+  attr :chart_pad, :integer, required: true
+  attr :chart_height, :integer, required: true
+  attr :compact, :boolean, default: false
+
+  def annotation_markers_svg(assigns) do
+    ~H"""
+    <g
+      :if={@annotations != []}
+      data-testid="timeseries-annotations"
+      stroke-linecap="round"
+    >
+      <%= for annotation <- @annotations do %>
+        <line
+          data-testid="timeseries-annotation"
+          data-annotation-label={annotation.label}
+          data-annotation-severity={annotation.severity}
+          x1={annotation.x}
+          x2={annotation.x}
+          y1={@chart_pad}
+          y2={@chart_height - @chart_pad}
+          stroke={annotation.color}
+          stroke-width="1.5"
+          stroke-dasharray="4 3"
+          opacity="0.85"
+        >
+          <title>{annotation.title}</title>
+        </line>
+        <circle
+          cx={annotation.x}
+          cy={@chart_pad + 4}
+          r={if @compact, do: 2.5, else: 3.5}
+          fill={annotation.color}
+          opacity="0.95"
+        >
+          <title>{annotation.title}</title>
+        </circle>
+      <% end %>
+    </g>
+    """
+  end
+
   attr :id, :string, required: true
   attr :data, :map, required: true
   attr :chart_width, :integer, required: true
@@ -105,6 +147,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
               <text x={x} y={@chart_height - 2} text-anchor="middle">{label}</text>
             <% end %>
           </g>
+
+          <.annotation_markers_svg
+            annotations={@data.annotations}
+            chart_pad={@chart_pad}
+            chart_height={@chart_height}
+            compact={@compact}
+          />
 
           <path d={@data.paths.area} fill={"url(#series-fill-#{@id}-#{@data.idx})"} />
           <path
