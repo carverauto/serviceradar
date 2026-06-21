@@ -386,4 +386,63 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       assert row.ingest_partition == ""
     end
   end
+
+  describe "prepare_rows_for_insert/1" do
+    test "uses insert placeholders for repeated batch-constant text values" do
+      timestamp = ~U[2024-01-15 10:30:00Z]
+
+      rows = [
+        %{
+          id: Ecto.UUID.generate(),
+          timestamp: timestamp,
+          body: "first",
+          service_name: "shared-service",
+          resource_attributes: %{"host.name" => "host-a"},
+          attributes: %{"serviceradar.ingest" => %{"subject" => "logs.otel"}},
+          ingest_partition: "site-a"
+        },
+        %{
+          id: Ecto.UUID.generate(),
+          timestamp: timestamp,
+          body: "second",
+          service_name: "shared-service",
+          resource_attributes: %{"host.name" => "host-a"},
+          attributes: %{"serviceradar.ingest" => %{"subject" => "logs.otel"}},
+          ingest_partition: "site-a"
+        }
+      ]
+
+      {prepared_rows, placeholders} = Logs.prepare_rows_for_insert(rows)
+
+      assert placeholders.logs_service_name == "shared-service"
+      assert placeholders.logs_attributes == ~s({"serviceradar.ingest":{"subject":"logs.otel"}})
+      assert placeholders.logs_resource_attributes == ~s({"host.name":"host-a"})
+      assert placeholders.logs_ingest_partition == "site-a"
+
+      assert Enum.all?(prepared_rows, fn row ->
+               row.service_name == {:placeholder, :logs_service_name} and
+                 row.attributes == {:placeholder, :logs_attributes} and
+                 row.resource_attributes == {:placeholder, :logs_resource_attributes} and
+                 row.ingest_partition == {:placeholder, :logs_ingest_partition}
+             end)
+
+      assert Enum.map(prepared_rows, & &1.body) == ["first", "second"]
+    end
+
+    test "leaves mixed or single-use values as ordinary binds" do
+      timestamp = ~U[2024-01-15 10:30:00Z]
+
+      rows = [
+        %{id: Ecto.UUID.generate(), timestamp: timestamp, body: "one", service_name: "svc-a"},
+        %{id: Ecto.UUID.generate(), timestamp: timestamp, body: "two", service_name: "svc-b"}
+      ]
+
+      {prepared_rows, placeholders} = Logs.prepare_rows_for_insert(rows)
+
+      refute Map.has_key?(placeholders, :logs_service_name)
+      refute Map.has_key?(placeholders, :logs_body)
+      assert Enum.map(prepared_rows, & &1.service_name) == ["svc-a", "svc-b"]
+      assert Enum.map(prepared_rows, & &1.body) == ["one", "two"]
+    end
+  end
 end
