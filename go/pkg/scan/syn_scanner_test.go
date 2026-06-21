@@ -418,6 +418,24 @@ func TestSYNScannerRetryAndRateMetricAccounting(t *testing.T) {
 	assert.Equal(t, uint64(10*time.Millisecond), stats.SourcePortWaitNanos)
 }
 
+func TestSYNScannerRateLimiterAllowsDisabledAndLowRateShards(t *testing.T) {
+	t.Parallel()
+
+	scanner := &SYNScanner{concurrency: 64}
+	scanner.SetRateLimit(0, 0)
+	assert.Equal(t, 10, scanner.allowN(10))
+
+	limiter := newShardedTokenBucket(64, 1, 1)
+	require.Len(t, limiter.buckets, 64)
+	for _, bucket := range limiter.buckets {
+		require.NotNil(t, bucket)
+	}
+
+	for i := 0; i < 128; i++ {
+		assert.GreaterOrEqual(t, limiter.AllowN(1), 0)
+	}
+}
+
 func TestSYNScannerRetryAccountingCountsDroppedEnqueues(t *testing.T) {
 	t.Parallel()
 

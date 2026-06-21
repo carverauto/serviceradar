@@ -302,6 +302,12 @@ type rateLimiter interface {
 	AllowN(n int) int
 }
 
+type unlimitedRateLimiter struct{}
+
+func (unlimitedRateLimiter) AllowN(n int) int {
+	return n
+}
+
 // tokenBucket is a tiny limiter (tokens/sec with a burst).
 type tokenBucket struct {
 	rate  float64 // tokens per second
@@ -371,12 +377,11 @@ type shardedTokenBucket struct {
 }
 
 func newShardedTokenBucket(shards, pps, burst int) *shardedTokenBucket {
-	if shards <= 1 {
-		return &shardedTokenBucket{shards: 1, buckets: []*tokenBucket{newTokenBucket(pps, burst)}}
+	if pps <= 0 {
+		return &shardedTokenBucket{shards: 1, buckets: []*tokenBucket{newTokenBucket(1, 1)}}
 	}
 
-	if pps <= 0 {
-		// Disabled case still needs a non-nil implementation
+	if shards <= 1 {
 		return &shardedTokenBucket{shards: 1, buckets: []*tokenBucket{newTokenBucket(pps, burst)}}
 	}
 
@@ -423,6 +428,10 @@ func (s *shardedTokenBucket) AllowN(n int) int {
 		idx %= s.shards
 	} else {
 		idx = 0
+	}
+
+	if idx >= len(s.buckets) || s.buckets[idx] == nil {
+		return n
 	}
 
 	return s.buckets[idx].AllowN(n)
@@ -1954,6 +1963,11 @@ func (s *SYNScanner) hasFinalResult(targetKey string) bool {
 // Pass pps<=0 to disable. If burst<=0, burst defaults to pps.
 // Safe to call anytime, including during active scans.
 func (s *SYNScanner) SetRateLimit(pps, burst int) {
+	if pps <= 0 {
+		s.rl.Store(rateLimiter(unlimitedRateLimiter{}))
+		return
+	}
+
 	// Determine shard count to reduce lock contention at high concurrency.
 	// Scale with scanner concurrency and CPU count, clamp to sensible bounds.
 	// Using a power-of-two-ish upper bound keeps modulo cheap.
@@ -1971,7 +1985,6 @@ func (s *SYNScanner) SetRateLimit(pps, burst int) {
 	}
 
 	// Always store a non-nil rateLimiter to keep atomic.Value type stable and avoid nil checks.
-	// For disabled case (pps<=0), create a single bucket with zero rate (acts like allow-all).
 	limiter := rateLimiter(newShardedTokenBucket(shards, pps, burst))
 	s.rl.Store(limiter)
 }
