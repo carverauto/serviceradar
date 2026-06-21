@@ -54,4 +54,23 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
 
     assert html =~ "%"
   end
+
+  test "prefers SRQL metric unit metadata over field-name inference" do
+    points = [
+      {~U[2025-01-01 00:00:00Z], 1024.0},
+      {~U[2025-01-01 00:05:00Z], 4096.0}
+    ]
+
+    html =
+      render_component(Timeseries, %{
+        id: "ts-unit-metadata",
+        title: "Disk",
+        panel_assigns: %{chart_mode: :single, rate_mode: :none},
+        spec: %{x: "timestamp", y: "value", series: "label", series_units: %{"disk" => :bytes}},
+        series_points: [{"disk", points}]
+      })
+
+    assert html =~ ~s(data-unit="bytes")
+    assert html =~ "4.1 KB"
+  end
 end

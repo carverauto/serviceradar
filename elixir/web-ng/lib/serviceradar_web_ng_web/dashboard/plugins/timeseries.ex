@@ -42,7 +42,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   @impl true
   def build(%{"results" => results, "viz" => viz} = _srql_response) when is_list(results) and is_map(viz) do
     with {:ok, spec} <- Spec.parse_timeseries_spec(viz),
-         {:ok, series_points} <- Spec.extract_series_points(results, spec) do
+         {:ok, series_points, series_units} <- Spec.extract_series_points(results, spec) do
+      spec = Map.put(spec, :series_units, series_units)
       {:ok, %{spec: spec, series_points: series_points}}
     end
   end
@@ -50,7 +51,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   def build(%{"results" => results} = _srql_response) when is_list(results) do
     case Spec.infer_timeseries_spec(results) do
       {:ok, spec} ->
-        with {:ok, series_points} <- Spec.extract_series_points(results, spec) do
+        with {:ok, series_points, series_units} <- Spec.extract_series_points(results, spec) do
+          spec = Map.put(spec, :series_units, series_units)
           {:ok, %{spec: spec, series_points: series_points}}
         end
 

@@ -37,8 +37,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Spec do
   def extract_series_points(results, %{x: x, y: y, series: series_key}) do
     rows = Enum.filter(results, &is_map/1)
 
-    points =
-      Enum.reduce(rows, %{}, fn row, acc ->
+    {points, units} =
+      Enum.reduce(rows, {%{}, %{}}, fn row, {points_acc, units_acc} ->
         series =
           if is_binary(series_key) do
             row
@@ -50,12 +50,17 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Spec do
             "series"
           end
 
-        with {:ok, dt} <- parse_datetime(Map.get(row, x)),
-             {:ok, value} <- parse_number(Map.get(row, y)) do
-          Map.update(acc, series, [{dt, value}], fn existing -> existing ++ [{dt, value}] end)
-        else
-          _ -> acc
-        end
+        units_acc = record_series_unit(units_acc, series, row)
+
+        points_acc =
+          with {:ok, dt} <- parse_datetime(Map.get(row, x)),
+               {:ok, value} <- parse_number(Map.get(row, y)) do
+            Map.update(points_acc, series, [{dt, value}], fn existing -> existing ++ [{dt, value}] end)
+          else
+            _ -> points_acc
+          end
+
+        {points_acc, units_acc}
       end)
 
     series_points =
@@ -69,7 +74,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Spec do
       |> Enum.sort_by(fn {series, _points} -> series end)
       |> Enum.take(@max_series)
 
-    {:ok, series_points}
+    series_units =
+      series_points
+      |> Enum.map(fn {series, _points} -> {series, Map.get(units, series)} end)
+      |> Enum.reject(fn {_series, unit} -> is_nil(unit) end)
+      |> Map.new()
+
+    {:ok, series_points, series_units}
   end
 
   def series_to_points(series) when is_list(series) do
@@ -105,6 +116,75 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Spec do
   end
 
   def fetch_panel_value(_panel_assigns, _key, default), do: default
+
+  defp record_series_unit(units, series, row) do
+    case Map.get(units, series) || normalize_unit(row_unit(row)) do
+      nil -> units
+      unit -> Map.put(units, series, unit)
+    end
+  end
+
+  defp row_unit(row) do
+    first_present([
+      Map.get(row, "metric.unit"),
+      Map.get(row, :metric_unit),
+      Map.get(row, "metric_unit"),
+      nested_map_get(row, ["metric", "unit"]),
+      nested_map_get(row, [:metric, :unit]),
+      Map.get(row, "unit"),
+      Map.get(row, :unit)
+    ])
+  end
+
+  defp nested_map_get(map, [key | rest]) when is_map(map) do
+    case Map.get(map, key) do
+      nil -> nil
+      value -> nested_map_get(value, rest)
+    end
+  end
+
+  defp nested_map_get(value, []), do: value
+  defp nested_map_get(_value, _keys), do: nil
+
+  defp first_present(values) do
+    Enum.find(values, fn
+      nil -> false
+      value when is_binary(value) -> String.trim(value) != ""
+      _ -> true
+    end)
+  end
+
+  defp normalize_unit(unit) when is_atom(unit), do: normalize_unit(Atom.to_string(unit))
+
+  defp normalize_unit(unit) when is_binary(unit) do
+    raw = String.trim(unit)
+    value = String.downcase(raw)
+
+    cond do
+      value in ["%", "percent", "percentage"] ->
+        :percent
+
+      raw == "B" or value in ["by", "byte", "bytes"] ->
+        :bytes
+
+      raw == "B/s" or value in ["by/s", "bytes/s", "bytes/sec", "bytes_per_sec", "bytes_per_second"] ->
+        :bytes_per_sec
+
+      value in ["b/s", "bit/s", "bits/s", "bps", "bits_per_sec", "bits_per_second"] ->
+        :bits_per_sec
+
+      value in ["hz", "hertz"] ->
+        :hz
+
+      value in ["1/s", "count/s", "counts/s", "count_per_sec", "counts_per_sec"] ->
+        :count_per_sec
+
+      true ->
+        nil
+    end
+  end
+
+  defp normalize_unit(_), do: nil
 
   defp parse_number(value) when is_integer(value), do: {:ok, value * 1.0}
   defp parse_number(value) when is_float(value), do: {:ok, value}

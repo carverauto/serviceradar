@@ -30,9 +30,14 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics do
   def scale_max_for_unit(_), do: nil
 
   def unit_for_series(series, spec, rate_mode) do
+    explicit_unit = spec_series_unit(spec, series)
+
     cond do
       rate_mode == :counter ->
         if traffic_series?(series), do: :bytes_per_sec, else: :count_per_sec
+
+      explicit_unit != nil ->
+        explicit_unit
 
       percent_field?(spec) ->
         :percent
@@ -62,6 +67,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics do
     case unit do
       :percent -> "percent"
       :bytes_per_sec -> "bytes_per_sec"
+      :bits_per_sec -> "bits_per_sec"
       :bytes -> "bytes"
       :hz -> "hz"
       :count_per_sec -> "count_per_sec"
@@ -75,6 +81,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics do
     case unit do
       :percent -> "#{Float.round(value, 1)}%"
       :bytes_per_sec -> format_bytes_per_sec(value)
+      :bits_per_sec -> format_bits_per_sec(value)
       :bytes -> format_bytes(value)
       :hz -> format_hz(value)
       :count_per_sec -> format_count_per_sec(value)
@@ -178,6 +185,16 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics do
 
   defp clamp_rate(rate, _max_speed), do: rate
 
+  defp spec_series_unit(%{series_units: units}, series) when is_map(units) do
+    Map.get(units, series) || Map.get(units, to_string(series || ""))
+  end
+
+  defp spec_series_unit(%{"series_units" => units}, series) when is_map(units) do
+    Map.get(units, series) || Map.get(units, to_string(series || ""))
+  end
+
+  defp spec_series_unit(_spec, _series), do: nil
+
   defp percent_field?(%{y: y}) when is_binary(y), do: String.contains?(y, "percent")
   defp percent_field?(_), do: false
 
@@ -200,6 +217,12 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics do
   defp format_bytes_per_sec(bps) when bps >= 1_000, do: "#{Float.round(bps / 1_000, 2)} KB/s"
   defp format_bytes_per_sec(bps) when bps >= 0, do: "#{Float.round(bps, 1)} B/s"
   defp format_bytes_per_sec(bps), do: "#{Float.round(bps, 2)}"
+
+  defp format_bits_per_sec(bps) when bps >= 1_000_000_000, do: "#{Float.round(bps / 1_000_000_000, 2)} Gbps"
+  defp format_bits_per_sec(bps) when bps >= 1_000_000, do: "#{Float.round(bps / 1_000_000, 2)} Mbps"
+  defp format_bits_per_sec(bps) when bps >= 1_000, do: "#{Float.round(bps / 1_000, 2)} Kbps"
+  defp format_bits_per_sec(bps) when bps >= 0, do: "#{Float.round(bps, 1)} bps"
+  defp format_bits_per_sec(bps), do: "#{Float.round(bps, 2)}"
 
   defp format_bytes(bytes) when bytes >= 1_000_000_000, do: "#{Float.round(bytes / 1_000_000_000, 2)} GB"
   defp format_bytes(bytes) when bytes >= 1_000_000, do: "#{Float.round(bytes / 1_000_000, 2)} MB"

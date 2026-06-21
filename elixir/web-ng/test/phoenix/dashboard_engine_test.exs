@@ -30,6 +30,35 @@ defmodule ServiceRadarWebNGWeb.DashboardEngineTest do
     assert timeseries_panel.assigns.spec[:x] == "timestamp"
   end
 
+  test "threads SRQL metric units into timeseries panel spec" do
+    response = %{
+      "results" => [
+        %{
+          "timestamp" => "2025-01-01T00:00:00Z",
+          "series" => "disk",
+          "value" => 1024.0,
+          "metric" => %{"unit" => "By"}
+        },
+        %{
+          "timestamp" => "2025-01-01T00:01:00Z",
+          "series" => "network",
+          "value" => 1000.0,
+          "metric.unit" => "b/s"
+        }
+      ],
+      "viz" => %{
+        "suggestions" => [
+          %{"kind" => "timeseries", "x" => "timestamp", "y" => "value", "series" => "series"}
+        ]
+      }
+    }
+
+    panels = Engine.build_panels(response)
+
+    timeseries_panel = Enum.find(panels, &(&1.plugin == Plugins.Timeseries))
+    assert timeseries_panel.assigns.spec[:series_units] == %{"disk" => :bytes, "network" => :bits_per_sec}
+  end
+
   test "selects topology plugin when graph payload includes nodes and edges" do
     response = %{
       "results" => [%{"nodes" => [%{"id" => "n1", "label" => "Node"}], "edges" => []}],
