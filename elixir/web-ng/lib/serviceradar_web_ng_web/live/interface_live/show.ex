@@ -12,10 +12,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   alias ServiceRadarWebNGWeb.Dashboard.Engine
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
   alias ServiceRadarWebNGWeb.Helpers.InterfaceTypes
+  alias ServiceRadarWebNGWeb.InterfaceLive.MetricsQuery
 
   require Logger
-
-  @snmp_metrics_limit 3600
 
   @impl true
   def mount(_params, _session, socket) do
@@ -1483,9 +1482,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
     # Use agg:max to pull the latest counter values per bucket.
     # Rate deltas are calculated client-side for SNMP counter metrics.
-    query =
-      "in:snmp_metrics device_id:\"#{escape_value(device_uid)}\" if_index:#{if_index} " <>
-        "time:last_24h bucket:5m agg:max series:metric_name limit:#{@snmp_metrics_limit}"
+    query = MetricsQuery.build_snmp_counter_query(device_uid, if_index, metric_query_names(settings))
 
     # Get interface speed for proper graph scaling (bps -> bytes per second)
     if_speed_bps = Map.get(interface, "speed_bps") || Map.get(interface, "if_speed")
@@ -1666,6 +1663,20 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   end
 
   defp format_metric_series_name(name), do: to_string(name)
+
+  defp metric_query_names(settings) do
+    selected_metrics = settings_list_value(settings, :metrics_selected)
+
+    grouped_metrics =
+      settings
+      |> settings_list_value(:metric_groups)
+      |> Enum.flat_map(fn
+        %{} = group -> Map.get(group, "metrics") || Map.get(group, :metrics) || []
+        _ -> []
+      end)
+
+    selected_metrics ++ grouped_metrics
+  end
 
   defp escape_value(value) when is_binary(value) do
     String.replace(value, "\"", "\\\"")
