@@ -14,39 +14,40 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   require Logger
 
   @inventory_rollup_refresh_lock_key 20_240_306
+  @default_inventory_rollup_bulk_refresh_threshold 100
 
   # DB connection's search_path determines the schema
   def bulk_upsert_devices(records, strong_uids \\ MapSet.new()) do
     update_query = device_upsert_update_query()
-    do_bulk_upsert_devices(records, update_query, strong_uids)
+    refresh_rollups? = inventory_rollup_bulk_refresh_required?(length(records))
+    do_bulk_upsert_devices(records, update_query, strong_uids, refresh_rollups?)
   rescue
     e ->
       Logger.warning("Bulk device upsert failed: #{inspect(e)}")
       {:error, e}
   end
 
-  defp do_bulk_upsert_devices(records, update_query, strong_uids) do
-    with_inventory_rollup_bypassed(fn ->
-      Repo.insert_all(
-        Device,
-        records,
-        on_conflict: update_query,
-        conflict_target: [:uid]
-      )
-    end)
+  defp do_bulk_upsert_devices(records, update_query, strong_uids, refresh_rollups?) do
+    insert_devices(records, update_query, refresh_rollups?)
 
     {:ok, %{}}
   rescue
     e in Postgrex.Error ->
       if ip_unique_conflict?(e) do
-        recover_ip_conflict_and_retry(records, update_query, strong_uids, e)
+        recover_ip_conflict_and_retry(records, update_query, strong_uids, e, refresh_rollups?)
       else
         Logger.warning("Bulk device upsert failed: #{inspect(e)}")
         {:error, e}
       end
   end
 
-  defp recover_ip_conflict_and_retry(records, update_query, strong_uids, original_error) do
+  defp recover_ip_conflict_and_retry(
+         records,
+         update_query,
+         strong_uids,
+         original_error,
+         refresh_rollups?
+       ) do
     {remapped_records, remap} = remap_records_to_existing_ip(records, strong_uids)
     recovered_records = DeviceRecords.merge_records_by_uid(remapped_records)
 
@@ -58,28 +59,33 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
         "Bulk device upsert hit active-IP conflict; remapped #{length(records)} records to #{length(recovered_records)} and retrying"
       )
 
-      case do_bulk_upsert_devices_once(recovered_records, update_query) do
+      case do_bulk_upsert_devices_once(recovered_records, update_query, refresh_rollups?) do
         :ok -> {:ok, remap}
         {:error, _} = error -> error
       end
     end
   end
 
-  defp do_bulk_upsert_devices_once(records, update_query) do
-    with_inventory_rollup_bypassed(fn ->
-      Repo.insert_all(
-        Device,
-        records,
-        on_conflict: update_query,
-        conflict_target: [:uid]
-      )
-    end)
-
+  defp do_bulk_upsert_devices_once(records, update_query, refresh_rollups?) do
+    insert_devices(records, update_query, refresh_rollups?)
     :ok
   rescue
     e ->
       Logger.warning("Bulk device upsert retry failed: #{inspect(e)}")
       {:error, e}
+  end
+
+  defp insert_devices(records, update_query, true) do
+    with_inventory_rollup_bypassed(fn -> insert_devices(records, update_query, false) end)
+  end
+
+  defp insert_devices(records, update_query, false) do
+    Repo.insert_all(
+      Device,
+      records,
+      on_conflict: update_query,
+      conflict_target: [:uid]
+    )
   end
 
   # Returns `{remapped_records, remap}` where `remap` is a map of
@@ -139,10 +145,21 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   end
 
   def maybe_refresh_inventory_rollups(:ok, total_count) when total_count > 0 do
-    refresh_inventory_rollups()
+    if inventory_rollup_bulk_refresh_required?(total_count) do
+      refresh_inventory_rollups()
+    else
+      :ok
+    end
   end
 
   def maybe_refresh_inventory_rollups(result, _total_count), do: result
+
+  @doc false
+  def inventory_rollup_bulk_refresh_required?(count) when is_integer(count) and count > 0 do
+    count > inventory_rollup_bulk_refresh_threshold()
+  end
+
+  def inventory_rollup_bulk_refresh_required?(_count), do: false
 
   defp with_inventory_rollup_bypassed(fun) when is_function(fun, 0) do
     Repo.transaction(
@@ -187,6 +204,26 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
         false
     end
   end
+
+  defp inventory_rollup_bulk_refresh_threshold do
+    :serviceradar_core
+    |> Application.get_env(
+      :inventory_rollup_bulk_refresh_threshold,
+      @default_inventory_rollup_bulk_refresh_threshold
+    )
+    |> parse_nonnegative_integer(@default_inventory_rollup_bulk_refresh_threshold)
+  end
+
+  defp parse_nonnegative_integer(value, _default) when is_integer(value) and value >= 0, do: value
+
+  defp parse_nonnegative_integer(value, default) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, _} when int >= 0 -> int
+      _ -> default
+    end
+  end
+
+  defp parse_nonnegative_integer(_value, default), do: default
 
   defp ip_unique_conflict?(%Postgrex.Error{postgres: postgres}) when is_map(postgres) do
     postgres[:code] == :unique_violation and
