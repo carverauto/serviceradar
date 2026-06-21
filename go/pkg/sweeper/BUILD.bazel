@@ -8,6 +8,7 @@ go_library(
         "memory_store.go",
         "mock_sweeper.go",
         "sweeper.go",
+        "sweeper_config.go",
     ],
     importpath = "github.com/carverauto/serviceradar/go/pkg/sweeper",
     visibility = ["//visibility:public"],
