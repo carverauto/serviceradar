@@ -202,7 +202,7 @@
 
 ## 36. Dashboard Table & Topology Plugins (F42)
 - [ ] 36.1 Table plugin: server-side pagination/cap + sort; preserve authored SELECT column order; format numeric cells (units/separators).
-- [ ] 36.2 Topology: cap nodes with an explicit "+N more" truncation indicator; use a stable node id (not `phash2` of the raw map).
+- [x] 36.2 Topology: cap nodes with an explicit "+N more" truncation indicator; use a stable node id (not `phash2` of the raw map).
 
 ## 37. NetFlow Aggregation & Attribution (F43)
 - [ ] 37.1 Scope the interface bandwidth gauge to the interface (not whole-exporter bytes); label peak vs average correctly.
