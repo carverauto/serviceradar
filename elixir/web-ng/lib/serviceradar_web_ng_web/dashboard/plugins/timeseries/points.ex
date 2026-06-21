@@ -60,11 +60,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
 
   def y_ticks(_max_v, _compact, unit), do: [{Paths.value_to_y(0, 0, 1), Metrics.format_value(0, unit)}]
 
-  def chart_points(points, unit, compact, cap) when is_list(points) do
-    points
-    |> maybe_densify(unit, compact, cap)
-    |> maybe_smooth(unit, compact)
-  end
+  def chart_points(points, _unit, _compact, _cap) when is_list(points), do: points
 
   def chart_points(points, _unit, _compact, _cap), do: points
 
@@ -194,67 +190,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
     |> Enum.uniq()
     |> Enum.sort_by(fn {dt, _value} -> DateTime.to_unix(dt, :microsecond) end)
   end
-
-  defp maybe_densify(points, :bytes_per_sec, compact, cap) do
-    factor = if compact, do: 2, else: 4
-    densified = densify_points(points, factor)
-    limit_points(densified, cap)
-  end
-
-  defp maybe_densify(points, _unit, _compact, _cap), do: points
-
-  defp maybe_smooth(points, :bytes_per_sec, compact) do
-    window = if compact, do: 1, else: 2
-    smooth_points(points, window)
-  end
-
-  defp maybe_smooth(points, _unit, _compact), do: points
-
-  defp densify_points([], _factor), do: []
-  defp densify_points([_] = points, _factor), do: points
-
-  defp densify_points(points, factor) when is_list(points) and factor > 1 do
-    points
-    |> Enum.chunk_every(2, 1, :discard)
-    |> Enum.reduce([List.first(points)], fn segment, acc ->
-      acc ++ densify_segment(segment, factor)
-    end)
-  end
-
-  defp densify_points(points, _factor), do: points
-
-  defp densify_segment([{dt0, v0}, {dt1, v1}], factor) do
-    total_secs = max(DateTime.diff(dt1, dt0, :second), 1)
-
-    intermediates =
-      Enum.map(1..(factor - 1), fn i ->
-        t = i / factor
-        dt = DateTime.add(dt0, round(total_secs * t), :second)
-        v = v0 + (v1 - v0) * t
-        {dt, v}
-      end)
-
-    intermediates ++ [{dt1, v1}]
-  end
-
-  defp smooth_points(points, window) when is_list(points) and window > 0 do
-    values = Enum.map(points, fn {_dt, v} -> v end)
-    len = length(values)
-
-    smoothed =
-      values
-      |> Enum.with_index()
-      |> Enum.map(fn {_v, idx} ->
-        from = max(idx - window, 0)
-        to = min(idx + window, len - 1)
-        slice = Enum.slice(values, from..to)
-        Enum.sum(slice) / max(length(slice), 1)
-      end)
-
-    Enum.zip(Enum.map(points, &elem(&1, 0)), smoothed)
-  end
-
-  defp smooth_points(points, _window), do: points
 
   defp median_delta_seconds(points) when is_list(points) do
     deltas =
