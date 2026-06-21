@@ -639,11 +639,16 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
          message: "Please enter a host address first"
        })}
     else
-      # Set loading state
+      # Set loading state and run the (blocking DNS + UDP) probe off the
+      # LiveView process via the app TaskSupervisor. The previous send(self())
+      # + handle_info pattern ran the probe inside the LV process, blocking it
+      # for up to the 3s UDP recv and serializing all LV messages behind it.
       socket = assign(socket, :test_connection_loading, true)
 
-      # Send to self to do async work
-      send(self(), {:test_snmp_connection, host, port})
+      Task.Supervisor.async_nolink(
+        ServiceRadarWebNG.TaskSupervisor,
+        fn -> test_snmp_connectivity(host, port) end
+      )
 
       {:noreply, socket}
     end
@@ -1043,9 +1048,24 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
 
   # Handle info callbacks
 
+  # SNMP test-connection probe result. The probe runs via
+  # Task.Supervisor.async_nolink (off the LiveView process), so it delivers a
+  # {ref, result} message on success and a {:DOWN, ref, ...} message on crash.
   @impl true
-  def handle_info({:test_snmp_connection, host, port}, socket) do
-    result = test_snmp_connectivity(host, port)
+  def handle_info({ref, result}, socket) when is_reference(ref) do
+    Process.demonitor(ref, [:flush])
+
+    {:noreply,
+     socket
+     |> assign(:test_connection_loading, false)
+     |> assign(:test_connection_result, result)}
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, reason}, socket) when is_reference(ref) do
+    result = %{
+      success: false,
+      message: "Connection test failed: #{inspect(reason)}"
+    }
 
     {:noreply,
      socket

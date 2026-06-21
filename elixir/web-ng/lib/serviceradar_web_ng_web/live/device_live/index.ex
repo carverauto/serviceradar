@@ -476,17 +476,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       not can_launch_northbound_actions?(socket.assigns.current_scope) ->
         {:noreply, put_flash(socket, :error, launch_permission_error())}
 
-      MapSet.size(socket.assigns.selected_devices) == 0 ->
-        {:noreply, put_flash(socket, :error, "Select at least one device before Run Task.")}
-
       socket.assigns.northbound_device_actions == [] ->
         {:noreply, put_flash(socket, :error, "No launchable task integrations are configured.")}
 
       true ->
-        {:noreply,
-         socket.assigns.northbound_device_actions
-         |> preferred_device_action()
-         |> then(&open_northbound_action_modal(socket, &1))}
+        case validate_device_selection(socket) do
+          {:error, message} ->
+            {:noreply, put_flash(socket, :error, message)}
+
+          :ok ->
+            {:noreply,
+             socket.assigns.northbound_device_actions
+             |> preferred_device_action()
+             |> then(&open_northbound_action_modal(socket, &1))}
+        end
     end
   end
 
@@ -1226,7 +1229,30 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp bulk_delete_uids(socket) do
+    case validate_device_selection(socket) do
+      {:error, _} = error ->
+        error
+
+      :ok ->
+        socket
+        |> get_selected_uids()
+        |> case do
+          [] -> {:error, "No devices selected"}
+          uids -> {:ok, uids}
+        end
+    end
+  end
+
+  # Shared selection guard for bulk device actions (Run Task, bulk tags, bulk
+  # delete). Requires at least one selected device, and when select-all-matching
+  # is active requires a known count within the 10_000 cap so a runaway filter
+  # cannot fan a task out to the whole table.
+  defp validate_device_selection(socket) do
     cond do
+      not socket.assigns.select_all_matching and
+          MapSet.size(socket.assigns.selected_devices) == 0 ->
+        {:error, "Select at least one device before Run Task."}
+
       socket.assigns.select_all_matching and
           not is_integer(socket.assigns.total_matching_count) ->
         {:error, "Unable to determine selection size. Please try again."}
@@ -1235,10 +1261,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         {:error, "Too many devices selected. Narrow your filters and try again."}
 
       true ->
-        case get_selected_uids(socket) do
-          [] -> {:error, "No devices selected"}
-          uids -> {:ok, uids}
-        end
+        :ok
     end
   end
 
@@ -1416,9 +1439,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp selected_device_action_targets(socket) do
+    # Honor select-all-matching just like bulk tags/delete: resolve the full
+    # matching set (bounded by get_all_matching_uids) rather than only the
+    # visible-page MapSet, so a Run Task over "all matching" actually targets
+    # every device, not just the current page.
     targets =
-      socket.assigns.selected_devices
-      |> Enum.filter(&is_binary/1)
+      socket
+      |> get_selected_uids()
       |> Enum.uniq()
       |> Enum.map(&%{kind: "device", device_uid: &1})
 
@@ -1515,7 +1542,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
     run_task_disabled? =
       assigns.northbound_device_actions_loading or assigns.northbound_device_actions == [] or
-        selected_count == 0
+        effective_count == 0
 
     run_task_title =
       cond do
@@ -3636,10 +3663,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp get_all_matching_uids(scope, query) do
     srql_module = srql_module()
-    fetch_all_uids_paginated(srql_module, scope, query, nil, [])
+    fetch_all_uids_paginated(srql_module, scope, query, nil, [], 0)
   end
 
-  defp fetch_all_uids_paginated(srql_module, scope, query, cursor, acc) do
+  # Hard cap on the number of UIDs a select-all-matching expansion will fetch.
+  # The 10_000-device guard at the bulk action call sites rejects oversized
+  # selections, but without an internal bound this pager would still walk every
+  # page of an unbounded result set (one SRQL round-trip per 1_000 rows) before
+  # the caller ever saw the count. Bounding the fetch here keeps a runaway
+  # query from monopolizing the LiveView.
+  @all_matching_uid_limit 10_000
+
+  defp fetch_all_uids_paginated(srql_module, scope, query, cursor, acc, gathered) do
     full_query = "in:devices #{query} limit:1000"
     opts = if cursor, do: %{scope: scope, cursor: cursor}, else: %{scope: scope}
 
@@ -3653,11 +3688,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
         next_cursor = Map.get(pagination, "next_cursor")
         new_acc = [uids | acc]
+        new_gathered = gathered + length(uids)
 
-        if is_binary(next_cursor) do
-          fetch_all_uids_paginated(srql_module, scope, query, next_cursor, new_acc)
-        else
-          finalize_uid_acc(new_acc)
+        cond do
+          new_gathered >= @all_matching_uid_limit ->
+            # Bound reached: stop paging and return what we have. Callers that
+            # compare against total_matching_count will still reject oversized
+            # selections via the 10_000 cap.
+            finalize_uid_acc(new_acc)
+
+          is_binary(next_cursor) ->
+            fetch_all_uids_paginated(srql_module, scope, query, next_cursor, new_acc, new_gathered)
+
+          true ->
+            finalize_uid_acc(new_acc)
         end
 
       {:ok, %{"results" => results}} when is_list(results) ->
@@ -3812,50 +3856,137 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   @sobelow_skip ["Traversal.FileModule"]
   defp parse_csv_file(path) do
     content = File.read!(path)
-    lines = String.split(content, ~r/\r?\n/, trim: true)
 
-    case lines do
-      [] ->
+    case parse_csv_rows(content) do
+      {:ok, []} ->
         {:error, ["CSV file is empty"]}
 
-      [header | data_lines] ->
-        headers = parse_csv_line(header)
+      {:ok, [header | data_rows]} ->
+        headers = Enum.map(header, &String.trim/1)
         required = ["hostname", "ip"]
         missing = required -- Enum.map(headers, &String.downcase/1)
 
-        parse_csv_rows(headers, data_lines, missing)
+        if missing == [] do
+          header_map = headers |> Enum.with_index() |> Map.new()
+          devices = Enum.map(data_rows, &parse_device_row(&1, header_map))
+          valid_devices = Enum.filter(devices, &(&1 != nil))
+
+          case valid_devices do
+            [] -> {:error, ["No valid device rows found in CSV"]}
+            _ -> {:ok, valid_devices}
+          end
+        else
+          {:error, ["Missing required columns: #{Enum.join(missing, ", ")}"]}
+        end
+
+      {:error, _} = error ->
+        error
     end
   rescue
     e ->
       {:error, ["Failed to parse CSV: #{inspect(e)}"]}
   end
 
-  defp parse_csv_rows(_headers, _data_lines, missing) when missing != [] do
-    {:error, ["Missing required columns: #{Enum.join(missing, ", ")}"]}
+  # RFC 4180 CSV parser: handles quoted fields containing commas, embedded
+  # doubled quote ("") escapes, and newlines inside quoted fields. Replaces
+  # the previous String.split(",") approach which mis-split any quoted value.
+  # Returns {:ok, rows} where each row is a list of field strings.
+  #
+  # State machine:
+  #   :field_start — at the start of a field (leading quote => quoted field)
+  #   :unquoted    — inside an unquoted field
+  #   :quoted      — inside a quoted field (commas/newlines literal)
+  #   :quote_end   — just closed a quoted field (expect comma/newline/EOF)
+  defp parse_csv_rows(content) when is_binary(content) do
+    content
+    |> String.to_charlist()
+    |> parse_csv_field([], [], [], :field_start)
   end
 
-  defp parse_csv_rows(headers, data_lines, []) do
-    header_map = headers |> Enum.with_index() |> Map.new()
-    devices = Enum.map(data_lines, &parse_device_row(&1, header_map))
-    valid_devices = Enum.filter(devices, &(&1 != nil))
-
-    case valid_devices do
-      [] -> {:error, ["No valid device rows found in CSV"]}
-      _ -> {:ok, valid_devices}
-    end
+  # End of input: close the in-flight field and row.
+  defp parse_csv_field([], field, row, rows, _state) do
+    final_row = finish_row_fields(field, row)
+    {:ok, finalize_csv_rows([final_row | rows])}
   end
 
-  defp parse_csv_line(line) do
-    # Simple CSV parsing - handles basic quoted fields
-    line
-    |> String.split(",")
-    |> Enum.map(&String.trim/1)
-    |> Enum.map(&String.trim(&1, "\""))
+  # A quote at the very start of a field begins a quoted segment.
+  defp parse_csv_field([?" | rest], [], row, rows, :field_start) do
+    parse_csv_field(rest, [], row, rows, :quoted)
   end
 
-  defp parse_device_row(line, header_map) do
-    values = parse_csv_line(line)
+  # --- unquoted field states (:field_start / :unquoted share these) ---
 
+  defp parse_csv_field([?, | rest], field, row, rows, state) when state in [:field_start, :unquoted] do
+    new_field = finish_field(field)
+    parse_csv_field(rest, [], [new_field | row], rows, :field_start)
+  end
+
+  defp parse_csv_field([?\r, ?\n | rest], field, row, rows, state) when state in [:field_start, :unquoted] do
+    finish_csv_row(rest, field, row, rows)
+  end
+
+  defp parse_csv_field([?\r | rest], field, row, rows, state) when state in [:field_start, :unquoted] do
+    finish_csv_row(rest, field, row, rows)
+  end
+
+  defp parse_csv_field([?\n | rest], field, row, rows, state) when state in [:field_start, :unquoted] do
+    finish_csv_row(rest, field, row, rows)
+  end
+
+  defp parse_csv_field([char | rest], field, row, rows, state) when state in [:field_start, :unquoted] do
+    parse_csv_field(rest, [char | field], row, rows, :unquoted)
+  end
+
+  # --- quoted field state ---
+
+  # Doubled quote -> literal ".
+  defp parse_csv_field([?", ?" | rest], field, row, rows, :quoted) do
+    parse_csv_field(rest, [?" | field], row, rows, :quoted)
+  end
+
+  # A lone quote closes the quoted segment.
+  defp parse_csv_field([?" | rest], field, row, rows, :quoted) do
+    parse_csv_field(rest, field, row, rows, :quote_end)
+  end
+
+  # Any other char inside quotes is literal (commas and newlines included).
+  defp parse_csv_field([char | rest], field, row, rows, :quoted) do
+    parse_csv_field(rest, [char | field], row, rows, :quoted)
+  end
+
+  # --- after a closing quote (:quote_end) ---
+
+  defp parse_csv_field([?, | rest], field, row, rows, :quote_end) do
+    new_field = finish_field(field)
+    parse_csv_field(rest, [], [new_field | row], rows, :field_start)
+  end
+
+  defp parse_csv_field([?\r, ?\n | rest], field, row, rows, :quote_end), do: finish_csv_row(rest, field, row, rows)
+
+  defp parse_csv_field([?\r | rest], field, row, rows, :quote_end), do: finish_csv_row(rest, field, row, rows)
+
+  defp parse_csv_field([?\n | rest], field, row, rows, :quote_end), do: finish_csv_row(rest, field, row, rows)
+
+  # Other chars after a closing quote: lenient, append to the field as literal.
+  defp parse_csv_field([char | rest], field, row, rows, :quote_end) do
+    parse_csv_field(rest, [char | field], row, rows, :unquoted)
+  end
+
+  defp finish_csv_row(rest, field, row, rows) do
+    new_row = finish_row_fields(field, row)
+    parse_csv_field(rest, [], [], [new_row | rows], :field_start)
+  end
+
+  defp finish_field(field), do: field |> Enum.reverse() |> List.to_string()
+  defp finish_row_fields(field, row), do: Enum.reverse([finish_field(field) | row])
+
+  # Drop a single trailing empty row produced by a final newline, then reverse
+  # to original order. The accumulator is built by prepending, so the trailing
+  # empty row is the head of `rows` here — drop it before reversing.
+  defp finalize_csv_rows([[""] | rest]), do: Enum.reverse(rest)
+  defp finalize_csv_rows(rows), do: Enum.reverse(rows)
+
+  defp parse_device_row(values, header_map) do
     hostname = get_csv_value(values, header_map, "hostname")
     ip = get_csv_value(values, header_map, "ip")
 

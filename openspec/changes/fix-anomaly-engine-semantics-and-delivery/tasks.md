@@ -262,7 +262,7 @@
 ## 49. UI Device List & Settings (F54)
 - [x] 49.1 Fix Bulk-edit "Apply tags" to run with the actor/scope so the policy permits it (and add a test).
 - [x] 49.2 Batch the SNMP-profile count N+1; make interface target-count fail-closed like device count.
-- [ ] 49.3 Debounce the sweep-group count; align "Run Task" enablement+targets with select-all-matching; use a real CSV parser; bound `get_all_matching_uids`; run SNMP test-connection off-process.
+- [x] 49.3 Debounce the sweep-group count; align "Run Task" enablement+targets with select-all-matching; use a real CSV parser; bound `get_all_matching_uids`; run SNMP test-connection off-process.
 
 ## 50. Oversized-File Breakups, Round 2 (F55)
 - [ ] 50.1 Break up (behavior-preserving, <~300 lines): `device_live/index.ex` (3931), `go/pkg/scan/syn_scanner.go` (3831), `snmp_profiles_live/index.ex` (3596), `go/pkg/sweeper/sweeper.go` (3007), `go/pkg/mapper/snmp_polling.go` (2996), `go/pkg/mapper/discovery.go` (2741), `networks_live/index.ex` (2726), `topology_graph.ex` (2356), `diagnostics_live/mtr.ex` (2023), `ubnt_poller.go` (1728), `unifi-protect/main.go` (1385).

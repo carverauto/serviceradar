@@ -69,6 +69,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> assign(:builder_open, false)
         |> assign(:builder, TargetBuilder.default_builder_state())
         |> assign(:builder_sync, true)
+        |> assign(:last_target_query, nil)
         |> assign(:show_mapper_form, nil)
         |> assign(:mapper_jobs, load_mapper_jobs(scope))
         |> assign(:agents, load_agents(scope))
@@ -126,6 +127,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     |> assign(:builder_open, false)
     |> assign(:builder, TargetBuilder.default_builder_state())
     |> assign(:builder_sync, true)
+    |> assign(:last_target_query, nil)
     |> assign(:agents, load_agents(scope))
   end
 
@@ -155,6 +157,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> assign(:builder_open, false)
         |> assign(:builder, builder)
         |> assign(:builder_sync, builder_sync)
+        |> assign(:last_target_query, group.target_query)
         |> assign(:agents, load_agents(scope))
     end
   end
@@ -622,8 +625,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     scope = socket.assigns.current_scope
     params = normalize_static_targets(params)
     target_query = Map.get(params, "target_query")
-    device_count = count_target_devices(scope, target_query)
     builder_event? = Map.has_key?(payload, "builder")
+
+    # Memoize the device count on the target query: validate_group fires on
+    # every keystroke, so re-running the live SRQL count unconditionally is a
+    # round-trip per edit. Recompute only when the query string changed.
+    device_count =
+      if Map.get(socket.assigns, :last_target_query) == target_query do
+        socket.assigns.target_device_count
+      else
+        count_target_devices(scope, target_query)
+      end
 
     {parsed_builder, builder_sync} =
       if builder_event? do
@@ -639,6 +651,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       |> assign(:ash_form, ash_form)
       |> assign(:form, to_form(ash_form))
       |> assign(:target_device_count, device_count)
+      |> assign(:last_target_query, target_query)
       |> assign(:builder_sync, builder_sync)
 
     socket =
@@ -2542,13 +2555,26 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
       ash_form = Form.validate(socket.assigns.ash_form, params)
 
-      scope = socket.assigns.current_scope
-      device_count = count_target_devices(scope, query)
+      # Only re-run the (live SRQL) device count when the built target query
+      # actually changed — the form's phx-debounce fires builder_change on
+      # every field edit, but most edits (e.g. toggles that don't affect the
+      # query) leave the query string identical. Memoizing on the query avoids
+      # a redundant count round-trip per keystroke.
+      socket =
+        socket
+        |> assign(:ash_form, ash_form)
+        |> assign(:form, to_form(ash_form))
 
-      socket
-      |> assign(:ash_form, ash_form)
-      |> assign(:form, to_form(ash_form))
-      |> assign(:target_device_count, device_count)
+      previous_query = Map.get(socket.assigns, :last_target_query)
+      socket = assign(socket, :last_target_query, query)
+
+      if previous_query == query do
+        socket
+      else
+        scope = socket.assigns.current_scope
+        device_count = count_target_devices(scope, query)
+        assign(socket, :target_device_count, device_count)
+      end
     else
       socket
     end
