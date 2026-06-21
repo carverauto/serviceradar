@@ -25,15 +25,18 @@ pg_dump "${DATABASE_URL}" \
   --no-privileges \
   --file="${SCHEMA_FILE}"
 
-sed -i \
+tmp_schema="$(mktemp)"
+sed \
   -e 's/CREATE SCHEMA platform;/CREATE SCHEMA IF NOT EXISTS platform;/g' \
   -e 's/CREATE SCHEMA ag_catalog;/CREATE SCHEMA IF NOT EXISTS ag_catalog;/g' \
   -e 's/CREATE SCHEMA platform_graph;/CREATE SCHEMA IF NOT EXISTS platform_graph;/g' \
-  "${SCHEMA_FILE}"
+  "${SCHEMA_FILE}" >"${tmp_schema}"
+mv "${tmp_schema}" "${SCHEMA_FILE}"
+perl -0pi -e 's/\n+\z/\n/' "${SCHEMA_FILE}"
 
 schema_sha="$(sha256sum "${SCHEMA_FILE}" | awk '{print $1}')"
 included_through="$(
-  find "${MIGRATIONS_DIR}" -maxdepth 1 -type f -name '*.exs' -printf '%f\n' |
+  find "${MIGRATIONS_DIR}" -maxdepth 1 -type f -name '*.exs' -exec basename {} \; |
     sort |
     tail -n 1 |
     sed 's/_.*//'

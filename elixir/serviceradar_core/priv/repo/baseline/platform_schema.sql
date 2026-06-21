@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict W5BaJpCW3Kzu3WrNxSRc3zTIdYKyQKjC9wmV3hA5bnY2XtVnyrrEzFMVOQPpuRT
+\restrict j8DbNIlq51Eavtf5ilrEsGAQVPOwrSnqXLADWcMoH7Pzh2zCynTEZQ92GI9P0Sw
 
 -- Dumped from database version 18.3 (Debian 18.3-1.pgdg12+1)
 -- Dumped by pg_dump version 18.3 (Debian 18.3-1.pgdg12+1)
@@ -45,6 +45,13 @@ COMMENT ON EXTENSION timescaledb IS 'Enables scalable inserts and complex querie
 --
 
 CREATE SCHEMA IF NOT EXISTS ag_catalog;
+
+
+--
+-- Name: ash_migrations; Type: SCHEMA; Schema: -; Owner: -
+--
+
+CREATE SCHEMA ash_migrations;
 
 
 --
@@ -1080,17 +1087,17 @@ COMMENT ON COLUMN platform.ocsf_network_activity.packets_total IS 'Total packets
 
 
 --
--- Name: COLUMN ocsf_network_activity.sampling_rate; Type: COMMENT; Schema: platform; Owner: -
---
-
-COMMENT ON COLUMN platform.ocsf_network_activity.sampling_rate IS 'Exporter sampling multiplier for sampled NetFlow/IPFIX/sFlow records; 1 means unsampled';
-
-
---
 -- Name: COLUMN ocsf_network_activity.ocsf_payload; Type: COMMENT; Schema: platform; Owner: -
 --
 
 COMMENT ON COLUMN platform.ocsf_network_activity.ocsf_payload IS 'Full OCSF event as JSON for complete event reconstruction';
+
+
+--
+-- Name: COLUMN ocsf_network_activity.sampling_rate; Type: COMMENT; Schema: platform; Owner: -
+--
+
+COMMENT ON COLUMN platform.ocsf_network_activity.sampling_rate IS 'Exporter sampling multiplier for sampled NetFlow/IPFIX/sFlow records; 1 means unsampled';
 
 
 --
@@ -1146,6 +1153,19 @@ CREATE VIEW _timescaledb_internal._direct_view_19 AS
     COALESCE(count(*), (0)::bigint) AS flow_count
    FROM platform.ocsf_network_activity
   GROUP BY (platform.time_bucket('01:00:00'::interval, "time")), COALESCE(dst_endpoint_port, 0);
+
+
+--
+-- Name: _direct_view_2; Type: VIEW; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE VIEW _timescaledb_internal._direct_view_2 AS
+ SELECT platform.time_bucket('00:05:00'::interval, "time") AS bucket,
+    (COALESCE(sum(((bytes_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS bytes_total,
+    (COALESCE(sum(((packets_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS packets_total,
+    COALESCE(count(*), (0)::bigint) AS flow_count
+   FROM platform.ocsf_network_activity
+  GROUP BY (platform.time_bucket('00:05:00'::interval, "time"));
 
 
 --
@@ -1340,77 +1360,17 @@ CREATE VIEW _timescaledb_internal._direct_view_27 AS
 
 
 --
--- Name: _materialized_hypertable_16; Type: TABLE; Schema: _timescaledb_internal; Owner: -
+-- Name: _direct_view_3; Type: VIEW; Schema: _timescaledb_internal; Owner: -
 --
 
-CREATE TABLE _timescaledb_internal._materialized_hypertable_16 (
-    bucket timestamp with time zone,
-    bytes_total bigint,
-    packets_total bigint,
-    flow_count bigint
-);
-
-
---
--- Name: ocsf_network_activity_5m_traffic; Type: VIEW; Schema: platform; Owner: -
---
-
-CREATE VIEW platform.ocsf_network_activity_5m_traffic AS
- SELECT bucket,
-    bytes_total,
-    packets_total,
-    flow_count
-   FROM _timescaledb_internal._materialized_hypertable_16;
-
-
---
--- Name: _direct_view_31; Type: VIEW; Schema: _timescaledb_internal; Owner: -
---
-
-CREATE VIEW _timescaledb_internal._direct_view_31 AS
- SELECT platform.time_bucket('01:00:00'::interval, bucket) AS bucket,
-    (sum(bytes_total))::bigint AS bytes_total,
-    (sum(packets_total))::bigint AS packets_total,
-    (sum(flow_count))::bigint AS flow_count
-   FROM platform.ocsf_network_activity_5m_traffic
-  GROUP BY (platform.time_bucket('01:00:00'::interval, bucket));
-
-
---
--- Name: _materialized_hypertable_31; Type: TABLE; Schema: _timescaledb_internal; Owner: -
---
-
-CREATE TABLE _timescaledb_internal._materialized_hypertable_31 (
-    bucket timestamp with time zone,
-    bytes_total bigint,
-    packets_total bigint,
-    flow_count bigint
-);
-
-
---
--- Name: flow_traffic_1h; Type: VIEW; Schema: platform; Owner: -
---
-
-CREATE VIEW platform.flow_traffic_1h AS
- SELECT bucket,
-    bytes_total,
-    packets_total,
-    flow_count
-   FROM _timescaledb_internal._materialized_hypertable_31;
-
-
---
--- Name: _direct_view_32; Type: VIEW; Schema: _timescaledb_internal; Owner: -
---
-
-CREATE VIEW _timescaledb_internal._direct_view_32 AS
- SELECT platform.time_bucket('1 day'::interval, bucket) AS bucket,
-    (sum(bytes_total))::bigint AS bytes_total,
-    (sum(packets_total))::bigint AS packets_total,
-    (sum(flow_count))::bigint AS flow_count
-   FROM platform.flow_traffic_1h
-  GROUP BY (platform.time_bucket('1 day'::interval, bucket));
+CREATE VIEW _timescaledb_internal._direct_view_3 AS
+ SELECT platform.time_bucket('01:00:00'::interval, "time") AS bucket,
+    COALESCE(protocol_num, 0) AS protocol_num,
+    (COALESCE(sum(((bytes_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS bytes_total,
+    (COALESCE(sum(((packets_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS packets_total,
+    COALESCE(count(*), (0)::bigint) AS flow_count
+   FROM platform.ocsf_network_activity
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "time")), COALESCE(protocol_num, 0);
 
 
 --
@@ -1591,6 +1551,137 @@ CREATE VIEW _timescaledb_internal._direct_view_38 AS
 
 
 --
+-- Name: _direct_view_4; Type: VIEW; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE VIEW _timescaledb_internal._direct_view_4 AS
+ SELECT platform.time_bucket('01:00:00'::interval, "time") AS bucket,
+    COALESCE(src_endpoint_ip, 'Unknown'::text) AS src_endpoint_ip,
+    (COALESCE(sum(((bytes_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS bytes_total,
+    (COALESCE(sum(((packets_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS packets_total,
+    COALESCE(count(*), (0)::bigint) AS flow_count
+   FROM platform.ocsf_network_activity
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "time")), COALESCE(src_endpoint_ip, 'Unknown'::text);
+
+
+--
+-- Name: _direct_view_5; Type: VIEW; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE VIEW _timescaledb_internal._direct_view_5 AS
+ SELECT platform.time_bucket('01:00:00'::interval, "time") AS bucket,
+    COALESCE(dst_endpoint_port, 0) AS dst_endpoint_port,
+    (COALESCE(sum(((bytes_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS bytes_total,
+    (COALESCE(sum(((packets_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS packets_total,
+    COALESCE(count(*), (0)::bigint) AS flow_count
+   FROM platform.ocsf_network_activity
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "time")), COALESCE(dst_endpoint_port, 0);
+
+
+--
+-- Name: _direct_view_6; Type: VIEW; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE VIEW _timescaledb_internal._direct_view_6 AS
+ SELECT platform.time_bucket('01:00:00'::interval, "time") AS bucket,
+    COALESCE(dst_endpoint_ip, 'Unknown'::text) AS dst_endpoint_ip,
+    (COALESCE(sum(((bytes_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS bytes_total,
+    (COALESCE(sum(((packets_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS packets_total,
+    COALESCE(count(*), (0)::bigint) AS flow_count
+   FROM platform.ocsf_network_activity
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "time")), COALESCE(dst_endpoint_ip, 'Unknown'::text);
+
+
+--
+-- Name: _direct_view_7; Type: VIEW; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE VIEW _timescaledb_internal._direct_view_7 AS
+ SELECT platform.time_bucket('01:00:00'::interval, "time") AS bucket,
+    COALESCE(src_endpoint_ip, 'Unknown'::text) AS src_endpoint_ip,
+    COALESCE(dst_endpoint_ip, 'Unknown'::text) AS dst_endpoint_ip,
+    (COALESCE(sum(((bytes_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS bytes_total,
+    (COALESCE(sum(((packets_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS packets_total,
+    COALESCE(count(*), (0)::bigint) AS flow_count
+   FROM platform.ocsf_network_activity
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "time")), COALESCE(src_endpoint_ip, 'Unknown'::text), COALESCE(dst_endpoint_ip, 'Unknown'::text);
+
+
+--
+-- Name: _materialized_hypertable_2; Type: TABLE; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE TABLE _timescaledb_internal._materialized_hypertable_2 (
+    bucket timestamp with time zone,
+    bytes_total bigint,
+    packets_total bigint,
+    flow_count bigint
+);
+
+
+--
+-- Name: ocsf_network_activity_5m_traffic; Type: VIEW; Schema: platform; Owner: -
+--
+
+CREATE VIEW platform.ocsf_network_activity_5m_traffic AS
+ SELECT bucket,
+    bytes_total,
+    packets_total,
+    flow_count
+   FROM _timescaledb_internal._materialized_hypertable_2;
+
+
+--
+-- Name: _direct_view_8; Type: VIEW; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE VIEW _timescaledb_internal._direct_view_8 AS
+ SELECT platform.time_bucket('01:00:00'::interval, bucket) AS bucket,
+    (sum(bytes_total))::bigint AS bytes_total,
+    (sum(packets_total))::bigint AS packets_total,
+    (sum(flow_count))::bigint AS flow_count
+   FROM platform.ocsf_network_activity_5m_traffic
+  GROUP BY (platform.time_bucket('01:00:00'::interval, bucket));
+
+
+--
+-- Name: _materialized_hypertable_8; Type: TABLE; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE TABLE _timescaledb_internal._materialized_hypertable_8 (
+    bucket timestamp with time zone,
+    bytes_total bigint,
+    packets_total bigint,
+    flow_count bigint
+);
+
+
+--
+-- Name: flow_traffic_1h; Type: VIEW; Schema: platform; Owner: -
+--
+
+CREATE VIEW platform.flow_traffic_1h AS
+ SELECT bucket,
+    bytes_total,
+    packets_total,
+    flow_count
+   FROM _timescaledb_internal._materialized_hypertable_8;
+
+
+--
+-- Name: _direct_view_9; Type: VIEW; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE VIEW _timescaledb_internal._direct_view_9 AS
+ SELECT platform.time_bucket('1 day'::interval, bucket) AS bucket,
+    (sum(bytes_total))::bigint AS bytes_total,
+    (sum(packets_total))::bigint AS packets_total,
+    (sum(flow_count))::bigint AS flow_count
+   FROM platform.flow_traffic_1h
+  GROUP BY (platform.time_bucket('1 day'::interval, bucket));
+
+
+--
 -- Name: logs; Type: TABLE; Schema: platform; Owner: -
 --
 
@@ -1703,45 +1794,6 @@ INHERITS (platform.memory_metrics);
 
 
 --
--- Name: _materialized_hypertable_17; Type: TABLE; Schema: _timescaledb_internal; Owner: -
---
-
-CREATE TABLE _timescaledb_internal._materialized_hypertable_17 (
-    bucket timestamp with time zone,
-    protocol_num integer,
-    bytes_total bigint,
-    packets_total bigint,
-    flow_count bigint
-);
-
-
---
--- Name: _materialized_hypertable_18; Type: TABLE; Schema: _timescaledb_internal; Owner: -
---
-
-CREATE TABLE _timescaledb_internal._materialized_hypertable_18 (
-    bucket timestamp with time zone,
-    src_endpoint_ip text,
-    bytes_total bigint,
-    packets_total bigint,
-    flow_count bigint
-);
-
-
---
--- Name: _materialized_hypertable_19; Type: TABLE; Schema: _timescaledb_internal; Owner: -
---
-
-CREATE TABLE _timescaledb_internal._materialized_hypertable_19 (
-    bucket timestamp with time zone,
-    dst_endpoint_port integer,
-    bytes_total bigint,
-    packets_total bigint,
-    flow_count bigint
-);
-
-
---
 -- Name: _materialized_hypertable_23; Type: TABLE; Schema: _timescaledb_internal; Owner: -
 --
 
@@ -1822,38 +1874,12 @@ CREATE TABLE _timescaledb_internal._materialized_hypertable_27 (
 
 
 --
--- Name: _materialized_hypertable_32; Type: TABLE; Schema: _timescaledb_internal; Owner: -
+-- Name: _materialized_hypertable_3; Type: TABLE; Schema: _timescaledb_internal; Owner: -
 --
 
-CREATE TABLE _timescaledb_internal._materialized_hypertable_32 (
+CREATE TABLE _timescaledb_internal._materialized_hypertable_3 (
     bucket timestamp with time zone,
-    bytes_total bigint,
-    packets_total bigint,
-    flow_count bigint
-);
-
-
---
--- Name: _materialized_hypertable_33; Type: TABLE; Schema: _timescaledb_internal; Owner: -
---
-
-CREATE TABLE _timescaledb_internal._materialized_hypertable_33 (
-    bucket timestamp with time zone,
-    dst_endpoint_ip text,
-    bytes_total bigint,
-    packets_total bigint,
-    flow_count bigint
-);
-
-
---
--- Name: _materialized_hypertable_34; Type: TABLE; Schema: _timescaledb_internal; Owner: -
---
-
-CREATE TABLE _timescaledb_internal._materialized_hypertable_34 (
-    bucket timestamp with time zone,
-    src_endpoint_ip text,
-    dst_endpoint_ip text,
+    protocol_num integer,
     bytes_total bigint,
     packets_total bigint,
     flow_count bigint
@@ -1887,6 +1913,71 @@ CREATE TABLE _timescaledb_internal._materialized_hypertable_38 (
     bucket timestamp with time zone,
     severity_id integer,
     total_count bigint
+);
+
+
+--
+-- Name: _materialized_hypertable_4; Type: TABLE; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE TABLE _timescaledb_internal._materialized_hypertable_4 (
+    bucket timestamp with time zone,
+    src_endpoint_ip text,
+    bytes_total bigint,
+    packets_total bigint,
+    flow_count bigint
+);
+
+
+--
+-- Name: _materialized_hypertable_5; Type: TABLE; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE TABLE _timescaledb_internal._materialized_hypertable_5 (
+    bucket timestamp with time zone,
+    dst_endpoint_port integer,
+    bytes_total bigint,
+    packets_total bigint,
+    flow_count bigint
+);
+
+
+--
+-- Name: _materialized_hypertable_6; Type: TABLE; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE TABLE _timescaledb_internal._materialized_hypertable_6 (
+    bucket timestamp with time zone,
+    dst_endpoint_ip text,
+    bytes_total bigint,
+    packets_total bigint,
+    flow_count bigint
+);
+
+
+--
+-- Name: _materialized_hypertable_7; Type: TABLE; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE TABLE _timescaledb_internal._materialized_hypertable_7 (
+    bucket timestamp with time zone,
+    src_endpoint_ip text,
+    dst_endpoint_ip text,
+    bytes_total bigint,
+    packets_total bigint,
+    flow_count bigint
+);
+
+
+--
+-- Name: _materialized_hypertable_9; Type: TABLE; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE TABLE _timescaledb_internal._materialized_hypertable_9 (
+    bucket timestamp with time zone,
+    bytes_total bigint,
+    packets_total bigint,
+    flow_count bigint
 );
 
 
@@ -1943,6 +2034,19 @@ CREATE VIEW _timescaledb_internal._partial_view_19 AS
     COALESCE(count(*), (0)::bigint) AS flow_count
    FROM platform.ocsf_network_activity
   GROUP BY (platform.time_bucket('01:00:00'::interval, "time")), COALESCE(dst_endpoint_port, 0);
+
+
+--
+-- Name: _partial_view_2; Type: VIEW; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE VIEW _timescaledb_internal._partial_view_2 AS
+ SELECT platform.time_bucket('00:05:00'::interval, "time") AS bucket,
+    (COALESCE(sum(((bytes_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS bytes_total,
+    (COALESCE(sum(((packets_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS packets_total,
+    COALESCE(count(*), (0)::bigint) AS flow_count
+   FROM platform.ocsf_network_activity
+  GROUP BY (platform.time_bucket('00:05:00'::interval, "time"));
 
 
 --
@@ -2031,29 +2135,17 @@ CREATE VIEW _timescaledb_internal._partial_view_27 AS
 
 
 --
--- Name: _partial_view_31; Type: VIEW; Schema: _timescaledb_internal; Owner: -
+-- Name: _partial_view_3; Type: VIEW; Schema: _timescaledb_internal; Owner: -
 --
 
-CREATE VIEW _timescaledb_internal._partial_view_31 AS
- SELECT platform.time_bucket('01:00:00'::interval, bucket) AS bucket,
-    (sum(bytes_total))::bigint AS bytes_total,
-    (sum(packets_total))::bigint AS packets_total,
-    (sum(flow_count))::bigint AS flow_count
-   FROM platform.ocsf_network_activity_5m_traffic
-  GROUP BY (platform.time_bucket('01:00:00'::interval, bucket));
-
-
---
--- Name: _partial_view_32; Type: VIEW; Schema: _timescaledb_internal; Owner: -
---
-
-CREATE VIEW _timescaledb_internal._partial_view_32 AS
- SELECT platform.time_bucket('1 day'::interval, bucket) AS bucket,
-    (sum(bytes_total))::bigint AS bytes_total,
-    (sum(packets_total))::bigint AS packets_total,
-    (sum(flow_count))::bigint AS flow_count
-   FROM platform.flow_traffic_1h
-  GROUP BY (platform.time_bucket('1 day'::interval, bucket));
+CREATE VIEW _timescaledb_internal._partial_view_3 AS
+ SELECT platform.time_bucket('01:00:00'::interval, "time") AS bucket,
+    COALESCE(protocol_num, 0) AS protocol_num,
+    (COALESCE(sum(((bytes_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS bytes_total,
+    (COALESCE(sum(((packets_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS packets_total,
+    COALESCE(count(*), (0)::bigint) AS flow_count
+   FROM platform.ocsf_network_activity
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "time")), COALESCE(protocol_num, 0);
 
 
 --
@@ -2131,6 +2223,99 @@ CREATE VIEW _timescaledb_internal._partial_view_38 AS
     count(*) AS total_count
    FROM platform.ocsf_events
   GROUP BY (platform.time_bucket('01:00:00'::interval, "time")), COALESCE(severity_id, 0);
+
+
+--
+-- Name: _partial_view_4; Type: VIEW; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE VIEW _timescaledb_internal._partial_view_4 AS
+ SELECT platform.time_bucket('01:00:00'::interval, "time") AS bucket,
+    COALESCE(src_endpoint_ip, 'Unknown'::text) AS src_endpoint_ip,
+    (COALESCE(sum(((bytes_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS bytes_total,
+    (COALESCE(sum(((packets_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS packets_total,
+    COALESCE(count(*), (0)::bigint) AS flow_count
+   FROM platform.ocsf_network_activity
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "time")), COALESCE(src_endpoint_ip, 'Unknown'::text);
+
+
+--
+-- Name: _partial_view_5; Type: VIEW; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE VIEW _timescaledb_internal._partial_view_5 AS
+ SELECT platform.time_bucket('01:00:00'::interval, "time") AS bucket,
+    COALESCE(dst_endpoint_port, 0) AS dst_endpoint_port,
+    (COALESCE(sum(((bytes_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS bytes_total,
+    (COALESCE(sum(((packets_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS packets_total,
+    COALESCE(count(*), (0)::bigint) AS flow_count
+   FROM platform.ocsf_network_activity
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "time")), COALESCE(dst_endpoint_port, 0);
+
+
+--
+-- Name: _partial_view_6; Type: VIEW; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE VIEW _timescaledb_internal._partial_view_6 AS
+ SELECT platform.time_bucket('01:00:00'::interval, "time") AS bucket,
+    COALESCE(dst_endpoint_ip, 'Unknown'::text) AS dst_endpoint_ip,
+    (COALESCE(sum(((bytes_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS bytes_total,
+    (COALESCE(sum(((packets_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS packets_total,
+    COALESCE(count(*), (0)::bigint) AS flow_count
+   FROM platform.ocsf_network_activity
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "time")), COALESCE(dst_endpoint_ip, 'Unknown'::text);
+
+
+--
+-- Name: _partial_view_7; Type: VIEW; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE VIEW _timescaledb_internal._partial_view_7 AS
+ SELECT platform.time_bucket('01:00:00'::interval, "time") AS bucket,
+    COALESCE(src_endpoint_ip, 'Unknown'::text) AS src_endpoint_ip,
+    COALESCE(dst_endpoint_ip, 'Unknown'::text) AS dst_endpoint_ip,
+    (COALESCE(sum(((bytes_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS bytes_total,
+    (COALESCE(sum(((packets_total)::numeric * (GREATEST(COALESCE(sampling_rate, (1)::bigint), (1)::bigint))::numeric)), (0)::numeric))::bigint AS packets_total,
+    COALESCE(count(*), (0)::bigint) AS flow_count
+   FROM platform.ocsf_network_activity
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "time")), COALESCE(src_endpoint_ip, 'Unknown'::text), COALESCE(dst_endpoint_ip, 'Unknown'::text);
+
+
+--
+-- Name: _partial_view_8; Type: VIEW; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE VIEW _timescaledb_internal._partial_view_8 AS
+ SELECT platform.time_bucket('01:00:00'::interval, bucket) AS bucket,
+    (sum(bytes_total))::bigint AS bytes_total,
+    (sum(packets_total))::bigint AS packets_total,
+    (sum(flow_count))::bigint AS flow_count
+   FROM platform.ocsf_network_activity_5m_traffic
+  GROUP BY (platform.time_bucket('01:00:00'::interval, bucket));
+
+
+--
+-- Name: _partial_view_9; Type: VIEW; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE VIEW _timescaledb_internal._partial_view_9 AS
+ SELECT platform.time_bucket('1 day'::interval, bucket) AS bucket,
+    (sum(bytes_total))::bigint AS bytes_total,
+    (sum(packets_total))::bigint AS packets_total,
+    (sum(flow_count))::bigint AS flow_count
+   FROM platform.flow_traffic_1h
+  GROUP BY (platform.time_bucket('1 day'::interval, bucket));
+
+
+--
+-- Name: schema_migrations; Type: TABLE; Schema: ash_migrations; Owner: -
+--
+
+CREATE TABLE ash_migrations.schema_migrations (
+    version bigint NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL
+);
 
 
 --
@@ -3235,7 +3420,7 @@ CREATE VIEW platform.flow_traffic_1d AS
     bytes_total,
     packets_total,
     flow_count
-   FROM _timescaledb_internal._materialized_hypertable_32;
+   FROM _timescaledb_internal._materialized_hypertable_9;
 
 
 --
@@ -4627,7 +4812,7 @@ CREATE VIEW platform.ocsf_network_activity_hourly_conversations AS
     bytes_total,
     packets_total,
     flow_count
-   FROM _timescaledb_internal._materialized_hypertable_34;
+   FROM _timescaledb_internal._materialized_hypertable_7;
 
 
 --
@@ -4640,7 +4825,7 @@ CREATE VIEW platform.ocsf_network_activity_hourly_listeners AS
     bytes_total,
     packets_total,
     flow_count
-   FROM _timescaledb_internal._materialized_hypertable_33;
+   FROM _timescaledb_internal._materialized_hypertable_6;
 
 
 --
@@ -4653,7 +4838,7 @@ CREATE VIEW platform.ocsf_network_activity_hourly_ports AS
     bytes_total,
     packets_total,
     flow_count
-   FROM _timescaledb_internal._materialized_hypertable_19;
+   FROM _timescaledb_internal._materialized_hypertable_5;
 
 
 --
@@ -4666,7 +4851,7 @@ CREATE VIEW platform.ocsf_network_activity_hourly_proto AS
     bytes_total,
     packets_total,
     flow_count
-   FROM _timescaledb_internal._materialized_hypertable_17;
+   FROM _timescaledb_internal._materialized_hypertable_3;
 
 
 --
@@ -4679,7 +4864,7 @@ CREATE VIEW platform.ocsf_network_activity_hourly_talkers AS
     bytes_total,
     packets_total,
     flow_count
-   FROM _timescaledb_internal._materialized_hypertable_18;
+   FROM _timescaledb_internal._materialized_hypertable_4;
 
 
 --
@@ -7297,6 +7482,14 @@ ALTER TABLE ONLY _timescaledb_internal._hyper_8_6_chunk
 
 
 --
+-- Name: schema_migrations schema_migrations_pkey; Type: CONSTRAINT; Schema: ash_migrations; Owner: -
+--
+
+ALTER TABLE ONLY ash_migrations.schema_migrations
+    ADD CONSTRAINT schema_migrations_pkey PRIMARY KEY (version);
+
+
+--
 -- Name: agent_commands agent_commands_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
 --
 
@@ -9031,55 +9224,6 @@ CREATE INDEX _hyper_9_5_chunk_memory_metrics_timestamp_idx ON _timescaledb_inter
 
 
 --
--- Name: _materialized_hypertable_16_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
---
-
-CREATE INDEX _materialized_hypertable_16_bucket_idx ON _timescaledb_internal._materialized_hypertable_16 USING btree (bucket DESC);
-
-
---
--- Name: _materialized_hypertable_17_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
---
-
-CREATE INDEX _materialized_hypertable_17_bucket_idx ON _timescaledb_internal._materialized_hypertable_17 USING btree (bucket DESC);
-
-
---
--- Name: _materialized_hypertable_17_protocol_num_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
---
-
-CREATE INDEX _materialized_hypertable_17_protocol_num_bucket_idx ON _timescaledb_internal._materialized_hypertable_17 USING btree (protocol_num, bucket DESC);
-
-
---
--- Name: _materialized_hypertable_18_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
---
-
-CREATE INDEX _materialized_hypertable_18_bucket_idx ON _timescaledb_internal._materialized_hypertable_18 USING btree (bucket DESC);
-
-
---
--- Name: _materialized_hypertable_18_src_endpoint_ip_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
---
-
-CREATE INDEX _materialized_hypertable_18_src_endpoint_ip_bucket_idx ON _timescaledb_internal._materialized_hypertable_18 USING btree (src_endpoint_ip, bucket DESC);
-
-
---
--- Name: _materialized_hypertable_19_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
---
-
-CREATE INDEX _materialized_hypertable_19_bucket_idx ON _timescaledb_internal._materialized_hypertable_19 USING btree (bucket DESC);
-
-
---
--- Name: _materialized_hypertable_19_dst_endpoint_port_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
---
-
-CREATE INDEX _materialized_hypertable_19_dst_endpoint_port_bucket_idx ON _timescaledb_internal._materialized_hypertable_19 USING btree (dst_endpoint_port, bucket DESC);
-
-
---
 -- Name: _materialized_hypertable_23_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
 --
 
@@ -9206,52 +9350,10 @@ CREATE INDEX _materialized_hypertable_27_metric_type_bucket_idx ON _timescaledb_
 
 
 --
--- Name: _materialized_hypertable_31_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+-- Name: _materialized_hypertable_2_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
 --
 
-CREATE INDEX _materialized_hypertable_31_bucket_idx ON _timescaledb_internal._materialized_hypertable_31 USING btree (bucket DESC);
-
-
---
--- Name: _materialized_hypertable_32_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
---
-
-CREATE INDEX _materialized_hypertable_32_bucket_idx ON _timescaledb_internal._materialized_hypertable_32 USING btree (bucket DESC);
-
-
---
--- Name: _materialized_hypertable_33_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
---
-
-CREATE INDEX _materialized_hypertable_33_bucket_idx ON _timescaledb_internal._materialized_hypertable_33 USING btree (bucket DESC);
-
-
---
--- Name: _materialized_hypertable_33_dst_endpoint_ip_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
---
-
-CREATE INDEX _materialized_hypertable_33_dst_endpoint_ip_bucket_idx ON _timescaledb_internal._materialized_hypertable_33 USING btree (dst_endpoint_ip, bucket DESC);
-
-
---
--- Name: _materialized_hypertable_34_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
---
-
-CREATE INDEX _materialized_hypertable_34_bucket_idx ON _timescaledb_internal._materialized_hypertable_34 USING btree (bucket DESC);
-
-
---
--- Name: _materialized_hypertable_34_dst_endpoint_ip_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
---
-
-CREATE INDEX _materialized_hypertable_34_dst_endpoint_ip_bucket_idx ON _timescaledb_internal._materialized_hypertable_34 USING btree (dst_endpoint_ip, bucket DESC);
-
-
---
--- Name: _materialized_hypertable_34_src_endpoint_ip_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
---
-
-CREATE INDEX _materialized_hypertable_34_src_endpoint_ip_bucket_idx ON _timescaledb_internal._materialized_hypertable_34 USING btree (src_endpoint_ip, bucket DESC);
+CREATE INDEX _materialized_hypertable_2_bucket_idx ON _timescaledb_internal._materialized_hypertable_2 USING btree (bucket DESC);
 
 
 --
@@ -9297,6 +9399,97 @@ CREATE INDEX _materialized_hypertable_38_severity_id_bucket_idx ON _timescaledb_
 
 
 --
+-- Name: _materialized_hypertable_3_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _materialized_hypertable_3_bucket_idx ON _timescaledb_internal._materialized_hypertable_3 USING btree (bucket DESC);
+
+
+--
+-- Name: _materialized_hypertable_3_protocol_num_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _materialized_hypertable_3_protocol_num_bucket_idx ON _timescaledb_internal._materialized_hypertable_3 USING btree (protocol_num, bucket DESC);
+
+
+--
+-- Name: _materialized_hypertable_4_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _materialized_hypertable_4_bucket_idx ON _timescaledb_internal._materialized_hypertable_4 USING btree (bucket DESC);
+
+
+--
+-- Name: _materialized_hypertable_4_src_endpoint_ip_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _materialized_hypertable_4_src_endpoint_ip_bucket_idx ON _timescaledb_internal._materialized_hypertable_4 USING btree (src_endpoint_ip, bucket DESC);
+
+
+--
+-- Name: _materialized_hypertable_5_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _materialized_hypertable_5_bucket_idx ON _timescaledb_internal._materialized_hypertable_5 USING btree (bucket DESC);
+
+
+--
+-- Name: _materialized_hypertable_5_dst_endpoint_port_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _materialized_hypertable_5_dst_endpoint_port_bucket_idx ON _timescaledb_internal._materialized_hypertable_5 USING btree (dst_endpoint_port, bucket DESC);
+
+
+--
+-- Name: _materialized_hypertable_6_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _materialized_hypertable_6_bucket_idx ON _timescaledb_internal._materialized_hypertable_6 USING btree (bucket DESC);
+
+
+--
+-- Name: _materialized_hypertable_6_dst_endpoint_ip_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _materialized_hypertable_6_dst_endpoint_ip_bucket_idx ON _timescaledb_internal._materialized_hypertable_6 USING btree (dst_endpoint_ip, bucket DESC);
+
+
+--
+-- Name: _materialized_hypertable_7_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _materialized_hypertable_7_bucket_idx ON _timescaledb_internal._materialized_hypertable_7 USING btree (bucket DESC);
+
+
+--
+-- Name: _materialized_hypertable_7_dst_endpoint_ip_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _materialized_hypertable_7_dst_endpoint_ip_bucket_idx ON _timescaledb_internal._materialized_hypertable_7 USING btree (dst_endpoint_ip, bucket DESC);
+
+
+--
+-- Name: _materialized_hypertable_7_src_endpoint_ip_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _materialized_hypertable_7_src_endpoint_ip_bucket_idx ON _timescaledb_internal._materialized_hypertable_7 USING btree (src_endpoint_ip, bucket DESC);
+
+
+--
+-- Name: _materialized_hypertable_8_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _materialized_hypertable_8_bucket_idx ON _timescaledb_internal._materialized_hypertable_8 USING btree (bucket DESC);
+
+
+--
+-- Name: _materialized_hypertable_9_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _materialized_hypertable_9_bucket_idx ON _timescaledb_internal._materialized_hypertable_9 USING btree (bucket DESC);
+
+
+--
 -- Name: idx_cpu_metrics_hourly_bucket_device_host; Type: INDEX; Schema: _timescaledb_internal; Owner: -
 --
 
@@ -9314,42 +9507,42 @@ CREATE INDEX idx_disk_metrics_hourly_bucket_device_host_mount ON _timescaledb_in
 -- Name: idx_flow_traffic_1d_bucket; Type: INDEX; Schema: _timescaledb_internal; Owner: -
 --
 
-CREATE INDEX idx_flow_traffic_1d_bucket ON _timescaledb_internal._materialized_hypertable_32 USING btree (bucket DESC);
+CREATE INDEX idx_flow_traffic_1d_bucket ON _timescaledb_internal._materialized_hypertable_9 USING btree (bucket DESC);
 
 
 --
 -- Name: idx_flow_traffic_1h_bucket; Type: INDEX; Schema: _timescaledb_internal; Owner: -
 --
 
-CREATE INDEX idx_flow_traffic_1h_bucket ON _timescaledb_internal._materialized_hypertable_31 USING btree (bucket DESC);
+CREATE INDEX idx_flow_traffic_1h_bucket ON _timescaledb_internal._materialized_hypertable_8 USING btree (bucket DESC);
 
 
 --
 -- Name: idx_hourly_conversations_bucket; Type: INDEX; Schema: _timescaledb_internal; Owner: -
 --
 
-CREATE INDEX idx_hourly_conversations_bucket ON _timescaledb_internal._materialized_hypertable_34 USING btree (bucket DESC);
+CREATE INDEX idx_hourly_conversations_bucket ON _timescaledb_internal._materialized_hypertable_7 USING btree (bucket DESC);
 
 
 --
 -- Name: idx_hourly_conversations_pair; Type: INDEX; Schema: _timescaledb_internal; Owner: -
 --
 
-CREATE INDEX idx_hourly_conversations_pair ON _timescaledb_internal._materialized_hypertable_34 USING btree (src_endpoint_ip, dst_endpoint_ip);
+CREATE INDEX idx_hourly_conversations_pair ON _timescaledb_internal._materialized_hypertable_7 USING btree (src_endpoint_ip, dst_endpoint_ip);
 
 
 --
 -- Name: idx_hourly_listeners_bucket; Type: INDEX; Schema: _timescaledb_internal; Owner: -
 --
 
-CREATE INDEX idx_hourly_listeners_bucket ON _timescaledb_internal._materialized_hypertable_33 USING btree (bucket DESC);
+CREATE INDEX idx_hourly_listeners_bucket ON _timescaledb_internal._materialized_hypertable_6 USING btree (bucket DESC);
 
 
 --
 -- Name: idx_hourly_listeners_ip; Type: INDEX; Schema: _timescaledb_internal; Owner: -
 --
 
-CREATE INDEX idx_hourly_listeners_ip ON _timescaledb_internal._materialized_hypertable_33 USING btree (dst_endpoint_ip);
+CREATE INDEX idx_hourly_listeners_ip ON _timescaledb_internal._materialized_hypertable_6 USING btree (dst_endpoint_ip);
 
 
 --
@@ -9377,63 +9570,63 @@ CREATE INDEX idx_ocsf_events_hourly_stats_bucket_severity ON _timescaledb_intern
 -- Name: idx_ocsf_network_activity_5m_traffic_bucket; Type: INDEX; Schema: _timescaledb_internal; Owner: -
 --
 
-CREATE INDEX idx_ocsf_network_activity_5m_traffic_bucket ON _timescaledb_internal._materialized_hypertable_16 USING btree (bucket);
+CREATE INDEX idx_ocsf_network_activity_5m_traffic_bucket ON _timescaledb_internal._materialized_hypertable_2 USING btree (bucket);
 
 
 --
 -- Name: idx_ocsf_network_activity_hourly_ports_bucket; Type: INDEX; Schema: _timescaledb_internal; Owner: -
 --
 
-CREATE INDEX idx_ocsf_network_activity_hourly_ports_bucket ON _timescaledb_internal._materialized_hypertable_19 USING btree (bucket DESC);
+CREATE INDEX idx_ocsf_network_activity_hourly_ports_bucket ON _timescaledb_internal._materialized_hypertable_5 USING btree (bucket DESC);
 
 
 --
 -- Name: idx_ocsf_network_activity_hourly_ports_bucket_port; Type: INDEX; Schema: _timescaledb_internal; Owner: -
 --
 
-CREATE INDEX idx_ocsf_network_activity_hourly_ports_bucket_port ON _timescaledb_internal._materialized_hypertable_19 USING btree (bucket, dst_endpoint_port);
+CREATE INDEX idx_ocsf_network_activity_hourly_ports_bucket_port ON _timescaledb_internal._materialized_hypertable_5 USING btree (bucket, dst_endpoint_port);
 
 
 --
 -- Name: idx_ocsf_network_activity_hourly_ports_port; Type: INDEX; Schema: _timescaledb_internal; Owner: -
 --
 
-CREATE INDEX idx_ocsf_network_activity_hourly_ports_port ON _timescaledb_internal._materialized_hypertable_19 USING btree (dst_endpoint_port);
+CREATE INDEX idx_ocsf_network_activity_hourly_ports_port ON _timescaledb_internal._materialized_hypertable_5 USING btree (dst_endpoint_port);
 
 
 --
 -- Name: idx_ocsf_network_activity_hourly_proto_bucket; Type: INDEX; Schema: _timescaledb_internal; Owner: -
 --
 
-CREATE INDEX idx_ocsf_network_activity_hourly_proto_bucket ON _timescaledb_internal._materialized_hypertable_17 USING btree (bucket DESC);
+CREATE INDEX idx_ocsf_network_activity_hourly_proto_bucket ON _timescaledb_internal._materialized_hypertable_3 USING btree (bucket DESC);
 
 
 --
 -- Name: idx_ocsf_network_activity_hourly_proto_bucket_proto; Type: INDEX; Schema: _timescaledb_internal; Owner: -
 --
 
-CREATE INDEX idx_ocsf_network_activity_hourly_proto_bucket_proto ON _timescaledb_internal._materialized_hypertable_17 USING btree (bucket, protocol_num);
+CREATE INDEX idx_ocsf_network_activity_hourly_proto_bucket_proto ON _timescaledb_internal._materialized_hypertable_3 USING btree (bucket, protocol_num);
 
 
 --
 -- Name: idx_ocsf_network_activity_hourly_talkers_bucket; Type: INDEX; Schema: _timescaledb_internal; Owner: -
 --
 
-CREATE INDEX idx_ocsf_network_activity_hourly_talkers_bucket ON _timescaledb_internal._materialized_hypertable_18 USING btree (bucket DESC);
+CREATE INDEX idx_ocsf_network_activity_hourly_talkers_bucket ON _timescaledb_internal._materialized_hypertable_4 USING btree (bucket DESC);
 
 
 --
 -- Name: idx_ocsf_network_activity_hourly_talkers_bucket_ip; Type: INDEX; Schema: _timescaledb_internal; Owner: -
 --
 
-CREATE INDEX idx_ocsf_network_activity_hourly_talkers_bucket_ip ON _timescaledb_internal._materialized_hypertable_18 USING btree (bucket, src_endpoint_ip);
+CREATE INDEX idx_ocsf_network_activity_hourly_talkers_bucket_ip ON _timescaledb_internal._materialized_hypertable_4 USING btree (bucket, src_endpoint_ip);
 
 
 --
 -- Name: idx_ocsf_network_activity_hourly_talkers_ip; Type: INDEX; Schema: _timescaledb_internal; Owner: -
 --
 
-CREATE INDEX idx_ocsf_network_activity_hourly_talkers_ip ON _timescaledb_internal._materialized_hypertable_18 USING btree (src_endpoint_ip);
+CREATE INDEX idx_ocsf_network_activity_hourly_talkers_ip ON _timescaledb_internal._materialized_hypertable_4 USING btree (src_endpoint_ip);
 
 
 --
@@ -13968,4 +14161,4 @@ ALTER TABLE ONLY platform.wifi_sites
 -- PostgreSQL database dump complete
 --
 
-\unrestrict W5BaJpCW3Kzu3WrNxSRc3zTIdYKyQKjC9wmV3hA5bnY2XtVnyrrEzFMVOQPpuRT
+\unrestrict j8DbNIlq51Eavtf5ilrEsGAQVPOwrSnqXLADWcMoH7Pzh2zCynTEZQ92GI9P0Sw

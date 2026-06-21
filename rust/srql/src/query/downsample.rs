@@ -191,7 +191,7 @@ LIMIT ? OFFSET ?"#,
     {
         "SUM(flow_count)".to_string()
     } else {
-        agg_expr(downsample.agg, value_col)
+        agg_expr(downsample.agg, &value_col)
     };
 
     // Use standard PostgreSQL floor-based bucketing instead of TimescaleDB's time_bucket
@@ -244,50 +244,50 @@ fn resolve_value_column(
     entity: Entity,
     value_field: Option<&str>,
     use_hourly_cagg: bool,
-) -> Result<&'static str> {
+) -> Result<String> {
     let value_field = value_field.map(|value| value.trim().to_lowercase());
     let field = value_field.as_deref();
 
     if use_hourly_cagg {
         return match entity {
             Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => match field {
-                None | Some("value") => Ok("avg_value"),
+                None | Some("value") => Ok("avg_value".to_string()),
                 Some(other) => Err(ServiceError::InvalidRequest(format!(
                     "unsupported value_field '{other}' for timeseries_metrics_hourly"
                 ))),
             },
             Entity::CpuMetrics => match field {
-                None | Some("usage_percent") => Ok("avg_usage_percent"),
+                None | Some("usage_percent") => Ok("avg_usage_percent".to_string()),
                 Some(other) => Err(ServiceError::InvalidRequest(format!(
                     "unsupported value_field '{other}' for cpu_metrics_hourly"
                 ))),
             },
             Entity::MemoryMetrics => match field {
-                None | Some("usage_percent") => Ok("avg_usage_percent"),
-                Some("used_bytes") => Ok("avg_used_bytes"),
-                Some("available_bytes") => Ok("avg_available_bytes"),
+                None | Some("usage_percent") => Ok("avg_usage_percent".to_string()),
+                Some("used_bytes") => Ok("avg_used_bytes".to_string()),
+                Some("available_bytes") => Ok("avg_available_bytes".to_string()),
                 Some(other) => Err(ServiceError::InvalidRequest(format!(
                     "unsupported value_field '{other}' for memory_metrics_hourly"
                 ))),
             },
             Entity::DiskMetrics => match field {
-                None | Some("usage_percent") => Ok("avg_usage_percent"),
-                Some("used_bytes") => Ok("avg_used_bytes"),
-                Some("available_bytes") => Ok("avg_available_bytes"),
+                None | Some("usage_percent") => Ok("avg_usage_percent".to_string()),
+                Some("used_bytes") => Ok("avg_used_bytes".to_string()),
+                Some("available_bytes") => Ok("avg_available_bytes".to_string()),
                 Some(other) => Err(ServiceError::InvalidRequest(format!(
                     "unsupported value_field '{other}' for disk_metrics_hourly"
                 ))),
             },
             Entity::ProcessMetrics => match field {
-                None | Some("cpu_usage") => Ok("avg_cpu_usage"),
-                Some("memory_usage") => Ok("avg_memory_usage"),
+                None | Some("cpu_usage") => Ok("avg_cpu_usage".to_string()),
+                Some("memory_usage") => Ok("avg_memory_usage".to_string()),
                 Some(other) => Err(ServiceError::InvalidRequest(format!(
                     "unsupported value_field '{other}' for process_metrics_hourly"
                 ))),
             },
             Entity::Flows => match field {
-                None | Some("bytes_total") => Ok("bytes_total"),
-                Some("packets_total") => Ok("packets_total"),
+                None | Some("bytes_total") => Ok("bytes_total".to_string()),
+                Some("packets_total") => Ok("packets_total".to_string()),
                 Some(other) => Err(ServiceError::InvalidRequest(format!(
                     "unsupported value_field '{other}' for flow CAGG (supported: bytes_total|packets_total)"
                 ))),
@@ -300,50 +300,50 @@ fn resolve_value_column(
 
     match entity {
         Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => match field {
-            None | Some("value") => Ok("value"),
+            None | Some("value") => Ok("value".to_string()),
             Some(other) => Err(ServiceError::InvalidRequest(format!(
                 "unsupported value_field '{other}' for timeseries metrics"
             ))),
         },
         Entity::CpuMetrics => match field {
-            None | Some("usage_percent") => Ok("usage_percent"),
-            Some("frequency_hz") => Ok("frequency_hz"),
+            None | Some("usage_percent") => Ok("usage_percent".to_string()),
+            Some("frequency_hz") => Ok("frequency_hz".to_string()),
             Some(other) => Err(ServiceError::InvalidRequest(format!(
                 "unsupported value_field '{other}' for cpu_metrics"
             ))),
         },
         Entity::MemoryMetrics => match field {
-            None | Some("usage_percent") => Ok("usage_percent"),
-            Some("used_bytes") => Ok("used_bytes"),
-            Some("available_bytes") => Ok("available_bytes"),
-            Some("total_bytes") => Ok("total_bytes"),
+            None | Some("usage_percent") => Ok("usage_percent".to_string()),
+            Some("used_bytes") => Ok("used_bytes".to_string()),
+            Some("available_bytes") => Ok("available_bytes".to_string()),
+            Some("total_bytes") => Ok("total_bytes".to_string()),
             Some(other) => Err(ServiceError::InvalidRequest(format!(
                 "unsupported value_field '{other}' for memory_metrics"
             ))),
         },
         Entity::DiskMetrics => match field {
-            None | Some("usage_percent") => Ok("usage_percent"),
-            Some("used_bytes") => Ok("used_bytes"),
-            Some("available_bytes") => Ok("available_bytes"),
-            Some("total_bytes") => Ok("total_bytes"),
+            None | Some("usage_percent") => Ok("usage_percent".to_string()),
+            Some("used_bytes") => Ok("used_bytes".to_string()),
+            Some("available_bytes") => Ok("available_bytes".to_string()),
+            Some("total_bytes") => Ok("total_bytes".to_string()),
             Some(other) => Err(ServiceError::InvalidRequest(format!(
                 "unsupported value_field '{other}' for disk_metrics"
             ))),
         },
         Entity::ProcessMetrics => match field {
-            None | Some("cpu_usage") => Ok("cpu_usage"),
-            Some("memory_usage") => Ok("memory_usage"),
+            None | Some("cpu_usage") => Ok("cpu_usage".to_string()),
+            Some("memory_usage") => Ok("memory_usage".to_string()),
             Some(other) => Err(ServiceError::InvalidRequest(format!(
                 "unsupported value_field '{other}' for process_metrics"
             ))),
         },
         Entity::Flows => match field {
-            None | Some("bytes_total") => Ok("bytes_total"),
-            Some("packets_total") => Ok("packets_total"),
-            Some("bytes_in") => Ok("bytes_in"),
-            Some("bytes_out") => Ok("bytes_out"),
-            Some("packets_in") => Ok("packets_in"),
-            Some("packets_out") => Ok("packets_out"),
+            None | Some("bytes_total") => Ok(flow_value_column("bytes_total")),
+            Some("packets_total") => Ok(flow_value_column("packets_total")),
+            Some("bytes_in") => Ok(flow_value_column("bytes_in")),
+            Some("bytes_out") => Ok(flow_value_column("bytes_out")),
+            Some("packets_in") => Ok(flow_value_column("packets_in")),
+            Some("packets_out") => Ok(flow_value_column("packets_out")),
             Some(other) => Err(ServiceError::InvalidRequest(format!(
                 "unsupported value_field '{other}' for flows (supported: bytes_total|packets_total|bytes_in|bytes_out|packets_in|packets_out)"
             ))),
@@ -352,6 +352,12 @@ fn resolve_value_column(
             "downsample is only supported for metric entities and flows".into(),
         )),
     }
+}
+
+fn flow_value_column(column: &str) -> String {
+    format!(
+        "({column}::double precision * GREATEST(COALESCE(sampling_rate, 1), 1)::double precision)"
+    )
 }
 
 fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {

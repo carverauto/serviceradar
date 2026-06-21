@@ -187,8 +187,8 @@
 ## 33. Flow Sampling-Rate End-to-End (F39)
 - [x] 33.1 Collector: capture NetFlow v9/IPFIX sampling IEs (incl. options/sampler records) per exporter; add a configured per-exporter fallback (esp. v5); set `sampling_rate` on the proto.
 - [x] 33.2 Core: persist `sampling_rate` to a real flow column (stop `zero_to_nil`-dropping it into the `unmapped` blob).
-- [ ] 33.3 Scale bytes/packets by `sampling_rate` in flow queries (and rebuild/relearn the hierarchical continuous aggregates to store scaled volume).
-- [ ] 33.4 Normalize sFlow byte layer (L2 vs L3) and per-sample packet count; add a test that sampled exporters report true volume.
+- [x] 33.3 Scale bytes/packets by `sampling_rate` in flow queries (and rebuild/relearn the hierarchical continuous aggregates to store scaled volume).
+- [x] 33.4 Normalize sFlow byte layer (L2 vs L3) and per-sample packet count; add a test that sampled exporters report true volume.
 
 ## 34. Dashboard Query Safety (F40)
 - [x] 34.1 Parameterize/escape authored dashboard variable values; never interpolate them into the SRQL grammar; validate against the variable's declared type/allowed set.

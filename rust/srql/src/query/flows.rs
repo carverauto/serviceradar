@@ -1044,6 +1044,27 @@ impl FlowAggField {
             Self::DstEndpointPort => "dst_endpoint_port",
         }
     }
+
+    fn is_sampled_volume(&self) -> bool {
+        matches!(
+            self,
+            Self::BytesTotal
+                | Self::PacketsTotal
+                | Self::BytesIn
+                | Self::BytesOut
+                | Self::PacketsIn
+                | Self::PacketsOut
+        )
+    }
+
+    fn sampled_volume_sql(&self, table_alias: &str) -> Option<String> {
+        self.is_sampled_volume().then(|| {
+            let column = self.sql();
+            format!(
+                "({table_alias}.{column}::double precision * GREATEST(COALESCE({table_alias}.sampling_rate, 1), 1)::double precision)"
+            )
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1695,7 +1716,15 @@ fn build_grouped_stats_query(
                 }
                 Ok(format!("COUNT(DISTINCT {})", agg.agg_field.sql()))
             } else {
-                Ok(format!("{}({})", agg.agg_func.sql(), agg.agg_field.sql()))
+                let field_sql = if cagg_route.is_none() {
+                    agg.agg_field
+                        .sampled_volume_sql("f")
+                        .unwrap_or_else(|| agg.agg_field.sql().to_string())
+                } else {
+                    agg.agg_field.sql().to_string()
+                };
+
+                Ok(format!("{}({field_sql})", agg.agg_func.sql()))
             }
         })
         .collect::<Result<Vec<_>>>()?;
@@ -2643,6 +2672,80 @@ mod tests {
             "should order by first aggregate expression, not JSON alias"
         );
         assert_eq!(params.len(), 4, "expected time + 2 filter binds");
+    }
+
+    #[test]
+    fn raw_flow_stats_scale_volume_fields_by_sampling_rate() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: Vec::new(),
+            order: vec![OrderClause {
+                field: "bytes_total".into(),
+                direction: OrderDirection::Desc,
+            }],
+            limit: 10,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "sum(bytes_total) as bytes_total, sum(packets_total) as packets_total by src_endpoint_ip",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        };
+
+        let (sql, _params) = to_sql_and_params_stats(&plan).unwrap();
+
+        assert!(
+            sql.contains(
+                "SUM((f.bytes_total::double precision * GREATEST(COALESCE(f.sampling_rate, 1), 1)::double precision))"
+            ),
+            "expected bytes_total sum to be sampling-rate weighted: {sql}"
+        );
+        assert!(
+            sql.contains(
+                "SUM((f.packets_total::double precision * GREATEST(COALESCE(f.sampling_rate, 1), 1)::double precision))"
+            ),
+            "expected packets_total sum to be sampling-rate weighted: {sql}"
+        );
+    }
+
+    #[test]
+    fn flow_cagg_stats_read_pre_scaled_volume_columns() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(24);
+
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: Vec::new(),
+            order: vec![],
+            limit: 10,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "sum(bytes_total) as bytes_total by src_endpoint_ip",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        };
+
+        let (sql, _params) = to_sql_and_params_stats(&plan).unwrap();
+
+        assert!(sql.contains("FROM ocsf_network_activity_hourly_talkers f"));
+        assert!(
+            sql.contains("SUM(bytes_total) AS agg_value_0"),
+            "expected CAGG route to use pre-scaled bytes_total: {sql}"
+        );
+        assert!(
+            !sql.contains("sampling_rate"),
+            "CAGGs do not carry sampling_rate; they store scaled volume: {sql}"
+        );
     }
 
     #[test]

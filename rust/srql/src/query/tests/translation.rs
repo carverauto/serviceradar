@@ -367,8 +367,10 @@ fn translate_flows_downsample_emits_time_bucket_query() {
         response.sql
     );
     assert!(
-        sql.contains("sum(bytes_total)"),
-        "expected sum(bytes_total), got: {}",
+        sql.contains(
+            "sum((bytes_total::double precision * greatest(coalesce(sampling_rate, 1), 1)::double precision))"
+        ),
+        "expected sampling-rate weighted sum(bytes_total), got: {}",
         response.sql
     );
     assert!(

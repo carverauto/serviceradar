@@ -113,7 +113,6 @@ impl Converter {
                 }
                 FlowRecord::RawPacketHeader(raw) => {
                     if !has_ip_record {
-                        msg.bytes = u64::from(raw.frame_length);
                         if let Some(header) = parse_raw_packet_header(raw) {
                             msg.src_addr = header.src_addr;
                             msg.dst_addr = header.dst_addr;
@@ -123,6 +122,7 @@ impl Converter {
                             msg.tcp_flags = header.tcp_flags;
                             msg.ip_tos = header.ip_tos;
                             msg.etype = header.etype;
+                            msg.bytes = header.bytes;
                             msg.protocol_name = protocol_name(header.proto);
                             has_ip_record = true;
                         } else {
@@ -171,6 +171,7 @@ impl Converter {
 
 struct RawHeaderTuple {
     etype: u32,
+    bytes: u64,
     src_addr: Vec<u8>,
     dst_addr: Vec<u8>,
     src_port: u32,
@@ -231,10 +232,16 @@ fn parse_ipv4_packet(packet: &[u8]) -> Option<RawHeaderTuple> {
     }
 
     let proto = u32::from(packet[9]);
+    let total_length = u16::from_be_bytes([packet[2], packet[3]]);
+    if total_length < u16::try_from(ihl).ok()? {
+        return None;
+    }
+
     let (src_port, dst_port, tcp_flags) = parse_l4_tuple(proto, packet.get(ihl..)?);
 
     Some(RawHeaderTuple {
         etype: 0x0800,
+        bytes: u64::from(total_length),
         src_addr: Ipv4Addr::new(packet[12], packet[13], packet[14], packet[15])
             .octets()
             .to_vec(),
@@ -255,6 +262,7 @@ fn parse_ipv6_packet(packet: &[u8]) -> Option<RawHeaderTuple> {
     }
 
     let proto = u32::from(packet[6]);
+    let payload_length = u16::from_be_bytes([packet[4], packet[5]]);
     let (src_port, dst_port, tcp_flags) = parse_l4_tuple(proto, packet.get(40..)?);
 
     let src = Ipv6Addr::from(<[u8; 16]>::try_from(packet.get(8..24)?).ok()?);
@@ -262,6 +270,7 @@ fn parse_ipv6_packet(packet: &[u8]) -> Option<RawHeaderTuple> {
 
     Some(RawHeaderTuple {
         etype: 0x86DD,
+        bytes: u64::from(payload_length) + 40,
         src_addr: src.octets().to_vec(),
         dst_addr: dst.octets().to_vec(),
         src_port,
@@ -385,6 +394,8 @@ mod tests {
         assert_eq!(msg.ip_tos, 0);
         assert_eq!(msg.bytes, 1500);
         assert_eq!(msg.packets, 1);
+        assert_eq!(msg.bytes * msg.sampling_rate, 768_000);
+        assert_eq!(msg.packets * msg.sampling_rate, 512);
         assert_eq!(msg.etype, 0x0800);
         assert_eq!(msg.sampling_rate, 512);
         assert_eq!(msg.in_if, 3);
@@ -501,7 +512,7 @@ mod tests {
     }
 
     #[test]
-    fn test_raw_packet_header_ipv4_udp_conversion() {
+    fn test_raw_packet_header_ipv4_udp_conversion_normalizes_to_l3_bytes() {
         let mut header = vec![
             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, // dst mac
             0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, // src mac
@@ -540,7 +551,7 @@ mod tests {
 
         assert_eq!(messages.len(), 1);
         let msg = &messages[0];
-        assert_eq!(msg.bytes, 1518);
+        assert_eq!(msg.bytes, 32);
         assert_eq!(msg.etype, 0x0800);
         assert_eq!(msg.src_addr, Ipv4Addr::new(10, 1, 2, 3).octets().to_vec());
         assert_eq!(msg.dst_addr, Ipv4Addr::new(10, 4, 5, 6).octets().to_vec());
