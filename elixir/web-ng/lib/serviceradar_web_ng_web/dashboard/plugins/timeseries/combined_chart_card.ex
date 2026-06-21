@@ -48,9 +48,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
         <div class="flex items-center gap-3">
           <%= for series <- @data.series do %>
             <div class="flex items-center gap-1">
-              <span
-                class="inline-block size-2 rounded-full shrink-0"
-                style={"background-color: #{series.stroke}"}
+              <ChartCard.series_marker
+                color={series.stroke}
+                encoding={ChartCard.series_encoding(series.idx)}
+                class="size-3"
               />
               <span class={[
                 "text-base-content/70",
@@ -138,6 +139,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
               stroke-width="2"
               stroke-linecap="round"
               stroke-linejoin="round"
+              stroke-dasharray={ChartCard.series_encoding(series.idx).dasharray}
+              data-series-shape={ChartCard.series_encoding(series.idx).shape}
             />
           <% end %>
         </svg>
@@ -161,9 +164,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
       ]}>
         <%= for series <- @data.series do %>
           <div class="flex items-center gap-1">
-            <span
-              class="inline-block size-1.5 rounded-full"
-              style={"background-color: #{series.stroke}"}
+            <ChartCard.series_marker
+              color={series.stroke}
+              encoding={ChartCard.series_encoding(series.idx)}
+              class="size-2.5"
             />
             <span class="font-mono">{Metrics.format_value(series.paths.avg, series.unit)}</span>
           </div>

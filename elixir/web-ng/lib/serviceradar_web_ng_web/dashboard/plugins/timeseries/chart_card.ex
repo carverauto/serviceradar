@@ -5,6 +5,63 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
 
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics
 
+  @series_encodings [
+    %{shape: :circle, label: "Circle", dasharray: nil},
+    %{shape: :square, label: "Square", dasharray: "5 3"},
+    %{shape: :triangle, label: "Triangle", dasharray: "2 3"},
+    %{shape: :diamond, label: "Diamond", dasharray: "8 3 2 3"},
+    %{shape: :line, label: "Line", dasharray: "10 4"},
+    %{shape: :cross, label: "Cross", dasharray: "3 2 1 2"}
+  ]
+
+  def series_encoding(idx) when is_integer(idx) do
+    Enum.at(@series_encodings, Integer.mod(idx, length(@series_encodings)))
+  end
+
+  def series_encoding(_idx), do: series_encoding(0)
+
+  attr :color, :string, required: true
+  attr :encoding, :map, required: true
+  attr :class, :any, default: "size-3"
+
+  def series_marker(assigns) do
+    ~H"""
+    <svg
+      class={["shrink-0", @class]}
+      viewBox="0 0 12 12"
+      role="img"
+      aria-label={"#{@encoding.label} series marker"}
+      data-testid="timeseries-series-marker"
+      data-series-shape={@encoding.shape}
+    >
+      <title>{@encoding.label} series marker</title>
+      <circle :if={@encoding.shape == :circle} cx="6" cy="6" r="4" fill={@color} />
+      <rect :if={@encoding.shape == :square} x="2" y="2" width="8" height="8" rx="1" fill={@color} />
+      <path :if={@encoding.shape == :triangle} d="M6 1.8 11 10.2H1Z" fill={@color} />
+      <path :if={@encoding.shape == :diamond} d="M6 1.5 10.5 6 6 10.5 1.5 6Z" fill={@color} />
+      <line
+        :if={@encoding.shape == :line}
+        x1="1"
+        y1="6"
+        x2="11"
+        y2="6"
+        stroke={@color}
+        stroke-width="2.5"
+        stroke-linecap="round"
+      />
+      <g
+        :if={@encoding.shape == :cross}
+        stroke={@color}
+        stroke-width="2.2"
+        stroke-linecap="round"
+      >
+        <line x1="3" y1="3" x2="9" y2="9" />
+        <line x1="9" y1="3" x2="3" y2="9" />
+      </g>
+    </svg>
+    """
+  end
+
   attr :annotations, :list, required: true
   attr :chart_pad, :integer, required: true
   attr :chart_height, :integer, required: true
@@ -55,6 +112,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
   attr :compact, :boolean, default: false
 
   def chart_card(assigns) do
+    assigns = assign(assigns, :encoding, series_encoding(assigns.data.idx))
+
     ~H"""
     <div
       id={"chart-#{@id}-#{@data.idx}"}
@@ -69,10 +128,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
     >
       <div class="flex items-center justify-between gap-3 mb-2">
         <div class="flex items-center gap-2 min-w-0">
-          <span
-            class="inline-block size-2 rounded-full shrink-0"
-            style={"background-color: #{@data.stroke}"}
-          />
+          <.series_marker color={@data.stroke} encoding={@encoding} />
           <span class={["font-medium truncate", @compact && "text-xs", not @compact && "text-sm"]}>
             {@data.series}
           </span>
@@ -163,6 +219,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
             stroke-width="2"
             stroke-linecap="round"
             stroke-linejoin="round"
+            stroke-dasharray={@encoding.dasharray}
+            data-series-shape={@encoding.shape}
           />
         </svg>
 
