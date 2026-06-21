@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     assert query =~ "type(r) IN ['ATTACHED_TO', 'OBSERVED_TO']"
     assert query =~ "MATCH (a:Device {id: ai.device_id})"
     assert query =~ "MATCH (b:Device {id: bi.device_id})"
+    assert query =~ "observed_at: coalesce(r.last_observed_at, r.observed_at, '')"
 
     assert query =~
              "coalesce(r.relation_type, '') = '' AND toLower(coalesce(r.evidence_class, '')) IN ['direct', 'direct-physical', 'direct-logical', 'hosted-virtual']"
@@ -66,6 +67,15 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     assert query =~ "telemetry_eligible: false"
     assert query =~ "telemetry_source: 'none'"
     assert query =~ "evidence_class: coalesce(r.evidence_class, 'endpoint-attachment')"
+  end
+
+  test "projection read action trusts initialized empty projections" do
+    assert RuntimeGraph.projection_read_action({:ok, []}) == {:projected, []}
+
+    assert RuntimeGraph.projection_read_action({:error, :projection_uninitialized}) ==
+             :fallback_uninitialized
+
+    assert RuntimeGraph.projection_read_action({:error, :boom}) == {:fallback_error, :boom}
   end
 
   test "topology_diagnostics_query/0 exposes canonical edge health counters" do

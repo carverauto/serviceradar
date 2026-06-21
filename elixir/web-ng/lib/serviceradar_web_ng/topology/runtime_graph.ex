@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
 
   use GenServer
 
+  alias ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Graph, as: AgeGraph
   alias ServiceRadarWebNG.Topology.Native
@@ -166,33 +167,60 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   end
 
   defp fetch_topology_links_from_graph do
-    cypher = topology_links_query()
+    case projection_read_action(fetch_projected_topology_links()) do
+      {:projected, rows} ->
+        fetch_topology_links_with_virtualization(rows)
 
-    case AgeGraph.query(cypher) do
-      {:ok, graph_rows} when is_list(graph_rows) ->
-        case fetch_virtualization_links_from_inventory() do
-          {:ok, virtualization_rows} when is_list(virtualization_rows) ->
-            {:ok, graph_rows ++ virtualization_rows}
+      :fallback_uninitialized ->
+        fetch_topology_links_from_age()
 
-          {:error, reason} ->
-            Logger.warning("runtime_graph_virtualization_inventory_failed reason=#{inspect(reason)}")
-            {:ok, graph_rows}
-        end
-
-      {:ok, rows} when is_list(rows) ->
-        {:ok, rows}
-
-      {:error, reason} ->
-        {:error, reason}
+      {:fallback_error, reason} ->
+        Logger.warning("runtime_graph_projection_read_failed reason=#{inspect(reason)}")
+        fetch_topology_links_from_age()
     end
   rescue
     error -> {:error, error}
   end
 
+  defp fetch_projected_topology_links do
+    RuntimeTopologyProjection.read_cached_links(
+      repo: Repo,
+      limit: @max_backbone_link_rows + @max_attachment_link_rows
+    )
+  end
+
+  @doc false
+  @spec projection_read_action({:ok, list()} | {:error, term()}) ::
+          {:projected, list()} | :fallback_uninitialized | {:fallback_error, term()}
+  def projection_read_action({:ok, rows}) when is_list(rows), do: {:projected, rows}
+  def projection_read_action({:error, :projection_uninitialized}), do: :fallback_uninitialized
+  def projection_read_action({:error, reason}), do: {:fallback_error, reason}
+
+  defp fetch_topology_links_from_age do
+    case AgeGraph.query(topology_links_query()) do
+      {:ok, graph_rows} when is_list(graph_rows) ->
+        fetch_topology_links_with_virtualization(graph_rows)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp fetch_topology_links_with_virtualization(rows) when is_list(rows) do
+    case fetch_virtualization_links_from_inventory() do
+      {:ok, virtualization_rows} when is_list(virtualization_rows) ->
+        {:ok, rows ++ virtualization_rows}
+
+      {:error, reason} ->
+        Logger.warning("runtime_graph_virtualization_inventory_failed reason=#{inspect(reason)}")
+        {:ok, rows}
+    end
+  end
+
   @doc false
   @spec topology_links_query() :: String.t()
   def topology_links_query do
-    authoritative_topology_links_query()
+    RuntimeTopologyProjection.graph_projection_query()
   end
 
   @doc false
@@ -323,125 +351,6 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
 
   defp first_column([value | _]), do: value
   defp first_column(value), do: value
-
-  defp authoritative_topology_links_query do
-    """
-    MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
-    WHERE a.id IS NOT NULL
-      AND b.id IS NOT NULL
-      AND a.id STARTS WITH 'sr:'
-      AND b.id STARTS WITH 'sr:'
-      AND (
-        toUpper(coalesce(r.relation_type, '')) IN ['CONNECTS_TO', 'LOGICAL_PEER', 'HOSTED_ON']
-        OR (coalesce(r.relation_type, '') = '' AND toLower(coalesce(r.evidence_class, '')) IN ['direct', 'direct-physical', 'direct-logical', 'hosted-virtual'])
-      )
-    WITH a, b, r
-    ORDER BY coalesce(r.last_observed_at, r.observed_at) DESC
-    LIMIT #{@max_backbone_link_rows}
-    RETURN {
-      local_device_id: a.id,
-      local_device_ip: a.ip,
-      local_if_name: coalesce(r.local_if_name, ''),
-      local_if_index: r.local_if_index,
-      local_if_name_ab: coalesce(r.local_if_name_ab, r.local_if_name, ''),
-      local_if_index_ab: coalesce(r.local_if_index_ab, r.local_if_index),
-      local_if_name_ba: coalesce(r.local_if_name_ba, r.neighbor_if_name, ''),
-      local_if_index_ba: coalesce(r.local_if_index_ba, r.neighbor_if_index),
-      neighbor_if_name: coalesce(r.neighbor_if_name, ''),
-      neighbor_if_index: r.neighbor_if_index,
-      neighbor_device_id: b.id,
-      neighbor_mgmt_addr: b.ip,
-      neighbor_system_name: b.name,
-      flow_pps: coalesce(r.flow_pps, 0),
-      flow_bps: coalesce(r.flow_bps, 0),
-      capacity_bps: coalesce(r.capacity_bps, 0),
-      flow_pps_ab: coalesce(r.flow_pps_ab, 0),
-      flow_pps_ba: coalesce(r.flow_pps_ba, 0),
-      flow_bps_ab: coalesce(r.flow_bps_ab, 0),
-      flow_bps_ba: coalesce(r.flow_bps_ba, 0),
-      telemetry_eligible: coalesce(
-        r.telemetry_eligible,
-        CASE
-          WHEN coalesce(r.flow_pps, 0) > 0 OR coalesce(r.flow_bps, 0) > 0 THEN true
-          WHEN coalesce(r.flow_pps_ab, 0) > 0 OR coalesce(r.flow_pps_ba, 0) > 0 THEN true
-          WHEN coalesce(r.flow_bps_ab, 0) > 0 OR coalesce(r.flow_bps_ba, 0) > 0 THEN true
-          ELSE false
-        END
-      ),
-      telemetry_source: coalesce(r.telemetry_source, 'none'),
-      telemetry_observed_at: coalesce(r.telemetry_observed_at, ''),
-      protocol: coalesce(r.protocol, r.source, 'unknown'),
-      confidence_tier: coalesce(r.confidence_tier, 'unknown'),
-      confidence_reason: coalesce(r.confidence_reason, ''),
-      evidence_class: coalesce(r.evidence_class, ''),
-      metadata: {
-        relation_type: coalesce(r.relation_type, type(r)),
-        source: coalesce(r.source, ''),
-        inference: coalesce(r.confidence_reason, ''),
-        evidence_class: coalesce(r.evidence_class, ''),
-        topology_plane: CASE
-          WHEN toUpper(coalesce(r.relation_type, '')) = 'LOGICAL_PEER' THEN 'logical'
-          WHEN toUpper(coalesce(r.relation_type, '')) = 'HOSTED_ON' THEN 'hosted'
-          ELSE 'backbone'
-        END,
-        confidence_tier: coalesce(r.confidence_tier, 'unknown'),
-        confidence_score: coalesce(r.confidence_score, 0)
-      }
-    } AS row
-    UNION ALL
-    MATCH (ai:Interface)-[r]->(bi:Interface)
-    MATCH (a:Device {id: ai.device_id})
-    MATCH (b:Device {id: bi.device_id})
-    WHERE r.ingestor = 'mapper_topology_v1'
-      AND type(r) IN ['ATTACHED_TO', 'OBSERVED_TO']
-      AND ai.device_id IS NOT NULL
-      AND bi.device_id IS NOT NULL
-      AND ai.device_id STARTS WITH 'sr:'
-      AND bi.device_id STARTS WITH 'sr:'
-      AND ai.device_id <> bi.device_id
-    WITH a, b, ai, bi, r
-    ORDER BY coalesce(r.last_observed_at, r.observed_at) DESC
-    LIMIT #{@max_attachment_link_rows}
-    RETURN {
-      local_device_id: ai.device_id,
-      local_device_ip: a.ip,
-      local_if_name: coalesce(ai.name, ''),
-      local_if_index: ai.ifindex,
-      local_if_name_ab: coalesce(ai.name, ''),
-      local_if_index_ab: ai.ifindex,
-      local_if_name_ba: coalesce(bi.name, ''),
-      local_if_index_ba: bi.ifindex,
-      neighbor_if_name: coalesce(bi.name, ''),
-      neighbor_if_index: bi.ifindex,
-      neighbor_device_id: bi.device_id,
-      neighbor_mgmt_addr: b.ip,
-      neighbor_system_name: b.name,
-      flow_pps: 0,
-      flow_bps: 0,
-      capacity_bps: 0,
-      flow_pps_ab: 0,
-      flow_pps_ba: 0,
-      flow_bps_ab: 0,
-      flow_bps_ba: 0,
-      telemetry_eligible: false,
-      telemetry_source: 'none',
-      telemetry_observed_at: coalesce(r.last_observed_at, r.observed_at, ''),
-      protocol: coalesce(r.protocol, r.source, 'unknown'),
-      confidence_tier: coalesce(r.confidence_tier, 'unknown'),
-      confidence_reason: coalesce(r.confidence_reason, ''),
-      evidence_class: coalesce(r.evidence_class, 'endpoint-attachment'),
-      metadata: {
-        relation_type: type(r),
-        source: coalesce(r.source, r.ingestor, 'mapper_topology_v1'),
-        inference: coalesce(r.confidence_reason, ''),
-        evidence_class: coalesce(r.evidence_class, 'endpoint-attachment'),
-        topology_plane: 'attachment',
-        confidence_tier: coalesce(r.confidence_tier, 'unknown'),
-        confidence_score: coalesce(r.confidence_score, 0)
-      }
-    } AS row
-    """
-  end
 
   defp normalize_runtime_rows(rows) when is_list(rows) do
     rows

@@ -6,6 +6,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   import Ecto.Query
 
   alias ServiceRadar.Graph
+  alias ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection
   alias ServiceRadar.Repo
 
   require Logger
@@ -1022,6 +1023,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
             min_canonical_edges
           )
 
+        runtime_projection_refresh = refresh_runtime_topology_projection()
+
         stats = %{
           before_edges: before_edges,
           mapper_evidence_edges: mapper_evidence_edges,
@@ -1029,6 +1032,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
           after_prune_edges: after_prune_edges,
           same_port_demotions: demotion_result,
           telemetry_refresh: telemetry_result,
+          runtime_projection_refresh: runtime_projection_refresh,
           stale_cutoff: stale_cutoff,
           self_heal_result: self_heal_result,
           lock_skipped: false
@@ -1070,6 +1074,17 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       prune_result: :skipped,
       lock_skipped: true
     }
+  end
+
+  defp refresh_runtime_topology_projection do
+    case RuntimeTopologyProjection.refresh_from_graph() do
+      {:ok, summary} ->
+        summary
+
+      {:error, reason} ->
+        Logger.warning("Runtime topology projection refresh failed: #{inspect(reason)}")
+        %{status: :failed, reason: inspect(reason)}
+    end
   end
 
   defp reconcile_competing_same_port_canonical_edges do
