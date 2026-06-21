@@ -39,7 +39,7 @@ func TestApplyResourceLimitsPlacesChildInCgroup(t *testing.T) {
 	}
 
 	cmd := exec.CommandContext(context.Background(), "/bin/sleep", "30")
-	cleanup, err := applyResourceLimits(cmd, "itest", res, parent, zerolog.Nop())
+	cleanup, _, err := applyResourceLimits(cmd, "itest", res, parent, zerolog.Nop())
 	if err != nil {
 		t.Fatalf("applyResourceLimits: %v", err)
 	}
