@@ -175,7 +175,7 @@
 - [ ] 30.2 Distinguish query-error vs no-data vs disabled empty states; link empty states to the relevant SNMP/polling config.
 
 ## 31. Charted Coverage & Accessibility (F37)
-- [x] 31.1 Chart `process.count`; add per-process history/sparklines so process spikes are visible.
+- [ ] 31.1 Chart `process.count`; add per-process history/sparklines so process spikes are visible. _(NOTE: previously checked by #4109, but that PR only fixed the agent-side `process.count` value (Go, zero web-ng changes) — the chart + per-process sparkline UI does not exist: the process panel renders a static table (`process_metrics_components.ex`) and the data layer collapses to one latest sample per process (`sysmon_metrics.ex` `latest_process_metric_by_identity`), so there is no series to chart. Reverted to open; the agent-side true-total count fix that #4109 actually delivered is real and separate.)_
 - [ ] 31.2 Show absolute volume alongside the NetFlow 100%-stacked view.
 - [ ] 31.3 Add non-color series encoding (shape/pattern/label) for color-blind operators.
 
