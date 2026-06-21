@@ -442,6 +442,206 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert active_alert.metadata["incident_group_values"] == %{"device" => device_uid}
   end
 
+  test "causal anomaly alerts only on open transitions and resolves on clear", %{actor: actor} do
+    use_single_alert_shard()
+
+    unique = System.unique_integer([:positive])
+    device_uid = "sr:anomaly-alert-device-#{unique}"
+    series_key = "sysmon:cpu:#{device_uid}:0"
+    alert_title = "Anomaly transition #{unique}"
+
+    {:ok, rule} =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "anomaly-transition-#{unique}",
+          enabled: true,
+          signal: :event,
+          match: %{
+            "subject_prefix" => "signals.causal.predictions",
+            "attribute_equals" => %{
+              "signal_type" => "causal",
+              "event_type" => "anomaly",
+              "anomaly.state" => ["anomaly_open", "open"]
+            },
+            "recovery" => %{
+              "subject_prefix" => "signals.causal.predictions",
+              "attribute_equals" => %{
+                "signal_type" => "causal",
+                "event_type" => "anomaly",
+                "anomaly.state" => ["anomaly_clear", "inactive"]
+              }
+            }
+          },
+          group_by: ["device", "anomaly.series_key"],
+          threshold: 1,
+          window_seconds: 300,
+          bucket_seconds: 60,
+          cooldown_seconds: 300,
+          renotify_seconds: 3600,
+          event: %{
+            "log_name" => "alert.health.anomaly_detection",
+            "message" => "Anomaly detection finding detected"
+          },
+          alert: %{"title" => alert_title, "severity_from" => "source"}
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    base_time = DateTime.utc_now()
+
+    event = fn state, offset ->
+      %{
+        id: Ash.UUID.generate(),
+        time: DateTime.add(base_time, offset, :second),
+        severity_id: OCSF.severity_high(),
+        severity: OCSF.severity_name(OCSF.severity_high()),
+        message: "Anomaly #{state}",
+        log_name: "signals.causal.predictions.#{series_key}",
+        log_provider: "anomaly_detection",
+        device: %{"uid" => device_uid},
+        unmapped: %{
+          "signal_type" => "causal",
+          "event_type" => "anomaly",
+          "anomaly" => %{
+            "state" => state,
+            "series_key" => series_key,
+            "metric_class" => "sysmon.cpu"
+          }
+        },
+        metadata: %{"signal_type" => "causal", "event_type" => "anomaly"}
+      }
+    end
+
+    assert :ok = StatefulAlertEngine.evaluate_events([event.("pending_anomaly", 0)])
+    assert [] = active_alerts_by_title(actor, alert_title)
+
+    assert :ok = StatefulAlertEngine.evaluate_events([event.("anomaly_open", 10)])
+    assert [active_alert] = active_alerts_by_title(actor, alert_title)
+
+    assert active_alert.severity == :critical
+    assert active_alert.metadata["incident_rule_id"] == to_string(rule.id)
+
+    assert active_alert.metadata["incident_group_values"] == %{
+             "anomaly.series_key" => series_key,
+             "device" => device_uid
+           }
+
+    assert :ok = StatefulAlertEngine.evaluate_events([event.("anomaly_open", 20)])
+    assert [same_alert] = active_alerts_by_title(actor, alert_title)
+    assert same_alert.id == active_alert.id
+    assert same_alert.metadata["incident_occurrence_count"] == 2
+
+    assert :ok = StatefulAlertEngine.evaluate_events([event.("anomaly_clear", 30)])
+    assert [] = active_alerts_by_title(actor, alert_title)
+
+    {:ok, resolved_alert} = Alert.get_by_id(active_alert.id, actor: actor)
+    assert resolved_alert.status == :resolved
+  end
+
+  test "capacity forecast alerts coalesce by resource and resolve on inactive status", %{
+    actor: actor
+  } do
+    use_single_alert_shard()
+
+    unique = System.unique_integer([:positive])
+    device_uid = "sr:capacity-alert-device-#{unique}"
+    resource_key = "disk_usage:#{device_uid}:/var"
+    alert_title = "Capacity forecast #{unique}"
+
+    {:ok, _rule} =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "capacity-forecast-#{unique}",
+          enabled: true,
+          signal: :event,
+          match: %{
+            "subject_prefix" => "signals.causal.predictions",
+            "attribute_equals" => %{
+              "signal_type" => "causal",
+              "event_type" => "capacity_forecast",
+              "capacity_forecast.status" => "projected"
+            },
+            "recovery" => %{
+              "subject_prefix" => "signals.causal.predictions",
+              "attribute_equals" => %{
+                "signal_type" => "causal",
+                "event_type" => "capacity_forecast",
+                "capacity_forecast.status" => ["inactive", "skipped"]
+              }
+            }
+          },
+          group_by: ["device", "capacity_forecast.resource_key"],
+          threshold: 1,
+          window_seconds: 300,
+          bucket_seconds: 60,
+          cooldown_seconds: 300,
+          renotify_seconds: 3600,
+          event: %{
+            "log_name" => "alert.health.capacity_forecast",
+            "message" => "Capacity forecast warning-horizon finding detected"
+          },
+          alert: %{"title" => alert_title, "severity_from" => "source"}
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    base_time = DateTime.utc_now()
+
+    event = fn status, offset ->
+      %{
+        id: Ash.UUID.generate(),
+        time: DateTime.add(base_time, offset, :second),
+        severity_id: OCSF.severity_critical(),
+        severity: OCSF.severity_name(OCSF.severity_critical()),
+        message: "Capacity forecast #{status}",
+        log_name: "signals.causal.predictions.capacity.#{unique}",
+        log_provider: "capacity_forecasting",
+        device: %{"uid" => device_uid},
+        unmapped: %{
+          "signal_type" => "causal",
+          "event_type" => "capacity_forecast",
+          "capacity_forecast" => %{
+            "status" => status,
+            "resource_key" => resource_key,
+            "resource_type" => "disk",
+            "metric_name" => "usage_percent"
+          }
+        },
+        metadata: %{"signal_type" => "causal", "event_type" => "capacity_forecast"}
+      }
+    end
+
+    assert :ok = StatefulAlertEngine.evaluate_events([event.("inactive", 0)])
+    assert [] = active_alerts_by_title(actor, alert_title)
+
+    assert :ok = StatefulAlertEngine.evaluate_events([event.("projected", 10)])
+    assert [active_alert] = active_alerts_by_title(actor, alert_title)
+
+    assert active_alert.severity == :critical
+
+    assert active_alert.metadata["incident_group_values"] == %{
+             "capacity_forecast.resource_key" => resource_key,
+             "device" => device_uid
+           }
+
+    assert :ok = StatefulAlertEngine.evaluate_events([event.("projected", 20)])
+    assert [same_alert] = active_alerts_by_title(actor, alert_title)
+    assert same_alert.id == active_alert.id
+    assert same_alert.metadata["incident_occurrence_count"] == 2
+
+    assert :ok = StatefulAlertEngine.evaluate_events([event.("inactive", 30)])
+    assert [] = active_alerts_by_title(actor, alert_title)
+
+    {:ok, resolved_alert} = Alert.get_by_id(active_alert.id, actor: actor)
+    assert resolved_alert.status == :resolved
+  end
+
   test "deduplicates repeated event bursts into one active incident and rolls over after cooldown gap",
        %{actor: actor} do
     unique = System.unique_integer([:positive])
@@ -720,6 +920,30 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       assert Enum.count(active_alerts, fn alert -> alert.title == title end) == 1,
              "expected exactly one active alert titled #{title}"
     end
+  end
+
+  defp active_alerts_by_title(actor, title) do
+    Alert
+    |> Ash.Query.for_read(:active, %{}, actor: actor)
+    |> Ash.read!()
+    |> Page.unwrap!()
+    |> Enum.filter(fn alert -> alert.title == title end)
+  end
+
+  defp use_single_alert_shard do
+    previous = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
+
+    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 1)
+    reset_engine()
+
+    on_exit(fn ->
+      reset_engine()
+
+      case previous do
+        nil -> Application.delete_env(:serviceradar_core, :stateful_alert_engine_shards)
+        value -> Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, value)
+      end
+    end)
   end
 
   defp reset_engine do
