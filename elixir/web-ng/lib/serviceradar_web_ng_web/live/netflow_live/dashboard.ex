@@ -643,6 +643,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               current_bps={iface.bytes / @covered_span_seconds * 8}
               capacity_bps={iface.capacity_bps * 1.0}
               label={iface.label}
+              rate_kind="avg"
             />
           </div>
 
@@ -658,7 +659,11 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
                 label: unit_suffix(@unit_mode),
                 format: &format_bytes_cell(&1, @unit_mode, @covered_span_seconds)
               },
-              %{key: :p95_bps, label: "95th % (30d)", format: &format_p95_cell/1},
+              %{
+                key: :p95_bps,
+                label: "95th %-ile (#{time_window_label(@time_window)})",
+                format: &format_p95_cell/1
+              },
               %{key: :capacity_bps, label: "Capacity", format: &format_capacity_cell/1}
             ]}
             loading={@loading}
@@ -730,7 +735,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
       Task.Supervisor.async_nolink(task_sup, fn ->
         {:subnet_distribution, load_subnet_distribution(srql_mod, scope, base)}
       end),
-      Task.Supervisor.async_nolink(task_sup, fn -> {:p95, load_interface_p95(srql_mod, scope)} end),
+      Task.Supervisor.async_nolink(task_sup, fn -> {:p95, load_interface_p95(srql_mod, scope, base, tw)} end),
       Task.Supervisor.async_nolink(task_sup, fn ->
         {:tcp_flags, load_tcp_flag_distribution(srql_mod, scope, base)}
       end),
@@ -1094,9 +1099,16 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
      }}
   end
 
-  defp load_interface_p95(srql_mod, scope) do
-    base_30d = "in:flows time:last_30d"
-    query = "#{base_30d} bucket:1h agg:sum value_field:bytes_total series:sampler_address"
+  # §26.3: p95 is aligned to the selected time window (and the user's filters
+  # via `base`), with a per-window bucket (timeseries_bucket/1 yields >=20
+  # buckets for every window, so the percentile is always meaningful) and a
+  # matching bytes->bps divisor. Previously this hardcoded last_30d / bucket:1h
+  # / /3600 — ignoring the selected window, user filters, and yielding a
+  # single-bucket (meaningless) p95 for short windows.
+  defp load_interface_p95(srql_mod, scope, base, tw) do
+    bucket = timeseries_bucket(tw)
+    bucket_secs = bucket_seconds(bucket)
+    query = "#{base} bucket:#{bucket} agg:sum value_field:bytes_total series:sampler_address"
 
     srql_mod
     |> srql_results(query, scope)
@@ -1105,10 +1117,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
       |> row_payload()
       |> get_field("sampler_address")
     end)
-    |> Map.new(&compute_sampler_p95/1)
+    |> Map.new(&compute_sampler_p95(&1, bucket_secs))
   end
 
-  defp compute_sampler_p95({sampler, rows}) do
+  defp compute_sampler_p95({sampler, rows}, bucket_secs) do
     values =
       rows
       |> Enum.map(fn row ->
@@ -1119,8 +1131,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
       end)
       |> Enum.reject(&is_nil/1)
 
-    # Convert bytes/hour to bits/sec: bytes_per_hour * 8 / 3600
-    p95_bps = percentile_95(values) * 8 / 3600
+    # Convert the per-bucket byte sum to bits/sec using the actual bucket width
+    # (not a hardcoded 3600): bytes_per_bucket * 8 / bucket_seconds.
+    p95_bps = percentile_95(values) * 8 / bucket_secs
     {sampler, p95_bps}
   end
 
@@ -1320,6 +1333,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   end
 
   defp clamp_covered_span(_raw_span, _requested_seconds), do: 3_600
+
+  # §26.3: human-readable window label for the p95 column header (was hardcoded
+  # "30d"). The @time_window tokens are already short and readable, so this is
+  # a guarded passthrough.
+  defp time_window_label(tw) when tw in ["1h", "6h", "24h", "7d", "30d"], do: tw
+  defp time_window_label(_), do: "1h"
 
   defp timeseries_bucket("1h"), do: "1m"
   defp timeseries_bucket("6h"), do: "5m"

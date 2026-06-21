@@ -263,6 +263,10 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
   attr :current_bps, :any, required: true
   attr :capacity_bps, :any, required: true
   attr :label, :string, default: nil
+  # §26.3: distinguishes the rate kind shown in the gauge. The dashboard passes
+  # "avg" (window-average bps); makes the average-vs-95th-percentile distinction
+  # explicit so the gauge isn't read as a peak.
+  attr :rate_kind, :string, default: nil
   attr :class, :any, default: nil
 
   def bandwidth_gauge(assigns) do
@@ -301,8 +305,11 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
         <span class="text-sm font-bold">{@pct}%</span>
       </div>
       <div :if={@label} class="text-xs font-medium text-base-content/70">{@label}</div>
-      <div class="text-xs text-base-content/50">
-        {@formatted_current} / {@formatted_capacity}
+      <div class="text-xs text-base-content/50 flex items-center gap-1">
+        <span :if={@rate_kind} class="badge badge-xs badge-ghost font-medium uppercase">
+          {@rate_kind}
+        </span>
+        <span>{@formatted_current} / {@formatted_capacity}</span>
       </div>
     </div>
     """
