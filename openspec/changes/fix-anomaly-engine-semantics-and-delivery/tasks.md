@@ -219,7 +219,7 @@
 
 ## 40. Data Retention Coverage (F46)
 - [x] 40.1 Verify a retention policy exists for every high-volume hypertable (`otel_traces`, `ocsf_network_activity` only got one 2026-06-19); add any missing.
-- [ ] 40.2 Track that the F1/F12/F17/F39 write-flood fixes reduce `ocsf_events`/`capacity_forecasts`/flow growth.
+- [x] 40.2 Track that the F1/F12/F17/F39 write-flood fixes reduce `ocsf_events`/`capacity_forecasts`/flow growth.
 - [ ] 40.3 (ops, separate) Resolve the failing CNPG scheduled base backup (Longhorn throughput) so there is a recovery point.
 
 ## 42. Mapper SNMP Discovery (F47)
