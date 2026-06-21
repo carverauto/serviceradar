@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   @metric_classes ~w(cpu memory disk interface red)
   @anomaly_limit 50
   @capacity_limit 25
+  @query_timeout_ms 5_000
 
   def empty(status \\ :ok) do
     %{
@@ -33,8 +34,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
     if anomaly_candidates == [] and capacity_candidates == [] do
       empty()
     else
-      anomaly = load_first(srql_module, anomaly_candidates, scope, &anomaly_query/1)
-      capacity = load_first(srql_module, capacity_candidates, scope, &capacity_query/1)
+      anomaly_task =
+        Task.Supervisor.async_nolink(ServiceRadarWebNG.TaskSupervisor, fn ->
+          load_first(srql_module, anomaly_candidates, scope, &anomaly_query/1)
+        end)
+
+      capacity_task =
+        Task.Supervisor.async_nolink(ServiceRadarWebNG.TaskSupervisor, fn ->
+          load_first(srql_module, capacity_candidates, scope, &capacity_query/1)
+        end)
+
+      anomaly = await_load_task(anomaly_task, "anomaly")
+      capacity = await_load_task(capacity_task, "capacity")
 
       %{
         status: combined_status(anomaly, capacity),
@@ -49,6 +60,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
         metric_statuses: metric_statuses(anomaly.rows)
       }
     end
+  end
+
+  defp await_load_task(task, label) do
+    case Task.yield(task, @query_timeout_ms) || Task.shutdown(task, :brutal_kill) do
+      {:ok, result} ->
+        result
+
+      {:exit, reason} ->
+        error = "#{label} SRQL task failed: #{Exception.format_exit(reason)}"
+        Logger.warning(error)
+        task_error_result(error)
+
+      nil ->
+        error = "#{label} SRQL query timed out after #{@query_timeout_ms}ms"
+        Logger.warning(error)
+        task_error_result(error)
+    end
+  end
+
+  defp task_error_result(error) do
+    %{rows: [], query: nil, filter: nil, error: error, status: :error}
   end
 
   defp load_first(srql_module, candidates, scope, query_fun) do
@@ -106,26 +138,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp anomaly_filter_candidates(identity) do
     Enum.reject(
       [
+        candidate(identity, :device_uid, "device_uid_exact", "device"),
         candidate(identity, :agent_id, "agent_id", "agent"),
-        candidate(identity, :host_id, "host_id", "host"),
-        candidate(identity, :device_uid, "device_uid_exact", "device")
+        candidate(identity, :host_id, "host_id", "host")
       ],
       &is_nil/1
     )
   end
 
   defp capacity_filter_candidates(identity) do
-    identity
-    |> capacity_id_candidates()
-    |> Enum.flat_map(fn candidate ->
-      [
-        %{candidate | field: "resource_id"},
-        %{candidate | field: "resource_key", value: "%#{candidate.value}%"}
-      ]
-    end)
-  end
-
-  defp capacity_id_candidates(identity) do
     Enum.reject(
       [
         candidate(identity, :device_uid, "resource_id", "device"),
