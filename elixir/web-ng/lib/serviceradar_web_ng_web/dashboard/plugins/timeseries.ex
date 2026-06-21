@@ -123,6 +123,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     combine_all_series = Map.get(assigns, :combine_all_series, false)
     combined_title = Map.get(assigns, :combined_title, "Combined")
     annotations = annotations_from_assigns(assigns)
+    reference_lines = reference_lines_from_assigns(assigns)
     y_scale = Points.scale_mode(Map.get(assigns, :y_scale, :linear))
 
     series_data =
@@ -133,6 +134,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         compact,
         max_speed,
         annotations,
+        reference_lines,
         y_scale
       )
 
@@ -303,6 +305,93 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
   defp annotation_value(annotation, keys), do: Enum.find_value(keys, &Map.get(annotation, &1))
 
+  defp reference_lines_from_assigns(assigns) do
+    assigns
+    |> Spec.fetch_panel_value(:reference_lines, [])
+    |> normalize_reference_lines()
+  end
+
+  defp normalize_reference_lines(reference_lines) when is_list(reference_lines) do
+    reference_lines
+    |> Enum.map(&normalize_reference_line/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.sort_by(fn reference_line -> {reference_line.value, reference_line.label} end)
+  end
+
+  defp normalize_reference_lines(_reference_lines), do: []
+
+  defp normalize_reference_line(%{} = reference_line) do
+    case parse_number(reference_line_value(reference_line)) do
+      value when is_number(value) ->
+        %{
+          value: value,
+          label: reference_line_label(reference_line),
+          severity: reference_line_severity(reference_line),
+          series: reference_line_series(reference_line)
+        }
+
+      _ ->
+        nil
+    end
+  end
+
+  defp normalize_reference_line(_reference_line), do: nil
+
+  defp reference_line_value(reference_line) do
+    reference_line_value(reference_line, [:value, "value", :threshold, "threshold", :y, "y"])
+  end
+
+  defp reference_line_value(reference_line, keys), do: Enum.find_value(keys, &Map.get(reference_line, &1))
+
+  defp reference_line_label(reference_line) do
+    reference_line
+    |> reference_line_value([:label, "label", :title, "title", :name, "name"])
+    |> safe_to_string()
+    |> String.trim()
+    |> case do
+      "" -> "Threshold"
+      value -> value
+    end
+  end
+
+  defp reference_line_severity(reference_line) do
+    reference_line
+    |> reference_line_value([:severity, "severity", :severity_text, "severity_text"])
+    |> safe_to_string()
+    |> String.trim()
+    |> String.downcase()
+    |> case do
+      "critical" -> :critical
+      "error" -> :critical
+      "high" -> :high
+      "warning" -> :warning
+      "warn" -> :warning
+      "medium" -> :warning
+      "low" -> :info
+      "info" -> :info
+      "informational" -> :info
+      _ -> :info
+    end
+  end
+
+  defp reference_line_series(reference_line) do
+    reference_line
+    |> reference_line_value([:series, "series", :series_key, "series_key", :metric, "metric"])
+    |> case do
+      nil ->
+        nil
+
+      value ->
+        value
+        |> safe_to_string()
+        |> String.trim()
+        |> case do
+          "" -> nil
+          series -> series
+        end
+    end
+  end
+
   defp first_present(values) do
     Enum.find(values, fn
       nil -> false
@@ -330,6 +419,17 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   end
 
   defp parse_annotation_datetime(_value), do: {:error, :not_datetime}
+
+  defp parse_number(value) when is_integer(value) or is_float(value), do: value * 1.0
+
+  defp parse_number(value) when is_binary(value) do
+    case Float.parse(String.trim(value)) do
+      {number, ""} -> number
+      _ -> nil
+    end
+  end
+
+  defp parse_number(_value), do: nil
 
   defp safe_to_string(nil), do: ""
   defp safe_to_string(value) when is_binary(value), do: value

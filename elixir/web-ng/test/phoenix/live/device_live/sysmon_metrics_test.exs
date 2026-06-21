@@ -85,7 +85,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
       SysmonMetrics.load_metric_sections(
         RecordingSRQLStub,
         [~s|device_id:"sysmon-core-test"|],
-        :scope
+        :scope,
+        thresholds: %{"cpu_warning" => "80", "cpu_critical" => "95"}
       )
 
     assert cpu.key == "cpu"
@@ -99,6 +100,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
     timeseries_panel = Enum.find(cpu.panels, &(&1.plugin == TimeseriesPlugin))
     displayed_cores = MapSet.new(timeseries_panel.assigns.series_points, &elem(&1, 0))
     assert displayed_cores == MapSet.new(~w(0 1 4 5 6 7))
+
+    assert %{
+             value: 95.0,
+             label: "CPU critical",
+             severity: :critical,
+             series: nil
+           } in timeseries_panel.assigns.reference_lines
+
+    assert %{
+             value: 80.0,
+             label: "CPU warning",
+             severity: :warning,
+             series: nil
+           } in timeseries_panel.assigns.reference_lines
   end
 
   test "process metrics carry a per-process CPU history series for sparklines" do

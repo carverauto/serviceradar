@@ -133,6 +133,12 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
             compact={@compact}
           />
 
+          <ChartCard.reference_lines_svg
+            reference_lines={@data.reference_lines}
+            chart_pad={@chart_pad}
+            chart_width={@chart_width}
+          />
+
           <%= for series <- @data.series do %>
             <path d={series.paths.area} fill={"url(#combined-fill-#{@id}-#{series.idx})"} />
             <path

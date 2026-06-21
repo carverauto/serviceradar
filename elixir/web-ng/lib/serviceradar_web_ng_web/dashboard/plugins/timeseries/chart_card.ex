@@ -104,6 +104,39 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
     """
   end
 
+  attr :reference_lines, :list, required: true
+  attr :chart_pad, :integer, required: true
+  attr :chart_width, :integer, required: true
+
+  def reference_lines_svg(assigns) do
+    ~H"""
+    <g
+      :if={@reference_lines != []}
+      data-testid="timeseries-reference-lines"
+      stroke-linecap="round"
+    >
+      <%= for reference_line <- @reference_lines do %>
+        <line
+          data-testid="timeseries-reference-line"
+          data-reference-label={reference_line.label}
+          data-reference-severity={reference_line.severity}
+          data-reference-series={reference_line.series}
+          x1={@chart_pad}
+          x2={@chart_width - @chart_pad}
+          y1={reference_line.y}
+          y2={reference_line.y}
+          stroke={reference_line.color}
+          stroke-width="1.5"
+          stroke-dasharray="6 3"
+          opacity="0.9"
+        >
+          <title>{reference_line.title}</title>
+        </line>
+      <% end %>
+    </g>
+    """
+  end
+
   attr :id, :string, required: true
   attr :data, :map, required: true
   attr :chart_width, :integer, required: true
@@ -212,6 +245,12 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
             chart_pad={@chart_pad}
             chart_height={@chart_height}
             compact={@compact}
+          />
+
+          <.reference_lines_svg
+            reference_lines={@data.reference_lines}
+            chart_pad={@chart_pad}
+            chart_width={@chart_width}
           />
 
           <path d={@data.paths.area} fill={"url(#series-fill-#{@id}-#{@data.idx})"} />
