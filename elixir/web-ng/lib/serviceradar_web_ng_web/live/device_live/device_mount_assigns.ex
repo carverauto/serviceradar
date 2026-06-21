@@ -51,6 +51,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
     |> assign(:process_listeners_page, 1)
     |> assign(:can_view_anomaly_capacity, false)
     |> assign(:anomaly_capacity, AnomalyCapacityData.empty())
+    |> assign(:selected_anomaly_capacity_detail, nil)
     |> assign(:limit, Keyword.fetch!(opts, :default_limit))
     |> assign(:flows_limit, Keyword.fetch!(opts, :flows_limit))
     |> assign(:srql, default_srql())

@@ -58,13 +58,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
        %{
          "results" => [
            %{
+             "id" => "event-1",
              "time" => "2026-06-19T00:00:00Z",
              "message" => "fallback message",
              "severity" => "High",
+             "metric_name" => "cpu.usage_percent",
+             "metric_value" => 97.5,
              "metadata" => %{
-               "finding_info" => %{"title" => "Nested title"},
-               "service_radar" => %{"metric_class" => "cpu", "status" => "suppressed"}
+               "finding_info" => %{"title" => "Nested title", "uid" => "finding-1"},
+               "service_radar" => %{
+                 "metric_class" => "cpu",
+                 "status" => "suppressed",
+                 "series_key" => "partition:agent:cpu0"
+               },
+               "anomaly" => %{"score" => 4.2, "threshold_value" => 90.0}
              },
+             "source_device_uid" => "router-1",
              "raw_data" => %{"metric_class" => "disk"},
              "unmapped" => %{"metric_class" => "memory"},
              "large_payload" => String.duplicate("x", 512)
@@ -83,16 +92,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
              "resource_label" => "Filesystem /",
              "resource_key" => "disk:/",
              "resource_id" => "router-1",
+             "resource_type" => "disk",
              "metric_name" => "disk.used_percent",
              "metric_class" => "disk",
              "status" => "projected",
+             "model" => "holt_winters",
+             "sample_count" => 168,
+             "forecasted_at" => "2026-06-19T00:00:00Z",
              "current_value" => 72.5,
              "projected_value" => 91.2,
              "projected_exhaustion_at" => "2026-06-20T00:00:00Z",
-             "confidence" => 0.82,
-             "horizon_seconds" => 604_800,
              "exhaustion_threshold" => 95.0,
-             "model" => "holt_winters"
+             "confidence" => 0.82,
+             "lower_bound" => 88.1,
+             "upper_bound" => 93.4,
+             "metadata" => %{"forecast_value_unit" => "percent"},
+             "horizon_seconds" => 604_800,
+             "horizon_ends_at" => "2026-06-26T00:00:00Z"
            }
          ]
        }}
@@ -168,25 +184,43 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
     capacity_row = List.first(data.capacity_rows)
 
     assert anomaly_row == %{
+             "id" => "event-1",
+             "finding_uid" => "finding-1",
              "time" => "2026-06-19T00:00:00Z",
-             "finding_title" => "fallback message",
+             "finding_title" => "Nested title",
              "message" => "fallback message",
              "metric_class" => "cpu",
+             "metric_name" => "cpu.usage_percent",
+             "metric_value" => 97.5,
+             "threshold_value" => 90.0,
+             "score" => 4.2,
+             "series_key" => "partition:agent:cpu0",
+             "device_label" => "router-1",
              "severity" => "High",
              "status" => "suppressed"
            }
 
     assert capacity_row == %{
+             "forecasted_at" => "2026-06-19T00:00:00Z",
+             "resource_type" => "disk",
              "resource_label" => "Filesystem /",
              "resource_key" => "disk:/",
              "resource_id" => "router-1",
              "metric_name" => "disk.used_percent",
              "metric_class" => "disk",
+             "value_unit" => "percent",
              "status" => "projected",
+             "model" => "holt_winters",
+             "sample_count" => 168,
+             "horizon_seconds" => 604_800,
+             "horizon_ends_at" => "2026-06-26T00:00:00Z",
              "current_value" => 72.5,
              "projected_value" => 91.2,
              "projected_exhaustion_at" => "2026-06-20T00:00:00Z",
-             "confidence" => 0.82
+             "exhaustion_threshold" => 95.0,
+             "confidence" => 0.82,
+             "lower_bound" => 88.1,
+             "upper_bound" => 93.4
            }
 
     queries =

@@ -204,10 +204,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
 
   defp project_anomaly_row(row) do
     reject_nil_values(%{
+      "id" => map_value(row, "id"),
+      "finding_uid" => finding_uid(row),
       "time" => map_value(row, "time"),
       "finding_title" => finding_title(row),
       "message" => map_value(row, "message"),
       "metric_class" => metric_class(row),
+      "metric_name" => metric_name(row),
+      "metric_value" => metric_value(row),
+      "threshold_value" => threshold_value(row),
+      "score" => score_value(row),
+      "series_key" => series_key(row),
+      "interface_uid" => interface_uid(row),
+      "if_index" => if_index(row),
+      "device_label" => device_label(row),
       "severity" => map_value(row, "severity"),
       "status" => status_value(row)
     })
@@ -215,25 +225,148 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
 
   defp project_capacity_row(row) do
     reject_nil_values(%{
+      "forecasted_at" => map_value(row, "forecasted_at"),
+      "resource_type" => map_value(row, "resource_type"),
       "resource_label" => map_value(row, "resource_label"),
       "resource_key" => map_value(row, "resource_key"),
       "resource_id" => map_value(row, "resource_id"),
       "metric_name" => map_value(row, "metric_name"),
       "metric_class" => map_value(row, "metric_class"),
+      "value_unit" => capacity_value_unit(row),
       "status" => map_value(row, "status"),
+      "model" => map_value(row, "model"),
+      "sample_count" => map_value(row, "sample_count"),
+      "horizon_seconds" => map_value(row, "horizon_seconds"),
+      "horizon_ends_at" => map_value(row, "horizon_ends_at"),
+      "window_started_at" => map_value(row, "window_started_at"),
+      "window_ended_at" => map_value(row, "window_ended_at"),
       "current_value" => map_value(row, "current_value"),
       "projected_value" => map_value(row, "projected_value"),
       "projected_exhaustion_at" => map_value(row, "projected_exhaustion_at"),
-      "confidence" => map_value(row, "confidence")
+      "exhaustion_threshold" => map_value(row, "exhaustion_threshold"),
+      "confidence" => map_value(row, "confidence"),
+      "lower_bound" => map_value(row, "lower_bound"),
+      "upper_bound" => map_value(row, "upper_bound")
     })
   end
 
   defp finding_title(row) do
     first_present(row, [
       ["finding_title"],
-      ["message"],
       ["metadata", "finding_info", "title"],
-      ["metadata", "detection_finding", "title"]
+      ["metadata", "detection_finding", "title"],
+      ["message"]
+    ])
+  end
+
+  defp finding_uid(row) do
+    first_present(row, [
+      ["finding_uid"],
+      ["metadata", "finding_info", "uid"],
+      ["metadata", "security_signal", "finding_uid"],
+      ["metadata", "event_id"],
+      ["metadata", "uid"],
+      ["id"]
+    ])
+  end
+
+  defp metric_name(row) do
+    first_present(row, [
+      ["metric_name"],
+      ["metadata", "service_radar", "metric_name"],
+      ["metadata", "anomaly", "metric_name"],
+      ["metadata", "detection_finding", "metric_name"],
+      ["unmapped", "metric_name"],
+      ["raw_data", "metric_name"]
+    ])
+  end
+
+  defp metric_value(row) do
+    first_present(row, [
+      ["metric_value"],
+      ["metadata", "service_radar", "metric_value"],
+      ["metadata", "anomaly", "value"],
+      ["metadata", "anomaly", "metric_value"],
+      ["unmapped", "metric_value"],
+      ["raw_data", "metric_value"]
+    ])
+  end
+
+  defp threshold_value(row) do
+    first_present(row, [
+      ["threshold_value"],
+      ["metadata", "service_radar", "threshold_value"],
+      ["metadata", "anomaly", "threshold_value"],
+      ["unmapped", "threshold_value"],
+      ["raw_data", "threshold_value"]
+    ])
+  end
+
+  defp score_value(row) do
+    first_present(row, [
+      ["score"],
+      ["metadata", "service_radar", "score"],
+      ["metadata", "anomaly", "score"],
+      ["metadata", "anomaly", "z_score"],
+      ["unmapped", "score"],
+      ["raw_data", "score"]
+    ])
+  end
+
+  defp series_key(row) do
+    first_present(row, [
+      ["series_key"],
+      ["metadata", "service_radar", "series_key"],
+      ["metadata", "anomaly", "series_key"],
+      ["metadata", "detection_finding", "dimensions", "series_key"],
+      ["unmapped", "series_key"],
+      ["raw_data", "series_key"]
+    ])
+  end
+
+  defp interface_uid(row) do
+    first_present(row, [
+      ["interface_uid"],
+      ["metadata", "service_radar", "interface_uid"],
+      ["metadata", "anomaly", "interface_uid"],
+      ["metadata", "detection_finding", "dimensions", "interface_uid"],
+      ["unmapped", "interface_uid"],
+      ["raw_data", "interface_uid"]
+    ])
+  end
+
+  defp if_index(row) do
+    first_present(row, [
+      ["if_index"],
+      ["metadata", "service_radar", "if_index"],
+      ["metadata", "anomaly", "if_index"],
+      ["metadata", "detection_finding", "dimensions", "if_index"],
+      ["unmapped", "if_index"],
+      ["raw_data", "if_index"]
+    ])
+  end
+
+  defp device_label(row) do
+    first_present(row, [
+      ["device_label"],
+      ["host"],
+      ["source"],
+      ["source_device_uid"],
+      ["device", "hostname"],
+      ["device", "name"],
+      ["metadata", "service_radar", "device_label"],
+      ["metadata", "service_radar", "source_device_uid"],
+      ["metadata", "detection_finding", "dimensions", "device_uid"]
+    ])
+  end
+
+  defp capacity_value_unit(row) do
+    first_present(row, [
+      ["value_unit"],
+      ["unit"],
+      ["metadata", "forecast_value_unit"],
+      ["metadata", "raw_value_unit"],
+      ["metadata", "unit"]
     ])
   end
 
@@ -323,6 +456,50 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp known_atom_key("anomaly"), do: :anomaly
   defp known_atom_key("detection_finding"), do: :detection_finding
   defp known_atom_key("metric_class"), do: :metric_class
+  defp known_atom_key("metric_name"), do: :metric_name
+  defp known_atom_key("metric_value"), do: :metric_value
+  defp known_atom_key("threshold_value"), do: :threshold_value
+  defp known_atom_key("score"), do: :score
+  defp known_atom_key("series_key"), do: :series_key
+  defp known_atom_key("interface_uid"), do: :interface_uid
+  defp known_atom_key("if_index"), do: :if_index
+  defp known_atom_key("device_label"), do: :device_label
+  defp known_atom_key("device"), do: :device
+  defp known_atom_key("hostname"), do: :hostname
+  defp known_atom_key("name"), do: :name
+  defp known_atom_key("host"), do: :host
+  defp known_atom_key("source"), do: :source
+  defp known_atom_key("source_device_uid"), do: :source_device_uid
+  defp known_atom_key("id"), do: :id
+  defp known_atom_key("finding_uid"), do: :finding_uid
+  defp known_atom_key("security_signal"), do: :security_signal
+  defp known_atom_key("event_id"), do: :event_id
+  defp known_atom_key("uid"), do: :uid
+  defp known_atom_key("z_score"), do: :z_score
+  defp known_atom_key("value"), do: :value
+  defp known_atom_key("dimensions"), do: :dimensions
+  defp known_atom_key("forecasted_at"), do: :forecasted_at
+  defp known_atom_key("resource_type"), do: :resource_type
+  defp known_atom_key("resource_label"), do: :resource_label
+  defp known_atom_key("resource_key"), do: :resource_key
+  defp known_atom_key("resource_id"), do: :resource_id
+  defp known_atom_key("value_unit"), do: :value_unit
+  defp known_atom_key("unit"), do: :unit
+  defp known_atom_key("model"), do: :model
+  defp known_atom_key("sample_count"), do: :sample_count
+  defp known_atom_key("horizon_seconds"), do: :horizon_seconds
+  defp known_atom_key("horizon_ends_at"), do: :horizon_ends_at
+  defp known_atom_key("window_started_at"), do: :window_started_at
+  defp known_atom_key("window_ended_at"), do: :window_ended_at
+  defp known_atom_key("current_value"), do: :current_value
+  defp known_atom_key("projected_value"), do: :projected_value
+  defp known_atom_key("projected_exhaustion_at"), do: :projected_exhaustion_at
+  defp known_atom_key("exhaustion_threshold"), do: :exhaustion_threshold
+  defp known_atom_key("confidence"), do: :confidence
+  defp known_atom_key("lower_bound"), do: :lower_bound
+  defp known_atom_key("upper_bound"), do: :upper_bound
+  defp known_atom_key("forecast_value_unit"), do: :forecast_value_unit
+  defp known_atom_key("raw_value_unit"), do: :raw_value_unit
   defp known_atom_key("status"), do: :status
   defp known_atom_key(_), do: nil
 
