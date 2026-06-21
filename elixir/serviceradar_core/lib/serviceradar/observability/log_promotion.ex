@@ -16,6 +16,9 @@ defmodule ServiceRadar.Observability.LogPromotion do
   require Ash.Query
   require Logger
 
+  @rules_cache_key {__MODULE__, :active_log_rules}
+  @default_rule_cache_ttl_ms 5_000
+
   @severity_text_map %{
     "fatal" => OCSF.severity_fatal(),
     "critical" => OCSF.severity_critical(),
@@ -31,7 +34,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
   @spec promote([map()]) :: {:ok, non_neg_integer()}
   def promote(rows) when is_list(rows) do
     # DB connection's search_path determines the schema
-    rules = load_rules()
+    rules = active_log_rules()
     promotions = build_promotions(rows, rules)
     events = Enum.map(promotions, & &1.event)
 
@@ -49,6 +52,46 @@ defmodule ServiceRadar.Observability.LogPromotion do
     error ->
       Logger.warning("Log promotion failed: #{inspect(error)}")
       {:ok, 0}
+  end
+
+  @doc """
+  Clears this node's active log-promotion rule cache.
+
+  EventRule mutations call this after successful create/update/delete so the
+  node that handled the mutation sees rule changes immediately. Other clustered
+  nodes refresh independently when their short TTL expires.
+  """
+  @spec invalidate_rules_cache() :: :ok
+  def invalidate_rules_cache do
+    _ = :persistent_term.erase(@rules_cache_key)
+    :ok
+  end
+
+  @doc false
+  def active_log_rules(load_fun \\ &load_rules/0) when is_function(load_fun, 0) do
+    now_ms = System.monotonic_time(:millisecond)
+
+    case cached_rules() do
+      {expires_at_ms, rules} when expires_at_ms > now_ms ->
+        rules
+
+      _ ->
+        rules = load_fun.()
+        :persistent_term.put(@rules_cache_key, {now_ms + rule_cache_ttl_ms(), rules})
+        rules
+    end
+  end
+
+  defp cached_rules do
+    :persistent_term.get(@rules_cache_key, :miss)
+  end
+
+  defp rule_cache_ttl_ms do
+    Application.get_env(
+      :serviceradar_core,
+      :log_promotion_rule_cache_ttl_ms,
+      @default_rule_cache_ttl_ms
+    )
   end
 
   defp load_rules do

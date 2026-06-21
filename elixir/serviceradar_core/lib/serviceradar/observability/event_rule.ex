@@ -29,7 +29,7 @@ defmodule ServiceRadar.Observability.EventRule do
   end
 
   actions do
-    defaults [:read, :destroy]
+    defaults [:read]
 
     read :active do
       filter expr(enabled == true)
@@ -38,10 +38,17 @@ defmodule ServiceRadar.Observability.EventRule do
 
     create :create do
       accept @event_rule_fields
+      change {__MODULE__.InvalidateLogPromotionRulesCache, []}
     end
 
     update :update do
       accept @event_rule_fields
+      change {__MODULE__.InvalidateLogPromotionRulesCache, []}
+    end
+
+    destroy :destroy do
+      primary? true
+      change {__MODULE__.InvalidateLogPromotionRulesCache, []}
     end
   end
 
@@ -99,5 +106,24 @@ defmodule ServiceRadar.Observability.EventRule do
 
   identities do
     identity :unique_name, [:name]
+  end
+
+  defmodule InvalidateLogPromotionRulesCache do
+    @moduledoc false
+
+    use Ash.Resource.Change
+
+    alias ServiceRadar.Changes.AfterAction
+    alias ServiceRadar.Observability.LogPromotion
+
+    @impl true
+    def change(changeset, _opts, _context) do
+      AfterAction.after_action(changeset, fn _record ->
+        LogPromotion.invalidate_rules_cache()
+      end)
+    end
+
+    @impl true
+    def atomic(_changeset, _opts, _context), do: :ok
   end
 end
