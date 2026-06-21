@@ -1,0 +1,387 @@
+use super::*;
+use crate::error::ServiceError;
+
+#[test]
+fn parses_basic_query() {
+    let ast = parse("in:devices hostname:%cam% limit:50 sort:last_seen:desc").unwrap();
+    assert_eq!(ast.limit, Some(50));
+    assert_eq!(ast.order.len(), 1);
+    assert_eq!(ast.filters.len(), 1);
+    assert!(matches!(ast.entity, Entity::Devices));
+    assert!(matches!(ast.filters[0].op, FilterOp::Like));
+}
+
+#[test]
+fn parses_lists() {
+    let ast = parse("in:devices discovery_sources:(sweep,armis)").unwrap();
+    assert_eq!(ast.filters.len(), 1);
+    assert!(matches!(ast.filters[0].value, FilterValue::List(_)));
+}
+
+#[test]
+fn parses_bracket_lists() {
+    let ast = parse("in:devices if_index:[1,2]").unwrap();
+    assert_eq!(ast.filters.len(), 1);
+    assert!(matches!(ast.filters[0].value, FilterValue::List(_)));
+    assert!(matches!(ast.filters[0].op, FilterOp::In));
+}
+
+#[test]
+fn rejects_empty_list_filters() {
+    let err = parse("in:logs service:()").unwrap_err();
+    assert!(matches!(err, ServiceError::InvalidRequest(_)));
+
+    let err = parse("in:logs service:[]").unwrap_err();
+    assert!(matches!(err, ServiceError::InvalidRequest(_)));
+}
+
+#[test]
+fn implicitly_promotes_wildcard_text_filters_to_like() {
+    let ast = parse("in:devices hostname:%cam%").unwrap();
+
+    assert_eq!(ast.filters.len(), 1);
+    assert!(matches!(ast.filters[0].op, FilterOp::Like));
+}
+
+#[test]
+fn does_not_implicitly_promote_exact_filters_to_like() {
+    let ast = parse("in:interfaces if_index:%1%").unwrap();
+
+    assert_eq!(ast.filters.len(), 1);
+    assert!(matches!(ast.filters[0].op, FilterOp::Eq));
+
+    let ast = parse("in:interfaces !if_index:%1%").unwrap();
+    assert_eq!(ast.filters.len(), 1);
+    assert!(matches!(ast.filters[0].op, FilterOp::NotEq));
+}
+
+#[test]
+fn parses_time() {
+    let ast = parse("in:devices time:last_7d").unwrap();
+    assert!(ast.time_filter.is_some());
+}
+
+#[test]
+fn rejects_multibyte_bucket_suffix_without_panic() {
+    let err = parse("in:timeseries_metrics time:last_1h bucket:5µ agg:avg").unwrap_err();
+    assert!(matches!(err, ServiceError::InvalidRequest(_)));
+}
+
+#[test]
+fn parses_device_graph_entity() {
+    let ast = parse("in:device_graph device_id:sr:device-1").unwrap();
+    assert!(matches!(ast.entity, Entity::DeviceGraph));
+}
+
+#[test]
+fn parses_wifi_map_entities() {
+    let cases = [
+        ("wifi_sites", Entity::WifiSites),
+        ("wifi_site_map", Entity::WifiSites),
+        ("wifi_site_snapshots", Entity::WifiSiteSnapshots),
+        ("wifi_aps", Entity::WifiAccessPoints),
+        ("wifi_access_points", Entity::WifiAccessPoints),
+        ("wifi_wlcs", Entity::WifiControllers),
+        ("wifi_controllers", Entity::WifiControllers),
+        ("wifi_radius_groups", Entity::WifiRadiusGroups),
+        ("wifi_fleet_history", Entity::WifiFleetHistory),
+        ("wifi_site_references", Entity::WifiSiteReferences),
+        ("wifi_airport_references", Entity::WifiSiteReferences),
+    ];
+
+    for (raw, expected) in cases {
+        let ast = parse(&format!("in:{raw} limit:1")).unwrap();
+        assert_eq!(ast.entity, expected, "entity alias {raw}");
+    }
+}
+
+#[test]
+fn parses_virtualization_entities() {
+    let cases = [
+        ("virtualization_clusters", Entity::VirtualizationClusters),
+        ("hypervisors", Entity::VirtualizationHosts),
+        ("virtualization_guests", Entity::VirtualizationGuests),
+        ("vms", Entity::VirtualizationGuests),
+        (
+            "virtualization_datastores",
+            Entity::VirtualizationDatastores,
+        ),
+        ("virtualization_disks", Entity::VirtualizationHostDisks),
+        (
+            "virtualization_nics",
+            Entity::VirtualizationNetworkInterfaces,
+        ),
+        (
+            "virtualization_storage_systems",
+            Entity::VirtualizationStorageSystems,
+        ),
+        ("ceph", Entity::VirtualizationStorageSystems),
+    ];
+
+    for (raw, expected) in cases {
+        let ast = parse(&format!("in:{raw} provider:proxmox limit:1")).unwrap();
+        assert_eq!(ast.entity, expected, "entity alias {raw}");
+    }
+}
+
+#[test]
+fn parses_dashboard_entity_aliases() {
+    for raw in ["dashboards", "dashboard", "authored_dashboards"] {
+        let ast = parse(&format!("in:{raw} status:active limit:10")).unwrap();
+        assert_eq!(ast.entity, Entity::Dashboards, "entity alias {raw}");
+    }
+}
+
+#[test]
+fn parses_endpoint_inventory_scan_entity_aliases() {
+    for raw in [
+        "endpoint_inventory_scans",
+        "endpoint_inventory_status",
+        "endpoint_inventory_freshness",
+    ] {
+        let ast = parse(&format!("in:{raw} freshness:fresh limit:10")).unwrap();
+        assert_eq!(
+            ast.entity,
+            Entity::EndpointInventoryScans,
+            "entity alias {raw}"
+        );
+    }
+}
+
+#[test]
+fn parses_security_signal_entity_aliases() {
+    for raw in [
+        "security_findings",
+        "security_finding",
+        "findings",
+        "finding",
+    ] {
+        let ast = parse(&format!("in:{raw} severity:High limit:10")).unwrap();
+        assert_eq!(ast.entity, Entity::SecurityFindings, "entity alias {raw}");
+    }
+
+    for raw in [
+        "scan_activity",
+        "scan_activities",
+        "security_scans",
+        "scanner_activity",
+    ] {
+        let ast = parse(&format!("in:{raw} status:Success limit:10")).unwrap();
+        assert_eq!(ast.entity, Entity::ScanActivity, "entity alias {raw}");
+    }
+
+    for raw in [
+        "dns_activity",
+        "dns_activities",
+        "dns_security_activity",
+        "powerdns",
+        "pdns",
+    ] {
+        let ast = parse(&format!("in:{raw} status:Success limit:10")).unwrap();
+        assert_eq!(ast.entity, Entity::DnsActivity, "entity alias {raw}");
+    }
+}
+
+#[test]
+fn parses_capacity_forecast_entity_aliases() {
+    for raw in [
+        "capacity_forecasts",
+        "capacity_forecast",
+        "forecasts",
+        "forecast",
+    ] {
+        let ast = parse(&format!("in:{raw} status:projected limit:10")).unwrap();
+        assert_eq!(ast.entity, Entity::CapacityForecasts, "entity alias {raw}");
+    }
+}
+
+#[test]
+fn parses_dashboard_service_view_entities() {
+    let cases = [
+        ("service_availability", Entity::ServiceAvailability),
+        ("monitored_services", Entity::MonitoredServices),
+        ("service_inventory", Entity::MonitoredServices),
+        ("slo_evaluations", Entity::SloEvaluations),
+        ("service_slos", Entity::SloEvaluations),
+    ];
+
+    for (raw, expected) in cases {
+        let ast = parse(&format!("in:{raw} status:ok limit:10")).unwrap();
+        assert_eq!(ast.entity, expected, "entity alias {raw}");
+    }
+}
+
+#[test]
+fn parses_list_values() {
+    let ast = parse("in:devices discovery_sources:(sweep,armis)").unwrap();
+    assert_eq!(ast.filters.len(), 1);
+    match &ast.filters[0].value {
+        FilterValue::List(items) => {
+            assert_eq!(items.len(), 2);
+            assert_eq!(items[0], "sweep");
+            assert_eq!(items[1], "armis");
+        }
+        _ => panic!("expected list value"),
+    }
+}
+
+#[test]
+fn parses_stats_expression() {
+    let ast = parse("in:logs stats:\"count() as total\" time:last_24h").unwrap();
+    let stats = ast.stats.as_ref().unwrap();
+    assert_eq!(stats.raw, "count() as total");
+    assert_eq!(stats.aggregations.len(), 1);
+    assert!(matches!(
+        stats.aggregations[0].agg_type,
+        StatsAggType::Count
+    ));
+    assert_eq!(stats.aggregations[0].alias, "total");
+}
+
+#[test]
+fn parses_unquoted_stats_alias() {
+    let ast = parse("in:devices stats:count() as total").unwrap();
+    let stats = ast.stats.as_ref().unwrap();
+    assert_eq!(stats.raw, "count() as total");
+    assert_eq!(stats.aggregations.len(), 1);
+    assert!(matches!(
+        stats.aggregations[0].agg_type,
+        StatsAggType::Count
+    ));
+}
+
+#[test]
+fn parses_unquoted_stats_alias_with_following_tokens() {
+    let ast = parse("in:devices stats:count() as total time:last_7d").unwrap();
+    let stats = ast.stats.as_ref().unwrap();
+    assert_eq!(stats.raw, "count() as total");
+    assert!(ast.time_filter.is_some());
+}
+
+#[test]
+fn parses_stats_with_field() {
+    let ast = parse("in:devices stats:\"sum(value) as total_value\"").unwrap();
+    let stats = ast.stats.as_ref().unwrap();
+    assert_eq!(stats.aggregations.len(), 1);
+    assert!(matches!(stats.aggregations[0].agg_type, StatsAggType::Sum));
+    assert_eq!(stats.aggregations[0].field.as_deref(), Some("value"));
+    assert_eq!(stats.aggregations[0].alias, "total_value");
+}
+
+#[test]
+fn parses_multiple_stats() {
+    let ast = parse("in:devices stats:\"count() as total, sum(value) as sum_val\"").unwrap();
+    let stats = ast.stats.as_ref().unwrap();
+    assert_eq!(stats.aggregations.len(), 2);
+    assert!(matches!(
+        stats.aggregations[0].agg_type,
+        StatsAggType::Count
+    ));
+    assert!(matches!(stats.aggregations[1].agg_type, StatsAggType::Sum));
+}
+
+#[test]
+fn parses_repeated_stats_tokens_by_merging_aggregations() {
+    let ast = parse(
+        "in:flows stats:sum(bytes_total) as bytes_total stats:sum(packets_total) as packets_total by src_endpoint_ip",
+    )
+    .unwrap();
+
+    let stats = ast.stats.as_ref().unwrap();
+    assert_eq!(
+        stats.raw,
+        "sum(bytes_total) as bytes_total, sum(packets_total) as packets_total by src_endpoint_ip"
+    );
+    assert_eq!(stats.aggregations.len(), 2);
+    assert_eq!(stats.aggregations[0].alias, "bytes_total");
+    assert_eq!(stats.aggregations[1].alias, "packets_total");
+}
+
+#[test]
+fn parses_other_rollup_flag() {
+    let ast = parse(
+        "in:flows stats:sum(bytes_total) as bytes_total by src_endpoint_ip sort:bytes_total:desc limit:10 other:true",
+    )
+    .unwrap();
+
+    assert!(ast.other);
+}
+
+#[test]
+fn rejects_invalid_other_rollup_flag() {
+    let err = parse("in:flows stats:count() as total by src_endpoint_ip other:maybe").unwrap_err();
+
+    assert!(matches!(err, ServiceError::InvalidRequest(_)));
+}
+
+#[test]
+fn rejects_repeated_stats_tokens_with_conflicting_group_by() {
+    let err = parse(
+        "in:flows stats:sum(bytes_total) as bytes_total by src_endpoint_ip stats:sum(packets_total) as packets_total by dst_endpoint_ip",
+    )
+    .unwrap_err();
+    assert!(matches!(err, ServiceError::InvalidRequest(_)));
+}
+
+#[test]
+fn rejects_stats_alias_missing_identifier() {
+    let err = parse("in:devices stats:count() as").unwrap_err();
+    assert!(matches!(err, ServiceError::InvalidRequest(_)));
+}
+
+#[test]
+fn parses_interfaces_entity() {
+    let ast = parse("in:interfaces time:last_24h").unwrap();
+    assert!(matches!(ast.entity, Entity::Interfaces));
+}
+
+#[test]
+fn parses_bmp_events_entity() {
+    let ast = parse("in:bmp_events router_ip:10.42.68.85 time:last_24h").unwrap();
+    assert!(matches!(ast.entity, Entity::BmpEvents));
+    assert_eq!(ast.filters.len(), 1);
+    assert_eq!(ast.filters[0].field, "router_ip");
+}
+
+#[test]
+fn rejects_overly_long_stats_expression() {
+    let query = format!(
+        "in:logs stats:{}",
+        "x".repeat(super::stats::MAX_STATS_EXPR_LEN + 1)
+    );
+    let err = parse(&query).unwrap_err();
+    assert!(matches!(err, ServiceError::InvalidRequest(_)));
+}
+
+#[test]
+fn rejects_list_filters_over_limit() {
+    let values = (0..=super::filters::MAX_FILTER_LIST_VALUES)
+        .map(|i| format!("value{i}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let query = format!("in:logs service:({values})");
+    let err = parse(&query).unwrap_err();
+    assert!(matches!(err, ServiceError::InvalidRequest(_)));
+}
+
+#[test]
+fn parses_rollup_stats_keyword() {
+    let ast = parse("in:logs time:last_24h rollup_stats:severity").unwrap();
+    assert!(matches!(ast.entity, Entity::Logs));
+    assert_eq!(ast.rollup_stats.as_deref(), Some("severity"));
+    assert!(ast.time_filter.is_some());
+}
+
+#[test]
+fn parses_rollup_stats_with_filters() {
+    let ast = parse("in:logs service_name:core time:last_24h rollup_stats:severity").unwrap();
+    assert_eq!(ast.rollup_stats.as_deref(), Some("severity"));
+    assert_eq!(ast.filters.len(), 1);
+    assert_eq!(ast.filters[0].field, "service_name");
+}
+
+#[test]
+fn rejects_empty_rollup_stats() {
+    let err = parse("in:logs rollup_stats:").unwrap_err();
+    assert!(matches!(err, ServiceError::InvalidRequest(_)));
+}
