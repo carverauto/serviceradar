@@ -59,6 +59,37 @@ defmodule ServiceRadar.Observability.MtrConsensusEvaluatorTest do
     assert result.classification == :degraded_path
   end
 
+  test "confidence reports the chosen class probability" do
+    outcomes = [
+      %{agent_id: "a1", target_reached: true, packet_loss_pct: 35.0},
+      %{agent_id: "a2", target_reached: true},
+      %{agent_id: "a3", target_reached: true}
+    ]
+
+    result =
+      MtrConsensusEvaluator.classify(outcomes, %{
+        consensus_mode: "threshold",
+        consensus_threshold: 0.25,
+        consensus_min_agents: 2
+      })
+
+    assert result.classification == :degraded_path
+    assert_in_delta result.confidence, 0.333, 0.01
+  end
+
+  test "path scoped confidence reflects the weaker side of the split" do
+    outcomes = [
+      %{agent_id: "a1", target_reached: false},
+      %{agent_id: "a2", target_reached: true},
+      %{agent_id: "a3", target_reached: true}
+    ]
+
+    result = MtrConsensusEvaluator.classify(outcomes, %{consensus_min_agents: 2})
+
+    assert result.classification == :path_scoped_issue
+    assert_in_delta result.confidence, 0.333, 0.01
+  end
+
   test "all successful outcomes classify as healthy" do
     outcomes = [
       %{agent_id: "a1", target_reached: true},

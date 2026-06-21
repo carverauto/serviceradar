@@ -70,7 +70,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
      |> assign(:default_limit, default_limit)
      |> assign(:current_page, 1)
      |> assign(:total_count, 0)
-     |> assign(:trace_coverage, %{trace_count: 0, earliest_time: nil, latest_time: nil})
+     |> assign(:trace_coverage, %{
+       trace_count: 0,
+       reached_count: 0,
+       failed_count: 0,
+       earliest_time: nil,
+       latest_time: nil
+     })
      |> assign(:mtr_retention_status, %{configured_days: 30, status: :degraded, tables: %{}})
      |> assign(:filter_target, "")
      |> assign(:filter_agent, "")
@@ -875,7 +881,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
         assign(socket, :trace_coverage, coverage)
 
       {:error, _} ->
-        assign(socket, :trace_coverage, %{trace_count: 0, earliest_time: nil, latest_time: nil})
+        assign(socket, :trace_coverage, %{
+          trace_count: 0,
+          reached_count: 0,
+          failed_count: 0,
+          earliest_time: nil,
+          latest_time: nil
+        })
     end
   end
 
@@ -989,9 +1001,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
           <div class="sr-mtr-card p-4">
             <div class="flex items-center justify-between gap-4">
               <div class="min-w-0">
-                <div class="sr-mtr-label">Page Reachability</div>
+                <div class="sr-mtr-label">Reachability</div>
                 <div class="sr-mtr-value mt-2 text-3xl">{trace_dashboard.success_rate}%</div>
-                <div class="sr-mtr-muted text-sm">for visible traces</div>
+                <div class="sr-mtr-muted text-sm">
+                  across {trace_dashboard.reachability_trace_count} retained traces
+                </div>
               </div>
               <div
                 class={[
@@ -1016,7 +1030,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
         <div :if={@traces != []} class="sr-mtr-panel p-4">
           <div class="flex items-center justify-between gap-3">
             <h3 class="sr-mtr-title font-semibold">Recent Availability Timeline</h3>
-            <div class="sr-mtr-muted text-xs">newest left</div>
+            <div class="sr-mtr-muted text-xs">visible page, newest left</div>
           </div>
           <div
             class="sr-mtr-outcome-strip mt-4"
@@ -1034,8 +1048,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
             />
           </div>
           <div class="mt-3 flex flex-wrap gap-3 text-xs">
-            <span class="sr-mtr-muted">Reached {trace_dashboard.reached_count}</span>
-            <span class="sr-mtr-muted">Failed {trace_dashboard.failed_count}</span>
+            <span class="sr-mtr-muted">Page reached {trace_dashboard.reached_count}</span>
+            <span class="sr-mtr-muted">Page failed {trace_dashboard.failed_count}</span>
             <span class="sr-mtr-muted">Visible {trace_dashboard.trace_count}</span>
           </div>
         </div>
@@ -1784,11 +1798,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
   defp format_time(nil), do: "-"
 
   defp format_time(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+    Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
   end
 
   defp format_time(%NaiveDateTime{} = ndt) do
-    Calendar.strftime(ndt, "%Y-%m-%d %H:%M:%S")
+    Calendar.strftime(ndt, "%Y-%m-%d %H:%M:%S UTC")
   end
 
   defp format_time(_), do: "-"
@@ -1828,11 +1842,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
 
   defp trace_status_class(_), do: "badge-error"
 
-  defp trace_history_dashboard(traces, _coverage) do
+  defp trace_history_dashboard(traces, coverage) do
     traces = List.wrap(traces)
     trace_count = length(traces)
     reached_count = Enum.count(traces, &(&1["target_reached"] == true))
     max_hops = traces |> Enum.map(&(&1["total_hops"] || 0)) |> Enum.max(fn -> 0 end)
+    reachability_trace_count = coverage_count(coverage, :trace_count, trace_count)
+    reachability_reached_count = coverage_count(coverage, :reached_count, reached_count)
 
     agent_counts =
       traces
@@ -1854,12 +1870,26 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr do
       trace_count: trace_count,
       reached_count: reached_count,
       failed_count: max(trace_count - reached_count, 0),
-      success_rate: percent(reached_count, trace_count),
+      reachability_trace_count: reachability_trace_count,
+      reachability_reached_count: reachability_reached_count,
+      reachability_failed_count:
+        coverage_count(coverage, :failed_count, max(reachability_trace_count - reachability_reached_count, 0)),
+      success_rate: percent(reachability_reached_count, reachability_trace_count),
       agent_count: map_size(agent_counts),
       agent_mix: agent_mix,
       max_hops: max_hops
     }
   end
+
+  defp coverage_count(coverage, key, default) when is_map(coverage) do
+    case Map.get(coverage, key) do
+      value when is_integer(value) and value >= 0 -> value
+      value when is_float(value) and value >= 0 -> trunc(value)
+      _ -> default
+    end
+  end
+
+  defp coverage_count(_coverage, _key, default), do: default
 
   defp trace_hop_width(trace, max_hops) do
     pct_width(trace["total_hops"] || 0, max_hops)

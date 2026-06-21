@@ -131,14 +131,25 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
       build_trace_where_with_srql(target_filter, agent_filter, device_uid, device_ip, srql_query)
 
     query = """
-    SELECT COUNT(*)::bigint AS trace_count, MIN(time) AS earliest_time, MAX(time) AS latest_time
+    SELECT COUNT(*)::bigint AS trace_count,
+           COUNT(*) FILTER (WHERE target_reached)::bigint AS reached_count,
+           COUNT(*) FILTER (WHERE NOT target_reached)::bigint AS failed_count,
+           MIN(time) AS earliest_time,
+           MAX(time) AS latest_time
     FROM mtr_traces
     #{where_clause}
     """
 
     case Repo.query(query, params) do
-      {:ok, %{rows: [[count, earliest, latest]]}} ->
-        {:ok, %{trace_count: count || 0, earliest_time: earliest, latest_time: latest}}
+      {:ok, %{rows: [[count, reached, failed, earliest, latest]]}} ->
+        {:ok,
+         %{
+           trace_count: count || 0,
+           reached_count: reached || 0,
+           failed_count: failed || 0,
+           earliest_time: earliest,
+           latest_time: latest
+         }}
 
       {:error, reason} ->
         {:error, reason}

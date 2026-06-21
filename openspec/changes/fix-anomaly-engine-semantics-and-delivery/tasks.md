@@ -243,8 +243,8 @@
 
 ## 46. MTR Consensus / Baseline / UI (F51)
 - [x] 46.1 Compute path RTT from the destination hop (or a true avg), not MAX over all hops, so transit ICMP-deprioritization doesn't fabricate `:degraded_path` signals.
-- [ ] 46.2 Re-emit non-incident (manual/baseline) cohorts on escalation so degraded-to-outage transitions surface.
-- [ ] 46.3 Report the chosen class's probability as confidence; scope "Page Reachability" correctly; add a timezone indicator to MTR timestamps.
+- [x] 46.2 Re-emit non-incident (manual/baseline) cohorts on escalation so degraded-to-outage transitions surface.
+- [x] 46.3 Report the chosen class's probability as confidence; scope "Page Reachability" correctly; add a timezone indicator to MTR timestamps.
 
 ## 47. SRQL Engine Hardening (F52)
 - [x] 47.1 Fix the bucket-duration multibyte-char panic (`parser.rs:550`) - char-boundary-safe parsing.

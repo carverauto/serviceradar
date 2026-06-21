@@ -135,6 +135,24 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
     assert MapSet.subset?(MapSet.union(page_1_ids, page_2_ids), MapSet.new(ids))
   end
 
+  test "trace_coverage reports retained reachability counts across filters" do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    insert_mtr_trace!("agent-coverage-a", "coverage.example", now, target_reached: true)
+
+    insert_mtr_trace!("agent-coverage-b", "coverage.example", DateTime.add(now, -60, :second), target_reached: false)
+
+    insert_mtr_trace!("agent-coverage-a", "other.example", now, target_reached: true)
+
+    assert {:ok, coverage} = MtrData.trace_coverage(target_filter: "coverage.example")
+
+    assert coverage.trace_count == 2
+    assert coverage.reached_count == 1
+    assert coverage.failed_count == 1
+    assert coverage.earliest_time
+    assert coverage.latest_time
+  end
+
   test "compare_windows handles partial elapsed windows and uneven samples" do
     window_a = %{label: "Today so far", start: ~U[2026-05-07 00:00:00Z], end: ~U[2026-05-07 09:30:00Z]}
     window_b = %{label: "Yesterday same hours", start: ~U[2026-05-06 00:00:00Z], end: ~U[2026-05-06 09:30:00Z]}

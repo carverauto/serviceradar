@@ -90,6 +90,70 @@ defmodule ServiceRadar.Observability.MtrConsensusWorkerTest do
     refute_receive {:emitted, :target_outage, "inc-dedupe", _}, 250
   end
 
+  test "re-emits non-incident command cohort when classification escalates" do
+    parent = self()
+    command_id = Ecto.UUID.generate()
+
+    emitter = fn consensus_result, context, outcomes ->
+      send(
+        parent,
+        {:emitted, consensus_result.classification, context["incident_correlation_id"],
+         context["trigger_mode"], length(outcomes)}
+      )
+
+      :ok
+    end
+
+    {:ok, pid} =
+      start_supervised(
+        {MtrConsensusWorker,
+         name: :"mtr-consensus-worker-#{System.unique_integer([:positive])}",
+         subscribe: false,
+         emitter: emitter,
+         policy_provider: fn _ -> %{consensus_min_agents: 2, consensus_mode: "majority"} end}
+      )
+
+    send(
+      pid,
+      {:command_result,
+       mtr_result("agent-a", nil, true, 35.0, 30.0,
+         command_id: command_id,
+         trigger_mode: "baseline"
+       )}
+    )
+
+    send(
+      pid,
+      {:command_result,
+       mtr_result("agent-b", nil, true, 35.0, 30.0,
+         command_id: command_id,
+         trigger_mode: "baseline"
+       )}
+    )
+
+    assert_receive {:emitted, :degraded_path, nil, "baseline", 2}, 1_000
+
+    send(
+      pid,
+      {:command_result,
+       mtr_result("agent-a", nil, false, 0.0, 0.0,
+         command_id: command_id,
+         trigger_mode: "baseline"
+       )}
+    )
+
+    send(
+      pid,
+      {:command_result,
+       mtr_result("agent-b", nil, false, 0.0, 0.0,
+         command_id: command_id,
+         trigger_mode: "baseline"
+       )}
+    )
+
+    assert_receive {:emitted, :target_outage, nil, "baseline", 2}, 1_000
+  end
+
   test "uses destination hop RTT instead of inflated transit hop RTT" do
     parent = self()
 
@@ -152,7 +216,7 @@ defmodule ServiceRadar.Observability.MtrConsensusWorkerTest do
     assert Enum.all?(outcomes, &(&1.packet_loss_pct == 0.0))
   end
 
-  defp mtr_result(agent_id, incident_id, target_reached, loss_pct, avg_rtt_ms) do
+  defp mtr_result(agent_id, incident_id, target_reached, loss_pct, avg_rtt_ms, opts \\ []) do
     hops =
       if is_list(avg_rtt_ms) do
         avg_rtt_ms
@@ -161,13 +225,13 @@ defmodule ServiceRadar.Observability.MtrConsensusWorkerTest do
       end
 
     %{
-      command_id: Ecto.UUID.generate(),
+      command_id: Keyword.get(opts, :command_id, Ecto.UUID.generate()),
       command_type: "mtr.run",
       agent_id: agent_id,
       partition_id: "default",
       incident_correlation_id: incident_id,
       target_device_uid: "dev-1",
-      trigger_mode: "incident",
+      trigger_mode: Keyword.get(opts, :trigger_mode, "incident"),
       success: true,
       payload: %{
         "target" => "8.8.8.8",

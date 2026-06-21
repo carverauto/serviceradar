@@ -98,8 +98,8 @@ defmodule ServiceRadar.Observability.MtrConsensusEvaluator do
       end
 
     confidence =
-      [votes.p_unreachable, votes.p_anomalous, votes.p_success]
-      |> Enum.max(fn -> 0.0 end)
+      classification
+      |> classification_probability(votes)
       |> Kernel.*(coverage_factor)
       |> clamp01()
 
@@ -176,6 +176,16 @@ defmodule ServiceRadar.Observability.MtrConsensusEvaluator do
   defp quorum?(probability_value, "unanimous", _threshold), do: probability_value >= 1.0
   defp quorum?(probability_value, "threshold", threshold), do: probability_value >= threshold
   defp quorum?(probability_value, _mode, _threshold), do: probability_value > 0.5
+
+  defp classification_probability(:target_outage, votes), do: votes.p_unreachable
+  defp classification_probability(:degraded_path, votes), do: votes.p_anomalous
+  defp classification_probability(:healthy, votes), do: votes.p_success
+
+  defp classification_probability(:path_scoped_issue, votes) do
+    min(votes.p_unreachable, votes.p_success)
+  end
+
+  defp classification_probability(_, _votes), do: 0.0
 
   defp coverage_factor(cohort_size, min_agents) when min_agents > 0 do
     cohort_size

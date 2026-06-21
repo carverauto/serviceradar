@@ -116,10 +116,12 @@ defmodule ServiceRadar.Observability.MtrConsensusWorker do
     enough_data = length(outcomes) >= max(min_agents, 1)
 
     if enough_data and classification != :insufficient_evidence do
+      classification_identity = Atom.to_string(classification)
+
       identity =
         case context["incident_correlation_id"] || context[:incident_correlation_id] do
-          nil -> key
-          incident_id -> "incident:#{incident_id}:#{Atom.to_string(classification)}"
+          nil -> "#{key}:#{classification_identity}"
+          incident_id -> "incident:#{incident_id}:#{classification_identity}"
         end
 
       if emitted_identity == identity do
