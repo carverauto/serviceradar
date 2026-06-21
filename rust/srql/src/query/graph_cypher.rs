@@ -112,8 +112,8 @@ fn extract_cypher(plan: &QueryPlan) -> Result<String> {
 }
 
 fn ensure_read_only(raw: &str) -> Result<()> {
-    let lower = raw.to_lowercase();
-    if lower.contains(';') {
+    let code = cypher_code_without_literals_or_comments(raw);
+    if code.contains(';') {
         return Err(ServiceError::InvalidRequest(
             "cypher queries must not contain ';'".into(),
         ));
@@ -122,7 +122,7 @@ fn ensure_read_only(raw: &str) -> Result<()> {
     for keyword in [
         "create", "merge", "set", "delete", "detach", "remove", "drop", "call",
     ] {
-        if lower
+        if code
             .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
             .any(|token| token == keyword)
         {
@@ -133,6 +133,111 @@ fn ensure_read_only(raw: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn cypher_code_without_literals_or_comments(raw: &str) -> String {
+    let mut code = String::with_capacity(raw.len());
+    let mut chars = raw.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\'' | '"' => {
+                push_space(&mut code, ch);
+                consume_quoted(&mut chars, &mut code, ch);
+            }
+            '`' => {
+                push_space(&mut code, ch);
+                consume_backtick_identifier(&mut chars, &mut code);
+            }
+            '/' if chars.peek() == Some(&'/') => {
+                push_space(&mut code, ch);
+                push_space(&mut code, chars.next().expect("peeked slash must exist"));
+                consume_line_comment(&mut chars, &mut code);
+            }
+            '/' if chars.peek() == Some(&'*') => {
+                push_space(&mut code, ch);
+                push_space(&mut code, chars.next().expect("peeked asterisk must exist"));
+                consume_block_comment(&mut chars, &mut code);
+            }
+            _ => code.extend(ch.to_lowercase()),
+        }
+    }
+
+    code
+}
+
+fn consume_quoted<I>(chars: &mut std::iter::Peekable<I>, code: &mut String, quote: char)
+where
+    I: Iterator<Item = char>,
+{
+    while let Some(ch) = chars.next() {
+        push_space(code, ch);
+
+        if ch == '\\' {
+            if let Some(escaped) = chars.next() {
+                push_space(code, escaped);
+            }
+            continue;
+        }
+
+        if ch == quote {
+            break;
+        }
+    }
+}
+
+fn consume_backtick_identifier<I>(chars: &mut std::iter::Peekable<I>, code: &mut String)
+where
+    I: Iterator<Item = char>,
+{
+    while let Some(ch) = chars.next() {
+        push_space(code, ch);
+
+        if ch == '`' {
+            if chars.peek() == Some(&'`') {
+                push_space(code, chars.next().expect("peeked backtick must exist"));
+                continue;
+            }
+
+            break;
+        }
+    }
+}
+
+fn consume_line_comment<I>(chars: &mut std::iter::Peekable<I>, code: &mut String)
+where
+    I: Iterator<Item = char>,
+{
+    for ch in chars.by_ref() {
+        if ch == '\n' || ch == '\r' {
+            code.push(ch);
+            break;
+        }
+
+        push_space(code, ch);
+    }
+}
+
+fn consume_block_comment<I>(chars: &mut std::iter::Peekable<I>, code: &mut String)
+where
+    I: Iterator<Item = char>,
+{
+    while let Some(ch) = chars.next() {
+        push_space(code, ch);
+
+        if ch == '*' && chars.peek() == Some(&'/') {
+            push_space(code, chars.next().expect("peeked slash must exist"));
+            break;
+        }
+    }
+}
+
+fn push_space(code: &mut String, ch: char) {
+    if ch == '\n' || ch == '\r' {
+        code.push(ch);
+    } else {
+        code.push(' ');
+    }
 }
 
 #[derive(Debug, QueryableByName)]

@@ -1592,33 +1592,39 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
         device_id
 
       is_binary(device_id) ->
-        ip = extract_ip(device_id)
+        ip = extract_metric_device_ip(device_id)
         Map.get(Map.get(identity, :ip_to_uid, %{}), ip)
 
       true ->
         nil
-    end || Map.get(Map.get(identity, :ip_to_uid, %{}), normalize_ip(target_ip))
+    end || Map.get(Map.get(identity, :ip_to_uid, %{}), extract_metric_device_ip(target_ip))
   end
 
-  defp extract_ip(value) when is_binary(value) do
+  @doc false
+  @spec extract_metric_device_ip(term()) :: String.t() | nil
+  def extract_metric_device_ip(value) when is_binary(value) do
     normalized = normalize_ip(value)
 
     cond do
-      is_binary(normalized) and normalized != "" ->
+      valid_ip?(normalized) ->
         normalized
 
       String.contains?(value, ":") ->
-        value
-        |> String.split(":", parts: 2)
-        |> List.last()
-        |> normalize_ip()
+        case String.split(String.trim(value), ":", parts: 2) do
+          [partition, candidate] when partition != "sr" ->
+            candidate = normalize_ip(candidate)
+            if valid_ip?(candidate), do: candidate
+
+          _ ->
+            nil
+        end
 
       true ->
         nil
     end
   end
 
-  defp extract_ip(_), do: nil
+  def extract_metric_device_ip(_), do: nil
 
   defp normalize_ip(value) when is_binary(value) do
     value = String.trim(value)
@@ -1626,6 +1632,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   end
 
   defp normalize_ip(_), do: nil
+
+  defp valid_ip?(value) when is_binary(value) do
+    case :inet.parse_address(String.to_charlist(value)) do
+      {:ok, _} -> true
+      _ -> false
+    end
+  end
+
+  defp valid_ip?(_), do: false
 
   defp compute_edge_telemetry(edge, pps_by_if, bps_by_if, capacity_by_if, observed_at)
        when is_map(edge) and is_map(pps_by_if) and is_map(bps_by_if) and is_map(capacity_by_if) and

@@ -708,6 +708,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       assert query =~ "telemetry_eligible: false"
     end
 
+    test "metric device IP extraction is IPv6-safe" do
+      assert TopologyGraph.extract_metric_device_ip("2001:db8::10") == "2001:db8::10"
+      assert TopologyGraph.extract_metric_device_ip("default:2001:db8::10") == "2001:db8::10"
+      assert TopologyGraph.extract_metric_device_ip("default:192.0.2.10") == "192.0.2.10"
+
+      refute TopologyGraph.extract_metric_device_ip("sr:device-1")
+      refute TopologyGraph.extract_metric_device_ip("default:not-an-ip")
+    end
+
     test "canonical rebuild telemetry emits before/after counters on completion" do
       handler_id = "canonical-rebuild-completed-#{System.unique_integer([:positive])}"
 

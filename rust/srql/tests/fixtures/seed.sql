@@ -1451,11 +1451,15 @@ BEGIN
 
     PERFORM * FROM ag_catalog.cypher('platform_graph', $_cypher$
         MERGE (d:Device {id: 'device-alpha', hostname: 'alpha-edge'})
+        MERGE (peer_d:Device {id: 'device-beta', hostname: 'beta-edge'})
         MERGE (c:Collector {id: 'serviceradar:agent:agent-1'})
         MERGE (svc:Service {id: 'serviceradar:service:ssh@agent-1', type: 'ssh'})
         MERGE (iface:Interface {id: 'device-alpha/eth0', name: 'eth0'})
+        MERGE (peer_iface:Interface {id: 'device-beta/eth1', name: 'eth1'})
         MERGE (cap:Capability {type: 'snmp'})
         MERGE (d)-[:HAS_INTERFACE]->(iface)
+        MERGE (peer_d)-[:HAS_INTERFACE]->(peer_iface)
+        MERGE (iface)-[:CONNECTS_TO]->(peer_iface)
         MERGE (d)-[:PROVIDES_CAPABILITY]->(cap)
         MERGE (c)-[:HOSTS_SERVICE]->(svc)
         MERGE (svc)-[:TARGETS]->(d)
@@ -1552,6 +1556,7 @@ BEGIN
             OPTIONAL MATCH (d)-[:PROVIDES_CAPABILITY]->(dcap:Capability)
             OPTIONAL MATCH (d)-[:HAS_INTERFACE]->(iface:Interface)
             OPTIONAL MATCH (iface)-[:CONNECTS_TO]->(peer:Interface)
+            OPTIONAL MATCH (peer_owner:Device)-[:HAS_INTERFACE]->(peer)
             WITH d, include_topology, collector_only,
                  collect(DISTINCT col) AS collectors,
                  collect(DISTINCT CASE WHEN svc IS NOT NULL AND t IS NOT NULL AND t.id = d.id AND col IS NOT NULL THEN {
@@ -1562,24 +1567,36 @@ BEGIN
                  collect(DISTINCT CASE WHEN svc IS NOT NULL AND t IS NOT NULL AND t.id = d.id AND col IS NOT NULL THEN col ELSE NULL END) AS host_collectors_raw,
                  collect(DISTINCT CASE WHEN t IS NOT NULL AND t.id <> d.id THEN properties(t) ELSE NULL END) AS target_props_raw,
                  collect(DISTINCT iface) AS interfaces,
-                 collect(DISTINCT peer) AS peers,
+                 collect(DISTINCT CASE WHEN peer IS NOT NULL THEN {
+                     id: peer.id,
+                     name: peer.name,
+                     ifindex: peer.ifindex,
+                     descr: peer.descr,
+                     alias: peer.alias,
+                     mac: peer.mac,
+                     ip_addresses: peer.ip_addresses,
+                     device_id: coalesce(peer.device_id, peer_owner.id),
+                     owner_device_id: peer_owner.id,
+                     owner_device: properties(peer_owner),
+                     properties: properties(peer)
+                 } ELSE NULL END) AS peer_interfaces_raw,
                  collect(DISTINCT dcap) AS device_caps,
                  collect(DISTINCT svcCap) AS service_caps
-            WITH d, include_topology, collector_only, collectors, target_props_raw, interfaces, peers, device_caps, service_caps,
+            WITH d, include_topology, collector_only, collectors, target_props_raw, interfaces, peer_interfaces_raw, device_caps, service_caps,
                  [c IN host_collectors_raw WHERE c IS NOT NULL] AS host_collectors,
                  [s IN services_output_raw WHERE s IS NOT NULL] AS services_output
-            WITH d, include_topology, collector_only, collectors, services_output, target_props_raw, interfaces, peers, device_caps, service_caps, host_collectors,
+            WITH d, include_topology, collector_only, collectors, services_output, target_props_raw, interfaces, peer_interfaces_raw, device_caps, service_caps, host_collectors,
                  CASE WHEN size(host_collectors) > 0 THEN host_collectors ELSE collectors END AS collector_list,
                  (size(host_collectors) > 0 OR size([c IN collectors WHERE c IS NOT NULL]) > 0) AS has_collector,
                  [tgt IN target_props_raw WHERE tgt IS NOT NULL | tgt] AS target_props
-            WITH d, include_topology, collector_only, services_output, target_props, interfaces, peers, device_caps, service_caps, has_collector,
+            WITH d, include_topology, collector_only, services_output, target_props, interfaces, peer_interfaces_raw, device_caps, service_caps, has_collector,
                  CASE WHEN size(collector_list) = 0 THEN [NULL] ELSE collector_list END AS collector_list_safe
             UNWIND collector_list_safe AS base_col
             OPTIONAL MATCH (parentCol:Collector)<-[:REPORTED_BY]-(base_col)
-            WITH d, include_topology, collector_only, services_output, target_props, interfaces, peers, device_caps, service_caps, has_collector,
+            WITH d, include_topology, collector_only, services_output, target_props, interfaces, peer_interfaces_raw, device_caps, service_caps, has_collector,
                  collect(DISTINCT base_col) AS collector_list_dedup,
                  collect(DISTINCT parentCol) AS parent_collectors
-            WITH d, include_topology, collector_only, services_output, target_props, interfaces, peers, device_caps, service_caps,
+            WITH d, include_topology, collector_only, services_output, target_props, interfaces, peer_interfaces_raw, device_caps, service_caps,
                  collector_list_dedup + parent_collectors AS combined_collectors,
                  (has_collector OR size([p IN parent_collectors WHERE p IS NOT NULL]) > 0) AS has_any_collector
             WHERE NOT collector_only OR has_any_collector
@@ -1589,7 +1606,7 @@ BEGIN
                 services: services_output,
                 targets: target_props,
                 interfaces: CASE WHEN include_topology THEN [i IN interfaces WHERE i IS NOT NULL | properties(i)] ELSE [] END,
-                peer_interfaces: CASE WHEN include_topology THEN [p IN peers WHERE p IS NOT NULL | properties(p)] ELSE [] END,
+                peer_interfaces: CASE WHEN include_topology THEN [p IN peer_interfaces_raw WHERE p IS NOT NULL | p] ELSE [] END,
                 device_capabilities: [cap IN device_caps WHERE cap IS NOT NULL | properties(cap)],
                 service_capabilities: [cap IN service_caps WHERE cap IS NOT NULL | properties(cap)]
             } AS result
