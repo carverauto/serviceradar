@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
 
   use Phoenix.Component
 
+  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics
 
   attr :id, :string, required: true
@@ -120,6 +121,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
               <text x={x} y={@chart_height - 2} text-anchor="middle">{label}</text>
             <% end %>
           </g>
+
+          <ChartCard.annotation_markers_svg
+            annotations={@data.annotations}
+            chart_pad={@chart_pad}
+            chart_height={@chart_height}
+            compact={@compact}
+          />
 
           <%= for series <- @data.series do %>
             <path d={series.paths.area} fill={"url(#combined-fill-#{@id}-#{series.idx})"} />

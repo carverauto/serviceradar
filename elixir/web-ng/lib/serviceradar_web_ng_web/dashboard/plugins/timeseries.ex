@@ -107,6 +107,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     chart_mode = Map.get(assigns, :chart_mode, :single)
     combine_all_series = Map.get(assigns, :combine_all_series, false)
     combined_title = Map.get(assigns, :combined_title, "Combined")
+    annotations = annotations_from_assigns(assigns)
 
     series_data =
       SeriesData.build_series_data(
@@ -114,7 +115,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         Map.get(assigns, :spec),
         Map.get(assigns, :rate_mode, :none),
         compact,
-        max_speed
+        max_speed,
+        annotations
       )
 
     {combined_charts, individual_series} =
@@ -151,6 +153,133 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         Map.get(assigns, :series_points, [])
     end
   end
+
+  defp annotations_from_assigns(assigns) do
+    assigns
+    |> Spec.fetch_panel_value(:annotations, [])
+    |> normalize_annotations()
+  end
+
+  defp normalize_annotations(annotations) when is_list(annotations) do
+    annotations
+    |> Enum.map(&normalize_annotation/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.sort_by(fn annotation -> DateTime.to_unix(annotation.dt, :millisecond) end)
+  end
+
+  defp normalize_annotations(_annotations), do: []
+
+  defp normalize_annotation(%{} = annotation) do
+    dt_value =
+      first_present([
+        Map.get(annotation, :dt),
+        Map.get(annotation, "dt"),
+        Map.get(annotation, :time),
+        Map.get(annotation, "time"),
+        Map.get(annotation, :timestamp),
+        Map.get(annotation, "timestamp")
+      ])
+
+    case parse_annotation_datetime(dt_value) do
+      {:ok, dt} ->
+        %{
+          dt: dt,
+          label: annotation_label(annotation),
+          severity: annotation_severity(annotation),
+          series: annotation_series(annotation)
+        }
+
+      _ ->
+        nil
+    end
+  end
+
+  defp normalize_annotation(_annotation), do: nil
+
+  defp annotation_label(annotation) do
+    annotation
+    |> annotation_value([:label, "label", :title, "title"])
+    |> safe_to_string()
+    |> String.trim()
+    |> case do
+      "" -> "Finding"
+      value -> value
+    end
+  end
+
+  defp annotation_severity(annotation) do
+    annotation
+    |> annotation_value([:severity, "severity", :severity_text, "severity_text"])
+    |> safe_to_string()
+    |> String.trim()
+    |> String.downcase()
+    |> case do
+      "critical" -> :critical
+      "error" -> :critical
+      "high" -> :high
+      "warning" -> :warning
+      "warn" -> :warning
+      "medium" -> :warning
+      "low" -> :info
+      "info" -> :info
+      "informational" -> :info
+      _ -> :info
+    end
+  end
+
+  defp annotation_series(annotation) do
+    annotation
+    |> annotation_value([:series, "series", :series_key, "series_key"])
+    |> case do
+      nil ->
+        nil
+
+      value ->
+        value
+        |> safe_to_string()
+        |> String.trim()
+        |> case do
+          "" -> nil
+          series -> series
+        end
+    end
+  end
+
+  defp annotation_value(annotation, keys), do: Enum.find_value(keys, &Map.get(annotation, &1))
+
+  defp first_present(values) do
+    Enum.find(values, fn
+      nil -> false
+      value when is_binary(value) -> String.trim(value) != ""
+      _ -> true
+    end)
+  end
+
+  defp parse_annotation_datetime(%DateTime{} = dt), do: {:ok, dt}
+
+  defp parse_annotation_datetime(%NaiveDateTime{} = ndt) do
+    {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
+  end
+
+  defp parse_annotation_datetime(value) when is_binary(value) do
+    value = String.trim(value)
+
+    with {:error, _} <- DateTime.from_iso8601(value),
+         {:ok, ndt} <- NaiveDateTime.from_iso8601(value) do
+      {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
+    else
+      {:ok, dt, _offset} -> {:ok, dt}
+      {:error, _} -> {:error, :invalid_datetime}
+    end
+  end
+
+  defp parse_annotation_datetime(_value), do: {:error, :not_datetime}
+
+  defp safe_to_string(nil), do: ""
+  defp safe_to_string(value) when is_binary(value), do: value
+  defp safe_to_string(value) when is_integer(value), do: Integer.to_string(value)
+  defp safe_to_string(value) when is_atom(value), do: Atom.to_string(value)
+  defp safe_to_string(value), do: inspect(value)
 
   defp render_chart(assigns, true), do: render_compact(assigns)
   defp render_chart(assigns, false), do: render_full(assigns)
