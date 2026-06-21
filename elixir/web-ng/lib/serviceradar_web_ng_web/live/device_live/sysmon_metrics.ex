@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Categories, as: CategoriesPlugin
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries, as: TimeseriesPlugin
+  alias ServiceRadarWebNGWeb.DeviceLive.SysmonProfileData
   alias ServiceRadarWebNGWeb.SRQL.Viz
 
   require Logger
@@ -172,20 +173,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
 
   defp process_cpu_sort_key(_), do: -1
 
-  def load_metric_sections(_srql_module, [], _scope), do: []
+  def load_metric_sections(srql_module, filter_tokens, scope, opts \\ [])
 
-  def load_metric_sections(srql_module, filter_tokens, scope) do
+  def load_metric_sections(_srql_module, [], _scope, _opts), do: []
+
+  def load_metric_sections(srql_module, filter_tokens, scope, opts) do
+    reference_lines = sysmon_reference_lines(filter_tokens, scope, opts)
+
     Enum.filter(
       [
-        build_cpu_section(srql_module, filter_tokens, scope),
-        build_memory_section(srql_module, filter_tokens, scope),
-        build_disk_section(srql_module, filter_tokens, scope)
+        build_cpu_section(srql_module, filter_tokens, scope, Map.get(reference_lines, :cpu, [])),
+        build_memory_section(srql_module, filter_tokens, scope, Map.get(reference_lines, :memory, [])),
+        build_disk_section(srql_module, filter_tokens, scope, Map.get(reference_lines, :disk, []))
       ],
       & &1
     )
   end
 
-  defp build_cpu_section(srql_module, filter_tokens, scope) do
+  defp build_cpu_section(srql_module, filter_tokens, scope, reference_lines) do
     query =
       timeseries_metric_query(
         "sysmon.cpu",
@@ -212,7 +217,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
         normalized = normalize_metric_results(results, "usage_percent")
         display_rows = hottest_series_rows(normalized, "core_id", "usage_percent")
         viz = timeseries_viz("usage_percent", "core_id")
-        panels = build_metric_panels(%{"results" => display_rows, "viz" => viz}, display_rows, "core_id")
+
+        panels =
+          build_metric_panels(%{"results" => display_rows, "viz" => viz}, display_rows, "core_id", reference_lines)
+
         header_value = latest_metric_value(normalized, "usage_percent", tie: :max)
         header_stats = metric_stats(normalized, "usage_percent")
 
@@ -235,7 +243,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
     end
   end
 
-  defp build_memory_section(srql_module, filter_tokens, scope) do
+  defp build_memory_section(srql_module, filter_tokens, scope, reference_lines) do
     query =
       timeseries_metric_query(
         "sysmon.memory",
@@ -260,7 +268,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
       {:ok, %{"results" => results}} when is_list(results) and results != [] ->
         normalized = normalize_metric_results(results, "used_percent")
         viz = timeseries_viz("used_percent", nil)
-        panels = build_metric_panels(%{"results" => normalized, "viz" => viz}, normalized, nil)
+        panels = build_metric_panels(%{"results" => normalized, "viz" => viz}, normalized, nil, reference_lines)
         header_value = latest_metric_value(normalized, "used_percent")
         header_stats = metric_stats(normalized, "used_percent")
         %{base | panels: panels, header_value: header_value, header_stats: header_stats}
@@ -276,7 +284,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
     end
   end
 
-  defp build_disk_section(srql_module, filter_tokens, scope) do
+  defp build_disk_section(srql_module, filter_tokens, scope, reference_lines) do
     query =
       timeseries_metric_query(
         "sysmon.disk",
@@ -301,7 +309,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
       {:ok, %{"results" => results}} when is_list(results) and results != [] ->
         normalized = normalize_metric_results(results, "used_percent")
         viz = timeseries_viz("used_percent", nil)
-        panels = build_metric_panels(%{"results" => normalized, "viz" => viz}, normalized, nil)
+        panels = build_metric_panels(%{"results" => normalized, "viz" => viz}, normalized, nil, reference_lines)
         header_value = latest_metric_value(normalized, "used_percent")
         header_stats = metric_stats(normalized, "used_percent")
         %{base | panels: panels, header_value: header_value, header_stats: header_stats}
@@ -555,7 +563,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
     Map.put(viz, "series", series_field)
   end
 
-  defp build_metric_panels(resp, results, series_field) do
+  defp build_metric_panels(resp, results, series_field, reference_lines) do
     srql_response = %{"results" => results, "viz" => extract_viz(resp)}
 
     panels =
@@ -567,6 +575,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
     panels
     |> maybe_force_timeseries(results, series_field)
     |> drop_category_panels_when_timeseries()
+    |> attach_reference_lines(reference_lines)
   end
 
   defp extract_viz(resp) do
@@ -614,6 +623,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
     end
   end
 
+  defp attach_reference_lines(panels, []), do: panels
+
+  defp attach_reference_lines(panels, reference_lines) when is_list(panels) and is_list(reference_lines) do
+    Enum.map(panels, fn
+      %{plugin: TimeseriesPlugin, assigns: assigns} = panel when is_map(assigns) ->
+        %{panel | assigns: Map.put(assigns, :reference_lines, reference_lines)}
+
+      panel ->
+        panel
+    end)
+  end
+
+  defp attach_reference_lines(panels, _reference_lines), do: panels
+
   defp inferred_timeseries_viz(results, series_field) do
     case Viz.infer(results) do
       {:timeseries, %{x: x, y: y}} ->
@@ -628,6 +651,109 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
       _ ->
         nil
     end
+  end
+
+  defp sysmon_reference_lines(filter_tokens, scope, opts) do
+    thresholds =
+      opts
+      |> Keyword.get(:thresholds)
+      |> case do
+        thresholds when is_map(thresholds) -> thresholds
+        _ -> profile_thresholds_for_filter_tokens(filter_tokens, scope)
+      end
+
+    %{
+      cpu: threshold_reference_lines(thresholds, "cpu", "CPU"),
+      memory: threshold_reference_lines(thresholds, "memory", "Memory"),
+      disk: threshold_reference_lines(thresholds, "disk", "Disk")
+    }
+  end
+
+  defp profile_thresholds_for_filter_tokens(filter_tokens, scope) do
+    with uid when is_binary(uid) <- device_uid_from_filter_tokens(filter_tokens),
+         {%{profile: profile}, _available_profiles} <- SysmonProfileData.load_profile_info(scope, uid),
+         thresholds when is_map(thresholds) <- Map.get(profile || %{}, :thresholds) do
+      thresholds
+    else
+      _ -> %{}
+    end
+  rescue
+    _ -> %{}
+  end
+
+  defp device_uid_from_filter_tokens(filter_tokens) when is_list(filter_tokens) do
+    Enum.find_value(filter_tokens, fn
+      "uid:\"" <> rest ->
+        quoted_filter_value(rest)
+
+      "device_id:\"" <> rest ->
+        quoted_filter_value(rest)
+
+      _ ->
+        nil
+    end)
+  end
+
+  defp device_uid_from_filter_tokens(_filter_tokens), do: nil
+
+  defp quoted_filter_value(rest) do
+    rest
+    |> String.trim_trailing("\"")
+    |> case do
+      "" -> nil
+      value -> value
+    end
+  end
+
+  defp threshold_reference_lines(thresholds, prefix, label_prefix) when is_map(thresholds) do
+    Enum.flat_map(
+      [
+        {:critical, "#{label_prefix} critical"},
+        {:warning, "#{label_prefix} warning"}
+      ],
+      fn {severity, label} ->
+        case threshold_value(thresholds, threshold_keys(prefix, severity)) do
+          value when is_number(value) ->
+            [%{value: value, label: label, severity: severity, series: nil}]
+
+          _ ->
+            []
+        end
+      end
+    )
+  end
+
+  defp threshold_reference_lines(_thresholds, _prefix, _label_prefix), do: []
+
+  defp threshold_keys(prefix, severity) do
+    severity = Atom.to_string(severity)
+
+    [
+      "#{prefix}_#{severity}",
+      "#{prefix}.#{severity}",
+      "#{prefix}_usage_percent_#{severity}",
+      "#{prefix}.usage_percent.#{severity}",
+      "#{prefix}_used_percent_#{severity}",
+      "#{prefix}.used_percent.#{severity}"
+    ]
+  end
+
+  defp threshold_value(thresholds, keys) do
+    thresholds
+    |> map_find_value(keys)
+    |> parse_number()
+  end
+
+  defp map_find_value(map, keys) do
+    Enum.find_value(keys, fn key ->
+      Map.get(map, key) || atom_map_value(map, key)
+    end)
+  end
+
+  defp atom_map_value(map, key) do
+    Map.get(map, String.to_existing_atom(key))
+  rescue
+    ArgumentError -> nil
   end
 
   def sysmon_identity(device_row, device_uid) do

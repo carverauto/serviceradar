@@ -6,10 +6,25 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points
 
   def build_series_data(series_points, spec, rate_mode, compact, max_speed, annotations \\ [], y_scale \\ :linear) do
+    build_series_data(series_points, spec, rate_mode, compact, max_speed, annotations, [], y_scale)
+  end
+
+  def build_series_data(series_points, spec, rate_mode, compact, max_speed, annotations, reference_lines, y_scale) do
     series_points
     |> Enum.with_index()
     |> Enum.map(fn {{series, points}, idx} ->
-      series_data_for_points(series, points, idx, spec, rate_mode, compact, max_speed, annotations, y_scale)
+      series_data_for_points(
+        series,
+        points,
+        idx,
+        spec,
+        rate_mode,
+        compact,
+        max_speed,
+        annotations,
+        reference_lines,
+        y_scale
+      )
     end)
   end
 
@@ -36,7 +51,18 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
     end
   end
 
-  defp series_data_for_points(series, points, idx, spec, rate_mode, compact, max_speed, annotations, y_scale) do
+  defp series_data_for_points(
+         series,
+         points,
+         idx,
+         spec,
+         rate_mode,
+         compact,
+         max_speed,
+         annotations,
+         reference_lines,
+         y_scale
+       ) do
     effective_max = if Metrics.traffic_series?(series), do: max_speed
     {stroke, _fill} = Metrics.series_color(idx)
     display_name = Metrics.humanize_series_name(series || "series")
@@ -46,7 +72,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
     cap = Points.points_cap(points)
     points = Points.limit_points(points, cap)
     chart_points = Points.chart_points(points, unit, compact, cap)
-    y_domain = Points.y_domain(chart_points, unit, y_scale)
+    reference_values = reference_line_values(reference_lines, series, display_name)
+    y_domain = Points.y_domain(chart_points ++ reference_points(reference_values), unit, y_scale)
     paths = chart_points |> Paths.chart_paths(y_domain) |> Map.merge(raw_stats)
     utilization = Metrics.compute_utilization(paths.avg, effective_max)
 
@@ -66,6 +93,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
       chart_max: y_domain.max,
       y_scale: y_domain.scale,
       annotations: annotation_markers(annotations, points, series, display_name),
+      reference_lines: reference_line_markers(reference_lines, y_domain, series, display_name, unit),
+      raw_reference_lines: reference_lines,
       first_dt: Points.series_first_dt(points),
       last_dt: Points.series_last_dt(points),
       max_speed: effective_max,
@@ -76,7 +105,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
   defp build_combined_traffic_data(traffic_series, max_speed, compact, y_scale) do
     first_series = List.first(traffic_series)
     unit = Metrics.combined_unit(traffic_series)
-    y_domain = Points.combined_y_domain(traffic_series, unit, y_scale)
+    y_domain = combined_y_domain(traffic_series, unit, y_scale)
     traffic_series = apply_shared_domain(traffic_series, y_domain, unit, compact)
     x_ticks = first_series && Points.x_ticks(first_series.raw_points || [], compact)
     y_ticks = Points.y_ticks(y_domain, compact, unit)
@@ -92,6 +121,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
       chart_max: y_domain.max,
       y_scale: y_domain.scale,
       annotations: combined_annotation_markers(traffic_series),
+      reference_lines: combined_reference_line_markers(traffic_series, y_domain, unit),
       x_ticks: x_ticks || [],
       y_ticks: y_ticks,
       first_dt: first_series && first_series.first_dt,
@@ -102,7 +132,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
   defp build_combined_series_data(series_data, compact, title, y_scale) do
     first_series = List.first(series_data)
     unit = Metrics.combined_unit(series_data)
-    y_domain = Points.combined_y_domain(series_data, unit, y_scale)
+    y_domain = combined_y_domain(series_data, unit, y_scale)
     series_data = apply_shared_domain(series_data, y_domain, unit, compact)
     x_ticks = first_series && Points.x_ticks(first_series.raw_points || [], compact)
     y_ticks = Points.y_ticks(y_domain, compact, unit)
@@ -118,6 +148,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
       chart_max: y_domain.max,
       y_scale: y_domain.scale,
       annotations: combined_annotation_markers(series_data),
+      reference_lines: combined_reference_line_markers(series_data, y_domain, unit),
       x_ticks: x_ticks || [],
       y_ticks: y_ticks,
       first_dt: first_series && first_series.first_dt,
@@ -134,6 +165,21 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
 
   defp combined_annotation_markers(_series_data), do: []
 
+  defp combined_y_domain(series_data, unit, y_scale) when is_list(series_data) do
+    series_data
+    |> Enum.flat_map(fn series ->
+      reference_values =
+        series
+        |> Map.get(:raw_reference_lines, [])
+        |> reference_line_values(Map.get(series, :raw_series), Map.get(series, :series))
+
+      Map.get(series, :raw_points, []) ++ reference_points(reference_values)
+    end)
+    |> Points.y_domain(unit, y_scale)
+  end
+
+  defp combined_y_domain(_series_data, unit, y_scale), do: Points.y_domain([], unit, y_scale)
+
   defp apply_shared_domain(series_data, y_domain, unit, compact) do
     Enum.map(series_data, fn series ->
       points = Map.get(series, :raw_points, [])
@@ -148,7 +194,15 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
           y_ticks: Points.y_ticks(y_domain, compact, series.unit),
           chart_min: y_domain.min,
           chart_max: y_domain.max,
-          y_scale: y_domain.scale
+          y_scale: y_domain.scale,
+          reference_lines:
+            reference_line_markers(
+              Map.get(series, :raw_reference_lines, []),
+              y_domain,
+              series.raw_series,
+              series.series,
+              series.unit
+            )
       }
     end)
   end
@@ -238,6 +292,79 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
   defp annotation_color(:high), do: "#F97316"
   defp annotation_color(:warning), do: "#EAB308"
   defp annotation_color(_severity), do: "#0EA5E9"
+
+  defp reference_points(values) when is_list(values), do: Enum.map(values, &{nil, &1})
+  defp reference_points(_values), do: []
+
+  defp reference_line_values(reference_lines, raw_series, display_name) when is_list(reference_lines) do
+    reference_lines
+    |> Enum.filter(&reference_line_applies_to_series?(&1, raw_series, display_name))
+    |> Enum.map(&Map.get(&1, :value))
+    |> Enum.filter(&is_number/1)
+  end
+
+  defp reference_line_values(_reference_lines, _raw_series, _display_name), do: []
+
+  defp reference_line_markers(reference_lines, y_domain, raw_series, display_name, unit)
+       when is_list(reference_lines) and is_map(y_domain) do
+    reference_lines
+    |> Enum.filter(&reference_line_applies_to_series?(&1, raw_series, display_name))
+    |> Enum.map(&reference_line_marker(&1, y_domain, unit))
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp reference_line_markers(_reference_lines, _y_domain, _raw_series, _display_name, _unit), do: []
+
+  defp combined_reference_line_markers(series_data, y_domain, _unit) when is_list(series_data) do
+    series_data
+    |> Enum.flat_map(&Map.get(&1, :reference_lines, []))
+    |> Enum.map(fn marker ->
+      %{marker | y: Paths.value_to_y(marker.value, y_domain.min, y_domain.max, y_domain.scale)}
+    end)
+    |> Enum.reject(fn marker -> is_nil(marker.y) end)
+    |> Enum.uniq_by(fn marker -> {marker.value, marker.label, marker.series} end)
+    |> Enum.sort_by(& &1.y)
+  end
+
+  defp combined_reference_line_markers(_series_data, _y_domain, _unit), do: []
+
+  defp reference_line_applies_to_series?(%{series: nil}, _raw_series, _display_name), do: true
+
+  defp reference_line_applies_to_series?(%{series: series}, raw_series, display_name) do
+    raw = raw_series |> safe_to_string() |> String.trim()
+    humanized = Metrics.humanize_series_name(raw_series || "series")
+
+    series in [raw, display_name, humanized]
+  end
+
+  defp reference_line_marker(%{value: value, label: label, severity: severity, series: series}, y_domain, unit)
+       when is_number(value) do
+    with true <- reference_line_visible?(value, y_domain),
+         y when is_number(y) <- Paths.value_to_y(value, y_domain.min, y_domain.max, y_domain.scale) do
+      %{
+        value: value,
+        y: y,
+        label: label,
+        severity: severity,
+        series: series,
+        color: reference_line_color(severity),
+        title: "#{label} - #{Metrics.format_value(value, unit)}"
+      }
+    else
+      _ -> nil
+    end
+  end
+
+  defp reference_line_marker(_reference_line, _y_domain, _unit), do: nil
+
+  defp reference_line_visible?(value, %{scale: :log}) when value <= 0, do: false
+  defp reference_line_visible?(value, %{min: min_v, max: max_v}), do: value >= min_v and value <= max_v
+  defp reference_line_visible?(_value, _y_domain), do: false
+
+  defp reference_line_color(:critical), do: "#EF4444"
+  defp reference_line_color(:high), do: "#F97316"
+  defp reference_line_color(:warning), do: "#EAB308"
+  defp reference_line_color(_severity), do: "#0EA5E9"
 
   defp safe_to_string(nil), do: ""
   defp safe_to_string(value) when is_binary(value), do: value

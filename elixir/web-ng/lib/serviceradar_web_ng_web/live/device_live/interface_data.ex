@@ -80,6 +80,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
           iface
           |> Map.put("metrics_enabled", metrics_enabled_setting?(setting))
           |> Map.put("favorited", setting.favorited)
+          |> Map.put("metric_thresholds", setting.metric_thresholds || %{})
+          |> Map.put("threshold_enabled", setting.threshold_enabled)
+          |> Map.put("threshold_value", setting.threshold_value)
+          |> Map.put("threshold_comparison", setting.threshold_comparison)
+          |> Map.put("threshold_metric", setting.threshold_metric)
+          |> Map.put("threshold_severity", setting.threshold_severity)
       end
     end)
   end
@@ -262,7 +268,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
           name:
             Map.get(iface, "if_name") || Map.get(iface, "if_descr") ||
               "Interface #{Map.get(iface, "if_index")}",
-          max_speed_bytes_per_sec: if_speed_bytes_per_sec
+          max_speed_bytes_per_sec: if_speed_bytes_per_sec,
+          reference_lines: interface_reference_lines(iface, if_speed_bytes_per_sec)
         }
       end)
 
@@ -310,7 +317,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
   end
 
   defp query_interface_metrics(srql_module, device_uid, fav_iface, scope, panels_acc, errs) do
-    %{if_index: if_index, name: iface_name, max_speed_bytes_per_sec: max_speed} = fav_iface
+    %{if_index: if_index, name: iface_name, max_speed_bytes_per_sec: max_speed, reference_lines: reference_lines} =
+      fav_iface
 
     query =
       "in:snmp_metrics device_id:\"#{escape_value(device_uid)}\" if_index:#{if_index} " <>
@@ -318,7 +326,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
 
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => results} = response} when is_list(results) and results != [] ->
-        interface_panels = build_interface_panels(response, iface_name, if_index, max_speed)
+        interface_panels = build_interface_panels(response, iface_name, if_index, max_speed, reference_lines)
         {panels_acc ++ interface_panels, errs}
 
       {:ok, %{"results" => []}} ->
@@ -332,7 +340,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
     end
   end
 
-  defp build_interface_panels(srql_response, iface_name, if_index, max_speed) do
+  defp build_interface_panels(srql_response, iface_name, if_index, max_speed, reference_lines) do
     srql_response
     |> Engine.build_panels()
     |> Enum.reject(&(&1.plugin == TablePlugin))
@@ -343,10 +351,186 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
         |> Map.put(:max_speed_bytes_per_sec, max_speed)
         |> Map.put(:chart_mode, :combined)
         |> Map.put(:rate_mode, :counter)
+        |> Map.put(:reference_lines, reference_lines)
 
       %{panel | assigns: assigns}
     end)
   end
+
+  def interface_reference_lines(interface, max_speed_bytes_per_sec) when is_map(interface) do
+    metric_lines =
+      interface
+      |> Map.get("metric_thresholds", %{})
+      |> normalize_metric_thresholds()
+      |> Enum.flat_map(fn {metric, config} ->
+        reference_line_for_metric(metric, config, max_speed_bytes_per_sec)
+      end)
+
+    legacy_lines = legacy_reference_lines(interface, max_speed_bytes_per_sec)
+    capacity_lines = capacity_reference_lines(max_speed_bytes_per_sec)
+
+    metric_lines ++ legacy_lines ++ capacity_lines
+  end
+
+  def interface_reference_lines(_interface, _max_speed_bytes_per_sec), do: []
+
+  defp normalize_metric_thresholds(thresholds) when is_map(thresholds) do
+    Map.new(thresholds, fn {metric, config} -> {to_string(metric), config || %{}} end)
+  end
+
+  defp normalize_metric_thresholds(_thresholds), do: %{}
+
+  defp reference_line_for_metric(metric, config, max_speed_bytes_per_sec) when is_binary(metric) and is_map(config) do
+    if threshold_config_enabled?(config) do
+      case threshold_effective_value(metric, config, max_speed_bytes_per_sec) do
+        value when is_number(value) ->
+          [
+            %{
+              value: value,
+              label: threshold_label(metric, config),
+              severity: threshold_severity(config),
+              series: metric
+            }
+          ]
+
+        _ ->
+          []
+      end
+    else
+      []
+    end
+  end
+
+  defp reference_line_for_metric(_metric, _config, _max_speed_bytes_per_sec), do: []
+
+  defp threshold_config_enabled?(config) when is_map(config) do
+    truthy?(config_value(config, :enabled, true)) and not is_nil(config_value(config, :comparison)) and
+      not is_nil(config_value(config, :value))
+  end
+
+  defp threshold_effective_value(metric, config, max_speed_bytes_per_sec) do
+    value = parse_number(config_value(config, :value))
+
+    case {config_value(config, :threshold_type, "absolute"), traffic_metric?(metric), max_speed_bytes_per_sec} do
+      {type, true, speed}
+      when type in ["percentage", :percentage] and is_number(speed) and is_number(value) and speed > 0 ->
+        speed * value / 100.0
+
+      {_, _, _} ->
+        value
+    end
+  end
+
+  defp threshold_label(metric, config) do
+    comparison = config_value(config, :comparison)
+    value = config_value(config, :value)
+
+    [metric, comparison_symbol(comparison), value]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map_join(" ", &to_string/1)
+  end
+
+  defp threshold_severity(config) do
+    severity = config_value(config, :severity) || config_value(config_value(config, :event, %{}), :severity)
+
+    severity
+    |> to_string()
+    |> String.downcase()
+    |> case do
+      "critical" -> :critical
+      "error" -> :critical
+      "high" -> :high
+      "warning" -> :warning
+      "warn" -> :warning
+      "medium" -> :warning
+      "low" -> :info
+      "info" -> :info
+      _ -> :warning
+    end
+  end
+
+  defp legacy_reference_lines(interface, max_speed_bytes_per_sec) do
+    if truthy?(Map.get(interface, "threshold_enabled")) do
+      metric = legacy_metric_name_for(Map.get(interface, "threshold_metric"))
+
+      config = %{
+        "enabled" => true,
+        "comparison" => Map.get(interface, "threshold_comparison"),
+        "value" => Map.get(interface, "threshold_value"),
+        "severity" => Map.get(interface, "threshold_severity")
+      }
+
+      reference_line_for_metric(metric, config, max_speed_bytes_per_sec)
+    else
+      []
+    end
+  end
+
+  defp capacity_reference_lines(max_speed_bytes_per_sec)
+       when is_number(max_speed_bytes_per_sec) and max_speed_bytes_per_sec > 0 do
+    Enum.map(~w(ifInOctets ifOutOctets ifHCInOctets ifHCOutOctets), fn metric ->
+      %{
+        value: max_speed_bytes_per_sec,
+        label: "Interface rate",
+        severity: :info,
+        series: metric
+      }
+    end)
+  end
+
+  defp capacity_reference_lines(_max_speed_bytes_per_sec), do: []
+
+  defp legacy_metric_name_for(:bandwidth_in), do: "ifInOctets"
+  defp legacy_metric_name_for("bandwidth_in"), do: "ifInOctets"
+  defp legacy_metric_name_for(:bandwidth_out), do: "ifOutOctets"
+  defp legacy_metric_name_for("bandwidth_out"), do: "ifOutOctets"
+  defp legacy_metric_name_for(:errors), do: "ifInErrors"
+  defp legacy_metric_name_for("errors"), do: "ifInErrors"
+  defp legacy_metric_name_for(:utilization), do: "ifInOctets"
+  defp legacy_metric_name_for("utilization"), do: "ifInOctets"
+  defp legacy_metric_name_for(nil), do: "ifInOctets"
+  defp legacy_metric_name_for(other), do: to_string(other)
+
+  defp traffic_metric?(metric) when metric in ["ifInOctets", "ifOutOctets", "ifHCInOctets", "ifHCOutOctets"], do: true
+  defp traffic_metric?(_metric), do: false
+
+  defp comparison_symbol(:gt), do: ">"
+  defp comparison_symbol("gt"), do: ">"
+  defp comparison_symbol(:gte), do: ">="
+  defp comparison_symbol("gte"), do: ">="
+  defp comparison_symbol(:lt), do: "<"
+  defp comparison_symbol("lt"), do: "<"
+  defp comparison_symbol(:lte), do: "<="
+  defp comparison_symbol("lte"), do: "<="
+  defp comparison_symbol(:eq), do: "="
+  defp comparison_symbol("eq"), do: "="
+  defp comparison_symbol(value), do: value
+
+  defp config_value(config, key, default \\ nil)
+
+  defp config_value(config, key, default) when is_map(config) do
+    cond do
+      Map.has_key?(config, key) -> Map.get(config, key)
+      Map.has_key?(config, to_string(key)) -> Map.get(config, to_string(key))
+      true -> default
+    end
+  end
+
+  defp config_value(_config, _key, default), do: default
+
+  defp truthy?(value) when value in [true, "true", "1", 1], do: true
+  defp truthy?(_value), do: false
+
+  defp parse_number(value) when is_integer(value) or is_float(value), do: value * 1.0
+
+  defp parse_number(value) when is_binary(value) do
+    case Float.parse(String.trim(value)) do
+      {number, ""} -> number
+      _ -> nil
+    end
+  end
+
+  defp parse_number(_value), do: nil
 
   defp default_interfaces_query(device_uid) do
     "in:interfaces device_id:\"#{escape_value(device_uid)}\" latest:true time:last_3d " <>
