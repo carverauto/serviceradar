@@ -58,6 +58,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
      |> assign(:srql, srql)
      |> assign(:time_window, "1h")
      |> assign(:time_windows, @time_windows)
+     |> assign(:covered_span_seconds, 3_600)
      |> assign(:section, "overview")
      |> assign(:sections, @sections)
      |> assign(:query, nil)
@@ -306,7 +307,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
                   @total_bytes,
                   @total_packets,
                   @unit_mode,
-                  time_window_seconds(@time_window)
+                  @covered_span_seconds
                 )
               }
               unit={unit_suffix(@unit_mode)}
@@ -416,7 +417,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
                     &1,
                     @unit_mode,
                     @metric_mode,
-                    time_window_seconds(@time_window)
+                    @covered_span_seconds
                   )
               },
               %{key: :packets, label: "Packets"}
@@ -443,7 +444,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
                     &1,
                     @unit_mode,
                     @metric_mode,
-                    time_window_seconds(@time_window)
+                    @covered_span_seconds
                   )
               },
               %{key: :packets, label: "Packets"}
@@ -475,7 +476,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
                     &1,
                     @unit_mode,
                     @metric_mode,
-                    time_window_seconds(@time_window)
+                    @covered_span_seconds
                   )
               }
             ]}
@@ -497,7 +498,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
                     &1,
                     @unit_mode,
                     @metric_mode,
-                    time_window_seconds(@time_window)
+                    @covered_span_seconds
                   )
               },
               %{key: :packets, label: "Packets"}
@@ -520,7 +521,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
                     &1,
                     @unit_mode,
                     @metric_mode,
-                    time_window_seconds(@time_window)
+                    @covered_span_seconds
                   )
               },
               %{key: :packets, label: "Packets"}
@@ -543,7 +544,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
                     &1,
                     @unit_mode,
                     @metric_mode,
-                    time_window_seconds(@time_window)
+                    @covered_span_seconds
                   )
               },
               %{key: :packets, label: "Packets"}
@@ -639,7 +640,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               :for={{iface, idx} <- Enum.with_index(@top_interfaces)}
               :if={iface.capacity_bps > 0}
               id={"iface-gauge-#{idx}"}
-              current_bps={iface.bytes / time_window_seconds(@time_window) * 8}
+              current_bps={iface.bytes / @covered_span_seconds * 8}
               capacity_bps={iface.capacity_bps * 1.0}
               label={iface.label}
             />
@@ -655,7 +656,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               %{
                 key: :bytes,
                 label: unit_suffix(@unit_mode),
-                format: &format_bytes_cell(&1, @unit_mode, time_window_seconds(@time_window))
+                format: &format_bytes_cell(&1, @unit_mode, @covered_span_seconds)
               },
               %{key: :p95_bps, label: "95th % (30d)", format: &format_p95_cell/1},
               %{key: :capacity_bps, label: "Capacity", format: &format_capacity_cell/1}
@@ -674,7 +675,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
               %{
                 key: :bytes,
                 label: unit_suffix(@unit_mode),
-                format: &format_bytes_cell(&1, @unit_mode, time_window_seconds(@time_window))
+                format: &format_bytes_cell(&1, @unit_mode, @covered_span_seconds)
               }
             ]}
             loading={@loading}
@@ -738,10 +739,21 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
       end),
       Task.Supervisor.async_nolink(task_sup, fn ->
         {:duration_dist, load_duration_distribution(srql_mod, scope, base)}
+      end),
+      Task.Supervisor.async_nolink(task_sup, fn ->
+        {:data_span, load_data_span(srql_mod, scope, base)}
       end)
     ]
 
     results = safe_await_many(tasks, to_timeout(second: 15))
+
+    # §38.1: clamp the covered span to [1, requested] so a partial-coverage
+    # window shrinks the rate denominator (recovering the true rate) but a
+    # full-coverage window, a failed span query, or a degenerate value all fall
+    # back to the requested window (identical to pre-§38.1 behavior).
+    requested_seconds = time_window_seconds(tw)
+    raw_span = Map.get(results, :data_span)
+    covered_span_seconds = clamp_covered_span(raw_span, requested_seconds)
 
     summary = Map.get(results, :summary, %{})
     timeseries = Map.get(results, :timeseries, [])
@@ -806,6 +818,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     |> assign(:tcp_flags_json, tcp_flags_json)
     |> assign(:flow_rate_points_json, flow_rate_points_json)
     |> assign(:duration_dist_json, duration_dist_json)
+    |> assign(:covered_span_seconds, covered_span_seconds)
     |> ensure_selected_interface()
     |> maybe_reload_interface_chart()
     |> enrich_top_n_ips()
@@ -967,6 +980,41 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     |> row_payload()
     |> get_field(field_alias)
     |> to_number()
+  end
+
+  # §38.1: the actual time span the returned data covers, so rate values
+  # (Total Bandwidth, Top-N, gauge) can divide by the *covered* span instead of
+  # the requested window — recovering the true rate when the collector has been
+  # up for less than the window or data has gaps. Returns the span in seconds
+  # (max_time - min_time), or nil if it can't be determined.
+  defp load_data_span(srql_mod, scope, base) do
+    queries = [
+      {"#{base} stats:min(time) as min_time", "min_time"},
+      {"#{base} stats:max(time) as max_time", "max_time"}
+    ]
+
+    results =
+      queries
+      |> Enum.map(fn {q, alias_name} ->
+        Task.async(fn ->
+          {alias_name,
+           srql_mod
+           |> srql_results(q, scope)
+           |> List.first()
+           |> row_payload()
+           |> get_field(alias_name)}
+        end)
+      end)
+      |> safe_await_many(10_000)
+
+    with min_str when is_binary(min_str) <- Map.get(results, :min_time),
+         max_str when is_binary(max_str) <- Map.get(results, :max_time),
+         {:ok, min_dt, _} <- DateTime.from_iso8601(min_str),
+         {:ok, max_dt, _} <- DateTime.from_iso8601(max_str) do
+      max(0, DateTime.diff(max_dt, min_dt, :second))
+    else
+      _ -> nil
+    end
   end
 
   defp load_timeseries(srql_mod, scope, base, tw) do
@@ -1258,6 +1306,20 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   defp time_window_seconds("7d"), do: 604_800
   defp time_window_seconds("30d"), do: 2_592_000
   defp time_window_seconds(_), do: 3_600
+
+  # §38.1: never let the covered span exceed the requested window (a too-long
+  # span query can't inflate rates) or fall to/below zero (no div-by-zero).
+  # nil / non-numeric → fall back to the requested window (today's behavior).
+  defp clamp_covered_span(raw_span, requested_seconds) when is_number(requested_seconds) do
+    cond do
+      not is_number(raw_span) -> requested_seconds
+      raw_span <= 0 -> requested_seconds
+      raw_span >= requested_seconds -> requested_seconds
+      true -> max(1, raw_span)
+    end
+  end
+
+  defp clamp_covered_span(_raw_span, _requested_seconds), do: 3_600
 
   defp timeseries_bucket("1h"), do: "1m"
   defp timeseries_bucket("6h"), do: "5m"

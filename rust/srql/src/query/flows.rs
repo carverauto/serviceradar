@@ -1009,6 +1009,10 @@ enum FlowAggField {
     PacketsOut,
     SrcEndpointPort,
     DstEndpointPort,
+    /// The flow event timestamp (`time`). Only valid for min/max aggregations
+    /// used to derive the data's covered time span (§38.1); never a sampled
+    /// volume field, so it is excluded from `is_sampled_volume`.
+    Time,
 }
 
 impl FlowAggField {
@@ -1025,6 +1029,7 @@ impl FlowAggField {
             "packets_out" => Some(Self::PacketsOut),
             "src_endpoint_port" | "src_port" => Some(Self::SrcEndpointPort),
             "dst_endpoint_port" | "dst_port" => Some(Self::DstEndpointPort),
+            "time" => Some(Self::Time),
             _ => None,
         }
     }
@@ -1042,6 +1047,7 @@ impl FlowAggField {
             Self::PacketsOut => "packets_out",
             Self::SrcEndpointPort => "src_endpoint_port",
             Self::DstEndpointPort => "dst_endpoint_port",
+            Self::Time => "time",
         }
     }
 
@@ -1457,6 +1463,17 @@ fn parse_single_stats_aggregation(segment: &str) -> Result<FlowAggregationSpec> 
     {
         return Err(ServiceError::InvalidRequest(
             "port fields only support count(...) or count_distinct(...)".into(),
+        ));
+    }
+
+    // The `time` field is only meaningful as a min/max bound (used to derive
+    // the data's covered span for §38.1). Sum/count/avg over a timestamp is
+    // nonsensical.
+    if matches!(agg_field, FlowAggField::Time)
+        && !matches!(agg_func, FlowAggFunc::Min | FlowAggFunc::Max)
+    {
+        return Err(ServiceError::InvalidRequest(
+            "time field only supports min(...) or max(...)".into(),
         ));
     }
 
@@ -2745,6 +2762,47 @@ mod tests {
         assert!(
             !sql.contains("sampling_rate"),
             "CAGGs do not carry sampling_rate; they store scaled volume: {sql}"
+        );
+    }
+
+    #[test]
+    fn flow_time_min_max_emits_unscaled_raw_path() {
+        // §38.1: stats:min(time)/stats:max(time) derive the data's covered span.
+        // `time` is a timestamp, not a sampled volume field, so it must emit a
+        // plain MIN(f.time) on the raw-table path (never scaled by sampling_rate,
+        // never routed to a CAGG that only stores SUMs).
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: Vec::new(),
+            order: vec![],
+            limit: 10,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "min(time) as min_time, max(time) as max_time",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        };
+
+        let (sql, _params) = to_sql_and_params_stats(&plan).unwrap();
+
+        assert!(
+            sql.contains("MIN(time)"),
+            "expected MIN(time) on the raw path: {sql}"
+        );
+        assert!(
+            sql.contains("MAX(time)"),
+            "expected MAX(time) on the raw path: {sql}"
+        );
+        assert!(
+            !sql.contains("sampling_rate"),
+            "time is a timestamp, must not be sampling-rate weighted: {sql}"
         );
     }
 
