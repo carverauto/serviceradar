@@ -713,6 +713,7 @@ diesel::table! {
         bytes_out -> Int8,
         packets_in -> Int8,
         packets_out -> Int8,
+        sampling_rate -> Int8,
         direction_label -> Nullable<Text>,
         direction_source -> Nullable<Text>,
         src_hosting_provider -> Nullable<Text>,

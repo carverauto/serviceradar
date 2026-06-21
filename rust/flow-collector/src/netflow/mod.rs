@@ -8,6 +8,8 @@ use crate::sflow::SflowHandler;
 use converter::Converter;
 use log::{debug, info, warn};
 use netflow_parser::{AutoScopedParser, NetflowParserBuilder, PendingFlowsConfig, TemplateEvent};
+use std::collections::HashMap;
+use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -81,6 +83,9 @@ fn make_template_event_callback(
 
 pub struct NetflowHandler {
     parser: Mutex<AutoScopedParser>,
+    sampling_rates_by_exporter_sampler_id: Mutex<HashMap<(IpAddr, u64), u64>>,
+    default_sampling_rate: u64,
+    sampling_rate_overrides: HashMap<IpAddr, u64>,
     sflow_fallback: SflowHandler,
     metrics: Arc<ListenerMetrics>,
 }
@@ -89,6 +94,8 @@ impl NetflowHandler {
     pub fn new(
         max_templates: usize,
         pending_flows: Option<&PendingFlowsCacheConfig>,
+        default_sampling_rate: Option<u64>,
+        sampling_rate_overrides: HashMap<IpAddr, u64>,
         metrics: Arc<ListenerMetrics>,
     ) -> Self {
         let pending_enabled = pending_flows.is_some();
@@ -111,9 +118,20 @@ impl NetflowHandler {
 
         Self {
             parser: Mutex::new(parser),
+            sampling_rates_by_exporter_sampler_id: Mutex::new(HashMap::new()),
+            default_sampling_rate: default_sampling_rate.unwrap_or(1).max(1),
+            sampling_rate_overrides,
             sflow_fallback: SflowHandler::new(None, Arc::clone(&metrics)),
             metrics,
         }
+    }
+
+    fn fallback_sampling_rate(&self, peer: SocketAddr) -> u64 {
+        self.sampling_rate_overrides
+            .get(&peer.ip())
+            .copied()
+            .unwrap_or(self.default_sampling_rate)
+            .max(1)
     }
 }
 
@@ -162,8 +180,13 @@ impl FlowHandler for NetflowHandler {
             };
             debug!("Parsed NetFlow packet {:?}", packet);
 
-            let flow_messages: Vec<FlowMessage> =
-                Converter::new(packet, peer, receive_time_ns).into();
+            let flow_messages: Vec<FlowMessage> = {
+                let fallback_sampling_rate = self.fallback_sampling_rate(peer);
+                let mut sampler_rates = self.sampling_rates_by_exporter_sampler_id.lock().unwrap();
+
+                Converter::new(packet, peer, receive_time_ns, fallback_sampling_rate)
+                    .convert_with_sampler_rates(&mut sampler_rates)
+            };
 
             let valid = filter_and_track_flows(flow_messages, peer, &self.metrics);
             all_messages.extend(valid);

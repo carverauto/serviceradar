@@ -40,6 +40,7 @@ type OCSFNetworkActivity struct {
 	PacketsTotal int64 `json:"packets_total" db:"packets_total"`
 	BytesIn      int64 `json:"bytes_in" db:"bytes_in"`
 	BytesOut     int64 `json:"bytes_out" db:"bytes_out"`
+	SamplingRate int64 `json:"sampling_rate" db:"sampling_rate"`
 
 	// Observer
 	SamplerAddress string `json:"sampler_address,omitempty" db:"sampler_address"`

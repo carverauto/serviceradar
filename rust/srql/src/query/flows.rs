@@ -282,6 +282,7 @@ struct FlowRow {
     bytes_out: i64,
     packets_in: i64,
     packets_out: i64,
+    sampling_rate: i64,
     direction_label: Option<String>,
     direction_source: Option<String>,
     src_hosting_provider: Option<String>,

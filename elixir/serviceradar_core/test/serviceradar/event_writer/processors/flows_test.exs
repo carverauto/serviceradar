@@ -24,6 +24,7 @@ defmodule ServiceRadar.EventWriter.Processors.FlowsTest do
       bytes_out: 600_000,
       packets_in: 600,
       packets_out: 400,
+      sampling_rate: 128,
       in_if: 10,
       out_if: 20,
       src_as: 64_512,
@@ -46,6 +47,7 @@ defmodule ServiceRadar.EventWriter.Processors.FlowsTest do
     assert row.bytes_out == 600_000
     assert row.packets_in == 600
     assert row.packets_out == 400
+    assert row.sampling_rate == 128
     assert row.src_as_number == 64_512
     assert row.dst_as_number == 64_515
     assert row.sampler_address == "10.1.0.1"
@@ -61,6 +63,8 @@ defmodule ServiceRadar.EventWriter.Processors.FlowsTest do
            ) == :eq
 
     assert row.ocsf_payload["flow_source"] == "NetFlow v9"
+    assert row.ocsf_payload["traffic"]["sampling_rate"] == 128
+    refute Map.has_key?(row.ocsf_payload["unmapped"], "sampling_rate")
     assert row.ocsf_payload["connection_info"]["input_snmp"] == 10
     assert row.ocsf_payload["connection_info"]["output_snmp"] == 20
   end

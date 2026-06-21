@@ -7,25 +7,50 @@ use netflow_parser::variable_versions::field_value::{DataNumber, FieldValue};
 use netflow_parser::variable_versions::ipfix::lookup::ReverseInformationElement;
 use netflow_parser::variable_versions::ipfix::lookup::{IANAIPFixField, IPFixField};
 use netflow_parser::variable_versions::v9::lookup::V9Field;
+use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 
 pub struct Converter {
     pub packet: NetflowPacket,
     sampler_addr: SocketAddr,
     receive_time_ns: u64,
+    fallback_sampling_rate: u64,
 }
 
 impl Converter {
-    pub fn new(packet: NetflowPacket, sampler_addr: SocketAddr, receive_time_ns: u64) -> Self {
+    pub fn new(
+        packet: NetflowPacket,
+        sampler_addr: SocketAddr,
+        receive_time_ns: u64,
+        fallback_sampling_rate: u64,
+    ) -> Self {
         Self {
             packet,
             sampler_addr,
             receive_time_ns,
+            fallback_sampling_rate: fallback_sampling_rate.max(1),
+        }
+    }
+
+    pub fn convert_with_sampler_rates(
+        &self,
+        sampler_rates: &mut HashMap<(IpAddr, u64), u64>,
+    ) -> Vec<flowpb::FlowMessage> {
+        match &self.packet {
+            NetflowPacket::V5(v5) => self.convert_v5(v5),
+            NetflowPacket::V9(v9) => self.convert_v9(v9, sampler_rates),
+            NetflowPacket::IPFix(ipfix) => self.convert_ipfix(ipfix, sampler_rates),
+            _ => {
+                debug!("Unsupported NetFlow version: {:?}", self.packet);
+                Vec::new()
+            }
         }
     }
 
     pub fn convert_v5(&self, packet: &V5) -> Vec<flowpb::FlowMessage> {
         let mut messages = Vec::with_capacity(packet.flowsets.len());
+        let sampling_rate = v5_sampling_interval_to_rate(packet.header.sampling_interval)
+            .unwrap_or(self.fallback_sampling_rate);
 
         for flow in &packet.flowsets {
             let mut msg = flowpb::FlowMessage {
@@ -33,6 +58,7 @@ impl Converter {
                 time_received_ns: self.receive_time_ns,
                 sampler_address: ip_to_bytes(&self.sampler_addr.ip()),
                 sequence_num: packet.header.flow_sequence,
+                sampling_rate,
                 ..Default::default()
             };
 
@@ -77,6 +103,7 @@ impl Converter {
     pub fn convert_v9(
         &self,
         packet: &netflow_parser::variable_versions::v9::V9,
+        sampler_rates: &mut HashMap<(IpAddr, u64), u64>,
     ) -> Vec<flowpb::FlowMessage> {
         use netflow_parser::variable_versions::v9::FlowSetBody;
 
@@ -93,6 +120,8 @@ impl Converter {
                             sequence_num: packet.header.sequence_number,
                             ..Default::default()
                         };
+                        let mut sampler_id = None;
+                        let mut record_sampling_rate = None;
 
                         for (field_type, field_value) in fields {
                             match field_type {
@@ -186,6 +215,13 @@ impl Converter {
                                     msg.tcp_flags = field_value_to_u32(field_value)
                                 }
                                 V9Field::SrcTos => msg.ip_tos = field_value_to_u32(field_value),
+                                V9Field::SamplingInterval | V9Field::FlowSamplerRandomInterval => {
+                                    record_sampling_rate =
+                                        nonzero_u64(field_value_to_u64(field_value));
+                                }
+                                V9Field::FlowSamplerId => {
+                                    sampler_id = nonzero_u64(field_value_to_u64(field_value));
+                                }
                                 V9Field::SrcVlan => msg.src_vlan = field_value_to_u32(field_value),
                                 V9Field::DstVlan => msg.dst_vlan = field_value_to_u32(field_value),
                                 V9Field::Ipv6FlowLabel => {
@@ -202,6 +238,12 @@ impl Converter {
 
                         msg.bytes_out = msg.bytes;
                         msg.packets_out = msg.packets;
+                        self.apply_sampling_rate(
+                            &mut msg,
+                            sampler_id,
+                            record_sampling_rate,
+                            sampler_rates,
+                        );
 
                         messages.push(msg);
                     }
@@ -223,6 +265,7 @@ impl Converter {
     pub fn convert_ipfix(
         &self,
         packet: &netflow_parser::variable_versions::ipfix::IPFix,
+        sampler_rates: &mut HashMap<(IpAddr, u64), u64>,
     ) -> Vec<flowpb::FlowMessage> {
         use netflow_parser::variable_versions::ipfix::FlowSetBody;
 
@@ -240,6 +283,8 @@ impl Converter {
                             observation_domain_id: packet.header.observation_domain_id,
                             ..Default::default()
                         };
+                        let mut sampler_id = None;
+                        let mut record_sampling_rate = None;
 
                         for (field_type, field_value) in fields {
                             match field_type {
@@ -432,6 +477,21 @@ impl Converter {
                                 IPFixField::IANA(IANAIPFixField::IpClassOfService) => {
                                     msg.ip_tos = field_value_to_u32(field_value)
                                 }
+                                IPFixField::IANA(IANAIPFixField::SamplingInterval)
+                                | IPFixField::IANA(IANAIPFixField::SamplingPacketInterval)
+                                | IPFixField::IANA(IANAIPFixField::SamplingFlowInterval)
+                                | IPFixField::IANA(IANAIPFixField::SamplerRandomInterval) => {
+                                    record_sampling_rate =
+                                        nonzero_u64(field_value_to_u64(field_value));
+                                }
+                                IPFixField::IANA(IANAIPFixField::SamplingProbability) => {
+                                    record_sampling_rate = sampling_rate_from_probability(
+                                        field_value_to_f64(field_value),
+                                    );
+                                }
+                                IPFixField::IANA(IANAIPFixField::SamplerId) => {
+                                    sampler_id = nonzero_u64(field_value_to_u64(field_value));
+                                }
                                 IPFixField::IANA(IANAIPFixField::MinimumTtl) => {
                                     msg.ip_ttl = field_value_to_u32(field_value)
                                 }
@@ -504,6 +564,12 @@ impl Converter {
 
                         // Construct AS path from available BGP AS fields
                         msg.as_path = construct_as_path(msg.src_as, msg.dst_as, msg.next_hop_as);
+                        self.apply_sampling_rate(
+                            &mut msg,
+                            sampler_id,
+                            record_sampling_rate,
+                            sampler_rates,
+                        );
 
                         messages.push(msg);
                     }
@@ -521,19 +587,24 @@ impl Converter {
 
         messages
     }
-}
 
-impl From<Converter> for Vec<flowpb::FlowMessage> {
-    fn from(converter: Converter) -> Self {
-        match &converter.packet {
-            NetflowPacket::V5(v5) => converter.convert_v5(v5),
-            NetflowPacket::V9(v9) => converter.convert_v9(v9),
-            NetflowPacket::IPFix(ipfix) => converter.convert_ipfix(ipfix),
-            _ => {
-                debug!("Unsupported NetFlow version: {:?}", converter.packet);
-                Vec::new()
-            }
+    fn apply_sampling_rate(
+        &self,
+        msg: &mut flowpb::FlowMessage,
+        sampler_id: Option<u64>,
+        record_sampling_rate: Option<u64>,
+        sampler_rates: &mut HashMap<(IpAddr, u64), u64>,
+    ) {
+        let exporter = self.sampler_addr.ip();
+
+        if let (Some(id), Some(rate)) = (sampler_id, record_sampling_rate) {
+            sampler_rates.insert((exporter, id), rate);
         }
+
+        msg.sampling_rate = record_sampling_rate
+            .or_else(|| sampler_id.and_then(|id| sampler_rates.get(&(exporter, id)).copied()))
+            .unwrap_or(self.fallback_sampling_rate)
+            .max(1);
     }
 }
 
@@ -561,6 +632,16 @@ fn calculate_flow_time(base_time_ns: u64, sys_uptime_ms: u32, flow_uptime_ms: u3
     } else {
         base_time_ns
     }
+}
+
+fn v5_sampling_interval_to_rate(raw: u16) -> Option<u64> {
+    // RFC 3954 stores mode in the top two bits and interval in the lower 14.
+    let interval = raw & 0x3fff;
+    nonzero_u64(u64::from(interval))
+}
+
+fn nonzero_u64(value: u64) -> Option<u64> {
+    if value > 0 { Some(value) } else { None }
 }
 
 fn field_value_to_ip_bytes(value: &FieldValue) -> Vec<u8> {
@@ -624,6 +705,22 @@ fn field_value_to_u64(value: &FieldValue) -> u64 {
         FieldValue::ProtocolType(pt) => u64::from(u8::from(*pt)),
         FieldValue::Float64(f) => f.max(0.0).min(u64::MAX as f64) as u64,
         _ => 0,
+    }
+}
+
+fn field_value_to_f64(value: &FieldValue) -> f64 {
+    match value {
+        FieldValue::DataNumber(dn) => data_number_to_u64(dn) as f64,
+        FieldValue::Float64(f) => *f,
+        _ => 0.0,
+    }
+}
+
+fn sampling_rate_from_probability(probability: f64) -> Option<u64> {
+    if probability.is_finite() && probability > 0.0 && probability <= 1.0 {
+        Some((1.0 / probability).round().max(1.0) as u64)
+    } else {
+        None
     }
 }
 
@@ -800,6 +897,22 @@ mod tests {
     fn test_field_value_to_u64_data_number() {
         let fv = FieldValue::DataNumber(DataNumber::U32(35000));
         assert_eq!(field_value_to_u64(&fv), 35000);
+    }
+
+    #[test]
+    fn test_v5_sampling_interval_strips_mode_bits() {
+        let raw = 0b1000_0000_0000_0101;
+
+        assert_eq!(v5_sampling_interval_to_rate(raw), Some(5));
+        assert_eq!(v5_sampling_interval_to_rate(0), None);
+    }
+
+    #[test]
+    fn test_sampling_probability_converts_to_rate() {
+        assert_eq!(sampling_rate_from_probability(0.01), Some(100));
+        assert_eq!(sampling_rate_from_probability(1.0), Some(1));
+        assert_eq!(sampling_rate_from_probability(0.0), None);
+        assert_eq!(sampling_rate_from_probability(1.5), None);
     }
 
     #[test]
