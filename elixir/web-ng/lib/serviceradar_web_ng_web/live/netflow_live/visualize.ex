@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   alias ServiceRadar.Observability.IpThreatIntelCache
   alias ServiceRadar.Observability.NetflowPortAnomalyFlag
   alias ServiceRadar.Observability.NetflowPortScanFlag
+  alias ServiceRadarWebNGWeb.NetflowLive.ChartState
   alias ServiceRadarWebNGWeb.NetflowVisualize.Query, as: NFQuery
   alias ServiceRadarWebNGWeb.NetflowVisualize.State, as: NFState
   alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
@@ -62,6 +63,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       |> assign(:netflow_chart_points_json, "[]")
       |> assign(:netflow_chart_colors_json, "{}")
       |> assign(:netflow_chart_overlays_json, "[]")
+      |> assign(:netflow_chart_empty_state, nil)
       |> assign(:netflow_sankey_edges_json, "[]")
       |> assign(:nf_dims_ordered, @nf_dims_ordered)
       |> assign(:sankey_src_dims, @sankey_src_dims)
@@ -440,6 +442,47 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     end
   end
 
+  defp effective_chart_empty_state(srql, state) do
+    ChartState.disabled_from_srql(srql) || state
+  end
+
+  attr :state, :map, required: true
+
+  defp netflow_chart_empty_state(assigns) do
+    ~H"""
+    <div
+      data-testid={"netflow-chart-empty-#{@state.kind}"}
+      class={[
+        "min-h-72 w-full rounded-lg border px-5 py-6 flex items-center justify-center text-center",
+        netflow_chart_empty_state_class(@state.kind)
+      ]}
+    >
+      <div class="max-w-md space-y-3">
+        <.icon name={netflow_chart_empty_state_icon(@state.kind)} class="mx-auto size-7" />
+        <div class="space-y-1">
+          <div class="text-sm font-semibold">{@state.title}</div>
+          <p class="text-xs leading-5 text-base-content/65">{@state.detail}</p>
+        </div>
+        <.link
+          :if={is_binary(@state.link_href) and is_binary(@state.link_label)}
+          navigate={@state.link_href}
+          class="btn btn-xs btn-outline"
+        >
+          {@state.link_label}
+        </.link>
+      </div>
+    </div>
+    """
+  end
+
+  defp netflow_chart_empty_state_class(:query_error), do: "border-error/30 bg-error/5 text-error"
+  defp netflow_chart_empty_state_class(:disabled), do: "border-warning/30 bg-warning/5 text-warning"
+  defp netflow_chart_empty_state_class(_kind), do: "border-base-200 bg-base-200/20 text-base-content"
+
+  defp netflow_chart_empty_state_icon(:query_error), do: "hero-exclamation-triangle"
+  defp netflow_chart_empty_state_icon(:disabled), do: "hero-pause-circle"
+  defp netflow_chart_empty_state_icon(_kind), do: "hero-circle-stack"
+
   defp parse_optional_port(nil), do: nil
   defp parse_optional_port(""), do: nil
 
@@ -810,6 +853,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
           <section class="w-full min-w-0 flex-1 flex flex-col gap-4">
             <div class="card bg-base-100 border border-base-200">
               <div class="card-body gap-3">
+                <% chart_empty_state = effective_chart_empty_state(@srql, @netflow_chart_empty_state) %>
+
                 <div class="flex items-center justify-between gap-3">
                   <div class="text-sm font-semibold">Chart</div>
                   <div class="text-[11px] text-base-content/50 font-mono">
@@ -817,7 +862,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                   </div>
                 </div>
 
-                <div class="h-72 w-full">
+                <.netflow_chart_empty_state
+                  :if={is_map(chart_empty_state)}
+                  state={chart_empty_state}
+                />
+
+                <div :if={is_nil(chart_empty_state)} class="h-72 w-full">
                   <%= case Map.get(@netflow_viz_state, "graph") do %>
                     <% "sankey" -> %>
                       <% sankey_dims =
@@ -3391,13 +3441,18 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
         socket
         |> assign(:netflow_sankey_edges_json, edges_json)
         |> assign(:netflow_chart_overlays_json, "[]")
+        |> assign(:netflow_chart_empty_state, ChartState.for_sankey_edges(edges))
 
       _ ->
         # Charts are SRQL-driven: the SRQL query in the top bar is the chart query.
-        {keys, points} =
+        {keys, points, load_empty_state} =
           case srql_module.query(chart_query, %{scope: scope}) do
             {:ok, %{"results" => results}} when is_list(results) ->
-              downsample_from_results(results)
+              {keys, points} = downsample_from_results(results)
+              {keys, points, nil}
+
+            {:error, reason} ->
+              {[], [], ChartState.query_error("Chart query", reason)}
 
             _ ->
               # Fallback to derived SRQL (still SRQL-only), in case the user typed a non-downsample query.
@@ -3405,13 +3460,16 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
               bucket = @default_bucket
               {value_field, _scale_fun} = units_to_value_field_and_scale(units, bucket)
 
-              NFQuery.load_downsample_series(srql_module, base, scope,
-                bucket: bucket,
-                series_field: series_field,
-                value_field: value_field,
-                agg: "sum",
-                limit: max(@chart_limit, series_limit * 200)
-              )
+              {keys, points} =
+                NFQuery.load_downsample_series(srql_module, base, scope,
+                  bucket: bucket,
+                  series_field: series_field,
+                  value_field: value_field,
+                  agg: "sum",
+                  limit: max(@chart_limit, series_limit * 200)
+                )
+
+              {keys, points, nil}
           end
 
         # Apply Top-N bucketing and unit scaling (if chart_query is already scaled, this is a no-op).
@@ -3419,33 +3477,40 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
         {value_field, scale_fun} = units_to_value_field_and_scale(units, bucket)
         points = NFQuery.scale_points(points, scale_fun)
         {keys, points} = NFQuery.top_n(keys, points, series_limit, limit_type)
+        empty_state = load_empty_state || ChartState.for_chart_payload(graph, keys, points)
 
         overlays =
-          load_overlays(srql_module, base, scope,
-            graph: graph,
-            keys: keys,
-            series_field: NFQuery.downsample_series_field_from_dims(dims),
-            bucket: bucket,
-            value_field: value_field,
-            scale_fun: scale_fun,
-            bidirectional: bidirectional,
-            previous_period: previous_period
-          )
+          if is_nil(empty_state) do
+            load_overlays(srql_module, base, scope,
+              graph: graph,
+              keys: keys,
+              series_field: NFQuery.downsample_series_field_from_dims(dims),
+              bucket: bucket,
+              value_field: value_field,
+              scale_fun: scale_fun,
+              bidirectional: bidirectional,
+              previous_period: previous_period
+            )
+          else
+            []
+          end
 
         socket
         |> assign(:netflow_chart_keys_json, Jason.encode!(keys))
         |> assign(:netflow_chart_points_json, Jason.encode!(points))
         |> assign(:netflow_chart_colors_json, Jason.encode!(%{}))
         |> assign(:netflow_chart_overlays_json, Jason.encode!(overlays))
+        |> assign(:netflow_chart_empty_state, empty_state)
     end
   rescue
-    _ ->
+    exception ->
       socket
       |> assign(:netflow_chart_keys_json, "[]")
       |> assign(:netflow_chart_points_json, "[]")
       |> assign(:netflow_chart_colors_json, "{}")
       |> assign(:netflow_chart_overlays_json, "[]")
       |> assign(:netflow_sankey_edges_json, "[]")
+      |> assign(:netflow_chart_empty_state, ChartState.query_error("Chart query", Exception.message(exception)))
   end
 
   defp load_visualize_chart(socket, other, %{} = state), do: load_visualize_chart(socket, to_string(other || ""), state)

@@ -172,7 +172,7 @@
 
 ## 30. Chart Gap/Error Honesty (F36)
 - [x] 30.1 Use `null` sentinels + `.defined()` so missing buckets render as breaks, not drops-to-zero (`FlowRateChart.js`, `BGPTimeSeriesChart.js:53-62`).
-- [ ] 30.2 Distinguish query-error vs no-data vs disabled empty states; link empty states to the relevant SNMP/polling config.
+- [x] 30.2 Distinguish query-error vs no-data vs disabled empty states; link empty states to the relevant SNMP/polling config.
 
 ## 31. Charted Coverage & Accessibility (F37)
 - [x] 31.1 Chart `process.count`; add per-process history/sparklines so process spikes are visible.
