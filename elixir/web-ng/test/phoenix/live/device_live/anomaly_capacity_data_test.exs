@@ -48,6 +48,61 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
     end
   end
 
+  defmodule ProjectingSRQL do
+    @moduledoc false
+
+    def query("in:events" <> _rest = query, _opts) do
+      send(test_pid(), {:fake_query, query})
+
+      {:ok,
+       %{
+         "results" => [
+           %{
+             "time" => "2026-06-19T00:00:00Z",
+             "message" => "fallback message",
+             "severity" => "High",
+             "metadata" => %{
+               "finding_info" => %{"title" => "Nested title"},
+               "service_radar" => %{"metric_class" => "cpu", "status" => "suppressed"}
+             },
+             "raw_data" => %{"metric_class" => "disk"},
+             "unmapped" => %{"metric_class" => "memory"},
+             "large_payload" => String.duplicate("x", 512)
+           }
+         ]
+       }}
+    end
+
+    def query("in:capacity_forecasts" <> _rest = query, _opts) do
+      send(test_pid(), {:fake_query, query})
+
+      {:ok,
+       %{
+         "results" => [
+           %{
+             "resource_label" => "Filesystem /",
+             "resource_key" => "disk:/",
+             "resource_id" => "router-1",
+             "metric_name" => "disk.used_percent",
+             "metric_class" => "disk",
+             "status" => "projected",
+             "current_value" => 72.5,
+             "projected_value" => 91.2,
+             "projected_exhaustion_at" => "2026-06-20T00:00:00Z",
+             "confidence" => 0.82,
+             "horizon_seconds" => 604_800,
+             "exhaustion_threshold" => 95.0,
+             "model" => "holt_winters"
+           }
+         ]
+       }}
+    end
+
+    defp test_pid do
+      Application.fetch_env!(:serviceradar_web_ng, :anomaly_capacity_data_test_pid)
+    end
+  end
+
   defmodule RaisingSRQL do
     @moduledoc false
 
@@ -104,6 +159,48 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
     assert cpu.count == 1
     assert red.status == "normal"
     assert red.count == 0
+  end
+
+  test "limits queries and keeps only rendered anomaly and capacity fields" do
+    data = AnomalyCapacityData.load(ProjectingSRQL, %{device_uid: "router-1"}, nil)
+
+    anomaly_row = List.first(data.anomaly_rows)
+    capacity_row = List.first(data.capacity_rows)
+
+    assert anomaly_row == %{
+             "time" => "2026-06-19T00:00:00Z",
+             "finding_title" => "fallback message",
+             "message" => "fallback message",
+             "metric_class" => "cpu",
+             "severity" => "High",
+             "status" => "suppressed"
+           }
+
+    assert capacity_row == %{
+             "resource_label" => "Filesystem /",
+             "resource_key" => "disk:/",
+             "resource_id" => "router-1",
+             "metric_name" => "disk.used_percent",
+             "metric_class" => "disk",
+             "status" => "projected",
+             "current_value" => 72.5,
+             "projected_value" => 91.2,
+             "projected_exhaustion_at" => "2026-06-20T00:00:00Z",
+             "confidence" => 0.82
+           }
+
+    queries =
+      for _ <- 1..2 do
+        assert_receive {:fake_query, query}
+        query
+      end
+
+    assert Enum.any?(queries, &(String.contains?(&1, "in:events") and String.contains?(&1, "limit:20")))
+
+    assert Enum.any?(
+             queries,
+             &(String.contains?(&1, "in:capacity_forecasts") and String.contains?(&1, "limit:12"))
+           )
   end
 
   test "SRQL task crashes return an error result without raising" do

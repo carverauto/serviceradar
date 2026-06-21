@@ -112,7 +112,7 @@
 - [x] 19.1 Query `device_uid_exact` first as a bare indexed equality; stop trying `agent_id`/`host_id` first (which seq-scan the OCSF hypertable).
 - [x] 19.2 Drop the capacity `resource_key '%<id>%'` leading-wildcard ILIKE; add a btree index on capacity `resource_id`.
 - [x] 19.3 Run the anomaly and capacity loads concurrently (Task.async) instead of sequential `load_first`; short-circuit empty candidates.
-- [ ] 19.4 Lower the anomaly/capacity query `limit` and project only rendered fields (not full metadata/raw_data/unmapped).
+- [x] 19.4 Lower the anomaly/capacity query `limit` and project only rendered fields (not full metadata/raw_data/unmapped).
 
 ## 20. Operator-Actionable Anomaly/Capacity Rows (F26)
 - [ ] 20.1 Make finding rows and capacity rows clickable (`phx-click` + uid) opening a detail modal.

@@ -6,8 +6,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   require Logger
 
   @metric_classes ~w(cpu memory disk interface red)
-  @anomaly_limit 50
-  @capacity_limit 25
+  @anomaly_limit 20
+  @capacity_limit 12
   @query_timeout_ms 5_000
 
   def empty(status \\ :ok) do
@@ -36,12 +36,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
     else
       anomaly_task =
         Task.Supervisor.async_nolink(ServiceRadarWebNG.TaskSupervisor, fn ->
-          load_first(srql_module, anomaly_candidates, scope, &anomaly_query/1)
+          load_first(srql_module, anomaly_candidates, scope, &anomaly_query/1, &project_anomaly_row/1)
         end)
 
       capacity_task =
         Task.Supervisor.async_nolink(ServiceRadarWebNG.TaskSupervisor, fn ->
-          load_first(srql_module, capacity_candidates, scope, &capacity_query/1)
+          load_first(srql_module, capacity_candidates, scope, &capacity_query/1, &project_capacity_row/1)
         end)
 
       anomaly = await_load_task(anomaly_task, "anomaly")
@@ -83,15 +83,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
     %{rows: [], query: nil, filter: nil, error: error, status: :error}
   end
 
-  defp load_first(srql_module, candidates, scope, query_fun) do
+  defp load_first(srql_module, candidates, scope, query_fun, project_fun) do
     candidates
     |> Enum.reduce_while(nil, fn candidate, acc ->
       query = query_fun.(candidate)
 
       case srql_module.query(query, %{scope: scope}) do
         {:ok, %{"results" => rows}} when is_list(rows) ->
+          rows =
+            rows
+            |> Enum.filter(&is_map/1)
+            |> Enum.map(project_fun)
+
           result = %{
-            rows: Enum.filter(rows, &is_map/1),
+            rows: rows,
             query: query,
             filter: Map.take(candidate, [:field, :label, :value]),
             error: nil,
@@ -195,6 +200,45 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       ],
       " "
     )
+  end
+
+  defp project_anomaly_row(row) do
+    reject_nil_values(%{
+      "time" => map_value(row, "time"),
+      "finding_title" => finding_title(row),
+      "message" => map_value(row, "message"),
+      "metric_class" => metric_class(row),
+      "severity" => map_value(row, "severity"),
+      "status" => status_value(row)
+    })
+  end
+
+  defp project_capacity_row(row) do
+    reject_nil_values(%{
+      "resource_label" => map_value(row, "resource_label"),
+      "resource_key" => map_value(row, "resource_key"),
+      "resource_id" => map_value(row, "resource_id"),
+      "metric_name" => map_value(row, "metric_name"),
+      "metric_class" => map_value(row, "metric_class"),
+      "status" => map_value(row, "status"),
+      "current_value" => map_value(row, "current_value"),
+      "projected_value" => map_value(row, "projected_value"),
+      "projected_exhaustion_at" => map_value(row, "projected_exhaustion_at"),
+      "confidence" => map_value(row, "confidence")
+    })
+  end
+
+  defp finding_title(row) do
+    first_present(row, [
+      ["finding_title"],
+      ["message"],
+      ["metadata", "finding_info", "title"],
+      ["metadata", "detection_finding", "title"]
+    ])
+  end
+
+  defp reject_nil_values(row) do
+    Map.reject(row, fn {_key, value} -> is_nil(value) or value == "" end)
   end
 
   defp metric_statuses(rows) do
