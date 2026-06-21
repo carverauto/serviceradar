@@ -64,9 +64,9 @@ export function attachTimeTooltip(el, opts) {
 
   const onMove = (evt) => {
     const rect = el.getBoundingClientRect()
-    const x = evt.clientX - rect.left
     const y = evt.clientY - rect.top
-    const innerX = Math.max(0, Math.min(rect.width, x))
+    const innerX = clientXToScaleX(evt.clientX, rect, xScale, {xOffset: opts.xOffset})
+    const screenX = innerX + Number(opts.xOffset || 0)
     const t = xScale.invert(innerX)
     const idx = bisect(data, t)
     const row = data[idx]
@@ -91,7 +91,7 @@ export function attachTimeTooltip(el, opts) {
     const pad = 8
     const ttRect = tooltip.getBoundingClientRect()
     const maxLeft = rect.width - (ttRect.width || 180) - pad
-    const left = Math.max(pad, Math.min(maxLeft, innerX + 12))
+    const left = Math.max(pad, Math.min(maxLeft, screenX + 12))
     const top = Math.max(pad, Math.min(rect.height - 48, y - 12))
     tooltip.style.left = `${left}px`
     tooltip.style.top = `${top}px`
@@ -107,6 +107,17 @@ export function attachTimeTooltip(el, opts) {
     el.removeEventListener("mousemove", onMove)
     el.removeEventListener("mouseleave", onLeave)
   }
+}
+
+export function clientXToScaleX(clientX, rect, xScale, opts = {}) {
+  const xOffset = Number(opts.xOffset || 0)
+  const localX = clientX - Number(rect?.left || 0) - xOffset
+  const range = typeof xScale?.range === "function" ? xScale.range() : [0, Number(rect?.width || 0)]
+  const finiteRange = range.map((value) => Number(value)).filter((value) => Number.isFinite(value))
+  const min = finiteRange.length > 0 ? Math.min(...finiteRange) : 0
+  const max = finiteRange.length > 0 ? Math.max(...finiteRange) : Math.max(1, Number(rect?.width || 0))
+
+  return Math.max(min, Math.min(max, localX))
 }
 
 export function ensureSVG(el) {

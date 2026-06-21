@@ -167,7 +167,7 @@
 - [ ] 28.3 Make a finding click focus/mark its time + series on the chart.
 
 ## 29. Chart Hover/Tooltip Correctness (F35)
-- [ ] 29.1 Invert mouse-x with the same geometry as `idx_to_x` (8px pad + viewBox scaling) in `TimeseriesChart.js`/`TimeseriesCombinedChart.js` and `netflow_charts/util.js`.
+- [x] 29.1 Invert mouse-x with the same geometry as `idx_to_x` (8px pad + viewBox scaling) in `TimeseriesChart.js`/`TimeseriesCombinedChart.js` and `netflow_charts/util.js`.
 - [ ] 29.2 Fix `NetflowGridChart` hover to map to the correct grid panel; add per-series crosshair markers; add a BGP tooltip.
 
 ## 30. Chart Gap/Error Honesty (F36)

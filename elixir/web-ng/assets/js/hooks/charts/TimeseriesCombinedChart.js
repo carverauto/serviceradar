@@ -1,3 +1,5 @@
+import {timeseriesClientXToPointIndex, timeseriesPointIndexToLocalX} from "./geometry"
+
 export default {
   mounted() {
     const el = this.el
@@ -61,16 +63,16 @@ export default {
 
     const showTooltip = (e) => {
       const rect = svg.getBoundingClientRect()
-      const x = e.clientX - rect.left
-      const pct = Math.max(0, Math.min(1, x / rect.width))
+      let hoverX = e.clientX - rect.left
 
       const rows = seriesData
         .map((series) => {
           const points = Array.isArray(series.points) ? series.points : []
           if (points.length === 0) return null
-          const idx = Math.round(pct * (points.length - 1))
+          const idx = timeseriesClientXToPointIndex(e.clientX, rect, points.length)
           const point = points[idx]
           if (!point) return null
+          hoverX = timeseriesPointIndexToLocalX(idx, rect, points.length)
           return {
             label: series.label || "series",
             color: series.color || "#A1A1AA",
@@ -97,11 +99,11 @@ export default {
 
       const tooltipX = Math.min(
         rect.width - tooltip.offsetWidth - 8,
-        Math.max(8, x - tooltip.offsetWidth / 2),
+        Math.max(8, hoverX - tooltip.offsetWidth / 2),
       )
       tooltip.style.left = `${tooltipX}px`
       tooltip.style.top = "-24px"
-      hoverLine.style.left = `${x}px`
+      hoverLine.style.left = `${hoverX}px`
     }
 
     const hideTooltip = () => {

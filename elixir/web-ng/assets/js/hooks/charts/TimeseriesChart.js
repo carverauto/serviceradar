@@ -1,3 +1,5 @@
+import {timeseriesClientXToPointIndex, timeseriesPointIndexToLocalX} from "./geometry"
+
 export default {
   mounted() {
     const el = this.el
@@ -54,9 +56,8 @@ export default {
 
     const showTooltip = (e) => {
       const rect = svg.getBoundingClientRect()
-      const x = e.clientX - rect.left
-      const pct = Math.max(0, Math.min(1, x / rect.width))
-      const idx = Math.round(pct * (pointsData.length - 1))
+      const idx = timeseriesClientXToPointIndex(e.clientX, rect, pointsData.length)
+      const x = timeseriesPointIndexToLocalX(idx, rect, pointsData.length)
       const point = pointsData[idx]
 
       if (point) {

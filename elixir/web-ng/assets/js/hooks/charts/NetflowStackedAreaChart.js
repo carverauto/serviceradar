@@ -211,6 +211,7 @@ export default {
       data,
       keys: visibleKeys,
       x,
+      xOffset: m.left,
       valueAt: (row, k) => row?.[k] || 0,
       formatValue: (v) => nfFormatRateValue(el.dataset.units, v),
     })
