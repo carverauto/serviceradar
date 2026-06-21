@@ -1535,7 +1535,7 @@ BEGIN
             device_capabilities: [],
             service_capabilities: [cap IN service_caps WHERE cap IS NOT NULL | properties(cap)]
         } AS result
-    $cypher$, include_topology, collector_only, p_device_id);
+    $cypher$, include_topology, collector_only, p_device_id, p_device_id);
 
     -- Quote the Cypher text as an SQL literal so embedded dollar quoting stays data.
     EXECUTE format(
