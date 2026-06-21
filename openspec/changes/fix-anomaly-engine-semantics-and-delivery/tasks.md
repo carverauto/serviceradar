@@ -239,7 +239,7 @@
 ## 45. Topology Graph (F50)
 - [x] 45.1 Escape backslashes (and audit all Cypher literal building) so attacker-controlled LLDP/CDP/ifAlias cannot inject (`graph.ex:106-110`).
 - [ ] 45.2 Preserve parallel links (LAG/redundant) instead of collapsing to one canonical edge; prune reverse `CONNECTS_TO` edges on one-endpoint re-report.
-- [ ] 45.3 Fix IPv6 device-id/IP `:`-split matching; make the Cypher read-only guard literal/comment-aware; link device-graph peer interfaces to their owning device.
+- [x] 45.3 Fix IPv6 device-id/IP `:`-split matching; make the Cypher read-only guard literal/comment-aware; link device-graph peer interfaces to their owning device.
 
 ## 46. MTR Consensus / Baseline / UI (F51)
 - [x] 46.1 Compute path RTT from the destination hop (or a true avg), not MAX over all hops, so transit ICMP-deprioritization doesn't fabricate `:degraded_path` signals.

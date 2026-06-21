@@ -189,6 +189,23 @@ async fn check_device_graph_query_returns_neighborhood(harness: &SrqlTestHarness
         "expected interface device-alpha/eth0 in graph: {body}"
     );
 
+    let peer_interfaces = graph
+        .get("peer_interfaces")
+        .and_then(|i| i.as_array())
+        .unwrap_or_else(|| panic!("peer_interfaces missing or not array: {body}"));
+    assert!(
+        peer_interfaces.iter().any(|iface| {
+            iface.get("id").and_then(|id| id.as_str()) == Some("device-beta/eth1")
+                && iface.get("owner_device_id").and_then(|id| id.as_str()) == Some("device-beta")
+                && iface
+                    .get("owner_device")
+                    .and_then(|device| device.get("hostname"))
+                    .and_then(|hostname| hostname.as_str())
+                    == Some("beta-edge")
+        }),
+        "expected peer interface owner data in graph: {body}"
+    );
+
     let device_caps = graph
         .get("device_capabilities")
         .and_then(|c| c.as_array())

@@ -439,6 +439,66 @@ fn translate_graph_cypher_rejects_mutations() {
 }
 
 #[test]
+fn translate_graph_cypher_rejects_mutations_without_keyword_spacing() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: r#"in:graph_cypher cypher:"MATCH (n) CREATE(m:Device {id:'x'}) RETURN n""#
+            .to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let err = translate_request(&config, request).expect_err("should reject write cypher");
+    assert!(
+        err.to_string().to_lowercase().contains("read-only"),
+        "expected read-only error, got: {err}"
+    );
+}
+
+#[test]
+fn translate_graph_cypher_ignores_keywords_inside_literals_and_comments() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: r#"in:graph_cypher cypher:"MATCH (n) WHERE n.note = 'delete; merge' // set ignored
+RETURN {id: n.id, label: 'create'} AS result" limit:10"#
+            .to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+    assert!(
+        response.sql.contains("ag_catalog.cypher"),
+        "expected graph_cypher SQL, got: {}",
+        response.sql
+    );
+}
+
+#[test]
+fn translate_graph_cypher_still_rejects_mutations_after_comments() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query:
+            r#"in:graph_cypher cypher:"MATCH (n) /* delete ignored */ SET n.name = 'x' RETURN n""#
+                .to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let err = translate_request(&config, request).expect_err("should reject write cypher");
+    assert!(
+        err.to_string().to_lowercase().contains("read-only"),
+        "expected read-only error, got: {err}"
+    );
+}
+
+#[test]
 fn translate_graph_cypher_wraps_rows_as_topology_payload() {
     let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
     let request = QueryRequest {
