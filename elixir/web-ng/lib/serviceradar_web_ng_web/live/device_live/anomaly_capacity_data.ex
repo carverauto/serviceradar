@@ -143,9 +143,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp anomaly_filter_candidates(identity) do
     Enum.reject(
       [
-        candidate(identity, :device_uid, "device_uid_exact", "device"),
-        candidate(identity, :agent_id, "agent_id", "agent"),
-        candidate(identity, :host_id, "host_id", "host")
+        candidate(identity, :device_uid, "device_uid_exact", "device")
       ],
       &is_nil/1
     )
