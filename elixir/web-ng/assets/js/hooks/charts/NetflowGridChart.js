@@ -1,16 +1,59 @@
 import * as d3 from "d3"
 
 import {
-  attachTimeTooltip as nfAttachTimeTooltip,
   buildLegend as nfBuildLegend,
   chartDims as nfChartDims,
   clearSVG as nfClearSVG,
   colorScale as nfColorScale,
   ensureSVG as nfEnsureSVG,
+  ensureTooltip as nfEnsureTooltip,
+  escapeHtml as nfEscapeHtml,
   normalizeTimeSeries as nfNormalizeTimeSeries,
   parseSeriesData as nfParseSeriesData,
 } from "../../netflow_charts/util"
 import {nfFormatRateValue} from "../../utils/formatters"
+
+export function gridPanelLayout(keys, iw, ih, pad = 10) {
+  const visibleKeys = Array.isArray(keys) ? keys : []
+  const n = visibleKeys.length
+  if (n === 0) return []
+
+  const cols = Math.ceil(Math.sqrt(n))
+  const rows = Math.ceil(n / cols)
+  const cw = Math.max(1, (iw - pad * (cols - 1)) / cols)
+  const ch = Math.max(1, (ih - pad * (rows - 1)) / rows)
+
+  return visibleKeys.map((key, i) => {
+    const col = i % cols
+    const row = Math.floor(i / cols)
+    return {
+      key,
+      x0: col * (cw + pad),
+      y0: row * (ch + pad),
+      width: cw,
+      height: ch,
+    }
+  })
+}
+
+export function gridPanelAt(localX, localY, panels) {
+  return (Array.isArray(panels) ? panels : []).find(
+    (panel) =>
+      localX >= panel.x0 &&
+      localX <= panel.x0 + panel.width &&
+      localY >= panel.y0 &&
+      localY <= panel.y0 + panel.height,
+  )
+}
+
+export function nearestTimeRow(data, targetTime) {
+  if (!Array.isArray(data) || data.length === 0) return null
+  const target = targetTime instanceof Date ? targetTime : new Date(targetTime)
+  if (Number.isNaN(target.getTime())) return null
+
+  const bisect = d3.bisector((d) => d.t).center
+  return data[bisect(data, target)] || null
+}
 
 export default {
   mounted() {
@@ -56,12 +99,8 @@ export default {
     const visibleKeys = keys.filter((k) => !this._hidden.has(k))
     if (visibleKeys.length === 0) return
 
-    const n = visibleKeys.length
-    const cols = Math.ceil(Math.sqrt(n))
-    const rows = Math.ceil(n / cols)
     const pad = 10
-    const cw = Math.max(1, (iw - pad * (cols - 1)) / cols)
-    const ch = Math.max(1, (ih - pad * (rows - 1)) / rows)
+    const panels = gridPanelLayout(visibleKeys, iw, ih, pad)
 
     const color = nfColorScale(keys, colors)
 
@@ -77,13 +116,11 @@ export default {
       this._render()
     })
 
-    for (let i = 0; i < n; i += 1) {
-      const k = visibleKeys[i]
-      const c = i % cols
-      const r = Math.floor(i / cols)
-      const x0 = c * (cw + pad)
-      const y0 = r * (ch + pad)
+    const panelState = new Map()
 
+    for (const panelSpec of panels) {
+      const k = panelSpec.key
+      const {x0, y0, width: cw, height: ch} = panelSpec
       const panel = root.append("g").attr("transform", `translate(${x0},${y0})`)
       panel
         .append("rect")
@@ -99,6 +136,7 @@ export default {
       const px = d3.scaleTime().domain(d3.extent(data, (d) => d.t)).range([10, cw - 10])
       const maxY = d3.max(data, (d) => d[k]) || 1
       const py = d3.scaleLinear().domain([0, maxY]).nice().range([ch - 18, 18])
+      panelState.set(k, {...panelSpec, xScale: px, yScale: py})
 
       const ln = d3
         .line()
@@ -125,17 +163,79 @@ export default {
         .text(String(k).length > 18 ? `${String(k).slice(0, 15)}...` : String(k))
     }
 
-    // Shared tooltip across all series (matches other time-series charts).
-    const x = d3.scaleTime().domain(d3.extent(data, (d) => d.t)).range([0, iw])
+    const tooltip = nfEnsureTooltip(el)
+    const hover = root.append("g").attr("pointer-events", "none").attr("display", "none")
+    const hoverLine = hover
+      .append("line")
+      .attr("y1", 0)
+      .attr("y2", 0)
+      .attr("stroke", "currentColor")
+      .attr("stroke-width", 1)
+      .attr("stroke-dasharray", "3 3")
+      .attr("opacity", 0.5)
+    const hoverPoint = hover.append("circle").attr("r", 3).attr("fill", "currentColor").attr("stroke", "white")
+
+    const hideHover = () => {
+      tooltip.classList.add("hidden")
+      hover.attr("display", "none")
+    }
+
+    const onMove = (evt) => {
+      const rect = el.getBoundingClientRect()
+      const localX = evt.clientX - rect.left - m.left
+      const localY = evt.clientY - rect.top - m.top
+      const panel = gridPanelAt(localX, localY, panels)
+      const state = panel && panelState.get(panel.key)
+
+      if (!state) {
+        hideHover()
+        return
+      }
+
+      const panelX = Math.max(10, Math.min(state.width - 10, localX - state.x0))
+      const row = nearestTimeRow(data, state.xScale.invert(panelX))
+      if (!row) {
+        hideHover()
+        return
+      }
+
+      const value = row?.[state.key] || 0
+      const markerX = state.x0 + state.xScale(row.t)
+      const markerY = state.y0 + state.yScale(value)
+      const timeLabel = row.t instanceof Date ? row.t.toISOString() : String(row.t || "")
+
+      hover.attr("display", null)
+      hoverLine
+        .attr("x1", markerX)
+        .attr("x2", markerX)
+        .attr("y1", state.y0 + 6)
+        .attr("y2", state.y0 + state.height - 6)
+        .attr("stroke", color(state.key))
+      hoverPoint.attr("cx", markerX).attr("cy", markerY).attr("fill", color(state.key))
+
+      tooltip.innerHTML = `<div class="flex items-center justify-between gap-2"><span class="truncate">${nfEscapeHtml(
+        state.key,
+      )}</span><span class="font-mono">${nfEscapeHtml(nfFormatRateValue(el.dataset.units, value))}</span></div>
+        <div class="mt-1 text-[10px] text-base-content/60 font-mono">${nfEscapeHtml(timeLabel)}</div>`
+      tooltip.classList.remove("hidden")
+
+      const padPx = 8
+      const ttRect = tooltip.getBoundingClientRect()
+      const maxLeft = rect.width - (ttRect.width || 180) - padPx
+      const left = Math.max(padPx, Math.min(maxLeft, markerX + m.left + 12))
+      const top = Math.max(padPx, Math.min(rect.height - 48, markerY + m.top - 12))
+      tooltip.style.left = `${left}px`
+      tooltip.style.top = `${top}px`
+    }
+
     try {
       this._tooltipCleanup?.()
     } catch (_e) {}
-    this._tooltipCleanup = nfAttachTimeTooltip(el, {
-      data,
-      keys: visibleKeys,
-      x,
-      valueAt: (row, k) => row?.[k] || 0,
-      formatValue: (v) => nfFormatRateValue(el.dataset.units, v),
-    })
+    el.addEventListener("mousemove", onMove)
+    el.addEventListener("mouseleave", hideHover)
+    this._tooltipCleanup = () => {
+      el.removeEventListener("mousemove", onMove)
+      el.removeEventListener("mouseleave", hideHover)
+    }
   },
 }

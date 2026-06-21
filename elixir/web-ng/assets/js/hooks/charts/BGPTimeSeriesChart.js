@@ -1,5 +1,7 @@
 import * as d3 from "d3"
 
+import {ensureTooltip, escapeHtml} from "../../netflow_charts/util"
+
 export function numberOrNull(value) {
   if (value === null || value === undefined || value === "") return null
 
@@ -15,6 +17,21 @@ export function finiteSeriesValues(data, series) {
   return (Array.isArray(data) ? data : [])
     .flatMap((d) => (Array.isArray(series) ? series : []).map((asNumber) => numberOrNull(d?.values?.[asNumber])))
     .filter((value) => Number.isFinite(value))
+}
+
+export function nearestBGPDatum(data, targetTime) {
+  if (!Array.isArray(data) || data.length === 0) return null
+  const target = targetTime instanceof Date ? targetTime : new Date(targetTime)
+  if (Number.isNaN(target.getTime())) return null
+
+  const bisect = d3.bisector((d) => new Date(d.time)).center
+  return data[bisect(data, target)] || null
+}
+
+export function bgpTooltipRows(row, series) {
+  return (Array.isArray(series) ? series : [])
+    .map((asNumber) => ({asNumber, value: numberOrNull(row?.values?.[asNumber])}))
+    .filter((item) => Number.isFinite(item.value))
 }
 
 export default {
@@ -36,11 +53,13 @@ export default {
     const width = this.el.clientWidth - margin.left - margin.right
     const height = this.el.clientHeight - margin.top - margin.bottom
 
-    const svg = d3
+    const rootSvg = d3
       .select(this.el)
       .append("svg")
       .attr("width", width + margin.left + margin.right)
       .attr("height", height + margin.top + margin.bottom)
+
+    const svg = rootSvg
       .append("g")
       .attr("transform", `translate(${margin.left},${margin.top})`)
 
@@ -103,5 +122,84 @@ export default {
         .style("font-size", "12px")
         .attr("fill", "currentColor")
     })
+
+    const tooltip = ensureTooltip(this.el)
+    const hover = svg.append("g").attr("pointer-events", "none").attr("display", "none")
+    const hoverLine = hover
+      .append("line")
+      .attr("y1", 0)
+      .attr("y2", height)
+      .attr("stroke", "currentColor")
+      .attr("stroke-width", 1)
+      .attr("stroke-dasharray", "3 3")
+      .attr("opacity", 0.5)
+    const hoverMarkers = hover.append("g")
+
+    const hideHover = () => {
+      tooltip.classList.add("hidden")
+      hover.attr("display", "none")
+    }
+
+    const showHover = (event) => {
+      const rect = this.el.getBoundingClientRect()
+      const localX = Math.max(0, Math.min(width, event.clientX - rect.left - margin.left))
+      const row = nearestBGPDatum(data, x.invert(localX))
+
+      if (!row) {
+        hideHover()
+        return
+      }
+
+      const rows = bgpTooltipRows(row, series)
+      if (rows.length === 0) {
+        hideHover()
+        return
+      }
+
+      hover.attr("display", null)
+      hoverLine.attr("x1", x(new Date(row.time))).attr("x2", x(new Date(row.time)))
+
+      hoverMarkers
+        .selectAll("circle")
+        .data(rows, (d) => d.asNumber)
+        .join("circle")
+        .attr("cx", x(new Date(row.time)))
+        .attr("cy", (d) => y(d.value))
+        .attr("r", 3)
+        .attr("fill", (d) => color(d.asNumber))
+        .attr("stroke", "white")
+
+      const lines = rows
+        .slice(0, 8)
+        .map(
+          (item) =>
+            `<div class="flex items-center justify-between gap-2"><span class="truncate">AS ${escapeHtml(
+              item.asNumber,
+            )}</span><span class="font-mono">${escapeHtml(item.value)}</span></div>`,
+        )
+        .join("")
+
+      tooltip.innerHTML = `${lines}<div class="mt-1 text-[10px] text-base-content/60 font-mono">${escapeHtml(
+        row.time,
+      )}</div>`
+      tooltip.classList.remove("hidden")
+
+      const ttRect = tooltip.getBoundingClientRect()
+      const pad = 8
+      const markerX = x(new Date(row.time)) + margin.left
+      const left = Math.max(pad, Math.min(rect.width - (ttRect.width || 180) - pad, markerX + 12))
+      const top = Math.max(pad, Math.min(rect.height - 48, event.clientY - rect.top - 12))
+      tooltip.style.left = `${left}px`
+      tooltip.style.top = `${top}px`
+    }
+
+    svg
+      .append("rect")
+      .attr("width", width)
+      .attr("height", height)
+      .attr("fill", "transparent")
+      .attr("pointer-events", "all")
+      .on("mousemove", showHover)
+      .on("mouseleave", hideHover)
   },
 }

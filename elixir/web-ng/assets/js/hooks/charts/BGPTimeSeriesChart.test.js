@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest"
 
-import {finiteSeriesValues, valuesForSeries} from "./BGPTimeSeriesChart"
+import {bgpTooltipRows, finiteSeriesValues, nearestBGPDatum, valuesForSeries} from "./BGPTimeSeriesChart"
 
 describe("BGPTimeSeriesChart gap handling", () => {
   const data = [
@@ -16,5 +16,12 @@ describe("BGPTimeSeriesChart gap handling", () => {
 
   it("ignores nulls when deriving y-axis domain values", () => {
     expect(finiteSeriesValues(data, ["64512", "64513"])).toEqual([100, 0, 300])
+  })
+
+  it("selects nearest rows and finite values for hover tooltips", () => {
+    expect(nearestBGPDatum(data, "2026-01-01T00:01:40Z")).toBe(data[2])
+    expect(nearestBGPDatum(data, "not-a-date")).toBeNull()
+
+    expect(bgpTooltipRows(data[2], ["64512", "64513"])).toEqual([{asNumber: "64512", value: 300}])
   })
 })
