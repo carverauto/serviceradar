@@ -730,29 +730,66 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
 
   defp prune_unseen_projected_links(neighbor_index) do
     Enum.each(neighbor_index, fn {local_device_id, neighbor_ids} ->
-      escaped_local = Graph.escape(local_device_id)
+      local_device_id
+      |> prune_unseen_projected_links_queries(neighbor_ids)
+      |> Enum.each(fn cypher ->
+        case Graph.execute(cypher) do
+          :ok ->
+            :ok
 
-      allowed_neighbors =
-        neighbor_ids
-        |> MapSet.to_list()
-        |> Enum.map_join(", ", &"'#{Graph.escape(&1)}'")
-
-      cypher = """
-      MATCH (a:Interface)-[r:CONNECTS_TO]->(b:Interface)
-      WHERE a.device_id = '#{escaped_local}'
-        AND r.ingestor = 'mapper_topology_v1'
-        AND (b.device_id IS NULL OR NOT b.device_id IN [#{allowed_neighbors}])
-      DELETE r
-      """
-
-      case Graph.execute(cypher) do
-        :ok ->
-          :ok
-
-        {:error, reason} ->
-          Logger.warning("Topology unseen edge pruning failed: #{inspect(reason)}")
-      end
+          {:error, reason} ->
+            Logger.warning("Topology unseen edge pruning failed: #{inspect(reason)}")
+        end
+      end)
     end)
+  end
+
+  @doc false
+  @spec prune_unseen_projected_links_queries(String.t(), Enumerable.t()) :: [String.t()]
+  def prune_unseen_projected_links_queries(local_device_id, neighbor_ids)
+      when is_binary(local_device_id) do
+    [
+      prune_unseen_projected_reverse_links_query(local_device_id, neighbor_ids),
+      prune_unseen_projected_forward_links_query(local_device_id, neighbor_ids)
+    ]
+  end
+
+  @doc false
+  @spec prune_unseen_projected_forward_links_query(String.t(), Enumerable.t()) :: String.t()
+  def prune_unseen_projected_forward_links_query(local_device_id, neighbor_ids)
+      when is_binary(local_device_id) do
+    escaped_local = Graph.escape(local_device_id)
+    allowed_neighbors = allowed_neighbor_literals(neighbor_ids)
+
+    """
+    MATCH (a:Interface)-[r:CONNECTS_TO]->(b:Interface)
+    WHERE a.device_id = '#{escaped_local}'
+      AND r.ingestor = 'mapper_topology_v1'
+      AND (b.device_id IS NULL OR NOT b.device_id IN [#{allowed_neighbors}])
+    DELETE r
+    """
+  end
+
+  @doc false
+  @spec prune_unseen_projected_reverse_links_query(String.t(), Enumerable.t()) :: String.t()
+  def prune_unseen_projected_reverse_links_query(local_device_id, neighbor_ids)
+      when is_binary(local_device_id) do
+    escaped_local = Graph.escape(local_device_id)
+    allowed_neighbors = allowed_neighbor_literals(neighbor_ids)
+
+    """
+    MATCH (a:Interface)-[r:CONNECTS_TO]->(b:Interface)
+    WHERE a.device_id = '#{escaped_local}'
+      AND r.ingestor = 'mapper_topology_v1'
+      AND (b.device_id IS NULL OR NOT b.device_id IN [#{allowed_neighbors}])
+    MATCH (b)-[rr:CONNECTS_TO]->(a)
+    WHERE rr.ingestor = 'mapper_topology_v1'
+    DELETE rr
+    """
+  end
+
+  defp allowed_neighbor_literals(neighbor_ids) do
+    Enum.map_join(neighbor_ids, ", ", &"'#{Graph.escape(&1)}'")
   end
 
   defp maybe_prune_unseen_projected_links(neighbor_index) do
@@ -1954,6 +1991,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     WITH
       CASE WHEN ai.device_id <= bi.device_id THEN ai.device_id ELSE bi.device_id END AS src_id,
       CASE WHEN ai.device_id <= bi.device_id THEN bi.device_id ELSE ai.device_id END AS dst_id,
+      coalesce(CASE WHEN ai.device_id <= bi.device_id THEN ai.id ELSE bi.id END, CASE WHEN ai.device_id <= bi.device_id THEN ai.name ELSE bi.name END, 'unknown') AS local_interface_key,
+      coalesce(CASE WHEN ai.device_id <= bi.device_id THEN bi.id ELSE ai.id END, CASE WHEN ai.device_id <= bi.device_id THEN bi.name ELSE ai.name END, 'unknown') AS neighbor_interface_key,
       CASE
         WHEN ai.device_id <= bi.device_id THEN CASE WHEN ai.ifindex > 0 THEN ai.ifindex ELSE NULL END
         ELSE CASE WHEN bi.ifindex > 0 THEN bi.ifindex ELSE NULL END
@@ -1995,6 +2034,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     WITH
       src_id,
       dst_id,
+      local_interface_key,
+      neighbor_interface_key,
       local_if_index,
       neighbor_if_index,
       local_if_name,
@@ -2012,10 +2053,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     ORDER BY
       src_id,
       dst_id,
+      local_interface_key,
+      neighbor_interface_key,
       rel_rank DESC,
       conf_rank DESC,
       last_observed_at DESC
-    WITH src_id, dst_id, collect({
+    WITH src_id, dst_id, local_interface_key + '|' + neighbor_interface_key AS link_key, collect({
       relation_type: relation_type,
       protocol: protocol,
       evidence_class: evidence_class,
@@ -2029,11 +2072,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       local_if_name: local_if_name,
       neighbor_if_name: neighbor_if_name
     }) AS candidates
-    WITH src_id, dst_id, head(candidates) AS best, candidates
+    WITH src_id, dst_id, link_key, head(candidates) AS best, candidates
     UNWIND candidates AS c
     WITH
       src_id,
       dst_id,
+      link_key,
       best,
       max(c.support_rank) AS pair_support_rank,
       max(CASE WHEN c.local_if_index IS NOT NULL AND c.local_if_index > 0 THEN c.local_if_index ELSE -1 END) AS best_local_if_index,
@@ -2042,8 +2086,9 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       max(CASE WHEN c.neighbor_if_name IS NOT NULL AND c.neighbor_if_name <> '' AND toLower(c.neighbor_if_name) <> 'unknown' THEN c.neighbor_if_name ELSE '' END) AS best_neighbor_if_name
     MERGE (a:Device {id: src_id})
     MERGE (b:Device {id: dst_id})
-    MERGE (a)-[cr:CANONICAL_TOPOLOGY]->(b)
+    MERGE (a)-[cr:CANONICAL_TOPOLOGY {link_key: link_key}]->(b)
     SET cr.ingestor = 'mapper_topology_v1'
+    SET cr.link_key = link_key
     SET cr.relation_type = best.relation_type
     SET cr.protocol = best.protocol
     SET cr.evidence_class = best.evidence_class
