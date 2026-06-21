@@ -1012,7 +1012,8 @@ CREATE TABLE platform.ocsf_network_activity (
     dst_mac_vendor text,
     dst_mac_vendor_source text,
     packets_in bigint DEFAULT 0 NOT NULL,
-    packets_out bigint DEFAULT 0 NOT NULL
+    packets_out bigint DEFAULT 0 NOT NULL,
+    sampling_rate bigint DEFAULT 1 NOT NULL
 );
 
 
@@ -1063,6 +1064,13 @@ COMMENT ON COLUMN platform.ocsf_network_activity.bytes_total IS 'Total bytes tra
 --
 
 COMMENT ON COLUMN platform.ocsf_network_activity.packets_total IS 'Total packets transferred in flow';
+
+
+--
+-- Name: COLUMN ocsf_network_activity.sampling_rate; Type: COMMENT; Schema: platform; Owner: -
+--
+
+COMMENT ON COLUMN platform.ocsf_network_activity.sampling_rate IS 'Exporter sampling multiplier for sampled NetFlow/IPFIX/sFlow records; 1 means unsampled';
 
 
 --

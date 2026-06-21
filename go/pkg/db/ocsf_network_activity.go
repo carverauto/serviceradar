@@ -37,6 +37,7 @@ func buildOCSFNetworkActivityInsertQuery(table string) string {
 		packets_total,
 		bytes_in,
 		bytes_out,
+		sampling_rate,
 		sampler_address,
 		ocsf_payload,
 		partition,
@@ -47,8 +48,8 @@ func buildOCSFNetworkActivityInsertQuery(table string) string {
 		$9,$10,$11,
 		$12,$13,$14,
 		$15,$16,$17,
-		$18,$19,$20,$21,
-		$22,$23,$24,$25
+		$18,$19,$20,$21,$22,
+		$23,$24,$25,$26
 	)`, table)
 }
 
@@ -111,6 +112,11 @@ func (db *DB) InsertOCSFNetworkActivity(ctx context.Context, table string, rows 
 			severityID = 1
 		}
 
+		samplingRate := row.SamplingRate
+		if samplingRate <= 0 {
+			samplingRate = 1
+		}
+
 		payload := row.OCSFPayload
 		if len(payload) == 0 {
 			payload = json.RawMessage("{}")
@@ -139,6 +145,7 @@ func (db *DB) InsertOCSFNetworkActivity(ctx context.Context, table string, rows 
 			row.PacketsTotal,
 			row.BytesIn,
 			row.BytesOut,
+			samplingRate,
 			row.SamplerAddress,
 			payload,
 			partition,

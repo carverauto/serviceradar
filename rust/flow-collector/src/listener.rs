@@ -219,10 +219,14 @@ pub fn build_handler(
         ListenerConfig::Netflow {
             max_templates,
             pending_flows,
+            default_sampling_rate,
+            sampling_rate_overrides,
             ..
         } => Box::new(NetflowHandler::new(
             *max_templates,
             pending_flows.as_ref(),
+            *default_sampling_rate,
+            sampling_rate_overrides.clone(),
             metrics,
         )),
     }

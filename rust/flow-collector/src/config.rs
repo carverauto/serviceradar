@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::path::PathBuf;
 
@@ -118,6 +118,14 @@ pub enum ListenerConfig {
         max_template_fields: usize,
         #[serde(default)]
         pending_flows: Option<PendingFlowsCacheConfig>,
+        /// Fallback sampling rate for exporters that do not report one.
+        /// A value of 1 means unsampled/full-fidelity flows.
+        #[serde(default)]
+        default_sampling_rate: Option<u64>,
+        /// Per-exporter fallback sampling rates keyed by sampler IP address.
+        /// These override `default_sampling_rate`.
+        #[serde(default)]
+        sampling_rate_overrides: HashMap<IpAddr, u64>,
     },
 }
 
@@ -336,6 +344,27 @@ impl Config {
                 }
                 if pf.ttl_secs == 0 || pf.ttl_secs > 3600 {
                     anyhow::bail!("listener[{}]: pending_flows.ttl_secs must be 1..=3,600", i);
+                }
+            }
+
+            if let ListenerConfig::Netflow {
+                default_sampling_rate,
+                sampling_rate_overrides,
+                ..
+            } = listener
+            {
+                if matches!(default_sampling_rate, Some(0)) {
+                    anyhow::bail!("listener[{}]: default_sampling_rate must be > 0", i);
+                }
+
+                for (exporter, rate) in sampling_rate_overrides {
+                    if *rate == 0 {
+                        anyhow::bail!(
+                            "listener[{}]: sampling_rate_overrides[{}] must be > 0",
+                            i,
+                            exporter
+                        );
+                    }
                 }
             }
         }

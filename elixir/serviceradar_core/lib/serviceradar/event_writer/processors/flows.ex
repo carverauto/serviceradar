@@ -335,6 +335,7 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
     protocol_num = json["protocol"]
     protocol_name = OCSF.protocol_name(protocol_num)
     flow = parse_flow_fields(json)
+    sampling_rate = parse_sampling_rate(json)
 
     enrichment =
       FlowEnrichment.enrich(%{
@@ -362,7 +363,11 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
       "message" => build_traffic_message(json, protocol_name),
       "src_endpoint" => %{"ip" => flow.src_ip, "port" => flow.src_port},
       "dst_endpoint" => %{"ip" => flow.dst_ip, "port" => flow.dst_port},
-      "traffic" => %{"bytes" => flow.octets, "packets" => flow.packets},
+      "traffic" => %{
+        "bytes" => flow.octets,
+        "packets" => flow.packets,
+        "sampling_rate" => sampling_rate
+      },
       "connection_info" => %{
         "protocol_name" => protocol_name,
         "input_snmp" => FieldParser.get_field(json, "input_snmp", "inputSnmp"),
@@ -420,6 +425,7 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
       bytes_out: flow.bytes_out || 0,
       packets_in: flow.packets_in || 0,
       packets_out: flow.packets_out || 0,
+      sampling_rate: sampling_rate,
       direction_label: enrichment.direction_label,
       direction_source: enrichment.direction_source,
       src_hosting_provider: enrichment.src_hosting_provider,
@@ -503,6 +509,7 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
       tcp_flags tcpFlags protocol_name flow_source
       src_mac srcMac sourceMac dst_mac dstMac destinationMac
       sampler_address samplerAddress input_snmp inputSnmp output_snmp outputSnmp
+      sampling_rate samplingRate
       metadata
     )
 
@@ -525,6 +532,23 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
   defp first_present(json, keys, default \\ nil) do
     Enum.find_value(keys, default, &Map.get(json, &1))
   end
+
+  defp parse_sampling_rate(json) do
+    json
+    |> first_present(["sampling_rate", "samplingRate"], 1)
+    |> to_positive_int(1)
+  end
+
+  defp to_positive_int(value, _default) when is_integer(value) and value > 0, do: value
+
+  defp to_positive_int(value, default) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, ""} when int > 0 -> int
+      _ -> default
+    end
+  end
+
+  defp to_positive_int(_value, default), do: default
 
   defp flow_source_from_subject(subject) when is_binary(subject) do
     cond do
