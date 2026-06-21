@@ -167,14 +167,14 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   end
 
   defp fetch_topology_links_from_graph do
-    case fetch_projected_topology_links() do
-      {:ok, rows} when rows != [] ->
+    case projection_read_action(fetch_projected_topology_links()) do
+      {:projected, rows} ->
         fetch_topology_links_with_virtualization(rows)
 
-      {:ok, []} ->
+      :fallback_uninitialized ->
         fetch_topology_links_from_age()
 
-      {:error, reason} ->
+      {:fallback_error, reason} ->
         Logger.warning("runtime_graph_projection_read_failed reason=#{inspect(reason)}")
         fetch_topology_links_from_age()
     end
@@ -188,6 +188,13 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       limit: @max_backbone_link_rows + @max_attachment_link_rows
     )
   end
+
+  @doc false
+  @spec projection_read_action({:ok, list()} | {:error, term()}) ::
+          {:projected, list()} | :fallback_uninitialized | {:fallback_error, term()}
+  def projection_read_action({:ok, rows}) when is_list(rows), do: {:projected, rows}
+  def projection_read_action({:error, :projection_uninitialized}), do: :fallback_uninitialized
+  def projection_read_action({:error, reason}), do: {:fallback_error, reason}
 
   defp fetch_topology_links_from_age do
     case AgeGraph.query(topology_links_query()) do

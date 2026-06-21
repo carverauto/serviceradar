@@ -69,6 +69,15 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     assert query =~ "evidence_class: coalesce(r.evidence_class, 'endpoint-attachment')"
   end
 
+  test "projection read action trusts initialized empty projections" do
+    assert RuntimeGraph.projection_read_action({:ok, []}) == {:projected, []}
+
+    assert RuntimeGraph.projection_read_action({:error, :projection_uninitialized}) ==
+             :fallback_uninitialized
+
+    assert RuntimeGraph.projection_read_action({:error, :boom}) == {:fallback_error, :boom}
+  end
+
   test "topology_diagnostics_query/0 exposes canonical edge health counters" do
     query = RuntimeGraph.topology_diagnostics_query()
 
