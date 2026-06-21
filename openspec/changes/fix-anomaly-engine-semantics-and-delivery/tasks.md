@@ -180,8 +180,8 @@
 - [ ] 31.3 Add non-color series encoding (shape/pattern/label) for color-blind operators.
 
 ## 32. Chart Renderer Modularization (F38)
-- [ ] 32.1 Break up `dashboard/plugins/timeseries.ex` (~1544 lines) into focused modules each under ~300 lines, e.g. point extraction/normalization, downsampling, counter-rate derivation, scale/units, SVG path geometry, hover/annotation, and the LiveComponent shell.
-- [ ] 32.2 Do the split as a behavior-preserving refactor first (no logic change), then land the F30/F31/F33/F34/F35 fixes against the smaller modules.
+- [x] 32.1 Break up `dashboard/plugins/timeseries.ex` (~1544 lines) into focused modules each under ~300 lines, e.g. point extraction/normalization, downsampling, counter-rate derivation, scale/units, SVG path geometry, hover/annotation, and the LiveComponent shell.
+- [x] 32.2 Do the split as a behavior-preserving refactor first (no logic change), then land the F30/F31/F33/F34/F35 fixes against the smaller modules.
 - [ ] 32.3 Break up the other oversized chart/dashboard/flow modules into focused files under ~300 lines each (behavior-preserving): `netflow_live/visualize.ex` (~4532), `dashboard_live/data.ex` (~3148), `dashboards/authored.ex` (~1551), `dashboard_live/index.ex` (~1544), `netflow_live/dashboard.ex` (~1478), `device_live/sysmon_metrics.ex`, `device_live/flow_components.ex`.
 
 ## 33. Flow Sampling-Rate End-to-End (F39)

@@ -1,0 +1,159 @@
+defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
+  @moduledoc false
+
+  use Phoenix.Component
+
+  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics
+
+  attr :id, :string, required: true
+  attr :data, :map, required: true
+  attr :chart_width, :integer, required: true
+  attr :chart_height, :integer, required: true
+  attr :chart_pad, :integer, required: true
+  attr :compact, :boolean, default: false
+
+  def chart_card(assigns) do
+    ~H"""
+    <div
+      id={"chart-#{@id}-#{@data.idx}"}
+      class={[
+        "rounded-lg border border-base-200 bg-base-100 relative group",
+        @compact && "p-3",
+        not @compact && "p-4"
+      ]}
+      phx-hook="TimeseriesChart"
+      data-points={Jason.encode!(@data.point_data)}
+      data-unit={Metrics.unit_to_string(@data.unit)}
+    >
+      <div class="flex items-center justify-between gap-3 mb-2">
+        <div class="flex items-center gap-2 min-w-0">
+          <span
+            class="inline-block size-2 rounded-full shrink-0"
+            style={"background-color: #{@data.stroke}"}
+          />
+          <span class={["font-medium truncate", @compact && "text-xs", not @compact && "text-sm"]}>
+            {@data.series}
+          </span>
+          <span
+            :if={@data.utilization}
+            class={["badge badge-xs font-mono", Metrics.utilization_badge_class(@data.utilization)]}
+            title={"#{@data.utilization}% of interface capacity"}
+          >
+            {@data.utilization}%
+          </span>
+        </div>
+        <div class={[
+          "text-base-content/60 font-mono shrink-0",
+          @compact && "text-[10px]",
+          not @compact && "text-xs"
+        ]}>
+          <span style={"color: #{@data.stroke}"}>
+            {Metrics.format_value(@data.paths.latest, @data.unit)}
+          </span>
+        </div>
+      </div>
+
+      <div class="relative">
+        <svg
+          viewBox={"0 0 #{@chart_width} #{@chart_height}"}
+          class={["w-full", @compact && "h-24", not @compact && "h-32"]}
+          preserveAspectRatio="none"
+        >
+          <defs>
+            <linearGradient id={"series-fill-#{@id}-#{@data.idx}"} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color={@data.stroke} stop-opacity="0.3" />
+              <stop offset="100%" stop-color={@data.stroke} stop-opacity="0.05" />
+            </linearGradient>
+          </defs>
+
+          <g stroke="currentColor" class="text-base-content/10" stroke-dasharray="3 4">
+            <%= for {y, _label} <- @data.y_ticks do %>
+              <line x1={@chart_pad} x2={@chart_width - @chart_pad} y1={y} y2={y} />
+            <% end %>
+            <%= for {x, _label} <- @data.x_ticks do %>
+              <line x1={x} x2={x} y1={@chart_pad} y2={@chart_height - @chart_pad} />
+            <% end %>
+          </g>
+
+          <g stroke="currentColor" class="text-base-content/40">
+            <line x1={@chart_pad} x2={@chart_pad} y1={@chart_pad} y2={@chart_height - @chart_pad} />
+            <line
+              x1={@chart_pad}
+              x2={@chart_width - @chart_pad}
+              y1={@chart_height - @chart_pad}
+              y2={@chart_height - @chart_pad}
+            />
+          </g>
+
+          <g stroke="currentColor" class="text-base-content/40">
+            <%= for {y, _label} <- @data.y_ticks do %>
+              <line x1={@chart_pad - 3} x2={@chart_pad} y1={y} y2={y} />
+            <% end %>
+            <%= for {x, _label} <- @data.x_ticks do %>
+              <line x1={x} x2={x} y1={@chart_height - @chart_pad} y2={@chart_height - @chart_pad + 3} />
+            <% end %>
+          </g>
+
+          <g class="text-[8px] fill-base-content/70 font-mono">
+            <%= for {y, label} <- @data.y_ticks do %>
+              <text x={@chart_pad - 4} y={y + 3} text-anchor="end">{label}</text>
+            <% end %>
+          </g>
+
+          <g class="text-[8px] fill-base-content/70 font-mono">
+            <%= for {x, label} <- @data.x_ticks do %>
+              <text x={x} y={@chart_height - 2} text-anchor="middle">{label}</text>
+            <% end %>
+          </g>
+
+          <path d={@data.paths.area} fill={"url(#series-fill-#{@id}-#{@data.idx})"} />
+          <path
+            d={@data.paths.line}
+            fill="none"
+            stroke={@data.stroke}
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+
+        <div
+          class="absolute hidden pointer-events-none bg-base-300 text-base-content text-xs px-2 py-1 rounded shadow-lg z-10 font-mono whitespace-nowrap"
+          data-tooltip
+        >
+        </div>
+        <div
+          class="absolute hidden pointer-events-none w-px bg-base-content/30 top-0 bottom-0"
+          data-hover-line
+        >
+        </div>
+      </div>
+
+      <div class={[
+        "flex items-center justify-between text-base-content/50 mt-1",
+        @compact && "text-[10px]",
+        not @compact && "text-xs"
+      ]}>
+        <span>
+          avg: <span class="font-mono">{Metrics.format_value(@data.paths.avg, @data.unit)}</span>
+        </span>
+        <span :if={@data.max_speed} class="text-base-content/40">
+          interface rate:
+          <span class="font-mono">{Metrics.format_value(@data.max_speed, :bytes_per_sec)}</span>
+        </span>
+        <span>
+          peak: <span class="font-mono">{Metrics.format_value(@data.paths.max, @data.unit)}</span>
+        </span>
+      </div>
+      <div class={[
+        "flex items-center justify-between text-base-content/40 mt-1 font-mono",
+        @compact && "text-[9px]",
+        not @compact && "text-[10px]"
+      ]}>
+        <span>{@data.first_dt}</span>
+        <span>{@data.last_dt}</span>
+      </div>
+    </div>
+    """
+  end
+end
