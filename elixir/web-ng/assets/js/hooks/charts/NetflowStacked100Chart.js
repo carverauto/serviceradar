@@ -10,6 +10,43 @@ import {
   fmtPct as nfFmtPct,
   parseSeriesData as nfParseSeriesData,
 } from "../../netflow_charts/util"
+import {nfFormatRateValue} from "../../utils/formatters"
+
+export function numberOrZero(value) {
+  const number = Number(value || 0)
+  return Number.isFinite(number) ? number : 0
+}
+
+export function normalizeStacked100Rows(points, keys) {
+  const visibleKeys = Array.isArray(keys) ? keys : []
+
+  return (Array.isArray(points) ? points : [])
+    .map((d) => {
+      const t = new Date(d?.t)
+      const values = {}
+      let sum = 0
+
+      for (const k of visibleKeys) {
+        const v = numberOrZero(d?.[k])
+        values[k] = v
+        sum += v
+      }
+
+      const denom = sum || 1
+      const out = {t, __sum: sum}
+      for (const k of visibleKeys) out[k] = values[k] / denom
+      return out
+    })
+    .filter((d) => d.t instanceof Date && !Number.isNaN(d.t.getTime()))
+    .sort((a, b) => a.t - b.t)
+}
+
+export function absoluteTotalSeries(data) {
+  return (Array.isArray(data) ? data : []).map((d) => ({
+    t: d.t,
+    v: numberOrZero(d?.__sum),
+  }))
+}
 
 export default {
   mounted() {
@@ -57,35 +94,18 @@ export default {
     const visibleKeys = keys.filter((k) => !this._hidden.has(k))
     if (visibleKeys.length === 0) return
 
-    const data = raw
-      .map((d) => {
-        const t = new Date(d.t)
-        const out = {t}
-        let sum = 0
-        for (const k of visibleKeys) {
-          const v = Number(d[k] || 0)
-          out[k] = v
-          sum += v
-        }
-        out.__sum = sum
-        return out
-      })
-      .filter((d) => d.t instanceof Date && !Number.isNaN(d.t.getTime()))
-      .sort((a, b) => a.t - b.t)
-      .map((d) => {
-        const denom = d.__sum || 1
-        const out = {t: d.t}
-        for (const k of visibleKeys) out[k] = Number(d[k] || 0) / denom
-        return out
-      })
+    const data = normalizeStacked100Rows(raw, visibleKeys)
 
     if (data.length === 0) return
 
     const stack = d3.stack().keys(visibleKeys)
     const series = stack(data)
+    const absoluteData = absoluteTotalSeries(data)
+    const maxAbsolute = d3.max(absoluteData, (d) => d.v) || 1
 
     const x = d3.scaleTime().domain(d3.extent(data, (d) => d.t)).range([0, iw])
     const y = d3.scaleLinear().domain([0, 1]).nice().range([ih, 0])
+    const yAbsolute = d3.scaleLinear().domain([0, maxAbsolute]).nice().range([ih, 0])
 
     const g = d3.select(svg).append("g").attr("transform", `translate(${m.left},${m.top})`)
 
@@ -107,30 +127,37 @@ export default {
       .attr("fill-opacity", 0.55)
 
     const normalizeToPct = (points) => {
-      const normalized = points
-        .map((d) => {
-          const t = new Date(d.t)
-          const out = {t}
-          let sum = 0
-          for (const k of visibleKeys) {
-            const v = Number(d[k] || 0)
-            out[k] = v
-            sum += v
-          }
-          out.__sum = sum
-          return out
-        })
-        .filter((d) => d.t instanceof Date && !Number.isNaN(d.t.getTime()))
-        .sort((a, b) => a.t - b.t)
-        .map((d) => {
-          const denom = d.__sum || 1
-          const out = {t: d.t}
-          for (const k of visibleKeys) out[k] = Number(d[k] || 0) / denom
-          return out
-        })
-
-      return normalized
+      return normalizeStacked100Rows(points, visibleKeys)
     }
+
+    const absoluteLine = d3
+      .line()
+      .defined((d) => Number.isFinite(d?.v))
+      .x((d) => x(d.t))
+      .y((d) => yAbsolute(d.v))
+      .curve(d3.curveMonotoneX)
+
+    g.append("path")
+      .datum(absoluteData)
+      .attr("class", "netflow-stacked100-absolute-total")
+      .attr("data-testid", "netflow-stacked100-absolute-total")
+      .attr("fill", "none")
+      .attr("stroke", "currentColor")
+      .attr("stroke-width", 1.5)
+      .attr("stroke-opacity", 0.75)
+      .attr("stroke-dasharray", "4,3")
+      .attr("d", absoluteLine)
+
+    g.append("g")
+      .attr("class", "netflow-stacked100-absolute-axis")
+      .attr("data-testid", "netflow-stacked100-absolute-axis")
+      .attr("transform", `translate(${iw},0)`)
+      .call(d3.axisRight(yAbsolute).ticks(3).tickFormat((v) => nfFormatRateValue(el.dataset.units, v)).tickSize(4))
+      .call((gg) => {
+        gg.selectAll("text").attr("x", -6).attr("text-anchor", "end").attr("font-size", 10).attr("opacity", 0.65)
+        gg.selectAll("line").attr("opacity", 0.35)
+        gg.select(".domain").attr("opacity", 0.25)
+      })
 
     // Composition overlays: dashed boundary lines (y1) per series layer.
     // We keep the same keys so the overlay reads as "previous composition" / "reverse composition".

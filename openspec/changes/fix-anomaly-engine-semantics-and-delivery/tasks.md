@@ -176,7 +176,7 @@
 
 ## 31. Charted Coverage & Accessibility (F37)
 - [x] 31.1 Chart `process.count`; add per-process history/sparklines so process spikes are visible.
-- [ ] 31.2 Show absolute volume alongside the NetFlow 100%-stacked view.
+- [x] 31.2 Show absolute volume alongside the NetFlow 100%-stacked view.
 - [ ] 31.3 Add non-color series encoding (shape/pattern/label) for color-blind operators.
 
 ## 32. Chart Renderer Modularization (F38)
