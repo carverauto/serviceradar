@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   use ServiceRadarWebNGWeb, :html
 
   attr :overview, :map, required: true
+  attr :selected_detail, :map, default: nil
 
   def anomaly_capacity_section(assigns) do
     ~H"""
@@ -56,23 +57,52 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
               <div :if={@overview.anomaly_rows == []} class="p-4 text-sm text-base-content/60">
                 No anomaly findings found for this device in the last 7 days.
               </div>
-              <article :for={row <- Enum.take(@overview.anomaly_rows, 5)} class="min-w-0 px-4 py-3">
+              <article
+                :for={{row, index} <- @overview.anomaly_rows |> Enum.take(5) |> Enum.with_index()}
+                class="min-w-0 cursor-pointer px-4 py-3 transition hover:bg-base-200/50 focus:bg-base-200/50 focus:outline-none"
+                role="button"
+                tabindex="0"
+                phx-click="open_anomaly_capacity_detail"
+                phx-value-kind="anomaly"
+                phx-value-index={index}
+                title={detail_identity(row)}
+              >
                 <div class="flex items-start justify-between gap-3">
                   <div class="min-w-0">
                     <div class="max-w-full break-words text-sm font-medium [overflow-wrap:anywhere]">
                       {finding_title(row)}
                     </div>
+                    <div
+                      :if={secondary_message(row)}
+                      class="mt-1 max-w-full truncate text-xs text-base-content/70"
+                    >
+                      {secondary_message(row)}
+                    </div>
                     <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-base-content/60">
-                      <span>{metric_class_label(row)}</span>
+                      <span>{metric_name_label(row)}</span>
+                      <span :if={value(row, "metric_value")}>
+                        value {format_number(value(row, "metric_value"))}
+                      </span>
+                      <span :if={value(row, "score")}>
+                        score {format_number(value(row, "score"))}
+                      </span>
                       <span>{format_timestamp(value(row, "time"))}</span>
                     </div>
                   </div>
-                  <span class={[
-                    "badge badge-sm shrink-0",
-                    severity_badge_class(value(row, "severity"))
-                  ]}>
-                    {value(row, "severity") || "Unknown"}
-                  </span>
+                  <div class="flex shrink-0 flex-col items-end gap-1">
+                    <span class={[
+                      "badge badge-sm",
+                      severity_badge_class(value(row, "severity"))
+                    ]}>
+                      {value(row, "severity") || "Unknown"}
+                    </span>
+                    <span class={[
+                      "badge badge-sm",
+                      anomaly_badge_class(value(row, "status"))
+                    ]}>
+                      {value(row, "status") || "unknown"}
+                    </span>
+                  </div>
                 </div>
               </article>
             </div>
@@ -110,9 +140,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                       No capacity forecasts found for this device yet.
                     </td>
                   </tr>
-                  <tr :for={row <- Enum.take(@overview.capacity_rows, 8)}>
-                    <td class="max-w-48 truncate">{resource_label(row)}</td>
-                    <td>{value(row, "metric_name") || value(row, "metric_class") || "metric"}</td>
+                  <tr
+                    :for={
+                      {row, index} <- @overview.capacity_rows |> Enum.take(8) |> Enum.with_index()
+                    }
+                    class="cursor-pointer hover:bg-base-200/50"
+                    phx-click="open_anomaly_capacity_detail"
+                    phx-value-kind="capacity"
+                    phx-value-index={index}
+                    title={detail_identity(row)}
+                  >
+                    <td class="max-w-48 truncate" title={resource_identity(row)}>
+                      {resource_label(row)}
+                    </td>
+                    <td>
+                      <div class="whitespace-nowrap">
+                        {value(row, "metric_name") || value(row, "metric_class") || "metric"}
+                      </div>
+                      <div :if={value(row, "value_unit")} class="text-xs text-base-content/50">
+                        {value(row, "value_unit")}
+                      </div>
+                    </td>
                     <td>
                       <span class={["badge badge-sm", status_badge_class(value(row, "status"))]}>
                         {value(row, "status") || "unknown"}
@@ -120,10 +168,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                     </td>
                     <td>
                       <div class="whitespace-nowrap">
-                        {format_number(value(row, "projected_value"))}
+                        {format_value(row, "projected_value")}
                       </div>
                       <div class="text-xs text-base-content/50">
-                        now {format_number(value(row, "current_value"))}
+                        now {format_value(row, "current_value")}
+                      </div>
+                      <div :if={headroom(row)} class="text-xs text-base-content/50">
+                        headroom {headroom(row)}
                       </div>
                     </td>
                     <td class="whitespace-nowrap">
@@ -139,6 +190,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
           </div>
         </div>
       </div>
+
+      <.anomaly_capacity_detail_modal detail={@selected_detail} />
     </section>
     """
   end
@@ -161,6 +214,111 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
     """
   end
 
+  attr :detail, :map, default: nil
+
+  defp anomaly_capacity_detail_modal(%{detail: nil} = assigns), do: ~H""
+
+  defp anomaly_capacity_detail_modal(assigns) do
+    assigns =
+      assigns
+      |> assign(:kind, Map.get(assigns.detail, :kind))
+      |> assign(:row, Map.get(assigns.detail, :row, %{}))
+
+    ~H"""
+    <div
+      id="anomaly-capacity-detail-modal"
+      class="modal modal-open"
+      tabindex="0"
+      phx-window-keydown="close_anomaly_capacity_detail"
+      phx-key="escape"
+    >
+      <div class="modal-box max-w-3xl">
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <h3 class="break-words text-base font-semibold [overflow-wrap:anywhere]">
+              {detail_title(@kind, @row)}
+            </h3>
+            <p class="mt-1 text-xs text-base-content/60">
+              {detail_subtitle(@kind, @row)}
+            </p>
+          </div>
+          <button
+            type="button"
+            class="btn btn-xs btn-ghost"
+            phx-click="close_anomaly_capacity_detail"
+            aria-label="Close detail"
+          >
+            Close
+          </button>
+        </div>
+
+        <div :if={@kind == "anomaly"} class="mt-5 grid gap-3 sm:grid-cols-2">
+          <.detail_fact label="Severity" value={value(@row, "severity") || "unknown"} />
+          <.detail_fact label="Status" value={value(@row, "status") || "unknown"} />
+          <.detail_fact label="Metric" value={metric_name_label(@row)} />
+          <.detail_fact label="Value" value={format_number(value(@row, "metric_value"))} mono />
+          <.detail_fact label="Score" value={format_number(value(@row, "score"))} mono />
+          <.detail_fact label="Threshold" value={format_number(value(@row, "threshold_value"))} mono />
+          <.detail_fact label="Series" value={value(@row, "series_key")} mono wide />
+          <.detail_fact label="Interface" value={interface_identity(@row)} mono />
+          <.detail_fact label="Device" value={value(@row, "device_label")} mono />
+          <.detail_fact
+            label="Finding UID"
+            value={value(@row, "finding_uid") || value(@row, "id")}
+            mono
+            wide
+          />
+          <.detail_fact label="Observed" value={format_timestamp(value(@row, "time"))} />
+        </div>
+
+        <div :if={@kind == "capacity"} class="mt-5 grid gap-3 sm:grid-cols-2">
+          <.detail_fact label="Resource" value={resource_label(@row)} mono wide />
+          <.detail_fact label="Resource ID" value={value(@row, "resource_id")} mono wide />
+          <.detail_fact label="Metric" value={capacity_metric_label(@row)} />
+          <.detail_fact label="Status" value={value(@row, "status") || "unknown"} />
+          <.detail_fact label="Current" value={format_value(@row, "current_value")} mono />
+          <.detail_fact label="Projected" value={format_value(@row, "projected_value")} mono />
+          <.detail_fact label="Threshold" value={format_value(@row, "exhaustion_threshold")} mono />
+          <.detail_fact label="Headroom" value={headroom(@row) || "n/a"} mono />
+          <.detail_fact
+            label="Exhaustion"
+            value={format_timestamp(value(@row, "projected_exhaustion_at"))}
+          />
+          <.detail_fact label="Confidence" value={format_percent(value(@row, "confidence"))} />
+          <.detail_fact label="Bounds" value={capacity_bounds(@row)} mono />
+          <.detail_fact label="Window" value={capacity_window(@row)} />
+          <.detail_fact label="Model" value={value(@row, "model")} />
+          <.detail_fact label="Samples" value={value(@row, "sample_count")} mono />
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button phx-click="close_anomaly_capacity_detail">close</button>
+      </form>
+    </div>
+    """
+  end
+
+  attr :label, :string, required: true
+  attr :value, :any, default: nil
+  attr :mono, :boolean, default: false
+  attr :wide, :boolean, default: false
+
+  defp detail_fact(assigns) do
+    ~H"""
+    <div class={["rounded-lg border border-base-200 bg-base-100 p-3", @wide && "sm:col-span-2"]}>
+      <div class="text-xs font-semibold uppercase tracking-normal text-base-content/50">
+        {@label}
+      </div>
+      <div class={[
+        "mt-1 break-words text-sm text-base-content [overflow-wrap:anywhere]",
+        @mono && "font-mono text-xs"
+      ]}>
+        {empty_label(@value)}
+      </div>
+    </div>
+    """
+  end
+
   defp observability_href(query) do
     "/observability?" <> URI.encode_query(%{tab: "events", q: query, limit: 50})
   end
@@ -175,10 +333,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
   defp finding_title(row) do
     value(row, "finding_title") ||
-      value(row, "message") ||
       nested_value(row, ["metadata", "finding_info", "title"]) ||
       nested_value(row, ["metadata", "detection_finding", "title"]) ||
+      value(row, "message") ||
       "Anomaly finding"
+  end
+
+  defp secondary_message(row) do
+    message = value(row, "message")
+    title = finding_title(row)
+
+    if present?(message) and message != title, do: message
   end
 
   defp metric_class_label(row) do
@@ -191,6 +356,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
       "interface" -> "Interfaces"
       "red" -> "RED"
       other -> other
+    end
+  end
+
+  defp metric_name_label(row) do
+    metric_name = value(row, "metric_name")
+    metric_class = metric_class_label(row)
+
+    cond do
+      present?(metric_name) and present?(metric_class) -> "#{metric_class} / #{metric_name}"
+      present?(metric_name) -> metric_name
+      true -> metric_class
     end
   end
 
@@ -222,11 +398,133 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
       "resource"
   end
 
+  defp resource_identity(row) do
+    Enum.find_value(
+      [
+        value(row, "resource_key"),
+        value(row, "resource_id"),
+        value(row, "series_key")
+      ],
+      &present_value/1
+    ) || resource_label(row)
+  end
+
+  defp detail_identity(row) do
+    Enum.find_value(
+      [
+        value(row, "finding_uid"),
+        value(row, "id"),
+        value(row, "resource_key"),
+        value(row, "resource_id"),
+        value(row, "series_key")
+      ],
+      &present_value/1
+    ) || "Open detail"
+  end
+
+  defp detail_title("capacity", row), do: resource_label(row)
+  defp detail_title(_kind, row), do: finding_title(row)
+
+  defp detail_subtitle("capacity", row) do
+    [
+      capacity_metric_label(row),
+      value(row, "status"),
+      format_timestamp(value(row, "projected_exhaustion_at"))
+    ]
+    |> Enum.filter(&present?/1)
+    |> Enum.join(" - ")
+  end
+
+  defp detail_subtitle(_kind, row) do
+    [
+      metric_name_label(row),
+      value(row, "status"),
+      format_timestamp(value(row, "time"))
+    ]
+    |> Enum.filter(&present?/1)
+    |> Enum.join(" - ")
+  end
+
+  defp capacity_metric_label(row) do
+    metric = value(row, "metric_name") || value(row, "metric_class") || "metric"
+
+    case unit_label(value(row, "value_unit")) do
+      nil -> metric
+      unit -> "#{metric} (#{unit})"
+    end
+  end
+
+  defp interface_identity(row) do
+    case {value(row, "interface_uid"), value(row, "if_index")} do
+      {uid, index} when is_binary(uid) and uid != "" and not is_nil(index) -> "#{uid} / ifIndex #{index}"
+      {uid, _index} when is_binary(uid) and uid != "" -> uid
+      {_uid, index} when not is_nil(index) -> "ifIndex #{index}"
+      _ -> nil
+    end
+  end
+
+  defp capacity_bounds(row) do
+    lower = format_value(row, "lower_bound")
+    upper = format_value(row, "upper_bound")
+
+    case {lower, upper} do
+      {"n/a", "n/a"} -> nil
+      {"n/a", upper} -> upper
+      {lower, "n/a"} -> lower
+      {lower, upper} -> "#{lower} - #{upper}"
+    end
+  end
+
+  defp capacity_window(row) do
+    started = value(row, "window_started_at")
+    ended = value(row, "window_ended_at")
+
+    cond do
+      present?(started) and present?(ended) ->
+        "#{format_timestamp(started)} - #{format_timestamp(ended)}"
+
+      present?(value(row, "horizon_seconds")) ->
+        "horizon #{value(row, "horizon_seconds")}s"
+
+      true ->
+        nil
+    end
+  end
+
+  defp format_value(row, key) do
+    formatted = format_number(value(row, key))
+
+    case {formatted, unit_label(value(row, "value_unit"))} do
+      {"n/a", _unit} -> "n/a"
+      {value, nil} -> value
+      {value, "%"} -> "#{value}%"
+      {value, unit} -> "#{value} #{unit}"
+    end
+  end
+
+  defp headroom(row) do
+    threshold = number_value(value(row, "exhaustion_threshold"))
+    projected = number_value(value(row, "projected_value"))
+    current = number_value(value(row, "current_value"))
+    basis = projected || current
+
+    if threshold && basis do
+      formatted = format_number(threshold - basis)
+
+      case unit_label(value(row, "value_unit")) do
+        nil -> formatted
+        "%" -> "#{formatted}%"
+        unit -> "#{formatted} #{unit}"
+      end
+    end
+  end
+
   defp status_badge_class(status) do
     case normalize_text(status) do
       "projected" -> "badge-warning"
       "at_risk" -> "badge-error"
       "exhausted" -> "badge-error"
+      "exhaustion_projected" -> "badge-error"
       "healthy" -> "badge-success"
       "skipped" -> "badge-ghost"
       _ -> "badge-outline"
@@ -244,8 +542,40 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   end
 
   defp anomaly_badge_class("active"), do: "badge-warning"
+  defp anomaly_badge_class("open"), do: "badge-warning"
+  defp anomaly_badge_class("anomaly_open"), do: "badge-warning"
   defp anomaly_badge_class("suppressed"), do: "badge-ghost"
   defp anomaly_badge_class(_), do: "badge-success"
+
+  defp unit_label(nil), do: nil
+  defp unit_label(""), do: nil
+  defp unit_label("%"), do: "%"
+  defp unit_label("percent"), do: "%"
+  defp unit_label("percentage"), do: "%"
+  defp unit_label(unit), do: to_string(unit)
+
+  defp number_value(value) when is_integer(value), do: value * 1.0
+  defp number_value(value) when is_float(value), do: value
+
+  defp number_value(value) when is_binary(value) do
+    case Float.parse(value) do
+      {number, _rest} -> number
+      :error -> nil
+    end
+  end
+
+  defp number_value(_), do: nil
+
+  defp empty_label(nil), do: "n/a"
+  defp empty_label(""), do: "n/a"
+  defp empty_label(value), do: value
+
+  defp present_value(value), do: if(present?(value), do: value)
+
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(nil), do: false
+  defp present?("n/a"), do: false
+  defp present?(_), do: true
 
   defp format_number(value) when is_integer(value), do: value |> Kernel.*(1.0) |> format_number()
 
@@ -335,23 +665,44 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   defp known_atom_key("confidence"), do: :confidence
   defp known_atom_key("current_value"), do: :current_value
   defp known_atom_key("detection_finding"), do: :detection_finding
+  defp known_atom_key("device_label"), do: :device_label
+  defp known_atom_key("exhaustion_threshold"), do: :exhaustion_threshold
+  defp known_atom_key("finding_uid"), do: :finding_uid
   defp known_atom_key("finding_info"), do: :finding_info
   defp known_atom_key("finding_title"), do: :finding_title
+  defp known_atom_key("forecasted_at"), do: :forecasted_at
+  defp known_atom_key("horizon_seconds"), do: :horizon_seconds
+  defp known_atom_key("horizon_ends_at"), do: :horizon_ends_at
+  defp known_atom_key("id"), do: :id
+  defp known_atom_key("if_index"), do: :if_index
+  defp known_atom_key("interface_uid"), do: :interface_uid
+  defp known_atom_key("lower_bound"), do: :lower_bound
   defp known_atom_key("message"), do: :message
   defp known_atom_key("metadata"), do: :metadata
   defp known_atom_key("metric_class"), do: :metric_class
   defp known_atom_key("metric_name"), do: :metric_name
+  defp known_atom_key("metric_value"), do: :metric_value
+  defp known_atom_key("model"), do: :model
   defp known_atom_key("projected_exhaustion_at"), do: :projected_exhaustion_at
   defp known_atom_key("projected_value"), do: :projected_value
   defp known_atom_key("raw_data"), do: :raw_data
   defp known_atom_key("resource_id"), do: :resource_id
   defp known_atom_key("resource_key"), do: :resource_key
   defp known_atom_key("resource_label"), do: :resource_label
+  defp known_atom_key("resource_type"), do: :resource_type
+  defp known_atom_key("sample_count"), do: :sample_count
+  defp known_atom_key("score"), do: :score
   defp known_atom_key("service_radar"), do: :service_radar
   defp known_atom_key("severity"), do: :severity
+  defp known_atom_key("series_key"), do: :series_key
   defp known_atom_key("status"), do: :status
+  defp known_atom_key("threshold_value"), do: :threshold_value
   defp known_atom_key("time"), do: :time
   defp known_atom_key("unmapped"), do: :unmapped
+  defp known_atom_key("upper_bound"), do: :upper_bound
+  defp known_atom_key("value_unit"), do: :value_unit
+  defp known_atom_key("window_started_at"), do: :window_started_at
+  defp known_atom_key("window_ended_at"), do: :window_ended_at
   defp known_atom_key(_), do: nil
 
   defp normalize_text(value) when is_binary(value) do
