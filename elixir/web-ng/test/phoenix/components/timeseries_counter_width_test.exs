@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.TimeseriesCounterWidthTest do
   use ExUnit.Case, async: true
 
+  alias Phoenix.LiveView.Socket
+  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics
 
   @moduletag :unit
@@ -54,6 +56,75 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.TimeseriesCounterWidthTest do
 
     assert series == "pduWidthCounter"
     assert [{_, first_rate}, {_, rate}] = rates
+    assert first_rate == 0.0
+    assert_in_delta rate, (@counter_max_64 - 1_000.0 + 100.0) / 60.0, 0.001
+  end
+
+  test "threads SRQL row counter metadata into timeseries panel specs" do
+    response = %{
+      "results" => [
+        %{
+          "timestamp" => "2026-01-01T00:00:00Z",
+          "metric_name" => "customCounter",
+          "value" => 1_000.0,
+          "metadata" => %{"counter_width" => 64}
+        },
+        %{
+          "timestamp" => "2026-01-01T00:01:00Z",
+          "metric_name" => "customCounter",
+          "value" => 100.0,
+          "metadata" => %{"counter_width" => 64}
+        }
+      ],
+      "viz" => %{
+        "suggestions" => [
+          %{"kind" => "timeseries", "x" => "timestamp", "y" => "value", "series" => "metric_name"}
+        ]
+      }
+    }
+
+    assert {:ok, assigns} = Timeseries.build(response)
+    assert assigns.spec[:series_metadata] == %{"customCounter" => %{counter_width: 64}}
+  end
+
+  test "uses spec counter metadata when LiveComponent update converts counters to rates" do
+    assert {:ok, socket} =
+             Timeseries.update(
+               %{
+                 panel_assigns: %{rate_mode: :counter},
+                 spec: %{series_metadata: %{"customCounter" => %{counter_width: 64}}},
+                 series_points: [{"customCounter", rollover_points()}]
+               },
+               %Socket{}
+             )
+
+    assert [{"customCounter", [{_, first_rate}, {_, rate}]}] = socket.assigns.series_points
+    assert first_rate == 0.0
+    assert_in_delta rate, (@counter_max_64 - 1_000.0 + 100.0) / 60.0, 0.001
+  end
+
+  test "uses grouped series metadata when LiveComponent update converts counters to rates" do
+    [first_point, second_point] =
+      Enum.map(rollover_points(), fn {time, value} -> %{time: time, value: value} end)
+
+    assert {:ok, socket} =
+             Timeseries.update(
+               %{
+                 panel_assigns: %{
+                   rate_mode: :counter,
+                   series: [
+                     %{
+                       name: "customCounter",
+                       data: [first_point, second_point],
+                       metadata: %{"counter_width" => "64"}
+                     }
+                   ]
+                 }
+               },
+               %Socket{}
+             )
+
+    assert [{"customCounter", [{_, first_rate}, {_, rate}]}] = socket.assigns.series_points
     assert first_rate == 0.0
     assert_in_delta rate, (@counter_max_64 - 1_000.0 + 100.0) / 60.0, 0.001
   end

@@ -1632,7 +1632,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     %{
       name: Map.get(result, "metric_name") || Map.get(result, :metric_name),
       time: Map.get(result, "time") || Map.get(result, :time),
-      value: Map.get(result, "value") || Map.get(result, :value)
+      value: Map.get(result, "value") || Map.get(result, :value),
+      metadata: Map.get(result, "metadata") || Map.get(result, :metadata) || %{}
     }
   end
 
@@ -1642,7 +1643,21 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
       |> Enum.map(fn p -> %{time: p.time, value: p.value} end)
       |> Enum.sort_by(& &1.time)
 
-    %{name: format_metric_series_name(name), data: data}
+    series = %{name: format_metric_series_name(name), data: data}
+    metadata = merge_point_metadata(points)
+
+    if metadata == %{} do
+      series
+    else
+      Map.put(series, :metadata, metadata)
+    end
+  end
+
+  defp merge_point_metadata(points) do
+    Enum.reduce(points, %{}, fn
+      %{metadata: metadata}, acc when is_map(metadata) -> Map.merge(metadata, acc)
+      _point, acc -> acc
+    end)
   end
 
   # Format metric name for display in chart legend

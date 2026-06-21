@@ -37,11 +37,12 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Spec do
   def extract_series_points(results, %{x: x, y: y, series: series_key}) do
     rows = Enum.filter(results, &is_map/1)
 
-    {points, units} =
-      Enum.reduce(rows, {%{}, %{}}, fn row, {points_acc, units_acc} ->
+    {points, units, metadata} =
+      Enum.reduce(rows, {%{}, %{}, %{}}, fn row, {points_acc, units_acc, metadata_acc} ->
         series = row_series(row, series_key)
 
         units_acc = record_series_unit(units_acc, series, row)
+        metadata_acc = record_series_metadata(metadata_acc, series, row)
 
         points_acc =
           with {:ok, dt} <- parse_datetime(Map.get(row, x)),
@@ -51,7 +52,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Spec do
             _ -> points_acc
           end
 
-        {points_acc, units_acc}
+        {points_acc, units_acc, metadata_acc}
       end)
 
     series_points =
@@ -71,8 +72,28 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Spec do
       |> Enum.reject(fn {_series, unit} -> is_nil(unit) end)
       |> Map.new()
 
-    {:ok, series_points, series_units}
+    series_metadata =
+      series_points
+      |> Enum.map(fn {series, _points} -> {series, Map.get(metadata, series)} end)
+      |> Enum.reject(fn {_series, metadata} -> metadata in [nil, %{}] end)
+      |> Map.new()
+
+    {:ok, series_points, series_units, series_metadata}
   end
+
+  def series_metadata(series) when is_list(series) do
+    series
+    |> Enum.map(fn item ->
+      name = Map.get(item, :name) || Map.get(item, "name") || "series"
+      metadata = counter_metadata(item)
+
+      {to_string(name), metadata}
+    end)
+    |> Enum.reject(fn {_series, metadata} -> metadata == %{} end)
+    |> Map.new()
+  end
+
+  def series_metadata(_), do: %{}
 
   def series_to_points(series) when is_list(series) do
     Enum.map(series, fn item ->
@@ -114,6 +135,56 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Spec do
       unit -> Map.put(units, series, unit)
     end
   end
+
+  defp record_series_metadata(metadata, series, row) do
+    row_metadata = counter_metadata(row)
+
+    if row_metadata == %{} do
+      metadata
+    else
+      Map.update(metadata, series, row_metadata, &Map.merge(row_metadata, &1))
+    end
+  end
+
+  defp counter_metadata(%{} = row) do
+    nested_metadata = metadata_map(Map.get(row, :metadata) || Map.get(row, "metadata"))
+
+    Enum.reduce(
+      [
+        {:counter_width,
+         first_present([
+           Map.get(row, :counter_width),
+           Map.get(row, "counter_width"),
+           Map.get(nested_metadata, :counter_width),
+           Map.get(nested_metadata, "counter_width")
+         ])},
+        {:counter_bits,
+         first_present([
+           Map.get(row, :counter_bits),
+           Map.get(row, "counter_bits"),
+           Map.get(nested_metadata, :counter_bits),
+           Map.get(nested_metadata, "counter_bits")
+         ])},
+        {:pdu_width,
+         first_present([
+           Map.get(row, :pdu_width),
+           Map.get(row, "pdu_width"),
+           Map.get(nested_metadata, :pdu_width),
+           Map.get(nested_metadata, "pdu_width")
+         ])}
+      ],
+      %{},
+      fn
+        {_key, nil}, acc -> acc
+        {key, value}, acc -> Map.put(acc, key, value)
+      end
+    )
+  end
+
+  defp counter_metadata(_), do: %{}
+
+  defp metadata_map(value) when is_map(value), do: value
+  defp metadata_map(_), do: %{}
 
   defp row_unit(row) do
     first_present([
