@@ -9,6 +9,8 @@ import {
   ensureSVG as nfEnsureSVG,
   normalizeTimeSeries as nfNormalizeTimeSeries,
   parseSeriesData as nfParseSeriesData,
+  renderYGrid as nfRenderYGrid,
+  styleChartAxis as nfStyleChartAxis,
 } from "../../netflow_charts/util"
 import {nfFormatRateValue} from "../../utils/formatters"
 
@@ -83,6 +85,8 @@ export default {
     const g = d3.select(svg).append("g").attr("transform", `translate(${m.left},${m.top})`)
 
     const color = nfColorScale(keys, colors)
+
+    nfRenderYGrid(g, y, iw, {tickCount: 4})
 
     const area = d3
       .area()
@@ -175,34 +179,34 @@ export default {
     g.append("g")
       .attr("transform", `translate(0,${ih})`)
       .call(d3.axisBottom(x).ticks(5).tickSizeOuter(0))
-      .call((gg) => gg.selectAll("text").attr("font-size", 10).attr("opacity", 0.7))
+      .call(nfStyleChartAxis)
 
     g.append("g")
-      .call(d3.axisLeft(y).ticks(4).tickSizeOuter(0))
-      .call((gg) => gg.selectAll("text").attr("font-size", 10).attr("opacity", 0.7))
+      .call(d3.axisLeft(y).ticks(4).tickFormat((v) => nfFormatRateValue(el.dataset.units, v)).tickSizeOuter(0))
+      .call(nfStyleChartAxis)
 
     // Brush-zoom: opt-in via data-zoomable="true"
-  if (el.dataset.zoomable === "true") {
-    const brushG = g.append("g").attr("class", "brush")
+    if (el.dataset.zoomable === "true") {
+      const brushG = g.append("g").attr("class", "brush")
 
-    const brush = d3
-      .brushX()
-      .extent([
-        [0, 0],
-        [iw, ih],
-      ])
-      .on("end", (event) => {
-        if (!event.selection) return
-        const [x0, x1] = event.selection.map(x.invert)
-        brushG.call(brush.move, null)
-        this.pushEvent("chart_zoom", {
-          start: x0.toISOString(),
-          end: x1.toISOString(),
+      const brush = d3
+        .brushX()
+        .extent([
+          [0, 0],
+          [iw, ih],
+        ])
+        .on("end", (event) => {
+          if (!event.selection) return
+          const [x0, x1] = event.selection.map(x.invert)
+          brushG.call(brush.move, null)
+          this.pushEvent("chart_zoom", {
+            start: x0.toISOString(),
+            end: x1.toISOString(),
+          })
         })
-      })
 
-    brushG.call(brush)
-  }
+      brushG.call(brush)
+    }
 
     try {
       this._tooltipCleanup?.()

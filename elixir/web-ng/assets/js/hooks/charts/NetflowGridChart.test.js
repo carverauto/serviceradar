@@ -1,6 +1,7 @@
 import {describe, expect, it} from "vitest"
+import * as d3 from "d3"
 
-import {gridPanelAt, gridPanelLayout, nearestTimeRow} from "./NetflowGridChart"
+import {gridPanelAt, gridPanelLayout, gridYTicks, nearestTimeRow} from "./NetflowGridChart"
 
 describe("NetflowGridChart hover geometry", () => {
   it("maps pointer coordinates to the active grid panel", () => {
@@ -22,5 +23,15 @@ describe("NetflowGridChart hover geometry", () => {
 
     expect(nearestTimeRow(data, new Date("2026-01-01T00:04:00Z"))).toBe(data[1])
     expect(nearestTimeRow(data, "not-a-date")).toBeNull()
+  })
+
+  it("formats compact y ticks for mini-panel axes", () => {
+    const scale = d3.scaleLinear().domain([0, 2400]).nice()
+
+    expect(gridYTicks(scale, "bps", 3)).toEqual([
+      {value: 0, label: "0 b/s"},
+      {value: 1000, label: "1.00 Kb/s"},
+      {value: 2000, label: "2.00 Kb/s"},
+    ])
   })
 })

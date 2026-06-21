@@ -8,8 +8,11 @@ import {
   ensureSVG as nfEnsureSVG,
   ensureTooltip as nfEnsureTooltip,
   escapeHtml as nfEscapeHtml,
+  renderYGrid as nfRenderYGrid,
+  styleChartAxis as nfStyleChartAxis,
   normalizeTimeSeries as nfNormalizeTimeSeries,
   parseSeriesData as nfParseSeriesData,
+  yTickValues as nfYTickValues,
 } from "../../netflow_charts/util"
 import {nfFormatRateValue} from "../../utils/formatters"
 
@@ -53,6 +56,13 @@ export function nearestTimeRow(data, targetTime) {
 
   const bisect = d3.bisector((d) => d.t).center
   return data[bisect(data, target)] || null
+}
+
+export function gridYTicks(yScale, units, count = 3) {
+  return nfYTickValues(yScale, count).map((value) => ({
+    value,
+    label: nfFormatRateValue(units, value),
+  }))
 }
 
 export default {
@@ -133,10 +143,31 @@ export default {
         .attr("stroke", "currentColor")
         .attr("opacity", 0.12)
 
-      const px = d3.scaleTime().domain(d3.extent(data, (d) => d.t)).range([10, cw - 10])
+      const chartLeft = 42
+      const chartRight = Math.max(chartLeft + 1, cw - 10)
+      const px = d3.scaleTime().domain(d3.extent(data, (d) => d.t)).range([chartLeft, chartRight])
       const maxY = d3.max(data, (d) => d[k]) || 1
       const py = d3.scaleLinear().domain([0, maxY]).nice().range([ch - 18, 18])
       panelState.set(k, {...panelSpec, xScale: px, yScale: py})
+
+      const yTicks = gridYTicks(py, el.dataset.units, 3)
+      nfRenderYGrid(panel, py, chartRight - chartLeft, {
+        ticks: yTicks.map((tick) => tick.value),
+        opacity: 0.1,
+      }).attr("transform", `translate(${chartLeft},0)`)
+
+      const yAxis = panel
+        .append("g")
+        .attr("transform", `translate(${chartLeft},0)`)
+        .call(
+          d3
+            .axisLeft(py)
+            .tickValues(yTicks.map((tick) => tick.value))
+            .tickFormat((value) => yTicks.find((tick) => tick.value === value)?.label || nfFormatRateValue(el.dataset.units, value))
+            .tickSizeOuter(0)
+            .tickSize(3),
+        )
+      nfStyleChartAxis(yAxis)
 
       const ln = d3
         .line()
@@ -192,7 +223,8 @@ export default {
         return
       }
 
-      const panelX = Math.max(10, Math.min(state.width - 10, localX - state.x0))
+      const [minX, maxX] = state.xScale.range()
+      const panelX = Math.max(Math.min(minX, maxX), Math.min(Math.max(minX, maxX), localX - state.x0))
       const row = nearestTimeRow(data, state.xScale.invert(panelX))
       if (!row) {
         hideHover()

@@ -144,6 +144,40 @@ export function chartDims(el, opts = {}) {
   return { width, height, margin, iw, ih }
 }
 
+export function yTickValues(scale, count = 4) {
+  if (!scale || typeof scale.ticks !== "function") return []
+
+  const tickCount = Math.max(2, Number(count) || 4)
+  return scale.ticks(tickCount).filter((value) => Number.isFinite(Number(value)))
+}
+
+export function styleChartAxis(axis) {
+  axis.selectAll("text").attr("font-size", 10).attr("opacity", 0.7).attr("fill", "currentColor")
+  axis.selectAll("line").attr("stroke", "currentColor").attr("opacity", 0.28)
+  axis.select(".domain").attr("stroke", "currentColor").attr("opacity", 0.25)
+  return axis
+}
+
+export function renderYGrid(container, yScale, width, opts = {}) {
+  const ticks = opts.ticks || yTickValues(yScale, opts.tickCount || 4)
+  const grid = container.append("g").attr("class", opts.className || "nf-y-grid").attr("pointer-events", "none")
+
+  grid
+    .selectAll("line")
+    .data(ticks)
+    .join("line")
+    .attr("x1", 0)
+    .attr("x2", width)
+    .attr("y1", (value) => yScale(value))
+    .attr("y2", (value) => yScale(value))
+    .attr("stroke", "currentColor")
+    .attr("stroke-width", 1)
+    .attr("stroke-dasharray", opts.dasharray || "2 3")
+    .attr("opacity", opts.opacity ?? 0.12)
+
+  return grid
+}
+
 export function parseSeriesData(el) {
   const raw = parseJSON(el.dataset.points || "[]", [])
   const keys = parseJSON(el.dataset.keys || "[]", [])

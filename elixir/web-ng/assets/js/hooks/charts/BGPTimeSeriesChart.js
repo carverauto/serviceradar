@@ -1,6 +1,6 @@
 import * as d3 from "d3"
 
-import {ensureTooltip, escapeHtml} from "../../netflow_charts/util"
+import {ensureTooltip, escapeHtml, renderYGrid, styleChartAxis} from "../../netflow_charts/util"
 
 export function numberOrNull(value) {
   if (value === null || value === undefined || value === "") return null
@@ -70,16 +70,20 @@ export default {
     const y = d3
       .scaleLinear()
       .domain([0, d3.max(allValues) || 1])
+      .nice()
       .range([height, 0])
 
     const color = d3.scaleOrdinal(d3.schemeCategory10)
 
+    renderYGrid(svg, y, width, {tickCount: 4})
+
     svg
       .append("g")
       .attr("transform", `translate(0,${height})`)
-      .call(d3.axisBottom(x))
+      .call(d3.axisBottom(x).ticks(5).tickSizeOuter(0))
+      .call(styleChartAxis)
 
-    svg.append("g").call(d3.axisLeft(y))
+    svg.append("g").call(d3.axisLeft(y).ticks(4).tickSizeOuter(0)).call(styleChartAxis)
 
     const line = d3
       .line()

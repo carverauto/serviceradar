@@ -9,6 +9,8 @@ import {
   ensureSVG as nfEnsureSVG,
   fmtPct as nfFmtPct,
   parseSeriesData as nfParseSeriesData,
+  renderYGrid as nfRenderYGrid,
+  styleChartAxis as nfStyleChartAxis,
 } from "../../netflow_charts/util"
 import {nfFormatRateValue} from "../../utils/formatters"
 
@@ -111,6 +113,8 @@ export default {
 
     const color = nfColorScale(keys, colors)
 
+    nfRenderYGrid(g, y, iw, {tickCount: 4})
+
     const area = d3
       .area()
       .x((d) => x(d.data.t))
@@ -153,10 +157,9 @@ export default {
       .attr("data-testid", "netflow-stacked100-absolute-axis")
       .attr("transform", `translate(${iw},0)`)
       .call(d3.axisRight(yAbsolute).ticks(3).tickFormat((v) => nfFormatRateValue(el.dataset.units, v)).tickSize(4))
-      .call((gg) => {
-        gg.selectAll("text").attr("x", -6).attr("text-anchor", "end").attr("font-size", 10).attr("opacity", 0.65)
-        gg.selectAll("line").attr("opacity", 0.35)
-        gg.select(".domain").attr("opacity", 0.25)
+      .call(nfStyleChartAxis)
+      .call((axis) => {
+        axis.selectAll("text").attr("x", -6).attr("text-anchor", "end").attr("opacity", 0.65)
       })
 
     // Composition overlays: dashed boundary lines (y1) per series layer.
@@ -214,11 +217,11 @@ export default {
     g.append("g")
       .attr("transform", `translate(0,${ih})`)
       .call(d3.axisBottom(x).ticks(5).tickSizeOuter(0))
-      .call((gg) => gg.selectAll("text").attr("font-size", 10).attr("opacity", 0.7))
+      .call(nfStyleChartAxis)
 
     g.append("g")
       .call(d3.axisLeft(y).ticks(4).tickFormat(d3.format(".0%")).tickSizeOuter(0))
-      .call((gg) => gg.selectAll("text").attr("font-size", 10).attr("opacity", 0.7))
+      .call(nfStyleChartAxis)
 
     try {
       this._tooltipCleanup?.()
