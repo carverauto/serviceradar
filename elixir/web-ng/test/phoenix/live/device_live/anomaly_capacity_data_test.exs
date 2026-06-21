@@ -48,6 +48,43 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
     end
   end
 
+  defmodule NoFallbackSRQL do
+    @moduledoc false
+
+    def query("in:events" <> _rest = query, _opts) do
+      send(test_pid(), {:fake_query, query})
+
+      cond do
+        String.contains?(query, ~s|device_uid_exact:"router-1"|) ->
+          {:ok, %{"results" => []}}
+
+        String.contains?(query, "agent_id:") or String.contains?(query, "host_id:") ->
+          {:ok,
+           %{
+             "results" => [
+               %{
+                 "metric_class" => "cpu",
+                 "status" => "active",
+                 "message" => "agent-scoped row must not leak into the device panel"
+               }
+             ]
+           }}
+
+        true ->
+          {:ok, %{"results" => []}}
+      end
+    end
+
+    def query("in:capacity_forecasts" <> _rest = query, _opts) do
+      send(test_pid(), {:fake_query, query})
+      {:ok, %{"results" => []}}
+    end
+
+    defp test_pid do
+      Application.fetch_env!(:serviceradar_web_ng, :anomaly_capacity_data_test_pid)
+    end
+  end
+
   defmodule ProjectingSRQL do
     @moduledoc false
 
@@ -177,6 +214,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
     assert red.count == 0
   end
 
+  test "does not fall back to agent or host scoped anomaly findings when the canonical device has no rows" do
+    data =
+      AnomalyCapacityData.load(
+        NoFallbackSRQL,
+        %{device_uid: "router-1", agent_id: "agent-1", host_id: "router-host"},
+        nil
+      )
+
+    queries = drain_fake_queries()
+    anomaly_queries = Enum.filter(queries, &String.contains?(&1, "in:events"))
+
+    assert data.anomaly_rows == []
+    assert data.anomaly_filter == %{field: "device_uid_exact", label: "device", value: "router-1"}
+    assert Enum.any?(anomaly_queries, &String.contains?(&1, ~s|device_uid_exact:"router-1"|))
+    refute Enum.any?(anomaly_queries, &String.contains?(&1, "agent_id:"))
+    refute Enum.any?(anomaly_queries, &String.contains?(&1, "host_id:"))
+  end
+
   test "limits queries and keeps only rendered anomaly and capacity fields" do
     data = AnomalyCapacityData.load(ProjectingSRQL, %{device_uid: "router-1"}, nil)
 
@@ -264,6 +319,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
 
     send(anomaly_pid, :release_anomaly_query)
     assert %{status: :ok} = Task.await(load_task, 1_000)
+  end
+
+  defp drain_fake_queries(acc \\ []) do
+    receive do
+      {:fake_query, query} -> drain_fake_queries([query | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
