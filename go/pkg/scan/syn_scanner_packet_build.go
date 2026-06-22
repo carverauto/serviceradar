@@ -63,7 +63,7 @@ func (s *SYNScanner) initPacketTemplate() {
 // generateRandomID returns a thread-safe random IP header ID
 func (s *SYNScanner) generateRandomID() uint16 {
 	s.randMu.Lock()
-	id := uint16(s.rand.Intn(maxRandomID))
+	id := uint16(s.rand.IntN(maxRandomID))
 	s.randMu.Unlock()
 
 	return id
