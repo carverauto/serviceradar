@@ -215,7 +215,7 @@
 
 ## 39. Dashboard Load Performance (F45)
 - [x] 39.1 Parallelize the ~20 dashboard data queries + ~30 schema probes (concurrent, not sequential).
-- [ ] 39.2 Split `dashboard_live/data.ex` (~3148 lines) per §32.3.
+- [x] 39.2 Split `dashboard_live/data.ex` (~3148 lines) per §32.3.
 
 ## 40. Data Retention Coverage (F46)
 - [x] 40.1 Verify a retention policy exists for every high-volume hypertable (`otel_traces`, `ocsf_network_activity` only got one 2026-06-19); add any missing.
