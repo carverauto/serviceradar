@@ -11,16 +11,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   alias Ash.Error.Invalid
   alias ServiceRadar.Automation.Northbound.Catalog, as: NorthboundCatalog
   alias ServiceRadar.Automation.Northbound.InvocationService, as: NorthboundInvocationService
-  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
-  alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.DevicePubSub
-  alias ServiceRadarWebNG.Devices.ManualDeviceCreator
   alias ServiceRadarWebNG.Northbound.ActionForm, as: NorthboundActionForm
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNG.RuntimeLimits
   alias ServiceRadarWebNG.TenantUsage
-  alias ServiceRadarWebNGWeb.DeviceLive.DeviceStateData
+  alias ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport
+  alias ServiceRadarWebNGWeb.DeviceLive.IndexData
   alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
@@ -31,15 +29,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   @default_limit 20
   @max_limit 100
-  @sparkline_device_cap 200
-  @sparkline_points_per_device 20
-  @sparkline_bucket "5m"
-  @sparkline_window "last_1h"
-  @sparkline_threshold_ms 100.0
-  @presence_window "last_24h"
-  @presence_bucket "24h"
-  @presence_device_cap 200
-  @agent_availability_fresh_seconds 2 * 60 * 60
   @device_pubsub_refresh_debounce_ms 1_000
 
   @impl true
@@ -96,7 +85,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:availability_source_form, to_form(%{"agent_id" => ""}, as: :availability_source))
      |> assign(
        :availability_source_agent_options,
-       load_availability_source_agent_options(socket.assigns.current_scope)
+       IndexData.load_availability_source_agent_options(socket.assigns.current_scope)
      )
      |> assign(:breakdown_modal, nil)
      |> assign(:breakdown_search, "")
@@ -359,7 +348,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     if RBAC.can?(socket.assigns.current_scope, "devices.create") do
       scope = socket.assigns.current_scope
 
-      case create_device(scope, params) do
+      case IndexCsvImport.create_device(scope, params) do
         {:ok, device} ->
           {:noreply,
            socket
@@ -371,7 +360,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         {:error, %Invalid{} = error} ->
           Logger.warning("Device create failed with validation error: #{inspect(error)}")
 
-          {:noreply, put_flash(socket, :error, format_device_error(error))}
+          {:noreply, put_flash(socket, :error, IndexCsvImport.format_device_error(error))}
 
         {:error, %Forbidden{}} ->
           {:noreply, put_flash(socket, :error, "You are not authorized to add devices")}
@@ -596,7 +585,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         # Turning on - get total count
         scope = socket.assigns.current_scope
         query = Map.get(socket.assigns.srql || %{}, :query, "")
-        total = get_total_matching_count(scope, query)
+        total = IndexData.get_total_matching_count(scope, query)
 
         socket
         |> assign(:select_all_matching, true)
@@ -639,7 +628,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       [entry | _] ->
         result =
           consume_uploaded_entry(socket, entry, fn %{path: path} ->
-            parse_csv_file(path)
+            IndexCsvImport.parse_csv_file(path)
           end)
 
         case result do
@@ -662,7 +651,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     params =
       socket.assigns
       |> Map.get(:last_params, %{})
-      |> include_inactive_inventory_params()
+      |> IndexData.include_inactive_inventory_params()
 
     uri = Map.get(socket.assigns, :last_uri, "/devices")
     preserve_async_data? = Keyword.get(opts, :preserve_async_data?, false)
@@ -678,7 +667,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
     scope = Map.get(socket.assigns, :current_scope)
     query = Map.get(socket.assigns.srql || %{}, :query, "")
-    current_page = parse_page_param(params)
+    current_page = IndexData.parse_page_param(params)
     token = System.unique_integer([:positive])
 
     socket =
@@ -773,7 +762,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
     socket
     |> assign(:device_enrichment_task, task)
-    |> start_async(task, fn -> build_device_enrichments(scope, query, devices) end)
+    |> start_async(task, fn -> IndexData.build_device_enrichments(scope, query, devices) end)
   end
 
   defp start_device_stats_task(socket, token, scope) do
@@ -783,7 +772,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     |> assign(:device_stats_task, task)
     |> start_async(task, fn ->
       srql = srql_module()
-      load_device_stats(srql, scope)
+      IndexData.load_device_stats(srql, scope)
     end)
   end
 
@@ -797,6 +786,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp task_ref(%Task{ref: ref}), do: ref
   defp task_ref(_), do: nil
+
+  defp srql_module do
+    Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
+  end
 
   defp apply_device_enrichments(socket, token, enrichments) do
     if socket.assigns[:device_enrichment_token] == token do
@@ -826,132 +819,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
        )}
     else
       {:noreply, socket}
-    end
-  end
-
-  defp build_device_enrichments(scope, query, devices) do
-    srql = srql_module()
-
-    {icmp_sparklines, icmp_error} = load_icmp_sparklines(srql, devices, scope)
-    effective_availability_by_device = load_effective_availability(devices, scope)
-    {snmp_presence, sysmon_presence} = load_metric_presence(srql, devices, scope)
-    sysmon_profiles_by_device = load_sysmon_profiles_for_devices(scope, devices)
-    agent_device_uids = load_agent_device_uids(devices, scope)
-    total_device_count = get_total_matching_count(scope, query)
-
-    %{
-      icmp_sparklines: icmp_sparklines,
-      icmp_error: icmp_error,
-      effective_availability_by_device: effective_availability_by_device,
-      snmp_presence: snmp_presence,
-      sysmon_presence: sysmon_presence,
-      sysmon_profiles_by_device: sysmon_profiles_by_device,
-      agent_device_uids: agent_device_uids,
-      total_device_count: total_device_count
-    }
-  end
-
-  defp load_agent_device_uids(devices, _scope) do
-    devices
-    |> Enum.filter(&is_map/1)
-    |> Enum.map(&(Map.get(&1, "uid") || Map.get(&1, "id")))
-    |> DeviceStateData.agent_device_uids()
-  end
-
-  defp load_availability_source_agent_options(scope) do
-    Agent
-    |> Ash.Query.for_read(:read, %{}, scope: scope)
-    |> Ash.Query.sort(uid: :asc)
-    |> Ash.read(scope: scope)
-    |> case do
-      {:ok, %{results: agents}} -> agents
-      {:ok, agents} when is_list(agents) -> agents
-      _ -> []
-    end
-    |> Enum.map(fn agent ->
-      display = agent.name || agent.host || agent.uid
-      {"#{display} (#{agent.uid})", agent.uid}
-    end)
-  rescue
-    reason ->
-      Logger.warning("Failed to load availability source agents: #{inspect(reason)}")
-      []
-  end
-
-  defp load_effective_availability(devices, scope) do
-    device_uids =
-      devices
-      |> Enum.filter(&is_map/1)
-      |> Enum.map(&(Map.get(&1, "uid") || Map.get(&1, "id")))
-      |> Enum.filter(&is_binary/1)
-      |> Enum.uniq()
-
-    if device_uids == [] do
-      %{}
-    else
-      rows =
-        DeviceAgentAvailability
-        |> Ash.Query.for_read(:read, %{}, scope: scope)
-        |> Ash.Query.filter(device_uid in ^device_uids)
-        |> Ash.Query.sort(checked_at: :desc, agent_id: :asc)
-        |> Ash.read!(scope: scope)
-
-      rows_by_device = Enum.group_by(rows, & &1.device_uid)
-
-      devices
-      |> Enum.filter(&is_map/1)
-      |> Enum.reduce(%{}, fn device, acc ->
-        uid = Map.get(device, "uid") || Map.get(device, "id")
-        availability_rows = Map.get(rows_by_device, uid, [])
-
-        case effective_availability_from_rows(device, availability_rows) do
-          nil -> acc
-          value -> Map.put(acc, uid, value)
-        end
-      end)
-    end
-  rescue
-    reason ->
-      Logger.warning("Failed to load effective device availability: #{inspect(reason)}")
-      %{}
-  end
-
-  defp effective_availability_from_rows(_device, []), do: nil
-
-  defp effective_availability_from_rows(device, rows) do
-    fresh_rows = Enum.filter(rows, &agent_availability_fresh?/1)
-
-    if fresh_rows == [] do
-      nil
-    else
-      effective_availability_from_fresh_rows(device, fresh_rows)
-    end
-  end
-
-  defp effective_availability_from_fresh_rows(device, rows) do
-    source_agent_id =
-      device
-      |> Map.get("availability_source_agent_id")
-      |> blank_to_nil()
-
-    if is_binary(source_agent_id) do
-      rows
-      |> Enum.find(&(&1.agent_id == source_agent_id))
-      |> case do
-        nil -> nil
-        row -> row.is_available == true
-      end
-    else
-      Enum.any?(rows, &(&1.is_available == true))
-    end
-  end
-
-  defp agent_availability_fresh?(row) do
-    cutoff = DateTime.add(DateTime.utc_now(), -@agent_availability_fresh_seconds, :second)
-
-    case Map.get(row, :checked_at) do
-      %DateTime{} = observed_at -> DateTime.after?(observed_at, cutoff)
-      _ -> false
     end
   end
 
@@ -992,14 +859,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       devices when is_list(devices) and devices != [] ->
         scope = socket.assigns.current_scope
 
-        case import_devices(scope, devices) do
+        case IndexCsvImport.import_devices(scope, devices) do
           {:ok, {created, skipped}} ->
             {:noreply,
              socket
              |> assign(:show_import_modal, false)
              |> assign(:csv_preview, nil)
              |> assign(:csv_errors, [])
-             |> put_flash(:info, import_success_message(created, skipped))
+             |> put_flash(:info, IndexCsvImport.import_success_message(created, skipped))
              |> push_patch(to: ~p"/devices")}
 
           {:error, errors} when is_list(errors) ->
@@ -1181,7 +1048,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             {:noreply,
              socket
              |> assign(:show_bulk_delete_modal, false)
-             |> put_flash(:error, "Bulk delete failed: #{format_device_error(reason)}")}
+             |> put_flash(:error, "Bulk delete failed: #{IndexCsvImport.format_device_error(reason)}")}
         end
 
       {:error, reason} ->
@@ -1199,7 +1066,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     if socket.assigns.select_all_matching do
       scope = socket.assigns.current_scope
       query = Map.get(socket.assigns.srql || %{}, :query, "")
-      get_all_matching_uids(scope, query)
+      IndexData.get_all_matching_uids(scope, query)
     else
       socket.assigns.selected_devices
       |> Enum.filter(&is_binary/1)
@@ -3256,474 +3123,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     round(idx / (len - 1) * 400)
   end
 
-  defp load_icmp_sparklines(srql_module, devices, scope) do
-    device_uids =
-      devices
-      |> Enum.filter(&is_map/1)
-      |> Enum.map(fn row -> Map.get(row, "uid") || Map.get(row, "id") end)
-      |> Enum.filter(&is_binary/1)
-      |> Enum.map(&String.trim/1)
-      |> Enum.reject(&(&1 == ""))
-      |> Enum.uniq()
-      |> Enum.take(@sparkline_device_cap)
-
-    if device_uids == [] do
-      {%{}, nil}
-    else
-      query =
-        Enum.join(
-          [
-            "in:timeseries_metrics",
-            "metric_type:icmp",
-            "uid:(#{Enum.map_join(device_uids, ",", &escape_list_value/1)})",
-            "time:#{@sparkline_window}",
-            "bucket:#{@sparkline_bucket}",
-            "agg:avg",
-            "series:uid",
-            "limit:#{min(length(device_uids) * @sparkline_points_per_device, 4000)}"
-          ],
-          " "
-        )
-
-      case srql_module.query(query, %{scope: scope}) do
-        {:ok, %{"results" => rows}} when is_list(rows) ->
-          {build_icmp_sparklines(rows), nil}
-
-        {:ok, other} ->
-          {%{}, "unexpected SRQL response: #{inspect(other)}"}
-
-        {:error, reason} ->
-          {%{}, format_error(reason)}
-      end
-    end
-  end
-
-  defp escape_list_value(value) when is_binary(value) do
-    value
-    |> String.replace("\\", "\\\\")
-    |> String.replace("\"", "\\\"")
-    |> then(&"\"#{&1}\"")
-  end
-
-  defp load_metric_presence(srql_module, devices, scope) do
-    device_uids =
-      devices
-      |> Enum.filter(&is_map/1)
-      |> Enum.map(fn row -> Map.get(row, "uid") || Map.get(row, "id") end)
-      |> Enum.filter(&is_binary/1)
-      |> Enum.map(&String.trim/1)
-      |> Enum.reject(&(&1 == ""))
-      |> Enum.uniq()
-      |> Enum.take(@presence_device_cap)
-
-    if device_uids == [] do
-      {%{}, %{}}
-    else
-      list = Enum.map_join(device_uids, ",", &escape_list_value/1)
-      limit = min(length(device_uids) * 3, 2000)
-
-      snmp_query =
-        Enum.join(
-          [
-            "in:snmp_metrics",
-            "uid:(#{list})",
-            "time:#{@presence_window}",
-            "bucket:#{@presence_bucket}",
-            "agg:count",
-            "series:uid",
-            "limit:#{limit}"
-          ],
-          " "
-        )
-
-      sysmon_query =
-        Enum.join(
-          [
-            "in:cpu_metrics",
-            "uid:(#{list})",
-            "time:#{@presence_window}",
-            "bucket:#{@presence_bucket}",
-            "agg:count",
-            "series:uid",
-            "limit:#{limit}"
-          ],
-          " "
-        )
-
-      snmp_presence =
-        case srql_module.query(snmp_query, %{scope: scope}) do
-          {:ok, %{"results" => rows}} -> presence_from_downsample(rows)
-          _ -> %{}
-        end
-
-      sysmon_presence =
-        case srql_module.query(sysmon_query, %{scope: scope}) do
-          {:ok, %{"results" => rows}} -> presence_from_downsample(rows)
-          _ -> %{}
-        end
-
-      {snmp_presence, sysmon_presence}
-    end
-  end
-
-  defp presence_from_downsample(rows) when is_list(rows) do
-    rows
-    |> Enum.filter(&is_map/1)
-    |> Enum.reduce(%{}, fn row, acc ->
-      series = Map.get(row, "series")
-      value = Map.get(row, "value")
-
-      if is_binary(series) and series != "" and is_number(value) and value > 0 do
-        Map.put(acc, series, true)
-      else
-        acc
-      end
-    end)
-  end
-
-  defp presence_from_downsample(_), do: %{}
-
-  defp build_icmp_sparklines(rows) when is_list(rows) do
-    rows
-    |> Enum.filter(&is_map/1)
-    |> Enum.reduce(%{}, &accumulate_icmp_point/2)
-    |> Map.new(fn {device_uid, points} ->
-      {device_uid, icmp_sparkline_data(points)}
-    end)
-  end
-
-  defp build_icmp_sparklines(_), do: %{}
-
-  defp accumulate_icmp_point(row, acc) do
-    device_uid = Map.get(row, "series") || Map.get(row, "uid") || Map.get(row, "device_id")
-    timestamp = Map.get(row, "timestamp")
-    value_ms = latency_ms(Map.get(row, "value"))
-
-    if is_binary(device_uid) and value_ms > 0 do
-      Map.update(
-        acc,
-        device_uid,
-        [%{ts: timestamp, v: value_ms}],
-        fn existing -> existing ++ [%{ts: timestamp, v: value_ms}] end
-      )
-    else
-      acc
-    end
-  end
-
-  defp icmp_sparkline_data(points) do
-    points =
-      points
-      |> Enum.sort_by(fn p -> p.ts end)
-      |> Enum.take(-@sparkline_points_per_device)
-
-    values = Enum.map(points, & &1.v)
-    latest_ms = List.last(values) || 0.0
-    tone = icmp_tone(latest_ms)
-    title = icmp_title(points, latest_ms)
-
-    %{points: values, latest_ms: latest_ms, tone: tone, title: title}
-  end
-
-  defp icmp_tone(latest_ms) do
-    cond do
-      latest_ms >= @sparkline_threshold_ms -> "warning"
-      latest_ms > 0 -> "success"
-      true -> "ghost"
-    end
-  end
-
-  defp icmp_title(points, latest_ms) do
-    case List.last(points) do
-      %{ts: ts} when is_binary(ts) -> "ICMP #{format_ms(latest_ms)} · #{ts}"
-      _ -> "ICMP #{format_ms(latest_ms)}"
-    end
-  end
-
-  defp latency_ms(value) when is_float(value) or is_integer(value) do
-    raw = if is_integer(value), do: value * 1.0, else: value
-    if raw > 1_000_000.0, do: raw / 1_000_000.0, else: raw
-  end
-
-  defp latency_ms(value) when is_binary(value) do
-    case Float.parse(String.trim(value)) do
-      {parsed, ""} -> latency_ms(parsed)
-      _ -> 0.0
-    end
-  end
-
-  defp latency_ms(_), do: 0.0
-
-  defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)
-  defp format_error(%ArgumentError{} = err), do: Exception.message(err)
-  defp format_error(reason) when is_binary(reason), do: reason
-  defp format_error(reason), do: inspect(reason)
-
-  defp srql_module do
-    Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
-  end
-
-  # Load device stats for cards using SRQL GROUP BY queries
-  defp load_device_stats(srql_module, scope) do
-    query = "in:devices rollup_stats:inventory_summary"
-
-    case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => [payload | _]}} when is_map(payload) ->
-        stats = %{
-          total: to_stats_int(Map.get(payload, "total")),
-          available: to_stats_int(Map.get(payload, "available")),
-          unavailable: to_stats_int(Map.get(payload, "unavailable")),
-          by_type: parse_rollup_grouped_items(Map.get(payload, "by_type"), "type"),
-          by_vendor: parse_rollup_grouped_items(Map.get(payload, "by_vendor"), "vendor_name"),
-          by_risk_level: []
-        }
-
-        Logger.debug("Device stats rollup parsed: #{inspect(stats)}")
-        stats
-
-      {:ok, %{"results" => [%{"payload" => payload} | _]}} when is_map(payload) ->
-        # Backward compatibility if SRQL returns wrapped payload rows.
-        stats = %{
-          total: to_stats_int(Map.get(payload, "total")),
-          available: to_stats_int(Map.get(payload, "available")),
-          unavailable: to_stats_int(Map.get(payload, "unavailable")),
-          by_type: parse_rollup_grouped_items(Map.get(payload, "by_type"), "type"),
-          by_vendor: parse_rollup_grouped_items(Map.get(payload, "by_vendor"), "vendor_name"),
-          by_risk_level: []
-        }
-
-        Logger.debug("Device stats rollup parsed (wrapped payload): #{inspect(stats)}")
-        stats
-
-      {:ok, other} ->
-        Logger.warning("Device stats rollup returned unexpected payload: #{inspect(other)}")
-        default_device_stats()
-
-      {:error, reason} ->
-        Logger.warning("Device stats rollup query failed: #{inspect(reason)}")
-        default_device_stats()
-    end
-  rescue
-    e ->
-      Logger.error("Device stats loading failed: #{inspect(e)}")
-      default_device_stats()
-  end
-
-  defp default_device_stats do
-    %{
-      total: 0,
-      available: 0,
-      unavailable: 0,
-      by_type: [],
-      by_vendor: [],
-      by_risk_level: []
-    }
-  end
-
-  defp parse_rollup_grouped_items(items, key) when is_list(items) do
-    items
-    |> Enum.filter(&is_map/1)
-    |> Enum.map(fn item ->
-      %{
-        name: to_string(Map.get(item, key) || "Unknown"),
-        count: to_stats_int(Map.get(item, "count"))
-      }
-    end)
-    |> Enum.filter(fn %{count: count} -> count > 0 end)
-  end
-
-  defp parse_rollup_grouped_items(_, _), do: []
-
-  defp to_stats_int(nil), do: 0
-  defp to_stats_int(value) when is_integer(value), do: value
-  defp to_stats_int(value) when is_float(value), do: trunc(value)
-  defp to_stats_int(%Decimal{} = value), do: Decimal.to_integer(value)
-
-  defp to_stats_int(value) when is_binary(value) do
-    case Integer.parse(String.trim(value)) do
-      {parsed, _} -> parsed
-      :error -> 0
-    end
-  end
-
-  defp to_stats_int(_), do: 0
-
-  defp get_total_matching_count(scope, query) do
-    srql_module = srql_module()
-    query = (query || "") |> to_string() |> String.trim()
-
-    full_query =
-      query
-      |> normalize_device_count_query()
-      |> Kernel.<>(~s| stats:"count() as total"|)
-
-    case srql_module.query(full_query, %{scope: scope}) do
-      {:ok, %{"results" => [count | _]}} ->
-        extract_total_count(count)
-
-      {:error, reason} ->
-        Logger.warning("Device total count query failed: #{inspect(reason)}")
-        nil
-
-      _ ->
-        nil
-    end
-  end
-
-  defp extract_total_count(%{} = row) do
-    row
-    |> Map.values()
-    |> Enum.find_value(&parse_count_value/1)
-  end
-
-  defp extract_total_count(value), do: parse_count_value(value)
-
-  defp parse_count_value(value) when is_integer(value), do: value
-  defp parse_count_value(value) when is_float(value), do: trunc(value)
-  defp parse_count_value(%Decimal{} = value), do: Decimal.to_integer(value)
-
-  defp parse_count_value(value) when is_binary(value) do
-    case Integer.parse(String.trim(value)) do
-      {parsed, ""} -> parsed
-      _ -> nil
-    end
-  end
-
-  defp parse_count_value(_value), do: nil
-
-  defp include_inactive_inventory_params(params) when is_map(params) do
-    query = params |> Map.get("q", "") |> to_string() |> String.trim()
-
-    query =
-      cond do
-        query == "" ->
-          "in:devices include_inactive:true"
-
-        lifecycle_filter?(query) ->
-          query
-
-        String.starts_with?(String.downcase(query), "in:devices") ->
-          "#{query} include_inactive:true"
-
-        true ->
-          query
-      end
-
-    Map.put(params, "q", query)
-  end
-
-  defp include_inactive_inventory_params(params), do: params
-
-  defp lifecycle_filter?(query) when is_binary(query) do
-    String.match?(query, ~r/(^|\s)(?:is_active|active|include_inactive):/i)
-  end
-
-  defp normalize_device_count_query(""), do: "in:devices"
-
-  defp normalize_device_count_query(query) when is_binary(query) do
-    query = strip_device_count_control_tokens(query)
-
-    cond do
-      query == "" -> "in:devices"
-      String.starts_with?(query, "in:") -> query
-      true -> "in:devices #{query}"
-    end
-  end
-
-  defp strip_device_count_control_tokens(query) do
-    query
-    |> String.replace(~r/(^|\s)(?:limit|sort|cursor):"[^"]*"(?=\s|$)/i, " ")
-    |> String.replace(~r/(^|\s)(?:limit|sort|cursor):\S+/i, " ")
-    |> String.trim()
-    |> String.replace(~r/\s+/, " ")
-  end
-
-  defp parse_page_param(params) do
-    case params["page"] do
-      nil ->
-        1
-
-      "" ->
-        1
-
-      page when is_binary(page) ->
-        case Integer.parse(page) do
-          {n, _} when n > 0 -> n
-          _ -> 1
-        end
-
-      page when is_integer(page) and page > 0 ->
-        page
-
-      _ ->
-        1
-    end
-  end
-
-  defp get_all_matching_uids(scope, query) do
-    srql_module = srql_module()
-    fetch_all_uids_paginated(srql_module, scope, query, nil, [], 0)
-  end
-
-  # Hard cap on the number of UIDs a select-all-matching expansion will fetch.
-  # The 10_000-device guard at the bulk action call sites rejects oversized
-  # selections, but without an internal bound this pager would still walk every
-  # page of an unbounded result set (one SRQL round-trip per 1_000 rows) before
-  # the caller ever saw the count. Bounding the fetch here keeps a runaway
-  # query from monopolizing the LiveView.
-  @all_matching_uid_limit 10_000
-
-  defp fetch_all_uids_paginated(srql_module, scope, query, cursor, acc, gathered) do
-    full_query = "in:devices #{query} limit:1000"
-    opts = if cursor, do: %{scope: scope, cursor: cursor}, else: %{scope: scope}
-
-    case srql_module.query(full_query, opts) do
-      {:ok, %{"results" => results, "pagination" => pagination}} when is_list(results) ->
-        uids =
-          results
-          |> Enum.filter(&is_map/1)
-          |> Enum.map(fn row -> Map.get(row, "uid") || Map.get(row, "id") end)
-          |> Enum.filter(&is_binary/1)
-
-        next_cursor = Map.get(pagination, "next_cursor")
-        new_acc = [uids | acc]
-        new_gathered = gathered + length(uids)
-
-        cond do
-          new_gathered >= @all_matching_uid_limit ->
-            # Bound reached: stop paging and return what we have. Callers that
-            # compare against total_matching_count will still reject oversized
-            # selections via the 10_000 cap.
-            finalize_uid_acc(new_acc)
-
-          is_binary(next_cursor) ->
-            fetch_all_uids_paginated(srql_module, scope, query, next_cursor, new_acc, new_gathered)
-
-          true ->
-            finalize_uid_acc(new_acc)
-        end
-
-      {:ok, %{"results" => results}} when is_list(results) ->
-        uids =
-          results
-          |> Enum.filter(&is_map/1)
-          |> Enum.map(fn row -> Map.get(row, "uid") || Map.get(row, "id") end)
-          |> Enum.filter(&is_binary/1)
-
-        finalize_uid_acc([uids | acc])
-
-      _ ->
-        finalize_uid_acc(acc)
-    end
-  end
-
-  defp finalize_uid_acc(acc) do
-    acc
-    |> Enum.reverse()
-    |> List.flatten()
-    |> Enum.uniq()
-  end
-
   defp format_changeset_errors(changeset) do
     case changeset do
       %Ash.Changeset{errors: errors} when is_list(errors) and errors != [] ->
@@ -3841,261 +3240,4 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp normalize_bool(_value, opts), do: Keyword.get(opts, :default, false)
-
-  # Sysmon profile helpers
-  # Note: Profile-per-device tracking removed - profiles now target devices via SRQL queries.
-  # This function returns an empty map for profiles_by_device.
-  defp load_sysmon_profiles_for_devices(_scope, _devices) do
-    %{}
-  rescue
-    _ -> %{}
-  end
-
-  # CSV Import helpers
-  @sobelow_skip ["Traversal.FileModule"]
-  defp parse_csv_file(path) do
-    content = File.read!(path)
-
-    case parse_csv_rows(content) do
-      {:ok, []} ->
-        {:error, ["CSV file is empty"]}
-
-      {:ok, [header | data_rows]} ->
-        headers = Enum.map(header, &String.trim/1)
-        required = ["hostname", "ip"]
-        missing = required -- Enum.map(headers, &String.downcase/1)
-
-        if missing == [] do
-          header_map = headers |> Enum.with_index() |> Map.new()
-          devices = Enum.map(data_rows, &parse_device_row(&1, header_map))
-          valid_devices = Enum.filter(devices, &(&1 != nil))
-
-          case valid_devices do
-            [] -> {:error, ["No valid device rows found in CSV"]}
-            _ -> {:ok, valid_devices}
-          end
-        else
-          {:error, ["Missing required columns: #{Enum.join(missing, ", ")}"]}
-        end
-    end
-  rescue
-    e ->
-      {:error, ["Failed to parse CSV: #{inspect(e)}"]}
-  end
-
-  # RFC 4180 CSV parser: handles quoted fields containing commas, embedded
-  # doubled quote ("") escapes, and newlines inside quoted fields. Replaces
-  # the previous String.split(",") approach which mis-split any quoted value.
-  # Returns {:ok, rows} where each row is a list of field strings.
-  #
-  # State machine:
-  #   :field_start — at the start of a field (leading quote => quoted field)
-  #   :unquoted    — inside an unquoted field
-  #   :quoted      — inside a quoted field (commas/newlines literal)
-  #   :quote_end   — just closed a quoted field (expect comma/newline/EOF)
-  defp parse_csv_rows(content) when is_binary(content) do
-    content
-    |> String.to_charlist()
-    |> parse_csv_field([], [], [], :field_start)
-  end
-
-  # End of input: close the in-flight field and row.
-  defp parse_csv_field([], field, row, rows, _state) do
-    final_row = finish_row_fields(field, row)
-    {:ok, finalize_csv_rows([final_row | rows])}
-  end
-
-  # A quote at the very start of a field begins a quoted segment.
-  defp parse_csv_field([?" | rest], [], row, rows, :field_start) do
-    parse_csv_field(rest, [], row, rows, :quoted)
-  end
-
-  # --- unquoted field states (:field_start / :unquoted share these) ---
-
-  defp parse_csv_field([?, | rest], field, row, rows, state) when state in [:field_start, :unquoted] do
-    new_field = finish_field(field)
-    parse_csv_field(rest, [], [new_field | row], rows, :field_start)
-  end
-
-  defp parse_csv_field([?\r, ?\n | rest], field, row, rows, state) when state in [:field_start, :unquoted] do
-    finish_csv_row(rest, field, row, rows)
-  end
-
-  defp parse_csv_field([?\r | rest], field, row, rows, state) when state in [:field_start, :unquoted] do
-    finish_csv_row(rest, field, row, rows)
-  end
-
-  defp parse_csv_field([?\n | rest], field, row, rows, state) when state in [:field_start, :unquoted] do
-    finish_csv_row(rest, field, row, rows)
-  end
-
-  defp parse_csv_field([char | rest], field, row, rows, state) when state in [:field_start, :unquoted] do
-    parse_csv_field(rest, [char | field], row, rows, :unquoted)
-  end
-
-  # --- quoted field state ---
-
-  # Doubled quote -> literal ".
-  defp parse_csv_field([?", ?" | rest], field, row, rows, :quoted) do
-    parse_csv_field(rest, [?" | field], row, rows, :quoted)
-  end
-
-  # A lone quote closes the quoted segment.
-  defp parse_csv_field([?" | rest], field, row, rows, :quoted) do
-    parse_csv_field(rest, field, row, rows, :quote_end)
-  end
-
-  # Any other char inside quotes is literal (commas and newlines included).
-  defp parse_csv_field([char | rest], field, row, rows, :quoted) do
-    parse_csv_field(rest, [char | field], row, rows, :quoted)
-  end
-
-  # --- after a closing quote (:quote_end) ---
-
-  defp parse_csv_field([?, | rest], field, row, rows, :quote_end) do
-    new_field = finish_field(field)
-    parse_csv_field(rest, [], [new_field | row], rows, :field_start)
-  end
-
-  defp parse_csv_field([?\r, ?\n | rest], field, row, rows, :quote_end), do: finish_csv_row(rest, field, row, rows)
-
-  defp parse_csv_field([?\r | rest], field, row, rows, :quote_end), do: finish_csv_row(rest, field, row, rows)
-
-  defp parse_csv_field([?\n | rest], field, row, rows, :quote_end), do: finish_csv_row(rest, field, row, rows)
-
-  # Other chars after a closing quote: lenient, append to the field as literal.
-  defp parse_csv_field([char | rest], field, row, rows, :quote_end) do
-    parse_csv_field(rest, [char | field], row, rows, :unquoted)
-  end
-
-  defp finish_csv_row(rest, field, row, rows) do
-    new_row = finish_row_fields(field, row)
-    parse_csv_field(rest, [], [], [new_row | rows], :field_start)
-  end
-
-  defp finish_field(field), do: field |> Enum.reverse() |> List.to_string()
-  defp finish_row_fields(field, row), do: Enum.reverse([finish_field(field) | row])
-
-  # Drop a single trailing empty row produced by a final newline, then reverse
-  # to original order. The accumulator is built by prepending, so the trailing
-  # empty row is the head of `rows` here — drop it before reversing.
-  defp finalize_csv_rows([[""] | rest]), do: Enum.reverse(rest)
-  defp finalize_csv_rows(rows), do: Enum.reverse(rows)
-
-  defp parse_device_row(values, header_map) do
-    hostname = get_csv_value(values, header_map, "hostname")
-    ip = get_csv_value(values, header_map, "ip")
-
-    if hostname && hostname != "" && ip && ip != "" do
-      %{
-        hostname: hostname,
-        ip: ip,
-        type: get_csv_value(values, header_map, "type") || "",
-        tags: parse_tags(get_csv_value(values, header_map, "tags"))
-      }
-    end
-  end
-
-  defp get_csv_value(values, header_map, column) do
-    # Try both lowercase and original case
-    index =
-      Map.get(header_map, column) ||
-        Map.get(header_map, String.capitalize(column)) ||
-        Map.get(header_map, String.upcase(column))
-
-    if index, do: Enum.at(values, index)
-  end
-
-  defp parse_tags(nil), do: []
-  defp parse_tags(""), do: []
-
-  defp parse_tags(tags_string) do
-    # Tags can be pipe-separated (env=prod|team=ops)
-    tags_string
-    |> String.split("|")
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-  end
-
-  # Device creation helpers
-
-  defp import_success_message(created, skipped) when skipped > 0 and created > 0 do
-    "Created #{created} device(s). #{skipped} device(s) skipped (already exist)."
-  end
-
-  defp import_success_message(_created, skipped) when skipped > 0 do
-    "All #{skipped} device(s) already exist."
-  end
-
-  defp import_success_message(created, _skipped) do
-    "Created #{created} device(s) successfully."
-  end
-
-  defp import_devices(scope, devices) do
-    do_import_devices(devices, scope)
-  end
-
-  defp do_import_devices(devices, scope) do
-    {created, skipped, errors} =
-      Enum.reduce(devices, {0, 0, []}, fn device_data, acc ->
-        process_device_import(device_data, scope, acc)
-      end)
-
-    if errors == [], do: {:ok, {created, skipped}}, else: {:error, Enum.reverse(errors)}
-  end
-
-  defp process_device_import(device_data, scope, {created, skipped, errors}) do
-    case ManualDeviceCreator.create(scope, device_data) do
-      {:ok, _device} ->
-        {created + 1, skipped, errors}
-
-      {:error, :already_exists} ->
-        {created, skipped + 1, errors}
-
-      {:error, reason} ->
-        error_msg = "Row #{created + skipped + 1}: #{format_create_error(reason)}"
-        {created, skipped, [error_msg | errors]}
-    end
-  end
-
-  defp create_device(scope, params) do
-    ManualDeviceCreator.create(scope, %{
-      hostname: params["hostname"],
-      ip: params["ip"],
-      type: params["type"],
-      tags: parse_form_tags(params["tags"])
-    })
-  end
-
-  defp parse_form_tags(nil), do: []
-  defp parse_form_tags(""), do: []
-
-  defp parse_form_tags(tags_string) when is_binary(tags_string) do
-    tags_string
-    |> String.split("\n")
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-  end
-
-  defp format_device_error(%Invalid{errors: errors}) do
-    Enum.map_join(errors, ", ", &format_single_device_error/1)
-  end
-
-  defp format_device_error(error), do: inspect(error)
-
-  defp format_create_error(%Invalid{errors: errors}) do
-    Enum.map_join(errors, ", ", &format_single_device_error/1)
-  end
-
-  defp format_create_error(error), do: inspect(error)
-
-  defp format_single_device_error(%InvalidAttribute{field: field, message: msg}), do: "#{field}: #{msg}"
-
-  defp format_single_device_error(%Required{field: field}), do: "#{field} is required"
-
-  defp format_single_device_error(%Ash.Error.Query.NotFound{}), do: "Device not found"
-
-  defp format_single_device_error(%{message: msg}) when is_binary(msg), do: msg
-
-  defp format_single_device_error(err), do: inspect(err)
 end
