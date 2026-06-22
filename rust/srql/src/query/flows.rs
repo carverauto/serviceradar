@@ -713,7 +713,7 @@ fn apply_filter<'a>(mut query: FlowsQuery<'a>, filter: &Filter) -> Result<FlowsQ
             }
 
             let exists = sql::<diesel::sql_types::Bool>(&format!(
-                "EXISTS (SELECT 1 FROM ip_geo_enrichment_cache g WHERE g.ip = NULLIF(src_endpoint_ip, '') AND g.country_iso2 = '{cc}')"
+                "EXISTS (SELECT 1 FROM ip_geo_enrichment_cache g WHERE g.ip = NULLIF(src_endpoint_ip, '') AND g.country_iso2 = '{cc}' AND (g.expires_at IS NULL OR g.expires_at > now()))"
             ));
 
             match filter.op {
@@ -735,7 +735,7 @@ fn apply_filter<'a>(mut query: FlowsQuery<'a>, filter: &Filter) -> Result<FlowsQ
             }
 
             let exists = sql::<diesel::sql_types::Bool>(&format!(
-                "EXISTS (SELECT 1 FROM ip_geo_enrichment_cache g WHERE g.ip = NULLIF(dst_endpoint_ip, '') AND g.country_iso2 = '{cc}')"
+                "EXISTS (SELECT 1 FROM ip_geo_enrichment_cache g WHERE g.ip = NULLIF(dst_endpoint_ip, '') AND g.country_iso2 = '{cc}' AND (g.expires_at IS NULL OR g.expires_at > now()))"
             ));
 
             match filter.op {
@@ -1760,12 +1760,12 @@ fn build_grouped_stats_query(
     let mut join_sql = String::new();
     if needs_src_geo {
         join_sql.push_str(
-            " LEFT JOIN ip_geo_enrichment_cache src_geo ON src_geo.ip = NULLIF(f.src_endpoint_ip, '')",
+            " LEFT JOIN ip_geo_enrichment_cache src_geo ON src_geo.ip = NULLIF(f.src_endpoint_ip, '') AND (src_geo.expires_at IS NULL OR src_geo.expires_at > now())",
         );
     }
     if needs_dst_geo {
         join_sql.push_str(
-            " LEFT JOIN ip_geo_enrichment_cache dst_geo ON dst_geo.ip = NULLIF(f.dst_endpoint_ip, '')",
+            " LEFT JOIN ip_geo_enrichment_cache dst_geo ON dst_geo.ip = NULLIF(f.dst_endpoint_ip, '') AND (dst_geo.expires_at IS NULL OR dst_geo.expires_at > now())",
         );
     }
 
@@ -3428,6 +3428,66 @@ mod tests {
         assert_eq!(params.len(), 4, "expected start/end + limit/offset params");
         assert!(matches!(params[2], BindParam::Int(5)));
         assert!(matches!(params[3], BindParam::Int(0)));
+    }
+
+    #[test]
+    fn country_iso2_filter_ignores_expired_geo_cache_rows() {
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: vec![Filter {
+                field: "src_country_iso2".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("US".to_string()),
+            }],
+            order: Vec::new(),
+            limit: 5,
+            offset: 0,
+            time_range: None,
+            stats: None,
+            downsample: None,
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        };
+
+        let (sql, _params) = to_sql_and_params(&plan).expect("should translate country filter");
+        assert!(
+            sql.contains("(g.expires_at IS NULL OR g.expires_at > now())"),
+            "expected geo cache expiry predicate in SQL: {sql}"
+        );
+    }
+
+    #[test]
+    fn country_iso2_stats_joins_ignore_expired_geo_cache_rows() {
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: Vec::new(),
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange {
+                start: Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap(),
+                end: Utc.with_ymd_and_hms(2025, 1, 1, 1, 0, 0).unwrap(),
+            }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "sum(bytes_total) as bytes_total by src_country_iso2,dst_country_iso2",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        };
+
+        let (sql, _params) =
+            to_sql_and_params_stats(&plan).expect("should translate country stats");
+        assert!(
+            sql.contains("(src_geo.expires_at IS NULL OR src_geo.expires_at > now())"),
+            "expected source geo cache expiry predicate in SQL: {sql}"
+        );
+        assert!(
+            sql.contains("(dst_geo.expires_at IS NULL OR dst_geo.expires_at > now())"),
+            "expected destination geo cache expiry predicate in SQL: {sql}"
+        );
     }
 
     #[test]

@@ -208,7 +208,7 @@
 - [x] 37.1 Scope the interface bandwidth gauge to the interface (not whole-exporter bytes); label peak vs average correctly.
 - [x] 37.2 Compute Sankey "Other" from the full result set (don't drop the tail at the DB); keep sort on limited timeseries.
 - [x] 37.3 Canonicalize bidirectional flows (Top Conversations, device ingress+egress) to avoid double-counting; unify talker scoping with the device tab.
-- [ ] 37.4 Filter reverse-DNS/Geo enrichment by expiry; distinguish chart query-error from no-traffic.
+- [x] 37.4 Filter reverse-DNS/Geo enrichment by expiry; distinguish chart query-error from no-traffic.
 
 ## 38. Flow Ingest Defaults (F44)
 - [ ] 38.1 Use NULL (not 0) for directional byte/packet counts a protocol does not carry; divide bps/pps by covered data span, not the full wall-clock window.

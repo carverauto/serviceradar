@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   alias ServiceRadar.Observability.IpThreatIntelCache
   alias ServiceRadar.Observability.NetflowPortAnomalyFlag
   alias ServiceRadar.Observability.NetflowPortScanFlag
+  alias ServiceRadarWebNGWeb.Netflow.EnrichmentExpiry
   alias ServiceRadarWebNGWeb.NetflowLive.ChartState
   alias ServiceRadarWebNGWeb.NetflowVisualize.Query, as: NFQuery
   alias ServiceRadarWebNGWeb.NetflowVisualize.State, as: NFState
@@ -1711,7 +1712,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     query =
       IpRdnsCache
       |> Ash.Query.for_read(:read, %{})
-      |> Ash.Query.filter(ip in ^ips)
+      |> EnrichmentExpiry.live_for_ips(ips, DateTime.utc_now())
 
     case Ash.read(query, scope: scope) do
       {:ok, rows} when is_list(rows) ->
@@ -1743,7 +1744,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     query =
       IpGeoEnrichmentCache
       |> Ash.Query.for_read(:read, %{})
-      |> Ash.Query.filter(ip in ^ips)
+      |> EnrichmentExpiry.live_for_ips(ips, DateTime.utc_now())
 
     with [_ | _] <- ips,
          {:ok, rows} when is_list(rows) <- Ash.read(query, scope: scope) do
@@ -3187,7 +3188,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   defp read_rdns(_user, nil), do: nil
 
   defp read_rdns(user, ip) when is_binary(ip) do
-    query = Ash.Query.for_read(IpRdnsCache, :by_ip, %{ip: ip})
+    query =
+      IpRdnsCache
+      |> Ash.Query.for_read(:by_ip, %{ip: ip})
+      |> EnrichmentExpiry.live(DateTime.utc_now())
 
     case Ash.read_one(query, actor: user) do
       {:ok, record} -> record
@@ -3208,7 +3212,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   defp read_geo(_user, nil), do: nil
 
   defp read_geo(user, ip) when is_binary(ip) do
-    query = Ash.Query.for_read(IpGeoEnrichmentCache, :by_ip, %{ip: ip})
+    query =
+      IpGeoEnrichmentCache
+      |> Ash.Query.for_read(:by_ip, %{ip: ip})
+      |> EnrichmentExpiry.live(DateTime.utc_now())
 
     case Ash.read_one(query, actor: user) do
       {:ok, record} -> record
@@ -3220,7 +3227,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   defp read_ipinfo(_user, nil), do: nil
 
   defp read_ipinfo(user, ip) when is_binary(ip) do
-    query = Ash.Query.for_read(IpIpinfoCache, :by_ip, %{ip: ip})
+    query =
+      IpIpinfoCache
+      |> Ash.Query.for_read(:by_ip, %{ip: ip})
+      |> EnrichmentExpiry.live(DateTime.utc_now())
 
     case Ash.read_one(query, actor: user) do
       {:ok, %IpIpinfoCache{} = record} -> record
@@ -3232,7 +3242,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   defp read_threat(_user, nil), do: nil
 
   defp read_threat(user, ip) when is_binary(ip) do
-    query = Ash.Query.for_read(IpThreatIntelCache, :by_ip, %{ip: ip})
+    query =
+      IpThreatIntelCache
+      |> Ash.Query.for_read(:by_ip, %{ip: ip})
+      |> EnrichmentExpiry.live(DateTime.utc_now())
 
     case Ash.read_one(query, actor: user) do
       {:ok, record} -> record
@@ -3434,14 +3447,14 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
       "sankey" ->
         max_edges = sankey_max_edges_from_state(state)
 
-        edges = load_sankey_edges(srql_module, chart_query, base, state, scope, max_edges)
+        {edges, load_empty_state} = load_sankey_edges(srql_module, chart_query, base, state, scope, max_edges)
 
         edges_json = Jason.encode!(edges)
 
         socket
         |> assign(:netflow_sankey_edges_json, edges_json)
         |> assign(:netflow_chart_overlays_json, "[]")
-        |> assign(:netflow_chart_empty_state, ChartState.for_sankey_edges(edges))
+        |> assign(:netflow_chart_empty_state, load_empty_state || ChartState.for_sankey_edges(edges))
 
       _ ->
         # Charts are SRQL-driven: the SRQL query in the top bar is the chart query.
@@ -3545,10 +3558,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
               max_edges: max_edges
             )
 
-          Map.get(sankey, :edges, [])
+          {Map.get(sankey, :edges, []), nil}
         else
-          edges
+          {edges, nil}
         end
+
+      {:error, reason} ->
+        {[], ChartState.query_error("Sankey query", reason)}
 
       _ ->
         sankey =
@@ -3558,10 +3574,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
             max_edges: max_edges
           )
 
-        Map.get(sankey, :edges, [])
+        {Map.get(sankey, :edges, []), nil}
     end
   rescue
-    _ -> []
+    exception -> {[], ChartState.query_error("Sankey query", Exception.message(exception))}
   end
 
   defp extract_srql_rows(results) when is_list(results) do
