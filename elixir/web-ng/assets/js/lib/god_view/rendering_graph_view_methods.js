@@ -11,6 +11,10 @@ function isEndpointMemberNode(node) {
   return clusterKindForNode(node) === "endpoint-member"
 }
 
+function isExpandedEndpointMemberNode(node) {
+  return isEndpointMemberNode(node) && nodeDetails(node).cluster_expanded === true
+}
+
 function isEndpointSummaryNode(node) {
   return clusterKindForNode(node) === "endpoint-summary"
 }
@@ -27,6 +31,7 @@ function isUnplacedNode(node) {
 function frameNodeRadius(node) {
   if (isEndpointSummaryNode(node)) return 44
   if (isEndpointAnchorNode(node)) return 32
+  if (isExpandedEndpointMemberNode(node)) return 36
   if (isEndpointMemberNode(node)) return 16
   return 28
 }
@@ -83,9 +88,15 @@ export const godViewRenderingGraphViewMethods = {
 
     if (graph._layoutMode !== "client-radial") return this.boundsForNodes(finiteNodes)
 
-    const overviewNodes = finiteNodes.filter((node) => !isEndpointMemberNode(node) && !isUnplacedNode(node))
+    const overviewNodes = finiteNodes.filter(
+      (node) => (!isEndpointMemberNode(node) || isExpandedEndpointMemberNode(node)) && !isUnplacedNode(node),
+    )
     const radialOverviewNodes = overviewNodes.filter(
-      (node) => isInfrastructureOverviewNode(node) || isEndpointSummaryNode(node) || isEndpointAnchorNode(node),
+      (node) =>
+        isInfrastructureOverviewNode(node) ||
+        isEndpointSummaryNode(node) ||
+        isEndpointAnchorNode(node) ||
+        isExpandedEndpointMemberNode(node),
     )
     const framedNodes = radialOverviewNodes.length > 0 ? radialOverviewNodes : overviewNodes.length > 0 ? overviewNodes : finiteNodes
     return this.boundsForNodes(framedNodes)
