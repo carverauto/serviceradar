@@ -271,7 +271,7 @@
 ## 51. Verification
 - [x] 51.1 Run `sfw cargo test -p serviceradar-anomaly-addon -p serviceradar-anomaly-core -p serviceradar-causal-disposition`.
 - [x] 51.2 Run `sfw cargo test -p serviceradar-srql` (parser/time DoS guards, list-filter and pagination tie-breaker fixes).
-- [ ] 51.3 Run `go test ./go/pkg/agent/addon/... ./go/pkg/mapper/... ./go/pkg/sweeper/... ./go/pkg/scan/...` (update bazel BUILD deps for new test files/imports).
+- [x] 51.3 Run `go test ./go/pkg/agent/addon/... ./go/pkg/mapper/... ./go/pkg/sweeper/... ./go/pkg/scan/...` (update bazel BUILD deps for new test files/imports).
 - [ ] 51.4 Run focused core-elx tests for status handler, causal signals, seasonal disposition, capacity forecasting, anomaly profile seeding, alert generation, flow ingest, topology graph, and MTR consensus.
 - [ ] 51.5 Run web-ng tests for device-details anomaly/capacity, chart renderer, NetFlow/interface data layers, JS chart hooks, dashboard authoring, table/topology plugins, device list bulk-edit, and SNMP/networks settings.
 - [ ] 51.6 Run `./scripts/elixir_quality.sh --project elixir/serviceradar_core` and `--project elixir/web-ng` if implementation changes shared behavior broadly.
