@@ -266,6 +266,8 @@
 
 ## 50. Oversized-File Breakups, Round 2 (F55)
 - [ ] 50.1 Break up (behavior-preserving, <~300 lines): `device_live/index.ex` (3931), `go/pkg/scan/syn_scanner.go` (3831), `snmp_profiles_live/index.ex` (3596), `go/pkg/sweeper/sweeper.go` (3007), `go/pkg/mapper/snmp_polling.go` (2996), `go/pkg/mapper/discovery.go` (2741), `networks_live/index.ex` (2726), `topology_graph.ex` (2356), `diagnostics_live/mtr.ex` (2023), `ubnt_poller.go` (1728), `unifi-protect/main.go` (1385).
+  - [x] 50.1a Go breakups complete: `go/pkg/scan/syn_scanner.go`, `go/pkg/sweeper/sweeper.go`, `go/pkg/mapper/snmp_polling.go`, `go/pkg/mapper/discovery.go`, `ubnt_poller.go`, and `unifi-protect/main.go`.
+  - [ ] 50.1b Elixir LiveView breakups remaining: `device_live/index.ex`, `snmp_profiles_live/index.ex`, `networks_live/index.ex`, `topology_graph.ex`, and `diagnostics_live/mtr.ex`.
 - [ ] 50.2 Break up the SRQL modules: `flows.rs` (2914), `parser.rs` (1306), `query/mod.rs` (1091), `interfaces.rs` (954), `events.rs` (939), `devices/filters.rs` (817), `downsample.rs` (812), `devices/stats.rs` (792).
 
 ## 51. Verification
