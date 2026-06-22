@@ -275,7 +275,7 @@
 - [x] 51.2 Run `sfw cargo test -p serviceradar-srql` (parser/time DoS guards, list-filter and pagination tie-breaker fixes).
 - [x] 51.3 Run `go test ./go/pkg/agent/addon/... ./go/pkg/mapper/... ./go/pkg/sweeper/... ./go/pkg/scan/...` (update bazel BUILD deps for new test files/imports).
 - [x] 51.4 Run focused core-elx tests for status handler, causal signals, seasonal disposition, capacity forecasting, anomaly profile seeding, alert generation, flow ingest, topology graph, and MTR consensus.
-- [ ] 51.5 Run web-ng tests for device-details anomaly/capacity, chart renderer, NetFlow/interface data layers, JS chart hooks, dashboard authoring, table/topology plugins, device list bulk-edit, and SNMP/networks settings.
+- [x] 51.5 Run web-ng tests for device-details anomaly/capacity, chart renderer, NetFlow/interface data layers, JS chart hooks, dashboard authoring, table/topology plugins, device list bulk-edit, and SNMP/networks settings.
 - [x] 51.6 Run `./scripts/elixir_quality.sh --project elixir/serviceradar_core` and `--project elixir/web-ng` if implementation changes shared behavior broadly.
 - [x] 51.7 Run `sfw cargo test -p serviceradar-flow-collector` if collector sampling changes land.
 - [x] 51.8 Run native add-on manifest/version gates if add-on package metadata or Rust add-on sources change.

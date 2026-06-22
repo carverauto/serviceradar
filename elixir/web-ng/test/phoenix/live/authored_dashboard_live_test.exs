@@ -505,7 +505,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
       )
 
     assert {:ok, _grant} =
-             Dashboards.grant_dashboard_to_user(scope, %{
+             Dashboards.grant_authored_dashboard_to_user(scope, %{
                dashboard_id: dashboard.id,
                subject_user_id: viewer.id,
                access: :view

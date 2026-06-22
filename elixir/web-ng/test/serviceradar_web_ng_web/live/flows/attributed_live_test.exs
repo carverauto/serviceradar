@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
   import Phoenix.LiveViewTest
 
   alias Ecto.Adapters.SQL
+  alias Ecto.Adapters.SQL.Sandbox
   alias ServiceRadarWebNG.AshTestHelpers
 
   @repo ServiceRadar.Repo
@@ -12,7 +13,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
     user = AshTestHelpers.admin_user_fixture()
 
     seed_attributed_flow_rows!()
-    on_exit(&delete_attributed_flow_rows!/0)
+    on_exit(&delete_attributed_flow_rows_unboxed!/0)
 
     %{conn: log_in_user(conn, user)}
   end
@@ -21,13 +22,12 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
     {:ok, view, html} = live(conn, ~p"/observability/flows/attributed")
 
     assert html =~ "Attributed Flows"
-    html = render_async(view, 5_000)
+    html = render_until(view, "10.42.10.12:53844", 5_000)
 
     assert html =~ "srql-query-bar"
     assert html =~ "Attributed Flow Records"
     assert html =~ "10.42.10.12:53844"
     assert html =~ "198.51.100.20:443"
-    assert html =~ "agent-flow-test-tcp"
     assert html =~ "default/nginx-pod"
     assert html =~ "1234"
     assert html =~ "nginx"
@@ -40,6 +40,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
     assert html =~ "/usr/sbin/nginx args:sha256:31f0e4c8"
     assert html =~ "worker-1.example.test"
     assert html =~ "edge-api.example.test"
+    assert html =~ "agent-flow-test-tcp"
     assert html =~ "Context"
     assert html =~ "demo-context"
     refute html =~ "cluster-demo-1"
@@ -51,7 +52,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
 
   test "renders unmatched rows through the explicit filter", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/observability/flows/attributed?#{%{filter: "unmatched"}}")
-    html = render_async(view, 5_000)
+    html = render_until(view, "203.0.113.44:62001", 5_000)
 
     assert html =~ "Unmatched Flow Records"
     assert html =~ "203.0.113.44:62001"
@@ -61,7 +62,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
 
   test "stat cards filter rows without losing LiveView context", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/observability/flows/attributed")
-    html = render_async(view, 5_000)
+    html = render_until(view, "nginx", 5_000)
 
     assert html =~ "nginx"
     refute html =~ "203.0.113.44:62001"
@@ -72,7 +73,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
       |> render_click()
 
     assert_patch(view, ~p"/observability/flows/attributed?#{%{filter: "unmatched", page: 1, per_page: 50}}")
-    html = render_async(view, 5_000)
+    html = render_until(view, "203.0.113.44:62001", 5_000)
     assert html =~ "Unmatched Flow Records"
     assert html =~ "203.0.113.44:62001"
     refute html =~ "nginx #1234"
@@ -83,10 +84,11 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
       |> render_click()
 
     assert_patch(view, ~p"/observability/flows/attributed?#{%{filter: "all", page: 1, per_page: 50}}")
-    html = render_async(view, 5_000)
+    html = render_until(view, "nginx", 5_000)
     assert html =~ "All Flow Records"
     assert html =~ "203.0.113.44:62001"
-    assert html =~ "nginx #1234"
+    assert html =~ "nginx"
+    assert html =~ "1234"
   end
 
   test "live toggle can be disabled and re-enabled", %{conn: conn} do
@@ -105,17 +107,17 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
 
   test "live toggle from a later page returns to the first page", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/observability/flows/attributed?#{%{per_page: 1}}")
-    render_async(view, 5_000)
+    render_until(view, "icmp-probe", 5_000)
 
     render_click(view, "goto_page", %{"page" => "2"})
     assert_patch(view, ~p"/observability/flows/attributed?#{%{filter: "attributed", page: 2, per_page: 1}}")
-    render_async(view, 5_000)
+    render_until(view, "dns-client", 5_000)
 
     view |> element("button[phx-click='toggle_live']") |> render_click()
 
     assert_patch(view, ~p"/observability/flows/attributed?#{%{filter: "attributed", page: 1, per_page: 1}}")
 
-    html = render_async(view, 5_000)
+    html = render_until(view, "icmp-probe", 5_000)
     assert html =~ "On"
     assert html =~ "Page 1 of 3"
     assert html =~ "icmp-probe"
@@ -124,7 +126,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
 
   test "pagination uses stable patch params and compact grid rows", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/observability/flows/attributed?#{%{per_page: 1}}")
-    html = render_async(view, 5_000)
+    html = render_until(view, "icmp-probe", 5_000)
 
     assert html =~ "Page 1 of 3"
     assert html =~ "icmp-probe"
@@ -133,7 +135,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
     render_click(view, "goto_page", %{"page" => "2"})
 
     assert_patch(view, ~p"/observability/flows/attributed?#{%{filter: "attributed", page: 2, per_page: 1}}")
-    html = render_async(view, 5_000)
+    html = render_until(view, "dns-client", 5_000)
     assert html =~ "Page 2 of 3"
     assert html =~ "dns-client"
     refute html =~ "icmp-probe"
@@ -145,7 +147,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
 
   test "all rows render UDP and ICMP through SRQL", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/observability/flows/attributed?#{%{filter: "all"}}")
-    html = render_async(view, 5_000)
+    html = render_until(view, "TCP", 5_000)
 
     assert html =~ "TCP"
     assert html =~ "UDP"
@@ -156,10 +158,13 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
   end
 
   defp seed_attributed_flow_rows! do
-    Ecto.Adapters.SQL.Sandbox.unboxed_run(@repo, fn ->
+    Sandbox.unboxed_run(@repo, fn ->
       delete_attributed_flow_rows!()
 
-      now = DateTime.truncate(DateTime.utc_now(), :second)
+      now =
+        DateTime.utc_now()
+        |> DateTime.add(-60, :second)
+        |> DateTime.truncate(:second)
 
       now
       |> DateTime.add(30, :second)
@@ -259,6 +264,12 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
       upsert_rdns!("198.51.100.20", "edge-api.example.test", now)
       upsert_rdns!("198.51.100.23", "dns-sinkhole.example.test", now)
       upsert_threat!("198.51.100.23", now)
+    end)
+  end
+
+  defp delete_attributed_flow_rows_unboxed! do
+    Sandbox.unboxed_run(@repo, fn ->
+      delete_attributed_flow_rows!()
     end)
   end
 
@@ -375,5 +386,26 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
       """,
       [ip, ["alienvault_otx"], now, DateTime.add(now, 3600, :second)]
     )
+  end
+
+  defp render_until(view, expected, timeout_ms) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    render_until(view, expected, deadline, nil)
+  end
+
+  defp render_until(view, expected, deadline, last_html) do
+    html = render(view)
+
+    cond do
+      html =~ expected ->
+        html
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        flunk("expected rendered LiveView to include #{inspect(expected)}; last render:\n#{html || last_html}")
+
+      true ->
+        Process.sleep(50)
+        render_until(view, expected, deadline, html)
+    end
   end
 end

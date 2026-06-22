@@ -1162,6 +1162,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "uid",
         "gateway_id",
         "agent_id",
+        "core_id",
         "partition",
         "target_device_ip",
         "if_index"

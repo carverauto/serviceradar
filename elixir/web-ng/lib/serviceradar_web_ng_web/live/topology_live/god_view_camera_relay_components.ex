@@ -285,13 +285,23 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
               phx-hook="CameraRelayStatusStream"
               phx-update="ignore"
               data-stream-path={camera_relay_tile_stream_path(tile)}
-              data-preferred-playback-transport={relay_preferred_playback_transport(tile.session)}
-              data-available-playback-transports={relay_available_playback_transports(tile.session)}
-              data-playback-codec-hint={relay_playback_codec_hint(tile.session)}
-              data-playback-container-hint={relay_playback_container_hint(tile.session)}
-              data-webrtc-playback-transport={relay_webrtc_playback_transport(tile.session)}
-              data-webrtc-signaling-path={relay_webrtc_signaling_path(tile.session)}
-              data-webrtc-ice-servers={relay_webrtc_ice_servers_json(tile.session)}
+              data-preferred-playback-transport={
+                relay_preferred_playback_transport(camera_relay_tile_session(tile))
+              }
+              data-available-playback-transports={
+                relay_available_playback_transports(camera_relay_tile_session(tile))
+              }
+              data-playback-codec-hint={relay_playback_codec_hint(camera_relay_tile_session(tile))}
+              data-playback-container-hint={
+                relay_playback_container_hint(camera_relay_tile_session(tile))
+              }
+              data-webrtc-playback-transport={
+                relay_webrtc_playback_transport(camera_relay_tile_session(tile))
+              }
+              data-webrtc-signaling-path={
+                relay_webrtc_signaling_path(camera_relay_tile_session(tile))
+              }
+              data-webrtc-ice-servers={relay_webrtc_ice_servers_json(camera_relay_tile_session(tile))}
               class="mt-3 space-y-1"
             >
               <div class="overflow-hidden rounded-md border border-base-300/70 bg-base-300/20">
@@ -314,7 +324,9 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
                 Waiting for browser decoder...
               </div>
               <div data-role="compatibility-status" class="text-xs text-base-content/70">
-                Preferred transport: {relay_preferred_playback_transport(tile.session)}
+                Preferred transport: {relay_preferred_playback_transport(
+                  camera_relay_tile_session(tile)
+                )}
               </div>
               <div data-role="relay-status" class="text-xs font-medium text-base-content">
                 Relay status: {camera_relay_tile_session_status_label(tile)}
@@ -541,6 +553,8 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
     |> Map.get(:relay_session, %{})
     |> Map.get(:id)
   end
+
+  def camera_relay_tile_session(tile), do: Map.get(tile, :relay_session, %{})
 
   def camera_relay_tile_label(tile) do
     Map.get(tile, :camera_label) || "Cluster camera"

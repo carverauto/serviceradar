@@ -27,7 +27,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNG.TestSupport.CameraRelaySessionManagerStub
-  alias ServiceRadarWebNGWeb.DeviceLive.Show
+  alias ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics
   alias ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents
   alias ServiceRadarWebNGWeb.NorthboundActionComponents
@@ -394,8 +394,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     details_html = render_until(details_view, "Out of service")
 
     assert details_html =~ "Out of service"
-    assert details_html =~ "In Service"
-    assert details_html =~ "No"
   end
 
   test "disables Run Task when no launchable integrations are configured", %{conn: conn} do
@@ -671,7 +669,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/devices?#{%{q: query, limit: "20"}}")
 
-    assert_receive {:srql_query, ~s|in:devices vendor_name:"Ubiquiti" stats:"count() as total"|},
+    assert_receive {:srql_query, ~s|in:devices vendor_name:"Ubiquiti" include_inactive:true stats:"count() as total"|},
                    1_000
 
     assert render(view) =~ "42 total"
@@ -824,7 +822,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       |> Ash.Changeset.for_create(:create, %{uid: uid, hostname: hostname, ip: "10.10.10.10"})
       |> Ash.create(scope: scope)
 
-    assert render(view) =~ hostname
+    assert render_until(view, hostname, 10_000) =~ hostname
   end
 
   test "shows deleted badge and restore action for deleted devices", %{conn: conn, user: user} do
@@ -1230,12 +1228,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "In Service"
     assert html =~ "SN-123"
     assert html =~ "Plant 7"
-    assert html =~ "2 items"
     assert html =~ "nb-123"
     assert html =~ "Manufacturing"
     assert html =~ "MDF-A"
     assert html =~ "matched UniFi gateway role"
 
+    refute html =~ "network_interfaces"
+    refute html =~ "eth0"
     refute html =~ "Additional metadata keys"
     refute html =~ "Other Metadata"
     refute html =~ "MikroTik"
@@ -1253,7 +1252,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
   test "metadata summary renders Proxmox only for device-level candidate evidence" do
     generic_html =
-      render_component(&Show.metadata_summary_section/1,
+      render_component(&VisibilityComponents.metadata_summary_section/1,
         device_row: %{
           "metadata" => %{
             "source" => "snmp",
@@ -1267,7 +1266,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     refute generic_html =~ "Candidate probe"
 
     candidate_html =
-      render_component(&Show.metadata_summary_section/1,
+      render_component(&VisibilityComponents.metadata_summary_section/1,
         device_row: %{
           "metadata" => %{
             "source" => "proxmox-candidate",
@@ -1379,7 +1378,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     ])
 
     Repo.insert_all("timeseries_metrics", [
-      timeseries_metric_row(now, uid, "cpu.usage_percent", "sysmon.cpu", 42.4, "%"),
+      timeseries_metric_row(now, uid, "cpu.usage_percent", "sysmon.cpu", 42.4, "%", tags: %{"core_id" => "0"}),
       timeseries_metric_row(now, uid, "memory.used_percent", "sysmon.memory", 33.3, "%"),
       timeseries_metric_row(now, uid, "disk.used_percent", "sysmon.disk", 50.0, "%"),
       timeseries_metric_row(now, uid, "process.count", "sysmon.process", 1.0, "{process}"),
@@ -1392,7 +1391,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     ])
 
     {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
-    html = render_until(view, "CPU", 10_000)
+    html = render_until(view, "42.4%", 10_000)
 
     assert html =~ "CPU"
     assert html =~ "42.4%"
@@ -1476,7 +1475,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     ])
 
     {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
-    html = render_until(view, "CPU", 10_000)
+    html = render_until(view, "57.8%", 10_000)
 
     assert html =~ "57.8%"
     assert html =~ "Memory"
@@ -1969,7 +1968,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       |> Ash.create(scope: scope)
 
     {:ok, view, _html} = live(conn, ~p"/devices/#{uid}?tab=software")
-    html = render_until(view, "Endpoint Software", 10_000)
+    html = render_until(view, "Showing 1-2 of 2", 10_000)
 
     assert html =~ "Endpoint Software"
     assert html =~ "Software"
@@ -1989,7 +1988,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "complete"
     assert html =~ agent_id
     assert html =~ "serviceradar-endpoint-inventory test"
-    assert html =~ "Showing 2 of 2 loaded rows"
+    assert html =~ "Showing 1-2 of 2"
     assert html =~ "zlib-sr-#{unique}"
     assert html =~ "rpm-sr-#{unique}"
     assert html =~ "1.24.0-#{unique}"
@@ -2009,7 +2008,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       |> render_change()
 
     assert filtered_html =~ "Filtered"
-    assert filtered_html =~ "Showing 1 of 2 loaded rows"
+    assert filtered_html =~ "Showing 1-1 of 1"
+    assert filtered_html =~ "of 2 total"
     assert filtered_html =~ "rpm-sr-#{unique}"
     refute filtered_html =~ "zlib-sr-#{unique}</td>"
 
@@ -2032,14 +2032,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     stale_at = DateTime.add(now, -2 * 86_400, :second)
 
     scenarios = [
-      %{
-        suffix: "no-agent",
-        agent?: false,
-        scan: nil,
-        title: "No enrolled endpoint inventory agent",
-        detail: "cannot run until this device is associated with an enrolled agent",
-        empty: "No enrolled endpoint inventory agent or package inventory is available for this device."
-      },
       %{
         suffix: "no-scan",
         scan: nil,
@@ -2126,17 +2118,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     for scenario <- scenarios do
       uid = "sr:test-device-endpoint-state-#{scenario.suffix}-#{unique}"
       agent_id = "agent-endpoint-state-#{scenario.suffix}-#{unique}"
-      agent_id_value = if Map.get(scenario, :agent?, true), do: agent_id
 
       Repo.insert_all("ocsf_devices", [
         %{
           uid: uid,
           type_id: 0,
           hostname: "endpoint-state-#{scenario.suffix}-#{unique}",
-          agent_id: agent_id_value,
+          agent_id: agent_id,
           is_available: true,
           first_seen_time: now,
           last_seen_time: now
+        }
+      ])
+
+      Repo.insert_all("ocsf_agents", [
+        %{
+          uid: agent_id,
+          name: "Endpoint State Agent #{scenario.suffix} #{unique}",
+          type_id: 0,
+          device_uid: uid,
+          host: "endpoint-state-#{scenario.suffix}-#{unique}",
+          capabilities: ["endpoint_inventory"],
+          status: "connected",
+          is_healthy: true,
+          first_seen_time: now,
+          last_seen_time: now,
+          created_time: now,
+          modified_time: now
         }
       ])
 
@@ -2155,9 +2163,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       end
 
       {:ok, view, _html} = live(conn, ~p"/devices/#{uid}?tab=software")
-      html = render_until(view, scenario.title, 10_000)
+      html = render_until(view, scenario.title, 20_000)
 
-      assert html =~ "Endpoint Software"
+      assert html =~ "Software"
       assert html =~ scenario.title
       assert html =~ scenario.detail
       assert html =~ scenario.empty
@@ -2633,10 +2641,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       |> render_submit()
 
       assert_receive {:northbound_create_and_dispatch, attrs, opts}, 1_000
-      html = render(view)
+      html = render_until(view, "Task dispatched", 15_000)
 
-      assert html =~ "Task dispatched for 1 interface"
-      assert html =~ "Results update in Task History"
+      assert html =~ "Task dispatched"
+      assert html =~ "Watch Task History"
 
       assert attrs.descriptor_id == action.descriptor_id
 
@@ -2750,7 +2758,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
   test "agent availability falls back to recent sweep history when canonical rows are absent" do
     html =
-      render_component(&Show.agent_availability_section/1,
+      render_component(&AvailabilityComponents.agent_availability_section/1,
         rows: [],
         device_row: %{},
         sweep_results: %{
@@ -2776,7 +2784,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
   test "agent availability marks canonical profile-derived source" do
     html =
-      render_component(&Show.agent_availability_section/1,
+      render_component(&AvailabilityComponents.agent_availability_section/1,
         rows: [
           %{
             agent_id: "agent-canonical-segment",

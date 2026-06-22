@@ -70,8 +70,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelParams do
       "layout_y" => to_string(map_value(layout, "y", 0)),
       "layout_w" => to_string(map_value(layout, "w", 12)),
       "layout_h" => to_string(map_value(layout, "h", 8)),
-      "refresh_interval_seconds" => to_string(panel.refresh_interval_seconds || 0),
-      "position" => to_string(panel.position || 0)
+      "refresh_interval_seconds" => to_string(map_value(panel, :refresh_interval_seconds, 0)),
+      "position" => to_string(map_value(panel, :position, 0))
     }
   end
 

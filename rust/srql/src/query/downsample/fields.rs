@@ -153,6 +153,7 @@ pub(super) fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
                 "device_id" => "device_id".to_string(),
                 "gateway_id" => "gateway_id".to_string(),
                 "agent_id" => "agent_id".to_string(),
+                "core_id" => "tags->>'core_id'".to_string(),
                 "partition" => "partition".to_string(),
                 "target_device_ip" => "target_device_ip".to_string(),
                 "if_index" => "if_index::text".to_string(),

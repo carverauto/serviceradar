@@ -266,6 +266,28 @@ fn translate_downsample_emits_time_bucket_query() {
 }
 
 #[test]
+fn translate_timeseries_downsample_supports_sysmon_core_series_from_tags() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:timeseries_metrics metric_type:\"sysmon.cpu\" metric_name:\"cpu.usage_percent\" time:last_24h bucket:5m agg:max series:core_id limit:25".to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+
+    assert!(
+        response
+            .sql
+            .contains("coalesce(tags->>'core_id', '') AS series"),
+        "expected core_id series to be derived from metric tags, got: {}",
+        response.sql
+    );
+}
+
+#[test]
 fn translate_timeseries_metric_interface_hourly_reads_interface_cagg() {
     let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
     let request = QueryRequest {

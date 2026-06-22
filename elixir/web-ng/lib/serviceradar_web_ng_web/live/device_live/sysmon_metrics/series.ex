@@ -39,7 +39,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Series do
       row when is_map(row) ->
         value = Map.get(row, "value")
 
-        if is_nil(value), do: row, else: Map.put(row, target_field, value)
+        row =
+          if is_nil(value) do
+            row
+          else
+            Map.put(row, target_field, value)
+          end
+
+        if is_binary(target_field) and is_nil(map_value(row, target_field)) do
+          case Map.get(row, "series") || Map.get(row, :series) do
+            nil -> row
+            series -> Map.put(row, target_field, series)
+          end
+        else
+          row
+        end
 
       other ->
         other

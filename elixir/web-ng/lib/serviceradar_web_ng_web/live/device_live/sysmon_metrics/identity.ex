@@ -45,7 +45,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Identity do
   def resolve_sysmon_filter_tokens(srql_module, identity, scope) do
     device_tokens = sysmon_filter_tokens(identity, :device_uid, "uid")
     agent_tokens = sysmon_filter_tokens(identity, :agent_id, "agent_id")
-    host_tokens = sysmon_filter_tokens(identity, :host_id, "host_id")
+    host_tokens = sysmon_filter_tokens(identity, :host_id, "agent_id")
 
     cond do
       device_tokens != [] and sysmon_filter_has_data?(srql_module, device_tokens, scope) ->

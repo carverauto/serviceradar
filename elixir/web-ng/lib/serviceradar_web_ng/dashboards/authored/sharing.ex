@@ -36,7 +36,6 @@ defmodule ServiceRadarWebNG.Dashboards.Authored.Sharing do
         attrs =
           attrs
           |> access_grant_attrs()
-          |> Map.put(:subject_type, :user)
           |> Map.put_new(:granted_by_id, owner_id(scope))
 
         DashboardAccessGrant
@@ -52,7 +51,6 @@ defmodule ServiceRadarWebNG.Dashboards.Authored.Sharing do
         attrs =
           attrs
           |> access_grant_attrs()
-          |> Map.put(:subject_type, :group)
           |> Map.put_new(:granted_by_id, owner_id(scope))
 
         DashboardAccessGrant

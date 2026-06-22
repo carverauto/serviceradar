@@ -272,23 +272,54 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   defp empty_summary, do: %{total: 0, attributed: 0, unmatched: 0, bytes: 0}
 
   defp fetch_flows(srql_module, scope, query, page, page_size) do
-    opts = %{scope: scope, cursor: cursor_for_page(page, page_size), limit: page_size}
-
-    case srql_module.query(query, opts) do
-      {:ok, %{"results" => rows}} when is_list(rows) ->
-        Enum.map(rows, &row_from_srql/1)
-
-      {:ok, _} ->
-        []
-
-      {:error, reason} ->
-        Logger.warning("Attributed flow SRQL rows query failed: #{inspect(reason)}")
-        []
-    end
+    fetch_flows_page(srql_module, scope, query, page_size, nil, page)
   rescue
     error ->
       Logger.warning("Attributed flow SRQL rows query raised: #{Exception.message(error)}")
       []
+  end
+
+  defp fetch_flows_page(srql_module, scope, query, page_size, cursor, page) when page > 1 do
+    case query_flows_page(srql_module, scope, query, page_size, cursor) do
+      {:ok, _rows, next_cursor} when is_binary(next_cursor) ->
+        fetch_flows_page(srql_module, scope, query, page_size, next_cursor, page - 1)
+
+      _ ->
+        []
+    end
+  end
+
+  defp fetch_flows_page(srql_module, scope, query, page_size, cursor, _page) do
+    case query_flows_page(srql_module, scope, query, page_size, cursor) do
+      {:ok, rows, _next_cursor} ->
+        Enum.map(rows, &row_from_srql/1)
+
+      _ ->
+        []
+    end
+  end
+
+  defp query_flows_page(srql_module, scope, query, page_size, cursor) do
+    opts = %{scope: scope, limit: page_size, cursor: cursor}
+
+    case srql_module.query(query, opts) do
+      {:ok, %{"results" => rows, "pagination" => pagination}} when is_list(rows) and is_map(pagination) ->
+        {:ok, rows, map_value(pagination, "next_cursor")}
+
+      {:ok, %{"results" => rows}} when is_list(rows) ->
+        {:ok, rows, nil}
+
+      {:ok, _} ->
+        {:ok, [], nil}
+
+      {:error, reason} ->
+        Logger.warning("Attributed flow SRQL rows query failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  rescue
+    error ->
+      Logger.warning("Attributed flow SRQL rows query raised: #{Exception.message(error)}")
+      {:error, error}
   end
 
   defp enrich_rows_with_rdns(rows, scope) when is_list(rows) do
@@ -444,16 +475,6 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
 
     "in:attributed_flows time:last_24h#{filter_token} sort:time:desc limit:#{page_size}"
   end
-
-  defp cursor_for_page(page, page_size) when page > 1 do
-    offset = (page - 1) * page_size
-
-    %{"offset" => offset}
-    |> Jason.encode!()
-    |> Base.url_encode64(padding: false)
-  end
-
-  defp cursor_for_page(_page, _page_size), do: nil
 
   defp schedule_refresh, do: Process.send_after(self(), :refresh, @refresh_interval_ms)
 

@@ -14,8 +14,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLiveTest do
   setup :register_and_log_in_admin_user
 
   test "renders netflow settings page", %{conn: conn} do
-    {:ok, _lv, html} = live(conn, ~p"/settings/netflows")
-    assert html =~ "NetFlow Settings"
+    {:ok, _lv, html} = live(conn, ~p"/settings/flows")
+    assert html =~ "Network Flow Settings"
     assert html =~ "Local CIDRs"
     assert html =~ "Optional Enrichment and Security"
     refute html =~ "Anomaly Detection (Feature Flag)"
@@ -23,7 +23,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLiveTest do
   end
 
   test "creates a local CIDR entry", %{conn: conn, scope: scope} do
-    {:ok, lv, _html} = live(conn, ~p"/settings/netflows/new")
+    {:ok, lv, _html} = live(conn, ~p"/settings/flows/new")
 
     lv
     |> form("#netflow-cidr-form", %{
@@ -39,7 +39,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLiveTest do
     })
     |> render_submit()
 
-    assert_redirect(lv, ~p"/settings/netflows")
+    assert_redirect(lv, ~p"/settings/flows")
 
     # Validate persistence (navigation is not required for correctness).
     cidrs =
@@ -54,14 +54,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLiveTest do
                cidr.longitude == -93.6258
            end)
 
-    {:ok, lv, _html} = live(conn, ~p"/settings/netflows")
+    {:ok, lv, _html} = live(conn, ~p"/settings/flows")
     assert has_element?(lv, "td", "10.0.0.0/8")
     assert has_element?(lv, "td", "RFC1918")
     assert has_element?(lv, "td", "farm01 - Carver, MN")
   end
 
   test "updates optional netflow settings", %{conn: conn} do
-    {:ok, lv, _html} = live(conn, ~p"/settings/netflows")
+    {:ok, lv, _html} = live(conn, ~p"/settings/flows")
 
     token = "ipinfo_test_token_123"
 
@@ -89,7 +89,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLiveTest do
     user = AccountsFixtures.user_fixture(%{role: :viewer})
     conn = log_in_user(conn, user)
 
-    assert {:error, {:redirect, %{to: to}}} = live(conn, ~p"/settings/netflows")
+    assert {:error, {:redirect, %{to: to}}} = live(conn, ~p"/settings/flows")
     assert to == ~p"/settings/profile"
   end
 

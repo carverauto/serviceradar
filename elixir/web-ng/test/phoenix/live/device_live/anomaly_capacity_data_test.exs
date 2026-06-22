@@ -8,7 +8,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
   @moduletag :db_free
 
   setup do
-    start_supervised!({Task.Supervisor, name: ServiceRadarWebNG.TaskSupervisor})
+    if !Process.whereis(ServiceRadarWebNG.TaskSupervisor) do
+      start_supervised!({Task.Supervisor, name: ServiceRadarWebNG.TaskSupervisor})
+    end
 
     previous_pid = Application.get_env(:serviceradar_web_ng, :anomaly_capacity_data_test_pid)
     Application.put_env(:serviceradar_web_ng, :anomaly_capacity_data_test_pid, self())

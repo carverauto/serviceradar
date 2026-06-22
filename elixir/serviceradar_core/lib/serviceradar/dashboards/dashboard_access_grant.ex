@@ -31,6 +31,11 @@ defmodule ServiceRadar.Dashboards.DashboardAccessGrant do
     schema "platform"
     migrate? false
 
+    identity_wheres_to_sql unique_user_grant:
+                             "subject_type = 'user' AND subject_user_id IS NOT NULL",
+                           unique_group_grant:
+                             "subject_type = 'group' AND subject_group_id IS NOT NULL"
+
     references do
       reference :dashboard, on_delete: :delete
       reference :subject_user, on_delete: :delete

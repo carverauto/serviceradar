@@ -14,7 +14,7 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesAggregationTest do
       %{"timestamp" => "2025-01-01T00:00:00Z", "value" => 61.0, "mount_point" => "/var"}
     ]
 
-    assert {:ok, series_points, _series_units} =
+    assert {:ok, series_points, _series_units, _series_metadata} =
              Spec.extract_series_points(rows, %{x: "timestamp", y: "value", series: nil})
 
     assert Enum.map(series_points, &elem(&1, 0)) == ["/", "/var"]
@@ -26,7 +26,7 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesAggregationTest do
       %{"timestamp" => "2025-01-01T00:00:00Z", "value" => 84.0, "core_id" => 1}
     ]
 
-    assert {:ok, series_points, _series_units} =
+    assert {:ok, series_points, _series_units, _series_metadata} =
              Spec.extract_series_points(rows, %{x: "timestamp", y: "value", series: nil})
 
     assert Enum.map(series_points, &elem(&1, 0)) == ["0", "1"]
@@ -39,7 +39,7 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesAggregationTest do
       }
     ]
 
-    assert {:ok, fallback_series, _series_units} =
+    assert {:ok, fallback_series, _series_units, _series_metadata} =
              Spec.extract_series_points(fallback_rows, %{x: "timestamp", y: "value", series: nil})
 
     assert Enum.map(fallback_series, &elem(&1, 0)) == ["sysmon.cpu:host:CPU1"]

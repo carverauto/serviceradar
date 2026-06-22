@@ -87,19 +87,30 @@ defmodule ServiceRadarWebNGWeb.TopologyLiveTest do
     refute html =~ "No topology data yet"
   end
 
-  test "endpoint layer toggle only changes the endpoints control state", %{conn: conn} do
+  test "topology layer toggle only changes the selected topology control state", %{conn: conn} do
     {:ok, view, html} = live(conn, ~p"/topology")
 
-    assert html =~ ~s(phx-value-layer="endpoints")
-    assert html =~ ~s(phx-value-layer="backbone")
-    assert html =~ ~s(btn btn-xs btn-ghost h-7 min-h-7)
+    assert html =~ "Topology"
 
-    html = render_click(element(view, ~s(button[phx-value-layer="endpoints"])))
+    view
+    |> element(~s(button[phx-click="toggle_controls_panel"]))
+    |> render_click()
 
-    assert html =~ ~s(phx-value-layer="endpoints")
-    assert html =~ ~s(btn btn-xs btn-primary h-7 min-h-7)
-    assert html =~ ~s(phx-value-layer="backbone")
-    assert html =~ ~s(btn btn-xs btn-primary h-7 min-h-7)
+    html =
+      view
+      |> element(~s(button[phx-click="toggle_topology_layer"][phx-value-layer="inferred"]))
+      |> render_click()
+
+    assert_push_event(view, "god_view:set_topology_layers", %{
+      layers: %{
+        "backbone" => true,
+        "endpoints" => false,
+        "inferred" => true,
+        "mtr_paths" => true
+      }
+    })
+
+    assert html =~ "Topology"
   end
 
   test "opens a camera relay from a God-View camera action and renders the viewer panel", %{conn: conn} do
@@ -395,7 +406,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLiveTest do
     html = render(view)
 
     assert html =~ "Topology Camera Viewer"
-    assert html =~ "Camera Relay Error"
+    assert html =~ "Camera Relay Unavailable"
     assert html =~ "Failure reason: camera relay source runtime unavailable"
     assert html =~ "Last relay status: Failed"
   end
