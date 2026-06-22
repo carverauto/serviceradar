@@ -78,8 +78,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
     assert html =~ "score 4.20"
     assert html =~ "disk.used_percent"
     assert html =~ "percent"
-    assert html =~ "headroom 3.80%"
+    assert html =~ "remaining 3.80%"
     assert html =~ "Finding UID"
     assert html =~ "partition:agent:cpu0"
+
+    capacity_html =
+      render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
+        overview: overview,
+        selected_detail: %{kind: "capacity", row: capacity}
+      )
+
+    assert capacity_html =~ "Projected at Horizon"
+    assert capacity_html =~ "Threshold Margin"
   end
 end

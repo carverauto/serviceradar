@@ -148,6 +148,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
              "metadata" => %{"forecast_value_unit" => "percent"},
              "horizon_seconds" => 604_800,
              "horizon_ends_at" => "2026-06-26T00:00:00Z"
+           },
+           %{
+             "resource_label" => "Impossible disk projection",
+             "resource_key" => "disk:/bad",
+             "resource_id" => "router-1",
+             "resource_type" => "disk",
+             "metric_name" => "disk.used_percent",
+             "metric_class" => "disk",
+             "status" => "projected",
+             "forecasted_at" => "2026-06-19T00:00:00Z",
+             "current_value" => 72.5,
+             "projected_value" => 163.46,
+             "projected_exhaustion_at" => "2026-06-20T00:00:00Z",
+             "exhaustion_threshold" => 80.0,
+             "metadata" => %{"forecast_value_unit" => "percent"}
            }
          ]
        }}
@@ -255,6 +270,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
     anomaly_row = List.first(data.anomaly_rows)
     capacity_row = List.first(data.capacity_rows)
 
+    assert length(data.capacity_rows) == 1
+
     assert anomaly_row == %{
              "id" => "event-1",
              "finding_uid" => "finding-1",
@@ -305,7 +322,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
 
     assert Enum.any?(
              queries,
-             &(String.contains?(&1, "in:capacity_forecasts") and String.contains?(&1, "limit:12"))
+             &(String.contains?(&1, "in:capacity_forecasts") and
+                 String.contains?(&1, "time:last_24h") and String.contains?(&1, "limit:12"))
            )
   end
 
