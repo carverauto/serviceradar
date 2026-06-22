@@ -1,7 +1,8 @@
 defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Utils do
   @moduledoc false
 
-  alias ServiceRadar.Graph
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils.Cypher
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils.RiskSummary
 
   @default_stale_minutes 180
   @physical_direct_protocols MapSet.new(["lldp", "cdp", "unifi-api"])
@@ -98,56 +99,14 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Utils do
 
   def map_value(_map, _key), do: nil
 
-  def normalize_endpoint_inventory_risk_summary(summary) do
-    %{
-      pkg_worst_severity:
-        summary
-        |> map_value(:pkg_worst_severity)
-        |> normalize_risk_summary_severity(),
-      pkg_critical_count:
-        summary
-        |> map_value(:pkg_critical_count)
-        |> non_negative_integer(0),
-      pkg_kev_count:
-        summary
-        |> map_value(:pkg_kev_count)
-        |> non_negative_integer(0),
-      pkg_has_unpatched_rce:
-        summary
-        |> map_value(:pkg_has_unpatched_rce)
-        |> truthy?(),
-      pkg_risk_summary_at:
-        summary
-        |> map_value(:pkg_risk_summary_at)
-        |> normalize_risk_summary_timestamp()
-    }
-  end
+  defdelegate normalize_endpoint_inventory_risk_summary(summary),
+    to: RiskSummary
 
-  def normalize_risk_summary_severity(value) do
-    case value |> non_blank() |> normalize_confidence_tier() do
-      "critical" -> "critical"
-      "high" -> "high"
-      "medium" -> "medium"
-      "low" -> "low"
-      "none" -> "none"
-      _ -> "unknown"
-    end
-  end
+  defdelegate normalize_risk_summary_severity(value),
+    to: RiskSummary
 
-  def normalize_risk_summary_timestamp(%DateTime{} = dt) do
-    dt
-    |> DateTime.truncate(:second)
-    |> DateTime.to_iso8601()
-  end
-
-  def normalize_risk_summary_timestamp(value) when is_binary(value) do
-    case non_blank(value) do
-      nil -> current_iso8601_second()
-      timestamp -> timestamp
-    end
-  end
-
-  def normalize_risk_summary_timestamp(_value), do: current_iso8601_second()
+  defdelegate normalize_risk_summary_timestamp(value),
+    to: RiskSummary
 
   def current_iso8601_second do
     DateTime.utc_now()
@@ -279,28 +238,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Utils do
 
   def non_blank(value), do: value |> to_string() |> non_blank()
 
-  def set_prop(_node, _field, nil), do: ""
-  def set_prop(_node, _field, ""), do: ""
+  defdelegate set_prop(node, field, value),
+    to: Cypher
 
-  def set_prop(node, field, value) when is_list(value) do
-    list = Enum.map_join(value, ", ", &cypher_value/1)
-    "SET #{node}.#{field} = [#{list}]"
-  end
-
-  def set_prop(node, field, value) do
-    "SET #{node}.#{field} = #{cypher_value(value)}"
-  end
-
-  def cypher_value(nil), do: "null"
-  def cypher_value(value) when is_boolean(value), do: if(value, do: "true", else: "false")
-  def cypher_value(value) when is_integer(value), do: Integer.to_string(value)
-
-  def cypher_value(value) when is_float(value),
-    do: :erlang.float_to_binary(value, [:compact, decimals: 8])
-
-  def cypher_value(value) when is_binary(value), do: "'#{Graph.escape(value)}'"
-  def cypher_value(value) when is_atom(value), do: "'#{Graph.escape(value)}'"
-  def cypher_value(value), do: "'#{Graph.escape(to_string(value))}'"
+  defdelegate cypher_value(value), to: Cypher
 
   def value_to_non_negative_int(value) when is_integer(value) and value >= 0, do: value
   def value_to_non_negative_int(value) when is_float(value) and value >= 0, do: trunc(value)
