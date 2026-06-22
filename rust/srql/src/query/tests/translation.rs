@@ -396,6 +396,37 @@ fn translate_flows_downsample_emits_time_bucket_query() {
 }
 
 #[test]
+fn translate_flows_downsample_30d_reads_prescaled_cagg() {
+    // §26.4: a long-window downsample (bucket:1h over 30d) routes to a
+    // pre-scaled flow CAGG. Pin that the long-window path reads scaled volume
+    // WITHOUT re-applying sampling_rate (no double-scaling) — the CAGG rebuild
+    // baked bytes * sampling_rate in at materialization. (The 1h counterpart
+    // above takes the raw path and DOES apply sampling_rate; both are correct,
+    // scaling applied exactly once on each path.)
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:flows time:last_30d bucket:1h agg:sum value_field:bytes_total limit:25"
+            .to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+    let sql = response.sql.to_lowercase();
+
+    assert!(
+        !sql.contains("sampling_rate"),
+        "30d CAGG route must read pre-scaled columns, not re-apply sampling_rate (would double-scale): {sql}"
+    );
+    assert!(
+        sql.contains("sum(bytes_total)"),
+        "expected a bytes_total sum (pre-scaled in the CAGG): {sql}"
+    );
+}
+
+#[test]
 fn translate_flows_downsample_can_filter_by_input_snmp() {
     let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
     let request = QueryRequest {

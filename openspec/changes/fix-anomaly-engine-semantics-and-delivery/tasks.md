@@ -151,10 +151,10 @@
 - [x] 25.3 Add y ticks/gridlines/labels to NetFlow grid + BGP + stacked-area charts.
 
 ## 26. NetFlow Traffic Correctness (F32)
-- [ ] 26.1 Carry `sampling_rate` into flow rows and weight every byte/packet sum by it (Total Bandwidth, Top-N, gauges, p95, subnet).
+- [x] 26.1 Carry `sampling_rate` into flow rows and weight every byte/packet sum by it (Total Bandwidth, Top-N, gauges, p95, subnet).
 - [x] 26.2 Divide window-sum totals by the window seconds before labeling a per-second rate (`dashboard.ex:1241-1246,1283-1302`).
 - [x] 26.3 Align the interface gauge and p95 to the selected time window; make peak vs average explicit.
-- [ ] 26.4 Add tests pinning correct bandwidth math for a sampled exporter and each time window.
+- [x] 26.4 Add tests pinning correct bandwidth math for a sampled exporter and each time window.
 
 ## 27. SNMP Counter Rendering Semantics (F33)
 - [x] 27.1 Use the counter PDU width (or SRQL native `agg:rate`) instead of guessing 32/64-bit from the `"HC"` label (`timeseries.ex:358-366`).
