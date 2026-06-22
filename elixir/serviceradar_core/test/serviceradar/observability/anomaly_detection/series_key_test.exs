@@ -40,7 +40,13 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKeyTest do
       }
 
       assert SeriesKey.from_source_identity(source_identity) ==
-               key(partition: "prod-east", class: "snmp", identity: "sr:ns03", if_index: 7)
+               key(
+                 partition: "prod-east",
+                 class: "snmp",
+                 family: "ifHCInOctets",
+                 identity: "sr:ns03",
+                 if_index: 7
+               )
     end
 
     test "uses target_device_ip before the polling host for remote SNMP target metrics" do
@@ -56,7 +62,34 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKeyTest do
       }
 
       assert SeriesKey.from_source_identity(source_identity) ==
-               key(partition: "prod-east", class: "snmp", identity: "10.0.0.20", if_index: 7)
+               key(
+                 partition: "prod-east",
+                 class: "snmp",
+                 family: "ifHCInOctets",
+                 identity: "10.0.0.20",
+                 if_index: 7
+               )
+    end
+
+    test "keeps different SNMP counters on the same target interface isolated" do
+      base = %{
+        "metric_class" => "snmp",
+        "partition" => "prod-east",
+        "target_device_ip" => "10.0.0.20",
+        "if_index" => 7
+      }
+
+      in_octets = SeriesKey.from_source_identity(Map.put(base, "metric_name", "ifInOctets"))
+      out_octets = SeriesKey.from_source_identity(Map.put(base, "metric_name", "ifOutOctets"))
+      in_packets = SeriesKey.from_source_identity(Map.put(base, "metric_name", "ifInUcastPkts"))
+
+      refute in_octets == out_octets
+      refute in_octets == in_packets
+      refute out_octets == in_packets
+
+      assert in_octets =~ "family=#{hex("ifInOctets")}"
+      assert out_octets =~ "family=#{hex("ifOutOctets")}"
+      assert in_packets =~ "family=#{hex("ifInUcastPkts")}"
     end
 
     test "falls back to host_id when no canonical device_id is available" do
@@ -115,6 +148,8 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKeyTest do
       assert lab_key =~ "partition=#{hex("lab-west")}"
       assert prod_key =~ "identity=#{hex("10.0.0.20")}"
       assert lab_key =~ "identity=#{hex("10.0.0.20")}"
+      assert prod_key =~ "family=#{hex("ifHCInOctets")}"
+      assert lab_key =~ "family=#{hex("ifHCInOctets")}"
     end
 
     test "free-form delimiters cannot collide or leak raw into canonical keys" do

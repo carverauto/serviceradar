@@ -103,7 +103,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKey do
         {"sysmon", metric_name_family(metric_name)}
 
       _ ->
-        {metric_class, nil}
+        {metric_class, metric_name_family(metric_name) || metric_name}
     end
   end
 
