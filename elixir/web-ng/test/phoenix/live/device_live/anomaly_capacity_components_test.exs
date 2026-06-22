@@ -91,4 +91,45 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
     assert capacity_html =~ "Projected at Horizon"
     assert capacity_html =~ "Threshold Margin"
   end
+
+  test "renders bounded percent forecasts as threshold crossings when the horizon value is outside domain" do
+    capacity = %{
+      "resource_label" => "Filesystem /",
+      "resource_key" => "disk:/",
+      "resource_id" => "router-1",
+      "metric_name" => "disk.used_percent",
+      "metric_class" => "disk",
+      "value_unit" => "percent",
+      "status" => "projected",
+      "current_value" => 7.04,
+      "projected_value" => 163.46,
+      "projected_exhaustion_at" => "2026-08-01T07:00:00Z",
+      "exhaustion_threshold" => 100.0,
+      "confidence" => 0.994
+    }
+
+    overview = %{
+      status: :ok,
+      anomaly_rows: [],
+      capacity_rows: [capacity],
+      anomaly_query: "in:events limit:20",
+      capacity_query: "in:capacity_forecasts limit:12",
+      anomaly_filter: %{field: "service_radar_device_uid", label: "device", value: "router-1"},
+      capacity_filter: %{field: "resource_id", label: "device", value: "router-1"},
+      anomaly_error: nil,
+      capacity_error: nil,
+      metric_statuses: []
+    }
+
+    html =
+      render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
+        overview: overview,
+        selected_detail: %{kind: "capacity", row: capacity}
+      )
+
+    assert html =~ "crosses 100.00%"
+    assert html =~ "current remaining 92.96%"
+    refute html =~ "163.46%"
+    refute html =~ "over threshold 63.46%"
+  end
 end

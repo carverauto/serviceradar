@@ -168,7 +168,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                     </td>
                     <td>
                       <div class="whitespace-nowrap">
-                        {format_value(row, "projected_value")}
+                        {capacity_forecast_value(row)}
                       </div>
                       <div class="text-xs text-base-content/50">
                         current {format_value(row, "current_value")}
@@ -279,7 +279,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
           <.detail_fact label="Current" value={format_value(@row, "current_value")} mono />
           <.detail_fact
             label="Projected at Horizon"
-            value={format_value(@row, "projected_value")}
+            value={capacity_forecast_value(@row)}
             mono
           />
           <.detail_fact label="Threshold" value={format_value(@row, "exhaustion_threshold")} mono />
@@ -506,21 +506,43 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
     end
   end
 
+  defp capacity_forecast_value(row) do
+    if bounded_percent_projection_out_of_range?(row) do
+      case format_value(row, "exhaustion_threshold") do
+        "n/a" -> "trend outside 0-100%"
+        threshold -> "crosses #{threshold}"
+      end
+    else
+      format_value(row, "projected_value")
+    end
+  end
+
   defp capacity_margin(row) do
     threshold = number_value(value(row, "exhaustion_threshold"))
-    projected = number_value(value(row, "projected_value"))
     current = number_value(value(row, "current_value"))
-    basis = projected || current
+    projected = number_value(value(row, "projected_value"))
+    basis = if bounded_percent_projection_out_of_range?(row), do: current, else: projected || current
 
     if threshold && basis do
       margin = threshold - basis
       formatted = format_unit_value(abs(margin), value(row, "value_unit"))
+      qualifier = if bounded_percent_projection_out_of_range?(row), do: "current ", else: ""
 
       if margin < 0 do
-        "over threshold #{formatted}"
+        "#{qualifier}over threshold #{formatted}"
       else
-        "remaining #{formatted}"
+        "#{qualifier}remaining #{formatted}"
       end
+    end
+  end
+
+  defp bounded_percent_projection_out_of_range?(row) do
+    case number_value(value(row, "projected_value")) do
+      projected when is_float(projected) ->
+        unit_label(value(row, "value_unit")) == "%" and (projected < 0.0 or projected > 100.0)
+
+      _ ->
+        false
     end
   end
 
