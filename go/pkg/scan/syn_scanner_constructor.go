@@ -21,6 +21,7 @@ package scan
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"os"
 	"runtime"
@@ -30,7 +31,6 @@ import (
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
-	"golang.org/x/exp/rand"
 )
 
 //
@@ -457,7 +457,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 		results:       make(map[string]models.Result),
 		portDeadline:  make(map[uint16]time.Time),
 		// Initialize thread-safe random source for IP ID generation
-		rand: rand.New(rand.NewSource(time.Now().UnixNano())),
+		rand: rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(os.Getpid()))),
 	}
 
 	// Configure ring poll timeout: default to max(retireTovMs, 50ms) unless overridden
