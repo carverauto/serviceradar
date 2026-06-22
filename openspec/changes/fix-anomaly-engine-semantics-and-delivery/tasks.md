@@ -164,7 +164,7 @@
 ## 28. Chart Finding/Threshold Annotation (F34)
 - [x] 28.1 Add an `annotations` list ({dt, label, severity}) to the timeseries panel assigns, rendered as SVG marker lines/bands via the existing time mapping.
 - [x] 28.2 Draw per-metric threshold reference lines on interface/sysmon charts.
-- [ ] 28.3 Make a finding click focus/mark its time + series on the chart.
+- [x] 28.3 Make a finding click focus/mark its time + series on the chart.
 
 ## 29. Chart Hover/Tooltip Correctness (F35)
 - [x] 29.1 Invert mouse-x with the same geometry as `idx_to_x` (8px pad + viewBox scaling) in `TimeseriesChart.js`/`TimeseriesCombinedChart.js` and `netflow_charts/util.js`.
