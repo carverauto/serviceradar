@@ -1,0 +1,103 @@
+defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
+  @moduledoc false
+  use ServiceRadarWebNGWeb, :html
+
+  import ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents
+  import ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Executions, only: [merge_running_with_progress: 2]
+  import ServiceRadarWebNGWeb.SettingsComponents
+
+  alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.ActiveScans
+  alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Discovery
+  alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.InventoryCleanup
+  alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Navigation
+  alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Profiles
+  alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.SweepGroups
+
+  def render(assigns) do
+    ~H"""
+    <Layouts.app flash={@flash} current_scope={@current_scope}>
+      <.settings_shell current_path={@current_path}>
+        <.settings_nav current_path={@current_path} current_scope={@current_scope} />
+        <.network_nav current_path={@current_path} current_scope={@current_scope} />
+
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 class="text-2xl font-semibold text-base-content">Network Sweeps</h1>
+            <p class="text-sm text-base-content/60">
+              Configure network discovery sweeps and scanner profiles.
+            </p>
+          </div>
+        </div>
+
+        <%= if @live_action in [:discovery, :new_mapper_job, :edit_mapper_job] do %>
+          <Discovery.render
+            jobs={@mapper_jobs}
+            show_form={@show_mapper_form}
+            form={@mapper_form}
+            seeds_text={@mapper_seeds_text}
+            agents={@agents}
+            unifi_form={@mapper_unifi_form}
+            unifi_present={@mapper_unifi_present}
+            mikrotik={@mapper_mikrotik}
+            mapper_command_statuses={@mapper_command_statuses}
+            can_manage_networks={@can_manage_networks}
+          />
+        <% else %>
+          <%= if @show_form in [:new_group, :edit_group] do %>
+            <.group_form
+              form={@form}
+              show_form={@show_form}
+              profiles={@sweep_profiles}
+              agents={@agents}
+              target_device_count={@target_device_count}
+              builder_open={@builder_open}
+              builder_sync={@builder_sync}
+              builder={@builder}
+            />
+          <% else %>
+            <%= if @show_form in [:new_profile, :edit_profile] do %>
+              <.profile_form
+                form={@form}
+                show_form={@show_form}
+                can_enable_banner_grab={@can_enable_banner_grab}
+                banner_preview_device_count={@banner_preview_device_count}
+              />
+            <% else %>
+              <%= if @show_form == :show_group do %>
+                <.group_detail group={@selected_group} />
+              <% else %>
+                <Navigation.render
+                  active_tab={@active_tab}
+                  running_count={
+                    length(merge_running_with_progress(@running_executions, @execution_progress))
+                  }
+                />
+
+                <%= case @active_tab do %>
+                  <% :groups -> %>
+                    <SweepGroups.render
+                      groups={@sweep_groups}
+                      sweep_command_statuses={@sweep_command_statuses}
+                      can_manage_networks={@can_manage_networks}
+                    />
+                  <% :profiles -> %>
+                    <Profiles.render profiles={@sweep_profiles} />
+                  <% :active_scans -> %>
+                    <ActiveScans.render
+                      running={merge_running_with_progress(@running_executions, @execution_progress)}
+                      recent={@recent_executions}
+                      groups={@sweep_groups}
+                      execution_progress={@execution_progress}
+                    />
+                  <% :cleanup -> %>
+                    <InventoryCleanup.render form={@cleanup_form} settings={@cleanup_settings} />
+                <% end %>
+              <% end %>
+            <% end %>
+          <% end %>
+        <% end %>
+      </.settings_shell>
+    </Layouts.app>
+    """
+  end
+end
