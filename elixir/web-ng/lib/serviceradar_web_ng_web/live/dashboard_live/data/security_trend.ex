@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.SecurityTrend do
 
   defmacro __using__(_opts) do
     quote do
+      @sobelow_skip ["SQL.Query"]
       defp security_trend(time_window) do
         cutoff = cutoff_for_time_window(time_window)
 

@@ -282,8 +282,6 @@ defmodule ServiceRadar.Observability.MtrConsensusWorker do
     end
   end
 
-  defp destination_hop(_trace), do: nil
-
   defp highest_numbered_hop(hops) do
     hops
     |> Enum.with_index()

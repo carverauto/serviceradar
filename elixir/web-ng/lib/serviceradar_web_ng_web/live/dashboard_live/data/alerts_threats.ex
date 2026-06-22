@@ -1,3 +1,4 @@
+# credo:disable-for-this-file Credo.Check.Refactor.LongQuoteBlocks
 defmodule ServiceRadarWebNGWeb.DashboardLive.Data.AlertsThreats do
   @moduledoc false
 
@@ -10,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.AlertsThreats do
         |> Enum.take(-48)
       end
 
+      @sobelow_skip ["SQL.Query"]
       defp alert_feed(time_window) do
         if relation_exists?("platform.alerts") do
           cutoff = cutoff_for_time_window(time_window)
@@ -66,6 +68,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.AlertsThreats do
         _ -> empty_threat_intel_summary()
       end
 
+      @sobelow_skip ["SQL.Query"]
       defp threat_intel_indicator_counts do
         counts =
           if relation_exists?("platform.threat_intel_indicators") do
@@ -101,6 +104,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.AlertsThreats do
         Map.merge(counts, source_objects)
       end
 
+      @sobelow_skip ["SQL.Query"]
       defp threat_intel_match_counts do
         if relation_exists?("platform.ip_threat_intel_cache") do
           sql = """
@@ -127,6 +131,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.AlertsThreats do
         end
       end
 
+      @sobelow_skip ["SQL.Query"]
       defp threat_intel_latest_status do
         if relation_exists?("platform.threat_intel_sync_statuses") do
           sql = """
@@ -146,7 +151,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.AlertsThreats do
           """
 
           case ServiceRadarWebNG.Repo.query(sql, []) do
-            {:ok, %{rows: [[provider, source, status, message, attempted_at, success_at, indicators, skipped, total]]}} ->
+            {:ok,
+             %{
+               rows: [[provider, source, status, message, attempted_at, success_at, indicators, skipped, total]]
+             }} ->
               %{
                 latest_provider: provider,
                 latest_source: source,

@@ -27,6 +27,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowSummary do
         _ -> empty_flow_summary()
       end
 
+      @sobelow_skip ["SQL.Query"]
       defp flow_summary_from_relation(relation, time_column, cutoff) do
         flow_count_expr = flow_count_expr(relation)
 

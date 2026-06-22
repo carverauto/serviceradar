@@ -10,21 +10,20 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
   end
 
   def build_series_data(series_points, spec, rate_mode, compact, max_speed, annotations, reference_lines, y_scale) do
+    opts = %{
+      annotations: annotations,
+      compact: compact,
+      max_speed: max_speed,
+      rate_mode: rate_mode,
+      reference_lines: reference_lines,
+      spec: spec,
+      y_scale: y_scale
+    }
+
     series_points
     |> Enum.with_index()
     |> Enum.map(fn {{series, points}, idx} ->
-      series_data_for_points(
-        series,
-        points,
-        idx,
-        spec,
-        rate_mode,
-        compact,
-        max_speed,
-        annotations,
-        reference_lines,
-        y_scale
-      )
+      series_data_for_points(series, points, idx, opts)
     end)
   end
 
@@ -51,18 +50,17 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
     end
   end
 
-  defp series_data_for_points(
-         series,
-         points,
-         idx,
-         spec,
-         rate_mode,
-         compact,
-         max_speed,
-         annotations,
-         reference_lines,
-         y_scale
-       ) do
+  defp series_data_for_points(series, points, idx, opts) do
+    %{
+      annotations: annotations,
+      compact: compact,
+      max_speed: max_speed,
+      rate_mode: rate_mode,
+      reference_lines: reference_lines,
+      spec: spec,
+      y_scale: y_scale
+    } = opts
+
     effective_max = if Metrics.traffic_series?(series), do: max_speed
     {stroke, _fill} = Metrics.series_color(idx)
     display_name = Metrics.humanize_series_name(series || "series")
@@ -179,8 +177,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
     |> Enum.sort_by(& &1.x)
   end
 
-  defp combined_annotation_markers(_series_data), do: []
-
   defp combined_y_domain(series_data, unit, y_scale) when is_list(series_data) do
     series_data
     |> Enum.flat_map(fn series ->
@@ -193,8 +189,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
     end)
     |> Points.y_domain(unit, y_scale)
   end
-
-  defp combined_y_domain(_series_data, unit, y_scale), do: Points.y_domain([], unit, y_scale)
 
   defp apply_shared_domain(series_data, y_domain, unit, compact) do
     Enum.map(series_data, fn series ->
@@ -310,7 +304,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
   defp annotation_color(_severity), do: "#0EA5E9"
 
   defp reference_points(values) when is_list(values), do: Enum.map(values, &{nil, &1})
-  defp reference_points(_values), do: []
 
   defp reference_line_values(reference_lines, raw_series, display_name) when is_list(reference_lines) do
     reference_lines
@@ -341,8 +334,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
     |> Enum.uniq_by(fn marker -> {marker.value, marker.label, marker.series} end)
     |> Enum.sort_by(& &1.y)
   end
-
-  defp combined_reference_line_markers(_series_data, _y_domain, _unit), do: []
 
   defp reference_line_applies_to_series?(%{series: nil}, _raw_series, _display_name), do: true
 
@@ -375,7 +366,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
 
   defp reference_line_visible?(value, %{scale: :log}) when value <= 0, do: false
   defp reference_line_visible?(value, %{min: min_v, max: max_v}), do: value >= min_v and value <= max_v
-  defp reference_line_visible?(_value, _y_domain), do: false
 
   defp reference_line_color(:critical), do: "#EF4444"
   defp reference_line_color(:high), do: "#F97316"

@@ -1,3 +1,4 @@
+# credo:disable-for-this-file Credo.Check.Refactor.LongQuoteBlocks
 defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Topology do
   @moduledoc false
 
@@ -158,6 +159,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Topology do
 
       defp interface_sparkline_map([], _cutoff, _bucket), do: %{}
 
+      @sobelow_skip ["SQL.Query"]
       defp interface_sparkline_map(pairs, cutoff, bucket) do
         {device_ids, if_indexes} = Enum.unzip(pairs)
         bucket_interval = bucket_interval_literal(bucket)

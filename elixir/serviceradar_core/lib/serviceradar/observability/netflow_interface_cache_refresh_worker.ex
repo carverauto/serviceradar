@@ -340,8 +340,6 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
     Map.get(map, atom_key) || Map.get(map, string_key)
   end
 
-  defp get_value(_map, _atom_key, _string_key), do: nil
-
   defp load_devices_by_ip([], _actor), do: %{}
 
   defp load_devices_by_ip(ips, actor) when is_list(ips) do

@@ -634,7 +634,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   defp count(_counts, _key), do: 0
 
   defp non_negative(value) when is_integer(value) and value >= 0, do: value
-  defp non_negative(value) when is_float(value) and value >= 0, do: value
+  defp non_negative(value) when is_number(value) and value >= 0, do: value
   defp non_negative(_value), do: 0
 
   defp reason_class(reason) when is_atom(reason), do: Atom.to_string(reason)
@@ -799,8 +799,6 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   rescue
     ArgumentError -> nil
   end
-
-  defp value(_row, _field), do: nil
 
   defp existing_atom(field) when is_atom(field), do: field
 

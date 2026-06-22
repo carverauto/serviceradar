@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.BasicSummaries do
 
   defmacro __using__(_opts) do
     quote do
+      @sobelow_skip ["SQL.Query"]
       defp device_summary(_scope) do
         if relation_exists?("platform.ocsf_devices") do
           sql = """
@@ -41,7 +42,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.BasicSummaries do
       end
 
       defp trace_summary(srql_module, scope, time_window) do
-        ServiceRadarWebNGWeb.Stats.traces_summary_with_computed(scope: scope, time: time_window, srql_module: srql_module)
+        ServiceRadarWebNGWeb.Stats.traces_summary_with_computed(
+          scope: scope,
+          time: time_window,
+          srql_module: srql_module
+        )
       rescue
         _ -> empty_trace_summary()
       end

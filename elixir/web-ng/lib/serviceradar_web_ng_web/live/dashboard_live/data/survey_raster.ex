@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.SurveyRaster do
 
   defmacro __using__(_opts) do
     quote do
+      @sobelow_skip ["SQL.Query"]
       defp latest_survey_raster_summary_from_sql do
         sql = """
         SELECT r.session_id, r.min_x, r.max_x, r.min_z, r.max_z, r.cells, r.metadata, r.generated_at

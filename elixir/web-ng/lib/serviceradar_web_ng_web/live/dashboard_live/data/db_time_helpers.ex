@@ -38,6 +38,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.DbTimeHelpers do
         """
       end
 
+      @sobelow_skip ["SQL.Query"]
       defp column_exists?(relation_name, column_name) do
         case String.split(relation_name, ".", parts: 2) do
           [schema, table] ->

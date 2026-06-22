@@ -1309,7 +1309,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp bulk_tag_transaction_result({:ok, count}), do: {:ok, count}
   defp bulk_tag_transaction_result({:error, reason}), do: {:error, reason}
-  defp bulk_tag_transaction_result({:error, reason, _stacktrace}), do: {:error, reason}
 
   defp update_tagged_device_records(devices, new_tags, scope) do
     Enum.reduce_while(devices, :ok, fn device, :ok ->
@@ -3878,9 +3877,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         else
           {:error, ["Missing required columns: #{Enum.join(missing, ", ")}"]}
         end
-
-      {:error, _} = error ->
-        error
     end
   rescue
     e ->

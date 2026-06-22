@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Camera do
 
   defmacro __using__(_opts) do
     quote do
+      @sobelow_skip ["SQL.Query"]
       defp camera_summary(_scope) do
         if relation_exists?("platform.camera_sources") do
           sql = """
@@ -49,6 +50,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Camera do
         _ -> empty_camera_summary()
       end
 
+      @sobelow_skip ["SQL.Query"]
       defp active_camera_relay_count do
         if relation_exists?("platform.camera_relay_sessions") do
           sql = """

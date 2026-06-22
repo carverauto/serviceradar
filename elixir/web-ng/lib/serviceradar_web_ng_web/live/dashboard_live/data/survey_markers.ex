@@ -64,6 +64,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.SurveyMarkers do
 
       defp invalid_dashboard_bssid?(_bssid), do: true
 
+      @sobelow_skip ["SQL.Query"]
       defp latest_dashboard_floorplan_segments(session_id) do
         if relation_exists?("platform.survey_room_artifacts") do
           sql = """

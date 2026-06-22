@@ -142,7 +142,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
   end
 
   defp value(row, key) when is_map(row), do: Map.get(row, key) || Map.get(row, known_atom_key(key))
-  defp value(_row, _key), do: nil
 
   defp known_atom_key("finding_title"), do: :finding_title
   defp known_atom_key("metric_name"), do: :metric_name

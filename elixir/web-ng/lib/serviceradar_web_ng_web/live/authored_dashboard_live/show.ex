@@ -408,10 +408,20 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     case require_record(panel) do
       {:ok, panel} ->
         result =
-          RuntimeData.preview_panel_query(socket.assigns.current_scope, panel, socket.assigns.variable_values, variables)
+          RuntimeData.preview_panel_query(
+            socket.assigns.current_scope,
+            panel,
+            socket.assigns.variable_values,
+            variables
+          )
 
         trend =
-          RuntimeData.preview_trend_query(socket.assigns.current_scope, panel, socket.assigns.variable_values, variables)
+          RuntimeData.preview_trend_query(
+            socket.assigns.current_scope,
+            panel,
+            socket.assigns.variable_values,
+            variables
+          )
 
         {:noreply,
          socket

@@ -1668,8 +1668,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     if value == "", do: nil, else: value
   end
 
-  defp normalize_ip(_), do: nil
-
   defp valid_ip?(value) when is_binary(value) do
     case :inet.parse_address(String.to_charlist(value)) do
       {:ok, _} -> true

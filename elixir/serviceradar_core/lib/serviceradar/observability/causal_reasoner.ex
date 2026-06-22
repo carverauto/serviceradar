@@ -94,6 +94,20 @@ defmodule ServiceRadar.Observability.CausalReasoner do
   @typedoc "Which disposition kernel to run for the batch."
   @type kind :: :seasonal | :capacity
 
+  @type seasonal_request ::
+          {:seasonal,
+           %{
+             config: map(),
+             row: map()
+           }}
+
+  @type capacity_request ::
+          {:capacity,
+           %{
+             config: map(),
+             row: map()
+           }}
+
   @typedoc "The typed Value-channel disposition returned per row."
   @type disposition ::
           :suppress
@@ -101,6 +115,7 @@ defmodule ServiceRadar.Observability.CausalReasoner do
           | {:seasonal_drift, %{score: float()}}
           | :insufficient_seasonal_baseline
           | {:skipped, %{reason: String.t()}}
+          | {:projected, map()}
 
   @typedoc "One per-row seasonal disposition result payload."
   @type seasonal_disposition :: %{
@@ -110,8 +125,16 @@ defmodule ServiceRadar.Observability.CausalReasoner do
           score: float()
         }
 
+  @type capacity_disposition :: %{
+          optional(:series_key) => String.t(),
+          disposition: disposition()
+        }
+
   @typedoc "One per-row result: a disposition or a typed error reason."
-  @type result :: {:ok, seasonal_disposition()} | {:error, String.t()}
+  @type result ::
+          {:ok, seasonal_disposition()}
+          | {:capacity_ok, capacity_disposition()}
+          | {:error, String.t()}
 
   @doc """
   Disposes a batch of rows through the central disposition kernel selected by `kind`.
@@ -122,6 +145,6 @@ defmodule ServiceRadar.Observability.CausalReasoner do
 
   See the module doc for the per-`kind` request and result shapes.
   """
-  @spec dispose_batch(kind(), [map()]) :: [result()]
+  @spec dispose_batch(kind(), [seasonal_request() | capacity_request()]) :: [result()]
   def dispose_batch(_kind, _inputs), do: :erlang.nif_error(:nif_not_loaded)
 end

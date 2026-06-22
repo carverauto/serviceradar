@@ -36,11 +36,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.TrafficSparklines do
       defp flow_traffic_sparkline(time_window, metric) do
         cutoff = cutoff_for_time_window(time_window)
 
-        Enum.find_value(flow_sparkline_sources(time_window), [], fn {relation_ref, relation, time_column, bucket_seconds} ->
-          if relation_exists?(relation_ref) do
-            values = flow_traffic_sparkline_from_relation(relation, time_column, cutoff, bucket_seconds, metric)
-            if values != [], do: values
-          end
+        Enum.find_value(flow_sparkline_sources(time_window), [], fn
+          {relation_ref, relation, time_column, bucket_seconds} ->
+            if relation_exists?(relation_ref) do
+              values = flow_traffic_sparkline_from_relation(relation, time_column, cutoff, bucket_seconds, metric)
+              if values != [], do: values
+            end
         end)
       rescue
         _ -> []
@@ -112,6 +113,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.TrafficSparklines do
         sparkline_query_values(sql, [cutoff, 48 * 2], metric, seconds)
       end
 
+      @sobelow_skip ["SQL.Query"]
       defp sparkline_query_values(sql, params, metric, seconds) do
         case ServiceRadarWebNG.Repo.query(sql, params) do
           {:ok, %{rows: rows}} ->

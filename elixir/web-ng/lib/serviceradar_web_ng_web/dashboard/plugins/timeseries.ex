@@ -214,8 +214,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     Map.get(metadata_by_series, series) || Map.get(metadata_by_series, to_string(series || ""))
   end
 
-  defp series_metadata(_metadata_by_series, _series), do: nil
-
   defp annotations_from_assigns(assigns, focus_annotation) do
     annotations =
       assigns

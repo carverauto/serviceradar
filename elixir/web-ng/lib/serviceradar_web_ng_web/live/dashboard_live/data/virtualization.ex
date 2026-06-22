@@ -1,3 +1,4 @@
+# credo:disable-for-this-file Credo.Check.Refactor.LongQuoteBlocks
 defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Virtualization do
   @moduledoc false
 

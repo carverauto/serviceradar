@@ -1309,8 +1309,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     end
   end
 
-  defp clamp_covered_span(_raw_span, _requested_seconds), do: 3_600
-
   # §26.3: human-readable window label for the p95 column header (was hardcoded
   # "30d"). The @time_window tokens are already short and readable, so this is
   # a guarded passthrough.

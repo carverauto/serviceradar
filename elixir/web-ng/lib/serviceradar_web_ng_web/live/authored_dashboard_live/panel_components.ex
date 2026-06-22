@@ -726,8 +726,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
     name in ["time", "timestamp", "bucket", "time_bucket", "bucket_start", "bucket_end"]
   end
 
-  defp trend_time_field_name?(_name), do: false
-
   defp datetime_sort_key(%DateTime{} = value), do: {0, DateTime.to_unix(value, :microsecond)}
   defp datetime_sort_key(%NaiveDateTime{} = value), do: {0, NaiveDateTime.to_gregorian_seconds(value)}
   defp datetime_sort_key(%Date{} = value), do: {0, Date.to_gregorian_days(value)}
@@ -792,7 +790,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
   end
 
   defp map_value(map, key, default) when is_map(map) do
-    Map.get(map, key) || Map.get(map, String.to_atom(key), default)
+    Map.get(map, key) || Map.get(map, String.to_existing_atom(key), default)
   rescue
     ArgumentError -> default
   end

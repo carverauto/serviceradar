@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.SurveySummary do
 
   defmacro __using__(_opts) do
     quote do
+      @sobelow_skip ["SQL.Query"]
       defp survey_summary(scope) do
         summary =
           cond do

@@ -220,8 +220,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics do
     |> Enum.find_value(&normalize_counter_width/1)
   end
 
-  defp counter_width(_), do: nil
-
   defp counter_width_candidates(metadata) do
     nested_metadata =
       metadata

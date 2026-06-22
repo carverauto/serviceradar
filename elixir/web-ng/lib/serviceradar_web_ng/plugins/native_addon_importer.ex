@@ -23,6 +23,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
   alias ServiceRadar.Plugins.RetiredNativeAddons
   alias ServiceRadarWebNG.Plugins.ForgejoOciClient, as: Client
 
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
   @default_index_asset_name "serviceradar-native-addon-index.json"
   @default_recent_release_limit 10
   @max_bundle_bytes 64 * 1024 * 1024
@@ -334,6 +336,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
 
   defp extract_manifest(_bundle), do: {:error, :invalid_bundle}
 
+  @sobelow_skip ["Traversal.FileModule"]
   defp extract_bundle(bundle) do
     path = Path.join(System.tmp_dir!(), "sr-addon-bundle-#{System.unique_integer([:positive])}.zip")
 

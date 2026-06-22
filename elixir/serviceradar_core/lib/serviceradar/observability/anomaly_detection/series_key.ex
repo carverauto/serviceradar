@@ -180,7 +180,6 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKey do
   end
 
   defp string(map, key) when is_map(map), do: string_value(Map.get(map, key))
-  defp string(_map, _key), do: nil
 
   defp string_value(value) when is_binary(value) do
     case String.trim(value) do

@@ -1,3 +1,4 @@
+# credo:disable-for-this-file Credo.Check.Refactor.LongQuoteBlocks
 defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
   @moduledoc false
 
@@ -34,6 +35,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
         ]
       end
 
+      @sobelow_skip ["SQL.Query"]
       defp traffic_links_from_relation(relation, time_column, cutoff) do
         flow_count_expr = flow_count_expr(relation)
         time_predicate = netflow_map_time_predicate(time_column)

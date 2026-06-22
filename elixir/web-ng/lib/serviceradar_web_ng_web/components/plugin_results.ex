@@ -232,11 +232,20 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
   defp markdown_to_html(content) do
     content = to_string(content || "")
     escaped = content |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
-    opts = %Earmark.Options{gfm: true, breaks: true, smartypants: false, escape: true}
 
-    case Earmark.as_html(escaped, opts) do
-      {:ok, html, _} -> sanitize_rendered_markdown(html)
-      {:error, html, _} -> sanitize_rendered_markdown(html)
+    opts = [
+      extension: [
+        autolink: true,
+        strikethrough: true,
+        table: true,
+        tasklist: true
+      ],
+      render: [hardbreaks: true]
+    ]
+
+    case MDEx.to_html(escaped, opts) do
+      {:ok, html} -> sanitize_rendered_markdown(html)
+      {:error, _reason} -> escaped
     end
   end
 

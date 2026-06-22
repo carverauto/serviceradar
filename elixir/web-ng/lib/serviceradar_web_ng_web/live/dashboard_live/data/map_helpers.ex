@@ -1,3 +1,4 @@
+# credo:disable-for-this-file Credo.Check.Refactor.LongQuoteBlocks
 defmodule ServiceRadarWebNGWeb.DashboardLive.Data.MapHelpers do
   @moduledoc false
 
@@ -83,8 +84,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.MapHelpers do
         Enum.find_value(keys, fn key -> Map.get(map, key) end)
       end
 
-      defp map_value_any(_map, _keys), do: nil
-
       defp flow_color(idx, magnitude) do
         opacity = 130 + min(round(:math.log10(max(magnitude, 10)) * 12), 95)
 
@@ -168,8 +167,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.MapHelpers do
       defp network_health_tone(_), do: "success"
 
       defp survey_available?(%{sample_count: samples, raster_cell_count: cells}), do: samples > 0 or cells > 0
-      defp survey_available?(%{sample_count: samples}), do: samples > 0
-      defp survey_available?(_survey), do: false
 
       defp survey_value(%{sample_count: 0, raster_cell_count: cells}) when cells > 0, do: "Persisted raster"
       defp survey_value(%{sample_count: 0}), do: "No survey"
@@ -177,8 +174,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.MapHelpers do
 
       defp survey_detail(%{sample_count: 0, raster_cell_count: cells}) when cells > 0,
         do: "#{format_count(cells)} backend raster cells"
-
-      defp survey_detail(%{sample_count: 0}), do: "FieldSurvey summary unavailable"
 
       defp survey_detail(%{sample_count: samples, avg_rssi: rssi}),
         do: "#{format_count(samples)} samples, #{format_float(rssi)} dBm avg"

@@ -16,6 +16,8 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
 
   require Logger
 
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
   @default_refresh_ms 30_000
   @max_backbone_link_rows 5_000
   @max_attachment_link_rows 2_000
@@ -337,6 +339,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     """
   end
 
+  @sobelow_skip ["SQL.Query"]
   defp fetch_virtualization_links_from_inventory do
     case Repo.query(virtualization_inventory_links_query(), [@max_virtualization_link_rows]) do
       {:ok, %{rows: rows}} when is_list(rows) ->

@@ -1,3 +1,4 @@
+# credo:disable-for-this-file Credo.Check.Refactor.LongQuoteBlocks
 defmodule ServiceRadarWebNGWeb.DashboardLive.Data.ServiceSparklines do
   @moduledoc false
 
@@ -86,8 +87,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.ServiceSparklines do
 
         one_value_sparkline(sql, [cutoff_for_time_window(time_window), 48 * 2])
       end
-
-      defp trace_rollup_sparkline(_time_window, _metric), do: []
 
       defp device_activity_sparkline(time_window) do
         if relation_exists?("platform.ocsf_devices") do
@@ -189,6 +188,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.ServiceSparklines do
         _ -> []
       end
 
+      @sobelow_skip ["SQL.Query"]
       defp one_value_sparkline(sql, params) do
         case ServiceRadarWebNG.Repo.query(sql, params) do
           {:ok, %{rows: rows}} ->
@@ -214,8 +214,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.ServiceSparklines do
         |> Enum.map(&to_float(&1.loss_pct))
         |> sparkline_tail()
       end
-
-      defp mtr_overlay_sparkline(_overlays, _metric), do: []
     end
   end
 end

@@ -49,10 +49,6 @@ defmodule ServiceRadar.Plugins.AnomalyAddonProfileSeeder do
          {:ok, _profile} <- upsert_profile(profile, package, actor) do
       :ok
     else
-      {:ok, nil} ->
-        Logger.debug("Skipping anomaly add-on default profile seed; no approved package exists")
-        :ok
-
       :unsupported_schema ->
         Logger.debug(
           "Skipping anomaly add-on default profile seed; package config schema lacks metric_feed"
