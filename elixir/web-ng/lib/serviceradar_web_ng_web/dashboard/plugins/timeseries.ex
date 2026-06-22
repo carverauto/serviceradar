@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard
+  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Focus
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData
@@ -122,9 +123,12 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     chart_mode = Map.get(assigns, :chart_mode, :single)
     combine_all_series = Map.get(assigns, :combine_all_series, false)
     combined_title = Map.get(assigns, :combined_title, "Combined")
-    annotations = annotations_from_assigns(assigns)
+    chart_focus = assigns |> Spec.fetch_panel_value(:chart_focus) |> Focus.normalize()
     reference_lines = reference_lines_from_assigns(assigns)
     y_scale = Points.scale_mode(Map.get(assigns, :y_scale, :linear))
+
+    {series_points, focus_annotation} = Focus.apply(series_points, chart_focus)
+    annotations = annotations_from_assigns(assigns, focus_annotation)
 
     series_data =
       SeriesData.build_series_data(
@@ -212,10 +216,16 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
   defp series_metadata(_metadata_by_series, _series), do: nil
 
-  defp annotations_from_assigns(assigns) do
-    assigns
-    |> Spec.fetch_panel_value(:annotations, [])
-    |> normalize_annotations()
+  defp annotations_from_assigns(assigns, focus_annotation) do
+    annotations =
+      assigns
+      |> Spec.fetch_panel_value(:annotations, [])
+      |> normalize_annotations()
+
+    case focus_annotation do
+      %{dt: %DateTime{}} = annotation -> normalize_annotations(annotations ++ [annotation])
+      _ -> annotations
+    end
   end
 
   defp normalize_annotations(annotations) when is_list(annotations) do

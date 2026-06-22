@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
 
   attr(:sections, :list, default: [])
   attr(:device_uid, :string, required: true)
+  attr(:chart_focus, :any, default: nil)
 
   def metric_sections_content(assigns) do
     ~H"""
@@ -62,7 +63,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
                 module={panel.plugin}
                 id={"device-#{@device_uid}-#{section.key}-#{panel.id}"}
                 title={Map.get(panel, :title) || section.title}
-                panel_assigns={Map.put(panel.assigns, :compact, true)}
+                panel_assigns={panel_assigns(panel, @chart_focus)}
               />
             <% end %>
           <% end %>
@@ -87,4 +88,73 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
   end
 
   defp percent_width(_), do: 0
+
+  defp panel_assigns(panel, chart_focus) do
+    panel.assigns
+    |> Map.put(:compact, true)
+    |> maybe_put_chart_focus(chart_focus)
+  end
+
+  defp maybe_put_chart_focus(assigns, %{row: %{} = row, kind: kind}) do
+    case chart_focus(row, kind) do
+      nil -> assigns
+      focus -> Map.put(assigns, :chart_focus, focus)
+    end
+  end
+
+  defp maybe_put_chart_focus(assigns, _chart_focus), do: assigns
+
+  defp chart_focus(row, kind) do
+    case first_present(row, ["time", "timestamp", "window_ended_at", "projected_exhaustion_at"]) do
+      nil ->
+        nil
+
+      timestamp ->
+        %{
+          timestamp: timestamp,
+          label: focus_label(row, kind),
+          severity: value(row, "severity") || value(row, "status"),
+          series: first_present(row, ["series", "series_key", "metric_name", "resource_key"]),
+          series_key: value(row, "series_key"),
+          metric_name: value(row, "metric_name"),
+          resource_key: value(row, "resource_key"),
+          window_minutes: 15
+        }
+    end
+  end
+
+  defp focus_label(row, "capacity") do
+    value(row, "resource_label") || value(row, "metric_name") || "Capacity finding"
+  end
+
+  defp focus_label(row, _kind) do
+    value(row, "finding_title") || value(row, "metric_name") || "Anomaly finding"
+  end
+
+  defp first_present(row, keys) do
+    Enum.find_value(keys, fn key ->
+      case value(row, key) do
+        nil -> nil
+        value when is_binary(value) -> if String.trim(value) == "", do: nil, else: value
+        value -> value
+      end
+    end)
+  end
+
+  defp value(row, key) when is_map(row), do: Map.get(row, key) || Map.get(row, known_atom_key(key))
+  defp value(_row, _key), do: nil
+
+  defp known_atom_key("finding_title"), do: :finding_title
+  defp known_atom_key("metric_name"), do: :metric_name
+  defp known_atom_key("projected_exhaustion_at"), do: :projected_exhaustion_at
+  defp known_atom_key("resource_key"), do: :resource_key
+  defp known_atom_key("resource_label"), do: :resource_label
+  defp known_atom_key("series"), do: :series
+  defp known_atom_key("series_key"), do: :series_key
+  defp known_atom_key("severity"), do: :severity
+  defp known_atom_key("status"), do: :status
+  defp known_atom_key("time"), do: :time
+  defp known_atom_key("timestamp"), do: :timestamp
+  defp known_atom_key("window_ended_at"), do: :window_ended_at
+  defp known_atom_key(_key), do: nil
 end

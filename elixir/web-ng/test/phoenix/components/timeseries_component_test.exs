@@ -68,6 +68,44 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
     assert html =~ "#EF4444"
   end
 
+  test "focuses a finding on its matching series and time window" do
+    points =
+      for minute <- 0..20 do
+        {DateTime.add(~U[2025-01-01 00:00:00Z], minute, :minute), minute * 1.0}
+      end
+
+    html =
+      render_component(Timeseries, %{
+        id: "ts-focused-finding",
+        title: "Focused finding",
+        panel_assigns: %{
+          chart_mode: :single,
+          rate_mode: :none,
+          chart_focus: %{
+            timestamp: ~U[2025-01-01 00:10:00Z],
+            label: "CPU saturation",
+            severity: "critical",
+            series: "cpu1",
+            window_seconds: 60
+          }
+        },
+        series_points: [
+          {"cpu0", points},
+          {"cpu1", points}
+        ]
+      })
+
+    assert html =~ "CPU saturation"
+    assert html =~ "data-annotation-label=\"CPU saturation\""
+    assert html =~ "x1=\"400.0\""
+    assert html =~ "cpu1"
+    refute html =~ "cpu0"
+    assert html =~ "12:09 AM"
+    assert html =~ "12:11 AM"
+    refute html =~ "12:00 AM"
+    refute html =~ "12:20 AM"
+  end
+
   test "renders threshold reference lines and includes them in the y domain" do
     points = [
       {~U[2025-01-01 00:00:00Z], 10.0},
