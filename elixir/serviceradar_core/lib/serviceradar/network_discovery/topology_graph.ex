@@ -1212,7 +1212,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     cypher = """
     MATCH (a:Device {id: '#{Graph.escape(src_id)}'})-[r:CANONICAL_TOPOLOGY]->(b:Device {id: '#{Graph.escape(dst_id)}'})
     SET r.relation_type = 'ATTACHED_TO'
-    SET r.evidence_class = 'inferred-segment'
+    SET r.evidence_class = 'endpoint-attachment'
     SET r.confidence_tier = 'medium'
     SET r.confidence_score = CASE WHEN coalesce(r.confidence_score, 0) > 78 THEN r.confidence_score ELSE 78 END
     SET r.confidence_reason = 'shared_segment_via_uplink'
