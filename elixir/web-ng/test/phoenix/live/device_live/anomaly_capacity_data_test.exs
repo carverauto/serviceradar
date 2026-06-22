@@ -57,7 +57,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
       send(test_pid(), {:fake_query, query})
 
       cond do
-        String.contains?(query, ~s|device_uid_exact:"router-1"|) ->
+        String.contains?(query, ~s|service_radar_device_uid:"router-1"|) ->
           {:ok, %{"results" => []}}
 
         String.contains?(query, "agent_id:") or String.contains?(query, "host_id:") ->
@@ -194,9 +194,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
     cpu = Enum.find(data.metric_statuses, &(&1.class == "cpu"))
     red = Enum.find(data.metric_statuses, &(&1.class == "red"))
 
-    assert data.anomaly_filter == %{field: "device_uid_exact", label: "device", value: "router-1"}
+    assert data.anomaly_filter == %{
+             field: "service_radar_device_uid",
+             label: "device",
+             value: "router-1"
+           }
+
     assert data.capacity_filter == %{field: "resource_id", label: "device", value: "router-1"}
-    assert data.anomaly_query =~ ~s|device_uid_exact:"router-1"|
+    assert data.anomaly_query =~ ~s|service_radar_device_uid:"router-1"|
     assert data.capacity_query =~ ~s|resource_id:"router-1"|
     refute data.capacity_query =~ "resource_key:"
     refute data.anomaly_query =~ "agent_id:"
@@ -208,7 +213,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
         query
       end
 
-    assert Enum.any?(queries, &String.contains?(&1, ~s|device_uid_exact:"router-1"|))
+    assert Enum.any?(queries, &String.contains?(&1, ~s|service_radar_device_uid:"router-1"|))
     assert Enum.any?(queries, &String.contains?(&1, ~s|resource_id:"router-1"|))
     assert cpu.status == "active"
     assert cpu.count == 1
@@ -228,8 +233,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
     anomaly_queries = Enum.filter(queries, &String.contains?(&1, "in:events"))
 
     assert data.anomaly_rows == []
-    assert data.anomaly_filter == %{field: "device_uid_exact", label: "device", value: "router-1"}
-    assert Enum.any?(anomaly_queries, &String.contains?(&1, ~s|device_uid_exact:"router-1"|))
+
+    assert data.anomaly_filter == %{
+             field: "service_radar_device_uid",
+             label: "device",
+             value: "router-1"
+           }
+
+    assert Enum.any?(
+             anomaly_queries,
+             &String.contains?(&1, ~s|service_radar_device_uid:"router-1"|)
+           )
+
     refute Enum.any?(anomaly_queries, &String.contains?(&1, "agent_id:"))
     refute Enum.any?(anomaly_queries, &String.contains?(&1, "host_id:"))
   end
@@ -313,7 +328,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
       end)
 
     assert_receive {:anomaly_query_started, anomaly_query, anomaly_pid}
-    assert anomaly_query =~ ~s|device_uid_exact:"router-1"|
+    assert anomaly_query =~ ~s|service_radar_device_uid:"router-1"|
 
     assert_receive {:capacity_query_started, capacity_query, _capacity_pid}
     assert capacity_query =~ ~s|resource_id:"router-1"|

@@ -54,7 +54,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
       capacity_rows: [capacity],
       anomaly_query: "in:events limit:20",
       capacity_query: "in:capacity_forecasts limit:12",
-      anomaly_filter: %{field: "device_uid_exact", label: "device", value: "router-1"},
+      anomaly_filter: %{field: "service_radar_device_uid", label: "device", value: "router-1"},
       capacity_filter: %{field: "resource_id", label: "device", value: "router-1"},
       anomaly_error: nil,
       capacity_error: nil,

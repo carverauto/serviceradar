@@ -1514,7 +1514,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
         String.contains?(query, "in:events") and
           String.contains?(query, "event_type:(anomaly,anomaly_detection)") and
-            String.contains?(query, ~s|device_uid_exact:"#{uid}"|) ->
+            String.contains?(query, ~s|service_radar_device_uid:"#{uid}"|) ->
           {:ok,
            %{
              "results" => [
@@ -1605,7 +1605,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "91.20"
     assert html =~ "now 72.50"
     assert html =~ "confidence 82.0%"
-    assert html =~ "device device_uid_exact=#{uid}"
+    assert html =~ "device service_radar_device_uid=#{uid}"
     assert html =~ "device resource_id=#{uid}"
     assert html =~ "active"
 
@@ -1618,7 +1618,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
     capacity_queries = Enum.filter(queries, &String.contains?(&1, "in:capacity_forecasts"))
 
-    assert Enum.any?(anomaly_queries, &String.contains?(&1, ~s|device_uid_exact:"#{uid}"|))
+    assert Enum.any?(
+             anomaly_queries,
+             &String.contains?(&1, ~s|service_radar_device_uid:"#{uid}"|)
+           )
+
     assert Enum.any?(capacity_queries, &String.contains?(&1, ~s|resource_id:"#{uid}"|))
     assert Enum.all?(anomaly_queries, &String.contains?(&1, "limit:20"))
     assert Enum.all?(capacity_queries, &String.contains?(&1, "limit:12"))
