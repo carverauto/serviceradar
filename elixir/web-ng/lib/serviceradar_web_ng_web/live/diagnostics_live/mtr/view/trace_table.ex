@@ -1,0 +1,163 @@
+defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.TraceTable do
+  @moduledoc false
+  use ServiceRadarWebNGWeb, :html
+
+  import ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Helpers
+
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.Config
+
+  attr(:traces, :list, required: true)
+  attr(:pending_jobs, :list, required: true)
+  attr(:filter_target, :string, required: true)
+  attr(:filter_agent, :string, required: true)
+
+  def render(assigns) do
+    ~H"""
+    <form phx-change="filter" class="flex flex-col gap-3 sm:flex-row">
+      <input
+        type="text"
+        name="target"
+        value={@filter_target}
+        placeholder="Filter by target..."
+        class="input input-sm input-bordered w-full sm:w-48"
+        phx-debounce="300"
+      />
+      <input
+        type="text"
+        name="agent"
+        value={@filter_agent}
+        placeholder="Filter by agent..."
+        class="input input-sm input-bordered w-full sm:w-48"
+        phx-debounce="300"
+      />
+    </form>
+
+    <div class="overflow-x-auto">
+      <table class="table table-sm sr-mtr-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Target</th>
+            <th>Status</th>
+            <th>Hops</th>
+            <th>Protocol</th>
+            <th>Agent</th>
+            <th>Check</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <.pending_rows pending_jobs={@pending_jobs} />
+          <.trace_rows traces={@traces} />
+          <tr :if={@pending_jobs == [] and @traces == []}>
+            <td colspan="8" class="text-center py-8 sr-mtr-muted">
+              No MTR traces found. Traces will appear once agents run MTR checks.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    """
+  end
+
+  attr(:pending_jobs, :list, required: true)
+
+  defp pending_rows(assigns) do
+    ~H"""
+    <tr :for={job <- @pending_jobs} class="hover opacity-80">
+      <td class="whitespace-nowrap text-xs">{format_time(job.inserted_at)}</td>
+      <td>
+        <div class="font-mono text-sm">{job.payload[Config.payload_target_key()] || "-"}</div>
+      </td>
+      <td>
+        <span class={["badge badge-sm w-28 justify-center", pending_status_class(job.status)]}>
+          {job.status |> to_string() |> String.replace("_", " ") |> String.upcase()}
+        </span>
+      </td>
+      <td class="text-center">-</td>
+      <td>
+        <span class="badge badge-ghost badge-sm">
+          {String.upcase(
+            (job.payload || %{})[Config.payload_protocol_key()] || Config.protocol_icmp()
+          )}
+        </span>
+      </td>
+      <td class="text-xs font-mono max-w-[120px] truncate" title={job.agent_id}>{job.agent_id}</td>
+      <td class="text-xs max-w-[120px] truncate" title={job.command_type}>pending</td>
+      <td class="text-xs sr-mtr-muted">{job.id}</td>
+    </tr>
+    """
+  end
+
+  attr(:traces, :list, required: true)
+
+  defp trace_rows(assigns) do
+    ~H"""
+    <tr :for={trace <- @traces} class="hover">
+      <td class="whitespace-nowrap text-xs">{format_time(trace["time"])}</td>
+      <td>
+        <div class="font-mono text-sm">{trace[Config.payload_target_key()]}</div>
+        <div
+          :if={trace[Config.payload_target_ip_key()] != trace[Config.payload_target_key()]}
+          class="text-xs sr-mtr-muted"
+        >
+          {trace[Config.payload_target_ip_key()]}
+        </div>
+      </td>
+      <td>
+        <span class={["badge badge-sm w-32 justify-center", trace_status_class(trace)]}>
+          {trace_status_label(trace)}
+        </span>
+      </td>
+      <td class="text-center">{trace["total_hops"]}</td>
+      <td>
+        <span class="badge badge-ghost badge-sm">
+          {String.upcase(trace[Config.payload_protocol_key()] || Config.protocol_icmp())}
+        </span>
+        <span :if={trace[Config.payload_ip_version_key()] == 6} class="badge badge-info badge-sm ml-1">
+          IPv6
+        </span>
+      </td>
+      <td
+        class="text-xs font-mono max-w-[120px] truncate"
+        title={trace[Config.payload_agent_id_key()]}
+      >
+        {trace[Config.payload_agent_id_key()]}
+      </td>
+      <td class="text-xs max-w-[120px] truncate" title={trace[Config.payload_check_name_key()]}>
+        {trace[Config.payload_check_name_key()] || "-"}
+      </td>
+      <td class="flex items-center gap-1">
+        <button
+          type="button"
+          class="btn btn-xs btn-ghost"
+          phx-click="run_again"
+          phx-value-target={trace[Config.payload_target_key()] || ""}
+          phx-value-agent_id={trace[Config.payload_agent_id_key()] || ""}
+          phx-value-protocol={trace[Config.payload_protocol_key()] || Config.protocol_icmp()}
+          title="Run again"
+          aria-label="Run MTR trace again"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-3.5 w-3.5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M4 4v6h6M20 20v-6h-6M20 9A8 8 0 006.34 5.34L4 8m16 8l-2.34 2.66A8 8 0 013.99 15"
+            />
+          </svg>
+        </button>
+        <.link navigate={~p"/diagnostics/mtr/#{trace["id"]}"} class="btn btn-xs btn-ghost">
+          View
+        </.link>
+      </td>
+    </tr>
+    """
+  end
+end
