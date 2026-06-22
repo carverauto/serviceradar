@@ -205,7 +205,7 @@
 - [x] 36.2 Topology: cap nodes with an explicit "+N more" truncation indicator; use a stable node id (not `phash2` of the raw map).
 
 ## 37. NetFlow Aggregation & Attribution (F43)
-- [ ] 37.1 Scope the interface bandwidth gauge to the interface (not whole-exporter bytes); label peak vs average correctly.
+- [x] 37.1 Scope the interface bandwidth gauge to the interface (not whole-exporter bytes); label peak vs average correctly.
 - [x] 37.2 Compute Sankey "Other" from the full result set (don't drop the tail at the DB); keep sort on limited timeseries.
 - [x] 37.3 Canonicalize bidirectional flows (Top Conversations, device ingress+egress) to avoid double-counting; unify talker scoping with the device tab.
 - [ ] 37.4 Filter reverse-DNS/Geo enrichment by expiry; distinguish chart query-error from no-traffic.

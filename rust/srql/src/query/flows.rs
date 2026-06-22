@@ -125,6 +125,18 @@ pub(super) const FLOW_OUT_IF_SPEED_BPS_EXPR: &str = r#"
  LIMIT 1)
 "#;
 
+pub(super) const FLOW_INPUT_SNMP_EXPR: &str = r#"(CASE
+  WHEN (ocsf_payload #>> '{connection_info,input_snmp}') ~ '^[0-9]+$'
+  THEN (ocsf_payload #>> '{connection_info,input_snmp}')::bigint
+  ELSE NULL
+END)"#;
+
+pub(super) const FLOW_OUTPUT_SNMP_EXPR: &str = r#"(CASE
+  WHEN (ocsf_payload #>> '{connection_info,output_snmp}') ~ '^[0-9]+$'
+  THEN (ocsf_payload #>> '{connection_info,output_snmp}')::bigint
+  ELSE NULL
+END)"#;
+
 pub(super) const FLOW_EXPORTER_NAME_GROUP_EXPR: &str =
     "COALESCE((SELECT ec.exporter_name FROM netflow_exporter_cache ec WHERE ec.sampler_address = sampler_address LIMIT 1), 'Unknown')";
 
@@ -139,6 +151,12 @@ pub(super) const FLOW_IN_IF_SPEED_BPS_GROUP_EXPR: &str =
 
 pub(super) const FLOW_OUT_IF_SPEED_BPS_GROUP_EXPR: &str =
     "COALESCE((SELECT ic.if_speed_bps::text FROM netflow_interface_cache ic WHERE ic.sampler_address = sampler_address AND ic.if_index = (CASE WHEN (ocsf_payload #>> '{connection_info,output_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,output_snmp}')::int ELSE NULL END) LIMIT 1), 'Unknown')";
+
+pub(super) const FLOW_INPUT_SNMP_GROUP_EXPR: &str =
+    "COALESCE((CASE WHEN (ocsf_payload #>> '{connection_info,input_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,input_snmp}')::bigint ELSE NULL END)::text, 'Unknown')";
+
+pub(super) const FLOW_OUTPUT_SNMP_GROUP_EXPR: &str =
+    "COALESCE((CASE WHEN (ocsf_payload #>> '{connection_info,output_snmp}') ~ '^[0-9]+$' THEN (ocsf_payload #>> '{connection_info,output_snmp}')::bigint ELSE NULL END)::text, 'Unknown')";
 
 pub(super) const FLOW_TCP_FLAGS_LABEL_EXPR: &str =
     "COALESCE(array_to_string(tcp_flags_labels, ','), 'Unknown')";
@@ -426,6 +444,12 @@ fn apply_filter<'a>(mut query: FlowsQuery<'a>, filter: &Filter) -> Result<FlowsQ
         "out_if_name" => {
             let expr = sql::<Text>(FLOW_OUT_IF_NAME_GROUP_EXPR);
             query = apply_text_filter!(query, filter, expr)?;
+        }
+        "input_snmp" | "in_if_index" => {
+            query = apply_snmp_index_filter(query, filter, FLOW_INPUT_SNMP_EXPR, "input_snmp")?;
+        }
+        "output_snmp" | "out_if_index" => {
+            query = apply_snmp_index_filter(query, filter, FLOW_OUTPUT_SNMP_EXPR, "output_snmp")?;
         }
         "in_if_speed_bps" => {
             let expr = sql::<Text>(FLOW_IN_IF_SPEED_BPS_GROUP_EXPR);
@@ -793,6 +817,60 @@ fn normalize_cidr_literal(input: &str) -> Result<String> {
     Ok(format!("{ip}/{prefix}"))
 }
 
+fn apply_snmp_index_filter<'a>(
+    query: FlowsQuery<'a>,
+    filter: &Filter,
+    expr: &str,
+    label: &str,
+) -> Result<FlowsQuery<'a>> {
+    let index_literal = |value: &str| -> Result<i64> {
+        let parsed = value
+            .parse::<i64>()
+            .map_err(|_| ServiceError::InvalidRequest(format!("{label} must be an integer")))?;
+
+        if parsed < 0 {
+            return Err(ServiceError::InvalidRequest(format!(
+                "{label} must be non-negative"
+            )));
+        }
+
+        Ok(parsed)
+    };
+
+    match filter.op {
+        FilterOp::Eq | FilterOp::NotEq => {
+            let value = index_literal(filter.value.as_scalar()?)?;
+            let predicate = sql::<Bool>(&format!("{expr} = {value}"));
+            Ok(if matches!(filter.op, FilterOp::Eq) {
+                query.filter(predicate)
+            } else {
+                query.filter(not(predicate))
+            })
+        }
+        FilterOp::In | FilterOp::NotIn => {
+            let values = filter.value.as_list()?;
+            if values.is_empty() {
+                return Ok(query);
+            }
+
+            let mut parsed: Vec<String> = Vec::with_capacity(values.len());
+            for value in values {
+                parsed.push(index_literal(value)?.to_string());
+            }
+
+            let predicate = sql::<Bool>(&format!("{expr} IN ({})", parsed.join(", ")));
+            Ok(if matches!(filter.op, FilterOp::In) {
+                query.filter(predicate)
+            } else {
+                query.filter(not(predicate))
+            })
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "{label} filter only supports equality or list matching"
+        ))),
+    }
+}
+
 fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.op {
         FilterOp::Eq | FilterOp::NotEq | FilterOp::Like | FilterOp::NotLike => {
@@ -827,6 +905,7 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
         | "image_ref" | "runtime_source" => collect_text_params(params, filter),
         // These filters are implemented using inline SQL literals in `apply_filter` (no binds),
         // so we must not collect bind params for them or we'll shift LIMIT/OFFSET binds.
+        "input_snmp" | "in_if_index" | "output_snmp" | "out_if_index" => Ok(()),
         "src_country_iso2" | "src_country" | "dst_country_iso2" | "dst_country" => Ok(()),
         "src_cidr" | "dst_cidr" => Ok(()),
         "protocol_num" | "proto" => {
@@ -1085,6 +1164,8 @@ enum FlowGroupField {
     FlowSource,
     SamplerAddress,
     ExporterName,
+    InputSnmp,
+    OutputSnmp,
     InIfName,
     OutIfName,
     InIfSpeedBps,
@@ -1111,6 +1192,8 @@ impl FlowGroupField {
             "flow_source" | "collector" => Some(Self::FlowSource),
             "sampler_address" => Some(Self::SamplerAddress),
             "exporter_name" => Some(Self::ExporterName),
+            "input_snmp" | "in_if_index" => Some(Self::InputSnmp),
+            "output_snmp" | "out_if_index" => Some(Self::OutputSnmp),
             "in_if_name" => Some(Self::InIfName),
             "out_if_name" => Some(Self::OutIfName),
             "in_if_speed_bps" => Some(Self::InIfSpeedBps),
@@ -1138,6 +1221,8 @@ impl FlowGroupField {
             Self::FlowSource => "flow_source",
             Self::SamplerAddress => "sampler_address",
             Self::ExporterName => "exporter_name",
+            Self::InputSnmp => "input_snmp",
+            Self::OutputSnmp => "output_snmp",
             Self::InIfName => "in_if_name",
             Self::OutIfName => "out_if_name",
             Self::InIfSpeedBps => "in_if_speed_bps",
@@ -1164,6 +1249,8 @@ impl FlowGroupField {
             Self::FlowSource => FLOW_SOURCE_EXPR,
             Self::SamplerAddress => "sampler_address",
             Self::ExporterName => FLOW_EXPORTER_NAME_GROUP_EXPR,
+            Self::InputSnmp => FLOW_INPUT_SNMP_GROUP_EXPR,
+            Self::OutputSnmp => FLOW_OUTPUT_SNMP_GROUP_EXPR,
             Self::InIfName => FLOW_IN_IF_NAME_GROUP_EXPR,
             Self::OutIfName => FLOW_OUT_IF_NAME_GROUP_EXPR,
             Self::InIfSpeedBps => FLOW_IN_IF_SPEED_BPS_GROUP_EXPR,
@@ -2114,6 +2201,12 @@ fn build_stats_filter_clause(filter: &Filter, binds: &mut Vec<FlowSqlBindValue>)
             build_stats_text_filter(ATTRIBUTION_RUNTIME_SOURCE_EXPR_ALIASED, filter, binds)
         }
         "exporter_name" => build_stats_text_filter(FLOW_EXPORTER_NAME_GROUP_EXPR, filter, binds),
+        "input_snmp" | "in_if_index" => {
+            build_stats_bigint_filter(FLOW_INPUT_SNMP_EXPR, filter, binds, "input_snmp")
+        }
+        "output_snmp" | "out_if_index" => {
+            build_stats_bigint_filter(FLOW_OUTPUT_SNMP_EXPR, filter, binds, "output_snmp")
+        }
         "in_if_name" => build_stats_text_filter(FLOW_IN_IF_NAME_GROUP_EXPR, filter, binds),
         "out_if_name" => build_stats_text_filter(FLOW_OUT_IF_NAME_GROUP_EXPR, filter, binds),
         "in_if_speed_bps" => {
@@ -2496,19 +2589,28 @@ mod tests {
 
     #[test]
     fn parse_stats_expr_supports_exporter_and_interface_group_by() {
-        let expr = "count(*) as total_flows by exporter_name, in_if_name, out_if_name";
+        let expr =
+            "count(*) as total_flows by exporter_name, input_snmp, output_snmp, in_if_name, out_if_name";
         let spec = parse_stats_expr(expr).unwrap();
-        assert_eq!(spec.group_by.len(), 3);
+        assert_eq!(spec.group_by.len(), 5);
         assert_eq!(
             spec.group_by[0],
             FlowGroupSpec::Field(FlowGroupField::ExporterName)
         );
         assert_eq!(
             spec.group_by[1],
-            FlowGroupSpec::Field(FlowGroupField::InIfName)
+            FlowGroupSpec::Field(FlowGroupField::InputSnmp)
         );
         assert_eq!(
             spec.group_by[2],
+            FlowGroupSpec::Field(FlowGroupField::OutputSnmp)
+        );
+        assert_eq!(
+            spec.group_by[3],
+            FlowGroupSpec::Field(FlowGroupField::InIfName)
+        );
+        assert_eq!(
+            spec.group_by[4],
             FlowGroupSpec::Field(FlowGroupField::OutIfName)
         );
     }
@@ -2567,6 +2669,51 @@ mod tests {
             sql.contains("netflow_interface_cache"),
             "expected interface cache in SQL, got: {sql}"
         );
+    }
+
+    #[test]
+    fn translate_grouped_stats_can_scope_by_snmp_interface_indices() {
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: vec![Filter {
+                field: "input_snmp".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("12".into()),
+            }],
+            order: vec![OrderClause {
+                field: "bytes_total".into(),
+                direction: OrderDirection::Desc,
+            }],
+            limit: 10,
+            offset: 0,
+            time_range: Some(TimeRange {
+                start: Utc.with_ymd_and_hms(2026, 6, 6, 0, 0, 0).unwrap(),
+                end: Utc.with_ymd_and_hms(2026, 6, 6, 1, 0, 0).unwrap(),
+            }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "sum(bytes_total) as bytes_total by sampler_address,input_snmp,output_snmp",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        };
+
+        let (sql, params) = to_sql_and_params(&plan).unwrap();
+
+        assert!(
+            sql.contains("'{connection_info,input_snmp}'"),
+            "expected input_snmp extraction in SQL: {sql}"
+        );
+        assert!(
+            sql.contains("'{connection_info,output_snmp}'"),
+            "expected output_snmp extraction in SQL: {sql}"
+        );
+        assert!(
+            sql.contains("GREATEST(COALESCE(f.sampling_rate, 1), 1)"),
+            "expected sampled byte weighting in SQL: {sql}"
+        );
+        assert_eq!(params.len(), 3);
     }
 
     #[test]
