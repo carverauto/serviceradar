@@ -55,7 +55,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireMigrations do
         status
 
       _ ->
-        status = migrations_ready?()
+        status = migrations_ready?(opts)
         :persistent_term.put(@cache_key, {now, status})
         status
     end
@@ -73,7 +73,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireMigrations do
     "ServiceRadar is temporarily unavailable. Database connectivity is degraded."
   end
 
-  defp migrations_ready? do
+  defp migrations_ready?(opts) do
     case migration_marker_status() do
       :ok ->
         :ok
@@ -82,7 +82,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireMigrations do
         {:error, :pending_migrations}
 
       :unknown ->
-        repo_migrations_ready?()
+        repo_migrations_ready?(opts)
     end
   end
 
@@ -99,8 +99,10 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireMigrations do
     end
   end
 
-  defp repo_migrations_ready? do
-    case Process.whereis(ServiceRadar.Repo) do
+  defp repo_migrations_ready?(opts) do
+    repo = Keyword.get(opts, :repo, ServiceRadarWebNG.Repo)
+
+    case Process.whereis(repo) do
       nil ->
         {:error, {:repo_unavailable, :repo_down}}
 
@@ -109,7 +111,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireMigrations do
         opts = [prefix: "platform"]
 
         try do
-          migrations = Ecto.Migrator.migrations(ServiceRadar.Repo, migrations_path, opts)
+          migrations = Ecto.Migrator.migrations(repo, migrations_path, opts)
 
           pending =
             Enum.any?(migrations, fn
