@@ -41,7 +41,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
 
     cond do
       combine_all_series && length(series_data) > 1 ->
-        {[build_combined_series_data(series_data, compact, combined_title, y_scale)], []}
+        resolve_combined_series_data(series_data, compact, combined_title, y_scale)
 
       chart_mode == :combined and length(traffic_series) > 1 ->
         {[build_combined_traffic_data(traffic_series, max_speed, compact, y_scale)], other_series}
@@ -154,6 +154,22 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
       first_dt: first_series && first_series.first_dt,
       last_dt: first_series && first_series.last_dt
     }
+  end
+
+  defp resolve_combined_series_data(series_data, compact, title, y_scale) do
+    series_data
+    |> Enum.group_by(& &1.unit)
+    |> Enum.sort_by(fn {unit, _series} -> Metrics.unit_to_string(unit) end)
+    |> Enum.reduce({[], []}, fn {_unit, unit_series}, {combined, individual} ->
+      case unit_series do
+        [_single] ->
+          {combined, individual ++ unit_series}
+
+        unit_series ->
+          {[build_combined_series_data(unit_series, compact, title, y_scale) | combined], individual}
+      end
+    end)
+    |> then(fn {combined, individual} -> {Enum.reverse(combined), individual} end)
   end
 
   defp combined_annotation_markers(series_data) when is_list(series_data) do

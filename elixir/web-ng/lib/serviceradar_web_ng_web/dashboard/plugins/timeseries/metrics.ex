@@ -9,7 +9,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics do
     Enum.map(series_points, fn entry ->
       {series, points, metadata} = normalize_counter_series(entry)
       sorted_points = Enum.sort_by(points, fn {dt, _v} -> dt end)
-      {series, counter_rate_points(sorted_points, metadata, max_speed)}
+      effective_max = if traffic_series?(series), do: max_speed
+
+      {series, counter_rate_points(sorted_points, metadata, effective_max)}
     end)
   end
 
