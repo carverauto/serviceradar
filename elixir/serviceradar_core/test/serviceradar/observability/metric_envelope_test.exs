@@ -117,6 +117,122 @@ defmodule ServiceRadar.Observability.MetricEnvelopeTest do
     end
   end
 
+  describe "series_key cardinality guards" do
+    test "does not split sysmon percentage series on sampled byte counters" do
+      [first] =
+        decode_one(
+          gauge_metric("memory.used_percent", "sysmon.memory", 50.0,
+            tags: %{"used_bytes" => "500", "total_bytes" => "1000"}
+          )
+        )
+
+      [second] =
+        decode_one(
+          gauge_metric("memory.used_percent", "sysmon.memory", 60.0,
+            tags: %{"used_bytes" => "600", "total_bytes" => "1000"}
+          )
+        )
+
+      assert first.series_key == second.series_key
+    end
+
+    test "does not split sweep host series on execution identifiers" do
+      first =
+        TimeseriesSeriesKey.build(%{
+          metric_type: "sweep",
+          metric_name: "sweep.host.available",
+          partition: "default",
+          agent_id: "agent-1",
+          target_device_ip: "10.0.0.10",
+          tags: %{
+            "target" => "10.0.0.10",
+            "network" => "edge-lan",
+            "execution_id" => "exec-1",
+            "sweep_group_id" => "group-1",
+            "source" => "sweep-metrics",
+            "payload_kind" => "serviceradar.metric.v1",
+            "producer_id" => "agent-1",
+            "producer_kind" => "agent-sweep"
+          }
+        })
+
+      second =
+        TimeseriesSeriesKey.build(%{
+          metric_type: "sweep",
+          metric_name: "sweep.host.available",
+          partition: "default",
+          agent_id: "agent-1",
+          target_device_ip: "10.0.0.10",
+          tags: %{
+            "target" => "10.0.0.10",
+            "network" => "edge-lan",
+            "execution_id" => "exec-2",
+            "sweep_group_id" => "group-2",
+            "source" => "sweep-metrics",
+            "payload_kind" => "serviceradar.metric.v1",
+            "producer_id" => "agent-1",
+            "producer_kind" => "agent-sweep"
+          }
+        })
+
+      assert first == second
+    end
+
+    test "keeps real dimensions in the series key" do
+      root =
+        TimeseriesSeriesKey.build(%{
+          metric_type: "sysmon.disk",
+          metric_name: "disk.used_percent",
+          partition: "default",
+          agent_id: "agent-1",
+          tags: %{"mount_point" => "/", "used_bytes" => "500", "total_bytes" => "1000"}
+        })
+
+      var =
+        TimeseriesSeriesKey.build(%{
+          metric_type: "sysmon.disk",
+          metric_name: "disk.used_percent",
+          partition: "default",
+          agent_id: "agent-1",
+          tags: %{"mount_point" => "/var", "used_bytes" => "500", "total_bytes" => "1000"}
+        })
+
+      assert root != var
+    end
+
+    test "does not split process series on volatile status changes" do
+      running =
+        TimeseriesSeriesKey.build(%{
+          metric_type: "sysmon.process",
+          metric_name: "process.cpu_usage",
+          partition: "default",
+          agent_id: "agent-1",
+          tags: %{
+            "pid" => "1234",
+            "name" => "nginx",
+            "start_time" => "2026-06-22T12:00:00Z",
+            "status" => "Running"
+          }
+        })
+
+      sleeping =
+        TimeseriesSeriesKey.build(%{
+          metric_type: "sysmon.process",
+          metric_name: "process.cpu_usage",
+          partition: "default",
+          agent_id: "agent-1",
+          tags: %{
+            "pid" => "1234",
+            "name" => "nginx",
+            "start_time" => "2026-06-22T12:00:00Z",
+            "status" => "Sleeping"
+          }
+        })
+
+      assert running == sleeping
+    end
+  end
+
   describe "device_id resolution on the row-build path (finding 4)" do
     test "is lookup-free by default and leaves device_id from the attested resource" do
       [row] = decode_one(snmp_metric(tags: %{"host" => "10.0.0.20"}))

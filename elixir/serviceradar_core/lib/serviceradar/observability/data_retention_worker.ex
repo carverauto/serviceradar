@@ -22,12 +22,14 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   @default_otel_metric_points_retention_days 30
   @default_ocsf_network_activity_retention_days 90
   @default_capacity_forecasts_retention_days 395
+  @default_raw_metrics_retention_days 7
   @default_otel_traces_chunk_interval_hours 1
   @default_logs_chunk_interval_hours 6
   @default_otel_metrics_chunk_interval_hours 24
   @default_otel_metric_points_chunk_interval_hours 6
   @default_ocsf_network_activity_chunk_interval_hours 24
   @default_capacity_forecasts_chunk_interval_hours 24
+  @default_raw_metrics_chunk_interval_hours 24
   @default_trace_summary_retention_days 3
   @default_sweep_host_result_retention_days 7
   @default_sweep_execution_retention_days 30
@@ -83,7 +85,19 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
          @default_ocsf_network_activity_chunk_interval_hours},
         {"capacity_forecasts", :capacity_forecasts_retention_days,
          @default_capacity_forecasts_retention_days, :capacity_forecasts_chunk_interval_hours,
-         @default_capacity_forecasts_chunk_interval_hours}
+         @default_capacity_forecasts_chunk_interval_hours},
+        {"timeseries_metrics", :raw_metrics_retention_days, @default_raw_metrics_retention_days,
+         :raw_metrics_chunk_interval_hours, @default_raw_metrics_chunk_interval_hours},
+        {"cpu_metrics", :raw_metrics_retention_days, @default_raw_metrics_retention_days,
+         :raw_metrics_chunk_interval_hours, @default_raw_metrics_chunk_interval_hours},
+        {"cpu_cluster_metrics", :raw_metrics_retention_days, @default_raw_metrics_retention_days,
+         :raw_metrics_chunk_interval_hours, @default_raw_metrics_chunk_interval_hours},
+        {"disk_metrics", :raw_metrics_retention_days, @default_raw_metrics_retention_days,
+         :raw_metrics_chunk_interval_hours, @default_raw_metrics_chunk_interval_hours},
+        {"memory_metrics", :raw_metrics_retention_days, @default_raw_metrics_retention_days,
+         :raw_metrics_chunk_interval_hours, @default_raw_metrics_chunk_interval_hours},
+        {"process_metrics", :raw_metrics_retention_days, @default_raw_metrics_retention_days,
+         :raw_metrics_chunk_interval_hours, @default_raw_metrics_chunk_interval_hours}
       ],
       fn {table_name, retention_key, retention_default, chunk_key, chunk_default} ->
         retention_days =

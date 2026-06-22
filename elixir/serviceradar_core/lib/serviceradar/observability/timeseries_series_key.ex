@@ -1,7 +1,27 @@
 defmodule ServiceRadar.Observability.TimeseriesSeriesKey do
   @moduledoc false
 
-  @volatile_tag_keys MapSet.new(["available", "metric", "packet_loss"])
+  @volatile_tag_keys MapSet.new([
+                       "available",
+                       "available_bytes",
+                       "cached_bytes",
+                       "buffered_bytes",
+                       "free_bytes",
+                       "payload_kind",
+                       "packet_loss",
+                       "producer_id",
+                       "producer_kind",
+                       "source",
+                       "status",
+                       "sweep_group_id",
+                       "execution_id",
+                       "metric",
+                       "total_bytes",
+                       "swap_total_bytes",
+                       "swap_used_bytes",
+                       "used_bytes",
+                       "value"
+                     ])
 
   @spec build(map()) :: String.t()
   def build(attrs) when is_map(attrs) do
