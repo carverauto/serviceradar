@@ -1,0 +1,636 @@
+defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm do
+  use ServiceRadarWebNGWeb, :html
+  import ServiceRadarWebNGWeb.QueryBuilderComponents
+  import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data, only: [agent_display_name: 1]
+  import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.FormHelpers, only: [get_form_value: 3]
+  alias ServiceRadarWebNGWeb.SRQL.Catalog
+
+  attr :form, :any, required: true
+  attr :show_form, :atom, required: true
+  attr :selected_profile, :any, default: nil
+  attr :target_device_count, :any, default: nil
+  attr :target_entity, :string, default: "devices"
+  attr :builder_open, :boolean, default: false
+  attr :builder, :map, default: %{}
+  attr :builder_sync, :boolean, default: true
+  attr :targets, :list, default: []
+  attr :selected_template_ids, :list, default: []
+  attr :available_templates, :list, default: []
+  attr :agents, :list, default: []
+
+  def profile_form(assigns) do
+    is_default = assigns.selected_profile && assigns.selected_profile.is_default
+    config = Catalog.entity("interfaces")
+    version = get_form_value(assigns.form, :version, "v2c")
+
+    assigns =
+      assigns
+      |> assign(:is_default, is_default)
+      |> assign(:config, config)
+      |> assign(:version, version)
+
+    ~H"""
+    <.ui_panel>
+      <:header>
+        <div class="text-sm font-semibold">
+          {if @show_form == :new_profile,
+            do: "New SNMP Profile",
+            else: "Edit #{@selected_profile.name}"}
+        </div>
+      </:header>
+
+      <.form
+        for={@form}
+        phx-submit="save_profile"
+        phx-change="validate_profile"
+        phx-debounce="300"
+        class="space-y-6"
+      >
+        <!-- Basic Info Section -->
+        <div class="space-y-4">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+            Basic Information
+          </h3>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="label"><span class="label-text">Profile Name</span></label>
+              <.input
+                type="text"
+                field={@form[:name]}
+                class="input input-bordered w-full"
+                placeholder="e.g., Network Infrastructure"
+                required
+              />
+            </div>
+            <div>
+              <label class="label"><span class="label-text">Poll Interval (seconds)</span></label>
+              <.input
+                type="number"
+                field={@form[:poll_interval]}
+                class="input input-bordered w-full"
+                placeholder="60"
+                min="10"
+              />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="label"><span class="label-text">Timeout (seconds)</span></label>
+              <.input
+                type="number"
+                field={@form[:timeout]}
+                class="input input-bordered w-full"
+                placeholder="5"
+                min="1"
+              />
+            </div>
+            <div>
+              <label class="label"><span class="label-text">Retries</span></label>
+              <.input
+                type="number"
+                field={@form[:retries]}
+                class="input input-bordered w-full"
+                placeholder="3"
+                min="0"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label class="label"><span class="label-text">Description</span></label>
+            <.input
+              type="textarea"
+              field={@form[:description]}
+              class="textarea textarea-bordered w-full"
+              placeholder="Optional description of this profile's purpose"
+              rows="2"
+            />
+          </div>
+        </div>
+
+    <!-- SNMP Credentials Section -->
+        <div class="space-y-4">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+            SNMP Credentials
+          </h3>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="label"><span class="label-text">SNMP Version</span></label>
+              <.input
+                type="select"
+                field={@form[:version]}
+                class="select select-bordered w-full"
+                options={[
+                  {"SNMPv1", "v1"},
+                  {"SNMPv2c", "v2c"},
+                  {"SNMPv3", "v3"}
+                ]}
+              />
+            </div>
+          </div>
+
+          <%= if @version in ["v1", "v2c"] do %>
+            <div>
+              <label class="label"><span class="label-text">Community String</span></label>
+              <.input
+                type="password"
+                name="form[community]"
+                value=""
+                class="input input-bordered w-full"
+                placeholder={
+                  if @show_form == :edit_profile,
+                    do: "Leave blank to keep existing",
+                    else: "e.g., public"
+                }
+                autocomplete="off"
+              />
+              <label class="label">
+                <span class="label-text-alt text-base-content/50">
+                  Credentials are encrypted at rest.
+                </span>
+              </label>
+            </div>
+          <% else %>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="label"><span class="label-text">Username</span></label>
+                <.input
+                  type="text"
+                  field={@form[:username]}
+                  class="input input-bordered w-full"
+                  placeholder="e.g., snmpuser"
+                />
+              </div>
+              <div>
+                <label class="label"><span class="label-text">Security Level</span></label>
+                <.input
+                  type="select"
+                  field={@form[:security_level]}
+                  class="select select-bordered w-full"
+                  options={[
+                    {"No Auth, No Privacy", "no_auth_no_priv"},
+                    {"Auth, No Privacy", "auth_no_priv"},
+                    {"Auth + Privacy", "auth_priv"}
+                  ]}
+                />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="label"><span class="label-text">Auth Protocol</span></label>
+                <.input
+                  type="select"
+                  field={@form[:auth_protocol]}
+                  class="select select-bordered w-full"
+                  options={[
+                    {"MD5", "md5"},
+                    {"SHA", "sha"},
+                    {"SHA-224", "sha224"},
+                    {"SHA-256", "sha256"},
+                    {"SHA-384", "sha384"},
+                    {"SHA-512", "sha512"}
+                  ]}
+                />
+              </div>
+              <div>
+                <label class="label"><span class="label-text">Auth Password</span></label>
+                <.input
+                  type="password"
+                  name="form[auth_password]"
+                  value=""
+                  class="input input-bordered w-full"
+                  placeholder={
+                    if @show_form == :edit_profile,
+                      do: "Leave blank to keep existing",
+                      else: "Auth password"
+                  }
+                  autocomplete="off"
+                />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="label"><span class="label-text">Privacy Protocol</span></label>
+                <.input
+                  type="select"
+                  field={@form[:priv_protocol]}
+                  class="select select-bordered w-full"
+                  options={[
+                    {"DES", "des"},
+                    {"AES", "aes"},
+                    {"AES-192", "aes192"},
+                    {"AES-256", "aes256"}
+                  ]}
+                />
+              </div>
+              <div>
+                <label class="label"><span class="label-text">Privacy Password</span></label>
+                <.input
+                  type="password"
+                  name="form[priv_password]"
+                  value=""
+                  class="input input-bordered w-full"
+                  placeholder={
+                    if @show_form == :edit_profile,
+                      do: "Leave blank to keep existing",
+                      else: "Privacy password"
+                  }
+                  autocomplete="off"
+                />
+              </div>
+            </div>
+
+            <p class="text-xs text-base-content/50">
+              Leave password fields blank to keep existing values. Credentials are encrypted at rest.
+            </p>
+          <% end %>
+        </div>
+
+    <!-- Agent Targeting Section -->
+        <div class="space-y-4">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+            Agent Targeting
+          </h3>
+
+          <div>
+            <label class="label"><span class="label-text">Agents</span></label>
+            <% selected_agents = Enum.map(@form[:agent_ids].value || [], &to_string/1) %>
+            <!-- Hidden empty entry so unchecking every box submits [] (legacy all-agents). -->
+            <input type="hidden" name="form[agent_ids][]" value="" />
+            <%= if @agents == [] do %>
+              <p class="text-sm text-base-content/60">
+                No active agents available. Leave unset to run this profile on all SNMP-capable agents.
+              </p>
+            <% else %>
+              <div class="flex flex-wrap gap-4">
+                <%= for agent <- @agents do %>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      name="form[agent_ids][]"
+                      value={agent.uid}
+                      class="checkbox"
+                      checked={Enum.member?(selected_agents, to_string(agent.uid))}
+                    />
+                    <span>{agent_display_name(agent)}</span>
+                  </label>
+                <% end %>
+              </div>
+            <% end %>
+            <label class="label">
+              <span class="label-text-alt text-base-content/50">
+                Pin this profile to specific agents. Leave all unchecked to run on every SNMP-capable agent (legacy behavior).
+              </span>
+            </label>
+          </div>
+        </div>
+
+    <!-- Interface Targeting Section -->
+        <div class="space-y-4">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+            Interface Targeting
+          </h3>
+
+          <div class="space-y-4">
+            <div :if={@is_default} class="bg-info/10 border border-info/30 rounded-lg p-4">
+              <div class="flex items-start gap-3">
+                <.icon name="hero-information-circle" class="size-5 text-info shrink-0 mt-0.5" />
+                <div>
+                  <p class="text-sm font-medium">Default Profile</p>
+                  <p class="text-xs text-base-content/70 mt-1">
+                    This profile acts as the fallback for any interfaces that don't match other profiles.
+                    You can still set a targeting query here to scope the default and preview counts.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+    <!-- Query Input with Builder Toggle -->
+            <div>
+              <label class="label"><span class="label-text">Target Query (SRQL)</span></label>
+              <div class="flex items-center gap-2">
+                <div class="flex-1">
+                  <.input
+                    type="text"
+                    field={@form[:target_query]}
+                    class="input input-bordered w-full font-mono text-sm"
+                    placeholder="e.g., in:interfaces type:ethernet device.hostname:%router%"
+                  />
+                </div>
+                <.ui_icon_button
+                  active={@builder_open}
+                  aria-label="Toggle query builder"
+                  title="Query builder"
+                  phx-click="builder_toggle"
+                >
+                  <.icon name="hero-adjustments-horizontal" class="size-4" />
+                </.ui_icon_button>
+              </div>
+              <label class="label">
+                <span class="label-text-alt text-base-content/50">
+                  SRQL filters to match interfaces. Examples: <code class="bg-base-200 px-1 rounded">type:ethernet</code>,
+                  <code class="bg-base-200 px-1 rounded">device.hostname:%router%</code>
+                </span>
+              </label>
+            </div>
+
+    <!-- Visual Query Builder -->
+            <div :if={@builder_open} class="border border-base-200 rounded-lg p-4 bg-base-100/50">
+              <div class="flex items-center justify-between mb-4">
+                <div class="text-sm font-semibold">Query Builder</div>
+                <div class="flex items-center gap-2">
+                  <.ui_badge :if={not @builder_sync} size="sm">Not applied</.ui_badge>
+                  <.ui_button
+                    :if={not @builder_sync}
+                    size="sm"
+                    variant="ghost"
+                    type="button"
+                    phx-click="builder_apply"
+                  >
+                    Apply to query
+                  </.ui_button>
+                </div>
+              </div>
+
+              <form phx-change="builder_change" autocomplete="off">
+                <div class="flex flex-col gap-4">
+                  <!-- Filters Section -->
+                  <div class="flex flex-col gap-3">
+                    <div class="text-xs text-base-content/60 font-medium">
+                      Match interfaces where:
+                    </div>
+
+                    <%= for {filter, idx} <- Enum.with_index(Map.get(@builder, "filters", [])) do %>
+                      <div class="flex items-center gap-3">
+                        <.query_builder_pill label="Filter">
+                          <%= if @config.filter_fields == [] do %>
+                            <.ui_inline_input
+                              type="text"
+                              name={"builder[filters][#{idx}][field]"}
+                              value={filter["field"] || ""}
+                              placeholder="field"
+                              class="w-40 placeholder:text-base-content/40"
+                            />
+                          <% else %>
+                            <.ui_inline_select name={"builder[filters][#{idx}][field]"}>
+                              <%= for field <- @config.filter_fields do %>
+                                <option value={field} selected={filter["field"] == field}>
+                                  {field}
+                                </option>
+                              <% end %>
+                            </.ui_inline_select>
+                          <% end %>
+
+                          <.ui_inline_select
+                            name={"builder[filters][#{idx}][op]"}
+                            class="text-xs text-base-content/70"
+                          >
+                            <option
+                              value="contains"
+                              selected={(filter["op"] || "contains") == "contains"}
+                            >
+                              contains
+                            </option>
+                            <option value="not_contains" selected={filter["op"] == "not_contains"}>
+                              does not contain
+                            </option>
+                            <option value="equals" selected={filter["op"] == "equals"}>
+                              equals
+                            </option>
+                            <option value="not_equals" selected={filter["op"] == "not_equals"}>
+                              does not equal
+                            </option>
+                          </.ui_inline_select>
+
+                          <.ui_inline_input
+                            type="text"
+                            name={"builder[filters][#{idx}][value]"}
+                            value={filter["value"] || ""}
+                            placeholder="value"
+                            class="placeholder:text-base-content/40 w-48"
+                          />
+                        </.query_builder_pill>
+
+                        <.ui_icon_button
+                          size="xs"
+                          aria-label="Remove filter"
+                          title="Remove filter"
+                          type="button"
+                          phx-click="builder_remove_filter"
+                          phx-value-idx={idx}
+                        >
+                          <.icon name="hero-x-mark" class="size-4" />
+                        </.ui_icon_button>
+                      </div>
+                    <% end %>
+
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-2 rounded-md border border-dashed border-primary/40 px-3 py-2 text-sm text-primary/80 hover:bg-primary/5 w-fit"
+                      phx-click="builder_add_filter"
+                    >
+                      <.icon name="hero-plus" class="size-4" /> Add filter
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </div>
+
+    <!-- Target Count Preview -->
+            <div :if={@target_device_count != nil} class="flex items-center gap-2">
+              <.icon name="hero-signal" class="size-4 text-base-content/60" />
+              <span class="text-sm">
+                <%= case @target_device_count do %>
+                  <% {:ok, count} -> %>
+                    <span class="font-semibold">{count}</span>
+                    <span class="text-base-content/60">
+                      device(s) match this {if @target_entity == "interfaces",
+                        do: "interface",
+                        else: "device"} query
+                    </span>
+                  <% _ -> %>
+                    <span class="font-semibold">Unknown</span>
+                    <span class="text-base-content/60">targets for this query</span>
+                <% end %>
+              </span>
+              <.ui_badge variant="ghost" size="xs">
+                {if @target_entity == "interfaces", do: "Interfaces", else: "Devices"}
+              </.ui_badge>
+            </div>
+
+    <!-- Priority -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="label"><span class="label-text">Priority</span></label>
+                <.input
+                  type="number"
+                  field={@form[:priority]}
+                  class="input input-bordered w-full"
+                  min="0"
+                  max="100"
+                />
+                <label class="label">
+                  <span class="label-text-alt text-base-content/50">
+                    Higher priority profiles are evaluated first (0-100)
+                  </span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+    <!-- OID Templates Section -->
+        <div class="space-y-4">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+            OID Templates
+          </h3>
+          <p class="text-sm text-base-content/60">
+            Select OID templates to define what metrics are polled from devices matched by this profile.
+          </p>
+
+    <!-- Selected Templates -->
+          <div :if={@selected_template_ids != []} class="flex flex-wrap gap-2">
+            <%= for template_id <- @selected_template_ids do %>
+              <% template = Enum.find(@available_templates, &(&1.id == template_id)) %>
+              <div
+                :if={template}
+                class="inline-flex items-center gap-2 px-3 py-1.5 bg-primary/10 text-primary rounded-full text-sm"
+              >
+                <span>{template.name}</span>
+                <button
+                  type="button"
+                  class="hover:bg-primary/20 rounded-full p-0.5"
+                  phx-click="remove_template"
+                  phx-value-id={template_id}
+                  title="Remove template"
+                >
+                  <.icon name="hero-x-mark" class="size-3" />
+                </button>
+              </div>
+            <% end %>
+          </div>
+
+    <!-- Template Dropdown -->
+          <div class="dropdown dropdown-bottom w-full max-w-md">
+            <div tabindex="0" role="button" class="btn btn-outline w-full justify-between">
+              <span>
+                <.icon name="hero-plus" class="size-4 mr-2" /> Add OID Template
+              </span>
+              <.icon name="hero-chevron-down" class="size-4" />
+            </div>
+            <ul
+              tabindex="0"
+              class="dropdown-content menu bg-base-100 rounded-box z-[1] w-full max-h-60 overflow-y-auto p-2 shadow border border-base-200"
+            >
+              <li :if={@available_templates == []}>
+                <span class="text-base-content/50">No templates available</span>
+              </li>
+              <%= for template <- @available_templates do %>
+                <% selected = template.id in @selected_template_ids %>
+                <li>
+                  <button
+                    type="button"
+                    class={"flex items-center justify-between #{if selected, do: "bg-primary/10"}"}
+                    phx-click="toggle_template"
+                    phx-value-id={template.id}
+                  >
+                    <div class="flex flex-col items-start">
+                      <span class="font-medium">{template.name}</span>
+                      <span class="text-xs text-base-content/60">
+                        {template.vendor} · {template.oid_count} OID(s)
+                      </span>
+                    </div>
+                    <.icon :if={selected} name="hero-check" class="size-4 text-primary" />
+                  </button>
+                </li>
+              <% end %>
+            </ul>
+          </div>
+
+          <p class="text-xs text-base-content/50">
+            OID templates define which SNMP metrics (OIDs) to poll. Select one or more templates to monitor
+            interface traffic, CPU/memory, environment sensors, or other vendor-specific metrics.
+          </p>
+        </div>
+
+    <!-- Actions -->
+        <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
+          <.link navigate={~p"/settings/snmp"}>
+            <.ui_button variant="ghost">Cancel</.ui_button>
+          </.link>
+          <.ui_button type="submit" variant="primary">
+            {if @show_form == :new_profile, do: "Create Profile", else: "Save Changes"}
+          </.ui_button>
+        </div>
+      </.form>
+
+    <!-- Legacy SNMP Targets Section (deprecated, only shown when existing targets present) -->
+      <div
+        :if={@show_form == :edit_profile && @targets != []}
+        class="mt-6 pt-6 border-t border-base-200"
+      >
+        <div class="bg-warning/10 border border-warning/30 rounded-lg p-4 mb-4">
+          <div class="flex items-start gap-3">
+            <.icon name="hero-exclamation-triangle" class="size-5 text-warning shrink-0 mt-0.5" />
+            <div>
+              <p class="text-sm font-medium">Legacy Configuration</p>
+              <p class="text-xs text-base-content/70 mt-1">
+                Manual SNMP targets are deprecated. Targets are now automatically derived from devices
+                matched by the target query. Existing targets will continue to work but cannot be edited.
+                Configure SNMP credentials on individual devices in the Inventory section.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60 mb-4">
+          Legacy Manual Targets ({length(@targets)})
+        </h3>
+
+        <div class="overflow-x-auto">
+          <table class="table table-sm opacity-75">
+            <thead>
+              <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                <th>Name</th>
+                <th>Host</th>
+                <th>Port</th>
+                <th>Version</th>
+              </tr>
+            </thead>
+            <tbody>
+              <%= for target <- @targets do %>
+                <tr class="hover:bg-base-200/40">
+                  <td class="font-medium">{target.name}</td>
+                  <td class="font-mono text-xs">{target.host}</td>
+                  <td class="font-mono text-xs">{target.port}</td>
+                  <td>
+                    <.ui_badge variant={version_badge_variant(target.version)} size="xs">
+                      {format_version(target.version)}
+                    </.ui_badge>
+                  </td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </.ui_panel>
+    """
+  end
+
+  def version_badge_variant(:v1), do: "ghost"
+  def version_badge_variant(:v2c), do: "info"
+  def version_badge_variant(:v3), do: "success"
+  def version_badge_variant(_), do: "ghost"
+
+  def format_version(:v1), do: "v1"
+  def format_version(:v2c), do: "v2c"
+  def format_version(:v3), do: "v3"
+  def format_version(v) when is_binary(v), do: v
+  def format_version(_), do: "v2c"
+end
