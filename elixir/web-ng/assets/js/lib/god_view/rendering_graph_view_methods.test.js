@@ -3,6 +3,16 @@ import {describe, expect, it, vi} from "vitest"
 import {bindApi, createStateBackedContext} from "./api_helpers"
 import {godViewRenderingGraphViewMethods} from "./rendering_graph_view_methods"
 
+function projectNode(node, state) {
+  const scale = 2 ** state.viewState.zoom
+  const [targetX = 0, targetY = 0] = state.viewState.target || [0, 0, 0]
+
+  return {
+    x: state.el.clientWidth / 2 + (node.x - targetX) * scale,
+    y: state.el.clientHeight / 2 + (node.y - targetY) * scale,
+  }
+}
+
 describe("rendering_graph_view_methods", () => {
   it("autoFitViewState uses asymmetric padding to keep the graph inside the usable canvas", () => {
     const state = {
@@ -89,6 +99,62 @@ describe("rendering_graph_view_methods", () => {
     expect(state.viewState.target[0]).toBeLessThan(700)
     expect(state.viewState.target[1]).toBeGreaterThan(220)
     expect(state.viewState.target[1]).toBeLessThan(360)
+  })
+
+  it("autoFitViewState frames expanded endpoint fanout that is visibly rendered", () => {
+    const state = {
+      deck: {setProps: vi.fn()},
+      hasAutoFit: false,
+      userCameraLocked: false,
+      isProgrammaticViewUpdate: false,
+      zoomMode: "auto",
+      viewState: {minZoom: -2, maxZoom: 8, zoom: 0, target: [0, 0, 0]},
+      el: {clientWidth: 1200, clientHeight: 800},
+    }
+
+    const ctx = createStateBackedContext(state, {
+      setZoomTier: vi.fn(),
+      resolveZoomTier: vi.fn(() => "local"),
+    })
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphViewMethods))
+
+    const topEndpoint = {
+      id: "endpoint-top",
+      x: 650,
+      y: -180,
+      details: {cluster_kind: "endpoint-member", cluster_expanded: true},
+    }
+    const bottomEndpoint = {
+      id: "endpoint-bottom",
+      x: 650,
+      y: 740,
+      details: {cluster_kind: "endpoint-member", cluster_expanded: true},
+    }
+
+    ctx.autoFitViewState({
+      _layoutMode: "client-radial",
+      nodes: [
+        {id: "core", x: 320, y: 280, details: {}},
+        {id: "agg", x: 470, y: 280, details: {}},
+        {id: "cluster-summary", x: 610, y: 280, details: {cluster_kind: "endpoint-summary"}},
+        topEndpoint,
+        bottomEndpoint,
+        {
+          id: "collapsed-endpoint",
+          x: 1500,
+          y: -800,
+          details: {cluster_kind: "endpoint-member"},
+        },
+      ],
+    })
+
+    const padding = ctx.fitViewPadding(state.el.clientWidth, state.el.clientHeight)
+    const projectedTop = projectNode(topEndpoint, state)
+    const projectedBottom = projectNode(bottomEndpoint, state)
+
+    expect(projectedTop.y).toBeGreaterThanOrEqual(padding.top)
+    expect(projectedBottom.y).toBeLessThanOrEqual(state.el.clientHeight - padding.bottom)
+    expect(state.viewState.zoom).toBeLessThan(0.2)
   })
 
   it("autoFitViewState keeps client-radial overviews in local zoom tier without forcing a high zoom", () => {

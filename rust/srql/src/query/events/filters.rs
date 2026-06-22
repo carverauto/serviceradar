@@ -171,6 +171,9 @@ pub(super) fn apply_filter<'a>(
         "device_uid_exact" => {
             query = apply_device_uid_exact_filter(query, filter)?;
         }
+        "service_radar_device_uid" => {
+            query = apply_service_radar_device_uid_filter(query, filter)?;
+        }
         "agent_id" => {
             query = apply_agent_id_filter(query, filter)?;
         }
@@ -339,6 +342,18 @@ fn apply_device_uid_exact_filter<'a>(
             "device ->> 'uid'",
         ],
         "device_uid_exact",
+    )
+}
+
+fn apply_service_radar_device_uid_filter<'a>(
+    query: EventsQuery<'a>,
+    filter: &Filter,
+) -> Result<EventsQuery<'a>> {
+    apply_metadata_exact_filter(
+        query,
+        filter,
+        &["metadata #>> '{service_radar,device_uid}'"],
+        "service_radar_device_uid",
     )
 }
 
@@ -758,9 +773,25 @@ pub(super) fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter
         "activity_name" | "severity" | "message" | "short_message" | "log_name"
         | "log_provider" | "log_level" | "status" | "status_code" | "status_detail"
         | "trace_id" | "span_id" => collect_text_params(params, filter),
-        "device_id" | "uid" | "source_device_uid" | "device_uid_exact" | "agent_id" | "host_id"
-        | "hostname" | "source" | "source_type" | "addon_id" | "event_type" | "purl"
-        | "purl_canonical" | "canonical_purl" | "cpe" | "cpes" | "cve" | "vulnerability_id"
+        "device_id"
+        | "uid"
+        | "source_device_uid"
+        | "device_uid_exact"
+        | "service_radar_device_uid"
+        | "agent_id"
+        | "host_id"
+        | "hostname"
+        | "source"
+        | "source_type"
+        | "addon_id"
+        | "event_type"
+        | "purl"
+        | "purl_canonical"
+        | "canonical_purl"
+        | "cpe"
+        | "cpes"
+        | "cve"
+        | "vulnerability_id"
         | "finding_uid" => Ok(()),
         "class_uid" | "category_uid" | "type_uid" | "activity_id" | "severity_id" | "status_id" => {
             params.push(BindParam::Int(i64::from(parse_i32(

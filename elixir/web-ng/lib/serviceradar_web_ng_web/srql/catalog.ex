@@ -201,6 +201,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "uid",
         "device_id",
         "source_device_uid",
+        "service_radar_device_uid",
         "message",
         "short_message"
       ],

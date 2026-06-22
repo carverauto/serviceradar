@@ -94,6 +94,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
             rows
             |> Enum.filter(&is_map/1)
             |> Enum.map(project_fun)
+            |> Enum.reject(&is_nil/1)
 
           result = %{
             rows: rows,
@@ -143,7 +144,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp anomaly_filter_candidates(identity) do
     Enum.reject(
       [
-        candidate(identity, :device_uid, "device_uid_exact", "device")
+        candidate(identity, :device_uid, "service_radar_device_uid", "device")
       ],
       &is_nil/1
     )
@@ -193,6 +194,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
         "status:(projected,at_risk,exhaustion_projected)",
         "has_exhaustion:true",
         ~s|#{field}:"#{QueryData.escape_value(value)}"|,
+        "time:last_24h",
         "sort:projected_exhaustion_at:asc",
         "limit:#{@capacity_limit}"
       ],
@@ -222,30 +224,37 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   end
 
   defp project_capacity_row(row) do
-    reject_nil_values(%{
-      "forecasted_at" => map_value(row, "forecasted_at"),
-      "resource_type" => map_value(row, "resource_type"),
-      "resource_label" => map_value(row, "resource_label"),
-      "resource_key" => map_value(row, "resource_key"),
-      "resource_id" => map_value(row, "resource_id"),
-      "metric_name" => map_value(row, "metric_name"),
-      "metric_class" => map_value(row, "metric_class"),
-      "value_unit" => capacity_value_unit(row),
-      "status" => map_value(row, "status"),
-      "model" => map_value(row, "model"),
-      "sample_count" => map_value(row, "sample_count"),
-      "horizon_seconds" => map_value(row, "horizon_seconds"),
-      "horizon_ends_at" => map_value(row, "horizon_ends_at"),
-      "window_started_at" => map_value(row, "window_started_at"),
-      "window_ended_at" => map_value(row, "window_ended_at"),
-      "current_value" => map_value(row, "current_value"),
-      "projected_value" => map_value(row, "projected_value"),
-      "projected_exhaustion_at" => map_value(row, "projected_exhaustion_at"),
-      "exhaustion_threshold" => map_value(row, "exhaustion_threshold"),
-      "confidence" => map_value(row, "confidence"),
-      "lower_bound" => map_value(row, "lower_bound"),
-      "upper_bound" => map_value(row, "upper_bound")
-    })
+    unit = capacity_value_unit(row)
+    projected = row |> map_value("projected_value") |> number_value()
+
+    if implausible_percent_projection?(projected, unit) do
+      nil
+    else
+      reject_nil_values(%{
+        "forecasted_at" => map_value(row, "forecasted_at"),
+        "resource_type" => map_value(row, "resource_type"),
+        "resource_label" => map_value(row, "resource_label"),
+        "resource_key" => map_value(row, "resource_key"),
+        "resource_id" => map_value(row, "resource_id"),
+        "metric_name" => map_value(row, "metric_name"),
+        "metric_class" => map_value(row, "metric_class"),
+        "value_unit" => unit,
+        "status" => map_value(row, "status"),
+        "model" => map_value(row, "model"),
+        "sample_count" => map_value(row, "sample_count"),
+        "horizon_seconds" => map_value(row, "horizon_seconds"),
+        "horizon_ends_at" => map_value(row, "horizon_ends_at"),
+        "window_started_at" => map_value(row, "window_started_at"),
+        "window_ended_at" => map_value(row, "window_ended_at"),
+        "current_value" => map_value(row, "current_value"),
+        "projected_value" => map_value(row, "projected_value"),
+        "projected_exhaustion_at" => map_value(row, "projected_exhaustion_at"),
+        "exhaustion_threshold" => map_value(row, "exhaustion_threshold"),
+        "confidence" => map_value(row, "confidence"),
+        "lower_bound" => map_value(row, "lower_bound"),
+        "upper_bound" => map_value(row, "upper_bound")
+      })
+    end
   end
 
   defp finding_title(row) do
@@ -367,6 +376,37 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       ["metadata", "unit"]
     ])
   end
+
+  defp implausible_percent_projection?(projected, unit) when is_number(projected) do
+    percent_unit?(unit) and (projected < 0.0 or projected > 100.0)
+  end
+
+  defp implausible_percent_projection?(_projected, _unit), do: false
+
+  defp percent_unit?(unit) when is_binary(unit) do
+    unit
+    |> normalize_text()
+    |> case do
+      "%" -> true
+      "percent" -> true
+      "percentage" -> true
+      _ -> false
+    end
+  end
+
+  defp percent_unit?(_unit), do: false
+
+  defp number_value(value) when is_integer(value), do: value * 1.0
+  defp number_value(value) when is_float(value), do: value
+
+  defp number_value(value) when is_binary(value) do
+    case Float.parse(value) do
+      {number, _rest} -> number
+      :error -> nil
+    end
+  end
+
+  defp number_value(_), do: nil
 
   defp reject_nil_values(row) do
     Map.reject(row, fn {_key, value} -> is_nil(value) or value == "" end)

@@ -130,7 +130,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                     <th>Resource</th>
                     <th>Metric</th>
                     <th>Status</th>
-                    <th>Projected</th>
+                    <th>Forecast</th>
                     <th>Exhaustion</th>
                   </tr>
                 </thead>
@@ -171,10 +171,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                         {format_value(row, "projected_value")}
                       </div>
                       <div class="text-xs text-base-content/50">
-                        now {format_value(row, "current_value")}
+                        current {format_value(row, "current_value")}
                       </div>
-                      <div :if={headroom(row)} class="text-xs text-base-content/50">
-                        headroom {headroom(row)}
+                      <div :if={capacity_margin(row)} class="text-xs text-base-content/50">
+                        {capacity_margin(row)}
                       </div>
                     </td>
                     <td class="whitespace-nowrap">
@@ -277,9 +277,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
           <.detail_fact label="Metric" value={capacity_metric_label(@row)} />
           <.detail_fact label="Status" value={value(@row, "status") || "unknown"} />
           <.detail_fact label="Current" value={format_value(@row, "current_value")} mono />
-          <.detail_fact label="Projected" value={format_value(@row, "projected_value")} mono />
+          <.detail_fact
+            label="Projected at Horizon"
+            value={format_value(@row, "projected_value")}
+            mono
+          />
           <.detail_fact label="Threshold" value={format_value(@row, "exhaustion_threshold")} mono />
-          <.detail_fact label="Headroom" value={headroom(@row) || "n/a"} mono />
+          <.detail_fact label="Threshold Margin" value={capacity_margin(@row) || "n/a"} mono />
           <.detail_fact
             label="Exhaustion"
             value={format_timestamp(value(@row, "projected_exhaustion_at"))}
@@ -502,20 +506,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
     end
   end
 
-  defp headroom(row) do
+  defp capacity_margin(row) do
     threshold = number_value(value(row, "exhaustion_threshold"))
     projected = number_value(value(row, "projected_value"))
     current = number_value(value(row, "current_value"))
     basis = projected || current
 
     if threshold && basis do
-      formatted = format_number(threshold - basis)
+      margin = threshold - basis
+      formatted = format_unit_value(abs(margin), value(row, "value_unit"))
 
-      case unit_label(value(row, "value_unit")) do
-        nil -> formatted
-        "%" -> "#{formatted}%"
-        unit -> "#{formatted} #{unit}"
+      if margin < 0 do
+        "over threshold #{formatted}"
+      else
+        "remaining #{formatted}"
       end
+    end
+  end
+
+  defp format_unit_value(value, unit) do
+    formatted = format_number(value)
+
+    case unit_label(unit) do
+      nil -> formatted
+      "%" -> "#{formatted}%"
+      unit -> "#{formatted} #{unit}"
     end
   end
 

@@ -352,10 +352,14 @@ fn events_agent_and_host_filters_match_exact_identity_paths() {
     let host_plan = plan_for(r#"in:events host_id:"sr-test-pve04" event_type:anomaly limit:25"#);
     let device_plan =
         plan_for(r#"in:events device_uid_exact:"sr:device-1" event_type:anomaly limit:25"#);
+    let indexed_device_plan =
+        plan_for(r#"in:events service_radar_device_uid:"sr:device-1" event_type:anomaly limit:25"#);
 
     let (agent_sql, _) = events::to_sql_and_params(&agent_plan).expect("agent filter SQL");
     let (host_sql, _) = events::to_sql_and_params(&host_plan).expect("host filter SQL");
     let (device_sql, _) = events::to_sql_and_params(&device_plan).expect("device filter SQL");
+    let (indexed_device_sql, _) =
+        events::to_sql_and_params(&indexed_device_plan).expect("indexed device filter SQL");
 
     assert!(
         agent_sql.contains("metadata #>> '{service_radar,agent_id}' = 'agent-sr-test-pve04'")
@@ -372,6 +376,13 @@ fn events_agent_and_host_filters_match_exact_identity_paths() {
         device_sql.contains("metadata #>> '{service_radar,device_uid}' = 'sr:device-1'")
             && !device_sql.contains("EXISTS ("),
         "expected device_uid_exact filter to avoid inventory alias fallback, got: {device_sql}"
+    );
+    assert!(
+        indexed_device_sql.contains("metadata #>> '{service_radar,device_uid}' = 'sr:device-1'")
+            && !indexed_device_sql.contains("device ->> 'uid'")
+            && !indexed_device_sql.contains("unmapped ->> 'device_uid'")
+            && !indexed_device_sql.contains("EXISTS ("),
+        "expected service_radar_device_uid filter to stay on the indexed service_radar device path, got: {indexed_device_sql}"
     );
 }
 

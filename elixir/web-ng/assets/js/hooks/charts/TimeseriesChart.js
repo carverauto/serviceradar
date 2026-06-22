@@ -2,6 +2,17 @@ import {timeseriesClientXToPointIndex, timeseriesPointIndexToLocalX} from "./geo
 
 export default {
   mounted() {
+    this.bindChart()
+  },
+  updated() {
+    this.bindChart()
+  },
+  bindChart() {
+    if (this.cleanup) {
+      this.cleanup()
+      this.cleanup = null
+    }
+
     const el = this.el
     const svg = el.querySelector("svg")
     const tooltip = el.querySelector("[data-tooltip]")

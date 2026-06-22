@@ -54,7 +54,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
       capacity_rows: [capacity],
       anomaly_query: "in:events limit:20",
       capacity_query: "in:capacity_forecasts limit:12",
-      anomaly_filter: %{field: "device_uid_exact", label: "device", value: "router-1"},
+      anomaly_filter: %{field: "service_radar_device_uid", label: "device", value: "router-1"},
       capacity_filter: %{field: "resource_id", label: "device", value: "router-1"},
       anomaly_error: nil,
       capacity_error: nil,
@@ -78,8 +78,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
     assert html =~ "score 4.20"
     assert html =~ "disk.used_percent"
     assert html =~ "percent"
-    assert html =~ "headroom 3.80%"
+    assert html =~ "remaining 3.80%"
     assert html =~ "Finding UID"
     assert html =~ "partition:agent:cpu0"
+
+    capacity_html =
+      render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
+        overview: overview,
+        selected_detail: %{kind: "capacity", row: capacity}
+      )
+
+    assert capacity_html =~ "Projected at Horizon"
+    assert capacity_html =~ "Threshold Margin"
   end
 end
