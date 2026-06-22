@@ -396,6 +396,42 @@ fn translate_flows_downsample_emits_time_bucket_query() {
 }
 
 #[test]
+fn translate_flows_downsample_can_filter_by_input_snmp() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query:
+            "in:flows time:last_1h sampler_address:192.0.2.10 input_snmp:12 bucket:5m agg:sum value_field:bytes_total limit:25"
+                .to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+    let sql = response.sql.to_lowercase();
+
+    assert!(
+        sql.contains("'{connection_info,input_snmp}'"),
+        "expected input_snmp extraction in SQL, got: {}",
+        response.sql
+    );
+    assert!(
+        sql.contains("= $4"),
+        "expected bound input_snmp equality after time and sampler params, got: {}",
+        response.sql
+    );
+    assert!(
+        sql.contains(
+            "sum((bytes_total::double precision * greatest(coalesce(sampling_rate, 1), 1)::double precision))"
+        ),
+        "expected sampling-rate weighted sum(bytes_total), got: {}",
+        response.sql
+    );
+    assert_eq!(response.params.len(), 6);
+}
+
+#[test]
 fn translate_rate_downsample_orders_by_bucket_and_series() {
     let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
     let request = QueryRequest {

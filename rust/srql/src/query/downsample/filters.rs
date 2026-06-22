@@ -1,8 +1,8 @@
 use super::bind::SqlBindValue;
 use crate::query::flows::{
-    FLOW_APP_EXPR, FLOW_DIRECTION_EXPR, FLOW_EXPORTER_NAME_EXPR, FLOW_IN_IF_NAME_EXPR,
-    FLOW_IN_IF_SPEED_BPS_EXPR, FLOW_OUT_IF_NAME_EXPR, FLOW_OUT_IF_SPEED_BPS_EXPR,
-    FLOW_PROTOCOL_GROUP_EXPR,
+    FLOW_APP_EXPR, FLOW_DIRECTION_EXPR, FLOW_EXPORTER_NAME_EXPR, FLOW_INPUT_SNMP_EXPR,
+    FLOW_IN_IF_NAME_EXPR, FLOW_IN_IF_SPEED_BPS_EXPR, FLOW_OUTPUT_SNMP_EXPR, FLOW_OUT_IF_NAME_EXPR,
+    FLOW_OUT_IF_SPEED_BPS_EXPR, FLOW_PROTOCOL_GROUP_EXPR,
 };
 use crate::{
     error::{Result, ServiceError},
@@ -36,6 +36,8 @@ fn flows_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
         "protocol_name" => text_clause("protocol_name", filter),
         "sampler_address" => text_clause("sampler_address", filter),
         "exporter_name" => expr_text_clause(FLOW_EXPORTER_NAME_EXPR, filter),
+        "input_snmp" | "in_if_index" => int_clause(FLOW_INPUT_SNMP_EXPR, filter, false),
+        "output_snmp" | "out_if_index" => int_clause(FLOW_OUTPUT_SNMP_EXPR, filter, false),
         "in_if_name" => expr_text_clause(FLOW_IN_IF_NAME_EXPR, filter),
         "out_if_name" => expr_text_clause(FLOW_OUT_IF_NAME_EXPR, filter),
         "in_if_speed_bps" => expr_text_clause(FLOW_IN_IF_SPEED_BPS_EXPR, filter),
