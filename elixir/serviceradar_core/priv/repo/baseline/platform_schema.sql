@@ -1031,8 +1031,8 @@ CREATE TABLE platform.ocsf_network_activity (
     src_mac_vendor_source text,
     dst_mac_vendor text,
     dst_mac_vendor_source text,
-    packets_in bigint DEFAULT 0 NOT NULL,
-    packets_out bigint DEFAULT 0 NOT NULL,
+    packets_in bigint,
+    packets_out bigint,
     sampling_rate bigint DEFAULT 1 NOT NULL
 );
 

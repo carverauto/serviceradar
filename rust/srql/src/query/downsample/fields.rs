@@ -106,12 +106,12 @@ pub(super) fn resolve_value_column(
             ))),
         },
         Entity::Flows => match field {
-            None | Some("bytes_total") => Ok(flow_value_column("bytes_total")),
-            Some("packets_total") => Ok(flow_value_column("packets_total")),
-            Some("bytes_in") => Ok(flow_value_column("bytes_in")),
-            Some("bytes_out") => Ok(flow_value_column("bytes_out")),
-            Some("packets_in") => Ok(flow_value_column("packets_in")),
-            Some("packets_out") => Ok(flow_value_column("packets_out")),
+            None | Some("bytes_total") => Ok(flow_value_column("bytes_total", false)),
+            Some("packets_total") => Ok(flow_value_column("packets_total", false)),
+            Some("bytes_in") => Ok(flow_value_column("bytes_in", true)),
+            Some("bytes_out") => Ok(flow_value_column("bytes_out", true)),
+            Some("packets_in") => Ok(flow_value_column("packets_in", true)),
+            Some("packets_out") => Ok(flow_value_column("packets_out", true)),
             Some(other) => Err(ServiceError::InvalidRequest(format!(
                 "unsupported value_field '{other}' for flows (supported: bytes_total|packets_total|bytes_in|bytes_out|packets_in|packets_out)"
             ))),
@@ -122,9 +122,15 @@ pub(super) fn resolve_value_column(
     }
 }
 
-fn flow_value_column(column: &str) -> String {
+fn flow_value_column(column: &str, nullable: bool) -> String {
+    let value = if nullable {
+        format!("COALESCE({column}, 0)")
+    } else {
+        column.to_string()
+    };
+
     format!(
-        "({column}::double precision * GREATEST(COALESCE(sampling_rate, 1), 1)::double precision)"
+        "({value}::double precision * GREATEST(COALESCE(sampling_rate, 1), 1)::double precision)"
     )
 }
 

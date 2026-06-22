@@ -91,7 +91,15 @@ defmodule ServiceRadar.EventWriter.Processors.FlowsTest do
     assert row.src_endpoint_ip == "192.0.2.10"
     assert row.dst_endpoint_ip == "198.51.100.20"
     assert row.protocol_num == 17
+    assert row.bytes_in == nil
+    assert row.bytes_out == nil
+    assert row.packets_in == nil
+    assert row.packets_out == nil
     assert row.ocsf_payload["flow_source"] == "sFlow v5"
+    refute Map.has_key?(row.ocsf_payload["unmapped"], "bytes_in")
+    refute Map.has_key?(row.ocsf_payload["unmapped"], "bytes_out")
+    refute Map.has_key?(row.ocsf_payload["unmapped"], "packets_in")
+    refute Map.has_key?(row.ocsf_payload["unmapped"], "packets_out")
   end
 
   test "parse_message accepts attributed_flow protobuf payloads" do

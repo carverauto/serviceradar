@@ -296,10 +296,10 @@ struct FlowRow {
     dst_service_source: Option<String>,
     bytes_total: i64,
     packets_total: i64,
-    bytes_in: i64,
-    bytes_out: i64,
-    packets_in: i64,
-    packets_out: i64,
+    bytes_in: Option<i64>,
+    bytes_out: Option<i64>,
+    packets_in: Option<i64>,
+    packets_out: Option<i64>,
     sampling_rate: i64,
     direction_label: Option<String>,
     direction_source: Option<String>,
@@ -1142,11 +1142,24 @@ impl FlowAggField {
         )
     }
 
+    fn is_nullable_directional_volume(&self) -> bool {
+        matches!(
+            self,
+            Self::BytesIn | Self::BytesOut | Self::PacketsIn | Self::PacketsOut
+        )
+    }
+
     fn sampled_volume_sql(&self, table_alias: &str) -> Option<String> {
         self.is_sampled_volume().then(|| {
             let column = self.sql();
+            let value_sql = if self.is_nullable_directional_volume() {
+                format!("COALESCE({table_alias}.{column}, 0)")
+            } else {
+                format!("{table_alias}.{column}")
+            };
+
             format!(
-                "({table_alias}.{column}::double precision * GREATEST(COALESCE({table_alias}.sampling_rate, 1), 1)::double precision)"
+                "({value_sql}::double precision * GREATEST(COALESCE({table_alias}.sampling_rate, 1), 1)::double precision)"
             )
         })
     }
@@ -2875,6 +2888,43 @@ mod tests {
                 "SUM((f.packets_total::double precision * GREATEST(COALESCE(f.sampling_rate, 1), 1)::double precision))"
             ),
             "expected packets_total sum to be sampling-rate weighted: {sql}"
+        );
+    }
+
+    #[test]
+    fn raw_flow_stats_coalesce_nullable_directional_volume_fields() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: Vec::new(),
+            order: vec![],
+            limit: 10,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "sum(bytes_in) as bytes_in, sum(packets_out) as packets_out",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        };
+
+        let (sql, _params) = to_sql_and_params_stats(&plan).unwrap();
+
+        assert!(
+            sql.contains(
+                "SUM((COALESCE(f.bytes_in, 0)::double precision * GREATEST(COALESCE(f.sampling_rate, 1), 1)::double precision))"
+            ),
+            "expected nullable bytes_in sum to be coalesced before sampling-rate weighting: {sql}"
+        );
+        assert!(
+            sql.contains(
+                "SUM((COALESCE(f.packets_out, 0)::double precision * GREATEST(COALESCE(f.sampling_rate, 1), 1)::double precision))"
+            ),
+            "expected nullable packets_out sum to be coalesced before sampling-rate weighting: {sql}"
         );
     }
 

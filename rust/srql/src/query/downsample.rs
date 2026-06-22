@@ -44,3 +44,48 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
         })
         .collect())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::to_sql_and_params;
+    use crate::{
+        parser::{DownsampleAgg, DownsampleSpec, Entity},
+        query::QueryPlan,
+        time::TimeRange,
+    };
+    use chrono::{Duration as ChronoDuration, TimeZone, Utc};
+
+    #[test]
+    fn flow_downsample_coalesces_nullable_directional_volume_fields() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::minutes(30);
+
+        let plan = QueryPlan {
+            entity: Entity::Flows,
+            filters: Vec::new(),
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: None,
+            downsample: Some(DownsampleSpec {
+                bucket_seconds: 60,
+                agg: DownsampleAgg::Sum,
+                series: Some("protocol_group".to_string()),
+                value_field: Some("bytes_in".to_string()),
+            }),
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        };
+
+        let (sql, _params) = to_sql_and_params(&plan).unwrap();
+
+        assert!(
+            sql.contains(
+                "SUM((COALESCE(bytes_in, 0)::double precision * GREATEST(COALESCE(sampling_rate, 1), 1)::double precision)) AS value"
+            ),
+            "expected nullable flow downsample field to be coalesced before aggregation: {sql}"
+        );
+    }
+}
