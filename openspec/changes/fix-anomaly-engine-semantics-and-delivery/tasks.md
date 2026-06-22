@@ -276,7 +276,7 @@
 - [ ] 51.5 Run web-ng tests for device-details anomaly/capacity, chart renderer, NetFlow/interface data layers, JS chart hooks, dashboard authoring, table/topology plugins, device list bulk-edit, and SNMP/networks settings.
 - [ ] 51.6 Run `./scripts/elixir_quality.sh --project elixir/serviceradar_core` and `--project elixir/web-ng` if implementation changes shared behavior broadly.
 - [x] 51.7 Run `sfw cargo test -p serviceradar-flow-collector` if collector sampling changes land.
-- [ ] 51.8 Run native add-on manifest/version gates if add-on package metadata or Rust add-on sources change.
+- [x] 51.8 Run native add-on manifest/version gates if add-on package metadata or Rust add-on sources change.
 - [ ] 51.9 Re-run the live `sysmon.debug_spike` trace + a sampled-flow check in demo and confirm F1/F3/F6/F12/F15/F21-F55 behaviors are resolved (one open finding, sample-time, coherent identity, visible+annotated chart spike, correct sampled NetFlow units, safe dashboard variables, no alert storm, no SRQL panics).
 
 ## 52. CI Action Flood (ops/infra, separate) (F56) - fj #4098
