@@ -31,6 +31,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
       {:proceed, key, fingerprint} ->
         result = do_upsert_links(links)
 
+        # do_upsert_links/1 returns :ok and raises on failure, so reaching this
+        # line means the apply succeeded. Recording the fingerprint only after a
+        # successful apply ensures a failed report is retried next cycle rather
+        # than cached as "done" and skipped.
         :persistent_term.put(
           {__MODULE__, :report_fingerprint, key},
           {fingerprint, System.monotonic_time(:millisecond)}
