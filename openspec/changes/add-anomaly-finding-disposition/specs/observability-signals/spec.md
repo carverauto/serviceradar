@@ -76,8 +76,8 @@ constants are calibration; the following invariants are binding. False-suppress
 resolve to pass-through or escalate, never to suppress.
 
 - The band SHALL be **two-sided**: a downward excursion outside the escalation band SHALL escalate, never be auto-suppressed.
-- The suppression (inner) band scale SHALL be **bounded above by the `(series, hod)`-localized prior** (`min(s_cell, CAP·s_prior)`), so a poisoned or thin cell cannot widen the suppression region.
-- The prior SHALL be **localized to `(series, hod)`** (never pooled across `hod`), widening to hour-neighbors then a metric-class prior only when cold.
+- The suppression (inner) band scale SHALL be **bounded above by the per-series prior** (`min(s_cell, CAP·s_prior)`), so a poisoned or thin cell cannot widen the suppression region.
+- The **cell** center/scale SHALL be `(series, hod)` and SHALL NOT be pooled across `hod` (the no-smear property: a spiky hour does not widen a quiet hour's band). The **prior** SHALL be the **series-overall robust scale** — each series bounded by ~`CAP×` its OWN typical variability — pooled across `hod` intentionally, because it is a min-cap bound (via `min`), never the band center/width, so the cross-`hod` pooling cannot smear. Calibration on real fleet data established that a `(hod)`-class prior (pooling distinct series) is far too wide to bound a poisoned tight cell (idle-series scale ≈ 0.5 vs class scale ≈ 30 ⇒ a `2·30` cap never binds), so the prior MUST be per-series.
 - A cold cell (`n < N_min`), an over-dispersed cell (`s_cell > D·s_prior`), or a ceiling-proximity cell (no upward headroom below 100) SHALL pass through.
 - The low-`n` margin SHALL be **sigma-relative** (`1 + A/√n`), never an additive raw floor (an absolute floor applies only when the robust scale is ≈ 0).
 - A `suppress` verdict SHALL NOT reset the confirm-slot counter.

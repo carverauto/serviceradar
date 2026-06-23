@@ -80,14 +80,16 @@ Coverage depends on whether a meaningful hour-of-week **peak** profile exists fo
 
 Suppression silences a finding, so a **false-suppress hides a real anomaly** — strictly worse than a false-surface. This asymmetry is the north star: every uncertain path must decay toward **pass-through or escalate, never toward suppress**. Replacing the original hard "inert for 6 weeks" cliff, the gate is a continuous band that ramps as the cell's sample count `n` grows. Its form was hardened over **two adversarial-verification rounds** that refuted (a) a one-sided band that silenced every downward anomaly, (b) an additive raw floor that blinded tight series, and (c) a prior pooled across hours that let a spiky hour whitewash its neighbors. What survives is a set of **invariants** plus a decision rule whose constants are implementation-calibrated.
 
-### Cell granularity: `(series, hod)`; prior localized to `(series, hod)`
-Live data is decisive: per-`(series, dow, hod)` cells are frozen at n=1 (max 2) for ~6 weeks, but **`(series, hod)` cells reach median n=8 (93% ≥ 6) within a *week*** — DOW adds ~nothing (median |weekday−weekend| ≈ 0–1.5pp) while hour-of-day carries the signal. So the cell and its prior are **`(series, hod)`** (collapse only DOW); a cold cell widens to its **±1-hour neighbors** (median adjacent-hour jump 0.58pp), then a metric-class prior as last resort — **never pool across `hod`**.
+### Cell granularity: `(series, hod)`; prior is per-series (series-overall)
+Live data is decisive: per-`(series, dow, hod)` cells are frozen at n=1 (max 2) for ~6 weeks, but **`(series, hod)` cells reach median n=8 (93% ≥ 6) within a *week*** — DOW adds ~nothing (median |weekday−weekend| ≈ 0–1.5pp) while hour-of-day carries the signal. So the **cell** is **`(series, hod)`** (collapse only DOW) and is never pooled across `hod`.
+
+The **prior** (the I2 min-cap reference) is the **per-series, series-overall robust scale**. This changed during calibration: the design first reached for a `(series,hod)`/`(hod)`-class prior, but on real fleet data the `(hod)`-class prior is ≈ 30 (it pools idle + saturated series), so for an idle series (normal scale ≈ 0.5) the `CAP·s_pri = 2·30 = 60` cap never binds — a poisoned cell could inflate 120× before the bound engages, defeating I2. The series-overall scale bounds each series by ~`CAP×` *its own* variability (idle bound ≈ 1.1), so the poison-resistance actually works. Pooling the prior across `hod` is intentional and safe here: it is a `min`-cap bound, **not** the band center/width, so it cannot smear a spiky hour into a quiet one (the quiet hour's tight `s_cell` always wins the `min`).
 
 ### The decision rule (O(1) scalar; robust stats only)
-From SQL per cell: `n`, robust center `c = median`, robust scale `s_cell = (p95−p05)·0.30398`, the `(series,hod)`-localized prior scale `s_pri`, and `q05/q95`. Given spike peak `p`:
+From SQL per cell: `n`, robust center `c = median`, robust scale `s_cell = (p95−p05)·0.30398`, the **per-series** prior scale `s_pri`, and `q95`. Given spike peak `p`:
 - **Two-sided** bands: inner (suppress) `c ± Z_sup·s_inner·k_n`; outer (escalate) `c ± Z_esc·s_outer·k_n`.
 - **Sigma-relative low-n inflation** `k_n = 1 + A/√n` (→1 as n→∞) — widens with the series' *own* scale, so a tight series stays tight; no additive raw floor.
-- **Inner band scale bounded ABOVE by the localized prior** (the load-bearing poison-resistance fix): `s_inner = min(s_cell, CAP·s_pri)` — a poisoned/thin cell cannot inflate the *suppression* region beyond what its localized prior justifies. The outer band uses `s_outer = max(s_cell, s_pri)` (wider escalation is safe).
+- **Inner band scale bounded ABOVE by the per-series prior** (the load-bearing poison-resistance fix): `s_inner = min(s_cell, CAP·s_pri)` — a poisoned/thin cell cannot inflate the *suppression* region beyond what the series' own typical scale justifies. The outer band uses `s_outer = max(s_cell, s_pri)` (wider escalation is safe).
 - **Guards → pass-through (never suppress):** cold (`n < N_min`); over-dispersed (`s_cell > D·s_pri` → cell looks poisoned vs its own class); ceiling-proximity (`q95 + Z_sup·s_inner·k_n ≥ 100` → no upward headroom to discriminate); degenerate scale floored at a tiny absolute (0.5pp) only when `s ≈ 0`.
 - **Decision:** suppress iff `p` inside the inner band; escalate iff `p` outside the outer band (either side); else downgrade. **A suppress verdict does NOT reset the confirm-slot counter** (else a real recurring anomaly sticks suppressed).
 
@@ -95,7 +97,7 @@ From SQL per cell: `n`, robust center `c = median`, robust scale `s_cell = (p95�
 Each is provable by the adversarial test that established it:
 1. **Two-sided** — a downward real anomaly escalates, never auto-suppressed.
 2. **Poison-bounded inner band** — a minority of poisoned samples cannot widen the suppression band beyond `CAP·prior`; a real novel spike still escalates.
-3. **`(series,hod)`-localized prior** — a quiet-hour novel spike is not suppressed by a spiky neighbor-hour's scale.
+3. **Per-series prior, `(series,hod)` cell** — the cell (band center/width) is never pooled across `hod`, so a quiet-hour novel spike is not suppressed by a spiky neighbor-hour's scale; the prior is the series-overall min-cap bound (pooling it across `hod` cannot smear, since `min` keeps the quiet hour's tight scale).
 4. **Ceiling-proximity guard** — a tight near-100% cell passes through (never a >100% band).
 5. **Over-dispersion guard** — a cell anomalously dispersed vs its class passes through.
 6. **Cold pass-through** — suppression off until `n ≥ N_min`.
