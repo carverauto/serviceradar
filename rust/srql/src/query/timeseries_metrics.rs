@@ -1212,9 +1212,15 @@ LIMIT {} OFFSET {}"#,
     Ok(TimeseriesStatsSql { sql, binds })
 }
 
-/// Build the peak hour-of-day profile feeding the UASB peak-disposition kernel:
-/// the `(series, hod)` cell robust summary (n, median, `(p95−p05)·0.30398` scale,
-/// q95) over `max_value`, plus the **per-series** (series-overall) robust prior
+/// Build the peak hour-of-day profile feeding the UASB peak-disposition kernel.
+///
+/// NOTE on naming: the verb is `profile_hour_of_week_peak` to parallel the seasonal
+/// `profile_hour_of_week`, but because the live data justifies collapsing DOW this
+/// profile is hour-of-**day** — `hod = EXTRACT(HOUR …) ∈ 0..23`, **24 buckets**, not
+/// 168. The kernel agrees (`PeakRow.hod ∈ 0..23`).
+///
+/// Emits per `(series, hod)` cell the robust summary (n, median, `(p95−p05)·0.30398`
+/// scale, q95) over `max_value`, plus the **per-series** (series-overall) robust prior
 /// scale. The CELL stays `(series, hod)` and is never pooled across `hod` (no
 /// smear, invariant I3); the prior is the series' own overall scale used ONLY as
 /// the I2 min-cap bound — calibration on real data showed a pooled `(hod)`-class
@@ -1311,19 +1317,24 @@ latest AS (
   FROM local_hourly
   ORDER BY series, bucket DESC
 ),
-cell AS (
+cell_base AS (
   SELECT
     h.series,
     h.hod,
     count(*) AS n,
     percentile_cont(0.5) WITHIN GROUP (ORDER BY h.sample_value)::float8 AS center,
-    (percentile_cont(0.95) WITHIN GROUP (ORDER BY h.sample_value)
-       - percentile_cont(0.05) WITHIN GROUP (ORDER BY h.sample_value))::float8 * 0.30398 AS scale_cell,
+    percentile_cont(0.05) WITHIN GROUP (ORDER BY h.sample_value)::float8 AS p05,
     percentile_cont(0.95) WITHIN GROUP (ORDER BY h.sample_value)::float8 AS q95
   FROM local_hourly h
   JOIN latest l ON l.series = h.series
   WHERE h.bucket <> l.bucket
   GROUP BY h.series, h.hod
+),
+cell AS (
+  -- q95 is both the band's upper edge and the ceiling-check quantity: compute the
+  -- percentiles once in cell_base and derive the scale here (no second p95 pass).
+  SELECT series, hod, n, center, (q95 - p05) * 0.30398 AS scale_cell, q95
+  FROM cell_base
 ),
 prior AS (
   SELECT
@@ -1348,7 +1359,7 @@ FROM latest l
 JOIN cell c
   ON c.series = l.series
  AND c.hod = l.hod
-LEFT JOIN prior p
+JOIN prior p
   ON p.series = l.series
 LIMIT {} OFFSET {}"#,
         plan.limit, plan.offset
