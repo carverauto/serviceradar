@@ -35,7 +35,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   @default_sweep_execution_retention_days 30
   @default_trivy_retention_days 30
   @default_endpoint_inventory_retention_days 30
-  @default_dataset_snapshot_retention_days 14
+  @default_dataset_snapshot_retention_days 4
   @default_topology_link_retention_days 30
   @query_timeout_ms 120_000
 
