@@ -84,6 +84,7 @@ go_test(
     name = "mapper_test",
     srcs = [
         "discovery_test.go",
+        "discovery_topology_publish_test.go",
         "grpc_test.go",
         "identity_test.go",
         "interface_dedup_test.go",
