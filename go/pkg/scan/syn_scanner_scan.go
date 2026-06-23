@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/models"
+	"golang.org/x/sys/unix"
 )
 
 // Scan performs SYN scanning on the given targets

@@ -31,6 +31,7 @@ import (
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
+	"golang.org/x/sys/unix"
 )
 
 //

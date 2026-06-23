@@ -25,6 +25,8 @@ import (
 	"fmt"
 	"sync/atomic"
 	"unsafe"
+
+	"golang.org/x/sys/unix"
 )
 
 // TPACKETv3 Ring

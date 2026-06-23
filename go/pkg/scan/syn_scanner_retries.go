@@ -203,7 +203,7 @@ func (s *SYNScanner) enqueueRetriesForBatch(batch []models.Target) {
 
 			if span > 0 {
 				s.randMu.Lock()
-				j := s.rand.Int63n(int64(span))
+				j := s.rand.Int64N(int64(span))
 				s.randMu.Unlock()
 
 				d += time.Duration(j)
