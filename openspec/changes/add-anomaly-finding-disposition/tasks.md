@@ -1,7 +1,7 @@
 # Tasks — anomaly finding disposition
 
-## 0. Decision gate (blocks everything below)
-- [ ] 0.1 Ratify the resolution model: **Option A** (reconcile-where-comparable, V1) vs **Option B** (edge forwards peak+window, core disposes the spike). Record the decision in `design.md`. Default recommendation: A now, B as a per-metric-class follow-on.
+## 0. Decision gate (RESOLVED)
+- [x] 0.1 Resolution model **ratified: Option B** — matched-resolution peak disposition (edge forwards peak+window; core builds a peak profile from the existing `max_value` and judges the spike against it). Rolled out per metric class behind a peak-profile stability gate; cold-start/uncovered classes fall through to edge-governed pass-through. Recorded in `design.md`.
 
 ## 1. Soundness + liveness (precede trusting disposition)
 - [ ] 1.1 Switch the three default seasonal sources from `:mean_stddev` to `:median_mad` (`seasonal_disposition/source.ex:82,103,116`); add a test that a single past-incident hour in a 5-sample cell does not poison the baseline.
@@ -13,10 +13,10 @@
 - [ ] 2.2 Prove the join key: add a test asserting edge `series_key` == central `series_key` **after** canonical re-key (`causal_signals.ex:1410`). This is the precondition for any disposition firing.
 
 ## 3. Disposition correlation (alert/query layer)
-- [ ] 3.1 Implement the disposition function: given an edge-spike finding, look up the overlapping central-seasonal disposition by `(canonical series_key, time window)` and return `suppress | downgrade | escalate | pass_through` per the **ratified** quadrant table (Option A V1: never suppress a short spike on hourly evidence).
+- [ ] 3.1 Implement the disposition function (depends on §6 peak profile): given an edge-spike finding carrying its forwarded peak, judge the peak against the peak profile for the matching `(dow, hod)` cell and return `suppress | downgrade | escalate | pass_through` per the Option B quadrant table (peak above profile → escalate; peak within → suppress/downgrade; insufficient peak history → pass-through). Sustained drift (no spike, hourly mean off-baseline) uses the mean profile.
 - [ ] 3.2 Teach `stateful_alert_engine.ex` `verdict_source` + apply the disposition before opening an alert (suppress/downgrade/escalate/pass-through). Dedup/coalesce per canonical series with the existing cooldown — one ongoing condition = one alert.
 - [ ] 3.3 Surface the disposition in the web-ng device-detail anomaly panel (suppressed/downgraded/escalated/pass-through) instead of raw severity.
-- [ ] 3.4 Tests: each quadrant; cold-start pass-through; "real short spike + seasonally-normal hour → NOT suppressed" (the unsound quadrant is barred).
+- [ ] 3.4 Tests: each quadrant; cold-start/insufficient-peak-history pass-through; recurring spike (peak within profile) → suppressed; novel spike (peak above profile) → escalated; sustained drift surfaced via the mean profile.
 
 ## 4. Metric-class scoping
 - [ ] 4.1 Restrict the seasonal sources to sustained host metrics (`cpu`, `mem` usage).
@@ -28,10 +28,12 @@
 - [ ] 5.2 Add severity calibration: map raw z/deviation score → bounded OCSF severity buckets for `class_uid=2004` findings. Test the mapping; confirm Critical share drops from ~77%.
 - [ ] 5.3 Add a core-side `(device, series_key)` debounce safety net: collapse repeats of an ongoing condition into one open finding with updated state (the `(id, time)` upsert cannot catch distinct-timestamp per-slot emission).
 
-## 6. Option B (only if 0.1 selects it; per-metric-class, gated)
-- [ ] 6.1 Edge: forward peak magnitude + spike window in the finding payload.
-- [ ] 6.2 SRQL: add `profile_hour_of_week_p95`/`_max` (peak profile) + the supporting aggregate/CAGG.
-- [ ] 6.3 Core: dispose the spike against the peak profile; enable per-metric-class only after the peak profile is shown stable. Tests for a recurring nightly spike → suppressed; a novel spike → escalated.
+## 6. Peak profile — matched-resolution disposition (Option B core; prerequisite for §3)
+- [ ] 6.1 Edge: forward **peak magnitude + spike window** in the finding payload (the detector already computes both).
+- [ ] 6.2 SRQL: add a peak variant of `profile_hour_of_week` over the existing `timeseries_metrics_hourly.max_value` (robust aggregate — median+MAD of per-hour maxima per `(series, dow, hod)`). No new CAGG/schema — `max_value` already exists.
+- [ ] 6.3 Core: build the peak profile and dispose an edge spike by judging its forwarded peak against the peak profile for the matching `(dow, hod)` cell.
+- [ ] 6.4 Per-class **stability gate**: a metric class stays in pass-through until its peak profile has sufficient per-cell history + low run-to-run variance; only then is suppression enabled for that class.
+- [ ] 6.5 Tests: recurring nightly spike (peak within profile) → suppressed; novel spike (peak above profile) → escalated; cold-start/insufficient peak history → pass-through.
 
 ## 7. Verification (prove it on the live system)
 - [ ] 7.1 Live re-trace on demo after deploy: assert one OPEN + one CLEAR per episode (no per-sample), capacity_forecasting dedup holds, Critical share normalized, and disposition coverage > 0 for covered series.

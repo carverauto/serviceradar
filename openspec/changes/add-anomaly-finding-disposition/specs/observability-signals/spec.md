@@ -21,23 +21,50 @@ disposition SHALL NOT gate persistence of the edge finding.
 - **THEN** the disposition SHALL be `pass_through`
 - **AND** the finding SHALL NOT be suppressed on absent seasonal evidence
 
-### Requirement: Disposition Resolution Model
-Disposition SHALL only reconcile edge and central judgments where their temporal
-resolutions are comparable. A short edge spike SHALL NOT be suppressed solely
-because the overlapping hourly seasonal mean is within baseline, because the
-hourly mean can dilute a sub-minute spike. Suppression of a recurring spike by a
-resolution-matched peak profile MAY be enabled per metric class only after that
-peak profile is shown stable.
+### Requirement: Edge Spike Peak Forwarding
+An edge anomaly finding for a spike SHALL carry the spike's peak magnitude and the
+spike time window, so the core can judge the spike at matched resolution rather
+than re-deriving it from a diluted hourly aggregate.
 
-#### Scenario: Hourly-normal does not silence a short spike
-- **GIVEN** an edge spike finding for series `S` in a 30-second window
-- **AND** the seasonal verdict for the overlapping hour is `expected` (hourly mean normal)
+#### Scenario: Edge finding carries peak and window
+- **GIVEN** the edge detector confirms a spike on series `S`
+- **WHEN** it emits the finding
+- **THEN** the finding SHALL include the spike peak magnitude and the spike start/end window
+
+### Requirement: Disposition Resolution Model
+Disposition of an edge spike SHALL judge the spike's peak magnitude against a
+resolution-matched peak profile — the robust hour-of-week aggregate of the
+series' per-hour maxima (`timeseries_metrics_hourly.max_value`) — NOT against the
+hourly mean, because the mean dilutes a sub-minute spike. A sustained condition
+without an edge spike SHALL be judged against the hourly mean profile. Peak-based
+suppression SHALL be enabled for a metric class only after that class's peak
+profile passes a stability gate; until then the class SHALL pass through.
+
+#### Scenario: Spike judged against the peak profile, not the mean
+- **GIVEN** an edge spike finding for series `S` carrying its peak and window
+- **AND** the peak profile for the matching `(dow, hod)` cell is stable
 - **WHEN** the alert engine evaluates the finding
-- **THEN** the disposition SHALL be `pass_through`, not `suppress`
+- **THEN** the disposition SHALL be derived from the spike peak versus the peak profile
+- **AND** it SHALL NOT be derived from the hourly mean
+
+#### Scenario: Recurring spike within the normal peak is suppressed
+- **GIVEN** an edge spike whose peak is within the series' normal hour-of-week peak range
+- **WHEN** the alert engine evaluates the finding
+- **THEN** the disposition SHALL be `suppress` or `downgrade`
+
+#### Scenario: Novel spike above the normal peak escalates
+- **GIVEN** an edge spike whose peak exceeds the series' normal hour-of-week peak range
+- **WHEN** the alert engine evaluates the finding
+- **THEN** the disposition SHALL be `escalate`
+
+#### Scenario: Class without a stable peak profile passes through
+- **GIVEN** a metric class whose peak profile has not passed the stability gate
+- **WHEN** an edge spike for that class is evaluated
+- **THEN** the disposition SHALL be `pass_through`
 
 #### Scenario: Sustained drift without an edge spike surfaces
-- **GIVEN** no edge spike finding for series `S` in hour `H`
-- **AND** the central seasonal verdict for `S` in `H` is off-baseline
+- **GIVEN** no edge spike for series `S` in hour `H`
+- **AND** the hourly **mean** profile for `S` in `H` is off-baseline
 - **WHEN** the central tier runs
 - **THEN** it SHALL surface a low-grade sustained-drift finding for `S`
 

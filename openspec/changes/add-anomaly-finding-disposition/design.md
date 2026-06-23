@@ -13,31 +13,39 @@ The edge finding already carries a stable `series_key`, `metric_class`, `device_
 
 The edge detects a sub-minute peak. The seasonal tier reasons over an hourly mean. **These are different physical quantities.** A real 30s spike is invisible in (or heavily diluted by) the hour's average, so a seasonal "this hour is normal" verdict does **not** imply "that spike was expected." Any disposition design must pick how to handle that mismatch. This is the hinge of the proposal.
 
-### Option A — Reconcile only where resolutions are comparable (RECOMMENDED for V1)
+### Option A — Reconcile only where resolutions are comparable (simpler alternative — NOT chosen)
 
-Keep the two resolutions separate and **forbid the unsound quadrant**. Disposition acts only where it is defensible:
+Keep the two resolutions separate and forbid suppressing a short spike on hourly evidence; disposition acts only on sustained conditions, short spikes stay edge-governed.
 
-| edge | central-seasonal (hourly) | disposition |
+- **Pros:** small, additive, never unsound on existing data.
+- **Cons:** does **not** let the core judge the spike itself — a genuinely recurring spike (nightly backup pinning CPU for 40s) still floods because seasonal can never say "that spike is expected." Delivers "real-vs-seasonal" only for sustained regimes.
+- **Rejected** because it leaves the spike stream entirely edge-governed; it cannot reduce recurring-spike noise, which is the user's actual goal.
+
+### Option B — Core disposes the spike apples-to-apples (CHOSEN)
+
+Make disposition operate at **matched resolution**: the edge forwards the **peak magnitude + the spike window** (it already computes both), and the core builds a **resolution-matched peak profile** so it can judge *this spike* against *what spikes that series normally produces at this hour-of-week*.
+
+**Peak profile — data already exists.** The hourly CAGG `timeseries_metrics_hourly` already materializes `max_value` per `(series, hour)` (verified on demo: columns `avg_value, min_value, max_value, sample_count`). The peak profile is a **robust aggregate of `max_value` per `(series, dow, hod)` cell** (median + MAD over weeks of per-hour maxima) — i.e. "the typical peak this series hits in this hour-of-week." No new CAGG or schema change; `max_value` captures the spike (unlike `avg_value`, which dilutes it). This is the resolution match: spike-peak judged against spike-peak history.
+
+**Two profiles, two phenomena.** The core keeps both:
+- **Peak profile** (robust aggregate of `max_value`) → judges an **edge spike** (does this peak exceed the series' normal hour-of-week peak?).
+- **Mean profile** (robust aggregate of `avg_value`, the existing `profile_hour_of_week`) → judges a **sustained regime** (is the hourly average off-baseline without a spike?).
+
+**Disposition quadrants (V1 contract):**
+
+| edge | matched seasonal verdict | disposition |
 |---|---|---|
-| spike | off-baseline (hour also elevated) | **escalate** — sustained, off-profile |
-| spike | expected (hour normal) | **pass-through, do NOT suppress** — could be a real short spike the hour hides |
-| spike | insufficient baseline (cold start) | **pass-through** |
-| no edge | off-baseline (hour elevated, no spike) | **surface** a low-grade "sustained drift" finding |
+| spike | peak **above** normal hour-of-week peak (peak profile) | **escalate** — novel/off-profile spike |
+| spike | peak **within** normal hour-of-week peak (recurring) | **suppress/downgrade** — seasonally-expected spike |
+| spike | insufficient peak history (cold start) | **pass-through** |
+| no edge | hourly **mean** off-baseline (mean profile) | **surface** a low-grade sustained-drift finding |
 
-- **Pros:** small, additive, statistically honest. Never silences a real spike on hourly evidence. Matches the data that actually exists.
-- **Cons:** does not reduce the *spike* finding count via seasonal — spike volume is controlled by the edge transition gate + severity calibration, not by seasonal. Seasonal only improves precision on **sustained** regimes and adds the "quiet-but-drifting" detection.
-- **Net:** the user's "core decides real-vs-seasonal" is delivered for **sustained** conditions; short spikes remain edge-governed (correct).
+- **Pros:** the only sound way "the core judges the spike." Suppresses genuinely-recurring spikes; escalates novel ones. Directly cuts recurring-spike noise.
+- **Cons:** needs a new SRQL stat (a peak variant of `profile_hour_of_week` over `max_value`), a heavier edge payload (peak + window), and per-cell peak-history depth before the peak profile is trustworthy → gated per metric class behind a stability check.
 
-### Option B — Make the core dispose the spike apples-to-apples (UPGRADE PATH)
+### Decision: Option B (ratified)
 
-Have the edge forward the **peak magnitude + the spike window** (it already knows them), and give the core a **resolution-matched baseline** — e.g. a peak/percentile profile per hour-of-week (max or p95 per `(series, dow, hod)`), not just the mean — so the core can judge *this spike* against *what spikes that series normally has at this hour*.
-
-- **Pros:** the only way "the core judges the spike itself" is sound. Enables suppressing genuinely-recurring spikes (e.g. a nightly backup that always pins CPU for 40s).
-- **Cons:** new SRQL stat (`profile_hour_of_week_p95`/`_max`), a new CAGG or aggregate, more baseline data per cell, and a heavier edge payload. Larger change; needs its own validation that the peak profile is stable.
-
-### Recommendation
-
-Ship **Option A** now (it is additive and never unsound), and treat **Option B** as a follow-on enabled per-metric-class only after the peak profile is proven stable. The proposal's spec encodes Option A's quadrant table as the V1 contract and records Option B as an explicit, scoped extension point. **Reviewers: this choice is the decision to ratify.**
+Build the matched-resolution peak disposition. Roll it out **per metric class, gated** behind a peak-profile stability check (a class stays in pass-through until its peak profile has enough per-cell history and low run-to-run variance). Cold-start and uncovered classes fall through to edge-governed pass-through, so B is never *less* safe than A during ramp-up — it only adds suppression once the peak profile is trustworthy. The spec encodes the Option B quadrant table as the contract.
 
 ## Disposition layer — where and how
 
@@ -52,11 +60,14 @@ Ship **Option A** now (it is additive and never unsound), and treat **Option B**
 2. **NIF liveness gate:** `worker.ex:341-356` wraps `dispose_batch` in `rescue → {:error}` and `classify/1` maps `{:error}` to dropped — a missing/retired `causal_reasoner_nif` makes the whole seasonal tier silently emit nothing, indistinguishable from "all normal." Add a startup/health assertion that the live `dispose_batch` is the real one, surfaced as a degraded-mode signal, not a silent zero.
 3. **Cold-start is the steady state, not a transient.** The kernel gate (`baseline.rs:47-48`) needs `min_bucket_samples` (default 4) per `(dow,hod)` cell, i.e. ~5 weeks of history *per cell*. On a 23-device demo most cells never reach it, so `:insufficient_seasonal_baseline` → pass-through must be the dominant, expected path. Disposition coverage must be reported (how many series are seasonally covered) so "seasonal is working" is measured, not assumed.
 
-## Metric-class scope (stop the category overreach)
+## Metric-class scope
 
-- **Seasonal tier:** sustained host metrics (`cpu`, `mem` usage). These have meaningful hour-of-week structure.
-- **`disk usage_percent`:** near-monotonic (ramp-then-reset) → route to the **capacity forecaster** (Tier B), not seasonal; an hour-of-week mean is close to meaningless for a slow fill.
-- **SNMP interface / sysmon counters (the flood sources):** **edge-only**, governed by the transition gate + severity calibration. No seasonal coverage is claimed; disposition for these is "pass-through with calibrated severity."
+Coverage depends on whether a meaningful hour-of-week **peak** profile exists for the series:
+
+- **Utilization / rate series (`cpu`, `mem`, interface utilization %):** covered by both the **peak profile** (spike disposition) and the **mean profile** (sustained drift). Critically, the SNMP interface / sysmon utilization series that dominate the flood **are coverable here** once their peak profile is stable — this is the payoff of Option B over A, which could only ever leave them edge-only.
+- **`disk usage_percent`:** near-monotonic (ramp-then-reset) → route to the **capacity forecaster** (Tier B); neither an hour-of-week mean nor peak is meaningful for a slow fill.
+- **Raw non-normalized counters (e.g. absolute `ifInOctets`):** no meaningful "normal peak" → edge-only + severity calibration until rate-normalized into a utilization series.
+- A class stays in **pass-through** until its peak profile passes the per-class **stability gate** (sufficient per-cell history + low run-to-run variance), so coverage ramps safely.
 
 ## Non-edge flood completion (distinct multipliers, same 2004 bucket)
 
