@@ -108,6 +108,12 @@ defmodule ServiceRadar.Observability.CausalReasoner do
              row: map()
            }}
 
+  # The peak `config` map carries the UASB knobs (`a`, `z_sup`, `z_esc`, `cap`,
+  # `n_min`, `d_overdispersion`, `scale_floor`, `ceiling`, `confirm_slots`,
+  # `report_only`). `report_only` is **optional and defaults to observe-only**: omit
+  # it (or send `true`) and the band never surfaces an escalation; send `false` only
+  # after calibration sign-off (task 6.6). A missing key decodes to `None` on the
+  # Rust side and stays safe — it does not act.
   @type peak_request ::
           {:peak,
            %{

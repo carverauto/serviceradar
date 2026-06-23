@@ -39,9 +39,10 @@ pub fn dispose_peak(row: PeakRow, carried: usize, config: &PeakConfig) -> PeakOu
 
     let next_carried = next_confirm_counter(carried, &disposition, config);
     // The report-only gate: the counter still accumulates so calibration can observe
-    // what the band would do, but nothing surfaces until report_only is lifted.
-    let surfaced =
-        !config.report_only && config.confirm_slots > 0 && next_carried >= config.confirm_slots;
+    // what the band would do, but nothing surfaces unless report_only is explicitly
+    // lifted. `None` (e.g. an absent key in a decoded config map) stays observe-only.
+    let report_only = !matches!(config.report_only, Some(false));
+    let surfaced = !report_only && config.confirm_slots > 0 && next_carried >= config.confirm_slots;
     let score = disposition_score(&disposition);
 
     PeakOutcome {
@@ -118,7 +119,7 @@ mod tests {
     // confirm-slot path. The default ships with report_only ON (observe-only).
     fn cfg() -> PeakConfig {
         PeakConfig {
-            report_only: false,
+            report_only: Some(false),
             ..PeakConfig::default()
         }
     }
@@ -211,10 +212,14 @@ mod tests {
 
     #[test]
     fn report_only_default_gates_surfacing() {
-        // The shipped default (report_only = true): even repeated confirming
+        // The shipped default (report_only = Some(true)): even repeated confirming
         // escalates never surface — the worker observes, nothing auto-escalates.
         let c = PeakConfig::default();
-        assert!(c.report_only, "the default must ship observe-only");
+        assert_eq!(
+            c.report_only,
+            Some(true),
+            "the default must ship observe-only"
+        );
         let mut carried = 0;
         for _ in 0..3 {
             let out = dispose_peak(warm_row(60.0), carried, &c);
@@ -224,5 +229,23 @@ mod tests {
         }
         // The counter still accumulated (so calibration can observe the band).
         assert_eq!(carried, c.confirm_slots);
+    }
+
+    #[test]
+    fn absent_report_only_key_is_observe_only() {
+        // The property Option<bool> exists for: a config whose report_only is None
+        // (what a NifMap decode produces when the Elixir caller OMITS the key) is
+        // observe-only — a forgetful caller is safe by default at the boundary, not
+        // silently surfacing. Only an explicit Some(false) acts.
+        let c = PeakConfig {
+            report_only: None,
+            ..PeakConfig::default()
+        };
+        let mut carried = 0;
+        for _ in 0..3 {
+            let out = dispose_peak(warm_row(60.0), carried, &c);
+            assert!(!out.surfaced, "None report_only must stay observe-only");
+            carried = out.next_carried;
+        }
     }
 }

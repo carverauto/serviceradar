@@ -43,12 +43,21 @@ pub struct PeakConfig {
     /// escalation surfaces. The bucket increments on Escalate/Downgrade, decays on
     /// Suppress (it does NOT reset — invariant I7), and preserves on PassThrough.
     pub confirm_slots: usize,
-    /// Report-only safety gate. When `true` (the default), the kernel still computes
-    /// and records the full disposition + leaky-bucket counter, but `surfaced` is
-    /// forced `false` so nothing auto-escalates — the worker observes what the band
-    /// WOULD do without acting. Flip to `false` only once the constants
+    /// Report-only safety gate. Observe-only unless this is explicitly `Some(false)`:
+    /// the kernel still computes and records the full disposition + leaky-bucket
+    /// counter, but `surfaced` is forced `false` so nothing auto-escalates — the
+    /// worker observes what the band WOULD do without acting.
+    ///
+    /// **`Option<bool>`, not `bool`, is deliberate** — it mirrors [`PeakConfig::ceiling`]
+    /// so the safe default holds at the boundary that matters. Rust's `Default` is NOT
+    /// consulted by rustler's `NifMap` decode, so a `bool` field would make a config
+    /// map that OMITS `report_only` *fail to decode* (required field) rather than fall
+    /// back to safe. With `Option<bool>` an absent key decodes to `None`, and the gate
+    /// treats `None | Some(true)` as observe-only — so a forgetful caller is safe by
+    /// default at the decode boundary, not dependent on always sending the key. Set
+    /// `Some(false)` only once the constants
     /// (`a/z_sup/z_esc/cap/n_min/d_overdispersion`) are calibrated and signed off.
-    pub report_only: bool,
+    pub report_only: Option<bool>,
 }
 
 impl Default for PeakConfig {
@@ -63,8 +72,9 @@ impl Default for PeakConfig {
             scale_floor: 0.5,
             ceiling: Some(100.0),
             confirm_slots: 2,
-            // Safe by default: observe-only until calibration is signed off.
-            report_only: true,
+            // Safe by default: observe-only until calibration is signed off. (An
+            // absent key in a decoded NifMap is also None → observe-only.)
+            report_only: Some(true),
         }
     }
 }
