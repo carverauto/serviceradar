@@ -28,7 +28,11 @@ pub(super) fn seasonal_forecast(points: &[NormPoint], config: &CapacityConfig) -
 /// linear fallback.
 pub(super) fn holt_winters(points: &[NormPoint], config: &CapacityConfig) -> Option<Disposition> {
     let period = config.period;
-    if points.len() < period * 2 {
+    // A zero period would bypass this length gate (`period * 2 == 0`, and a `usize`
+    // len is never `< 0`) and then panic at `index % period` below. Reject it so the
+    // caller falls back to the linear model — defense in depth even though the worker
+    // normalizes `seasonal_period` to a positive default upstream.
+    if period == 0 || points.len() < period * 2 {
         return None;
     }
 
@@ -191,7 +195,10 @@ pub(super) fn set_season(seasons: &mut Vec<f64>, idx: usize, value: f64) {
 /// `@seasonal_strength_threshold`, gated on `total_std > @epsilon`. Fewer than
 /// `period * 2` points ⇒ false (model.ex:355).
 pub(super) fn is_seasonal(points: &[NormPoint], period: usize) -> bool {
-    if points.len() < period * 2 {
+    // A zero period is never seasonal (and would bypass the length gate, then divide
+    // by zero in the strength calc). Treat it as non-seasonal so the Auto path picks
+    // the linear model.
+    if period == 0 || points.len() < period * 2 {
         return false;
     }
     let values: Vec<f64> = points.iter().map(|p| p.value).collect();

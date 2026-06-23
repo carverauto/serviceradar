@@ -64,6 +64,34 @@ fn linear_forecast_projects_and_etas() {
     }
 }
 
+/// A zero period (a malformed config that bypassed the worker's
+/// `positive_integer/2` normalization) must NOT panic at `index % period`; both the
+/// forced-`Seasonal` and `Auto` paths fall back to the linear model.
+#[test]
+fn zero_period_falls_back_to_linear_without_panic() {
+    for kind in [CapacityModelKind::Seasonal, CapacityModelKind::Auto] {
+        let cfg = CapacityConfig {
+            capacity_threshold: Some(80.0),
+            horizon_seconds: 24 * 3_600,
+            model_kind: kind,
+            min_history: 24,
+            period: 0,
+            ..CapacityConfig::default()
+        };
+        let out = dispose_capacity(
+            CapacityRow {
+                series_key: "svc/disk".to_string(),
+                points: linear_points(),
+            },
+            &cfg,
+        );
+        match out.disposition {
+            Disposition::Projected(f) => assert_eq!(f.model, "linear", "kind={kind:?}"),
+            other => panic!("expected linear Projected fallback, got {other:?}"),
+        }
+    }
+}
+
 /// Sorting parity: a reversed input must produce the same fit as the ordered one
 /// (model_test.exs:29).
 #[test]
