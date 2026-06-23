@@ -43,6 +43,11 @@ cnpg:
   storageClass: local-path-big
   # The demo's local-path volume is a 1TB disk (scsi3), larger than the declared
   # storageSize, so the chart's ~30%-of-storageSize default is too small here.
+  # The live cnpg PVCs were grown to 500Gi (post 2026-06-17 disk outage); the
+  # chart default of 100Gi made ArgoCD try to SHRINK storage on every sync, which
+  # CNPG rejects ("can't shrink existing storage from 500Gi to 100Gi") and fails
+  # the whole demo sync. Pin storageSize to the live size so syncs reconcile.
+  storageSize: 500Gi
   # Pin the WAL retention cap explicitly. (NEVER -1/unbounded — the 2026-06-17 outage.)
   maxSlotWalKeepSize: "250GB"
   localDevAccess:
