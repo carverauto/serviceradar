@@ -68,6 +68,34 @@ profile passes a stability gate; until then the class SHALL pass through.
 - **WHEN** the central tier runs
 - **THEN** it SHALL surface a low-grade sustained-drift finding for `S`
 
+### Requirement: Peak Profile Stability Gate
+A spike SHALL be disposed against the peak profile only when its
+`(series, dow, hod)` cell is stable, defined as ALL of: at least
+`min_cell_weeks` distinct weekly maxima (default 6); the most recent weekly
+maximum within `max_cell_staleness_weeks` (default 2); and bounded dispersion
+`MAD / max(median, ε) ≤ max_cell_dispersion` (default 0.5). A spike whose cell is
+not stable SHALL pass through. Suppression thresholds SHALL be conservative: with
+cell median `m`, dispersion `D = max(MAD, mad_floor·m)` (`mad_floor` default
+0.05), a peak `≤ m + k_suppress·D` (default 3) SHALL suppress or downgrade, a peak
+`> m + k_escalate·D` (default 6) SHALL escalate, and a peak between SHALL downgrade
+(never suppress). All thresholds SHALL be configurable.
+
+#### Scenario: Insufficient cell depth passes through
+- **GIVEN** a `(series, dow, hod)` cell with fewer than `min_cell_weeks` weekly maxima
+- **WHEN** an edge spike for that cell is evaluated
+- **THEN** the disposition SHALL be `pass_through`
+
+#### Scenario: Erratic cell does not suppress
+- **GIVEN** a cell with sufficient depth but dispersion above `max_cell_dispersion`
+- **WHEN** an edge spike for that cell is evaluated
+- **THEN** the disposition SHALL NOT be `suppress`
+
+#### Scenario: Ambiguous peak is downgraded, not silenced
+- **GIVEN** a stable cell and a spike whose peak is between `m + k_suppress·D` and `m + k_escalate·D`
+- **WHEN** the spike is evaluated
+- **THEN** the disposition SHALL be `downgrade`
+- **AND** it SHALL NOT be `suppress`
+
 ### Requirement: Seasonal Disposition Emitted For Every Evaluated Series
 The central seasonal worker SHALL record a disposition for every evaluated series
 and window, including a non-surfacing `normal` disposition, so the correlation

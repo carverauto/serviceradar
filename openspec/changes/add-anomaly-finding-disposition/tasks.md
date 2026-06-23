@@ -32,8 +32,9 @@
 - [ ] 6.1 Edge: forward **peak magnitude + spike window** in the finding payload (the detector already computes both).
 - [ ] 6.2 SRQL: add a peak variant of `profile_hour_of_week` over the existing `timeseries_metrics_hourly.max_value` (robust aggregate — median+MAD of per-hour maxima per `(series, dow, hod)`). No new CAGG/schema — `max_value` already exists.
 - [ ] 6.3 Core: build the peak profile and dispose an edge spike by judging its forwarded peak against the peak profile for the matching `(dow, hod)` cell.
-- [ ] 6.4 Per-class **stability gate**: a metric class stays in pass-through until its peak profile has sufficient per-cell history + low run-to-run variance; only then is suppression enabled for that class.
-- [ ] 6.5 Tests: recurring nightly spike (peak within profile) → suppressed; novel spike (peak above profile) → escalated; cold-start/insufficient peak history → pass-through.
+- [ ] 6.4 Per-**cell** stability gate (concrete criteria in design.md): dispose a spike only if its `(series, dow, hod)` cell passes depth (`min_cell_weeks`=6) + recency (`max_cell_staleness_weeks`=2) + bounded dispersion (`max_cell_dispersion`=0.5); else pass-through. Implement the conservative suppression band (`m + k_suppress·D` / `k_escalate·D`, defaults 3 / 6, `mad_floor`=0.05), all configurable. Add the per-class kill switch + a per-class coverage metric (fraction of active cells stable).
+- [ ] 6.5 Tests: insufficient cell depth → pass-through; erratic cell (dispersion over bound) → not suppressed; recurring spike (peak within `k_suppress·D`) → suppressed; ambiguous (between bands) → downgraded, not silenced; novel spike (peak over `k_escalate·D`) → escalated.
+- [ ] 6.6 Calibrate `max_cell_dispersion`, `k_suppress`, `k_escalate`, `mad_floor` against real per-cell peak distributions before enabling suppression in production (depth/recency are safe a priori; the dispersion bound + suppression band are data-dependent). Until calibrated, ship suppression disabled (kill switch) and report coverage only.
 
 ## 7. Verification (prove it on the live system)
 - [ ] 7.1 Live re-trace on demo after deploy: assert one OPEN + one CLEAR per episode (no per-sample), capacity_forecasting dedup holds, Critical share normalized, and disposition coverage > 0 for covered series.

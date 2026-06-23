@@ -74,7 +74,34 @@ Coverage depends on whether a meaningful hour-of-week **peak** profile exists fo
 - **Utilization / rate series (`cpu`, `mem`, interface utilization %):** covered by both the **peak profile** (spike disposition) and the **mean profile** (sustained drift). Critically, the SNMP interface / sysmon utilization series that dominate the flood **are coverable here** once their peak profile is stable — this is the payoff of Option B over A, which could only ever leave them edge-only.
 - **`disk usage_percent`:** near-monotonic (ramp-then-reset) → route to the **capacity forecaster** (Tier B); neither an hour-of-week mean nor peak is meaningful for a slow fill.
 - **Raw non-normalized counters (e.g. absolute `ifInOctets`):** no meaningful "normal peak" → edge-only + severity calibration until rate-normalized into a utilization series.
-- A class stays in **pass-through** until its peak profile passes the per-class **stability gate** (sufficient per-cell history + low run-to-run variance), so coverage ramps safely.
+- A spike stays in **pass-through** until its own `(series, dow, hod)` cell passes the **stability gate** (concrete criteria below), so coverage ramps safely per cell — a class with no stable cells is simply all-pass-through.
+
+## Peak-profile stability gate (concrete criteria)
+
+Suppression silences a finding, so a false suppress hides a real anomaly — strictly worse than a false surface. The gate is therefore conservative and operates **per `(series, dow, hod)` cell**, not per class: a spike is disposed against the peak profile only if *its own cell* is stable; otherwise it falls through to Option-A pass-through. A class with no stable cells is automatically all-pass-through, so "per-class rollout" needs no separate data gate — it is the emergent result of per-cell graduation.
+
+### A cell is *stable* (eligible for suppression) iff ALL hold
+All thresholds are config-defaulted and tunable per deployment.
+
+1. **Depth** — at least `min_cell_weeks` distinct weekly maxima contribute to the cell (default **6**). Each week contributes one observation (the max in that hour-of-week), so this is ~6 weeks of history for that cell. Below it, the cell's median + MAD is not trustworthy → pass-through.
+2. **Recency** — the most recent weekly maximum is within `max_cell_staleness_weeks` (default **2**). A series that stopped reporting at that hour-of-week has a stale profile → pass-through.
+3. **Bounded dispersion** — `MAD / max(median, ε) ≤ max_cell_dispersion` (default **0.5**, calibrate against real per-cell data). If a series' peaks at that hour-of-week are erratic, "normal range" is not meaningful → pass-through. A near-zero MAD is handled by the floor below, not by failing the gate.
+
+### Disposition when the cell IS stable
+Let `m` = cell median peak, `d` = cell MAD, `D = max(d, mad_floor·m)` with `mad_floor` default **0.05** (a 5%-of-median floor so a near-constant cell does not make every deviation look infinite):
+
+| spike peak vs profile | disposition |
+|---|---|
+| `peak ≤ m + k_suppress·D` (`k_suppress` default **3**) | **suppress** (or downgrade) — within normal hour-of-week peak |
+| `m + k_suppress·D < peak ≤ m + k_escalate·D` (`k_escalate` default **6**) | **downgrade** — elevated but not clearly novel |
+| `peak > m + k_escalate·D` | **escalate** — novel, off-profile |
+
+The wide `[k_suppress, k_escalate]` band (3→6 MAD) is deliberate: only a clearly-within-normal peak is suppressed, only a clearly-novel peak is escalated, and the ambiguous middle is merely **downgraded (kept visible)**, never silenced.
+
+### Operational controls + calibration
+- A per-metric-class **kill switch** (config) disables suppression for a class regardless of cell stability (default: enabled) — for classes known to be spiky-by-nature where suppression is never wanted.
+- A **coverage metric** reports, per class, the fraction of active-series cells that are stable, so "is suppression doing anything yet?" is observable, not assumed.
+- The depth/recency gates are safe a priori; `max_cell_dispersion`, `k_suppress`, `k_escalate`, and `mad_floor` are data-dependent and SHALL be calibrated against real per-cell peak distributions before suppression is enabled in production (they start as conservative guesses).
 
 ## Non-edge flood completion (distinct multipliers, same 2004 bucket)
 
