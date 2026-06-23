@@ -2,17 +2,45 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
   @moduledoc false
 
   alias ServiceRadar.Graph
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Projection
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Pruning
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Queries
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
 
   require Logger
+
+  # Skip re-applying a mapper report whose structural link set is unchanged from
+  # the last applied report for the same device scope. The per-link backbone/
+  # auxiliary MERGEs (and the canonical rebuild they trigger) rewrite Device/
+  # Interface vertices and edges on every report regardless of change; gating the
+  # whole apply on a structural fingerprint stops that churn for a static topology.
+  # A heartbeat still re-applies periodically so stale-link pruning advances.
+  @default_unchanged_report_heartbeat_ms 3_600_000
 
   @spec upsert_links([map()]) :: :ok
   def upsert_links([]), do: :ok
 
   def upsert_links(links) when is_list(links) do
+    case maybe_skip_unchanged_report(links) do
+      {:skip, _key} ->
+        Logger.debug("Topology upsert skipped; mapper report structurally unchanged")
+        :ok
+
+      {:proceed, key, fingerprint} ->
+        result = do_upsert_links(links)
+
+        :persistent_term.put(
+          {__MODULE__, :report_fingerprint, key},
+          {fingerprint, System.monotonic_time(:millisecond)}
+        )
+
+        result
+    end
+  end
+
+  defp do_upsert_links(links) do
     {local_device_ids, neighbor_index, diagnostics} =
       Enum.reduce(
         links,
@@ -30,6 +58,55 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
     Logger.info("Topology projection diagnostics: #{inspect(diagnostics)}")
 
     :ok
+  end
+
+  # Returns {:skip, key} when this report's structural link set matches the last
+  # applied report for the same device scope within the heartbeat window;
+  # otherwise {:proceed, key, fingerprint}.
+  defp maybe_skip_unchanged_report(links) do
+    {key, fingerprint} = report_structural_fingerprint(links)
+    now_ms = System.monotonic_time(:millisecond)
+
+    case :persistent_term.get({__MODULE__, :report_fingerprint, key}, nil) do
+      {^fingerprint, ts} when now_ms - ts < unchanged_report_heartbeat_ms() ->
+        {:skip, key}
+
+      _ ->
+        {:proceed, key, fingerprint}
+    end
+  end
+
+  # Scope the fingerprint by the set of reporting (local) devices so concurrent
+  # reports from different agents don't thrash a single shared entry. The
+  # fingerprint itself is the sorted structural identity of every projected link.
+  defp report_structural_fingerprint(links) do
+    payloads =
+      links
+      |> Enum.map(&Projection.projection_payload/1)
+      |> Enum.reject(&is_nil/1)
+
+    scope =
+      payloads
+      |> Enum.map(& &1.local_device_id)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    identity =
+      payloads
+      |> Enum.map(fn p ->
+        {p.local_device_id, p.neighbor_device_id, p.local_interface_id,
+         p.neighbor_interface_id, p.protocol}
+      end)
+      |> Enum.sort()
+
+    {:erlang.phash2(scope), :erlang.phash2(identity)}
+  end
+
+  defp unchanged_report_heartbeat_ms do
+    :serviceradar_core
+    |> Application.get_env(TopologyGraph, [])
+    |> Keyword.get(:unchanged_report_heartbeat_ms, @default_unchanged_report_heartbeat_ms)
+    |> Utils.normalize_positive_int(@default_unchanged_report_heartbeat_ms)
   end
 
   defp reduce_topology_link(link, {local_ids, neighbor_index, diagnostics}) do
