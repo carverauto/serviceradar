@@ -17,6 +17,7 @@
 package mapper
 
 import (
+	"fmt"
 	"strings"
 	"time"
 )
@@ -39,6 +40,7 @@ func (e *DiscoveryEngine) publishTopologyLinks(job *DiscoveryJob, links []*Topol
 			}
 			applySourceAdapterVersion(link)
 			applyTopologyEvidenceClass(link)
+			resolveLocalInterfaceName(job, link)
 			attachTopologyObservationV2(link)
 			NormalizeTopologyLinkNeighborIdentity(link)
 			link.Metadata["discovery_id"] = job.ID
@@ -53,6 +55,51 @@ func (e *DiscoveryEngine) publishTopologyLinks(job *DiscoveryJob, links []*Topol
 					Err(err).Msg("Failed to publish link")
 			}
 		}
+	}
+}
+
+// resolveLocalInterfaceName fills link.LocalIfName from the discovered interface
+// table (matched by ifindex) when the topology source — LLDP/CDP — only provided
+// a local ifindex and no name. Without this, core's interface_id/3 falls back to
+// keying the local endpoint as "<device_id>/ifindex:N", which duplicates the
+// named "<device_id>/<port-name>" Interface vertex that the SNMP interface scan
+// creates for the same physical port. Resolving the name at the source keeps one
+// vertex per port. No-op when a name is already present, the ifindex is unknown
+// (<= 0), or no matching interface was discovered.
+func resolveLocalInterfaceName(job *DiscoveryJob, link *TopologyLink) {
+	if job == nil || link == nil {
+		return
+	}
+
+	if strings.TrimSpace(link.LocalIfName) != "" || link.LocalIfIndex <= 0 {
+		return
+	}
+
+	job.mu.RLock()
+	defer job.mu.RUnlock()
+
+	for _, iface := range job.Results.Interfaces {
+		if iface == nil || iface.IfIndex != link.LocalIfIndex {
+			continue
+		}
+
+		// Mirror discovery_snmp.go's interface naming precedence EXACTLY
+		// (IfName -> IfDescr -> "Interface-<ifindex>", never IfAlias) so the
+		// resolved link name equals the id the interface-table scan keys the
+		// vertex by. Diverging here (e.g. falling back to IfAlias) would resolve
+		// to a different label than the scan's vertex and re-introduce a phantom.
+		name := strings.TrimSpace(iface.IfName)
+		if name == "" {
+			name = strings.TrimSpace(iface.IfDescr)
+		}
+
+		if name == "" {
+			name = fmt.Sprintf("Interface-%d", iface.IfIndex)
+		}
+
+		link.LocalIfName = name
+
+		return
 	}
 }
 
