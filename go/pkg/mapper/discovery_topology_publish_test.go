@@ -14,6 +14,7 @@ func TestResolveLocalInterfaceName(t *testing.T) {
 			Interfaces: []*DiscoveredInterface{
 				{IfIndex: 22, IfDescr: "Slot: 0 Port: 22 Gigabit - Level"},
 				{IfIndex: 7, IfName: "Gi0/7", IfDescr: "GigabitEthernet0/7"},
+				{IfIndex: 5, IfAlias: "uplink-to-core"},
 			},
 		},
 	}
@@ -33,6 +34,12 @@ func TestResolveLocalInterfaceName(t *testing.T) {
 	named := &TopologyLink{LocalIfIndex: 22, LocalIfName: "explicit"}
 	resolveLocalInterfaceName(job, named)
 	assert.Equal(t, "explicit", named.LocalIfName)
+
+	// IfAlias-only port: must mirror the scan (IfName->IfDescr->"Interface-N",
+	// never IfAlias) so it converges with the vertex the scan keys, not a 3rd label.
+	aliasOnly := &TopologyLink{LocalIfIndex: 5}
+	resolveLocalInterfaceName(job, aliasOnly)
+	assert.Equal(t, "Interface-5", aliasOnly.LocalIfName)
 
 	// Unknown ifindex / no match -> stays blank (core keeps the ifindex fallback).
 	miss := &TopologyLink{LocalIfIndex: 99}

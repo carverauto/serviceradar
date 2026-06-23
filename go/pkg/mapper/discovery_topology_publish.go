@@ -17,6 +17,7 @@
 package mapper
 
 import (
+	"fmt"
 	"strings"
 	"time"
 )
@@ -82,9 +83,21 @@ func resolveLocalInterfaceName(job *DiscoveryJob, link *TopologyLink) {
 			continue
 		}
 
-		if name := firstNonEmpty(iface.IfName, iface.IfDescr, iface.IfAlias); name != "" {
-			link.LocalIfName = name
+		// Mirror discovery_snmp.go's interface naming precedence EXACTLY
+		// (IfName -> IfDescr -> "Interface-<ifindex>", never IfAlias) so the
+		// resolved link name equals the id the interface-table scan keys the
+		// vertex by. Diverging here (e.g. falling back to IfAlias) would resolve
+		// to a different label than the scan's vertex and re-introduce a phantom.
+		name := strings.TrimSpace(iface.IfName)
+		if name == "" {
+			name = strings.TrimSpace(iface.IfDescr)
 		}
+
+		if name == "" {
+			name = fmt.Sprintf("Interface-%d", iface.IfIndex)
+		}
+
+		link.LocalIfName = name
 
 		return
 	}
