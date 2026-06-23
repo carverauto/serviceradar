@@ -29,10 +29,13 @@ pub(super) fn seasonal_forecast(points: &[NormPoint], config: &CapacityConfig) -
 pub(super) fn holt_winters(points: &[NormPoint], config: &CapacityConfig) -> Option<Disposition> {
     let period = config.period;
     // A zero period would bypass this length gate (`period * 2 == 0`, and a `usize`
-    // len is never `< 0`) and then panic at `index % period` below. Reject it so the
-    // caller falls back to the linear model — defense in depth even though the worker
+    // len is never `< 0`) and then panic at `index % period` below; an enormous
+    // period would overflow `period * 2` (it wraps to a small value in release,
+    // re-bypassing the gate) and then panic in `initial_trend`'s slice. Reject both
+    // — `saturating_mul` makes a huge period saturate so the gate trips — so the
+    // caller falls back to the linear model. Defense in depth even though the worker
     // normalizes `seasonal_period` to a positive default upstream.
-    if period == 0 || points.len() < period * 2 {
+    if period == 0 || points.len() < period.saturating_mul(2) {
         return None;
     }
 
@@ -147,7 +150,10 @@ pub(super) fn initial_trend(values: &[f64], period: usize) -> f64 {
     // `Enum.take(values, period)` then `Enum.drop(period) |> Enum.take(period)`.
     let first: &[f64] = &values[..period.min(values.len())];
     let second_start = period.min(values.len());
-    let second_end = (period + period).min(values.len());
+    // `saturating_add`: an enormous period would otherwise wrap `period + period` to
+    // a small value, making `second_end < second_start` and panicking the slice
+    // below. Saturating keeps `second_end >= second_start` for any input.
+    let second_end = period.saturating_add(period).min(values.len());
     let second: &[f64] = &values[second_start..second_end];
 
     if second.len() == period {
@@ -197,8 +203,8 @@ pub(super) fn set_season(seasons: &mut Vec<f64>, idx: usize, value: f64) {
 pub(super) fn is_seasonal(points: &[NormPoint], period: usize) -> bool {
     // A zero period is never seasonal (and would bypass the length gate, then divide
     // by zero in the strength calc). Treat it as non-seasonal so the Auto path picks
-    // the linear model.
-    if period == 0 || points.len() < period * 2 {
+    // the linear model. `saturating_mul` so a huge period can't wrap the gate.
+    if period == 0 || points.len() < period.saturating_mul(2) {
         return false;
     }
     let values: Vec<f64> = points.iter().map(|p| p.value).collect();

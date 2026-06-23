@@ -92,6 +92,55 @@ fn zero_period_falls_back_to_linear_without_panic() {
     }
 }
 
+/// A pathologically huge period must not overflow `period * 2` / `period + period`
+/// (which would wrap and panic the seasonal slice) — saturating math trips the gate
+/// and falls back to linear.
+#[test]
+fn huge_period_does_not_overflow_panic() {
+    let cfg = CapacityConfig {
+        capacity_threshold: Some(80.0),
+        horizon_seconds: 24 * 3_600,
+        model_kind: CapacityModelKind::Seasonal,
+        min_history: 24,
+        period: usize::MAX / 2 + 1,
+        ..CapacityConfig::default()
+    };
+    let out = dispose_capacity(
+        CapacityRow {
+            series_key: "svc/disk".to_string(),
+            points: linear_points(),
+        },
+        &cfg,
+    );
+    match out.disposition {
+        Disposition::Projected(f) => assert_eq!(f.model, "linear"),
+        other => panic!("expected linear Projected fallback, got {other:?}"),
+    }
+}
+
+/// A `min_history` of 0 must not let an empty window reach `points[len - 1]`; the
+/// empty-window guard gates it to `Skipped` instead of an index panic.
+#[test]
+fn empty_points_with_zero_min_history_is_skipped() {
+    let cfg = CapacityConfig {
+        min_history: 0,
+        ..config(None, 24 * 3_600, CapacityModelKind::Linear)
+    };
+    let out = dispose_capacity(
+        CapacityRow {
+            series_key: "s".to_string(),
+            points: vec![],
+        },
+        &cfg,
+    );
+    assert_eq!(
+        out.disposition,
+        Disposition::Skipped {
+            reason: "insufficient_history".to_string()
+        }
+    );
+}
+
 /// Sorting parity: a reversed input must produce the same fit as the ordered one
 /// (model_test.exs:29).
 #[test]

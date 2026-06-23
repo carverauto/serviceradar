@@ -161,7 +161,11 @@ fn hydrate_window(
 
     state.points = state.normalize();
 
-    if state.points.len() < config.min_history {
+    // `is_empty()` is explicit so a `min_history` of 0 (which would make the length
+    // gate `len < 0` unsatisfiable) still skips an empty window rather than indexing
+    // `points[len - 1]` in the linear/seasonal fit. The worker normalizes
+    // `min_history` to a positive default, so this only changes the degenerate case.
+    if state.points.is_empty() || state.points.len() < config.min_history {
         // `{:skip, "insufficient_history", ...}` (model.ex:47) → Skipped via the
         // value channel (graft #1), never a panic. The `sample_count`/`min_points`
         // diagnostics travel as the worker already has them.
