@@ -40,3 +40,45 @@ func TestNormalizeTopologyLinkNeighborIdentityReturnsNilWithoutEvidence(t *testi
 	assert.Nil(t, identity)
 	assert.Nil(t, link.NeighborIdentity)
 }
+
+func TestCanonicalMACLabel(t *testing.T) {
+	t.Parallel()
+
+	const canonical = "d0:21:f9:d2:e1:6d"
+
+	for _, variant := range []string{
+		"d021f9d2e16d",
+		"d0:21:f9:d2:e1:6d",
+		"D0-21-F9-D2-E1-6D",
+		"d021.f9d2.e16d",
+		"D0:21:F9:D2:E1:6D",
+	} {
+		assert.Equalf(t, canonical, canonicalMACLabel(variant), "variant %q", variant)
+	}
+
+	// Distinct MACs (off-by-one byte) stay distinct.
+	assert.NotEqual(t, canonicalMACLabel("d0:21:f9:d2:e1:6c"), canonicalMACLabel("d0:21:f9:d2:e1:6d"))
+
+	// Non-MAC labels are returned unchanged.
+	for _, label := range []string{"Gi1/0/24", "Slot: 0 Port: 22 Gigabit - Level", "ifindex:22", "uplink", ""} {
+		assert.Equalf(t, label, canonicalMACLabel(label), "label %q", label)
+	}
+}
+
+func TestNormalizeTopologyLinkNeighborIdentityCanonicalizesMACPortID(t *testing.T) {
+	t.Parallel()
+
+	// The same neighbor port-id MAC arriving in different encodings must produce
+	// the same canonical PortID/ChassisID so core keys one Interface vertex.
+	a := &TopologyLink{NeighborChassisID: "d021f9d2e16d", NeighborPortID: "d021f9d2e16d"}
+	b := &TopologyLink{NeighborChassisID: "d0:21:f9:d2:e1:6d", NeighborPortID: "d0:21:f9:d2:e1:6d"}
+
+	ia := NormalizeTopologyLinkNeighborIdentity(a)
+	ib := NormalizeTopologyLinkNeighborIdentity(b)
+
+	if assert.NotNil(t, ia) && assert.NotNil(t, ib) {
+		assert.Equal(t, "d0:21:f9:d2:e1:6d", ia.PortID)
+		assert.Equal(t, ia.PortID, ib.PortID)
+		assert.Equal(t, ia.ChassisID, ib.ChassisID)
+	}
+}
