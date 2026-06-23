@@ -43,6 +43,12 @@ pub struct PeakConfig {
     /// escalation surfaces. The bucket increments on Escalate/Downgrade, decays on
     /// Suppress (it does NOT reset — invariant I7), and preserves on PassThrough.
     pub confirm_slots: usize,
+    /// Report-only safety gate. When `true` (the default), the kernel still computes
+    /// and records the full disposition + leaky-bucket counter, but `surfaced` is
+    /// forced `false` so nothing auto-escalates — the worker observes what the band
+    /// WOULD do without acting. Flip to `false` only once the constants
+    /// (`a/z_sup/z_esc/cap/n_min/d_overdispersion`) are calibrated and signed off.
+    pub report_only: bool,
 }
 
 impl Default for PeakConfig {
@@ -57,6 +63,8 @@ impl Default for PeakConfig {
             scale_floor: 0.5,
             ceiling: Some(100.0),
             confirm_slots: 2,
+            // Safe by default: observe-only until calibration is signed off.
+            report_only: true,
         }
     }
 }

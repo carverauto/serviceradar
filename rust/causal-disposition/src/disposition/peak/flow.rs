@@ -38,7 +38,10 @@ pub fn dispose_peak(row: PeakRow, carried: usize, config: &PeakConfig) -> PeakOu
     });
 
     let next_carried = next_confirm_counter(carried, &disposition, config);
-    let surfaced = config.confirm_slots > 0 && next_carried >= config.confirm_slots;
+    // The report-only gate: the counter still accumulates so calibration can observe
+    // what the band would do, but nothing surfaces until report_only is lifted.
+    let surfaced =
+        !config.report_only && config.confirm_slots > 0 && next_carried >= config.confirm_slots;
     let score = disposition_score(&disposition);
 
     PeakOutcome {
@@ -86,7 +89,11 @@ fn run_decide(
 /// The leaky-bucket confirm counter. Invariant **I7**: `Suppress` does NOT reset
 /// it. Escalate/Downgrade are concern slots (`+1`, capped at `confirm_slots`);
 /// `Suppress` decays by one; `PassThrough` (a guard) preserves it.
-fn next_confirm_counter(carried: usize, disposition: &PeakDisposition, config: &PeakConfig) -> usize {
+fn next_confirm_counter(
+    carried: usize,
+    disposition: &PeakDisposition,
+    config: &PeakConfig,
+) -> usize {
     match disposition {
         PeakDisposition::Escalate { .. } | PeakDisposition::Downgrade { .. } => {
             carried.saturating_add(1).min(config.confirm_slots)
@@ -107,8 +114,13 @@ fn disposition_score(disposition: &PeakDisposition) -> f64 {
 mod tests {
     use super::*;
 
+    // Calibration-mode config: report_only OFF so the surfacing tests exercise the
+    // confirm-slot path. The default ships with report_only ON (observe-only).
     fn cfg() -> PeakConfig {
-        PeakConfig::default()
+        PeakConfig {
+            report_only: false,
+            ..PeakConfig::default()
+        }
     }
 
     fn warm_row(peak: f64) -> PeakRow {
@@ -141,10 +153,19 @@ mod tests {
     #[test]
     fn escalate_increments_and_caps() {
         let c = cfg(); // confirm_slots = 2
-        assert_eq!(next_confirm_counter(0, &PeakDisposition::Escalate { score: 5.0 }, &c), 1);
-        assert_eq!(next_confirm_counter(1, &PeakDisposition::Escalate { score: 5.0 }, &c), 2);
+        assert_eq!(
+            next_confirm_counter(0, &PeakDisposition::Escalate { score: 5.0 }, &c),
+            1
+        );
+        assert_eq!(
+            next_confirm_counter(1, &PeakDisposition::Escalate { score: 5.0 }, &c),
+            2
+        );
         // Capped at confirm_slots.
-        assert_eq!(next_confirm_counter(2, &PeakDisposition::Escalate { score: 5.0 }, &c), 2);
+        assert_eq!(
+            next_confirm_counter(2, &PeakDisposition::Escalate { score: 5.0 }, &c),
+            2
+        );
     }
 
     #[test]
@@ -186,5 +207,22 @@ mod tests {
         assert_eq!(out.disposition, PeakDisposition::Suppress);
         assert!(!out.surfaced);
         assert_eq!(out.score, 0.0);
+    }
+
+    #[test]
+    fn report_only_default_gates_surfacing() {
+        // The shipped default (report_only = true): even repeated confirming
+        // escalates never surface — the worker observes, nothing auto-escalates.
+        let c = PeakConfig::default();
+        assert!(c.report_only, "the default must ship observe-only");
+        let mut carried = 0;
+        for _ in 0..3 {
+            let out = dispose_peak(warm_row(60.0), carried, &c);
+            assert!(matches!(out.disposition, PeakDisposition::Escalate { .. }));
+            assert!(!out.surfaced, "report_only must gate surfacing");
+            carried = out.next_carried;
+        }
+        // The counter still accumulated (so calibration can observe the band).
+        assert_eq!(carried, c.confirm_slots);
     }
 }
