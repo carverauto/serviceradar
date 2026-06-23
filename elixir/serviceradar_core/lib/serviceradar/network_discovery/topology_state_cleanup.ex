@@ -91,6 +91,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanup do
       FROM platform.ocsf_devices AS stale
       JOIN platform.ocsf_devices AS active
         ON active.deleted_at IS NULL
+       AND active.ip IS NOT NULL
+       AND active.ip <> ''
        AND stale.deleted_at IS NOT NULL
        AND stale.ip IS NOT NULL
        AND stale.ip <> ''
@@ -118,6 +120,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanup do
       FROM platform.ocsf_devices AS stale
       JOIN platform.ocsf_devices AS active
         ON active.deleted_at IS NULL
+       AND active.ip IS NOT NULL
+       AND active.ip <> ''
        AND stale.deleted_at IS NOT NULL
        AND stale.ip IS NOT NULL
        AND stale.ip <> ''
