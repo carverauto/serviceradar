@@ -14,9 +14,11 @@
 //! Design + invariants: `openspec/changes/add-anomaly-finding-disposition`.
 
 mod band;
+mod flow;
 #[cfg(test)]
 mod tests;
 mod types;
 
 pub use band::decide;
-pub use types::{PassReason, PeakConfig, PeakDisposition, PeakRow};
+pub use flow::dispose_peak;
+pub use types::{PassReason, PeakConfig, PeakDisposition, PeakOutcome, PeakRow};

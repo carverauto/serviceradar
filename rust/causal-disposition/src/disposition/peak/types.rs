@@ -38,6 +38,10 @@ pub struct PeakConfig {
     /// Utilization ceiling for the no-upward-headroom guard (e.g. `Some(100.0)`
     /// for percent metrics; `None` for unbounded metrics).
     pub ceiling: Option<f64>,
+    /// Concern slots that must accumulate (in the leaky-bucket counter) before an
+    /// escalation surfaces. The bucket increments on Escalate/Downgrade, decays on
+    /// Suppress (it does NOT reset — invariant I7), and preserves on PassThrough.
+    pub confirm_slots: usize,
 }
 
 impl Default for PeakConfig {
@@ -51,6 +55,7 @@ impl Default for PeakConfig {
             d_overdispersion: 3.0,
             scale_floor: 0.5,
             ceiling: Some(100.0),
+            confirm_slots: 2,
         }
     }
 }
@@ -92,6 +97,8 @@ pub enum PassReason {
     OverDispersed,
     /// `q95 + inner_band ≥ ceiling` — no upward headroom to discriminate.
     CeilingProximity,
+    /// A flow-internal fallback (e.g. missing config); never suppresses.
+    Internal,
 }
 
 /// The peak disposition — the `Value` channel of the UASB decision.
@@ -110,3 +117,22 @@ pub enum PeakDisposition {
     /// Not eligible for suppression — pass through unchanged (edge-governed).
     PassThrough { reason: PassReason },
 }
+
+/// The result of disposing one spike through the peak `CausalFlow`: the per-spike
+/// disposition plus the leaky-bucket confirm counter to round-trip and whether the
+/// concern has surfaced (accumulated to `confirm_slots`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PeakOutcome {
+    /// Stable series identifier (echoed back so the worker can re-key verdicts).
+    pub series_key: String,
+    /// The per-spike disposition from the band kernel.
+    pub disposition: PeakDisposition,
+    /// The next leaky-bucket concern counter to carry to the following slot.
+    pub next_carried: usize,
+    /// Whether the accumulated concern reached `confirm_slots` — i.e. a sustained
+    /// off-profile condition the worker should surface as an alert.
+    pub surfaced: bool,
+    /// The one-sided residual score (0.0 for suppress/pass-through).
+    pub score: f64,
+}
+
