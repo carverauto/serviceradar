@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerIntegrationTest do
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.EventWriter.FlowEnrichment
   alias ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker
   alias ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker
   alias ServiceRadar.Repo
@@ -62,6 +63,40 @@ defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerIntegrationTest 
     %{id: still_active_id, record_count: 2} = active_provider_snapshot!()
     assert still_active_id == active_id
     assert provider_prefix_count(still_active_id) == 2
+  end
+
+  test "provider lookup resolves the active snapshot once per enrichment batch" do
+    payload =
+      Jason.encode!([
+        %{"cidr" => "1.1.1.0/24", "provider" => "cloudflare", "ip_version" => "IPv4"},
+        %{"cidr" => "10.10.0.0/16", "provider" => "aws", "ip_version" => "IPv4"}
+      ])
+
+    {url, stop_server} = start_http_fixture(payload, "application/json", 200)
+
+    on_exit(fn -> stop_server.() end)
+
+    with_worker_env(NetflowProviderDatasetRefreshWorker,
+      source_url: url,
+      validate_url: fn _ -> :ok end,
+      timeout_ms: 200,
+      reschedule_seconds: 60,
+      failure_reschedule_seconds: 60
+    )
+
+    assert :ok = NetflowProviderDatasetRefreshWorker.perform(%Oban.Job{args: %{}})
+    %{id: _active_id, record_count: 2} = active_provider_snapshot!()
+
+    results =
+      FlowEnrichment.with_provider_cache(fn ->
+        [
+          FlowEnrichment.provider_for_ip("1.1.1.10"),
+          FlowEnrichment.provider_for_ip("10.10.5.5"),
+          FlowEnrichment.provider_for_ip("203.0.113.10")
+        ]
+      end)
+
+    assert results == ["cloudflare", "aws", nil]
   end
 
   test "oui csv refresh promotes snapshot on success and keeps last-known-good on failure" do

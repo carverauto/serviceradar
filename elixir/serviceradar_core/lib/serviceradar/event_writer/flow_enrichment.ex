@@ -29,10 +29,16 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   @provider_lookup_sql """
   SELECT c.provider
   FROM platform.netflow_provider_cidrs c
-  JOIN platform.netflow_provider_dataset_snapshots s ON s.id = c.snapshot_id
-  WHERE s.is_active = TRUE
+  WHERE c.snapshot_id = $2
     AND ($1)::inet <<= c.cidr
   ORDER BY masklen(c.cidr) DESC
+  LIMIT 1
+  """
+
+  @active_snapshot_sql """
+  SELECT id
+  FROM platform.netflow_provider_dataset_snapshots
+  WHERE is_active = TRUE
   LIMIT 1
   """
 
@@ -47,6 +53,7 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
 
   @provider_cache_key {__MODULE__, :provider_lookup_cache}
   @provider_lookup_fun_key {__MODULE__, :provider_lookup_fun}
+  @active_snapshot_key {__MODULE__, :provider_active_snapshot_id}
 
   @type enrichment_input :: %{
           optional(:protocol_num) => integer() | String.t() | nil,
@@ -67,6 +74,7 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   def with_provider_cache(fun, opts \\ []) when is_function(fun, 0) do
     previous_cache = Process.get(@provider_cache_key, :__serviceradar_unset__)
     previous_lookup_fun = Process.get(@provider_lookup_fun_key, :__serviceradar_unset__)
+    previous_snapshot = Process.get(@active_snapshot_key, :__serviceradar_unset__)
 
     Process.put(@provider_cache_key, %{})
 
@@ -75,7 +83,7 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
         Process.put(@provider_lookup_fun_key, lookup_fun)
 
       :error ->
-        :ok
+        Process.put(@active_snapshot_key, fetch_active_snapshot_id())
     end
 
     try do
@@ -83,7 +91,19 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
     after
       restore_process_value(@provider_cache_key, previous_cache)
       restore_process_value(@provider_lookup_fun_key, previous_lookup_fun)
+      restore_process_value(@active_snapshot_key, previous_snapshot)
     end
+  end
+
+  defp fetch_active_snapshot_id do
+    case SQL.query(Repo, @active_snapshot_sql, []) do
+      {:ok, %{rows: [[snapshot_id]]}} -> snapshot_id
+      _ -> nil
+    end
+  rescue
+    e ->
+      Logger.debug("FlowEnrichment active snapshot lookup failed", error: Exception.message(e))
+      nil
   end
 
   @spec enrich(enrichment_input()) :: enrichment_output()
@@ -224,7 +244,18 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   end
 
   defp query_provider_for_inet(%Postgrex.INET{} = inet) do
-    with {:ok, %{rows: [[provider]]}} <- SQL.query(Repo, @provider_lookup_sql, [inet]),
+    case Process.get(@active_snapshot_key) do
+      nil ->
+        nil
+
+      snapshot_id ->
+        query_provider_for_inet(inet, snapshot_id)
+    end
+  end
+
+  defp query_provider_for_inet(%Postgrex.INET{} = inet, snapshot_id) do
+    with {:ok, %{rows: [[provider]]}} <-
+           SQL.query(Repo, @provider_lookup_sql, [inet, snapshot_id]),
          true <- is_binary(provider) and provider != "" do
       provider
     else
