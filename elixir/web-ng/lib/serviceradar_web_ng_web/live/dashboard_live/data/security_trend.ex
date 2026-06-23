@@ -7,23 +7,41 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.SecurityTrend do
       defp security_trend(time_window) do
         cutoff = cutoff_for_time_window(time_window)
 
-        if relation_exists?("platform.ocsf_events") do
+        if relation_exists?("platform.ocsf_events_hourly_stats") and
+             relation_exists?("platform.ocsf_events") do
+          # Read closed hours from the pre-aggregated CAGG (severity_id is already
+          # COALESCEd to 0 in the rollup) and only the single in-progress hour
+          # from raw ocsf_events. Avoids a full ~880k-row scan of ocsf_events on
+          # every dashboard render (live EXPLAIN: cost ~610 vs ~58,768).
           sql = """
-          SELECT bucket, total, low, medium, high, critical
-          FROM (
+          WITH hourly AS (
+            SELECT bucket, severity_id, total_count
+            FROM ocsf_events_hourly_stats
+            WHERE bucket >= $1 AND bucket < date_trunc('hour', now())
+            UNION ALL
             SELECT
               date_trunc('hour', time) AS bucket,
-              COUNT(*)::bigint AS total,
-              COUNT(*) FILTER (WHERE COALESCE(severity_id, 0) BETWEEN 1 AND 2)::bigint AS low,
-              COUNT(*) FILTER (WHERE COALESCE(severity_id, 0) = 3)::bigint AS medium,
-              COUNT(*) FILTER (WHERE COALESCE(severity_id, 0) = 4)::bigint AS high,
-              COUNT(*) FILTER (WHERE COALESCE(severity_id, 0) >= 5)::bigint AS critical
+              COALESCE(severity_id, 0) AS severity_id,
+              COUNT(*)::bigint AS total_count
             FROM ocsf_events
-            WHERE time >= $1
-            GROUP BY 1
-            ORDER BY 1 DESC
+            WHERE time >= date_trunc('hour', now())
+            GROUP BY 1, 2
+          ),
+          recent AS (
+            SELECT
+              bucket,
+              SUM(total_count)::bigint AS total,
+              COALESCE(SUM(total_count) FILTER (WHERE severity_id BETWEEN 1 AND 2), 0)::bigint AS low,
+              COALESCE(SUM(total_count) FILTER (WHERE severity_id = 3), 0)::bigint AS medium,
+              COALESCE(SUM(total_count) FILTER (WHERE severity_id = 4), 0)::bigint AS high,
+              COALESCE(SUM(total_count) FILTER (WHERE severity_id >= 5), 0)::bigint AS critical
+            FROM hourly
+            GROUP BY bucket
+            ORDER BY bucket DESC
             LIMIT 48
-          ) recent
+          )
+          SELECT bucket, total, low, medium, high, critical
+          FROM recent
           ORDER BY bucket ASC
           """
 
