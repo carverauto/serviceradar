@@ -15,6 +15,18 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   @canonical_rebuild_lock_key 1_104_202_506
   @default_canonical_rebuild_timeout_ms 60_000
 
+  # Change-detection: the canonical rebuild rewrites every CANONICAL_TOPOLOGY
+  # edge with unconditional SETs, and it runs on EVERY mapper topology report
+  # (per upsert_links) plus the cleanup worker. For a static topology that means
+  # re-rewriting an unchanged graph indefinitely (observed: tens of millions of
+  # CANONICAL_TOPOLOGY updates on a few hundred edges). We fingerprint the
+  # structural observed-edge set (CONNECTS_TO start/end ids) and skip the rebuild
+  # when it is unchanged, with a heartbeat so a long-static graph still rebuilds
+  # periodically (covering rare property-only changes the structural hash omits).
+  @default_canonical_rebuild_heartbeat_ms 3_600_000
+
+  @connects_fingerprint_sql "SELECT count(*)::text || ':' || coalesce(md5(string_agg(start_id::text || '>' || end_id::text, ',' ORDER BY start_id, end_id)), '') FROM platform_graph.\"CONNECTS_TO\""
+
   def rebuild_canonical_links_from_current do
     _ = rebuild_canonical_links_from_current_with_stats()
     :ok
@@ -25,6 +37,64 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   end
 
   def rebuild_canonical_device_links do
+    case maybe_skip_unchanged_rebuild() do
+      {:skip, stats} ->
+        emit_canonical_rebuild_telemetry(:completed, stats)
+        Logger.debug("Canonical topology rebuild skipped; observed topology unchanged")
+        {:ok, stats}
+
+      {:proceed, fingerprint} ->
+        result = run_canonical_rebuild()
+        maybe_record_rebuild_fingerprint(result, fingerprint)
+        result
+    end
+  end
+
+  # Returns {:skip, stats} when the structural observed-edge set is unchanged
+  # since the last rebuild and the heartbeat window has not elapsed; otherwise
+  # {:proceed, fingerprint}. A nil fingerprint (query failed) always proceeds.
+  defp maybe_skip_unchanged_rebuild do
+    fingerprint = connects_fingerprint()
+    now_ms = System.monotonic_time(:millisecond)
+
+    case :persistent_term.get({__MODULE__, :last_rebuild}, nil) do
+      {^fingerprint, ts}
+      when is_binary(fingerprint) and now_ms - ts < canonical_rebuild_heartbeat_ms() ->
+        {:skip, %{skipped: true, reason: :unchanged_topology}}
+
+      _ ->
+        {:proceed, fingerprint}
+    end
+  end
+
+  defp connects_fingerprint do
+    case Repo.query(@connects_fingerprint_sql, []) do
+      {:ok, %{rows: [[fingerprint]]}} when is_binary(fingerprint) -> fingerprint
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp maybe_record_rebuild_fingerprint({:ok, _stats}, fingerprint) when is_binary(fingerprint) do
+    :persistent_term.put(
+      {__MODULE__, :last_rebuild},
+      {fingerprint, System.monotonic_time(:millisecond)}
+    )
+
+    :ok
+  end
+
+  defp maybe_record_rebuild_fingerprint(_result, _fingerprint), do: :ok
+
+  defp canonical_rebuild_heartbeat_ms do
+    :serviceradar_core
+    |> Application.get_env(TopologyGraph, [])
+    |> Keyword.get(:canonical_rebuild_heartbeat_ms, @default_canonical_rebuild_heartbeat_ms)
+    |> Utils.normalize_positive_int(@default_canonical_rebuild_heartbeat_ms)
+  end
+
+  defp run_canonical_rebuild do
     case with_canonical_rebuild_lock(&do_rebuild_canonical_device_links/0) do
       {:ok, {:ok, stats}} ->
         {:ok, stats}
