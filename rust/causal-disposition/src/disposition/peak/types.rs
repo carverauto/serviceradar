@@ -16,6 +16,7 @@
 /// Read-only UASB knobs — the `Context` channel. Every field is calibration
 /// (see the proposal's task 6.6); the *invariants* the kernel enforces are not.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "rustler", derive(rustler::NifMap))]
 pub struct PeakConfig {
     /// Low-`n` uncertainty inflation coefficient `A` in `k_n = 1 + A/√n`.
     pub a: f64,
@@ -67,6 +68,7 @@ impl Default for PeakConfig {
 /// only DOW; never pool across `hod`) — invariant I3 lives in the SQL, not here;
 /// this kernel only consumes `prior_scale`.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "rustler", derive(rustler::NifMap))]
 pub struct PeakRow {
     /// Stable series identifier (echoed back so the worker can re-key verdicts).
     pub series_key: String,
@@ -88,6 +90,7 @@ pub struct PeakRow {
 
 /// Why a row passed through instead of being disposed against the band.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "rustler", derive(rustler::NifUnitEnum))]
 pub enum PassReason {
     /// A non-finite input (peak/center).
     NonFinite,
@@ -107,6 +110,7 @@ pub enum PassReason {
 /// so adding peak disposition does not perturb the shared enum. The NIF ABI
 /// mapping is a separate concern (a later task).
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "rustler", derive(rustler::NifTaggedEnum))]
 pub enum PeakDisposition {
     /// Peak is within the (poison-bounded) normal range — silence it.
     Suppress,
@@ -122,6 +126,7 @@ pub enum PeakDisposition {
 /// disposition plus the leaky-bucket confirm counter to round-trip and whether the
 /// concern has surfaced (accumulated to `confirm_slots`).
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "rustler", derive(rustler::NifMap))]
 pub struct PeakOutcome {
     /// Stable series identifier (echoed back so the worker can re-key verdicts).
     pub series_key: String,
@@ -135,4 +140,3 @@ pub struct PeakOutcome {
     /// The one-sided residual score (0.0 for suppress/pass-through).
     pub score: f64,
 }
-
