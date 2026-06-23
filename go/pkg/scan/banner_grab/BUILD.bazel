@@ -26,16 +26,23 @@ go_library(
 
 go_test(
     name = "banner_grab_test",
-    srcs = ["engine_test.go"],
+    srcs = [
+        "engine_test.go",
+        "integration_test.go",
+    ],
     embed = [":banner_grab"],
-    deps = ["//go/pkg/models"],
+    deps = [
+        "//go/pkg/agent/netprobe",
+        "//go/pkg/models",
+        "//proto/agent/netprobe/v1:netprobepb",
+    ],
 )
 
 go_test(
     name = "banner_grab_integration_test",
     size = "medium",
     srcs = ["integration_test.go"],
-    data = ["//rust/netprobe:netprobe"],
+    data = ["//rust/netprobe"],
     embed = [":banner_grab"],
     tags = ["manual"],
     deps = [

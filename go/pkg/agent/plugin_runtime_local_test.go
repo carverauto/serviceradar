@@ -22,6 +22,8 @@ import (
 	"github.com/tetratelabs/wazero/sys"
 )
 
+var errRuntimeClientUsedForDownload = errors.New("runtime HTTP client used for artifact download")
+
 type testRoundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f testRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -73,7 +75,7 @@ func TestPluginDownloadUsesArtifactHTTPClient(t *testing.T) {
 
 	runtimeClient := &http.Client{
 		Transport: testRoundTripFunc(func(*http.Request) (*http.Response, error) {
-			return nil, errors.New("runtime HTTP client used for artifact download")
+			return nil, errRuntimeClientUsedForDownload
 		}),
 	}
 

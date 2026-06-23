@@ -80,7 +80,6 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 			}
 
 			sweepCancel()
-
 		}
 	}
 }

@@ -19,6 +19,7 @@ package mapper
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -27,6 +28,11 @@ import (
 const (
 	uniFiAPIPageLimit = 500
 	uniFiAPIMaxPages  = 200
+)
+
+var (
+	errUniFiUnexpectedStatus        = errors.New("unexpected response status")
+	errUniFiOffsetPagingUnsupported = errors.New("controller may not support offset paging")
 )
 
 func fetchUniFiPagedData[T any](
@@ -95,8 +101,8 @@ func fetchUniFiPagedDataWithPageCap[T any](
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("%s request failed for %s, site %s, offset %d with status: %d, body: %s",
-				resourceName, controllerName, siteName, offset, resp.StatusCode, string(body))
+			return nil, fmt.Errorf("%s request failed for %s, site %s, offset %d with status %d, body %s: %w",
+				resourceName, controllerName, siteName, offset, resp.StatusCode, string(body), errUniFiUnexpectedStatus)
 		}
 
 		var pageResp struct {
@@ -114,8 +120,8 @@ func fetchUniFiPagedDataWithPageCap[T any](
 		}
 		if hasFirstRecord {
 			if previousFirstRecord != "" && firstRecord == previousFirstRecord {
-				return nil, fmt.Errorf("%s pagination repeated the first record for %s, site %s, offset %d; controller may not support offset paging",
-					resourceName, controllerName, siteName, offset)
+				return nil, fmt.Errorf("%s pagination repeated the first record for %s, site %s, offset %d; %w",
+					resourceName, controllerName, siteName, offset, errUniFiOffsetPagingUnsupported)
 			}
 			previousFirstRecord = firstRecord
 		}
@@ -126,8 +132,8 @@ func fetchUniFiPagedDataWithPageCap[T any](
 		}
 	}
 
-	return nil, fmt.Errorf("%s pagination exceeded %d pages (%d records) for %s, site %s; controller may not support offset paging",
-		resourceName, maxPages, maxPages*uniFiAPIPageLimit, controllerName, siteName)
+	return nil, fmt.Errorf("%s pagination exceeded %d pages (%d records) for %s, site %s; %w",
+		resourceName, maxPages, maxPages*uniFiAPIPageLimit, controllerName, siteName, errUniFiOffsetPagingUnsupported)
 }
 
 func uniFiFirstRecordFingerprint[T any](data []T) (string, bool, error) {

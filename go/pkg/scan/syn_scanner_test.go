@@ -23,7 +23,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
-	"math/rand"
+	"math/rand/v2"
 	"net"
 	"os"
 	"strings"
@@ -229,12 +229,11 @@ func TestProcessEthernetFrameIPv6IgnoresReusedSourcePortWrongTargetPort(t *testi
 	local := net.ParseIP("2001:db8::10")
 	remote := net.ParseIP("2001:db8::20")
 	ourSrc := uint16(40000)
-	activeTargetPort := uint16(443)
 	staleReplyPort := uint16(80)
 	key := net.JoinHostPort(remote.String(), "443")
 
 	resultCh := make(chan models.Result, 1)
-	scanner := newTestSYNScannerForIPv6Reply(key, remote.String(), ourSrc, activeTargetPort, resultCh)
+	scanner := newTestSYNScannerForIPv6Reply(key, remote.String(), resultCh)
 
 	scanner.processEthernetFrame(buildTCPReplyFrameIPv6(local, remote, ourSrc, staleReplyPort, synFlag|ackFlag))
 
@@ -270,7 +269,7 @@ func TestProcessEthernetFrameICMPv6Errors(t *testing.T) {
 			key := net.JoinHostPort(remote.String(), "443")
 
 			resultCh := make(chan models.Result, 1)
-			scanner := newTestSYNScannerForIPv6Reply(key, remote.String(), ourSrc, targetPort, resultCh)
+			scanner := newTestSYNScannerForIPv6Reply(key, remote.String(), resultCh)
 
 			scanner.processEthernetFrame(buildICMPv6ErrorFrame(local, remote, router, ourSrc, targetPort, tt.icmpTyp))
 
@@ -297,7 +296,7 @@ func TestProcessEthernetFrameICMPv6IgnoresWrongEmbeddedTarget(t *testing.T) {
 	key := net.JoinHostPort(remote.String(), "443")
 
 	resultCh := make(chan models.Result, 1)
-	scanner := newTestSYNScannerForIPv6Reply(key, remote.String(), ourSrc, targetPort, resultCh)
+	scanner := newTestSYNScannerForIPv6Reply(key, remote.String(), resultCh)
 
 	scanner.processEthernetFrame(buildICMPv6ErrorFrame(local, wrongRemote, router, ourSrc, targetPort, icmpv6DstUnreach))
 
@@ -374,12 +373,11 @@ func TestProcessEthernetFrameICMPv6IgnoresWrongEmbeddedTargetPort(t *testing.T) 
 	remote := net.ParseIP("2001:db8::20")
 	router := net.ParseIP("2001:db8::1")
 	ourSrc := uint16(40000)
-	activeTargetPort := uint16(443)
 	staleTargetPort := uint16(80)
 	key := net.JoinHostPort(remote.String(), "443")
 
 	resultCh := make(chan models.Result, 1)
-	scanner := newTestSYNScannerForIPv6Reply(key, remote.String(), ourSrc, activeTargetPort, resultCh)
+	scanner := newTestSYNScannerForIPv6Reply(key, remote.String(), resultCh)
 
 	scanner.processEthernetFrame(buildICMPv6ErrorFrame(local, remote, router, ourSrc, staleTargetPort, icmpv6DstUnreach))
 
@@ -398,7 +396,7 @@ func TestSYNScannerRetryAndRateMetricAccounting(t *testing.T) {
 		retryMinJitter: time.Millisecond,
 		retryMaxJitter: time.Millisecond,
 		retryCh:        make(chan retryItem, 8),
-		rand:           rand.New(rand.NewSource(1)),
+		rand:           rand.New(rand.NewPCG(1, 2)),
 	}
 
 	scanner.enqueueRetriesForBatch([]models.Target{
@@ -447,7 +445,7 @@ func TestSYNScannerRetryAccountingCountsDroppedEnqueues(t *testing.T) {
 		retryMinJitter: time.Millisecond,
 		retryMaxJitter: time.Millisecond,
 		retryCh:        make(chan retryItem, 1),
-		rand:           rand.New(rand.NewSource(1)),
+		rand:           rand.New(rand.NewPCG(1, 2)),
 	}
 
 	scanner.enqueueRetriesForBatch([]models.Target{
@@ -469,7 +467,7 @@ func TestSYNScannerScanResetsStatsAtStart(t *testing.T) {
 		logger:        logger.NewTestLogger(),
 		sendBatchSize: defaultSendBatchSize,
 		portAlloc:     NewPortAllocator(40000, 40001),
-		rand:          rand.New(rand.NewSource(1)),
+		rand:          rand.New(rand.NewPCG(1, 2)),
 	}
 	scanner.SetRateLimit(0, 0)
 
@@ -568,10 +566,13 @@ func runSyntheticRingReaderUntil(t *testing.T, scanner *SYNScanner, ring *ringBu
 func newTestSYNScannerForIPv6Reply(
 	key string,
 	targetIP string,
-	ourSrc uint16,
-	targetPort uint16,
 	resultCh chan<- models.Result,
 ) *SYNScanner {
+	const (
+		ourSrc     uint16 = 40000
+		targetPort uint16 = 443
+	)
+
 	scanner := &SYNScanner{
 		portTargetMap: map[uint16]string{ourSrc: key},
 		targetPorts:   map[string][]uint16{key: []uint16{ourSrc}},

@@ -20,6 +20,12 @@ import (
 	"github.com/rs/zerolog"
 )
 
+var (
+	errNoCgroupRootOrSlice = errors.New("resource limits declared but no addon cgroup root or systemd slice is configured")
+	errEmptySystemdSlice   = errors.New("empty systemd slice")
+	errInvalidSystemdSlice = errors.New("invalid systemd slice")
+)
+
 // applyResourceLimits places the add-on subprocess in a dedicated cgroup v2
 // directory carrying the manifest-declared CPU/memory/task limits, so an edge
 // compute add-on cannot impact the host or the base agent. cgroupRoot must be a
@@ -105,16 +111,16 @@ func resolveAddonCgroupRoot(res Resources, cgroupRoot string) (string, error) {
 		return root, nil
 	}
 
-	return "", fmt.Errorf("resource limits declared but no addon cgroup root or systemd slice is configured")
+	return "", errNoCgroupRootOrSlice
 }
 
 func systemdSliceCgroupPath(slice string) (string, error) {
 	slice = strings.TrimSpace(slice)
 	if slice == "" {
-		return "", fmt.Errorf("empty systemd slice")
+		return "", errEmptySystemdSlice
 	}
 	if strings.Contains(slice, "/") || !strings.HasSuffix(slice, ".slice") {
-		return "", fmt.Errorf("invalid systemd slice %q", slice)
+		return "", fmt.Errorf("%w %q", errInvalidSystemdSlice, slice)
 	}
 
 	name := strings.TrimSuffix(slice, ".slice")

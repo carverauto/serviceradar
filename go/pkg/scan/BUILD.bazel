@@ -128,7 +128,6 @@ go_library(
         "@io_bazel_rules_go//go/platform:windows": [
             "@org_golang_x_net//icmp",
             "@org_golang_x_net//ipv4",
-            "@org_golang_x_net//ipv6",
             "@org_golang_x_sys//windows",
         ],
         "//conditions:default": [],
@@ -192,7 +191,9 @@ go_test(
         "icmp_scanner_unix_test.go",
         "syn_scanner_bench_test.go",
         "syn_scanner_test.go",
+        "tcp_scanner_completeness_test.go",
         "tcp_scanner_performance_test.go",
+        "tcp_scanner_stream_benchmark_test.go",
         "tcp_scanner_test.go",
     ],
     embed = [":scan"],

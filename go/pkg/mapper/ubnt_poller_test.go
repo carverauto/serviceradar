@@ -200,11 +200,11 @@ func TestFetchUniFiSites(t *testing.T) {
 	}
 }
 
-func assertUniFiPageQuery(t *testing.T, r *http.Request, offset int) {
+func assertUniFiPageQuery(t *testing.T, r *http.Request) {
 	t.Helper()
 
 	assert.Equal(t, fmt.Sprint(uniFiAPIPageLimit), r.URL.Query().Get("limit"))
-	assert.Equal(t, fmt.Sprint(offset), r.URL.Query().Get("offset"))
+	assert.Equal(t, "0", r.URL.Query().Get("offset"))
 }
 
 func mustAtoi(t *testing.T, value string) int {
@@ -295,7 +295,7 @@ func TestFetchUniFiDevicesForSite(t *testing.T) {
 				// Check request method and path
 				assert.Equal(t, http.MethodGet, r.Method)
 				assert.Equal(t, "/sites/site1/devices", r.URL.Path)
-				assertUniFiPageQuery(t, r, 0)
+				assertUniFiPageQuery(t, r)
 
 				// Check headers
 				assert.Equal(t, "test-api-key", r.Header.Get("X-API-Key"))
@@ -398,13 +398,13 @@ func TestFetchUniFiDevicesForSitePaginatesUntilShortPage(t *testing.T) {
 		case "0":
 			requestedOffsets = append(requestedOffsets, 0)
 			w.WriteHeader(http.StatusOK)
-			require.NoError(t, json.NewEncoder(w).Encode(struct {
+			assert.NoError(t, json.NewEncoder(w).Encode(struct {
 				Data []UniFiDevice `json:"data"`
 			}{Data: makeUniFiDevicePage(0, uniFiAPIPageLimit)}))
 		case fmt.Sprint(uniFiAPIPageLimit):
 			requestedOffsets = append(requestedOffsets, uniFiAPIPageLimit)
 			w.WriteHeader(http.StatusOK)
-			require.NoError(t, json.NewEncoder(w).Encode(struct {
+			assert.NoError(t, json.NewEncoder(w).Encode(struct {
 				Data []UniFiDevice `json:"data"`
 			}{Data: makeUniFiDevicePage(uniFiAPIPageLimit, 1)}))
 		default:
@@ -445,7 +445,7 @@ func TestFetchUniFiPagedDataStopsWhenControllerRepeatsPage(t *testing.T) {
 		}
 
 		w.WriteHeader(http.StatusOK)
-		require.NoError(t, json.NewEncoder(w).Encode(struct {
+		assert.NoError(t, json.NewEncoder(w).Encode(struct {
 			Data []UniFiDevice `json:"data"`
 		}{Data: makeUniFiDevicePage(0, uniFiAPIPageLimit)}))
 	}))
@@ -480,7 +480,7 @@ func TestFetchUniFiPagedDataEnforcesPageCap(t *testing.T) {
 		requestedOffsets = append(requestedOffsets, mustAtoi(t, offset))
 
 		w.WriteHeader(http.StatusOK)
-		require.NoError(t, json.NewEncoder(w).Encode(struct {
+		assert.NoError(t, json.NewEncoder(w).Encode(struct {
 			Data []UniFiDevice `json:"data"`
 		}{Data: makeUniFiDevicePage(mustAtoi(t, offset), uniFiAPIPageLimit)}))
 	}))
@@ -537,7 +537,7 @@ func TestFetchUniFiClientsForSite(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				assert.Equal(t, http.MethodGet, r.Method)
 				assert.Equal(t, "/sites/site1/clients", r.URL.Path)
-				assertUniFiPageQuery(t, r, 0)
+				assertUniFiPageQuery(t, r)
 				assert.Equal(t, "test-api-key", r.Header.Get("X-API-Key"))
 				assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 				w.WriteHeader(tt.statusCode)
@@ -585,7 +585,7 @@ func TestFetchUniFiClientsForSitePaginatesBeforeFilteringWireless(t *testing.T) 
 		case "0":
 			requestedOffsets = append(requestedOffsets, 0)
 			w.WriteHeader(http.StatusOK)
-			require.NoError(t, json.NewEncoder(w).Encode(struct {
+			assert.NoError(t, json.NewEncoder(w).Encode(struct {
 				Data []UniFiClient `json:"data"`
 			}{Data: makeUniFiClientPage(0, uniFiAPIPageLimit, "WIRELESS")}))
 		case fmt.Sprint(uniFiAPIPageLimit):
@@ -593,7 +593,7 @@ func TestFetchUniFiClientsForSitePaginatesBeforeFilteringWireless(t *testing.T) 
 			page := makeUniFiClientPage(uniFiAPIPageLimit, 1, "WIRELESS")
 			page = append(page, makeUniFiClientPage(uniFiAPIPageLimit+1, 1, "WIRED")...)
 			w.WriteHeader(http.StatusOK)
-			require.NoError(t, json.NewEncoder(w).Encode(struct {
+			assert.NoError(t, json.NewEncoder(w).Encode(struct {
 				Data []UniFiClient `json:"data"`
 			}{Data: page}))
 		default:
@@ -629,14 +629,14 @@ func TestFetchUniFiDevicesPaginatesLegacyDiscoveryPath(t *testing.T) {
 			requestedOffsets = append(requestedOffsets, 0)
 			page := makeUniFiDevicePage(0, uniFiAPIPageLimit)
 			w.WriteHeader(http.StatusOK)
-			require.NoError(t, json.NewEncoder(w).Encode(struct {
+			assert.NoError(t, json.NewEncoder(w).Encode(struct {
 				Data []UniFiDevice `json:"data"`
 			}{Data: page}))
 		case fmt.Sprint(uniFiAPIPageLimit):
 			requestedOffsets = append(requestedOffsets, uniFiAPIPageLimit)
 			page := makeUniFiDevicePage(uniFiAPIPageLimit, 1)
 			w.WriteHeader(http.StatusOK)
-			require.NoError(t, json.NewEncoder(w).Encode(struct {
+			assert.NoError(t, json.NewEncoder(w).Encode(struct {
 				Data []UniFiDevice `json:"data"`
 			}{Data: page}))
 		default:
@@ -666,7 +666,7 @@ func newUniFiInventoryUplinkServer(t *testing.T, deviceDetailPayload []byte) *ht
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/sites/site1/devices":
-			assertUniFiPageQuery(t, r, 0)
+			assertUniFiPageQuery(t, r)
 			w.WriteHeader(http.StatusOK)
 			err := json.NewEncoder(w).Encode(struct {
 				Data []UniFiDevice `json:"data"`
@@ -871,7 +871,7 @@ func TestQuerySingleUniFiAPIFallsBackToLegacyStatDeviceWhenIntegrationDetailsDri
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/proxy/network/integration/v1/sites/site1/devices":
-			assertUniFiPageQuery(t, r, 0)
+			assertUniFiPageQuery(t, r)
 			w.WriteHeader(http.StatusOK)
 			err := json.NewEncoder(w).Encode(struct {
 				Data []UniFiDevice `json:"data"`
@@ -1192,7 +1192,7 @@ func TestQuerySingleUniFiAPIIncludesWirelessClientAssociations(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/sites/site1/devices":
-			assertUniFiPageQuery(t, r, 0)
+			assertUniFiPageQuery(t, r)
 			w.WriteHeader(http.StatusOK)
 			err := json.NewEncoder(w).Encode(struct {
 				Data []UniFiDevice `json:"data"`
@@ -1206,7 +1206,7 @@ func TestQuerySingleUniFiAPIIncludesWirelessClientAssociations(t *testing.T) {
 				t.Fatalf("encode devices response: %v", err)
 			}
 		case "/sites/site1/clients":
-			assertUniFiPageQuery(t, r, 0)
+			assertUniFiPageQuery(t, r)
 			w.WriteHeader(http.StatusOK)
 			err := json.NewEncoder(w).Encode(struct {
 				Data []UniFiClient `json:"data"`
