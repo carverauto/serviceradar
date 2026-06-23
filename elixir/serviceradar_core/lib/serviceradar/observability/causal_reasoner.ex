@@ -92,7 +92,7 @@ defmodule ServiceRadar.Observability.CausalReasoner do
     crate: "causal_disposition_nif"
 
   @typedoc "Which disposition kernel to run for the batch."
-  @type kind :: :seasonal | :capacity
+  @type kind :: :seasonal | :capacity | :peak
 
   @type seasonal_request ::
           {:seasonal,
@@ -106,6 +106,14 @@ defmodule ServiceRadar.Observability.CausalReasoner do
            %{
              config: map(),
              row: map()
+           }}
+
+  @type peak_request ::
+          {:peak,
+           %{
+             config: map(),
+             row: map(),
+             carried: non_neg_integer()
            }}
 
   @typedoc "The typed Value-channel disposition returned per row."
@@ -130,10 +138,27 @@ defmodule ServiceRadar.Observability.CausalReasoner do
           disposition: disposition()
         }
 
+  @typedoc "The typed peak (UASB shrinkage-band) disposition returned per row."
+  @type peak_disposition ::
+          :suppress
+          | {:downgrade, %{score: float()}}
+          | {:escalate, %{score: float()}}
+          | {:pass_through, %{reason: atom()}}
+
+  @typedoc "One per-row peak disposition result payload."
+  @type peak_outcome :: %{
+          series_key: String.t(),
+          disposition: peak_disposition(),
+          next_carried: non_neg_integer(),
+          surfaced: boolean(),
+          score: float()
+        }
+
   @typedoc "One per-row result: a disposition or a typed error reason."
   @type result ::
           {:ok, seasonal_disposition()}
           | {:capacity_ok, capacity_disposition()}
+          | {:peak_ok, peak_outcome()}
           | {:error, String.t()}
 
   @doc """
@@ -145,6 +170,7 @@ defmodule ServiceRadar.Observability.CausalReasoner do
 
   See the module doc for the per-`kind` request and result shapes.
   """
-  @spec dispose_batch(kind(), [seasonal_request() | capacity_request()]) :: [result()]
+  @spec dispose_batch(kind(), [seasonal_request() | capacity_request() | peak_request()]) ::
+          [result()]
   def dispose_batch(_kind, _inputs), do: :erlang.nif_error(:nif_not_loaded)
 end
