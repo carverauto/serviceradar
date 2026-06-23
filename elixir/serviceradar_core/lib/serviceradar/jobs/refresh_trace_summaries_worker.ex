@@ -49,16 +49,23 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   # name instead of blanks. The chosen-root attributes are computed once per
   # trace in `roots` via DISTINCT ON and joined to the per-trace aggregate.
   @upsert_sql """
-  WITH candidates AS (
+  WITH wanted AS MATERIALIZED (
+    SELECT DISTINCT trace_id FROM otel_traces
+    WHERE created_at > $1 AND created_at <= $2 AND trace_id IS NOT NULL
+  ),
+  candidates AS (
     SELECT t.trace_id, t.span_id, t.parent_span_id, t.name, t.service_name,
            t.service_namespace, t.deployment_environment, t.kind,
            t.status_code, t.status_message, t.start_time_unix_nano,
+           t.end_time_unix_nano, t.timestamp,
            (t.parent_span_id IS NULL) AS is_root
     FROM otel_traces t
-    WHERE t.trace_id IN (
-      SELECT DISTINCT trace_id FROM otel_traces
-      WHERE created_at > $1 AND created_at <= $2 AND trace_id IS NOT NULL
-    )
+    JOIN wanted w ON w.trace_id = t.trace_id
+    -- Chunk-exclusion floor: spans of a just-ingested trace land within a day
+    -- of the window (measured ingest lag <= ~2h30m), so a 1-day timestamp
+    -- floor lets TimescaleDB prune older chunks while keeping every span the
+    -- retention filter below would keep.
+    WHERE t.timestamp >= $2 - INTERVAL '1 day'
     AND t.timestamp >= NOW() - ($3::int * INTERVAL '1 day')
     AND t.trace_id IS NOT NULL
   ),
@@ -70,6 +77,18 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
     -- Prefer a true root span; otherwise the earliest span stands in as root.
     ORDER BY trace_id, is_root DESC,
              start_time_unix_nano ASC NULLS LAST, span_id ASC
+  ),
+  aggregated AS (
+    SELECT
+      c.trace_id,
+      max(c.timestamp) AS timestamp,
+      min(c.start_time_unix_nano) AS start_time_unix_nano,
+      max(c.end_time_unix_nano) AS end_time_unix_nano,
+      array_agg(DISTINCT c.service_name) FILTER (WHERE c.service_name IS NOT NULL) AS service_set,
+      count(*) AS span_count,
+      count(*) FILTER (WHERE c.status_code = 2) AS error_count
+    FROM candidates c
+    GROUP BY c.trace_id
   )
   INSERT INTO otel_trace_summaries (
     trace_id, timestamp, root_span_id, root_span_name, root_service_name,
@@ -78,33 +97,25 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
     status_code, status_message, service_set, span_count, error_count, refreshed_at
   )
   SELECT
-    t.trace_id,
-    max(t.timestamp),
+    a.trace_id,
+    a.timestamp,
     r.span_id,
     r.name,
     r.service_name,
     COALESCE(r.service_namespace, ''),
     COALESCE(r.deployment_environment, ''),
     r.kind,
-    min(t.start_time_unix_nano),
-    max(t.end_time_unix_nano),
-    (max(t.end_time_unix_nano) - min(t.start_time_unix_nano))::float8 / 1000000.0,
+    a.start_time_unix_nano,
+    a.end_time_unix_nano,
+    (a.end_time_unix_nano - a.start_time_unix_nano)::float8 / 1000000.0,
     r.status_code,
     r.status_message,
-    array_agg(DISTINCT t.service_name) FILTER (WHERE t.service_name IS NOT NULL),
-    count(*),
-    count(*) FILTER (WHERE t.status_code = 2),
+    a.service_set,
+    a.span_count,
+    a.error_count,
     NOW()
-  FROM otel_traces t
-  JOIN roots r ON r.trace_id = t.trace_id
-  WHERE t.trace_id IN (
-    SELECT DISTINCT trace_id FROM otel_traces
-    WHERE created_at > $1 AND created_at <= $2 AND trace_id IS NOT NULL
-  )
-  AND t.timestamp >= NOW() - ($3::int * INTERVAL '1 day')
-  AND t.trace_id IS NOT NULL
-  GROUP BY t.trace_id, r.span_id, r.name, r.service_name, r.service_namespace,
-           r.deployment_environment, r.kind, r.status_code, r.status_message
+  FROM aggregated a
+  JOIN roots r ON r.trace_id = a.trace_id
   ON CONFLICT (trace_id) DO UPDATE SET
     timestamp = EXCLUDED.timestamp,
     root_span_id = EXCLUDED.root_span_id,

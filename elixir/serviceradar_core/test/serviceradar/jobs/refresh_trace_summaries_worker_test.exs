@@ -90,5 +90,24 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorkerTest do
       assert sql =~ "r.service_name"
       refute sql =~ "FILTER (WHERE t.parent_span_id IS NULL)"
     end
+
+    test "scans otel_traces once via a materialized wanted-trace CTE" do
+      sql = RefreshTraceSummariesWorker.upsert_sql()
+
+      # The wanted trace ids are collected once into a MATERIALIZED CTE so the
+      # otel_traces hypertable is not re-scanned by a second IN-subquery.
+      assert sql =~ "wanted AS MATERIALIZED ("
+      assert sql =~ "JOIN wanted w ON w.trace_id = t.trace_id"
+
+      # Per-trace aggregates are computed once from the shared candidates CTE.
+      assert sql =~ "aggregated AS ("
+
+      # The doubled `trace_id IN (SELECT ... FROM otel_traces ...)` scan is gone.
+      refute sql =~ "t.trace_id IN ("
+
+      # A 1-day timestamp floor enables TimescaleDB chunk exclusion without
+      # dropping any span the retention window would keep.
+      assert sql =~ "t.timestamp >= $2 - INTERVAL '1 day'"
+    end
   end
 end
