@@ -548,7 +548,12 @@ fn reset_anchor_changed(previous: &str, current: &str) -> bool {
 }
 
 fn replace_reset_anchor(target: &mut String, current: &str) {
-    if target == current {
+    // An empty (unknown) anchor must NOT clobber a known one. `reset_anchor_changed`
+    // treats empty on either side as "unknown, never a reset", so if we let an empty
+    // anchor overwrite a stored "boot-1", a later genuine "boot-2" would compare
+    // against "" and the real reset would be missed. Preserve the last known anchor
+    // instead. (Also preserves the in-place no-realloc fast path on no change.)
+    if current.is_empty() || target == current {
         return;
     }
 
@@ -707,6 +712,26 @@ mod tests {
             .normalize_counter("c", 110.0, 2_000_000_000, "boot-2", 64)
             .expect("rate");
         assert!((rate - 100.0).abs() < 1e-9, "rate was {rate}");
+    }
+
+    #[test]
+    fn empty_anchor_does_not_clobber_known_reset_lineage() {
+        // An empty (unknown) anchor must not wipe the stored anchor, else a later
+        // genuine anchor change is missed and a rate is wrongly computed across a
+        // reset (the "a" -> "" -> "b" flip).
+        let mut engine = DetectorEngine::new(EngineConfig::default());
+        engine.normalize_counter("c", 1_000.0, 1_000_000_000, "a", 64); // warmup, anchor "a"
+        // An empty-anchor reading rates normally but must PRESERVE the stored "a".
+        let rate = engine
+            .normalize_counter("c", 2_000.0, 2_000_000_000, "", 64)
+            .expect("rate");
+        assert!((rate - 1_000.0).abs() < 1e-9, "rate was {rate}");
+        // A genuine new lineage "b" is now detected as a reset (drop, re-baseline),
+        // because the stored anchor is still "a", not the wiped "".
+        assert_eq!(
+            engine.normalize_counter("c", 3_000.0, 3_000_000_000, "b", 64),
+            None
+        );
     }
 
     #[test]
