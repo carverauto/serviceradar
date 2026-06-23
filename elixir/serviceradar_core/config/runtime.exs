@@ -1083,6 +1083,15 @@ if config_env() == :prod do
     mapper_topology_edge_stale_minutes:
       parse_int_env.("SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES", 180)
 
+  # Heartbeat for the canonical-topology rebuild change-detection skip: when the
+  # observed graph is structurally unchanged, still rebuild at most once per this
+  # window so property-only edge changes are bounded to one heartbeat of staleness.
+  # Lower it in prod (faster discovery) to tighten that bound; the default kills the
+  # per-report churn for a mostly-static demo topology.
+  config :serviceradar_core, ServiceRadar.NetworkDiscovery.TopologyGraph,
+    canonical_rebuild_heartbeat_ms:
+      parse_int_env.("SERVICERADAR_TOPOLOGY_CANONICAL_REBUILD_HEARTBEAT_MS", 3_600_000)
+
   config :serviceradar_core,
     mtr_automation_enabled: mtr_automation_enabled,
     mtr_retention_days: mtr_retention_days,
