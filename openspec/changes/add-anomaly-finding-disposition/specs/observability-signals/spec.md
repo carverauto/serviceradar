@@ -68,33 +68,46 @@ profile passes a stability gate; until then the class SHALL pass through.
 - **WHEN** the central tier runs
 - **THEN** it SHALL surface a low-grade sustained-drift finding for `S`
 
-### Requirement: Peak Profile Stability Gate
-A spike SHALL be disposed against the peak profile only when its
-`(series, dow, hod)` cell is stable, defined as ALL of: at least
-`min_cell_weeks` distinct weekly maxima (default 6); the most recent weekly
-maximum within `max_cell_staleness_weeks` (default 2); and bounded dispersion
-`MAD / max(median, ε) ≤ max_cell_dispersion` (default 0.5). A spike whose cell is
-not stable SHALL pass through. Suppression thresholds SHALL be conservative: with
-cell median `m`, dispersion `D = max(MAD, mad_floor·m)` (`mad_floor` default
-0.05), a peak `≤ m + k_suppress·D` (default 3) SHALL suppress or downgrade, a peak
-`> m + k_escalate·D` (default 6) SHALL escalate, and a peak between SHALL downgrade
-(never suppress). All thresholds SHALL be configurable.
+### Requirement: Peak Profile Stability Gate (Uncertainty-Aware Shrinkage Band)
+Peak disposition SHALL use an uncertainty-aware band over the `(series, hod)`
+cell (collapsing only DOW) that ramps with the cell sample count `n`. The band's
+constants are calibration; the following invariants are binding. False-suppress
+(silencing a real anomaly) is the cardinal error: every uncertain path SHALL
+resolve to pass-through or escalate, never to suppress.
 
-#### Scenario: Insufficient cell depth passes through
-- **GIVEN** a `(series, dow, hod)` cell with fewer than `min_cell_weeks` weekly maxima
-- **WHEN** an edge spike for that cell is evaluated
-- **THEN** the disposition SHALL be `pass_through`
+- The band SHALL be **two-sided**: a downward excursion outside the escalation band SHALL escalate, never be auto-suppressed.
+- The suppression (inner) band scale SHALL be **bounded above by the `(series, hod)`-localized prior** (`min(s_cell, CAP·s_prior)`), so a poisoned or thin cell cannot widen the suppression region.
+- The prior SHALL be **localized to `(series, hod)`** (never pooled across `hod`), widening to hour-neighbors then a metric-class prior only when cold.
+- A cold cell (`n < N_min`), an over-dispersed cell (`s_cell > D·s_prior`), or a ceiling-proximity cell (no upward headroom below 100) SHALL pass through.
+- The low-`n` margin SHALL be **sigma-relative** (`1 + A/√n`), never an additive raw floor (an absolute floor applies only when the robust scale is ≈ 0).
+- A `suppress` verdict SHALL NOT reset the confirm-slot counter.
+- Suppression SHALL ship **disabled (report-only)** until the constants are calibrated against real per-cell distributions, with a per-metric-class kill switch and a coverage metric reporting suppression-eligible mass.
 
-#### Scenario: Erratic cell does not suppress
-- **GIVEN** a cell with sufficient depth but dispersion above `max_cell_dispersion`
-- **WHEN** an edge spike for that cell is evaluated
-- **THEN** the disposition SHALL NOT be `suppress`
-
-#### Scenario: Ambiguous peak is downgraded, not silenced
-- **GIVEN** a stable cell and a spike whose peak is between `m + k_suppress·D` and `m + k_escalate·D`
+#### Scenario: Downward anomaly escalates (two-sided)
+- **GIVEN** a stable `(series, hod)` cell and a spike peak far below the escalation band
 - **WHEN** the spike is evaluated
-- **THEN** the disposition SHALL be `downgrade`
+- **THEN** the disposition SHALL be `escalate`
 - **AND** it SHALL NOT be `suppress`
+
+#### Scenario: Poisoned thin cell cannot widen the suppression band
+- **GIVEN** a `(series, hod)` cell with a minority of poisoned high samples
+- **AND** a real novel spike above the localized prior's normal range
+- **WHEN** the spike is evaluated
+- **THEN** the suppression band SHALL be bounded by `CAP·s_prior`
+- **AND** the spike SHALL `escalate`, not `suppress`
+
+#### Scenario: Quiet hour is not whitewashed by a spiky neighbor
+- **GIVEN** a chronically-spiky hour and a quiet neighboring hour on the same series
+- **AND** a real novel spike in the quiet hour
+- **WHEN** the spike is evaluated
+- **THEN** the prior used SHALL be localized to the quiet `(series, hod)` cell
+- **AND** the spike SHALL NOT be suppressed by the spiky hour's scale
+
+#### Scenario: Cold or ceiling-proximity cell passes through
+- **GIVEN** a `(series, hod)` cell with `n < N_min`, or whose `q95` leaves no upward headroom below 100
+- **WHEN** an edge spike is evaluated
+- **THEN** the disposition SHALL be `pass_through`
+- **AND** the band SHALL NOT produce an upper bound above 100
 
 ### Requirement: Seasonal Disposition Emitted For Every Evaluated Series
 The central seasonal worker SHALL record a disposition for every evaluated series

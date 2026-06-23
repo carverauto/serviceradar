@@ -76,38 +76,46 @@ Coverage depends on whether a meaningful hour-of-week **peak** profile exists fo
 - **Raw non-normalized counters (e.g. absolute `ifInOctets`):** no meaningful "normal peak" → edge-only + severity calibration until rate-normalized into a utilization series.
 - A spike stays in **pass-through** until its own `(series, dow, hod)` cell passes the **stability gate** (concrete criteria below), so coverage ramps safely per cell — a class with no stable cells is simply all-pass-through.
 
-## Peak-profile stability gate (concrete criteria)
+## Peak-profile stability gate — Uncertainty-Aware Shrinkage Band (UASB)
 
-Suppression silences a finding, so a false suppress hides a real anomaly — strictly worse than a false surface. The gate is therefore conservative and operates **per `(series, dow, hod)` cell**, not per class: a spike is disposed against the peak profile only if *its own cell* is stable; otherwise it falls through to Option-A pass-through. A class with no stable cells is automatically all-pass-through, so "per-class rollout" needs no separate data gate — it is the emergent result of per-cell graduation.
+Suppression silences a finding, so a **false-suppress hides a real anomaly** — strictly worse than a false-surface. This asymmetry is the north star: every uncertain path must decay toward **pass-through or escalate, never toward suppress**. Replacing the original hard "inert for 6 weeks" cliff, the gate is a continuous band that ramps as the cell's sample count `n` grows. Its form was hardened over **two adversarial-verification rounds** that refuted (a) a one-sided band that silenced every downward anomaly, (b) an additive raw floor that blinded tight series, and (c) a prior pooled across hours that let a spiky hour whitewash its neighbors. What survives is a set of **invariants** plus a decision rule whose constants are implementation-calibrated.
 
-### A cell is *stable* (eligible for suppression) iff ALL hold
-All thresholds are config-defaulted and tunable per deployment.
+### Cell granularity: `(series, hod)`; prior localized to `(series, hod)`
+Live data is decisive: per-`(series, dow, hod)` cells are frozen at n=1 (max 2) for ~6 weeks, but **`(series, hod)` cells reach median n=8 (93% ≥ 6) within a *week*** — DOW adds ~nothing (median |weekday−weekend| ≈ 0–1.5pp) while hour-of-day carries the signal. So the cell and its prior are **`(series, hod)`** (collapse only DOW); a cold cell widens to its **±1-hour neighbors** (median adjacent-hour jump 0.58pp), then a metric-class prior as last resort — **never pool across `hod`**.
 
-1. **Depth** — at least `min_cell_weeks` distinct weekly maxima contribute to the cell (default **6**). Each week contributes one observation (the max in that hour-of-week), so this is ~6 weeks of history for that cell. Below it, the cell's median + MAD is not trustworthy → pass-through.
-2. **Recency** — the most recent weekly maximum is within `max_cell_staleness_weeks` (default **2**). A series that stopped reporting at that hour-of-week has a stale profile → pass-through.
-3. **Bounded dispersion** — `MAD / max(median, ε) ≤ max_cell_dispersion` (default **0.5**, calibrate against real per-cell data). If a series' peaks at that hour-of-week are erratic, "normal range" is not meaningful → pass-through. A near-zero MAD is handled by the floor below, not by failing the gate.
+### The decision rule (O(1) scalar; robust stats only)
+From SQL per cell: `n`, robust center `c = median`, robust scale `s_cell = (p95−p05)·0.30398`, the `(series,hod)`-localized prior scale `s_pri`, and `q05/q95`. Given spike peak `p`:
+- **Two-sided** bands: inner (suppress) `c ± Z_sup·s_inner·k_n`; outer (escalate) `c ± Z_esc·s_outer·k_n`.
+- **Sigma-relative low-n inflation** `k_n = 1 + A/√n` (→1 as n→∞) — widens with the series' *own* scale, so a tight series stays tight; no additive raw floor.
+- **Inner band scale bounded ABOVE by the localized prior** (the load-bearing poison-resistance fix): `s_inner = min(s_cell, CAP·s_pri)` — a poisoned/thin cell cannot inflate the *suppression* region beyond what its localized prior justifies. The outer band uses `s_outer = max(s_cell, s_pri)` (wider escalation is safe).
+- **Guards → pass-through (never suppress):** cold (`n < N_min`); over-dispersed (`s_cell > D·s_pri` → cell looks poisoned vs its own class); ceiling-proximity (`q95 + Z_sup·s_inner·k_n ≥ 100` → no upward headroom to discriminate); degenerate scale floored at a tiny absolute (0.5pp) only when `s ≈ 0`.
+- **Decision:** suppress iff `p` inside the inner band; escalate iff `p` outside the outer band (either side); else downgrade. **A suppress verdict does NOT reset the confirm-slot counter** (else a real recurring anomaly sticks suppressed).
 
-### Disposition when the cell IS stable
-Let `m` = cell median peak, `d` = cell MAD, `D = max(d, mad_floor·m)` with `mad_floor` default **0.05** (a 5%-of-median floor so a near-constant cell does not make every deviation look infinite):
+### Invariants (THESE are the spec; constants are calibration)
+Each is provable by the adversarial test that established it:
+1. **Two-sided** — a downward real anomaly escalates, never auto-suppressed.
+2. **Poison-bounded inner band** — a minority of poisoned samples cannot widen the suppression band beyond `CAP·prior`; a real novel spike still escalates.
+3. **`(series,hod)`-localized prior** — a quiet-hour novel spike is not suppressed by a spiky neighbor-hour's scale.
+4. **Ceiling-proximity guard** — a tight near-100% cell passes through (never a >100% band).
+5. **Over-dispersion guard** — a cell anomalously dispersed vs its class passes through.
+6. **Cold pass-through** — suppression off until `n ≥ N_min`.
+7. **Non-sticky** — suppress does not reset the confirm-slot counter.
+8. **Asymmetry** — every uncertain path resolves to pass-through or escalate, never suppress.
 
-| spike peak vs profile | disposition |
-|---|---|
-| `peak ≤ m + k_suppress·D` (`k_suppress` default **3**) | **suppress** (or downgrade) — within normal hour-of-week peak |
-| `m + k_suppress·D < peak ≤ m + k_escalate·D` (`k_escalate` default **6**) | **downgrade** — elevated but not clearly novel |
-| `peak > m + k_escalate·D` | **escalate** — novel, off-profile |
-
-The wide `[k_suppress, k_escalate]` band (3→6 MAD) is deliberate: only a clearly-within-normal peak is suppressed, only a clearly-novel peak is escalated, and the ambiguous middle is merely **downgraded (kept visible)**, never silenced.
+### Ramp behavior
+n=1–3 (`(series,hod)` cold) → pass-through (a real 6-σ excursion on a tight series is NOT suppressed). By ~day 5–week 1 (n≥4–8) the band binds — recurring-normal peaks suppress, novel ones escalate. By n≈26–52 the inflation is negligible and the band is the cell's own tight two-sided envelope. Smooth, no cliff — usable in ~1 week, not 6.
 
 ### Operational controls + calibration
-- A per-metric-class **kill switch** (config) disables suppression for a class regardless of cell stability (default: enabled) — for classes known to be spiky-by-nature where suppression is never wanted.
-- A **coverage metric** reports, per class, the fraction of active-series cells that are stable, so "is suppression doing anything yet?" is observable, not assumed.
-- The depth/recency gates are safe a priori; `max_cell_dispersion`, `k_suppress`, `k_escalate`, and `mad_floor` are data-dependent and SHALL be calibrated against real per-cell peak distributions before suppression is enabled in production (they start as conservative guesses).
+- Per-metric-class **kill switch** (default on); ships with suppression **disabled (report-only)** until constants are calibrated.
+- **Coverage metric** = suppression-*eligible mass* (fraction of `(series,hod)` cells that are `!cold && !saturated && !over_dispersed`, and the suppressed fraction within) — observable ramp, not binary.
+- Safe a priori: the invariants, the two-sided form, `(series,hod)` locality. Calibration-required against real per-cell distributions (guarded by the invariant test suite): `A, Z_sup, Z_esc, CAP, N_min, D`, saturation thresholds.
 
-## Non-edge flood completion (distinct multipliers, same 2004 bucket)
+### Implementation substrate (re: DeepCausality)
+UASB lands in `rust/causal-disposition`, which **already depends on `deep_causality_core`** — so it is a **disposition causaloid in the existing DeepCausality idiom**, consistent with the edge detector (`anomaly-core` CausalFlow) and the seasonal/capacity disposition. It does **not** adopt the `deep_causality_uncertain` `Uncertain<T>` crate (unused in the repo today): (a) the adversarial constraint is an **O(1) closed-form** decision over SQL-precomputed robust stats — Monte-Carlo distributional propagation is the wrong model for the per-disposition hot path; and (b) `Uncertain<T>`'s moment-based (mean/variance) propagation is exactly the **non-robust scale** the poison-resistance work eliminated — robustness here is an **estimator** property (median/MAD + the bounded inner band + the invariants), not a framework feature. (`MaybeUncertain<T>` could model the cold-cell presence gate, but that is a one-line `n < N_min` check.) Net: host in DeepCausality (already there); keep the robust closed-form math; do not reach for sampling-based uncertainty for the band.
 
-- **capacity_forecasting `event_id` idempotency:** stop splicing per-run wall-clock into the id so the `(id, time)` upsert dedups re-runs (~425k/week). This is independent of the edge fix and must be tracked so "we deployed the edge gate" is not mistaken for "the 2004 flood is gone."
-- **Severity calibration:** map the raw z/deviation score onto bounded OCSF severity buckets so undisposed/cold-start findings are not ~77% Critical. Calibration is a pure transform; it does not change recall.
-- **Core-side `(device, series_key)` debounce:** belt-and-suspenders behind the edge gate — collapse repeats of an ongoing condition into one open finding with updated state. The existing `(id, time)` upsert cannot catch distinct-timestamp per-slot emission *by construction*, so this is the only core-side guard if an edge regresses.
+## Non-edge flood drivers — owned by fix-anomaly (out of scope here)
+
+The other `class_uid=2004` flood drivers are **not** in this proposal: capacity_forecasting `event_id` idempotency (~425k/week) is `fix-anomaly` **F12** (tasks 10.1, 12.4); per-series debounce is **task 23.2**; raw detector→finding/alert severity calibration is **task 23.4**. They ship with that deploy. This proposal owns only **disposition-driven effective severity** (suppress→off-path, downgrade→lower, escalate→higher).
 
 ## Risks
 
