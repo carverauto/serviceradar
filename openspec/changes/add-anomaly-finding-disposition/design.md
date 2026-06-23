@@ -47,6 +47,13 @@ Make disposition operate at **matched resolution**: the edge forwards the **peak
 
 Build the matched-resolution peak disposition. Roll it out **per metric class, gated** behind a peak-profile stability check (a class stays in pass-through until its peak profile has enough per-cell history and low run-to-run variance). Cold-start and uncovered classes fall through to edge-governed pass-through, so B is never *less* safe than A during ramp-up — it only adds suppression once the peak profile is trustworthy. The spec encodes the Option B quadrant table as the contract.
 
+**Why B does not violate "ship the cheap version first."** An independent review of the pre-decision draft ratified Option A on the sound principle: *don't build the heavier apples-to-apples machinery until the cheaper honest version proves insufficient*. Two facts make B the better call **without** violating that principle:
+
+1. **B is not actually heavy machinery.** The peak data already exists — `timeseries_metrics_hourly.max_value` is materialized today (verified on demo). B is therefore a peak *variant* of the already-implemented `profile_hour_of_week` stat over `max_value`, plus a small edge payload (peak + window the detector already computes). No new CAGG, no schema change. The cost premise behind "do A first" is largely absent.
+2. **B's ramp-up behavior IS Option A.** The per-class stability gate means every class sits in edge-governed **pass-through — i.e. exactly Option A's behavior (never suppress a spike on insufficient evidence)** — until that class's peak profile earns suppression. So B *subsumes* A: A's never-unsound behavior is delivered immediately, and B's recurring-spike suppression activates automatically per class as the data matures, in **one gated mechanism** rather than two sequenced proposals. The reviewer's "prove A isn't enough first" step is built into the gate, not skipped — a class only graduates out of A-equivalent pass-through when its own data proves the peak profile is trustworthy.
+
+The remaining decision is therefore not "A vs B" but "build the gate once now, or ship A and add the gate later" — and since A can *never* reduce recurring-spike noise (the actual goal) and the peak data is already present, building the gate now is the lower-total-cost path.
+
 ## Disposition layer — where and how
 
 - **Location: alert/query layer, NOT write-time.** The raw edge finding is always persisted (recall + audit). Disposition is computed when an alert is considered and when the device-detail panel renders. Write-time gating is rejected: it couples ingestion to an 8-week-baseline worker, destroys cold-start recall, and loses the audit trail.
