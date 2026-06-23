@@ -184,35 +184,37 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Queries.CanonicalRebuild d
       local_if_name,
       neighbor_if_name
     WHERE cr.content_hash IS NULL OR cr.content_hash <> content_hash
-    SET cr.ingestor = 'mapper_topology_v1'
-    SET cr.link_key = link_key
-    SET cr.relation_type = best.relation_type
-    SET cr.protocol = best.protocol
-    SET cr.evidence_class = best.evidence_class
-    SET cr.confidence_tier = best.confidence_tier
-    SET cr.confidence_score = best.confidence_score
-    SET cr.confidence_reason = best.confidence_reason
-    SET cr.pair_support_rank = pair_support_rank
-    SET cr.last_observed_at = best.last_observed_at
-    SET cr.local_if_index = local_if_index
-    SET cr.neighbor_if_index = neighbor_if_index
-    SET cr.local_if_name = local_if_name
-    SET cr.neighbor_if_name = neighbor_if_name
-    SET cr.local_if_index_ab = local_if_index
-    SET cr.local_if_index_ba = neighbor_if_index
-    SET cr.local_if_name_ab = local_if_name
-    SET cr.local_if_name_ba = neighbor_if_name
-    SET cr.flow_pps = coalesce(cr.flow_pps, 0)
-    SET cr.flow_bps = coalesce(cr.flow_bps, 0)
-    SET cr.capacity_bps = coalesce(cr.capacity_bps, 0)
-    SET cr.flow_pps_ab = coalesce(cr.flow_pps_ab, 0)
-    SET cr.flow_pps_ba = coalesce(cr.flow_pps_ba, 0)
-    SET cr.flow_bps_ab = coalesce(cr.flow_bps_ab, 0)
-    SET cr.flow_bps_ba = coalesce(cr.flow_bps_ba, 0)
-    SET cr.telemetry_eligible = coalesce(cr.telemetry_eligible, false)
-    SET cr.telemetry_source = coalesce(cr.telemetry_source, 'none')
-    SET cr.telemetry_observed_at = coalesce(cr.telemetry_observed_at, '')
-    SET cr.content_hash = content_hash
+    SET cr += {
+      ingestor: 'mapper_topology_v1',
+      link_key: link_key,
+      relation_type: best.relation_type,
+      protocol: best.protocol,
+      evidence_class: best.evidence_class,
+      confidence_tier: best.confidence_tier,
+      confidence_score: best.confidence_score,
+      confidence_reason: best.confidence_reason,
+      pair_support_rank: pair_support_rank,
+      last_observed_at: best.last_observed_at,
+      local_if_index: local_if_index,
+      neighbor_if_index: neighbor_if_index,
+      local_if_name: local_if_name,
+      neighbor_if_name: neighbor_if_name,
+      local_if_index_ab: local_if_index,
+      local_if_index_ba: neighbor_if_index,
+      local_if_name_ab: local_if_name,
+      local_if_name_ba: neighbor_if_name,
+      flow_pps: coalesce(cr.flow_pps, 0),
+      flow_bps: coalesce(cr.flow_bps, 0),
+      capacity_bps: coalesce(cr.capacity_bps, 0),
+      flow_pps_ab: coalesce(cr.flow_pps_ab, 0),
+      flow_pps_ba: coalesce(cr.flow_pps_ba, 0),
+      flow_bps_ab: coalesce(cr.flow_bps_ab, 0),
+      flow_bps_ba: coalesce(cr.flow_bps_ba, 0),
+      telemetry_eligible: coalesce(cr.telemetry_eligible, false),
+      telemetry_source: coalesce(cr.telemetry_source, 'none'),
+      telemetry_observed_at: coalesce(cr.telemetry_observed_at, ''),
+      content_hash: content_hash
+    }
     """
   end
 
