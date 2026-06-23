@@ -23,10 +23,10 @@
 - [ ] 4.2 Route `disk usage_percent` disposition to the capacity forecaster (Tier B), not the seasonal tier.
 - [ ] 4.3 SNMP interface / sysmon counter series: edge-only, no seasonal coverage claimed; disposition = pass-through with calibrated severity.
 
-## 5. Non-edge flood completion (distinct from the edge gate)
-- [ ] 5.1 Fix capacity_forecasting `event_id` idempotency — stop splicing per-run wall-clock into the id so the `(id, time)` upsert dedups re-runs. Add a test that two runs of the same forecast produce one row. Measure 2004 volume before/after.
-- [ ] 5.2 Add severity calibration: map raw z/deviation score → bounded OCSF severity buckets for `class_uid=2004` findings. Test the mapping; confirm Critical share drops from ~77%.
-- [ ] 5.3 Add a core-side `(device, series_key)` debounce safety net: collapse repeats of an ongoing condition into one open finding with updated state (the `(id, time)` upsert cannot catch distinct-timestamp per-slot emission).
+## 5. Non-edge flood drivers — DEFERRED to fix-anomaly (no work here)
+- [x] 5.1 capacity_forecasting `event_id` idempotency → owned by `fix-anomaly-engine-semantics-and-delivery` **F12 (tasks 10.1, 12.4, done)**; relief ships with that deploy, not here.
+- [x] 5.2 severity calibration (raw detector→finding/alert severity) → owned by fix-anomaly **task 23.4**; this proposal only sets *disposition-driven effective* severity (suppress/downgrade/escalate), per the spec.
+- [x] 5.3 per-series debounce / one-ongoing-condition-one-alert → owned by fix-anomaly **task 23.2**. Removed from this proposal to avoid double-fixing the same flood.
 
 ## 6. Peak profile — matched-resolution disposition (Option B core; prerequisite for §3)
 - [ ] 6.1 Edge: forward **peak magnitude + spike window** in the finding payload (the detector already computes both).

@@ -10,9 +10,7 @@
 
 3. **Soundness + scope defects in the seasonal tier itself.** The three default seasonal sources ship `robust_statistic: :mean_stddev` (`source.ex:82,103,116`), but the design mandates `median+MAD` so a past incident hour does not poison the profile (`add-causal-anomaly-detection/design.md:151,242`). And the seasonal sources cover `cpu/mem/disk usage_percent` only — **not** the SNMP interface/sysmon series that dominate the flood — so "seasonal disposes the flood" is a category overreach.
 
-Separately, two **non-edge** flood drivers in the same `class_uid=2004` bucket are not addressed by the edge gate and must not be mistaken for "fixed" after the edge deploy:
-- **capacity_forecasting duplicate-per-run** (~2,528/hr ≈ 425k/week): per-run wall-clock is spliced into the `event_id`, defeating the `(id, time)` upsert dedup.
-- **Uncalibrated severity**: raw z/deviation scores (12 … 92,554) → ~77% Critical, making undisposed/cold-start noise look like an emergency.
+(Two other `class_uid=2004` flood drivers — capacity_forecasting `event_id` duplicate-per-run ~425k/week, and uncalibrated ~77%-Critical severity — are **already owned by `fix-anomaly-engine-semantics-and-delivery`** (F12 / tasks 10.1, 12.4, 23.2, 23.4) and ship with that deploy. They are explicitly **out of scope here** so the two proposals don't double-fix the same flood.)
 
 This proposal decides the resolution model and builds the disposition layer correctly on top of it.
 
@@ -21,9 +19,8 @@ This proposal decides the resolution model and builds the disposition layer corr
 - **Resolution model — DECIDED: Option B, matched-resolution peak disposition** (the central design question; see `design.md`). The edge forwards the spike's **peak magnitude + window**, and the core builds a **peak profile** from the existing `timeseries_metrics_hourly.max_value` (no schema change) to judge the spike against the series' normal hour-of-week peak — so "is this spike seasonal?" is answered at *matched resolution*, not against the diluting hourly mean. A recurring spike (peak within profile) → suppress/downgrade; a novel spike (peak above) → escalate. Rolled out per metric class behind a peak-profile stability gate.
 - **Close the disposition loop at the alert/query layer** (not write-time): a correlation step that joins an edge-spike finding to the overlapping central-seasonal verdict by canonical `series_key` + time window and emits a **disposition** (suppress / downgrade / escalate / pass-through) consumed by the alert engine and the device-detail panel. Raw edge findings are retained for audit.
 - **Make seasonal disposition emit for every evaluated series** (not only on breach/suppress) so there is a verdict to join, and **gate it on the live `dispose_batch` NIF** so a retired/missing NIF fails loud, not silently-empty.
-- **Correct the seasonal statistic + scope**: default to `median+MAD` for both the mean and peak profiles; route `disk usage_percent` to the capacity forecaster; raw non-normalized counters stay edge-only + calibrated severity. Under Option B the peak profile **does** cover the SNMP/interface utilization series that dominate the flood, once their peak profile is stable — the payoff over the simpler alternative.
-- **Fix capacity_forecasting `event_id` idempotency** and **add severity calibration** for `class_uid=2004` findings.
-- **Add a core-side per-`(device, series_key)` debounce** as a safety net so a future edge regression to per-sample emission is absorbed, not re-flooded.
+- **Correct the seasonal statistic + scope**: default to `median+MAD` for both the mean and peak profiles; route `disk usage_percent` to the capacity forecaster; raw non-normalized counters stay edge-only. Under Option B the peak profile **does** cover the SNMP/interface utilization series that dominate the flood, once their peak profile is stable — the payoff over the simpler alternative.
+- **Disposition-driven severity**: the disposition sets a finding's effective severity (suppress → off the alert path, downgrade → lower, escalate → higher). The raw detector→finding severity calibration is `fix-anomaly`'s (task 23.4), not duplicated here.
 
 ## Impact
 

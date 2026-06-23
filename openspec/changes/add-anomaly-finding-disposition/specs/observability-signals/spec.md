@@ -130,24 +130,16 @@ silently emitting zero verdicts that are indistinguishable from "all normal".
 - **THEN** it SHALL surface a degraded-mode signal
 - **AND** it SHALL NOT report success with zero emitted verdicts as if all series were normal
 
-### Requirement: Anomaly Finding Severity Calibration
-`class_uid=2004` findings SHALL map their raw detector score (z / deviation) onto
-bounded OCSF severity buckets through a calibration transform, so undisposed or
-cold-start findings are not disproportionately Critical.
+### Requirement: Disposition-Driven Effective Severity
+A finding's surfaced severity SHALL follow its disposition: `suppress` removes it
+from the surfaced/alert path, `downgrade` lowers its severity, `escalate` raises
+it, and `pass_through` leaves it unchanged. (The raw detector→finding severity
+calibration and the capacity `event_id` idempotency are owned by
+`fix-anomaly-engine-semantics-and-delivery` (F12, task 23.4) and are out of scope
+here.)
 
-#### Scenario: Raw score is bucketed
-- **GIVEN** an anomaly finding with a raw deviation score far outside the typical range
-- **WHEN** the finding severity is assigned
-- **THEN** the severity SHALL be a bounded calibrated bucket
-- **AND** the calibration SHALL NOT change which findings are emitted (recall is unchanged)
-
-### Requirement: Capacity Forecast Finding Idempotency
-Capacity forecast findings SHALL derive their `event_id` from stable forecast
-identity (series + horizon), not from per-run wall-clock, so repeated runs of the
-same forecast collapse under the `(id, time)` upsert instead of accumulating
-duplicate rows.
-
-#### Scenario: Re-running a forecast does not duplicate
-- **GIVEN** the capacity forecaster runs twice for the same series and horizon with no underlying change
-- **WHEN** both runs persist their findings
-- **THEN** the two findings SHALL collapse to a single row under the `(id, time)` upsert
+#### Scenario: Downgrade lowers surfaced severity
+- **GIVEN** an edge finding dispositioned as `downgrade`
+- **WHEN** it is surfaced to the alert path and the device-detail panel
+- **THEN** its effective severity SHALL be lower than its raw detector severity
+- **AND** a `suppress` disposition SHALL remove it from the alert path entirely
