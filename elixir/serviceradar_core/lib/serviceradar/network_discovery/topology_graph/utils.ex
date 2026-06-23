@@ -208,13 +208,45 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Utils do
   def interface_id(device_id, if_name, if_index) do
     cond do
       is_binary(if_name) and String.trim(if_name) != "" ->
-        "#{device_id}/#{String.trim(if_name)}"
+        "#{device_id}/#{normalize_interface_label(if_name)}"
 
       is_integer(if_index) ->
         "#{device_id}/ifindex:#{if_index}"
 
       true ->
         nil
+    end
+  end
+
+  # Canonicalize an interface label so the same physical port keyed by a MAC in
+  # different formats (colon vs no-colon vs dot, mixed case) resolves to one id.
+  # LLDP/CDP neighbor port-ids are frequently MACs in varying encodings, which was
+  # producing duplicate Interface vertices (e.g. "d021f9d2e16d" vs
+  # "d0:21:f9:d2:e1:6d"). Non-MAC labels (named ports) are returned trimmed,
+  # unchanged.
+  @spec normalize_interface_label(String.t()) :: String.t()
+  def normalize_interface_label(label) when is_binary(label) do
+    trimmed = String.trim(label)
+
+    case canonical_mac(trimmed) do
+      nil -> trimmed
+      mac -> mac
+    end
+  end
+
+  defp canonical_mac(value) do
+    hex =
+      value
+      |> String.replace([":", "-", ".", " "], "")
+      |> String.downcase()
+
+    if hex =~ ~r/\A[0-9a-f]{12}\z/ do
+      hex
+      |> String.graphemes()
+      |> Enum.chunk_every(2)
+      |> Enum.map_join(":", &Enum.join/1)
+    else
+      nil
     end
   end
 
