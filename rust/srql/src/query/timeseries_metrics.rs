@@ -43,6 +43,7 @@ struct TimeseriesStatsSpec {
     aggregations: Vec<TimeseriesAggregationSpec>,
     group_by: Vec<TimeseriesGroupSpec>,
     profile_hour_of_week: Option<String>,
+    profile_hour_of_week_peak: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -144,6 +145,8 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
     if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
         let sql = if spec.is_profile_hour_of_week() {
             build_profile_hour_of_week_query(plan, scope, &spec)?
+        } else if spec.is_profile_hour_of_week_peak() {
+            build_peak_profile_query(plan, scope, &spec)?
         } else if should_route_stats_to_cagg(plan, &spec) {
             build_cagg_stats_query(plan, scope, &spec)?
         } else {
@@ -802,6 +805,8 @@ async fn execute_stats(
 ) -> Result<Vec<Value>> {
     let sql = if spec.is_profile_hour_of_week() {
         build_profile_hour_of_week_query(plan, scope, spec)?
+    } else if spec.is_profile_hour_of_week_peak() {
+        build_peak_profile_query(plan, scope, spec)?
     } else if should_route_stats_to_cagg(plan, spec) {
         build_cagg_stats_query(plan, scope, spec)?
     } else {
@@ -842,7 +847,7 @@ fn build_cagg_stats_query(
     scope: MetricScope<'static>,
     spec: &TimeseriesStatsSpec,
 ) -> Result<TimeseriesStatsSql> {
-    if spec.is_profile_hour_of_week() {
+    if spec.is_profile_hour_of_week() || spec.is_profile_hour_of_week_peak() {
         return Err(ServiceError::InvalidRequest(
             "profile_hour_of_week cannot use hourly CAGG stats routing".into(),
         ));
@@ -1207,6 +1212,151 @@ LIMIT {} OFFSET {}"#,
     Ok(TimeseriesStatsSql { sql, binds })
 }
 
+/// Build the peak hour-of-day profile feeding the UASB peak-disposition kernel:
+/// the `(series, hod)` cell robust summary (n, median, `(p95−p05)·0.30398` scale,
+/// q95) over `max_value`, plus the **per-series** (series-overall) robust prior
+/// scale. The CELL stays `(series, hod)` and is never pooled across `hod` (no
+/// smear, invariant I3); the prior is the series' own overall scale used ONLY as
+/// the I2 min-cap bound — calibration on real data showed a pooled `(hod)`-class
+/// prior is far too wide (~30) to bound a poisoned tight cell (idle series scale
+/// ~0.5), so the bound must be the series' own scale. Collapses DOW (live data
+/// shows it adds ~nothing while `(series,hod)` fills in a week). Excludes the
+/// latest bucket from the baseline, matching the seasonal profile contract.
+fn build_peak_profile_query(
+    plan: &QueryPlan,
+    scope: MetricScope<'static>,
+    spec: &TimeseriesStatsSpec,
+) -> Result<TimeseriesStatsSql> {
+    let Some(field) = spec.profile_hour_of_week_peak.as_deref() else {
+        return Err(ServiceError::InvalidRequest(
+            "peak profile route requires profile_hour_of_week_peak stats".into(),
+        ));
+    };
+
+    if field != "value" {
+        return Err(ServiceError::InvalidRequest(
+            "profile_hour_of_week_peak only supports value".into(),
+        ));
+    }
+
+    let mut clauses = vec!["device_id IS NOT NULL".to_string()];
+    let mut binds = Vec::new();
+
+    if let MetricScope::Forced(metric_type) = scope {
+        clauses.push("metric_type = ?".to_string());
+        binds.push(SqlBindValue::Text(metric_type.to_string()));
+    }
+
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        clauses.push(super::hourly_cagg_lower_bound_clause("bucket"));
+        binds.push(SqlBindValue::Timestamp(*start));
+        clauses.push(super::hourly_cagg_upper_bound_clause("bucket"));
+        binds.push(SqlBindValue::Timestamp(*end));
+    } else {
+        return Err(ServiceError::InvalidRequest(
+            "profile_hour_of_week_peak requires an explicit time range".into(),
+        ));
+    }
+
+    let timezone = profile_timezone(plan)?;
+
+    for filter in &plan.filters {
+        if filter.field.eq_ignore_ascii_case("timezone") {
+            continue;
+        }
+
+        match build_stats_filter_clause(filter, true)? {
+            Some((clause, mut values)) => {
+                clauses.push(clause);
+                binds.append(&mut values);
+            }
+            None => {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "unsupported filter field for profile_hour_of_week_peak: '{}'",
+                    filter.field
+                )))
+            }
+        }
+    }
+
+    let where_sql = if clauses.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", clauses.join(" AND "))
+    };
+
+    // One timezone-dependent extraction (hour only; DOW is collapsed).
+    binds.push(SqlBindValue::Text(timezone));
+
+    let sql = format!(
+        r#"WITH hourly AS (
+  SELECT
+    device_id AS series,
+    bucket,
+    max_value::float8 AS sample_value
+  FROM timeseries_metrics_hourly
+  {where_sql}
+),
+local_hourly AS (
+  SELECT
+    series,
+    bucket,
+    sample_value,
+    EXTRACT(HOUR FROM timezone(?, bucket))::int AS hod
+  FROM hourly
+),
+latest AS (
+  SELECT DISTINCT ON (series)
+    series, hod, bucket, sample_value
+  FROM local_hourly
+  ORDER BY series, bucket DESC
+),
+cell AS (
+  SELECT
+    h.series,
+    h.hod,
+    count(*) AS n,
+    percentile_cont(0.5) WITHIN GROUP (ORDER BY h.sample_value)::float8 AS center,
+    (percentile_cont(0.95) WITHIN GROUP (ORDER BY h.sample_value)
+       - percentile_cont(0.05) WITHIN GROUP (ORDER BY h.sample_value))::float8 * 0.30398 AS scale_cell,
+    percentile_cont(0.95) WITHIN GROUP (ORDER BY h.sample_value)::float8 AS q95
+  FROM local_hourly h
+  JOIN latest l ON l.series = h.series
+  WHERE h.bucket <> l.bucket
+  GROUP BY h.series, h.hod
+),
+prior AS (
+  SELECT
+    series,
+    (percentile_cont(0.95) WITHIN GROUP (ORDER BY sample_value)
+       - percentile_cont(0.05) WITHIN GROUP (ORDER BY sample_value))::float8 * 0.30398 AS scale_prior
+  FROM local_hourly
+  GROUP BY series
+)
+SELECT jsonb_build_object(
+  'series', l.series,
+  'hod', l.hod,
+  'sample_value', l.sample_value,
+  'bucket', l.bucket,
+  'n', c.n,
+  'center', c.center,
+  'scale_cell', c.scale_cell,
+  'q95', c.q95,
+  'scale_prior', p.scale_prior
+) AS payload
+FROM latest l
+JOIN cell c
+  ON c.series = l.series
+ AND c.hod = l.hod
+LEFT JOIN prior p
+  ON p.series = l.series
+LIMIT {} OFFSET {}"#,
+        plan.limit, plan.offset
+    );
+
+    Ok(TimeseriesStatsSql { sql, binds })
+}
+
 fn validate_timeseries_other_rollup(spec: &TimeseriesStatsSpec) -> Result<()> {
     for agg in &spec.aggregations {
         if !matches!(agg.func, TimeseriesAggFunc::Sum | TimeseriesAggFunc::Count) {
@@ -1439,11 +1589,21 @@ fn parse_stats_spec(raw: Option<&str>) -> Result<Option<TimeseriesStatsSpec>> {
         _ => return Ok(None),
     };
 
+    if let Some(field) = parse_profile_hour_of_week_peak(stats_raw)? {
+        return Ok(Some(TimeseriesStatsSpec {
+            aggregations: Vec::new(),
+            group_by: Vec::new(),
+            profile_hour_of_week: None,
+            profile_hour_of_week_peak: Some(field),
+        }));
+    }
+
     if let Some(field) = parse_profile_hour_of_week(stats_raw)? {
         return Ok(Some(TimeseriesStatsSpec {
             aggregations: Vec::new(),
             group_by: Vec::new(),
             profile_hour_of_week: Some(field),
+            profile_hour_of_week_peak: None,
         }));
     }
 
@@ -1487,7 +1647,27 @@ fn parse_stats_spec(raw: Option<&str>) -> Result<Option<TimeseriesStatsSpec>> {
         aggregations,
         group_by,
         profile_hour_of_week: None,
+        profile_hour_of_week_peak: None,
     }))
+}
+
+fn parse_profile_hour_of_week_peak(raw: &str) -> Result<Option<String>> {
+    let normalized = raw.trim().to_lowercase();
+    let Some(inner) = normalized
+        .strip_prefix("profile_hour_of_week_peak(")
+        .and_then(|value| value.strip_suffix(')'))
+    else {
+        return Ok(None);
+    };
+
+    let field = inner.trim();
+    if field != "value" {
+        return Err(ServiceError::InvalidRequest(
+            "profile_hour_of_week_peak only supports value".into(),
+        ));
+    }
+
+    Ok(Some(field.to_string()))
 }
 
 fn parse_profile_hour_of_week(raw: &str) -> Result<Option<String>> {
@@ -1651,8 +1831,13 @@ impl TimeseriesStatsSpec {
         self.profile_hour_of_week.is_some()
     }
 
+    fn is_profile_hour_of_week_peak(&self) -> bool {
+        self.profile_hour_of_week_peak.is_some()
+    }
+
     fn is_avg_value_by_device(&self) -> bool {
         !self.is_profile_hour_of_week()
+            && !self.is_profile_hour_of_week_peak()
             && self.aggregations.len() == 1
             && self.group_by.len() == 1
             && self.group_by[0].field == "device_id"
@@ -1970,6 +2155,67 @@ mod tests {
             !should_route_stats_to_cagg(&plan, &spec),
             "profile stats must use the dedicated hourly profile route"
         );
+    }
+
+    #[test]
+    fn profile_hour_of_week_peak_builds_max_based_cell_and_prior_sql() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::days(30);
+        let plan = QueryPlan {
+            entity: Entity::TimeseriesMetrics,
+            filters: vec![
+                Filter {
+                    field: "metric_type".into(),
+                    op: FilterOp::Eq,
+                    value: FilterValue::Scalar("sysmon.cpu".to_string()),
+                },
+                Filter {
+                    field: "metric_name".into(),
+                    op: FilterOp::Eq,
+                    value: FilterValue::Scalar("cpu.usage_percent".to_string()),
+                },
+                Filter {
+                    field: "timezone".into(),
+                    op: FilterOp::Eq,
+                    value: FilterValue::Scalar("America/Chicago".to_string()),
+                },
+            ],
+            order: vec![],
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "profile_hour_of_week_peak(value)",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        };
+
+        let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
+            .unwrap()
+            .unwrap();
+        assert!(spec.is_profile_hour_of_week_peak());
+        assert!(!spec.is_profile_hour_of_week());
+
+        let sql = build_peak_profile_query(&plan, MetricScope::Any, &spec)
+            .expect("peak profile SQL should build");
+
+        assert!(
+            sql.sql.contains("max_value::float8 AS sample_value")
+                && sql.sql.contains("EXTRACT(HOUR FROM timezone")
+                && !sql.sql.contains("EXTRACT(DOW")
+                && sql.sql.contains("cell AS")
+                && sql.sql.contains("prior AS")
+                && sql.sql.contains("'scale_cell', c.scale_cell")
+                && sql.sql.contains("'scale_prior', p.scale_prior"),
+            "unexpected peak profile SQL: {}",
+            sql.sql
+        );
+        // time(2) + metric_type/metric_name filters(2) + timezone(1) = 5
+        assert_eq!(sql.binds.len(), 5);
+        assert!(!should_route_stats_to_cagg(&plan, &spec));
     }
 
     #[test]
