@@ -14,5 +14,16 @@
 pub mod engine;
 
 mod addon;
+mod checkpoint;
+mod config;
+mod frame;
+mod health;
+mod identity;
+mod metrics_classify;
+mod shed;
+mod verdict;
+
+#[cfg(test)]
+mod tests;
 
 pub use addon::AnomalyAddon;
