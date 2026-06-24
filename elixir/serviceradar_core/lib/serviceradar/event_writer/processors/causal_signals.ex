@@ -276,24 +276,33 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   defp existing_ocsf_event_times(_repo, []), do: {:ok, %{}}
 
   defp existing_ocsf_event_times(repo, ids) when is_list(ids) do
-    sql = """
-    SELECT id::text, min(time)
-    FROM platform.ocsf_events
-    WHERE id = ANY($1::uuid[])
-    GROUP BY id
-    """
+    # `ids` arrive as canonical UUID strings (via `uuid_conflict_value/1`), but
+    # Postgrex encodes a `uuid[]` bind as 16-byte binaries, so dump them back to
+    # binary before the query — otherwise the bind fails with an EncodeError.
+    binary_ids = ids |> Enum.map(&uuid_to_binary/1) |> Enum.reject(&is_nil/1)
 
-    case repo.query(sql, [ids]) do
-      {:ok, %{rows: rows}} ->
-        {:ok, Map.new(rows, &existing_ocsf_time_row/1)}
+    if binary_ids == [] do
+      {:ok, %{}}
+    else
+      sql = """
+      SELECT id::text, min(time)
+      FROM platform.ocsf_events
+      WHERE id = ANY($1::uuid[])
+      GROUP BY id
+      """
 
-      {:error, reason} = error ->
-        Logger.warning("Failed to load existing OCSF event times",
-          reason: inspect(reason),
-          count: length(ids)
-        )
+      case repo.query(sql, [binary_ids]) do
+        {:ok, %{rows: rows}} ->
+          {:ok, Map.new(rows, &existing_ocsf_time_row/1)}
 
-        error
+        {:error, reason} = error ->
+          Logger.warning("Failed to load existing OCSF event times",
+            reason: inspect(reason),
+            count: length(binary_ids)
+          )
+
+          error
+      end
     end
   end
 
@@ -340,6 +349,18 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   end
 
   defp uuid_conflict_value(id), do: id
+
+  # Inverse of `uuid_conflict_value/1` for query binds: canonical UUID string -> 16-byte binary.
+  defp uuid_to_binary(<<_::128>> = id), do: id
+
+  defp uuid_to_binary(id) when is_binary(id) do
+    case Ecto.UUID.dump(id) do
+      {:ok, binary} -> binary
+      :error -> nil
+    end
+  end
+
+  defp uuid_to_binary(_), do: nil
 
   defp time_conflict_value(%DateTime{} = time), do: DateTime.to_unix(time, :microsecond)
 
