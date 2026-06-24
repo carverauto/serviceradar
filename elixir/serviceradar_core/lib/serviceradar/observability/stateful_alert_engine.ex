@@ -66,6 +66,26 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     fan_out(:evaluate_metrics, rows)
   end
 
+  @doc """
+  Auto-resolve open alerts for `rule_name` whose group has had no matching record
+  since `cutoff`. Used for the edge-spike anomaly rule: when a monitored series goes
+  silent (an ephemeral pod is destroyed, a host is decommissioned, or the edge
+  add-on evicts the series at its memory cap) no `anomaly_clear` ever arrives, so the
+  alert would otherwise sit open until manual cleanup.
+
+  Runs inside each owning shard and reuses the exact resolve path a real
+  `anomaly_clear` takes (`handle_recovery`), so the in-memory ETS snapshot and the
+  Postgres `alert_id` stay consistent — a later re-anomaly of the same series opens a
+  fresh alert rather than being suppressed by a stale snapshot. Returns the count
+  resolved across all shards.
+  """
+  @spec resolve_stale_anomalies(String.t(), DateTime.t(), DateTime.t()) ::
+          {:ok, non_neg_integer()} | {:error, term()}
+  def resolve_stale_anomalies(rule_name, %DateTime{} = cutoff, %DateTime{} = now)
+      when is_binary(rule_name) do
+    fan_out_resolve({:resolve_stale_anomalies, {rule_name, cutoff, now}})
+  end
+
   @doc "Number of engine shards (configurable, defaults to #{@default_shard_count})."
   @spec shard_count() :: pos_integer()
   def shard_count do
@@ -121,6 +141,37 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   defp dispatch_shard(shard, message_tag, records) do
     with {:ok, _pid} <- ensure_started(shard) do
       call(shard, {message_tag, records})
+    end
+  end
+
+  # Like `fan_out`, but for the resolve-stale sweep: each shard returns the count it
+  # resolved (only the shard owning the rule resolves anything), and we sum them.
+  defp fan_out_resolve(message) do
+    case shard_count() do
+      1 ->
+        dispatch_resolve_shard(0, message)
+
+      shard_count ->
+        0..(shard_count - 1)
+        |> Task.async_stream(
+          fn shard -> dispatch_resolve_shard(shard, message) end,
+          timeout: to_timeout(second: 20),
+          on_timeout: :kill_task,
+          ordered: false
+        )
+        |> Enum.reduce({:ok, 0}, fn
+          {:ok, {:ok, n}}, {:ok, acc} -> {:ok, acc + n}
+          {:ok, {:error, reason}}, {:ok, _acc} -> {:error, reason}
+          {:ok, _}, acc -> acc
+          {:exit, reason}, {:ok, _acc} -> {:error, {:shard_exit, reason}}
+          {:exit, _reason}, acc -> acc
+        end)
+    end
+  end
+
+  defp dispatch_resolve_shard(shard, message) do
+    with {:ok, _pid} <- ensure_started(shard) do
+      call(shard, message)
     end
   end
 
@@ -180,6 +231,24 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   rescue
     error ->
       Logger.warning("Stateful alert evaluation failed: #{inspect(error)}")
+      {:reply, {:error, error}, state}
+  end
+
+  @impl true
+  def handle_call({:resolve_stale_anomalies, {rule_name, cutoff, now}}, _from, state) do
+    {state, rules} = load_rules_if_needed(state)
+
+    # Only the shard that owns the rule will find it in its loaded set.
+    resolved =
+      case Enum.find(rules, fn rule -> rule.name == rule_name end) do
+        nil -> 0
+        rule -> sweep_stale_anomalies(rule, cutoff, now, state)
+      end
+
+    {:reply, {:ok, resolved}, state}
+  rescue
+    error ->
+      Logger.warning("Stale-anomaly auto-resolve failed: #{inspect(error)}")
       {:reply, {:error, error}, state}
   end
 
@@ -558,6 +627,39 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     |> Map.put(:last_notification_at, nil)
     |> Map.put(:flush_required, true)
   end
+
+  # Resolve every open snapshot for `rule` whose last matching record predates
+  # `cutoff` (the series went silent, so no `anomaly_clear` will arrive). Reuses
+  # `handle_recovery` — the same path a real clear takes — then persists, so the ETS
+  # snapshot and Postgres agree. The stale rows are collected before mutating so the
+  # `:ets.insert` does not run during the fold.
+  defp sweep_stale_anomalies(rule, cutoff, now, state) do
+    stale =
+      :ets.foldl(
+        fn {key, snapshot}, acc ->
+          if snapshot.rule_id == rule.id and is_binary(snapshot.alert_id) and
+               stale_snapshot?(snapshot.last_seen_at, cutoff) do
+            [{key, snapshot} | acc]
+          else
+            acc
+          end
+        end,
+        [],
+        state.table
+      )
+
+    Enum.reduce(stale, 0, fn {key, snapshot}, acc ->
+      resolved = handle_recovery(snapshot, rule, nil, now)
+      persist_snapshot(resolved, rule, state)
+      :ets.insert(state.table, {key, resolved})
+      acc + 1
+    end)
+  end
+
+  defp stale_snapshot?(%DateTime{} = last_seen_at, %DateTime{} = cutoff),
+    do: DateTime.compare(last_seen_at, cutoff) == :lt
+
+  defp stale_snapshot?(_last_seen_at, _cutoff), do: false
 
   defp maybe_renotify(snapshot, rule, now) do
     renotify_seconds = rule.renotify_seconds || 0

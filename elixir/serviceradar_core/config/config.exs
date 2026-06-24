@@ -54,7 +54,9 @@ config :serviceradar_core, Oban,
         args: %{"trigger" => "cron"}, queue: :maintenance},
        {"*/10 * * * *", ServiceRadar.Edge.RemoteAccessRecordingReaperWorker, queue: :maintenance},
        {"31 3 * * *", ServiceRadar.Edge.RemoteAccessVersionRetentionWorker, queue: :maintenance},
-       {"23 3 * * *", ServiceRadar.Jobs.SecurityEventsRetentionWorker, queue: :maintenance}
+       {"23 3 * * *", ServiceRadar.Jobs.SecurityEventsRetentionWorker, queue: :maintenance},
+       {"*/30 * * * *", ServiceRadar.Observability.ResolveStaleAnomaliesWorker,
+        queue: :maintenance}
      ]}
   ],
   peer: Oban.Peers.Database

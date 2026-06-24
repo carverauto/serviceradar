@@ -1278,6 +1278,8 @@ if config_env() == :prod do
            {"*/10 * * * *", ServiceRadar.Edge.RemoteAccessRecordingReaperWorker,
             queue: :maintenance},
            {"31 3 * * *", ServiceRadar.Edge.RemoteAccessVersionRetentionWorker,
+            queue: :maintenance},
+           {"*/30 * * * *", ServiceRadar.Observability.ResolveStaleAnomaliesWorker,
             queue: :maintenance}
          ] ++
            object_store_retention_crontab ++
