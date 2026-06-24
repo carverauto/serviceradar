@@ -5,10 +5,10 @@
 - [x] 0.2 Establish the metric `series_key` is the wrong join target: not reproducible from stored fields (6 component sets tried), hashed with `device_id` empty (B1), folds in ingestion tags (M3). Disposition already groups by `device_id`.
 - [x] 0.3 Establish the canonical join key is `(device_id, metric_name, if_index)` and that `anomaly_detection_device_uid` already resolves SNMP via `target_device_ip` + `DeviceCorrelation`.
 
-## 1. Root-cause the empty `device.uid` (the load-bearing unknown)
-- [ ] 1.1 Demo shows 100% of last-3h anomalies have an empty resolved `device.uid`. Determine why: (a) deployed build predates `anomaly_detection_device_uid`, (b) `DeviceCorrelation.resolve` misses for these (cache/inventory gap), or (c) the resolved uid is computed but not written to the field the finding/disposition reads. Pin to a line.
-- [ ] 1.2 If (a) stale deploy: confirm current-code behavior in a test (an SNMP verdict with `target_device_ip` resolves to `sr:<target>`); the live fix is a deploy, tracked separately.
-- [ ] 1.3 If (b)/(c) code gap: fix so the resolved canonical `device_id` is persisted on the finding as a **queryable field** (not only in metadata), type-agnostically (review M2 — SNMP and host series).
+## 1. Root cause (RESOLVED): stale addon + one unmerged refinement
+- [x] 1.1 Empty `device.uid` is NOT a central code gap. The central resolver (`anomaly_detection_device_uid`, `e9c249798`) is correct AND deployed (in `4c4a76341`). The defect is upstream: the **deployed addon on the agents is stale** (`serviceradar-anomaly-addon` v0.1.1, built Jun 18 20:15) and predates BOTH SNMP-target-attribution fixes (`6cd7c4440` Jun 19 03:25, on staging; `0422ae92e` Jun 19 11:13). So the verdict carries the AGENT identity (`v2:…class=snmp…identity=agent-sr-test-pve04…`) with no `target_device_ip`, leaving the resolver nothing to resolve. Confirmed via SSH to dusk01 + the decoded v2 subject.
+- [ ] 1.2 Merge `0422ae92e` ("derive SNMP target identity from tags") to staging — it is currently only on feature branches, not staging (staging has only the base `6cd7c4440`).
+- [ ] 1.3 Rebuild + deploy the addon to the demo agents (so it carries `6cd7c4440` + `0422ae92e`); the central resolver already does the rest. This is a deploy, not a code change.
 
 ## 2. Key the joins on the canonical tuple (not `series_key`)
 - [ ] 2.1 Audit the disposition feed + the `#4288` stale-alert liveness query: ensure both correlate anomaly↔metric on `(device_id, metric_name, if_index)`. The `profile_hour_of_week_peak` SQL already groups by `device_id`; confirm the anomaly side supplies the resolved `device_id`, `metric_name`, `if_index`.

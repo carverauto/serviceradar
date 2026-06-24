@@ -43,8 +43,12 @@ Central **already has the resolver**: `anomaly_detection_device_uid`
 `DeviceCorrelation.resolve` to the canonical `sr:` device (with a comment block
 describing the exact agent-vs-target reasoning). The work is therefore:
 
-1. **Make the resolution effective** — demo proves it is not (empty `device.uid`),
-   whether from a stale deploy or a wiring gap in where the resolved uid is written.
+1. **Deploy the addon fix** — root-caused (SSH to dusk01 + decoded v2 subject) to a
+   **stale addon** (`serviceradar-anomaly-addon` v0.1.1, built Jun 18) that predates
+   the SNMP-target-attribution fixes (`6cd7c4440` is on staging; `0422ae92e` "derive
+   target from tags" is unmerged). It emits agent-identity verdicts with no
+   `target_device_ip`, so the (correct, deployed) central resolver has nothing to
+   resolve. Merge `0422ae92e` + rebuild/deploy the addon — not a code change.
 2. **Make the join key on the canonical tuple**, type-agnostically (not SNMP-only —
    review **M2**), so the disposition feed and `#4288` liveness correlate on
    `(device_id, metric_name, if_index)`.
