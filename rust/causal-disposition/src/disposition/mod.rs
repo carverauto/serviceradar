@@ -11,7 +11,6 @@
 //! boundary, while keeping the kernel crate rustler-free for bazel/tests.
 
 pub mod capacity;
-pub mod peak;
 pub mod seasonal;
 
 /// The disposition a kernel assigns to the latest complete bucket under test.

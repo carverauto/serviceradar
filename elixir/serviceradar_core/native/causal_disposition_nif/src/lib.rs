@@ -33,9 +33,8 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use rustler::{NifTaggedEnum, NifUnitEnum};
 use serviceradar_causal_disposition::{
-    dispose_capacity, dispose_peak, dispose_seasonal, CapacityConfig, CapacityDisposition,
-    CapacityRow, PeakConfig, PeakOutcome, PeakRow, SeasonalConfig, SeasonalDisposition,
-    SeasonalRow,
+    dispose_capacity, dispose_seasonal, CapacityConfig, CapacityDisposition, CapacityRow,
+    SeasonalConfig, SeasonalDisposition, SeasonalRow,
 };
 
 /// Which disposition kernel to run for the batch (the `kind` argument). Encodes on
@@ -46,8 +45,6 @@ pub enum DispositionKind {
     Seasonal,
     /// Capacity forecast disposition (phase 2 — parity-gated, NOT yet wired).
     Capacity,
-    /// Peak hour-of-day disposition (UASB shrinkage band; encodes as `:peak`).
-    Peak,
 }
 
 /// One per-row request: the kernel config (the read-only `Context` channel) plus the
@@ -68,14 +65,6 @@ pub enum DispositionRequest {
         config: CapacityConfig,
         row: CapacityRow,
     },
-    /// A peak row plus its UASB config and the carried leaky-bucket confirm
-    /// counter. The `dispose_batch` `kind` must be `:peak`; a kind/variant mismatch
-    /// is a per-row `{:error, _}`, never an unwind (graft #1).
-    Peak {
-        config: PeakConfig,
-        row: PeakRow,
-        carried: usize,
-    },
 }
 
 /// One per-row result. A `NifTaggedEnum`, so the worker reads back a typed tuple
@@ -90,9 +79,6 @@ pub enum DispositionResult {
     /// The kernel produced a capacity disposition for the row (phase 2). Encodes as
     /// `{:capacity_ok, %{series_key: ..., disposition: {...}}}`.
     CapacityOk(CapacityDisposition),
-    /// The kernel produced a peak disposition for the row. Encodes as
-    /// `{:peak_ok, %{series_key: ..., disposition: {...}, next_carried: ..., surfaced: ..., score: ...}}`.
-    PeakOk(PeakOutcome),
     /// The row could not be disposed: a kind/row-variant mismatch, or — via the
     /// `catch_unwind` safety net — a panic that was contained to this one row
     /// instead of the scheduler thread.
@@ -133,14 +119,6 @@ fn dispose_one(kind: DispositionKind, request: DispositionRequest) -> Dispositio
         (DispositionKind::Capacity, DispositionRequest::Capacity { config, row }) => {
             DispositionResult::CapacityOk(dispose_capacity(row, &config))
         }
-        (
-            DispositionKind::Peak,
-            DispositionRequest::Peak {
-                config,
-                row,
-                carried,
-            },
-        ) => DispositionResult::PeakOk(dispose_peak(row, carried, &config)),
         // A kind/row-variant mismatch (e.g. a `:capacity` kind with a seasonal row,
         // or vice versa) is a contract error reported per row as a value, never an
         // unwind (graft #1).
@@ -154,9 +132,6 @@ fn dispose_one(kind: DispositionKind, request: DispositionRequest) -> Dispositio
                 "kind/row mismatch: :capacity kind with a seasonal row".to_string(),
             )
         }
-        // Any remaining pairing — every combination involving a `:peak` kind/row
-        // mismatch — is the same contract error, reported per row as a value.
-        _ => DispositionResult::Error("kind/row mismatch".to_string()),
     }));
 
     match outcome {
@@ -182,58 +157,8 @@ mod tests {
 
     use super::*;
     use serviceradar_causal_disposition::{
-        CapacityModelKind, CapacityPoint, Disposition, PeakDisposition, RobustStatistic,
+        CapacityModelKind, CapacityPoint, Disposition, RobustStatistic,
     };
-
-    /// A warm, well-behaved peak cell (center 20, tight scale) that suddenly peaks
-    /// at 60% — a novel spike the UASB kernel must escalate, not suppress.
-    fn novel_peak_row() -> PeakRow {
-        PeakRow {
-            series_key: "svc/cpu".to_string(),
-            hod: 3,
-            peak: 60.0,
-            n: 8,
-            cell_center: 20.0,
-            cell_scale: 2.0,
-            prior_scale: 2.0,
-            q95: 24.0,
-        }
-    }
-
-    #[test]
-    fn peak_request_disposes_to_peak_ok() {
-        let out = dispose_one(
-            DispositionKind::Peak,
-            DispositionRequest::Peak {
-                config: PeakConfig::default(),
-                row: novel_peak_row(),
-                carried: 0,
-            },
-        );
-        match out {
-            DispositionResult::PeakOk(outcome) => {
-                assert_eq!(outcome.series_key, "svc/cpu");
-                assert!(matches!(
-                    outcome.disposition,
-                    PeakDisposition::Escalate { .. }
-                ));
-                assert_eq!(outcome.next_carried, 1);
-            }
-            other => panic!("expected PeakOk, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn peak_kind_with_seasonal_row_is_error() {
-        let out = dispose_one(
-            DispositionKind::Peak,
-            DispositionRequest::Seasonal {
-                config: seasonal_config(),
-                row: thin_bucket_row(),
-            },
-        );
-        assert!(matches!(out, DispositionResult::Error(_)));
-    }
 
     fn seasonal_config() -> SeasonalConfig {
         SeasonalConfig {

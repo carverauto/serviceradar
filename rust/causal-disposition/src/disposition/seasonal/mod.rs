@@ -109,17 +109,10 @@ fn run_seasonal_flow(
     // Confirm-slot hysteresis: a residual over threshold increments the carried
     // counter; a clean row resets it.
     //
-    // The reset on `Suppress` is DELIBERATE and is the correct semantics *at this
-    // resolution* — it is NOT the bug the peak kernel's leaky-bucket counter fixes.
-    // Seasonal judges the hourly mean: a `Suppress` means the deseasonalized hour
-    // genuinely returned to baseline, so the sustained condition really did clear and
-    // the pending count should reset. The peak kernel
-    // (`disposition/peak/flow.rs::next_confirm_counter`) instead only *decays* on
-    // `Suppress` because there a `Suppress` is one sub-minute in-range spike, which
-    // does NOT mean a recurring-spike pattern cleared — resetting there would let an
-    // oscillating real anomaly stick suppressed. Same word, different physical event
-    // at each resolution (the proposal's central temporal-resolution distinction), so
-    // the two kernels intentionally differ; do not "align" this reset to match peak.
+    // The reset on `Suppress` is DELIBERATE and is the correct semantics at this
+    // resolution. Seasonal judges the hourly mean: a `Suppress` means the
+    // deseasonalized hour genuinely returned to baseline, so the sustained condition
+    // really did clear and the pending count should reset.
     let next_consecutive_anomalous = match &disposition {
         Disposition::SeasonalBreach { .. } | Disposition::SeasonalDrift { .. } => {
             carried.saturating_add(1)
