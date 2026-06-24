@@ -58,11 +58,24 @@ defmodule ServiceRadarWebNGWeb.Components.SRQLComponentsTest do
 
     assert html =~ "first"
     assert html =~ "1,234"
-    assert html =~ "1.2 MB"
+    assert html =~ "1.18 MiB"
     assert html =~ "1,234,567.5"
     assert :binary.match(html, "alpha") < :binary.match(html, "beta")
     assert :binary.match(html, "beta") < :binary.match(html, "bytes_total")
     assert :binary.match(html, "bytes_total") < :binary.match(html, "gamma")
+  end
+
+  test "results table formats integer byte columns with binary units" do
+    html =
+      render_component(&SRQLComponents.srql_results_table/1,
+        id: "results",
+        rows: [%{"count" => 1_234_567, "bytes_total" => 2048}],
+        columns: ["bytes_total", "count"]
+      )
+
+    assert html =~ "2 KiB"
+    assert html =~ "1,234,567"
+    assert :binary.match(html, "bytes_total") < :binary.match(html, "count")
   end
 
   test "results table can render sortable headers for dashboard table plugin" do
@@ -80,6 +93,19 @@ defmodule ServiceRadarWebNGWeb.Components.SRQLComponentsTest do
     assert html =~ ~s(phx-click="table_sort")
     assert html =~ ~s(phx-target="table-plugin")
     assert html =~ ~s(phx-value-field="count")
+    assert html =~ ~s(aria-sort="descending")
     assert html =~ ~s(hero-chevron-down)
+  end
+
+  test "results table infers columns across rows without sorting them alphabetically" do
+    html =
+      render_component(&SRQLComponents.srql_results_table/1,
+        id: "results",
+        rows: [%{"zeta" => 1}, %{"alpha" => 2}]
+      )
+
+    assert html =~ "zeta"
+    assert html =~ "alpha"
+    assert :binary.match(html, "zeta") < :binary.match(html, "alpha")
   end
 end

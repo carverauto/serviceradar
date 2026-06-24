@@ -46,11 +46,13 @@ type metricFeedStream struct {
 }
 
 type metricFeedLifecycle struct {
-	parent  context.Context
-	addonID string
-	client  coreaddon.MetricFeedClient
-	sources map[string]struct{}
-	logger  zerolog.Logger
+	parent                  context.Context
+	addonID                 string
+	client                  coreaddon.MetricFeedClient
+	sources                 map[string]struct{}
+	logger                  zerolog.Logger
+	initialReconnectBackoff time.Duration
+	maxReconnectBackoff     time.Duration
 
 	queue chan metricFeedPublication
 
@@ -65,6 +67,8 @@ func newMetricFeedLifecycle(
 	client coreaddon.MetricFeedClient,
 	sources []string,
 	logger zerolog.Logger,
+	initialReconnectBackoff time.Duration,
+	maxReconnectBackoff time.Duration,
 ) *metricFeedLifecycle {
 	normalized := make(map[string]struct{}, len(sources))
 	for _, source := range sources {
@@ -74,12 +78,14 @@ func newMetricFeedLifecycle(
 	}
 
 	return &metricFeedLifecycle{
-		parent:  parent,
-		addonID: addonID,
-		client:  client,
-		sources: normalized,
-		logger:  logger,
-		queue:   make(chan metricFeedPublication, defaultMetricFeedQueueDepth),
+		parent:                  parent,
+		addonID:                 addonID,
+		client:                  client,
+		sources:                 normalized,
+		logger:                  logger,
+		initialReconnectBackoff: initialReconnectBackoff,
+		maxReconnectBackoff:     maxReconnectBackoff,
+		queue:                   make(chan metricFeedPublication, defaultMetricFeedQueueDepth),
 	}
 }
 
@@ -167,10 +173,12 @@ func (l *metricFeedLifecycle) publish(source string, payload []byte) bool {
 }
 
 func (l *metricFeedLifecycle) run(ctx context.Context) {
+	diagnostics := streamDiagnostics(l.client)
+
 	reconnectStreamLoop(
 		ctx,
-		defaultRestartBackoffInitial,
-		defaultRestartBackoffMax,
+		l.initialReconnectBackoff,
+		l.maxReconnectBackoff,
 		func(ctx context.Context) (metricFeedStream, error) {
 			frames, acks, err := l.client.StreamMetricFeed(ctx)
 			return metricFeedStream{frames: frames, acks: acks}, err
@@ -188,10 +196,16 @@ func (l *metricFeedLifecycle) run(ctx context.Context) {
 				Msg("addon metric feed stream failed to open")
 		},
 		func(delay time.Duration) {
-			l.logger.Warn().
+			diagnostic := readStreamDiagnostic(diagnostics)
+			event := l.logger.Warn().
 				Str("addon", l.addonID).
-				Dur("retry_after", delay).
-				Msg("addon metric feed stream closed; reconnecting")
+				Str("stream", "metric_feed").
+				Str("stream_end", string(diagnostic.Kind)).
+				Dur("retry_after", delay)
+			if diagnostic.Err != nil {
+				event = event.Err(diagnostic.Err)
+			}
+			event.Msg("addon metric feed stream closed; reconnecting")
 		},
 	)
 }

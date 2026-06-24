@@ -12,6 +12,7 @@ import {
   renderYGrid as nfRenderYGrid,
   styleChartAxis as nfStyleChartAxis,
 } from "../../netflow_charts/util"
+import {yGridTicks} from "../../utils/chart_axis_grid"
 import {nfFormatRateValue} from "../../utils/formatters"
 
 export default {
@@ -85,6 +86,20 @@ export default {
     const g = d3.select(svg).append("g").attr("transform", `translate(${m.left},${m.top})`)
 
     const color = nfColorScale(keys, colors)
+    const yTicks = yGridTicks(y, 4)
+
+    g.append("g")
+      .attr("pointer-events", "none")
+      .selectAll("line")
+      .data(yTicks)
+      .join("line")
+      .attr("x1", 0)
+      .attr("x2", iw)
+      .attr("y1", (d) => y(d))
+      .attr("y2", (d) => y(d))
+      .attr("stroke", "currentColor")
+      .attr("stroke-opacity", 0.12)
+      .attr("stroke-width", 1)
 
     nfRenderYGrid(g, y, iw, {tickCount: 4})
 
@@ -216,6 +231,9 @@ export default {
       keys: visibleKeys,
       x,
       xOffset: m.left,
+      plotLeft: m.left,
+      plotWidth: iw,
+      viewBoxWidth: width,
       valueAt: (row, k) => row?.[k] || 0,
       formatValue: (v) => nfFormatRateValue(el.dataset.units, v),
     })

@@ -77,6 +77,8 @@ type activeArtifact struct {
 }
 
 func (r *runner) drainArtifacts(ctx context.Context, artifactClient coreaddon.ArtifactClient) {
+	diagnostics := streamDiagnostics(artifactClient)
+
 	reconnectStreamLoop(
 		ctx,
 		r.cfg.RestartBackoffInitial,
@@ -93,10 +95,16 @@ func (r *runner) drainArtifacts(ctx context.Context, artifactClient coreaddon.Ar
 				Msg("addon artifact stream failed to open")
 		},
 		func(delay time.Duration) {
-			r.cfg.Logger.Warn().
+			diagnostic := readStreamDiagnostic(diagnostics)
+			event := r.cfg.Logger.Warn().
 				Str("addon", r.id).
-				Dur("retry_after", delay).
-				Msg("addon artifact stream closed; reconnecting")
+				Str("stream", "artifacts").
+				Str("stream_end", string(diagnostic.Kind)).
+				Dur("retry_after", delay)
+			if diagnostic.Err != nil {
+				event = event.Err(diagnostic.Err)
+			}
+			event.Msg("addon artifact stream closed; reconnecting")
 		},
 	)
 }

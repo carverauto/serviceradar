@@ -18,6 +18,7 @@ package addon
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,6 +28,11 @@ import (
 	"time"
 
 	coreaddon "github.com/carverauto/serviceradar/go/pkg/addon"
+)
+
+var (
+	errFirstExit  = errors.New("first exit")
+	errSecondExit = errors.New("second exit")
 )
 
 // sampleAddonBin is the compiled reference add-on used across the e2e tests. It
@@ -400,6 +406,108 @@ func TestManagerCircuitBreakerCooldownPreventsImmediateRelaunch(t *testing.T) {
 	}
 	if afterCooldown == firstRunner {
 		t.Fatal("runner was not relaunched after circuit-breaker cooldown elapsed")
+	}
+}
+
+func TestManagerKeepsCircuitOpenRunnerUntilCooldownExpires(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.RestartLimitPerMinute = 1
+	mgr := NewManager(cfg)
+	t.Cleanup(func() { stopManager(t, mgr) })
+
+	spec := Spec{ID: "sample", BinaryPath: "/bin/false", ConfigJSON: []byte("{}")}
+	circuit := newRunner(spec, mgr.cfg)
+	circuit.status.State = StateCircuitOpen
+	circuit.status.LastError = "addon exited"
+	circuit.status.DegradationReason = "addon exited"
+	circuit.circuitUntil = time.Now().UTC().Add(time.Minute)
+	close(circuit.done)
+	mgr.runners[spec.ID] = circuit
+
+	if err := mgr.Apply(context.Background(), []Spec{spec}); err != nil {
+		t.Fatalf("apply during cooldown: %v", err)
+	}
+	if got := mgr.runners[spec.ID]; got != circuit {
+		t.Fatalf("expected circuit-open runner to remain during cooldown")
+	}
+	if s, ok := statusByID(mgr, spec.ID); !ok || s.State != StateCircuitOpen || s.LastError == "" {
+		t.Fatalf("expected circuit_open status with last_error, got status=%+v ok=%v", s, ok)
+	}
+
+	circuit.circuitUntil = time.Now().UTC().Add(-time.Millisecond)
+	if err := mgr.Apply(context.Background(), []Spec{spec}); err != nil {
+		t.Fatalf("apply after cooldown: %v", err)
+	}
+	if got := mgr.runners[spec.ID]; got == circuit {
+		t.Fatalf("expected manager to re-arm by replacing runner after cooldown")
+	}
+}
+
+func TestRestartBackoffResetRequiresHealthyRuntime(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.RestartBackoffMax = 100 * time.Millisecond
+	r := newRunner(Spec{ID: "sample"}, cfg)
+
+	now := time.Now().UTC()
+	runStart := now.Add(-time.Second)
+	if r.runWasStable(runStart, now) {
+		t.Fatal("run with no healthy probe must not reset restart backoff")
+	}
+
+	r.healthySince = now.Add(-50 * time.Millisecond)
+	if r.runWasStable(runStart, now) {
+		t.Fatal("recent healthy probe below stability window must not reset restart backoff")
+	}
+
+	r.healthySince = now.Add(-150 * time.Millisecond)
+	if !r.runWasStable(runStart, now) {
+		t.Fatal("healthy runtime beyond stability window should reset restart backoff")
+	}
+
+	r.healthySince = runStart.Add(-time.Millisecond)
+	if r.runWasStable(runStart, now) {
+		t.Fatal("healthy probe from a previous run must not reset current restart backoff")
+	}
+}
+
+func TestHealthySinceResetsWhenAddonDegrades(t *testing.T) {
+	r := newRunner(Spec{ID: "sample"}, testConfig(t))
+
+	r.setHealthy(123, coreaddon.Health{Status: coreaddon.HealthHealthy})
+	if r.healthySince.IsZero() {
+		t.Fatal("healthy probe should start the stability window")
+	}
+
+	firstHealthy := r.healthySince
+	r.setHealthy(123, coreaddon.Health{Status: coreaddon.HealthHealthy})
+	if !r.healthySince.Equal(firstHealthy) {
+		t.Fatal("subsequent healthy probes must not restart the stability window")
+	}
+
+	r.setHealthy(123, coreaddon.Health{
+		Status:            coreaddon.HealthDegraded,
+		DegradationReason: "waiting for feed",
+	})
+	if !r.healthySince.IsZero() {
+		t.Fatal("degraded health should clear the stability window")
+	}
+}
+
+func TestRecordRestartOpensCircuitUntilRestartWindowExpires(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.RestartLimitPerMinute = 1
+	r := newRunner(Spec{ID: "sample"}, cfg)
+
+	if !r.recordRestart(errFirstExit) {
+		t.Fatal("first restart should be allowed")
+	}
+	if r.recordRestart(errSecondExit) {
+		t.Fatal("second restart inside limit window should open circuit")
+	}
+	r.setCircuitOpen("second exit")
+
+	if !r.circuitOpenCoolingDown(time.Now().UTC()) {
+		t.Fatal("expected circuit cooldown after restart limit is exceeded")
 	}
 }
 

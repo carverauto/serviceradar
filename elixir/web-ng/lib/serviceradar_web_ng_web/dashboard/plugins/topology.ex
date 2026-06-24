@@ -235,15 +235,15 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
         {nodes_acc ++ nodes, edges_acc ++ edges}
       end)
 
-    all_nodes =
+    normalized_nodes =
       nodes
       |> Enum.filter(&is_map/1)
       |> Enum.map(&normalize_node/1)
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq_by(& &1.id)
 
-    total_node_count = length(all_nodes)
-    nodes = Enum.take(all_nodes, @max_nodes)
+    total_node_count = length(normalized_nodes)
+    nodes = truncate_nodes(normalized_nodes)
     truncated_node_count = max(total_node_count - length(nodes), 0)
 
     node_ids = MapSet.new(Enum.map(nodes, & &1.id))
@@ -275,6 +275,22 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
   defp graph_parts(%{"vertices" => nodes, "edges" => edges}) when is_list(nodes) and is_list(edges), do: {nodes, edges}
 
   defp graph_parts(_), do: {[], []}
+
+  defp truncate_nodes(nodes) when length(nodes) > @max_nodes do
+    visible_count = max(@max_nodes - 1, 0)
+    hidden_count = length(nodes) - visible_count
+
+    Enum.take(nodes, visible_count) ++
+      [
+        %{
+          id: "__truncated_nodes__",
+          label: "+#{hidden_count} more",
+          raw: %{"truncated_count" => hidden_count, "truncated" => true}
+        }
+      ]
+  end
+
+  defp truncate_nodes(nodes), do: nodes
 
   defp normalize_node(%{} = raw) do
     id =
@@ -382,7 +398,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
   defp fallback_id(raw) do
     digest =
       raw
-      |> canonicalize()
+      |> canonical_value()
       |> Jason.encode!()
       |> then(&:crypto.hash(:sha256, &1))
       |> Base.encode16(case: :lower)
@@ -393,15 +409,16 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
     _ -> ""
   end
 
-  defp canonicalize(%{} = map) do
+  defp canonical_value(%{} = map) do
     map
-    |> Enum.map(fn {key, value} -> {to_string(key), canonicalize(value)} end)
-    |> Enum.sort_by(&elem(&1, 0))
-    |> Map.new()
+    |> Enum.map(fn {key, value} -> [to_string(key), canonical_value(value)] end)
+    |> Enum.sort_by(&List.first/1)
   end
 
-  defp canonicalize(values) when is_list(values), do: Enum.map(values, &canonicalize/1)
-  defp canonicalize(value), do: value
+  defp canonical_value(list) when is_list(list), do: Enum.map(list, &canonical_value/1)
+  defp canonical_value(value) when is_binary(value) or is_number(value) or is_boolean(value) or is_nil(value), do: value
+  defp canonical_value(value) when is_atom(value), do: Atom.to_string(value)
+  defp canonical_value(value), do: inspect(value)
 
   defp truncated_node_count(value) when is_integer(value), do: max(value, 0)
   defp truncated_node_count(_), do: 0

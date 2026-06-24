@@ -18,6 +18,7 @@ package addon
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"testing"
@@ -30,6 +31,8 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 )
+
+var errTelemetryTransportFailed = errors.New("telemetry transport failed")
 
 // baseAddon implements only the required Addon contract (no otlp-relay:v1).
 type baseAddon struct{}
@@ -147,6 +150,14 @@ func (a telemetryClosingAddon) StreamTelemetry(context.Context) (<-chan *addonpb
 	return batches, nil
 }
 
+type errorTelemetryAddon struct {
+	baseAddon
+}
+
+func (errorTelemetryAddon) StreamTelemetry(context.Context) (<-chan *addonpb.TelemetryBatch, error) {
+	return nil, errTelemetryTransportFailed
+}
+
 // dialRelayClient serves impl over an in-memory bufconn transport and returns
 // the SDK client adapter plus a cleanup func.
 func dialRelayClient(t *testing.T, impl Addon) *grpcClient {
@@ -226,6 +237,8 @@ func TestStreamMetricFeedRoundTrip(t *testing.T) {
 		}
 	}
 	close(frames)
+
+	assertStreamDiagnostic(t, client, "metric_feed_ack", StreamEndEOF)
 }
 
 func TestStreamTelemetryEmitsEOFDiagnostic(t *testing.T) {
@@ -321,6 +334,72 @@ func TestStreamMetricFeedUnimplementedWithoutCapability(t *testing.T) {
 	}
 }
 
+func TestStreamTelemetryReportsEOFDiagnostic(t *testing.T) {
+	client := dialRelayClient(t, baseAddon{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	batches, err := client.StreamTelemetry(ctx)
+	if err != nil {
+		t.Fatalf("StreamTelemetry open: %v", err)
+	}
+	if batch, ok := <-batches; ok {
+		t.Fatalf("expected no telemetry batches, got %+v", batch)
+	}
+
+	assertStreamDiagnostic(t, client, "telemetry", StreamEndEOF)
+}
+
+func TestStreamTelemetryReportsErrorDiagnostic(t *testing.T) {
+	client := dialRelayClient(t, errorTelemetryAddon{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	batches, err := client.StreamTelemetry(ctx)
+	if err != nil {
+		t.Fatalf("StreamTelemetry open: %v", err)
+	}
+	if batch, ok := <-batches; ok {
+		t.Fatalf("expected no telemetry batches, got %+v", batch)
+	}
+
+	assertStreamDiagnostic(t, client, "telemetry", StreamEndError)
+}
+
+func TestStreamArtifactsReportsEOFDiagnostic(t *testing.T) {
+	client := dialRelayClient(t, baseAddon{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	chunks, err := client.StreamArtifacts(ctx)
+	if err != nil {
+		t.Fatalf("StreamArtifacts open: %v", err)
+	}
+	if chunk, ok := <-chunks; ok {
+		t.Fatalf("expected no artifact chunks, got %+v", chunk)
+	}
+
+	assertStreamDiagnostic(t, client, "artifacts", StreamEndEOF)
+}
+
+func TestClassifyStreamEnd(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if got := classifyStreamEnd(context.Background(), io.EOF); got != StreamEndEOF {
+		t.Fatalf("EOF kind = %s, want %s", got, StreamEndEOF)
+	}
+	if got := classifyStreamEnd(ctx, context.Canceled); got != StreamEndContext {
+		t.Fatalf("context kind = %s, want %s", got, StreamEndContext)
+	}
+	if got := classifyStreamEnd(context.Background(), status.Error(codes.Unavailable, "down")); got != StreamEndError {
+		t.Fatalf("transport kind = %s, want %s", got, StreamEndError)
+	}
+}
+
 func TestRelayOtlpRoundTrip(t *testing.T) {
 	impl := &relayAddon{frameCount: 3, acked: make(chan uint64, 8)}
 	client := dialRelayClient(t, impl)
@@ -359,6 +438,24 @@ func TestRelayOtlpRoundTrip(t *testing.T) {
 		case <-ctx.Done():
 			t.Fatalf("timed out waiting for ack watermark %d", want)
 		}
+	}
+}
+
+func assertStreamDiagnostic(
+	t *testing.T,
+	client *grpcClient,
+	stream string,
+	kind StreamEndKind,
+) {
+	t.Helper()
+
+	select {
+	case got := <-client.StreamDiagnostics():
+		if got.Stream != stream || got.Kind != kind {
+			t.Fatalf("diagnostic = {%s %s %v}, want stream=%s kind=%s", got.Stream, got.Kind, got.Err, stream, kind)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for %s diagnostic", stream)
 	}
 }
 

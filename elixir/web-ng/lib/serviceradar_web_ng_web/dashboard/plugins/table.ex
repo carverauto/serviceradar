@@ -9,8 +9,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
   import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_results_table: 1]
   import ServiceRadarWebNGWeb.UIComponents, only: [ui_panel: 1]
 
-  @row_cap 500
-  @page_size 50
+  @max_table_rows 500
   @max_columns 20
 
   @impl true
@@ -24,102 +23,132 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
 
   @impl true
   def build(%{} = srql_response) do
-    raw_results =
+    columns = extract_columns(srql_response)
+
+    source_results =
       srql_response
       |> Map.get("results", [])
-      |> normalize_results()
+      |> normalize_results(columns)
 
-    columns = table_columns(srql_response, raw_results)
+    columns =
+      columns
+      |> resolve_columns(source_results)
+      |> Enum.take(@max_columns)
+      |> filter_device_id_column()
 
-    results =
-      raw_results
-      |> attach_sparklines()
-      |> Enum.take(@row_cap)
-
-    total_rows = length(raw_results)
+    total_count = length(source_results)
 
     {:ok,
-     results
-     |> table_state(columns, nil, "asc", 1)
-     |> Map.merge(%{
-       result_count: total_rows,
-       capped?: total_rows > @row_cap,
-       row_cap: @row_cap,
-       page_size: @page_size,
-       max_columns: @max_columns
-     })}
+     %{
+       columns: columns,
+       source_results: source_results,
+       max_rows: @max_table_rows,
+       max_columns: @max_columns,
+       results: display_results(source_results, nil, :asc, @max_table_rows),
+       sort_col: nil,
+       sort_dir: :asc,
+       total_count: total_count,
+       truncated: total_count > @max_table_rows
+     }}
   end
 
   @impl true
   def update(%{panel_assigns: panel_assigns} = assigns, socket) do
+    panel_assigns = panel_assigns || %{}
+    source_results = fetch_panel_value(panel_assigns, :source_results, fetch_panel_value(panel_assigns, :results, []))
+    max_rows = fetch_panel_value(panel_assigns, :max_rows, @max_table_rows)
+    sort_col = Map.get(socket.assigns, :sort_col, fetch_panel_value(panel_assigns, :sort_col))
+    sort_dir = Map.get(socket.assigns, :sort_dir, fetch_panel_value(panel_assigns, :sort_dir, :asc))
+    results = display_results(source_results, sort_col, sort_dir, max_rows)
+
     socket =
       socket
       |> assign(Map.delete(assigns, :panel_assigns))
-      |> assign(panel_assigns || %{})
+      |> assign(panel_assigns)
+      |> assign(:source_results, source_results)
+      |> assign(:results, results)
+      |> assign(:sort_col, sort_col)
+      |> assign(:sort_dir, normalize_sort_dir(sort_dir))
 
     {:ok, socket}
   end
 
   @impl true
-  def handle_event("table_sort", %{"field" => field}, socket) do
-    field = to_string(field)
-    columns = socket.assigns.columns || []
+  def handle_event("sort", %{"col" => col}, socket) do
+    columns = socket.assigns[:columns] || []
 
-    socket =
-      if field in columns and not socket.assigns.capped? do
-        sort_dir = next_sort_dir(socket.assigns.sort_field, socket.assigns.sort_dir, field)
+    if col in columns do
+      sort_dir = next_sort_dir(socket.assigns[:sort_col], socket.assigns[:sort_dir], col)
+      max_rows = socket.assigns[:max_rows] || @max_table_rows
+      source_results = socket.assigns[:source_results] || []
 
-        assign_table_state(socket, field, sort_dir, 1)
-      else
-        socket
-      end
-
-    {:noreply, socket}
-  end
-
-  def handle_event("table_page", %{"page" => page}, socket) do
-    {:noreply, assign_table_state(socket, socket.assigns.sort_field, socket.assigns.sort_dir, page)}
-  end
-
-  defp assign_table_state(socket, sort_field, sort_dir, page) do
-    state =
-      socket.assigns.results
-      |> table_state(socket.assigns.columns, sort_field, sort_dir, page)
-      |> Map.drop([:results, :columns])
-
-    assign(socket, state)
-  end
-
-  defp normalize_results(results) when is_list(results) do
-    Enum.map(results, fn
-      %{} = row -> row
-      value -> %{"value" => value}
-    end)
-  end
-
-  defp normalize_results(_), do: []
-
-  defp table_columns(srql_response, rows) do
-    srql_response
-    |> viz_columns()
-    |> case do
-      [] -> infer_columns(rows)
-      columns -> Enum.take(columns, @max_columns)
+      {:noreply,
+       socket
+       |> assign(:sort_col, col)
+       |> assign(:sort_dir, sort_dir)
+       |> assign(:results, display_results(source_results, col, sort_dir, max_rows))}
+    else
+      {:noreply, socket}
     end
-    |> filter_device_id_column()
   end
 
-  defp viz_columns(%{"viz" => %{"columns" => columns}}) when is_list(columns) do
-    columns
-    |> Enum.map(fn
-      %{"name" => name} -> name
-      %{name: name} -> name
-      name -> name
+  defp extract_columns(srql_response) do
+    Enum.find_value(
+      [
+        viz_columns(srql_response),
+        Map.get(srql_response, "columns"),
+        Map.get(srql_response, :columns),
+        get_in(srql_response, ["schema", "columns"]),
+        get_in(srql_response, [:schema, :columns]),
+        get_in(srql_response, ["viz", "columns"]),
+        get_in(srql_response, [:viz, :columns])
+      ],
+      &normalize_columns/1
+    )
+  end
+
+  defp viz_columns(%{"viz" => %{"columns" => columns}}) when is_list(columns), do: columns
+  defp viz_columns(%{viz: %{columns: columns}}) when is_list(columns), do: columns
+  defp viz_columns(_srql_response), do: nil
+
+  defp normalize_columns(columns) when is_list(columns) do
+    columns =
+      columns
+      |> Enum.map(&column_name/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    if columns == [], do: nil, else: columns
+  end
+
+  defp normalize_columns(_), do: nil
+
+  defp column_name(%{} = column) do
+    column
+    |> fetch_first([:name, "name", :field, "field", :id, "id"])
+    |> column_name()
+  end
+
+  defp column_name(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: nil, else: value
+  end
+
+  defp column_name(value) when is_atom(value), do: value |> Atom.to_string() |> column_name()
+  defp column_name(_), do: nil
+
+  defp fetch_first(map, keys) do
+    Enum.find_value(keys, fn key ->
+      case Map.fetch(map, key) do
+        {:ok, value} -> value
+        :error -> nil
+      end
     end)
-    |> normalize_column_list()
   end
 
-  defp viz_columns(_srql_response), do: []
+  # Fall back to inferring columns from the rows when none are supplied.
+  defp resolve_columns(columns, _rows) when is_list(columns) and columns != [], do: columns
+  defp resolve_columns(_columns, rows), do: infer_columns(rows)
 
   defp infer_columns(rows) do
     Enum.reduce_while(rows, [], fn
@@ -143,14 +172,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
     end)
   end
 
-  defp normalize_column_list(columns) do
-    columns
-    |> Enum.map(&safe_to_string/1)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
-  end
-
   defp filter_device_id_column(columns) when is_list(columns) do
     if "uid" in columns do
       Enum.reject(columns, &(&1 == "device_id"))
@@ -159,112 +180,110 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
     end
   end
 
-  defp table_state(results, columns, sort_field, sort_dir, page) do
-    sorted = sort_results(results, sort_field, sort_dir)
-    total = length(sorted)
-    page_count = max(div(total + @page_size - 1, @page_size), 1)
-    page = page |> parse_page() |> min(page_count) |> max(1)
-    offset = (page - 1) * @page_size
-    page_rows = sorted |> Enum.drop(offset) |> Enum.take(@page_size)
-
-    %{
-      results: results,
-      columns: columns,
-      page_rows: page_rows,
-      page: page,
-      page_count: page_count,
-      page_from: if(total == 0, do: 0, else: offset + 1),
-      page_to: min(offset + length(page_rows), total),
-      visible_rows: total,
-      sort_field: sort_field,
-      sort_dir: normalize_sort_dir(sort_dir)
-    }
+  defp normalize_results(results, [single_column]) when is_list(results) and is_binary(single_column) do
+    Enum.map(results, fn
+      %{} = row -> stringify_keys(row)
+      value -> %{single_column => value}
+    end)
   end
 
-  defp parse_page(value) when is_integer(value), do: value
-
-  defp parse_page(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {page, ""} -> page
-      _ -> 1
-    end
+  defp normalize_results(results, _columns) when is_list(results) do
+    Enum.map(results, fn
+      %{} = row -> stringify_keys(row)
+      value -> %{"value" => value}
+    end)
   end
 
-  defp parse_page(_), do: 1
+  defp normalize_results(_, _), do: []
 
-  defp next_sort_dir(current_field, "asc", field) when current_field == field, do: "desc"
-  defp next_sort_dir(_current_field, _current_dir, _field), do: "asc"
+  defp fetch_panel_value(panel_assigns, key, default \\ nil) when is_map(panel_assigns) do
+    Map.get(panel_assigns, key, Map.get(panel_assigns, to_string(key), default))
+  end
 
-  defp normalize_sort_dir("desc"), do: "desc"
-  defp normalize_sort_dir(_), do: "asc"
+  defp display_results(results, sort_col, sort_dir, max_rows) when is_list(results) do
+    results
+    |> sort_results(sort_col, normalize_sort_dir(sort_dir))
+    |> Enum.take(max_rows)
+    |> attach_sparklines()
+  end
 
-  defp sort_results(results, nil, _sort_dir), do: results
-  defp sort_results(results, "", _sort_dir), do: results
+  defp display_results(_results, _sort_col, _sort_dir, _max_rows), do: []
 
-  defp sort_results(results, sort_field, sort_dir) do
-    direction = normalize_sort_dir(sort_dir)
-
+  defp sort_results(results, sort_col, sort_dir) when is_binary(sort_col) do
     results
     |> Enum.with_index()
-    |> Enum.sort(fn left, right -> row_precedes?(left, right, sort_field, direction) end)
-    |> Enum.map(&elem(&1, 0))
+    |> Enum.sort(fn {left, left_idx}, {right, right_idx} ->
+      left_value = Map.get(left, sort_col)
+      right_value = Map.get(right, sort_col)
+
+      cond do
+        blank_value?(left_value) and blank_value?(right_value) ->
+          left_idx <= right_idx
+
+        blank_value?(left_value) ->
+          false
+
+        blank_value?(right_value) ->
+          true
+
+        true ->
+          case compare_present_values(left_value, right_value) do
+            :eq -> left_idx <= right_idx
+            :lt -> sort_dir == :asc
+            :gt -> sort_dir == :desc
+          end
+      end
+    end)
+    |> Enum.map(fn {row, _idx} -> row end)
   end
 
-  defp row_precedes?({left, left_idx}, {right, right_idx}, field, direction) do
-    case compare_sort_values(Map.get(left, field), Map.get(right, field)) do
-      :lt -> direction == "asc"
-      :gt -> direction == "desc"
-      :eq -> left_idx <= right_idx
+  defp sort_results(results, _sort_col, _sort_dir), do: results
+
+  defp compare_present_values(left, right) do
+    with {:ok, left_dt} <- parse_datetime(left),
+         {:ok, right_dt} <- parse_datetime(right) do
+      compare_terms(DateTime.to_unix(left_dt, :microsecond), DateTime.to_unix(right_dt, :microsecond))
+    else
+      _ ->
+        with {:ok, left_num} <- parse_number(left),
+             {:ok, right_num} <- parse_number(right) do
+          compare_terms(left_num, right_num)
+        else
+          _ -> compare_terms(sort_string(left), sort_string(right))
+        end
     end
   end
 
-  defp compare_sort_values(left, right) do
-    left = sortable_value(left)
-    right = sortable_value(right)
+  defp compare_terms(left, right) when left < right, do: :lt
+  defp compare_terms(left, right) when left > right, do: :gt
+  defp compare_terms(_left, _right), do: :eq
 
-    cond do
-      left == :blank and right == :blank -> :eq
-      left == :blank -> :gt
-      right == :blank -> :lt
-      left < right -> :lt
-      left > right -> :gt
-      true -> :eq
+  defp blank_value?(nil), do: true
+  defp blank_value?(""), do: true
+  defp blank_value?(_), do: false
+
+  defp sort_string(value) do
+    value
+    |> safe_to_string()
+    |> String.downcase()
+  end
+
+  defp next_sort_dir(current_col, current_dir, col) when current_col == col do
+    case normalize_sort_dir(current_dir) do
+      :asc -> :desc
+      :desc -> :asc
     end
   end
 
-  defp sortable_value(nil), do: :blank
-  defp sortable_value(""), do: :blank
-  defp sortable_value(value) when is_integer(value), do: {0, value * 1.0}
-  defp sortable_value(value) when is_float(value), do: {0, value}
-  defp sortable_value(%DateTime{} = value), do: {1, DateTime.to_unix(value, :microsecond)}
-  defp sortable_value(%NaiveDateTime{} = value), do: {1, NaiveDateTime.to_gregorian_seconds(value)}
-  defp sortable_value(%Date{} = value), do: {1, Date.to_gregorian_days(value)}
+  defp next_sort_dir(_current_col, _current_dir, _col), do: :asc
 
-  defp sortable_value(value) when is_binary(value) do
-    trimmed = String.trim(value)
+  defp normalize_sort_dir(:desc), do: :desc
+  defp normalize_sort_dir("desc"), do: :desc
+  defp normalize_sort_dir(_), do: :asc
 
-    cond do
-      trimmed == "" ->
-        :blank
-
-      match?({_, ""}, Float.parse(trimmed)) ->
-        {number, ""} = Float.parse(trimmed)
-        {0, number}
-
-      match?({:ok, _, _}, DateTime.from_iso8601(trimmed)) ->
-        {:ok, dt, _offset} = DateTime.from_iso8601(trimmed)
-        {1, DateTime.to_unix(dt, :microsecond)}
-
-      match?({:ok, _}, NaiveDateTime.from_iso8601(trimmed)) ->
-        {:ok, ndt} = NaiveDateTime.from_iso8601(trimmed)
-        {1, NaiveDateTime.to_gregorian_seconds(ndt)}
-
-      true ->
-        {2, String.downcase(trimmed)}
-    end
+  defp stringify_keys(row) when is_map(row) do
+    Map.new(row, fn {key, value} -> {to_string(key), value} end)
   end
-
-  defp sortable_value(value), do: {3, safe_to_string(value)}
 
   defp attach_sparklines(results) when is_list(results) do
     with true <- length(results) >= 5,
@@ -446,54 +465,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
   defp safe_to_string(value) when is_atom(value), do: Atom.to_string(value)
   defp safe_to_string(value), do: inspect(value)
 
-  defp table_summary(assigns) do
-    ~H"""
-    <div class="text-xs text-base-content/60">
-      <span :if={@visible_rows > 0}>
-        Showing {@page_from}-{@page_to} of {@visible_rows}
-      </span>
-      <span :if={@visible_rows == 0}>No rows</span>
-      <span :if={@capped?}>
-        {" "}(showing first {@row_cap} of {@result_count}; sorting disabled)
-      </span>
-    </div>
-    """
-  end
-
-  defp pagination_controls(assigns) do
-    ~H"""
-    <div :if={@page_count > 1} class="mt-3 flex items-center justify-between gap-3">
-      <div class="text-xs text-base-content/60">Page {@page} of {@page_count}</div>
-      <div class="join">
-        <button
-          type="button"
-          class="btn btn-xs join-item"
-          phx-click="table_page"
-          phx-target={@myself}
-          phx-value-page={@page - 1}
-          disabled={@page <= 1}
-          aria-label="Previous page"
-          title="Previous page"
-        >
-          <.icon name="hero-chevron-left" class="size-3" />
-        </button>
-        <button
-          type="button"
-          class="btn btn-xs join-item"
-          phx-click="table_page"
-          phx-target={@myself}
-          phx-value-page={@page + 1}
-          disabled={@page >= @page_count}
-          aria-label="Next page"
-          title="Next page"
-        >
-          <.icon name="hero-chevron-right" class="size-3" />
-        </button>
-      </div>
-    </div>
-    """
-  end
-
   @impl true
   def render(assigns) do
     ~H"""
@@ -502,29 +473,24 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
         <:header>
           <div class="min-w-0">
             <div class="text-sm font-semibold">Table</div>
-            <.table_summary
-              visible_rows={@visible_rows}
-              page_from={@page_from}
-              page_to={@page_to}
-              capped?={@capped?}
-              row_cap={@row_cap}
-              result_count={@result_count}
-            />
           </div>
         </:header>
 
+        <div :if={@truncated} class="mb-3 text-xs text-base-content/60">
+          Showing first {@max_rows} of {@total_count} rows.
+        </div>
+
         <.srql_results_table
           id={"panel-#{@id}-table"}
-          rows={@page_rows}
+          rows={@results}
           columns={@columns}
           max_columns={@max_columns}
-          empty_message="No results."
-          sortable={not @capped?}
-          sort_target={@myself}
-          sort_field={@sort_field}
+          sort_col={@sort_col}
           sort_dir={@sort_dir}
+          sort_event="sort"
+          sort_target={@myself}
+          empty_message="No results."
         />
-        <.pagination_controls page={@page} page_count={@page_count} myself={@myself} />
       </.ui_panel>
     </div>
     """

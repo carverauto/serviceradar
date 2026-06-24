@@ -152,6 +152,24 @@ fn parse_stats_expr_supports_multi_group_by() {
 }
 
 #[test]
+fn parse_stats_expr_supports_canonical_conversation_group_by() {
+    let expr =
+        "sum(bytes_total) as bytes_total, sum(packets_total) as packets_total by conversation_a_ip, conversation_b_ip";
+    let spec = parse_stats_expr(expr).unwrap();
+    assert_eq!(spec.group_by.len(), 2);
+    assert_eq!(
+        spec.group_by[0],
+        FlowGroupSpec::Field(FlowGroupField::ConversationAIp)
+    );
+    assert_eq!(
+        spec.group_by[1],
+        FlowGroupSpec::Field(FlowGroupField::ConversationBIp)
+    );
+    assert_eq!(spec.group_by[0].response_key(), "conversation_a_ip");
+    assert_eq!(spec.group_by[1].response_key(), "conversation_b_ip");
+}
+
+#[test]
 fn parse_stats_expr_supports_multiple_aggregations() {
     let expr =
         "sum(bytes_total) as bytes_total, sum(packets_total) as packets_total by src_endpoint_ip";

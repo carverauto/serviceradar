@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNGWeb.Netflow.EnrichmentExpiry do
+defmodule ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry do
   @moduledoc false
 
   import Ash.Expr

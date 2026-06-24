@@ -24,22 +24,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
               class="flex items-center gap-2 text-[11px] text-base-content/60"
             >
               <% stats = Map.get(section, :header_stats) %>
-              <span class="font-mono">min {format_pct(Map.get(stats, :min))}%</span>
-              <span class="font-mono">avg {format_pct(Map.get(stats, :avg))}%</span>
-              <span class="font-mono">max {format_pct(Map.get(stats, :max))}%</span>
+              <span class="font-mono">min {format_metric_value(Map.get(stats, :min), section)}</span>
+              <span class="font-mono">avg {format_metric_value(Map.get(stats, :avg), section)}</span>
+              <span class="font-mono">max {format_metric_value(Map.get(stats, :max), section)}</span>
             </div>
             <div
               :if={is_number(Map.get(section, :header_value))}
               class="flex items-center gap-2"
             >
               <% header_value = Map.get(section, :header_value) %>
-              <div class="h-1.5 w-20 rounded-full bg-base-200 overflow-hidden">
+              <div
+                :if={percent_metric?(section)}
+                class="h-1.5 w-20 rounded-full bg-base-200 overflow-hidden"
+              >
                 <div
                   class="h-full bg-accent"
                   style={"width: #{percent_width(header_value)}%"}
                 />
               </div>
-              <span class="text-xs font-mono">{format_pct(header_value)}%</span>
+              <span class="text-xs font-mono">{format_metric_value(header_value, section)}</span>
             </div>
           </div>
         </div>
@@ -76,6 +79,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
   defp format_pct(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 1)
   defp format_pct(value) when is_integer(value), do: Integer.to_string(value)
   defp format_pct(_), do: "—"
+
+  defp format_metric_value(value, section) do
+    case metric_unit(section) do
+      :percent -> "#{format_pct(value)}%"
+      :count -> format_count(value)
+      _ -> format_pct(value)
+    end
+  end
+
+  defp format_count(value) when is_integer(value), do: Integer.to_string(value)
+
+  defp format_count(value) when is_float(value) do
+    if value == Float.round(value, 0) do
+      value |> round() |> Integer.to_string()
+    else
+      :erlang.float_to_binary(value, decimals: 1)
+    end
+  end
+
+  defp format_count(_), do: "—"
+
+  defp percent_metric?(section), do: metric_unit(section) == :percent
+
+  defp metric_unit(section) when is_map(section), do: Map.get(section, :unit, :percent)
+  defp metric_unit(_), do: :percent
 
   defp percent_width(value) when is_number(value) do
     value = value * 1.0

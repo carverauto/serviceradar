@@ -136,3 +136,48 @@ fn cidr_filter_does_not_shift_limit_offset_binds() {
     assert!(matches!(params[2], BindParam::Int(5)));
     assert!(matches!(params[3], BindParam::Int(0)));
 }
+
+#[test]
+fn translate_grouped_stats_conversation_group_by_uses_canonical_endpoints() {
+    let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+    let end = start + chrono::Duration::hours(1);
+
+    let plan = QueryPlan {
+        entity: Entity::Flows,
+        filters: Vec::new(),
+        order: vec![OrderClause {
+            field: "bytes_total".into(),
+            direction: OrderDirection::Desc,
+        }],
+        limit: 10,
+        offset: 0,
+        time_range: Some(TimeRange { start, end }),
+        stats: Some(crate::parser::StatsSpec::from_raw(
+            "sum(bytes_total) as bytes_total, sum(packets_total) as packets_total by conversation_a_ip, conversation_b_ip",
+        )),
+        downsample: None,
+        rollup_stats: None,
+        other: false,
+        include_deleted: false,
+    };
+
+    let (sql, _params) = to_sql_and_params_stats(&plan).unwrap();
+    assert!(
+        sql.contains("FROM ocsf_network_activity f"),
+        "canonical conversation grouping must use raw flows, got: {sql}"
+    );
+    assert!(
+        sql.contains("'conversation_a_ip', group_value_0")
+            && sql.contains("'conversation_b_ip', group_value_1"),
+        "expected canonical conversation JSON keys, got: {sql}"
+    );
+    assert!(
+        sql.contains("CASE WHEN COALESCE(NULLIF(src_endpoint_ip, ''), 'Unknown') <=")
+            && sql.contains("ELSE COALESCE(NULLIF(dst_endpoint_ip, ''), 'Unknown') END"),
+        "expected unordered endpoint expression, got: {sql}"
+    );
+    assert!(
+        sql.contains("ORDER BY agg_value_0 DESC"),
+        "expected sort by bytes_total aggregate, got: {sql}"
+    );
+}

@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowIpEnrichment do
   alias Phoenix.Component
   alias ServiceRadar.Observability.IpGeoEnrichmentCache
   alias ServiceRadar.Observability.IpRdnsCache
+  alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
 
   require Ash.Query
 
@@ -49,7 +50,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowIpEnrichment do
   def ips(_), do: []
 
   defp bulk_rdns(ips, scope) do
-    query = IpRdnsCache |> Ash.Query.for_read(:read, %{}) |> Ash.Query.filter(ip in ^ips)
+    now = DateTime.utc_now()
+
+    query =
+      IpRdnsCache
+      |> Ash.Query.for_read(:read, %{})
+      |> EnrichmentExpiry.live_for_ips(ips, now)
 
     case Ash.read(query, scope: scope) do
       {:ok, rows} when is_list(rows) ->
@@ -77,7 +83,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowIpEnrichment do
   end
 
   defp bulk_geo_iso2(ips, scope) do
-    query = IpGeoEnrichmentCache |> Ash.Query.for_read(:read, %{}) |> Ash.Query.filter(ip in ^ips)
+    now = DateTime.utc_now()
+
+    query =
+      IpGeoEnrichmentCache
+      |> Ash.Query.for_read(:read, %{})
+      |> EnrichmentExpiry.live_for_ips(ips, now)
 
     case Ash.read(query, scope: scope) do
       {:ok, rows} when is_list(rows) ->

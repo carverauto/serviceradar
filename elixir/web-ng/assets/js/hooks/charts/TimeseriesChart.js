@@ -1,4 +1,5 @@
 import {timeseriesClientXToPointIndex, timeseriesPointIndexToLocalX} from "./geometry"
+import {hoverPosition, plotGeometryFromDataset} from "../../utils/chart_hover_geometry"
 
 export default {
   mounted() {
@@ -48,6 +49,7 @@ export default {
     }
 
     const formatValue = (value) => {
+      if (value === null || value === undefined) return "no data"
       if (typeof value !== "number") return value
       switch (unit) {
         case "percent":
@@ -67,7 +69,11 @@ export default {
 
     const showTooltip = (e) => {
       const rect = svg.getBoundingClientRect()
-      const idx = timeseriesClientXToPointIndex(e.clientX, rect, pointsData.length)
+      const position = hoverPosition(e.clientX, rect, plotGeometryFromDataset(el, svg, rect))
+      const idx =
+        pointsData.length > 1
+          ? Math.round(position.pct * (pointsData.length - 1))
+          : timeseriesClientXToPointIndex(e.clientX, rect, pointsData.length)
       const x = timeseriesPointIndexToLocalX(idx, rect, pointsData.length)
       const point = pointsData[idx]
 

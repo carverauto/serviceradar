@@ -9,13 +9,17 @@ export function numberOrNull(value) {
   return Number.isFinite(number) ? number : null
 }
 
+export function bgpSeriesValue(row, asNumber) {
+  return numberOrNull(row?.values?.[asNumber])
+}
+
 export function valuesForSeries(data, asNumber) {
-  return (Array.isArray(data) ? data : []).map((d) => numberOrNull(d?.values?.[asNumber]))
+  return (Array.isArray(data) ? data : []).map((d) => bgpSeriesValue(d, asNumber))
 }
 
 export function finiteSeriesValues(data, series) {
   return (Array.isArray(data) ? data : [])
-    .flatMap((d) => (Array.isArray(series) ? series : []).map((asNumber) => numberOrNull(d?.values?.[asNumber])))
+    .flatMap((d) => (Array.isArray(series) ? series : []).map((asNumber) => bgpSeriesValue(d, asNumber)))
     .filter((value) => Number.isFinite(value))
 }
 
@@ -30,7 +34,7 @@ export function nearestBGPDatum(data, targetTime) {
 
 export function bgpTooltipRows(row, series) {
   return (Array.isArray(series) ? series : [])
-    .map((asNumber) => ({asNumber, value: numberOrNull(row?.values?.[asNumber])}))
+    .map((asNumber) => ({asNumber, value: bgpSeriesValue(row, asNumber)}))
     .filter((item) => Number.isFinite(item.value))
 }
 
@@ -41,17 +45,26 @@ export default {
   updated() {
     this.renderChart()
   },
+  destroyed() {
+    try {
+      this._tooltipCleanup?.()
+    } catch (_e) {}
+  },
   renderChart() {
     const series = JSON.parse(this.el.dataset.series || "[]")
     const data = JSON.parse(this.el.dataset.data || "[]")
 
     if (!series.length || !data.length) return
 
+    try {
+      this._tooltipCleanup?.()
+    } catch (_e) {}
+
     this.el.innerHTML = ""
 
     const margin = { top: 20, right: 120, bottom: 30, left: 60 }
-    const width = this.el.clientWidth - margin.left - margin.right
-    const height = this.el.clientHeight - margin.top - margin.bottom
+    const width = Math.max(1, this.el.clientWidth - margin.left - margin.right)
+    const height = Math.max(1, this.el.clientHeight - margin.top - margin.bottom)
 
     const rootSvg = d3
       .select(this.el)
@@ -64,6 +77,7 @@ export default {
       .attr("transform", `translate(${margin.left},${margin.top})`)
 
     const times = data.map((d) => new Date(d.time))
+    const rows = data.map((d, i) => ({...d, t: times[i]}))
     const x = d3.scaleTime().domain(d3.extent(times)).range([0, width])
 
     const allValues = finiteSeriesValues(data, series)
@@ -154,8 +168,8 @@ export default {
         return
       }
 
-      const rows = bgpTooltipRows(row, series)
-      if (rows.length === 0) {
+      const tooltipRows = bgpTooltipRows(row, series)
+      if (tooltipRows.length === 0) {
         hideHover()
         return
       }
@@ -165,7 +179,7 @@ export default {
 
       hoverMarkers
         .selectAll("circle")
-        .data(rows, (d) => d.asNumber)
+        .data(tooltipRows, (d) => d.asNumber)
         .join("circle")
         .attr("cx", x(new Date(row.time)))
         .attr("cy", (d) => y(d.value))
@@ -173,7 +187,7 @@ export default {
         .attr("fill", (d) => color(d.asNumber))
         .attr("stroke", "white")
 
-      const lines = rows
+      const lines = tooltipRows
         .slice(0, 8)
         .map(
           (item) =>
@@ -197,13 +211,11 @@ export default {
       tooltip.style.top = `${top}px`
     }
 
-    svg
-      .append("rect")
-      .attr("width", width)
-      .attr("height", height)
-      .attr("fill", "transparent")
-      .attr("pointer-events", "all")
-      .on("mousemove", showHover)
-      .on("mouseleave", hideHover)
+    this.el.addEventListener("mousemove", showHover)
+    this.el.addEventListener("mouseleave", hideHover)
+    this._tooltipCleanup = () => {
+      this.el.removeEventListener("mousemove", showHover)
+      this.el.removeEventListener("mouseleave", hideHover)
+    }
   },
 }

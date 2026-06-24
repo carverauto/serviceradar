@@ -457,18 +457,20 @@ result (`anomaly_capacity_data.ex:36-90`). Worst case ~9 serial SRQL round-trips
 (3 anomaly candidates + 6 capacity candidates), each a 2-statement transaction,
 all inside one `start_async` (`show.ex:447-465`). Worse, the candidates are
 mis-ordered and non-sargable:
-- Anomaly candidates run `agent_id` -> `host_id` -> `device_uid_exact`
-  (`anomaly_capacity_data.ex:106-115`); only `device_uid_exact` hits the dedicated
-  partial index, and it runs LAST, so the common path **seq-scans the ~13GB OCSF
-  hypertable** twice before the indexed query.
+- Anomaly candidates must run canonical device UID first. In SRQL today that is
+  the `source_device_uid`/`device_id` filter path, which anchors on
+  `metadata #>> '{service_radar,device_uid}'` and can use the dedicated partial
+  index. Trying `agent_id`/`host_id` before the canonical lookup pushes the
+  common path toward OCSF hypertable scans.
 - Capacity candidates expand each id into an exact `resource_id` (no usable index)
   plus a leading-wildcard `resource_key '%<id>%'` ILIKE that **cannot use any
   index** (`anomaly_capacity_data.ex:117-137`).
-- Each query selects up to 50 full OCSF rows (metadata/raw_data/unmapped JSONB)
-  when the list shows ~8 (`anomaly_capacity_data.ex:159`).
-Fix: query `device_uid_exact` first as a bare indexed equality; drop the
-`%id%` ILIKE; add a btree index on capacity `resource_id`; run anomaly + capacity
-concurrently (`Task.async`); lower the limits/projection to what the panel renders.
+- Each query selects more rows than the panel renders, and events still return
+  full OCSF rows (metadata/raw_data/unmapped JSONB).
+Fix: query canonical `source_device_uid` first through the indexed equality path;
+drop the `%id%` ILIKE; add a btree index on capacity `resource_id`; run anomaly +
+capacity concurrently (`Task.async`); lower the limits and add projection when SRQL
+supports it for these entities.
 
 ### F26: Anomaly & capacity findings are not operator-actionable (HIGH, ux)
 `anomaly_capacity_components.ex` renders each finding as a static `<article>`

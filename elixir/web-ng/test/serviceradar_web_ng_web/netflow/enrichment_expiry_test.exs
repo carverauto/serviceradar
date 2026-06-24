@@ -1,7 +1,7 @@
-defmodule ServiceRadarWebNGWeb.Netflow.EnrichmentExpiryTest do
+defmodule ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiryTest do
   use ExUnit.Case, async: true
 
-  alias ServiceRadarWebNGWeb.Netflow.EnrichmentExpiry
+  alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
 
   @moduletag :unit
   @moduletag :db_free
