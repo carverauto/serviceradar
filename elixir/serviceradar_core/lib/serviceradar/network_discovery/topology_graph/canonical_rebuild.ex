@@ -56,10 +56,11 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   defp maybe_skip_unchanged_rebuild do
     fingerprint = connects_fingerprint()
     now_ms = System.monotonic_time(:millisecond)
+    heartbeat_ms = canonical_rebuild_heartbeat_ms()
 
     case :persistent_term.get({__MODULE__, :last_rebuild}, nil) do
       {^fingerprint, ts}
-      when is_binary(fingerprint) and now_ms - ts < canonical_rebuild_heartbeat_ms() ->
+      when is_binary(fingerprint) and now_ms - ts < heartbeat_ms ->
         {:skip, %{skipped: true, reason: :unchanged_topology}}
 
       _ ->
