@@ -3,6 +3,112 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Queries.CanonicalRebuild d
 
   alias ServiceRadar.Graph
 
+  # Mapper-evidence edge label tables the canonical rebuild + projection read.
+  # These MUST be Apache AGE label tables that actually exist in `platform_graph`
+  # (HOSTED_ON is in the rebuild's relation IN-list but has no label table yet, so
+  # it is intentionally absent here — unioning a non-existent table errors).
+  @rebuild_input_edge_labels [
+    "CONNECTS_TO",
+    "LOGICAL_PEER",
+    "INFERRED_TO",
+    "ATTACHED_TO",
+    "OBSERVED_TO"
+  ]
+
+  # Per-edge agtype property fields that feed the upsert `content_hash` below
+  # (relation_type comes from the source edge label table, not a property). The
+  # rebuild-input fingerprint covers exactly these so a property-only change flips
+  # the fingerprint immediately rather than waiting for the heartbeat. Keep this in
+  # lock-step with @content_hash_property_fields — the coverage parity test asserts
+  # equality so adding a field to one without the other fails CI.
+  @rebuild_input_property_fields [
+    "protocol",
+    "source",
+    "evidence_class",
+    "confidence_tier",
+    "confidence_score",
+    "confidence_reason",
+    "last_observed_at",
+    "observed_at"
+  ]
+
+  # Edge-property fields the per-edge upsert `content_hash` keys on. The remaining
+  # content_hash terms (relation_type, pair_support_rank, local/neighbor if_index +
+  # if_name) are either the edge type (= source label table) or are derived from
+  # the Interface vertices' structural identity (the start_id/end_id the
+  # fingerprint already orders + hashes by), not edge properties.
+  @content_hash_property_fields [
+    "protocol",
+    "source",
+    "evidence_class",
+    "confidence_tier",
+    "confidence_score",
+    "confidence_reason",
+    "last_observed_at",
+    "observed_at"
+  ]
+
+  @doc false
+  @spec rebuild_input_edge_labels() :: [String.t()]
+  def rebuild_input_edge_labels, do: @rebuild_input_edge_labels
+
+  @doc false
+  @spec rebuild_input_property_fields() :: [String.t()]
+  def rebuild_input_property_fields, do: @rebuild_input_property_fields
+
+  @doc false
+  @spec content_hash_property_fields() :: [String.t()]
+  def content_hash_property_fields, do: @content_hash_property_fields
+
+  @doc """
+  Single-pass SQL fingerprint of the full mapper-evidence input the canonical
+  rebuild reads: structural endpoints (start_id/end_id) plus the per-edge
+  properties that drive the upsert content_hash, across every existing edge label
+  table. Output shape is `{count}:{md5}` so the existing binary compare in
+  CanonicalRebuild is unchanged. Properties are AGE `agtype` (not jsonb), so
+  access uses `properties->'"key"'` with `::text` coercion; a missing key yields
+  SQL NULL (coalesced to '') rather than raising.
+  """
+  @spec rebuild_input_fingerprint_query() :: String.t()
+  def rebuild_input_fingerprint_query do
+    union = Enum.map_join(@rebuild_input_edge_labels, "\n  UNION ALL\n  ", &edge_label_select/1)
+
+    """
+    SELECT count(*)::text || ':' || coalesce(md5(string_agg(edge_sig, ',' ORDER BY start_id, end_id, rel)), '')
+    FROM (
+      #{union}
+    ) rebuild_input_edges
+    """
+  end
+
+  # Timestamp fields are hour-bucketed (left(.., 13) => 'YYYY-MM-DDTHH') so the
+  # fingerprint flips ~hourly instead of on every mapper report. last_observed_at
+  # is refreshed on essentially every report, so a raw-timestamp fingerprint would
+  # churn constantly and the skip-guard would almost never fire — defeating the
+  # whole rebuild-skip. This matches the upsert content_hash, which already buckets
+  # last_observed_at with substring(.., 0, 13), and stays well within the ~180min
+  # stale prune cutoff so canonical edges still refresh ~hourly.
+  @timestamp_property_fields ["last_observed_at", "observed_at"]
+
+  defp edge_label_select(label) when is_binary(label) do
+    property_terms =
+      Enum.map_join(@rebuild_input_property_fields, "", fn field ->
+        " || '|' || #{property_term(field)}"
+      end)
+
+    "SELECT start_id, end_id, '#{label}' AS rel,\n" <>
+      "    start_id::text || '>' || end_id::text || '|#{label}'#{property_terms} AS edge_sig\n" <>
+      "  FROM platform_graph.\"#{label}\""
+  end
+
+  defp property_term(field) when field in @timestamp_property_fields do
+    "left(coalesce((properties->'\"#{field}\"')::text, ''), 13)"
+  end
+
+  defp property_term(field) do
+    "coalesce((properties->'\"#{field}\"')::text, '')"
+  end
+
   @doc false
   @spec canonical_edge_count_query() :: String.t()
   def canonical_edge_count_query do

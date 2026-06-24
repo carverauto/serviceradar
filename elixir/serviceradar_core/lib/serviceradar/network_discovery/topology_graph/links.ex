@@ -17,6 +17,16 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
   # Interface vertices and edges on every report regardless of change; gating the
   # whole apply on a structural fingerprint stops that churn for a static topology.
   # A heartbeat still re-applies periodically so stale-link pruning advances.
+  #
+  # This per-report guard is intentionally an in-process persistent_term fast path
+  # (not the durable shared meta-table guard used by CanonicalRebuild). It is keyed
+  # per device scope, so making it cross-replica would mean one meta row per scope
+  # — extra schema/write surface for a smaller win. The expensive downstream work
+  # this guard protects (CanonicalRebuild.rebuild_canonical_device_links/0) is now
+  # itself durably + cross-replica gated, so a process-local miss here after a
+  # restart re-walks the cheap per-link MERGEs but no longer forces a cold full
+  # canonical rebuild. phash2 is acceptable here because the value is per-process
+  # and never persisted, so OTP-upgrade instability cannot survive a restart.
   @default_unchanged_report_heartbeat_ms 3_600_000
 
   @spec upsert_links([map()]) :: :ok
@@ -99,8 +109,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
     identity =
       payloads
       |> Enum.map(fn p ->
-        {p.local_device_id, p.neighbor_device_id, p.local_interface_id,
-         p.neighbor_interface_id, p.protocol}
+        {p.local_device_id, p.neighbor_device_id, p.local_interface_id, p.neighbor_interface_id,
+         p.protocol}
       end)
       |> Enum.sort()
 
