@@ -51,8 +51,15 @@ Even where a cause is fully observable, **the disposition kernel cannot see it.*
 channel carries *config*, not *cause*. So the problem is **wiring, not collection, and not
 statistics.** Widening that channel to carry the already-observable cause signals (and writing
 dispositions back into context for subsequent inference) is precisely DeepCausality's multi-channel
-context model — the first place in this whole effort where the causal engine is load-bearing rather
-than decorative.
+context model — the *opportunity* to make the causal engine load-bearing rather than decorative.
+
+**Honest caveat (do not let this ship as fact):** the decoration is **whole-crate**, not
+UASB-specific. Seasonal and capacity dispositions wrap `CausalFlow` identically — `process →
+context(config) → update_value_state_context → finish`, with no causaloid, no `reason`, no
+`CausalArrow`. So widening the `Context` is *necessary but not sufficient*: tier-3 only becomes
+"non-cosmetic" if it grows an actual causal structure over those cause signals. That is a
+**direction, not yet a design** — the "where is a cause observable, and how does it enter the
+decision" boundary is undefined here and is the work to do with Marvin, not a settled claim.
 
 ## Why retire UASB (rather than rename/keep)
 

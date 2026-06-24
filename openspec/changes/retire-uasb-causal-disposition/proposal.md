@@ -8,7 +8,10 @@ Shrinkage Band")**. Honest accounting:
 - **The name is coined, not a methodology.** There is no paper; "shrinkage" is a misnomer
   (`min(s_cell, CAP·s_prior)` is a *clamp*, not statistical shrinkage); "uncertainty-aware"
   is aspirational (`1 + A/√n` mimics a standard error but quantifies nothing — no posterior,
-  no coverage); the "8 invariants" are safety defaults, not invariants.
+  no coverage); most of the "8 invariants" are safety defaults rather than invariants —
+  *though a couple (the poison-bound clamp `min(s_cell, CAP·s_prior)`, the decay-not-reset
+  confirm counter) are genuine, test-backed correctness properties.* UASB was a **correct
+  detector in an aspirational costume**: the engineering was not broken, the framing was.
 - **It is not causal.** The decision is a ~25-line pure function over SQL summaries that uses
   nothing from DeepCausality — no context, no other series, no cause. Hosting it in
   `CausalFlow` is cosmetic.
@@ -33,8 +36,12 @@ spikes are **mostly already observable**:
 **The real blocker is not missing data — it is missing wiring.** The disposition kernels carry
 **only config thresholds** in their `Context` (`anomaly-core` `ReasonContext` = baseline/window
 + `n_sigma`; `SeasonalConfig` = thresholds). There is **no channel** for an observable cause to
-reach the decision. That is the first non-cosmetic reason to use DeepCausality here: its
-multi-channel **Context** (and the write-inference-back-into-context loop) is exactly that channel.
+reach the decision. Widening that channel — DeepCausality's multi-channel **Context** plus the
+write-inference-back-into-context loop — is the *opportunity* to make the causal engine
+load-bearing. Stated honestly: the cosmetic-`CausalFlow` hosting is **whole-crate** — seasonal and
+capacity dispositions wrap it the same way (no causaloid / reason / CausalArrow) — so widening the
+Context is necessary but **not sufficient**, and tier-3 must **earn** the non-cosmetic use with an
+actual causal structure. This proposal *poses* that; it does not yet design it.
 
 ## What changes
 
@@ -64,6 +71,12 @@ multi-channel **Context** (and the write-inference-back-into-context loop) is ex
 
 - Affected specs: `observability-signals` (detection-vs-disposition split, cause-context channel,
   honest-naming).
+- **Supersession & deps:** this **withdraws** the UASB peak-disposition requirement that
+  `add-anomaly-finding-disposition` (#4280, still Open/HELD) would have added — that requirement was
+  never archived into the baseline, so this is a *withdrawal*, not a `## REMOVED` block; #4280's
+  UASB content should be closed out. Relates to #4288 (the stale-resolve sweep that referenced the
+  peak disposition) and #4289 / `align-edge-anomaly-series-key` (the series-key precondition). #4280
+  should be resolved/archived in coordination so no orphaned peak requirement is left dangling.
 - Affected code: `rust/causal-disposition` (remove peak), `rust/srql` (remove peak stat),
   `causal_disposition_nif` (remove `:peak`), plus the forward Context-wiring work. The detector and
   the conditional baseline are unchanged. UASB is `report_only` (inactive), so retirement is
