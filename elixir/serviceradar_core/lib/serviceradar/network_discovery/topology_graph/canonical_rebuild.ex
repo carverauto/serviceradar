@@ -1,6 +1,8 @@
 defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   @moduledoc false
 
+  import Ecto.Query, only: [from: 2]
+
   alias ServiceRadar.Graph
   alias ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
@@ -14,18 +16,28 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
 
   @canonical_rebuild_lock_key 1_104_202_506
   @default_canonical_rebuild_timeout_ms 60_000
+  @projection_name "runtime_topology_links"
 
   # Change-detection: the canonical rebuild rewrites every CANONICAL_TOPOLOGY
   # edge with unconditional SETs, and it runs on EVERY mapper topology report
   # (per upsert_links) plus the cleanup worker. For a static topology that means
   # re-rewriting an unchanged graph indefinitely (observed: tens of millions of
-  # CANONICAL_TOPOLOGY updates on a few hundred edges). We fingerprint the
-  # structural observed-edge set (CONNECTS_TO start/end ids) and skip the rebuild
+  # CANONICAL_TOPOLOGY updates on a few hundred edges). We fingerprint the full
+  # mapper-evidence input (every observed edge label's start/end ids plus the
+  # per-edge properties that drive the upsert content_hash) and skip the rebuild
   # when it is unchanged, with a heartbeat so a long-static graph still rebuilds
-  # periodically (covering rare property-only changes the structural hash omits).
+  # periodically (a defence-in-depth backstop, since the fingerprint now covers
+  # property changes the old structural-only hash omitted).
   @default_canonical_rebuild_heartbeat_ms 3_600_000
 
-  @connects_fingerprint_sql "SELECT count(*)::text || ':' || coalesce(md5(string_agg(start_id::text || '>' || end_id::text, ',' ORDER BY start_id, end_id)), '') FROM platform_graph.\"CONNECTS_TO\""
+  # The skip-guard fingerprint is persisted on the shared
+  # platform.runtime_topology_projection_meta row (input_hash / input_hashed_at)
+  # rather than a process-local :persistent_term. persistent_term is wiped on
+  # every pod restart, so each rollout forced a cold full canonical rebuild on
+  # every replica (the rollout-correlated CNPG CPU burst). The shared meta row
+  # makes the guard durable across restarts and consistent across replicas. A nil
+  # input_hash (fresh deploy, query failure) always fails open into a rebuild, so
+  # the guard can never erroneously skip a needed change.
 
   def rebuild_canonical_links_from_current do
     _ = rebuild_canonical_links_from_current_with_stats()
@@ -44,32 +56,67 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
         {:ok, stats}
 
       {:proceed, fingerprint} ->
-        result = run_canonical_rebuild()
-        maybe_record_rebuild_fingerprint(result, fingerprint)
-        result
+        run_canonical_rebuild(fingerprint)
     end
   end
 
-  # Returns {:skip, stats} when the structural observed-edge set is unchanged
-  # since the last rebuild and the heartbeat window has not elapsed; otherwise
-  # {:proceed, fingerprint}. A nil fingerprint (query failed) always proceeds.
+  # Returns {:skip, stats} when the full mapper-evidence input is unchanged since
+  # the last rebuild and the heartbeat window has not elapsed; otherwise
+  # {:proceed, fingerprint}. The last-applied fingerprint is read from the shared
+  # platform.runtime_topology_projection_meta row so the guard survives restarts
+  # and is consistent across replicas. A nil current fingerprint (query failed) or
+  # a nil stored fingerprint (fresh deploy) always proceeds (fail-open).
   defp maybe_skip_unchanged_rebuild do
-    fingerprint = connects_fingerprint()
-    now_ms = System.monotonic_time(:millisecond)
-    heartbeat_ms = canonical_rebuild_heartbeat_ms()
+    skip_decision(
+      rebuild_input_fingerprint(),
+      stored_rebuild_fingerprint(),
+      canonical_rebuild_heartbeat_ms(),
+      DateTime.utc_now()
+    )
+  end
 
-    case :persistent_term.get({__MODULE__, :last_rebuild}, nil) do
-      {^fingerprint, ts}
-      when is_binary(fingerprint) and now_ms - ts < heartbeat_ms ->
-        {:skip, %{skipped: true, reason: :unchanged_topology}}
+  @doc false
+  # Pure skip/proceed decision (extracted so it is unit-testable without a DB).
+  # Returns {:skip, stats} only when the current fingerprint exactly matches the
+  # stored fingerprint AND the heartbeat window has not elapsed; otherwise
+  # {:proceed, current_fingerprint}. A nil current fingerprint (query failed) or a
+  # nil stored fingerprint (fresh deploy / wiped row) always proceeds (fail-open).
+  @spec skip_decision(
+          String.t() | nil,
+          {String.t(), DateTime.t()} | nil,
+          pos_integer(),
+          DateTime.t()
+        ) :: {:skip, map()} | {:proceed, String.t() | nil}
+  def skip_decision(current_fingerprint, stored, heartbeat_ms, now)
 
-      _ ->
-        {:proceed, fingerprint}
+  def skip_decision(
+        fingerprint,
+        {stored_hash, %DateTime{} = hashed_at},
+        heartbeat_ms,
+        %DateTime{} = now
+      )
+      when is_binary(fingerprint) and stored_hash == fingerprint and is_integer(heartbeat_ms) do
+    if heartbeat_elapsed?(hashed_at, heartbeat_ms, now) do
+      {:proceed, fingerprint}
+    else
+      {:skip, %{skipped: true, reason: :unchanged_topology}}
     end
   end
 
-  defp connects_fingerprint do
-    case Repo.query(@connects_fingerprint_sql, []) do
+  def skip_decision(fingerprint, _stored, _heartbeat_ms, _now), do: {:proceed, fingerprint}
+
+  # Wall-clock heartbeat (the stored timestamp is persisted, so monotonic time is
+  # meaningless across restarts). A future stored timestamp (clock skew) yields a
+  # negative diff, i.e. "not elapsed" — only reachable when the hash already
+  # matches (unchanged topology), so treating it as recent and skipping is safe; a
+  # changed fingerprint forces a rebuild via skip_decision regardless of time.
+  defp heartbeat_elapsed?(%DateTime{} = hashed_at, heartbeat_ms, %DateTime{} = now)
+       when is_integer(heartbeat_ms) do
+    DateTime.diff(now, hashed_at, :millisecond) >= heartbeat_ms
+  end
+
+  defp rebuild_input_fingerprint do
+    case Repo.query(Queries.rebuild_input_fingerprint_query(), []) do
       {:ok, %{rows: [[fingerprint]]}} when is_binary(fingerprint) -> fingerprint
       _ -> nil
     end
@@ -77,16 +124,38 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
     _ -> nil
   end
 
-  defp maybe_record_rebuild_fingerprint({:ok, _stats}, fingerprint) when is_binary(fingerprint) do
-    :persistent_term.put(
-      {__MODULE__, :last_rebuild},
-      {fingerprint, System.monotonic_time(:millisecond)}
-    )
+  defp stored_rebuild_fingerprint do
+    # input_hashed_at is a `timestamp without time zone` column, so a schemaless
+    # read yields a NaiveDateTime; type/2 loads it as a UTC DateTime to match the
+    # DateTime the skip-guard compares against.
+    query =
+      from(m in "runtime_topology_projection_meta",
+        prefix: "platform",
+        where: m.projection_name == ^@projection_name,
+        select: {m.input_hash, type(m.input_hashed_at, :utc_datetime_usec)}
+      )
 
-    :ok
+    case Repo.one(query) do
+      {hash, hashed_at} when is_binary(hash) ->
+        case normalize_hashed_at(hashed_at) do
+          %DateTime{} = dt -> {hash, dt}
+          nil -> nil
+        end
+
+      _ ->
+        nil
+    end
+  rescue
+    _ -> nil
   end
 
-  defp maybe_record_rebuild_fingerprint(_result, _fingerprint), do: :ok
+  # Normalize the stored timestamp to a UTC DateTime. type/2 above should already
+  # load it as a DateTime, but the column is `timestamp without time zone`, so a
+  # raw schemaless read can surface a NaiveDateTime — accept both so the skip-guard
+  # never silently fails open (which would defeat the whole rebuild-skip).
+  defp normalize_hashed_at(%DateTime{} = dt), do: dt
+  defp normalize_hashed_at(%NaiveDateTime{} = ndt), do: DateTime.from_naive!(ndt, "Etc/UTC")
+  defp normalize_hashed_at(_), do: nil
 
   defp canonical_rebuild_heartbeat_ms do
     :serviceradar_core
@@ -95,8 +164,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
     |> Utils.normalize_positive_int(@default_canonical_rebuild_heartbeat_ms)
   end
 
-  defp run_canonical_rebuild do
-    case with_canonical_rebuild_lock(&do_rebuild_canonical_device_links/0) do
+  defp run_canonical_rebuild(fingerprint) do
+    case with_canonical_rebuild_lock(fn -> do_rebuild_canonical_device_links(fingerprint) end) do
       {:ok, {:ok, stats}} ->
         {:ok, stats}
 
@@ -205,7 +274,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
     )
   end
 
-  defp do_rebuild_canonical_device_links do
+  defp do_rebuild_canonical_device_links(fingerprint) do
     before_edges = canonical_edge_count()
     mapper_evidence_edges = mapper_evidence_edge_count()
     stale_cutoff = Utils.stale_cutoff_iso8601()
@@ -228,7 +297,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
             min_canonical_edges
           )
 
-        runtime_projection_refresh = refresh_runtime_topology_projection()
+        runtime_projection_refresh = refresh_runtime_topology_projection(fingerprint)
 
         stats = %{
           before_edges: before_edges,
@@ -281,8 +350,13 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
     }
   end
 
-  defp refresh_runtime_topology_projection do
-    case RuntimeTopologyProjection.refresh_from_graph() do
+  # Thread the rebuild-input fingerprint into the projection refresh so it is
+  # written to runtime_topology_projection_meta.input_hash in the SAME insert_all
+  # that records refreshed_at/row_count. The hash therefore advances only after a
+  # successful rebuild + projection refresh, so a failed rebuild is retried next
+  # cycle rather than cached as "done".
+  defp refresh_runtime_topology_projection(fingerprint) do
+    case RuntimeTopologyProjection.refresh_from_graph(input_hash: fingerprint) do
       {:ok, summary} ->
         summary
 

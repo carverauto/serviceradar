@@ -150,6 +150,7 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection do
   def refresh_from_graph(opts \\ []) do
     graph = Keyword.get(opts, :graph, Graph)
     repo = Keyword.get(opts, :repo, Repo)
+    input_hash = Keyword.get(opts, :input_hash, nil)
 
     with {:ok, graph_rows} <- graph.query(graph_projection_query()) do
       rows = projection_attrs_from_graph_rows(graph_rows)
@@ -160,7 +161,7 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection do
         repo.delete_all(delete_query)
 
         row_count = insert_projection_rows(repo, rows)
-        upsert_projection_meta(repo, row_count, now)
+        upsert_projection_meta(repo, row_count, now, input_hash)
 
         %{rows: row_count}
       end
@@ -275,21 +276,37 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection do
     count
   end
 
-  defp upsert_projection_meta(repo, row_count, now) do
+  # input_hash defaults to nil so other callers keep working; it is the canonical
+  # rebuild's mapper-evidence fingerprint (see CanonicalRebuild). Persisting it
+  # here — in the same insert_all that records refreshed_at/row_count, at the end
+  # of a successful rebuild — makes the skip-guard durable across restarts and
+  # shared across replicas, and advances the hash only after a successful rebuild.
+  # When input_hash is nil (non-rebuild caller) we leave the stored hash untouched
+  # rather than clobbering it to nil, which would force the next rebuild to
+  # fail-open even when the topology is unchanged.
+  defp upsert_projection_meta(repo, row_count, now, input_hash) do
+    base = %{
+      projection_name: @projection_name,
+      refreshed_at: now,
+      row_count: row_count,
+      inserted_at: now,
+      updated_at: now
+    }
+
+    {attrs, replace_fields} =
+      if is_binary(input_hash) do
+        {Map.merge(base, %{input_hash: input_hash, input_hashed_at: now}),
+         [:refreshed_at, :row_count, :updated_at, :input_hash, :input_hashed_at]}
+      else
+        {base, [:refreshed_at, :row_count, :updated_at]}
+      end
+
     repo.insert_all(
       "runtime_topology_projection_meta",
-      [
-        %{
-          projection_name: @projection_name,
-          refreshed_at: now,
-          row_count: row_count,
-          inserted_at: now,
-          updated_at: now
-        }
-      ],
+      [attrs],
       prefix: "platform",
       conflict_target: [:projection_name],
-      on_conflict: {:replace, [:refreshed_at, :row_count, :updated_at]},
+      on_conflict: {:replace, replace_fields},
       returning: false
     )
   end
