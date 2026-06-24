@@ -46,3 +46,18 @@ rust_test(
     ],
     proc_macro_deps = all_crate_deps(proc_macro = True),
 )
+
+# End-to-end proof test: drives BOTH engine halves (the agent edge detector in
+# //rust/anomaly-core and the core seasonal disposition in this crate) from one
+# synthetic scenario, asserting escalate / suppress / clean. Integration test, so it
+# links both crate libraries as deps (not `crate = ...`).
+rust_test(
+    name = "anomaly_e2e_test",
+    srcs = ["tests/anomaly_e2e.rs"],
+    crate_root = "tests/anomaly_e2e.rs",
+    edition = "2024",
+    deps = [
+        ":serviceradar_causal_disposition",
+        "//rust/anomaly-core:serviceradar_anomaly_core",
+    ],
+)
