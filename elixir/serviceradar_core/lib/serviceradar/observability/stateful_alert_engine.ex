@@ -657,7 +657,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp stale_snapshot?(%DateTime{} = last_seen_at, %DateTime{} = cutoff),
-    do: DateTime.compare(last_seen_at, cutoff) == :lt
+    do: DateTime.before?(last_seen_at, cutoff)
 
   defp stale_snapshot?(_last_seen_at, _cutoff), do: false
 
@@ -685,7 +685,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp maybe_flush_snapshot(snapshot, rule, state) do
-    if snapshot.bucket_changed || snapshot.flush_required do
+    if Map.get(snapshot, :bucket_changed, false) || Map.get(snapshot, :flush_required, false) do
       persist_snapshot(snapshot, rule, state)
 
       snapshot
@@ -757,6 +757,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     actor = SystemActor.system(:alert_engine)
 
     case Alert.get_by_id(alert_id, actor: actor) do
+      {:ok, %Alert{status: status}} when status in [:resolved, :suppressed] ->
+        # Already terminal (resolved out-of-band via REST/sweep/duplicate clear).
+        # Idempotent no-op; do not re-fire :resolve (NoMatchingTransition) or
+        # re-record :recovered history (duplicate-row spam on every retry).
+        :ok
+
       {:ok, alert} ->
         alert
         |> Ash.Changeset.for_update(:resolve, %{resolved_by: "system"}, actor: actor)

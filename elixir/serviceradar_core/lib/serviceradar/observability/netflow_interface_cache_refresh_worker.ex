@@ -321,11 +321,17 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
 
   defp normalize_sampler_address(_value), do: nil
 
-  defp normalize_if_index(value) when is_integer(value) and value > 0, do: value
+  # RFC 2863 InterfaceIndex is 1..2147483647; the column is signed int32.
+  # Exporters occasionally emit a uint32 ifIndex above int32 max (corrupt data),
+  # which would otherwise abort the whole insert_all batch. Drop just that pair.
+  @max_if_index 2_147_483_647
+
+  defp normalize_if_index(value) when is_integer(value) and value > 0 and value <= @max_if_index,
+    do: value
 
   defp normalize_if_index(value) when is_binary(value) do
     case Integer.parse(String.trim(value)) do
-      {idx, ""} when idx > 0 -> idx
+      {idx, ""} when idx > 0 and idx <= @max_if_index -> idx
       _ -> nil
     end
   end
