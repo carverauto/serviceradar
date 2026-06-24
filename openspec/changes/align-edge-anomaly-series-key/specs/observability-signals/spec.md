@@ -12,6 +12,20 @@ under the polling `agent_id` or an unreconciled raw host id when a canonical dev
 exists. Resolution is anchored on the gateway-attested `agent_id`, so agent-reported
 target/interface identity is namespaced to that agent and cannot collide across agents.
 
+The anomaly side SHALL resolve `device_id` through the **same** `DeviceCorrelation`
+resolution path the metric pipeline's device backfill uses (`metrics.ex` `resolve_device_ids`
+→ `DeviceCorrelation.resolve`), so the two cannot fork into a split-brain where the
+same series resolves differently. Because `DeviceCorrelation.resolve` is cache-backed,
+a conformance/parity check SHALL resolve both the metric and the anomaly sides under
+the **same inventory snapshot** so a stale cache cannot make them diverge spuriously.
+
+#### Scenario: Anomaly and metric resolve through the same path
+
+- **GIVEN** a series whose metric `device_id` was assigned by the metric backfill via `DeviceCorrelation.resolve`
+- **WHEN** the anomaly for that series is resolved
+- **THEN** it SHALL use the same `DeviceCorrelation` resolution (not a parallel resolver)
+- **AND** under one inventory snapshot both SHALL yield the same `sr:` device
+
 #### Scenario: An SNMP anomaly resolves to the polled target's canonical device
 
 - **GIVEN** an SNMP series polled by `agent_id = A` against target `T`, whose metric is stored with `device_id = sr:<T>`
