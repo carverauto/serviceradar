@@ -246,8 +246,21 @@ impl DetectorEngine {
         }
 
         // Non-monotonic time: drop WITHOUT advancing, keeping the older valid
-        // reading as the baseline (matches central).
+        // reading as the baseline (matches central) — UNLESS the stored baseline is
+        // implausibly far AHEAD of this reading (more than COUNTER_MAX_GAP_NS). A
+        // single point carrying a bad future timestamp would otherwise become the
+        // baseline and silently drop every subsequent real reading (each is "older")
+        // until wall-clock catches up — and that poisoned future timestamp is immune
+        // to age-based eviction and survives the checkpoint. When the backward jump
+        // is that large the STORED timestamp is the suspect, so re-anchor to this
+        // reading (symmetric with the over-long forward gap below) and recover on the
+        // next real point. A small backward step (clock skew) still drops, as before.
         if observed_at_unix_nano <= previous.timestamp {
+            if previous.timestamp - observed_at_unix_nano > COUNTER_MAX_GAP_NS {
+                previous.value = raw_value;
+                previous.timestamp = observed_at_unix_nano;
+                replace_reset_anchor(&mut previous.reset_anchor, reset_anchor);
+            }
             return None;
         }
 
@@ -535,7 +548,12 @@ fn reset_anchor_changed(previous: &str, current: &str) -> bool {
 }
 
 fn replace_reset_anchor(target: &mut String, current: &str) {
-    if target == current {
+    // An empty (unknown) anchor must NOT clobber a known one. `reset_anchor_changed`
+    // treats empty on either side as "unknown, never a reset", so if we let an empty
+    // anchor overwrite a stored "boot-1", a later genuine "boot-2" would compare
+    // against "" and the real reset would be missed. Preserve the last known anchor
+    // instead. (Also preserves the in-place no-realloc fast path on no change.)
+    if current.is_empty() || target == current {
         return;
     }
 
@@ -697,6 +715,26 @@ mod tests {
     }
 
     #[test]
+    fn empty_anchor_does_not_clobber_known_reset_lineage() {
+        // An empty (unknown) anchor must not wipe the stored anchor, else a later
+        // genuine anchor change is missed and a rate is wrongly computed across a
+        // reset (the "a" -> "" -> "b" flip).
+        let mut engine = DetectorEngine::new(EngineConfig::default());
+        engine.normalize_counter("c", 1_000.0, 1_000_000_000, "a", 64); // warmup, anchor "a"
+        // An empty-anchor reading rates normally but must PRESERVE the stored "a".
+        let rate = engine
+            .normalize_counter("c", 2_000.0, 2_000_000_000, "", 64)
+            .expect("rate");
+        assert!((rate - 1_000.0).abs() < 1e-9, "rate was {rate}");
+        // A genuine new lineage "b" is now detected as a reset (drop, re-baseline),
+        // because the stored anchor is still "a", not the wiped "".
+        assert_eq!(
+            engine.normalize_counter("c", 3_000.0, 3_000_000_000, "b", 64),
+            None
+        );
+    }
+
+    #[test]
     fn counter_non_monotonic_time_keeps_baseline() {
         let mut engine = DetectorEngine::new(EngineConfig::default());
         engine.normalize_counter("c", 1_000.0, 2_000_000_000, "b", 64);
@@ -710,6 +748,35 @@ mod tests {
             .normalize_counter("c", 4_000.0, 3_000_000_000, "b", 64)
             .expect("rate");
         assert!((rate - 3_000.0).abs() < 1e-9, "rate was {rate}");
+    }
+
+    #[test]
+    fn counter_future_timestamp_does_not_brick_series() {
+        // A single point carrying a bad far-future timestamp must not permanently
+        // stall the series. Before the fix, the future ts became the baseline and
+        // every later real reading was dropped as "non-monotonic" forever (and the
+        // future ts was immune to eviction + survived the checkpoint).
+        let mut engine = DetectorEngine::new(EngineConfig::default());
+        // Warmup at t = 1s.
+        engine.normalize_counter("c", 1_000.0, 1_000_000_000, "b", 64);
+        // A point dated ~100h in the future stores as the baseline (over-long gap).
+        let far_future = 360_000_000_000_000; // 100h in ns
+        assert_eq!(
+            engine.normalize_counter("c", 2_000.0, far_future, "b", 64),
+            None
+        );
+        // A real reading at t = 2s is more than COUNTER_MAX_GAP_NS behind the poisoned
+        // future baseline, so it re-anchors instead of being dropped forever.
+        assert_eq!(
+            engine.normalize_counter("c", 3_000.0, 2_000_000_000, "b", 64),
+            None
+        );
+        // Recovery: the next real reading rates against the re-anchored t=2s / 3000
+        // baseline. (Without the fix this is still "older" than 100h → None forever.)
+        let rate = engine
+            .normalize_counter("c", 4_000.0, 3_000_000_000, "b", 64)
+            .expect("series should recover, not stay bricked behind the future ts");
+        assert!((rate - 1_000.0).abs() < 1e-9, "rate was {rate}");
     }
 
     #[test]
