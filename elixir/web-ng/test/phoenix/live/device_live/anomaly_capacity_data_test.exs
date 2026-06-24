@@ -50,6 +50,34 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
     end
   end
 
+  defmodule SNMPSRQL do
+    @moduledoc false
+
+    def query("in:events" <> _rest = query, _opts) do
+      send(test_pid(), {:fake_query, query})
+
+      {:ok,
+       %{
+         "results" => [
+           %{
+             "metric_class" => "snmp.if_octets",
+             "status" => "active",
+             "time" => "2026-06-19T00:00:00Z"
+           }
+         ]
+       }}
+    end
+
+    def query("in:capacity_forecasts" <> _rest = query, _opts) do
+      send(test_pid(), {:fake_query, query})
+      {:ok, %{"results" => []}}
+    end
+
+    defp test_pid do
+      Application.fetch_env!(:serviceradar_web_ng, :anomaly_capacity_data_test_pid)
+    end
+  end
+
   defmodule NoFallbackSRQL do
     @moduledoc false
 
@@ -232,6 +260,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
     assert Enum.any?(queries, &String.contains?(&1, ~s|resource_id:"router-1"|))
     assert cpu.status == "active"
     assert cpu.count == 1
+    assert red.status == "normal"
+    assert red.count == 0
+  end
+
+  test "SNMP metric subclasses are grouped into the SNMP anomaly status bucket" do
+    data = AnomalyCapacityData.load(SNMPSRQL, %{device_uid: "router-1"}, nil)
+
+    snmp = Enum.find(data.metric_statuses, &(&1.class == "snmp"))
+    red = Enum.find(data.metric_statuses, &(&1.class == "red"))
+
+    assert snmp.status == "active"
+    assert snmp.count == 1
     assert red.status == "normal"
     assert red.count == 0
   end

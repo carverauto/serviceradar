@@ -5,7 +5,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
 
   require Logger
 
-  @metric_classes ~w(cpu memory disk interface red)
+  @metric_classes ~w(cpu memory disk interface snmp red)
   @anomaly_limit 20
   @capacity_limit 12
   @query_timeout_ms 5_000
@@ -144,7 +144,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp anomaly_filter_candidates(identity) do
     Enum.reject(
       [
-        candidate(identity, :device_uid, "service_radar_device_uid", "device")
+        candidate(identity, :device_uid, "service_radar_device_uid", "device"),
+        candidate(identity, :agent_id, "service_radar_device_uid", "agent"),
+        candidate(identity, :host_id, "service_radar_device_uid", "host")
       ],
       &is_nil/1
     )
@@ -549,6 +551,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       "cpu_metrics" -> "cpu"
       "disk_metrics" -> "disk"
       "interface_metrics" -> "interface"
+      "snmp" <> _ -> "snmp"
       class when class in @metric_classes -> class
       _ -> "red"
     end
@@ -568,6 +571,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp metric_label("memory"), do: "Memory"
   defp metric_label("disk"), do: "Disk"
   defp metric_label("interface"), do: "Interfaces"
+  defp metric_label("snmp"), do: "SNMP"
   defp metric_label("red"), do: "RED"
   defp metric_label(class), do: class
 end

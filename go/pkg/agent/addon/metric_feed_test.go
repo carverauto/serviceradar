@@ -52,6 +52,8 @@ func TestMetricFeedLifecycleFiltersSourcesAndPublishesFrames(t *testing.T) {
 		client,
 		[]string{testMetricFeedSourceSysmon},
 		zerolog.Nop(),
+		time.Millisecond,
+		time.Millisecond,
 	)
 	lifecycle.start()
 	t.Cleanup(lifecycle.stop)
@@ -90,6 +92,8 @@ func TestManagerPublishMetricFeedFiltersSources(t *testing.T) {
 		client,
 		[]string{testMetricFeedSourceSysmon},
 		zerolog.Nop(),
+		time.Millisecond,
+		time.Millisecond,
 	)
 	lifecycle.start()
 	t.Cleanup(lifecycle.stop)
@@ -128,6 +132,8 @@ func TestMetricFeedLifecycleReconnectsAfterAckStreamClose(t *testing.T) {
 		client,
 		[]string{testMetricFeedSourceSysmon},
 		zerolog.Nop(),
+		time.Millisecond,
+		time.Millisecond,
 	)
 	lifecycle.start()
 	t.Cleanup(lifecycle.stop)
@@ -135,11 +141,14 @@ func TestMetricFeedLifecycleReconnectsAfterAckStreamClose(t *testing.T) {
 	waitForMetricFeedCalls(t, client, 2)
 
 	if !lifecycle.publish("sysmon", []byte("sysmon-after-reconnect")) {
-		t.Fatal("expected sysmon frame to be accepted")
+		t.Fatal("expected sysmon frame to be accepted after reconnect")
 	}
 
 	select {
 	case got := <-client.received:
+		if got.GetFeedId() != 1 {
+			t.Fatalf("feed_id = %d, want reset-to-1 after reconnect", got.GetFeedId())
+		}
 		if string(got.GetPayload()) != "sysmon-after-reconnect" {
 			t.Fatalf("payload = %q, want sysmon-after-reconnect", got.GetPayload())
 		}
@@ -217,9 +226,10 @@ type reconnectingMetricFeedClient struct {
 func (c *reconnectingMetricFeedClient) StreamMetricFeed(
 	ctx context.Context,
 ) (chan<- *addonpb.MetricFeedFrame, <-chan uint64, error) {
+	call := c.calls.Add(1)
 	frames := make(chan *addonpb.MetricFeedFrame)
 	acks := make(chan uint64)
-	call := c.calls.Add(1)
+
 	if call == 1 {
 		close(acks)
 		return frames, acks, nil

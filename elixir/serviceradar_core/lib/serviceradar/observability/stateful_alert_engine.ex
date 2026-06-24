@@ -1228,6 +1228,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   defp severity_from_source?(_overrides), do: false
 
+  defp source_severity(nil), do: :warning
+
   defp source_severity(record) do
     record_field_value(record, "severity_number") ||
       record_field_value(record, "severity_text") ||

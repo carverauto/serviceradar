@@ -1,6 +1,12 @@
 import {describe, expect, it} from "vitest"
 
-import {bgpTooltipRows, finiteSeriesValues, nearestBGPDatum, valuesForSeries} from "./BGPTimeSeriesChart"
+import {
+  bgpSeriesValue,
+  bgpTooltipRows,
+  finiteSeriesValues,
+  nearestBGPDatum,
+  valuesForSeries,
+} from "./BGPTimeSeriesChart"
 
 describe("BGPTimeSeriesChart gap handling", () => {
   const data = [
@@ -23,5 +29,11 @@ describe("BGPTimeSeriesChart gap handling", () => {
     expect(nearestBGPDatum(data, "not-a-date")).toBeNull()
 
     expect(bgpTooltipRows(data[2], ["64512", "64513"])).toEqual([{asNumber: "64512", value: 300}])
+  })
+
+  it("preserves missing AS values as null", () => {
+    expect(bgpSeriesValue({values: {"64512": 4}}, "64512")).toBe(4)
+    expect(bgpSeriesValue({values: {"64512": null}}, "64512")).toBeNull()
+    expect(bgpSeriesValue({values: {}}, "64512")).toBeNull()
   })
 })

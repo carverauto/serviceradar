@@ -880,6 +880,12 @@ fn build_stats_query_with_source(
     cagg_avg_expr: Option<&str>,
     cagg_mode: bool,
 ) -> Result<TimeseriesStatsSql> {
+    if spec.is_profile_hour_of_week() {
+        return Err(ServiceError::InvalidRequest(
+            "profile_hour_of_week requires the profile stats route".into(),
+        ));
+    }
+
     let mut clauses = Vec::new();
     let mut binds = Vec::new();
 

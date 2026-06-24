@@ -7,6 +7,11 @@ defmodule ServiceRadar.Plugins.AnomalyAddonProfileSeeder do
   in assignment params. That avoids starting analysis for every possible local
   add-on feed and keeps future SRQL targeting improvements independent from the
   source subscription contract.
+
+  Scalar detector knobs such as `window_size`, `min_samples`, `n_sigma`, and
+  `confirm_slots` are intentionally not seeded here. Operators tune those on
+  the add-on profile or assignment params; omitted fields keep the
+  `anomaly-addon` package schema and native detector defaults.
   """
 
   use ServiceRadar.DelayedSeeder, callback: :seed_defaults
@@ -31,6 +36,9 @@ defmodule ServiceRadar.Plugins.AnomalyAddonProfileSeeder do
   the bundle's `config.schema.json`) can be validated against the exact params
   this seeder writes — guarding against a schema regression that would reject the
   legitimate `metric_feed` selection and freeze reconcile.
+
+  This default pins feed ownership only. It does not freeze detector scalar
+  defaults into every seeded profile.
   """
   @spec default_params() :: map()
   def default_params, do: @default_params

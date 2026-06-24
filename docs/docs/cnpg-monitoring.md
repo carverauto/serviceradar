@@ -91,25 +91,32 @@ Watching the compressed/uncompressed split helps explain PVC growth and ensures 
 
 ## Write-Flood Growth Tracking
 
-During anomaly-engine or flow-volume rollouts, capture a baseline and a 24-hour
-follow-up for the tables touched by the write-flood fixes:
+After the anomaly/capacity/flow flood fixes land, track the actual write rate for
+the hot tables called out in F46. During anomaly-engine or flow-volume rollouts,
+capture a baseline and a 24-hour follow-up for the tables touched by the
+write-flood fixes:
 
 ```bash
 psql "$DATABASE_URL" -f scripts/db/write_flood_growth.sql
 ```
 
 Run the probe before deployment, immediately after deployment, and then hourly
-for the first day. The row-rate columns filter only on each hypertable's time
-partition column so TimescaleDB can prune old chunks; avoid adding
-`created_at`-only counts to this probe. `estimated_total_rows` and `table_bytes`
-come from catalog/table-size helpers and are cheap enough for repeated sampling.
+for at least 24 hours. The output reports current table bytes plus 1-hour and
+24-hour row rates for `platform.ocsf_events`, `platform.capacity_forecasts`, and
+`platform.ocsf_network_activity`. The row-rate columns filter only on each
+hypertable's time partition column so TimescaleDB can prune old chunks; avoid
+adding `created_at`-only counts to this probe. `estimated_total_rows` and
+`table_bytes` come from catalog/table-size helpers and are cheap enough for
+repeated sampling.
 
-`rows_per_hour_1h` and `rows_per_hour_24h` should drop for `ocsf_events` and
-`capacity_forecasts` once duplicate anomaly/capacity findings stop re-emitting.
-For `ocsf_network_activity`, compare row rate with `logical_volume_1h`: sampled
-exporters may keep similar row counts, but `logical_volume_1h` should reflect
-sampling-adjusted traffic after F39 while retention keeps physical table growth
-bounded.
+The expected post-fix signal is a sustained drop in `ocsf_events` and
+`capacity_forecasts` rows per hour once duplicate anomaly/capacity findings stop
+re-emitting. For `ocsf_network_activity`, compare the row rate with
+`logical_volume_1h`: sampled exporters may keep similar row counts, but
+`logical_volume_1h` should reflect sampling-adjusted traffic after F39 while
+retention keeps physical table growth bounded. Use the flow row rate together
+with the sampling-adjusted logical volume to confirm F39 is no longer
+undercounting sampled traffic.
 
 ## Query and pgx Error Watch
 

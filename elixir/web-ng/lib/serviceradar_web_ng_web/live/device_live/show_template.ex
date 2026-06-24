@@ -251,7 +251,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               <.anomaly_capacity_section
                 :if={@can_view_anomaly_capacity}
                 overview={@anomaly_capacity}
-                selected_detail={@selected_anomaly_capacity_detail}
+                detail={@anomaly_capacity_detail}
+                device_uid={@device_uid}
+                device_display_name={@device_display_name}
               />
 
               <%= for panel <- @panels do %>

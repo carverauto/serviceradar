@@ -91,14 +91,15 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStore do
           }
         end)
 
-      case repo.insert_all(@table, rows,
-             prefix: @prefix,
-             conflict_target: [:source, :series_key, :dow, :hod],
-             on_conflict: {:replace, replacement_fields()}
-           ) do
-        {count, _rows} when is_integer(count) ->
-          :ok
-
+      with :ok <- cleanup_expired(repo),
+           {_count, _rows} <-
+             repo.insert_all(@table, rows,
+               prefix: @prefix,
+               conflict_target: [:source, :series_key, :dow, :hod],
+               on_conflict: {:replace, replacement_fields()}
+             ) do
+        :ok
+      else
         {:error, reason} = error ->
           Logger.warning("Failed to persist seasonal disposition state",
             source: source_name,

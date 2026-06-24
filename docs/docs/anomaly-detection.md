@@ -13,6 +13,21 @@ Use this guide when tuning the deployment-level settings in
 **Settings > Anomaly Detection**, editing anomaly add-on assignment/profile params,
 or reviewing anomaly and capacity findings in **Events**.
 
+## Tuning Ownership
+
+Short-term edge spike tuning is owned by the native `anomaly` add-on profile or
+assignment params. Deployment-level settings in **Settings > Anomaly Detection**
+own central seasonal disposition, capacity forecasts, and planning metadata;
+they do not rewrite existing edge add-on assignments.
+
+The seeded "Default Edge Anomaly Detection" profile pins only
+`metric_feed.sources` to `["sysmon", "snmp"]`. It intentionally omits scalar
+edge detector knobs such as `window_size`, `min_samples`, `n_sigma`,
+`confirm_slots`, `max_series`, and checkpoint limits, so omitted values use the
+defaults shipped in the approved add-on package. To tune spike detection, edit
+the add-on profile or a narrower assignment, canary it on a small cohort, and
+then broaden the assignment after status and event volume are healthy.
+
 ## Access
 
 Anomaly detection settings require the `observability.alerts.manage`
@@ -84,7 +99,9 @@ visible while filtering one-off spikes.
 ## Metric Class Overrides
 
 The global values apply first. Metric class overrides let operators tune classes
-that behave differently without changing the whole deployment.
+that behave differently without changing the whole deployment. These central
+settings feed the seasonal and capacity runtime; edge spike overrides belong in
+the native add-on profile or assignment params.
 
 Supported detector classes include:
 
@@ -191,11 +208,12 @@ same stream as the persistence consumer.
 For spike detection, assign the native `anomaly` add-on to the agents that own
 sysmon or SNMP collection. The default profile uses the broad SRQL target
 `in:devices`, with add-on params restricting the consumed feed sources to
-`["sysmon", "snmp"]`. Narrow the SRQL target when a deployment has agents that
-should never run host add-ons. Do not assign the native anomaly add-on to the
-in-cluster `k8s-agent` unless that pod is deliberately acting as the owner of a
-host metric feed; in normal deployments, Kubernetes SNMP or sysmon collection
-belongs on host agents.
+`["sysmon", "snmp"]`, and relies on the approved package defaults for scalar
+detector knobs until an operator explicitly overrides them. Narrow the SRQL
+target when a deployment has agents that should never run host add-ons. Do not
+assign the native anomaly add-on to the in-cluster `k8s-agent` unless that pod
+is deliberately acting as the owner of a host metric feed; in normal
+deployments, Kubernetes SNMP or sysmon collection belongs on host agents.
 
 During rollout:
 

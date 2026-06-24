@@ -29,24 +29,23 @@ export function parsePoints(raw) {
     }))
 }
 
-export function contiguousValueRuns(points) {
-  const runs = []
+export function contiguousValidSegments(points) {
+  const segments = []
   let current = []
 
-  for (const point of Array.isArray(points) ? points : []) {
-    if (Number.isFinite(point?.v)) {
-      current.push(point)
+  for (let i = 0; i < points.length; i += 1) {
+    const point = points[i]
+    if (point?.v === null || !Number.isFinite(point?.v)) {
+      if (current.length > 0) segments.push(current)
+      current = []
       continue
     }
 
-    if (current.length > 0) {
-      runs.push(current)
-      current = []
-    }
+    current.push({...point, idx: i})
   }
 
-  if (current.length > 0) runs.push(current)
-  return runs
+  if (current.length > 0) segments.push(current)
+  return segments
 }
 
 function formatRate(value) {
@@ -110,15 +109,16 @@ export default {
 
     const color = this.el.dataset.color || "oklch(0.65 0.24 150)"
 
-    const values = points.map((p) => p.v).filter((value) => Number.isFinite(value))
+    const validPoints = points.filter((p) => Number.isFinite(p.v))
 
-    if (points.length < 2 || values.length < 2) {
+    if (validPoints.length < 2 || points.length < 2) {
       ctx.fillStyle = "rgba(115, 115, 115, 0.85)"
       ctx.font = "12px ui-sans-serif, system-ui, sans-serif"
       ctx.fillText("No flow-rate data", padLeft, padTop + 16)
       return
     }
 
+    const values = validPoints.map((p) => p.v)
     const minVal = Math.min(0, ...values)
     const maxVal = Math.max(...values)
     const paddedMax = maxVal <= minVal ? minVal + 1 : maxVal * 1.05
@@ -126,8 +126,7 @@ export default {
 
     const xFor = (i) => padLeft + (i / (points.length - 1)) * plotW
     const yFor = (v) => padTop + (1 - (v - minVal) / range) * plotH
-    const runs = contiguousValueRuns(points)
-    const pointIndices = new Map(points.map((point, idx) => [point, idx]))
+    const segments = contiguousValidSegments(points)
 
     // Horizontal grid + y labels
     const yTicks = 4
@@ -162,21 +161,17 @@ export default {
       ctx.stroke()
     }
 
+    // Area
     ctx.fillStyle = color
     ctx.globalAlpha = 0.15
-    for (const run of runs) {
-      if (run.length < 2) continue
-
-      const firstIdx = pointIndices.get(run[0])
-      const lastIdx = pointIndices.get(run[run.length - 1])
-
+    for (const segment of segments) {
+      if (segment.length < 2) continue
       ctx.beginPath()
-      ctx.moveTo(xFor(firstIdx), h - padBottom)
-      for (const point of run) {
-        const idx = pointIndices.get(point)
-        ctx.lineTo(xFor(idx), yFor(point.v))
+      ctx.moveTo(xFor(segment[0].idx), h - padBottom)
+      for (const point of segment) {
+        ctx.lineTo(xFor(point.idx), yFor(point.v))
       }
-      ctx.lineTo(xFor(lastIdx), h - padBottom)
+      ctx.lineTo(xFor(segment[segment.length - 1].idx), h - padBottom)
       ctx.closePath()
       ctx.fill()
     }
@@ -185,15 +180,22 @@ export default {
     ctx.globalAlpha = 1
     ctx.strokeStyle = color
     ctx.lineWidth = 2
-    for (const run of runs) {
-      if (run.length < 2) continue
+    for (const segment of segments) {
+      if (segment.length < 2) {
+        const point = segment[0]
+        ctx.beginPath()
+        ctx.arc(xFor(point.idx), yFor(point.v), 2, 0, Math.PI * 2)
+        ctx.fillStyle = color
+        ctx.fill()
+        continue
+      }
 
       ctx.beginPath()
-      for (const point of run) {
-        const idx = pointIndices.get(point)
-        const x = xFor(idx)
+      for (let i = 0; i < segment.length; i += 1) {
+        const point = segment[i]
+        const x = xFor(point.idx)
         const y = yFor(point.v)
-        if (point === run[0]) ctx.moveTo(x, y)
+        if (i === 0) ctx.moveTo(x, y)
         else ctx.lineTo(x, y)
       }
       ctx.stroke()

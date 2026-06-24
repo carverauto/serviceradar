@@ -17,7 +17,10 @@
 package addon
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -27,19 +30,33 @@ import (
 	"github.com/rs/zerolog"
 )
 
+var errTransportReset = errors.New("transport reset")
+
 type reconnectingTelemetryClient struct {
 	calls atomic.Int32
 }
 
-func (c *reconnectingTelemetryClient) StreamTelemetry(context.Context) (<-chan *coreaddon.TelemetryBatch, error) {
-	batches := make(chan *coreaddon.TelemetryBatch, 1)
+func (c *reconnectingTelemetryClient) StreamTelemetry(
+	ctx context.Context,
+) (<-chan *coreaddon.TelemetryBatch, error) {
 	call := c.calls.Add(1)
-	if call >= 2 {
-		batches <- &addonpb.TelemetryBatch{
-			Records: []*addonpb.TelemetryRecord{{EventId: "after-reconnect"}},
-		}
+	batches := make(chan *coreaddon.TelemetryBatch, 1)
+
+	if call == 1 {
+		close(batches)
+		return batches, nil
 	}
-	close(batches)
+
+	go func() {
+		defer close(batches)
+		select {
+		case batches <- &addonpb.TelemetryBatch{
+			Records: []*addonpb.TelemetryRecord{{EventId: "after-reconnect"}},
+		}:
+		case <-ctx.Done():
+		}
+	}()
+
 	return batches, nil
 }
 
@@ -66,12 +83,36 @@ func (c *resetBackoffTelemetryClient) StreamTelemetry(context.Context) (<-chan *
 	return batches, nil
 }
 
+type diagnosticTelemetryClient struct {
+	diagnostics chan coreaddon.StreamDiagnostic
+}
+
+func (c *diagnosticTelemetryClient) StreamTelemetry(context.Context) (<-chan *coreaddon.TelemetryBatch, error) {
+	batches := make(chan *coreaddon.TelemetryBatch)
+	close(batches)
+
+	select {
+	case c.diagnostics <- coreaddon.StreamDiagnostic{
+		Stream: "telemetry",
+		Kind:   coreaddon.StreamEndError,
+		Err:    errTransportReset,
+	}:
+	default:
+	}
+
+	return batches, nil
+}
+
+func (c *diagnosticTelemetryClient) StreamDiagnostics() <-chan coreaddon.StreamDiagnostic {
+	return c.diagnostics
+}
+
 func TestRunnerDrainTelemetryReconnectsAfterStreamClose(t *testing.T) {
+	handled := make(chan string, 1)
 	client := &reconnectingTelemetryClient{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	handled := make(chan string, 1)
 	cfg := applyDefaults(Config{
 		RuntimeDir:            t.TempDir(),
 		RestartBackoffInitial: time.Millisecond,
@@ -132,5 +173,36 @@ func TestRunnerDrainTelemetryResetsReconnectBackoffAfterProgress(t *testing.T) {
 	case <-client.fifthCall:
 	case <-time.After(50 * time.Millisecond):
 		t.Fatal("reconnect after healthy telemetry used grown backoff instead of initial delay")
+	}
+}
+
+func TestRunnerDrainTelemetryLogsStreamLossDiagnostic(t *testing.T) {
+	var logs bytes.Buffer
+	client := &diagnosticTelemetryClient{
+		diagnostics: make(chan coreaddon.StreamDiagnostic, 1),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+	defer cancel()
+
+	cfg := applyDefaults(Config{
+		RuntimeDir:            t.TempDir(),
+		RestartBackoffInitial: time.Millisecond,
+		RestartBackoffMax:     time.Millisecond,
+		Logger:                zerolog.New(&logs),
+	})
+	r := newRunner(Spec{ID: "telemetry-addon"}, cfg)
+
+	r.drainTelemetry(ctx, client)
+
+	got := logs.String()
+	if !strings.Contains(got, `"stream":"telemetry"`) {
+		t.Fatalf("expected stream field in logs, got %s", got)
+	}
+	if !strings.Contains(got, `"stream_end":"error"`) {
+		t.Fatalf("expected stream_end error in logs, got %s", got)
+	}
+	if !strings.Contains(got, "transport reset") {
+		t.Fatalf("expected transport error in logs, got %s", got)
 	}
 }

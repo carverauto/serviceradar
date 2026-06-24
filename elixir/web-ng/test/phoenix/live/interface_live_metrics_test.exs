@@ -63,6 +63,31 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsTest do
       assert "Outbound" in series_names
     end
 
+    test "groups SRQL downsample rows by series and timestamp" do
+      results = [
+        %{"series" => "ifInOctets", "timestamp" => ~U[2100-01-01 00:05:00Z], "value" => 20.0},
+        %{"series" => "ifInOctets", "timestamp" => ~U[2100-01-01 00:00:00Z], "value" => 10.0},
+        %{"series" => "ifOutOctets", "timestamp" => ~U[2100-01-01 00:00:00Z], "value" => 7.0},
+        %{series: "ifOutOctets", timestamp: ~U[2100-01-01 00:05:00Z], value: 9.0}
+      ]
+
+      groups = [
+        %{
+          "id" => "group-1",
+          "name" => "Traffic",
+          "metrics" => ["ifInOctets", "ifOutOctets"]
+        }
+      ]
+
+      panels = build_panels_for_groups(results, nil, groups)
+      traffic_panel = Enum.find(panels, &(&1.title == "Traffic"))
+
+      assert length(traffic_panel.assigns.series) == 2
+
+      inbound = Enum.find(traffic_panel.assigns.series, &(&1.name == "Inbound"))
+      assert Enum.map(inbound.data, & &1.time) == Enum.sort(Enum.map(inbound.data, & &1.time))
+    end
+
     test "multiple groups create multiple panels" do
       results = build_sample_metric_results()
 
@@ -244,7 +269,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsTest do
 
     group_results =
       Enum.filter(results, fn result ->
-        metric_name = Map.get(result, "metric_name")
+        metric_name = metric_result_name(result)
         metric_name in group_metrics
       end)
 
@@ -273,17 +298,31 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsTest do
 
   defp build_series_list(group_results) do
     group_results
-    |> Enum.group_by(& &1["metric_name"])
+    |> Enum.group_by(&metric_result_name/1)
     |> Enum.map(&build_single_series/1)
   end
 
   defp build_single_series({name, points}) do
     data =
       points
-      |> Enum.map(fn p -> %{time: p["time"], value: p["value"]} end)
+      |> Enum.map(fn p -> %{time: metric_result_time(p), value: first_key(p, [:value])} end)
       |> Enum.sort_by(& &1.time)
 
     %{name: format_series_name(name), data: data}
+  end
+
+  defp metric_result_name(result) when is_map(result), do: first_key(result, [:metric_name, :series])
+
+  defp metric_result_name(_), do: nil
+
+  defp metric_result_time(result) when is_map(result), do: first_key(result, [:time, :timestamp])
+
+  defp metric_result_time(_), do: nil
+
+  defp first_key(map, keys) when is_map(map) and is_list(keys) do
+    Enum.find_value(keys, fn key ->
+      Map.get(map, to_string(key)) || Map.get(map, key)
+    end)
   end
 
   defp format_series_name(name) when is_binary(name) do

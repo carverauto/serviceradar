@@ -303,6 +303,9 @@ type grpcClient struct {
 
 	streamLossOnce sync.Once
 	streamLoss     chan StreamLossEvent
+
+	diagnostics     chan StreamDiagnostic
+	diagnosticsOnce sync.Once
 }
 
 var _ Addon = (*grpcClient)(nil)
@@ -312,6 +315,7 @@ var _ CommandClient = (*grpcClient)(nil)
 var _ OtlpRelayClient = (*grpcClient)(nil)
 var _ MetricFeedClient = (*grpcClient)(nil)
 var _ StreamLossDiagnostics = (*grpcClient)(nil)
+var _ StreamDiagnosticsClient = (*grpcClient)(nil)
 
 func (c *grpcClient) StreamLossEvents() <-chan StreamLossEvent {
 	return c.streamLossEvents()
@@ -342,6 +346,11 @@ func (c *grpcClient) emitStreamLoss(ctx context.Context, streamName string, oper
 	case c.streamLossEvents() <- event:
 	default:
 	}
+}
+
+func (c *grpcClient) StreamDiagnostics() <-chan StreamDiagnostic {
+	c.ensureDiagnostics()
+	return c.diagnostics
 }
 
 func (c *grpcClient) Info(ctx context.Context) (Info, error) {
@@ -395,6 +404,7 @@ func (c *grpcClient) StreamTelemetry(ctx context.Context) (<-chan *addonpb.Telem
 			batch, err := stream.Recv()
 			if err != nil {
 				c.emitStreamLoss(ctx, StreamNameTelemetry, StreamOperationRecv, err)
+				c.emitStreamDiagnostic(ctx, StreamNameTelemetry, err)
 				return
 			}
 			select {
@@ -423,6 +433,7 @@ func (c *grpcClient) StreamArtifacts(ctx context.Context) (<-chan *addonpb.Artif
 			chunk, err := stream.Recv()
 			if err != nil {
 				c.emitStreamLoss(ctx, StreamNameArtifacts, StreamOperationRecv, err)
+				c.emitStreamDiagnostic(ctx, StreamNameArtifacts, err)
 				return
 			}
 			select {
@@ -496,8 +507,10 @@ const metricFeedSendBuffer = 256
 // returned acks channel for flow control. The data direction is the inverse of
 // RelayOtlp: here the agent is the producer.
 func (c *grpcClient) StreamMetricFeed(ctx context.Context) (chan<- *addonpb.MetricFeedFrame, <-chan uint64, error) {
-	stream, err := c.client.StreamMetricFeed(ctx)
+	streamCtx, cancel := context.WithCancel(ctx)
+	stream, err := c.client.StreamMetricFeed(streamCtx)
 	if err != nil {
+		cancel()
 		return nil, nil, err
 	}
 
@@ -507,7 +520,7 @@ func (c *grpcClient) StreamMetricFeed(ctx context.Context) (chan<- *addonpb.Metr
 	go func() {
 		for {
 			select {
-			case <-ctx.Done():
+			case <-streamCtx.Done():
 				return
 			case frame, ok := <-frames:
 				if !ok {
@@ -519,6 +532,8 @@ func (c *grpcClient) StreamMetricFeed(ctx context.Context) (chan<- *addonpb.Metr
 				}
 				if err := stream.Send(frame); err != nil {
 					c.emitStreamLoss(ctx, StreamNameMetricFeed, StreamOperationSend, err)
+					c.emitStreamDiagnostic(streamCtx, StreamNameMetricFeed, err)
+					cancel()
 					return
 				}
 			}
@@ -527,22 +542,61 @@ func (c *grpcClient) StreamMetricFeed(ctx context.Context) (chan<- *addonpb.Metr
 
 	acks := make(chan uint64)
 	go func() {
+		defer cancel()
 		defer close(acks)
 		for {
 			ack, err := stream.Recv()
 			if err != nil {
 				c.emitStreamLoss(ctx, StreamNameMetricFeed, StreamOperationRecv, err)
+				c.emitStreamDiagnostic(streamCtx, StreamNameMetricFeed, err)
 				return
 			}
 			select {
 			case acks <- ack.GetAckedFeedId():
-			case <-ctx.Done():
+			case <-streamCtx.Done():
 				return
 			}
 		}
 	}()
 
 	return frames, acks, nil
+}
+
+func (c *grpcClient) ensureDiagnostics() {
+	c.diagnosticsOnce.Do(func() {
+		c.diagnostics = make(chan StreamDiagnostic, 16)
+	})
+}
+
+func (c *grpcClient) emitStreamDiagnostic(ctx context.Context, stream string, err error) {
+	if err == nil {
+		return
+	}
+
+	diagnostic := StreamDiagnostic{
+		Stream: stream,
+		Kind:   classifyStreamEnd(ctx, err),
+		Err:    err,
+	}
+
+	c.ensureDiagnostics()
+	select {
+	case c.diagnostics <- diagnostic:
+	default:
+	}
+}
+
+func classifyStreamEnd(ctx context.Context, err error) StreamEndKind {
+	if errors.Is(err, io.EOF) {
+		return StreamEndEOF
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return StreamEndContext
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return StreamEndContext
+	}
+	return StreamEndError
 }
 
 func (c *grpcClient) RunCommand(ctx context.Context, request CommandRequest) (CommandResult, error) {

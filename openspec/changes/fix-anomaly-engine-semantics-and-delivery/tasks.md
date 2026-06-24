@@ -109,17 +109,20 @@
 - [x] 18.7 Add an end-to-end smoke test that fires `sysmon.debug_spike` and asserts one open finding (not one-per-sample-per-core), sample-time `time`, and coherent device identity.
 
 ## 19. Device-Details Panel Performance (F25)
-- [x] 19.1 Query `device_uid_exact` first as a bare indexed equality; stop trying `agent_id`/`host_id` first (which seq-scan the OCSF hypertable).
+- [x] 19.1 Query canonical `source_device_uid`/`device_uid_exact` first via the indexed device-UID equality path; stop trying `agent_id`/`host_id` first (which seq-scan the OCSF hypertable).
 - [x] 19.2 Drop the capacity `resource_key '%<id>%'` leading-wildcard ILIKE; add a btree index on capacity `resource_id`.
 - [x] 19.3 Run the anomaly and capacity loads concurrently (Task.async) instead of sequential `load_first`; short-circuit empty candidates.
-- [x] 19.4 Lower the anomaly/capacity query `limit` and project only rendered fields (not full metadata/raw_data/unmapped).
+- [x] 19.4 Lower the anomaly/capacity query `limit`.
+- [ ] 19.5 Project only rendered fields once SRQL supports row projection for events/capacity rows (avoid fetching full metadata/raw_data/unmapped).
 
 ## 20. Operator-Actionable Anomaly/Capacity Rows (F26)
-- [x] 20.1 Make finding rows and capacity rows clickable (`phx-click` + uid) opening a detail modal.
+- [x] 20.1 Make finding rows and capacity rows clickable (`phx-click` + uid/row index) opening a detail modal.
 - [x] 20.2 Prefer `finding_info.title` for the human title; demote the raw `verdict.reason` to a sub-line.
 - [x] 20.3 Render real identity: metric_name, interface_uid/if_index (for interface findings), anomaly value + score; stop showing bare `"snmp"`.
-- [x] 20.4 Add `title=`/tooltip with full id and resolve a human device label for truncated ids.
-- [x] 20.5 Label capacity with units/metric-type/threshold/headroom; hide or aggregate `skipped` rows; reconcile the metric_class row label vs the RED chip bucketing.
+- [x] 20.4 Add `title=`/tooltip with full id on truncated resource/series identity.
+- [x] 20.5 Resolve a human device label for truncated device/resource ids when the row only carries uid-like values.
+- [x] 20.6 Label capacity with units/metric-type/threshold/headroom; hide or aggregate `skipped` rows.
+- [x] 20.7 Reconcile the metric_class row label vs the RED chip bucketing.
 
 ## 21. SNMP Anomaly Target Attribution (F27)
 - [x] 21.1 Edge: prefer `resource.target_device_ip` for non-self SNMP polls when choosing `device_uid`/`series_key` (`addon.rs:857-862`).
@@ -220,6 +223,7 @@
 ## 40. Data Retention Coverage (F46)
 - [x] 40.1 Verify a retention policy exists for every high-volume hypertable (`otel_traces`, `ocsf_network_activity` only got one 2026-06-19); add any missing.
 - [x] 40.2 Track that the F1/F12/F17/F39 write-flood fixes reduce `ocsf_events`/`capacity_forecasts`/flow growth.
+- [ ] 40.3 (ops, separate) Resolve the failing CNPG scheduled base backup (Longhorn throughput) so there is a recovery point.
 
 ## 42. Mapper SNMP Discovery (F47)
 - [x] 42.1 Dispatch ifXTable PDUs through `updateInterfaceFromOID` so ifName/ifAlias populate (not just ifHighSpeed); add a synthetic-ifXTable test.

@@ -27,6 +27,9 @@ export default {
     try {
       this._resizeObserver?.disconnect()
     } catch (_e) {}
+    try {
+      this._tooltipCleanup?.()
+    } catch (_e) {}
   },
   _draw() {
     const el = this.el
@@ -124,6 +127,9 @@ export default {
       keys: visibleKeys,
       x,
       xOffset: m.left,
+      plotLeft: m.left,
+      plotWidth: iw,
+      viewBoxWidth: width,
       valueAt: (row, k) => row?.[k] || 0,
       formatValue: (v) => nfFormatRateValue(el.dataset.units, v),
     })

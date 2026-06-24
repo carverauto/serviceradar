@@ -353,6 +353,7 @@ core:
       cpu: {}
       memory: {}
       disk: {}
+      flow: {}
   # Optional first-party native add-on package seed refs. The release/native
   # add-on import path populates these with per-platform signed artifact refs.
   # Without artifacts, the package seeder stages the manifest version but does

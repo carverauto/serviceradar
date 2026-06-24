@@ -16,6 +16,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.DeviceCorrelation
+  alias ServiceRadar.EventWriter.Telemetry, as: EventWriterTelemetry
   alias ServiceRadar.Observability.BmpSettingsRuntime
   alias ServiceRadar.Observability.CausalPubSub
   alias ServiceRadar.Observability.StatefulAlertEvaluationQueue
@@ -31,7 +32,36 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   @ocsf_vulnerability_finding_type_uid 200_201
   @ocsf_detection_finding_type_uid 200_401
   @ocsf_create_activity_id 1
+  @structured_series_key_pattern ~r/^v\d+:/
   @ocsf_event_conflict_target [:time, :id]
+  @ocsf_event_replace_fields [
+    :class_uid,
+    :category_uid,
+    :type_uid,
+    :activity_id,
+    :activity_name,
+    :severity_id,
+    :severity,
+    :message,
+    :status_id,
+    :status,
+    :status_code,
+    :status_detail,
+    :metadata,
+    :observables,
+    :trace_id,
+    :span_id,
+    :actor,
+    :device,
+    :src_endpoint,
+    :dst_endpoint,
+    :log_name,
+    :log_provider,
+    :log_level,
+    :log_version,
+    :unmapped,
+    :raw_data
+  ]
 
   @impl true
   def table_name, do: "ocsf_events"
@@ -167,11 +197,22 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       )
     end)
 
+    {causal_rows, insert_only_rows} = Enum.split_with(valid_rows, &causal_prediction_row?/1)
+
+    insert_only_rows = record_insert_only_ocsf_events(insert_only_rows)
+    causal_rows = record_causal_prediction_ocsf_events(causal_rows)
+
+    insert_only_rows ++ causal_rows
+  end
+
+  defp record_insert_only_ocsf_events([]), do: []
+
+  defp record_insert_only_ocsf_events(rows) when is_list(rows) do
     # Raw insert is intentional: build_ocsf_event_row/4 creates DB-complete rows,
     # including id, time, and created_at; the former Ash action was not providing
     # load-bearing normalization on this hot path.
     {_count, inserted_rows} =
-      BulkInsert.insert_all(table_name(), valid_rows,
+      BulkInsert.insert_all(table_name(), rows,
         on_conflict: :nothing,
         conflict_target: @ocsf_event_conflict_target,
         returning: @ocsf_event_conflict_target
@@ -179,9 +220,81 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
     inserted_keys = MapSet.new(Enum.map(inserted_rows, &ocsf_event_conflict_key/1))
 
-    valid_rows
+    rows
     |> Enum.filter(&MapSet.member?(inserted_keys, ocsf_event_conflict_key(&1)))
     |> dedupe_rows_by_conflict_key(&ocsf_event_conflict_key/1)
+  end
+
+  defp record_causal_prediction_ocsf_events([]), do: []
+
+  defp record_causal_prediction_ocsf_events(rows) when is_list(rows) do
+    rows =
+      rows
+      |> align_existing_ocsf_event_times()
+      |> dedupe_rows_by_conflict_key(&ocsf_event_id_key/1)
+
+    {_count, upserted_rows} =
+      BulkInsert.insert_all(table_name(), rows,
+        on_conflict: {:replace, @ocsf_event_replace_fields},
+        conflict_target: @ocsf_event_conflict_target,
+        returning: @ocsf_event_conflict_target
+      )
+
+    upserted_keys = MapSet.new(Enum.map(upserted_rows, &ocsf_event_conflict_key/1))
+
+    rows
+    |> Enum.filter(&MapSet.member?(upserted_keys, ocsf_event_conflict_key(&1)))
+    |> dedupe_rows_by_conflict_key(&ocsf_event_conflict_key/1)
+  end
+
+  @doc false
+  def align_existing_ocsf_event_times(rows, repo \\ ServiceRadar.Repo)
+
+  def align_existing_ocsf_event_times([], _repo), do: []
+
+  def align_existing_ocsf_event_times(rows, repo) when is_list(rows) do
+    ids =
+      rows
+      |> Enum.map(&ocsf_event_id_key/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    case existing_ocsf_event_times(repo, ids) do
+      {:ok, existing_times} when map_size(existing_times) > 0 ->
+        Enum.map(rows, fn row ->
+          case Map.get(existing_times, ocsf_event_id_key(row)) do
+            %DateTime{} = existing_time -> %{row | time: existing_time}
+            _ -> row
+          end
+        end)
+
+      _ ->
+        rows
+    end
+  end
+
+  defp existing_ocsf_event_times(_repo, []), do: {:ok, %{}}
+
+  defp existing_ocsf_event_times(repo, ids) when is_list(ids) do
+    sql = """
+    SELECT id::text, min(time)
+    FROM platform.ocsf_events
+    WHERE id = ANY($1::uuid[])
+    GROUP BY id
+    """
+
+    case repo.query(sql, [ids]) do
+      {:ok, %{rows: rows}} ->
+        {:ok, Map.new(rows, &existing_ocsf_time_row/1)}
+
+      {:error, reason} = error ->
+        Logger.warning("Failed to load existing OCSF event times",
+          reason: inspect(reason),
+          count: length(ids)
+        )
+
+        error
+    end
   end
 
   defp recordable_ocsf_row?(%{id: <<_::128>>, time: %DateTime{}}), do: true
@@ -191,6 +304,18 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   end
 
   defp recordable_ocsf_row?(_row), do: false
+
+  defp existing_ocsf_time_row([id, %DateTime{} = time]), do: {uuid_conflict_value(id), time}
+
+  defp existing_ocsf_time_row([id, %NaiveDateTime{} = time]) do
+    {uuid_conflict_value(id), DateTime.from_naive!(time, "Etc/UTC")}
+  end
+
+  defp existing_ocsf_time_row([id, time]), do: {uuid_conflict_value(id), time}
+
+  defp ocsf_event_id_key(%{id: id}), do: uuid_conflict_value(id)
+  defp ocsf_event_id_key(%{"id" => id}), do: uuid_conflict_value(id)
+  defp ocsf_event_id_key(_row), do: nil
 
   defp ocsf_event_conflict_key(%{id: id, time: time}),
     do: {uuid_conflict_value(id), time_conflict_value(time)}
@@ -434,7 +559,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
         "source" => normalize_source(payload, subject),
         "source_identity" => source_identity(payload),
         "event_identity" => stable_event_identity(subject, payload, raw_data),
-        "event_time" => normalize_time(event_time),
+        "event_time" => normalize_time(event_time, subject),
         "routing_correlation" => routing_correlation,
         "grouped_contexts" => truncated_contexts,
         "signal_domains" => domains,
@@ -897,50 +1022,65 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     end
   end
 
-  defp normalize_time(%DateTime{} = dt), do: dt
+  defp normalize_time(value, subject)
 
-  defp normalize_time(value) when is_integer(value) do
+  defp normalize_time(%DateTime{} = dt, _subject), do: dt
+
+  defp normalize_time(value, subject) when is_integer(value) do
     value
     |> unix_time_unit()
     |> then(&DateTime.from_unix(value, &1))
     |> case do
       {:ok, dt} -> dt
-      _ -> DateTime.utc_now()
+      _ -> fallback_ingest_time(subject, :invalid_unix_time)
     end
   rescue
-    _ -> DateTime.utc_now()
+    _ -> fallback_ingest_time(subject, :invalid_unix_time)
   end
 
-  defp normalize_time(value) when is_float(value) do
+  defp normalize_time(value, subject) when is_float(value) do
     value
     |> trunc()
-    |> normalize_time()
+    |> normalize_time(subject)
   end
 
-  defp normalize_time(value) when is_binary(value) do
+  defp normalize_time(value, subject) when is_binary(value) do
     trimmed = String.trim(value)
 
     case Integer.parse(trimmed) do
       {int, ""} ->
-        normalize_time(int)
+        normalize_time(int, subject)
 
       _ ->
         case DateTime.from_iso8601(trimmed) do
           {:ok, dt, _} -> dt
-          _ -> DateTime.utc_now()
+          _ -> fallback_ingest_time(subject, :malformed_timestamp)
         end
     end
   rescue
-    _ -> DateTime.utc_now()
+    _ -> fallback_ingest_time(subject, :malformed_timestamp)
   end
 
-  defp normalize_time(value) do
+  defp normalize_time(value, subject) do
     case DateTime.from_iso8601(to_string(value)) do
       {:ok, dt, _} -> dt
-      _ -> DateTime.utc_now()
+      _ -> fallback_ingest_time(subject, :malformed_timestamp)
     end
   rescue
-    _ -> DateTime.utc_now()
+    _ -> fallback_ingest_time(subject, :malformed_timestamp)
+  end
+
+  defp fallback_ingest_time(subject, reason) do
+    :telemetry.execute(
+      [:serviceradar, :event_writer, :causal_signals, :timestamp_fallback],
+      %{count: 1},
+      %{
+        subject_class: EventWriterTelemetry.subject_class(subject),
+        reason: reason
+      }
+    )
+
+    DateTime.utc_now()
   end
 
   defp unix_time_unit(value) do
@@ -1219,10 +1359,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     existing
     |> Map.put("uid", uid)
     |> Map.put("group_uid", uid)
-    |> Map.put_new(
-      "title",
-      "Anomaly detection: #{metric_class || "metric"} #{series_key || "series"}"
-    )
+    |> Map.put("title", anomaly_detection_title(payload, series_key, metric_class))
     |> Map.put_new("type", "ServiceRadar Anomaly")
     |> Map.put_new("type_id", 99)
     |> Map.put("source", "anomaly_detection")
@@ -1239,12 +1376,62 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       "device_uid" => device_uid,
       "series_key" => series_key,
       "metric_class" => metric_class,
+      "metric_name" => get_in(payload, ["anomaly", "metric_name"]),
+      "target_device_ip" => anomaly_detection_target_device_ip(payload),
+      "if_index" => get_in(payload, ["anomaly", "if_index"]),
+      "interface_name" => get_in(payload, ["anomaly", "interface_name"]),
+      "resource_label" => anomaly_detection_display_label(payload, series_key),
       "state" => get_in(payload, ["anomaly", "state"]),
       "subject" => get_in(payload, ["anomaly", "subject"])
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
   end
+
+  defp anomaly_detection_title(payload, series_key, metric_class) do
+    metric =
+      first_non_blank([
+        get_in(payload, ["anomaly", "metric_name"]),
+        metric_class
+      ]) || "metric"
+
+    label = anomaly_detection_display_label(payload, series_key) || "series"
+
+    "Anomaly detection: #{metric} #{label}"
+  end
+
+  defp anomaly_detection_display_label(payload, series_key) do
+    first_non_blank([
+      get_in(payload, ["anomaly", "resource_label"]),
+      get_in(payload, ["anomaly", "label"]),
+      anomaly_detection_interface_label(payload),
+      readable_series_key(series_key)
+    ])
+  end
+
+  defp anomaly_detection_interface_label(payload) do
+    target_device_ip = anomaly_detection_target_device_ip(payload)
+    if_index = get_in(payload, ["anomaly", "if_index"])
+    interface_name = get_in(payload, ["anomaly", "interface_name"])
+
+    [target_device_ip, interface_name, if_index_label(if_index)]
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> nil
+      parts -> Enum.join(parts, " ")
+    end
+  end
+
+  defp if_index_label(nil), do: nil
+  defp if_index_label(value), do: "ifIndex #{value}"
+
+  defp readable_series_key(value) when is_binary(value) and value != "" do
+    if structured_series_key?(value), do: nil, else: value
+  end
+
+  defp readable_series_key(_value), do: nil
+
+  defp structured_series_key?(value), do: String.match?(value, @structured_series_key_pattern)
 
   defp anomaly_detection_finding_uid(device_uid, series_key, metric_class) do
     [

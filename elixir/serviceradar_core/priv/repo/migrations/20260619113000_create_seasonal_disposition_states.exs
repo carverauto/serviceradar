@@ -40,6 +40,13 @@ defmodule ServiceRadar.Repo.Migrations.CreateSeasonalDispositionStates do
     )
 
     create(index(:seasonal_disposition_states, [:expires_at], prefix: "platform"))
+
+    create(
+      index(:seasonal_disposition_states, [:source, :expires_at],
+        prefix: "platform",
+        name: :seasonal_disposition_states_source_expires_idx
+      )
+    )
   end
 
   def down do

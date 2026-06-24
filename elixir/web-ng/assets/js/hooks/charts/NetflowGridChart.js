@@ -5,8 +5,8 @@ import {
   chartDims as nfChartDims,
   clearSVG as nfClearSVG,
   colorScale as nfColorScale,
-  ensureSVG as nfEnsureSVG,
   ensureTooltip as nfEnsureTooltip,
+  ensureSVG as nfEnsureSVG,
   escapeHtml as nfEscapeHtml,
   renderYGrid as nfRenderYGrid,
   styleChartAxis as nfStyleChartAxis,
@@ -14,6 +14,7 @@ import {
   parseSeriesData as nfParseSeriesData,
   yTickValues as nfYTickValues,
 } from "../../netflow_charts/util"
+import {yGridTicks} from "../../utils/chart_axis_grid"
 import {nfFormatRateValue} from "../../utils/formatters"
 
 export function gridPanelLayout(keys, iw, ih, pad = 10) {

@@ -220,7 +220,9 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   attr(:sortable, :boolean, default: false)
   attr(:sort_target, :any, default: nil)
   attr(:sort_field, :string, default: nil)
-  attr(:sort_dir, :string, default: nil)
+  attr(:sort_dir, :any, default: nil)
+  attr(:sort_col, :string, default: nil)
+  attr(:sort_event, :string, default: nil)
 
   def srql_results_table(assigns) do
     columns = normalize_columns(assigns.columns, assigns.rows, assigns.max_columns)
@@ -244,7 +246,10 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         <thead>
           <tr>
             <%= for col <- @columns do %>
-              <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+              <th
+                class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60"
+                aria-sort={sort_aria(col, @sort_field, @sort_dir)}
+              >
                 <button
                   :if={(@sortable and @sort_target) && col != "_sparkline"}
                   type="button"
@@ -559,6 +564,16 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     |> filter_device_id_column()
   end
 
+  defp sort_aria(col, sort_col, sort_dir) when col == sort_col do
+    case sort_dir do
+      :desc -> "descending"
+      "desc" -> "descending"
+      _ -> "ascending"
+    end
+  end
+
+  defp sort_aria(_col, _sort_col, _sort_dir), do: nil
+
   defp filter_device_id_column(columns) when is_list(columns) do
     if "uid" in columns do
       Enum.reject(columns, &(&1 == "device_id"))
@@ -592,8 +607,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   end
 
   defp format_cell_value(col, value) when is_number(value) do
-    formatted = format_numeric_cell(col, value)
-    {:text, %{value: formatted, title: to_string(value)}}
+    format_numeric_cell(col, value)
   end
 
   defp format_cell_value(_col, value) when is_list(value) or is_map(value) do
@@ -606,6 +620,98 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   end
 
   defp format_cell_value(_col, value), do: {:text, %{value: to_string(value), title: nil}}
+
+  defp format_numeric_cell(col, value) do
+    raw = to_string(value)
+
+    formatted =
+      if byte_column?(col) do
+        format_bytes(value)
+      else
+        format_cell_number(value)
+      end
+
+    {:text, %{value: formatted, title: if(formatted == raw, do: nil, else: raw)}}
+  end
+
+  defp byte_column?(col) do
+    col
+    |> to_string()
+    |> String.downcase()
+    |> then(&Regex.match?(~r/(^|_)(bytes?|octets?)(_|$)/, &1))
+  end
+
+  defp format_bytes(value) when is_integer(value), do: format_bytes(value * 1.0)
+
+  defp format_bytes(value) when is_float(value) do
+    abs_value = abs(value)
+
+    cond do
+      abs_value >= 1_125_899_906_842_624 -> "#{format_scaled(value / 1_125_899_906_842_624)} PiB"
+      abs_value >= 1_099_511_627_776 -> "#{format_scaled(value / 1_099_511_627_776)} TiB"
+      abs_value >= 1_073_741_824 -> "#{format_scaled(value / 1_073_741_824)} GiB"
+      abs_value >= 1_048_576 -> "#{format_scaled(value / 1_048_576)} MiB"
+      abs_value >= 1024 -> "#{format_scaled(value / 1024)} KiB"
+      true -> "#{format_cell_number(value)} B"
+    end
+  end
+
+  defp format_cell_number(value) when is_integer(value), do: delimit_integer(value)
+
+  defp format_cell_number(value) when is_float(value) do
+    decimals =
+      cond do
+        abs(value) >= 100 -> 2
+        abs(value) >= 1 -> 3
+        true -> 4
+      end
+
+    value
+    |> :erlang.float_to_binary(decimals: decimals)
+    |> trim_decimal()
+    |> delimit_decimal()
+  end
+
+  defp format_scaled(value) when is_float(value) do
+    value
+    |> :erlang.float_to_binary(decimals: 2)
+    |> trim_decimal()
+  end
+
+  defp delimit_decimal("-" <> rest), do: "-" <> delimit_decimal(rest)
+
+  defp delimit_decimal(value) when is_binary(value) do
+    case String.split(value, ".", parts: 2) do
+      [integer, fraction] -> delimit_integer_string(integer) <> "." <> fraction
+      [integer] -> delimit_integer_string(integer)
+    end
+  end
+
+  defp delimit_integer(value) when is_integer(value) and value < 0 do
+    "-" <> delimit_integer(abs(value))
+  end
+
+  defp delimit_integer(value) when is_integer(value) do
+    value
+    |> Integer.to_string()
+    |> delimit_integer_string()
+  end
+
+  defp delimit_integer_string(value) when is_binary(value) do
+    value
+    |> String.graphemes()
+    |> Enum.reverse()
+    |> Enum.chunk_every(3)
+    |> Enum.map_join("", &Enum.join/1)
+    |> String.replace(~r/(.{3})(?=.)/, "\\1,")
+    |> String.reverse()
+  end
+
+  defp trim_decimal(value) when is_binary(value) do
+    value
+    |> String.trim_trailing("0")
+    |> String.trim_trailing(".")
+  end
 
   defp severity_column?(col) do
     col_key = String.downcase(col)

@@ -76,37 +76,41 @@ defmodule ServiceRadarWebNGWeb.DashboardEngineTest do
   end
 
   test "table plugin preserves schema columns and caps rendered rows" do
-    rows =
-      for idx <- 1..525 do
-        %{"service" => "svc-#{idx}", "count" => idx, "status" => "ok"}
-      end
-
     response = %{
-      "results" => rows,
-      "viz" => %{
-        "columns" => [
-          %{"name" => "service"},
-          %{"name" => "status"},
-          %{"name" => "count"}
-        ],
-        "suggestions" => [%{"kind" => "table"}]
-      }
+      "results" => Enum.map(1..501, &%{"count" => &1, "bytes_total" => &1 * 1024}),
+      "schema" => %{"columns" => ["bytes_total", "count"]}
     }
 
     panels = Engine.build_panels(response)
     assert %{plugin: Plugins.Table, assigns: assigns} = Enum.find(panels, &(&1.plugin == Plugins.Table))
-    assert assigns.columns == ["service", "status", "count"]
-    assert assigns.result_count == 525
-    assert assigns.capped?
+    assert assigns.columns == ["bytes_total", "count"]
     assert length(assigns.results) == 500
-    assert length(assigns.page_rows) == 50
-    assert assigns.page == 1
-    assert assigns.page_count == 10
+    assert length(assigns.source_results) == 501
+    assert assigns.total_count == 501
+    assert assigns.truncated
+  end
 
-    html =
-      render_component(&Plugins.Table.render/1, Map.merge(assigns, %{id: "capped", myself: "capped"}))
+  test "table plugin keeps blank values last when sorting descending" do
+    response = %{
+      "results" => [
+        %{"name" => "blank", "count" => ""},
+        %{"name" => "high", "count" => 10},
+        %{"name" => "low", "count" => 2},
+        %{"name" => "nil", "count" => nil}
+      ],
+      "schema" => %{"columns" => ["name", "count"]}
+    }
 
-    refute html =~ ~s(phx-click="table_sort")
-    assert html =~ "sorting disabled"
+    panels = Engine.build_panels(response)
+    assert %{plugin: Plugins.Table, assigns: assigns} = Enum.find(panels, &(&1.plugin == Plugins.Table))
+
+    socket = %Phoenix.LiveView.Socket{
+      assigns: Map.merge(assigns, %{__changed__: %{}, sort_col: "count", sort_dir: :asc})
+    }
+
+    assert {:noreply, sorted_socket} = Plugins.Table.handle_event("sort", %{"col" => "count"}, socket)
+
+    assert Enum.map(sorted_socket.assigns.results, & &1["name"]) == ["high", "low", "blank", "nil"]
+    assert sorted_socket.assigns.sort_dir == :desc
   end
 end

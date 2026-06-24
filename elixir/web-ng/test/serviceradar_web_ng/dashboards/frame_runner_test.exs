@@ -7,7 +7,13 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunnerTest do
     @moduledoc false
     def query("in:devices", opts) do
       limit = Map.fetch!(opts, :limit)
-      {:ok, %{"results" => Enum.map(1..limit, &%{"id" => &1}), "pagination" => %{"limit" => limit}}}
+
+      {:ok,
+       %{
+         "results" => Enum.map(1..limit, &%{"id" => &1}),
+         "pagination" => %{"limit" => limit},
+         "schema" => %{"columns" => ["id"]}
+       }}
     end
 
     def query("bad", _opts), do: {:error, :bad_query}
@@ -131,6 +137,7 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunnerTest do
                "requested_encoding" => "arrow_ipc",
                "encoding" => "json_rows",
                "limit" => 3,
+               "schema" => %{"columns" => ["id"]},
                "results" => [%{"id" => 1}, %{"id" => 2}, %{"id" => 3}]
              }
            ] = FrameRunner.run(frames, :scope, srql_module: FakeSRQL)

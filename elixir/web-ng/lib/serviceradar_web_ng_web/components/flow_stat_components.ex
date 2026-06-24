@@ -267,6 +267,7 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
   # "avg" (window-average bps); makes the average-vs-95th-percentile distinction
   # explicit so the gauge isn't read as a peak.
   attr :rate_kind, :string, default: nil
+  attr :current_label, :string, default: "Current"
   attr :class, :any, default: nil
 
   def bandwidth_gauge(assigns) do
@@ -309,7 +310,7 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
         <span :if={@rate_kind} class="badge badge-xs badge-ghost font-medium uppercase">
           {@rate_kind}
         </span>
-        <span>{@formatted_current} / {@formatted_capacity}</span>
+        <span>{@current_label}: {@formatted_current} / {@formatted_capacity}</span>
       </div>
     </div>
     """

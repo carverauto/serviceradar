@@ -7,12 +7,14 @@ import {
   clearSVG as nfClearSVG,
   colorScale as nfColorScale,
   ensureSVG as nfEnsureSVG,
+  fmtNumber as nfFmtNumber,
   fmtPct as nfFmtPct,
   parseSeriesData as nfParseSeriesData,
   renderYGrid as nfRenderYGrid,
   styleChartAxis as nfStyleChartAxis,
 } from "../../netflow_charts/util"
 import {nfFormatRateValue} from "../../utils/formatters"
+import {yGridTicks} from "../../utils/chart_axis_grid"
 
 export function numberOrZero(value) {
   const number = Number(value || 0)
@@ -75,6 +77,7 @@ export default {
     if (!svg) return
 
     const {raw, keys, colors} = nfParseSeriesData(el)
+    const units = el.dataset.units || ""
     let overlays = []
     try {
       overlays = JSON.parse(el.dataset.overlays || "[]")
@@ -84,7 +87,7 @@ export default {
     const {width, height, margin: m, iw, ih} = nfChartDims(el, {
       minW: 360,
       minH: 220,
-      margin: {top: 8, right: 110, bottom: 18, left: 44},
+      margin: {top: 8, right: 170, bottom: 18, left: 44},
     })
 
     nfClearSVG(svg, width, height)
@@ -112,6 +115,20 @@ export default {
     const g = d3.select(svg).append("g").attr("transform", `translate(${m.left},${m.top})`)
 
     const color = nfColorScale(keys, colors)
+    const yTicks = yGridTicks(y, 4)
+
+    g.append("g")
+      .attr("pointer-events", "none")
+      .selectAll("line")
+      .data(yTicks)
+      .join("line")
+      .attr("x1", 0)
+      .attr("x2", iw)
+      .attr("y1", (d) => y(d))
+      .attr("y2", (d) => y(d))
+      .attr("stroke", "currentColor")
+      .attr("stroke-opacity", 0.12)
+      .attr("stroke-width", 1)
 
     nfRenderYGrid(g, y, iw, {tickCount: 4})
 
@@ -129,6 +146,49 @@ export default {
       .attr("d", area)
       .attr("fill", (d) => color(d.key))
       .attr("fill-opacity", 0.55)
+
+    const totalData = absoluteData
+      .map((d) => ({t: d.t, total: Number(d.__sum || 0)}))
+      .filter((d) => Number.isFinite(d.total))
+
+    const maxTotal = d3.max(totalData, (d) => d.total) || 0
+    const formatTotal = (v) => {
+      const formatted = nfFmtNumber(v)
+      return units ? `${formatted} ${units}` : formatted
+    }
+
+    if (totalData.length > 1 && maxTotal > 0) {
+      const yTotal = d3.scaleLinear().domain([0, maxTotal]).nice().range([ih, 0])
+      const totalLine = d3
+        .line()
+        .x((d) => x(d.t))
+        .y((d) => yTotal(d.total))
+        .curve(d3.curveMonotoneX)
+
+      g.append("path")
+        .datum(totalData)
+        .attr("fill", "none")
+        .attr("stroke", "currentColor")
+        .attr("stroke-width", 1.6)
+        .attr("stroke-opacity", 0.72)
+        .attr("stroke-dasharray", "6,3")
+        .attr("d", totalLine)
+
+      g.append("g")
+        .attr("transform", `translate(${iw},0)`)
+        .call(d3.axisRight(yTotal).ticks(3).tickFormat(formatTotal).tickSizeOuter(0))
+        .call((gg) => gg.selectAll("text").attr("font-size", 10).attr("opacity", 0.72))
+        .call((gg) => gg.selectAll("path,line").attr("opacity", 0.35))
+
+      g.append("text")
+        .attr("x", iw - 4)
+        .attr("y", 10)
+        .attr("text-anchor", "end")
+        .attr("font-size", 10)
+        .attr("fill", "currentColor")
+        .attr("opacity", 0.72)
+        .text("total volume")
+    }
 
     const normalizeToPct = (points) => {
       return normalizeStacked100Rows(points, visibleKeys)
@@ -204,7 +264,7 @@ export default {
       }
     }
 
-    const legend = g.append("g").attr("transform", `translate(${iw + 12}, 6)`)
+    const legend = g.append("g").attr("transform", `translate(${iw + 64}, 6)`)
     nfBuildLegend(legend, keys, color, this._hidden, (k) => {
       if (this._hidden.has(k)) {
         this._hidden.delete(k)

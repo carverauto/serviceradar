@@ -4,6 +4,8 @@ use super::*;
 pub(in crate::query::flows) enum FlowGroupField {
     SrcEndpointIp,
     DstEndpointIp,
+    ConversationAIp,
+    ConversationBIp,
     SrcEndpointPort,
     DstEndpointPort,
     ProtocolNum,
@@ -32,6 +34,8 @@ impl FlowGroupField {
         match s.to_lowercase().as_str() {
             "src_endpoint_ip" | "src_ip" => Some(Self::SrcEndpointIp),
             "dst_endpoint_ip" | "dst_ip" => Some(Self::DstEndpointIp),
+            "conversation_a_ip" | "conversation_min_ip" => Some(Self::ConversationAIp),
+            "conversation_b_ip" | "conversation_max_ip" => Some(Self::ConversationBIp),
             "src_endpoint_port" | "src_port" => Some(Self::SrcEndpointPort),
             "dst_endpoint_port" | "dst_port" => Some(Self::DstEndpointPort),
             "protocol_num" | "proto" => Some(Self::ProtocolNum),
@@ -61,6 +65,8 @@ impl FlowGroupField {
         match self {
             Self::SrcEndpointIp => "src_endpoint_ip",
             Self::DstEndpointIp => "dst_endpoint_ip",
+            Self::ConversationAIp => "conversation_a_ip",
+            Self::ConversationBIp => "conversation_b_ip",
             Self::SrcEndpointPort => "src_endpoint_port",
             Self::DstEndpointPort => "dst_endpoint_port",
             Self::ProtocolNum => "protocol_num",
@@ -89,6 +95,8 @@ impl FlowGroupField {
         match self {
             Self::SrcEndpointIp => "src_endpoint_ip",
             Self::DstEndpointIp => "dst_endpoint_ip",
+            Self::ConversationAIp => FLOW_CONVERSATION_A_IP_EXPR,
+            Self::ConversationBIp => FLOW_CONVERSATION_B_IP_EXPR,
             Self::SrcEndpointPort => "src_endpoint_port",
             Self::DstEndpointPort => "dst_endpoint_port",
             Self::ProtocolNum => "protocol_num",
