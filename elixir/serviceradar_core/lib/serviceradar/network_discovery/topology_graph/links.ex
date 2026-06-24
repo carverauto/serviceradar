@@ -70,9 +70,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
   defp maybe_skip_unchanged_report(links) do
     {key, fingerprint} = report_structural_fingerprint(links)
     now_ms = System.monotonic_time(:millisecond)
+    heartbeat_ms = unchanged_report_heartbeat_ms()
 
     case :persistent_term.get({__MODULE__, :report_fingerprint, key}, nil) do
-      {^fingerprint, ts} when now_ms - ts < unchanged_report_heartbeat_ms() ->
+      {^fingerprint, ts} when now_ms - ts < heartbeat_ms ->
         {:skip, key}
 
       _ ->
