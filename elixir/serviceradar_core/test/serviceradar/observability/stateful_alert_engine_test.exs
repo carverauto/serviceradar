@@ -539,6 +539,127 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert resolved_alert.status == :resolved
   end
 
+  test "recovery on an already-terminal alert is an idempotent no-op (no KeyError, no re-resolve)",
+       %{actor: actor} do
+    # Regression for two live-demo errors that share the recovery path:
+    #   1. maybe_flush_snapshot read snapshot.bucket_changed directly, but the
+    #      recover_event snapshot is rebuilt without :bucket_changed -> KeyError
+    #      ("Stateful alert evaluation failed").
+    #   2. resolve_alert re-fired the :resolve transition on an already-:resolved
+    #      alert -> AshStateMachine NoMatchingTransition (resolved->resolved) log
+    #      spam plus a duplicate :recovered history row on every retry.
+    # Driving open -> out-of-band resolve -> clear exercises both: the clear runs
+    # recover_event (snapshot lacks :bucket_changed) and calls resolve_alert with
+    # the still-bound, now-terminal alert_id.
+    unique = System.unique_integer([:positive])
+    device_uid = "sr:idempotent-recovery-device-#{unique}"
+    series_key = "sysmon:cpu:#{device_uid}:0"
+    alert_title = "Idempotent recovery #{unique}"
+
+    {:ok, rule} =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "idempotent-recovery-#{unique}",
+          enabled: true,
+          signal: :event,
+          match: %{
+            "subject_prefix" => "signals.causal.predictions",
+            "attribute_equals" => %{
+              "signal_type" => "causal",
+              "event_type" => "anomaly",
+              "anomaly.state" => ["anomaly_open", "open"]
+            },
+            "recovery" => %{
+              "subject_prefix" => "signals.causal.predictions",
+              "attribute_equals" => %{
+                "signal_type" => "causal",
+                "event_type" => "anomaly",
+                "anomaly.state" => ["anomaly_clear", "inactive"]
+              }
+            }
+          },
+          group_by: ["device", "anomaly.series_key"],
+          threshold: 1,
+          window_seconds: 300,
+          bucket_seconds: 60,
+          cooldown_seconds: 300,
+          renotify_seconds: 3600,
+          event: %{
+            "log_name" => "alert.health.anomaly_detection",
+            "message" => "Anomaly detection finding detected"
+          },
+          alert: %{"title" => alert_title, "severity_from" => "source"}
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    base_time = DateTime.utc_now()
+
+    event = fn state, offset ->
+      %{
+        id: Ash.UUID.generate(),
+        time: DateTime.add(base_time, offset, :second),
+        severity_id: OCSF.severity_high(),
+        severity: OCSF.severity_name(OCSF.severity_high()),
+        message: "Anomaly #{state}",
+        log_name: "signals.causal.predictions.#{series_key}",
+        log_provider: "anomaly_detection",
+        device: %{"uid" => device_uid},
+        unmapped: %{
+          "signal_type" => "causal",
+          "event_type" => "anomaly",
+          "anomaly" => %{
+            "state" => state,
+            "series_key" => series_key,
+            "metric_class" => "sysmon.cpu"
+          }
+        },
+        metadata: %{"signal_type" => "causal", "event_type" => "anomaly"}
+      }
+    end
+
+    # Open the alert; the ETS snapshot now holds a bound, active alert_id.
+    assert :ok = StatefulAlertEngine.evaluate_events([event.("anomaly_open", 0)])
+    assert [active_alert] = active_alerts_by_title(actor, alert_title)
+
+    # Resolve the alert out-of-band (REST/sweep/duplicate clear), leaving the ETS
+    # snapshot still referencing the now-terminal alert_id. The engine recorded no
+    # :recovered history for this path.
+    {:ok, resolved} =
+      active_alert
+      |> Ash.Changeset.for_update(:resolve, %{resolved_by: "out-of-band"}, actor: actor)
+      |> Ash.update()
+
+    assert resolved.status == :resolved
+    assert [] = active_alerts_by_title(actor, alert_title)
+
+    recovered_before =
+      rule.id
+      |> StatefulAlertRuleHistory.list_by_rule(actor: actor)
+      |> Page.unwrap!()
+      |> Enum.count(&(&1.event_type == :recovered))
+
+    # The clear event drives recover_event -> handle_recovery -> resolve_alert on the
+    # already-:resolved alert. Pre-fix this raised KeyError (#1) / NoMatchingTransition
+    # (#2); it must now be a clean :ok.
+    assert :ok = StatefulAlertEngine.evaluate_events([event.("anomaly_clear", 30)])
+
+    {:ok, still_resolved} = Alert.get_by_id(active_alert.id, actor: actor)
+    assert still_resolved.status == :resolved
+
+    recovered_after =
+      rule.id
+      |> StatefulAlertRuleHistory.list_by_rule(actor: actor)
+      |> Page.unwrap!()
+      |> Enum.count(&(&1.event_type == :recovered))
+
+    # Idempotent: the terminal-alert clear records no new :recovered history.
+    assert recovered_after == recovered_before
+  end
+
   test "resolve_stale_anomalies resolves an open alert whose series went silent", %{actor: actor} do
     unique = System.unique_integer([:positive])
     device_uid = "sr:stale-anomaly-device-#{unique}"

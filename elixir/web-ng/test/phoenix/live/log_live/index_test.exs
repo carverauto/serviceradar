@@ -45,6 +45,22 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     assert has_element?(lv, "#logs-live-status", "Off")
   end
 
+  test "log rows normalize the OTel SeverityNumber enum name into a badge", %{conn: conn} do
+    {:ok, _lv, html} =
+      live(conn, ~p"/observability?#{%{tab: "logs", q: "in:logs time:last_24h sort:timestamp:desc", limit: 20}}")
+
+    # SEVERITY_NUMBER_INFO -> INFO label + info color (was "SEVER" truncation +
+    # ghost color before the fix).
+    assert html =~ "badge-info"
+    assert html =~ ~r/badge-info[^>]*>\s*INFO\s*</
+    # SEVERITY_NUMBER_WARN -> WARN label + warning color.
+    assert html =~ ~r/badge-warning[^>]*>\s*WARN\s*</
+
+    # The raw enum name and its 5-char truncation must never reach the badge.
+    refute html =~ "SEVERITY_NUMBER_INFO"
+    refute html =~ ">SEVER<"
+  end
+
   test "enabling live mode allows log-ingest refreshes", %{conn: conn} do
     {:ok, lv, _html} =
       live(conn, ~p"/observability?#{%{tab: "logs", q: "in:logs time:last_24h sort:timestamp:desc", limit: 20}}")
@@ -521,6 +537,22 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
           "severity_text" => "INFO",
           "service_name" => "page-one-service",
           "body" => "Page 1 log"
+        },
+        # OTel-SDK producers write the raw SeverityNumber enum name into
+        # severity_text. The badge must normalize it to a label + color.
+        %{
+          "id" => "00000000-0000-0000-0000-000000000011",
+          "timestamp" => "2026-04-18T15:02:01Z",
+          "severity_text" => "SEVERITY_NUMBER_INFO",
+          "service_name" => "otel-info-service",
+          "body" => "OTel info log"
+        },
+        %{
+          "id" => "00000000-0000-0000-0000-000000000012",
+          "timestamp" => "2026-04-18T15:02:02Z",
+          "severity_text" => "SEVERITY_NUMBER_WARN",
+          "service_name" => "otel-warn-service",
+          "body" => "OTel warn log"
         }
       ]
     end

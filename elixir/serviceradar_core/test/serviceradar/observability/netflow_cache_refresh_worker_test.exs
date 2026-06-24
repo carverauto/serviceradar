@@ -80,5 +80,54 @@ defmodule ServiceRadar.Observability.NetflowCacheRefreshWorkerTest do
 
       assert NetflowInterfaceCacheRefreshWorker.observed_interface_pairs_from_rows(rows) == []
     end
+
+    test "drops only the out-of-int32-range ifIndex pair (RFC 2863 / signed int32 column)" do
+      # The signed int32 column max is 2_147_483_647. Exporters occasionally emit a
+      # corrupt uint32 ifIndex above that bound; the offending pair must be dropped so
+      # the whole insert_all batch does not abort, while valid pairs still flow through.
+      rows = [
+        %{
+          sampler_address: "10.1.0.1",
+          ocsf_payload: %{
+            "connection_info" => %{
+              # above int32 max -> dropped
+              "input_snmp" => 2_147_483_654,
+              # valid -> kept
+              "output_snmp" => 5
+            }
+          }
+        },
+        %{
+          sampler_address: "10.1.0.2",
+          ocsf_payload: %{
+            # exactly the int32 max is still valid
+            "connection_info" => %{"input_snmp" => 2_147_483_647}
+          }
+        },
+        %{
+          sampler_address: "10.1.0.3",
+          ocsf_payload: %{
+            # out-of-range as a string is dropped too
+            "connection_info" => %{"input_snmp" => "2147483654"}
+          }
+        }
+      ]
+
+      assert NetflowInterfaceCacheRefreshWorker.observed_interface_pairs_from_rows(rows) == [
+               {"10.1.0.1", 5},
+               {"10.1.0.2", 2_147_483_647}
+             ]
+    end
+
+    test "drops a row whose only ifIndex is out of int32 range, yielding no pair" do
+      rows = [
+        %{
+          sampler_address: "10.1.0.9",
+          ocsf_payload: %{"connection_info" => %{"input_snmp" => 2_147_483_654}}
+        }
+      ]
+
+      assert NetflowInterfaceCacheRefreshWorker.observed_interface_pairs_from_rows(rows) == []
+    end
   end
 end
