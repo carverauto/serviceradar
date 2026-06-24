@@ -92,7 +92,7 @@ defmodule ServiceRadar.Observability.CausalReasoner do
     crate: "causal_disposition_nif"
 
   @typedoc "Which disposition kernel to run for the batch."
-  @type kind :: :seasonal | :capacity | :peak
+  @type kind :: :seasonal | :capacity
 
   @type seasonal_request ::
           {:seasonal,
@@ -106,20 +106,6 @@ defmodule ServiceRadar.Observability.CausalReasoner do
            %{
              config: map(),
              row: map()
-           }}
-
-  # The peak `config` map carries the UASB knobs (`a`, `z_sup`, `z_esc`, `cap`,
-  # `n_min`, `d_overdispersion`, `scale_floor`, `ceiling`, `confirm_slots`,
-  # `report_only`). `report_only` is **optional and defaults to observe-only**: omit
-  # it (or send `true`) and the band never surfaces an escalation; send `false` only
-  # after calibration sign-off (task 6.6). A missing key decodes to `None` on the
-  # Rust side and stays safe — it does not act.
-  @type peak_request ::
-          {:peak,
-           %{
-             config: map(),
-             row: map(),
-             carried: non_neg_integer()
            }}
 
   @typedoc "The typed Value-channel disposition returned per row."
@@ -144,27 +130,10 @@ defmodule ServiceRadar.Observability.CausalReasoner do
           disposition: disposition()
         }
 
-  @typedoc "The typed peak (UASB shrinkage-band) disposition returned per row."
-  @type peak_disposition ::
-          :suppress
-          | {:downgrade, %{score: float()}}
-          | {:escalate, %{score: float()}}
-          | {:pass_through, %{reason: atom()}}
-
-  @typedoc "One per-row peak disposition result payload."
-  @type peak_outcome :: %{
-          series_key: String.t(),
-          disposition: peak_disposition(),
-          next_carried: non_neg_integer(),
-          surfaced: boolean(),
-          score: float()
-        }
-
   @typedoc "One per-row result: a disposition or a typed error reason."
   @type result ::
           {:ok, seasonal_disposition()}
           | {:capacity_ok, capacity_disposition()}
-          | {:peak_ok, peak_outcome()}
           | {:error, String.t()}
 
   @doc """
@@ -176,7 +145,7 @@ defmodule ServiceRadar.Observability.CausalReasoner do
 
   See the module doc for the per-`kind` request and result shapes.
   """
-  @spec dispose_batch(kind(), [seasonal_request() | capacity_request() | peak_request()]) ::
+  @spec dispose_batch(kind(), [seasonal_request() | capacity_request()]) ::
           [result()]
   def dispose_batch(_kind, _inputs), do: :erlang.nif_error(:nif_not_loaded)
 end
