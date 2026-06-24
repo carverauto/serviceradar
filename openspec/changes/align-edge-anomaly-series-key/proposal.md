@@ -1,63 +1,64 @@
-# Align the edge anomaly `series_key` to the central metric `series_key`
+# Align edge anomalies to the central canonical device identity
 
 ## Why
 
-Every disposition feature we have built — the UASB peak-disposition engine
-(`add-anomaly-finding-disposition`), the seasonal disposition, and the stale-alert
-auto-resolve — joins an **edge anomaly** to its **central metric** on `series_key`.
-That join is the load-bearing precondition, and today it is **asserted, not proven**
-(the `anomaly-addon` comment literally calls the edge key "provisional"). On demo it
-is **broken**, so none of the disposition machinery can actually correlate a verdict
-to the series it judges.
+Every disposition feature (UASB peak, seasonal, stale-alert auto-resolve `#4288`)
+must correlate an **edge anomaly** to the **central metric** it judges. That
+correlation is the load-bearing precondition, and on demo it does not hold:
 
-Demo evidence (`platform.ocsf_events` anomalies vs `platform.timeseries_metrics`):
+- Metrics carry the canonical **`sr:` device** (`device_id = sr:<target>`,
+  resolved centrally from the poll target).
+- Anomalies do **not**: in the last 3h, **100% of anomaly findings have an empty
+  resolved `device.uid`**, and their raw `service_radar.device_uid` is the polling
+  agent (`agent-dusk01`) or an unreconciled hostname (`ns01`, `k8s-…`).
 
-- The **metric** for an SNMP series keys on the canonical **target** device:
-  `agent_id = agent-dusk01`, `device_id = sr:887a855a-…` (the polled SNMP device),
-  `series_key = 6a35…` (a `TimeseriesSeriesKey.build/1` hex hash).
-- The **anomaly** for the same series attributes to the **polling agent**:
-  `device_uid = agent-dusk01`, `series_key = v2|partition=…|identity=…|…` (the edge's
-  structured producer key). The central re-key **fails** to resolve `agent-dusk01`
-  to any canonical device (`finding_device_uid` is empty) — there is no canonical
-  device named `agent-dusk01`; it is the agent.
+So findings written under raw ids never join the canonical `sr:` device, and
+device-detail shows "No anomaly findings" while the metric stream sits right there.
 
-So the same physical series carries **two different identities** (agent vs target)
-encoded **two different ways** (`v2|…` vs the `TimeseriesSeriesKey` hash). There is no
-key function that joins them, and central cannot reconcile an agent id to a device.
+### What this proposal does NOT do (corrected from the first draft)
 
-Root cause is at the edge: `anomaly_device_uid` (`anomaly-addon/src/addon.rs`)
-resolves identity `device_id → snmp_target → host_id → agent_id → host_ip`, and for
-SNMP series the edge has no canonical `device_id` and no populated `target_device_ip`,
-so it lands on `agent_id` — directly contradicting the function's own intent
-("remote SNMP polls use the polled target, not the polling agent host"). The metric
-pipeline resolves the same series to the canonical `sr:` target **centrally**.
+The first draft proposed making `anomaly.series_key == metric.series_key`. That is
+the wrong target, on two independently-verified grounds:
+
+1. **The metric `series_key` is not a stable identity.** It is an `md5` over typed
+   fields **plus ingestion-metadata tags** (`payload_kind`, `producer_kind`,
+   `source`, `producer_id`). Reproducing a real metric's key (`c7e0a780…`) from its
+   stored fields failed across six candidate component sets — including with and
+   without `device_id`. The key was hashed with **`device_id` empty** (a backfill
+   populated the *column*, not the hash), and it folds in producer metadata an
+   anomaly will never carry. (Confirmed independently by the #4289 review: blockers
+   **B1** device_id-empty-hash, **M3** tags.)
+2. **The disposition join already keys on `device_id`, not the hash.** The
+   `profile_hour_of_week_peak` SQL groups by `device_id AS series`. The polluted
+   `series_key` hash was never the actual join key.
 
 ## What changes
 
-Make the anomaly's `series_key` provably equal to the metric's `series_key` for the
-same physical series, by (1) carrying the **target identity** the edge already knows
-through to central, and (2) keying **both** metrics and anomalies through the **one**
-`TimeseriesSeriesKey` composite over the canonical-resolved fields. The composite is
-exactly the right model — `agent_id` (attested upstream) anchors agent-reported
-`device` / `target` / `interface` / `metric` — so the agent legitimately produces the
-SNMP target/interface identity (it is the only source) while a misbehaving agent can
-only ever collide inside its **own** `agent_id` namespace. The authoritative key stays
-central; the edge contributes typed fields, never an opaque trusted key.
+Align anomalies and metrics on the **canonical identity tuple they both can produce
+deterministically** — `(device_id = sr:<target>, metric_name, if_index)` — and make
+the disposition + liveness joins key on that, never on the `series_key` hash.
 
-The acceptance gate is a test that asserts `anomaly.series_key == metric.series_key`
-for a known SNMP series — turning the precondition from a comment into a proof.
+Central **already has the resolver**: `anomaly_detection_device_uid`
+(`causal_signals.ex`) swaps in `target_device_ip` for SNMP and runs
+`DeviceCorrelation.resolve` to the canonical `sr:` device (with a comment block
+describing the exact agent-vs-target reasoning). The work is therefore:
 
-This is the foundational identity-alignment work the disposition stack rests on. It
-also closes the stale-alert auto-resolve gap (`#4288`) for free: once the keys align,
-a series's liveness is queryable, so an orphaned alert can be safely resolved.
+1. **Make the resolution effective** — demo proves it is not (empty `device.uid`),
+   whether from a stale deploy or a wiring gap in where the resolved uid is written.
+2. **Make the join key on the canonical tuple**, type-agnostically (not SNMP-only —
+   review **M2**), so the disposition feed and `#4288` liveness correlate on
+   `(device_id, metric_name, if_index)`.
+3. **Lock it with a parity test**: a resolved anomaly's canonical tuple equals its
+   metric's, for a known SNMP series — turning the precondition into a proof.
 
 ## Impact
 
-- Affected specs: `observability-signals` (canonical series-key alignment requirement).
-- Affected code: `rust/anomaly-addon` (carry target identity / attribution priority),
-  `elixir/serviceradar_core` (`causal_signals.ex` anomaly ingest → `TimeseriesSeriesKey`
-  canonicalization), and the metric/anomaly key parity test.
-- No data migration; new anomalies carry the aligned key. Historical anomalies keep
-  their provisional key (the join is forward-looking, like the metric retention window).
-- Security posture unchanged and made explicit: `agent_id` is the attested anchor; the
-  agent-reported target/interface are scoped under it (the behavioral-identity rule).
+- Affected specs: `observability-signals` (canonical identity-join requirement).
+- Affected code: `elixir/serviceradar_core` anomaly ingest (`causal_signals.ex`, and
+  whichever processor actually persists the finding identity on the live path — the
+  empty-`device.uid` symptom must be root-caused), plus the disposition/liveness
+  query join keys. **No agent/addon change** — the edge already carries the target.
+- No data migration; forward-looking. Open anomalies at cutover keep their raw id
+  unless re-keyed (review **M4** — handle so they are not orphaned).
+- Security posture unchanged: `agent_id` is the attested anchor; the agent-reported
+  target/interface are scoped under it (the behavioral-identity rule).

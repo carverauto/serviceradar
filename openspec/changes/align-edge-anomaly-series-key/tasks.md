@@ -1,24 +1,25 @@
-# Tasks — edge↔central `series_key` alignment
+# Tasks — canonical device-identity alignment for anomalies
 
-## 0. Decision / preconditions
-- [ ] 0.1 Confirm the exact `TimeseriesSeriesKey.build/1` field set is the agreed canonical composite (`metric_type, metric_name, partition, agent_id, device_id, target_device_ip, if_index`) and that both metric and anomaly must key through it. (design.md)
-- [ ] 0.2 Capture the current-state evidence as a fixture: one SNMP series whose metric keys on `sr:<target>` while its anomaly keys on `agent_id` (the demo `agent-dusk01` case), so the test has a concrete before/after.
+## 0. Decision / preconditions (done)
+- [x] 0.1 Establish the edge is correct (agent stamps `target_device_ip` + tags; addon attributes to target; 100% of SNMP metric rows carry `target_device_ip` + `device_id=sr:<target>`). No agent/addon change.
+- [x] 0.2 Establish the metric `series_key` is the wrong join target: not reproducible from stored fields (6 component sets tried), hashed with `device_id` empty (B1), folds in ingestion tags (M3). Disposition already groups by `device_id`.
+- [x] 0.3 Establish the canonical join key is `(device_id, metric_name, if_index)` and that `anomaly_detection_device_uid` already resolves SNMP via `target_device_ip` + `DeviceCorrelation`.
 
-## 1. Edge: already carries the target (trace-confirmed — no code change)
-- [x] 1.1 The agent stamps `target_device_ip` on every SNMP metric and the addon attributes to it (not `agent_id`); the verdict emits `source_identity.target_device_ip` (4-way trace, design.md). No agent/addon change is in scope.
-- [ ] 1.2 Verify the *deployed* demo addon is the version with `snmp_target_identity` — the demo's `agent-dusk01`-attributed anomalies suggest a stale image. (Deploy is operational, not code; the central fix is required regardless of edge attribution because the edge carries the raw target IP, not the canonical `sr:`.)
+## 1. Root-cause the empty `device.uid` (the load-bearing unknown)
+- [ ] 1.1 Demo shows 100% of last-3h anomalies have an empty resolved `device.uid`. Determine why: (a) deployed build predates `anomaly_detection_device_uid`, (b) `DeviceCorrelation.resolve` misses for these (cache/inventory gap), or (c) the resolved uid is computed but not written to the field the finding/disposition reads. Pin to a line.
+- [ ] 1.2 If (a) stale deploy: confirm current-code behavior in a test (an SNMP verdict with `target_device_ip` resolves to `sr:<target>`); the live fix is a deploy, tracked separately.
+- [ ] 1.3 If (b)/(c) code gap: fix so the resolved canonical `device_id` is persisted on the finding as a **queryable field** (not only in metadata), type-agnostically (review M2 — SNMP and host series).
 
-## 2. Central: resolve to the canonical device + canonicalize the `series_key` (the fix)
-- [ ] 2.1 In `causal_signals.ex`, resolve the anomaly's device to the canonical `sr:` device by **`target_device_ip`** (the polled switch IP from `source_identity`) — the same lookup the metric pipeline uses to assign `sr:<target>` — for SNMP, instead of resolving off the raw `device_uid` (which is an IP/agent, not a canonical device). Locate/extend the existing re-key at `:1410`.
-- [ ] 2.2 Where `series_key` is taken verbatim from `payload["anomaly"]["series_key"]` (`:1282/1290/1311`), when it is a structured edge key (`structured_series_key?/1`, `:1390`) recompute it as `TimeseriesSeriesKey.build/1` over the canonical fields (`metric_type, metric_name, partition, agent_id, device_id=sr:<target>, target_device_ip, if_index`) — the SAME composite the metric uses.
-- [ ] 2.3 Keep the edge's `v2|…` key as debug-only metadata and log when it disagrees with the derived key (mirror `metric_envelope.ex` `maybe_record_series_hint`).
-- [ ] 2.4 Degradation guard: if the canonical device cannot be resolved (no `target_device_ip`, no matching device), leave the series_key un-joined (current behavior) — NEVER coin a colliding key. Anchor every derived key on the attested `agent_id`.
+## 2. Key the joins on the canonical tuple (not `series_key`)
+- [ ] 2.1 Audit the disposition feed + the `#4288` stale-alert liveness query: ensure both correlate anomaly↔metric on `(device_id, metric_name, if_index)`. The `profile_hour_of_week_peak` SQL already groups by `device_id`; confirm the anomaly side supplies the resolved `device_id`, `metric_name`, `if_index`.
+- [ ] 2.2 Remove any reliance on `series_key` equality for anomaly↔metric correlation.
 
 ## 3. The parity gate (definition of done)
-- [ ] 3.1 Parity test: build the canonical key from a metric's resource fields and from the matching anomaly verdict's `source_identity` for the SAME SNMP series; assert `TimeseriesSeriesKey.build(metric) == TimeseriesSeriesKey.build(anomaly)` AND that the persisted anomaly `series_key` equals the metric's. This is the precondition the disposition stack asserts — now proven.
-- [ ] 3.2 Negative test: a series whose target cannot be resolved produces a non-colliding (un-joined) key, not a wrong one.
+- [ ] 3.1 Parity test: for a known SNMP series, a resolved anomaly's `(device_id, metric_name, if_index)` equals the metric's, and a join on that tuple returns the metric's samples. Add a host-series case (M2).
+- [ ] 3.2 Negative test: an anomaly whose device cannot be resolved retains its raw id and joins nothing (no false correlation).
+- [ ] 3.3 Cutover (M4): anomalies already open at deploy are not orphaned — re-keyed in place on next evaluation, or remain resolvable by raw id.
 
 ## 4. Verify + close the loop
-- [ ] 4.1 Verify on demo (read-only): after deploy, a new SNMP anomaly's `series_key` matches the corresponding `timeseries_metrics.series_key` for the same series (the `agent-dusk01` → `sr:<target>` case from 0.2 now joins).
-- [ ] 4.2 Note in the disposition proposals that the series-key precondition is now proven (was "asserted, not proven" in `add-anomaly-finding-disposition`).
-- [ ] 4.3 Unblock `#4288` (stale-alert auto-resolve): with aligned keys, a series's liveness is queryable from `timeseries_metrics.series_key`, so the orphaned-alert sweep can key on real series liveness instead of `anomaly_open` recency.
+- [ ] 4.1 Verify on demo (read-only): after the fix/deploy, a new SNMP anomaly's resolved `device_id` is `sr:<target>` and joins `timeseries_metrics` on the canonical tuple (the `agent-dusk01` → `sr:<target>` case now correlates).
+- [ ] 4.2 Note in the disposition proposals that the correlation precondition is now proven (was "asserted, not proven" in `add-anomaly-finding-disposition`), and that it joins on `device_id`, not `series_key`.
+- [ ] 4.3 Unblock `#4288`: liveness keys on `(device_id, metric_name, if_index)` from `timeseries_metrics`, so the orphaned-alert sweep uses real series liveness.

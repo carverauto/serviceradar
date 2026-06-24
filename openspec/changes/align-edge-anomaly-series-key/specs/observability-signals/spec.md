@@ -1,54 +1,56 @@
-# observability-signals — edge↔central series-key alignment
+# observability-signals — canonical device-identity alignment for anomalies
 
 ## ADDED Requirements
 
-### Requirement: Canonical Series-Key Parity Between Anomalies and Metrics
+### Requirement: Anomalies Resolve To The Same Canonical Device As Their Metric
 
-An edge anomaly verdict and the central metric it was derived from SHALL persist the
-**same** `series_key` for the same physical series, computed by the **one** canonical
-`TimeseriesSeriesKey` composite over `{metric_type, metric_name, partition, agent_id,
-device_id, target_device_ip, if_index}`. The edge's provisional producer key SHALL NOT
-be persisted as the canonical `series_key`; it MAY be retained as debug-only metadata.
+An ingested anomaly finding SHALL be persisted under the **canonical `sr:` device
+identity** of the series it describes — the same `device_id` the metric pipeline
+assigns — resolved centrally (for a remote SNMP poll, from `target_device_ip`; for a
+host series, from the host identity) via `DeviceCorrelation`. It SHALL NOT be persisted
+under the polling `agent_id` or an unreconciled raw host id when a canonical device
+exists. Resolution is anchored on the gateway-attested `agent_id`, so agent-reported
+target/interface identity is namespaced to that agent and cannot collide across agents.
 
-#### Scenario: An SNMP anomaly joins its metric on series_key
+#### Scenario: An SNMP anomaly resolves to the polled target's canonical device
 
-- **GIVEN** an SNMP series whose metric is stored with `series_key = TimeseriesSeriesKey.build(resource fields)`
-- **WHEN** the edge emits an anomaly verdict for that same series and central ingests it
-- **THEN** the persisted anomaly `series_key` SHALL equal the metric's `series_key`
-- **AND** a join of the anomaly to `timeseries_metrics` on `series_key` SHALL return the series' samples
+- **GIVEN** an SNMP series polled by `agent_id = A` against target `T`, whose metric is stored with `device_id = sr:<T>`
+- **WHEN** the anomaly for that series is ingested and a canonical device for `T` exists
+- **THEN** the finding's resolved device identity SHALL be `sr:<T>`
+- **AND** it SHALL NOT be `agent_id = A` nor the raw target IP
 
-#### Scenario: The edge producer key is not the canonical key
+#### Scenario: A host (non-SNMP) anomaly resolves to its canonical device
 
-- **GIVEN** an anomaly verdict carrying a structured edge key (e.g. `v2|partition=…`)
-- **WHEN** central ingests it
-- **THEN** the persisted `series_key` SHALL be the `TimeseriesSeriesKey` value, not the `v2|…` string
-- **AND** the `v2|…` key MAY be kept as metadata and a disagreement SHALL be logged
+- **GIVEN** a sysmon/process series for a host whose metric is stored with `device_id = sr:<H>`
+- **WHEN** the anomaly is ingested and a canonical device for the host exists
+- **THEN** the finding's resolved device identity SHALL be `sr:<H>`, not the raw hostname
 
-### Requirement: SNMP Anomalies Attribute To The Poll Target, Not The Polling Agent
+### Requirement: Disposition And Liveness Join On The Canonical Identity Tuple
 
-For a remote SNMP poll, the anomaly's device identity SHALL be the polled target
-device (anchored under the gateway-attested `agent_id`), matching the metric — NOT the
-polling agent host. The canonical key SHALL be anchored on the attested `agent_id` so
-agent-reported target/interface fields are namespaced to that agent and cannot collide
-across agents.
+Anomaly↔metric correlation SHALL key on the canonical identity tuple `(device_id,
+metric_name, if_index)` — which both sides produce deterministically — across the
+disposition feed and the stale-alert liveness check, and SHALL NOT key on the metric
+`series_key` hash (which is computed with `device_id` empty and includes
+producer/ingestion-metadata tags, so it is not reproducible from an anomaly).
 
-#### Scenario: Polled target, not the agent host
+#### Scenario: An anomaly joins its metric on the canonical tuple
 
-- **GIVEN** an SNMP series polled by `agent_id = A` against target `T`, whose metric keys on `device_id = sr:<T>`
-- **WHEN** the anomaly for that series is ingested
-- **THEN** its canonical `series_key` SHALL be computed with `device_id = sr:<T>` (the target), not with the agent host as the device
-- **AND** it SHALL NOT attribute to `agent_id` as the device
+- **GIVEN** a resolved anomaly with `(device_id = sr:<T>, metric_name = M, if_index = I)`
+- **WHEN** the disposition or liveness query correlates it to `timeseries_metrics`
+- **THEN** the join SHALL be on `(device_id, metric_name, if_index)`
+- **AND** it SHALL return that series' samples
 
 ### Requirement: Safe Degradation For Unresolvable Series
 
-When the poll-target identity cannot be resolved, the anomaly's `series_key` SHALL be
-left un-joinable (the current behavior) rather than coined to a value that could
-collide with a different series. The change SHALL be strictly additive — it aligns the
-series it can attribute and never produces a wrong alignment.
+The anomaly SHALL retain its raw id and not join when `DeviceCorrelation` cannot
+resolve a canonical device (no `target_device_ip`, no matching inventory device) — the
+current behavior. The change SHALL be strictly additive: it correlates what it can
+resolve and SHALL NOT produce a false correlation. Anomalies already open at cutover
+SHALL NOT be orphaned (re-key in place on next evaluation, or remain resolvable by raw id).
 
-#### Scenario: Unattributable series does not collide
+#### Scenario: Unresolvable series does not falsely correlate
 
-- **GIVEN** an anomaly whose poll target cannot be resolved (no `target_device_ip`, no canonical device)
-- **WHEN** central ingests it
-- **THEN** its `series_key` SHALL NOT equal any other series' canonical key
-- **AND** the anomaly SHALL simply not join a metric (no false correlation)
+- **GIVEN** an anomaly whose device cannot be resolved to a canonical `sr:` device
+- **WHEN** it is ingested
+- **THEN** it SHALL retain its raw identity
+- **AND** it SHALL NOT join any other series' metrics
