@@ -9,17 +9,41 @@ if_index}` → `Base.encode16`. The metric pipeline already produces this
 hold, and they fail independently today:
 
 1. **Same identity inputs.** The anomaly must carry the *same field values* the
-   metric used — crucially the **device**: the canonical `sr:` target, not the
-   polling `agent_id`. Today `anomaly_device_uid` (`addon.rs`) falls through to
-   `agent_id` because the edge has no canonical `device_id` and no populated
-   `target_device_ip`.
+   metric used — crucially the **device**. The edge trace (below) established the
+   agent already stamps the polled **target** (`target_device_ip` = the switch IP)
+   on every SNMP metric and the current addon already attributes to it, *not*
+   `agent_id` — so this input arrives. What does NOT arrive is the **canonical `sr:`
+   device**: the edge carries the raw target IP; only central resolves that IP to the
+   canonical `sr:` device (the metric pipeline does exactly this). So the anomaly
+   carries the target IP while the metric carries `sr:<target>`.
 2. **Same key function.** The anomaly's stored `series_key` must be computed by the
-   **same** `TimeseriesSeriesKey.build/1`. Today `causal_signals.ex:1282/1290/1311`
-   persists `payload["anomaly"]["series_key"]` verbatim (the edge's `v2|…`
-   producer key).
+   **same** `TimeseriesSeriesKey.build/1` over the canonical-resolved fields. Today
+   `causal_signals.ex:1282/1290/1311` persists `payload["anomaly"]["series_key"]`
+   verbatim (the edge's `v2|…` key), and resolves the device off the raw `device_uid`
+   — which fails for SNMP (an IP/agent is not a canonical device).
 
-Fixing (2) without (1) does nothing — same function, different `device_id` input →
-different hash. So (1) is the load-bearing fix; (2) is the mechanical follow-through.
+Both reduce to **one central fix**: resolve the anomaly's target identity to the same
+canonical `sr:` device the metric pipeline resolves (keyed off `target_device_ip`),
+then run `TimeseriesSeriesKey.build`. The edge already hands central the target.
+
+## What the edge trace established (4-way, agent → feed → addon → demo)
+
+- **Agent** (`metric_envelope.go`/`push_loop_snmp.go`): one construction path stamps
+  the polled switch as `target_device_ip = HostIP` (+ `host`/`target` tags) on every
+  SNMP metric; the *same* bytes feed the addon and central — no fork. SNMP sets no
+  `device_id` (resolution is central, by design).
+- **Feed**: the addon decodes the **identical** `MetricBatch`; it has `target_device_ip`.
+- **Addon** (`addon.rs`): `is_snmp_metric_class("snmp")` matches and
+  `snmp_target_identity` reads `metric.metadata["target_device_ip"]`, so attribution
+  resolves to the **target IP**, not `agent_id`, and the verdict emits
+  `source_identity.target_device_ip`.
+- **Demo**: 100% of agent-dusk01's 2.43M SNMP rows carry `target_device_ip` and
+  `device_id = sr:<target>` (never the agent); per-target-per-interface `series_key`.
+
+So the edge is **not** the gap. The demo's `agent-dusk01`-attributed anomalies are
+inconsistent with current code (which attributes to the target IP) — almost certainly
+a **deployed addon predating the `snmp_target_identity` logic**. Either way the
+remaining gap, and the entire fix, is central.
 
 ## Decision: carry the target identity, canonicalize centrally for both
 
@@ -30,19 +54,21 @@ different hash. So (1) is the load-bearing fix; (2) is the mechanical follow-thr
   device. This is the "meet in the middle": the agent *does* produce the SNMP
   target/interface identity (it is the sole source), but it is scoped, not trusted
   as an opaque key.
-- **The edge carries the target identity it already has** onto the anomaly verdict's
-  `source_identity`: `target_device_ip` (+ `if_index`, `metric_name`, `agent_id`).
-  The edge already prioritizes `snmp_target_identity` over `agent_id` in
-  `anomaly_device_uid`; the gap is that `target_device_ip` is empty on the SNMP
-  metric the addon scores. The fix populates/propagates it (the agent knows the
-  poll target) so the addon stops falling back to `agent_id`.
-- **Central reconciles + keys both the same way.** On anomaly ingest
-  (`causal_signals.ex`), resolve the raw target identity to the same canonical
-  `device_id` the metric pipeline used (the existing re-key at `:1410` already does
-  the device-uid resolution for findings; extend it to the series-key fields), then
-  set `series_key = TimeseriesSeriesKey.build(reconciled_fields)`. Keep the edge's
-  `v2|…` key as debug-only metadata and log when it disagrees (mirrors the metric
-  side's `maybe_record_series_hint`, so producer drift stays observable).
+- **The edge already carries the target identity** (trace-confirmed). The agent
+  stamps `target_device_ip` and the addon emits it on the verdict's
+  `source_identity` (`+ if_index, metric_name, agent_id`). No edge change is required
+  beyond ensuring the current addon is the *deployed* version; this proposal does not
+  modify the agent or addon attribution.
+- **Central reconciles + keys both the same way (the fix).** On anomaly ingest
+  (`causal_signals.ex`), resolve the anomaly's device to the same canonical `sr:`
+  device the metric pipeline resolves — **keyed off `target_device_ip`** (the polled
+  switch IP), which is the lookup the metric pipeline uses to assign `sr:<target>`,
+  NOT the raw `device_uid` (an IP/agent has no canonical device). The existing re-key
+  at `:1410` already resolves the finding's device-uid; the fix is to (a) drive that
+  resolution from `target_device_ip` for SNMP and (b) recompute
+  `series_key = TimeseriesSeriesKey.build(canonical fields)` instead of persisting the
+  edge's `v2|…` key. Keep the `v2|…` key as debug-only metadata and log disagreement
+  (mirrors `metric_envelope.ex`'s `maybe_record_series_hint`).
 
 ## Why not the alternatives
 
