@@ -443,8 +443,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   end
 
   test "causal anomaly alerts only on open transitions and resolves on clear", %{actor: actor} do
-    use_single_alert_shard()
-
     unique = System.unique_integer([:positive])
     device_uid = "sr:anomaly-alert-device-#{unique}"
     series_key = "sysmon:cpu:#{device_uid}:0"
@@ -541,11 +539,105 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert resolved_alert.status == :resolved
   end
 
+  test "resolve_stale_anomalies resolves an open alert whose series went silent", %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    device_uid = "sr:stale-anomaly-device-#{unique}"
+    series_key = "sysmon:cpu:#{device_uid}:0"
+    alert_title = "Stale anomaly #{unique}"
+    rule_name = "stale-anomaly-rule-#{unique}"
+
+    {:ok, rule} =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: rule_name,
+          enabled: true,
+          signal: :event,
+          match: %{
+            "subject_prefix" => "signals.causal.predictions",
+            "attribute_equals" => %{
+              "signal_type" => "causal",
+              "event_type" => "anomaly",
+              "anomaly.state" => ["anomaly_open", "open"]
+            },
+            "recovery" => %{
+              "subject_prefix" => "signals.causal.predictions",
+              "attribute_equals" => %{
+                "signal_type" => "causal",
+                "event_type" => "anomaly",
+                "anomaly.state" => ["anomaly_clear", "inactive"]
+              }
+            }
+          },
+          group_by: ["device", "anomaly.series_key"],
+          threshold: 1,
+          window_seconds: 300,
+          bucket_seconds: 60,
+          cooldown_seconds: 300,
+          renotify_seconds: 3600,
+          event: %{
+            "log_name" => "alert.health.anomaly_detection",
+            "message" => "Anomaly detection finding detected"
+          },
+          alert: %{"title" => alert_title, "severity_from" => "source"}
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    base_time = DateTime.utc_now()
+
+    event = fn state, offset ->
+      %{
+        id: Ash.UUID.generate(),
+        time: DateTime.add(base_time, offset, :second),
+        severity_id: OCSF.severity_high(),
+        severity: OCSF.severity_name(OCSF.severity_high()),
+        message: "Anomaly #{state}",
+        log_name: "signals.causal.predictions.#{series_key}",
+        log_provider: "anomaly_detection",
+        device: %{"uid" => device_uid},
+        unmapped: %{
+          "signal_type" => "causal",
+          "event_type" => "anomaly",
+          "anomaly" => %{
+            "state" => state,
+            "series_key" => series_key,
+            "metric_class" => "sysmon.cpu"
+          }
+        },
+        metadata: %{"signal_type" => "causal", "event_type" => "anomaly"}
+      }
+    end
+
+    # Open the alert; the series' last matching record is at base_time + 10s.
+    assert :ok = StatefulAlertEngine.evaluate_events([event.("pending_anomaly", 0)])
+    assert :ok = StatefulAlertEngine.evaluate_events([event.("anomaly_open", 10)])
+    assert [active_alert] = active_alerts_by_title(actor, alert_title)
+
+    # The series goes silent (no anomaly_clear ever arrives). A cutoff after its
+    # last_seen_at marks the open snapshot stale, and the sweep resolves it.
+    cutoff = DateTime.add(base_time, 3600, :second)
+    now = DateTime.add(base_time, 3600, :second)
+    assert {:ok, 1} = StatefulAlertEngine.resolve_stale_anomalies(rule_name, cutoff, now)
+
+    {:ok, resolved} = Alert.get_by_id(active_alert.id, actor: actor)
+    assert resolved.status == :resolved
+    assert [] = active_alerts_by_title(actor, alert_title)
+
+    history =
+      rule.id |> StatefulAlertRuleHistory.list_by_rule(actor: actor) |> Page.unwrap()
+
+    assert Enum.any?(history, &(&1.event_type == :recovered))
+
+    # Idempotent: the alert_id was nulled, so a second sweep resolves nothing.
+    assert {:ok, 0} = StatefulAlertEngine.resolve_stale_anomalies(rule_name, cutoff, now)
+  end
+
   test "capacity forecast alerts coalesce by resource and resolve on inactive status", %{
     actor: actor
   } do
-    use_single_alert_shard()
-
     unique = System.unique_integer([:positive])
     device_uid = "sr:capacity-alert-device-#{unique}"
     resource_key = "disk_usage:#{device_uid}:/var"
@@ -928,22 +1020,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     |> Ash.read!()
     |> Page.unwrap!()
     |> Enum.filter(fn alert -> alert.title == title end)
-  end
-
-  defp use_single_alert_shard do
-    previous = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
-
-    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 1)
-    reset_engine()
-
-    on_exit(fn ->
-      reset_engine()
-
-      case previous do
-        nil -> Application.delete_env(:serviceradar_core, :stateful_alert_engine_shards)
-        value -> Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, value)
-      end
-    end)
   end
 
   defp reset_engine do
