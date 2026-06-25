@@ -22,13 +22,24 @@ defmodule ServiceRadar.ResultsRouterIntegrationTest do
 
   setup do
     previous_async = Application.get_env(:serviceradar_core, :sync_ingestor_async)
+    previous_batching = Application.get_env(:serviceradar_core, :results_router_batching)
     Application.put_env(:serviceradar_core, :sync_ingestor_async, false)
+
+    # Drives handle_cast/2 directly with a bare %{} state asserting synchronous
+    # ingestion; disable async batching for the per-item path.
+    Application.put_env(:serviceradar_core, :results_router_batching, false)
 
     on_exit(fn ->
       if is_nil(previous_async) do
         Application.delete_env(:serviceradar_core, :sync_ingestor_async)
       else
         Application.put_env(:serviceradar_core, :sync_ingestor_async, previous_async)
+      end
+
+      if is_nil(previous_batching) do
+        Application.delete_env(:serviceradar_core, :results_router_batching)
+      else
+        Application.put_env(:serviceradar_core, :results_router_batching, previous_batching)
       end
     end)
 

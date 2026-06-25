@@ -31,14 +31,30 @@ defmodule ServiceRadar.ProcessRegistry do
   tier). Configure with:
 
       config :serviceradar_core, host_distributed_processes: false
+
+  ## DeltaCrdt sync interval
+
+  Horde gossips the registry/supervisor CRDT to peers every `sync_interval`
+  milliseconds. The library default (~50ms) means a small idle cluster still
+  re-gossips ~20x/sec, which dominated idle BEAM reductions even with only a
+  handful of registry entries — it is sync *frequency*, not state size. These
+  singletons are stable, so a multi-second interval keeps failover acceptable
+  while cutting the idle churn. Configure with the
+  `SERVICERADAR_HORDE_SYNC_INTERVAL_MS` env var (default `3000`) or:
+
+      config :serviceradar_core, horde_sync_interval_ms: 3000
   """
+  @default_horde_sync_interval_ms 3000
+
   def child_specs do
+    sync_interval = horde_sync_interval_ms()
+
     registry =
       {Horde.Registry,
        name: @registry_name,
        keys: :unique,
        members: :auto,
-       delta_crdt_options: [sync_interval: 100]}
+       delta_crdt_options: [sync_interval: sync_interval]}
 
     if host_distributed_processes?() do
       [
@@ -47,10 +63,38 @@ defmodule ServiceRadar.ProcessRegistry do
          name: @supervisor_name,
          strategy: :one_for_one,
          members: :auto,
-         delta_crdt_options: [sync_interval: 100]}
+         delta_crdt_options: [sync_interval: sync_interval]}
       ]
     else
       [registry]
+    end
+  end
+
+  @doc """
+  DeltaCrdt sync interval (ms) for the Horde registry and supervisor.
+
+  Resolution order: `SERVICERADAR_HORDE_SYNC_INTERVAL_MS` env var, then the
+  `:horde_sync_interval_ms` app env, then the #{@default_horde_sync_interval_ms}ms
+  default.
+  """
+  @spec horde_sync_interval_ms() :: pos_integer()
+  def horde_sync_interval_ms do
+    case System.get_env("SERVICERADAR_HORDE_SYNC_INTERVAL_MS") do
+      value when is_binary(value) ->
+        case Integer.parse(String.trim(value)) do
+          {ms, ""} when ms > 0 -> ms
+          _ -> app_env_horde_sync_interval_ms()
+        end
+
+      _ ->
+        app_env_horde_sync_interval_ms()
+    end
+  end
+
+  defp app_env_horde_sync_interval_ms do
+    case Application.get_env(:serviceradar_core, :horde_sync_interval_ms) do
+      ms when is_integer(ms) and ms > 0 -> ms
+      _ -> @default_horde_sync_interval_ms
     end
   end
 
