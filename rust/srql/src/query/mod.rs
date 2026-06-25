@@ -48,7 +48,6 @@ mod tests;
 pub(crate) use cagg::{
     cagg_column_for_entity, cagg_table_for_entity, hourly_cagg_lower_bound_clause,
     hourly_cagg_upper_bound_clause, max_time_range_days_for_ast, should_route_plan_to_hourly_cagg,
-    should_route_to_hourly_cagg,
 };
 pub use engine::QueryEngine;
 pub(crate) use filters_common::{
@@ -57,7 +56,11 @@ pub(crate) use filters_common::{
 pub(crate) use plan::build_query_plan;
 #[cfg(any(test, debug_assertions))]
 pub(crate) use sql::diesel_bind_count;
-pub(crate) use sql::{diesel_sql, max_dollar_placeholder, reconcile_limit_offset_binds};
+pub(crate) use sql::{diesel_sql, reconcile_limit_offset_binds};
+#[cfg(test)]
+pub(crate) use cagg::should_route_to_hourly_cagg;
+#[cfg(test)]
+pub(crate) use sql::max_dollar_placeholder;
 pub use translate::translate_request;
 pub use types::{
     BindParam, PaginationMeta, QueryDirection, QueryPlan, QueryRequest, QueryResponse,

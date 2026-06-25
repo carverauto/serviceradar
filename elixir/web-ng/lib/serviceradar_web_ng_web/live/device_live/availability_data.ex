@@ -3,7 +3,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
 
   alias ServiceRadar.Inventory.DeviceAgentAvailability
 
-  @availability_window "last_24h"
+  # At-a-glance availability strip on the device details page.
+  #
+  # The query is a bucketed COUNT over `timeseries_metrics` (metric_type:icmp +
+  # uid). It was the slowest supplemental task (~207ms) because `last_24h` scans
+  # 48 30-minute buckets per device. There is no continuous aggregate for
+  # `timeseries_metrics` (verified across srql/core migrations) and building one
+  # is out of scope, so we narrow the window to `last_6h` (12 buckets) — roughly
+  # a 4x reduction in scanned rows. Six hours is sufficient for a quick health
+  # glance; the full uptime history lives elsewhere.
+  @availability_window "last_6h"
   @availability_bucket "30m"
 
   defp escape_value(value) when is_binary(value) do

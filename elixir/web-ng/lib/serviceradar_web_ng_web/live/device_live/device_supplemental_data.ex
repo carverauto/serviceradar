@@ -19,7 +19,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonProfileData
 
   def load(context, opts) when is_map(context) and is_list(opts) do
-    socket = Map.fetch!(context, :socket)
+    # current_scope drives the sweep-results lookup. It is passed explicitly so
+    # this batch can run inside an off-process async task without capturing the
+    # whole socket struct.
+    current_scope = Map.fetch!(context, :current_scope)
     srql_module = Map.fetch!(context, :srql_module)
     uid = Map.fetch!(context, :uid)
     scope = Map.get(context, :scope)
@@ -47,7 +50,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
 
     parallel_tasks =
       build_parallel_tasks(%{
-        socket: socket,
+        current_scope: current_scope,
         srql_module: srql_module,
         uid: uid,
         scope: scope,
@@ -147,7 +150,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
         Map.get(parallel_results, :has_logs, false)
       )
 
-    has_mtr = MtrRuntime.detect_available(scope, uid, device_ip)
+    # Detection ran inside the concurrent task batch above (key :has_mtr); if the
+    # task timed out we conservatively report no MTR availability.
+    has_mtr = Map.get(parallel_results, :has_mtr, false)
 
     {sysmon_profile_info, available_profiles} = Map.get(parallel_results, :profile, {nil, []})
     {ip_aliases, ip_alias_error} = Map.get(parallel_results, :aliases, {[], nil})
@@ -218,7 +223,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
   end
 
   defp build_parallel_tasks(%{
-         socket: socket,
+         current_scope: current_scope,
          srql_module: srql_module,
          uid: uid,
          scope: scope,
@@ -245,7 +250,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
         AvailabilityData.load_healthcheck_summary(srql_module, uid, scope)
       end),
       DeviceTaskData.timed(slow_device_task_ms, :sweep, fn ->
-        DiscoveryData.load_sweep_results(socket.assigns.current_scope, device_ip)
+        DiscoveryData.load_sweep_results(current_scope, device_ip)
       end),
       DeviceTaskData.timed(slow_device_task_ms, :mapper, fn ->
         DiscoveryData.load_mapper_jobs_for_device(scope, device_row)
@@ -261,6 +266,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
       end),
       DeviceTaskData.timed(slow_device_task_ms, :bumblebee, fn ->
         BumblebeeData.load(scope, uid)
+      end),
+      # Folded into the concurrent batch so it overlaps the other supplemental
+      # loads instead of running serially after Task.yield_many.
+      DeviceTaskData.timed(slow_device_task_ms, :has_mtr, fn ->
+        MtrRuntime.detect_available(scope, uid, device_ip)
       end)
     ]
 

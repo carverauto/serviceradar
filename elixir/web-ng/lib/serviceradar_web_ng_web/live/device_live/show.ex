@@ -2,9 +2,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
-  import ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents,
-    only: [virtualization_guests?: 1]
-
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Observability.MtrPubSub
   alias ServiceRadarWebNG.RBAC
@@ -328,10 +325,80 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp apply_device_details_assigns(socket, assigns) do
+    {requested_tab, device_row, srql_module, scope, params, supplemental_assigns} =
+      pop_details_meta(assigns)
+
+    socket =
+      socket
+      |> assign(supplemental_assigns)
+      |> assign(:details_loading, false)
+      |> assign(:device_details_request_ref, nil)
+
+    resolve_active_tab_after_details(
+      socket,
+      requested_tab,
+      device_row,
+      srql_module,
+      scope,
+      params,
+      supplemental_assigns
+    )
+  end
+
+  defp pop_details_meta(assigns) do
+    requested_tab = Map.get(assigns, :__requested_tab__, "details")
+    device_row = Map.get(assigns, :__device_row__)
+    srql_module = Map.get(assigns, :__srql_module__, srql_module())
+    scope = Map.get(assigns, :__scope__)
+    params = Map.get(assigns, :__params__, %{})
+
+    supplemental_assigns =
+      Map.drop(assigns, [:__requested_tab__, :__device_row__, :__srql_module__, :__scope__, :__params__])
+
+    {requested_tab, device_row, srql_module, scope, params, supplemental_assigns}
+  end
+
+  # The details tab is fixed, so there is nothing to re-resolve and no
+  # tab-specific follow-up loads.
+  defp resolve_active_tab_after_details(socket, "details", _row, _srql, _scope, _params, _supp) do
+    assign(socket, :active_tab, "details")
+  end
+
+  # Other tabs: now that the supplemental batch reported which tabs have data,
+  # re-resolve the active tab (it may downgrade to "details") and kick the
+  # tab-specific background loads that must run in the LiveView process.
+  defp resolve_active_tab_after_details(socket, requested_tab, device_row, srql_module, scope, params, supp) do
+    active_tab =
+      requested_tab
+      |> DeviceTabRuntime.resolve_active_tab(
+        Map.get(supp, :has_ifaces, false),
+        Map.get(supp, :has_flows, false),
+        Map.get(supp, :has_logs, false),
+        Map.get(supp, :has_mtr, false),
+        Map.get(supp, :has_virtualization_guests, false)
+      )
+      |> DeviceTabRuntime.authorize_active_tab(device_row, scope)
+
+    srql =
+      QueryData.srql_for_tab_if_needed(active_tab, socket.assigns.device_uid, socket.assigns.limit, socket.assigns.srql)
+
     socket
-    |> assign(assigns)
-    |> assign(:details_loading, false)
-    |> assign(:device_details_request_ref, nil)
+    |> assign(:active_tab, active_tab)
+    |> assign(:srql, srql)
+    |> DeviceTabRuntime.maybe_load_mtr_for_active_tab(active_tab)
+    |> DeviceTabRuntime.maybe_reload_logs_for_active_tab(
+      active_tab,
+      socket.assigns.device_uid,
+      QueryData.normalize_cursor(Map.get(params, "cursor")),
+      srql_module,
+      tab_runtime_opts()
+    )
+    |> FlowRuntime.begin_background_loads(
+      active_tab,
+      socket.assigns.device_uid,
+      Map.get(supp, :device_flows, []),
+      srql_module
+    )
   end
 
   defp apply_device_metrics_assigns(socket, assigns) do
@@ -539,14 +606,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     device_ip = get_device_ip(results)
     show_stale = socket.assigns.show_stale_aliases
-    virtualization_summary = VirtualizationData.load_virtualization_summary(scope, uid)
-    has_virtualization_guests = virtualization_guests?(virtualization_summary)
-
-    {camera_sources, camera_inventory_error} =
-      CameraData.load_sources(scope, uid, device_row, &DeviceActionRuntime.format_ash_error/1)
+    include_metrics? = requested_tab != "details"
+    request_ref = make_ref()
 
     supplemental_context = %{
-      socket: socket,
       srql_module: srql_module,
       uid: uid,
       scope: scope,
@@ -555,138 +618,168 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       device_row: device_row,
       device_ip: device_ip,
       show_stale: show_stale,
-      virtualization_summary: virtualization_summary,
-      camera_sources: camera_sources,
-      camera_inventory_error: camera_inventory_error
+      include_metrics?: include_metrics?,
+      current_scope: socket.assigns.current_scope
     }
 
-    if requested_tab == "details" do
-      base_context = Map.put(supplemental_context, :include_metrics?, false)
+    # Phase 2: render the page shell immediately on the device row alone. Every
+    # supplemental panel (availability, virtualization, cameras, interfaces,
+    # flows, logs, MTR, …) is template-guarded by safe defaults, so the shell is
+    # fully valid before the supplemental batch resolves. The expensive batch is
+    # streamed in via start_async/{:device_details} (handle_async →
+    # apply_device_details_assigns). active_tab is resolved optimistically to the
+    # requested tab and re-resolved once the batch reports which tabs have data.
+    socket
+    |> assign(:device_uid, uid)
+    |> assign(:limit, limit)
+    |> assign(:results, results)
+    |> reset_supplemental_defaults()
+    |> assign(:active_tab, requested_tab)
+    |> assign(
+      :panels,
+      srql_response
+      |> Engine.build_panels()
+      |> drop_low_value_categories()
+      |> drop_table_panels()
+    )
+    |> assign(:active_camera_relay_session, active_camera_relay_session)
+    |> assign(:last_camera_relay_session, last_camera_relay_session)
+    |> assign(:device_snmp_credential, socket.assigns.device_snmp_credential)
+    |> assign(:srql, base_srql)
+    |> assign(:device_details_request_ref, request_ref)
+    |> assign(:details_loading, true)
+    |> maybe_begin_metrics_refresh(include_metrics?, uid, srql_module, device_row, scope)
+    |> begin_device_details_refresh(uid, request_ref, supplemental_context)
+    |> then(&{:noreply, &1})
+  end
 
-      base_context =
-        Map.put(base_context, :supplemental_timeout_ms, @details_supplemental_timeout_ms)
+  # The details tab loads sysmon/anomaly metrics in its own async path
+  # (begin_device_metrics_refresh). Other tabs fold metrics into the
+  # supplemental batch (include_metrics? == true), so we skip the separate
+  # refresh there.
+  defp maybe_begin_metrics_refresh(socket, false, uid, srql_module, device_row, scope) do
+    begin_device_metrics_refresh(
+      socket,
+      uid,
+      srql_module,
+      SysmonMetrics.sysmon_identity(device_row, uid),
+      scope
+    )
+  end
 
-      supplemental_assigns = DeviceSupplementalData.load(base_context, supplemental_load_opts())
+  defp maybe_begin_metrics_refresh(socket, true, _uid, _srql_module, _device_row, _scope), do: socket
 
-      {:noreply,
-       socket
-       |> assign(:device_uid, uid)
-       |> assign(:device_details_request_ref, nil)
-       |> assign(:details_loading, false)
-       |> assign(:limit, limit)
-       |> assign(:results, results)
-       |> assign(:network_interfaces, [])
-       |> assign(:interfaces_error, nil)
-       |> assign(:has_ifaces, false)
-       |> assign(:device_flows, [])
-       |> assign(:flows_error, nil)
-       |> assign(:flows_pagination, %{})
-       |> assign(:has_flows, false)
-       |> assign(:device_logs, [])
-       |> assign(:logs_error, nil)
-       |> assign(:logs_pagination, %{})
-       |> assign(:logs_loading, false)
-       |> assign(:logs_request_ref, nil)
-       |> assign(:logs_cursor, nil)
-       |> assign(:has_logs, false)
-       |> assign(:discovery_job, nil)
-       |> assign(:favorited_interfaces, MapSet.new())
-       |> assign(:interface_metrics, nil)
-       |> assign(:ip_aliases, [])
-       |> assign(:ip_alias_error, nil)
-       |> assign(:active_tab, "details")
-       |> assign(
-         :panels,
-         srql_response
-         |> Engine.build_panels()
-         |> drop_low_value_categories()
-         |> drop_table_panels()
-       )
-       |> assign(:metric_sections, [])
-       |> assign(:sysmon_presence, false)
-       |> assign(:sysmon_profile_info, nil)
-       |> assign(:available_profiles, [])
-       |> assign(:process_metrics, nil)
-       |> assign(:process_metrics_search, "")
-       |> assign(:process_metrics_page, 1)
-       |> assign(:process_listeners_search, "")
-       |> assign(:process_listeners_page, 1)
-       |> assign(:camera_sources, camera_sources)
-       |> assign(:camera_inventory_error, camera_inventory_error)
-       |> assign(:active_camera_relay_session, active_camera_relay_session)
-       |> assign(:last_camera_relay_session, last_camera_relay_session)
-       |> assign(:availability, nil)
-       |> assign(:healthcheck_summary, nil)
-       |> assign(:virtualization_summary, virtualization_summary)
-       |> assign(:has_virtualization_guests, has_virtualization_guests)
-       |> assign(:sweep_results, nil)
-       |> assign(:device_snmp_credential, socket.assigns.device_snmp_credential)
-       |> assign(:srql, base_srql)
-       |> assign(supplemental_assigns)
-       |> begin_device_metrics_refresh(
-         uid,
-         srql_module,
-         SysmonMetrics.sysmon_identity(device_row, uid),
-         scope
-       )}
+  # Reset every supplemental assign to a safe default before the async batch
+  # repopulates them. Keeps stale data from a previously viewed device out of
+  # the shell while the new batch is in flight.
+  defp reset_supplemental_defaults(socket) do
+    socket
+    |> assign(:network_interfaces, [])
+    |> assign(:interfaces_error, nil)
+    |> assign(:has_ifaces, false)
+    |> assign(:device_flows, [])
+    |> assign(:flows_error, nil)
+    |> assign(:flows_pagination, %{})
+    |> assign(:has_flows, false)
+    |> assign(:device_logs, [])
+    |> assign(:logs_error, nil)
+    |> assign(:logs_pagination, %{})
+    |> assign(:logs_loading, false)
+    |> assign(:logs_request_ref, nil)
+    |> assign(:logs_cursor, nil)
+    |> assign(:has_logs, false)
+    |> assign(:has_mtr, false)
+    |> assign(:discovery_job, nil)
+    |> assign(:favorited_interfaces, MapSet.new())
+    |> assign(:interface_metrics, nil)
+    |> assign(:ip_aliases, [])
+    |> assign(:ip_alias_error, nil)
+    |> assign(:availability, nil)
+    |> assign(:agent_availability, [])
+    |> assign(:healthcheck_summary, nil)
+    |> assign(:virtualization_summary, nil)
+    |> assign(:has_virtualization_guests, false)
+    |> assign(:sweep_results, nil)
+    |> assign(:metric_sections, [])
+    |> assign(:sysmon_presence, false)
+    |> assign(:process_metrics, nil)
+    |> assign(:process_metrics_search, "")
+    |> assign(:process_metrics_page, 1)
+    |> assign(:process_listeners_search, "")
+    |> assign(:process_listeners_page, 1)
+    |> assign(:camera_sources, [])
+    |> assign(:camera_inventory_error, nil)
+    |> assign(:sysmon_profile_info, nil)
+    |> assign(:available_profiles, [])
+    |> assign(:northbound_device_history, [])
+    |> assign(:northbound_device_history_error, nil)
+    |> assign(:endpoint_inventory_scan, nil)
+    |> assign(:endpoint_inventory_scans, [])
+    |> assign(:endpoint_inventory_packages, [])
+    |> assign(:endpoint_inventory_package_total, 0)
+    |> assign(:endpoint_inventory_artifacts, [])
+    |> assign(:endpoint_inventory_vulnerability_matches, [])
+    |> assign(:endpoint_inventory_error, nil)
+    |> assign(:has_software_inventory, false)
+    |> assign(:bumblebee_postures, [])
+    |> assign(:bumblebee_findings, [])
+    |> assign(:bumblebee_error, nil)
+    |> assign(:has_bumblebee_exposure, false)
+  end
+
+  # Loads the full supplemental batch (virtualization, cameras, availability,
+  # interfaces, flows, logs, MTR detection, …). In the test env we run it
+  # synchronously so LiveViewTest's initial render is fully populated (mirrors
+  # begin_device_metrics_refresh); in prod it runs off-process via start_async
+  # so handle_params returns immediately after the device row resolves.
+  defp begin_device_details_refresh(socket, uid, request_ref, context) do
+    if Application.get_env(:serviceradar_web_ng, :env) == :test do
+      assigns = load_device_details_assigns(context)
+      apply_device_details_assigns(socket, assigns)
     else
-      supplemental_assigns =
-        DeviceSupplementalData.load(supplemental_context, supplemental_load_opts())
-
-      has_ifaces = Map.get(supplemental_assigns, :has_ifaces, false)
-      has_flows = Map.get(supplemental_assigns, :has_flows, false)
-      has_logs = Map.get(supplemental_assigns, :has_logs, false)
-      has_mtr = Map.get(supplemental_assigns, :has_mtr, false)
-      has_virtualization_guests = Map.get(supplemental_assigns, :has_virtualization_guests, false)
-
-      active_tab =
-        requested_tab
-        |> DeviceTabRuntime.resolve_active_tab(
-          has_ifaces,
-          has_flows,
-          has_logs,
-          has_mtr,
-          has_virtualization_guests
-        )
-        |> DeviceTabRuntime.authorize_active_tab(device_row, scope)
-
-      srql = QueryData.srql_for_tab_if_needed(active_tab, uid, limit, base_srql)
-
-      {:noreply,
-       socket
-       |> assign(:device_uid, uid)
-       |> assign(:device_details_request_ref, nil)
-       |> assign(:details_loading, false)
-       |> assign(:limit, limit)
-       |> assign(:results, results)
-       |> assign(:active_tab, active_tab)
-       |> assign(
-         :panels,
-         srql_response
-         |> Engine.build_panels()
-         |> drop_low_value_categories()
-         |> drop_table_panels()
-       )
-       |> assign(:active_camera_relay_session, active_camera_relay_session)
-       |> assign(:last_camera_relay_session, last_camera_relay_session)
-       |> assign(:device_snmp_credential, socket.assigns.device_snmp_credential)
-       |> assign(:srql, srql)
-       |> assign(supplemental_assigns)
-       |> DeviceTabRuntime.maybe_load_mtr_for_active_tab(active_tab)
-       |> DeviceTabRuntime.maybe_reload_logs_for_active_tab(
-         active_tab,
-         uid,
-         QueryData.normalize_cursor(Map.get(params, "cursor")),
-         srql_module,
-         tab_runtime_opts()
-       )
-       |> FlowRuntime.begin_background_loads(
-         active_tab,
-         uid,
-         Map.get(supplemental_assigns, :device_flows, []),
-         srql_module
-       )}
+      start_async(socket, {:device_details, uid, request_ref}, fn ->
+        load_device_details_assigns(context)
+      end)
     end
+  end
+
+  # Runs inside the async task (or synchronously in tests). Returns a plain map
+  # of assigns; the follow-up tab resolution and background loads that must run
+  # in the LiveView process happen in apply_device_details_assigns/2.
+  defp load_device_details_assigns(context) do
+    %{
+      srql_module: srql_module,
+      uid: uid,
+      scope: scope,
+      device_row: device_row,
+      include_metrics?: include_metrics?
+    } = context
+
+    virtualization_summary = VirtualizationData.load_virtualization_summary(scope, uid)
+
+    {camera_sources, camera_inventory_error} =
+      CameraData.load_sources(scope, uid, device_row, &DeviceActionRuntime.format_ash_error/1)
+
+    timeout_ms =
+      if include_metrics?, do: @tab_supplemental_timeout_ms, else: @details_supplemental_timeout_ms
+
+    load_context =
+      context
+      |> Map.put(:virtualization_summary, virtualization_summary)
+      |> Map.put(:camera_sources, camera_sources)
+      |> Map.put(:camera_inventory_error, camera_inventory_error)
+      |> Map.put(:supplemental_timeout_ms, timeout_ms)
+
+    supplemental_assigns =
+      DeviceSupplementalData.load(load_context, supplemental_load_opts())
+
+    Map.merge(supplemental_assigns, %{
+      __requested_tab__: Map.get(context, :requested_tab, "details"),
+      __device_row__: device_row,
+      __srql_module__: srql_module,
+      __scope__: scope,
+      __params__: Map.get(context, :params, %{})
+    })
   end
 
   defp supplemental_load_opts do
