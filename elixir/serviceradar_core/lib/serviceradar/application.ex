@@ -123,6 +123,10 @@ defmodule ServiceRadar.Application do
         # lookup per device instead of per event under load)
         device_correlation_cache_child(),
 
+        # Cross-batch ETS cache for flow hosting-provider CIDR lookups (one GiST
+        # probe per distinct IP per snapshot instead of per batch)
+        provider_cidr_cache_child(),
+
         # Horde registries (always started for registration support)
         registry_children(),
 
@@ -299,6 +303,12 @@ defmodule ServiceRadar.Application do
   defp device_correlation_cache_child do
     if repo_enabled?() do
       ServiceRadar.EventWriter.DeviceCorrelationCache
+    end
+  end
+
+  defp provider_cidr_cache_child do
+    if repo_enabled?() do
+      ServiceRadar.EventWriter.ProviderCidrCache
     end
   end
 
