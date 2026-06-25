@@ -49,15 +49,7 @@ defmodule ServiceRadar.ResultsRouter do
   end
 
   defp process_and_publish(status, opts \\ []) do
-    service_type = status[:service_type] || "unknown"
-    source = status[:source] || "unknown"
-    service_name = status[:service_name] || "unknown"
-
-    Logger.debug(fn ->
-      "ResultsRouter received: service_type=#{service_type} source=#{source} " <>
-        "service=#{service_name}"
-    end)
-
+    # No per-message log here — hot path. Breadcrumbs come from the OTel span.
     case process(status, opts) do
       :ok ->
         publish_status_update(status)
