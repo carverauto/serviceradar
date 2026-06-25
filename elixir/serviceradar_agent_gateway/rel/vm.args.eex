@@ -7,8 +7,8 @@
 ## Performance Tuning
 ## =============================================================================
 
-## Increase async thread pool for better I/O performance
-+A 64
+## Async thread pool sized to the cpu quota (1-core limit, floored at 2)
++A 2
 
 ## Increase process limit for large clusters
 +P 1000000
@@ -22,8 +22,17 @@
 ## Enable kernel polling for better network performance
 +K true
 
-## Set scheduler bind type for better performance on multi-core
-+sbt db
+## Cap schedulers near the cgroup cpu LIMIT (1-core limit, floored at 2) and
+## kill busy-wait spin. Baked here (not env) so it cannot be removed via
+## ELIXIR_ERL_OPTIONS.
+## NOTE: +sbt db removed — core-binding under CFS pins schedulers to cores the
+## pod does not own, causing migration stalls.
++sbwt none
++sbwtdcpu none
++sbwtdio none
++S 2:2
++SDcpu 2
++SDio 2
 
 ## Increase distribution buffer size for large messages
 +zdbbl 32768
