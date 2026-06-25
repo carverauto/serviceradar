@@ -50,8 +50,14 @@ pub async fn create_collector_from_config(
 ) -> Result<ServiceRadarCollector, Box<dyn std::error::Error>> {
     use crate::config::OutputBackend;
 
+    // Self-telemetry denylist applied to whichever backend is selected so
+    // ServiceRadar's own exports are dropped at the edge regardless of output.
+    let denylist = config.self_telemetry_denylist();
+
     match config.output.backend {
-        OutputBackend::Jetstream => create_collector(config.nats_config()).await,
+        OutputBackend::Jetstream => Ok(create_collector(config.nats_config())
+            .await?
+            .with_self_telemetry_denylist(denylist)),
         OutputBackend::Agent => {
             let agent_forward = config.agent_forward.clone().unwrap_or_default();
             info!(
@@ -63,7 +69,8 @@ pub async fn create_collector_from_config(
                     format!("failed to open agent-forward spool: {e:#}").into()
                 })?;
             let output = crate::agent_forward::AgentForwardOutput::new(Arc::new(spool));
-            Ok(ServiceRadarCollector::with_output(Arc::new(output)))
+            Ok(ServiceRadarCollector::with_output(Arc::new(output))
+                .with_self_telemetry_denylist(denylist))
         }
         OutputBackend::Otlp => {
             Err("output backend \"otlp\" is reserved and not implemented yet".into())
@@ -233,6 +240,7 @@ mod tests {
         let config = crate::config::Config {
             output: crate::config::OutputConfig {
                 backend: crate::config::OutputBackend::Agent,
+                ..Default::default()
             },
             agent_forward: Some(crate::config::AgentForwardConfig {
                 spool_dir: dir.path().to_string_lossy().into_owned(),
@@ -262,6 +270,7 @@ mod tests {
         let config = crate::config::Config {
             output: crate::config::OutputConfig {
                 backend: crate::config::OutputBackend::Otlp,
+                ..Default::default()
             },
             ..Default::default()
         };

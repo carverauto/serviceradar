@@ -53,10 +53,10 @@ defmodule ServiceRadar.ResultsRouter do
     source = status[:source] || "unknown"
     service_name = status[:service_name] || "unknown"
 
-    Logger.info(
+    Logger.debug(fn ->
       "ResultsRouter received: service_type=#{service_type} source=#{source} " <>
         "service=#{service_name}"
-    )
+    end)
 
     case process(status, opts) do
       :ok ->

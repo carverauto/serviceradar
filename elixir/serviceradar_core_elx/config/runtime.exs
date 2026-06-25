@@ -42,6 +42,33 @@ read_secret_env = fn env_name, file_env_name ->
   end
 end
 
+# =============================================================================
+# Logger level override
+# =============================================================================
+# Production defaults to :warning (see prod.exs) to keep the per-message
+# Logger.info self-telemetry storm off the hot ingestion paths. This env lets
+# operators raise/lower verbosity at runtime without a rebuild — e.g. set
+# SERVICERADAR_LOG_LEVEL=info to restore the routine breadcrumbs for a debug
+# session. Invalid values fall back to :warning rather than crashing boot.
+if config_env() == :prod do
+  log_level =
+    case System.get_env("SERVICERADAR_LOG_LEVEL") do
+      value when is_binary(value) and value != "" ->
+        case String.downcase(value) do
+          level when level in ~w(emergency alert critical error warning notice info debug) ->
+            String.to_existing_atom(level)
+
+          _ ->
+            :warning
+        end
+
+      _ ->
+        :warning
+    end
+
+  config :logger, level: log_level
+end
+
 edge_crypto_secret =
   read_secret_env.("SERVICERADAR_EDGE_CRYPTO_SECRET", "SERVICERADAR_EDGE_CRYPTO_SECRET_FILE") ||
     read_secret_env.("EDGE_ONBOARDING_ENCRYPTION_KEY", "EDGE_ONBOARDING_ENCRYPTION_KEY_FILE")
@@ -94,8 +121,39 @@ if otel_endpoint do
   otel_retry_base_delay_ms = parse_int_env.("OTEL_EXPORTER_OTLP_RETRY_BASE_DELAY_MS", 500)
   otel_retry_max_delay_ms = parse_int_env.("OTEL_EXPORTER_OTLP_RETRY_MAX_DELAY_MS", 10_000)
 
+  # Root sampling ratio for internally-rooted spans (Ecto self-writes, Oban
+  # housekeeping, EventWriter batches, re-ingested self-telemetry). The SDK
+  # default sampler is parent_based{root: always_on}, which exports 100% of
+  # these and drives a self-ingestion feedback loop (export -> collector ->
+  # NATS -> EventWriter -> CNPG -> fresh Ecto spans -> export ...). Sampling
+  # the root decision down to ~5% breaks that amplifier while remote-parented
+  # spans (real cross-service traffic) are always kept. Tunable via
+  # OTEL_TRACES_SAMPLER_ARG without a rebuild; bad values fall back to 0.05.
+  otel_root_sample_ratio =
+    case System.get_env("OTEL_TRACES_SAMPLER_ARG") do
+      value when is_binary(value) and value != "" ->
+        case Float.parse(value) do
+          {ratio, _rest} when ratio >= 0.0 and ratio <= 1.0 -> ratio
+          _ -> 0.05
+        end
+
+      _ ->
+        0.05
+    end
+
   config :opentelemetry,
     span_processor: :batch,
+    # Keep real cross-service traces (remote-parented) while thinning
+    # internally-rooted self-telemetry spans to OTEL_TRACES_SAMPLER_ARG.
+    sampler:
+      {:parent_based,
+       %{
+         root: {:trace_id_ratio_based, otel_root_sample_ratio},
+         remote_parent_sampled: :always_on,
+         remote_parent_not_sampled: :always_off,
+         local_parent_sampled: :always_on,
+         local_parent_not_sampled: :always_off
+       }},
     traces_exporter:
       {:serviceradar_otel_exporter_traces_otlp,
        %{

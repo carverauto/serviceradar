@@ -172,7 +172,11 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
 
         handler_config = %{
           exporter: {:otel_exporter_logs_otlp, exporter_opts},
-          level: :info,
+          # Only export :warning+ as OTLP log records. Routine info/debug app
+          # logs are self-telemetry noise that gets re-ingested via the LOGS
+          # stream into CNPG; keeping them out of the OTLP export breaks that
+          # feedback loop while warnings/errors still reach the collector.
+          level: :warning,
           # Handler-scoped filter (applied by the :logger core only for THIS
           # handler) that rewrites the hex-text otel_trace_id/otel_span_id
           # metadata to raw bytes so the OTLP encoder's bytes fields carry

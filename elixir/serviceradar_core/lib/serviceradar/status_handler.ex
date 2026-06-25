@@ -119,10 +119,10 @@ defmodule ServiceRadar.StatusHandler do
     source = status[:source] || "unknown"
     service_name = status[:service_name] || "unknown"
 
-    Logger.info(
+    Logger.debug(fn ->
       "StatusHandler received: service_type=#{service_type} source=#{source} " <>
         "service=#{service_name}"
-    )
+    end)
 
     process(status, opts)
   end
@@ -330,12 +330,14 @@ defmodule ServiceRadar.StatusHandler do
   defp decode_addon_telemetry_batch(_), do: :error
 
   defp log_package_telemetry_batch(records, metadata) do
-    Logger.info(
+    # Lazy 0-arity form so the length/Enum.count traversals only run when
+    # debug logging is actually enabled (never on the hot batch path).
+    Logger.debug(fn ->
       "StatusHandler decoded package telemetry: producer_type=#{metadata.producer_type} " <>
         "producer_id=#{metadata.producer_id} agent_id=#{metadata.agent_id} " <>
         "records=#{length(records)} ocsf_records=#{Enum.count(records, &ocsf_record?/1)} " <>
         "otel_log_records=#{Enum.count(records, &otel_log_record?/1)}"
-    )
+    end)
   end
 
   defp publish_package_telemetry_records(records, batch, metadata) do
