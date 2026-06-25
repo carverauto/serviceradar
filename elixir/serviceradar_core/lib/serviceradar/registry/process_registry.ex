@@ -43,30 +43,53 @@ defmodule ServiceRadar.ProcessRegistry do
   `SERVICERADAR_HORDE_SYNC_INTERVAL_MS` env var (default `3000`) or:
 
       config :serviceradar_core, horde_sync_interval_ms: 3000
+
+  ## Joining the registry mesh
+
+  Every Horde.Registry member is a DeltaCrdt node in the shared CRDT, and each
+  CRDT process picks a *random* `node_id` that is never collectable: once a
+  member has gossiped, its dot lingers in the merged CRDT state forever. The
+  ServiceRadar nodes use ephemeral names (`basename@POD_IP`) and roll
+  frequently, so a tier that rolls often (web-ng) permanently injects a fresh
+  random dot on every rollout, bloating the shared causal context. web-ng only
+  *reads* the registry (and can RPC those reads to a core node), so it is taken
+  out of the mesh entirely. The agent-gateway *writes* the entries core reads,
+  so it must stay a member. Configure with:
+
+      config :serviceradar_core, join_process_registry: false
   """
   @default_horde_sync_interval_ms 3000
 
+  # DeltaCrdt's own default; Horde overrides it to `:infinite`. We re-pin it as a
+  # defensive bound on the per-sync key/merkle fan-out for these stable
+  # singletons.
+  @max_sync_size 200
+
   def child_specs do
-    sync_interval = horde_sync_interval_ms()
+    if join_process_registry?() do
+      sync_interval = horde_sync_interval_ms()
 
-    registry =
-      {Horde.Registry,
-       name: @registry_name,
-       keys: :unique,
-       members: :auto,
-       delta_crdt_options: [sync_interval: sync_interval]}
-
-    if host_distributed_processes?() do
-      [
-        registry,
-        {Horde.DynamicSupervisor,
-         name: @supervisor_name,
-         strategy: :one_for_one,
+      registry =
+        {Horde.Registry,
+         name: @registry_name,
+         keys: :unique,
          members: :auto,
-         delta_crdt_options: [sync_interval: sync_interval]}
-      ]
+         delta_crdt_options: [sync_interval: sync_interval, max_sync_size: @max_sync_size]}
+
+      if host_distributed_processes?() do
+        [
+          registry,
+          {Horde.DynamicSupervisor,
+           name: @supervisor_name,
+           strategy: :one_for_one,
+           members: :auto,
+           delta_crdt_options: [sync_interval: sync_interval, max_sync_size: @max_sync_size]}
+        ]
+      else
+        [registry]
+      end
     else
-      [registry]
+      []
     end
   end
 
@@ -102,6 +125,56 @@ defmodule ServiceRadar.ProcessRegistry do
   @spec host_distributed_processes?() :: boolean()
   def host_distributed_processes? do
     Application.get_env(:serviceradar_core, :host_distributed_processes, true)
+  end
+
+  @doc """
+  Whether this node joins the Horde registry CRDT mesh (default true).
+
+  When false the registry child is not started at all, so this node neither
+  gossips nor injects a permanent random `node_id` into the shared CRDT. Read
+  paths (gateway/agent lookups) must RPC a core node instead — see
+  `core_node/0`.
+  """
+  @spec join_process_registry?() :: boolean()
+  def join_process_registry? do
+    Application.get_env(:serviceradar_core, :join_process_registry, true)
+  end
+
+  @doc """
+  Whether the local Horde registry process is running on this node.
+
+  Read wrappers use this to decide between a local registry call and an RPC to a
+  core node (for tiers that left the mesh via `join_process_registry?/0`).
+  """
+  @spec registry_present?() :: boolean()
+  def registry_present? do
+    Process.whereis(@registry_name) != nil
+  end
+
+  @doc """
+  Picks a connected core node to satisfy a registry read RPC, or `nil`.
+
+  Core nodes are identified by their cluster basename (the same
+  `serviceradar_core@…` convention libcluster/runtime.exs use). The basename is
+  configurable via `config :serviceradar_core, :core_node_basename, "…"` and
+  defaults to `"serviceradar_core"`.
+  """
+  @spec core_node() :: node() | nil
+  def core_node do
+    prefix = core_node_basename() <> "@"
+
+    [:visible]
+    |> Node.list()
+    |> Enum.find(fn node -> node |> Atom.to_string() |> String.starts_with?(prefix) end)
+  end
+
+  @doc "Cluster basename for core nodes (default `serviceradar_core`)."
+  @spec core_node_basename() :: String.t()
+  def core_node_basename do
+    case Application.get_env(:serviceradar_core, :core_node_basename, "serviceradar_core") do
+      value when is_binary(value) and value != "" -> value
+      _ -> "serviceradar_core"
+    end
   end
 
   @doc """

@@ -7,6 +7,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanup do
   endpoints from deleted UIDs to the single active UID that owns the same IP.
   """
 
+  alias Ecto.Adapters.SQL
   alias ServiceRadar.Repo
 
   require Logger
@@ -26,6 +27,14 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanup do
 
   @spec canonicalize_deleted_device_links() :: {:ok, cleanup_stats()} | {:error, term()}
   def canonicalize_deleted_device_links do
+    case stale_active_ip_overlap_exists?() do
+      {:ok, false} -> {:ok, zero_stats()}
+      {:ok, true} -> run_canonicalization()
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp run_canonicalization do
     with {:ok, local_count} <- remap_deleted_uid_column(:local_device_id),
          {:ok, neighbor_count} <- remap_deleted_uid_column(:neighbor_device_id),
          {:ok, local_default_ip_count} <- remap_default_ip_column(:local_device_id),
@@ -54,6 +63,49 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanup do
          total_updates: total
        }}
     end
+  end
+
+  # Cheap early-return guard. The expensive remaps only do work when at least one
+  # deleted (stale) device shares an IP with a live (active) device. Probe that with a
+  # single indexed EXISTS so the common no-op case skips the 9 full-table UPDATEs.
+  defp stale_active_ip_overlap_exists? do
+    sql = """
+    SELECT EXISTS (
+      SELECT 1
+      FROM platform.ocsf_devices AS stale
+      JOIN platform.ocsf_devices AS active
+        ON active.ip = stale.ip
+       AND active.deleted_at IS NULL
+       AND stale.deleted_at IS NOT NULL
+       AND stale.ip IS NOT NULL
+       AND stale.ip <> ''
+      LIMIT 1
+    ) AS overlap
+    """
+
+    case SQL.query(Repo, sql, []) do
+      {:ok, %{rows: [[overlap]]}} ->
+        {:ok, overlap == true}
+
+      {:error, reason} ->
+        Logger.warning("Topology stale/active overlap probe failed", reason: inspect(reason))
+        {:error, reason}
+    end
+  end
+
+  defp zero_stats do
+    %{
+      local_device_id_updates: 0,
+      neighbor_device_id_updates: 0,
+      local_default_ip_id_updates: 0,
+      neighbor_default_ip_id_updates: 0,
+      local_mac_id_updates: 0,
+      neighbor_mac_id_updates: 0,
+      interface_metadata_sanitized: 0,
+      invalid_local_device_ids_cleared: 0,
+      invalid_neighbor_device_ids_cleared: 0,
+      total_updates: 0
+    }
   end
 
   defp sanitize_non_unifi_interface_metadata do
@@ -269,7 +321,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanup do
   end
 
   defp execute_update(sql, label) do
-    case Ecto.Adapters.SQL.query(Repo, sql, []) do
+    case SQL.query(Repo, sql, []) do
       {:ok, %{num_rows: count}} ->
         {:ok, count}
 

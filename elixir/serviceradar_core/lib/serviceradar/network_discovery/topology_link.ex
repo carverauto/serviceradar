@@ -12,6 +12,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyLink do
     table "mapper_topology_links"
     repo ServiceRadar.Repo
     schema "platform"
+
+    # Bind the logical-key identity to the hand-written unique index created in
+    # priv/repo/migrations/..._add_mapper_topology_links_logical_key_uidx.exs. The
+    # index is plain-column (the key columns are NOT NULL DEFAULT ''/0), so Ash's
+    # ON CONFLICT (cols) inference matches it exactly.
+    identity_index_names logical_key: "mapper_topology_links_logical_key_uidx"
   end
 
   actions do
@@ -69,7 +75,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyLink do
       public? true
     end
 
+    # Logical-key columns are NOT NULL with empty/zero defaults so the unique index
+    # backing the :logical_key identity can be plain-column (no COALESCE), letting
+    # Ash's upsert ON CONFLICT inference target it directly.
     attribute :protocol, :string do
+      allow_nil? false
+      default ""
       public? true
     end
 
@@ -78,10 +89,14 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyLink do
     end
 
     attribute :local_device_id, :string do
+      allow_nil? false
+      default ""
       public? true
     end
 
     attribute :local_if_index, :integer do
+      allow_nil? false
+      default 0
       public? true
     end
 
@@ -90,14 +105,20 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyLink do
     end
 
     attribute :neighbor_device_id, :string do
+      allow_nil? false
+      default ""
       public? true
     end
 
     attribute :neighbor_chassis_id, :string do
+      allow_nil? false
+      default ""
       public? true
     end
 
     attribute :neighbor_port_id, :string do
+      allow_nil? false
+      default ""
       public? true
     end
 
@@ -121,5 +142,20 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyLink do
     attribute :created_at, :utc_datetime do
       public? true
     end
+  end
+
+  identities do
+    # Logical key for a topology edge. Backed by the plain-column unique index
+    # mapper_topology_links_logical_key_uidx (see postgres.identity_index_names).
+    # Used by the mapper ingestor's upsert so the every-5-minute re-insert of the
+    # whole topology updates-in-place instead of appending duplicate rows.
+    identity :logical_key, [
+      :local_device_id,
+      :neighbor_device_id,
+      :local_if_index,
+      :neighbor_port_id,
+      :protocol,
+      :neighbor_chassis_id
+    ]
   end
 end

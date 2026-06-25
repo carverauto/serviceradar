@@ -15,20 +15,32 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
         ServiceError::InvalidRequest("downsample requires bucket:<duration>".into())
     })?;
 
-    let cagg_safe_shape =
-        plan.filters.is_empty() && downsample.series.as_deref().unwrap_or("").trim().is_empty();
     let use_hourly_cagg = super::super::should_route_plan_to_hourly_cagg(plan)
-        && cagg_safe_shape
         && match plan.entity {
             Entity::Flows => {
-                downsample.bucket_seconds >= 300
+                cagg_safe_shape_strict(plan)
+                    && downsample.bucket_seconds >= 300
                     && matches!(downsample.agg, DownsampleAgg::Sum | DownsampleAgg::Count)
                     && matches!(
                         downsample.value_field.as_deref(),
                         None | Some("bytes_total") | Some("packets_total")
                     )
             }
-            _ => matches!(downsample.agg, DownsampleAgg::Avg),
+            // The timeseries family CAGG (`timeseries_metrics_hourly`) groups by
+            // (bucket, device_id, metric_type, metric_name) and stores avg/min/max_value.
+            // A device-filtered chart request is safe to route as long as every filter and
+            // the optional series grouping only reference those CAGG group keys, the agg has a
+            // pre-materialized column, and the bucket is hourly-or-coarser (the CAGG resolution).
+            Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => {
+                downsample.bucket_seconds >= 3600
+                    && matches!(
+                        downsample.agg,
+                        DownsampleAgg::Avg | DownsampleAgg::Min | DownsampleAgg::Max
+                    )
+                    && timeseries_cagg_safe_shape(plan)
+            }
+            // Other metric CAGGs (cpu/memory/disk/process) keep the strict no-filter gate.
+            _ => cagg_safe_shape_strict(plan) && matches!(downsample.agg, DownsampleAgg::Avg),
         };
 
     let (raw_table, raw_ts_col, forced_metric_type) = match plan.entity {
@@ -67,6 +79,24 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
         downsample.value_field.as_deref(),
         use_hourly_cagg,
     )?;
+
+    // The timeseries CAGG materializes avg/min/max separately. For MIN/MAX chart aggs we must
+    // read the matching pre-aggregated column so MIN(min_value)/MAX(max_value) stays exact over
+    // multi-hour buckets (min-of-mins / max-of-maxes). AVG keeps avg_value (mean-of-means, the
+    // CAGG's existing resolution). `resolve_value_column` defaults to avg_value for this CAGG.
+    let value_col = if use_hourly_cagg
+        && matches!(
+            plan.entity,
+            Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics
+        ) {
+        match downsample.agg {
+            DownsampleAgg::Min => "min_value".to_string(),
+            DownsampleAgg::Max => "max_value".to_string(),
+            _ => value_col,
+        }
+    } else {
+        value_col
+    };
 
     let time_range = plan.time_range.as_ref().ok_or_else(|| {
         ServiceError::InvalidRequest("downsample queries require time:<range>".into())
@@ -166,6 +196,50 @@ LIMIT ? OFFSET ?"#,
 
     let _ = time_range;
     Ok(sql)
+}
+
+/// Strict CAGG-safety: no filters and no series grouping. Used for entities whose
+/// CAGG group keys we have not column-checked here (cpu/memory/disk/process, flows).
+fn cagg_safe_shape_strict(plan: &QueryPlan) -> bool {
+    let series_empty = plan
+        .downsample
+        .as_ref()
+        .and_then(|d| d.series.as_deref())
+        .unwrap_or("")
+        .trim()
+        .is_empty();
+    plan.filters.is_empty() && series_empty
+}
+
+/// CAGG group keys present on `platform.timeseries_metrics_hourly`. Any filter or series
+/// grouping that references a column NOT in this set would change the result if served from
+/// the CAGG (the column was collapsed away during materialization), so such queries must
+/// stay on the raw hypertable.
+fn timeseries_field_is_cagg_safe(field: &str) -> bool {
+    matches!(
+        field.trim().to_ascii_lowercase().as_str(),
+        "device_id" | "metric_type" | "metric_name"
+    )
+}
+
+/// True when a timeseries-family downsample plan only touches CAGG group keys.
+fn timeseries_cagg_safe_shape(plan: &QueryPlan) -> bool {
+    // Every filter must be on a CAGG group key. Filters on agent_id/gateway_id/partition/
+    // target_device_ip/if_index/value would be lossy against the rolled-up CAGG.
+    if !plan
+        .filters
+        .iter()
+        .all(|filter| timeseries_field_is_cagg_safe(&filter.field))
+    {
+        return false;
+    }
+
+    // The optional series grouping (e.g. `series:device_id`) must also be a CAGG group key.
+    // `series:core_id` (tags->>'core_id'), `series:if_index`, etc. are not materialized.
+    match plan.downsample.as_ref().and_then(|d| d.series.as_deref()) {
+        Some(series) if !series.trim().is_empty() => timeseries_field_is_cagg_safe(series),
+        _ => true,
+    }
 }
 
 pub(super) fn build_params(plan: &QueryPlan) -> Result<Vec<BindParam>> {

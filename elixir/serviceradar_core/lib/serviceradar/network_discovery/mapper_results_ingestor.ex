@@ -3208,6 +3208,37 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
      ]}
   end
 
+  defp prepare_bulk_records(records, TopologyLink, actor) do
+    # The mapper re-inserts the entire topology every ~5 minutes. Without an upsert
+    # this appends duplicate rows forever (the 1.5M-row bloat). Normalize the
+    # logical-key columns to their non-nil DB defaults, collapse in-batch dups
+    # (last-wins), and upsert against the :logical_key identity.
+    deduped =
+      records
+      |> Enum.map(&normalize_topology_link_key/1)
+      |> Enum.reverse()
+      |> Enum.uniq_by(&topology_link_identity_key/1)
+      |> Enum.reverse()
+
+    {deduped,
+     [
+       actor: actor,
+       return_errors?: true,
+       stop_on_error?: false,
+       upsert?: true,
+       upsert_identity: :logical_key,
+       upsert_fields: [
+         :timestamp,
+         :created_at,
+         :metadata,
+         :neighbor_system_name,
+         :neighbor_mgmt_addr,
+         :gateway_id,
+         :agent_id
+       ]
+     ]}
+  end
+
   defp prepare_bulk_records(records, _resource, actor) do
     {records,
      [
@@ -3216,6 +3247,52 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
        stop_on_error?: false
      ]}
   end
+
+  # Coalesce the logical-key columns to the resource's NOT NULL defaults so the
+  # in-batch dedup key and the upsert ON CONFLICT inference both line up with the
+  # plain-column unique index.
+  defp normalize_topology_link_key(record) when is_map(record) do
+    record
+    |> Map.put(
+      :local_device_id,
+      blank_to_empty(get_record_value(record, :local_device_id, "local_device_id"))
+    )
+    |> Map.put(
+      :neighbor_device_id,
+      blank_to_empty(get_record_value(record, :neighbor_device_id, "neighbor_device_id"))
+    )
+    |> Map.put(
+      :local_if_index,
+      nil_to_zero(get_record_value(record, :local_if_index, "local_if_index"))
+    )
+    |> Map.put(
+      :neighbor_port_id,
+      blank_to_empty(get_record_value(record, :neighbor_port_id, "neighbor_port_id"))
+    )
+    |> Map.put(:protocol, blank_to_empty(get_record_value(record, :protocol, "protocol")))
+    |> Map.put(
+      :neighbor_chassis_id,
+      blank_to_empty(get_record_value(record, :neighbor_chassis_id, "neighbor_chassis_id"))
+    )
+  end
+
+  defp topology_link_identity_key(record) when is_map(record) do
+    {
+      Map.get(record, :local_device_id),
+      Map.get(record, :neighbor_device_id),
+      Map.get(record, :local_if_index),
+      Map.get(record, :neighbor_port_id),
+      Map.get(record, :protocol),
+      Map.get(record, :neighbor_chassis_id)
+    }
+  end
+
+  defp blank_to_empty(nil), do: ""
+  defp blank_to_empty(value) when is_binary(value), do: value
+  defp blank_to_empty(value), do: to_string(value)
+
+  defp nil_to_zero(nil), do: 0
+  defp nil_to_zero(value) when is_integer(value), do: value
 
   defp handle_bulk_result(%Ash.BulkResult{status: :success}, _label), do: :ok
 
