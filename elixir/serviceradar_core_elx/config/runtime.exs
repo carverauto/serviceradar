@@ -45,11 +45,11 @@ end
 # =============================================================================
 # Logger level override
 # =============================================================================
-# Production defaults to :warning (see prod.exs) to keep the per-message
-# Logger.info self-telemetry storm off the hot ingestion paths. This env lets
-# operators raise/lower verbosity at runtime without a rebuild — e.g. set
-# SERVICERADAR_LOG_LEVEL=info to restore the routine breadcrumbs for a debug
-# session. Invalid values fall back to :warning rather than crashing boot.
+# Production defaults to :info (see prod.exs); the hot-path per-message logs are
+# Logger.debug, so :info keeps useful breadcrumbs without the self-telemetry
+# storm. Operators tune verbosity at runtime via SERVICERADAR_LOG_LEVEL — e.g.
+# =debug to surface the hot-path traces, =warning to quiet it. Invalid values
+# fall back to :info rather than crashing boot.
 if config_env() == :prod do
   log_level =
     case System.get_env("SERVICERADAR_LOG_LEVEL") do
@@ -59,11 +59,11 @@ if config_env() == :prod do
             String.to_existing_atom(level)
 
           _ ->
-            :warning
+            :info
         end
 
       _ ->
-        :warning
+        :info
     end
 
   config :logger, level: log_level

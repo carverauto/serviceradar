@@ -1,10 +1,9 @@
 import Config
 
-# Default production level is :warning to avoid the per-message Logger.info
-# self-telemetry storm on the hot ingestion paths (StatusHandler/ResultsRouter).
-# Tunable at runtime without a rebuild via SERVICERADAR_LOG_LEVEL (see runtime.exs).
-config :logger,
-  level: :warning,
-  # Never compile log calls below :info into the release, so debug-level
-  # strings in hot decode/parse paths are not even built before filtering.
-  compile_time_purge_matching: [[level_lower_than: :info]]
+# Hot-path per-message logs (StatusHandler/ResultsRouter, EventWriter decode
+# paths) are demoted to lazy Logger.debug, so :info keeps useful breadcrumbs
+# WITHOUT the self-telemetry storm. Self-telemetry stays on by default; the
+# telemetry-on-telemetry feedback loop is broken at the OTel layer (root sampler
+# + collector self-telemetry denylist), not by silencing logs. The hot-path
+# debug lines stay runtime-tunable via SERVICERADAR_LOG_LEVEL (see runtime.exs).
+config :logger, level: :info
