@@ -169,13 +169,57 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
     end
   end
 
+  # Child tables that carry a NO ACTION / RESTRICT FK to ocsf_devices.uid and
+  # must be deleted BEFORE the parent device, paired with their FK column.
+  # SET NULL / CASCADE children (virtualization_*, device_agent_availability)
+  # are handled automatically by the parent delete and are not listed here.
+  @fk_children [
+    {"device_identifiers", :device_id},
+    {"device_alias_states", :device_id},
+    {"discovered_interfaces", :device_id},
+    {"ocsf_agents", :device_uid},
+    {"service_checks", :device_uid},
+    {"device_snmp_credentials", :device_id},
+    {"alerts", :device_uid},
+    {"device_fleet_ordinals", :uid}
+  ]
+
+  # Hard-delete a batch of soft-deleted devices FK-safely. The previous
+  # implementation ran `delete_all` on ocsf_devices ALONE, hit the FK from 10+
+  # child tables, rescued the violation and reported `deleted: 0` — silently
+  # no-opping forever. This deletes every NO ACTION/RESTRICT child before the
+  # parent, in ONE transaction per batch, so the parent delete cannot
+  # FK-violate. The parent delete keeps `AND deleted_at IS NOT NULL` so a
+  # concurrent restore/gateway_sync that un-tombstones a device is never
+  # clobbered.
   defp hard_delete_records(stats, records) do
     uids = Enum.map(records, & &1.uid)
 
-    {deleted_count, _} =
-      Repo.delete_all(from(d in "ocsf_devices", where: d.uid in ^uids), prefix: "platform")
+    fn ->
+      Enum.each(@fk_children, fn {table, fk_column} ->
+        Repo.delete_all(
+          from(c in table, where: field(c, ^fk_column) in ^uids),
+          prefix: "platform"
+        )
+      end)
 
-    {%{stats | deleted: stats.deleted + deleted_count}, deleted_count}
+      {deleted_count, _} =
+        Repo.delete_all(
+          from(d in "ocsf_devices", where: d.uid in ^uids and not is_nil(d.deleted_at)),
+          prefix: "platform"
+        )
+
+      deleted_count
+    end
+    |> Repo.transaction()
+    |> case do
+      {:ok, deleted_count} ->
+        {%{stats | deleted: stats.deleted + deleted_count}, deleted_count}
+
+      {:error, reason} ->
+        Logger.warning("DeviceCleanupWorker: delete failures", error: inspect(reason))
+        {%{stats | errors: stats.errors + 1}, 0}
+    end
   rescue
     error ->
       Logger.warning("DeviceCleanupWorker: delete failures", error: inspect(error))

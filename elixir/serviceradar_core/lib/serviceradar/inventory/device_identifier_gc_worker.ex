@@ -167,6 +167,19 @@ defmodule ServiceRadar.Inventory.DeviceIdentifierGcWorker do
         where:
           di.identifier_type != "agent_id" or
             di.identifier_value not in ^protected_agent_uids,
+        # ADDITIVE guard: never GC a `mac` row whose parent device was
+        # tombstoned by the armis_source_device_id_ghost_cleanup. Those ~389k
+        # rows are sole-copy hardware MAC bindings whose disposition is not yet
+        # complete; the armis-overmerge cleanup left them inside the 90-day
+        # TTL, so without this clause the daily GC would silently delete every
+        # one once they age out. This only NARROWS the victim set — it can
+        # never delete more than before. Remove once disposition completes.
+        where:
+          di.identifier_type != "mac" or
+            fragment(
+              "NOT EXISTS (SELECT 1 FROM platform.ocsf_devices d WHERE d.uid = ? AND d.deleted_reason = 'armis_source_device_id_ghost_cleanup')",
+              di.device_id
+            ),
         order_by: [asc: di.id],
         limit: ^batch_size,
         select: {di.id, di.identifier_type}

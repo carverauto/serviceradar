@@ -21,11 +21,20 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
 
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.Ids
+  alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.Identity.Resolver
 
   require Ash.Query
   require Logger
+
+  # Non-MAC strong identifiers that anchor an existing canonical. A shared
+  # value of any of these (notably armis_device_id, which an Armis "device"
+  # aggregates across a whole scanned subnet) must NOT collapse a record that
+  # carries its own distinct hardware MAC onto that canonical — see
+  # `distinct_mac_veto?/3`.
+  @non_mac_strong_identifiers [:armis_device_id, :integration_id, :netbox_device_id]
 
   @type lookup_key :: {atom(), String.t(), String.t()}
   @type lookups :: %{identifiers: %{lookup_key() => String.t()}, ip: %{String.t() => String.t()}}
@@ -42,11 +51,12 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
           {[{map(), String.t()}], MapSet.t()}
   def resolve_batch(updates_with_ids, lookups, actor) do
     trusted = preload_agent_trust(updates_with_ids, lookups, actor)
+    canonical_macs = preload_canonical_macs(updates_with_ids, lookups, actor)
 
     # Phase 1: candidate decision per update (no per-update queries).
     {candidates_rev, _ip_map} =
       Enum.reduce(updates_with_ids, {[], lookups.ip}, fn {update, ids}, {acc, ip_map} ->
-        device_id = resolve_one(update, ids, lookups.identifiers, ip_map, trusted)
+        device_id = resolve_one(update, ids, lookups.identifiers, ip_map, trusted, canonical_macs)
 
         # Later weak updates in the same batch may adopt this device by IP;
         # strong-identified updates never consult the IP map.
@@ -77,12 +87,12 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
     |> then(fn {resolved_rev, strong} -> {Enum.reverse(resolved_rev), strong} end)
   end
 
-  defp resolve_one(update, ids, identifier_map, ip_map, trusted) do
+  defp resolve_one(update, ids, identifier_map, ip_map, trusted, canonical_macs) do
     cond do
       Ids.service_device_id?(update.device_id) ->
         update.device_id
 
-      device_id = strong_match(ids, identifier_map, trusted) ->
+      device_id = strong_match(ids, identifier_map, trusted, canonical_macs) ->
         device_id
 
       Ids.serviceradar_uuid?(update.device_id) ->
@@ -136,7 +146,9 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
       []
   end
 
-  defp strong_match(ids, identifier_map, trusted) do
+  defp strong_match(ids, identifier_map, trusted, canonical_macs) do
+    incoming_macs = incoming_universal_macs(ids)
+
     Enum.find_value(Ids.identifier_priority(), fn id_type ->
       id_type
       |> Ids.get_identifier_values(ids)
@@ -146,12 +158,78 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
             nil
 
           device_id ->
-            if id_type != :agent_id or trusted_agent_match?(trusted, value, device_id) do
-              device_id
+            cond do
+              # agent_id keeps its existing trusted-match gate.
+              id_type == :agent_id ->
+                if trusted_agent_match?(trusted, value, device_id), do: device_id
+
+              # A direct MAC match is self-consistent and never vetoed.
+              id_type == :mac ->
+                device_id
+
+              # Non-MAC strong identifiers (armis/integration/netbox) are the
+              # over-merge vector: refuse to attach an incoming record carrying
+              # its own distinct hardware MAC onto a canonical whose hardware
+              # MAC set is disjoint. Returning nil here falls through to a NEW
+              # deterministic per-device UID in resolve_one/6.
+              distinct_mac_veto?(canonical_macs, device_id, incoming_macs) ->
+                emit_distinct_mac_veto(id_type, value, device_id, incoming_macs, canonical_macs)
+                nil
+
+              true ->
+                device_id
             end
         end
       end)
     end)
+  end
+
+  # The set of UNIVERSALLY-administered (globally-unique, hardware-anchor) MACs
+  # carried by the incoming record. Locally-administered MACs (virtual NICs,
+  # Docker, overlay networks) are excluded — they are not hardware anchors and
+  # must never drive a device split, exactly as DuplicateSweep/MergePolicy
+  # already treat them.
+  defp incoming_universal_macs(ids) do
+    :mac
+    |> Ids.get_identifier_values(ids)
+    |> Enum.reject(&Mac.locally_administered_mac?/1)
+    |> MapSet.new()
+  end
+
+  # Behavioral distinct-hardware veto. Fires ONLY when (a) the matched canonical
+  # already holds >=1 universally-administered MAC, AND (b) the incoming record
+  # carries >=1 universally-administered MAC, AND (c) the two sets are DISJOINT.
+  # Same-device re-observation always shares >=1 MAC (or carries none / only
+  # locally-administered) -> not disjoint or one side empty -> no veto.
+  defp distinct_mac_veto?(canonical_macs, device_id, incoming_macs) do
+    existing = Map.get(canonical_macs, device_id, MapSet.new())
+
+    MapSet.size(existing) > 0 and MapSet.size(incoming_macs) > 0 and
+      MapSet.disjoint?(existing, incoming_macs)
+  end
+
+  defp emit_distinct_mac_veto(id_type, value, device_id, incoming_macs, canonical_macs) do
+    existing = Map.get(canonical_macs, device_id, MapSet.new())
+
+    Logger.info(
+      "BatchResolver: distinct-MAC veto — refusing #{id_type}=#{value} attach onto " <>
+        "#{device_id} (canonical universal MACs #{inspect(MapSet.to_list(existing))} disjoint " <>
+        "from incoming #{inspect(MapSet.to_list(incoming_macs))}); splitting to a new device"
+    )
+
+    :telemetry.execute(
+      [:serviceradar, :identity_reconciler, :resolve, :distinct_mac_veto],
+      %{count: 1},
+      %{
+        identifier_type: id_type,
+        identifier_value: value,
+        canonical_device_id: device_id,
+        incoming_mac_count: MapSet.size(incoming_macs),
+        canonical_mac_count: MapSet.size(existing)
+      }
+    )
+
+    :ok
   end
 
   defp weak_ip_match(ids, ip_map) do
@@ -208,6 +286,58 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   rescue
     e ->
       Logger.warning("BatchResolver: agent trust preload failed: #{inspect(e)}")
+      %{}
+  end
+
+  # Bulk-load the universally-administered MAC set already held by each
+  # candidate canonical reachable via a NON-MAC strong identifier
+  # (armis_device_id / integration_id / netbox_device_id) in this batch.
+  # Returns %{device_id => MapSet of universally-administered MACs}. One Ash
+  # query for the whole batch; mirrors `preload_agent_trust/3`.
+  defp preload_canonical_macs(updates_with_ids, lookups, actor) do
+    candidate_ids =
+      updates_with_ids
+      |> Enum.flat_map(fn {_update, ids} ->
+        for id_type <- @non_mac_strong_identifiers,
+            value <- Ids.get_identifier_values(id_type, ids),
+            device_id = Map.get(lookups.identifiers, {id_type, value, ids.partition}),
+            not is_nil(device_id) do
+          device_id
+        end
+      end)
+      |> Enum.uniq()
+
+    if candidate_ids == [] do
+      %{}
+    else
+      query_opts = if actor, do: [actor: actor], else: []
+
+      DeviceIdentifier
+      |> Ash.Query.filter(device_id in ^candidate_ids and identifier_type == :mac)
+      |> Ash.Query.select([:device_id, :identifier_value])
+      |> Ash.read(query_opts)
+      |> Page.unwrap()
+      |> case do
+        {:ok, identifiers} ->
+          identifiers
+          |> Enum.group_by(& &1.device_id, & &1.identifier_value)
+          |> Map.new(fn {device_id, macs} ->
+            universal =
+              macs
+              |> Enum.reject(&Mac.locally_administered_mac?/1)
+              |> MapSet.new()
+
+            {device_id, universal}
+          end)
+
+        {:error, error} ->
+          Logger.warning("BatchResolver: canonical MAC preload failed: #{inspect(error)}")
+          %{}
+      end
+    end
+  rescue
+    e ->
+      Logger.warning("BatchResolver: canonical MAC preload failed: #{inspect(e)}")
       %{}
   end
 

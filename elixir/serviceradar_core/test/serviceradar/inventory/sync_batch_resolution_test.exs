@@ -296,4 +296,91 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
     assert device_uid = device_for_armis_id(armis_id, actor)
     assert {:ok, %Device{uid: ^device_uid}} = Device.get_by_uid(device_uid, false, actor: actor)
   end
+
+  # Two universally-administered MACs (IEEE local bit 0x02 CLEAR in the first
+  # octet) — globally-unique hardware anchors.
+  defp universal_mac,
+    do:
+      "00#{~c"~10.16.0B" |> :io_lib.format([System.unique_integer([:positive])]) |> to_string()}"
+      |> String.slice(0, 12)
+      |> String.upcase()
+
+  test "shared armis_device_id with a distinct universal MAC splits to a NEW device", %{
+    actor: actor
+  } do
+    armis_id = "armis-veto-#{System.unique_integer([:positive])}"
+    mac_a = universal_mac()
+    mac_b = universal_mac()
+    refute mac_a == mac_b
+
+    # First record registers the armis canonical and its hardware MAC.
+    update_a = %{
+      "hostname" => "veto-host-a",
+      "source" => "armis",
+      "mac" => mac_a,
+      "metadata" => %{"integration_type" => "armis", "armis_device_id" => armis_id}
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update_a], actor: actor)
+    canonical = device_for_armis_id(armis_id, actor)
+    assert is_binary(canonical)
+
+    # Second record shares the armis_device_id but carries a DISJOINT universal
+    # MAC -> distinct hardware -> must NOT collapse onto the armis canonical.
+    update_b = %{
+      "hostname" => "veto-host-b",
+      "source" => "armis",
+      "mac" => mac_b,
+      "metadata" => %{"integration_type" => "armis", "armis_device_id" => armis_id}
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update_b], actor: actor)
+
+    device_for_b = device_for_mac(mac_b, actor)
+    assert is_binary(device_for_b)
+
+    assert device_for_b != canonical,
+           "distinct-MAC record was over-merged onto the armis canonical"
+  end
+
+  test "shared armis_device_id re-observing the SAME MAC stays the same device", %{actor: actor} do
+    armis_id = "armis-same-#{System.unique_integer([:positive])}"
+    mac = universal_mac()
+
+    update = %{
+      "hostname" => "same-host",
+      "source" => "armis",
+      "mac" => mac,
+      "metadata" => %{"integration_type" => "armis", "armis_device_id" => armis_id}
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+    canonical = device_for_armis_id(armis_id, actor)
+    assert is_binary(canonical)
+
+    # Re-observe the identical (armis_device_id, MAC) pair -> same device, no
+    # split (MAC sets intersect -> veto does not fire).
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [%{update | "hostname" => "same-host-reobserved"}],
+               actor: actor
+             )
+
+    assert device_for_mac(mac, actor) == canonical
+    assert device_for_armis_id(armis_id, actor) == canonical
+  end
+
+  defp device_for_mac(mac, actor) do
+    query =
+      Ash.Query.for_read(DeviceIdentifier, :lookup, %{
+        identifier_type: :mac,
+        identifier_value: mac,
+        partition: "default"
+      })
+
+    case Ash.read(query, actor: actor) do
+      {:ok, [identifier | _]} -> identifier.device_id
+      _ -> nil
+    end
+  end
 end
