@@ -90,7 +90,7 @@ check_default_render() {
   assert_env "${rendered}" "SERVICERADAR_ANOMALY_METRIC_CLASS_OVERRIDES_JSON" '{\"cpu\":{},\"disk\":{},\"interface\":{},\"memory\":{},\"red\":{}}'
   assert_env "${rendered}" "SERVICERADAR_CAPACITY_FORECASTING_ENABLED" "true"
   assert_env "${rendered}" "SERVICERADAR_CAPACITY_FORECASTING_MIN_POINTS" "72"
-  assert_env "${rendered}" "SERVICERADAR_CAPACITY_FORECAST_CONFIG_METRIC_CLASS_OVERRIDES_JSON" '{\"cpu\":{},\"disk\":{},\"interface\":{},\"memory\":{}}'
+  assert_env "${rendered}" "SERVICERADAR_CAPACITY_FORECAST_CONFIG_METRIC_CLASS_OVERRIDES_JSON" '{\"cpu\":{},\"disk\":{},\"flow\":{},\"interface\":{},\"memory\":{}}'
 }
 
 check_legacy_missing_values_render() {
