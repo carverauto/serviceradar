@@ -2,6 +2,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   @moduledoc false
   use ServiceRadarWebNGWeb, :html
 
+  @detail_chart_focus_side_seconds 2 * 60 * 60
+
   attr :overview, :map, required: true
   attr :anomaly_page, :integer, default: 1
   attr :detail, :map, default: nil
@@ -541,7 +543,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
           series_key: value(row, "series_key"),
           metric_name: value(row, "metric_name"),
           resource_key: value(row, "resource_key"),
-          window_minutes: 15
+          before_seconds: @detail_chart_focus_side_seconds,
+          after_seconds: @detail_chart_focus_side_seconds
         }
     end
   end

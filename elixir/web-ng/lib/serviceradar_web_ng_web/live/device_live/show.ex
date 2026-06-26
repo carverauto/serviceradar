@@ -36,6 +36,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   @details_supplemental_timeout_ms 3_000
   @tab_supplemental_timeout_ms 15_000
   @slow_device_task_ms 1_500
+  @detail_metric_bucket "1m"
+  @detail_metric_min_window_seconds 14_400
+  @detail_metric_window_padding_seconds 1_800
 
   @impl true
   def mount(_params, _session, socket) do
@@ -1310,10 +1313,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       srql_module()
       |> SysmonMetrics.load_metric_sections(sysmon_filters, socket.assigns.current_scope,
         time_range: time_range,
+        bucket: @detail_metric_bucket,
         window_label: detail_window_label(row),
-        metrics_limit: 300,
+        metrics_limit: 500,
         cpu_metrics_limit: 20_000,
-        disk_metrics_limit: 300
+        disk_metrics_limit: 500
       )
       |> SysmonMetrics.annotate_metric_sections(socket.assigns.anomaly_capacity, selected_anomaly_row(detail))
     else
@@ -1344,10 +1348,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     start_dt = parse_detail_datetime(Map.get(row, "window_started_at"))
     end_dt = parse_detail_datetime(Map.get(row, "window_ended_at"))
 
-    if match?(%DateTime{}, start_dt) and match?(%DateTime{}, end_dt) do
-      {DateTime.add(start_dt, -900, :second), DateTime.add(end_dt, 900, :second)}
+    {start_dt, end_dt} =
+      if match?(%DateTime{}, start_dt) and match?(%DateTime{}, end_dt) do
+        {
+          DateTime.add(start_dt, -@detail_metric_window_padding_seconds, :second),
+          DateTime.add(end_dt, @detail_metric_window_padding_seconds, :second)
+        }
+      else
+        half_window = div(@detail_metric_min_window_seconds, 2)
+        {DateTime.add(center, -half_window, :second), DateTime.add(center, half_window, :second)}
+      end
+
+    expand_detail_window_to_minimum(start_dt, end_dt, center)
+  end
+
+  defp expand_detail_window_to_minimum(start_dt, end_dt, center) do
+    if DateTime.diff(end_dt, start_dt, :second) >= @detail_metric_min_window_seconds do
+      {start_dt, end_dt}
     else
-      {DateTime.add(center, -3_600, :second), DateTime.add(center, 3_600, :second)}
+      half_window = div(@detail_metric_min_window_seconds, 2)
+      {DateTime.add(center, -half_window, :second), DateTime.add(center, half_window, :second)}
     end
   end
 

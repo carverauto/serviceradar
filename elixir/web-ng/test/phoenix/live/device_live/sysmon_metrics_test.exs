@@ -151,7 +151,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
     Application.put_env(:serviceradar_web_ng, :sysmon_metrics_test_responder, fn query, _opts ->
       if String.contains?(query, "in:timeseries_metrics") do
         assert query =~ "time:[2026-06-26T06:30:00Z,2026-06-26T08:30:00Z]"
-        assert query =~ "bucket:5m"
+        assert query =~ "bucket:1m"
         send(self(), {:detail_metric_query, query})
       end
 
@@ -168,6 +168,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
         [~s|device_id:"sysmon-detail-test"|],
         :scope,
         time_range: "[2026-06-26T06:30:00Z,2026-06-26T08:30:00Z]",
+        bucket: "1m",
         window_label: "around Jun 26 07:30 UTC"
       )
 
