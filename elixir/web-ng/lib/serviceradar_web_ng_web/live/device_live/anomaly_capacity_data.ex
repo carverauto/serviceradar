@@ -42,6 +42,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
           load_first(srql_module, anomaly_candidates, scope, &anomaly_query/2, &project_anomaly_row/1,
             cursor: Keyword.get(opts, :anomaly_cursor),
             limit: @anomaly_page_limit,
+            count_query: &anomaly_count_query/2,
             severity: Keyword.get(opts, :anomaly_severity),
             status: Keyword.get(opts, :anomaly_status),
             sort: Keyword.get(opts, :anomaly_sort)
@@ -122,7 +123,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
             rows: rows,
             query: query,
             filter: Map.take(candidate, [:field, :label, :value]),
-            pagination: normalize_pagination(Map.get(response, "pagination"), opts),
+            pagination:
+              response
+              |> Map.get("pagination")
+              |> normalize_pagination(opts)
+              |> maybe_put_total_count(srql_module, candidate, scope, opts),
             error: nil,
             status: :ok
           }
@@ -169,6 +174,65 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       "limit" => Keyword.get(opts, :limit)
     }
   end
+
+  defp maybe_put_total_count(pagination, srql_module, candidate, scope, opts) do
+    case Keyword.get(opts, :count_query) do
+      count_query_fun when is_function(count_query_fun, 2) ->
+        query = count_query_fun.(candidate, opts)
+
+        case srql_module.query(query, %{scope: scope}) do
+          {:ok, %{"results" => results}} ->
+            put_pagination_total(pagination, count_from_results(results))
+
+          _ ->
+            pagination
+        end
+
+      _ ->
+        pagination
+    end
+  rescue
+    _ -> pagination
+  end
+
+  defp put_pagination_total(pagination, nil), do: pagination
+
+  defp put_pagination_total(pagination, total_count) when is_integer(total_count) and total_count >= 0 do
+    limit = pagination["limit"]
+
+    pagination
+    |> Map.put("total_count", total_count)
+    |> Map.put("page_count", page_count(total_count, limit))
+  end
+
+  defp put_pagination_total(pagination, _total_count), do: pagination
+
+  defp page_count(total_count, limit) when is_integer(limit) and limit > 0 do
+    max(ceil(total_count / limit), 1)
+  end
+
+  defp page_count(_total_count, _limit), do: nil
+
+  defp count_from_results([%{} = row | _]) do
+    row
+    |> first_present([["total"], ["count"]])
+    |> integer_count()
+  end
+
+  defp count_from_results([value | _]), do: integer_count(value)
+  defp count_from_results(_), do: nil
+
+  defp integer_count(value) when is_integer(value) and value >= 0, do: value
+  defp integer_count(value) when is_float(value) and value >= 0, do: trunc(value)
+
+  defp integer_count(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {number, ""} when number >= 0 -> number
+      _ -> nil
+    end
+  end
+
+  defp integer_count(_), do: nil
 
   defp error_result(candidate, query, error) do
     %{
@@ -239,6 +303,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
     |> Enum.join(" ")
   end
 
+  defp anomaly_count_query(candidate, opts) do
+    anomaly_query(candidate, Keyword.put(opts, :sort, "none")) <> " stats:\"count() as total\""
+  end
+
   defp anomaly_severity_token("critical"), do: "severity:Critical"
   defp anomaly_severity_token("high"), do: "severity:High"
   defp anomaly_severity_token("medium"), do: "severity:(Medium,Warning)"
@@ -248,9 +316,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp anomaly_status_token("open"), do: "status:(active,open,anomaly_open)"
   defp anomaly_status_token("cleared"), do: "status:(inactive,cleared,resolved)"
   defp anomaly_status_token("pending"), do: "status:(pending,pending_anomaly)"
-  defp anomaly_status_token(_), do: nil
+  defp anomaly_status_token(_), do: "status:(active,open,anomaly_open,inactive,cleared,resolved)"
 
   defp anomaly_sort_token("oldest"), do: "sort:time:asc"
+  defp anomaly_sort_token("none"), do: nil
   defp anomaly_sort_token(_), do: "sort:time:desc"
 
   defp capacity_query(%{field: field, value: value}) do
@@ -277,7 +346,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       "message" => map_value(row, "message"),
       "metric_class" => metric_class(row),
       "metric_name" => metric_name(row),
+      "resource_id" => capacity_field(row, "resource_id"),
+      "resource_key" => capacity_field(row, "resource_key"),
+      "resource_label" => capacity_field(row, "resource_label"),
+      "resource_type" => capacity_field(row, "resource_type"),
       "metric_value" => metric_value(row),
+      "current_value" => capacity_field(row, "current_value"),
+      "projected_value" => capacity_field(row, "projected_value"),
+      "projected_exhaustion_at" => capacity_field(row, "projected_exhaustion_at"),
+      "exhaustion_threshold" => capacity_field(row, "exhaustion_threshold"),
+      "horizon_seconds" => capacity_field(row, "horizon_seconds"),
+      "horizon_ends_at" => capacity_field(row, "horizon_ends_at"),
+      "confidence" => capacity_field(row, "confidence"),
+      "lower_bound" => capacity_field(row, "lower_bound"),
+      "upper_bound" => capacity_field(row, "upper_bound"),
+      "related_finding_uid" => related_finding_uid(row),
       "peak_value" => peak_value(row),
       "threshold_value" => threshold_value(row),
       "score" => score_value(row),
@@ -294,6 +377,30 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       "state" => anomaly_state(row),
       "status" => status_value(row)
     })
+  end
+
+  defp capacity_field(row, field) do
+    first_present(row, [
+      [field],
+      ["metadata", "capacity_forecast", field],
+      ["unmapped", "capacity_forecast", field],
+      ["raw_data", "capacity_forecast", field],
+      ["capacity_forecast", field]
+    ])
+  end
+
+  defp related_finding_uid(row) do
+    if capacity_notice?(row) do
+      first_present(row, [
+        ["related_finding_uid"],
+        ["clears_finding_uid"],
+        ["trigger_finding_uid"],
+        ["metadata", "capacity_forecast", "clears_finding_uid"],
+        ["unmapped", "capacity_forecast", "clears_finding_uid"],
+        ["metadata", "finding_info", "group_uid"],
+        ["metadata", "finding_info", "uid"]
+      ])
+    end
   end
 
   defp project_capacity_row(row) do
@@ -670,6 +777,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp known_atom_key("metadata"), do: :metadata
   defp known_atom_key("raw_data"), do: :raw_data
   defp known_atom_key("unmapped"), do: :unmapped
+  defp known_atom_key("capacity_forecast"), do: :capacity_forecast
   defp known_atom_key("service_radar"), do: :service_radar
   defp known_atom_key("anomaly"), do: :anomaly
   defp known_atom_key("detection_finding"), do: :detection_finding
@@ -695,6 +803,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp known_atom_key("security_signal"), do: :security_signal
   defp known_atom_key("event_id"), do: :event_id
   defp known_atom_key("uid"), do: :uid
+  defp known_atom_key("group_uid"), do: :group_uid
+  defp known_atom_key("related_finding_uid"), do: :related_finding_uid
+  defp known_atom_key("clears_finding_uid"), do: :clears_finding_uid
+  defp known_atom_key("trigger_finding_uid"), do: :trigger_finding_uid
   defp known_atom_key("z_score"), do: :z_score
   defp known_atom_key("value"), do: :value
   defp known_atom_key("dimensions"), do: :dimensions

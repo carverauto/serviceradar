@@ -722,7 +722,10 @@ fn translate_subhour_device_filtered_downsample_stays_on_raw_hypertable() {
 
     let response = translate_request(&config, request).expect("translation should succeed");
     assert!(
-        !response.sql.to_lowercase().contains("timeseries_metrics_hourly"),
+        !response
+            .sql
+            .to_lowercase()
+            .contains("timeseries_metrics_hourly"),
         "sub-hour bucket must not route to the hourly CAGG, got: {}",
         response.sql
     );

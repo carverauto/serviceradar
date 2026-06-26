@@ -126,6 +126,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
     end
   end
 
+  def load_interface_metric_section(srql_module, device_uid, interface_ref, interfaces, scope, opts \\ []) do
+    case interface_if_index(interface_ref) do
+      if_index when is_integer(if_index) ->
+        iface = interface_for_ref(interfaces, interface_ref, if_index)
+        query_interface_metric_panels(srql_module, device_uid, iface, scope, opts)
+
+      _ ->
+        nil
+    end
+  end
+
   def upsert_interface_setting(_scope, nil, _interface_uid, _attrs), do: {:error, :no_device}
   def upsert_interface_setting(_scope, _device_uid, nil, _attrs), do: {:error, :no_interface}
 
@@ -317,28 +328,89 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
   end
 
   defp query_interface_metrics(srql_module, device_uid, fav_iface, scope, panels_acc, errs) do
+    case query_interface_metric_panels(srql_module, device_uid, fav_iface, scope, []) do
+      {:ok, panels} -> {panels_acc ++ panels, errs}
+      {:empty, _query} -> {panels_acc, errs}
+      {:error, error} -> {panels_acc, [error | errs]}
+    end
+  end
+
+  defp query_interface_metric_panels(srql_module, device_uid, fav_iface, scope, opts) do
     %{if_index: if_index, name: iface_name, max_speed_bytes_per_sec: max_speed, reference_lines: reference_lines} =
-      fav_iface
+      normalize_metric_interface(fav_iface)
 
     query =
       "in:snmp_metrics device_id:\"#{escape_value(device_uid)}\" if_index:#{if_index} " <>
-        "time:last_24h bucket:5m agg:rate series:metric_name limit:#{@snmp_metrics_limit}"
+        "time:#{Keyword.get(opts, :time_range, "last_24h")} " <>
+        "bucket:#{Keyword.get(opts, :bucket, "5m")} agg:rate series:metric_name limit:#{Keyword.get(opts, :limit, @snmp_metrics_limit)}"
 
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => results} = response} when is_list(results) and results != [] ->
         interface_panels = build_interface_panels(response, iface_name, if_index, max_speed, reference_lines)
-        {panels_acc ++ interface_panels, errs}
+        {:ok, interface_panels}
 
       {:ok, %{"results" => []}} ->
-        {panels_acc, errs}
+        {:empty, query}
 
       {:error, reason} ->
-        {panels_acc, [format_error(reason) | errs]}
+        {:error, format_error(reason)}
 
       _ ->
-        {panels_acc, errs}
+        {:empty, query}
     end
   end
+
+  defp normalize_metric_interface(%{if_index: _if_index} = iface), do: iface
+
+  defp normalize_metric_interface(iface) when is_map(iface) do
+    if_speed_bps = Map.get(iface, "speed_bps") || Map.get(iface, "if_speed")
+    if_speed_bytes_per_sec = if is_number(if_speed_bps), do: if_speed_bps / 8
+    if_index = interface_if_index(iface)
+
+    %{
+      if_index: if_index,
+      name: Map.get(iface, "if_name") || Map.get(iface, "if_descr") || "Interface #{if_index}",
+      max_speed_bytes_per_sec: if_speed_bytes_per_sec,
+      reference_lines: interface_reference_lines(iface, if_speed_bytes_per_sec)
+    }
+  end
+
+  defp normalize_metric_interface(if_index) when is_integer(if_index) do
+    %{
+      if_index: if_index,
+      name: "Interface #{if_index}",
+      max_speed_bytes_per_sec: nil,
+      reference_lines: []
+    }
+  end
+
+  defp interface_for_ref(interfaces, ref, if_index) when is_list(interfaces) do
+    Enum.find(interfaces, fn iface ->
+      is_map(iface) and
+        (Map.get(iface, "interface_uid") == Map.get(ref, "interface_uid") or interface_if_index(iface) == if_index)
+    end) || normalize_metric_interface(if_index)
+  end
+
+  defp interface_for_ref(_interfaces, _ref, if_index), do: normalize_metric_interface(if_index)
+
+  defp interface_if_index(%{} = row) do
+    row
+    |> Map.get("if_index", Map.get(row, :if_index))
+    |> parse_integer()
+  end
+
+  defp interface_if_index(value), do: parse_integer(value)
+
+  defp parse_integer(value) when is_integer(value), do: value
+
+  defp parse_integer(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {number, ""} -> number
+      _ -> nil
+    end
+  end
+
+  defp parse_integer(_), do: nil
 
   defp build_interface_panels(srql_response, iface_name, if_index, max_speed, reference_lines) do
     srql_response

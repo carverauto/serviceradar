@@ -17,7 +17,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
       assign(
         assigns,
         :anomaly_pagination,
-        anomaly_pagination(assigns.overview.anomaly_rows, assigns.anomaly_page)
+        anomaly_pagination(
+          assigns.overview.anomaly_rows,
+          assigns.anomaly_page,
+          Map.get(assigns.overview, :anomaly_pagination, %{})
+        )
       )
 
     ~H"""
@@ -187,6 +191,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                         <span :if={anomaly_value_label(row)}>{anomaly_value_label(row)}</span>
                         <span :if={anomaly_score_label(row)}>{anomaly_score_label(row)}</span>
                         <span :if={finding_state_label(row)}>{finding_state_label(row)}</span>
+                        <span :if={related_finding_label(row)}>{related_finding_label(row)}</span>
                         <span
                           :if={source_device_label(row, @device_uid, @device_display_name)}
                           title={source_device_title(row, @device_uid, @device_display_name)}
@@ -338,6 +343,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
       assigns
       |> assign(:has_prev, cursor_present?(Map.get(assigns.pagination, "prev_cursor")))
       |> assign(:has_next, cursor_present?(Map.get(assigns.pagination, "next_cursor")))
+      |> assign(:total_count, integer_value(Map.get(assigns.pagination, "total_count")))
+      |> assign(:page_count, integer_value(Map.get(assigns.pagination, "page_count")))
 
     ~H"""
     <div
@@ -345,7 +352,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
       class="flex flex-col gap-2 border-t border-base-200 px-4 py-3 text-xs sm:flex-row sm:items-center sm:justify-between"
     >
       <span class="text-base-content/60">
-        Showing {@range_start}–{@range_end} on this SRQL page
+        <%= if is_integer(@total_count) do %>
+          Showing {@range_start}–{@range_end} of {@total_count} findings
+        <% else %>
+          Showing {@range_start}–{@range_end} on this SRQL page
+        <% end %>
       </span>
       <div class="join">
         <button
@@ -356,7 +367,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
         >
           Prev
         </button>
-        <span class="btn btn-ghost btn-xs join-item pointer-events-none">Page {@page}</span>
+        <span class="btn btn-ghost btn-xs join-item pointer-events-none">
+          <%= if is_integer(@page_count) do %>
+            Page {@page} / {@page_count}
+          <% else %>
+            Page {@page}
+          <% end %>
+        </span>
         <button
           type="button"
           class="btn btn-ghost btn-xs join-item"
@@ -424,6 +441,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
           <.detail_item label="Confidence" value={detail_confidence(@detail)} />
         </div>
 
+        <div :if={detail_related_query(@detail)} class="mt-3 rounded-lg border border-base-200 p-3">
+          <div class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
+            Related finding
+          </div>
+          <div class="mt-1 flex flex-wrap items-center gap-2 text-sm">
+            <span>{detail_related_label(@detail)}</span>
+            <.link navigate={observability_href(detail_related_query(@detail))} class="btn btn-xs">
+              Open trigger
+            </.link>
+          </div>
+        </div>
+
         <div :if={detail_reason(@detail)} class="mt-5 rounded-lg bg-base-200 p-3">
           <div class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
             Reason
@@ -439,7 +468,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
               Metric context
             </div>
             <p class="text-xs text-base-content/60">
-              Focused around the selected finding timestamp.
+              {detail_marker_description(@detail)}
             </p>
           </div>
           <div :for={section <- @detail_chart_sections} class="rounded-lg border border-base-200 p-3">
@@ -512,11 +541,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
       |> normalize_text()
 
     cond do
-      String.contains?(text, "cpu") -> "cpu"
-      String.contains?(text, "memory") or String.contains?(text, "mem") -> "memory"
-      String.contains?(text, "disk") or String.contains?(text, "filesystem") -> "disk"
-      String.contains?(text, "interface") or String.contains?(text, "if_") -> "interfaces"
-      true -> nil
+      String.contains?(text, "cpu") ->
+        "cpu"
+
+      String.contains?(text, "memory") or String.contains?(text, "mem") ->
+        "memory"
+
+      String.contains?(text, "disk") or String.contains?(text, "filesystem") ->
+        "disk"
+
+      String.contains?(text, "interface") or String.contains?(text, "if_") or String.contains?(text, "snmp") ->
+        "interfaces"
+
+      true ->
+        nil
     end
   end
 
@@ -537,7 +575,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
       timestamp ->
         %{
           timestamp: timestamp,
-          label: detail_title(%{kind: kind, row: row}, nil, nil),
+          label: detail_marker_label(%{kind: kind, row: row}),
           severity: value(row, "effective_severity") || value(row, "severity") || value(row, "status"),
           series: first_present(row, [["series"], ["series_key"], ["metric_name"], ["resource_key"]]),
           series_key: value(row, "series_key"),
@@ -563,31 +601,80 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
   defp filter_label(_), do: "Device identity fallback"
 
-  defp anomaly_pagination(rows, page) when is_list(rows) do
+  defp anomaly_pagination(rows, page, pagination) when is_list(rows) do
     paged_rows = actionable_anomaly_rows(rows)
-    total = length(paged_rows)
+    total_count = integer_value(Map.get(pagination, "total_count"))
+    limit = integer_value(Map.get(pagination, "limit")) || max(length(rows), 1)
+    page_count = integer_value(Map.get(pagination, "page_count")) || computed_page_count(total_count, limit)
+    local_total = length(paged_rows)
+    range_start = range_start(page, limit, local_total, total_count)
+    range_end = range_end(range_start, local_total, total_count)
 
     %{
       rows: paged_rows,
       page: page,
-      page_count: nil,
-      filtered_total: total,
-      range_start: if(total == 0, do: 0, else: 1),
-      range_end: total
+      page_count: page_count,
+      filtered_total: total_count || local_total,
+      range_start: range_start,
+      range_end: range_end
     }
   end
 
-  defp anomaly_pagination(_rows, page) do
+  defp anomaly_pagination(_rows, page, _pagination) do
     %{rows: [], page: page, page_count: nil, filtered_total: 0, range_start: 0, range_end: 0}
   end
+
+  defp computed_page_count(total_count, limit) when is_integer(total_count) and is_integer(limit) and limit > 0 do
+    max(ceil(total_count / limit), 1)
+  end
+
+  defp computed_page_count(_total_count, _limit), do: nil
+
+  defp range_start(_page, _limit, 0, _total_count), do: 0
+
+  defp range_start(page, limit, _local_total, total_count)
+       when is_integer(total_count) and is_integer(limit) and limit > 0 do
+    min((max(page, 1) - 1) * limit + 1, total_count)
+  end
+
+  defp range_start(_page, _limit, _local_total, _total_count), do: 1
+
+  defp range_end(0, _local_total, _total_count), do: 0
+
+  defp range_end(start, local_total, total_count) when is_integer(total_count) do
+    min(start + local_total - 1, total_count)
+  end
+
+  defp range_end(start, local_total, _total_count), do: start + local_total - 1
 
   defp actionable_anomaly_rows(rows) do
     rows
     |> Enum.with_index()
-    |> Enum.filter(fn {row, _index} -> is_map(row) end)
+    |> Enum.filter(fn {row, _index} -> actionable_anomaly_row?(row) end)
     |> Enum.sort_by(fn {row, index} ->
       {finding_priority(row), timestamp_sort(value(row, "time")), index}
     end)
+  end
+
+  defp actionable_anomaly_row?(row) when is_map(row) do
+    capacity_notice?(row) or confirmed_or_cleared_anomaly?(row)
+  end
+
+  defp actionable_anomaly_row?(_row), do: false
+
+  defp confirmed_or_cleared_anomaly?(row) do
+    state = finding_state(row)
+    status = normalize_text(value(row, "status"))
+    reason = normalize_text(finding_reason(row))
+
+    cond do
+      state in ["pending", "pending_anomaly"] -> false
+      String.contains?(reason, "pending confirmation") -> false
+      state in ["confirmed", "anomalous"] -> true
+      status in ["active", "open", "anomaly_open"] -> true
+      status in ["inactive", "cleared", "resolved"] -> String.contains?(reason, "confirmed")
+      true -> false
+    end
   end
 
   defp finding_priority(row) do
@@ -765,6 +852,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
     end
   end
 
+  defp related_finding_label(row) do
+    if capacity_notice?(row) and cleared_capacity_notice?(row) and present?(related_finding_uid(row)) do
+      "clears #{short_uid(related_finding_uid(row))}"
+    end
+  end
+
   defp anomaly_value(row) do
     first_present(row, [
       ["anomaly_value"],
@@ -806,6 +899,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
       ["metadata", "source_identity", "device_uid"],
       ["raw_data", "device_uid"],
       ["unmapped", "device_uid"]
+    ])
+  end
+
+  defp related_finding_uid(row) do
+    first_present(row, [
+      ["related_finding_uid"],
+      ["clears_finding_uid"],
+      ["trigger_finding_uid"],
+      ["metadata", "capacity_forecast", "clears_finding_uid"],
+      ["unmapped", "capacity_forecast", "clears_finding_uid"],
+      ["metadata", "finding_info", "group_uid"],
+      ["metadata", "finding_info", "uid"],
+      ["finding_uid"]
     ])
   end
 
@@ -853,6 +959,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
       |> normalize_text()
 
     String.contains?(text, "capacity forecast")
+  end
+
+  defp cleared_capacity_notice?(row) do
+    status = normalize_text(value(row, "status"))
+    text = normalize_text(finding_title(row) || finding_reason(row))
+
+    status in ["inactive", "cleared", "resolved", "closed"] or String.contains?(text, "cleared")
   end
 
   defp metric_class(row) do
@@ -1093,6 +1206,47 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   defp detail_confidence(%{row: row}), do: value(row, "confidence") && format_percent(value(row, "confidence"))
   defp detail_confidence(_), do: nil
 
+  defp detail_related_query(%{kind: "capacity_notice", row: row}) do
+    with true <- cleared_capacity_notice?(row),
+         uid when is_binary(uid) <- related_finding_uid(row) do
+      ~s|in:events source_type:capacity_forecasting finding_uid:"#{escape_query_value(uid)}" status:(projected,at_risk,exhaustion_projected) time:last_30d sort:time:desc|
+    else
+      _ -> nil
+    end
+  end
+
+  defp detail_related_query(_detail), do: nil
+
+  defp detail_related_label(%{kind: "capacity_notice", row: row}) do
+    uid = related_finding_uid(row)
+    "This clear event resolves the prior projection for #{short_uid(uid)}."
+  end
+
+  defp detail_related_label(_detail), do: "Open related finding."
+
+  defp detail_marker_label(%{kind: "capacity_notice", row: row}) do
+    if cleared_capacity_notice?(row), do: "Capacity clear event", else: "Capacity projection event"
+  end
+
+  defp detail_marker_label(%{kind: "capacity"}), do: "Capacity forecast"
+  defp detail_marker_label(_detail), do: "Selected anomaly finding"
+
+  defp detail_marker_description(%{kind: "capacity_notice", row: row}) do
+    if cleared_capacity_notice?(row) do
+      "The vertical marker is when ServiceRadar emitted the clear event. Use the related finding link to open the projection that originally triggered this capacity finding."
+    else
+      "The vertical marker is when ServiceRadar emitted this capacity projection. The future crossing or exhaustion time is shown in the details above when available."
+    end
+  end
+
+  defp detail_marker_description(%{kind: "capacity"}) do
+    "The vertical marker is the forecast event time. The projected crossing or exhaustion time is shown in the details above."
+  end
+
+  defp detail_marker_description(_detail) do
+    "The vertical marker is the selected anomaly finding time. Shaded bands mark detection windows when the engine provides start and end timestamps."
+  end
+
   defp detail_reason(%{kind: "capacity", row: row}) do
     first_present(row, [
       ["skip_reason"],
@@ -1167,6 +1321,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   end
 
   defp numeric_value(_), do: nil
+
+  defp integer_value(value) when is_integer(value) and value >= 0, do: value
+  defp integer_value(value) when is_float(value) and value >= 0, do: trunc(value)
+
+  defp integer_value(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {number, ""} when number >= 0 -> number
+      _ -> nil
+    end
+  end
+
+  defp integer_value(_), do: nil
+
+  defp short_uid(value) when is_binary(value) do
+    if String.length(value) > 12, do: String.slice(value, 0, 8), else: value
+  end
+
+  defp short_uid(_), do: "finding"
+
+  defp escape_query_value(value) when is_binary(value) do
+    value
+    |> String.replace("\\", "\\\\")
+    |> String.replace("\"", "\\\"")
+  end
+
+  defp escape_query_value(value), do: value |> to_string() |> escape_query_value()
 
   defp format_percent(value) when is_integer(value), do: format_percent(value * 1.0)
 
@@ -1263,6 +1443,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   defp known_atom_key("anomaly_score"), do: :anomaly_score
   defp known_atom_key("anomaly_value"), do: :anomaly_value
   defp known_atom_key("confidence"), do: :confidence
+  defp known_atom_key("capacity_forecast"), do: :capacity_forecast
+  defp known_atom_key("clears_finding_uid"), do: :clears_finding_uid
   defp known_atom_key("current_value"), do: :current_value
   defp known_atom_key("detection_finding"), do: :detection_finding
   defp known_atom_key("device_label"), do: :device_label
@@ -1289,6 +1471,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   defp known_atom_key("resource_key"), do: :resource_key
   defp known_atom_key("resource_label"), do: :resource_label
   defp known_atom_key("resource_type"), do: :resource_type
+  defp known_atom_key("related_finding_uid"), do: :related_finding_uid
   defp known_atom_key("sample_count"), do: :sample_count
   defp known_atom_key("score"), do: :score
   defp known_atom_key("service_radar"), do: :service_radar
@@ -1301,6 +1484,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   defp known_atom_key("state"), do: :state
   defp known_atom_key("threshold_value"), do: :threshold_value
   defp known_atom_key("time"), do: :time
+  defp known_atom_key("trigger_finding_uid"), do: :trigger_finding_uid
   defp known_atom_key("unmapped"), do: :unmapped
   defp known_atom_key("unit"), do: :unit
   defp known_atom_key("verdict"), do: :verdict

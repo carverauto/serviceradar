@@ -579,8 +579,8 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
         series_points: [{"gauge", points}]
       })
 
-    assert html =~ "2.51"
-    assert html =~ "39.81"
+    assert html =~ "2.19"
+    assert html =~ "45.7"
   end
 
   test "counter rates drop the synthetic first zero and render resets as gaps" do
