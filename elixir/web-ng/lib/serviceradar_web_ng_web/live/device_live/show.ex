@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.FlowRuntime
+  alias ServiceRadarWebNGWeb.DeviceLive.InterfaceData
   alias ServiceRadarWebNGWeb.DeviceLive.InterfaceRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.MetadataData
   alias ServiceRadarWebNGWeb.DeviceLive.MtrRuntime
@@ -1305,6 +1306,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp empty_filter_to_nil(value), do: value
 
   defp load_anomaly_capacity_detail_metric_sections(socket, %{row: %{} = row} = detail) do
+    if interface_or_snmp_finding?(row) do
+      load_anomaly_capacity_detail_interface_sections(socket, row)
+    else
+      load_anomaly_capacity_detail_sysmon_sections(socket, row, detail)
+    end
+  end
+
+  defp load_anomaly_capacity_detail_metric_sections(_socket, _detail), do: []
+
+  defp load_anomaly_capacity_detail_sysmon_sections(socket, row, detail) do
     with identity when is_map(identity) <- Map.get(socket.assigns.anomaly_capacity || %{}, :identity),
          time_range when is_binary(time_range) <- detail_time_range(row),
          sysmon_filters =
@@ -1325,7 +1336,48 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp load_anomaly_capacity_detail_metric_sections(_socket, _detail), do: []
+  defp load_anomaly_capacity_detail_interface_sections(socket, row) do
+    with device_uid when is_binary(device_uid) <- Map.get(socket.assigns, :device_uid),
+         time_range when is_binary(time_range) <- detail_time_range(row),
+         {:ok, panels} <-
+           InterfaceData.load_interface_metric_section(
+             srql_module(),
+             device_uid,
+             row,
+             Map.get(socket.assigns, :interfaces, []),
+             socket.assigns.current_scope,
+             time_range: time_range,
+             bucket: @detail_metric_bucket,
+             limit: 1_000
+           ) do
+      [
+        %{
+          key: "interfaces",
+          title: "Interface metrics",
+          subtitle: detail_window_label(row),
+          error: nil,
+          panels: panels
+        }
+      ]
+    else
+      _ -> []
+    end
+  end
+
+  defp interface_or_snmp_finding?(row) do
+    text =
+      [
+        Map.get(row, "metric_class"),
+        Map.get(row, "metric_name"),
+        Map.get(row, "finding_title"),
+        Map.get(row, "reason")
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map_join(" ", &to_string/1)
+      |> String.downcase()
+
+    String.contains?(text, "snmp") or String.contains?(text, "interface") or String.contains?(text, "if_")
+  end
 
   defp detail_time_range(row) do
     with %DateTime{} = center <- detail_center_time(row),
@@ -1345,8 +1397,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp detail_window_bounds(row, center) do
-    start_dt = parse_detail_datetime(Map.get(row, "window_started_at"))
-    end_dt = parse_detail_datetime(Map.get(row, "window_ended_at"))
+    start_dt = parse_detail_datetime(Map.get(row, "triggered_at") || Map.get(row, "window_started_at"))
+    end_dt = parse_detail_datetime(Map.get(row, "cleared_at") || Map.get(row, "window_ended_at"))
 
     {start_dt, end_dt} =
       if match?(%DateTime{}, start_dt) and match?(%DateTime{}, end_dt) do

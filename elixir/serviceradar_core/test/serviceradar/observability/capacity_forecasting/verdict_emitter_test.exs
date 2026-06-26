@@ -53,6 +53,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitterTest do
     assert subject == "signals.causal.predictions.cpu_usage:device-a:host-a"
 
     decoded = Jason.decode!(payload)
+    finding_uid = decoded["finding_info"]["uid"]
     assert decoded["event_id"] == VerdictEmitter.event_id(@forecast)
     assert decoded["signal_type"] == "causal"
     assert decoded["event_type"] == "capacity_forecast"
@@ -64,6 +65,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitterTest do
     assert decoded["device_id"] == "device-a"
     assert decoded["device_uid"] == "device-a"
     assert decoded["finding_info"]["source"] == "capacity_forecasting"
+    assert decoded["capacity_forecast"]["finding_uid"] == finding_uid
+    refute Map.has_key?(decoded["capacity_forecast"], "clears_finding_uid")
     assert decoded["capacity_forecast"]["projected_exhaustion_at"] == "2026-06-12T22:00:00Z"
   end
 
@@ -75,6 +78,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitterTest do
     assert payload["severity_id"] == 2
     assert payload["message"] =~ "Capacity forecast cleared"
     assert payload["capacity_forecast"]["status"] == "inactive"
+    assert payload["capacity_forecast"]["clears_finding_uid"] == payload["finding_info"]["uid"]
   end
 
   test "event identity ignores per-run forecast wall-clock fields" do

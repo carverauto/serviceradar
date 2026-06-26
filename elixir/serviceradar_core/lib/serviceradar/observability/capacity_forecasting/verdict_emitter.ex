@@ -133,7 +133,11 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitter do
   end
 
   defp capacity_payload(attrs) do
+    finding_uid = finding_uid(attrs)
+
     %{
+      "finding_uid" => finding_uid,
+      "clears_finding_uid" => cleared_finding_uid(attrs, finding_uid),
       "resource_key" => string_value(Map.get(attrs, :resource_key)),
       "resource_type" => string_value(Map.get(attrs, :resource_type)),
       "resource_id" => string_value(Map.get(attrs, :resource_id)),
@@ -159,6 +163,10 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitter do
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
+  end
+
+  defp cleared_finding_uid(attrs, finding_uid) do
+    if active?(attrs), do: nil, else: finding_uid
   end
 
   defp message(attrs, exhaustion_at) do
