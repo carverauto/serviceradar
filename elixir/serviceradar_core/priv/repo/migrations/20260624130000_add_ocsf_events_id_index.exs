@@ -16,6 +16,13 @@ defmodule ServiceRadar.Repo.Migrations.AddOcsfEventsIdIndex do
   """
   use Ecto.Migration
 
+  # Release the per-chunk ACCESS EXCLUSIVE build lock as soon as each index
+  # build finishes, rather than holding it until migration-transaction commit,
+  # on a hot multi-million-row ingestion table. Matches the hypertable-index
+  # convention in #4279. (CONCURRENTLY remains unavailable on a hypertable.)
+  @disable_ddl_transaction true
+  @disable_migration_lock true
+
   @schema "platform"
   @table "ocsf_events"
 

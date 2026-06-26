@@ -44,10 +44,10 @@ func TestResolveLocalInterfaceName(t *testing.T) {
 	// Unknown ifindex / no match -> stays blank (core keeps the ifindex fallback).
 	miss := &TopologyLink{LocalIfIndex: 99}
 	resolveLocalInterfaceName(job, miss)
-	assert.Equal(t, "", miss.LocalIfName)
+	assert.Empty(t, miss.LocalIfName)
 
 	// ifindex <= 0 is not a stable identity -> no-op.
 	zero := &TopologyLink{LocalIfIndex: 0}
 	resolveLocalInterfaceName(job, zero)
-	assert.Equal(t, "", zero.LocalIfName)
+	assert.Empty(t, zero.LocalIfName)
 }
