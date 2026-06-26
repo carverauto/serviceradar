@@ -1,6 +1,6 @@
 export const TIMESERIES_VIEWBOX_WIDTH = 800
-export const TIMESERIES_CHART_LEFT_PAD = 36
-export const TIMESERIES_CHART_RIGHT_PAD = 24
+export const TIMESERIES_CHART_LEFT_PAD = 72
+export const TIMESERIES_CHART_RIGHT_PAD = 32
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value))

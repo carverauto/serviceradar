@@ -33,7 +33,7 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
 
     assert html =~ "stroke-dasharray=\"3 4\""
     assert html =~ "12:00 AM"
-    assert html =~ "<text x=\"28\""
+    assert html =~ "<text x=\"62\""
     refute html =~ "<text x=\"4\""
   end
 
@@ -66,7 +66,7 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
     assert html =~ "data-testid=\"timeseries-annotation\""
     assert html =~ "data-annotation-label=\"Anomaly finding\""
     assert html =~ "data-annotation-severity=\"critical\""
-    assert html =~ "x1=\"221.0\""
+    assert html =~ "x1=\"246.0\""
     assert html =~ "#EF4444"
   end
 
@@ -99,7 +99,7 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
 
     assert html =~ "CPU saturation"
     assert html =~ "data-annotation-label=\"CPU saturation\""
-    assert html =~ "x1=\"406.0\""
+    assert html =~ "x1=\"420.0\""
     assert html =~ "cpu1"
     refute html =~ "cpu0"
     assert html =~ "12:09 AM"

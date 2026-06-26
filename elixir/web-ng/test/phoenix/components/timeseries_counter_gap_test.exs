@@ -44,9 +44,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.TimeseriesCounterGapTest do
 
     paths = Paths.chart_paths([{t0, 10.0}, {t1, nil}, {t2, 20.0}], nil)
 
-    assert paths.line =~ "M 36,70"
-    assert paths.line =~ "M 776,18"
-    refute paths.line =~ "L 776,8"
+    assert paths.line =~ "M 72,69"
+    assert paths.line =~ "M 768,21"
+    refute paths.line =~ "L 768,12"
     refute paths.area =~ "nil"
   end
 end

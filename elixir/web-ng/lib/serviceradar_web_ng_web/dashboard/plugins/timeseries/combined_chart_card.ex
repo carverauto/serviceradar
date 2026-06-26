@@ -131,15 +131,15 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
             <% end %>
           </g>
 
-          <g class="text-[8px] fill-base-content/70 font-mono">
+          <g class="text-[12px] fill-base-content/70 font-mono">
             <%= for {y, label} <- @data.y_ticks do %>
-              <text x={@chart_left_pad - 8} y={y + 3} text-anchor="end">{label}</text>
+              <text x={@chart_left_pad - 10} y={y + 4} text-anchor="end">{label}</text>
             <% end %>
           </g>
 
-          <g class="text-[8px] fill-base-content/70 font-mono">
+          <g class="text-[11px] fill-base-content/70 font-mono">
             <%= for {x, label} <- @data.x_ticks do %>
-              <text x={x} y={@chart_height - 2} text-anchor="middle">{label}</text>
+              <text x={x} y={@chart_height - 4} text-anchor="middle">{label}</text>
             <% end %>
           </g>
 

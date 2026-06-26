@@ -18,10 +18,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
   @chart_width 800
   @chart_height 140
-  @chart_left_pad 36
-  @chart_right_pad 24
-  @chart_top_pad 8
-  @chart_bottom_pad 18
+  @chart_left_pad 72
+  @chart_right_pad 32
+  @chart_top_pad 12
+  @chart_bottom_pad 24
 
   @impl true
   def id, do: "timeseries"

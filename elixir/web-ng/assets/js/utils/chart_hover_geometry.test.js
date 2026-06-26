@@ -22,14 +22,14 @@ describe("chart hover geometry", () => {
   })
 
   it("reads asymmetric server-rendered plot gutters from data attributes", () => {
-    const el = {dataset: {chartWidth: "800", chartLeftPad: "36", chartRightPad: "24"}}
+    const el = {dataset: {chartWidth: "800", chartLeftPad: "72", chartRightPad: "32"}}
     const svg = {getAttribute: () => "0 0 800 140"}
 
     expect(plotGeometryFromDataset(el, svg, {width: 400})).toEqual({
       viewBoxWidth: 800,
-      plotLeft: 36,
-      plotRight: 24,
-      plotWidth: 740,
+      plotLeft: 72,
+      plotRight: 32,
+      plotWidth: 696,
     })
   })
 })

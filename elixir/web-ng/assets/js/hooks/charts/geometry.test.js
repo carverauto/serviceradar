@@ -17,9 +17,9 @@ describe("timeseries hover geometry", () => {
   })
 
   it("maps point indices back to rendered local x positions", () => {
-    expect(timeseriesPointIndexToLocalX(0, rect, 5)).toBe(18)
-    expect(timeseriesPointIndexToLocalX(2, rect, 5)).toBeCloseTo(203)
-    expect(timeseriesPointIndexToLocalX(4, rect, 5)).toBe(388)
+    expect(timeseriesPointIndexToLocalX(0, rect, 5)).toBe(36)
+    expect(timeseriesPointIndexToLocalX(2, rect, 5)).toBeCloseTo(210)
+    expect(timeseriesPointIndexToLocalX(4, rect, 5)).toBe(384)
   })
 
   it("keeps backwards-compatible symmetric padding overrides", () => {
