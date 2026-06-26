@@ -305,6 +305,16 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
       |> String.slice(0, 12)
       |> String.upcase()
 
+  # A locally-administered MAC (IEEE local bit 0x02 SET in the first octet `02`)
+  # — a virtual/Docker/overlay NIC, NOT a hardware anchor. Such a MAC must never
+  # drive a device split (it is rejected from both the incoming and canonical
+  # universal-MAC sets), so it can never trigger the distinct-MAC veto.
+  defp local_mac,
+    do:
+      "02#{~c"~10.16.0B" |> :io_lib.format([System.unique_integer([:positive])]) |> to_string()}"
+      |> String.slice(0, 12)
+      |> String.upcase()
+
   test "shared armis_device_id with a distinct universal MAC splits to a NEW device", %{
     actor: actor
   } do
@@ -368,6 +378,165 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
 
     assert device_for_mac(mac, actor) == canonical
     assert device_for_armis_id(armis_id, actor) == canonical
+  end
+
+  test "shared armis_device_id with a disjoint LOCALLY-administered MAC stays the same device",
+       %{actor: actor} do
+    # Network-agnostic invariant: a locally-administered MAC (virtual/Docker/
+    # overlay NIC) is NOT a hardware anchor. Even though it is disjoint from the
+    # canonical's universal MAC, it is rejected from both veto sides, so the
+    # incoming armis record must attach to the existing canonical (no split).
+    # A regression dropping the `Enum.reject(&Mac.locally_administered_mac?/1)`
+    # would treat this disjoint MAC as a hardware anchor and wrongly split.
+    armis_id = "armis-local-#{System.unique_integer([:positive])}"
+    universal = universal_mac()
+    local = local_mac()
+
+    update_a = %{
+      "hostname" => "local-host-a",
+      "source" => "armis",
+      "mac" => universal,
+      "metadata" => %{"integration_type" => "armis", "armis_device_id" => armis_id}
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update_a], actor: actor)
+    canonical = device_for_armis_id(armis_id, actor)
+    assert is_binary(canonical)
+
+    # Same armis_device_id, but the incoming MAC is locally-administered and
+    # disjoint from the canonical's universal MAC -> veto must NOT fire.
+    update_b = %{
+      "hostname" => "local-host-b",
+      "source" => "armis",
+      "mac" => local,
+      "metadata" => %{"integration_type" => "armis", "armis_device_id" => armis_id}
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update_b], actor: actor)
+
+    assert device_for_armis_id(armis_id, actor) == canonical,
+           "a disjoint locally-administered MAC must not trigger the distinct-MAC veto"
+  end
+
+  test "atomic incoming MAC that is a member of a legacy comma-blob canonical stays the same device",
+       %{actor: actor} do
+    # Blob-canonical asymmetry: legacy `:mac` identifier rows can be comma-blobs
+    # of multiple universal MACs. `universal_macs/1` runs `normalize_mac_list/1`
+    # on BOTH sides, so the atomic incoming MAC is compared against the canonical
+    # blob's NORMALIZED member set. The veto must NOT fire when the incoming
+    # atomic MAC is a member of the blob. Without the canonical-side normalize,
+    # the raw blob string reads as disjoint from the atomic MAC and over-splits.
+    armis_id = "armis-blob-#{System.unique_integer([:positive])}"
+    mac_member = universal_mac()
+    mac_other = universal_mac()
+    refute mac_member == mac_other
+
+    # Seed a canonical via armis_device_id with NO mac on the ingest path.
+    update_a = %{
+      "hostname" => "blob-host",
+      "source" => "armis",
+      "metadata" => %{"integration_type" => "armis", "armis_device_id" => armis_id}
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update_a], actor: actor)
+    canonical = device_for_armis_id(armis_id, actor)
+    assert is_binary(canonical)
+
+    # Directly seed the canonical's `:mac` identifier as a legacy comma-blob of
+    # two universal MACs (the value an older ingest could have persisted).
+    {:ok, _} =
+      DeviceIdentifier
+      |> Ash.Changeset.for_create(:register, %{
+        device_id: canonical,
+        identifier_type: :mac,
+        identifier_value: "#{mac_member},#{mac_other}",
+        partition: "default",
+        confidence: :strong
+      })
+      |> Ash.create(actor: actor)
+
+    # Incoming armis record (same armis_device_id) carries ONE atomic MAC that is
+    # a member of the canonical's blob -> normalized sets intersect -> no veto.
+    update_b = %{
+      "hostname" => "blob-host-reobserved",
+      "source" => "armis",
+      "mac" => mac_member,
+      "metadata" => %{"integration_type" => "armis", "armis_device_id" => armis_id}
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update_b], actor: actor)
+
+    assert device_for_armis_id(armis_id, actor) == canonical,
+           "an atomic MAC inside the canonical's comma-blob must not trigger the veto"
+  end
+
+  test "shared armis_device_id with NO incoming MAC stays the same device", %{actor: actor} do
+    # Negative guard (a): incoming-empty. A re-observation carrying no MAC has an
+    # empty incoming universal-MAC set, so the veto cannot fire (it requires both
+    # sides non-empty) -> the record attaches to the existing canonical.
+    armis_id = "armis-nomac-#{System.unique_integer([:positive])}"
+    mac = universal_mac()
+
+    update_a = %{
+      "hostname" => "nomac-host-a",
+      "source" => "armis",
+      "mac" => mac,
+      "metadata" => %{"integration_type" => "armis", "armis_device_id" => armis_id}
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update_a], actor: actor)
+    canonical = device_for_armis_id(armis_id, actor)
+    assert is_binary(canonical)
+
+    # Same armis_device_id, but this record carries NO mac at all.
+    update_b = %{
+      "hostname" => "nomac-host-b",
+      "source" => "armis",
+      "metadata" => %{"integration_type" => "armis", "armis_device_id" => armis_id}
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update_b], actor: actor)
+
+    assert device_for_armis_id(armis_id, actor) == canonical,
+           "a MAC-less re-observation must not trigger the distinct-MAC veto"
+  end
+
+  test "direct :mac match is never vetoed even with DIFFERENT armis_device_ids", %{
+    actor: actor
+  } do
+    # Negative guard (b): a direct `:mac` identifier match is self-consistent and
+    # is NEVER vetoed (the `id_type == :mac` branch returns the device before the
+    # veto can run). Two records carry the SAME hardware MAC but DIFFERENT
+    # armis_device_ids; resolution is driven by the shared `:mac` identifier, so
+    # the second record must resolve to the SAME device as the first.
+    mac = universal_mac()
+    armis_a = "armis-direct-a-#{System.unique_integer([:positive])}"
+    armis_b = "armis-direct-b-#{System.unique_integer([:positive])}"
+
+    update_a = %{
+      "hostname" => "direct-mac-a",
+      "source" => "armis",
+      "mac" => mac,
+      "metadata" => %{"integration_type" => "armis", "armis_device_id" => armis_a}
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update_a], actor: actor)
+    canonical = device_for_mac(mac, actor)
+    assert is_binary(canonical)
+
+    # Second record: same MAC, a DIFFERENT armis_device_id. The direct `:mac`
+    # match (priority over armis_device_id) resolves it to the same device.
+    update_b = %{
+      "hostname" => "direct-mac-b",
+      "source" => "armis",
+      "mac" => mac,
+      "metadata" => %{"integration_type" => "armis", "armis_device_id" => armis_b}
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update_b], actor: actor)
+
+    assert device_for_mac(mac, actor) == canonical,
+           "a direct :mac identifier match must never be vetoed"
   end
 
   defp device_for_mac(mac, actor) do

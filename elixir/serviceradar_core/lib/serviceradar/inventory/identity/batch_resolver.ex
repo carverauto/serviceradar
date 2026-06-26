@@ -192,6 +192,21 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   defp incoming_universal_macs(ids) do
     :mac
     |> Ids.get_identifier_values(ids)
+    |> universal_macs()
+  end
+
+  # Atomic, universally-administered (hardware-anchor) MACs from a list of raw
+  # identifier values. Legacy comma-blob rows are normalized to atomic MACs
+  # FIRST (`Mac.normalize_mac_list/1`) so the incoming and canonical sides are
+  # always compared on the same atomic basis — otherwise a raw blob on one side
+  # reads as disjoint from its own atomic MAC on the other and the veto
+  # over-splits the same hardware. Then locally-administered MACs
+  # (virtual/Docker/overlay NICs) are dropped: they are not hardware anchors and
+  # must never drive a device split. Shared by both the incoming and canonical
+  # sides so the symmetry the veto depends on is structural, not conventional.
+  defp universal_macs(values) do
+    values
+    |> Enum.flat_map(&Mac.normalize_mac_list/1)
     |> Enum.reject(&Mac.locally_administered_mac?/1)
     |> MapSet.new()
   end
@@ -321,14 +336,7 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
         {:ok, identifiers} ->
           identifiers
           |> Enum.group_by(& &1.device_id, & &1.identifier_value)
-          |> Map.new(fn {device_id, macs} ->
-            universal =
-              macs
-              |> Enum.reject(&Mac.locally_administered_mac?/1)
-              |> MapSet.new()
-
-            {device_id, universal}
-          end)
+          |> Map.new(fn {device_id, macs} -> {device_id, universal_macs(macs)} end)
 
         {:error, error} ->
           Logger.warning("BatchResolver: canonical MAC preload failed: #{inspect(error)}")

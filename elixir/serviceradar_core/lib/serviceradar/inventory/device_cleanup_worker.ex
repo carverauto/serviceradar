@@ -144,7 +144,10 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
     query =
       Device
       |> Ash.Query.for_read(:read, %{include_deleted: true})
-      |> Ash.Query.filter(not is_nil(deleted_at) and deleted_at < ^cutoff)
+      |> Ash.Query.filter(
+        not is_nil(deleted_at) and deleted_at < ^cutoff and
+          (is_nil(deleted_reason) or deleted_reason != "armis_source_device_id_ghost_cleanup")
+      )
       |> Ash.Query.limit(batch_size)
 
     case Page.unwrap(Ash.read(query, actor: actor)) do
@@ -189,27 +192,47 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
   # child tables, rescued the violation and reported `deleted: 0` — silently
   # no-opping forever. This deletes every NO ACTION/RESTRICT child before the
   # parent, in ONE transaction per batch, so the parent delete cannot
-  # FK-violate. The parent delete keeps `AND deleted_at IS NOT NULL` so a
-  # concurrent restore/gateway_sync that un-tombstones a device is never
-  # clobbered.
+  # FK-violate. To close the read->delete race (uids are read outside the
+  # transaction in do_purge), the still-tombstoned uids are re-selected
+  # FOR UPDATE inside the transaction and ONLY those are purged — so a
+  # concurrent restore/gateway_sync that clears deleted_at in the gap can never
+  # have its now-LIVE device's child identity rows wiped.
   defp hard_delete_records(stats, records) do
     uids = Enum.map(records, & &1.uid)
 
     fn ->
-      Enum.each(@fk_children, fn {table, fk_column} ->
-        Repo.delete_all(
-          from(c in table, where: field(c, ^fk_column) in ^uids),
+      # Re-check + lock the still-tombstoned devices INSIDE the transaction.
+      # FOR UPDATE blocks a racing restore until we commit; a restore that
+      # already committed drops the uid from this set (deleted_at IS NULL). Only
+      # the locked, still-deleted uids are purged (children first, then parent).
+      locked_uids =
+        Repo.all(
+          from(d in "ocsf_devices",
+            where: d.uid in ^uids and not is_nil(d.deleted_at),
+            select: d.uid,
+            lock: "FOR UPDATE"
+          ),
           prefix: "platform"
         )
-      end)
 
-      {deleted_count, _} =
-        Repo.delete_all(
-          from(d in "ocsf_devices", where: d.uid in ^uids and not is_nil(d.deleted_at)),
-          prefix: "platform"
-        )
+      if locked_uids == [] do
+        0
+      else
+        Enum.each(@fk_children, fn {table, fk_column} ->
+          Repo.delete_all(
+            from(c in table, where: field(c, ^fk_column) in ^locked_uids),
+            prefix: "platform"
+          )
+        end)
 
-      deleted_count
+        {deleted_count, _} =
+          Repo.delete_all(
+            from(d in "ocsf_devices", where: d.uid in ^locked_uids),
+            prefix: "platform"
+          )
+
+        deleted_count
+      end
     end
     |> Repo.transaction()
     |> case do
