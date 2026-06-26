@@ -243,8 +243,18 @@ jobs:
             exit 1
           fi
 
+          if git rev-parse -q --verify "refs/tags/${tag}^{commit}" >/dev/null; then
+            release_commit="$(git rev-list -n1 "refs/tags/${tag}^{commit}")"
+          else
+            if [[ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" ]]; then
+              echo "Release tag ${tag} is not available in this checkout" >&2
+              exit 1
+            fi
+            release_commit="$(git rev-parse HEAD)"
+          fi
+
           version="${tag#v}"
-          file_version="$(< VERSION)"
+          file_version="$(git show "${release_commit}:VERSION")"
           file_version="${file_version%%[$'\r\n']*}"
           if [[ -n "$file_version" && "$file_version" != "$version" ]]; then
             echo "VERSION file ($file_version) does not match release tag ($version)" >&2
@@ -264,12 +274,31 @@ jobs:
           {
             echo "tag=${tag}"
             echo "version=${version}"
+            echo "commit=${release_commit}"
             echo "dry_run=${INPUT_DRY_RUN}"
             echo "append_notes=${INPUT_APPEND_NOTES}"
             echo "prerelease=${is_prerelease}"
             echo "draft=${INPUT_DRAFT}"
             echo "overwrite_assets=${INPUT_OVERWRITE}"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout release commit
+        env:
+          RELEASE_COMMIT: ${{ steps.release.outputs.commit }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${RELEASE_COMMIT}" ]]; then
+            echo "Resolved release commit is empty" >&2
+            exit 1
+          fi
+
+          if [[ -x scripts/check-oci-image-tags-exist.sh ]]; then
+            cp scripts/check-oci-image-tags-exist.sh "${RUNNER_TEMP}/check-oci-image-tags-exist.sh"
+            chmod +x "${RUNNER_TEMP}/check-oci-image-tags-exist.sh"
+          fi
+
+          git checkout --detach "${RELEASE_COMMIT}"
+          echo "Checked out release commit ${RELEASE_COMMIT}"
 
       - name: Derive managed agent release public key
         env:
@@ -341,12 +370,14 @@ jobs:
       - name: Publish container images
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_COMMIT: ${{ steps.release.outputs.commit }}
           OPENBAO_ADDR: http://openbao-active.openbao-system.svc.cluster.local:8200
           OPENBAO_K8S_ROLE: forgejo-signing-runner
           OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/(tags/v.*|heads/(staging|main|master))$'
           COSIGN_KEY_REF: hashivault://cosign-release
         run: |
           set -euo pipefail
+          release_sha_tag="sha-${RELEASE_COMMIT}"
           extra_args=()
           if [[ -n "${RELEASE_TAG}" ]]; then
             extra_args+=(-- --tag "${RELEASE_TAG}")
@@ -356,9 +387,14 @@ jobs:
             ./scripts/ci/ensure-forgejo-tools.sh skopeo
           fi
 
+          tag_check_script="./scripts/check-oci-image-tags-exist.sh"
+          if [[ -x "${RUNNER_TEMP}/check-oci-image-tags-exist.sh" ]]; then
+            tag_check_script="${RUNNER_TEMP}/check-oci-image-tags-exist.sh"
+          fi
+
           skip_push=false
           if [[ -n "${RELEASE_TAG}" ]] && \
-             ./scripts/check-oci-image-tags-exist.sh "sha-${GITHUB_SHA}" "${RELEASE_TAG}" latest; then
+             "${tag_check_script}" "${release_sha_tag}" "${RELEASE_TAG}" latest; then
             echo "All release image tags already exist; skipping image push and continuing to signing/verification."
             skip_push=true
           fi
@@ -381,9 +417,14 @@ jobs:
                 exit 1
               fi
             fi
+          else
+            mapfile -t image_targets < <(
+              python3 -c 'import ast, re, sys; from pathlib import Path; text = Path(sys.argv[1]).read_text(); match = re.search(r"PUBLISHABLE_IMAGES\s*=\s*(\[[\s\S]*?\])\n\n", text); assert match, "unable to parse image inventory"; [print("//docker/images:" + entry.get("push_image", entry["image"])) for entry in ast.literal_eval(match.group(1))]' docker/images/image_inventory.bzl
+            )
+            bazel build --config=remote_push --stamp "${image_targets[@]}"
           fi
 
-          verify_tags=(latest "sha-${GITHUB_SHA}")
+          verify_tags=(latest "${release_sha_tag}")
           if [[ -n "${RELEASE_TAG}" ]]; then
             verify_tags+=("${RELEASE_TAG}")
           fi
@@ -430,6 +471,7 @@ jobs:
       - name: Publish Wasm plugin OCI artifacts
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_COMMIT: ${{ steps.release.outputs.commit }}
           OPENBAO_ADDR: http://openbao-active.openbao-system.svc.cluster.local:8200
           OPENBAO_K8S_ROLE: forgejo-signing-runner
           OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/(tags/v.*|heads/(staging|main|master))$'
@@ -446,7 +488,7 @@ jobs:
           fi
 
           push_args=()
-          verify_tags=("sha-${GITHUB_SHA}")
+          verify_tags=("sha-${RELEASE_COMMIT}")
           if [[ -n "${RELEASE_TAG}" ]]; then
             push_args+=(--tag "${RELEASE_TAG}")
             verify_tags+=("${RELEASE_TAG}")
@@ -480,6 +522,7 @@ jobs:
 
           declare -a args
           args+=("--tag" "$RELEASE_TAG")
+          args+=("--commit" "${{ steps.release.outputs.commit }}")
           if [[ -n "$NOTES_FILE" ]]; then
             args+=("--notes_file" "$NOTES_FILE")
           fi
@@ -681,4 +724,4 @@ jobs:
           git -c http.extraHeader="Authorization: token ${FORGEJO_TOKEN}" \
             push --force-with-lease demo-release "HEAD:refs/heads/${DEMO_RELEASE_BRANCH}"
 
-          echo "Advanced ${DEMO_RELEASE_BRANCH} to ${GITHUB_SHA}"
+          echo "Advanced ${DEMO_RELEASE_BRANCH} to ${{ steps.release.outputs.commit }}"
