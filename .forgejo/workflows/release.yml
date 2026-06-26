@@ -352,26 +352,35 @@ jobs:
             extra_args+=(-- --tag "${RELEASE_TAG}")
           fi
 
-          if ! bazel run --config=remote_push --stamp //:push "${extra_args[@]}"; then
-            if [[ "${ALLOW_LOCAL_FALLBACK:-false}" == "true" ]]; then
-              echo "Remote bazel run failed; retrying locally without remote executor/cache" >&2
-              bazel run \
-                --remote_executor= \
-                --remote_cache= \
-                --noremote_accept_cached \
-                --noremote_upload_local_results \
-                --jobs=8 \
-                --stamp \
-                //:push \
-                "${extra_args[@]}"
-            else
-              echo "Remote bazel run failed; local fallback disabled." >&2
-              exit 1
-            fi
-          fi
-
           if ! command -v skopeo >/dev/null 2>&1; then
             ./scripts/ci/ensure-forgejo-tools.sh skopeo
+          fi
+
+          skip_push=false
+          if [[ -n "${RELEASE_TAG}" ]] && \
+             ./scripts/check-oci-image-tags-exist.sh "sha-${GITHUB_SHA}" "${RELEASE_TAG}" latest; then
+            echo "All release image tags already exist; skipping image push and continuing to signing/verification."
+            skip_push=true
+          fi
+
+          if [[ "${skip_push}" != "true" ]]; then
+            if ! bazel run --config=remote_push --stamp //:push "${extra_args[@]}"; then
+              if [[ "${ALLOW_LOCAL_FALLBACK:-false}" == "true" ]]; then
+                echo "Remote bazel run failed; retrying locally without remote executor/cache" >&2
+                bazel run \
+                  --remote_executor= \
+                  --remote_cache= \
+                  --noremote_accept_cached \
+                  --noremote_upload_local_results \
+                  --jobs=8 \
+                  --stamp \
+                  //:push \
+                  "${extra_args[@]}"
+              else
+                echo "Remote bazel run failed; local fallback disabled." >&2
+                exit 1
+              fi
+            fi
           fi
 
           verify_tags=(latest "sha-${GITHUB_SHA}")
