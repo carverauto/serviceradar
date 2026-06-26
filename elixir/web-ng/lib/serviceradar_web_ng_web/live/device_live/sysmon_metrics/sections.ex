@@ -28,7 +28,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
   end
 
   defp build_cpu_section(srql_module, filter_tokens, scope, reference_lines) do
-    query =
+    overall_query =
+      Query.timeseries_metric_query(
+        "sysmon.cpu",
+        "cpu.usage_percent",
+        filter_tokens,
+        nil,
+        @metrics_limit
+      )
+
+    per_core_query =
       Query.timeseries_metric_query(
         "sysmon.cpu",
         "cpu.usage_percent",
@@ -38,34 +47,56 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
         agg: "max"
       )
 
-    base = section_base("cpu", "CPU", "last 24h · 5m buckets · max per core", query)
+    base = section_base("cpu", "CPU", "last 24h · 5m buckets · overall utilization", overall_query)
 
-    case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => results}} when is_list(results) and results != [] ->
-        normalized = Series.normalize_metric_results(results, "usage_percent")
-        display_rows = Series.hottest_series_rows(normalized, "core_id", "usage_percent")
-        viz = Series.timeseries_viz("usage_percent", "core_id")
+    case {srql_module.query(overall_query, %{scope: scope}), srql_module.query(per_core_query, %{scope: scope})} do
+      {{:ok, %{"results" => overall_results}}, {:ok, %{"results" => core_results}}}
+      when is_list(overall_results) and is_list(core_results) and (overall_results != [] or core_results != []) ->
+        overall_rows =
+          overall_results
+          |> Series.normalize_metric_results("usage_percent")
+          |> overall_cpu_rows()
+
+        core_rows = Series.normalize_metric_results(core_results, "usage_percent")
+        display_rows = Series.hottest_series_rows(core_rows, "core_id", "usage_percent")
+
+        overall_viz = Series.timeseries_viz("usage_percent", "series")
+        core_viz = Series.timeseries_viz("usage_percent", "core_id")
 
         panels =
-          Series.build_metric_panels(%{"results" => display_rows, "viz" => viz}, display_rows, "core_id", reference_lines)
-          |> Series.combine_timeseries_panels("CPU cores")
+          Series.build_metric_panels(
+            %{"results" => overall_rows, "viz" => overall_viz},
+            overall_rows,
+            "series",
+            reference_lines
+          ) ++
+            (%{"results" => display_rows, "viz" => core_viz}
+             |> Series.build_metric_panels(display_rows, "core_id", reference_lines)
+             |> Series.combine_timeseries_panels("Top cores"))
 
         %{
           base
-          | subtitle: Series.sysmon_display_subtitle(normalized, "core_id", "core", "cores"),
+          | subtitle: cpu_display_subtitle(core_rows),
             panels: panels,
-            header_value: Series.latest_metric_value(normalized, "usage_percent", tie: :max),
-            header_stats: Series.metric_stats(normalized, "usage_percent")
+            header_value: Series.latest_metric_value(overall_rows, "usage_percent"),
+            header_stats: Series.metric_stats(overall_rows, "usage_percent")
         }
 
-      {:ok, %{"results" => results}} when is_list(results) ->
+      {{:ok, %{"results" => overall_results}}, {:ok, %{"results" => core_results}}}
+      when is_list(overall_results) and is_list(core_results) ->
         base
 
-      {:ok, other} ->
-        %{base | error: "unexpected SRQL response: #{inspect(other)}"}
+      {{:ok, other}, _} ->
+        %{base | error: "unexpected CPU overall SRQL response: #{inspect(other)}"}
 
-      {:error, reason} ->
-        %{base | error: "SRQL error: #{format_error(reason)}"}
+      {_, {:ok, other}} ->
+        %{base | error: "unexpected CPU core SRQL response: #{inspect(other)}"}
+
+      {{:error, reason}, _} ->
+        %{base | error: "CPU overall SRQL error: #{format_error(reason)}"}
+
+      {_, {:error, reason}} ->
+        %{base | error: "CPU core SRQL error: #{format_error(reason)}"}
     end
   end
 
@@ -133,5 +164,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
       header_value: nil,
       header_stats: nil
     }
+  end
+
+  defp overall_cpu_rows(rows) when is_list(rows) do
+    Enum.map(rows, fn
+      row when is_map(row) -> Map.put(row, "series", "Overall utilization")
+      row -> row
+    end)
+  end
+
+  defp cpu_display_subtitle(rows) when is_list(rows) do
+    per_core = Series.sysmon_display_subtitle(rows, "core_id", "core", "cores")
+    String.replace(per_core, "last 24h · 5m buckets · ", "last 24h · 5m buckets · overall + ")
   end
 end

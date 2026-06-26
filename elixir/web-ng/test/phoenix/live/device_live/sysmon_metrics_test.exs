@@ -25,14 +25,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
     end
   end
 
-  test "CPU section uses max aggregation split by core" do
+  test "CPU section renders overall utilization plus top-core drilldown" do
     previous_responder = Application.get_env(:serviceradar_web_ng, :sysmon_metrics_test_responder)
     now = DateTime.truncate(DateTime.utc_now(), :second)
     older = DateTime.add(now, -300, :second)
 
     Application.put_env(:serviceradar_web_ng, :sysmon_metrics_test_responder, fn query, _opts ->
       cond do
-        String.contains?(query, ~s|metric_type:"sysmon.cpu"|) ->
+        String.contains?(query, ~s|metric_type:"sysmon.cpu"|) and String.contains?(query, "series:core_id") ->
           assert query =~ "bucket:5m"
           assert query =~ "agg:max"
           assert query =~ "series:core_id"
@@ -69,6 +69,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
              "pagination" => %{}
            }}
 
+        String.contains?(query, ~s|metric_type:"sysmon.cpu"|) ->
+          assert query =~ "bucket:5m"
+          assert query =~ "agg:avg"
+          refute query =~ "series:core_id"
+          assert query =~ ~s|device_id:"sysmon-core-test"|
+          assert query =~ "limit:300"
+
+          {:ok,
+           %{
+             "results" => [
+               %{
+                 "timestamp" => DateTime.to_iso8601(older),
+                 "value" => 25.0
+               },
+               %{
+                 "timestamp" => DateTime.to_iso8601(now),
+                 "value" => 33.3
+               }
+             ],
+             "pagination" => %{}
+           }}
+
         String.contains?(query, "in:timeseries_metrics") ->
           {:ok, %{"results" => [], "pagination" => %{}}}
 
@@ -90,18 +112,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
       )
 
     assert cpu.key == "cpu"
-    assert cpu.subtitle == "last 24h · 5m buckets · top 6 of 8 cores by max"
-    assert cpu.query =~ "agg:max"
-    assert cpu.query =~ "series:core_id"
-    assert cpu.query =~ "limit:20000"
-    assert cpu.header_value == 91.2
-    assert cpu.header_stats == %{min: 12.0, max: 99.9, avg: 35.611111111111114}
+    assert cpu.subtitle == "last 24h · 5m buckets · overall + top 6 of 8 cores by max"
+    assert cpu.query =~ "agg:avg"
+    refute cpu.query =~ "series:core_id"
+    assert cpu.query =~ "limit:300"
+    assert cpu.header_value == 33.3
+    assert cpu.header_stats == %{min: 25.0, max: 33.3, avg: 29.15}
 
-    timeseries_panel = Enum.find(cpu.panels, &(&1.plugin == TimeseriesPlugin))
-    assert timeseries_panel.assigns.combine_all_series == true
-    assert timeseries_panel.assigns.combined_title == "CPU cores"
+    timeseries_panels = Enum.filter(cpu.panels, &(&1.plugin == TimeseriesPlugin))
+    assert length(timeseries_panels) == 2
 
-    displayed_cores = MapSet.new(timeseries_panel.assigns.series_points, &elem(&1, 0))
+    [overall_panel, core_panel] = timeseries_panels
+    assert MapSet.new(overall_panel.assigns.series_points, &elem(&1, 0)) == MapSet.new(["Overall utilization"])
+    assert core_panel.assigns.combine_all_series == true
+    assert core_panel.assigns.combined_title == "Top cores"
+
+    displayed_cores = MapSet.new(core_panel.assigns.series_points, &elem(&1, 0))
     assert displayed_cores == MapSet.new(~w(0 1 4 5 6 7))
 
     assert %{
@@ -109,14 +135,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
              label: "CPU critical",
              severity: :critical,
              series: nil
-           } in timeseries_panel.assigns.reference_lines
+           } in core_panel.assigns.reference_lines
 
     assert %{
              value: 80.0,
              label: "CPU warning",
              severity: :warning,
              series: nil
-           } in timeseries_panel.assigns.reference_lines
+           } in core_panel.assigns.reference_lines
   end
 
   test "process metrics carry a per-process CPU history series for sparklines" do

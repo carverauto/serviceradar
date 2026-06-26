@@ -557,24 +557,29 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     <div id={"panel-#{@id}"} class="p-4">
       <.empty_state_box empty_state={@empty_state} compact={@compact} />
 
-      <div class={[
-        "grid gap-3",
-        @series_count > 1 && "grid-cols-1 lg:grid-cols-2 xl:grid-cols-3",
-        @series_count == 1 && "grid-cols-1"
-      ]}>
-        <%= for combined <- @combined_charts do %>
-          <CombinedChartCard.combined_chart_card
-            id={@id}
-            data={combined}
-            chart_width={@chart_width}
-            chart_height={@chart_height}
-            chart_left_pad={@chart_left_pad}
-            chart_right_pad={@chart_right_pad}
-            chart_top_pad={@chart_top_pad}
-            chart_bottom_pad={@chart_bottom_pad}
-            compact={true}
-          />
-        <% end %>
+      <%= for combined <- @combined_charts do %>
+        <CombinedChartCard.combined_chart_card
+          id={@id}
+          data={combined}
+          chart_width={@chart_width}
+          chart_height={@chart_height}
+          chart_left_pad={@chart_left_pad}
+          chart_right_pad={@chart_right_pad}
+          chart_top_pad={@chart_top_pad}
+          chart_bottom_pad={@chart_bottom_pad}
+          compact={true}
+        />
+      <% end %>
+
+      <div
+        :if={@series_data != []}
+        class={[
+          "grid gap-3",
+          length(@series_data) > 1 && "grid-cols-1 lg:grid-cols-2 xl:grid-cols-3",
+          length(@series_data) == 1 && "grid-cols-1",
+          @combined_charts != [] && "mt-3"
+        ]}
+      >
         <%= for data <- @series_data do %>
           <ChartCard.chart_card
             id={@id}

@@ -222,6 +222,33 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
     refute html =~ ~s(stroke-dasharray="2 3")
   end
 
+  test "renders compact combined charts full width instead of inside the series card grid" do
+    points = [
+      {~U[2025-01-01 00:00:00Z], 10.0},
+      {~U[2025-01-01 00:05:00Z], 20.0},
+      {~U[2025-01-01 00:10:00Z], 30.0}
+    ]
+
+    html =
+      render_component(Timeseries, %{
+        id: "ts-compact-combined",
+        title: "CPU",
+        panel_assigns: %{
+          compact: true,
+          chart_mode: :single,
+          rate_mode: :none,
+          combine_all_series: true,
+          combined_title: "CPU cores"
+        },
+        spec: %{x: "timestamp", y: "usage_percent", series: "label"},
+        series_points: [{"0", points}, {"1", points}, {"2", points}]
+      })
+
+    assert html =~ ~s(id="combined-chart-ts-compact-combined")
+    assert html =~ "CPU cores"
+    refute html =~ "lg:grid-cols-2 xl:grid-cols-3"
+  end
+
   test "prefers SRQL metric unit metadata over field-name inference" do
     points = [
       {~U[2025-01-01 00:00:00Z], 1024.0},
