@@ -115,15 +115,8 @@ defmodule ServiceRadar.StatusHandler do
   end
 
   defp process_status_update(status, opts) do
-    service_type = status[:service_type] || "unknown"
-    source = status[:source] || "unknown"
-    service_name = status[:service_name] || "unknown"
-
-    Logger.info(
-      "StatusHandler received: service_type=#{service_type} source=#{source} " <>
-        "service=#{service_name}"
-    )
-
+    # No per-message log here — this is the hot ingestion path. Useful breadcrumbs
+    # come from the OTel span on process/2, not a log line per status.
     process(status, opts)
   end
 
@@ -300,7 +293,6 @@ defmodule ServiceRadar.StatusHandler do
 
     case decode_addon_telemetry_batch(message) do
       {:ok, %TelemetryBatch{records: records} = batch} ->
-        log_package_telemetry_batch(records || [], metadata)
         publish_package_telemetry_records(records || [], batch, metadata)
 
       :error ->
@@ -328,15 +320,6 @@ defmodule ServiceRadar.StatusHandler do
   end
 
   defp decode_addon_telemetry_batch(_), do: :error
-
-  defp log_package_telemetry_batch(records, metadata) do
-    Logger.info(
-      "StatusHandler decoded package telemetry: producer_type=#{metadata.producer_type} " <>
-        "producer_id=#{metadata.producer_id} agent_id=#{metadata.agent_id} " <>
-        "records=#{length(records)} ocsf_records=#{Enum.count(records, &ocsf_record?/1)} " <>
-        "otel_log_records=#{Enum.count(records, &otel_log_record?/1)}"
-    )
-  end
 
   defp publish_package_telemetry_records(records, batch, metadata) do
     Enum.each(records, fn %TelemetryRecord{} = record ->

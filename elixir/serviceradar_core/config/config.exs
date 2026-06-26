@@ -88,6 +88,12 @@ config :serviceradar_core, ServiceRadar.Jobs.ScheduleHealthWorker, reschedule_se
 # Mailer configuration
 config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
 
+# Topology state cleanup cadence (see TopologyStateCleanupWorker). The cleanup is a
+# heavy maintenance sweep (9 full UPDATEs + canonical rebuild); 1h keeps the table
+# canonical without the every-5-minute load that drove DB CPU/bloat.
+config :serviceradar_core, ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker,
+  reschedule_seconds: 3_600
+
 config :serviceradar_core, ServiceRadar.Observability.NetflowSecurityRefreshWorker,
   reschedule_seconds: 86_400,
   cache_ttl_seconds: 86_400,

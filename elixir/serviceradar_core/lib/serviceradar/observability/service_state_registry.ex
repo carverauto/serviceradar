@@ -54,6 +54,123 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
 
   def upsert_from_status(_), do: :ok
 
+  @doc """
+  Batched equivalent of `upsert_from_status/1` for a list of statuses.
+
+  Builds attrs for each status, dedups by the `:unique_service_identity`
+  (agent_id/gateway_id/partition/service_type/service_name) keeping the last
+  status per identity, then performs ONE `Ash.bulk_create(:upsert, ...)`. The
+  per-state side-effects (`deactivate_shadowed_plugin_states/2`,
+  `ServiceStatePubSub.broadcast_update/1`, `maybe_publish_service_transition/2`)
+  run per returned record so behavior matches the single-status path.
+
+  Returns `:ok`; failures are logged and never raise (matches the per-status
+  path's best-effort contract on the ResultsRouter hot path).
+  """
+  @spec bulk_upsert_from_statuses([map()]) :: :ok
+  def bulk_upsert_from_statuses(statuses) when is_list(statuses) do
+    actor = SystemActor.system(:service_state_registry)
+
+    deduped =
+      statuses
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(&build_attrs_from_status(&1, actor))
+      |> dedup_attrs_by_identity()
+
+    case deduped do
+      [] ->
+        :ok
+
+      attrs_list ->
+        previous_by_identity = previous_availability_by_identity(attrs_list, actor)
+
+        attrs_list
+        |> Ash.bulk_create(ServiceState, :upsert,
+          actor: actor,
+          domain: ServiceRadar.Observability,
+          upsert_identity: :unique_service_identity,
+          return_records?: true,
+          return_errors?: true,
+          stop_on_error?: false
+        )
+        |> handle_bulk_upsert_result(previous_by_identity, actor)
+    end
+  rescue
+    error ->
+      Logger.warning("Bulk service state upsert failed: #{Exception.message(error)}")
+      :ok
+  end
+
+  def bulk_upsert_from_statuses(_), do: :ok
+
+  # Keep the LAST status per unique identity (most recent observation wins),
+  # preserving first-seen order for deterministic side-effect ordering.
+  defp dedup_attrs_by_identity(attrs_list) do
+    {ordered_keys, by_key} =
+      Enum.reduce(attrs_list, {[], %{}}, fn attrs, {keys, acc} ->
+        key = identity_key(attrs)
+        keys = if Map.has_key?(acc, key), do: keys, else: [key | keys]
+        {keys, Map.put(acc, key, attrs)}
+      end)
+
+    ordered_keys
+    |> Enum.reverse()
+    |> Enum.map(&Map.fetch!(by_key, &1))
+  end
+
+  defp identity_key(attrs) do
+    {attrs.agent_id, attrs.gateway_id, attrs.partition, attrs.service_type, attrs.service_name}
+  end
+
+  # Read prior availability for the whole batch, keyed by identity, only when the
+  # state-change feed is enabled (mirrors previous_service_availability/2). One
+  # read per identity, but only on the feed-enabled path.
+  defp previous_availability_by_identity(attrs_list, actor) do
+    if StateChangePublisher.enabled?() do
+      Map.new(attrs_list, fn attrs ->
+        prev =
+          case existing_service_state(attrs, actor) do
+            %ServiceState{} = state -> %{available: state.available, state: state.state}
+            _ -> nil
+          end
+
+        {identity_key(attrs), prev}
+      end)
+    else
+      %{}
+    end
+  rescue
+    _ -> %{}
+  end
+
+  defp handle_bulk_upsert_result(%Ash.BulkResult{} = result, previous_by_identity, actor) do
+    records = result.records || []
+
+    Enum.each(records, fn %ServiceState{} = state ->
+      previous = Map.get(previous_by_identity, identity_key_from_state(state))
+      deactivate_shadowed_plugin_states(state, actor)
+      ServiceStatePubSub.broadcast_update(state)
+      maybe_publish_service_transition(previous, state)
+    end)
+
+    case result.errors do
+      [] -> :ok
+      nil -> :ok
+      errors -> Logger.warning("Bulk service state upsert had errors: #{inspect(errors)}")
+    end
+
+    :ok
+  end
+
+  defp handle_bulk_upsert_result(other, _previous_by_identity, _actor) do
+    Logger.warning("Unexpected bulk service state upsert result: #{inspect(other)}")
+    :ok
+  end
+
+  defp identity_key_from_state(%ServiceState{} = state) do
+    {state.agent_id, state.gateway_id, state.partition, state.service_type, state.service_name}
+  end
+
   # add-causal-engine (Decision 1): capture prior availability BEFORE the upsert
   # so a transition can be published to signals.state.service_state afterward.
   # Gated behind the feed flag (StateChangePublisher.enabled?/0) so disabled

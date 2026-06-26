@@ -23,7 +23,13 @@ defmodule ServiceRadar.FlowAttribution.Correlator do
   require Logger
 
   @initial_delay_ms 10_000
-  @interval_ms 30_000
+  # Re-correlation cadence. The correlation WINDOW is 30 min (see Correlation), so
+  # this only governs how often that window is re-scanned. At 30s a 30-min window
+  # was re-scanned ~60x per row, churning millions of index-heavy UPDATEs on
+  # flow_process_attribution_current. 2 min keeps delayed-correlation latency well
+  # inside the window while cutting that re-scan load ~4x. Override via
+  # FLOW_ATTRIBUTION_CORRELATOR_INTERVAL_MS or :flow_attribution_correlator_interval_ms.
+  @default_interval_ms 120_000
 
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -43,8 +49,25 @@ defmodule ServiceRadar.FlowAttribution.Correlator do
 
     # Schedule the next tick only after the current pass completes so a slow pass
     # cannot leave a backlog of :correlate messages that then run back-to-back.
-    Process.send_after(self(), :correlate, @interval_ms)
+    Process.send_after(self(), :correlate, interval_ms())
     {:noreply, state}
+  end
+
+  defp interval_ms do
+    case System.get_env("FLOW_ATTRIBUTION_CORRELATOR_INTERVAL_MS") do
+      nil ->
+        Application.get_env(
+          :serviceradar_core,
+          :flow_attribution_correlator_interval_ms,
+          @default_interval_ms
+        )
+
+      value when is_binary(value) ->
+        case Integer.parse(String.trim(value)) do
+          {ms, _} when ms > 0 -> ms
+          _ -> @default_interval_ms
+        end
+    end
   end
 
   defp run_once do

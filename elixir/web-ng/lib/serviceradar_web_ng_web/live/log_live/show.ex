@@ -764,16 +764,28 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp severity_label(nil), do: "—"
   defp severity_label(""), do: "—"
-  defp severity_label(value) when is_binary(value), do: String.upcase(value)
 
   defp severity_label(value) do
-    value
-    |> to_string()
-    |> String.upcase()
+    case normalize_severity(value) do
+      "" -> "—"
+      s -> String.upcase(s)
+    end
   end
 
   defp normalize_severity(nil), do: ""
-  defp normalize_severity(v) when is_binary(v), do: v |> String.trim() |> String.downcase()
+
+  defp normalize_severity(v) when is_binary(v) do
+    # OTel-SDK producers write the raw SeverityNumber enum name into severity_text
+    # (e.g. "SEVERITY_NUMBER_INFO", "SEVERITY_NUMBER_WARN3") and leave severity_number
+    # null. Strip the enum prefix + any numbered-variant suffix so the badge resolves to
+    # info/warn/error (label + color), matching the Go agent's lowercase severity_text.
+    v
+    |> String.trim()
+    |> String.downcase()
+    |> String.replace_prefix("severity_number_", "")
+    |> String.replace(~r/\d+$/, "")
+  end
+
   defp normalize_severity(v), do: v |> to_string() |> normalize_severity()
 
   defp format_timestamp(log) do

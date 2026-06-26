@@ -116,18 +116,55 @@ defmodule ServiceRadar.AgentRegistry do
 
   @doc """
   Look up a specific agent in the registry.
+
+  When this node has left the Horde registry mesh (web-ng), the read is RPC'd to
+  a core node that is still a member.
   """
   @spec lookup(String.t()) :: [{pid(), map()}]
   def lookup(agent_id) when is_binary(agent_id) do
-    ProcessRegistry.lookup_agent(agent_id)
+    via_registry([], :lookup_agent, [agent_id])
   end
 
   @doc """
   Find all agents.
+
+  RPC'd to a core node when this node is not a registry member (web-ng).
   """
   @spec find_agents() :: [map()]
   def find_agents do
-    ProcessRegistry.find_agents()
+    via_registry([], :find_agents, [])
+  end
+
+  # Runs a `ProcessRegistry` read locally when this node is a registry member,
+  # otherwise RPCs a core node that still holds the CRDT. `default` is returned
+  # when no core node is reachable, keeping return shapes unchanged.
+  defp via_registry(default, fun, args) do
+    if ProcessRegistry.registry_present?() do
+      apply(ProcessRegistry, fun, args)
+    else
+      case ProcessRegistry.core_node() do
+        nil ->
+          Logger.warning(
+            "[AgentRegistry] No registry member reachable for #{fun}/#{length(args)}"
+          )
+
+          default
+
+        node ->
+          case :erpc.call(node, ProcessRegistry, fun, args, 5_000) do
+            {:badrpc, reason} ->
+              Logger.warning("[AgentRegistry] Registry RPC #{fun} failed: #{inspect(reason)}")
+              default
+
+            result ->
+              result
+          end
+      end
+    end
+  rescue
+    error ->
+      Logger.warning("[AgentRegistry] Registry RPC #{fun} raised: #{inspect(error)}")
+      default
   end
 
   @doc """
@@ -254,6 +291,6 @@ defmodule ServiceRadar.AgentRegistry do
   """
   @spec count() :: non_neg_integer()
   def count do
-    ProcessRegistry.count_by_type(:agent)
+    via_registry(0, :count_by_type, [:agent])
   end
 end

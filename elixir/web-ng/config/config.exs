@@ -146,11 +146,19 @@ config :serviceradar_core,
     ServiceRadar.Security
   ]
 
-# Web-ng joins the cluster for Horde registry reads (cluster/gateway/agent
-# views) but must never host distributed processes — agent sessions placed
-# here would pull agent-config compilation (SweepCompiler etc.) and other
-# core-elx work onto the web tier.
+# Web-ng joins the ERTS cluster but must never host distributed processes —
+# agent sessions placed here would pull agent-config compilation
+# (SweepCompiler etc.) and other core-elx work onto the web tier.
 config :serviceradar_core, host_distributed_processes: false
+
+# Web-ng must also NOT join the Horde registry CRDT mesh. Every Horde member is
+# a DeltaCrdt node whose random `node_id` lingers permanently in the merged CRDT
+# state, and web-ng rolls frequently — so each rollout would inject a fresh,
+# uncollectable dot into the shared causal context, bloating it without bound.
+# web-ng only *reads* the registry; those reads are RPC'd to a core node (which
+# stays a member), so leaving the mesh is transparent. See
+# ServiceRadar.ProcessRegistry.join_process_registry?/0.
+config :serviceradar_core, join_process_registry: false
 
 # Guardian JWT configuration
 # Secret key is loaded from runtime.exs (TOKEN_SIGNING_SECRET or SECRET_KEY_BASE)

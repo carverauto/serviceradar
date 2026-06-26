@@ -239,8 +239,25 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   end
 
   defp lookup_provider_for_inet(%Postgrex.INET{} = inet) do
-    lookup_fun = Process.get(@provider_lookup_fun_key, &query_provider_for_inet/1)
-    lookup_fun.(inet)
+    case Process.get(@provider_lookup_fun_key, :__serviceradar_unset__) do
+      lookup_fun when is_function(lookup_fun, 1) ->
+        # Test/injection path: bypass the cross-batch ETS cache, honor the injected fun
+        # so existing tests that assert exact DB call counts keep working.
+        lookup_fun.(inet)
+
+      :__serviceradar_unset__ ->
+        # L2: cross-batch ETS cache keyed by {active snapshot_id, "addr/mask"}. The
+        # per-batch Process-dict cache (cached_provider_for_inet/1) is L1; this absorbs
+        # the cross-batch repeats — the dominant source of the ~186,800 GiST round-trips
+        # — including negative (non-cloud -> nil) results. query_provider_for_inet/1
+        # already reads @active_snapshot_key and returns nil when it is unset.
+        snapshot_id = Process.get(@active_snapshot_key)
+        ip_key = provider_cache_key(inet)
+
+        ServiceRadar.EventWriter.ProviderCidrCache.fetch(snapshot_id, ip_key, fn ->
+          query_provider_for_inet(inet)
+        end)
+    end
   end
 
   defp query_provider_for_inet(%Postgrex.INET{} = inet) do

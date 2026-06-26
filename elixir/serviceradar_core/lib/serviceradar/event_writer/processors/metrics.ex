@@ -24,7 +24,7 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
   def process_batch(messages) do
     SignalTelemetry.emit(:metrics, :received, length(messages))
 
-    {rows, rejected} = build_rows(messages)
+    {rows, rejected} = decode_batch(messages)
     rows = backfill_device_ids(rows)
     SignalTelemetry.emit(:metrics, :rejected, rejected)
 
@@ -42,13 +42,35 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
       {:error, e}
   end
 
+  @doc """
+  Decodes a metric-envelope message batch and emits the per-batch decode
+  telemetry, returning `{rows, rejected_count}`.
+
+  This is the DB-free decode half of `process_batch/1`. Decode/completed and
+  schema_version are emitted ONCE per `{source, schema_version}` group for the
+  whole batch (replacing the old per-message pair of `:telemetry.execute` calls).
+  Decode failures are still emitted per message from `parse_message/1`.
+  """
+  @spec decode_batch([map()]) :: {[map()], non_neg_integer()}
+  def decode_batch(messages) do
+    {rows, rejected, decode_stats} = build_rows(messages)
+    emit_decode_telemetry(decode_stats)
+    {rows, rejected}
+  end
+
   @impl true
   def parse_message(%{data: data, metadata: metadata}) do
+    # Per-message decode WITHOUT per-message SUCCESS telemetry. Firing two
+    # :telemetry.execute calls for every successfully decoded message dominated
+    # EventWriter idle reductions (BatchProcessor_metrics/netflow ~1.05M reds/3s);
+    # decode/completed + schema_version are now aggregated once per batch in
+    # process_batch/1 (see emit_decode_telemetry/1). Decode *failures* stay
+    # per-message — they are rare (a warning is logged when rejected > 0) and need
+    # their per-failure source/reason tags.
     started_at = System.monotonic_time()
 
     case MetricEnvelope.decode_rows_count(data) do
-      {:ok, rows, count} ->
-        emit_decode_completed(rows, count, metadata, started_at)
+      {:ok, rows, _count} ->
         rows
 
       {:error, reason} ->
@@ -110,20 +132,69 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
       %{}
   end
 
+  # Decodes the batch and accumulates per-batch decode telemetry stats grouped by
+  # {source, schema_version} so the aggregated events keep accurate tags even when
+  # a batch mixes sources/schemas. Duration is measured per message and summed per
+  # group; one decode/completed + one schema_version event is emitted per group in
+  # process_batch/1.
   defp build_rows(messages) do
     messages
-    |> Enum.reduce({[], 0}, fn message, {timeseries, rejected} ->
+    |> Enum.reduce({[], 0, %{}}, fn message, {timeseries, rejected, stats} ->
+      started_at = System.monotonic_time()
+
       case parse_message(message) do
         rows when is_list(rows) ->
-          {Enum.reverse(rows, timeseries), rejected}
+          duration = System.monotonic_time() - started_at
+          stats = accumulate_decode_stats(stats, message, rows, length(rows), duration)
+          {Enum.reverse(rows, timeseries), rejected, stats}
 
         _ ->
-          {timeseries, rejected + 1}
+          {timeseries, rejected + 1, stats}
       end
     end)
-    |> then(fn {timeseries, rejected} ->
-      {Enum.reverse(timeseries), rejected}
+    |> then(fn {timeseries, rejected, stats} ->
+      {Enum.reverse(timeseries), rejected, stats}
     end)
+  end
+
+  defp accumulate_decode_stats(stats, %{metadata: metadata}, rows, row_count, duration) do
+    key = {source(metadata), schema_version(rows)}
+
+    Map.update(
+      stats,
+      key,
+      %{count: 1, rows: row_count, duration: duration},
+      fn acc ->
+        %{
+          count: acc.count + 1,
+          rows: acc.rows + row_count,
+          duration: acc.duration + duration
+        }
+      end
+    )
+  end
+
+  defp accumulate_decode_stats(stats, _message, _rows, _row_count, _duration), do: stats
+
+  # Per-batch decode telemetry. Emits ONE aggregated decode/completed and ONE
+  # schema_version event per distinct {source, schema_version} group in the batch,
+  # replacing the old per-message pair of :telemetry.execute calls.
+  defp emit_decode_telemetry(stats) do
+    Enum.each(stats, fn {{source, schema_version}, agg} ->
+      :telemetry.execute(
+        [:serviceradar, :metric_envelope, :decode, :completed],
+        %{count: agg.count, rows: agg.rows, duration: agg.duration},
+        %{source: source, schema_version: schema_version}
+      )
+
+      :telemetry.execute(
+        [:serviceradar, :metric_envelope, :schema_version],
+        %{count: agg.count},
+        %{source: source, schema_version: schema_version}
+      )
+    end)
+
+    :ok
   end
 
   defp subject(metadata) when is_map(metadata) do
@@ -131,29 +202,6 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
   end
 
   defp subject(_metadata), do: ""
-
-  defp emit_decode_completed(rows, row_count, metadata, started_at) do
-    duration = System.monotonic_time() - started_at
-    schema_version = schema_version(rows)
-
-    :telemetry.execute(
-      [:serviceradar, :metric_envelope, :decode, :completed],
-      %{count: 1, rows: row_count, duration: duration},
-      %{
-        subject: subject(metadata),
-        source: source(metadata),
-        schema_version: schema_version
-      }
-    )
-
-    :telemetry.execute(
-      [:serviceradar, :metric_envelope, :schema_version],
-      %{count: 1},
-      %{source: source(metadata), schema_version: schema_version}
-    )
-
-    :ok
-  end
 
   defp emit_decode_failed(reason, metadata, started_at) do
     :telemetry.execute(

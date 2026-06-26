@@ -79,6 +79,14 @@ defmodule ServiceRadar.ResultsRouterTest do
     previous_endpoint_callback =
       Application.get_env(:serviceradar_core, :endpoint_inventory_after_ingest_callback)
 
+    previous_batching = Application.get_env(:serviceradar_core, :results_router_batching)
+    previous_max_buffer = Application.get_env(:serviceradar_core, :results_router_max_buffer)
+
+    # These tests drive handle_cast/2 directly with a bare %{} state and assert the
+    # routed ingestor fires synchronously. Disable async batching so the cast path
+    # processes immediately; batching has its own dedicated test ("async batching").
+    Application.put_env(:serviceradar_core, :results_router_batching, false)
+
     Application.put_env(:serviceradar_core, :sync_ingestor, TestIngestor)
     Application.put_env(:serviceradar_core, :sync_ingestor_async, false)
     Application.put_env(:serviceradar_core, :sweep_ingestor, TestSweepIngestor)
@@ -123,6 +131,8 @@ defmodule ServiceRadar.ResultsRouterTest do
       restore_env(:endpoint_inventory_router_test_pid, previous_endpoint_test_pid)
       restore_env(:endpoint_inventory_router_test_delay_ms, previous_endpoint_test_delay)
       restore_env(:endpoint_inventory_after_ingest_callback, previous_endpoint_callback)
+      restore_env(:results_router_batching, previous_batching)
+      restore_env(:results_router_max_buffer, previous_max_buffer)
     end)
 
     :ok
@@ -586,6 +596,75 @@ defmodule ServiceRadar.ResultsRouterTest do
                        directives: %{"endpoint_inventory" => %{"reconcile_floor" => true}}
                      }}},
                    500
+  end
+
+  describe "async batching" do
+    setup do
+      Application.put_env(:serviceradar_core, :results_router_batching, true)
+      :ok
+    end
+
+    test "cast buffers statuses and flush routes them per item" do
+      Application.put_env(:serviceradar_core, :results_router_max_buffer, 200)
+
+      status = fn ip ->
+        %{
+          source: "results",
+          service_type: "sync",
+          message: Jason.encode!([%{"device_id" => "dev-#{ip}", "ip" => ip}])
+        }
+      end
+
+      init_state = %{buffer: [], buffer_size: 0, timer: nil}
+
+      assert {:noreply, state1} =
+               ResultsRouter.handle_cast({:results_update, status.("10.0.0.1")}, init_state)
+
+      assert state1.buffer_size == 1
+
+      assert {:noreply, state2} =
+               ResultsRouter.handle_cast({:results_update, status.("10.0.0.2")}, state1)
+
+      assert state2.buffer_size == 2
+
+      # Buffered, not yet flushed: the routed ingestor has not fired.
+      refute_receive {:ingest, _updates, _opts}, 50
+
+      # Timer-driven flush routes every buffered status individually.
+      assert {:noreply, flushed} = ResultsRouter.handle_info(:flush_results, state2)
+      assert flushed.buffer_size == 0
+      assert flushed.buffer == []
+
+      assert_receive {:ingest, [%{"ip" => "10.0.0.1"}], _opts1}
+      assert_receive {:ingest, [%{"ip" => "10.0.0.2"}], _opts2}
+    end
+
+    test "buffer flushes immediately when max buffer is reached" do
+      Application.put_env(:serviceradar_core, :results_router_max_buffer, 2)
+
+      status = fn ip ->
+        %{
+          source: "results",
+          service_type: "sync",
+          message: Jason.encode!([%{"device_id" => "dev-#{ip}", "ip" => ip}])
+        }
+      end
+
+      init_state = %{buffer: [], buffer_size: 0, timer: nil}
+
+      assert {:noreply, state1} =
+               ResultsRouter.handle_cast({:results_update, status.("10.0.0.1")}, init_state)
+
+      refute_receive {:ingest, _updates, _opts}, 50
+
+      # Second cast hits max_buffer (2) and flushes inline.
+      assert {:noreply, state2} =
+               ResultsRouter.handle_cast({:results_update, status.("10.0.0.2")}, state1)
+
+      assert state2.buffer_size == 0
+      assert_receive {:ingest, [%{"ip" => "10.0.0.1"}], _opts1}
+      assert_receive {:ingest, [%{"ip" => "10.0.0.2"}], _opts2}
+    end
   end
 
   defp metric_batch_fixture, do: <<10, 22, "serviceradar.metric.v1">>

@@ -316,7 +316,13 @@ defmodule ServiceRadar.EventWriter.Config do
         # fj #3788 REC4: dedup exact redeliveries (consumer_max_deliver: 5) within a
         # 2-minute window, keyed on the Nats-Msg-Id (= ingress_id) the gateway stamps.
         stream_duplicate_window: 120_000_000_000,
-        consumer_pull_batch_size: 4,
+        # Sized to fill the 500-msg Broadway batch in a few JetStream round-trips.
+        # Was 4 (LOWER than the default 16) on the highest-volume stream, so the
+        # producer did ~125 pull round-trips per batch — pure pull-request churn,
+        # the dominant cost of EventWriter.Producer at idle-ish load. 64 is bounded
+        # by max_ack_pending (256) and the producer's max_buffered overflow guard,
+        # so back-pressure is unchanged.
+        consumer_pull_batch_size: 64,
         consumer_max_deliver: 5
       },
       %{

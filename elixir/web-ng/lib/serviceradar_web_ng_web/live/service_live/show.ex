@@ -65,13 +65,11 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
 
   @impl true
   def handle_info({:service_status_updated, status}, socket) do
-    {:noreply,
-     if matches_current_service?(status, socket.assigns.service) do
-       socket = append_history(socket, status)
-       schedule_refresh(socket)
-     else
-       socket
-     end}
+    {:noreply, apply_service_status(socket, status)}
+  end
+
+  def handle_info({:service_statuses_updated, statuses}, socket) when is_list(statuses) do
+    {:noreply, Enum.reduce(statuses, socket, &apply_service_status(&2, &1))}
   end
 
   def handle_info(:refresh_service_details, socket) do
@@ -788,6 +786,16 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
       else
         Enum.join(["in:services" | filters] ++ ["sort:timestamp:desc", "limit:#{@default_limit}"], " ")
       end
+    end
+  end
+
+  defp apply_service_status(socket, status) do
+    if matches_current_service?(status, socket.assigns.service) do
+      socket
+      |> append_history(status)
+      |> schedule_refresh()
+    else
+      socket
     end
   end
 

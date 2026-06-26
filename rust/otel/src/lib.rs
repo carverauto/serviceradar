@@ -131,6 +131,29 @@ fn oversize_partial_message(rejected: usize) -> String {
     format!("{rejected} records exceeded max encoded size")
 }
 
+/// Extracts the `service.name` resource attribute from an OTLP resource,
+/// returning `"unknown_service"` when it is absent or not a string value.
+fn resource_service_name(resource: Option<&opentelemetry::proto::resource::v1::Resource>) -> &str {
+    resource
+        .and_then(|r| {
+            r.attributes
+                .iter()
+                .find(|kv| kv.key == "service.name")
+                .and_then(|kv| kv.value.as_ref())
+                .and_then(|v| {
+                    if let Some(opentelemetry::proto::common::v1::any_value::Value::StringValue(
+                        s,
+                    )) = &v.value
+                    {
+                        Some(s.as_str())
+                    } else {
+                        None
+                    }
+                })
+        })
+        .unwrap_or("unknown_service")
+}
+
 /// Hot-swappable handle to the active output backend.
 ///
 /// The `RwLock` is only ever held long enough to clone the inner `Arc`
@@ -272,26 +295,7 @@ impl ServiceRadarCollector {
 
         for resource_span in &trace_data.resource_spans {
             // Extract service name from resource attributes
-            let service_name = resource_span
-                .resource
-                .as_ref()
-                .and_then(|r| {
-                    r.attributes
-                        .iter()
-                        .find(|kv| kv.key == "service.name")
-                        .and_then(|kv| kv.value.as_ref())
-                        .and_then(|v| {
-                            if let Some(
-                                opentelemetry::proto::common::v1::any_value::Value::StringValue(s),
-                            ) = &v.value
-                            {
-                                Some(s.as_str())
-                            } else {
-                                None
-                            }
-                        })
-                })
-                .unwrap_or("unknown_service");
+            let service_name = resource_service_name(resource_span.resource.as_ref());
 
             for scope_span in &resource_span.scope_spans {
                 for span in &scope_span.spans {
@@ -554,29 +558,7 @@ impl ServiceRadarCollector {
 
         if log::log_enabled!(log::Level::Debug) {
             for (index, resource_metrics) in metrics_data.resource_metrics.iter().enumerate() {
-                let service_name = resource_metrics
-                    .resource
-                    .as_ref()
-                    .and_then(|resource| {
-                        resource
-                            .attributes
-                            .iter()
-                            .find(|kv| kv.key == "service.name")
-                            .and_then(|kv| kv.value.as_ref())
-                            .and_then(|value| {
-                                if let Some(
-                                    opentelemetry::proto::common::v1::any_value::Value::StringValue(
-                                        name,
-                                    ),
-                                ) = &value.value
-                                {
-                                    Some(name.as_str())
-                                } else {
-                                    None
-                                }
-                            })
-                    })
-                    .unwrap_or("unknown_service");
+                let service_name = resource_service_name(resource_metrics.resource.as_ref());
 
                 debug!(
                     "Resource metrics {}: service='{}', scope_metrics={}, total_metrics={}",

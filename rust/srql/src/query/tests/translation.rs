@@ -645,3 +645,112 @@ fn translate_graph_cypher_wraps_rows_as_topology_payload() {
         response.params
     );
 }
+
+#[test]
+fn translate_device_filtered_hourly_downsample_routes_to_timeseries_cagg() {
+    // Regression: device-detail metric charts filter by metric_type/metric_name and group by
+    // device_id over multi-hour windows. These only touch CAGG group keys, so an hourly bucket
+    // must route to `timeseries_metrics_hourly` instead of re-aggregating the raw hypertable.
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:timeseries_metrics metric_type:\"snmp\" metric_name:\"ifHCInOctets\" time:last_24h bucket:1h agg:avg series:device_id limit:1000".to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+    let sql = response.sql.to_lowercase();
+
+    assert!(
+        sql.contains("from timeseries_metrics_hourly"),
+        "expected device-filtered hourly downsample to read the CAGG, got: {}",
+        response.sql
+    );
+    assert!(
+        sql.contains("avg(avg_value) as value"),
+        "expected mean-of-means over the CAGG avg column, got: {}",
+        response.sql
+    );
+    assert!(
+        sql.contains("bucket >= time_bucket('1 hour'"),
+        "expected CAGG bucket bounds, got: {}",
+        response.sql
+    );
+}
+
+#[test]
+fn translate_agent_filtered_hourly_downsample_stays_on_raw_hypertable() {
+    // agent_id is NOT a CAGG group key (it was collapsed during materialization), so an
+    // agent-filtered query must stay on the raw hypertable to remain correct.
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:timeseries_metrics metric_type:\"snmp\" metric_name:\"ifHCInOctets\" agent_id:\"default-agent\" time:last_24h bucket:1h agg:avg series:device_id limit:1000".to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+    let sql = response.sql.to_lowercase();
+
+    assert!(
+        !sql.contains("timeseries_metrics_hourly"),
+        "agent_id-filtered query must not route to the CAGG, got: {}",
+        response.sql
+    );
+    assert!(
+        sql.contains("avg(value) as value"),
+        "expected raw-column aggregation, got: {}",
+        response.sql
+    );
+}
+
+#[test]
+fn translate_subhour_device_filtered_downsample_stays_on_raw_hypertable() {
+    // A 5-minute bucket cannot be served by the hourly CAGG even with CAGG-safe filters.
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:timeseries_metrics metric_type:\"snmp\" metric_name:\"ifHCInOctets\" time:last_24h bucket:5m agg:avg series:device_id limit:1000".to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+    assert!(
+        !response.sql.to_lowercase().contains("timeseries_metrics_hourly"),
+        "sub-hour bucket must not route to the hourly CAGG, got: {}",
+        response.sql
+    );
+}
+
+#[test]
+fn translate_hourly_max_downsample_reads_cagg_max_value_column() {
+    // MIN/MAX must read the matching pre-aggregated column so max-of-maxes / min-of-mins stays
+    // exact when serving from the CAGG.
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:timeseries_metrics metric_type:\"snmp\" metric_name:\"ifHCInOctets\" device_id:\"abc\" time:last_24h bucket:1h agg:max limit:1000".to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+    let sql = response.sql.to_lowercase();
+    assert!(
+        sql.contains("from timeseries_metrics_hourly"),
+        "expected CAGG source for device-filtered hourly max, got: {}",
+        response.sql
+    );
+    assert!(
+        sql.contains("max(max_value) as value"),
+        "expected max-of-maxes over the CAGG max column, got: {}",
+        response.sql
+    );
+}

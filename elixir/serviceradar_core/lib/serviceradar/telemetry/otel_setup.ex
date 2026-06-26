@@ -17,6 +17,14 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
   - `OTEL_ENABLED` - Set to `false` to disable OTEL export (default: `true`)
   - `OTEL_TRACES_SAMPLER_ARG` - Sampling ratio 0.0-1.0 (default: `1.0`)
 
+  These gate opt-in auto-instrumentation that builds a span per operation
+  *before* the trace sampler runs (so the sampler does not save the cost). They
+  default to OFF:
+  - `SERVICERADAR_OTEL_DB_TRACING` - Set to `true` to attach OpentelemetryEcto
+    (a span per Ecto query). Default: `false`.
+  - `SERVICERADAR_OTEL_OBAN_TRACING` - Set to `true` to attach OpentelemetryOban
+    (a span per Oban job/poll). Default: `false`.
+
   ## Usage
 
       # In your Application.start/2:
@@ -50,12 +58,12 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
       setup_phoenix(adapter)
     end
 
-    if :ecto in instrumentations do
+    if :ecto in instrumentations and db_tracing_enabled?() do
       repo = Keyword.get(opts, :ecto_repo, ServiceRadar.Repo)
       setup_ecto(repo)
     end
 
-    if :oban in instrumentations do
+    if :oban in instrumentations and oban_tracing_enabled?() do
       setup_oban()
     end
 
@@ -172,7 +180,11 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
 
         handler_config = %{
           exporter: {:otel_exporter_logs_otlp, exporter_opts},
-          level: :info,
+          # Only export :warning+ as OTLP log records. Routine info/debug app
+          # logs are self-telemetry noise that gets re-ingested via the LOGS
+          # stream into CNPG; keeping them out of the OTLP export breaks that
+          # feedback loop while warnings/errors still reach the collector.
+          level: :warning,
           # Handler-scoped filter (applied by the :logger core only for THIS
           # handler) that rewrites the hex-text otel_trace_id/otel_span_id
           # metadata to raw bytes so the OTLP encoder's bytes fields carry
@@ -212,6 +224,22 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
       |> Kernel.!=("false")
 
     enabled? and present?(System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT"))
+  end
+
+  # Opt-in (default OFF): OpentelemetryEcto attaches a telemetry handler that
+  # builds a span for EVERY Ecto query unconditionally — the trace sampler runs
+  # only after the span attributes are built, so it does not save the cost.
+  defp db_tracing_enabled?, do: bool_env_enabled?("SERVICERADAR_OTEL_DB_TRACING")
+
+  # Opt-in (default OFF): OpentelemetryOban attaches handlers that build a span
+  # for every Oban job/poll unconditionally (same pre-sampler cost as Ecto).
+  defp oban_tracing_enabled?, do: bool_env_enabled?("SERVICERADAR_OTEL_OBAN_TRACING")
+
+  defp bool_env_enabled?(env_name) do
+    env_name
+    |> System.get_env("false")
+    |> String.downcase()
+    |> Kernel.==("true")
   end
 
   defp present?(value) when is_binary(value), do: String.trim(value) != ""

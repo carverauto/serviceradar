@@ -1,6 +1,26 @@
 defmodule ServiceRadar.ResultsRouter do
   @moduledoc """
   Routes push-result payloads from the agent gateway to the correct ingestors.
+
+  ## Async batching
+
+  The async (`cast`) path buffers `{:results_update, status}` payloads and flushes
+  on a timer or when the buffer fills, whichever comes first. On flush, each
+  status still runs its type-specific `process/2` handler individually (sweep,
+  sync, mapper, etc. are unchanged), but the service-state publish is collapsed
+  into ONE `ServiceStateRegistry.bulk_upsert_from_statuses/1` plus ONE
+  `ServiceStatusPubSub.broadcast_batch/1` for the whole flush. This removes the
+  per-status upsert + PubSub overhead that dominated idle ResultsRouter
+  reductions (~704k reds/3s).
+
+  Synchronous (`call`) paths stay per-item and immediate — they need a reply.
+
+  Configure with app env (defaults shown):
+
+      config :serviceradar_core,
+        results_router_batching: true,
+        results_router_flush_interval_ms: 250,
+        results_router_max_buffer: 200
   """
 
   use GenServer
@@ -21,25 +41,34 @@ defmodule ServiceRadar.ResultsRouter do
 
   @duration_regex ~r/(\d+(?:\.\d+)?)(ns|us|µs|μs|ms|s|m|h)/
 
+  @default_flush_interval_ms 250
+  @default_max_buffer 200
+
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
   end
 
   @impl true
-  def init(state) do
+  def init(_state) do
     Logger.info("ResultsRouter started on node #{Node.self()}")
+    state = %{buffer: [], buffer_size: 0, timer: nil}
+    state = if batching_enabled?(), do: schedule_flush(state), else: state
     {:ok, state}
   end
 
   @impl true
   def handle_cast({:results_update, status}, state) do
-    _result = process_and_publish(status)
-
-    {:noreply, state}
+    if batching_enabled?() do
+      {:noreply, buffer_status(state, status)}
+    else
+      _result = process_and_publish(status)
+      {:noreply, state}
+    end
   end
 
   @impl true
   def handle_call({:results_update, status}, _from, state) do
+    # Sync path must reply per-item: process + publish immediately, not buffered.
     {:reply, process_and_publish(status), state}
   end
 
@@ -48,16 +77,96 @@ defmodule ServiceRadar.ResultsRouter do
     {:reply, process_and_publish(status, endpoint_inventory_reply_to: reply_to), state}
   end
 
+  @impl true
+  def handle_info(:flush_results, state) do
+    state = state |> flush_buffer() |> schedule_flush()
+    {:noreply, state}
+  end
+
+  # ============================================================================
+  # Async buffer + flush (cast path only)
+  # ============================================================================
+
+  defp buffer_status(state, status) do
+    state = %{state | buffer: [status | state.buffer], buffer_size: state.buffer_size + 1}
+
+    if state.buffer_size >= max_buffer() do
+      state |> flush_buffer() |> reschedule_flush()
+    else
+      state
+    end
+  end
+
+  defp flush_buffer(%{buffer_size: 0} = state), do: state
+
+  defp flush_buffer(state) do
+    statuses = Enum.reverse(state.buffer)
+
+    # Per-status type-specific routing stays per item; only collect the ones whose
+    # processing succeeded for the batched service-state publish, matching the
+    # single-item contract (publish only on :ok / {:ok, _}).
+    publishable =
+      Enum.filter(statuses, fn status ->
+        case process(status, []) do
+          :ok -> true
+          {:ok, _result} -> true
+          {:error, reason} -> log_processing_error(reason)
+        end
+      end)
+
+    publish_status_batch(publishable)
+
+    %{state | buffer: [], buffer_size: 0}
+  end
+
+  defp log_processing_error(reason) do
+    Logger.warning("Results processing failed: #{inspect(reason)}")
+    false
+  end
+
+  defp publish_status_batch([]), do: :ok
+
+  defp publish_status_batch(statuses) do
+    ServiceStateRegistry.bulk_upsert_from_statuses(statuses)
+    ServiceStatusPubSub.broadcast_batch(statuses)
+    :ok
+  rescue
+    error ->
+      Logger.warning("Service status batch publish failed", error: inspect(error))
+  catch
+    :exit, reason ->
+      Logger.warning("Service status batch publish failed", reason: inspect(reason))
+  end
+
+  defp schedule_flush(state) do
+    %{state | timer: Process.send_after(self(), :flush_results, flush_interval_ms())}
+  end
+
+  defp reschedule_flush(state) do
+    if is_reference(state.timer), do: Process.cancel_timer(state.timer)
+    schedule_flush(state)
+  end
+
+  defp batching_enabled? do
+    Application.get_env(:serviceradar_core, :results_router_batching, true) == true
+  end
+
+  defp flush_interval_ms do
+    case Application.get_env(:serviceradar_core, :results_router_flush_interval_ms) do
+      ms when is_integer(ms) and ms > 0 -> ms
+      _ -> @default_flush_interval_ms
+    end
+  end
+
+  defp max_buffer do
+    case Application.get_env(:serviceradar_core, :results_router_max_buffer) do
+      n when is_integer(n) and n > 0 -> n
+      _ -> @default_max_buffer
+    end
+  end
+
   defp process_and_publish(status, opts \\ []) do
-    service_type = status[:service_type] || "unknown"
-    source = status[:source] || "unknown"
-    service_name = status[:service_name] || "unknown"
-
-    Logger.info(
-      "ResultsRouter received: service_type=#{service_type} source=#{source} " <>
-        "service=#{service_name}"
-    )
-
+    # No per-message log here — hot path. Breadcrumbs come from the OTel span.
     case process(status, opts) do
       :ok ->
         publish_status_update(status)

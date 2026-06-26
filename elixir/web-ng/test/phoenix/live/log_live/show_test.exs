@@ -235,6 +235,39 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       refute html =~ "FunctionClauseError"
     end
 
+    test "normalizes the OTel SeverityNumber enum name into a colored badge", %{conn: conn} do
+      user = operator_user_fixture()
+      conn = log_in_user(conn, user)
+
+      # OTel-SDK producers write the raw SeverityNumber enum name into
+      # severity_text; the detail badge must resolve it to a label + color.
+      log_id = "a1b2c3d4-0000-4000-8000-000000000001"
+      insert_test_otel_severity_log!(log_id, "SEVERITY_NUMBER_INFO")
+
+      {:ok, _lv, html} = live(conn, ~p"/logs/#{log_id}")
+
+      assert html =~ "badge-info"
+      assert html =~ ~r/badge-info[^>]*>\s*INFO\s*</
+      # Neither the raw enum name nor an upcased copy of it may reach the badge.
+      refute html =~ "SEVERITY_NUMBER_INFO"
+      refute html =~ ">SEVERITY NUMBER INFO<"
+    end
+
+    test "normalizes a numbered OTel SeverityNumber variant into a WARN badge", %{conn: conn} do
+      user = operator_user_fixture()
+      conn = log_in_user(conn, user)
+
+      log_id = "a1b2c3d4-0000-4000-8000-000000000002"
+      insert_test_otel_severity_log!(log_id, "SEVERITY_NUMBER_WARN3")
+
+      {:ok, _lv, html} = live(conn, ~p"/logs/#{log_id}")
+
+      # The trailing numbered-variant digit is stripped: WARN3 -> WARN.
+      assert html =~ "badge-warning"
+      assert html =~ ~r/badge-warning[^>]*>\s*WARN\s*</
+      refute html =~ "SEVERITY_NUMBER_WARN3"
+    end
+
     test "renders ingest identity fields when present", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
@@ -313,6 +346,25 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
         scope_version: "1.0.0",
         attributes: Jason.encode!(%{"error" => "connection failed"}),
         resource_attributes: Jason.encode!(%{"service.name" => "test-service", "service.version" => "1.0.0"}),
+        created_at: now
+      }
+    ])
+  end
+
+  defp insert_test_otel_severity_log!(log_id, severity_text) when is_binary(log_id) and is_binary(severity_text) do
+    {:ok, uuid} = Ecto.UUID.dump(log_id)
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    # OTel-SDK producers leave severity_number null and carry the raw enum name.
+    Repo.insert_all("logs", [
+      %{
+        timestamp: now,
+        observed_timestamp: now,
+        id: uuid,
+        severity_text: severity_text,
+        body: "otel-severity message",
+        service_name: "otel-service",
+        attributes: Jason.encode!(%{"event" => "otel"}),
         created_at: now
       }
     ])

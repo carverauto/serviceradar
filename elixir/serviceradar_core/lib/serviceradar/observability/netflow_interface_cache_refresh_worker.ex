@@ -321,11 +321,32 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
 
   defp normalize_sampler_address(_value), do: nil
 
-  defp normalize_if_index(value) when is_integer(value) and value > 0, do: value
+  # RFC 2863 InterfaceIndex is 1..2147483647; the column is signed int32.
+  # Exporters occasionally emit a uint32 ifIndex above int32 max (corrupt data),
+  # which would otherwise abort the whole insert_all batch. Drop just that pair.
+  @max_if_index 2_147_483_647
+
+  defp normalize_if_index(value) when is_integer(value) and value > 0 and value <= @max_if_index,
+    do: value
+
+  # A uint32 ifIndex in 2^31..2^32-1 is out of the RFC 2863 / signed-int32 range
+  # — the corruption this clamp exists to absorb. Drop just this pair, but emit a
+  # telemetry counter so an exporter shedding interface observations is visible
+  # to operators rather than silently dropped. Aggregated by the handler, so this
+  # is not per-pair log noise.
+  defp normalize_if_index(value) when is_integer(value) and value > @max_if_index do
+    :telemetry.execute(
+      [:serviceradar, :netflow, :interface_cache, :if_index_out_of_range],
+      %{count: 1},
+      %{if_index: value}
+    )
+
+    nil
+  end
 
   defp normalize_if_index(value) when is_binary(value) do
     case Integer.parse(String.trim(value)) do
-      {idx, ""} when idx > 0 -> idx
+      {idx, ""} -> normalize_if_index(idx)
       _ -> nil
     end
   end

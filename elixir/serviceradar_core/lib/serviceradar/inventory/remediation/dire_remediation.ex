@@ -17,6 +17,23 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
        truth, fix stranded identifiers/poisoned aliases/ip literal (4.3)
     4. `proxmox-dups` — collapse intra-Proxmox duplicate hostname groups (4.4)
     5. `armis-dups`   — collapse Armis rows onto their armis_device_id owner
+       (DISABLED by default — see `@armis_dups_step` below)
+
+  ## `armis-dups` is disabled by default
+
+  `armis-dups` collapses every device sharing one `armis_device_id` onto a
+  single canonical. That is the exact mechanism behind the armis-overmerge
+  incident: an Armis "device" aggregates a whole scanned subnet, so this step
+  re-collapses devices that the ingest-time distinct-MAC veto (BatchResolver)
+  deliberately split apart by their distinct hardware MACs. It is therefore
+  excluded from the default run order and only executes when explicitly
+  re-enabled via config:
+
+      config :serviceradar_core, ServiceRadar.Inventory.Remediation.DireRemediation,
+        enable_armis_dups: true
+
+  Leave it off unless an operator has confirmed the armis_device_id values are
+  genuinely one-device-per-id for the data being remediated.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -30,18 +47,44 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
 
   require Logger
 
+  # The armis-overmerge root cause: collapsing all devices that share one
+  # armis_device_id onto a single canonical. Excluded from the default order so
+  # it can never re-collapse the devices the ingest-time distinct-MAC veto
+  # splits apart. Re-enable only via config (`enable_armis_dups: true`).
+  @armis_dups_step "armis-dups"
+
   @step_order [
     "blob-purge",
     "test-debris",
     "stale-agent-devices",
     "agent-links",
     "proxmox-dups",
-    "armis-dups"
+    @armis_dups_step
   ]
 
-  @doc "Ordered list of known step names."
+  @doc """
+  Ordered list of runnable step names.
+
+  `armis-dups` is omitted unless explicitly re-enabled via config (it is the
+  armis-overmerge re-collapse vector — see the moduledoc).
+  """
   @spec steps() :: [String.t()]
-  def steps, do: @step_order
+  def steps, do: default_steps()
+
+  # Default run order with armis-dups gated off unless config opts back in.
+  defp default_steps do
+    if armis_dups_enabled?() do
+      @step_order
+    else
+      @step_order -- [@armis_dups_step]
+    end
+  end
+
+  defp armis_dups_enabled? do
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:enable_armis_dups, false)
+  end
 
   @doc """
   Run the remediation.
@@ -86,10 +129,17 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
 
   defp resolve_steps(steps) when is_list(steps) do
     steps = Enum.map(steps, &to_string/1)
+    runnable = default_steps()
 
     cond do
       steps == [] or "all" in steps ->
-        {:ok, @step_order}
+        {:ok, runnable}
+
+      # Explicitly requesting the disabled armis-dups step is refused unless
+      # config opted it back in, so it cannot re-collapse split devices even
+      # via a targeted `steps:` invocation.
+      @armis_dups_step in steps and not armis_dups_enabled?() ->
+        {:error, {:disabled_steps, [@armis_dups_step]}}
 
       Enum.all?(steps, &(&1 in @step_order)) ->
         {:ok, Enum.filter(@step_order, &(&1 in steps))}

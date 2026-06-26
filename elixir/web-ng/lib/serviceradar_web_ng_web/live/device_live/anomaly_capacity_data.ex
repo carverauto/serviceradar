@@ -179,7 +179,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       [
         "in:events",
         "class_uid:2004",
-        "event_type:(anomaly,anomaly_detection)",
+        # Anomaly findings carry source_type='anomaly_detection' in
+        # metadata.service_radar; event_type is NULL on these rows. Filtering
+        # source_type (not event_type) both returns the findings AND matches the
+        # partial index idx_ocsf_events_sr_anomaly_device_time (class_uid=2004
+        # AND source_type='anomaly_detection', keyed on device_uid,time) — turns
+        # a 5s full-scan timeout into a sub-ms index scan.
+        "source_type:anomaly_detection",
         ~s|#{field}:"#{QueryData.escape_value(value)}"|,
         "time:last_7d",
         "sort:time:desc",

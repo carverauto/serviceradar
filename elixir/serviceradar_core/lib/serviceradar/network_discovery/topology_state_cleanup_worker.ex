@@ -17,7 +17,11 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker do
 
   require Logger
 
-  @default_reschedule_seconds 300
+  # Effective cleanup cadence. The sweep is heavy (9 full UPDATEs + canonical rebuild),
+  # so run it hourly rather than every 5 minutes. Overridable via
+  # `config :serviceradar_core, __MODULE__, reschedule_seconds: ...`; this constant is
+  # the hard fallback when no config is present.
+  @default_reschedule_seconds 3_600
   @default_min_canonical_edges 1
 
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}

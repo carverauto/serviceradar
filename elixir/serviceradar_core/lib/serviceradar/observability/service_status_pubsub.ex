@@ -12,6 +12,7 @@ defmodule ServiceRadar.Observability.ServiceStatusPubSub do
   ## Events
 
   - `{:service_status_updated, status}`
+  - `{:service_statuses_updated, [status]}` (batched flush)
   """
 
   @pubsub ServiceRadar.PubSub
@@ -34,6 +35,19 @@ defmodule ServiceRadar.Observability.ServiceStatusPubSub do
   """
   def broadcast_update(status) do
     safe_broadcast(@topic, {:service_status_updated, status})
+  end
+
+  @doc """
+  Broadcast a batch of status updates as a single event.
+
+  Emits one `{:service_statuses_updated, statuses}` message for the whole flush
+  instead of one `{:service_status_updated, status}` per item. `broadcast_update/1`
+  is retained for callers that update a single status.
+  """
+  def broadcast_batch([]), do: :ok
+
+  def broadcast_batch(statuses) when is_list(statuses) do
+    safe_broadcast(@topic, {:service_statuses_updated, statuses})
   end
 
   defp safe_broadcast(topic, event) do

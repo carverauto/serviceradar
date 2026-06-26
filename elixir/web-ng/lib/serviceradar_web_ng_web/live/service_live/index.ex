@@ -106,6 +106,10 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     {:noreply, schedule_refresh(socket)}
   end
 
+  def handle_info({:service_statuses_updated, _statuses}, socket) do
+    {:noreply, schedule_refresh(socket)}
+  end
+
   def handle_info({:service_state_updated, %ServiceState{service_type: "plugin"}}, socket) do
     {:noreply, schedule_refresh(socket)}
   end

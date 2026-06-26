@@ -252,7 +252,7 @@ defmodule ServiceRadar.EventWriter.Processors.MetricsTest do
              Enum.map(legacy_rows, &canonical_row/1)
   end
 
-  test "emits decode telemetry for protobuf metric envelopes" do
+  test "parse_message/1 no longer emits per-message success telemetry" do
     attach_decode_handler(self())
 
     assert [_row] =
@@ -264,7 +264,32 @@ defmodule ServiceRadar.EventWriter.Processors.MetricsTest do
                metadata: %{subject: "metrics.sysmon.memory", source: "sysmon-metrics"}
              })
 
-    assert_receive {:telemetry, @decode_completed, %{count: 1, rows: 1, duration: duration},
+    # Success telemetry moved to the per-batch path (decode_batch/1); a single
+    # decoded message must not fire decode/completed or schema_version anymore.
+    refute_receive {:telemetry, @decode_completed, _measurements, _metadata}
+    refute_receive {:telemetry, @schema_version, _measurements, _metadata}
+  end
+
+  test "decode_batch/1 emits ONE aggregated decode telemetry event per batch" do
+    attach_decode_handler(self())
+
+    message = fn ->
+      %{
+        data:
+          metric_batch([
+            gauge_metric("memory.used_percent", "sysmon.memory", 50.0, "%", [])
+          ]),
+        metadata: %{subject: "metrics.sysmon.memory", source: "sysmon-metrics"}
+      }
+    end
+
+    # Three messages of one row each in a single batch.
+    {rows, 0} = Metrics.decode_batch([message.(), message.(), message.()])
+    assert length(rows) == 3
+
+    # Exactly one aggregated decode/completed: count summed across the batch,
+    # rows summed, duration summed (>= 0).
+    assert_receive {:telemetry, @decode_completed, %{count: 3, rows: 3, duration: duration},
                     metadata}
 
     assert is_integer(duration)
@@ -272,9 +297,14 @@ defmodule ServiceRadar.EventWriter.Processors.MetricsTest do
     assert metadata.source == "sysmon-metrics"
     assert metadata.schema_version == "serviceradar.metric.v1"
 
-    assert_receive {:telemetry, @schema_version, %{count: 1}, schema_metadata}
+    # Exactly one aggregated schema_version event, count summed.
+    assert_receive {:telemetry, @schema_version, %{count: 3}, schema_metadata}
     assert schema_metadata.source == "sysmon-metrics"
     assert schema_metadata.schema_version == "serviceradar.metric.v1"
+
+    # No second copy of either event (per-batch, not per-message).
+    refute_receive {:telemetry, @decode_completed, _measurements, _metadata}
+    refute_receive {:telemetry, @schema_version, _measurements, _metadata}
   end
 
   test "emits decode failure telemetry for invalid metric envelopes" do

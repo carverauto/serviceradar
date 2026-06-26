@@ -108,18 +108,55 @@ defmodule ServiceRadar.GatewayRegistry do
 
   @doc """
   Look up a specific gateway in the registry.
+
+  When this node has left the Horde registry mesh (web-ng), the read is RPC'd to
+  a core node that is still a member.
   """
   @spec lookup(String.t()) :: [{pid(), map()}]
   def lookup(gateway_id) when is_binary(gateway_id) do
-    ProcessRegistry.lookup_gateway(gateway_id)
+    via_registry([], :lookup_gateway, [gateway_id])
   end
 
   @doc """
   Find all gateways.
+
+  RPC'd to a core node when this node is not a registry member (web-ng).
   """
   @spec find_gateways() :: [map()]
   def find_gateways do
-    ProcessRegistry.find_gateways()
+    via_registry([], :find_gateways, [])
+  end
+
+  # Runs a `ProcessRegistry` read locally when this node is a registry member,
+  # otherwise RPCs a core node that still holds the CRDT. `default` is returned
+  # when no core node is reachable, keeping return shapes unchanged.
+  defp via_registry(default, fun, args) do
+    if ProcessRegistry.registry_present?() do
+      apply(ProcessRegistry, fun, args)
+    else
+      case ProcessRegistry.core_node() do
+        nil ->
+          Logger.warning(
+            "[GatewayRegistry] No registry member reachable for #{fun}/#{length(args)}"
+          )
+
+          default
+
+        node ->
+          case :erpc.call(node, ProcessRegistry, fun, args, 5_000) do
+            {:badrpc, reason} ->
+              Logger.warning("[GatewayRegistry] Registry RPC #{fun} failed: #{inspect(reason)}")
+              default
+
+            result ->
+              result
+          end
+      end
+    end
+  rescue
+    error ->
+      Logger.warning("[GatewayRegistry] Registry RPC #{fun} raised: #{inspect(error)}")
+      default
   end
 
   @doc """
@@ -194,6 +231,6 @@ defmodule ServiceRadar.GatewayRegistry do
   """
   @spec count() :: non_neg_integer()
   def count do
-    ProcessRegistry.count_by_type(:gateway)
+    via_registry(0, :count_by_type, [:gateway])
   end
 end
