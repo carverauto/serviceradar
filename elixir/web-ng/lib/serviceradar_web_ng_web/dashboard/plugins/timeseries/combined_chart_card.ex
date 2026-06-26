@@ -53,6 +53,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
           <span class={["font-medium", @compact && "text-xs", not @compact && "text-sm"]}>
             {@data.title}
           </span>
+          <span
+            :if={Map.get(@data, :overlays, []) != []}
+            class="badge badge-xs badge-outline"
+            title={"#{length(@data.overlays)} chart overlays"}
+          >
+            {length(@data.overlays)}
+          </span>
         </div>
         <div class="flex items-center gap-3">
           <%= for series <- @data.series do %>
@@ -147,6 +154,17 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
             annotations={@data.annotations}
             chart_top_pad={@chart_top_pad}
             chart_bottom_pad={@chart_bottom_pad}
+            chart_height={@chart_height}
+            compact={@compact}
+          />
+
+          <ChartCard.chart_overlays_svg
+            overlays={Map.get(@data, :overlays, [])}
+            chart_left_pad={@chart_left_pad}
+            chart_right_pad={@chart_right_pad}
+            chart_top_pad={@chart_top_pad}
+            chart_bottom_pad={@chart_bottom_pad}
+            chart_width={@chart_width}
             chart_height={@chart_height}
             compact={@compact}
           />

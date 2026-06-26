@@ -427,7 +427,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp annotate_metric_section_assigns(assigns, _selected_detail), do: assigns
 
-  defp selected_anomaly_row(%{kind: "anomaly", row: %{} = row}), do: row
+  defp selected_anomaly_row(%{kind: kind, row: %{} = row}) when kind in ["anomaly", "capacity_notice"], do: row
   defp selected_anomaly_row(_), do: nil
 
   defp apply_flow_stats_bundle(socket, stats_bundle) do
@@ -508,6 +508,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp begin_device_metrics_refresh(socket, uid, srql_module, sysmon_identity, scope) do
     request_ref = make_ref()
     can_view_anomaly_capacity? = RBAC.can?(scope, "observability.alerts.view")
+    anomaly_filters = Map.get(socket.assigns, :anomaly_capacity_filters, %{})
 
     if Application.get_env(:serviceradar_web_ng, :env) == :test do
       sysmon_filters =
@@ -523,7 +524,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             can_view_anomaly_capacity?,
             srql_module,
             sysmon_identity,
-            scope
+            scope,
+            anomaly_filters
           )
       }
 
@@ -549,18 +551,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               can_view_anomaly_capacity?,
               srql_module,
               sysmon_identity,
-              scope
+              scope,
+              anomaly_filters
             )
         }
       end)
     end
   end
 
-  defp maybe_load_anomaly_capacity(true, srql_module, sysmon_identity, scope) do
-    AnomalyCapacityData.load(srql_module, sysmon_identity, scope)
+  defp maybe_load_anomaly_capacity(true, srql_module, sysmon_identity, scope, filters) do
+    AnomalyCapacityData.load(srql_module, sysmon_identity, scope, anomaly_load_opts(filters))
   end
 
-  defp maybe_load_anomaly_capacity(false, _srql_module, _sysmon_identity, _scope) do
+  defp maybe_load_anomaly_capacity(false, _srql_module, _sysmon_identity, _scope, _filters) do
     AnomalyCapacityData.empty()
   end
 
@@ -1013,6 +1016,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {:noreply, assign(socket, :process_metrics_page, socket.assigns.process_metrics_page + 1)}
   end
 
+  def handle_event("anomaly_findings_prev_page", _params, socket) do
+    cursor = get_in(socket.assigns, [:anomaly_capacity, :anomaly_pagination, "prev_cursor"])
+    {:noreply, reload_anomaly_capacity_page(socket, cursor, -1)}
+  end
+
+  def handle_event("anomaly_findings_next_page", _params, socket) do
+    cursor = get_in(socket.assigns, [:anomaly_capacity, :anomaly_pagination, "next_cursor"])
+    {:noreply, reload_anomaly_capacity_page(socket, cursor, 1)}
+  end
+
+  def handle_event("anomaly_findings_filter", %{"anomaly_filters" => filters}, socket) do
+    filters = normalize_anomaly_filters(filters)
+    {:noreply, reload_anomaly_capacity_first_page(socket, filters)}
+  end
+
+  def handle_event("anomaly_findings_filter", _params, socket), do: {:noreply, socket}
+
   def handle_event("endpoint_inventory_open_package", %{"ref" => ref}, socket) do
     {:noreply, EndpointInventoryRuntime.open_package_detail(socket, ref)}
   end
@@ -1026,11 +1046,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
          rows when is_list(rows) <- anomaly_capacity_detail_rows(socket.assigns.anomaly_capacity, kind),
          %{} = row <- Enum.at(rows, index) do
       detail = %{kind: kind, row: row}
+      detail_metric_sections = load_anomaly_capacity_detail_metric_sections(socket, detail)
 
       {:noreply,
        socket
        |> assign(:anomaly_capacity_detail, detail)
        |> assign(:selected_anomaly_capacity_detail, detail)
+       |> assign(:anomaly_capacity_detail_metric_sections, detail_metric_sections)
        |> assign(
          :metric_sections,
          SysmonMetrics.annotate_metric_sections(
@@ -1049,6 +1071,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      socket
      |> assign(:anomaly_capacity_detail, nil)
      |> assign(:selected_anomaly_capacity_detail, nil)
+     |> assign(:anomaly_capacity_detail_metric_sections, [])
      |> assign(
        :metric_sections,
        SysmonMetrics.annotate_metric_sections(
@@ -1186,8 +1209,182 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   def handle_event(_event, _params, socket), do: {:noreply, socket}
 
   defp anomaly_capacity_detail_rows(%{anomaly_rows: rows}, "anomaly"), do: rows
+  defp anomaly_capacity_detail_rows(%{anomaly_rows: rows}, "capacity_notice"), do: rows
   defp anomaly_capacity_detail_rows(%{capacity_rows: rows}, "capacity"), do: rows
   defp anomaly_capacity_detail_rows(_overview, _kind), do: nil
+
+  defp reload_anomaly_capacity_page(socket, cursor, page_delta) when is_binary(cursor) and cursor != "" do
+    identity = Map.get(socket.assigns.anomaly_capacity || %{}, :identity)
+
+    data =
+      AnomalyCapacityData.load(
+        srql_module(),
+        identity,
+        socket.assigns.current_scope,
+        anomaly_load_opts(Map.get(socket.assigns, :anomaly_capacity_filters, %{}), anomaly_cursor: cursor)
+      )
+
+    page =
+      socket.assigns
+      |> Map.get(:anomaly_capacity_page, 1)
+      |> Kernel.+(page_delta)
+      |> max(1)
+
+    socket
+    |> assign(:anomaly_capacity, data)
+    |> assign(:anomaly_capacity_page, page)
+    |> assign(:anomaly_capacity_detail, nil)
+    |> assign(:selected_anomaly_capacity_detail, nil)
+    |> assign(:anomaly_capacity_detail_metric_sections, [])
+    |> assign(
+      :metric_sections,
+      SysmonMetrics.annotate_metric_sections(Map.get(socket.assigns, :metric_sections), data)
+    )
+  end
+
+  defp reload_anomaly_capacity_page(socket, _cursor, _page_delta), do: socket
+
+  defp reload_anomaly_capacity_first_page(socket, filters) do
+    identity = Map.get(socket.assigns.anomaly_capacity || %{}, :identity)
+
+    data =
+      AnomalyCapacityData.load(
+        srql_module(),
+        identity,
+        socket.assigns.current_scope,
+        anomaly_load_opts(filters)
+      )
+
+    socket
+    |> assign(:anomaly_capacity, data)
+    |> assign(:anomaly_capacity_filters, filters)
+    |> assign(:anomaly_capacity_page, 1)
+    |> assign(:anomaly_capacity_detail, nil)
+    |> assign(:selected_anomaly_capacity_detail, nil)
+    |> assign(:anomaly_capacity_detail_metric_sections, [])
+    |> assign(
+      :metric_sections,
+      SysmonMetrics.annotate_metric_sections(Map.get(socket.assigns, :metric_sections), data)
+    )
+  end
+
+  defp normalize_anomaly_filters(filters) when is_map(filters) do
+    %{
+      "severity" => normalize_anomaly_filter_value(Map.get(filters, "severity"), ~w(all critical high medium low), "all"),
+      "status" => normalize_anomaly_filter_value(Map.get(filters, "status"), ~w(all open pending cleared), "all"),
+      "sort" => normalize_anomaly_filter_value(Map.get(filters, "sort"), ~w(newest oldest severity), "newest")
+    }
+  end
+
+  defp normalize_anomaly_filters(_filters), do: %{"severity" => "all", "status" => "all", "sort" => "newest"}
+
+  defp normalize_anomaly_filter_value(value, allowed, default) when is_binary(value) do
+    value = String.trim(value)
+    if value in allowed, do: value, else: default
+  end
+
+  defp normalize_anomaly_filter_value(_value, _allowed, default), do: default
+
+  defp anomaly_load_opts(filters, extra \\ []) do
+    filters = normalize_anomaly_filters(filters)
+
+    Keyword.merge(
+      [
+        anomaly_severity: empty_filter_to_nil(Map.get(filters, "severity")),
+        anomaly_status: empty_filter_to_nil(Map.get(filters, "status")),
+        anomaly_sort: Map.get(filters, "sort", "newest")
+      ],
+      extra
+    )
+  end
+
+  defp empty_filter_to_nil(value) when value in [nil, "", "all"], do: nil
+  defp empty_filter_to_nil(value), do: value
+
+  defp load_anomaly_capacity_detail_metric_sections(socket, %{row: %{} = row} = detail) do
+    with identity when is_map(identity) <- Map.get(socket.assigns.anomaly_capacity || %{}, :identity),
+         time_range when is_binary(time_range) <- detail_time_range(row),
+         sysmon_filters =
+           SysmonMetrics.resolve_sysmon_filter_tokens(srql_module(), identity, socket.assigns.current_scope),
+         true <- sysmon_filters != [] do
+      srql_module()
+      |> SysmonMetrics.load_metric_sections(sysmon_filters, socket.assigns.current_scope,
+        time_range: time_range,
+        window_label: detail_window_label(row),
+        metrics_limit: 300,
+        cpu_metrics_limit: 20_000,
+        disk_metrics_limit: 300
+      )
+      |> SysmonMetrics.annotate_metric_sections(socket.assigns.anomaly_capacity, selected_anomaly_row(detail))
+    else
+      _ -> []
+    end
+  end
+
+  defp load_anomaly_capacity_detail_metric_sections(_socket, _detail), do: []
+
+  defp detail_time_range(row) do
+    with %DateTime{} = center <- detail_center_time(row),
+         {start_dt, end_dt} <- detail_window_bounds(row, center) do
+      "[#{DateTime.to_iso8601(start_dt)},#{DateTime.to_iso8601(end_dt)}]"
+    end
+  end
+
+  defp detail_window_label(row) do
+    case {detail_center_time(row), detail_time_range(row)} do
+      {%DateTime{} = center, range} when is_binary(range) ->
+        "around #{Calendar.strftime(center, "%b %d %H:%M UTC")}"
+
+      _ ->
+        "selected finding window"
+    end
+  end
+
+  defp detail_window_bounds(row, center) do
+    start_dt = parse_detail_datetime(Map.get(row, "window_started_at"))
+    end_dt = parse_detail_datetime(Map.get(row, "window_ended_at"))
+
+    if match?(%DateTime{}, start_dt) and match?(%DateTime{}, end_dt) do
+      {DateTime.add(start_dt, -900, :second), DateTime.add(end_dt, 900, :second)}
+    else
+      {DateTime.add(center, -3_600, :second), DateTime.add(center, 3_600, :second)}
+    end
+  end
+
+  defp detail_center_time(row) do
+    row
+    |> first_present_detail_time(["time", "timestamp", "window_ended_at", "projected_exhaustion_at", "forecasted_at"])
+    |> parse_detail_datetime()
+  end
+
+  defp first_present_detail_time(row, keys) do
+    Enum.find_value(keys, fn key ->
+      case Map.get(row, key) do
+        value when is_binary(value) and value != "" -> value
+        %DateTime{} = value -> value
+        %NaiveDateTime{} = value -> value
+        _ -> nil
+      end
+    end)
+  end
+
+  defp parse_detail_datetime(%DateTime{} = dt), do: dt
+  defp parse_detail_datetime(%NaiveDateTime{} = ndt), do: DateTime.from_naive!(ndt, "Etc/UTC")
+
+  defp parse_detail_datetime(value) when is_binary(value) do
+    value = String.trim(value)
+
+    if value == "" do
+      nil
+    else
+      case DateTime.from_iso8601(value) do
+        {:ok, dt, _offset} -> dt
+        _ -> nil
+      end
+    end
+  end
+
+  defp parse_detail_datetime(_value), do: nil
 
   @impl true
   def render(assigns), do: ServiceRadarWebNGWeb.DeviceLive.ShowTemplate.render(assigns)

@@ -55,7 +55,15 @@ export function desktopMediaStreamFromTrackEvent(event, mediaStreamFactory = glo
     return null
   }
 
-  return new mediaStreamFactory([track])
+  try {
+    return new mediaStreamFactory([track])
+  } catch (error) {
+    if (error instanceof TypeError) {
+      return mediaStreamFactory([track])
+    }
+
+    throw error
+  }
 }
 
 export function validateDesktopOfferSdp(sdp) {
