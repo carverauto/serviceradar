@@ -5,9 +5,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths
 
   @max_points 800
-  @linear_padding_ratio 0.08
+  @linear_padding_ratio 0.05
   @constant_padding_ratio 0.05
-  @log_padding_ratio 0.05
+  @log_padding_ratio 0.0
   @log_constant_factor :math.sqrt(10)
 
   def chart_max_from_value(_max_v, _unit, scale_max) when is_number(scale_max) and scale_max > 0, do: scale_max
@@ -212,7 +212,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
       else
         min_log = :math.log10(min_v)
         max_log = :math.log10(max_v)
-        pad = max((max_log - min_log) * @log_padding_ratio, 0.01)
+        pad = max((max_log - min_log) * @log_padding_ratio, 0.0)
         {:math.pow(10, min_log - pad), :math.pow(10, max_log + pad)}
       end
 

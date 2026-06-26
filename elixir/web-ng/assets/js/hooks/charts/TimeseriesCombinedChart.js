@@ -1,4 +1,5 @@
-import {timeseriesClientXToPointIndex, timeseriesPointIndexToLocalX} from "./geometry"
+import {timeseriesPointIndexToLocalX} from "./geometry"
+import {hoverPosition, plotGeometryFromDataset} from "../../utils/chart_hover_geometry"
 
 export default {
   mounted() {
@@ -14,7 +15,7 @@ export default {
     }
 
     const el = this.el
-    const svg = el.querySelector("svg")
+    const svg = el.querySelector("[data-chart-svg]") || el.querySelector("svg")
     const tooltip = el.querySelector("[data-tooltip]")
     const hoverLine = el.querySelector("[data-hover-line]")
     const seriesData = JSON.parse(el.dataset.series || "[]")
@@ -47,6 +48,14 @@ export default {
       return `${value.toFixed(1)} Hz`
     }
 
+    const formatBitsPerSec = (value) => {
+      const abs = Math.abs(value)
+      if (abs >= 1e9) return `${(value / 1e9).toFixed(2)} Gbit/s`
+      if (abs >= 1e6) return `${(value / 1e6).toFixed(2)} Mbit/s`
+      if (abs >= 1e3) return `${(value / 1e3).toFixed(2)} Kbit/s`
+      return `${value.toFixed(1)} bit/s`
+    }
+
     const formatCountPerSec = (value) => {
       const abs = Math.abs(value)
       if (abs >= 1e6) return `${(value / 1e6).toFixed(2)} M/s`
@@ -62,6 +71,8 @@ export default {
           return `${value.toFixed(1)}%`
         case "bytes_per_sec":
           return `${formatBytes(value)}/s`
+        case "bits_per_sec":
+          return formatBitsPerSec(value)
         case "bytes":
           return formatBytes(value)
         case "hz":
@@ -75,16 +86,22 @@ export default {
 
     const showTooltip = (e) => {
       const rect = svg.getBoundingClientRect()
+      const geometry = plotGeometryFromDataset(el, svg, rect)
+      const position = hoverPosition(e.clientX, rect, geometry)
       let hoverX = e.clientX - rect.left
 
       const rows = seriesData
         .map((series) => {
           const points = Array.isArray(series.points) ? series.points : []
           if (points.length === 0) return null
-          const idx = timeseriesClientXToPointIndex(e.clientX, rect, points.length)
+          const idx = points.length > 1 ? Math.round(position.pct * (points.length - 1)) : 0
           const point = points[idx]
           if (!point) return null
-          hoverX = timeseriesPointIndexToLocalX(idx, rect, points.length)
+          hoverX = timeseriesPointIndexToLocalX(idx, rect, points.length, {
+            viewBoxWidth: geometry.viewBoxWidth,
+            chartLeftPad: geometry.plotLeft,
+            chartRightPad: geometry.plotRight,
+          })
           return {
             label: series.label || "series",
             color: series.color || "#A1A1AA",

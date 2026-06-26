@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest"
 
-import {hoverPosition} from "./chart_hover_geometry"
+import {hoverPosition, plotGeometryFromDataset} from "./chart_hover_geometry"
 
 describe("chart hover geometry", () => {
   it("maps server-rendered timeseries hover through the padded SVG plot area", () => {
@@ -19,5 +19,17 @@ describe("chart hover geometry", () => {
     expect(hoverPosition(64, rect, opts)).toMatchObject({pct: 0, lineX: 44, plotX: 0})
     expect(hoverPosition(287, rect, opts)).toMatchObject({pct: 0.5, lineX: 267, plotX: 223})
     expect(hoverPosition(510, rect, opts)).toMatchObject({pct: 1, lineX: 490, plotX: 446})
+  })
+
+  it("reads asymmetric server-rendered plot gutters from data attributes", () => {
+    const el = {dataset: {chartWidth: "800", chartLeftPad: "72", chartRightPad: "32"}}
+    const svg = {getAttribute: () => "0 0 800 140"}
+
+    expect(plotGeometryFromDataset(el, svg, {width: 400})).toEqual({
+      viewBoxWidth: 800,
+      plotLeft: 72,
+      plotRight: 32,
+      plotWidth: 696,
+    })
   })
 })

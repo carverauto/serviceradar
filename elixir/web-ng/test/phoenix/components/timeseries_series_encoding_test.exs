@@ -10,7 +10,7 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesSeriesEncodingTest do
   @moduletag :unit
   @moduletag :db_free
 
-  test "renders non-color marker and line encodings for individual series charts" do
+  test "renders non-color marker encodings with solid individual series lines" do
     points = sample_points()
 
     html =
@@ -29,10 +29,11 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesSeriesEncodingTest do
     assert html =~ ~s(data-series-shape="square")
     assert html =~ ~s(aria-label="Circle series marker")
     assert html =~ ~s(aria-label="Square series marker")
-    assert html =~ ~s(stroke-dasharray="5 3")
+    refute html =~ ~s(stroke-dasharray="6 4")
+    refute html =~ ~s(stroke-dasharray="2 3")
   end
 
-  test "renders non-color marker and line encodings for combined charts" do
+  test "renders non-color marker encodings with solid combined chart lines" do
     points = sample_points()
 
     html =
@@ -56,7 +57,8 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesSeriesEncodingTest do
     assert html =~ ~s(data-series-shape="square")
     assert html =~ ~s(aria-label="Circle series marker")
     assert html =~ ~s(aria-label="Square series marker")
-    assert html =~ ~s(stroke-dasharray="5 3")
+    refute html =~ ~s(stroke-dasharray="6 4")
+    refute html =~ ~s(stroke-dasharray="2 3")
   end
 
   defp sample_points do

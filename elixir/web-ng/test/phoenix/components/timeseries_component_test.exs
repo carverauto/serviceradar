@@ -33,6 +33,8 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
 
     assert html =~ "stroke-dasharray=\"3 4\""
     assert html =~ "12:00 AM"
+    assert html =~ "<text x=\"62\""
+    refute html =~ "<text x=\"4\""
   end
 
   test "renders timestamp annotations as SVG markers" do
@@ -64,7 +66,7 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
     assert html =~ "data-testid=\"timeseries-annotation\""
     assert html =~ "data-annotation-label=\"Anomaly finding\""
     assert html =~ "data-annotation-severity=\"critical\""
-    assert html =~ "x1=\"204.0\""
+    assert html =~ "x1=\"246.0\""
     assert html =~ "#EF4444"
   end
 
@@ -97,7 +99,7 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
 
     assert html =~ "CPU saturation"
     assert html =~ "data-annotation-label=\"CPU saturation\""
-    assert html =~ "x1=\"400.0\""
+    assert html =~ "x1=\"420.0\""
     assert html =~ "cpu1"
     refute html =~ "cpu0"
     assert html =~ "12:09 AM"
@@ -196,7 +198,7 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
     assert html =~ "%"
   end
 
-  test "renders non-color stroke patterns for multi-series charts" do
+  test "renders non-color markers with solid strokes for multi-series charts" do
     points = [
       {~U[2025-01-01 00:00:00Z], 10.0},
       {~U[2025-01-01 00:05:00Z], 20.0},
@@ -214,7 +216,62 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
 
     assert html =~ "cpu0"
     assert html =~ "cpu1"
-    assert html =~ "stroke-dasharray=\"6 4\""
+    assert html =~ ~s(data-series-shape="circle")
+    assert html =~ ~s(data-series-shape="square")
+    refute html =~ ~s(stroke-dasharray="6 4")
+    refute html =~ ~s(stroke-dasharray="2 3")
+  end
+
+  test "renders compact combined charts full width instead of inside the series card grid" do
+    points = [
+      {~U[2025-01-01 00:00:00Z], 10.0},
+      {~U[2025-01-01 00:05:00Z], 20.0},
+      {~U[2025-01-01 00:10:00Z], 30.0}
+    ]
+
+    html =
+      render_component(Timeseries, %{
+        id: "ts-compact-combined",
+        title: "CPU",
+        panel_assigns: %{
+          compact: true,
+          chart_mode: :single,
+          rate_mode: :none,
+          combine_all_series: true,
+          combined_title: "CPU cores"
+        },
+        spec: %{x: "timestamp", y: "usage_percent", series: "label"},
+        series_points: [{"0", points}, {"1", points}, {"2", points}]
+      })
+
+    assert html =~ ~s(id="combined-chart-ts-compact-combined")
+    assert html =~ "CPU cores"
+    refute html =~ "lg:grid-cols-2 xl:grid-cols-3"
+  end
+
+  test "renders a compact title above individual series grids" do
+    points = [
+      {~U[2025-01-01 00:00:00Z], 10.0},
+      {~U[2025-01-01 00:05:00Z], 20.0}
+    ]
+
+    html =
+      render_component(Timeseries, %{
+        id: "ts-compact-title",
+        title: "CPU",
+        panel_assigns: %{
+          compact: true,
+          chart_mode: :single,
+          rate_mode: :none,
+          compact_title: "Top cores"
+        },
+        spec: %{x: "timestamp", y: "usage_percent", series: "core_id"},
+        series_points: [{"15", points}, {"16", points}]
+      })
+
+    assert html =~ "Top cores"
+    assert html =~ "lg:grid-cols-2 xl:grid-cols-3"
+    refute html =~ ~s(id="combined-chart-ts-compact-title")
   end
 
   test "prefers SRQL metric unit metadata over field-name inference" do

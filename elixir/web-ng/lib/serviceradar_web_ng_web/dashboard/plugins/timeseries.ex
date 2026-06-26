@@ -11,14 +11,11 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Focus
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics
+  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Spec
   alias ServiceRadarWebNGWeb.SRQL.Viz
-
-  @chart_width 800
-  @chart_height 140
-  @chart_pad 8
 
   @impl true
   def id, do: "timeseries"
@@ -79,8 +76,14 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     chart_mode = Map.get(panel_assigns || %{}, :chart_mode, :single)
     combine_all_series = Map.get(panel_assigns || %{}, :combine_all_series, false)
     combined_title = Map.get(panel_assigns || %{}, :combined_title)
+    compact_title = Map.get(panel_assigns || %{}, :compact_title)
     rate_mode = Map.get(panel_assigns || %{}, :rate_mode, :none)
-    y_scale = Points.scale_mode(Spec.fetch_panel_value(panel_assigns, :y_scale, :linear))
+
+    y_scale =
+      panel_assigns
+      |> Spec.fetch_panel_value(:y_scale, Spec.fetch_panel_value(panel_assigns, :scale_mode, :linear))
+      |> Points.scale_mode()
+
     series_points = series_points_from_assigns(assigns, panel_assigns)
     spec = Spec.fetch_panel_value(panel_assigns, :spec, Map.get(assigns, :spec))
 
@@ -106,11 +109,15 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       |> assign(:chart_mode, chart_mode)
       |> assign(:combine_all_series, combine_all_series)
       |> assign(:combined_title, combined_title)
+      |> assign(:compact_title, compact_title)
       |> assign(:rate_mode, rate_mode)
       |> assign(:y_scale, y_scale)
-      |> assign(:chart_width, @chart_width)
-      |> assign(:chart_height, @chart_height)
-      |> assign(:chart_pad, @chart_pad)
+      |> assign(:chart_width, Paths.chart_width())
+      |> assign(:chart_height, Paths.chart_height())
+      |> assign(:chart_left_pad, Paths.chart_left_pad())
+      |> assign(:chart_right_pad, Paths.chart_right_pad())
+      |> assign(:chart_top_pad, Paths.chart_top_pad())
+      |> assign(:chart_bottom_pad, Paths.chart_bottom_pad())
 
     {:ok, socket}
   end
@@ -153,12 +160,19 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         y_scale
       )
 
+    empty_state =
+      empty_state_from_assigns(
+        assigns,
+        combined_charts == [] and individual_series == []
+      )
+
     assigns =
       assigns
       |> assign(:compact, compact)
       |> assign(:series_count, length(series_points))
       |> assign(:series_data, individual_series)
       |> assign(:combined_charts, combined_charts)
+      |> assign(:empty_state, empty_state)
       |> assign(:first_dt, Points.first_dt(series_points))
       |> assign(:last_dt, Points.last_dt(series_points))
 
@@ -448,31 +462,137 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   defp render_chart(assigns, true), do: render_compact(assigns)
   defp render_chart(assigns, false), do: render_full(assigns)
 
+  defp empty_state_from_assigns(_assigns, false), do: nil
+
+  defp empty_state_from_assigns(assigns, true) do
+    case normalize_empty_state(Spec.fetch_panel_value(assigns, :empty_state, :no_data)) do
+      :query_error ->
+        %{
+          title: "Chart query failed",
+          detail:
+            Spec.fetch_panel_value(
+              assigns,
+              :empty_detail,
+              "The chart query failed before returning usable data."
+            ),
+          class: "border-error bg-error/5 text-error"
+        }
+
+      :disabled ->
+        %{
+          title: "Metrics collection disabled",
+          detail:
+            Spec.fetch_panel_value(
+              assigns,
+              :empty_detail,
+              "Enable the relevant SNMP or polling configuration."
+            ),
+          class: "border-warning bg-warning/5 text-warning",
+          href: Spec.fetch_panel_value(assigns, :empty_config_href),
+          label: Spec.fetch_panel_value(assigns, :empty_config_label, "Configure metrics")
+        }
+
+      _ ->
+        %{
+          title: "No chart data",
+          detail: Spec.fetch_panel_value(assigns, :empty_detail, "No samples matched this chart."),
+          class: "border-base-300 bg-base-200/40 text-base-content"
+        }
+    end
+  end
+
+  defp normalize_empty_state(value) when is_atom(value), do: value
+
+  defp normalize_empty_state(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.downcase()
+    |> case do
+      "query_error" -> :query_error
+      "query-error" -> :query_error
+      "error" -> :query_error
+      "disabled" -> :disabled
+      _ -> :no_data
+    end
+  end
+
+  defp normalize_empty_state(_value), do: :no_data
+
+  defp empty_state_box(assigns) do
+    ~H"""
+    <div
+      :if={@empty_state}
+      class={[
+        "rounded-lg border px-4 py-5",
+        @empty_state.class
+      ]}
+    >
+      <div class={["font-semibold", @compact && "text-xs", not @compact && "text-sm"]}>
+        {@empty_state.title}
+      </div>
+      <div class={["mt-1 opacity-80", @compact && "text-[10px]", not @compact && "text-xs"]}>
+        {@empty_state.detail}
+      </div>
+      <a
+        :if={Map.get(@empty_state, :href)}
+        href={@empty_state.href}
+        class={[
+          "link mt-3 inline-flex",
+          @compact && "text-[10px]",
+          not @compact && "text-xs"
+        ]}
+      >
+        {Map.get(@empty_state, :label, "Configure metrics")}
+      </a>
+    </div>
+    """
+  end
+
   defp render_compact(assigns) do
     ~H"""
     <div id={"panel-#{@id}"} class="p-4">
-      <div class={[
-        "grid gap-3",
-        @series_count > 1 && "grid-cols-1 lg:grid-cols-2 xl:grid-cols-3",
-        @series_count == 1 && "grid-cols-1"
-      ]}>
-        <%= for combined <- @combined_charts do %>
-          <CombinedChartCard.combined_chart_card
-            id={@id}
-            data={combined}
-            chart_width={@chart_width}
-            chart_height={@chart_height}
-            chart_pad={@chart_pad}
-            compact={true}
-          />
-        <% end %>
+      <.empty_state_box empty_state={@empty_state} compact={@compact} />
+
+      <div
+        :if={is_binary(@compact_title) and @series_data != []}
+        class="mb-3 text-sm font-semibold text-base-content/90"
+      >
+        {@compact_title}
+      </div>
+
+      <%= for combined <- @combined_charts do %>
+        <CombinedChartCard.combined_chart_card
+          id={@id}
+          data={combined}
+          chart_width={@chart_width}
+          chart_height={@chart_height}
+          chart_left_pad={@chart_left_pad}
+          chart_right_pad={@chart_right_pad}
+          chart_top_pad={@chart_top_pad}
+          chart_bottom_pad={@chart_bottom_pad}
+          compact={true}
+        />
+      <% end %>
+
+      <div
+        :if={@series_data != []}
+        class={[
+          "grid gap-3",
+          length(@series_data) > 1 && "grid-cols-1 lg:grid-cols-2 xl:grid-cols-3",
+          length(@series_data) == 1 && "grid-cols-1",
+          @combined_charts != [] && "mt-3"
+        ]}
+      >
         <%= for data <- @series_data do %>
           <ChartCard.chart_card
             id={@id}
             data={data}
             chart_width={@chart_width}
             chart_height={@chart_height}
-            chart_pad={@chart_pad}
+            chart_left_pad={@chart_left_pad}
+            chart_right_pad={@chart_right_pad}
+            chart_top_pad={@chart_top_pad}
+            chart_bottom_pad={@chart_bottom_pad}
             compact={true}
           />
         <% end %>
@@ -496,13 +616,18 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
           </div>
         </:header>
 
+        <.empty_state_box empty_state={@empty_state} compact={@compact} />
+
         <%= for combined <- @combined_charts do %>
           <CombinedChartCard.combined_chart_card
             id={@id}
             data={combined}
             chart_width={@chart_width}
             chart_height={@chart_height}
-            chart_pad={@chart_pad}
+            chart_left_pad={@chart_left_pad}
+            chart_right_pad={@chart_right_pad}
+            chart_top_pad={@chart_top_pad}
+            chart_bottom_pad={@chart_bottom_pad}
             compact={false}
           />
         <% end %>
@@ -521,7 +646,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
               data={data}
               chart_width={@chart_width}
               chart_height={@chart_height}
-              chart_pad={@chart_pad}
+              chart_left_pad={@chart_left_pad}
+              chart_right_pad={@chart_right_pad}
+              chart_top_pad={@chart_top_pad}
+              chart_bottom_pad={@chart_bottom_pad}
               compact={false}
             />
           <% end %>
