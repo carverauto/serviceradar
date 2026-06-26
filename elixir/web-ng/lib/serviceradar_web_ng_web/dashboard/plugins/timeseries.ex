@@ -82,6 +82,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     chart_mode = Map.get(panel_assigns || %{}, :chart_mode, :single)
     combine_all_series = Map.get(panel_assigns || %{}, :combine_all_series, false)
     combined_title = Map.get(panel_assigns || %{}, :combined_title)
+    compact_title = Map.get(panel_assigns || %{}, :compact_title)
     rate_mode = Map.get(panel_assigns || %{}, :rate_mode, :none)
 
     y_scale =
@@ -114,6 +115,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       |> assign(:chart_mode, chart_mode)
       |> assign(:combine_all_series, combine_all_series)
       |> assign(:combined_title, combined_title)
+      |> assign(:compact_title, compact_title)
       |> assign(:rate_mode, rate_mode)
       |> assign(:y_scale, y_scale)
       |> assign(:chart_width, @chart_width)
@@ -556,6 +558,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     ~H"""
     <div id={"panel-#{@id}"} class="p-4">
       <.empty_state_box empty_state={@empty_state} compact={@compact} />
+
+      <div
+        :if={is_binary(@compact_title) and @series_data != []}
+        class="mb-3 text-sm font-semibold text-base-content/90"
+      >
+        {@compact_title}
+      </div>
 
       <%= for combined <- @combined_charts do %>
         <CombinedChartCard.combined_chart_card

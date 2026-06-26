@@ -72,7 +72,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
           ) ++
             (%{"results" => display_rows, "viz" => core_viz}
              |> Series.build_metric_panels(display_rows, "core_id", reference_lines)
-             |> Series.combine_timeseries_panels("Top cores"))
+             |> Series.title_timeseries_panels("Top cores"))
 
         %{
           base

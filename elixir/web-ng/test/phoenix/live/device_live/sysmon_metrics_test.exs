@@ -124,8 +124,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
 
     [overall_panel, core_panel] = timeseries_panels
     assert MapSet.new(overall_panel.assigns.series_points, &elem(&1, 0)) == MapSet.new(["Overall utilization"])
-    assert core_panel.assigns.combine_all_series == true
-    assert core_panel.assigns.combined_title == "Top cores"
+    refute Map.get(core_panel.assigns, :combine_all_series, false)
+    assert core_panel.assigns.compact_title == "Top cores"
 
     displayed_cores = MapSet.new(core_panel.assigns.series_points, &elem(&1, 0))
     assert displayed_cores == MapSet.new(~w(0 1 4 5 6 7))

@@ -146,6 +146,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Series do
 
   def combine_timeseries_panels(panels, _title), do: panels
 
+  def title_timeseries_panels(panels, title) when is_list(panels) do
+    Enum.map(panels, fn
+      %{plugin: TimeseriesPlugin, assigns: assigns} = panel when is_map(assigns) ->
+        %{panel | assigns: Map.put(assigns, :compact_title, title)}
+
+      panel ->
+        panel
+    end)
+  end
+
+  def title_timeseries_panels(panels, _title), do: panels
+
   defp latest_metric_tuple(rows, field, tie) do
     rows
     |> Enum.filter(&is_map/1)
