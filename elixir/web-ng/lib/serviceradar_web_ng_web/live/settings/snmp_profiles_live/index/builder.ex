@@ -1,9 +1,12 @@
 defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Builder do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
+
   import Phoenix.Component, only: [assign: 3, to_form: 1]
+
   alias AshPhoenix.Form
-  alias ServiceRadarWebNGWeb.SRQL.Catalog
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Targeting
+  alias ServiceRadarWebNGWeb.SRQL.Catalog
 
   def default_builder_state do
     config = Catalog.entity("interfaces")

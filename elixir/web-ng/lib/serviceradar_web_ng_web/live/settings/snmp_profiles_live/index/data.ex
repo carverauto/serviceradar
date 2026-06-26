@@ -1,5 +1,7 @@
 defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
+
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.SNMPProfiles.BuiltinTemplates
   alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
@@ -8,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
   alias ServiceRadar.SNMPProfiles.SNMPTarget
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Targeting
+
   require Ash.Query
 
   def assign_profiles_with_counts(socket, scope) do
@@ -138,7 +141,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
   end
 
   def active_agent?(%Agent{status: status, last_seen_time: %DateTime{} = last_seen_time})
-       when status in [:connected, :degraded, :connecting] do
+      when status in [:connected, :degraded, :connecting] do
     DateTime.diff(DateTime.utc_now(), last_seen_time, :minute) <= 30
   end
 

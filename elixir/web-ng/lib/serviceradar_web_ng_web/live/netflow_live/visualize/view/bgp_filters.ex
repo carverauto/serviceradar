@@ -50,7 +50,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.BgpFilters do
       <div class="text-[11px] text-base-content/60 mb-2">
         Filter flows by BGP routing information. Filters are automatically added to your SRQL query.
       </div>
-
+      
     <!-- Active BGP Filters Display -->
       <div
         :if={@has_filters}
@@ -82,7 +82,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.BgpFilters do
           </button>
         </div>
       </div>
-
+      
     <!-- AS Number Filter Input -->
       <div>
         <label class="text-xs font-semibold text-base-content/70 mb-1 block">
@@ -105,7 +105,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.BgpFilters do
           Filter flows where AS path contains this autonomous system number
         </div>
       </div>
-
+      
     <!-- BGP Community Filter Input -->
       <div>
         <label class="text-xs font-semibold text-base-content/70 mb-1 block">
@@ -128,7 +128,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.BgpFilters do
           </div>
         </form>
       </div>
-
+      
     <!-- Quick filters for well-known communities -->
       <div>
         <label class="text-xs font-semibold text-base-content/70 mb-1 block">
@@ -164,7 +164,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.BgpFilters do
           Quick add filters for RFC 1997 well-known communities
         </div>
       </div>
-
+      
     <!-- Clear all BGP filters -->
       <div :if={@has_filters} class="pt-2">
         <button

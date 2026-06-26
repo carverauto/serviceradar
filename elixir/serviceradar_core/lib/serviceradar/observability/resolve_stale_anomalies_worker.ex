@@ -16,9 +16,9 @@ defmodule ServiceRadar.Observability.ResolveStaleAnomaliesWorker do
   """
   use Oban.Worker, queue: :maintenance, max_attempts: 3
 
-  require Logger
-
   alias ServiceRadar.Observability.StatefulAlertEngine
+
+  require Logger
 
   # The rule the edge anomaly add-on's `anomaly_open` records drive (rule_seeder).
   @rule_name "causal_prediction_health_finding"

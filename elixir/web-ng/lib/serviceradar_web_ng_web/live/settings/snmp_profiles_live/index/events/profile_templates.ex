@@ -1,4 +1,5 @@
 defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.ProfileTemplates do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
   def handle_event("toggle_template", %{"id" => template_id}, socket) do

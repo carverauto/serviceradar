@@ -1,5 +1,7 @@
 defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :html
+
   import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.FormHelpers, only: [get_form_value: 3]
 
   attr :form, :any, required: true
@@ -91,7 +93,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
               </div>
             </div>
           </div>
-
+          
     <!-- Authentication based on version -->
           <div class="space-y-4">
             <h4 class="text-sm font-semibold text-base-content/70">Authentication</h4>
@@ -238,7 +240,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
               </p>
             <% end %>
           </div>
-
+          
     <!-- OIDs Section -->
           <div class="space-y-4">
             <div class="flex items-center justify-between">
@@ -355,7 +357,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
               Configure which SNMP OIDs to poll from this target. Use templates for common device types.
             </p>
           </div>
-
+          
     <!-- Test Connection -->
           <div class="space-y-3">
             <div class="flex items-center gap-3">
@@ -376,7 +378,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                 Verify connectivity to the SNMP agent
               </span>
             </div>
-
+            
     <!-- Test Result -->
             <%= if @test_connection_result do %>
               <div class={[
@@ -393,7 +395,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
               </div>
             <% end %>
           </div>
-
+          
     <!-- Modal Actions -->
           <div class="modal-action">
             <.ui_button type="button" variant="ghost" phx-click="close_target_modal">

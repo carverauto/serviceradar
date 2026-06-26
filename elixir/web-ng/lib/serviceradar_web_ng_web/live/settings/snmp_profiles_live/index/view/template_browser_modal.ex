@@ -1,5 +1,7 @@
 defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrowserModal do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :html
+
   alias ServiceRadar.SNMPProfiles.BuiltinTemplates
 
   attr :search, :string, default: ""
@@ -81,7 +83,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrow
         <p class="text-sm text-base-content/60 mb-4">
           Select a template to add pre-configured OIDs for common device types.
         </p>
-
+        
     <!-- Search and Vendor Filter -->
         <div class="flex flex-col md:flex-row gap-4 mb-4">
           <div class="flex-1">
@@ -106,7 +108,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrow
             </.ui_button>
           </div>
         </div>
-
+        
     <!-- Vendor Tabs -->
         <div class="tabs tabs-boxed mb-4">
           <%= for vendor <- @vendors do %>
@@ -120,7 +122,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrow
             </button>
           <% end %>
         </div>
-
+        
     <!-- Templates List -->
         <div class="overflow-y-auto max-h-[40vh] space-y-2">
           <div :if={@templates == [] && !@is_custom_tab} class="text-center py-8 text-base-content/60">
@@ -209,7 +211,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrow
             </div>
           <% end %>
         </div>
-
+        
     <!-- Modal Actions -->
         <div class="modal-action">
           <.ui_button type="button" variant="ghost" phx-click="close_template_browser">

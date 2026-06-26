@@ -9,7 +9,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Categories, as: CategoriesPlugin
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
   alias ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData
-  alias ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.CameraData
   alias ServiceRadarWebNGWeb.DeviceLive.CameraRelayRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceActionRuntime
@@ -810,14 +809,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   @impl true
-  def handle_event("open_anomaly_capacity_detail", params, socket) do
-    {:noreply, AnomalyCapacityRuntime.open_detail(socket, params)}
-  end
-
-  def handle_event("close_anomaly_capacity_detail", _params, socket) do
-    {:noreply, AnomalyCapacityRuntime.close_detail(socket)}
-  end
-
   def handle_event("srql_change", %{"q" => q}, socket) do
     {:noreply, assign(socket, :srql, Map.put(socket.assigns.srql, :draft, to_string(q)))}
   end
@@ -1039,6 +1030,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {:noreply,
        socket
        |> assign(:anomaly_capacity_detail, detail)
+       |> assign(:selected_anomaly_capacity_detail, detail)
        |> assign(
          :metric_sections,
          SysmonMetrics.annotate_metric_sections(
@@ -1056,6 +1048,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {:noreply,
      socket
      |> assign(:anomaly_capacity_detail, nil)
+     |> assign(:selected_anomaly_capacity_detail, nil)
      |> assign(
        :metric_sections,
        SysmonMetrics.annotate_metric_sections(

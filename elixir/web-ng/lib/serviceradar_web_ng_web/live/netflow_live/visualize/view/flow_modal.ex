@@ -139,7 +139,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal do
                   </div>
                 </div>
               </div>
-
+              
     <!-- BGP Information Section -->
               <div class="p-3 rounded-lg border border-base-200 bg-base-200/30 md:col-span-2">
                 <BgpSection.render flow={@flow} />

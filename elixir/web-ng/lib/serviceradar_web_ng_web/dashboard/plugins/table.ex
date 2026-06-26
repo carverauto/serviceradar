@@ -5,7 +5,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
 
   use Phoenix.LiveComponent
 
-  import ServiceRadarWebNGWeb.CoreComponents, only: [icon: 1]
   import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_results_table: 1]
   import ServiceRadarWebNGWeb.UIComponents, only: [ui_panel: 1]
 

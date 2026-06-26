@@ -245,8 +245,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Utils do
       |> String.graphemes()
       |> Enum.chunk_every(2)
       |> Enum.map_join(":", &Enum.join/1)
-    else
-      nil
     end
   end
 

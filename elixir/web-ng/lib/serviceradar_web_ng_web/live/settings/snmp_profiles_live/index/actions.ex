@@ -1,5 +1,7 @@
 defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Actions do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
+
   alias AshPhoenix.Form
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Builder

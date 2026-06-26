@@ -1,4 +1,5 @@
 defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.TargetOids do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
   def handle_event("add_oid", _params, socket) do

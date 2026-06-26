@@ -1,4 +1,5 @@
 defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Templates do
+  @moduledoc false
   alias ServiceRadar.SNMPProfiles.SNMPOIDTemplate
 
   def create_custom_template(scope, attrs) do

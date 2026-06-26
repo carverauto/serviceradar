@@ -1,4 +1,5 @@
 defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTemplateModal do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :html
 
   attr :form, :any, required: true
@@ -63,7 +64,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
               placeholder="e.g., My Router Monitoring"
             />
           </div>
-
+          
     <!-- Description -->
           <div class="form-control">
             <label class="label">
@@ -77,7 +78,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
               placeholder="Describe what this template monitors..."
             />
           </div>
-
+          
     <!-- Category -->
           <div class="form-control">
             <label class="label">
@@ -90,7 +91,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
               <% end %>
             </select>
           </div>
-
+          
     <!-- OIDs Section -->
           <div class="form-control">
             <div class="flex items-center justify-between mb-2">
@@ -136,7 +137,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
                         name="oid"
                       />
                     </div>
-
+                    
     <!-- Name -->
                     <div>
                       <label class="label py-0">
@@ -153,7 +154,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
                         name="name"
                       />
                     </div>
-
+                    
     <!-- Data Type -->
                     <div>
                       <label class="label py-0">
@@ -171,7 +172,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
                         <% end %>
                       </select>
                     </div>
-
+                    
     <!-- Scale -->
                     <div>
                       <label class="label py-0">
@@ -188,7 +189,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
                         name="scale"
                       />
                     </div>
-
+                    
     <!-- Delta checkbox -->
                     <div class="col-span-2 flex items-center gap-2 mt-1">
                       <input
@@ -206,7 +207,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
                       </span>
                     </div>
                   </div>
-
+                  
     <!-- Remove button -->
                   <.ui_icon_button
                     type="button"
@@ -222,7 +223,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
               <% end %>
             </div>
           </div>
-
+          
     <!-- Modal Actions -->
           <div class="modal-action">
             <.ui_button type="button" variant="ghost" phx-click="close_custom_template_modal">
