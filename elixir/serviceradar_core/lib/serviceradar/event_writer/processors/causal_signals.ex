@@ -732,12 +732,27 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   end
 
   defp build_anomaly_detection_finding_row(normalized, payload, raw_data, metadata) do
-    severity_id = normalized["severity_id"] || 0
     # Resolve the canonical device uid once and thread it through every consumer
     # (device.uid, metadata.service_radar.device_uid, finding_info dimensions, and
     # the deterministic finding_uid) so the re-key stays coherent and we pay at
     # most one (cache-backed) correlation lookup per row.
-    device_uid = anomaly_detection_device_uid(payload)
+    case anomaly_detection_device_uid(payload) do
+      # An SNMP/interface anomaly describes the POLLED target device, not the
+      # polling agent. When the target cannot be resolved to an inventory device
+      # we withhold the finding entirely (no OCSF row, no alert) rather than
+      # mis-attributing a polled-device anomaly to the agent's own device page.
+      # nil is dropped by process_batch's `Enum.reject(&is_nil/1)`.
+      :withhold ->
+        anomaly_detection_withheld_telemetry(payload)
+        nil
+
+      device_uid ->
+        anomaly_detection_finding_row(normalized, payload, raw_data, metadata, device_uid)
+    end
+  end
+
+  defp anomaly_detection_finding_row(normalized, payload, raw_data, metadata, device_uid) do
+    severity_id = normalized["severity_id"] || 0
 
     %{
       id: Ecto.UUID.dump!(normalized["event_identity"]),
@@ -1489,19 +1504,49 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     target_device_ip = anomaly_detection_target_device_ip(payload)
     metric_class = get_in(payload, ["anomaly", "metric_class"])
 
-    raw =
-      if snmp_metric_class?(metric_class) and not is_nil(target_device_ip) do
-        target_device_ip
-      else
-        raw
+    if snmp_metric_class?(metric_class) do
+      # SNMP/interface metrics describe the POLLED target device, never the
+      # polling agent. Attribute only to a resolved target; withhold otherwise
+      # so a polled-device anomaly never lands on the polling agent's own device
+      # page (handled in build_anomaly_detection_finding_row).
+      resolve_snmp_target_device_uid(payload, target_device_ip)
+    else
+      case DeviceCorrelation.resolve(
+             anomaly_detection_correlation_candidate(payload, raw, target_device_ip)
+           ) do
+        uid when is_binary(uid) and uid != "" -> uid
+        _ -> raw
       end
+    end
+  end
 
+  # No SNMP target ip on the verdict → the polled device is unidentifiable, so
+  # the finding is withheld (it must never fall back to the polling agent).
+  defp resolve_snmp_target_device_uid(_payload, nil), do: :withhold
+
+  defp resolve_snmp_target_device_uid(payload, target_device_ip) do
     case DeviceCorrelation.resolve(
-           anomaly_detection_correlation_candidate(payload, raw, target_device_ip)
+           anomaly_detection_correlation_candidate(payload, target_device_ip, target_device_ip)
          ) do
       uid when is_binary(uid) and uid != "" -> uid
-      _ -> raw
+      # Target ip present but not resolvable to an inventory device → withhold
+      # rather than persist a bare ip-string device_uid that no device page owns.
+      _ -> :withhold
     end
+  end
+
+  # Surface withheld SNMP/interface findings so the volume is observable — a high
+  # rate signals the edge anomaly-addon is not emitting `target_device_ip` (the
+  # #4290 SNMP-target attribution) and needs a rollout.
+  defp anomaly_detection_withheld_telemetry(payload) do
+    :telemetry.execute(
+      [:serviceradar, :event_writer, :anomaly_detection, :withheld],
+      %{count: 1},
+      %{
+        reason: :snmp_target_unresolved,
+        metric_class: get_in(payload, ["anomaly", "metric_class"])
+      }
+    )
   end
 
   defp anomaly_detection_raw_device_uid(payload) do

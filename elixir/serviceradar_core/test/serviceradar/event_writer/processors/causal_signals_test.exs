@@ -1,9 +1,19 @@
 defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.EventWriter.DeviceCorrelationCache
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.CausalSignals
   alias ServiceRadar.Observability.CapacityForecasting.VerdictEmitter
+
+  # Prime the (app-started, shared ETS) correlation cache so an SNMP target ip
+  # resolves to a canonical device uid — letting tests exercise the resolved
+  # path (the unresolved path withholds). Use a unique ip per test to avoid
+  # cross-contamination under `async: true`.
+  defp seed_target_resolution(ip, uid) do
+    candidate = %{device_uid: ip, agent_id: nil, hostname: nil, ip: ip, partition: nil}
+    DeviceCorrelationCache.put(DeviceCorrelationCache.cache_key(candidate), uid)
+  end
 
   defmodule ExistingTimeRepo do
     def query(sql, [ids]) do
@@ -199,11 +209,11 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
                       %{count: 1}, %{subject_class: "causal", reason: :malformed_timestamp}}
     end
 
-    test "uses SNMP target IP as anomaly device identity when polling agent reports verdict" do
+    test "withholds an SNMP anomaly when the polled target is not resolvable to inventory" do
       target_ip = "10.0.0.20"
 
       payload = %{
-        "event_id" => "snmp-target-anomaly",
+        "event_id" => "snmp-target-unresolved",
         "signal_type" => "causal",
         "event_type" => "anomaly",
         "class_uid" => 2004,
@@ -225,19 +235,82 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         }
       }
 
+      # DeviceCorrelation.resolve fail-opens to nil here (no backing inventory),
+      # so the polled target is unresolvable. The finding is withheld rather than
+      # falling back to the bare target ip (and never to the polling agent).
+      assert CausalSignals.parse_message(%{
+               data: Jason.encode!(payload),
+               metadata: %{
+                 subject: "signals.causal.predictions.snmp:#{target_ip}:7",
+                 received_at: DateTime.utc_now()
+               }
+             }) == nil
+    end
+
+    test "withholds an SNMP anomaly that carries no target ip (never attributes to the polling agent)" do
+      # Reproduces the demo defect: the edge addon emits an SNMP interface anomaly
+      # keyed only on the polling agent (no target_device_ip), so the polled
+      # device is unidentifiable. It must be withheld, never shown on the agent's
+      # own device-details page.
+      payload = %{
+        "event_id" => "snmp-no-target",
+        "signal_type" => "causal",
+        "event_type" => "anomaly",
+        "class_uid" => 2004,
+        "time" => 1_812_456_000_000,
+        "severity_id" => 5,
+        "device_uid" => "agent-dusk01",
+        "agent_id" => "agent-dusk01",
+        "anomaly" => %{
+          "series_key" => "v2:class=snmp:family=ifOutUcastPkts:identity=agent-dusk01:if_index=6",
+          "metric_class" => "snmp",
+          "state" => "anomalous"
+        },
+        "source_identity" => %{
+          "device_uid" => "agent-dusk01"
+        }
+      }
+
+      assert CausalSignals.parse_message(%{
+               data: Jason.encode!(payload),
+               metadata: %{
+                 subject: "signals.causal.predictions.snmp.ifOutUcastPkts",
+                 received_at: DateTime.utc_now()
+               }
+             }) == nil
+    end
+
+    test "keeps host-metric (non-SNMP) anomaly attribution on the agent device" do
+      # Host metrics (cpu/memory/disk) legitimately belong to the agent's own
+      # device, so the SNMP withhold guard must not touch them.
+      payload = %{
+        "event_id" => "host-cpu-anomaly",
+        "signal_type" => "causal",
+        "event_type" => "anomaly",
+        "class_uid" => 2004,
+        "time" => 1_812_456_000_000,
+        "severity_id" => 4,
+        "device_uid" => "ns01",
+        "agent_id" => "agent-ns01",
+        "anomaly" => %{
+          "series_key" => "sysmon:cpu:ns01:0",
+          "metric_class" => "sysmon.cpu",
+          "state" => "anomaly_open"
+        }
+      }
+
       row =
         CausalSignals.parse_message(%{
           data: Jason.encode!(payload),
           metadata: %{
-            subject: "signals.causal.predictions.snmp:#{target_ip}:7",
+            subject: "signals.causal.predictions.sysmon:cpu:ns01:0",
             received_at: DateTime.utc_now()
           }
         })
 
-      assert row.device["uid"] == target_ip
-      assert row.metadata["service_radar"]["device_uid"] == target_ip
-      assert row.metadata["finding_info"]["dimensions"]["device_uid"] == target_ip
-      assert row.metadata["finding_info"]["dimensions"]["series_key"] == "snmp:#{target_ip}:7"
+      assert row
+      assert row.device["uid"] == "ns01"
+      assert row.metadata["service_radar"]["device_uid"] == "ns01"
     end
 
     test "returns nil on invalid JSON" do
@@ -820,6 +893,9 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
     end
 
     test "uses structured anomaly dimensions for titles when series keys are opaque" do
+      target_ip = "192.0.2.20"
+      seed_target_resolution(target_ip, "sr:edge-target")
+
       opaque_series_key =
         "v2:partition=64656661756c74:class=736e6d702e696e74657266616365:identity=31302e302e302e3230"
 
@@ -830,14 +906,14 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         "class_uid" => 2004,
         "timestamp" => "2026-06-12T12:00:00Z",
         "severity_id" => 4,
-        "device_uid" => "10.0.0.20",
-        "target_device_ip" => "10.0.0.20",
+        "device_uid" => target_ip,
+        "target_device_ip" => target_ip,
         "verdict_source" => "edge-spike",
         "anomaly" => %{
           "series_key" => opaque_series_key,
           "metric_class" => "snmp.interface",
           "metric_name" => "ifHCInOctets",
-          "target_device_ip" => "10.0.0.20",
+          "target_device_ip" => target_ip,
           "interface_name" => "uplink0",
           "if_index" => 7,
           "state" => "anomaly_open"
@@ -856,19 +932,27 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       finding_info = row.metadata["finding_info"]
       dimensions = finding_info["dimensions"]
 
+      # Resolved SNMP target → the finding is attributed to the polled device,
+      # not the polling agent.
+      assert row.device["uid"] == "sr:edge-target"
+      assert dimensions["device_uid"] == "sr:edge-target"
+
       assert finding_info["title"] ==
-               "Anomaly detection: ifHCInOctets 10.0.0.20 uplink0 ifIndex 7"
+               "Anomaly detection: ifHCInOctets 192.0.2.20 uplink0 ifIndex 7"
 
       refute finding_info["title"] =~ "v2:"
       assert dimensions["series_key"] == opaque_series_key
       assert dimensions["metric_name"] == "ifHCInOctets"
-      assert dimensions["target_device_ip"] == "10.0.0.20"
+      assert dimensions["target_device_ip"] == target_ip
       assert dimensions["interface_name"] == "uplink0"
       assert dimensions["if_index"] == 7
-      assert dimensions["resource_label"] == "10.0.0.20 uplink0 ifIndex 7"
+      assert dimensions["resource_label"] == "192.0.2.20 uplink0 ifIndex 7"
     end
 
-    test "does not use future versioned opaque series keys as anomaly titles" do
+    test "withholds a future-versioned opaque-series-key SNMP anomaly with no target ip" do
+      # An snmp.interface finding with an opaque (future-versioned) series key and
+      # no resolvable target is withheld, so the opaque key never surfaces in a
+      # title or on the polling agent's device page.
       opaque_series_key =
         "v3:partition=64656661756c74:class=736e6d702e696e74657266616365:identity=31302e302e302e3230"
 
@@ -888,21 +972,13 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         }
       }
 
-      row =
-        CausalSignals.parse_message(%{
-          data: Jason.encode!(payload),
-          metadata: %{
-            subject: "signals.causal.predictions.#{opaque_series_key}",
-            received_at: DateTime.utc_now()
-          }
-        })
-
-      finding_info = row.metadata["finding_info"]
-
-      assert finding_info["title"] == "Anomaly detection: snmp.interface series"
-      refute finding_info["title"] =~ "v3:"
-      assert finding_info["dimensions"]["series_key"] == opaque_series_key
-      refute Map.has_key?(finding_info["dimensions"], "resource_label")
+      assert CausalSignals.parse_message(%{
+               data: Jason.encode!(payload),
+               metadata: %{
+                 subject: "signals.causal.predictions.#{opaque_series_key}",
+                 received_at: DateTime.utc_now()
+               }
+             }) == nil
     end
 
     test "selects capacity causal prediction findings for stateful alert evaluation" do
