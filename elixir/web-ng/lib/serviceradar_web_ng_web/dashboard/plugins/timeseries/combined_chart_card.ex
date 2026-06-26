@@ -82,6 +82,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
           viewBox={"0 0 #{@chart_width} #{@chart_height}"}
           class={["w-full", @compact && "h-24", not @compact && "h-40"]}
           preserveAspectRatio="none"
+          data-chart-svg
         >
           <defs>
             <%= for series <- @data.series do %>

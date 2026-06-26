@@ -200,6 +200,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
           viewBox={"0 0 #{@chart_width} #{@chart_height}"}
           class={["w-full", @compact && "h-24", not @compact && "h-32"]}
           preserveAspectRatio="none"
+          data-chart-svg
         >
           <defs>
             <linearGradient id={"series-fill-#{@id}-#{@data.idx}"} x1="0" y1="0" x2="0" y2="1">

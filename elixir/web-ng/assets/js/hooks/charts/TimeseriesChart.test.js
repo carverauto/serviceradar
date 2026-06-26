@@ -31,6 +31,20 @@ function chartElement(dataset) {
       if (this.listeners[name] === listener) delete this.listeners[name]
     },
   }
+  const markerContainer = {
+    listeners: {},
+    addEventListener(name, listener) {
+      this.listeners[name] = listener
+    },
+    removeEventListener(name, listener) {
+      if (this.listeners[name] === listener) delete this.listeners[name]
+    },
+  }
+  const markerSvg = {
+    parentElement: markerContainer,
+    getBoundingClientRect: () => ({ left: 0, width: 12 }),
+    getAttribute: (name) => (name === "viewBox" ? "0 0 12 12" : null),
+  }
   const svg = {
     parentElement: container,
     getBoundingClientRect: () => ({ left: 0, width: 100 }),
@@ -41,11 +55,13 @@ function chartElement(dataset) {
     dataset,
     hoverLine,
     querySelector(selector) {
-      if (selector === "svg") return svg
+      if (selector === "[data-chart-svg]") return svg
+      if (selector === "svg") return markerSvg
       if (selector === "[data-tooltip]") return tooltip
       if (selector === "[data-hover-line]") return hoverLine
       return null
     },
+    markerContainer,
     svgContainer: container,
     tooltip,
   }
@@ -66,6 +82,7 @@ describe("TimeseriesChart hook", () => {
     ctx.updated()
 
     expect(el.svgContainer.listeners.mousemove).toEqual(expect.any(Function))
+    expect(el.markerContainer.listeners.mousemove).toBeUndefined()
 
     el.svgContainer.listeners.mousemove({ clientX: 10 })
 
@@ -101,6 +118,7 @@ describe("TimeseriesCombinedChart hook", () => {
     ctx.updated()
 
     expect(el.svgContainer.listeners.mousemove).toEqual(expect.any(Function))
+    expect(el.markerContainer.listeners.mousemove).toBeUndefined()
 
     el.svgContainer.listeners.mousemove({ clientX: 10 })
 

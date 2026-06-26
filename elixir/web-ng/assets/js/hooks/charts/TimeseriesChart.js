@@ -15,7 +15,7 @@ export default {
     }
 
     const el = this.el
-    const svg = el.querySelector("svg")
+    const svg = el.querySelector("[data-chart-svg]") || el.querySelector("svg")
     const tooltip = el.querySelector("[data-tooltip]")
     const hoverLine = el.querySelector("[data-hover-line]")
     const pointsData = JSON.parse(el.dataset.points || "[]")
