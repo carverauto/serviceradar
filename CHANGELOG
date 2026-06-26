@@ -1,3 +1,44 @@
+# ServiceRadar v1.3.6
+
+Performance and demo-stability release for core ingestion, netflow/SRQL query
+paths, topology reconciliation, DIRE cleanup, and anomaly disposition delivery.
+
+## Whats New
+
+**1.3.6**
+- Cut idle and burst CPU pressure across core, web-ng, and agent-gateway by
+  capping BEAM schedulers to cgroup quota, removing busy-wait spin, lengthening
+  the flow-attribution interval, reducing Horde CRDT churn, batching
+  ResultsRouter work, and taking per-message hot-path logs out of the ingest
+  path.
+- Reduced EventWriter and netflow ingestion overhead with a larger metrics pull
+  batch, per-batch telemetry, explicit NAK/drop accounting, provider-CIDR
+  cross-batch caching, exporter sampling-rate persistence, nullable directional
+  flow counts, and netflow cache refresh indexes.
+- Added database/index hardening for the high-volume paths: DIRE reconciliation
+  and stale-device cleanup, raw metric pulls, timeseries metric chart lookups,
+  OCSF causal signal lookups, sweep retention, managed/active device counts,
+  AGE platform graph properties, and right-sized continuous aggregate refresh
+  policies.
+- Hardened topology reconciliation by materializing the runtime topology read
+  model, splitting mapper and topology graph code into focused modules,
+  preserving parallel links, normalizing MAC-format identities, writing only
+  changed canonical edges, skipping unchanged reports/rebuilds, and adding a
+  durable cross-replica skip guard for canonical AGE rebuilds.
+- Improved web-ng and SRQL responsiveness with modular SRQL parser/query
+  engines, flow and metric-chart query rewrites, dashboard and device-page
+  async/parallel loads, bounded dashboard tables, faster security trend reads,
+  corrected chart gaps/hover/rate scaling, and clearer netflow empty states.
+- Stabilized anomaly and capacity behavior by retiring the UASB peak path,
+  aligning edge and central series identity, fixing counter wrap/future timestamp
+  recovery, clamping bad capacity projections, preserving seasonal state,
+  auto-resolving stale edge-spike alerts, and keeping anomaly findings scoped to
+  anomaly-detection source data.
+- Fixed live-demo regressions from PR #4299: repaired alert-engine rule matching,
+  restored netflow/log-severity behavior, fixed causal prediction UUID binding,
+  guarded DIRE cleanup races and Armis over-merges, and kept operator logs at the
+  expected default level while avoiding the OTel self-telemetry loop.
+
 # ServiceRadar v1.3.5
 
 Release hardening for the causal disposition pipeline, native add-on delivery,
