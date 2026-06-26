@@ -40,6 +40,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics do
       rate_mode == :counter ->
         if traffic_series?(series), do: :bytes_per_sec, else: :count_per_sec
 
+      rate_mode == :rate and traffic_series?(series) ->
+        :bytes_per_sec
+
       explicit_unit != nil ->
         explicit_unit
 
@@ -299,10 +302,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics do
   defp format_bytes_per_sec(bps) when bps >= 0, do: "#{Float.round(bps, 1)} B/s"
   defp format_bytes_per_sec(bps), do: "#{Float.round(bps, 2)}"
 
-  defp format_bits_per_sec(bps) when bps >= 1_000_000_000, do: "#{Float.round(bps / 1_000_000_000, 2)} Gbps"
-  defp format_bits_per_sec(bps) when bps >= 1_000_000, do: "#{Float.round(bps / 1_000_000, 2)} Mbps"
-  defp format_bits_per_sec(bps) when bps >= 1_000, do: "#{Float.round(bps / 1_000, 2)} Kbps"
-  defp format_bits_per_sec(bps) when bps >= 0, do: "#{Float.round(bps, 1)} bps"
+  defp format_bits_per_sec(bps) when bps >= 1_000_000_000, do: "#{Float.round(bps / 1_000_000_000, 2)} Gbit/s"
+  defp format_bits_per_sec(bps) when bps >= 1_000_000, do: "#{Float.round(bps / 1_000_000, 2)} Mbit/s"
+  defp format_bits_per_sec(bps) when bps >= 1_000, do: "#{Float.round(bps / 1_000, 2)} Kbit/s"
+  defp format_bits_per_sec(bps) when bps >= 0, do: "#{Float.round(bps, 1)} bit/s"
   defp format_bits_per_sec(bps), do: "#{Float.round(bps, 2)}"
 
   defp format_bytes(bytes) when bytes >= 1_000_000_000, do: "#{Float.round(bytes / 1_000_000_000, 2)} GB"

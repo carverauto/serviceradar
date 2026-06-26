@@ -41,6 +41,14 @@ export default {
       return `${value.toFixed(1)} Hz`
     }
 
+    const formatBitsPerSec = (value) => {
+      const abs = Math.abs(value)
+      if (abs >= 1e9) return `${(value / 1e9).toFixed(2)} Gbit/s`
+      if (abs >= 1e6) return `${(value / 1e6).toFixed(2)} Mbit/s`
+      if (abs >= 1e3) return `${(value / 1e3).toFixed(2)} Kbit/s`
+      return `${value.toFixed(1)} bit/s`
+    }
+
     const formatCountPerSec = (value) => {
       const abs = Math.abs(value)
       if (abs >= 1e6) return `${(value / 1e6).toFixed(2)} M/s`
@@ -56,6 +64,8 @@ export default {
           return `${value.toFixed(1)}%`
         case "bytes_per_sec":
           return `${formatBytes(value)}/s`
+        case "bits_per_sec":
+          return formatBitsPerSec(value)
         case "bytes":
           return formatBytes(value)
         case "hz":

@@ -7,7 +7,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
 
   @series_encodings [
     %{shape: :circle, label: "Circle", dasharray: nil},
-    %{shape: :square, label: "Square", dasharray: "5 3"},
+    %{shape: :square, label: "Square", dasharray: "6 4"},
     %{shape: :triangle, label: "Triangle", dasharray: "2 3"},
     %{shape: :diamond, label: "Diamond", dasharray: "8 3 2 3"},
     %{shape: :line, label: "Line", dasharray: "10 4"},

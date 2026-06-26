@@ -83,7 +83,12 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     combine_all_series = Map.get(panel_assigns || %{}, :combine_all_series, false)
     combined_title = Map.get(panel_assigns || %{}, :combined_title)
     rate_mode = Map.get(panel_assigns || %{}, :rate_mode, :none)
-    y_scale = Points.scale_mode(Spec.fetch_panel_value(panel_assigns, :y_scale, :linear))
+
+    y_scale =
+      panel_assigns
+      |> Spec.fetch_panel_value(:y_scale, Spec.fetch_panel_value(panel_assigns, :scale_mode, :linear))
+      |> Points.scale_mode()
+
     series_points = series_points_from_assigns(assigns, panel_assigns)
     spec = Spec.fetch_panel_value(panel_assigns, :spec, Map.get(assigns, :spec))
 
@@ -159,12 +164,19 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         y_scale
       )
 
+    empty_state =
+      empty_state_from_assigns(
+        assigns,
+        combined_charts == [] and individual_series == []
+      )
+
     assigns =
       assigns
       |> assign(:compact, compact)
       |> assign(:series_count, length(series_points))
       |> assign(:series_data, individual_series)
       |> assign(:combined_charts, combined_charts)
+      |> assign(:empty_state, empty_state)
       |> assign(:first_dt, Points.first_dt(series_points))
       |> assign(:last_dt, Points.last_dt(series_points))
 
@@ -454,9 +466,97 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   defp render_chart(assigns, true), do: render_compact(assigns)
   defp render_chart(assigns, false), do: render_full(assigns)
 
+  defp empty_state_from_assigns(_assigns, false), do: nil
+
+  defp empty_state_from_assigns(assigns, true) do
+    case normalize_empty_state(Spec.fetch_panel_value(assigns, :empty_state, :no_data)) do
+      :query_error ->
+        %{
+          title: "Chart query failed",
+          detail:
+            Spec.fetch_panel_value(
+              assigns,
+              :empty_detail,
+              "The chart query failed before returning usable data."
+            ),
+          class: "border-error bg-error/5 text-error"
+        }
+
+      :disabled ->
+        %{
+          title: "Metrics collection disabled",
+          detail:
+            Spec.fetch_panel_value(
+              assigns,
+              :empty_detail,
+              "Enable the relevant SNMP or polling configuration."
+            ),
+          class: "border-warning bg-warning/5 text-warning",
+          href: Spec.fetch_panel_value(assigns, :empty_config_href),
+          label: Spec.fetch_panel_value(assigns, :empty_config_label, "Configure metrics")
+        }
+
+      _ ->
+        %{
+          title: "No chart data",
+          detail: Spec.fetch_panel_value(assigns, :empty_detail, "No samples matched this chart."),
+          class: "border-base-300 bg-base-200/40 text-base-content"
+        }
+    end
+  end
+
+  defp normalize_empty_state(value) when is_atom(value), do: value
+
+  defp normalize_empty_state(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.downcase()
+    |> case do
+      "query_error" -> :query_error
+      "query-error" -> :query_error
+      "error" -> :query_error
+      "disabled" -> :disabled
+      _ -> :no_data
+    end
+  end
+
+  defp normalize_empty_state(_value), do: :no_data
+
+  defp empty_state_box(assigns) do
+    ~H"""
+    <div
+      :if={@empty_state}
+      class={[
+        "rounded-lg border px-4 py-5",
+        @empty_state.class
+      ]}
+    >
+      <div class={["font-semibold", @compact && "text-xs", not @compact && "text-sm"]}>
+        {@empty_state.title}
+      </div>
+      <div class={["mt-1 opacity-80", @compact && "text-[10px]", not @compact && "text-xs"]}>
+        {@empty_state.detail}
+      </div>
+      <a
+        :if={Map.get(@empty_state, :href)}
+        href={@empty_state.href}
+        class={[
+          "link mt-3 inline-flex",
+          @compact && "text-[10px]",
+          not @compact && "text-xs"
+        ]}
+      >
+        {Map.get(@empty_state, :label, "Configure metrics")}
+      </a>
+    </div>
+    """
+  end
+
   defp render_compact(assigns) do
     ~H"""
     <div id={"panel-#{@id}"} class="p-4">
+      <.empty_state_box empty_state={@empty_state} compact={@compact} />
+
       <div class={[
         "grid gap-3",
         @series_count > 1 && "grid-cols-1 lg:grid-cols-2 xl:grid-cols-3",
@@ -507,6 +607,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
             <span :if={is_struct(@last_dt, DateTime)}>{Points.dt_label(@last_dt)}</span>
           </div>
         </:header>
+
+        <.empty_state_box empty_state={@empty_state} compact={@compact} />
 
         <%= for combined <- @combined_charts do %>
           <CombinedChartCard.combined_chart_card
