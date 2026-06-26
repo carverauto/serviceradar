@@ -32,39 +32,14 @@ pub struct Config {
 pub struct OutputConfig {
     #[serde(default)]
     pub backend: OutputBackend,
-    /// Resource `service.name` values whose telemetry is dropped at the
-    /// collector edge before it is published to NATS. ServiceRadar's own
-    /// services export traces/metrics/logs to the same collector that feeds
-    /// their ingestion, creating a self-telemetry feedback loop; dropping the
-    /// internal services here breaks that loop while agent/customer telemetry
-    /// (any other `service.name`) still flows. Override via TOML
-    /// (`self_telemetry_services = [...]`) or the
-    /// `SR_OTEL_SELF_TELEMETRY_DENYLIST` env var (comma-separated).
-    #[serde(default = "default_self_telemetry_denylist")]
-    pub self_telemetry_services: Vec<String>,
 }
 
 impl Default for OutputConfig {
     fn default() -> Self {
         Self {
             backend: OutputBackend::default(),
-            self_telemetry_services: default_self_telemetry_denylist(),
         }
     }
-}
-
-/// Conservative default denylist: the four internal ServiceRadar services
-/// that self-export to the collector. Matched against resource `service.name`.
-fn default_self_telemetry_denylist() -> Vec<String> {
-    [
-        "serviceradar-core-elx",
-        "serviceradar-web-ng",
-        "serviceradar-agent-gateway",
-        "serviceradar-otel",
-    ]
-    .into_iter()
-    .map(String::from)
-    .collect()
 }
 
 /// The configured output backend.
@@ -344,24 +319,6 @@ impl Config {
 
         println!("No config file found, using defaults (searched: {all_paths:?})");
         Ok(Self::default())
-    }
-
-    /// Resolves the self-telemetry `service.name` denylist, letting the
-    /// `SR_OTEL_SELF_TELEMETRY_DENYLIST` env var (comma-separated) override the
-    /// configured list at deploy time without editing the config file. An
-    /// empty/unset env var leaves the configured value untouched; an explicit
-    /// empty env value (e.g. `SR_OTEL_SELF_TELEMETRY_DENYLIST=`) disables
-    /// filtering. Entries are trimmed and blanks dropped.
-    pub fn self_telemetry_denylist(&self) -> Vec<String> {
-        match std::env::var("SR_OTEL_SELF_TELEMETRY_DENYLIST") {
-            Ok(raw) => raw
-                .split(',')
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(String::from)
-                .collect(),
-            Err(_) => self.output.self_telemetry_services.clone(),
-        }
     }
 
     /// Get the full bind address (address:port)
@@ -979,30 +936,6 @@ tokens = [{ token = "secret-a" }]
         let config: Config = toml::from_str("").unwrap();
         assert_eq!(config.output.backend, OutputBackend::Jetstream);
         assert!(config.agent_forward.is_none());
-    }
-
-    #[test]
-    fn test_self_telemetry_denylist_defaults_to_internal_services() {
-        let config: Config = toml::from_str("").unwrap();
-        let denylist = config.output.self_telemetry_services;
-        assert!(denylist.contains(&"serviceradar-core-elx".to_string()));
-        assert!(denylist.contains(&"serviceradar-web-ng".to_string()));
-        assert!(denylist.contains(&"serviceradar-agent-gateway".to_string()));
-        assert!(denylist.contains(&"serviceradar-otel".to_string()));
-        assert_eq!(denylist.len(), 4);
-    }
-
-    #[test]
-    fn test_self_telemetry_denylist_parses_from_toml() {
-        let toml_content = r#"
-[output]
-self_telemetry_services = ["svc-a", "svc-b"]
-"#;
-        let config: Config = toml::from_str(toml_content).unwrap();
-        assert_eq!(
-            config.output.self_telemetry_services,
-            vec!["svc-a".to_string(), "svc-b".to_string()]
-        );
     }
 
     #[test]

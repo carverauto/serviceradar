@@ -80,7 +80,6 @@ use opentelemetry::proto::collector::trace::v1::{
 };
 use opentelemetry::proto::metrics::v1::Metric;
 use opentelemetry::proto::metrics::v1::metric::Data as MetricData;
-use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 
 /// Backoff before the single NATS publish retry attempt.
@@ -166,11 +165,6 @@ type OutputSlot = RwLock<Arc<dyn TelemetryOutput>>;
 #[derive(Clone)]
 pub struct ServiceRadarCollector {
     output: Option<Arc<OutputSlot>>,
-    /// Resource `service.name` values whose telemetry is dropped before
-    /// publishing to NATS. Used to break the self-telemetry feedback loop
-    /// where ServiceRadar's own services export to the same collector that
-    /// feeds their ingestion. Empty (the default) disables filtering.
-    self_telemetry_denylist: Arc<HashSet<String>>,
 }
 
 impl ServiceRadarCollector {
@@ -201,10 +195,7 @@ impl ServiceRadarCollector {
             "ServiceRadarCollector created with output backend: {}",
             output.is_some()
         );
-        Ok(Self {
-            output,
-            self_telemetry_denylist: Arc::new(HashSet::new()),
-        })
+        Ok(Self { output })
     }
 
     /// Builds a collector around an arbitrary output backend.
@@ -215,38 +206,7 @@ impl ServiceRadarCollector {
     pub fn with_output(output: Arc<dyn TelemetryOutput>) -> Self {
         Self {
             output: Some(Arc::new(RwLock::new(output))),
-            self_telemetry_denylist: Arc::new(HashSet::new()),
         }
-    }
-
-    /// Sets the resource `service.name` denylist used to drop self-telemetry
-    /// before it is published to NATS. Consumed by the production boot path
-    /// from `[output] self_telemetry_services` / `SR_OTEL_SELF_TELEMETRY_DENYLIST`.
-    pub fn with_self_telemetry_denylist<I, S>(mut self, services: I) -> Self
-    where
-        I: IntoIterator<Item = S>,
-        S: Into<String>,
-    {
-        let denylist: HashSet<String> = services.into_iter().map(Into::into).collect();
-        if denylist.is_empty() {
-            debug!("Self-telemetry denylist is empty; no resources will be dropped");
-        } else {
-            let mut names: Vec<&str> = denylist.iter().map(String::as_str).collect();
-            names.sort_unstable();
-            info!("Self-telemetry denylist active for service.name in {names:?}");
-        }
-        self.self_telemetry_denylist = Arc::new(denylist);
-        self
-    }
-
-    /// True when at least one `service.name` is denylisted.
-    fn has_self_telemetry_denylist(&self) -> bool {
-        !self.self_telemetry_denylist.is_empty()
-    }
-
-    /// True when `service_name` is denylisted self-telemetry.
-    fn is_self_telemetry(&self, service_name: &str) -> bool {
-        self.self_telemetry_denylist.contains(service_name)
     }
 
     /// Clones the current output backend handle out of the slot. The lock is
@@ -308,7 +268,7 @@ impl ServiceRadarCollector {
     /// transports.
     pub async fn handle_traces(
         &self,
-        mut trace_data: ExportTraceServiceRequest,
+        trace_data: ExportTraceServiceRequest,
         ctx: &IngestContext,
     ) -> Result<ExportTraceServiceResponse, ExportError> {
         let span_count = trace_data
@@ -526,27 +486,6 @@ impl ServiceRadarCollector {
             }
         }
 
-        // Drop self-telemetry resource spans (ServiceRadar's own services
-        // exporting to the collector that feeds their ingestion) before
-        // publishing, breaking the export -> NATS -> EventWriter -> CNPG ->
-        // re-export feedback loop. Agent/customer telemetry is untouched.
-        if self.has_self_telemetry_denylist() {
-            let before = trace_data.resource_spans.len();
-            trace_data
-                .resource_spans
-                .retain(|rs| !self.is_self_telemetry(resource_service_name(rs.resource.as_ref())));
-            let dropped = before - trace_data.resource_spans.len();
-            if dropped > 0 {
-                debug!("Dropped {dropped} self-telemetry resource spans before publish");
-            }
-            if trace_data.resource_spans.is_empty() {
-                debug!("All resource spans were self-telemetry; skipping NATS publish");
-                return Ok(ExportTraceServiceResponse {
-                    partial_success: None,
-                });
-            }
-        }
-
         // Send to NATS if configured. A publish failure (after one retry)
         // fails the export so SDK clients retransmit instead of silently
         // losing spans; downstream writers dedupe on primary key, so retries
@@ -593,7 +532,7 @@ impl ServiceRadarCollector {
     /// transports.
     pub async fn handle_metrics(
         &self,
-        mut metrics_data: ExportMetricsServiceRequest,
+        metrics_data: ExportMetricsServiceRequest,
         ctx: &IngestContext,
     ) -> Result<ExportMetricsServiceResponse, ExportError> {
         let resource_metric_count = metrics_data.resource_metrics.len();
@@ -632,25 +571,6 @@ impl ServiceRadarCollector {
                         .map(|sm| sm.metrics.len())
                         .sum::<usize>()
                 );
-            }
-        }
-
-        // Drop self-telemetry resource metrics before publishing (see
-        // handle_traces for the rationale).
-        if self.has_self_telemetry_denylist() {
-            let before = metrics_data.resource_metrics.len();
-            metrics_data
-                .resource_metrics
-                .retain(|rm| !self.is_self_telemetry(resource_service_name(rm.resource.as_ref())));
-            let dropped = before - metrics_data.resource_metrics.len();
-            if dropped > 0 {
-                debug!("Dropped {dropped} self-telemetry resource metrics before publish");
-            }
-            if metrics_data.resource_metrics.is_empty() {
-                debug!("All resource metrics were self-telemetry; skipping NATS publish");
-                return Ok(ExportMetricsServiceResponse {
-                    partial_success: None,
-                });
             }
         }
 
@@ -696,7 +616,7 @@ impl ServiceRadarCollector {
     /// transports.
     pub async fn handle_logs(
         &self,
-        mut logs_data: ExportLogsServiceRequest,
+        logs_data: ExportLogsServiceRequest,
         ctx: &IngestContext,
     ) -> Result<ExportLogsServiceResponse, ExportError> {
         let logs_count = logs_data
@@ -745,25 +665,6 @@ impl ServiceRadarCollector {
                         scope_log.log_records.len()
                     );
                 }
-            }
-        }
-
-        // Drop self-telemetry resource logs before publishing (see
-        // handle_traces for the rationale).
-        if self.has_self_telemetry_denylist() {
-            let before = logs_data.resource_logs.len();
-            logs_data
-                .resource_logs
-                .retain(|rl| !self.is_self_telemetry(resource_service_name(rl.resource.as_ref())));
-            let dropped = before - logs_data.resource_logs.len();
-            if dropped > 0 {
-                debug!("Dropped {dropped} self-telemetry resource logs before publish");
-            }
-            if logs_data.resource_logs.is_empty() {
-                debug!("All resource logs were self-telemetry; skipping NATS publish");
-                return Ok(ExportLogsServiceResponse {
-                    partial_success: None,
-                });
             }
         }
 
@@ -1284,90 +1185,6 @@ mod tests {
         assert!(response.partial_success.is_none());
         assert_eq!(
             output.log_calls.load(std::sync::atomic::Ordering::SeqCst),
-            1
-        );
-    }
-
-    #[tokio::test]
-    async fn test_collector_drops_self_telemetry_resources() {
-        // The test fixtures all carry service.name = "test-service"; denylist
-        // it and assert nothing is published for traces/logs/metrics.
-        let output = Arc::new(MockOutput::default());
-        let collector = ServiceRadarCollector::with_output(output.clone())
-            .with_self_telemetry_denylist(["test-service"]);
-
-        let traces = collector
-            .handle_traces(create_test_trace_request(), &IngestContext::anonymous())
-            .await
-            .unwrap();
-        assert!(traces.partial_success.is_none());
-
-        let logs = collector
-            .handle_logs(create_test_logs_request(), &IngestContext::anonymous())
-            .await
-            .unwrap();
-        assert!(logs.partial_success.is_none());
-
-        let metrics = collector
-            .handle_metrics(
-                ExportMetricsServiceRequest {
-                    resource_metrics: vec![
-                        opentelemetry::proto::metrics::v1::ResourceMetrics {
-                            resource: Some(opentelemetry::proto::resource::v1::Resource {
-                                attributes: vec![opentelemetry::proto::common::v1::KeyValue {
-                                    key: "service.name".to_string(),
-                                    value: Some(opentelemetry::proto::common::v1::AnyValue {
-                                        value: Some(
-                                            opentelemetry::proto::common::v1::any_value::Value::StringValue(
-                                                "test-service".to_string(),
-                                            ),
-                                        ),
-                                    }),
-                                }],
-                                dropped_attributes_count: 0,
-                                entity_refs: vec![],
-                            }),
-                            scope_metrics: vec![],
-                            schema_url: String::new(),
-                        },
-                    ],
-                },
-                &IngestContext::anonymous(),
-            )
-            .await
-            .unwrap();
-        assert!(metrics.partial_success.is_none());
-
-        // No publish should have happened for any signal.
-        assert_eq!(
-            output.trace_calls.load(std::sync::atomic::Ordering::SeqCst),
-            0
-        );
-        assert_eq!(
-            output.log_calls.load(std::sync::atomic::Ordering::SeqCst),
-            0
-        );
-        assert_eq!(
-            output
-                .metric_calls
-                .load(std::sync::atomic::Ordering::SeqCst),
-            0
-        );
-    }
-
-    #[tokio::test]
-    async fn test_collector_forwards_non_denylisted_resources() {
-        // A denylist that does not match still forwards the fixture traffic.
-        let output = Arc::new(MockOutput::default());
-        let collector = ServiceRadarCollector::with_output(output.clone())
-            .with_self_telemetry_denylist(["serviceradar-core-elx"]);
-
-        collector
-            .handle_traces(create_test_trace_request(), &IngestContext::anonymous())
-            .await
-            .unwrap();
-        assert_eq!(
-            output.trace_calls.load(std::sync::atomic::Ordering::SeqCst),
             1
         );
     }
