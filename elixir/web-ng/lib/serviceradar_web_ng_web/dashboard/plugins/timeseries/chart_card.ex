@@ -282,7 +282,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
             stroke-width="2"
             stroke-linecap="round"
             stroke-linejoin="round"
-            stroke-dasharray={@encoding.dasharray}
             data-series-shape={@encoding.shape}
           />
         </svg>

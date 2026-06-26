@@ -198,7 +198,7 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
     assert html =~ "%"
   end
 
-  test "renders non-color stroke patterns for multi-series charts" do
+  test "renders non-color markers with solid strokes for multi-series charts" do
     points = [
       {~U[2025-01-01 00:00:00Z], 10.0},
       {~U[2025-01-01 00:05:00Z], 20.0},
@@ -216,7 +216,10 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
 
     assert html =~ "cpu0"
     assert html =~ "cpu1"
-    assert html =~ "stroke-dasharray=\"6 4\""
+    assert html =~ ~s(data-series-shape="circle")
+    assert html =~ ~s(data-series-shape="square")
+    refute html =~ ~s(stroke-dasharray="6 4")
+    refute html =~ ~s(stroke-dasharray="2 3")
   end
 
   test "prefers SRQL metric unit metadata over field-name inference" do

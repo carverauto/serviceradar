@@ -167,7 +167,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
               stroke-width="2"
               stroke-linecap="round"
               stroke-linejoin="round"
-              stroke-dasharray={ChartCard.series_encoding(series.idx).dasharray}
               data-series-shape={ChartCard.series_encoding(series.idx).shape}
             />
           <% end %>

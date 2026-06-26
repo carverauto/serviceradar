@@ -98,6 +98,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
     assert cpu.header_stats == %{min: 12.0, max: 99.9, avg: 35.611111111111114}
 
     timeseries_panel = Enum.find(cpu.panels, &(&1.plugin == TimeseriesPlugin))
+    assert timeseries_panel.assigns.combine_all_series == true
+    assert timeseries_panel.assigns.combined_title == "CPU cores"
+
     displayed_cores = MapSet.new(timeseries_panel.assigns.series_points, &elem(&1, 0))
     assert displayed_cores == MapSet.new(~w(0 1 4 5 6 7))
 

@@ -48,6 +48,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
 
         panels =
           Series.build_metric_panels(%{"results" => display_rows, "viz" => viz}, display_rows, "core_id", reference_lines)
+          |> Series.combine_timeseries_panels("CPU cores")
 
         %{
           base
