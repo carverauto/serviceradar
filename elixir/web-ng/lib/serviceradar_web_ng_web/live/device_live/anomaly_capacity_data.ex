@@ -6,7 +6,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   require Logger
 
   @metric_classes ~w(cpu memory disk interface snmp red)
-  @anomaly_limit 20
+  @anomaly_page_limit 5
   @capacity_limit 12
   @query_timeout_ms 5_000
 
@@ -19,15 +19,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       capacity_query: nil,
       anomaly_filter: nil,
       capacity_filter: nil,
+      anomaly_pagination: %{"next_cursor" => nil, "prev_cursor" => nil, "limit" => @anomaly_page_limit},
       anomaly_error: nil,
       capacity_error: nil,
       metric_statuses: metric_statuses([])
     }
   end
 
-  def load(_srql_module, identity, _scope) when identity in [nil, %{}], do: empty()
+  def load(srql_module, identity, scope, opts \\ [])
 
-  def load(srql_module, identity, scope) when is_map(identity) do
+  def load(_srql_module, identity, _scope, _opts) when identity in [nil, %{}], do: empty()
+
+  def load(srql_module, identity, scope, opts) when is_map(identity) do
     anomaly_candidates = anomaly_filter_candidates(identity)
     capacity_candidates = capacity_filter_candidates(identity)
 
@@ -36,12 +39,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
     else
       anomaly_task =
         Task.Supervisor.async_nolink(ServiceRadarWebNG.TaskSupervisor, fn ->
-          load_first(srql_module, anomaly_candidates, scope, &anomaly_query/1, &project_anomaly_row/1)
+          load_first(srql_module, anomaly_candidates, scope, &anomaly_query/2, &project_anomaly_row/1,
+            cursor: Keyword.get(opts, :anomaly_cursor),
+            limit: @anomaly_page_limit,
+            severity: Keyword.get(opts, :anomaly_severity),
+            status: Keyword.get(opts, :anomaly_status),
+            sort: Keyword.get(opts, :anomaly_sort)
+          )
         end)
 
       capacity_task =
         Task.Supervisor.async_nolink(ServiceRadarWebNG.TaskSupervisor, fn ->
-          load_first(srql_module, capacity_candidates, scope, &capacity_query/1, &project_capacity_row/1)
+          load_first(
+            srql_module,
+            capacity_candidates,
+            scope,
+            fn candidate, _opts -> capacity_query(candidate) end,
+            &project_capacity_row/1
+          )
         end)
 
       anomaly = await_load_task(anomaly_task, "anomaly")
@@ -49,12 +64,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
 
       %{
         status: combined_status(anomaly, capacity),
+        identity: identity,
         anomaly_rows: anomaly.rows,
         capacity_rows: capacity.rows,
         anomaly_query: anomaly.query,
         capacity_query: capacity.query,
         anomaly_filter: anomaly.filter,
         capacity_filter: capacity.filter,
+        anomaly_pagination: anomaly.pagination,
         anomaly_error: anomaly.error,
         capacity_error: capacity.error,
         metric_statuses: metric_statuses(anomaly.rows)
@@ -80,16 +97,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   end
 
   defp task_error_result(error) do
-    %{rows: [], query: nil, filter: nil, error: error, status: :error}
+    %{rows: [], query: nil, filter: nil, pagination: %{}, error: error, status: :error}
   end
 
-  defp load_first(srql_module, candidates, scope, query_fun, project_fun) do
+  defp load_first(srql_module, candidates, scope, query_fun, project_fun, opts \\ []) do
     candidates
     |> Enum.reduce_while(nil, fn candidate, acc ->
-      query = query_fun.(candidate)
+      query = query_fun.(candidate, opts)
 
-      case srql_module.query(query, %{scope: scope}) do
-        {:ok, %{"results" => rows}} when is_list(rows) ->
+      query_opts =
+        %{scope: scope}
+        |> maybe_put_query_opt(:cursor, Keyword.get(opts, :cursor))
+        |> maybe_put_query_opt(:limit, Keyword.get(opts, :limit))
+
+      case srql_module.query(query, query_opts) do
+        {:ok, %{"results" => rows} = response} when is_list(rows) ->
           rows =
             rows
             |> Enum.filter(&is_map/1)
@@ -100,6 +122,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
             rows: rows,
             query: query,
             filter: Map.take(candidate, [:field, :label, :value]),
+            pagination: normalize_pagination(Map.get(response, "pagination"), opts),
             error: nil,
             status: :ok
           }
@@ -122,9 +145,29 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       end
     end)
     |> case do
-      nil -> %{rows: [], query: nil, filter: nil, error: nil, status: :ok}
+      nil -> %{rows: [], query: nil, filter: nil, pagination: normalize_pagination(nil, opts), error: nil, status: :ok}
       result -> result
     end
+  end
+
+  defp maybe_put_query_opt(opts, _key, nil), do: opts
+  defp maybe_put_query_opt(opts, _key, ""), do: opts
+  defp maybe_put_query_opt(opts, key, value), do: Map.put(opts, key, value)
+
+  defp normalize_pagination(pagination, opts) when is_map(pagination) do
+    %{
+      "next_cursor" => Map.get(pagination, "next_cursor"),
+      "prev_cursor" => Map.get(pagination, "prev_cursor") || Map.get(pagination, "previous_cursor"),
+      "limit" => Map.get(pagination, "limit") || Keyword.get(opts, :limit)
+    }
+  end
+
+  defp normalize_pagination(_pagination, opts) do
+    %{
+      "next_cursor" => nil,
+      "prev_cursor" => nil,
+      "limit" => Keyword.get(opts, :limit)
+    }
   end
 
   defp error_result(candidate, query, error) do
@@ -132,6 +175,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       rows: [],
       query: query,
       filter: Map.take(candidate, [:field, :label, :value]),
+      pagination: %{},
       error: error,
       status: :error
     }
@@ -174,26 +218,40 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
     end
   end
 
-  defp anomaly_query(%{field: field, value: value}) do
-    Enum.join(
-      [
-        "in:events",
-        "class_uid:2004",
-        # Anomaly findings carry source_type='anomaly_detection' in
-        # metadata.service_radar; event_type is NULL on these rows. Filtering
-        # source_type (not event_type) both returns the findings AND matches the
-        # partial index idx_ocsf_events_sr_anomaly_device_time (class_uid=2004
-        # AND source_type='anomaly_detection', keyed on device_uid,time) — turns
-        # a 5s full-scan timeout into a sub-ms index scan.
-        "source_type:anomaly_detection",
-        ~s|#{field}:"#{QueryData.escape_value(value)}"|,
-        "time:last_7d",
-        "sort:time:desc",
-        "limit:#{@anomaly_limit}"
-      ],
-      " "
-    )
+  defp anomaly_query(%{field: field, value: value}, opts) do
+    [
+      "in:events",
+      "class_uid:2004",
+      # Anomaly findings carry source_type='anomaly_detection' in
+      # metadata.service_radar; event_type is NULL on these rows. Filtering
+      # source_type (not event_type) both returns the findings AND matches the
+      # partial index idx_ocsf_events_sr_anomaly_device_time (class_uid=2004
+      # AND source_type='anomaly_detection', keyed on device_uid,time) — turns
+      # a 5s full-scan timeout into a sub-ms index scan.
+      "source_type:anomaly_detection",
+      ~s|#{field}:"#{QueryData.escape_value(value)}"|,
+      "time:last_7d",
+      anomaly_severity_token(Keyword.get(opts, :severity)),
+      anomaly_status_token(Keyword.get(opts, :status)),
+      anomaly_sort_token(Keyword.get(opts, :sort))
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" ")
   end
+
+  defp anomaly_severity_token("critical"), do: "severity:Critical"
+  defp anomaly_severity_token("high"), do: "severity:High"
+  defp anomaly_severity_token("medium"), do: "severity:(Medium,Warning)"
+  defp anomaly_severity_token("low"), do: "severity:Low"
+  defp anomaly_severity_token(_), do: nil
+
+  defp anomaly_status_token("open"), do: "status:(active,open,anomaly_open)"
+  defp anomaly_status_token("cleared"), do: "status:(inactive,cleared,resolved)"
+  defp anomaly_status_token("pending"), do: "status:(pending,pending_anomaly)"
+  defp anomaly_status_token(_), do: nil
+
+  defp anomaly_sort_token("oldest"), do: "sort:time:asc"
+  defp anomaly_sort_token(_), do: "sort:time:desc"
 
   defp capacity_query(%{field: field, value: value}) do
     Enum.join(
@@ -220,13 +278,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       "metric_class" => metric_class(row),
       "metric_name" => metric_name(row),
       "metric_value" => metric_value(row),
+      "peak_value" => peak_value(row),
       "threshold_value" => threshold_value(row),
       "score" => score_value(row),
+      "window_started_at" => anomaly_window_started_at(row),
+      "window_ended_at" => anomaly_window_ended_at(row),
       "series_key" => series_key(row),
       "interface_uid" => interface_uid(row),
       "if_index" => if_index(row),
       "device_label" => device_label(row),
       "severity" => map_value(row, "severity"),
+      "effective_severity" => effective_severity(row),
+      "disposition" => disposition(row),
+      "reason" => reason(row),
+      "state" => anomaly_state(row),
       "status" => status_value(row)
     })
   end
@@ -317,6 +382,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
     ])
   end
 
+  defp peak_value(row) do
+    first_present(row, [
+      ["peak_value"],
+      ["metadata", "service_radar", "peak_value"],
+      ["metadata", "anomaly", "peak_value"],
+      ["metadata", "anomaly", "peak"],
+      ["metadata", "detection_finding", "peak_value"],
+      ["unmapped", "peak_value"],
+      ["raw_data", "peak_value"]
+    ])
+  end
+
   defp score_value(row) do
     first_present(row, [
       ["score"],
@@ -325,6 +402,77 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       ["metadata", "anomaly", "z_score"],
       ["unmapped", "score"],
       ["raw_data", "score"]
+    ])
+  end
+
+  defp anomaly_window_started_at(row) do
+    first_present(row, [
+      ["window_started_at"],
+      ["window_start"],
+      ["metadata", "service_radar", "window_started_at"],
+      ["metadata", "anomaly", "window_started_at"],
+      ["metadata", "anomaly", "window_start"],
+      ["metadata", "detection_finding", "window_started_at"],
+      ["unmapped", "window_started_at"],
+      ["raw_data", "window_started_at"]
+    ])
+  end
+
+  defp anomaly_window_ended_at(row) do
+    first_present(row, [
+      ["window_ended_at"],
+      ["window_end"],
+      ["metadata", "service_radar", "window_ended_at"],
+      ["metadata", "anomaly", "window_ended_at"],
+      ["metadata", "anomaly", "window_end"],
+      ["metadata", "detection_finding", "window_ended_at"],
+      ["unmapped", "window_ended_at"],
+      ["raw_data", "window_ended_at"]
+    ])
+  end
+
+  defp effective_severity(row) do
+    first_present(row, [
+      ["effective_severity"],
+      ["metadata", "service_radar", "effective_severity"],
+      ["metadata", "anomaly", "effective_severity"],
+      ["metadata", "detection_finding", "effective_severity"],
+      ["unmapped", "effective_severity"],
+      ["raw_data", "effective_severity"]
+    ])
+  end
+
+  defp disposition(row) do
+    first_present(row, [
+      ["disposition"],
+      ["metadata", "service_radar", "disposition"],
+      ["metadata", "anomaly", "disposition"],
+      ["metadata", "detection_finding", "disposition"],
+      ["unmapped", "disposition"],
+      ["raw_data", "disposition"]
+    ])
+  end
+
+  defp reason(row) do
+    first_present(row, [
+      ["reason"],
+      ["metadata", "service_radar", "reason"],
+      ["metadata", "anomaly", "reason"],
+      ["metadata", "detection_finding", "reason"],
+      ["unmapped", "reason"],
+      ["raw_data", "reason"]
+    ])
+  end
+
+  defp anomaly_state(row) do
+    first_present(row, [
+      ["state"],
+      ["metadata", "service_radar", "state"],
+      ["metadata", "anomaly", "state"],
+      ["metadata", "detection_finding", "state"],
+      ["metadata", "detection_finding", "dimensions", "state"],
+      ["unmapped", "state"],
+      ["raw_data", "state"]
     ])
   end
 
@@ -424,6 +572,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
     counts =
       rows
       |> Enum.filter(&is_map/1)
+      |> Enum.reject(&capacity_notice?/1)
       |> Enum.group_by(&metric_class/1)
 
     Enum.map(@metric_classes, fn class ->
@@ -443,11 +592,34 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp anomaly_status([]), do: "normal"
 
   defp anomaly_status(rows) do
-    if Enum.any?(rows, &(status_value(&1) == "suppressed")) do
-      "suppressed"
-    else
-      "active"
+    cond do
+      Enum.any?(rows, &(status_value(&1) == "suppressed")) ->
+        "suppressed"
+
+      Enum.any?(rows, &(anomaly_state(&1) in ["confirmed", "anomalous"])) ->
+        "confirmed"
+
+      Enum.any?(rows, &(anomaly_state(&1) in ["pending", "pending_anomaly"])) ->
+        "pending"
+
+      true ->
+        "active"
     end
+  end
+
+  defp capacity_notice?(row) do
+    text =
+      [
+        finding_title(row),
+        map_value(row, "message"),
+        reason(row),
+        metric_name(row)
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join(" ")
+      |> normalize_text()
+
+    String.contains?(text, "capacity forecast")
   end
 
   defp metric_class(row) do
@@ -504,6 +676,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp known_atom_key("metric_class"), do: :metric_class
   defp known_atom_key("metric_name"), do: :metric_name
   defp known_atom_key("metric_value"), do: :metric_value
+  defp known_atom_key("peak_value"), do: :peak_value
+  defp known_atom_key("peak"), do: :peak
   defp known_atom_key("threshold_value"), do: :threshold_value
   defp known_atom_key("score"), do: :score
   defp known_atom_key("series_key"), do: :series_key
@@ -524,6 +698,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp known_atom_key("z_score"), do: :z_score
   defp known_atom_key("value"), do: :value
   defp known_atom_key("dimensions"), do: :dimensions
+  defp known_atom_key("window_start"), do: :window_start
+  defp known_atom_key("window_end"), do: :window_end
+  defp known_atom_key("effective_severity"), do: :effective_severity
+  defp known_atom_key("disposition"), do: :disposition
+  defp known_atom_key("reason"), do: :reason
   defp known_atom_key("forecasted_at"), do: :forecasted_at
   defp known_atom_key("resource_type"), do: :resource_type
   defp known_atom_key("resource_label"), do: :resource_label
@@ -547,6 +726,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp known_atom_key("forecast_value_unit"), do: :forecast_value_unit
   defp known_atom_key("raw_value_unit"), do: :raw_value_unit
   defp known_atom_key("status"), do: :status
+  defp known_atom_key("state"), do: :state
   defp known_atom_key(_), do: nil
 
   defp normalize_class(value) do
@@ -578,6 +758,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp metric_label("disk"), do: "Disk"
   defp metric_label("interface"), do: "Interfaces"
   defp metric_label("snmp"), do: "SNMP"
-  defp metric_label("red"), do: "RED"
+  defp metric_label("red"), do: "Other Signals"
   defp metric_label(class), do: class
 end

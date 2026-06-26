@@ -1726,6 +1726,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
                series: nil
              }
            ] = assigns.annotations
+
+    assert [
+             %{
+               kind: :anomaly,
+               dt: "2026-06-19T12:05:00Z",
+               label: "Selected: CPU saturation anomaly",
+               severity: "High",
+               selected: true,
+               series: nil
+             },
+             %{
+               kind: :anomaly,
+               dt: "2026-06-19T12:05:00Z",
+               label: "CPU saturation anomaly",
+               severity: "High",
+               selected: false,
+               series: nil
+             }
+           ] = assigns.chart_overlays
   end
 
   test "sysmon anomaly annotations remain visible when panel has no matching series" do
@@ -1753,6 +1772,74 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       SysmonMetrics.annotate_metric_sections([section], %{anomaly_rows: [row]})
 
     assert [%{label: "CPU saturation anomaly", series: nil}] = assigns.annotations
+  end
+
+  test "sysmon metric sections carry anomaly windows and capacity forecast overlays" do
+    disk_section = %{
+      key: "disk",
+      panels: [
+        %{
+          id: "disk",
+          assigns: %{
+            reference_lines: [],
+            series_points: [{"series", []}]
+          }
+        }
+      ]
+    }
+
+    anomaly_row = %{
+      "time" => "2026-06-19T12:05:00Z",
+      "window_started_at" => "2026-06-19T12:00:00Z",
+      "window_ended_at" => "2026-06-19T12:10:00Z",
+      "effective_severity" => "critical",
+      "metric_class" => "disk",
+      "metric_name" => "disk.used_percent",
+      "peak_value" => 94.5,
+      "threshold_value" => 90.0,
+      "score" => 5.25,
+      "disposition" => "active",
+      "reason" => "Rapid fill rate",
+      "message" => "Disk usage spike"
+    }
+
+    capacity_row = %{
+      "forecasted_at" => "2026-06-19T12:00:00Z",
+      "projected_exhaustion_at" => "2026-06-19T12:20:00Z",
+      "resource_label" => "Filesystem /",
+      "resource_key" => "disk:/",
+      "resource_type" => "disk",
+      "metric_class" => "disk",
+      "metric_name" => "disk.used_percent",
+      "value_unit" => "percent",
+      "status" => "exhaustion_projected",
+      "current_value" => 82.0,
+      "projected_value" => 97.0,
+      "exhaustion_threshold" => 95.0,
+      "lower_bound" => 92.0,
+      "upper_bound" => 99.0,
+      "confidence" => 0.9
+    }
+
+    [%{panels: [%{assigns: assigns}]}] =
+      SysmonMetrics.annotate_metric_sections(
+        [disk_section],
+        %{anomaly_rows: [anomaly_row], capacity_rows: [capacity_row]}
+      )
+
+    assert [
+             %{kind: :anomaly, label: "Disk usage spike", window_started_at: "2026-06-19T12:00:00Z"},
+             %{kind: :capacity, label: "Capacity forecast: Filesystem /", current_value: 82.0}
+           ] = assigns.chart_overlays
+
+    assert [
+             %{
+               label: "Capacity threshold: Filesystem /",
+               severity: "critical",
+               value: 95.0,
+               series: nil
+             }
+           ] = assigns.reference_lines
   end
 
   test "sysmon percent metric sections carry saturation gate reference lines" do

@@ -134,11 +134,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
              "metadata" => %{
                "finding_info" => %{"title" => "Nested title", "uid" => "finding-1"},
                "service_radar" => %{
+                 "effective_severity" => "warning",
                  "metric_class" => "cpu",
+                 "peak_value" => 99.1,
                  "status" => "suppressed",
-                 "series_key" => "partition:agent:cpu0"
+                 "series_key" => "partition:agent:cpu0",
+                 "window_started_at" => "2026-06-18T23:55:00Z",
+                 "window_ended_at" => "2026-06-19T00:05:00Z"
                },
-               "anomaly" => %{"score" => 4.2, "threshold_value" => 90.0}
+               "anomaly" => %{
+                 "disposition" => "acknowledged",
+                 "reason" => "Maintenance window",
+                 "score" => 4.2,
+                 "threshold_value" => 90.0
+               }
              },
              "source_device_uid" => "router-1",
              "raw_data" => %{"metric_class" => "disk"},
@@ -321,11 +330,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
              "metric_class" => "cpu",
              "metric_name" => "cpu.usage_percent",
              "metric_value" => 97.5,
+             "peak_value" => 99.1,
              "threshold_value" => 90.0,
              "score" => 4.2,
+             "window_started_at" => "2026-06-18T23:55:00Z",
+             "window_ended_at" => "2026-06-19T00:05:00Z",
              "series_key" => "partition:agent:cpu0",
              "device_label" => "router-1",
              "severity" => "High",
+             "effective_severity" => "warning",
+             "disposition" => "acknowledged",
+             "reason" => "Maintenance window",
              "status" => "suppressed"
            }
 
@@ -358,13 +373,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
         query
       end
 
-    assert Enum.any?(queries, &(String.contains?(&1, "in:events") and String.contains?(&1, "limit:20")))
+    assert Enum.any?(queries, &(String.contains?(&1, "in:events") and not String.contains?(&1, "limit:")))
+    assert data.anomaly_pagination["limit"] == 5
 
     assert Enum.any?(
              queries,
              &(String.contains?(&1, "in:capacity_forecasts") and
                  String.contains?(&1, "time:last_24h") and String.contains?(&1, "limit:12"))
            )
+  end
+
+  test "applies cursor pagination options and anomaly filters to the SRQL query" do
+    data =
+      AnomalyCapacityData.load(ProjectingSRQL, %{device_uid: "router-1"}, nil,
+        anomaly_cursor: "cursor-1",
+        anomaly_severity: "high",
+        anomaly_status: "open",
+        anomaly_sort: "oldest"
+      )
+
+    queries = drain_fake_queries()
+    anomaly_query = Enum.find(queries, &String.contains?(&1, "in:events"))
+
+    assert data.anomaly_pagination["limit"] == 5
+    refute anomaly_query =~ "limit:"
+    assert anomaly_query =~ "severity:High"
+    assert anomaly_query =~ "status:(active,open,anomaly_open)"
+    assert anomaly_query =~ "sort:time:asc"
   end
 
   test "SRQL task crashes return an error result without raising" do

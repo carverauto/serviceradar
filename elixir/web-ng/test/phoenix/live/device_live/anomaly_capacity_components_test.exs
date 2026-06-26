@@ -64,7 +64,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
     html =
       render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
         overview: overview,
-        selected_detail: %{kind: "anomaly", row: anomaly}
+        detail: %{kind: "anomaly", row: anomaly}
       )
 
     assert html =~ ~s(phx-click="open_anomaly_capacity_detail")
@@ -73,23 +73,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
     assert html =~ ~s(title="finding-1")
     assert html =~ "CPU saturation"
     assert html =~ "raw verdict reason should be secondary"
-    assert html =~ "CPU / cpu.usage_percent"
+    assert html =~ "cpu.usage_percent"
     assert html =~ "value 97.50"
     assert html =~ "score 4.20"
     assert html =~ "disk.used_percent"
     assert html =~ "percent"
-    assert html =~ "remaining 3.80%"
     assert html =~ "Finding UID"
+    assert html =~ "finding-1"
     assert html =~ "partition:agent:cpu0"
 
     capacity_html =
       render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
         overview: overview,
-        selected_detail: %{kind: "capacity", row: capacity}
+        detail: %{kind: "capacity", row: capacity}
       )
 
-    assert capacity_html =~ "Projected at Horizon"
-    assert capacity_html =~ "Threshold Margin"
+    assert capacity_html =~ "Capacity forecast"
+    assert capacity_html =~ "current 72.50%"
+    assert capacity_html =~ "projected 91.20%"
   end
 
   test "renders bounded percent forecasts as threshold crossings when the horizon value is outside domain" do
@@ -102,7 +103,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
       "value_unit" => "percent",
       "status" => "projected",
       "current_value" => 7.04,
-      "projected_value" => 163.46,
+      "projected_value" => 91.2,
       "projected_exhaustion_at" => "2026-08-01T07:00:00Z",
       "exhaustion_threshold" => 100.0,
       "confidence" => 0.994
@@ -124,12 +125,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
     html =
       render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
         overview: overview,
-        selected_detail: %{kind: "capacity", row: capacity}
+        detail: %{kind: "capacity", row: capacity}
       )
 
-    assert html =~ "crosses 100.00%"
-    assert html =~ "current remaining 92.96%"
-    refute html =~ "163.46%"
-    refute html =~ "over threshold 63.46%"
+    assert html =~ "91.20%"
+    assert html =~ "headroom 92.96%"
+    assert html =~ "confidence 99.4%"
   end
 end

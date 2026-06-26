@@ -132,6 +132,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     combined_title = Map.get(assigns, :combined_title, "Combined")
     chart_focus = assigns |> Spec.fetch_panel_value(:chart_focus) |> Focus.normalize()
     reference_lines = reference_lines_from_assigns(assigns)
+    chart_overlays = chart_overlays_from_assigns(assigns)
     y_scale = Points.scale_mode(Map.get(assigns, :y_scale, :linear))
 
     {series_points, focus_annotation} = Focus.apply(series_points, chart_focus)
@@ -146,7 +147,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         max_speed,
         annotations,
         reference_lines,
-        y_scale
+        y_scale,
+        chart_overlays
       )
 
     {combined_charts, individual_series} =
@@ -326,6 +328,170 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   end
 
   defp annotation_value(annotation, keys), do: Enum.find_value(keys, &Map.get(annotation, &1))
+
+  defp chart_overlays_from_assigns(assigns) do
+    assigns
+    |> Spec.fetch_panel_value(:chart_overlays, [])
+    |> normalize_chart_overlays()
+  end
+
+  defp normalize_chart_overlays(overlays) when is_list(overlays) do
+    overlays
+    |> Enum.map(&normalize_chart_overlay/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp normalize_chart_overlays(_overlays), do: []
+
+  defp normalize_chart_overlay(%{} = overlay) do
+    case overlay_kind(overlay) do
+      :anomaly -> normalize_anomaly_overlay(overlay)
+      :capacity -> normalize_capacity_overlay(overlay)
+      _ -> nil
+    end
+  end
+
+  defp normalize_chart_overlay(_overlay), do: nil
+
+  defp normalize_anomaly_overlay(overlay) do
+    dt_value =
+      first_present([
+        Map.get(overlay, :dt),
+        Map.get(overlay, "dt"),
+        Map.get(overlay, :time),
+        Map.get(overlay, "time"),
+        Map.get(overlay, :timestamp),
+        Map.get(overlay, "timestamp")
+      ])
+
+    case parse_annotation_datetime(dt_value) do
+      {:ok, dt} ->
+        %{
+          kind: :anomaly,
+          dt: dt,
+          window_started_at: overlay_datetime(overlay, [:window_started_at, "window_started_at"]),
+          window_ended_at: overlay_datetime(overlay, [:window_ended_at, "window_ended_at"]),
+          value: overlay_number(overlay, [:value, "value", :peak_value, "peak_value", :metric_value, "metric_value"]),
+          threshold_value: overlay_number(overlay, [:threshold_value, "threshold_value", :threshold, "threshold"]),
+          score: overlay_number(overlay, [:score, "score"]),
+          label: overlay_label(overlay),
+          severity: overlay_severity(overlay),
+          series: annotation_series(overlay),
+          selected: truthy?(annotation_value(overlay, [:selected, "selected"])),
+          disposition: overlay_string(overlay, [:disposition, "disposition"]),
+          reason: overlay_string(overlay, [:reason, "reason"])
+        }
+
+      _ ->
+        nil
+    end
+  end
+
+  defp normalize_capacity_overlay(overlay) do
+    dt = overlay_datetime(overlay, [:dt, "dt", :projected_exhaustion_at, "projected_exhaustion_at"])
+
+    if is_struct(dt, DateTime) do
+      %{
+        kind: :capacity,
+        dt: dt,
+        forecasted_at: overlay_datetime(overlay, [:forecasted_at, "forecasted_at"]),
+        current_value: overlay_number(overlay, [:current_value, "current_value"]),
+        projected_value: overlay_number(overlay, [:projected_value, "projected_value"]),
+        threshold_value:
+          overlay_number(overlay, [:threshold_value, "threshold_value", :exhaustion_threshold, "exhaustion_threshold"]),
+        lower_bound: overlay_number(overlay, [:lower_bound, "lower_bound"]),
+        upper_bound: overlay_number(overlay, [:upper_bound, "upper_bound"]),
+        confidence: overlay_number(overlay, [:confidence, "confidence"]),
+        label: overlay_label(overlay),
+        severity: overlay_severity(overlay),
+        series: annotation_series(overlay),
+        status: overlay_string(overlay, [:status, "status"])
+      }
+    end
+  end
+
+  defp overlay_kind(overlay) do
+    overlay
+    |> annotation_value([:kind, "kind", :type, "type"])
+    |> safe_to_string()
+    |> String.trim()
+    |> String.downcase()
+    |> case do
+      "anomaly" -> :anomaly
+      "capacity" -> :capacity
+      "capacity_forecast" -> :capacity
+      "capacity-forecast" -> :capacity
+      _ -> nil
+    end
+  end
+
+  defp overlay_label(overlay) do
+    overlay
+    |> annotation_value([:label, "label", :title, "title", :name, "name"])
+    |> safe_to_string()
+    |> String.trim()
+    |> case do
+      "" -> "Overlay"
+      value -> value
+    end
+  end
+
+  defp overlay_severity(overlay) do
+    overlay
+    |> annotation_value([
+      :effective_severity,
+      "effective_severity",
+      :severity,
+      "severity",
+      :severity_text,
+      "severity_text"
+    ])
+    |> safe_to_string()
+    |> String.trim()
+    |> String.downcase()
+    |> case do
+      "critical" -> :critical
+      "error" -> :critical
+      "high" -> :high
+      "warning" -> :warning
+      "warn" -> :warning
+      "medium" -> :warning
+      "low" -> :info
+      "info" -> :info
+      "informational" -> :info
+      _ -> :info
+    end
+  end
+
+  defp overlay_datetime(overlay, keys) do
+    overlay
+    |> annotation_value(keys)
+    |> parse_annotation_datetime()
+    |> case do
+      {:ok, dt} -> dt
+      _ -> nil
+    end
+  end
+
+  defp overlay_number(overlay, keys) do
+    overlay
+    |> annotation_value(keys)
+    |> parse_number()
+  end
+
+  defp overlay_string(overlay, keys) do
+    overlay
+    |> annotation_value(keys)
+    |> safe_to_string()
+    |> String.trim()
+    |> case do
+      "" -> nil
+      value -> value
+    end
+  end
+
+  defp truthy?(value) when value in [true, "true", "1", 1], do: true
+  defp truthy?(_value), do: false
 
   defp reference_lines_from_assigns(assigns) do
     assigns

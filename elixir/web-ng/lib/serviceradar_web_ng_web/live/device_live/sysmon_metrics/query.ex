@@ -18,7 +18,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query do
           ~s|metric_type:"#{escape_value(metric_type)}"|,
           ~s|metric_name:"#{escape_value(metric_name)}"|,
           "time:#{Keyword.get(opts, :time_range, "last_24h")}",
-          "bucket:5m",
+          "bucket:#{Keyword.get(opts, :bucket, "5m")}",
           "agg:#{Keyword.get(opts, :agg, "avg")}"
         ]
       else

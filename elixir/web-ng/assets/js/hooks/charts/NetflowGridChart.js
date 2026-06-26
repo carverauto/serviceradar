@@ -50,6 +50,49 @@ export function gridPanelAt(localX, localY, panels) {
   )
 }
 
+export function gridPanelAtPointer(clientX, clientY, rect, geometry) {
+  if (!rect || !geometry || rect.width <= 0 || rect.height <= 0) return null
+
+  const viewBoxWidth = Number(geometry.viewBoxWidth)
+  const viewBoxHeight = Number(geometry.viewBoxHeight)
+  const scaleX = Number.isFinite(viewBoxWidth) && viewBoxWidth > 0 ? viewBoxWidth / rect.width : 1
+  const scaleY = Number.isFinite(viewBoxHeight) && viewBoxHeight > 0 ? viewBoxHeight / rect.height : 1
+  const x = (clientX - rect.left) * scaleX - Number(geometry.marginLeft || 0)
+  const y = (clientY - rect.top) * scaleY - Number(geometry.marginTop || 0)
+  const cellWidth = Number(geometry.cellWidth)
+  const cellHeight = Number(geometry.cellHeight)
+  const pad = Number(geometry.pad || 0)
+  const cols = Math.max(1, Number(geometry.cols || 1))
+  const count = Math.max(0, Number(geometry.count || 0))
+
+  if (
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    !Number.isFinite(cellWidth) ||
+    !Number.isFinite(cellHeight) ||
+    cellWidth <= 0 ||
+    cellHeight <= 0 ||
+    x < 0 ||
+    y < 0
+  ) {
+    return null
+  }
+
+  const strideX = cellWidth + pad
+  const strideY = cellHeight + pad
+  const col = Math.floor(x / strideX)
+  const row = Math.floor(y / strideY)
+  const localX = x - col * strideX
+  const localY = y - row * strideY
+  const index = row * cols + col
+
+  if (col < 0 || row < 0 || localX > cellWidth || localY > cellHeight || index >= count) {
+    return null
+  }
+
+  return {index, row, col, localX, localY}
+}
+
 export function nearestTimeRow(data, targetTime) {
   if (!Array.isArray(data) || data.length === 0) return null
   const target = targetTime instanceof Date ? targetTime : new Date(targetTime)

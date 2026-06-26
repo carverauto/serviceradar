@@ -10,8 +10,23 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
   end
 
   def build_series_data(series_points, spec, rate_mode, compact, max_speed, annotations, reference_lines, y_scale) do
+    build_series_data(series_points, spec, rate_mode, compact, max_speed, annotations, reference_lines, y_scale, [])
+  end
+
+  def build_series_data(
+        series_points,
+        spec,
+        rate_mode,
+        compact,
+        max_speed,
+        annotations,
+        reference_lines,
+        y_scale,
+        chart_overlays
+      ) do
     opts = %{
       annotations: annotations,
+      chart_overlays: chart_overlays,
       compact: compact,
       max_speed: max_speed,
       rate_mode: rate_mode,
@@ -53,6 +68,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
   defp series_data_for_points(series, points, idx, opts) do
     %{
       annotations: annotations,
+      chart_overlays: chart_overlays,
       compact: compact,
       max_speed: max_speed,
       rate_mode: rate_mode,
@@ -91,8 +107,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
       chart_max: y_domain.max,
       y_scale: y_domain.scale,
       annotations: annotation_markers(annotations, points, series, display_name),
+      overlays: overlay_markers(chart_overlays, points, series, display_name, y_domain, unit),
       reference_lines: reference_line_markers(reference_lines, y_domain, series, display_name, unit),
       raw_reference_lines: reference_lines,
+      raw_chart_overlays: chart_overlays,
       first_dt: Points.series_first_dt(points),
       last_dt: Points.series_last_dt(points),
       max_speed: effective_max,
@@ -119,6 +137,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
       chart_max: y_domain.max,
       y_scale: y_domain.scale,
       annotations: combined_annotation_markers(traffic_series),
+      overlays: combined_overlay_markers(traffic_series),
       reference_lines: combined_reference_line_markers(traffic_series, y_domain, unit),
       x_ticks: x_ticks || [],
       y_ticks: y_ticks,
@@ -146,6 +165,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
       chart_max: y_domain.max,
       y_scale: y_domain.scale,
       annotations: combined_annotation_markers(series_data),
+      overlays: combined_overlay_markers(series_data),
       reference_lines: combined_reference_line_markers(series_data, y_domain, unit),
       x_ticks: x_ticks || [],
       y_ticks: y_ticks,
@@ -175,6 +195,15 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
     |> Enum.flat_map(&Map.get(&1, :annotations, []))
     |> Enum.uniq_by(fn marker -> {marker.x, marker.label, marker.severity} end)
     |> Enum.sort_by(& &1.x)
+  end
+
+  defp combined_overlay_markers(series_data) when is_list(series_data) do
+    series_data
+    |> Enum.flat_map(&Map.get(&1, :overlays, []))
+    |> Enum.uniq_by(fn marker ->
+      {Map.get(marker, :kind), Map.get(marker, :x), Map.get(marker, :window_x1), Map.get(marker, :label)}
+    end)
+    |> Enum.sort_by(fn marker -> Map.get(marker, :x) || Map.get(marker, :window_x1) || 0 end)
   end
 
   defp combined_y_domain(series_data, unit, y_scale) when is_list(series_data) do
@@ -212,6 +241,15 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
               series.raw_series,
               series.series,
               series.unit
+            ),
+          overlays:
+            overlay_markers(
+              Map.get(series, :raw_chart_overlays, []),
+              points,
+              series.raw_series,
+              series.series,
+              y_domain,
+              unit
             )
       }
     end)
@@ -302,6 +340,150 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
   defp annotation_color(:high), do: "#F97316"
   defp annotation_color(:warning), do: "#EAB308"
   defp annotation_color(_severity), do: "#0EA5E9"
+
+  defp overlay_markers(overlays, points, raw_series, display_name, y_domain, unit)
+       when is_list(overlays) and is_list(points) do
+    overlays
+    |> Enum.filter(&overlay_applies_to_series?(&1, raw_series, display_name))
+    |> Enum.map(&overlay_marker(&1, points, y_domain, unit))
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp overlay_markers(_overlays, _points, _raw_series, _display_name, _y_domain, _unit), do: []
+
+  defp overlay_applies_to_series?(%{series: nil}, _raw_series, _display_name), do: true
+
+  defp overlay_applies_to_series?(%{series: series}, raw_series, display_name) do
+    raw = raw_series |> safe_to_string() |> String.trim()
+    humanized = Metrics.humanize_series_name(raw_series || "series")
+
+    series in [raw, display_name, humanized]
+  end
+
+  defp overlay_marker(%{kind: :anomaly} = overlay, points, y_domain, unit) do
+    x = annotation_x(overlay.dt, points)
+    window = overlay_window(overlay, points)
+    y = overlay_value_y(Map.get(overlay, :value), y_domain)
+
+    if x || window || y do
+      %{
+        kind: :anomaly,
+        x: x,
+        window_x1: window && elem(window, 0),
+        window_x2: window && elem(window, 1),
+        value_y: y,
+        value_label: overlay_value_label(Map.get(overlay, :value), unit),
+        label: overlay.label,
+        severity: overlay.severity,
+        selected: Map.get(overlay, :selected, false),
+        color: annotation_color(overlay.severity),
+        title: anomaly_overlay_title(overlay, unit)
+      }
+    end
+  end
+
+  defp overlay_marker(%{kind: :capacity} = overlay, points, y_domain, unit) do
+    x = annotation_x(overlay.dt, points)
+    runway = capacity_runway(overlay, points, y_domain)
+    confidence = if x || runway, do: confidence_band(overlay, y_domain)
+
+    if x || runway || confidence do
+      %{
+        kind: :capacity,
+        x: x,
+        runway: runway,
+        confidence: confidence,
+        label: overlay.label,
+        severity: overlay.severity,
+        color: reference_line_color(overlay.severity),
+        title: capacity_overlay_title(overlay, unit)
+      }
+    end
+  end
+
+  defp overlay_marker(_overlay, _points, _y_domain, _unit), do: nil
+
+  defp overlay_window(%{window_started_at: %DateTime{} = started_at, window_ended_at: %DateTime{} = ended_at}, points) do
+    with x1 when is_number(x1) <- annotation_x(started_at, points),
+         x2 when is_number(x2) <- annotation_x(ended_at, points),
+         true <- x2 >= x1 do
+      {x1, x2}
+    else
+      _ -> nil
+    end
+  end
+
+  defp overlay_window(_overlay, _points), do: nil
+
+  defp overlay_value_y(value, y_domain) when is_number(value) do
+    if reference_line_visible?(value, y_domain) do
+      Paths.value_to_y(value, y_domain.min, y_domain.max, y_domain.scale)
+    end
+  end
+
+  defp overlay_value_y(_value, _y_domain), do: nil
+
+  defp capacity_runway(%{forecasted_at: %DateTime{} = forecasted_at, dt: %DateTime{} = dt} = overlay, points, y_domain) do
+    with x1 when is_number(x1) <- annotation_x(forecasted_at, points),
+         x2 when is_number(x2) <- annotation_x(dt, points),
+         y1 when is_number(y1) <- overlay_value_y(Map.get(overlay, :current_value), y_domain),
+         y2 when is_number(y2) <- overlay_value_y(Map.get(overlay, :projected_value), y_domain) do
+      %{x1: x1, y1: y1, x2: x2, y2: y2}
+    else
+      _ -> nil
+    end
+  end
+
+  defp capacity_runway(_overlay, _points, _y_domain), do: nil
+
+  defp confidence_band(%{lower_bound: lower, upper_bound: upper}, y_domain) when is_number(lower) and is_number(upper) do
+    with true <- lower <= upper,
+         y_upper when is_number(y_upper) <- overlay_value_y(upper, y_domain),
+         y_lower when is_number(y_lower) <- overlay_value_y(lower, y_domain) do
+      %{y: y_upper, height: max(y_lower - y_upper, 1)}
+    else
+      _ -> nil
+    end
+  end
+
+  defp confidence_band(_overlay, _y_domain), do: nil
+
+  defp anomaly_overlay_title(overlay, unit) do
+    detail =
+      [
+        overlay.label,
+        overlay_value_label(Map.get(overlay, :value), unit),
+        score_label(Map.get(overlay, :score)),
+        Map.get(overlay, :disposition),
+        Map.get(overlay, :reason),
+        Points.dt_label(overlay.dt)
+      ]
+      |> Enum.reject(&blank?/1)
+      |> Enum.join(" - ")
+
+    if detail == "", do: "Anomaly finding", else: detail
+  end
+
+  defp capacity_overlay_title(overlay, unit) do
+    [
+      overlay.label,
+      "projected #{overlay_value_label(Map.get(overlay, :projected_value), unit)}",
+      "threshold #{overlay_value_label(Map.get(overlay, :threshold_value), unit)}",
+      Points.dt_label(overlay.dt)
+    ]
+    |> Enum.reject(&blank?/1)
+    |> Enum.join(" - ")
+  end
+
+  defp overlay_value_label(value, unit) when is_number(value), do: Metrics.format_value(value, unit)
+  defp overlay_value_label(_value, _unit), do: nil
+
+  defp score_label(score) when is_number(score), do: "score #{Float.round(score * 1.0, 2)}"
+  defp score_label(_score), do: nil
+
+  defp blank?(nil), do: true
+  defp blank?(""), do: true
+  defp blank?(_), do: false
 
   defp reference_points(values) when is_list(values), do: Enum.map(values, &{nil, &1})
 
