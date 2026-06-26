@@ -61,10 +61,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
               empty_message="No process metrics yet."
             />
           <% else %>
-            <%= for panel <- section.panels do %>
+            <%= for {panel, idx} <- Enum.with_index(section.panels) do %>
               <.live_component
                 module={panel.plugin}
-                id={"device-#{@device_uid}-#{section.key}-#{panel.id}"}
+                id={"device-#{@device_uid}-#{section.key}-#{panel.id}-#{idx}"}
                 title={Map.get(panel, :title) || section.title}
                 panel_assigns={panel_assigns(panel, @chart_focus)}
               />
