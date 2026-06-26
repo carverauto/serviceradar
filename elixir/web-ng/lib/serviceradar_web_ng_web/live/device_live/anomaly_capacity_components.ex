@@ -2,6 +2,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   @moduledoc false
   use ServiceRadarWebNGWeb, :html
 
+  @detail_chart_focus_side_seconds 2 * 60 * 60
+
   attr :overview, :map, required: true
   attr :detail, :map, default: nil
   attr :device_uid, :string, default: nil
@@ -426,6 +428,37 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
     </div>
     """
   end
+
+  defp detail_panel_assigns(panel, chart_focus) do
+    panel.assigns
+    |> Map.put(:compact, true)
+    |> maybe_put_detail_chart_focus(chart_focus)
+  end
+
+  defp maybe_put_detail_chart_focus(assigns, nil), do: assigns
+  defp maybe_put_detail_chart_focus(assigns, focus), do: Map.put(assigns, :chart_focus, focus)
+
+  defp detail_chart_focus(%{kind: kind, row: row}) when is_map(row) do
+    case first_present(row, [["time"], ["timestamp"], ["window_ended_at"], ["projected_exhaustion_at"]]) do
+      nil ->
+        nil
+
+      timestamp ->
+        %{
+          timestamp: timestamp,
+          label: detail_title(%{kind: kind, row: row}, nil, nil),
+          severity: value(row, "effective_severity") || value(row, "severity") || value(row, "status"),
+          series: first_present(row, [["series"], ["series_key"], ["metric_name"], ["resource_key"]]),
+          series_key: value(row, "series_key"),
+          metric_name: value(row, "metric_name"),
+          resource_key: value(row, "resource_key"),
+          before_seconds: @detail_chart_focus_side_seconds,
+          after_seconds: @detail_chart_focus_side_seconds
+        }
+    end
+  end
+
+  defp detail_chart_focus(_detail), do: nil
 
   defp observability_href(query) do
     "/observability?" <> URI.encode_query(%{tab: "events", q: query, limit: 50})
