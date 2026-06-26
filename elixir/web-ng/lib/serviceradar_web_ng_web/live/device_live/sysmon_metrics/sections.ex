@@ -174,7 +174,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
   end
 
   defp cpu_display_subtitle(rows) when is_list(rows) do
-    per_core = Series.sysmon_display_subtitle(rows, "core_id", "core", "cores")
-    String.replace(per_core, "last 24h · 5m buckets · ", "last 24h · 5m buckets · overall + ")
+    Series.sysmon_display_subtitle(rows, "core_id", "core", "cores", prefix: "overall + ")
   end
 end

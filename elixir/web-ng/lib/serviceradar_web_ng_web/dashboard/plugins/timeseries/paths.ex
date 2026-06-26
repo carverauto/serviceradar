@@ -8,6 +8,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
   @chart_top_pad 12
   @chart_bottom_pad 24
 
+  def chart_width, do: @chart_width
+  def chart_height, do: @chart_height
+  def chart_left_pad, do: @chart_left_pad
+  def chart_right_pad, do: @chart_right_pad
+  def chart_top_pad, do: @chart_top_pad
+  def chart_bottom_pad, do: @chart_bottom_pad
+
   def chart_paths(points, %{min: min_v, max: max_v, scale: scale}) when is_list(points) do
     values =
       points

@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Series do
   alias ServiceRadarWebNGWeb.SRQL.Viz
 
   @sysmon_display_series_limit 6
+  @sysmon_window_label "last 24h · 5m buckets"
 
   def latest_metric_value(rows, field, opts \\ [])
 
@@ -83,7 +84,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Series do
 
   def hottest_series_rows(rows, _series_field, _value_field), do: rows
 
-  def sysmon_display_subtitle(rows, series_field, singular, plural) when is_list(rows) do
+  def sysmon_display_subtitle(rows, series_field, singular, plural, opts \\ [])
+
+  def sysmon_display_subtitle(rows, series_field, singular, plural, opts) when is_list(rows) do
+    "#{@sysmon_window_label} · #{Keyword.get(opts, :prefix, "")}#{sysmon_display_subtitle_detail(rows, series_field, singular, plural)}"
+  end
+
+  def sysmon_display_subtitle(_rows, _series_field, singular, _plural, opts) do
+    "#{@sysmon_window_label} · #{Keyword.get(opts, :prefix, "")}max per #{singular}"
+  end
+
+  defp sysmon_display_subtitle_detail(rows, series_field, singular, plural) when is_list(rows) do
     count =
       rows
       |> Enum.map(&series_key(&1, series_field))
@@ -94,15 +105,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Series do
     noun = if count == 1, do: singular, else: plural
 
     if count > @sysmon_display_series_limit do
-      "last 24h · 5m buckets · top #{@sysmon_display_series_limit} of #{count} #{plural} by max"
+      "top #{@sysmon_display_series_limit} of #{count} #{plural} by max"
     else
-      "last 24h · 5m buckets · all #{count} #{noun} by max"
+      "all #{count} #{noun} by max"
     end
   end
 
-  def sysmon_display_subtitle(_rows, _series_field, singular, _plural) do
-    "last 24h · 5m buckets · max per #{singular}"
-  end
+  defp sysmon_display_subtitle_detail(_rows, _series_field, singular, _plural), do: "max per #{singular}"
 
   def timeseries_viz(y_field, series_field) do
     suggestion =
@@ -128,23 +137,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Series do
     |> drop_category_panels_when_timeseries()
     |> attach_reference_lines(reference_lines)
   end
-
-  def combine_timeseries_panels(panels, title) when is_list(panels) do
-    Enum.map(panels, fn
-      %{plugin: TimeseriesPlugin, assigns: assigns} = panel when is_map(assigns) ->
-        assigns =
-          assigns
-          |> Map.put(:combine_all_series, true)
-          |> Map.put(:combined_title, title)
-
-        %{panel | assigns: assigns}
-
-      panel ->
-        panel
-    end)
-  end
-
-  def combine_timeseries_panels(panels, _title), do: panels
 
   def title_timeseries_panels(panels, title) when is_list(panels) do
     Enum.map(panels, fn

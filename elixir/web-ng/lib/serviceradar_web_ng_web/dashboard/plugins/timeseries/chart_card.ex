@@ -6,12 +6,12 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics
 
   @series_encodings [
-    %{shape: :circle, label: "Circle", dasharray: nil},
-    %{shape: :square, label: "Square", dasharray: "6 4"},
-    %{shape: :triangle, label: "Triangle", dasharray: "2 3"},
-    %{shape: :diamond, label: "Diamond", dasharray: "8 3 2 3"},
-    %{shape: :line, label: "Line", dasharray: "10 4"},
-    %{shape: :cross, label: "Cross", dasharray: "3 2 1 2"}
+    %{shape: :circle, label: "Circle"},
+    %{shape: :square, label: "Square"},
+    %{shape: :triangle, label: "Triangle"},
+    %{shape: :diamond, label: "Diamond"},
+    %{shape: :line, label: "Line"},
+    %{shape: :cross, label: "Cross"}
   ]
 
   def series_encoding(idx) when is_integer(idx) do

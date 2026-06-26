@@ -11,17 +11,11 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Focus
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics
+  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Spec
   alias ServiceRadarWebNGWeb.SRQL.Viz
-
-  @chart_width 800
-  @chart_height 140
-  @chart_left_pad 72
-  @chart_right_pad 32
-  @chart_top_pad 12
-  @chart_bottom_pad 24
 
   @impl true
   def id, do: "timeseries"
@@ -118,12 +112,12 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       |> assign(:compact_title, compact_title)
       |> assign(:rate_mode, rate_mode)
       |> assign(:y_scale, y_scale)
-      |> assign(:chart_width, @chart_width)
-      |> assign(:chart_height, @chart_height)
-      |> assign(:chart_left_pad, @chart_left_pad)
-      |> assign(:chart_right_pad, @chart_right_pad)
-      |> assign(:chart_top_pad, @chart_top_pad)
-      |> assign(:chart_bottom_pad, @chart_bottom_pad)
+      |> assign(:chart_width, Paths.chart_width())
+      |> assign(:chart_height, Paths.chart_height())
+      |> assign(:chart_left_pad, Paths.chart_left_pad())
+      |> assign(:chart_right_pad, Paths.chart_right_pad())
+      |> assign(:chart_top_pad, Paths.chart_top_pad())
+      |> assign(:chart_bottom_pad, Paths.chart_bottom_pad())
 
     {:ok, socket}
   end
