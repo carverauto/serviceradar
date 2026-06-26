@@ -1,5 +1,7 @@
 defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.TemplateBrowser do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
+
   alias ServiceRadar.SNMPProfiles.BuiltinTemplates
   alias ServiceRadar.SNMPProfiles.SNMPOIDTemplate
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Templates

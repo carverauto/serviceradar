@@ -625,10 +625,15 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     raw = to_string(value)
 
     formatted =
-      if byte_column?(col) do
-        format_bytes(value)
-      else
-        format_cell_number(value)
+      cond do
+        byte_column?(col) ->
+          format_bytes(value)
+
+        unit = unit_for_numeric_column(col) ->
+          FlowStatComponents.format_si(value, unit: unit)
+
+        true ->
+          format_cell_number(value)
       end
 
     {:text, %{value: formatted, title: if(formatted == raw, do: nil, else: raw)}}
@@ -853,13 +858,6 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   defp sort_icon(col, sort_field, "desc") when col == sort_field, do: "hero-chevron-down"
   defp sort_icon(_col, _sort_field, _sort_dir), do: "hero-chevron-up-down"
 
-  defp format_numeric_cell(col, value) when is_number(value) do
-    case unit_for_numeric_column(col) do
-      nil -> format_plain_numeric_cell(value)
-      unit -> FlowStatComponents.format_si(value, unit: unit)
-    end
-  end
-
   defp unit_for_numeric_column(col) do
     col_key = col |> to_string() |> String.trim() |> String.downcase()
 
@@ -876,48 +874,6 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       true ->
         nil
     end
-  end
-
-  defp format_plain_numeric_cell(value) when is_integer(value) do
-    value
-    |> Integer.to_string()
-    |> add_thousands_separators()
-  end
-
-  defp format_plain_numeric_cell(value) when is_float(value) do
-    value
-    |> :erlang.float_to_binary(decimals: 2)
-    |> trim_decimal_zeroes()
-    |> split_numeric_parts()
-    |> format_numeric_parts()
-  end
-
-  defp split_numeric_parts(value) when is_binary(value) do
-    case String.split(value, ".", parts: 2) do
-      [whole, fraction] -> {whole, fraction}
-      [whole] -> {whole, nil}
-    end
-  end
-
-  defp format_numeric_parts({whole, nil}), do: add_thousands_separators(whole)
-  defp format_numeric_parts({whole, fraction}), do: "#{add_thousands_separators(whole)}.#{fraction}"
-
-  defp trim_decimal_zeroes(value) when is_binary(value) do
-    value
-    |> String.trim_trailing("0")
-    |> String.trim_trailing(".")
-  end
-
-  defp add_thousands_separators("-" <> rest), do: "-" <> add_thousands_separators(rest)
-
-  defp add_thousands_separators(value) when is_binary(value) do
-    value
-    |> String.graphemes()
-    |> Enum.reverse()
-    |> Enum.chunk_every(3)
-    |> Enum.map(&Enum.reverse/1)
-    |> Enum.reverse()
-    |> Enum.map_join(",", &Enum.join/1)
   end
 
   defp url_host_label(uri, fallback) do

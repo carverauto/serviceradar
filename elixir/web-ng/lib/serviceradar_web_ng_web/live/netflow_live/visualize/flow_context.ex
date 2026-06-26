@@ -12,7 +12,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext do
   alias ServiceRadar.Observability.IpThreatIntelCache
   alias ServiceRadar.Observability.NetflowPortAnomalyFlag
   alias ServiceRadar.Observability.NetflowPortScanFlag
-  alias ServiceRadarWebNGWeb.Netflow.EnrichmentExpiry
+  alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext.MapMarkers
 
   require Ash.Query

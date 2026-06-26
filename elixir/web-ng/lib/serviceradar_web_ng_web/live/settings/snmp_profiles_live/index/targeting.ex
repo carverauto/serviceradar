@@ -1,5 +1,7 @@
 defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Targeting do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
+
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
 

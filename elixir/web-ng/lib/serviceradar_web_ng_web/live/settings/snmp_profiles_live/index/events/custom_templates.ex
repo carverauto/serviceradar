@@ -1,5 +1,7 @@
 defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.CustomTemplates do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
+
   alias AshPhoenix.Form
   alias ServiceRadar.SNMPProfiles.SNMPOIDTemplate
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data

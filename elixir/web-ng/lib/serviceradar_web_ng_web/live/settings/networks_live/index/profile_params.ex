@@ -1,7 +1,9 @@
 defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.ProfileParams do
   @moduledoc false
   import ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents, only: [banner_grab_protocol_options: 0]
-  import ServiceRadarWebNGWeb.Settings.NetworksLive.Index.MapperParams, only: [normalize_boolean: 2, normalize_integer: 2]
+
+  import ServiceRadarWebNGWeb.Settings.NetworksLive.Index.MapperParams,
+    only: [normalize_boolean: 2, normalize_integer: 2]
 
   def transform_profile_params(params) do
     params

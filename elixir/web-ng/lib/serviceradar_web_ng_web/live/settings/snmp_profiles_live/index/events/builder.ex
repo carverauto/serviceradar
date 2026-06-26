@@ -1,9 +1,11 @@
 defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Builder do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
+
   alias AshPhoenix.Form
-  alias ServiceRadarWebNGWeb.SRQL.Catalog
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Builder
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Targeting
+  alias ServiceRadarWebNGWeb.SRQL.Catalog
 
   def handle_event("builder_toggle", _params, socket) do
     builder_open = !socket.assigns.builder_open

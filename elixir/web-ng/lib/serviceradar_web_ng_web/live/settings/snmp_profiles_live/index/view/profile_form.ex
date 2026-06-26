@@ -1,8 +1,11 @@
 defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :html
+
   import ServiceRadarWebNGWeb.QueryBuilderComponents
   import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data, only: [agent_display_name: 1]
   import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.FormHelpers, only: [get_form_value: 3]
+
   alias ServiceRadarWebNGWeb.SRQL.Catalog
 
   attr :form, :any, required: true
@@ -109,7 +112,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
             />
           </div>
         </div>
-
+        
     <!-- SNMP Credentials Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
@@ -250,7 +253,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
             </p>
           <% end %>
         </div>
-
+        
     <!-- Agent Targeting Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
@@ -289,7 +292,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
             </label>
           </div>
         </div>
-
+        
     <!-- Interface Targeting Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
@@ -309,7 +312,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 </div>
               </div>
             </div>
-
+            
     <!-- Query Input with Builder Toggle -->
             <div>
               <label class="label"><span class="label-text">Target Query (SRQL)</span></label>
@@ -338,7 +341,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 </span>
               </label>
             </div>
-
+            
     <!-- Visual Query Builder -->
             <div :if={@builder_open} class="border border-base-200 rounded-lg p-4 bg-base-100/50">
               <div class="flex items-center justify-between mb-4">
@@ -440,7 +443,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 </div>
               </form>
             </div>
-
+            
     <!-- Target Count Preview -->
             <div :if={@target_device_count != nil} class="flex items-center gap-2">
               <.icon name="hero-signal" class="size-4 text-base-content/60" />
@@ -462,7 +465,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 {if @target_entity == "interfaces", do: "Interfaces", else: "Devices"}
               </.ui_badge>
             </div>
-
+            
     <!-- Priority -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -483,7 +486,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
             </div>
           </div>
         </div>
-
+        
     <!-- OID Templates Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
@@ -492,7 +495,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
           <p class="text-sm text-base-content/60">
             Select OID templates to define what metrics are polled from devices matched by this profile.
           </p>
-
+          
     <!-- Selected Templates -->
           <div :if={@selected_template_ids != []} class="flex flex-wrap gap-2">
             <%= for template_id <- @selected_template_ids do %>
@@ -514,7 +517,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
               </div>
             <% end %>
           </div>
-
+          
     <!-- Template Dropdown -->
           <div class="dropdown dropdown-bottom w-full max-w-md">
             <div tabindex="0" role="button" class="btn btn-outline w-full justify-between">
@@ -557,7 +560,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
             interface traffic, CPU/memory, environment sensors, or other vendor-specific metrics.
           </p>
         </div>
-
+        
     <!-- Actions -->
         <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
           <.link navigate={~p"/settings/snmp"}>
@@ -568,7 +571,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
           </.ui_button>
         </div>
       </.form>
-
+      
     <!-- Legacy SNMP Targets Section (deprecated, only shown when existing targets present) -->
       <div
         :if={@show_form == :edit_profile && @targets != []}

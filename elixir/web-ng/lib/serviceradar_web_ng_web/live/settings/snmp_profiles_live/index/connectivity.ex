@@ -1,4 +1,5 @@
 defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Connectivity do
+  @moduledoc false
   def test_snmp_connectivity(host, port) do
     # First, resolve the hostname to verify it exists
     host_charlist = String.to_charlist(host)

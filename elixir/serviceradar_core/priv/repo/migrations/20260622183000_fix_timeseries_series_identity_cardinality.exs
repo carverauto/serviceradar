@@ -37,6 +37,9 @@ defmodule ServiceRadar.Repo.Migrations.FixTimeseriesSeriesIdentityCardinality do
   ]
 
   def up do
+    # serviceradar:allow-startup-maintenance - this only replaces the stable-tags
+    # helper and registers Timescale retention/chunk policies for a fixed set of
+    # hypertables; it does not backfill metric rows on first boot.
     replace_stable_tags_function(@volatile_tag_keys)
 
     Enum.each(@raw_metric_tables, fn table_name ->

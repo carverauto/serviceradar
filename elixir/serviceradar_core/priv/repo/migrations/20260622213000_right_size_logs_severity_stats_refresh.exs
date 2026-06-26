@@ -28,6 +28,9 @@ defmodule ServiceRadar.Repo.Migrations.RightSizeLogsSeverityStatsRefresh do
   @view "platform.logs_severity_stats_5m"
 
   def up do
+    # serviceradar:allow-startup-maintenance - this only re-registers the
+    # Timescale continuous-aggregate refresh policy; it does not refresh or
+    # backfill the materialized view on first boot.
     reconfigure_policy(
       start_offset: "3 hours",
       end_offset: "30 minutes",

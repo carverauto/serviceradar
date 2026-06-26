@@ -189,11 +189,7 @@ async fn start_otel(config_path: &str) -> Result<()> {
     }
     let collector = create_collector(nats_config)
         .await
-        .map_err(|e| anyhow::anyhow!("{e}"))?
-        // Drop ServiceRadar's own self-telemetry (core/web-ng/gateway/otel) at
-        // the collector edge so it is never re-ingested into the product's own
-        // event store, breaking the export -> NATS -> EventWriter feedback loop.
-        .with_self_telemetry_denylist(otel_cfg.self_telemetry_denylist());
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     // Start metrics server if configured
     if let Some(metrics_addr_str) = otel_cfg.metrics_address() {

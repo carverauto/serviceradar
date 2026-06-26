@@ -50,6 +50,10 @@ defmodule ServiceRadar.Repo.Migrations.AddMapperTopologyLinksLogicalKeyUidx do
   @index_name "mapper_topology_links_logical_key_uidx"
 
   def up do
+    # serviceradar:allow-startup-maintenance - schema-critical bounded cleanup
+    # before adding the logical-key constraint. The mapper link table is the
+    # affected table, duplicates are collapsed once, and the final unique index
+    # is built CONCURRENTLY.
     # 1. Backfill legacy NULLs in the logical-key columns to their new defaults.
     execute("""
     UPDATE platform.mapper_topology_links
@@ -69,44 +73,26 @@ defmodule ServiceRadar.Repo.Migrations.AddMapperTopologyLinksLogicalKeyUidx do
 
     # 2. Apply NOT NULL + DEFAULT so the index can be plain-column and future
     #    inserts that omit a key column land on the default rather than NULL.
-    execute(
-      "ALTER TABLE platform.mapper_topology_links ALTER COLUMN local_device_id SET DEFAULT ''"
-    )
+    execute("ALTER TABLE platform.mapper_topology_links ALTER COLUMN local_device_id SET DEFAULT ''")
 
-    execute(
-      "ALTER TABLE platform.mapper_topology_links ALTER COLUMN local_device_id SET NOT NULL"
-    )
+    execute("ALTER TABLE platform.mapper_topology_links ALTER COLUMN local_device_id SET NOT NULL")
 
-    execute(
-      "ALTER TABLE platform.mapper_topology_links ALTER COLUMN neighbor_device_id SET DEFAULT ''"
-    )
+    execute("ALTER TABLE platform.mapper_topology_links ALTER COLUMN neighbor_device_id SET DEFAULT ''")
 
-    execute(
-      "ALTER TABLE platform.mapper_topology_links ALTER COLUMN neighbor_device_id SET NOT NULL"
-    )
+    execute("ALTER TABLE platform.mapper_topology_links ALTER COLUMN neighbor_device_id SET NOT NULL")
 
-    execute(
-      "ALTER TABLE platform.mapper_topology_links ALTER COLUMN neighbor_port_id SET DEFAULT ''"
-    )
+    execute("ALTER TABLE platform.mapper_topology_links ALTER COLUMN neighbor_port_id SET DEFAULT ''")
 
-    execute(
-      "ALTER TABLE platform.mapper_topology_links ALTER COLUMN neighbor_port_id SET NOT NULL"
-    )
+    execute("ALTER TABLE platform.mapper_topology_links ALTER COLUMN neighbor_port_id SET NOT NULL")
 
     execute("ALTER TABLE platform.mapper_topology_links ALTER COLUMN protocol SET DEFAULT ''")
     execute("ALTER TABLE platform.mapper_topology_links ALTER COLUMN protocol SET NOT NULL")
 
-    execute(
-      "ALTER TABLE platform.mapper_topology_links ALTER COLUMN neighbor_chassis_id SET DEFAULT ''"
-    )
+    execute("ALTER TABLE platform.mapper_topology_links ALTER COLUMN neighbor_chassis_id SET DEFAULT ''")
 
-    execute(
-      "ALTER TABLE platform.mapper_topology_links ALTER COLUMN neighbor_chassis_id SET NOT NULL"
-    )
+    execute("ALTER TABLE platform.mapper_topology_links ALTER COLUMN neighbor_chassis_id SET NOT NULL")
 
-    execute(
-      "ALTER TABLE platform.mapper_topology_links ALTER COLUMN local_if_index SET DEFAULT 0"
-    )
+    execute("ALTER TABLE platform.mapper_topology_links ALTER COLUMN local_if_index SET DEFAULT 0")
 
     execute("ALTER TABLE platform.mapper_topology_links ALTER COLUMN local_if_index SET NOT NULL")
 
@@ -145,44 +131,26 @@ defmodule ServiceRadar.Repo.Migrations.AddMapperTopologyLinksLogicalKeyUidx do
 
     # Leave the backfilled data in place but relax the constraints so the column
     # shapes match the original schema.
-    execute(
-      "ALTER TABLE platform.mapper_topology_links ALTER COLUMN local_device_id DROP NOT NULL"
-    )
+    execute("ALTER TABLE platform.mapper_topology_links ALTER COLUMN local_device_id DROP NOT NULL")
 
-    execute(
-      "ALTER TABLE platform.mapper_topology_links ALTER COLUMN local_device_id DROP DEFAULT"
-    )
+    execute("ALTER TABLE platform.mapper_topology_links ALTER COLUMN local_device_id DROP DEFAULT")
 
-    execute(
-      "ALTER TABLE platform.mapper_topology_links ALTER COLUMN neighbor_device_id DROP NOT NULL"
-    )
+    execute("ALTER TABLE platform.mapper_topology_links ALTER COLUMN neighbor_device_id DROP NOT NULL")
 
-    execute(
-      "ALTER TABLE platform.mapper_topology_links ALTER COLUMN neighbor_device_id DROP DEFAULT"
-    )
+    execute("ALTER TABLE platform.mapper_topology_links ALTER COLUMN neighbor_device_id DROP DEFAULT")
 
-    execute(
-      "ALTER TABLE platform.mapper_topology_links ALTER COLUMN neighbor_port_id DROP NOT NULL"
-    )
+    execute("ALTER TABLE platform.mapper_topology_links ALTER COLUMN neighbor_port_id DROP NOT NULL")
 
-    execute(
-      "ALTER TABLE platform.mapper_topology_links ALTER COLUMN neighbor_port_id DROP DEFAULT"
-    )
+    execute("ALTER TABLE platform.mapper_topology_links ALTER COLUMN neighbor_port_id DROP DEFAULT")
 
     execute("ALTER TABLE platform.mapper_topology_links ALTER COLUMN protocol DROP NOT NULL")
     execute("ALTER TABLE platform.mapper_topology_links ALTER COLUMN protocol DROP DEFAULT")
 
-    execute(
-      "ALTER TABLE platform.mapper_topology_links ALTER COLUMN neighbor_chassis_id DROP NOT NULL"
-    )
+    execute("ALTER TABLE platform.mapper_topology_links ALTER COLUMN neighbor_chassis_id DROP NOT NULL")
 
-    execute(
-      "ALTER TABLE platform.mapper_topology_links ALTER COLUMN neighbor_chassis_id DROP DEFAULT"
-    )
+    execute("ALTER TABLE platform.mapper_topology_links ALTER COLUMN neighbor_chassis_id DROP DEFAULT")
 
-    execute(
-      "ALTER TABLE platform.mapper_topology_links ALTER COLUMN local_if_index DROP NOT NULL"
-    )
+    execute("ALTER TABLE platform.mapper_topology_links ALTER COLUMN local_if_index DROP NOT NULL")
 
     execute("ALTER TABLE platform.mapper_topology_links ALTER COLUMN local_if_index DROP DEFAULT")
   end

@@ -150,6 +150,7 @@ pub(super) fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
             match series.as_str() {
                 "metric_name" => "metric_name".to_string(),
                 "metric_type" => "metric_type".to_string(),
+                "series_key" => "series_key".to_string(),
                 "device_id" => "device_id".to_string(),
                 "gateway_id" => "gateway_id".to_string(),
                 "agent_id" => "agent_id".to_string(),

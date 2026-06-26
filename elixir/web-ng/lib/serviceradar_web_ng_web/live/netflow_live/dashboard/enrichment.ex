@@ -6,7 +6,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard.Enrichment do
 
   alias ServiceRadar.Observability.IpGeoEnrichmentCache
   alias ServiceRadar.Observability.IpRdnsCache
-  alias ServiceRadarWebNGWeb.Netflow.EnrichmentExpiry
+  alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
 
   require Ash.Query
 

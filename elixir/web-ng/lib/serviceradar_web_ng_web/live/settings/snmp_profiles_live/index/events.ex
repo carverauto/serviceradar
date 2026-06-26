@@ -3,8 +3,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events do
 
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Builder
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.CustomTemplates
-  alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.ProfileTemplates
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Profiles
+  alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.ProfileTemplates
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.TargetOids
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Targets
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.TemplateBrowser
@@ -17,17 +17,14 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events do
   @template_browser_events ~w(open_template_browser close_template_browser select_vendor search_templates add_template_oids add_custom_template_oids copy_template_to_custom)
   @custom_template_events ~w(open_custom_template_modal edit_custom_template close_custom_template_modal validate_custom_template save_custom_template delete_custom_template add_template_oid remove_template_oid update_template_oid)
 
-  def handle_event(event, params, socket) when event in @profile_events,
-    do: Profiles.handle_event(event, params, socket)
+  def handle_event(event, params, socket) when event in @profile_events, do: Profiles.handle_event(event, params, socket)
 
-  def handle_event(event, params, socket) when event in @builder_events,
-    do: Builder.handle_event(event, params, socket)
+  def handle_event(event, params, socket) when event in @builder_events, do: Builder.handle_event(event, params, socket)
 
   def handle_event(event, params, socket) when event in @profile_template_events,
     do: ProfileTemplates.handle_event(event, params, socket)
 
-  def handle_event(event, params, socket) when event in @target_events,
-    do: Targets.handle_event(event, params, socket)
+  def handle_event(event, params, socket) when event in @target_events, do: Targets.handle_event(event, params, socket)
 
   def handle_event(event, params, socket) when event in @target_oid_events,
     do: TargetOids.handle_event(event, params, socket)

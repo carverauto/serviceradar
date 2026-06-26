@@ -28,18 +28,10 @@ pub struct Config {
 
 /// `[output]` — selects the [`crate::output::TelemetryOutput`] backend the
 /// collector publishes through (design D8).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct OutputConfig {
     #[serde(default)]
     pub backend: OutputBackend,
-}
-
-impl Default for OutputConfig {
-    fn default() -> Self {
-        Self {
-            backend: OutputBackend::default(),
-        }
-    }
 }
 
 /// The configured output backend.

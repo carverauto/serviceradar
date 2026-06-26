@@ -11,7 +11,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowList do
 
   alias ServiceRadar.Observability.IpGeoEnrichmentCache
   alias ServiceRadar.Observability.IpRdnsCache
-  alias ServiceRadarWebNGWeb.Netflow.EnrichmentExpiry
+  alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.ChartData
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.Config
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.TimeWindow

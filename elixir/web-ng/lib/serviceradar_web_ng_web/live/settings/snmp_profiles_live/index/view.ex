@@ -1,11 +1,14 @@
 defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View do
+  @moduledoc false
+
   use ServiceRadarWebNGWeb, :html
-  import ServiceRadarWebNGWeb.SettingsComponents
+
   import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTemplateModal
   import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm
   import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfilesPanel
   import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal
   import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrowserModal
+  import ServiceRadarWebNGWeb.SettingsComponents
 
   def render(assigns) do
     ~H"""
@@ -38,7 +41,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View do
             />
           <% end %>
         </div>
-
+        
     <!-- Target Modal -->
         <.target_modal
           :if={@show_target_modal}
@@ -49,7 +52,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View do
           test_connection_result={@test_connection_result}
           test_connection_loading={@test_connection_loading}
         />
-
+        
     <!-- Template Browser Modal -->
         <.template_browser_modal
           :if={@show_template_browser}
@@ -57,7 +60,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View do
           selected_vendor={@selected_vendor}
           custom_templates={@custom_templates}
         />
-
+        
     <!-- Custom Template Modal -->
         <.custom_template_modal
           :if={@show_custom_template_modal}

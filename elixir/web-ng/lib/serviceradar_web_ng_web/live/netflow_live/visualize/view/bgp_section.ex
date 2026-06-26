@@ -27,7 +27,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.BgpSection do
           <.as_path_display as_path={@as_path} />
         </div>
       </div>
-
+      
     <!-- BGP Communities Display -->
       <div :if={length(@bgp_communities) > 0}>
         <div class="text-xs font-semibold text-base-content/70 mb-1">BGP Communities</div>

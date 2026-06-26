@@ -1,6 +1,9 @@
 defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfilesPanel do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :html
-  import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Targeting, only: [format_target_count: 1, target_count_title: 1]
+
+  import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Targeting,
+    only: [format_target_count: 1, target_count_title: 1]
 
   attr :profiles, :list, required: true
   attr :profile_target_counts, :map, default: %{}

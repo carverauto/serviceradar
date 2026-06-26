@@ -1,4 +1,5 @@
 defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Infos do
+  @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
   def handle_info({ref, result}, socket) when is_reference(ref) do
