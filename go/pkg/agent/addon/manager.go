@@ -848,6 +848,8 @@ func (r *runner) drainStreamLossDiagnostics(ctx context.Context, events <-chan c
 }
 
 func (r *runner) drainTelemetry(ctx context.Context, telemetryClient coreaddon.TelemetryClient) {
+	diagnostics := streamDiagnostics(telemetryClient)
+
 	reconnectStreamLoop(
 		ctx,
 		r.cfg.RestartBackoffInitial,
@@ -864,10 +866,21 @@ func (r *runner) drainTelemetry(ctx context.Context, telemetryClient coreaddon.T
 				Msg("addon telemetry stream failed to open")
 		},
 		func(delay time.Duration) {
-			r.cfg.Logger.Warn().
+			diagnostic := readStreamDiagnostic(diagnostics)
+			stream := diagnostic.Stream
+			if stream == "" {
+				stream = coreaddon.StreamNameTelemetry
+			}
+
+			log := r.cfg.Logger.Warn().
 				Str("addon", r.id).
-				Dur("retry_after", delay).
-				Msg("addon telemetry stream closed; reconnecting")
+				Str("stream", stream).
+				Str("stream_end", string(diagnostic.Kind)).
+				Dur("retry_after", delay)
+			if diagnostic.Err != nil {
+				log.Err(diagnostic.Err)
+			}
+			log.Msg("addon telemetry stream closed; reconnecting")
 		},
 	)
 }
@@ -1144,22 +1157,12 @@ func (r *runner) recordRestart(err error) bool {
 }
 
 func (r *runner) nextCircuitCooldownUntilLocked(now time.Time) time.Time {
-	if len(r.restartWindow) == 0 {
-		return now.Add(restartLimitWindow)
+	cooldown := r.cfg.CircuitBreakerCooldown
+	if cooldown <= 0 {
+		cooldown = defaultCircuitBreakerCooldown
 	}
 
-	oldest := r.restartWindow[0]
-	for _, candidate := range r.restartWindow[1:] {
-		if candidate.Before(oldest) {
-			oldest = candidate
-		}
-	}
-
-	until := oldest.Add(restartLimitWindow)
-	if until.Before(now) {
-		return now
-	}
-	return until
+	return now.Add(cooldown)
 }
 
 func (r *runner) runWasStable(runStart, now time.Time) bool {

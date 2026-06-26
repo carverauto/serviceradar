@@ -188,6 +188,9 @@ async fn process_frame_emits_only_anomaly_open_and_clear_transitions() {
     assert_no_batch(&mut rx);
 
     process_anomaly_value(&engine, &tx, &telemetry_drops, 100.0, 24).await;
+    assert_no_batch(&mut rx);
+
+    process_anomaly_value(&engine, &tx, &telemetry_drops, 100.0, 25).await;
     let clear = recv_single_event(&mut rx);
     assert_eq!(clear["status"], "inactive");
     assert_eq!(clear["anomaly"]["state"], "anomaly_clear");

@@ -547,8 +547,8 @@ func (c *grpcClient) StreamMetricFeed(ctx context.Context) (chan<- *addonpb.Metr
 		for {
 			ack, err := stream.Recv()
 			if err != nil {
-				c.emitStreamLoss(ctx, StreamNameMetricFeed, StreamOperationRecv, err)
-				c.emitStreamDiagnostic(streamCtx, StreamNameMetricFeed, err)
+				c.emitStreamLoss(ctx, StreamNameMetricFeedAck, StreamOperationRecv, err)
+				c.emitStreamDiagnostic(streamCtx, StreamNameMetricFeedAck, err)
 				return
 			}
 			select {

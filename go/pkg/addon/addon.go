@@ -144,10 +144,11 @@ type ArtifactClient interface {
 }
 
 const (
-	StreamNameTelemetry  = "telemetry"
-	StreamNameArtifacts  = "artifacts"
-	StreamNameOtlpRelay  = "otlp_relay"
-	StreamNameMetricFeed = "metric_feed"
+	StreamNameTelemetry     = "telemetry"
+	StreamNameArtifacts     = "artifacts"
+	StreamNameOtlpRelay     = "otlp_relay"
+	StreamNameMetricFeed    = "metric_feed"
+	StreamNameMetricFeedAck = "metric_feed_ack"
 
 	StreamOperationRecv = "recv"
 	StreamOperationSend = "send"
