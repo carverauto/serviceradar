@@ -63,7 +63,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
   end
 
   attr :annotations, :list, required: true
-  attr :chart_pad, :integer, required: true
+  attr :chart_top_pad, :integer, required: true
+  attr :chart_bottom_pad, :integer, required: true
   attr :chart_height, :integer, required: true
   attr :compact, :boolean, default: false
 
@@ -81,8 +82,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
           data-annotation-severity={annotation.severity}
           x1={annotation.x}
           x2={annotation.x}
-          y1={@chart_pad}
-          y2={@chart_height - @chart_pad}
+          y1={@chart_top_pad}
+          y2={@chart_height - @chart_bottom_pad}
           stroke={annotation.color}
           stroke-width="1.5"
           stroke-dasharray="4 3"
@@ -92,7 +93,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
         </line>
         <circle
           cx={annotation.x}
-          cy={@chart_pad + 4}
+          cy={@chart_top_pad + 4}
           r={if @compact, do: 2.5, else: 3.5}
           fill={annotation.color}
           opacity="0.95"
@@ -105,7 +106,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
   end
 
   attr :reference_lines, :list, required: true
-  attr :chart_pad, :integer, required: true
+  attr :chart_left_pad, :integer, required: true
+  attr :chart_right_pad, :integer, required: true
   attr :chart_width, :integer, required: true
 
   def reference_lines_svg(assigns) do
@@ -121,8 +123,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
           data-reference-label={reference_line.label}
           data-reference-severity={reference_line.severity}
           data-reference-series={reference_line.series}
-          x1={@chart_pad}
-          x2={@chart_width - @chart_pad}
+          x1={@chart_left_pad}
+          x2={@chart_width - @chart_right_pad}
           y1={reference_line.y}
           y2={reference_line.y}
           stroke={reference_line.color}
@@ -141,7 +143,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
   attr :data, :map, required: true
   attr :chart_width, :integer, required: true
   attr :chart_height, :integer, required: true
-  attr :chart_pad, :integer, required: true
+  attr :chart_left_pad, :integer, required: true
+  attr :chart_right_pad, :integer, required: true
+  attr :chart_top_pad, :integer, required: true
+  attr :chart_bottom_pad, :integer, required: true
   attr :compact, :boolean, default: false
 
   def chart_card(assigns) do
@@ -161,6 +166,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
       data-y-min={@data.chart_min}
       data-y-max={@data.chart_max}
       data-y-scale={@data.y_scale}
+      data-chart-width={@chart_width}
+      data-chart-left-pad={@chart_left_pad}
+      data-chart-right-pad={@chart_right_pad}
     >
       <div class="flex items-center justify-between gap-3 mb-2">
         <div class="flex items-center gap-2 min-w-0">
@@ -202,35 +210,45 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
 
           <g stroke="currentColor" class="text-base-content/10" stroke-dasharray="3 4">
             <%= for {y, _label} <- @data.y_ticks do %>
-              <line x1={@chart_pad} x2={@chart_width - @chart_pad} y1={y} y2={y} />
+              <line x1={@chart_left_pad} x2={@chart_width - @chart_right_pad} y1={y} y2={y} />
             <% end %>
             <%= for {x, _label} <- @data.x_ticks do %>
-              <line x1={x} x2={x} y1={@chart_pad} y2={@chart_height - @chart_pad} />
+              <line x1={x} x2={x} y1={@chart_top_pad} y2={@chart_height - @chart_bottom_pad} />
             <% end %>
           </g>
 
           <g stroke="currentColor" class="text-base-content/40">
-            <line x1={@chart_pad} x2={@chart_pad} y1={@chart_pad} y2={@chart_height - @chart_pad} />
             <line
-              x1={@chart_pad}
-              x2={@chart_width - @chart_pad}
-              y1={@chart_height - @chart_pad}
-              y2={@chart_height - @chart_pad}
+              x1={@chart_left_pad}
+              x2={@chart_left_pad}
+              y1={@chart_top_pad}
+              y2={@chart_height - @chart_bottom_pad}
+            />
+            <line
+              x1={@chart_left_pad}
+              x2={@chart_width - @chart_right_pad}
+              y1={@chart_height - @chart_bottom_pad}
+              y2={@chart_height - @chart_bottom_pad}
             />
           </g>
 
           <g stroke="currentColor" class="text-base-content/40">
             <%= for {y, _label} <- @data.y_ticks do %>
-              <line x1={@chart_pad - 3} x2={@chart_pad} y1={y} y2={y} />
+              <line x1={@chart_left_pad - 3} x2={@chart_left_pad} y1={y} y2={y} />
             <% end %>
             <%= for {x, _label} <- @data.x_ticks do %>
-              <line x1={x} x2={x} y1={@chart_height - @chart_pad} y2={@chart_height - @chart_pad + 3} />
+              <line
+                x1={x}
+                x2={x}
+                y1={@chart_height - @chart_bottom_pad}
+                y2={@chart_height - @chart_bottom_pad + 3}
+              />
             <% end %>
           </g>
 
           <g class="text-[8px] fill-base-content/70 font-mono">
             <%= for {y, label} <- @data.y_ticks do %>
-              <text x={@chart_pad - 4} y={y + 3} text-anchor="end">{label}</text>
+              <text x={@chart_left_pad - 8} y={y + 3} text-anchor="end">{label}</text>
             <% end %>
           </g>
 
@@ -242,14 +260,16 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
 
           <.annotation_markers_svg
             annotations={@data.annotations}
-            chart_pad={@chart_pad}
+            chart_top_pad={@chart_top_pad}
+            chart_bottom_pad={@chart_bottom_pad}
             chart_height={@chart_height}
             compact={@compact}
           />
 
           <.reference_lines_svg
             reference_lines={@data.reference_lines}
-            chart_pad={@chart_pad}
+            chart_left_pad={@chart_left_pad}
+            chart_right_pad={@chart_right_pad}
             chart_width={@chart_width}
           />
 

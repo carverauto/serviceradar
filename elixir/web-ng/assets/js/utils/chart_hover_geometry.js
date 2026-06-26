@@ -25,12 +25,15 @@ export function svgViewBoxWidth(svg, fallback) {
 
 export function plotGeometryFromDataset(el, svg, rect) {
   const viewBoxWidth = numberOr(el?.dataset?.chartWidth, svgViewBoxWidth(svg, rect?.width))
-  const pad = numberOr(el?.dataset?.chartPad, 0)
+  const symmetricPad = numberOr(el?.dataset?.chartPad, 0)
+  const leftPad = numberOr(el?.dataset?.chartLeftPad, symmetricPad)
+  const rightPad = numberOr(el?.dataset?.chartRightPad, symmetricPad)
 
   return {
     viewBoxWidth,
-    plotLeft: pad,
-    plotWidth: Math.max(1, viewBoxWidth - pad * 2),
+    plotLeft: leftPad,
+    plotRight: rightPad,
+    plotWidth: Math.max(1, viewBoxWidth - leftPad - rightPad),
   }
 }
 

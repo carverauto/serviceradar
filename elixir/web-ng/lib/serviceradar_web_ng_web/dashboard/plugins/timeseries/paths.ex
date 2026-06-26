@@ -3,7 +3,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
 
   @chart_width 800
   @chart_height 140
-  @chart_pad 8
+  @chart_left_pad 36
+  @chart_right_pad 24
+  @chart_top_pad 8
+  @chart_bottom_pad 18
 
   def chart_paths(points, %{min: min_v, max: max_v, scale: scale}) when is_list(points) do
     values =
@@ -79,28 +82,28 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
     end
   end
 
-  def idx_to_x(_idx, 0), do: @chart_pad
-  def idx_to_x(0, _len), do: @chart_pad
+  def idx_to_x(_idx, 0), do: @chart_left_pad
+  def idx_to_x(0, _len), do: @chart_left_pad
 
   def idx_to_x(idx, len) when len > 1 do
-    usable = @chart_width - @chart_pad * 2
-    round(@chart_pad + idx / (len - 1) * usable)
+    usable = @chart_width - @chart_left_pad - @chart_right_pad
+    round(@chart_left_pad + idx / (len - 1) * usable)
   end
 
   def value_to_y(_v, min_v, max_v) when min_v == max_v, do: round(@chart_height / 2)
 
   def value_to_y(v, min_v, max_v) do
-    usable = @chart_height - @chart_pad * 2
+    usable = @chart_height - @chart_top_pad - @chart_bottom_pad
     scaled = (v - min_v) / (max_v - min_v)
-    round(@chart_height - @chart_pad - scaled * usable)
+    round(@chart_height - @chart_bottom_pad - scaled * usable)
   end
 
   def value_to_y(v, min_v, max_v, :log) when v > 0 and min_v > 0 and max_v > min_v do
-    usable = @chart_height - @chart_pad * 2
+    usable = @chart_height - @chart_top_pad - @chart_bottom_pad
     min_log = :math.log10(min_v)
     max_log = :math.log10(max_v)
     scaled = (:math.log10(v) - min_log) / (max_log - min_log)
-    round(@chart_height - @chart_pad - scaled * usable)
+    round(@chart_height - @chart_bottom_pad - scaled * usable)
   end
 
   def value_to_y(v, min_v, max_v, :linear), do: value_to_y(v, min_v, max_v)
@@ -259,5 +262,5 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
   end
 
   defp fmt(value) when is_number(value), do: :erlang.float_to_binary(value * 1.0, decimals: 2)
-  defp baseline_y, do: @chart_height - @chart_pad
+  defp baseline_y, do: @chart_height - @chart_bottom_pad
 end

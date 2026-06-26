@@ -69,12 +69,17 @@ export default {
 
     const showTooltip = (e) => {
       const rect = svg.getBoundingClientRect()
-      const position = hoverPosition(e.clientX, rect, plotGeometryFromDataset(el, svg, rect))
+      const geometry = plotGeometryFromDataset(el, svg, rect)
+      const position = hoverPosition(e.clientX, rect, geometry)
       const idx =
         pointsData.length > 1
           ? Math.round(position.pct * (pointsData.length - 1))
           : timeseriesClientXToPointIndex(e.clientX, rect, pointsData.length)
-      const x = timeseriesPointIndexToLocalX(idx, rect, pointsData.length)
+      const x = timeseriesPointIndexToLocalX(idx, rect, pointsData.length, {
+        viewBoxWidth: geometry.viewBoxWidth,
+        chartLeftPad: geometry.plotLeft,
+        chartRightPad: geometry.plotRight,
+      })
       const point = pointsData[idx]
 
       if (point) {

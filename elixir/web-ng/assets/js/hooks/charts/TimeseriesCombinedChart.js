@@ -1,4 +1,5 @@
-import {timeseriesClientXToPointIndex, timeseriesPointIndexToLocalX} from "./geometry"
+import {timeseriesPointIndexToLocalX} from "./geometry"
+import {hoverPosition, plotGeometryFromDataset} from "../../utils/chart_hover_geometry"
 
 export default {
   mounted() {
@@ -75,16 +76,22 @@ export default {
 
     const showTooltip = (e) => {
       const rect = svg.getBoundingClientRect()
+      const geometry = plotGeometryFromDataset(el, svg, rect)
+      const position = hoverPosition(e.clientX, rect, geometry)
       let hoverX = e.clientX - rect.left
 
       const rows = seriesData
         .map((series) => {
           const points = Array.isArray(series.points) ? series.points : []
           if (points.length === 0) return null
-          const idx = timeseriesClientXToPointIndex(e.clientX, rect, points.length)
+          const idx = points.length > 1 ? Math.round(position.pct * (points.length - 1)) : 0
           const point = points[idx]
           if (!point) return null
-          hoverX = timeseriesPointIndexToLocalX(idx, rect, points.length)
+          hoverX = timeseriesPointIndexToLocalX(idx, rect, points.length, {
+            viewBoxWidth: geometry.viewBoxWidth,
+            chartLeftPad: geometry.plotLeft,
+            chartRightPad: geometry.plotRight,
+          })
           return {
             label: series.label || "series",
             color: series.color || "#A1A1AA",

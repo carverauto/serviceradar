@@ -18,7 +18,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
   @chart_width 800
   @chart_height 140
-  @chart_pad 8
+  @chart_left_pad 36
+  @chart_right_pad 24
+  @chart_top_pad 8
+  @chart_bottom_pad 18
 
   @impl true
   def id, do: "timeseries"
@@ -110,7 +113,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       |> assign(:y_scale, y_scale)
       |> assign(:chart_width, @chart_width)
       |> assign(:chart_height, @chart_height)
-      |> assign(:chart_pad, @chart_pad)
+      |> assign(:chart_left_pad, @chart_left_pad)
+      |> assign(:chart_right_pad, @chart_right_pad)
+      |> assign(:chart_top_pad, @chart_top_pad)
+      |> assign(:chart_bottom_pad, @chart_bottom_pad)
 
     {:ok, socket}
   end
@@ -462,7 +468,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
             data={combined}
             chart_width={@chart_width}
             chart_height={@chart_height}
-            chart_pad={@chart_pad}
+            chart_left_pad={@chart_left_pad}
+            chart_right_pad={@chart_right_pad}
+            chart_top_pad={@chart_top_pad}
+            chart_bottom_pad={@chart_bottom_pad}
             compact={true}
           />
         <% end %>
@@ -472,7 +481,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
             data={data}
             chart_width={@chart_width}
             chart_height={@chart_height}
-            chart_pad={@chart_pad}
+            chart_left_pad={@chart_left_pad}
+            chart_right_pad={@chart_right_pad}
+            chart_top_pad={@chart_top_pad}
+            chart_bottom_pad={@chart_bottom_pad}
             compact={true}
           />
         <% end %>
@@ -502,7 +514,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
             data={combined}
             chart_width={@chart_width}
             chart_height={@chart_height}
-            chart_pad={@chart_pad}
+            chart_left_pad={@chart_left_pad}
+            chart_right_pad={@chart_right_pad}
+            chart_top_pad={@chart_top_pad}
+            chart_bottom_pad={@chart_bottom_pad}
             compact={false}
           />
         <% end %>
@@ -521,7 +536,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
               data={data}
               chart_width={@chart_width}
               chart_height={@chart_height}
-              chart_pad={@chart_pad}
+              chart_left_pad={@chart_left_pad}
+              chart_right_pad={@chart_right_pad}
+              chart_top_pad={@chart_top_pad}
+              chart_bottom_pad={@chart_bottom_pad}
               compact={false}
             />
           <% end %>

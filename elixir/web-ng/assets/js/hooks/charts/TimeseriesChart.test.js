@@ -34,6 +34,7 @@ function chartElement(dataset) {
   const svg = {
     parentElement: container,
     getBoundingClientRect: () => ({ left: 0, width: 100 }),
+    getAttribute: (name) => (name === "viewBox" ? "0 0 800 140" : null),
   }
 
   return {
@@ -59,6 +60,9 @@ describe("TimeseriesChart hook", () => {
     expect(el.svgContainer.listeners.mousemove).toBeUndefined()
 
     el.dataset.points = JSON.stringify([{ dt: "Jun 22 12:00", v: 42.4 }])
+    el.dataset.chartWidth = "800"
+    el.dataset.chartLeftPad = "36"
+    el.dataset.chartRightPad = "24"
     ctx.updated()
 
     expect(el.svgContainer.listeners.mousemove).toEqual(expect.any(Function))
@@ -68,6 +72,7 @@ describe("TimeseriesChart hook", () => {
     expect(el.tooltip.classList.contains("hidden")).toBe(false)
     expect(el.tooltip.textContent).toBe("42.4% @ Jun 22 12:00")
     expect(el.hoverLine.classList.contains("hidden")).toBe(false)
+    expect(el.hoverLine.style.left).toBe("4.5px")
 
     ctx.destroyed()
     expect(el.svgContainer.listeners.mousemove).toBeUndefined()
@@ -90,6 +95,9 @@ describe("TimeseriesCombinedChart hook", () => {
         unit: "percent",
       },
     ])
+    el.dataset.chartWidth = "800"
+    el.dataset.chartLeftPad = "36"
+    el.dataset.chartRightPad = "24"
     ctx.updated()
 
     expect(el.svgContainer.listeners.mousemove).toEqual(expect.any(Function))
@@ -100,6 +108,7 @@ describe("TimeseriesCombinedChart hook", () => {
     expect(el.tooltip.innerHTML).toContain("core 0")
     expect(el.tooltip.innerHTML).toContain("77.1%")
     expect(el.hoverLine.classList.contains("hidden")).toBe(false)
+    expect(el.hoverLine.style.left).toBe("4.5px")
 
     ctx.destroyed()
     expect(el.svgContainer.listeners.mousemove).toBeUndefined()
