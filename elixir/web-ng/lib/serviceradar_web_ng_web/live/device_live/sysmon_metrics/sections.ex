@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Series
 
   @metrics_limit 300
+  # 24h at 5m buckets is 288 points per core; keep CPU above the SRQL default cap.
+  @cpu_metrics_limit 20_000
   @disk_metrics_limit @metrics_limit
 
   def load_metric_sections(_srql_module, [], _scope, _opts), do: []
@@ -32,7 +34,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
         "cpu.usage_percent",
         filter_tokens,
         "core_id",
-        nil,
+        @cpu_metrics_limit,
         agg: "max"
       )
 

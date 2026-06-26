@@ -37,7 +37,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
           assert query =~ "agg:max"
           assert query =~ "series:core_id"
           assert query =~ ~s|device_id:"sysmon-core-test"|
-          refute query =~ "limit:"
+          assert query =~ "limit:20000"
 
           {:ok,
            %{
@@ -93,7 +93,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
     assert cpu.subtitle == "last 24h · 5m buckets · top 6 of 8 cores by max"
     assert cpu.query =~ "agg:max"
     assert cpu.query =~ "series:core_id"
-    refute cpu.query =~ "limit:"
+    assert cpu.query =~ "limit:20000"
     assert cpu.header_value == 91.2
     assert cpu.header_stats == %{min: 12.0, max: 99.9, avg: 35.611111111111114}
 
