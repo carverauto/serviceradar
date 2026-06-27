@@ -18,6 +18,21 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
     DeviceCorrelationCache.put(key, uid)
   end
 
+  defp attach_withheld_anomaly_telemetry(test_pid \\ self()) do
+    handler_id = {__MODULE__, :withheld_anomaly, make_ref()}
+
+    :telemetry.attach(
+      handler_id,
+      [:serviceradar, :event_writer, :anomaly_detection, :withheld],
+      fn event, measurements, metadata, _config ->
+        send(test_pid, {:withheld_anomaly, event, measurements, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+  end
+
   defmodule ExistingTimeRepo do
     def query(sql, [ids]) do
       send(Process.get(:causal_signals_test_pid), {:existing_time_query, sql, ids})
@@ -273,6 +288,8 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
     end
 
     test "withholds SNMP anomaly verdicts when the polled target is missing" do
+      attach_withheld_anomaly_telemetry()
+
       payload = %{
         "event_id" => "snmp-target-missing",
         "signal_type" => "causal",
@@ -300,9 +317,18 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
                  received_at: DateTime.utc_now()
                }
              }) == nil
+
+      assert_receive {:withheld_anomaly,
+                      [:serviceradar, :event_writer, :anomaly_detection, :withheld], %{count: 1},
+                      %{
+                        reason: :snmp_target_missing,
+                        metric_class: "snmp",
+                        target_device_ip: nil
+                      }}
     end
 
     test "withholds SNMP anomaly when only the target IP resolves but the metric tuple does not" do
+      attach_withheld_anomaly_telemetry()
       target_ip = "10.0.0.25"
 
       seed_device_resolution(
@@ -343,6 +369,16 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
                  received_at: DateTime.utc_now()
                }
              }) == nil
+
+      assert_receive {:withheld_anomaly,
+                      [:serviceradar, :event_writer, :anomaly_detection, :withheld], %{count: 1},
+                      %{
+                        reason: :snmp_interface_metric_unresolvable,
+                        metric_class: "snmp.interface",
+                        metric_name: "ifHCInOctets",
+                        if_index: 7,
+                        target_device_ip: ^target_ip
+                      }}
     end
 
     test "accepts canonical SNMP target device identity without target IP" do

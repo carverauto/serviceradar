@@ -739,8 +739,8 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     # the deterministic finding_uid) so the re-key stays coherent and we pay at
     # most one (cache-backed) correlation lookup per row.
     case anomaly_detection_device_uid(payload) do
-      :withhold ->
-        anomaly_detection_withheld_telemetry(payload)
+      {:withhold, reason} ->
+        anomaly_detection_withheld_telemetry(payload, reason)
         nil
 
       device_uid ->
@@ -1650,16 +1650,19 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
            if_index: anomaly_detection_if_index(payload)
          }) do
       uid when is_binary(uid) and uid != "" -> uid
-      _ -> :withhold
+      _ -> {:withhold, snmp_anomaly_withhold_reason(target_device_ip)}
     end
   end
 
-  defp anomaly_detection_withheld_telemetry(payload) do
+  defp snmp_anomaly_withhold_reason(nil), do: :snmp_target_missing
+  defp snmp_anomaly_withhold_reason(_target_device_ip), do: :snmp_interface_metric_unresolvable
+
+  defp anomaly_detection_withheld_telemetry(payload, reason) do
     :telemetry.execute(
       [:serviceradar, :event_writer, :anomaly_detection, :withheld],
       %{count: 1},
       %{
-        reason: :snmp_target_unresolved,
+        reason: reason,
         metric_class: get_in(payload, ["anomaly", "metric_class"]),
         metric_name:
           anomaly_detection_metric_name(payload, get_in(payload, ["anomaly", "metric_class"])),
