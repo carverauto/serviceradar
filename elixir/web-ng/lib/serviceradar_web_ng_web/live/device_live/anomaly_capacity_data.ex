@@ -192,20 +192,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp anomaly_filter_candidates(identity) do
     # Canonical device pages must not fall back to agent/host-scoped findings:
     # that is exactly how polled-device SNMP findings end up displayed on the
-    # polling agent. Only use agent/host identities when there is no device uid.
-    case candidate(identity, :device_uid, "service_radar_device_uid", "device") do
-      nil ->
-        Enum.reject(
-          [
-            candidate(identity, :agent_id, "service_radar_device_uid", "agent"),
-            candidate(identity, :host_id, "service_radar_device_uid", "host")
-          ],
-          &is_nil/1
-        )
+    # polling agent. Device pages may still query the host alias because sysmon
+    # findings can be host-keyed before canonical device attribution is present.
+    device_candidate = candidate(identity, :device_uid, "service_radar_device_uid", "device")
+    host_candidate = candidate(identity, :host_id, "service_radar_device_uid", "host")
 
-      device_candidate ->
-        [device_candidate]
-    end
+    candidates =
+      if device_candidate do
+        [device_candidate, host_candidate]
+      else
+        [
+          candidate(identity, :agent_id, "service_radar_device_uid", "agent"),
+          host_candidate
+        ]
+      end
+
+    Enum.reject(candidates, &is_nil/1)
   end
 
   defp capacity_filter_candidates(identity) do

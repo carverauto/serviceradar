@@ -89,8 +89,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
         String.contains?(query, ~s|service_radar_device_uid:"router-1"|) ->
           {:ok, %{"results" => []}}
 
+        String.contains?(query, ~s|service_radar_device_uid:"router-host"|) ->
+          {:ok, %{"results" => []}}
+
         String.contains?(query, ~s|service_radar_device_uid:"agent-1"|) or
-          String.contains?(query, ~s|service_radar_device_uid:"router-host"|) or
           String.contains?(query, "agent_id:") or String.contains?(query, "host_id:") ->
           {:ok,
            %{
@@ -187,6 +189,59 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
            }
          ]
        }}
+    end
+
+    def query("in:capacity_forecasts" <> _rest = query, _opts) do
+      send(test_pid(), {:fake_query, query})
+      {:ok, %{"results" => []}}
+    end
+
+    defp test_pid do
+      Application.fetch_env!(:serviceradar_web_ng, :anomaly_capacity_data_test_pid)
+    end
+  end
+
+  defmodule HostAliasSRQL do
+    @moduledoc false
+
+    def query("in:events" <> _rest = query, _opts) do
+      send(test_pid(), {:fake_query, query})
+
+      cond do
+        String.contains?(query, ~s|service_radar_device_uid:"sr-device-1"|) ->
+          {:ok, %{"results" => []}}
+
+        String.contains?(query, ~s|service_radar_device_uid:"k8s-cp3-worker1"|) ->
+          {:ok,
+           %{
+             "results" => [
+               %{
+                 "id" => "worker-anomaly-1",
+                 "metric_class" => "cpu",
+                 "severity" => "High",
+                 "status" => "open",
+                 "message" => "breach confirmed after 5/5 consecutive anomalous slots",
+                 "time" => "2026-06-27T00:07:02Z"
+               }
+             ]
+           }}
+
+        String.contains?(query, ~s|service_radar_device_uid:"agent-k8s-cp3-worker1"|) or
+            String.contains?(query, "agent_id:") ->
+          {:ok,
+           %{
+             "results" => [
+               %{
+                 "metric_class" => "snmp",
+                 "status" => "open",
+                 "message" => "agent scoped row must not leak into this device"
+               }
+             ]
+           }}
+
+        true ->
+          {:ok, %{"results" => []}}
+      end
     end
 
     def query("in:capacity_forecasts" <> _rest = query, _opts) do
@@ -395,7 +450,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
     assert other.count == 0
   end
 
-  test "does not fall back to agent or host scoped anomaly findings when the canonical device has no rows" do
+  test "does not fall back to agent scoped anomaly findings when canonical and host aliases have no rows" do
     data =
       AnomalyCapacityData.load(
         NoFallbackSRQL,
@@ -419,10 +474,53 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
              &String.contains?(&1, ~s|service_radar_device_uid:"router-1"|)
            )
 
+    assert Enum.any?(
+             anomaly_queries,
+             &String.contains?(&1, ~s|service_radar_device_uid:"router-host"|)
+           )
+
     refute Enum.any?(anomaly_queries, &String.contains?(&1, "agent_id:"))
     refute Enum.any?(anomaly_queries, &String.contains?(&1, "host_id:"))
     refute Enum.any?(anomaly_queries, &String.contains?(&1, ~s|service_radar_device_uid:"agent-1"|))
-    refute Enum.any?(anomaly_queries, &String.contains?(&1, ~s|service_radar_device_uid:"router-host"|))
+  end
+
+  test "uses host service_radar_device_uid alias for sysmon anomalies when canonical device rows are absent" do
+    data =
+      AnomalyCapacityData.load(
+        HostAliasSRQL,
+        %{
+          device_uid: "sr-device-1",
+          agent_id: "agent-k8s-cp3-worker1",
+          host_id: "k8s-cp3-worker1"
+        },
+        nil,
+        anomaly_severity: "high"
+      )
+
+    queries = drain_fake_queries()
+    anomaly_queries = Enum.filter(queries, &String.contains?(&1, "in:events"))
+
+    assert data.anomaly_filter == %{
+             field: "service_radar_device_uid",
+             label: "host",
+             value: "k8s-cp3-worker1"
+           }
+
+    assert [%{"id" => "worker-anomaly-1", "severity" => "High"}] = data.anomaly_rows
+    assert data.anomaly_pagination["total_count"] == 1
+
+    assert Enum.any?(
+             anomaly_queries,
+             &String.contains?(&1, ~s|service_radar_device_uid:"sr-device-1"|)
+           )
+
+    assert Enum.any?(
+             anomaly_queries,
+             &String.contains?(&1, ~s|service_radar_device_uid:"k8s-cp3-worker1"|)
+           )
+
+    refute Enum.any?(anomaly_queries, &String.contains?(&1, ~s|service_radar_device_uid:"agent-k8s-cp3-worker1"|))
+    refute Enum.any?(anomaly_queries, &String.contains?(&1, "agent_id:"))
   end
 
   test "hides pending edge spike warmup rows from the operator list and status cards" do
