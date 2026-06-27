@@ -28,8 +28,8 @@ pub enum CapacityModelKind {
 }
 
 /// Read-only capacity context (the `Context` channel, D4): the threshold, horizon,
-/// model choice, history gate, seasonal period, and the Holt-Winters smoothing
-/// ratios.
+/// model choice, history gate, seasonal period, Holt-Winters smoothing ratios, and
+/// optional physical value bounds for bounded signals such as utilization percent.
 ///
 /// With the crate's `rustler` feature on this is a `NifMap`, so the worker passes a
 /// plain Elixir map. `capacity_threshold` is `Option<f64>` because `model.ex`
@@ -57,6 +57,12 @@ pub struct CapacityConfig {
     pub beta: f64,
     /// Holt-Winters season smoothing `:gamma` (`model.ex:130`, default 0.25).
     pub gamma: f64,
+    /// Optional lower physical bound for the emitted projection. `None` preserves
+    /// the legacy unbounded forecast exactly; percent callers pass `Some(0.0)`.
+    pub value_min: Option<f64>,
+    /// Optional upper physical bound for the emitted projection. `None` preserves
+    /// the legacy unbounded forecast exactly; percent callers pass `Some(100.0)`.
+    pub value_max: Option<f64>,
 }
 
 impl Default for CapacityConfig {
@@ -70,6 +76,8 @@ impl Default for CapacityConfig {
             alpha: 0.35,
             beta: 0.05,
             gamma: 0.25,
+            value_min: None,
+            value_max: None,
         }
     }
 }

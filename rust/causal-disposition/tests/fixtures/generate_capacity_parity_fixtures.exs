@@ -254,6 +254,8 @@ case_src =
             alpha: #{RustFixtures.float(cfg["alpha"])},
             beta: #{RustFixtures.float(cfg["beta"])},
             gamma: #{RustFixtures.float(cfg["gamma"])},
+            value_min: None,
+            value_max: None,
         },
         points: vec![
     #{points_src}

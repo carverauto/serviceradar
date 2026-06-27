@@ -3,23 +3,47 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.SourceTest do
 
   alias ServiceRadar.Observability.SeasonalDisposition.Source
 
-  test "default sources cover the sysmon seasonal resource classes over the hourly CAGGs" do
+  test "default sources cover sustained sysmon host utilization over the hourly CAGGs" do
     sources = Source.defaults()
     queries = Enum.map(sources, & &1.query)
 
+    assert Enum.map(sources, & &1.name) == ["cpu_seasonal", "memory_seasonal"]
     assert Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.cpu"|))
     assert Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.memory"|))
-    assert Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.disk"|))
+    refute Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.disk"|))
 
     # The 168-bucket hour-of-week aggregation STAYS in SQL (data gravity, D6): every
     # source profiles by dow/hod in the query, not in the kernel.
     assert Enum.all?(queries, &String.contains?(&1, "profile_hour_of_week"))
     assert Enum.all?(queries, &String.contains?(&1, ~s|timezone:"Etc/UTC"|))
     assert Enum.all?(sources, &(&1.profile_timezone == "Etc/UTC"))
+    assert Enum.all?(sources, &(&1.robust_statistic == :median_mad))
 
     cpu = Enum.find(sources, &(&1.name == "cpu_seasonal"))
     assert cpu.metric_class == "cpu"
-    assert cpu.robust_statistic == :mean_stddev
+    assert cpu.robust_statistic == :median_mad
+  end
+
+  test "seasonal disposition support is limited to host cpu and memory utilization" do
+    assert Source.seasonal_disposition_supported?(%Source{
+             metric_class: "cpu",
+             metric_name: "usage_percent"
+           })
+
+    assert Source.seasonal_disposition_supported?(%Source{
+             metric_class: "memory",
+             metric_name: "used_percent"
+           })
+
+    refute Source.seasonal_disposition_supported?(%Source{
+             metric_class: "disk",
+             metric_name: "usage_percent"
+           })
+
+    refute Source.seasonal_disposition_supported?(%Source{
+             metric_class: "snmp",
+             metric_name: "ifInOctets"
+           })
   end
 
   test "default sources carry configured timezone into the profile query" do

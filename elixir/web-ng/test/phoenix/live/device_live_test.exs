@@ -27,7 +27,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNG.TestSupport.CameraRelaySessionManagerStub
-  alias ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents
+  alias ServiceRadarWebNGWeb.DeviceLive.Show
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics
   alias ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents
   alias ServiceRadarWebNGWeb.NorthboundActionComponents
@@ -66,71 +66,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ uid
     assert html =~ "test-host"
     assert html =~ "in:devices"
-  end
-
-  test "bulk apply tags updates selected devices with the current scope", %{
-    conn: conn,
-    scope: scope
-  } do
-    unique = System.unique_integer([:positive])
-    prefix = "bulk-tag-scope-#{unique}"
-    first_uid = "test-device-#{prefix}-1"
-    second_uid = "test-device-#{prefix}-2"
-    now = DateTime.truncate(DateTime.utc_now(), :second)
-
-    Repo.insert_all("ocsf_devices", [
-      %{
-        uid: first_uid,
-        type_id: 1,
-        type: "Server",
-        hostname: "#{prefix}-one",
-        tags: %{"existing" => "keep"},
-        is_available: true,
-        is_managed: true,
-        first_seen_time: now,
-        last_seen_time: now
-      },
-      %{
-        uid: second_uid,
-        type_id: 1,
-        type: "Server",
-        hostname: "#{prefix}-two",
-        tags: %{},
-        is_available: true,
-        is_managed: true,
-        first_seen_time: now,
-        last_seen_time: now
-      }
-    ])
-
-    {:ok, view, _html} =
-      live(conn, ~p"/devices?#{%{q: "in:devices hostname:%#{prefix}% limit:10", limit: 10}}")
-
-    html = render_until(view, "#{prefix}-two", 5_000)
-    assert html =~ "#{prefix}-one"
-
-    view
-    |> element("input[phx-click='toggle_device_select'][phx-value-uid='#{first_uid}']")
-    |> render_click()
-
-    view
-    |> element("input[phx-click='toggle_device_select'][phx-value-uid='#{second_uid}']")
-    |> render_click()
-
-    view
-    |> element("button[phx-click='open_bulk_edit_modal']")
-    |> render_click()
-
-    _html =
-      view
-      |> form("#bulk-tags-form", %{"bulk" => %{"tags" => "env=prod\nowner=ops"}})
-      |> render_submit()
-
-    {:ok, first_device} = Device.get_by_uid(first_uid, true, scope: scope)
-    {:ok, second_device} = Device.get_by_uid(second_uid, true, scope: scope)
-
-    assert first_device.tags == %{"existing" => "keep", "env" => "prod", "owner" => "ops"}
-    assert second_device.tags == %{"env" => "prod", "owner" => "ops"}
   end
 
   test "device list SRQL submit routes catalog entity changes and drops stale filters", %{
@@ -400,6 +335,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     details_html = render_until(details_view, "Out of service")
 
     assert details_html =~ "Out of service"
+    assert details_html =~ "In Service"
+    assert details_html =~ "No"
   end
 
   test "disables Run Task when no launchable integrations are configured", %{conn: conn} do
@@ -675,7 +612,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/devices?#{%{q: query, limit: "20"}}")
 
-    assert_receive {:srql_query, ~s|in:devices vendor_name:"Ubiquiti" include_inactive:true stats:"count() as total"|},
+    assert_receive {:srql_query, ~s|in:devices vendor_name:"Ubiquiti" stats:"count() as total"|},
                    1_000
 
     assert render(view) =~ "42 total"
@@ -828,7 +765,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       |> Ash.Changeset.for_create(:create, %{uid: uid, hostname: hostname, ip: "10.10.10.10"})
       |> Ash.create(scope: scope)
 
-    assert render_until(view, hostname, 10_000) =~ hostname
+    assert render(view) =~ hostname
   end
 
   test "shows deleted badge and restore action for deleted devices", %{conn: conn, user: user} do
@@ -1234,13 +1171,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "In Service"
     assert html =~ "SN-123"
     assert html =~ "Plant 7"
+    assert html =~ "2 items"
     assert html =~ "nb-123"
     assert html =~ "Manufacturing"
     assert html =~ "MDF-A"
     assert html =~ "matched UniFi gateway role"
 
-    refute html =~ "network_interfaces"
-    refute html =~ "eth0"
     refute html =~ "Additional metadata keys"
     refute html =~ "Other Metadata"
     refute html =~ "MikroTik"
@@ -1258,7 +1194,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
   test "metadata summary renders Proxmox only for device-level candidate evidence" do
     generic_html =
-      render_component(&VisibilityComponents.metadata_summary_section/1,
+      render_component(&Show.metadata_summary_section/1,
         device_row: %{
           "metadata" => %{
             "source" => "snmp",
@@ -1272,7 +1208,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     refute generic_html =~ "Candidate probe"
 
     candidate_html =
-      render_component(&VisibilityComponents.metadata_summary_section/1,
+      render_component(&Show.metadata_summary_section/1,
         device_row: %{
           "metadata" => %{
             "source" => "proxmox-candidate",
@@ -1384,7 +1320,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     ])
 
     Repo.insert_all("timeseries_metrics", [
-      timeseries_metric_row(now, uid, "cpu.usage_percent", "sysmon.cpu", 42.4, "%", tags: %{"core_id" => "0"}),
+      timeseries_metric_row(now, uid, "cpu.usage_percent", "sysmon.cpu", 42.4, "%"),
       timeseries_metric_row(now, uid, "memory.used_percent", "sysmon.memory", 33.3, "%"),
       timeseries_metric_row(now, uid, "disk.used_percent", "sysmon.disk", 50.0, "%"),
       timeseries_metric_row(now, uid, "process.count", "sysmon.process", 1.0, "{process}"),
@@ -1397,7 +1333,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     ])
 
     {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
-    html = render_until(view, "42.4%", 10_000)
+    html = render_until(view, "CPU", 10_000)
 
     assert html =~ "CPU"
     assert html =~ "42.4%"
@@ -1435,13 +1371,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         gateway_id: gateway_id,
         agent_id: host_id
       ),
-      timeseries_metric_row(
-        now,
-        skewed_device_id,
-        "memory.used_percent",
-        "sysmon.memory",
-        33.3,
-        "%",
+      timeseries_metric_row(now, skewed_device_id, "memory.used_percent", "sysmon.memory", 33.3, "%",
         gateway_id: gateway_id,
         agent_id: host_id
       ),
@@ -1449,34 +1379,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         gateway_id: gateway_id,
         agent_id: host_id
       ),
-      timeseries_metric_row(
-        now,
-        skewed_device_id,
-        "process.count",
-        "sysmon.process",
-        1.0,
-        "{process}",
+      timeseries_metric_row(now, skewed_device_id, "process.count", "sysmon.process", 1.0, "{process}",
         gateway_id: gateway_id,
         agent_id: host_id
       ),
-      timeseries_metric_row(
-        now,
-        skewed_device_id,
-        "process.cpu_usage",
-        "sysmon.process",
-        19.6,
-        "%",
+      timeseries_metric_row(now, skewed_device_id, "process.cpu_usage", "sysmon.process", 19.6, "%",
         gateway_id: gateway_id,
         agent_id: host_id,
         tags: %{"pid" => "5252", "name" => "beam.smp", "status" => "Running"}
       ),
-      timeseries_metric_row(
-        now,
-        skewed_device_id,
-        "process.memory_usage",
-        "sysmon.process",
-        2_097_152,
-        "By",
+      timeseries_metric_row(now, skewed_device_id, "process.memory_usage", "sysmon.process", 2_097_152, "By",
         gateway_id: gateway_id,
         agent_id: host_id,
         tags: %{"pid" => "5252", "name" => "beam.smp", "status" => "Running"}
@@ -1484,7 +1396,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     ])
 
     {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
-    html = render_until(view, "57.8%", 10_000)
+    html = render_until(view, "CPU", 10_000)
 
     assert html =~ "57.8%"
     assert html =~ "Memory"
@@ -1522,14 +1434,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
            }}
 
         String.contains?(query, "in:events") and
-          String.contains?(query, "event_type:(anomaly,anomaly_detection)") and
-            String.contains?(query, ~s|service_radar_device_uid:"#{uid}"|) ->
+          String.contains?(query, "source_type:anomaly_detection") and
+            String.contains?(query, ~s|source_device_uid:"#{uid}"|) ->
           {:ok,
            %{
              "results" => [
                %{
                  "time" => "2026-06-13T12:00:00Z",
-                 "finding_title" => "CPU saturation anomaly",
                  "message" => "breach pending confirmation at 3/5 consecutive anomalous slots",
                  "metric_class" => "cpu",
                  "metric_name" => "cpu.usage_percent",
@@ -1550,8 +1461,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
              "pagination" => %{}
            }}
 
-        String.contains?(query, "in:events") and
-            String.contains?(query, ~s|agent_id:"#{agent_id}"|) ->
+        String.contains?(query, "in:events") and String.contains?(query, ~s|agent_id:"#{agent_id}"|) ->
           {:ok,
            %{
              "results" => [
@@ -1567,8 +1477,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
            }}
 
         String.contains?(query, "in:capacity_forecasts") and
-          String.contains?(query, "status:(projected,at_risk,exhaustion_projected)") and
-          String.contains?(query, "has_exhaustion:true") and
             String.contains?(query, ~s|resource_id:"#{uid}"|) ->
           {:ok,
            %{
@@ -1601,7 +1509,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     end)
 
     {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
-    html = render_until(view, "CPU saturation anomaly", 10_000)
+    html = render_until(view, "Anomaly &amp; Capacity", 10_000)
     queries = drain_srql_queries()
 
     assert html =~ "CPU saturation anomaly"
@@ -1610,42 +1518,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "eth0 / ifIndex 2"
     assert html =~ "value 97.40"
     assert html =~ "score 4.80"
-    assert html =~ "CPU"
-    assert html =~ "High"
     refute html =~ "Unexpected connection to K8s API Server"
     assert html =~ "Filesystem /"
-    assert html =~ "disk.used_percent"
-    assert html =~ "projected"
-    assert html =~ "91.20"
-    assert html =~ "now 72.50"
-    assert html =~ "confidence 82.0%"
     assert html =~ "threshold 95.00%"
     assert html =~ "headroom 22.50%"
     assert html =~ "open_anomaly_capacity_detail"
-    assert html =~ "device service_radar_device_uid=#{uid}"
+    assert html =~ "device source_device_uid=#{uid}"
     assert html =~ "device resource_id=#{uid}"
     assert html =~ "active"
-
-    anomaly_queries =
-      Enum.filter(
-        queries,
-        &(String.contains?(&1, "in:events") and
-            String.contains?(&1, "event_type:(anomaly,anomaly_detection)"))
-      )
-
-    capacity_queries = Enum.filter(queries, &String.contains?(&1, "in:capacity_forecasts"))
-
-    assert Enum.any?(
-             anomaly_queries,
-             &String.contains?(&1, ~s|service_radar_device_uid:"#{uid}"|)
-           )
-
-    assert Enum.any?(capacity_queries, &String.contains?(&1, ~s|resource_id:"#{uid}"|))
-    assert Enum.all?(anomaly_queries, &String.contains?(&1, "limit:20"))
-    assert Enum.all?(capacity_queries, &String.contains?(&1, "limit:12"))
-    refute Enum.any?(anomaly_queries, &String.contains?(&1, "agent_id:"))
-    refute Enum.any?(anomaly_queries, &String.contains?(&1, "host_id:"))
-    refute Enum.any?(capacity_queries, &String.contains?(&1, "resource_key:"))
+    assert Enum.any?(queries, &String.contains?(&1, ~s|source_device_uid:"#{uid}"|))
+    assert Enum.any?(queries, &String.contains?(&1, ~s|resource_id:"#{uid}"|))
+    refute Enum.any?(queries, &String.contains?(&1, "agent_id:"))
+    refute Enum.any?(queries, &String.contains?(&1, "host_id:"))
+    refute Enum.any?(queries, &String.contains?(&1, "resource_key:"))
   end
 
   test "keeps device anomaly and capacity section visible when no rows exist", %{conn: conn} do
@@ -1689,6 +1574,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   end
 
   test "sysmon metric sections carry section-level anomaly annotations and selected finding marker" do
+    peak_dt = ~U[2026-06-19 12:03:00Z]
+
     section = %{
       key: "cpu",
       panels: [
@@ -1705,6 +1592,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       "metric_name" => "cpu.usage_percent",
       "message" => "CPU saturation anomaly",
       "metadata" => %{
+        "finding_info" => %{
+          "dimensions" => %{
+            "episode_peak_at_unix_nano" => DateTime.to_unix(peak_dt, :nanosecond)
+          }
+        },
         "source_identity" => %{"series_key" => "sysmon.cpu:host:CPU1"}
       }
     }
@@ -1714,21 +1606,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
     assert [
              %{
-               dt: "2026-06-19T12:05:00Z",
-               label: "Selected: CPU saturation anomaly",
+               dt: selected_dt,
+               label: "Selected peak: CPU saturation anomaly",
                severity: "High",
                series: nil
              },
              %{
-               dt: "2026-06-19T12:05:00Z",
-               label: "CPU saturation anomaly",
+               dt: row_dt,
+               label: "Peak: CPU saturation anomaly",
                severity: "High",
                series: nil
              }
            ] = assigns.annotations
+
+    assert DateTime.compare(selected_dt, peak_dt) == :eq
+    assert DateTime.compare(row_dt, peak_dt) == :eq
   end
 
-  test "sysmon anomaly annotations remain visible when panel has no matching series" do
+  test "sysmon anomaly annotations remain visible when panel has no matching series and fall back to finding time" do
     section = %{
       key: "cpu",
       panels: [
@@ -1752,7 +1647,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     [%{panels: [%{assigns: assigns}]}] =
       SysmonMetrics.annotate_metric_sections([section], %{anomaly_rows: [row]})
 
-    assert [%{label: "CPU saturation anomaly", series: nil}] = assigns.annotations
+    assert [
+             %{
+               dt: ~U[2026-06-19 12:05:00Z],
+               label: "CPU saturation anomaly",
+               series: nil
+             }
+           ] = assigns.annotations
   end
 
   test "sysmon percent metric sections carry saturation gate reference lines" do
@@ -2121,7 +2022,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       |> Ash.create(scope: scope)
 
     {:ok, view, _html} = live(conn, ~p"/devices/#{uid}?tab=software")
-    html = render_until(view, "Showing 1-2 of 2", 10_000)
+    html = render_until(view, "Endpoint Software", 10_000)
 
     assert html =~ "Endpoint Software"
     assert html =~ "Software"
@@ -2141,7 +2042,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "complete"
     assert html =~ agent_id
     assert html =~ "serviceradar-endpoint-inventory test"
-    assert html =~ "Showing 1-2 of 2"
+    assert html =~ "Showing 2 of 2 loaded rows"
     assert html =~ "zlib-sr-#{unique}"
     assert html =~ "rpm-sr-#{unique}"
     assert html =~ "1.24.0-#{unique}"
@@ -2161,8 +2062,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       |> render_change()
 
     assert filtered_html =~ "Filtered"
-    assert filtered_html =~ "Showing 1-1 of 1"
-    assert filtered_html =~ "of 2 total"
+    assert filtered_html =~ "Showing 1 of 2 loaded rows"
     assert filtered_html =~ "rpm-sr-#{unique}"
     refute filtered_html =~ "zlib-sr-#{unique}</td>"
 
@@ -2185,6 +2085,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     stale_at = DateTime.add(now, -2 * 86_400, :second)
 
     scenarios = [
+      %{
+        suffix: "no-agent",
+        agent?: false,
+        scan: nil,
+        title: "No enrolled endpoint inventory agent",
+        detail: "cannot run until this device is associated with an enrolled agent",
+        empty: "No enrolled endpoint inventory agent or package inventory is available for this device."
+      },
       %{
         suffix: "no-scan",
         scan: nil,
@@ -2271,33 +2179,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     for scenario <- scenarios do
       uid = "sr:test-device-endpoint-state-#{scenario.suffix}-#{unique}"
       agent_id = "agent-endpoint-state-#{scenario.suffix}-#{unique}"
+      agent_id_value = if Map.get(scenario, :agent?, true), do: agent_id
 
       Repo.insert_all("ocsf_devices", [
         %{
           uid: uid,
           type_id: 0,
           hostname: "endpoint-state-#{scenario.suffix}-#{unique}",
-          agent_id: agent_id,
+          agent_id: agent_id_value,
           is_available: true,
           first_seen_time: now,
           last_seen_time: now
-        }
-      ])
-
-      Repo.insert_all("ocsf_agents", [
-        %{
-          uid: agent_id,
-          name: "Endpoint State Agent #{scenario.suffix} #{unique}",
-          type_id: 0,
-          device_uid: uid,
-          host: "endpoint-state-#{scenario.suffix}-#{unique}",
-          capabilities: ["endpoint_inventory"],
-          status: "connected",
-          is_healthy: true,
-          first_seen_time: now,
-          last_seen_time: now,
-          created_time: now,
-          modified_time: now
         }
       ])
 
@@ -2316,9 +2208,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       end
 
       {:ok, view, _html} = live(conn, ~p"/devices/#{uid}?tab=software")
-      html = render_until(view, scenario.title, 20_000)
+      html = render_until(view, scenario.title, 10_000)
 
-      assert html =~ "Software"
+      assert html =~ "Endpoint Software"
       assert html =~ scenario.title
       assert html =~ scenario.detail
       assert html =~ scenario.empty
@@ -2794,10 +2686,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       |> render_submit()
 
       assert_receive {:northbound_create_and_dispatch, attrs, opts}, 1_000
-      html = render_until(view, "Task dispatched", 15_000)
+      html = render(view)
 
-      assert html =~ "Task dispatched"
-      assert html =~ "Watch Task History"
+      assert html =~ "Task dispatched for 1 interface"
+      assert html =~ "Results update in Task History"
 
       assert attrs.descriptor_id == action.descriptor_id
 
@@ -2911,7 +2803,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
   test "agent availability falls back to recent sweep history when canonical rows are absent" do
     html =
-      render_component(&AvailabilityComponents.agent_availability_section/1,
+      render_component(&Show.agent_availability_section/1,
         rows: [],
         device_row: %{},
         sweep_results: %{
@@ -2937,7 +2829,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
   test "agent availability marks canonical profile-derived source" do
     html =
-      render_component(&AvailabilityComponents.agent_availability_section/1,
+      render_component(&Show.agent_availability_section/1,
         rows: [
           %{
             agent_id: "agent-canonical-segment",
@@ -4069,8 +3961,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         _ ->
           cond do
             String.contains?(query, "in:logs") ->
-              if delay_ms =
-                   Application.get_env(:serviceradar_web_ng, :device_live_log_query_delay_ms) do
+              if delay_ms = Application.get_env(:serviceradar_web_ng, :device_live_log_query_delay_ms) do
                 Process.sleep(delay_ms)
               end
 

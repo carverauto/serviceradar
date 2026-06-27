@@ -11,7 +11,9 @@ use super::exhaustion::{project_seasonal, seasonal_exhaustion_at};
 use super::linear::{linear_forecast, rmse};
 use super::stats::{confidence, mean_abs, stddev, valid_ratio};
 use super::types::NormPoint;
-use super::{CapacityConfig, EPSILON, MICROS_PER_SECOND, SEASONAL_STRENGTH_THRESHOLD};
+use super::{
+    CapacityConfig, EPSILON, MICROS_PER_SECOND, SEASONAL_STRENGTH_THRESHOLD, bounded_projection,
+};
 use crate::disposition::{CapacityForecast, Disposition};
 
 /// `seasonal_forecast/3` (`model.ex:107-112`): Holt-Winters, falling back to linear
@@ -79,12 +81,15 @@ pub(super) fn holt_winters(points: &[NormPoint], config: &CapacityConfig) -> Opt
     }
 
     let count = values.len();
-    let projected_value = project_seasonal(level, trend, &seasons, count, period, steps);
+    let raw_projected_value = project_seasonal(level, trend, &seasons, count, period, steps);
     // `List.last(values)` (model.ex:158).
     let current_value = values[count - 1];
-    // `(projected_value - current_value) / horizon_seconds` (model.ex:159).
-    let slope = (projected_value - current_value) / horizon_seconds as f64;
+    // `(projected_value - current_value) / horizon_seconds` (model.ex:159). Use
+    // the raw fit for ETA/runway; bounds only affect emitted display values.
+    let slope = (raw_projected_value - current_value) / horizon_seconds as f64;
     let rmse = rmse(&residuals_vec);
+    let (projected_value, lower_bound, upper_bound, projection_bounded) =
+        bounded_projection(config, raw_projected_value, rmse);
     let last = points[count - 1];
 
     let projected_exhaustion = if slope > 0.0 {
@@ -110,10 +115,12 @@ pub(super) fn holt_winters(points: &[NormPoint], config: &CapacityConfig) -> Opt
         // `intercept => level` (model.ex:168).
         intercept: level,
         projected_value,
+        raw_projected_value,
+        projection_bounded,
         projected_exhaustion_at_unix_micros: projected_exhaustion,
         confidence: confidence(rmse, &values, threshold),
-        lower_bound: projected_value - 1.96 * rmse,
-        upper_bound: projected_value + 1.96 * rmse,
+        lower_bound,
+        upper_bound,
         rmse,
         sample_count: count,
         window_started_at_unix_micros: first_at,

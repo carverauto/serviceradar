@@ -9,7 +9,7 @@
 use super::exhaustion::exhaustion_at;
 use super::stats::confidence;
 use super::types::NormPoint;
-use super::{CapacityConfig, EPSILON};
+use super::{CapacityConfig, EPSILON, bounded_projection};
 use crate::disposition::{CapacityForecast, Disposition};
 
 /// `linear_forecast/2` (`model.ex:66-105`): least-squares fit, projection at
@@ -27,9 +27,11 @@ pub(super) fn linear_forecast(points: &[NormPoint], config: &CapacityConfig) -> 
     let last = points[points.len() - 1];
     let last_x = last.offset_seconds;
     let projected_x = (last_x + horizon_seconds) as f64;
-    let projected_value = intercept + slope * projected_x;
+    let raw_projected_value = intercept + slope * projected_x;
     let residuals = residuals(&xs, &ys, slope, intercept);
     let rmse = rmse(&residuals);
+    let (projected_value, lower_bound, upper_bound, projection_bounded) =
+        bounded_projection(config, raw_projected_value, rmse);
 
     let first_at = points[0].at_unix_micros;
     let projected_exhaustion = exhaustion_at(
@@ -47,10 +49,12 @@ pub(super) fn linear_forecast(points: &[NormPoint], config: &CapacityConfig) -> 
         slope_per_second: slope,
         intercept,
         projected_value,
+        raw_projected_value,
+        projection_bounded,
         projected_exhaustion_at_unix_micros: projected_exhaustion,
         confidence: confidence(rmse, &ys, threshold),
-        lower_bound: projected_value - 1.96 * rmse,
-        upper_bound: projected_value + 1.96 * rmse,
+        lower_bound,
+        upper_bound,
         rmse,
         sample_count: points.len(),
         window_started_at_unix_micros: first_at,

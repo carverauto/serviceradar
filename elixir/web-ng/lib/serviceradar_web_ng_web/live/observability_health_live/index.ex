@@ -6,7 +6,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
 
   @anomaly_query "in:events event_type:(anomaly,anomaly_detection) time:last_24h sort:time:desc limit:25"
   @health_query "in:events rollup_stats:anomaly_findings time:last_24h limit:1"
-  @capacity_query "in:capacity_forecasts status:(projected,at_risk,exhaustion_projected) sort:projected_exhaustion_at:asc limit:25"
+  @capacity_query "in:capacity_forecasts status:(projected,at_risk,exhaustion_projected) has_exhaustion:true sort:projected_exhaustion_at:asc limit:25"
 
   @impl true
   def mount(_params, _session, socket) do
@@ -300,7 +300,11 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
     summary = summary_counts(summary_result)
 
     capacity_result = query_rows(@capacity_query, scope)
-    capacity_rows = result_rows(capacity_result)
+
+    capacity_rows =
+      capacity_result
+      |> result_rows()
+      |> Enum.reject(&invalid_capacity_runway_row?/1)
 
     anomaly_result =
       if summary.anomaly_count > 0 do
@@ -429,6 +433,9 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
   defp known_atom_key("name"), do: :name
   defp known_atom_key("anomalies"), do: :anomalies
   defp known_atom_key("at_risk"), do: :at_risk
+  defp known_atom_key("current_value"), do: :current_value
+  defp known_atom_key("exhaustion_threshold"), do: :exhaustion_threshold
+  defp known_atom_key("projected_value"), do: :projected_value
   defp known_atom_key("projected_exhaustion_at"), do: :projected_exhaustion_at
   defp known_atom_key("raw_data"), do: :raw_data
   defp known_atom_key("resource_id"), do: :resource_id
@@ -441,7 +448,78 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
   defp known_atom_key("time"), do: :time
   defp known_atom_key("total"), do: :total
   defp known_atom_key("uid"), do: :uid
+  defp known_atom_key("unit"), do: :unit
+  defp known_atom_key("value_unit"), do: :value_unit
+  defp known_atom_key("forecast_value_unit"), do: :forecast_value_unit
+  defp known_atom_key("raw_value_unit"), do: :raw_value_unit
   defp known_atom_key(_), do: nil
+
+  defp invalid_capacity_runway_row?(row) do
+    missing_projected_exhaustion?(row) or invalid_percent_capacity_row?(row)
+  end
+
+  defp missing_projected_exhaustion?(row), do: is_nil(value(row, "projected_exhaustion_at"))
+
+  defp invalid_percent_capacity_row?(row) do
+    projected = number_value(row, "projected_value")
+    percent_capacity_row?(row) and is_number(projected) and (projected < 0.0 or projected > 100.0)
+  end
+
+  defp percent_capacity_row?(row) do
+    row
+    |> capacity_value_unit()
+    |> percent_unit?()
+  end
+
+  defp capacity_value_unit(row) do
+    first_present(row, [
+      ["value_unit"],
+      ["unit"],
+      ["metadata", "forecast_value_unit"],
+      ["metadata", "raw_value_unit"],
+      ["metadata", "unit"]
+    ]) || inferred_capacity_value_unit(row)
+  end
+
+  defp inferred_capacity_value_unit(row) do
+    row
+    |> value("metric_name")
+    |> case do
+      metric when is_binary(metric) and metric in ["usage_percent", "utilization_percent"] ->
+        "percent"
+
+      metric when is_binary(metric) ->
+        if String.ends_with?(metric, ["usage_percent", "used_percent", "utilization_percent"]) do
+          "percent"
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp percent_unit?(unit) when is_binary(unit) do
+    unit
+    |> String.downcase()
+    |> case do
+      "%" -> true
+      "percent" -> true
+      "percentage" -> true
+      _ -> false
+    end
+  end
+
+  defp percent_unit?(_unit), do: false
+
+  defp first_present(row, paths) do
+    Enum.find_value(paths, fn path ->
+      case nested_value(row, path) do
+        nil -> nil
+        "" -> nil
+        value -> value
+      end
+    end)
+  end
 
   defp resource_label(row) do
     value(row, "resource_label") || value(row, "resource_key") || value(row, "resource_id") ||

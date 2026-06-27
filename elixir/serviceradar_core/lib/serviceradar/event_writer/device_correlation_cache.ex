@@ -52,7 +52,10 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelationCache do
     :device_uid,
     :agent_id,
     :ip,
+    :target_device_ip,
     :partition,
+    :metric_name,
+    :if_index,
     :pod_uid,
     :pod_namespace,
     :pod_name,
@@ -261,6 +264,8 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelationCache do
       trimmed -> trimmed
     end
   end
+
+  defp normalize(value) when is_integer(value), do: Integer.to_string(value)
 
   defp normalize(_), do: nil
 

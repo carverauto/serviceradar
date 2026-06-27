@@ -12,6 +12,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   alias ServiceRadar.EventWriter.Processors.CausalSignals
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.OcsfEvent
+  alias ServiceRadar.Observability.SeasonalDisposition.Source
+  alias ServiceRadar.Observability.SeasonalDisposition.StateStore, as: SeasonalStateStore
   alias ServiceRadar.Observability.StatefulAlertEngine
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Observability.StatefulAlertRuleHistory
@@ -658,6 +660,337 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
     # Idempotent: the terminal-alert clear records no new :recovered history.
     assert recovered_after == recovered_before
+  end
+
+  test "causal anomaly alerts can group by canonical metric tuple without series-key equality", %{
+    actor: actor
+  } do
+    unique = System.unique_integer([:positive])
+    device_uid = "sr:snmp-target-device-#{unique}"
+    metric_name = "ifHCOutOctets"
+    if_index = 4
+    alert_title = "SNMP anomaly tuple #{unique}"
+
+    {:ok, _rule} =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "snmp-anomaly-tuple-#{unique}",
+          enabled: true,
+          signal: :event,
+          match: %{
+            "subject_prefix" => "signals.causal.predictions",
+            "attribute_equals" => %{
+              "signal_type" => "causal",
+              "event_type" => "anomaly",
+              "anomaly.state" => ["anomaly_open", "open", "anomalous"]
+            }
+          },
+          group_by: ["device_id", "anomaly.metric_name", "anomaly.if_index"],
+          threshold: 1,
+          window_seconds: 300,
+          bucket_seconds: 60,
+          cooldown_seconds: 300,
+          renotify_seconds: 3600,
+          event: %{
+            "log_name" => "alert.health.anomaly_detection",
+            "message" => "SNMP anomaly detected"
+          },
+          alert: %{"title" => alert_title, "severity_from" => "source"}
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    anomaly_series_key = "edge:v2:agent-dusk01:192.168.10.1:#{metric_name}:#{if_index}"
+
+    event = %{
+      id: Ash.UUID.generate(),
+      time: DateTime.utc_now(),
+      severity_id: OCSF.severity_high(),
+      severity: OCSF.severity_name(OCSF.severity_high()),
+      message: "Anomaly open",
+      log_name: "signals.causal.predictions.#{anomaly_series_key}",
+      log_provider: "anomaly_detection",
+      device: %{"uid" => device_uid},
+      unmapped: %{
+        "signal_type" => "causal",
+        "event_type" => "anomaly",
+        "anomaly" => %{
+          "state" => "anomaly_open",
+          "series_key" => anomaly_series_key,
+          "metric_class" => "snmp.interface",
+          "metric_name" => metric_name,
+          "if_index" => if_index
+        }
+      },
+      metadata: %{
+        "signal_type" => "causal",
+        "event_type" => "anomaly",
+        "service_radar" => %{"device_id" => device_uid}
+      }
+    }
+
+    assert :ok = StatefulAlertEngine.evaluate_events([event])
+    assert [active_alert] = active_alerts_by_title(actor, alert_title)
+
+    assert active_alert.metadata["incident_group_values"] == %{
+             "anomaly.if_index" => if_index,
+             "anomaly.metric_name" => metric_name,
+             "device_id" => device_uid
+           }
+  end
+
+  test "central seasonal normal state suppresses matching edge-spike anomaly alert", %{
+    actor: actor
+  } do
+    previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
+    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 1)
+
+    on_exit(fn ->
+      if is_nil(previous_shards) do
+        Application.delete_env(:serviceradar_core, :stateful_alert_engine_shards)
+      else
+        Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, previous_shards)
+      end
+    end)
+
+    reset_engine()
+
+    unique = System.unique_integer([:positive])
+    device_uid = "sr:seasonal-suppressed-device-#{unique}"
+    series_key = "sysmon:cpu:#{device_uid}:0"
+    alert_title = "Seasonally disposed anomaly #{unique}"
+
+    {:ok, _rule} =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "seasonally-disposed-anomaly-#{unique}",
+          enabled: true,
+          signal: :event,
+          match: %{
+            "subject_prefix" => "signals.causal.predictions",
+            "attribute_equals" => %{
+              "signal_type" => "causal",
+              "event_type" => ["anomaly", "anomaly_detection"],
+              "anomaly.metric_class" => "sysmon.cpu",
+              "anomaly.state" => ["anomaly_open", "open", "anomalous"]
+            },
+            "recovery" => %{
+              "subject_prefix" => "signals.causal.predictions",
+              "attribute_equals" => %{
+                "signal_type" => "causal",
+                "event_type" => ["anomaly", "anomaly_detection"],
+                "anomaly.state" => ["anomaly_clear", "inactive"]
+              }
+            }
+          },
+          group_by: ["device", "anomaly.series_key"],
+          threshold: 1,
+          window_seconds: 300,
+          bucket_seconds: 60,
+          cooldown_seconds: 300,
+          renotify_seconds: 3600,
+          event: %{
+            "log_name" => "alert.health.anomaly_detection",
+            "message" => "Anomaly detection finding detected"
+          },
+          alert: %{"title" => alert_title, "severity_from" => "source"}
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    base_time = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    bucket_started_at = DateTime.add(base_time, -60, :second)
+    bucket_ended_at = DateTime.add(base_time, 3600, :second)
+    dow = base_time |> DateTime.to_date() |> Date.day_of_week() |> rem(7)
+    hod = base_time.hour
+
+    assert :ok =
+             SeasonalStateStore.persist_many(
+               %Source{name: "cpu_seasonal"},
+               [
+                 %{
+                   key: {series_key, dow, hod},
+                   consecutive_anomalous: 0,
+                   disposition: "normal",
+                   status: "normal",
+                   score: 0.2,
+                   evaluated_at: base_time,
+                   bucket_started_at: bucket_started_at,
+                   bucket_ended_at: bucket_ended_at
+                 }
+               ]
+             )
+
+    event = fn verdict_source, offset ->
+      %{
+        id: Ash.UUID.generate(),
+        time: DateTime.add(base_time, offset, :second),
+        severity_id: OCSF.severity_high(),
+        severity: OCSF.severity_name(OCSF.severity_high()),
+        message: "Anomaly #{verdict_source}",
+        log_name: "signals.causal.predictions.#{series_key}",
+        log_provider: "anomaly_detection",
+        device: %{"uid" => device_uid},
+        unmapped: %{
+          "signal_type" => "causal",
+          "event_type" => "anomaly",
+          "verdict_source" => verdict_source,
+          "anomaly" => %{
+            "state" => "anomaly_open",
+            "series_key" => series_key,
+            "metric_class" => "sysmon.cpu",
+            "verdict_source" => verdict_source
+          }
+        },
+        metadata: %{
+          "signal_type" => "causal",
+          "event_type" => "anomaly",
+          "service_radar" => %{"verdict_source" => verdict_source}
+        }
+      }
+    end
+
+    assert :ok = StatefulAlertEngine.evaluate_events([event.("edge-spike", 10)])
+    assert [] = active_alerts_by_title(actor, alert_title)
+
+    assert :ok = StatefulAlertEngine.evaluate_events([event.("central-seasonal", 20)])
+    assert [active_alert] = active_alerts_by_title(actor, alert_title)
+
+    assert active_alert.metadata["incident_group_values"] == %{
+             "anomaly.series_key" => series_key,
+             "device" => device_uid
+           }
+  end
+
+  test "unsupported seasonal metric classes pass through edge-spike anomaly alerts", %{
+    actor: actor
+  } do
+    previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
+    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 1)
+
+    on_exit(fn ->
+      if is_nil(previous_shards) do
+        Application.delete_env(:serviceradar_core, :stateful_alert_engine_shards)
+      else
+        Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, previous_shards)
+      end
+    end)
+
+    reset_engine()
+
+    base_time = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    bucket_started_at = DateTime.add(base_time, -60, :second)
+    bucket_ended_at = DateTime.add(base_time, 3600, :second)
+    dow = base_time |> DateTime.to_date() |> Date.day_of_week() |> rem(7)
+    hod = base_time.hour
+
+    for {metric_class, metric_name, severity_id, expected_severity} <- [
+          {"snmp.interface", "ifInOctets", OCSF.severity_critical(), :critical},
+          {"sysmon.process", "process.cpu_percent", OCSF.severity_high(), :critical}
+        ] do
+      unique = System.unique_integer([:positive])
+      device_uid = "sr:edge-only-device-#{unique}"
+      series_key = "#{metric_class}:#{device_uid}:#{metric_name}"
+      alert_title = "Edge-only anomaly #{metric_class} #{unique}"
+
+      # Even if a normal seasonal row exists for the same opaque series key, the
+      # alert engine must not apply CPU/memory seasonal disposition to unsupported
+      # classes. SNMP/interface and counter-like sysmon series remain edge-only.
+      assert :ok =
+               SeasonalStateStore.persist_many(
+                 %Source{name: "cpu_seasonal"},
+                 [
+                   %{
+                     key: {series_key, dow, hod},
+                     consecutive_anomalous: 0,
+                     disposition: "normal",
+                     status: "normal",
+                     score: 0.0,
+                     evaluated_at: base_time,
+                     bucket_started_at: bucket_started_at,
+                     bucket_ended_at: bucket_ended_at
+                   }
+                 ]
+               )
+
+      {:ok, _rule} =
+        StatefulAlertRule
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "edge-only-anomaly-#{metric_class}-#{unique}",
+            enabled: true,
+            signal: :event,
+            match: %{
+              "subject_prefix" => "signals.causal.predictions",
+              "attribute_equals" => %{
+                "signal_type" => "causal",
+                "event_type" => ["anomaly", "anomaly_detection"],
+                "anomaly.metric_class" => metric_class,
+                "anomaly.state" => ["anomaly_open", "open", "anomalous"]
+              }
+            },
+            group_by: ["device", "anomaly.series_key"],
+            threshold: 1,
+            window_seconds: 300,
+            bucket_seconds: 60,
+            cooldown_seconds: 300,
+            renotify_seconds: 3600,
+            event: %{
+              "log_name" => "alert.health.anomaly_detection",
+              "message" => "Anomaly detection finding detected"
+            },
+            alert: %{"title" => alert_title, "severity_from" => "source"}
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      reset_engine()
+
+      event = %{
+        id: Ash.UUID.generate(),
+        time: DateTime.add(base_time, unique, :second),
+        severity_id: severity_id,
+        severity: OCSF.severity_name(severity_id),
+        message: "Anomaly edge-spike",
+        log_name: "signals.causal.predictions.#{series_key}",
+        log_provider: "anomaly_detection",
+        device: %{"uid" => device_uid},
+        unmapped: %{
+          "signal_type" => "causal",
+          "event_type" => "anomaly",
+          "verdict_source" => "edge-spike",
+          "anomaly" => %{
+            "state" => "anomaly_open",
+            "series_key" => series_key,
+            "metric_class" => metric_class,
+            "metric_name" => metric_name,
+            "verdict_source" => "edge-spike"
+          }
+        },
+        metadata: %{
+          "signal_type" => "causal",
+          "event_type" => "anomaly",
+          "service_radar" => %{"verdict_source" => "edge-spike"}
+        }
+      }
+
+      assert :ok = StatefulAlertEngine.evaluate_events([event])
+      assert [active_alert] = active_alerts_by_title(actor, alert_title)
+      assert active_alert.severity == expected_severity
+
+      assert active_alert.metadata["incident_group_values"] == %{
+               "anomaly.series_key" => series_key,
+               "device" => device_uid
+             }
+    end
   end
 
   test "resolve_stale_anomalies resolves an open alert whose series went silent", %{actor: actor} do

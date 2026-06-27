@@ -5,11 +5,11 @@
 - [x] 0.2 Confirm UASB is `report_only` / inactive → retirement is behaviorally safe.
 
 ## 1. Retire UASB (the strip) — follow-up code PR, scoped here
-- [ ] 1.1 Remove the peak-disposition kernel `rust/causal-disposition/src/disposition/peak/` (types/band/flow/mod/tests) and its module wiring.
-- [ ] 1.2 Remove the `profile_hour_of_week_peak` SRQL stat (`rust/srql/.../timeseries_metrics.rs`).
-- [ ] 1.3 Remove the `:peak` ABI from the `causal_disposition_nif` and any Elixir caller/seeding of the peak disposition.
-- [ ] 1.4 Strip "UASB" / "uncertainty-aware" / "shrinkage band" / "8 invariants" language from the codebase, the disposition docs, and the DeepCausality-paper framing. Salvage the per-series-prior learning as a plain note on the detector/baseline.
-- [ ] 1.5 Verify build + tests after removal (`bazel test` the causal-disposition + srql + nif targets); confirm seasonal/capacity dispositions and the edge detector are untouched.
+- [ ] 1.1 Remove UASB-branded peak-disposition code/module wiring. A future robust peak disposition may exist, but it must be named honestly and designed against the causal-context boundary.
+- [ ] 1.2 Keep `profile_hour_of_week_peak` only if it is framed as matched-resolution peak context; remove any UASB-specific SRQL naming/docs around it.
+- [ ] 1.3 Do not expose a `:peak` ABI from `causal_disposition_nif` until the robust peak/cause-context kernel boundary is settled.
+- [ ] 1.4 Strip "UASB" / "uncertainty-aware" / "shrinkage band" language from the codebase, the disposition docs, and the DeepCausality-paper framing. Salvage the useful mechanics as plain detector/baseline/context notes.
+- [ ] 1.5 Verify build + tests after cleanup; confirm seasonal/capacity dispositions and the edge detector are untouched.
 
 ## 2. Conditional baseline (tier 2 — small additive)
 - [ ] 2.1 Add per-device **local timezone** so the seasonal hour-of-day/day-of-week profile phases on local business hours, not UTC (additive field + plumb into the seasonal stat).

@@ -235,14 +235,18 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
     series in [raw, display_name, humanized]
   end
 
-  defp annotation_marker(%{dt: dt, label: label, severity: severity}, points) do
+  defp annotation_marker(%{dt: dt, label: label, severity: severity} = annotation, points) do
     case annotation_x(dt, points) do
       nil ->
         nil
 
       x ->
+        window = annotation_window(annotation, points)
+
         %{
           x: x,
+          window_x1: Map.get(window, :x1),
+          window_x2: Map.get(window, :x2),
           label: label,
           severity: severity,
           color: annotation_color(severity),
@@ -250,6 +254,28 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
         }
     end
   end
+
+  defp annotation_window(%{start_dt: %DateTime{} = start_dt, end_dt: %DateTime{} = end_dt}, points) do
+    with x1 when is_number(x1) <- annotation_x(start_dt, points),
+         x2 when is_number(x2) <- annotation_x(end_dt, points),
+         true <- x2 > x1 do
+      %{x1: x1, x2: x2}
+    else
+      _ -> %{}
+    end
+  end
+
+  defp annotation_window(%{start_dt: %DateTime{} = start_dt, dt: %DateTime{} = marker_dt}, points) do
+    with x1 when is_number(x1) <- annotation_x(start_dt, points),
+         x2 when is_number(x2) <- annotation_x(marker_dt, points),
+         true <- x2 > x1 do
+      %{x1: x1, x2: x2}
+    else
+      _ -> %{}
+    end
+  end
+
+  defp annotation_window(_annotation, _points), do: %{}
 
   defp annotation_x(_dt, []), do: nil
 

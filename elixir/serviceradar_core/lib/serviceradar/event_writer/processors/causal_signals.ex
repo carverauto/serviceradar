@@ -17,6 +17,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.DeviceCorrelation
   alias ServiceRadar.EventWriter.Telemetry, as: EventWriterTelemetry
+  alias ServiceRadar.Observability.AnomalyDetection.SeriesKey
   alias ServiceRadar.Observability.BmpSettingsRuntime
   alias ServiceRadar.Observability.CausalPubSub
   alias ServiceRadar.Observability.StatefulAlertEvaluationQueue
@@ -737,39 +738,44 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     # (device.uid, metadata.service_radar.device_uid, finding_info dimensions, and
     # the deterministic finding_uid) so the re-key stays coherent and we pay at
     # most one (cache-backed) correlation lookup per row.
-    device_uid = anomaly_detection_device_uid(payload)
+    case anomaly_detection_device_uid(payload) do
+      {:withhold, reason} ->
+        anomaly_detection_withheld_telemetry(payload, reason)
+        nil
 
-    %{
-      id: Ecto.UUID.dump!(normalized["event_identity"]),
-      time: normalized["event_time"],
-      class_uid: @ocsf_detection_finding_class_uid,
-      category_uid: @ocsf_findings_category_uid,
-      type_uid: @ocsf_detection_finding_type_uid,
-      activity_id: @ocsf_create_activity_id,
-      activity_name: "Create",
-      severity_id: severity_id,
-      severity: severity_name(severity_id),
-      message: anomaly_detection_message(payload),
-      status_id: nil,
-      status: payload["status"] || payload["finding_status"] || "open",
-      status_code: nil,
-      status_detail: payload["status_detail"],
-      metadata: anomaly_detection_metadata(normalized, payload, device_uid),
-      observables: [],
-      trace_id: nil,
-      span_id: nil,
-      actor: %{},
-      device: anomaly_detection_device(device_uid),
-      src_endpoint: %{},
-      dst_endpoint: %{},
-      log_name: metadata[:subject],
-      log_provider: payload["provider"] || payload["source"] || "anomaly_detection",
-      log_level: payload["level"],
-      log_version: payload["version"] || @schema_version,
-      unmapped: payload,
-      raw_data: normalize_raw_data(raw_data),
-      created_at: DateTime.utc_now()
-    }
+      device_uid ->
+        %{
+          id: Ecto.UUID.dump!(normalized["event_identity"]),
+          time: normalized["event_time"],
+          class_uid: @ocsf_detection_finding_class_uid,
+          category_uid: @ocsf_findings_category_uid,
+          type_uid: @ocsf_detection_finding_type_uid,
+          activity_id: @ocsf_create_activity_id,
+          activity_name: "Create",
+          severity_id: severity_id,
+          severity: severity_name(severity_id),
+          message: anomaly_detection_message(payload),
+          status_id: nil,
+          status: payload["status"] || payload["finding_status"] || "open",
+          status_code: nil,
+          status_detail: payload["status_detail"],
+          metadata: anomaly_detection_metadata(normalized, payload, device_uid),
+          observables: [],
+          trace_id: nil,
+          span_id: nil,
+          actor: %{},
+          device: anomaly_detection_device(device_uid),
+          src_endpoint: %{},
+          dst_endpoint: %{},
+          log_name: metadata[:subject],
+          log_provider: payload["provider"] || payload["source"] || "anomaly_detection",
+          log_level: payload["level"],
+          log_version: payload["version"] || @schema_version,
+          unmapped: payload,
+          raw_data: normalize_raw_data(raw_data),
+          created_at: DateTime.utc_now()
+        }
+    end
   end
 
   defp build_causal_signal_event_row(normalized, payload, raw_data, metadata) do
@@ -1307,41 +1313,64 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
         do: "capacity_forecasting",
         else: Map.get(payload, "verdict_source", "central")
 
-    series_key = detection_series_key(payload, capacity_forecast?)
+    series_key = detection_series_key(payload, capacity_forecast?, device_uid)
     metric_class = detection_metric_class(payload, capacity_forecast?)
+    metric_name = anomaly_detection_metric_name(payload, metric_class)
+    if_index = anomaly_detection_if_index(payload)
 
     normalized
     |> Map.put("primary_domain", "health")
     |> Map.put("finding_info", finding_info)
-    |> Map.put("security_signal", %{
-      "kind" => "health",
-      "source" => source_type,
-      "finding_uid" => finding_info["uid"],
-      "series_key" => series_key,
-      "metric_class" => metric_class
-    })
+    |> Map.put(
+      "security_signal",
+      %{
+        "kind" => "health",
+        "source" => source_type,
+        "finding_uid" => finding_info["uid"],
+        "device_id" => device_uid,
+        "series_key" => series_key,
+        "metric_class" => metric_class,
+        "metric_name" => metric_name,
+        "if_index" => if_index
+      }
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      |> Map.new()
+    )
     |> Map.put("service_radar", %{
       "source_type" => source_type,
       "addon_id" => addon_id,
       "finding_uid" => finding_info["uid"],
       "device_uid" => device_uid,
+      "device_id" => device_uid,
       "series_key" => series_key,
       "metric_class" => metric_class,
+      "metric_name" => metric_name,
+      "if_index" => if_index,
       # verdict_source distinguishes an edge spike verdict ("edge-spike") from a
       # central one (default "central", later "central-seasonal"). SRQL/alerts
       # can filter/group on metadata.service_radar.verdict_source.
       "verdict_source" => finding_source,
       "ocsf_class" => "detection_finding"
     })
-    |> Map.put("detection_finding", %{
-      "type" => finding_type,
-      "source" => finding_source,
-      "series_key" => series_key,
-      "metric_class" => metric_class,
-      "state" => get_in(payload, ["anomaly", "state"]),
-      "score" => get_in(payload, ["anomaly", "score"]),
-      "reason" => get_in(payload, ["anomaly", "reason"])
-    })
+    |> Map.put(
+      "detection_finding",
+      %{
+        "type" => finding_type,
+        "source" => finding_source,
+        "device_id" => device_uid,
+        "series_key" => series_key,
+        "metric_class" => metric_class,
+        "metric_name" => metric_name,
+        "if_index" => if_index,
+        "state" => get_in(payload, ["anomaly", "state"]),
+        "score" => get_in(payload, ["anomaly", "score"]),
+        "reason" => get_in(payload, ["anomaly", "reason"]),
+        "consecutive_anomalous" => get_in(payload, ["anomaly", "consecutive_anomalous"]),
+        "signals" => get_in(payload, ["anomaly", "signals"])
+      }
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      |> Map.new()
+    )
   end
 
   defp capacity_forecast_signal?(normalized, payload) do
@@ -1361,7 +1390,11 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       get_in(payload, ["anomaly", "series_key"])
   end
 
-  defp detection_series_key(payload, false), do: get_in(payload, ["anomaly", "series_key"])
+  defp detection_series_key(payload, false, device_uid),
+    do: anomaly_detection_series_key(payload, device_uid)
+
+  defp detection_series_key(payload, capacity_forecast?, _device_uid),
+    do: detection_series_key(payload, capacity_forecast?)
 
   defp detection_metric_class(payload, true) do
     get_in(payload, ["capacity_forecast", "metric_name"]) ||
@@ -1373,7 +1406,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   defp anomaly_detection_finding_info(payload, device_uid) do
     existing = if is_map(payload["finding_info"]), do: payload["finding_info"], else: %{}
-    series_key = get_in(payload, ["anomaly", "series_key"])
+    series_key = anomaly_detection_series_key(payload, device_uid)
     metric_class = get_in(payload, ["anomaly", "metric_class"])
     uid = anomaly_detection_finding_uid(device_uid, series_key, metric_class)
 
@@ -1391,19 +1424,36 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   end
 
   defp anomaly_detection_finding_dimensions(payload, device_uid, series_key, metric_class) do
+    metric_name = anomaly_detection_metric_name(payload, metric_class)
+    if_index = anomaly_detection_if_index(payload)
+
     %{
       "class_uid" => @ocsf_detection_finding_class_uid,
       "source" => "anomaly_detection",
       "device_uid" => device_uid,
+      "device_id" => device_uid,
       "series_key" => series_key,
       "metric_class" => metric_class,
-      "metric_name" => get_in(payload, ["anomaly", "metric_name"]),
+      "metric_name" => metric_name,
       "target_device_ip" => anomaly_detection_target_device_ip(payload),
-      "if_index" => get_in(payload, ["anomaly", "if_index"]),
+      "if_index" => if_index,
       "interface_name" => get_in(payload, ["anomaly", "interface_name"]),
       "resource_label" => anomaly_detection_display_label(payload, series_key),
       "state" => get_in(payload, ["anomaly", "state"]),
-      "subject" => get_in(payload, ["anomaly", "subject"])
+      "subject" => get_in(payload, ["anomaly", "subject"]),
+      "detector_state" => get_in(payload, ["anomaly", "detector_state"]),
+      "score" => get_in(payload, ["anomaly", "score"]),
+      "baseline_count" => get_in(payload, ["anomaly", "baseline_count"]),
+      "consecutive_anomalous" => get_in(payload, ["anomaly", "consecutive_anomalous"]),
+      "signals" => get_in(payload, ["anomaly", "signals"]),
+      "sample_value" =>
+        get_in(payload, ["anomaly", "sample_value"]) || get_in(payload, ["anomaly", "value"]),
+      "observed_at_unix_nano" => get_in(payload, ["anomaly", "observed_at_unix_nano"]),
+      "episode_started_at_unix_nano" =>
+        get_in(payload, ["anomaly", "episode_started_at_unix_nano"]),
+      "episode_ended_at_unix_nano" => get_in(payload, ["anomaly", "episode_ended_at_unix_nano"]),
+      "episode_peak_value" => get_in(payload, ["anomaly", "episode_peak_value"]),
+      "episode_peak_at_unix_nano" => get_in(payload, ["anomaly", "episode_peak_at_unix_nano"])
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
@@ -1412,7 +1462,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   defp anomaly_detection_title(payload, series_key, metric_class) do
     metric =
       first_non_blank([
-        get_in(payload, ["anomaly", "metric_name"]),
+        anomaly_detection_metric_name(payload, metric_class),
         metric_class
       ]) || "metric"
 
@@ -1432,7 +1482,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   defp anomaly_detection_interface_label(payload) do
     target_device_ip = anomaly_detection_target_device_ip(payload)
-    if_index = get_in(payload, ["anomaly", "if_index"])
+    if_index = anomaly_detection_if_index(payload)
     interface_name = get_in(payload, ["anomaly", "interface_name"])
 
     [target_device_ip, interface_name, if_index_label(if_index)]
@@ -1445,6 +1495,39 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   defp if_index_label(nil), do: nil
   defp if_index_label(value), do: "ifIndex #{value}"
+
+  defp anomaly_detection_metric_name(payload, fallback) do
+    source_identity = get_in(payload, ["source_identity"]) || %{}
+
+    first_non_blank([
+      get_in(payload, ["anomaly", "metric_name"]),
+      get_in(payload, ["anomaly", "metadata", "metric_name"]),
+      source_identity["metric_name"],
+      payload["metric_name"],
+      fallback
+    ])
+  end
+
+  defp anomaly_detection_if_index(payload) do
+    source_identity = get_in(payload, ["source_identity"]) || %{}
+    source_tags = source_identity["tags"] || %{}
+    anomaly_tags = get_in(payload, ["anomaly", "tags"]) || %{}
+
+    [
+      get_in(payload, ["anomaly", "if_index"]),
+      get_in(payload, ["anomaly", "metadata", "if_index"]),
+      source_identity["if_index"],
+      source_tags["if_index"],
+      anomaly_tags["if_index"],
+      payload["if_index"]
+    ]
+    |> first_present()
+    |> normalize_int()
+    |> positive_int()
+  end
+
+  defp positive_int(value) when is_integer(value) and value > 0, do: value
+  defp positive_int(_value), do: nil
 
   defp readable_series_key(value) when is_binary(value) and value != "" do
     if structured_series_key?(value), do: nil, else: value
@@ -1469,6 +1552,49 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     |> deterministic_uuid()
   end
 
+  defp anomaly_detection_series_key(payload, device_uid) do
+    canonical_key =
+      case canonical_anomaly_source_identity(payload, device_uid) do
+        %{} = source_identity -> SeriesKey.from_source_identity(source_identity)
+        _ -> nil
+      end
+
+    case canonical_key do
+      key when is_binary(key) and key != "" -> key
+      _ -> get_in(payload, ["anomaly", "series_key"])
+    end
+  end
+
+  defp canonical_anomaly_source_identity(payload, device_uid) do
+    source_identity =
+      case Map.get(payload, "source_identity") do
+        %{} = identity -> identity
+        _ -> nil
+      end
+
+    if source_identity_with_producer_key?(source_identity) do
+      source_identity
+      |> put_if_missing("metric_class", get_in(payload, ["anomaly", "metric_class"]))
+      |> put_if_missing("metric_name", get_in(payload, ["anomaly", "metric_name"]))
+      |> put_canonical_device_id(device_uid)
+    end
+  end
+
+  defp source_identity_with_producer_key?(%{"series_key" => value}) when is_binary(value) do
+    String.trim(value) != ""
+  end
+
+  defp source_identity_with_producer_key?(_source_identity), do: false
+
+  defp put_if_missing(map, _key, nil), do: map
+  defp put_if_missing(map, key, value), do: Map.put_new(map, key, value)
+
+  defp put_canonical_device_id(map, device_uid) when is_binary(device_uid) and device_uid != "" do
+    Map.put(map, "device_id", device_uid)
+  end
+
+  defp put_canonical_device_id(map, _device_uid), do: map
+
   defp anomaly_detection_device(nil), do: %{}
   defp anomaly_detection_device(device_uid), do: %{"uid" => device_uid}
 
@@ -1489,19 +1615,61 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     target_device_ip = anomaly_detection_target_device_ip(payload)
     metric_class = get_in(payload, ["anomaly", "metric_class"])
 
-    raw =
-      if snmp_metric_class?(metric_class) and not is_nil(target_device_ip) do
-        target_device_ip
-      else
-        raw
+    if snmp_metric_class?(metric_class) do
+      resolve_snmp_anomaly_device_uid(payload, target_device_ip)
+    else
+      case DeviceCorrelation.resolve(
+             anomaly_detection_correlation_candidate(payload, raw, target_device_ip)
+           ) do
+        uid when is_binary(uid) and uid != "" -> uid
+        _ -> raw
       end
-
-    case DeviceCorrelation.resolve(
-           anomaly_detection_correlation_candidate(payload, raw, target_device_ip)
-         ) do
-      uid when is_binary(uid) and uid != "" -> uid
-      _ -> raw
     end
+  end
+
+  defp resolve_snmp_anomaly_device_uid(payload, nil) do
+    resolve_snmp_anomaly_device_uid(payload, nil, anomaly_detection_raw_device_uid(payload))
+  end
+
+  defp resolve_snmp_anomaly_device_uid(payload, target_device_ip) do
+    resolve_snmp_anomaly_device_uid(
+      payload,
+      target_device_ip,
+      anomaly_detection_raw_device_uid(payload)
+    )
+  end
+
+  defp resolve_snmp_anomaly_device_uid(payload, target_device_ip, raw_device_uid) do
+    metric_class = get_in(payload, ["anomaly", "metric_class"])
+
+    case DeviceCorrelation.resolve_snmp_interface_metric(%{
+           device_uid: raw_device_uid,
+           target_device_ip: target_device_ip,
+           partition: anomaly_detection_partition(payload),
+           metric_name: anomaly_detection_metric_name(payload, metric_class),
+           if_index: anomaly_detection_if_index(payload)
+         }) do
+      uid when is_binary(uid) and uid != "" -> uid
+      _ -> {:withhold, snmp_anomaly_withhold_reason(target_device_ip)}
+    end
+  end
+
+  defp snmp_anomaly_withhold_reason(nil), do: :snmp_target_missing
+  defp snmp_anomaly_withhold_reason(_target_device_ip), do: :snmp_interface_metric_unresolvable
+
+  defp anomaly_detection_withheld_telemetry(payload, reason) do
+    :telemetry.execute(
+      [:serviceradar, :event_writer, :anomaly_detection, :withheld],
+      %{count: 1},
+      %{
+        reason: reason,
+        metric_class: get_in(payload, ["anomaly", "metric_class"]),
+        metric_name:
+          anomaly_detection_metric_name(payload, get_in(payload, ["anomaly", "metric_class"])),
+        if_index: anomaly_detection_if_index(payload),
+        target_device_ip: anomaly_detection_target_device_ip(payload)
+      }
+    )
   end
 
   defp anomaly_detection_raw_device_uid(payload) do
@@ -1581,6 +1749,20 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       get_in(payload, ["anomaly", "target_device_ip"]),
       get_in(payload, ["anomaly", "metadata", "target_device_ip"]),
       source_identity["target_device_ip"]
+    ])
+  end
+
+  defp anomaly_detection_partition(payload) do
+    source_identity = get_in(payload, ["source_identity"]) || %{}
+    anomaly_metadata = get_in(payload, ["anomaly", "metadata"]) || %{}
+
+    first_non_blank([
+      payload["partition"],
+      payload["partition_id"],
+      anomaly_metadata["partition"],
+      anomaly_metadata["partition_id"],
+      source_identity["partition"],
+      source_identity["partition_id"]
     ])
   end
 

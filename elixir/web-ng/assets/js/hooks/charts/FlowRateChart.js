@@ -48,6 +48,12 @@ export function contiguousValidSegments(points) {
   return segments
 }
 
+export function contiguousValueRuns(points) {
+  return contiguousValidSegments(points).map((segment) =>
+    segment.map(({idx: _idx, ...point}) => point),
+  )
+}
+
 function formatRate(value) {
   const abs = Math.abs(value)
   if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`

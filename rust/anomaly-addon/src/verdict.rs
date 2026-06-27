@@ -9,13 +9,11 @@
 use addon_sdk::metric_pb::{Metric, MetricPoint, MetricResource};
 use addon_sdk::pb::TelemetryRecord;
 use addon_sdk::{SignalSchemaRef, attach_signal_schema_ref, ocsf_event_record};
-use serviceradar_anomaly_core::ReasonVerdict;
+use serviceradar_anomaly_core::{ReasonVerdict, SignalVerdict};
 
 use crate::config::{ADDON_ID, ADDON_VERSION};
-use crate::engine::AnomalyTransition;
-use crate::identity::{
-    anomaly_device_uid, attested_tags, metric_class, target_device_ip_for,
-};
+use crate::engine::{AnomalyEpisode, AnomalyTransition};
+use crate::identity::{anomaly_device_uid, attested_tags, metric_class, target_device_ip_for};
 
 /// Build an OCSF Detection Finding (class_uid 2004) shaped to match the central
 /// `VerdictEmitter` envelope, so core consumes an edge verdict identically. The
@@ -30,6 +28,7 @@ pub(crate) fn verdict_record(
     series_key: &str,
     verdict: &ReasonVerdict,
     transition: AnomalyTransition,
+    episode: Option<AnomalyEpisode>,
 ) -> TelemetryRecord {
     let ts_nano = verdict
         .observed_at_unix_nano
@@ -43,6 +42,7 @@ pub(crate) fn verdict_record(
     let metric_class = metric_class(metric);
     let device_uid = anomaly_device_uid(resource, metric_class, metric, point);
     let target_device_ip = target_device_ip_for(resource, metric_class, metric, point);
+    let signals = anomaly_signals(verdict);
 
     let event_id = format!("anomaly:{series_key}:{ts_nano}:{lifecycle_state}");
     let finding_uid =
@@ -101,10 +101,15 @@ pub(crate) fn verdict_record(
             "reason": &verdict.reason,
             "score": verdict.score,
             "baseline_count": verdict.baseline_count,
+            "consecutive_anomalous": verdict.next_consecutive_anomalous,
             "value": verdict.sample_value,
             "sample_value": verdict.sample_value,
             "observed_at_unix_nano": ts_nano,
-            "signals": [],
+            "episode_started_at_unix_nano": episode.map(|episode| episode.started_at_unix_nano),
+            "episode_ended_at_unix_nano": episode.map(|episode| episode.ended_at_unix_nano),
+            "episode_peak_value": episode.map(|episode| episode.peak_value),
+            "episode_peak_at_unix_nano": episode.map(|episode| episode.peak_at_unix_nano),
+            "signals": signals,
         },
     });
 
@@ -147,6 +152,25 @@ pub(crate) fn severity_id_from_score(score: f64) -> i64 {
     } else {
         2
     }
+}
+
+fn anomaly_signals(verdict: &ReasonVerdict) -> Vec<serde_json::Value> {
+    verdict.signals.iter().map(signal_json).collect()
+}
+
+fn signal_json(signal: &SignalVerdict) -> serde_json::Value {
+    serde_json::json!({
+        "name": &signal.name,
+        "enabled": signal.enabled,
+        "ready": signal.ready,
+        "breached": signal.breached,
+        "score": signal.score,
+        "threshold": signal.threshold,
+        "sample_count": signal.sample_count,
+        "mean": signal.mean,
+        "stddev": signal.stddev,
+        "reason": &signal.reason,
+    })
 }
 
 pub(crate) fn first_non_empty<'a>(candidates: &[&'a str]) -> &'a str {

@@ -18,7 +18,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
           key_fields: [String.t()],
           label_fields: [String.t()],
           threshold: float() | nil,
-          model: String.t()
+          model: String.t(),
+          value_unit: String.t() | nil
         }
 
   defstruct name: nil,
@@ -31,7 +32,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
             key_fields: [],
             label_fields: [],
             threshold: nil,
-            model: "auto"
+            model: "auto",
+            value_unit: nil
 
   @spec defaults(keyword()) :: [t()]
   def defaults(opts \\ []) do
@@ -50,7 +52,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
         bucket_field: "timestamp",
         key_fields: ["series"],
         label_fields: ["series"],
-        threshold: 100.0
+        threshold: 100.0,
+        value_unit: "percent"
       },
       %__MODULE__{
         name: "memory_usage",
@@ -63,7 +66,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
         bucket_field: "timestamp",
         key_fields: ["series"],
         label_fields: ["series"],
-        threshold: 100.0
+        threshold: 100.0,
+        value_unit: "percent"
       },
       %__MODULE__{
         name: "disk_usage",
@@ -76,7 +80,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
         bucket_field: "timestamp",
         key_fields: ["series"],
         label_fields: ["series"],
-        threshold: 100.0
+        threshold: 100.0,
+        value_unit: "percent"
       },
       %__MODULE__{
         name: "interface_rate",
@@ -95,7 +100,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
           "series_key"
         ],
         label_fields: ["target_device_ip", "if_index", "metric_name"],
-        threshold: 100.0
+        threshold: 100.0,
+        value_unit: "percent"
       },
       %__MODULE__{
         name: "flow_bytes_per_hour",
@@ -107,7 +113,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
         value_field: "bytes_total",
         key_fields: [],
         label_fields: [],
-        threshold: @default_flow_threshold_bytes_per_hour
+        threshold: @default_flow_threshold_bytes_per_hour,
+        value_unit: "bytes"
       }
     ]
   end
@@ -129,7 +136,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
       key_fields: string_list(values, :key_fields),
       label_fields: string_list(values, :label_fields),
       threshold: number_value(values, :threshold),
-      model: string_value(values, :model, "auto")
+      model: string_value(values, :model, "auto"),
+      value_unit: string_value(values, :value_unit)
     })
   end
 

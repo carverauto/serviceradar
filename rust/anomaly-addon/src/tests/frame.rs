@@ -13,12 +13,17 @@ use tokio::sync::broadcast;
 
 use super::support::{
     assert_no_batch, metric_feed_frame, metric_feed_frame_from_batch, process_anomaly_value,
-    recv_single_event, sysmon_cpu_debug_spike_batch, telemetry_drop_counters,
+    recv_single_event, sysmon_cpu_core_batch, sysmon_cpu_debug_spike_batch,
+    telemetry_drop_counters,
 };
 use crate::engine::{DetectorEngine, EngineConfig};
 use crate::frame::process_frame;
 use crate::health::{EngineHealthSnapshot, ScoringHealth};
 use crate::identity::safe_component;
+
+fn tag_component(key: &str, value: &str) -> String {
+    safe_component(&format!("tag_{}", hex::encode(key.as_bytes())), value)
+}
 
 #[tokio::test]
 async fn process_frame_reports_capacity_shed_once_per_frame() {
@@ -158,6 +163,101 @@ async fn process_frame_counts_telemetry_without_subscriber() {
 }
 
 #[tokio::test]
+async fn snmp_points_without_target_identity_are_not_scored_on_the_agent_series() {
+    let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig {
+        window_size: 10,
+        min_samples: 1,
+        n_sigma: 1.0,
+        confirm_slots: 1,
+        max_series: 10,
+        ..EngineConfig::default()
+    })));
+    let (tx, mut rx) = broadcast::channel(8);
+    let telemetry_drops = telemetry_drop_counters();
+    let scoring_health = Arc::new(Mutex::new(ScoringHealth::default()));
+    let batch = MetricBatch {
+        resource: Some(MetricResource {
+            agent_id: "agent-dusk01".to_string(),
+            host_id: "dusk01".to_string(),
+            partition: "demo".to_string(),
+            ..Default::default()
+        }),
+        metrics: vec![Metric {
+            name: "ifHCInOctets".to_string(),
+            metric_type: "snmp.interface".to_string(),
+            points: vec![MetricPoint {
+                value: 10_000.0,
+                observed_at_unix_nano: 1_812_456_000_000_000_000,
+                if_index: 6,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    process_frame(
+        &engine,
+        &tx,
+        &telemetry_drops,
+        &scoring_health,
+        &metric_feed_frame_from_batch(42, batch),
+    )
+    .await;
+
+    assert_no_batch(&mut rx);
+    assert_eq!(engine.lock().unwrap().series_count(), 0);
+}
+
+#[tokio::test]
+async fn snmp_points_with_canonical_polled_device_are_scored_without_target_ip() {
+    let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig {
+        window_size: 10,
+        min_samples: 1,
+        n_sigma: 1.0,
+        confirm_slots: 1,
+        max_series: 10,
+        ..EngineConfig::default()
+    })));
+    let (tx, mut rx) = broadcast::channel(8);
+    let telemetry_drops = telemetry_drop_counters();
+    let scoring_health = Arc::new(Mutex::new(ScoringHealth::default()));
+    let batch = MetricBatch {
+        resource: Some(MetricResource {
+            agent_id: "agent-dusk01".to_string(),
+            host_id: "dusk01".to_string(),
+            device_id: "sr:farm01".to_string(),
+            partition: "demo".to_string(),
+            ..Default::default()
+        }),
+        metrics: vec![Metric {
+            name: "ifHCInOctets".to_string(),
+            metric_type: "snmp.interface".to_string(),
+            points: vec![MetricPoint {
+                value: 10_000.0,
+                observed_at_unix_nano: 1_812_456_000_000_000_000,
+                if_index: 6,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    process_frame(
+        &engine,
+        &tx,
+        &telemetry_drops,
+        &scoring_health,
+        &metric_feed_frame_from_batch(43, batch),
+    )
+    .await;
+
+    assert_no_batch(&mut rx);
+    assert_eq!(engine.lock().unwrap().series_count(), 1);
+}
+
+#[tokio::test]
 async fn process_frame_emits_only_anomaly_open_and_clear_transitions() {
     let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig {
         window_size: 50,
@@ -183,6 +283,10 @@ async fn process_frame_emits_only_anomaly_open_and_clear_transitions() {
     assert_eq!(open["status"], "open");
     assert_eq!(open["anomaly"]["state"], "anomaly_open");
     assert_eq!(open["anomaly"]["detector_state"], "anomalous");
+    assert_eq!(open["anomaly"]["episode_started_at_unix_nano"], 21);
+    assert_eq!(open["anomaly"]["episode_ended_at_unix_nano"], 22);
+    assert_eq!(open["anomaly"]["episode_peak_value"], 1000.0);
+    assert_eq!(open["anomaly"]["episode_peak_at_unix_nano"], 21);
 
     process_anomaly_value(&engine, &tx, &telemetry_drops, 1_000.0, 23).await;
     assert_no_batch(&mut rx);
@@ -195,6 +299,10 @@ async fn process_frame_emits_only_anomaly_open_and_clear_transitions() {
     assert_eq!(clear["status"], "inactive");
     assert_eq!(clear["anomaly"]["state"], "anomaly_clear");
     assert_eq!(clear["anomaly"]["detector_state"], "clean");
+    assert_eq!(clear["anomaly"]["episode_started_at_unix_nano"], 21);
+    assert_eq!(clear["anomaly"]["episode_ended_at_unix_nano"], 25);
+    assert_eq!(clear["anomaly"]["episode_peak_value"], 1000.0);
+    assert_eq!(clear["anomaly"]["episode_peak_at_unix_nano"], 21);
     assert!(
         !clear["message"]
             .as_str()
@@ -204,7 +312,7 @@ async fn process_frame_emits_only_anomaly_open_and_clear_transitions() {
 }
 
 #[tokio::test]
-async fn sysmon_debug_spike_smoke_emits_one_open_finding() {
+async fn sustained_sysmon_cpu_spike_emits_one_open_then_one_clear_with_episode_window() {
     let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig {
         window_size: 50,
         min_samples: 5,
@@ -217,33 +325,46 @@ async fn sysmon_debug_spike_smoke_emits_one_open_finding() {
     let telemetry_drops = telemetry_drop_counters();
     let scoring_health = Arc::new(Mutex::new(ScoringHealth::default()));
     let start = 1_812_456_000_000_000_000_u64;
-    let sample_time = |seconds: u64| start + (seconds * 1_000_000_000);
+    let sample_time = |slot: u64| start + (slot * 30 * 1_000_000_000);
 
-    for ts in 1..=20 {
-        let frame = metric_feed_frame_from_batch(
-            ts,
-            sysmon_cpu_debug_spike_batch(25.0, sample_time(ts)),
-        );
+    for ts in 1..=8 {
+        let frame =
+            metric_feed_frame_from_batch(ts, sysmon_cpu_core_batch(1, 25.0, sample_time(ts)));
         process_frame(&engine, &tx, &telemetry_drops, &scoring_health, &frame).await;
     }
     assert_no_batch(&mut rx);
 
-    for ts in 21..=26 {
-        let frame = metric_feed_frame_from_batch(
-            ts,
-            sysmon_cpu_debug_spike_batch(95.0, sample_time(ts)),
-        );
+    for ts in 9..=11 {
+        let frame =
+            metric_feed_frame_from_batch(ts, sysmon_cpu_core_batch(1, 95.0, sample_time(ts)));
         process_frame(&engine, &tx, &telemetry_drops, &scoring_health, &frame).await;
     }
 
     let open = recv_single_event(&mut rx);
     assert_no_batch(&mut rx);
-    let expected_open_time = sample_time(21);
+    let expected_open_time = sample_time(10);
 
     assert_eq!(open["status"], "open");
     assert_eq!(open["anomaly"]["state"], "anomaly_open");
     assert_eq!(open["time"], (expected_open_time / 1_000_000) as i64);
     assert_eq!(open["anomaly"]["observed_at_unix_nano"], expected_open_time);
+    assert_eq!(
+        open["anomaly"]["episode_started_at_unix_nano"],
+        sample_time(9)
+    );
+    assert_eq!(
+        open["anomaly"]["episode_ended_at_unix_nano"],
+        expected_open_time
+    );
+    assert_eq!(open["anomaly"]["episode_peak_value"], 95.0);
+    assert_eq!(open["anomaly"]["episode_peak_at_unix_nano"], sample_time(9));
+    assert_eq!(open["anomaly"]["consecutive_anomalous"], 2);
+    assert!(
+        !open["anomaly"]["signals"]
+            .as_array()
+            .expect("signals array")
+            .is_empty()
+    );
     assert_eq!(open["device_uid"], "device-a");
     assert_eq!(open["device_id"], "device-a");
     assert_eq!(open["source_identity"]["agent_id"], "agent-a");
@@ -259,9 +380,213 @@ async fn sysmon_debug_spike_smoke_emits_one_open_finding() {
             safe_component("partition", "demo"),
             safe_component("identity", "device-a"),
             safe_component("metric", "cpu.usage_percent"),
+            tag_component("core_id", "1"),
+            tag_component("label", "cpu1"),
         ]
         .join("|")
     );
     assert_eq!(open["source_identity"]["tags"]["core_id"], "1");
     assert_eq!(open["source_identity"]["tags"]["label"], "cpu1");
+
+    for ts in 12..=14 {
+        let frame =
+            metric_feed_frame_from_batch(ts, sysmon_cpu_core_batch(1, 25.0, sample_time(ts)));
+        process_frame(&engine, &tx, &telemetry_drops, &scoring_health, &frame).await;
+    }
+
+    let clear = recv_single_event(&mut rx);
+    assert_no_batch(&mut rx);
+    let expected_clear_time = sample_time(13);
+
+    assert_eq!(clear["status"], "inactive");
+    assert_eq!(clear["anomaly"]["state"], "anomaly_clear");
+    assert_eq!(clear["anomaly"]["detector_state"], "clean");
+    assert_eq!(clear["time"], (expected_clear_time / 1_000_000) as i64);
+    assert_eq!(
+        clear["anomaly"]["observed_at_unix_nano"],
+        expected_clear_time
+    );
+    assert_eq!(
+        clear["anomaly"]["episode_started_at_unix_nano"],
+        sample_time(9)
+    );
+    assert_eq!(
+        clear["anomaly"]["episode_ended_at_unix_nano"],
+        expected_clear_time
+    );
+    assert_eq!(clear["anomaly"]["episode_peak_value"], 95.0);
+    assert_eq!(
+        clear["anomaly"]["episode_peak_at_unix_nano"],
+        sample_time(9)
+    );
+}
+
+#[tokio::test]
+async fn short_cpu_spike_inside_one_evaluation_slot_does_not_open() {
+    let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig {
+        window_size: 50,
+        min_samples: 5,
+        n_sigma: 3.0,
+        confirm_slots: 2,
+        max_series: 10,
+        ..EngineConfig::default()
+    })));
+    let (tx, mut rx) = broadcast::channel(8);
+    let telemetry_drops = telemetry_drop_counters();
+    let scoring_health = Arc::new(Mutex::new(ScoringHealth::default()));
+    let start = 1_812_456_000_000_000_000_u64;
+    let sample_time = |seconds: u64| start + (seconds * 1_000_000_000);
+
+    // Warm enough completed CPU evaluation slots. CPU points are max-aggregated
+    // into 30s slots before the detector sees them.
+    for slot in 1..=8 {
+        let ts = slot * 30;
+        let frame =
+            metric_feed_frame_from_batch(slot, sysmon_cpu_core_batch(1, 25.0, sample_time(ts)));
+        process_frame(&engine, &tx, &telemetry_drops, &scoring_health, &frame).await;
+    }
+    assert_no_batch(&mut rx);
+
+    // Multiple high-frequency points inside one 30s CPU slot are one anomalous
+    // evaluation slot, not enough to satisfy confirm_slots=2.
+    for offset in [1, 5, 10, 20, 29] {
+        let frame = metric_feed_frame_from_batch(
+            100 + offset,
+            sysmon_cpu_core_batch(1, 97.0, sample_time(9 * 30 + offset)),
+        );
+        process_frame(&engine, &tx, &telemetry_drops, &scoring_health, &frame).await;
+    }
+
+    // Advancing into following clean slots evaluates the spike slot once, then
+    // resets the pending confirmation before it can open.
+    for slot in [10, 11] {
+        let frame = metric_feed_frame_from_batch(
+            slot,
+            sysmon_cpu_core_batch(1, 25.0, sample_time(slot * 30)),
+        );
+        process_frame(&engine, &tx, &telemetry_drops, &scoring_health, &frame).await;
+    }
+
+    assert_no_batch(&mut rx);
+}
+
+#[tokio::test]
+async fn recurring_cpu_spikes_separated_by_clean_slots_do_not_accumulate_confirmation() {
+    let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig {
+        window_size: 50,
+        min_samples: 5,
+        n_sigma: 3.0,
+        confirm_slots: 2,
+        max_series: 10,
+        ..EngineConfig::default()
+    })));
+    let (tx, mut rx) = broadcast::channel(8);
+    let telemetry_drops = telemetry_drop_counters();
+    let scoring_health = Arc::new(Mutex::new(ScoringHealth::default()));
+    let start = 1_812_456_000_000_000_000_u64;
+    let sample_time = |slot: u64| start + (slot * 30 * 1_000_000_000);
+
+    for ts in 1..=8 {
+        let frame =
+            metric_feed_frame_from_batch(ts, sysmon_cpu_core_batch(1, 25.0, sample_time(ts)));
+        process_frame(&engine, &tx, &telemetry_drops, &scoring_health, &frame).await;
+    }
+    assert_no_batch(&mut rx);
+
+    // These are recurring, visible CPU peaks, but each peak is only one completed
+    // CPU evaluation slot. The clean slot between peaks resets pending
+    // confirmation, so normal periodic bursts do not accumulate into an open
+    // anomaly.
+    for (feed_id, slot, value) in [
+        (100, 9, 97.0),
+        (101, 10, 25.0),
+        (102, 11, 97.0),
+        (103, 12, 25.0),
+        (104, 13, 97.0),
+        (105, 14, 25.0),
+        (106, 15, 25.0),
+    ] {
+        let frame = metric_feed_frame_from_batch(
+            feed_id,
+            sysmon_cpu_core_batch(1, value, sample_time(slot)),
+        );
+        process_frame(&engine, &tx, &telemetry_drops, &scoring_health, &frame).await;
+    }
+
+    assert_no_batch(&mut rx);
+}
+
+#[tokio::test]
+async fn multi_core_cpu_points_do_not_count_as_consecutive_samples_for_one_series() {
+    let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig {
+        window_size: 50,
+        min_samples: 5,
+        n_sigma: 3.0,
+        confirm_slots: 2,
+        max_series: 10,
+        ..EngineConfig::default()
+    })));
+    let (tx, mut rx) = broadcast::channel(8);
+    let telemetry_drops = telemetry_drop_counters();
+    let scoring_health = Arc::new(Mutex::new(ScoringHealth::default()));
+    let start = 1_812_456_000_000_000_000_u64;
+    let sample_time = |slot: u64| start + (slot * 30 * 1_000_000_000);
+
+    for ts in 1..=8 {
+        let frame =
+            metric_feed_frame_from_batch(ts, sysmon_cpu_debug_spike_batch(25.0, sample_time(ts)));
+        process_frame(&engine, &tx, &telemetry_drops, &scoring_health, &frame).await;
+    }
+
+    let first_spike =
+        metric_feed_frame_from_batch(9, sysmon_cpu_debug_spike_batch(95.0, sample_time(9)));
+    process_frame(
+        &engine,
+        &tx,
+        &telemetry_drops,
+        &scoring_health,
+        &first_spike,
+    )
+    .await;
+    assert_no_batch(&mut rx);
+
+    let second_spike =
+        metric_feed_frame_from_batch(10, sysmon_cpu_debug_spike_batch(95.0, sample_time(10)));
+    process_frame(
+        &engine,
+        &tx,
+        &telemetry_drops,
+        &scoring_health,
+        &second_spike,
+    )
+    .await;
+    assert_no_batch(&mut rx);
+
+    let third_spike =
+        metric_feed_frame_from_batch(11, sysmon_cpu_debug_spike_batch(95.0, sample_time(11)));
+    process_frame(
+        &engine,
+        &tx,
+        &telemetry_drops,
+        &scoring_health,
+        &third_spike,
+    )
+    .await;
+
+    let batch = rx.try_recv().expect("sustained spike emits one batch");
+    assert_eq!(batch.records.len(), 4);
+
+    let series_keys = batch
+        .records
+        .iter()
+        .map(|record| {
+            let event: serde_json::Value = serde_json::from_slice(&record.payload).unwrap();
+            event["source_identity"]["series_key"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+
+    assert_eq!(series_keys.len(), 4);
 }

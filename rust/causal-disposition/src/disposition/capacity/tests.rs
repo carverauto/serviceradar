@@ -250,6 +250,96 @@ fn already_crossed_has_no_eta() {
     }
 }
 
+#[test]
+fn bounded_linear_percent_projection_clamps_display_value_and_bands() {
+    let cfg = CapacityConfig {
+        value_min: Some(0.0),
+        value_max: Some(100.0),
+        ..config(Some(100.0), 24 * 3_600, CapacityModelKind::Linear)
+    };
+
+    let out = dispose_capacity(
+        CapacityRow {
+            series_key: "s".to_string(),
+            points: linear_points(),
+        },
+        &cfg,
+    );
+
+    match out.disposition {
+        Disposition::Projected(f) => {
+            assert_eq!(f.model, "linear");
+            assert!((f.projected_value - 81.0).abs() < 1e-9);
+            assert!((f.raw_projected_value - 81.0).abs() < 1e-9);
+            assert!(!f.projection_bounded);
+            assert!((f.lower_bound - 81.0).abs() < 1e-9);
+            assert!((f.upper_bound - 81.0).abs() < 1e-9);
+            assert_eq!(
+                f.projected_exhaustion_at_unix_micros,
+                Some(START_MICROS + 90 * 3_600 * MICROS_PER_SECOND)
+            );
+        }
+        other => panic!("expected Projected, got {other:?}"),
+    }
+
+    let out = dispose_capacity(
+        CapacityRow {
+            series_key: "s".to_string(),
+            points: (0..48).map(|h| point(h, 20.0 + h as f64 * 1.25)).collect(),
+        },
+        &cfg,
+    );
+
+    match out.disposition {
+        Disposition::Projected(f) => {
+            assert_eq!(f.model, "linear");
+            assert_eq!(f.projected_value, 100.0);
+            assert!(
+                f.raw_projected_value > 100.0,
+                "the diagnostic raw fit should preserve why the bounded display value was clamped"
+            );
+            assert!(f.projection_bounded);
+            assert_eq!(f.lower_bound, 100.0);
+            assert_eq!(f.upper_bound, 100.0);
+            assert!(
+                f.projected_exhaustion_at_unix_micros.is_some(),
+                "clamping the display value must not erase the raw-fit ETA"
+            );
+        }
+        other => panic!("expected Projected, got {other:?}"),
+    }
+}
+
+#[test]
+fn bounded_linear_percent_projection_clamps_negative_display_value() {
+    let cfg = CapacityConfig {
+        value_min: Some(0.0),
+        value_max: Some(100.0),
+        ..config(Some(80.0), 24 * 3_600, CapacityModelKind::Linear)
+    };
+
+    let out = dispose_capacity(
+        CapacityRow {
+            series_key: "s".to_string(),
+            points: (0..48).map(|h| point(h, 30.0 - h as f64)).collect(),
+        },
+        &cfg,
+    );
+
+    match out.disposition {
+        Disposition::Projected(f) => {
+            assert!(f.slope_per_second < 0.0);
+            assert_eq!(f.projected_value, 0.0);
+            assert!(f.raw_projected_value < 0.0);
+            assert!(f.projection_bounded);
+            assert_eq!(f.lower_bound, 0.0);
+            assert_eq!(f.upper_bound, 0.0);
+            assert_eq!(f.projected_exhaustion_at_unix_micros, None);
+        }
+        other => panic!("expected Projected, got {other:?}"),
+    }
+}
+
 /// Task 8.2: the `insufficient_history` gate → `Skipped{reason}`, never a panic.
 #[test]
 fn insufficient_history_is_skipped() {
@@ -361,6 +451,51 @@ fn holt_winters_negative_horizon_slope_has_no_eta() {
             assert_eq!(f.model, "holt_winters_additive");
             assert!(f.slope_per_second < 0.0);
             assert_eq!(f.projected_exhaustion_at_unix_micros, None);
+        }
+        other => panic!("expected Projected, got {other:?}"),
+    }
+}
+
+#[test]
+fn bounded_holt_winters_percent_projection_clamps_display_value_and_bands() {
+    let cfg = CapacityConfig {
+        min_history: 48,
+        value_min: Some(0.0),
+        value_max: Some(100.0),
+        ..config(Some(80.0), 24 * 3_600, CapacityModelKind::Seasonal)
+    };
+
+    let points: Vec<CapacityPoint> = (0..96)
+        .map(|h| {
+            let seasonal = if (h % 24) >= 8 && (h % 24) <= 17 {
+                45.0
+            } else {
+                0.0
+            };
+            point(h, 40.0 + seasonal + h as f64 * 1.2)
+        })
+        .collect();
+
+    let out = dispose_capacity(
+        CapacityRow {
+            series_key: "s".to_string(),
+            points,
+        },
+        &cfg,
+    );
+
+    match out.disposition {
+        Disposition::Projected(f) => {
+            assert_eq!(f.model, "holt_winters_additive");
+            assert_eq!(f.projected_value, 100.0);
+            assert!(f.raw_projected_value > 100.0);
+            assert!(f.projection_bounded);
+            assert!(f.lower_bound >= 0.0);
+            assert!(f.upper_bound <= 100.0);
+            assert!(
+                f.projected_exhaustion_at_unix_micros.is_some(),
+                "clamping the display value must not erase the raw-fit ETA"
+            );
         }
         other => panic!("expected Projected, got {other:?}"),
     }

@@ -1,4 +1,4 @@
-defmodule ServiceRadar.Repo.Migrations.AddCapacityForecastsResourceIdIndex do
+defmodule ServiceRadar.Repo.Migrations.AddCapacityForecastsResourceIdTimeIndex do
   @moduledoc false
 
   use Ecto.Migration

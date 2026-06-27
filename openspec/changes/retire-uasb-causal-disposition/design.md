@@ -68,19 +68,21 @@ decision" boundary is undefined here and is the work to do with Marvin, not a se
 - It is overclaimed: the name/"uncertainty-aware"/"invariants" framing misrepresents a heuristic as
   a methodology, which actively costs credibility (a wrong `1+A/√n` rendering, "Rust" as a
   disposition, etc.).
-- It is inert: `report_only`, never activated — so removal is behaviorally safe and avoids carrying
-  dead, misleading machinery (kernel + SRQL stat + NIF ABI) forward.
+- It risks becoming inert: `report_only`/unwired machinery would be behaviorally safe, but carrying
+  a UASB-branded kernel/stat/ABI forward would preserve a misleading design story.
 
-**Salvaged learning (keep this):** calibration showed the band's prior **must be per-series, not
-class-pooled** — a class prior is ~30× too wide to bound a poisoned tight series. Generalized, this
-is real: *a per-series scale is the right normalizer; a pooled-class scale is not.* That belongs to
-the detector/conditional-baseline tiers and survives UASB's retirement.
+**Salvaged learning (keep this):** matched-resolution peak context is useful when judging an edge
+spike; robust percentiles are useful; latest-bucket exclusion is useful; calibration showed the
+scale/prior **must be per-series, not class-pooled** — a class prior is ~30× too wide to bound a
+poisoned tight series. Generalized, this is real: *a per-series scale is the right normalizer; a
+pooled-class scale is not.* Those mechanics survive UASB's retirement and should be described
+plainly as robust empirical context, not as a named uncertainty methodology.
 
 ## Honest naming (binding)
 
 No component SHALL be labeled "uncertainty-aware" unless it produces a calibrated uncertainty
-quantity (posterior / interval with coverage). The robust band is a **detector/sensor**, not a
-methodology. Robustness is an estimator property, stated plainly, not a brand.
+quantity (posterior / interval with coverage). Robustness is an estimator property, stated plainly,
+not a brand.
 
 ## Scope boundary
 

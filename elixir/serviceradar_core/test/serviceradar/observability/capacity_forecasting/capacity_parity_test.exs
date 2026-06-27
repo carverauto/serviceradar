@@ -121,7 +121,9 @@ defmodule ServiceRadar.Observability.CapacityForecasting.CapacityParityTest do
       period: cfg["period"],
       alpha: cfg["alpha"],
       beta: cfg["beta"],
-      gamma: cfg["gamma"]
+      gamma: cfg["gamma"],
+      value_min: nil,
+      value_max: nil
     }
 
     row = %{

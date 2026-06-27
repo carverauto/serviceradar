@@ -12,6 +12,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   alias ServiceRadar.Monitoring.AlertGenerator
   alias ServiceRadar.Monitoring.OcsfEvent
   alias ServiceRadar.Monitoring.WebhookNotifier
+  alias ServiceRadar.Observability.SeasonalDisposition.StateStore, as: SeasonalStateStore
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Observability.StatefulAlertRuleHistory
   alias ServiceRadar.Observability.StatefulAlertRuleState
@@ -409,6 +410,23 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp maybe_process_event_rule(event, %{signal: :event} = rule, state) do
+    case seasonal_disposition_for_edge_anomaly(event, rule) do
+      {:ok, :suppress, _attrs, _disposition} ->
+        :ok
+
+      {:ok, action, attrs, disposition} ->
+        event
+        |> tag_edge_anomaly_disposition(action, attrs, disposition)
+        |> maybe_process_matched_event_rule(rule, state)
+
+      :ignore ->
+        maybe_process_matched_event_rule(event, rule, state)
+    end
+  end
+
+  defp maybe_process_event_rule(_event, _rule, _state), do: :ok
+
+  defp maybe_process_matched_event_rule(event, rule, state) do
     cond do
       rule_matches_event?(event, rule) ->
         process_event(rule, event, state)
@@ -420,8 +438,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
         :ok
     end
   end
-
-  defp maybe_process_event_rule(_event, _rule, _state), do: :ok
 
   defp process_metric_rules(metric, rules, state) do
     Enum.each(rules, &maybe_process_metric_rule(metric, &1, state))
@@ -1234,8 +1250,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   defp severity_from_source?(_overrides), do: false
 
-  defp source_severity(nil), do: :warning
-
   defp source_severity(record) do
     record_field_value(record, "severity_number") ||
       record_field_value(record, "severity_text") ||
@@ -1319,6 +1333,233 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       %{"recovery" => recovery} when is_map(recovery) -> event_matches?(event, recovery)
       _ -> false
     end
+  end
+
+  @doc false
+  @spec seasonal_disposition_suppresses_edge_anomaly?(map(), map()) :: boolean()
+  def seasonal_disposition_suppresses_edge_anomaly?(event, rule) do
+    seasonal_disposition_action_for_edge_anomaly(event, rule) == :suppress
+  end
+
+  @doc false
+  @spec seasonal_disposition_action_for_edge_anomaly(map(), map()) ::
+          :suppress | :escalate | :pass_through
+  def seasonal_disposition_action_for_edge_anomaly(event, rule) do
+    case seasonal_disposition_for_edge_anomaly(event, rule) do
+      {:ok, action, _attrs, _disposition} -> action
+      :ignore -> :pass_through
+    end
+  end
+
+  @doc false
+  @spec seasonal_disposition_for_edge_anomaly(map(), map()) ::
+          {:ok, :suppress | :escalate | :pass_through, map(), map() | nil} | :ignore
+  def seasonal_disposition_for_edge_anomaly(event, rule) do
+    with true <- anomaly_open_rule?(rule),
+         {:ok, attrs} <- edge_spike_anomaly_attrs(event) do
+      attrs
+      |> lookup_seasonal_disposition()
+      |> emit_and_return_seasonal_disposition()
+    else
+      {:error, reason} ->
+        attrs = %{reason: reason}
+        emit_anomaly_disposition_telemetry(:pass_through, attrs, nil)
+        {:ok, :pass_through, attrs, nil}
+
+      _ ->
+        :ignore
+    end
+  end
+
+  defp anomaly_open_rule?(%{signal: :event, match: %{} = match}) do
+    attrs = Map.get(match, "attribute_equals") || %{}
+
+    match_subject_prefix? =
+      case Map.get(match, "subject_prefix") do
+        prefix when is_binary(prefix) -> String.starts_with?("signals.causal.predictions", prefix)
+        _ -> false
+      end
+
+    match_subject_prefix? and
+      match_value("anomaly", Map.get(attrs, "event_type")) and
+      match_value("anomaly_open", Map.get(attrs, "anomaly.state"))
+  end
+
+  defp anomaly_open_rule?(_rule), do: false
+
+  defp edge_spike_anomaly_attrs(event) do
+    {attributes, resource_attributes} = event_match_sources(event)
+    anomaly = get_nested_value(attributes, "anomaly") || %{}
+
+    event_type =
+      get_nested_value(attributes, "event_type") ||
+        get_nested_value(resource_attributes, "event_type")
+
+    state = get_nested_value(anomaly, "state") || get_nested_value(attributes, "anomaly.state")
+
+    verdict_source =
+      get_nested_value(attributes, "verdict_source") ||
+        get_nested_value(anomaly, "verdict_source") ||
+        get_nested_value(resource_attributes, "service_radar.verdict_source") ||
+        get_nested_value(resource_attributes, "serviceradar.verdict_source")
+
+    if match_value(event_type, ["anomaly", "anomaly_detection"]) and
+         match_value(state, ["anomaly_open", "open", "anomalous"]) and
+         verdict_source == "edge-spike" do
+      series_key =
+        get_nested_value(anomaly, "series_key") ||
+          get_nested_value(attributes, "anomaly.series_key")
+
+      metric_class =
+        get_nested_value(anomaly, "metric_class") ||
+          get_nested_value(attributes, "anomaly.metric_class")
+
+      cond do
+        not is_binary(series_key) or series_key == "" ->
+          {:error, :missing_anomaly_series_key}
+
+        not is_binary(metric_class) or metric_class == "" ->
+          {:error, :missing_anomaly_metric_class}
+
+        true ->
+          {:ok,
+           %{
+             series_key: series_key,
+             metric_class: metric_class,
+             time: record_timestamp(event),
+             device_uid: record_device_uid(event),
+             verdict_source: verdict_source
+           }}
+      end
+    else
+      :ignore
+    end
+  end
+
+  defp seasonal_source_for_metric_class(metric_class) when is_binary(metric_class) do
+    case String.downcase(metric_class) do
+      value when value in ["cpu", "sysmon.cpu"] ->
+        {:ok, "cpu_seasonal"}
+
+      value when value in ["memory", "mem", "sysmon.memory", "sysmon.mem"] ->
+        {:ok, "memory_seasonal"}
+
+      _ ->
+        :ignore
+    end
+  end
+
+  defp seasonal_source_for_metric_class(_metric_class), do: :ignore
+
+  defp lookup_seasonal_disposition(attrs) do
+    case seasonal_source_for_metric_class(attrs.metric_class) do
+      {:ok, source} ->
+        case SeasonalStateStore.lookup_window_disposition(source, attrs.series_key, attrs.time) do
+          {:ok, disposition} ->
+            {seasonal_disposition_action(disposition), attrs, disposition}
+
+          {:error, reason} ->
+            {:pass_through, Map.put(attrs, :reason, reason), nil}
+        end
+
+      :ignore ->
+        {:pass_through, Map.put(attrs, :reason, :unsupported_seasonal_metric_class), nil}
+    end
+  end
+
+  defp emit_and_return_seasonal_disposition({action, attrs, disposition}) do
+    emit_anomaly_disposition_telemetry(action, attrs, disposition)
+    {:ok, action, attrs, disposition}
+  end
+
+  @doc false
+  @spec tag_edge_anomaly_disposition(
+          map(),
+          :suppress | :escalate | :pass_through,
+          map(),
+          map() | nil
+        ) ::
+          map()
+  def tag_edge_anomaly_disposition(event, action, attrs, disposition) do
+    payload = edge_anomaly_disposition_payload(action, attrs, disposition)
+
+    event
+    |> maybe_escalate_edge_anomaly_severity(action)
+    |> put_service_radar_metadata("anomaly_disposition", payload)
+    |> put_unmapped_value("anomaly_disposition", payload)
+  end
+
+  defp edge_anomaly_disposition_payload(action, attrs, disposition) do
+    compact_map(%{
+      "action" => Atom.to_string(action),
+      "reason" => map_value(attrs, :reason),
+      "series_key" => map_value(attrs, :series_key),
+      "metric_class" => map_value(attrs, :metric_class),
+      "seasonal_disposition" => map_value(disposition || %{}, :disposition),
+      "seasonal_status" => map_value(disposition || %{}, :status),
+      "seasonal_score" => map_value(disposition || %{}, :score),
+      "seasonal_evaluated_at" => map_value(disposition || %{}, :evaluated_at),
+      "seasonal_window_started_at" => map_value(disposition || %{}, :bucket_started_at),
+      "seasonal_window_ended_at" => map_value(disposition || %{}, :bucket_ended_at)
+    })
+  end
+
+  defp maybe_escalate_edge_anomaly_severity(event, :escalate) do
+    severity_id =
+      event
+      |> fetch_attr(:severity_id)
+      |> resolve_severity_id()
+      |> max(OCSF.severity_critical())
+
+    event
+    |> Map.put(:severity_id, severity_id)
+    |> Map.put(:severity, OCSF.severity_name(severity_id))
+  end
+
+  defp maybe_escalate_edge_anomaly_severity(event, _action), do: event
+
+  defp put_service_radar_metadata(event, key, value) do
+    metadata = fetch_attr(event, :metadata) || %{}
+    service_radar = map_value(metadata, "service_radar") || %{}
+
+    metadata = Map.put(metadata, "service_radar", Map.put(service_radar, key, value))
+
+    Map.put(event, :metadata, metadata)
+  end
+
+  defp put_unmapped_value(event, key, value) do
+    unmapped = event_unmapped(event)
+    Map.put(event, :unmapped, Map.put(unmapped, key, value))
+  end
+
+  @doc false
+  @spec seasonal_disposition_action(map() | nil) :: :suppress | :escalate | :pass_through
+  def seasonal_disposition_action(%{disposition: disposition, status: status})
+      when disposition in ["normal", "suppress"] or status in ["normal", "suppressed"] do
+    :suppress
+  end
+
+  def seasonal_disposition_action(%{disposition: disposition, status: status})
+      when disposition in ["seasonal_breach", "breach", "off_baseline", "anomalous"] or
+             status in ["breach", "anomaly_open", "anomalous", "off_baseline"] do
+    :escalate
+  end
+
+  def seasonal_disposition_action(_disposition), do: :pass_through
+
+  defp emit_anomaly_disposition_telemetry(action, attrs, disposition) do
+    :telemetry.execute(
+      [:serviceradar, :observability, :stateful_alert_engine, :anomaly_disposition],
+      %{count: 1},
+      %{
+        action: action,
+        series_key: map_value(attrs, :series_key),
+        metric_class: map_value(attrs, :metric_class),
+        reason: map_value(attrs, :reason),
+        seasonal_disposition: map_value(disposition || %{}, :disposition),
+        seasonal_status: map_value(disposition || %{}, :status)
+      }
+    )
   end
 
   defp rule_matches_metric?(metric, rule) do
@@ -1720,7 +1961,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   defp record_field_value(record, "device_uid"),
     do: fetch_attr(record, :device_uid) || record_device_uid(record)
 
-  defp record_field_value(record, "device_id"), do: fetch_attr(record, :device_id)
+  defp record_field_value(record, "device_id"),
+    do: fetch_attr(record, :device_id) || record_device_uid(record)
+
   defp record_field_value(record, "agent_id"), do: fetch_attr(record, :agent_id)
   defp record_field_value(record, "gateway_id"), do: fetch_attr(record, :gateway_id)
   defp record_field_value(record, "partition"), do: fetch_attr(record, :partition)
@@ -1734,7 +1977,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   defp record_field_value(record, "serviceradar.metric_type"),
     do: fetch_attr(record, :metric_type)
 
-  defp record_field_value(record, "serviceradar.device_id"), do: fetch_attr(record, :device_id)
+  defp record_field_value(record, "serviceradar.device_id"),
+    do: fetch_attr(record, :device_id) || record_device_uid(record)
 
   defp record_field_value(record, "serviceradar.device_uid"),
     do: fetch_attr(record, :device_uid) || record_device_uid(record)
@@ -1875,12 +2119,22 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp event_source_details(record) do
+    metadata = fetch_attr(record, :metadata) || %{}
+
+    service_radar =
+      map_value(metadata, "service_radar") || map_value(metadata, "serviceradar") || %{}
+
+    unmapped = event_unmapped(record)
+
     %{
       "source_signal" => "event",
       "source_event_id" => to_string(fetch_attr(record, :id)),
       "source_event_time" => fetch_attr(record, :time),
       "source_log_name" => fetch_attr(record, :log_name),
-      "source_log_provider" => fetch_attr(record, :log_provider)
+      "source_log_provider" => fetch_attr(record, :log_provider),
+      "source_anomaly_disposition" =>
+        map_value(service_radar, "anomaly_disposition") ||
+          map_value(unmapped, "anomaly_disposition")
     }
   end
 

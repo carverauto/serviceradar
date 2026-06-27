@@ -15,11 +15,11 @@ use tokio::sync::{broadcast, mpsc};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::Status;
 
-use addon_sdk::MetricFeedStream;
 use crate::config::NativeTelemetryDropCounters;
 use crate::engine::DetectorEngine;
 use crate::frame::process_frame;
 use crate::health::ScoringHealth;
+use addon_sdk::MetricFeedStream;
 
 pub(super) use broadcast::error::TryRecvError;
 
@@ -99,6 +99,39 @@ pub(super) fn sysmon_cpu_debug_spike_batch(value: f64, observed_at_unix_nano: u6
             ..Default::default()
         }),
         metrics,
+        ..Default::default()
+    }
+}
+
+pub(super) fn sysmon_cpu_core_batch(
+    core_id: u32,
+    value: f64,
+    observed_at_unix_nano: u64,
+) -> MetricBatch {
+    MetricBatch {
+        resource: Some(MetricResource {
+            agent_id: "agent-a".to_string(),
+            host_id: "host-a".to_string(),
+            device_id: "device-a".to_string(),
+            host_ip: "10.0.0.10".to_string(),
+            partition: "demo".to_string(),
+            ..Default::default()
+        }),
+        metrics: vec![Metric {
+            name: "cpu.usage_percent".to_string(),
+            metric_type: "sysmon.cpu".to_string(),
+            unit: "%".to_string(),
+            points: vec![MetricPoint {
+                value,
+                observed_at_unix_nano,
+                attributes: vec![
+                    entry("core_id", &core_id.to_string()),
+                    entry("label", &format!("cpu{core_id}")),
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
         ..Default::default()
     }
 }

@@ -68,8 +68,8 @@ profile passes a stability gate; until then the class SHALL pass through.
 - **WHEN** the central tier runs
 - **THEN** it SHALL surface a low-grade sustained-drift finding for `S`
 
-### Requirement: Peak Profile Stability Gate (Uncertainty-Aware Shrinkage Band)
-Peak disposition SHALL use an uncertainty-aware band over the `(series, hod)`
+### Requirement: Robust Peak Profile Stability Gate
+Peak disposition SHALL use a robust, safety-biased band over the `(series, hod)`
 cell (collapsing only DOW) that ramps with the cell sample count `n`. The band's
 constants are calibration; the following invariants are binding. False-suppress
 (silencing a real anomaly) is the cardinal error: every uncertain path SHALL

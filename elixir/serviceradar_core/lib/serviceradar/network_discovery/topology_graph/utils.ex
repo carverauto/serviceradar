@@ -5,18 +5,18 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Utils do
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils.RiskSummary
 
   @default_stale_minutes 180
-  @physical_direct_protocols MapSet.new(["lldp", "cdp", "unifi-api"])
-  @logical_direct_protocols MapSet.new(["wireguard-derived", "bgp", "ospf", "ipsec"])
-  @hosted_protocols MapSet.new(["proxmox", "proxmox-api", "vmware", "esxi", "hyperv", "kvm"])
-  @strict_ifindex_protocols MapSet.new(["lldp", "cdp"])
-  @segment_evidence_classes MapSet.new(["inferred-segment"])
-  @auxiliary_relations MapSet.new([
-                         "LOGICAL_PEER",
-                         "HOSTED_ON",
-                         "ATTACHED_TO",
-                         "INFERRED_TO",
-                         "OBSERVED_TO"
-                       ])
+  @physical_direct_protocols ["lldp", "cdp", "unifi-api"]
+  @logical_direct_protocols ["wireguard-derived", "bgp", "ospf", "ipsec"]
+  @hosted_protocols ["proxmox", "proxmox-api", "vmware", "esxi", "hyperv", "kvm"]
+  @strict_ifindex_protocols ["lldp", "cdp"]
+  @segment_evidence_classes ["inferred-segment"]
+  @auxiliary_relations [
+    "LOGICAL_PEER",
+    "HOSTED_ON",
+    "ATTACHED_TO",
+    "INFERRED_TO",
+    "OBSERVED_TO"
+  ]
 
   @packet_metric_names ["ifInUcastPkts", "ifOutUcastPkts", "ifHCInUcastPkts", "ifHCOutUcastPkts"]
   @octet_metric_names ["ifInOctets", "ifOutOctets", "ifHCInOctets", "ifHCOutOctets"]
@@ -143,9 +143,9 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Utils do
     normalized = normalize_protocol(protocol)
 
     cond do
-      MapSet.member?(@physical_direct_protocols, normalized) -> "direct-physical"
-      MapSet.member?(@logical_direct_protocols, normalized) -> "direct-logical"
-      MapSet.member?(@hosted_protocols, normalized) -> "hosted-virtual"
+      normalized in @physical_direct_protocols -> "direct-physical"
+      normalized in @logical_direct_protocols -> "direct-logical"
+      normalized in @hosted_protocols -> "hosted-virtual"
       true -> "inferred-segment"
     end
   end

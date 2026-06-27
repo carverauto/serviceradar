@@ -5,7 +5,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
 
   require Logger
 
-  @metric_classes ~w(cpu memory disk interface snmp red)
+  @metric_classes ~w(cpu memory disk interface snmp other)
   @anomaly_limit 20
   @capacity_limit 12
   @query_timeout_ms 5_000
@@ -142,14 +142,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp combined_status(_anomaly, _capacity), do: :ok
 
   defp anomaly_filter_candidates(identity) do
-    Enum.reject(
-      [
-        candidate(identity, :device_uid, "service_radar_device_uid", "device"),
-        candidate(identity, :agent_id, "service_radar_device_uid", "agent"),
-        candidate(identity, :host_id, "service_radar_device_uid", "host")
-      ],
-      &is_nil/1
-    )
+    # Canonical device pages must not fall back to agent/host-scoped findings:
+    # that is exactly how polled-device SNMP findings end up displayed on the
+    # polling agent. Only use agent/host identities when there is no device uid.
+    case candidate(identity, :device_uid, "service_radar_device_uid", "device") do
+      nil ->
+        Enum.reject(
+          [
+            candidate(identity, :agent_id, "service_radar_device_uid", "agent"),
+            candidate(identity, :host_id, "service_radar_device_uid", "host")
+          ],
+          &is_nil/1
+        )
+
+      device ->
+        [device]
+    end
   end
 
   defp capacity_filter_candidates(identity) do
@@ -211,24 +219,36 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   end
 
   defp project_anomaly_row(row) do
-    reject_nil_values(%{
-      "id" => map_value(row, "id"),
-      "finding_uid" => finding_uid(row),
-      "time" => map_value(row, "time"),
-      "finding_title" => finding_title(row),
-      "message" => map_value(row, "message"),
-      "metric_class" => metric_class(row),
-      "metric_name" => metric_name(row),
-      "metric_value" => metric_value(row),
-      "threshold_value" => threshold_value(row),
-      "score" => score_value(row),
-      "series_key" => series_key(row),
-      "interface_uid" => interface_uid(row),
-      "if_index" => if_index(row),
-      "device_label" => device_label(row),
-      "severity" => map_value(row, "severity"),
-      "status" => status_value(row)
-    })
+    projected =
+      reject_nil_values(%{
+        "id" => map_value(row, "id"),
+        "finding_uid" => finding_uid(row),
+        "time" => map_value(row, "time"),
+        "finding_title" => finding_title(row),
+        "message" => map_value(row, "message"),
+        "metric_class" => metric_class(row),
+        "metric_name" => metric_name(row),
+        "metric_value" => metric_value(row),
+        "sample_value" => sample_value(row),
+        "threshold_value" => threshold_value(row),
+        "score" => score_value(row),
+        "series_key" => series_key(row),
+        "interface_uid" => interface_uid(row),
+        "if_index" => if_index(row),
+        "device_label" => device_label(row),
+        "severity" => map_value(row, "severity"),
+        "status" => status_value(row),
+        "consecutive_anomalous" => detection_value(row, "consecutive_anomalous"),
+        "episode_started_at_unix_nano" => detection_value(row, "episode_started_at_unix_nano"),
+        "episode_ended_at_unix_nano" => detection_value(row, "episode_ended_at_unix_nano"),
+        "episode_peak_value" => detection_value(row, "episode_peak_value"),
+        "episode_peak_at_unix_nano" => detection_value(row, "episode_peak_at_unix_nano"),
+        "observed_at_unix_nano" => detection_value(row, "observed_at_unix_nano"),
+        "signals" => detection_value(row, "signals"),
+        "anomaly_disposition" => anomaly_disposition(row)
+      })
+
+    if operator_visible_anomaly_row?(projected), do: projected
   end
 
   defp project_capacity_row(row) do
@@ -301,9 +321,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       ["metric_value"],
       ["metadata", "service_radar", "metric_value"],
       ["metadata", "anomaly", "value"],
+      ["metadata", "anomaly", "sample_value"],
       ["metadata", "anomaly", "metric_value"],
+      ["metadata", "detection_finding", "sample_value"],
+      ["metadata", "finding_info", "dimensions", "sample_value"],
       ["unmapped", "metric_value"],
       ["raw_data", "metric_value"]
+    ])
+  end
+
+  defp sample_value(row) do
+    first_present(row, [
+      ["sample_value"],
+      ["metric_value"],
+      ["metadata", "detection_finding", "sample_value"],
+      ["metadata", "finding_info", "dimensions", "sample_value"],
+      ["metadata", "anomaly", "sample_value"],
+      ["metadata", "anomaly", "value"],
+      ["raw_data", "anomaly", "sample_value"],
+      ["raw_data", "anomaly", "value"]
     ])
   end
 
@@ -326,6 +362,56 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       ["unmapped", "score"],
       ["raw_data", "score"]
     ])
+  end
+
+  defp detection_value(row, key) do
+    first_present(row, [
+      [key],
+      ["metadata", "finding_info", "dimensions", key],
+      ["metadata", "detection_finding", key],
+      ["metadata", "anomaly", key],
+      ["raw_data", "anomaly", key],
+      ["unmapped", "anomaly", key],
+      ["anomaly", key]
+    ])
+  end
+
+  defp anomaly_disposition(row) do
+    first_present(row, [
+      ["anomaly_disposition"],
+      ["metadata", "service_radar", "anomaly_disposition"],
+      ["metadata", "serviceradar", "anomaly_disposition"],
+      ["metadata", "diagnostics", "source", "source_anomaly_disposition"],
+      ["metadata", "serviceradar", "diagnostics", "source", "source_anomaly_disposition"],
+      ["unmapped", "anomaly_disposition"],
+      ["raw_data", "anomaly_disposition"]
+    ])
+  end
+
+  defp operator_visible_anomaly_row?(row) do
+    status = status_value(row)
+    disposition_action = row |> map_value("anomaly_disposition") |> map_value("action") |> normalize_text()
+
+    not pending_or_warmup_status?(status) and disposition_action != "suppress" and
+      actionable_anomaly_row?(row, disposition_action)
+  end
+
+  # CPU edge spikes are deliberately high-recall detector evidence. They become
+  # operator-facing device findings only after central disposition escalates
+  # them; otherwise short per-core bursts create noisy "anomaly" counts and chart
+  # markers while overall host CPU is healthy.
+  defp actionable_anomaly_row?(row, disposition_action) do
+    case metric_class(row) do
+      "cpu" -> disposition_action == "escalate"
+      _ -> true
+    end
+  end
+
+  defp pending_or_warmup_status?(status) do
+    status = normalize_text(status)
+
+    status in ["pending", "pending_anomaly", "pending_confirmation", "warming"] or
+      String.contains?(status, "pending")
   end
 
   defp series_key(row) do
@@ -467,10 +553,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
     row
     |> first_present([
       ["status"],
+      ["state"],
       ["metadata", "service_radar", "status"],
       ["metadata", "anomaly", "status"],
+      ["metadata", "anomaly", "state"],
+      ["metadata", "finding_info", "dimensions", "status"],
+      ["metadata", "finding_info", "dimensions", "state"],
+      ["metadata", "detection_finding", "status"],
+      ["metadata", "detection_finding", "state"],
       ["unmapped", "status"],
-      ["raw_data", "status"]
+      ["unmapped", "state"],
+      ["raw_data", "status"],
+      ["raw_data", "state"],
+      ["raw_data", "anomaly", "status"],
+      ["raw_data", "anomaly", "state"]
     ])
     |> normalize_text()
   end
@@ -499,7 +595,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp known_atom_key("raw_data"), do: :raw_data
   defp known_atom_key("unmapped"), do: :unmapped
   defp known_atom_key("service_radar"), do: :service_radar
+  defp known_atom_key("serviceradar"), do: :serviceradar
+  defp known_atom_key("diagnostics"), do: :diagnostics
   defp known_atom_key("anomaly"), do: :anomaly
+  defp known_atom_key("anomaly_disposition"), do: :anomaly_disposition
+  defp known_atom_key("source_anomaly_disposition"), do: :source_anomaly_disposition
   defp known_atom_key("detection_finding"), do: :detection_finding
   defp known_atom_key("metric_class"), do: :metric_class
   defp known_atom_key("metric_name"), do: :metric_name
@@ -547,6 +647,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp known_atom_key("forecast_value_unit"), do: :forecast_value_unit
   defp known_atom_key("raw_value_unit"), do: :raw_value_unit
   defp known_atom_key("status"), do: :status
+  defp known_atom_key("state"), do: :state
+  defp known_atom_key("action"), do: :action
   defp known_atom_key(_), do: nil
 
   defp normalize_class(value) do
@@ -559,7 +661,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       "interface_metrics" -> "interface"
       "snmp" <> _ -> "snmp"
       class when class in @metric_classes -> class
-      _ -> "red"
+      _ -> "other"
     end
   end
 
@@ -578,6 +680,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp metric_label("disk"), do: "Disk"
   defp metric_label("interface"), do: "Interfaces"
   defp metric_label("snmp"), do: "SNMP"
-  defp metric_label("red"), do: "RED"
+  defp metric_label("other"), do: "Other signals"
   defp metric_label(class), do: class
 end

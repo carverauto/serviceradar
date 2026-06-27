@@ -20,6 +20,10 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStore do
   @type action :: %{
           required(:key) => state_key(),
           required(:consecutive_anomalous) => non_neg_integer(),
+          optional(:disposition) => String.t() | nil,
+          optional(:status) => String.t() | nil,
+          optional(:score) => number() | nil,
+          optional(:evaluated_at) => DateTime.t() | nil,
           optional(:bucket_started_at) => DateTime.t() | nil,
           optional(:bucket_ended_at) => DateTime.t() | nil
         }
@@ -83,6 +87,10 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStore do
             hod: hod,
             consecutive_anomalous:
               non_negative_integer(Map.fetch!(action, :consecutive_anomalous)),
+            last_disposition: string_value(Map.get(action, :disposition)),
+            last_status: string_value(Map.get(action, :status)),
+            last_score: number_value(Map.get(action, :score)),
+            last_evaluated_at: Map.get(action, :evaluated_at),
             last_bucket_started_at: Map.get(action, :bucket_started_at),
             last_bucket_ended_at: Map.get(action, :bucket_ended_at),
             expires_at: expires_at,
@@ -91,15 +99,14 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStore do
           }
         end)
 
-      with :ok <- cleanup_expired(repo),
-           {_count, _rows} <-
-             repo.insert_all(@table, rows,
-               prefix: @prefix,
-               conflict_target: [:source, :series_key, :dow, :hod],
-               on_conflict: {:replace, replacement_fields()}
-             ) do
-        :ok
-      else
+      case repo.insert_all(@table, rows,
+             prefix: @prefix,
+             conflict_target: [:source, :series_key, :dow, :hod],
+             on_conflict: {:replace, replacement_fields()}
+           ) do
+        {count, _rows} when is_integer(count) ->
+          :ok
+
         {:error, reason} = error ->
           Logger.warning("Failed to persist seasonal disposition state",
             source: source_name,
@@ -122,6 +129,66 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStore do
     end
   end
 
+  @doc """
+  Looks up the most recent central-seasonal disposition that overlaps an edge event.
+
+  The alert layer uses this as the edge-vs-seasonal join: a confirmed edge spike
+  can be suppressed only when the seasonal worker has already evaluated the same
+  canonical series and bucket window as normal/suppressed. The join is window
+  based instead of recomputing `(dow, hod)` so it respects the worker's configured
+  profile timezone.
+  """
+  @spec lookup_window_disposition(String.t(), String.t(), DateTime.t(), keyword()) ::
+          {:ok, map() | nil} | {:error, term()}
+  def lookup_window_disposition(source_name, series_key, event_time, opts \\ [])
+
+  def lookup_window_disposition(source_name, series_key, %DateTime{} = event_time, opts)
+      when is_binary(source_name) and is_binary(series_key) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    sql = """
+    SELECT source,
+           series_key,
+           dow,
+           hod,
+           last_disposition,
+           last_status,
+           last_score,
+           last_evaluated_at,
+           last_bucket_started_at,
+           last_bucket_ended_at
+    FROM #{@prefix}.#{@table}
+    WHERE source = $1
+      AND series_key = $2
+      AND expires_at > now()
+      AND last_bucket_started_at IS NOT NULL
+      AND last_bucket_ended_at IS NOT NULL
+      AND last_bucket_started_at <= $3
+      AND last_bucket_ended_at > $3
+    ORDER BY last_evaluated_at DESC NULLS LAST, updated_at DESC
+    LIMIT 1
+    """
+
+    case repo.query(sql, [source_name, series_key, event_time]) do
+      {:ok, %{rows: [row | _]}} ->
+        {:ok, disposition_row(row)}
+
+      {:ok, %{rows: []}} ->
+        {:ok, nil}
+
+      {:error, reason} = error ->
+        Logger.warning("Failed to lookup seasonal disposition state",
+          source: source_name,
+          series_key: series_key,
+          reason: inspect(reason)
+        )
+
+        error
+    end
+  end
+
+  def lookup_window_disposition(_source_name, _series_key, _event_time, _opts), do: {:ok, nil}
+
   defp split_keys(keys) do
     keys
     |> Enum.reduce({[], [], []}, fn {series_key, dow, hod}, {series_keys, dows, hods} ->
@@ -136,9 +203,39 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStore do
     {{series_key, dow, hod}, non_negative_integer(consecutive_anomalous)}
   end
 
+  defp disposition_row([
+         source,
+         series_key,
+         dow,
+         hod,
+         disposition,
+         status,
+         score,
+         evaluated_at,
+         bucket_started_at,
+         bucket_ended_at
+       ]) do
+    %{
+      source: source,
+      series_key: series_key,
+      dow: dow,
+      hod: hod,
+      disposition: disposition,
+      status: status,
+      score: score,
+      evaluated_at: evaluated_at,
+      bucket_started_at: bucket_started_at,
+      bucket_ended_at: bucket_ended_at
+    }
+  end
+
   defp replacement_fields do
     [
       :consecutive_anomalous,
+      :last_disposition,
+      :last_status,
+      :last_score,
+      :last_evaluated_at,
       :last_bucket_started_at,
       :last_bucket_ended_at,
       :expires_at,
@@ -154,4 +251,10 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.StateStore do
   defp non_negative_integer(value) when is_integer(value) and value >= 0, do: value
   defp non_negative_integer(value) when is_integer(value), do: 0
   defp non_negative_integer(_value), do: 0
+
+  defp string_value(value) when is_binary(value) and value != "", do: value
+  defp string_value(_value), do: nil
+
+  defp number_value(value) when is_number(value), do: value * 1.0
+  defp number_value(_value), do: nil
 end

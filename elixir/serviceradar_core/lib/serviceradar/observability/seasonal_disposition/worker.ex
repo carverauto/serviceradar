@@ -68,14 +68,20 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
       evaluated_at = evaluated_at(job)
       opts = Keyword.put(opts, :evaluated_at, evaluated_at)
 
-      opts
-      |> sources()
-      |> Enum.reduce_while(:ok, fn source, :ok ->
-        case refresh_source(source, opts) do
-          :ok -> {:cont, :ok}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
+      case assert_nif_liveness(opts) do
+        :ok ->
+          opts
+          |> sources()
+          |> Enum.reduce_while(:ok, fn source, :ok ->
+            case refresh_source(source, opts) do
+              :ok -> {:cont, :ok}
+              {:error, reason} -> {:halt, {:error, reason}}
+            end
+          end)
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     else
       :ok
     end
@@ -220,7 +226,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
 
   defp handle_results(%Source{} = source, rows, results, config, nif_us, opts) do
     pairs = Enum.zip(rows, results)
-    {:ok, actions, counts} = build_result_actions(pairs)
+    {:ok, actions, counts} = build_result_actions(pairs, config)
 
     case persist_states(source, actions, opts) do
       :ok ->
@@ -245,12 +251,12 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
     end
   end
 
-  defp build_result_actions(pairs) do
+  defp build_result_actions(pairs, config) do
     {actions, counts} =
       Enum.reduce(pairs, {[], %{}}, fn {row, result}, {actions, counts} ->
         counts = bump(counts, classify(result))
 
-        case result_action(row, result) do
+        case result_action(row, result, config) do
           {:ok, nil} -> {actions, counts}
           {:ok, action} -> {[action | actions], counts}
         end
@@ -259,12 +265,12 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
     {:ok, Enum.reverse(actions), counts}
   end
 
-  defp result_action(_row, {:error, reason}) do
+  defp result_action(_row, {:error, reason}, _config) do
     Logger.warning("Seasonal disposition row errored", reason: inspect(reason))
     {:ok, nil}
   end
 
-  defp result_action(row, {:ok, disposition}) do
+  defp result_action(row, {:ok, disposition}, config) do
     next = Map.get(disposition, :next_consecutive_anomalous, 0)
     score = Map.get(disposition, :score, 0.0)
     verdict = Map.get(disposition, :disposition)
@@ -275,6 +281,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
        row: row,
        verdict: verdict,
        score: score,
+       disposition: persisted_disposition_tag(verdict),
+       status: persisted_status(row, verdict, config),
        consecutive_anomalous: next,
        bucket_started_at: row.bucket_started_at,
        bucket_ended_at: row.bucket_ended_at
@@ -331,14 +339,45 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
 
   # --- NIF call (typed ABI, timed) ---
 
+  defp assert_nif_liveness(opts) do
+    case safe_dispose_batch(:seasonal, [], opts) do
+      {:ok, []} ->
+        emit_nif_liveness_telemetry(:ok, nil)
+        :ok
+
+      {:ok, other} ->
+        reason = {:unexpected_liveness_result, other}
+        emit_nif_liveness_telemetry(:degraded, reason)
+        {:error, {:seasonal_nif_unavailable, reason}}
+
+      {:error, reason} ->
+        Logger.error("Seasonal disposition NIF liveness probe failed",
+          reason: inspect(reason)
+        )
+
+        emit_nif_liveness_telemetry(:degraded, reason)
+        {:error, {:seasonal_nif_unavailable, reason}}
+    end
+  end
+
   defp dispose_batch(inputs, opts) do
-    reasoner = Keyword.get(opts, :reasoner, CausalReasoner)
     started = System.monotonic_time(:microsecond)
 
+    case safe_dispose_batch(:seasonal, inputs, opts) do
+      {:ok, results} ->
+        elapsed = System.monotonic_time(:microsecond) - started
+        {:ok, results, elapsed}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp safe_dispose_batch(kind, inputs, opts) do
+    reasoner = Keyword.get(opts, :reasoner, CausalReasoner)
+
     try do
-      results = reasoner.dispose_batch(:seasonal, inputs)
-      elapsed = System.monotonic_time(:microsecond) - started
-      {:ok, results, elapsed}
+      {:ok, reasoner.dispose_batch(kind, inputs)}
     rescue
       error -> {:error, {:nif_call_failed, Exception.message(error)}}
     catch
@@ -346,6 +385,17 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
       # catch a NIF process :exit, the one mode it doesn't, instead of a dead :error clause.
       :exit, reason -> {:error, {:nif_call_failed, {:exit, reason}}}
     end
+  end
+
+  defp emit_nif_liveness_telemetry(status, reason) do
+    :telemetry.execute(
+      [:serviceradar, :observability, :seasonal_disposition, :nif_liveness],
+      %{count: 1},
+      %{
+        status: status,
+        reason_class: reason_class(reason)
+      }
+    )
   end
 
   # --- carried state (consecutive_anomalous per (series_key, dow, hod)) ---
@@ -386,6 +436,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   end
 
   defp persist_states(source, actions, opts) do
+    actions = attach_evaluation_context(actions, opts)
+
     case Keyword.get(opts, :state_persister) do
       persister when is_function(persister, 2) ->
         Enum.reduce_while(actions, :ok, fn action, :ok ->
@@ -400,6 +452,14 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
         state_store = Keyword.get(opts, :state_store, StateStore)
         state_store.persist_many(source, actions, opts)
     end
+  end
+
+  defp attach_evaluation_context(actions, opts) do
+    evaluated_at = Keyword.get(opts, :evaluated_at)
+
+    Enum.map(actions, fn action ->
+      Map.put_new(action, :evaluated_at, evaluated_at)
+    end)
   end
 
   # --- row hydration (SQL profile row -> SeasonalRow inputs) ---
@@ -583,6 +643,18 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   defp disposition_tag({:skipped, _}), do: "skipped"
   defp disposition_tag(_), do: "unknown"
 
+  defp persisted_disposition_tag(:suppress), do: "normal"
+  defp persisted_disposition_tag(verdict), do: disposition_tag(verdict)
+
+  defp persisted_status(row, :suppress, config) do
+    if previously_confirmed?(row, config), do: "cleared", else: "normal"
+  end
+
+  defp persisted_status(_row, {:seasonal_drift, _}, _config), do: "pending"
+  defp persisted_status(_row, :insufficient_seasonal_baseline, _config), do: "insufficient"
+  defp persisted_status(_row, {:skipped, _}, _config), do: "skipped"
+  defp persisted_status(row, verdict, config), do: status(row, verdict, config)
+
   defp bump(acc, key), do: Map.update(acc, key, 1, &(&1 + 1))
 
   defp emit_source_telemetry(source, counts, row_count, result, nif_us \\ 0) do
@@ -592,6 +664,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
         count: 1,
         rows: non_negative(row_count),
         evaluated: non_negative(row_count),
+        covered: seasonal_covered_count(counts, row_count),
         breached: count(counts, :breached),
         pending: count(counts, :pending),
         insufficient: count(counts, :insufficient),
@@ -615,7 +688,15 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   defp emit_source_error_telemetry(%Source{} = source, phase, reason) do
     :telemetry.execute(
       [:serviceradar, :observability, :seasonal_disposition, :source],
-      %{count: 1, rows: 0, evaluated: 0, breached: 0, insufficient: 0, nif_duration_us: 0},
+      %{
+        count: 1,
+        rows: 0,
+        evaluated: 0,
+        covered: 0,
+        breached: 0,
+        insufficient: 0,
+        nif_duration_us: 0
+      },
       %{
         source: source.name,
         metric_class: source.metric_class,
@@ -633,10 +714,18 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   defp count(counts, key) when is_map(counts), do: Map.get(counts, key, 0)
   defp count(_counts, _key), do: 0
 
+  defp seasonal_covered_count(counts, row_count) do
+    row_count
+    |> Kernel.-(count(counts, :insufficient))
+    |> Kernel.-(count(counts, :errored))
+    |> non_negative()
+  end
+
   defp non_negative(value) when is_integer(value) and value >= 0, do: value
   defp non_negative(value) when is_number(value) and value >= 0, do: value
   defp non_negative(_value), do: 0
 
+  defp reason_class(nil), do: nil
   defp reason_class(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp reason_class({reason, _}) when is_atom(reason), do: Atom.to_string(reason)
   defp reason_class(%_{}), do: "exception"
@@ -671,7 +760,34 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
         :error -> Source.defaults(opts)
       end
 
-    Enum.map(sources, &Source.from_config/1)
+    sources
+    |> Enum.map(&Source.from_config/1)
+    |> Enum.filter(&supported_source?/1)
+  end
+
+  defp supported_source?(%Source{} = source) do
+    if Source.seasonal_disposition_supported?(source) do
+      true
+    else
+      Logger.info("Skipping unsupported seasonal disposition source",
+        source: source.name,
+        metric_class: source.metric_class,
+        metric_name: source.metric_name
+      )
+
+      :telemetry.execute(
+        [:serviceradar, :observability, :seasonal_disposition, :source_skipped],
+        %{count: 1},
+        %{
+          source: source.name,
+          metric_class: source.metric_class,
+          metric_name: source.metric_name,
+          reason: :unsupported_metric_class
+        }
+      )
+
+      false
+    end
   end
 
   defp metric_class_override(opts, metric_class) do

@@ -47,6 +47,10 @@ pub use disposition::capacity::{
     CapacityConfig, CapacityDisposition, CapacityModelKind, CapacityPoint, CapacityRow,
     dispose_capacity,
 };
+pub use disposition::peak_profile::{
+    PeakProfileAction, PeakProfileBand, PeakProfileConfig, PeakProfileDisposition, PeakProfileRow,
+    dispose_peak_profile,
+};
 pub use disposition::seasonal::{
     SeasonalConfig, SeasonalDisposition, SeasonalRow, dispose_seasonal,
 };

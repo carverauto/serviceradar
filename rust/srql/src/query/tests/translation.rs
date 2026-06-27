@@ -288,6 +288,65 @@ fn translate_timeseries_downsample_supports_sysmon_core_series_from_tags() {
 }
 
 #[test]
+fn translate_timeseries_downsample_with_cagg_safe_filters_reads_hourly_cagg() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:timeseries_metrics metric_type:\"sysmon.cpu\" metric_name:\"cpu.usage_percent\" time:last_180d bucket:1h agg:avg series:uid limit:50000".to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+    let sql = response.sql.to_lowercase();
+
+    assert!(
+        sql.contains("from timeseries_metrics_hourly"),
+        "expected normalized sysmon capacity source to read hourly CAGG, got: {}",
+        response.sql
+    );
+    assert!(
+        response.sql.contains("coalesce(device_id, '') AS series"),
+        "expected uid alias to normalize to device_id series, got: {}",
+        response.sql
+    );
+    assert!(
+        sql.contains("metric_type = $3") && sql.contains("metric_name = $4"),
+        "expected metric filters to remain bound on the CAGG route, got: {}",
+        response.sql
+    );
+}
+
+#[test]
+fn translate_timeseries_downsample_with_non_cagg_series_stays_raw() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:timeseries_metrics metric_type:\"sysmon.cpu\" metric_name:\"cpu.usage_percent\" time:last_24h bucket:5m agg:avg series:core_id limit:25".to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+    let sql = response.sql.to_lowercase();
+
+    assert!(
+        sql.contains("from timeseries_metrics\n"),
+        "core_id lives in tags and must stay on the raw table, got: {}",
+        response.sql
+    );
+    assert!(
+        response
+            .sql
+            .contains("coalesce(tags->>'core_id', '') AS series"),
+        "expected core_id series to remain tag-derived, got: {}",
+        response.sql
+    );
+}
+
+#[test]
 fn translate_downsample_allows_timeseries_series_key() {
     let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
     let request = QueryRequest {

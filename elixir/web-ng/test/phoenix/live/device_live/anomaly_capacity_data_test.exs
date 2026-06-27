@@ -34,7 +34,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
            %{
              "metric_class" => "cpu",
              "status" => "active",
-             "time" => "2026-06-19T00:00:00Z"
+             "time" => "2026-06-19T00:00:00Z",
+             "anomaly_disposition" => %{"action" => "escalate"}
            }
          ]
        }}
@@ -88,7 +89,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
         String.contains?(query, ~s|service_radar_device_uid:"router-1"|) ->
           {:ok, %{"results" => []}}
 
-        String.contains?(query, "agent_id:") or String.contains?(query, "host_id:") ->
+        String.contains?(query, ~s|service_radar_device_uid:"agent-1"|) or
+            String.contains?(query, ~s|service_radar_device_uid:"router-host"|) ->
           {:ok,
            %{
              "results" => [
@@ -103,6 +105,87 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
         true ->
           {:ok, %{"results" => []}}
       end
+    end
+
+    def query("in:capacity_forecasts" <> _rest = query, _opts) do
+      send(test_pid(), {:fake_query, query})
+      {:ok, %{"results" => []}}
+    end
+
+    defp test_pid do
+      Application.fetch_env!(:serviceradar_web_ng, :anomaly_capacity_data_test_pid)
+    end
+  end
+
+  defmodule PendingOnlySRQL do
+    @moduledoc false
+
+    def query("in:events" <> _rest = query, _opts) do
+      send(test_pid(), {:fake_query, query})
+
+      {:ok,
+       %{
+         "results" => [
+           %{
+             "metric_class" => "cpu",
+             "severity" => "High",
+             "time" => "2026-06-19T00:00:00Z",
+             "message" => "breach pending confirmation at 1/5 consecutive anomalous slots",
+             "metadata" => %{
+               "finding_info" => %{
+                 "dimensions" => %{
+                   "state" => "pending_anomaly",
+                   "episode_peak_value" => 29.3
+                 }
+               }
+             }
+           },
+           %{
+             "metric_class" => "cpu",
+             "severity" => "High",
+             "time" => "2026-06-19T00:05:00Z",
+             "message" => "breach pending confirmation at 2/5 consecutive anomalous slots",
+             "raw_data" => %{"anomaly" => %{"state" => "pending_confirmation"}}
+           }
+         ]
+       }}
+    end
+
+    def query("in:capacity_forecasts" <> _rest = query, _opts) do
+      send(test_pid(), {:fake_query, query})
+      {:ok, %{"results" => []}}
+    end
+
+    defp test_pid do
+      Application.fetch_env!(:serviceradar_web_ng, :anomaly_capacity_data_test_pid)
+    end
+  end
+
+  defmodule EdgeOnlyCPUSRQL do
+    @moduledoc false
+
+    def query("in:events" <> _rest = query, _opts) do
+      send(test_pid(), {:fake_query, query})
+
+      {:ok,
+       %{
+         "results" => [
+           %{
+             "metric_class" => "cpu",
+             "status" => "active",
+             "severity" => "High",
+             "time" => "2026-06-19T00:00:00Z",
+             "message" => "edge-only CPU spike should not be operator visible"
+           },
+           %{
+             "metric_class" => "memory",
+             "status" => "active",
+             "severity" => "High",
+             "time" => "2026-06-19T00:05:00Z",
+             "message" => "non-CPU active finding remains visible"
+           }
+         ]
+       }}
     end
 
     def query("in:capacity_forecasts" <> _rest = query, _opts) do
@@ -130,15 +213,50 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
              "message" => "fallback message",
              "severity" => "High",
              "metric_name" => "cpu.usage_percent",
-             "metric_value" => 97.5,
              "metadata" => %{
-               "finding_info" => %{"title" => "Nested title", "uid" => "finding-1"},
+               "finding_info" => %{
+                 "title" => "Nested title",
+                 "uid" => "finding-1",
+                 "dimensions" => %{"sample_value" => 97.5}
+               },
                "service_radar" => %{
                  "metric_class" => "cpu",
                  "status" => "suppressed",
-                 "series_key" => "partition:agent:cpu0"
+                 "series_key" => "partition:agent:cpu0",
+                 "anomaly_disposition" => %{
+                   "action" => "escalate",
+                   "seasonal_disposition" => "seasonal_breach",
+                   "seasonal_status" => "breach",
+                   "seasonal_score" => 4.8,
+                   "seasonal_window_started_at" => "2026-06-19T00:00:00Z",
+                   "seasonal_window_ended_at" => "2026-06-19T01:00:00Z",
+                   "seasonal_evaluated_at" => "2026-06-19T01:05:00Z",
+                   "reason" => "central_seasonal_breach"
+                 }
                },
-               "anomaly" => %{"score" => 4.2, "threshold_value" => 90.0}
+               "anomaly" => %{
+                 "score" => 4.2,
+                 "threshold_value" => 90.0,
+                 "consecutive_anomalous" => 8,
+                 "episode_started_at_unix_nano" => 1_718_755_200_000_000_000,
+                 "episode_peak_at_unix_nano" => 1_718_755_440_000_000_000,
+                 "episode_peak_value" => 97.5,
+                 "observed_at_unix_nano" => 1_718_755_560_000_000_000,
+                 "signals" => [
+                   %{
+                     "name" => "rolling_baseline",
+                     "enabled" => true,
+                     "ready" => true,
+                     "breached" => true,
+                     "score" => 4.2,
+                     "threshold" => 3.0,
+                     "sample_count" => 300,
+                     "mean" => 12.0,
+                     "stddev" => 2.0,
+                     "reason" => "rolling_baseline z-score 4.200 breached 3.000"
+                   }
+                 ]
+               }
              },
              "source_device_uid" => "router-1",
              "raw_data" => %{"metric_class" => "disk"},
@@ -235,7 +353,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
     data = AnomalyCapacityData.load(FakeSRQL, %{device_uid: "router-1"}, nil)
 
     cpu = Enum.find(data.metric_statuses, &(&1.class == "cpu"))
-    red = Enum.find(data.metric_statuses, &(&1.class == "red"))
+    other = Enum.find(data.metric_statuses, &(&1.class == "other"))
 
     assert data.anomaly_filter == %{
              field: "service_radar_device_uid",
@@ -260,20 +378,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
     assert Enum.any?(queries, &String.contains?(&1, ~s|resource_id:"router-1"|))
     assert cpu.status == "active"
     assert cpu.count == 1
-    assert red.status == "normal"
-    assert red.count == 0
+    assert other.status == "normal"
+    assert other.count == 0
   end
 
   test "SNMP metric subclasses are grouped into the SNMP anomaly status bucket" do
     data = AnomalyCapacityData.load(SNMPSRQL, %{device_uid: "router-1"}, nil)
 
     snmp = Enum.find(data.metric_statuses, &(&1.class == "snmp"))
-    red = Enum.find(data.metric_statuses, &(&1.class == "red"))
+    other = Enum.find(data.metric_statuses, &(&1.class == "other"))
 
     assert snmp.status == "active"
     assert snmp.count == 1
-    assert red.status == "normal"
-    assert red.count == 0
+    assert other.status == "normal"
+    assert other.count == 0
   end
 
   test "does not fall back to agent or host scoped anomaly findings when the canonical device has no rows" do
@@ -300,8 +418,35 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
              &String.contains?(&1, ~s|service_radar_device_uid:"router-1"|)
            )
 
-    refute Enum.any?(anomaly_queries, &String.contains?(&1, "agent_id:"))
-    refute Enum.any?(anomaly_queries, &String.contains?(&1, "host_id:"))
+    refute Enum.any?(anomaly_queries, &String.contains?(&1, ~s|service_radar_device_uid:"agent-1"|))
+    refute Enum.any?(anomaly_queries, &String.contains?(&1, ~s|service_radar_device_uid:"router-host"|))
+  end
+
+  test "hides pending edge spike warmup rows from the operator list and status cards" do
+    data = AnomalyCapacityData.load(PendingOnlySRQL, %{device_uid: "router-1"}, nil)
+
+    cpu = Enum.find(data.metric_statuses, &(&1.class == "cpu"))
+
+    assert data.anomaly_rows == []
+    assert data.anomaly_filter == %{field: "service_radar_device_uid", label: "device", value: "router-1"}
+    assert cpu.status == "normal"
+    assert cpu.count == 0
+
+    queries = drain_fake_queries()
+    assert Enum.any?(queries, &String.contains?(&1, ~s|service_radar_device_uid:"router-1"|))
+  end
+
+  test "hides edge-only CPU findings unless central disposition escalates them" do
+    data = AnomalyCapacityData.load(EdgeOnlyCPUSRQL, %{device_uid: "router-1"}, nil)
+
+    cpu = Enum.find(data.metric_statuses, &(&1.class == "cpu"))
+    memory = Enum.find(data.metric_statuses, &(&1.class == "memory"))
+
+    assert Enum.map(data.anomaly_rows, & &1["metric_class"]) == ["memory"]
+    assert cpu.status == "normal"
+    assert cpu.count == 0
+    assert memory.status == "active"
+    assert memory.count == 1
   end
 
   test "limits queries and keeps only rendered anomaly and capacity fields" do
@@ -321,12 +466,42 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
              "metric_class" => "cpu",
              "metric_name" => "cpu.usage_percent",
              "metric_value" => 97.5,
+             "sample_value" => 97.5,
              "threshold_value" => 90.0,
              "score" => 4.2,
              "series_key" => "partition:agent:cpu0",
              "device_label" => "router-1",
              "severity" => "High",
-             "status" => "suppressed"
+             "status" => "suppressed",
+             "anomaly_disposition" => %{
+               "action" => "escalate",
+               "seasonal_disposition" => "seasonal_breach",
+               "seasonal_status" => "breach",
+               "seasonal_score" => 4.8,
+               "seasonal_window_started_at" => "2026-06-19T00:00:00Z",
+               "seasonal_window_ended_at" => "2026-06-19T01:00:00Z",
+               "seasonal_evaluated_at" => "2026-06-19T01:05:00Z",
+               "reason" => "central_seasonal_breach"
+             },
+             "consecutive_anomalous" => 8,
+             "episode_started_at_unix_nano" => 1_718_755_200_000_000_000,
+             "episode_peak_at_unix_nano" => 1_718_755_440_000_000_000,
+             "episode_peak_value" => 97.5,
+             "observed_at_unix_nano" => 1_718_755_560_000_000_000,
+             "signals" => [
+               %{
+                 "name" => "rolling_baseline",
+                 "enabled" => true,
+                 "ready" => true,
+                 "breached" => true,
+                 "score" => 4.2,
+                 "threshold" => 3.0,
+                 "sample_count" => 300,
+                 "mean" => 12.0,
+                 "stddev" => 2.0,
+                 "reason" => "rolling_baseline z-score 4.200 breached 3.000"
+               }
+             ]
            }
 
     assert capacity_row == %{

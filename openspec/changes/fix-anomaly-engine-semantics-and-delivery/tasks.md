@@ -1,7 +1,7 @@
 ## 1. Proposal
 - [x] 1.1 Audit edge add-on, core-elx routing, seasonal disposition, and config propagation.
 - [x] 1.2 Validate this OpenSpec change with `openspec validate fix-anomaly-engine-semantics-and-delivery --strict`.
-- [x] 1.3 Review and approve proposal before implementation.
+- [ ] 1.3 Review and approve proposal before implementation.
 
 ## 2. Edge Add-on Semantics
 - [x] 2.1 Add per-series active anomaly state to the edge engine/checkpoint.
@@ -106,17 +106,17 @@
 - [x] 18.4 F22: make the add-on `Shutdown` return promptly (abort the scoring task, close the feed) so the manager stops SIGKILLing it; test that stop completes within the grace window.
 - [x] 18.5 F23: place the add-on in `serviceradar-addons.slice` with the declared `memory.max`/`tasks.max`, and emit a health signal when enforcement is absent (ties F19).
 - [x] 18.6 F24: unify device identity (uid + hostname) and series-key host component across sysmon and SNMP edge findings on the canonical re-key path (ties F4/F13).
-- [x] 18.7 Add an end-to-end smoke test that fires `sysmon.debug_spike` and asserts one open finding (not one-per-sample-per-core), sample-time `time`, and coherent device identity.
+- [ ] 18.7 Add an end-to-end smoke test that fires `sysmon.debug_spike` and asserts one open finding (not one-per-sample-per-core), sample-time `time`, and coherent device identity.
 
 ## 19. Device-Details Panel Performance (F25)
-- [x] 19.1 Query canonical `source_device_uid`/`device_uid_exact` first via the indexed device-UID equality path; stop trying `agent_id`/`host_id` first (which seq-scan the OCSF hypertable).
+- [x] 19.1 Query canonical `source_device_uid` first via the indexed device-UID equality path; stop trying `agent_id`/`host_id` before the canonical lookup.
 - [x] 19.2 Drop the capacity `resource_key '%<id>%'` leading-wildcard ILIKE; add a btree index on capacity `resource_id`.
 - [x] 19.3 Run the anomaly and capacity loads concurrently (Task.async) instead of sequential `load_first`; short-circuit empty candidates.
 - [x] 19.4 Lower the anomaly/capacity query `limit`.
 - [ ] 19.5 Project only rendered fields once SRQL supports row projection for events/capacity rows (avoid fetching full metadata/raw_data/unmapped).
 
 ## 20. Operator-Actionable Anomaly/Capacity Rows (F26)
-- [x] 20.1 Make finding rows and capacity rows clickable (`phx-click` + uid/row index) opening a detail modal.
+- [x] 20.1 Make finding rows and capacity rows clickable (`phx-click` + row index) opening a detail modal.
 - [x] 20.2 Prefer `finding_info.title` for the human title; demote the raw `verdict.reason` to a sub-line.
 - [x] 20.3 Render real identity: metric_name, interface_uid/if_index (for interface findings), anomaly value + score; stop showing bare `"snmp"`.
 - [x] 20.4 Add `title=`/tooltip with full id on truncated resource/series identity.
@@ -131,8 +131,8 @@
 - [x] 21.4 Once attribution is correct, scope the web-ng device-finding query by canonical device/series instead of `agent_id`-first.
 
 ## 22. Metric Chart Fidelity (F28)
-- [x] 22.1 For per-core metrics, render per-core series (or a max-across-cores line); stop collapsing to `series=nil` avg-across-cores.
-- [x] 22.2 Offer `agg:max` (or an avg+max envelope) per bucket so short spikes are visible; make the header min/avg/max match the plotted aggregation.
+- [ ] 22.1 For per-core metrics, render per-core series (or a max-across-cores line); stop collapsing to `series=nil` avg-across-cores.
+- [ ] 22.2 Offer `agg:max` (or an avg+max envelope) per bucket so short spikes are visible; make the header min/avg/max match the plotted aggregation.
 - [x] 22.3 Annotate finding timestamps/series on the chart and let a finding click focus the chart on its series/time window.
 
 ## 23. Anomaly & Capacity Alerting (F29, gated on F1/F12/F17)
@@ -145,8 +145,8 @@
 ## 24. Chart Aggregation Fidelity (F30)
 - [x] 24.1 Replace `limit_points` stride decimation with min/max-envelope (LTTB) downsampling so extremes survive (`timeseries.ex:629-655`).
 - [x] 24.2 Stop interpolating/box-smoothing measured `bytes_per_sec` series (`timeseries.ex:528-595`); interpolate visually only.
-- [x] 24.3 Split per-series: disk by `mount_point`, CPU by core/`series_key`; offer `agg:max` alongside avg; compute header min/max from raw rows.
-- [x] 24.4 For counter/interface charts offer finer buckets or a raw window so microbursts are visible.
+- [ ] 24.3 Split per-series: disk by `mount_point`, CPU by core/`series_key`; offer `agg:max` alongside avg; compute header min/max from raw rows.
+- [ ] 24.4 For counter/interface charts offer finer buckets or a raw window so microbursts are visible.
 
 ## 25. Chart Scale & Units (F31)
 - [x] 25.1 Scale Y to the data band (min..max + padding) instead of a hardcoded 0 floor; add an opt-in log scale (`timeseries.ex:186-221,378-384`).
@@ -154,10 +154,10 @@
 - [x] 25.3 Add y ticks/gridlines/labels to NetFlow grid + BGP + stacked-area charts.
 
 ## 26. NetFlow Traffic Correctness (F32)
-- [x] 26.1 Carry `sampling_rate` into flow rows and weight every byte/packet sum by it (Total Bandwidth, Top-N, gauges, p95, subnet).
+- [ ] 26.1 Carry `sampling_rate` into flow rows and weight every byte/packet sum by it (Total Bandwidth, Top-N, gauges, p95, subnet).
 - [x] 26.2 Divide window-sum totals by the window seconds before labeling a per-second rate (`dashboard.ex:1241-1246,1283-1302`).
 - [x] 26.3 Align the interface gauge and p95 to the selected time window; make peak vs average explicit.
-- [x] 26.4 Add tests pinning correct bandwidth math for a sampled exporter and each time window.
+- [ ] 26.4 Add tests pinning correct bandwidth math for a sampled exporter and each time window.
 
 ## 27. SNMP Counter Rendering Semantics (F33)
 - [x] 27.1 Use the counter PDU width (or SRQL native `agg:rate`) instead of guessing 32/64-bit from the `"HC"` label (`timeseries.ex:358-366`).
@@ -183,15 +183,15 @@
 - [x] 31.3 Add non-color series encoding (shape/pattern/label) for color-blind operators.
 
 ## 32. Chart Renderer Modularization (F38)
-- [x] 32.1 Break up `dashboard/plugins/timeseries.ex` (~1544 lines) into focused modules each under ~300 lines, e.g. point extraction/normalization, downsampling, counter-rate derivation, scale/units, SVG path geometry, hover/annotation, and the LiveComponent shell.
-- [x] 32.2 Do the split as a behavior-preserving refactor first (no logic change), then land the F30/F31/F33/F34/F35 fixes against the smaller modules.
-- [x] 32.3 Break up the other oversized chart/dashboard/flow modules into focused files under ~300 lines each (behavior-preserving): `netflow_live/visualize.ex` (~4532), `dashboard_live/data.ex` (~3148), `dashboards/authored.ex` (~1551), `dashboard_live/index.ex` (~1544), `netflow_live/dashboard.ex` (~1478), `device_live/sysmon_metrics.ex`, `device_live/flow_components.ex`.
+- [ ] 32.1 Break up `dashboard/plugins/timeseries.ex` (~1544 lines) into focused modules each under ~300 lines, e.g. point extraction/normalization, downsampling, counter-rate derivation, scale/units, SVG path geometry, hover/annotation, and the LiveComponent shell.
+- [ ] 32.2 Do the split as a behavior-preserving refactor first (no logic change), then land the F30/F31/F33/F34/F35 fixes against the smaller modules.
+- [ ] 32.3 Break up the other oversized chart/dashboard/flow modules into focused files under ~300 lines each (behavior-preserving): `netflow_live/visualize.ex` (~4532), `dashboard_live/data.ex` (~3148), `dashboards/authored.ex` (~1551), `dashboard_live/index.ex` (~1544), `netflow_live/dashboard.ex` (~1478), `device_live/sysmon_metrics.ex`, `device_live/flow_components.ex`.
 
 ## 33. Flow Sampling-Rate End-to-End (F39)
-- [x] 33.1 Collector: capture NetFlow v9/IPFIX sampling IEs (incl. options/sampler records) per exporter; add a configured per-exporter fallback (esp. v5); set `sampling_rate` on the proto.
-- [x] 33.2 Core: persist `sampling_rate` to a real flow column (stop `zero_to_nil`-dropping it into the `unmapped` blob).
-- [x] 33.3 Scale bytes/packets by `sampling_rate` in flow queries (and rebuild/relearn the hierarchical continuous aggregates to store scaled volume).
-- [x] 33.4 Normalize sFlow byte layer (L2 vs L3) and per-sample packet count; add a test that sampled exporters report true volume.
+- [ ] 33.1 Collector: capture NetFlow v9/IPFIX sampling IEs (incl. options/sampler records) per exporter; add a configured per-exporter fallback (esp. v5); set `sampling_rate` on the proto.
+- [ ] 33.2 Core: persist `sampling_rate` to a real flow column (stop `zero_to_nil`-dropping it into the `unmapped` blob).
+- [ ] 33.3 Scale bytes/packets by `sampling_rate` in flow queries (and rebuild/relearn the hierarchical continuous aggregates to store scaled volume).
+- [ ] 33.4 Normalize sFlow byte layer (L2 vs L3) and per-sample packet count; add a test that sampled exporters report true volume.
 
 ## 34. Dashboard Query Safety (F40)
 - [x] 34.1 Parameterize/escape authored dashboard variable values; never interpolate them into the SRQL grammar; validate against the variable's declared type/allowed set.
@@ -210,101 +210,52 @@
 ## 37. NetFlow Aggregation & Attribution (F43)
 - [x] 37.1 Scope the interface bandwidth gauge to the interface (not whole-exporter bytes); label peak vs average correctly.
 - [x] 37.2 Compute Sankey "Other" from the full result set (don't drop the tail at the DB); keep sort on limited timeseries.
-- [x] 37.3 Canonicalize bidirectional flows (Top Conversations, device ingress+egress) to avoid double-counting; unify talker scoping with the device tab.
+- [ ] 37.3 Canonicalize bidirectional flows (Top Conversations, device ingress+egress) to avoid double-counting; unify talker scoping with the device tab.
 - [x] 37.4 Filter reverse-DNS/Geo enrichment by expiry; distinguish chart query-error from no-traffic.
 
 ## 38. Flow Ingest Defaults (F44)
 - [x] 38.1 Use NULL (not 0) for directional byte/packet counts a protocol does not carry; divide bps/pps by covered data span, not the full wall-clock window.
 
 ## 39. Dashboard Load Performance (F45)
-- [x] 39.1 Parallelize the ~20 dashboard data queries + ~30 schema probes (concurrent, not sequential).
-- [x] 39.2 Split `dashboard_live/data.ex` (~3148 lines) per §32.3.
+- [ ] 39.1 Parallelize the ~20 dashboard data queries + ~30 schema probes (concurrent, not sequential).
+- [ ] 39.2 Split `dashboard_live/data.ex` (~3148 lines) per §32.3.
 
 ## 40. Data Retention Coverage (F46)
 - [x] 40.1 Verify a retention policy exists for every high-volume hypertable (`otel_traces`, `ocsf_network_activity` only got one 2026-06-19); add any missing.
 - [x] 40.2 Track that the F1/F12/F17/F39 write-flood fixes reduce `ocsf_events`/`capacity_forecasts`/flow growth.
 - [ ] 40.3 (ops, separate) Resolve the failing CNPG scheduled base backup (Longhorn throughput) so there is a recovery point.
 
-## 42. Mapper SNMP Discovery (F47)
-- [x] 42.1 Dispatch ifXTable PDUs through `updateInterfaceFromOID` so ifName/ifAlias populate (not just ifHighSpeed); add a synthetic-ifXTable test.
-- [x] 42.2 Connect the SNMP client exactly once per target (drop the double `Connect()`); verify FDs are released; add a leak test.
-- [x] 42.3 Fix FDB MAC-to-port last-walked collapse; return `ErrNoSNMPDataReturned` for wrong-community; implement or remove `selectDensePortNeighbors`; make worker-result send not undercount progress.
+## 41. Verification
+- [x] 41.1 Run `sfw cargo test -p serviceradar-anomaly-addon -p serviceradar-anomaly-core -p serviceradar-causal-disposition`.
+- [x] 41.2 Run `sfw cargo test -p srql profile_hour_of_week -- --nocapture` for the implemented SRQL seasonal profiling verb (`serviceradar-srql` is not the Cargo package name).
+- [x] 41.3 Run `go test ./go/pkg/agent/addon/...` (and update bazel BUILD deps for any new test files/imports).
+- [x] 41.4 Run focused core-elx tests for status handler, causal signals, seasonal disposition, capacity forecasting, anomaly profile seeding, alert generation, and flow ingest.
+- [ ] 41.5 Run web-ng tests for device-details anomaly/capacity, chart renderer, NetFlow/interface data layers, JS chart hooks, dashboard authoring, and the table/topology plugins.
+- [x] 41.6 Run `./scripts/elixir_quality.sh --project elixir/serviceradar_core` if the implementation changes shared core-elx behavior broadly.
+- [ ] 41.7 Run `sfw cargo test -p serviceradar-flow-collector` if collector sampling changes land.
+- [ ] 41.8 Run native add-on manifest/version gates if add-on package metadata or Rust add-on sources change.
+- [ ] 41.9 Re-run the live `sysmon.debug_spike` trace + a sampled-flow check in demo and confirm F1/F3/F6/F12/F15/F21-F46 behaviors are resolved (one open finding, sample-time, coherent identity, visible+annotated chart spike, correct sampled NetFlow units, safe dashboard variables, no alert storm).
 
-## 43. UniFi / UBNT Polling (F48)
-- [x] 43.1 Paginate the UniFi `/clients` fetch (no silent truncation).
-- [x] 43.2 Paginate the UniFi `/devices` fetch (remove the 500/100 hard caps).
-- [x] 43.3 Fix uplink `parentPortIndex` selection (port 0 valid); stop logging full response bodies at Debug; unify ctx; fix Protect WS read cap and UTF-8-safe `trimBody`.
+## 42. NetFlow Cache-Refresh Full-Scan CPU (F47) — fj #4096
+_From the 2026-06-19 demo CNPG/core CPU investigation (`pg_stat_statements` on primary `cnpg-23`)._
+- [ ] 42.1 Replace the recurring `SELECT DISTINCT sampler_address, ocsf_payload #>> '{connection_info,input_snmp|output_snmp}'` over raw `platform.ocsf_network_activity` (`netflow_interface_cache_refresh_worker.ex` ~L158-180 `input_q`/`output_q` + `netflow_exporter_cache_refresh_worker.ex`) with an incrementally-maintained `(sampler, interface_index)` dimension or a TimescaleDB continuous aggregate. **#1 CPU consumer: ~4.9s/call, 22% of DB time; recurs hourly and grows with the hypertable.**
+- [ ] 42.2 Stopgap: tighten the worker `since` window (the interface set is stable) + add a supporting index for the time bound.
+- [ ] 42.3 Secondary observability-query CPU (triage/track): `INSERT INTO logs` 9.2% (32.7k calls), `refresh_device_inventory_rollups()` 3.4% (8045 calls), DIRE `stale_to_active`/`mac_to_active` ~1s ×1444 each, and `netflow_provider_cidrs` join called **741,215×** (cheap each but a hot per-row loop — batch/cache).
 
-## 44. Sweeper / SYN Scanner (F49)
-- [x] 44.1 Fix SYN reply-to-port attribution after source-port reuse; reset per-scan stats counters between scans.
-- [x] 44.2 Don't prune results before concurrent scan (GetStatus partial-set race); treat ICMPv6 dest-unreachable as a clean closed result; account for retry packets so they aren't silently dropped.
+## 43. Topology Apache AGE Query Frequency (F48) — fj #4097
+- [ ] 43.1 Cache the topology graph result (per scope) + invalidate on mutation instead of re-running the `MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)` cypher per LiveView render/poll (`topology/runtime_graph.ex`, `graph.ex`). **#2 CPU consumer: 187,455 cypher calls = 19.8% of DB time.**
+- [ ] 43.2 Add AGE indexes for the hot paths (a `Device.id` vertex index + a `CANONICAL_TOPOLOGY` edge index) and debounce the LiveView topology refresh.
 
-## 45. Topology Graph (F50)
-- [x] 45.1 Escape backslashes (and audit all Cypher literal building) so attacker-controlled LLDP/CDP/ifAlias cannot inject (`graph.ex:106-110`).
-- [x] 45.2 Preserve parallel links (LAG/redundant) instead of collapsing to one canonical edge; prune reverse `CONNECTS_TO` edges on one-endpoint re-report.
-- [x] 45.3 Fix IPv6 device-id/IP `:`-split matching; make the Cypher read-only guard literal/comment-aware; link device-graph peer interfaces to their owning device.
+## 44. CI Action Flood (ops/infra, separate) — fj #4098
+- [ ] 44.1 (repo-wide, not anomaly-specific — flagged here per request) Add `concurrency:` groups with `cancel-in-progress` keyed on workflow+ref, and de-dup `push` vs `pull_request` triggers, in `.forgejo/workflows/*.yml` — ~900 runs flooding the act_runners (full `build`/`lint`/`test-go`/`interop`/`gitleaks` matrix ×2 events per stacked-PR merge), amplified by the stack relinearization.
 
-## 46. MTR Consensus / Baseline / UI (F51)
-- [x] 46.1 Compute path RTT from the destination hop (or a true avg), not MAX over all hops, so transit ICMP-deprioritization doesn't fabricate `:degraded_path` signals.
-- [x] 46.2 Re-emit non-incident (manual/baseline) cohorts on escalation so degraded-to-outage transitions surface.
-- [x] 46.3 Report the chosen class's probability as confidence; scope "Page Reachability" correctly; add a timezone indicator to MTR timestamps.
-
-## 47. SRQL Engine Hardening (F52)
-- [x] 47.1 Fix the bucket-duration multibyte-char panic (`parser.rs:550`) - char-boundary-safe parsing.
-- [x] 47.2 Fix the relative-time overflow panic (`time.rs:42-50`) - checked arithmetic + validation bounds.
-- [x] 47.3 Append a unique tie-breaker to downsample ORDER BY (stable pagination).
-- [x] 47.4 Make empty IN/NOT-IN lists well-defined (not "all rows"); bound/authenticate cursor offset; only force LIKE when the field/op is wildcard-capable.
-
-## 48. SRQL Query Modules (F53)
-- [x] 48.1 Use array-overlap (`&&`) not contains-all (`@>`) for `discovery_sources` (and audit other list filters).
-- [x] 48.2 Append a unique tie-breaker to the events and interfaces (non-latest) ORDER BY (stable pagination).
-- [x] 48.3 Make `field != x` / `not like` row vs stats populations consistent re: NULLs.
-- [x] 48.4 Move interface error-metric LATERAL joins after LIMIT; fix CAGG partial-bucket truncation; guard the non-ASCII stats-expression case-fold panic (`flows.rs:1340`).
-- [x] 48.5 Support `other:true` for additive grouped timeseries stats (`timeseries_metrics`, `snmp`, `rperf`) and reject non-additive averages (#4021 follow-up).
-
-## 49. UI Device List & Settings (F54)
-- [x] 49.1 Fix Bulk-edit "Apply tags" to run with the actor/scope so the policy permits it (and add a test).
-- [x] 49.2 Batch the SNMP-profile count N+1; make interface target-count fail-closed like device count.
-- [x] 49.3 Debounce the sweep-group count; align "Run Task" enablement+targets with select-all-matching; use a real CSV parser; bound `get_all_matching_uids`; run SNMP test-connection off-process.
-
-## 50. Oversized-File Breakups, Round 2 (F55)
-- [ ] 50.1 Break up (behavior-preserving, <~300 lines): `device_live/index.ex` (3931), `go/pkg/scan/syn_scanner.go` (3831), `snmp_profiles_live/index.ex` (3596), `go/pkg/sweeper/sweeper.go` (3007), `go/pkg/mapper/snmp_polling.go` (2996), `go/pkg/mapper/discovery.go` (2741), `networks_live/index.ex` (2726), `topology_graph.ex` (2356), `diagnostics_live/mtr.ex` (2023), `ubnt_poller.go` (1728), `unifi-protect/main.go` (1385).
-  - [x] 50.1a Go breakups complete: `go/pkg/scan/syn_scanner.go`, `go/pkg/sweeper/sweeper.go`, `go/pkg/mapper/snmp_polling.go`, `go/pkg/mapper/discovery.go`, `ubnt_poller.go`, and `unifi-protect/main.go`.
-  - [ ] 50.1b Elixir LiveView breakups remaining: `device_live/index.ex`, `snmp_profiles_live/index.ex`, `networks_live/index.ex`, `topology_graph.ex`, and `diagnostics_live/mtr.ex`.
-- [x] 50.2 Break up the SRQL modules: `flows.rs` (2914), `parser.rs` (1306), `query/mod.rs` (1091), `interfaces.rs` (954), `events.rs` (939), `devices/filters.rs` (817), `downsample.rs` (812), `devices/stats.rs` (792).
-
-## 51. Verification
-- [x] 51.1 Run `sfw cargo test -p serviceradar-anomaly-addon -p serviceradar-anomaly-core -p serviceradar-causal-disposition`.
-- [x] 51.2 Run `sfw cargo test -p serviceradar-srql` (parser/time DoS guards, list-filter and pagination tie-breaker fixes).
-- [x] 51.3 Run `go test ./go/pkg/agent/addon/... ./go/pkg/mapper/... ./go/pkg/sweeper/... ./go/pkg/scan/...` (update bazel BUILD deps for new test files/imports).
-- [x] 51.4 Run focused core-elx tests for status handler, causal signals, seasonal disposition, capacity forecasting, anomaly profile seeding, alert generation, flow ingest, topology graph, and MTR consensus.
-- [x] 51.5 Run web-ng tests for device-details anomaly/capacity, chart renderer, NetFlow/interface data layers, JS chart hooks, dashboard authoring, table/topology plugins, device list bulk-edit, and SNMP/networks settings.
-- [x] 51.6 Run `./scripts/elixir_quality.sh --project elixir/serviceradar_core` and `--project elixir/web-ng` if implementation changes shared behavior broadly.
-- [x] 51.7 Run `sfw cargo test -p serviceradar-flow-collector` if collector sampling changes land.
-- [x] 51.8 Run native add-on manifest/version gates if add-on package metadata or Rust add-on sources change.
-- [ ] 51.9 Re-run the live `sysmon.debug_spike` trace + a sampled-flow check in demo and confirm F1/F3/F6/F12/F15/F21-F55 behaviors are resolved (one open finding, sample-time, coherent identity, visible+annotated chart spike, correct sampled NetFlow units, safe dashboard variables, no alert storm, no SRQL panics).
-
-## 52. CI Action Flood (ops/infra, separate) (F56) - fj #4098
-- [x] 52.1 Add Forgejo workflow concurrency groups with `cancel-in-progress` keyed on workflow/ref for build and scan workflows, while queueing same-tag publish reruns so in-flight publishes are not cancelled.
-
-## 53. StatusHandler endpoint_inventory {:results_update} Crash-Loop (F57) - fj #4136
-_From the 2026-06-20 demo RCA: `ServiceRadar.StatusHandler` can crash-loop when the synchronous `GenServer.call({:results_update}, 30_000)` to `ResultsRouter` times out under slow endpoint_inventory ingest. The immediate fault is an uncaught `GenServer.call` exit in the singleton StatusHandler path; broader endpoint_inventory async/cancellation hardening remains separate work._
-- [x] 53.1 Urgent stopgap: wrap StatusHandler's synchronous ResultsRouter call in `try`/`catch :exit`, returning `{:error, :results_router_timeout}` on timeout so the singleton does not crash and drop its mailbox.
-- [x] 53.2 Root-cause: make the endpoint_inventory results path asynchronous with an ack-on-completion contract, so `StatusHandler`/`ResultsRouter` never block synchronously on ingest.
-- [x] 53.3 Decouple nested timeout budgets by lowering the inner endpoint_inventory ingest timeout below the outer gateway/core call timeout; do not raise the outer timeout.
-- [x] 53.4 Bound or cancel the in-flight ingest transaction on timeout so abandoned tasks cannot keep consuming the connection pool.
-- [x] 53.5 Add a cheap core-side idempotency/short-circuit before `build_context`, upload, and transaction work for unchanged and empty/not-scanned payloads.
-- [x] 53.6 Move hash-freshness/noop decisions before transaction reads/writes so unchanged scans skip unnecessary writes.
-- [x] 53.7 Index or rewrite the agent-scoped scan lookup used by endpoint inventory context building.
-- [x] 53.8 Add per-agent queue fairness/load-shedding and surface queue-full as a fast gateway-buffered reply.
-
-## 54. NetFlow Cache-Refresh Full-Scan CPU (F58) - fj #4096
-_From the 2026-06-19 demo CNPG CPU investigation (`pg_stat_statements` on primary `cnpg-23`): the recurring `SELECT DISTINCT sampler_address, ocsf_payload #>> '{connection_info,input_snmp|output_snmp}'` full-scan of `platform.ocsf_network_activity` was the #1 DB-CPU consumer (~4.9s/call, ~22% of DB time). Code stopgap landed via #4102; documented here to reconcile the task list to staging-canonical (the section was missing despite the code landing)._
-- [x] 54.1 Replace the periodic re-derive with an incrementally-maintained `(sampler, interface_index)` dimension or a TimescaleDB continuous aggregate (long-term fix). **Recovered via incremental ingest-maintained interface observations.**
-- [x] 54.2 Stopgap: bound the cache-refresh `since` window (30m default / 1h cap) + add the partial time-first indexes on `ocsf_network_activity`. **Landed via #4102.**
-- [x] 54.3 Secondary observability-query CPU (triage/track): `INSERT INTO logs`, `refresh_device_inventory_rollups()`, DIRE `stale_to_active`/`mac_to_active`, and the `netflow_provider_cidrs` per-row join (~741k calls). **Recovered via #4153 (provider cache), #4156 (rollup batching), #4157 (DIRE lookup indexes), and #4158 (logs insert placeholders).**
-
-## 55. Topology Apache AGE Query Frequency (F59) - fj #4097
-_#2 demo DB-CPU consumer: 187k `ag_catalog.cypher` calls (~19.8% of DB time), the `MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)` runtime-graph query re-run per LiveView render/poll. Code partially landed; documented here to reconcile to staging-canonical._
-- [x] 55.1 Throttle/debounce the runtime-graph refresh so bursty render/poll casts collapse to at-most-once per interval. **Landed via #4103.**
-- [x] 55.2 Make each topology read cheap: the AGE property indexes (#4104) do not help the full `MATCH … CANONICAL_TOPOLOGY` traversal (it's a full edge scan + graphid join, not a point lookup); the effective fix is the graphid join index (confirm the prod AGE install exposes the btree opclass) OR a materialized/mutation-invalidated topology projection. **Recovered via rebuild-maintained SQL runtime topology projection with AGE fallback.**
+## 45. StatusHandler endpoint_inventory {:results_update} Crash-Loop (F49) — fj #4136
+_From the 2026-06-20 demo RCA (9-agent workflow + adversarial verification, high confidence). `ServiceRadar.StatusHandler` crash-loops ~30–35s (45×/24min, only the advisory-lock-owning core pod) — a synchronous `GenServer.call({:results_update}, 30_000)` to a slow endpoint_inventory ingest times out. Root cause is an **uncaught `GenServer.call` in a hot cluster singleton with equal nested 30s budgets**, amplified by the CNPG write contention tracked in §42/§43 (do NOT duplicate that DB-CPU work here)._
+- [ ] 45.1 **URGENT stopgap:** wrap StatusHandler's `GenServer.call` at `status_handler.ex:130` in `try/catch :exit` (mirroring the gateway `status_processor.ex:285-287` and queue `endpoint_inventory_ingestor_queue.ex:130-134`), returning `{:error, :results_router_timeout}`. Removes the crash class + mailbox-loss-on-restart with zero timeout retuning. Crash loop is **active on demo**.
+- [ ] 45.2 **Root-cause:** make the endpoint_inventory results path asynchronous (gateway `cast`, or `enqueue` + reply `:ok` + ack-on-completion) so the singleton `StatusHandler`/`ResultsRouter` never block synchronously. `ack_result_status?` (`status_processor.ex:324-327`) is the switch. Removes both the crash class AND the head-of-line serialization of all agents/services; needs an async-ack contract (don't silently drop on later ingest failure).
+- [ ] 45.3 Decouple the equal nested 30s budgets — lower inner `ingest_timeout_ms` (`config.exs:188`, e.g. 20_000) below the outer call so the queue's clean `{:error, :endpoint_inventory_ingest_queue_timeout}` fires first. **Do NOT raise the outer/gateway timeout** (aggravates singleton HOL). Stopgap only — inferior to 45.1.
+- [ ] 45.4 **Bound/cancel the in-flight ingest transaction** (a `statement_timeout` on the `Repo.transaction`, or task-kill on queue-timeout). Currently a queue timeout abandons the caller's wait but the Task keeps running → after 45.1/45.3 the crash loop becomes a pool-stall + gateway retry storm. No existing fix covers this.
+- [ ] 45.5 Cheap idempotency/short-circuit in core **before** `build_context`/`maybe_upload`/`Repo.transaction` (`endpoint_inventory_ingestor.ex:36-102`), covering **both** `(agent_id, package_set_hash)`-matches-current + unchanged/`upload_already_acknowledged` (16/45 crashes) **and** `not_scanned`/`package_count==0` (29/45). Core has no dedup gate today (`upload_already_acknowledged` is agent-side only).
+- [ ] 45.6 Move the `apply_hash_freshness`/noop decision (`ingestor.ex:52`) before the transaction reads/writes so an unchanged scan skips the upsert/ocsf-insert/artifact-replace/promote_current writes.
+- [ ] 45.7 Index `endpoint_inventory_scans(agent_id, last_scan_at)` (or rewrite `existing_scan_device_uid`, `ingestor.ex:860-870`, onto the `[:agent_id,:current]` path) to remove the unbounded agent-scoped sort in `build_context`.
+- [ ] 45.8 Per-agent fairness + load-shedding on the ingest queue (one agent can't monopolize concurrency-4 / 256-pending); surface `:endpoint_inventory_ingest_queue_full` as a fast gateway-buffered reply.

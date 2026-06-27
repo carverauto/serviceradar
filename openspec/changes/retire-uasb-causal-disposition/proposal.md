@@ -45,10 +45,12 @@ actual causal structure. This proposal *poses* that; it does not yet design it.
 
 ## What changes
 
-1. **Retire UASB.** Remove the peak-disposition kernel (`rust/causal-disposition/.../peak`), the
-   `profile_hour_of_week_peak` SRQL stat, and the `:peak` NIF ABI; strip "UASB" /
-   "uncertainty-aware" / "shrinkage band" / "8 invariants" language from code, docs, and memory.
-   Salvage the one real learning (per-series prior beats class-pooled — see design).
+1. **Retire UASB as a methodology/brand.** Remove UASB-named artifacts and the `:peak` NIF ABI
+   unless/until a real kernel boundary is designed; strip "UASB" / "uncertainty-aware" /
+   "shrinkage band" language from code, docs, and memory. Do **not** discard the useful mechanics
+   that fell out of the investigation: matched-resolution peak context, robust percentiles,
+   per-series scale/prior, latest-bucket exclusion, safety-biased pass-through, report-only
+   calibration, and leaky-bucket confirmation.
 
 2. **Adopt three honest tiers:**
    - **Detector** (have it) — robust per-series deviation, **cause-agnostic** (a novel anomaly has
@@ -77,9 +79,9 @@ actual causal structure. This proposal *poses* that; it does not yet design it.
   UASB content should be closed out. Relates to #4288 (the stale-resolve sweep that referenced the
   peak disposition) and #4289 / `align-edge-anomaly-series-key` (the series-key precondition). #4280
   should be resolved/archived in coordination so no orphaned peak requirement is left dangling.
-- Affected code: `rust/causal-disposition` (remove peak), `rust/srql` (remove peak stat),
-  `causal_disposition_nif` (remove `:peak`), plus the forward Context-wiring work. The detector and
-  the conditional baseline are unchanged. UASB is `report_only` (inactive), so retirement is
-  behaviorally safe.
+- Affected code: `rust/causal-disposition` (no UASB-branded peak kernel), `rust/srql` (peak profile
+  is allowed only as honestly named matched-resolution context), `causal_disposition_nif` (no
+  `:peak` ABI until the kernel boundary is settled), plus the forward Context-wiring work. The
+  detector and the conditional baseline are unchanged.
 - Memory/docs: strip the overclaim; this proposal is the design of record.
 - No data migration. The additive fields are forward-only.

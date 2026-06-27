@@ -12,6 +12,8 @@ use serviceradar_anomaly_core::SaturationGate;
 use crate::engine::SeriesProfile;
 use crate::identity::{metadata_f64_value, metadata_u32_value};
 
+const CPU_EVALUATION_INTERVAL_NS: u64 = 30 * 1_000_000_000;
+
 pub(crate) fn is_process_metric(metric: &Metric) -> bool {
     metric.metric_type == "process" || metric.name.starts_with("process.")
 }
@@ -111,6 +113,7 @@ pub(crate) fn series_profile_for(metric: &Metric) -> SeriesProfile {
                 directional: true,
                 min_value: 80.0,
             }),
+            evaluation_interval_ns: None,
         },
         // Memory used_percent: commonly runs 60-80% benignly (caches, buffers).
         // Same dispersion floors; only sustained pressure above 80% breaches.
@@ -121,6 +124,7 @@ pub(crate) fn series_profile_for(metric: &Metric) -> SeriesProfile {
                 directional: true,
                 min_value: 80.0,
             }),
+            evaluation_interval_ns: None,
         },
         // CPU used_percent (per-core): the noisiest gauge — individual cores spike
         // to 100% constantly and benignly. A higher absolute floor + std/CV floor
@@ -133,6 +137,7 @@ pub(crate) fn series_profile_for(metric: &Metric) -> SeriesProfile {
                 directional: true,
                 min_value: 85.0,
             }),
+            evaluation_interval_ns: Some(CPU_EVALUATION_INTERVAL_NS),
         },
         None => SeriesProfile::default(),
     }

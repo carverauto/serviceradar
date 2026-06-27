@@ -11,6 +11,7 @@
 //! boundary, while keeping the kernel crate rustler-free for bazel/tests.
 
 pub mod capacity;
+pub mod peak_profile;
 pub mod seasonal;
 
 /// The disposition a kernel assigns to the latest complete bucket under test.
@@ -96,6 +97,14 @@ pub struct CapacityForecast {
     pub intercept: f64,
     /// `projected_value` at `last_x + horizon` (`model.ex:90` / `157`).
     pub projected_value: f64,
+    /// The unconstrained model projection before optional physical value bounds are
+    /// applied. For unbounded configs this is identical to `projected_value`; for
+    /// percent/capacity-bounded configs it preserves the regression output for
+    /// diagnostics while `projected_value` remains an operator-facing physical value.
+    pub raw_projected_value: f64,
+    /// Whether `projected_value`, `lower_bound`, or `upper_bound` were clamped to
+    /// the configured physical value bounds.
+    pub projection_bounded: bool,
     /// `projected_exhaustion_at` as unix microseconds (`model.ex:91` / `170`), or
     /// `None` for the no-ETA cases (non-positive slope, missing threshold,
     /// already-crossed, beyond-`10×`-horizon).
