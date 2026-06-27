@@ -233,6 +233,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
       "severity" => "High",
       "metric_name" => "cpu.usage_percent",
       "message" => "CPU saturation anomaly",
+      "anomaly_disposition" => %{"action" => "escalate"},
       "metadata" => %{
         "finding_info" => %{
           "dimensions" => %{
@@ -291,6 +292,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
       "severity" => "warning",
       "metric_name" => "cpu.usage_percent",
       "message" => "CPU saturation anomaly",
+      "anomaly_disposition" => %{"action" => "escalate"},
       "metadata" => %{
         "source_identity" => %{"series_key" => "sysmon.cpu:host:CPU1"}
       }
@@ -306,6 +308,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
                series: nil
              }
            ] = assigns.annotations
+  end
+
+  test "CPU annotations ignore edge-only findings without central escalation" do
+    section = %{
+      key: "cpu",
+      panels: [
+        %{
+          id: "cpu",
+          assigns: %{series_points: [{"avg", []}]}
+        }
+      ]
+    }
+
+    row = %{
+      "time" => "2026-06-19T12:05:00Z",
+      "severity" => "warning",
+      "metric_name" => "cpu.usage_percent",
+      "message" => "CPU edge spike without central disposition",
+      "metadata" => %{
+        "source_identity" => %{"series_key" => "sysmon.cpu:host:CPU1"}
+      }
+    }
+
+    [%{panels: [%{assigns: assigns}]}] =
+      SysmonMetrics.annotate_metric_sections([section], %{anomaly_rows: [row]})
+
+    assert Map.get(assigns, :annotations, []) == []
   end
 
   defp parse_number(value) when is_number(value), do: value * 1.0

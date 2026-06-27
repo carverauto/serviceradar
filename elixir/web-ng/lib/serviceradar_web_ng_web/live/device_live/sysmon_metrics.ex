@@ -48,6 +48,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
 
   defp finding_annotation(row, selected?) when is_map(row) do
     with section_key when is_binary(section_key) <- finding_section_key(row),
+         true <- finding_annotation_visible?(row, section_key, selected?),
          %DateTime{} = time <- finding_marker_time(row) do
       %{
         section_key: section_key,
@@ -58,10 +59,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
         severity: finding_severity(row),
         series: finding_annotation_series(row, section_key)
       }
+    else
+      _ -> nil
     end
   end
 
   defp finding_annotation(_row, _selected?), do: nil
+
+  defp finding_annotation_visible?(_row, _section_key, true), do: true
+  defp finding_annotation_visible?(row, "cpu", false), do: cpu_annotation_visible?(row)
+  defp finding_annotation_visible?(_row, _section_key, _selected?), do: true
+
+  defp cpu_annotation_visible?(row) do
+    row
+    |> first_present([
+      ["anomaly_disposition", "action"],
+      ["metadata", "service_radar", "anomaly_disposition", "action"],
+      ["metadata", "serviceradar", "anomaly_disposition", "action"],
+      ["metadata", "diagnostics", "source", "source_anomaly_disposition", "action"],
+      ["metadata", "serviceradar", "diagnostics", "source", "source_anomaly_disposition", "action"],
+      ["raw_data", "anomaly_disposition", "action"],
+      ["unmapped", "anomaly_disposition", "action"]
+    ])
+    |> normalize_text()
+    |> Kernel.==("escalate")
+  end
 
   defp finding_marker_time(row) do
     episode_peak_time(row) || finding_time(row)

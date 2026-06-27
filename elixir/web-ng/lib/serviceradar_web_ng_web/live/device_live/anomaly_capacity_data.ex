@@ -392,7 +392,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
     status = status_value(row)
     disposition_action = row |> map_value("anomaly_disposition") |> map_value("action") |> normalize_text()
 
-    not pending_or_warmup_status?(status) and disposition_action != "suppress"
+    not pending_or_warmup_status?(status) and disposition_action != "suppress" and
+      actionable_anomaly_row?(row, disposition_action)
+  end
+
+  # CPU edge spikes are deliberately high-recall detector evidence. They become
+  # operator-facing device findings only after central disposition escalates
+  # them; otherwise short per-core bursts create noisy "anomaly" counts and chart
+  # markers while overall host CPU is healthy.
+  defp actionable_anomaly_row?(row, disposition_action) do
+    case metric_class(row) do
+      "cpu" -> disposition_action == "escalate"
+      _ -> true
+    end
   end
 
   defp pending_or_warmup_status?(status) do
@@ -636,6 +648,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp known_atom_key("raw_value_unit"), do: :raw_value_unit
   defp known_atom_key("status"), do: :status
   defp known_atom_key("state"), do: :state
+  defp known_atom_key("action"), do: :action
   defp known_atom_key(_), do: nil
 
   defp normalize_class(value) do

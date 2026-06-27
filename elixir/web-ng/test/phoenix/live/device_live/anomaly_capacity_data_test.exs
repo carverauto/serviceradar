@@ -34,7 +34,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
            %{
              "metric_class" => "cpu",
              "status" => "active",
-             "time" => "2026-06-19T00:00:00Z"
+             "time" => "2026-06-19T00:00:00Z",
+             "anomaly_disposition" => %{"action" => "escalate"}
            }
          ]
        }}
@@ -145,6 +146,43 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
              "time" => "2026-06-19T00:05:00Z",
              "message" => "breach pending confirmation at 2/5 consecutive anomalous slots",
              "raw_data" => %{"anomaly" => %{"state" => "pending_confirmation"}}
+           }
+         ]
+       }}
+    end
+
+    def query("in:capacity_forecasts" <> _rest = query, _opts) do
+      send(test_pid(), {:fake_query, query})
+      {:ok, %{"results" => []}}
+    end
+
+    defp test_pid do
+      Application.fetch_env!(:serviceradar_web_ng, :anomaly_capacity_data_test_pid)
+    end
+  end
+
+  defmodule EdgeOnlyCPUSRQL do
+    @moduledoc false
+
+    def query("in:events" <> _rest = query, _opts) do
+      send(test_pid(), {:fake_query, query})
+
+      {:ok,
+       %{
+         "results" => [
+           %{
+             "metric_class" => "cpu",
+             "status" => "active",
+             "severity" => "High",
+             "time" => "2026-06-19T00:00:00Z",
+             "message" => "edge-only CPU spike should not be operator visible"
+           },
+           %{
+             "metric_class" => "memory",
+             "status" => "active",
+             "severity" => "High",
+             "time" => "2026-06-19T00:05:00Z",
+             "message" => "non-CPU active finding remains visible"
            }
          ]
        }}
@@ -396,6 +434,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
 
     queries = drain_fake_queries()
     assert Enum.any?(queries, &String.contains?(&1, ~s|service_radar_device_uid:"router-1"|))
+  end
+
+  test "hides edge-only CPU findings unless central disposition escalates them" do
+    data = AnomalyCapacityData.load(EdgeOnlyCPUSRQL, %{device_uid: "router-1"}, nil)
+
+    cpu = Enum.find(data.metric_statuses, &(&1.class == "cpu"))
+    memory = Enum.find(data.metric_statuses, &(&1.class == "memory"))
+
+    assert Enum.map(data.anomaly_rows, & &1["metric_class"]) == ["memory"]
+    assert cpu.status == "normal"
+    assert cpu.count == 0
+    assert memory.status == "active"
+    assert memory.count == 1
   end
 
   test "limits queries and keeps only rendered anomaly and capacity fields" do
