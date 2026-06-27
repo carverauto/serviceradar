@@ -6,7 +6,7 @@ mod types;
 
 use self::{
     filters::collect_filter_params,
-    query::build_query,
+    query::{build_count_query, build_query},
     rollup::{
         bind_param_from_rollup, build_rollup_stats_query, rewrite_placeholders, EventsRollupPayload,
     },
@@ -41,7 +41,7 @@ pub(super) async fn execute(
     }
 
     if has_count_stats(plan)? {
-        let total = build_query(plan)?
+        let total = build_count_query(plan)?
             .count()
             .get_result::<i64>(conn)
             .await
@@ -76,7 +76,7 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
     }
 
     if has_count_stats(plan)? {
-        let query = build_query(plan)?.count();
+        let query = build_count_query(plan)?.count();
         let sql = super::diesel_sql(&query)?;
 
         let mut params = Vec::new();

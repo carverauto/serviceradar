@@ -203,8 +203,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
           &is_nil/1
         )
 
-      device ->
-        [device]
+      device_candidate ->
+        [device_candidate]
     end
   end
 

@@ -238,7 +238,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               <.metric_sections_content
                 sections={@metric_sections_to_render}
                 device_uid={@device_uid}
-                chart_focus={@selected_anomaly_capacity_detail}
               />
 
               <.process_metrics_section
