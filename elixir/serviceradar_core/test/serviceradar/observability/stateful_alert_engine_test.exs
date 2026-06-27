@@ -12,6 +12,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   alias ServiceRadar.EventWriter.Processors.CausalSignals
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.OcsfEvent
+  alias ServiceRadar.Observability.SeasonalDisposition.Source
+  alias ServiceRadar.Observability.SeasonalDisposition.StateStore, as: SeasonalStateStore
   alias ServiceRadar.Observability.StatefulAlertEngine
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Observability.StatefulAlertRuleHistory
