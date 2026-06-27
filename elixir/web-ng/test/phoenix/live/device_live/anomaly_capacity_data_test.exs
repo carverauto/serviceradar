@@ -99,7 +99,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
           String.contains?(query, ~s|service_radar_device_uid:"router-1"|) ->
             {:ok, %{"results" => []}}
 
-          String.contains?(query, "agent_id:") or String.contains?(query, "host_id:") ->
+          String.contains?(query, ~s|service_radar_device_uid:"agent-1"|) or
+            String.contains?(query, ~s|service_radar_device_uid:"router-host"|) or
+            String.contains?(query, "agent_id:") or String.contains?(query, "host_id:") ->
             {:ok,
              %{
                "results" => [
@@ -329,6 +331,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
 
     refute Enum.any?(anomaly_queries, &String.contains?(&1, "agent_id:"))
     refute Enum.any?(anomaly_queries, &String.contains?(&1, "host_id:"))
+    refute Enum.any?(anomaly_queries, &String.contains?(&1, ~s|service_radar_device_uid:"agent-1"|))
+    refute Enum.any?(anomaly_queries, &String.contains?(&1, ~s|service_radar_device_uid:"router-host"|))
   end
 
   test "limits queries and keeps only rendered anomaly and capacity fields" do

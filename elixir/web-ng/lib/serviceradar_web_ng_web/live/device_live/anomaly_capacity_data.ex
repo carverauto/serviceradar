@@ -250,14 +250,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp combined_status(_anomaly, _capacity), do: :ok
 
   defp anomaly_filter_candidates(identity) do
-    Enum.reject(
-      [
-        candidate(identity, :device_uid, "service_radar_device_uid", "device"),
-        candidate(identity, :agent_id, "service_radar_device_uid", "agent"),
-        candidate(identity, :host_id, "service_radar_device_uid", "host")
-      ],
-      &is_nil/1
-    )
+    case candidate(identity, :device_uid, "service_radar_device_uid", "device") do
+      nil ->
+        Enum.reject(
+          [
+            candidate(identity, :agent_id, "service_radar_device_uid", "agent"),
+            candidate(identity, :host_id, "service_radar_device_uid", "host")
+          ],
+          &is_nil/1
+        )
+
+      device_candidate ->
+        [device_candidate]
+    end
   end
 
   defp capacity_filter_candidates(identity) do

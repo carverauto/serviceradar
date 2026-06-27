@@ -351,6 +351,10 @@ fn events_count_stats_builds_filtered_count_without_page_limit() {
         !lower.contains("limit"),
         "count query must ignore page limit, got: {sql}"
     );
+    assert!(
+        !lower.contains("order by"),
+        "count query must ignore event ordering, got: {sql}"
+    );
     assert_eq!(params.len(), 4);
 }
 

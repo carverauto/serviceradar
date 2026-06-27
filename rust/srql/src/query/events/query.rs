@@ -9,6 +9,15 @@ use crate::{
 use diesel::{dsl::sql, pg::Pg, prelude::*, sql_types::Bool};
 
 pub(super) fn build_query(plan: &QueryPlan) -> Result<EventsQuery<'static>> {
+    let query = build_filtered_query(plan)?;
+    Ok(apply_ordering(query, &plan.order))
+}
+
+pub(super) fn build_count_query(plan: &QueryPlan) -> Result<EventsQuery<'static>> {
+    build_filtered_query(plan)
+}
+
+fn build_filtered_query(plan: &QueryPlan) -> Result<EventsQuery<'static>> {
     let mut query = ocsf_events.into_boxed::<Pg>();
 
     query = match plan.entity {
@@ -32,6 +41,5 @@ pub(super) fn build_query(plan: &QueryPlan) -> Result<EventsQuery<'static>> {
         query = apply_filter(query, filter)?;
     }
 
-    query = apply_ordering(query, &plan.order);
     Ok(query)
 }
