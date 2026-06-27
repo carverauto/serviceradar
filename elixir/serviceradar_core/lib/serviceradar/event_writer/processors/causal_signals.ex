@@ -742,8 +742,8 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       # we withhold the finding entirely (no OCSF row, no alert) rather than
       # mis-attributing a polled-device anomaly to the agent's own device page.
       # nil is dropped by process_batch's `Enum.reject(&is_nil/1)`.
-      :withhold ->
-        anomaly_detection_withheld_telemetry(payload)
+      {:withhold, reason} ->
+        anomaly_detection_withheld_telemetry(payload, reason)
         nil
 
       device_uid ->
@@ -1522,7 +1522,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   # No SNMP target ip on the verdict → the polled device is unidentifiable, so
   # the finding is withheld (it must never fall back to the polling agent).
-  defp resolve_snmp_target_device_uid(_payload, nil), do: :withhold
+  defp resolve_snmp_target_device_uid(_payload, nil), do: {:withhold, :snmp_target_missing}
 
   defp resolve_snmp_target_device_uid(payload, target_device_ip) do
     case DeviceCorrelation.resolve(
@@ -1531,19 +1531,20 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       uid when is_binary(uid) and uid != "" -> uid
       # Target ip present but not resolvable to an inventory device → withhold
       # rather than persist a bare ip-string device_uid that no device page owns.
-      _ -> :withhold
+      _ -> {:withhold, :snmp_target_unresolvable}
     end
   end
 
   # Surface withheld SNMP/interface findings so the volume is observable — a high
-  # rate signals the edge anomaly-addon is not emitting `target_device_ip` (the
-  # #4290 SNMP-target attribution) and needs a rollout.
-  defp anomaly_detection_withheld_telemetry(payload) do
+  # missing-target rate signals the edge anomaly-addon is not emitting
+  # `target_device_ip` (the #4290 SNMP-target attribution) and needs a rollout;
+  # unresolvable-target rates indicate an inventory/DIRE identity gap.
+  defp anomaly_detection_withheld_telemetry(payload, reason) do
     :telemetry.execute(
       [:serviceradar, :event_writer, :anomaly_detection, :withheld],
       %{count: 1},
       %{
-        reason: :snmp_target_unresolved,
+        reason: reason,
         metric_class: get_in(payload, ["anomaly", "metric_class"])
       }
     )

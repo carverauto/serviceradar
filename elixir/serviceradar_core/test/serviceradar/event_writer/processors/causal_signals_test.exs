@@ -15,6 +15,21 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
     DeviceCorrelationCache.put(DeviceCorrelationCache.cache_key(candidate), uid)
   end
 
+  defp attach_withheld_anomaly_telemetry(test_pid \\ self()) do
+    handler_id = {__MODULE__, :withheld_anomaly, make_ref()}
+
+    :telemetry.attach(
+      handler_id,
+      [:serviceradar, :event_writer, :anomaly_detection, :withheld],
+      fn event, measurements, metadata, _config ->
+        send(test_pid, {:withheld_anomaly, event, measurements, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+  end
+
   defmodule ExistingTimeRepo do
     def query(sql, [ids]) do
       send(Process.get(:causal_signals_test_pid), {:existing_time_query, sql, ids})
@@ -210,6 +225,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
     end
 
     test "withholds an SNMP anomaly when the polled target is not resolvable to inventory" do
+      attach_withheld_anomaly_telemetry()
       target_ip = "10.0.0.20"
 
       payload = %{
@@ -245,9 +261,15 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
                  received_at: DateTime.utc_now()
                }
              }) == nil
+
+      assert_receive {:withheld_anomaly,
+                      [:serviceradar, :event_writer, :anomaly_detection, :withheld], %{count: 1},
+                      %{reason: :snmp_target_unresolvable, metric_class: "snmp"}}
     end
 
     test "withholds an SNMP anomaly that carries no target ip (never attributes to the polling agent)" do
+      attach_withheld_anomaly_telemetry()
+
       # Reproduces the demo defect: the edge addon emits an SNMP interface anomaly
       # keyed only on the polling agent (no target_device_ip), so the polled
       # device is unidentifiable. It must be withheld, never shown on the agent's
@@ -278,6 +300,10 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
                  received_at: DateTime.utc_now()
                }
              }) == nil
+
+      assert_receive {:withheld_anomaly,
+                      [:serviceradar, :event_writer, :anomaly_detection, :withheld], %{count: 1},
+                      %{reason: :snmp_target_missing, metric_class: "snmp"}}
     end
 
     test "keeps host-metric (non-SNMP) anomaly attribution on the agent device" do
