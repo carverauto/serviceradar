@@ -48,8 +48,9 @@ geographically distributed fleets.
 
 A component SHALL NOT be labeled "uncertainty-aware" (or presented as an established methodology)
 unless it produces a calibrated uncertainty quantity — a posterior or an interval with coverage. The
-robust deviation band is a detector/sensor and SHALL be named as such. The retired UASB peak
-disposition, its SRQL stat, and its NIF ABI SHALL be removed rather than carried as inert machinery.
+robust deviation/peak-profile mechanics SHALL be named as such. UASB-branded kernel/stat/ABI
+artifacts SHALL NOT remain in the tree; an honestly named robust peak profile may remain as
+matched-resolution context for disposition.
 
 #### Scenario: The robust band is named honestly
 

@@ -1,5 +1,5 @@
 ## 1. Proposal
-- [ ] 1.1 Validate with `openspec validate add-seasonal-anomaly-detection --strict`.
+- [x] 1.1 Validate with `openspec validate add-seasonal-anomaly-detection --strict`.
 
 ## 2. Seasonal profile + scoring
 - [ ] 2.1 Add `SeasonalAnomaly.Profile`: build the hour-of-week (dow x hour) profile per series from the hourly CAGGs via SRQL over a trailing window (default 8 weeks) — `avg`/`stddev`/`count` per bucket.

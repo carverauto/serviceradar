@@ -29,6 +29,18 @@ pub enum AnomalyTransition {
 pub struct TransitionVerdict {
     pub verdict: ReasonVerdict,
     pub transition: AnomalyTransition,
+    pub episode: Option<AnomalyEpisode>,
+}
+
+/// The edge-observed anomaly episode that led to an externally visible
+/// transition. This is lifecycle metadata, not an additional detector: the
+/// shared anomaly-core verdict still owns the statistical decision.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AnomalyEpisode {
+    pub started_at_unix_nano: u64,
+    pub ended_at_unix_nano: u64,
+    pub peak_value: f64,
+    pub peak_at_unix_nano: u64,
 }
 
 /// Per-series fidelity tuning the detector applies on top of the global
@@ -46,6 +58,11 @@ pub struct SeriesProfile {
     /// Absolute/directional saturation gate (fix #3); `None` = purely z-based
     /// (counters / interface rates — a real flood must still fire on z alone).
     pub saturation_gate: Option<SaturationGate>,
+    /// Optional per-series evaluation interval. When set, raw points are collapsed
+    /// into one spike-preserving max value per interval before the shared detector
+    /// evaluates them. This makes `confirm_slots` count completed evaluation slots
+    /// instead of high-frequency raw samples.
+    pub evaluation_interval_ns: Option<u64>,
 }
 
 /// Detector thresholds + the per-host series cap (the edge-resource bound).
@@ -106,6 +123,15 @@ struct SeriesState {
     consecutive_clean: usize,
     /// Whether this series currently has an emitted-but-not-cleared anomaly.
     active_anomalous: bool,
+    pending_episode_started_at_unix_nano: Option<u64>,
+    pending_episode_peak_value: Option<f64>,
+    pending_episode_peak_at_unix_nano: Option<u64>,
+    active_episode_started_at_unix_nano: Option<u64>,
+    active_episode_peak_value: Option<f64>,
+    active_episode_peak_at_unix_nano: Option<u64>,
+    aggregation_slot_start_unix_nano: Option<u64>,
+    aggregation_slot_value: Option<f64>,
+    aggregation_slot_peak_at_unix_nano: Option<u64>,
     /// Observed time of the most recent sample, for the restart staleness bound:
     /// a baseline whose last reading is too old is not reseeded (it would
     /// mis-score current traffic).
@@ -345,6 +371,15 @@ impl DetectorEngine {
                 consecutive_anomalous: 0,
                 consecutive_clean: 0,
                 active_anomalous: false,
+                pending_episode_started_at_unix_nano: None,
+                pending_episode_peak_value: None,
+                pending_episode_peak_at_unix_nano: None,
+                active_episode_started_at_unix_nano: None,
+                active_episode_peak_value: None,
+                active_episode_peak_at_unix_nano: None,
+                aggregation_slot_start_unix_nano: None,
+                aggregation_slot_value: None,
+                aggregation_slot_peak_at_unix_nano: None,
                 last_observed_at_unix_nano: observed_at_unix_nano,
             });
 
@@ -413,11 +448,26 @@ impl DetectorEngine {
         observed_at_unix_nano: u64,
         profile: SeriesProfile,
     ) -> Option<TransitionVerdict> {
+        let (value, observed_at_unix_nano) =
+            self.next_evaluation_sample(series_key, value, observed_at_unix_nano, profile)?;
         let verdict = self.evaluate(series_key, value, observed_at_unix_nano, profile)?;
         let state = self.series.get_mut(series_key)?;
         let clear_slots = self.config.confirm_slots.max(1);
+        let mut episode = None;
+
+        if verdict.breached {
+            if state.active_anomalous {
+                observe_active_breach(state, value, observed_at_unix_nano);
+            } else {
+                observe_pending_breach(state, value, observed_at_unix_nano);
+            }
+        } else if !state.active_anomalous {
+            reset_pending_episode(state);
+        }
 
         let transition = if verdict.anomalous && !state.active_anomalous {
+            promote_pending_episode(state, value, observed_at_unix_nano);
+            episode = active_episode(state, observed_at_unix_nano);
             state.active_anomalous = true;
             state.consecutive_clean = 0;
             AnomalyTransition::Open
@@ -426,8 +476,10 @@ impl DetectorEngine {
                 state.consecutive_clean = state.consecutive_clean.saturating_add(1);
 
                 if state.consecutive_clean >= clear_slots {
+                    episode = active_episode(state, observed_at_unix_nano);
                     state.active_anomalous = false;
                     state.consecutive_clean = 0;
+                    reset_active_episode(state);
                     AnomalyTransition::Clear
                 } else {
                     AnomalyTransition::None
@@ -444,8 +496,181 @@ impl DetectorEngine {
         Some(TransitionVerdict {
             verdict,
             transition,
+            episode,
         })
     }
+
+    fn next_evaluation_sample(
+        &mut self,
+        series_key: &str,
+        value: f64,
+        observed_at_unix_nano: u64,
+        profile: SeriesProfile,
+    ) -> Option<(f64, u64)> {
+        let Some(interval_ns) = profile
+            .evaluation_interval_ns
+            .filter(|interval| *interval > 0)
+        else {
+            return Some((value, observed_at_unix_nano));
+        };
+
+        if !value.is_finite() {
+            return None;
+        }
+
+        if !self.series.contains_key(series_key) {
+            if self.series.len() >= self.config.max_series {
+                self.evict_stale_state_once_per_timestamp(observed_at_unix_nano);
+            }
+            if self.series.len() >= self.config.max_series {
+                self.dropped_at_capacity = self.dropped_at_capacity.saturating_add(1);
+                return None;
+            }
+        }
+
+        let state = self
+            .series
+            .entry(series_key.to_owned())
+            .or_insert_with(|| SeriesState {
+                window_tail: Vec::new(),
+                consecutive_anomalous: 0,
+                consecutive_clean: 0,
+                active_anomalous: false,
+                pending_episode_started_at_unix_nano: None,
+                pending_episode_peak_value: None,
+                pending_episode_peak_at_unix_nano: None,
+                active_episode_started_at_unix_nano: None,
+                active_episode_peak_value: None,
+                active_episode_peak_at_unix_nano: None,
+                aggregation_slot_start_unix_nano: None,
+                aggregation_slot_value: None,
+                aggregation_slot_peak_at_unix_nano: None,
+                last_observed_at_unix_nano: observed_at_unix_nano,
+            });
+
+        let slot_start = observed_at_unix_nano - (observed_at_unix_nano % interval_ns);
+
+        match state.aggregation_slot_start_unix_nano {
+            None => {
+                store_aggregation_slot(state, slot_start, value, observed_at_unix_nano);
+                state.last_observed_at_unix_nano = observed_at_unix_nano;
+                None
+            }
+            Some(current_slot) if current_slot == slot_start => {
+                update_aggregation_slot(state, value, observed_at_unix_nano);
+                state.last_observed_at_unix_nano = observed_at_unix_nano;
+                None
+            }
+            Some(current_slot) if slot_start > current_slot => {
+                let ready = match (
+                    state.aggregation_slot_value,
+                    state.aggregation_slot_peak_at_unix_nano,
+                ) {
+                    (Some(slot_value), Some(slot_peak_at)) => Some((slot_value, slot_peak_at)),
+                    _ => None,
+                };
+                store_aggregation_slot(state, slot_start, value, observed_at_unix_nano);
+                state.last_observed_at_unix_nano = observed_at_unix_nano;
+                ready
+            }
+            Some(_) => {
+                // Out-of-order sample for an already-closed slot. Drop it rather
+                // than mutate historical detector state.
+                None
+            }
+        }
+    }
+}
+
+fn store_aggregation_slot(
+    state: &mut SeriesState,
+    slot_start_unix_nano: u64,
+    value: f64,
+    peak_at_unix_nano: u64,
+) {
+    state.aggregation_slot_start_unix_nano = Some(slot_start_unix_nano);
+    state.aggregation_slot_value = Some(value);
+    state.aggregation_slot_peak_at_unix_nano = Some(peak_at_unix_nano);
+}
+
+fn update_aggregation_slot(state: &mut SeriesState, value: f64, observed_at_unix_nano: u64) {
+    if state
+        .aggregation_slot_value
+        .is_none_or(|current| value > current)
+    {
+        state.aggregation_slot_value = Some(value);
+        state.aggregation_slot_peak_at_unix_nano = Some(observed_at_unix_nano);
+    }
+}
+
+fn observe_pending_breach(state: &mut SeriesState, value: f64, observed_at_unix_nano: u64) {
+    if state.pending_episode_started_at_unix_nano.is_none() {
+        state.pending_episode_started_at_unix_nano = Some(observed_at_unix_nano);
+    }
+
+    update_peak(
+        &mut state.pending_episode_peak_value,
+        &mut state.pending_episode_peak_at_unix_nano,
+        value,
+        observed_at_unix_nano,
+    );
+}
+
+fn observe_active_breach(state: &mut SeriesState, value: f64, observed_at_unix_nano: u64) {
+    update_peak(
+        &mut state.active_episode_peak_value,
+        &mut state.active_episode_peak_at_unix_nano,
+        value,
+        observed_at_unix_nano,
+    );
+}
+
+fn promote_pending_episode(state: &mut SeriesState, value: f64, observed_at_unix_nano: u64) {
+    state.active_episode_started_at_unix_nano = Some(
+        state
+            .pending_episode_started_at_unix_nano
+            .unwrap_or(observed_at_unix_nano),
+    );
+    state.active_episode_peak_value = Some(state.pending_episode_peak_value.unwrap_or(value));
+    state.active_episode_peak_at_unix_nano = Some(
+        state
+            .pending_episode_peak_at_unix_nano
+            .unwrap_or(observed_at_unix_nano),
+    );
+    reset_pending_episode(state);
+}
+
+fn active_episode(state: &SeriesState, ended_at_unix_nano: u64) -> Option<AnomalyEpisode> {
+    Some(AnomalyEpisode {
+        started_at_unix_nano: state.active_episode_started_at_unix_nano?,
+        ended_at_unix_nano,
+        peak_value: state.active_episode_peak_value?,
+        peak_at_unix_nano: state.active_episode_peak_at_unix_nano?,
+    })
+}
+
+fn update_peak(
+    peak_value: &mut Option<f64>,
+    peak_at: &mut Option<u64>,
+    value: f64,
+    observed_at_unix_nano: u64,
+) {
+    if peak_value.is_none_or(|current| value > current) {
+        *peak_value = Some(value);
+        *peak_at = Some(observed_at_unix_nano);
+    }
+}
+
+fn reset_pending_episode(state: &mut SeriesState) {
+    state.pending_episode_started_at_unix_nano = None;
+    state.pending_episode_peak_value = None;
+    state.pending_episode_peak_at_unix_nano = None;
+}
+
+fn reset_active_episode(state: &mut SeriesState) {
+    state.active_episode_started_at_unix_nano = None;
+    state.active_episode_peak_value = None;
+    state.active_episode_peak_at_unix_nano = None;
 }
 
 fn is_clean_verdict(verdict: &ReasonVerdict) -> bool {
@@ -462,6 +687,24 @@ pub struct SeriesCheckpoint {
     pub consecutive_clean: usize,
     #[serde(default)]
     pub active_anomalous: bool,
+    #[serde(default)]
+    pub pending_episode_started_at_unix_nano: Option<u64>,
+    #[serde(default)]
+    pub pending_episode_peak_value: Option<f64>,
+    #[serde(default)]
+    pub pending_episode_peak_at_unix_nano: Option<u64>,
+    #[serde(default)]
+    pub active_episode_started_at_unix_nano: Option<u64>,
+    #[serde(default)]
+    pub active_episode_peak_value: Option<f64>,
+    #[serde(default)]
+    pub active_episode_peak_at_unix_nano: Option<u64>,
+    #[serde(default)]
+    pub aggregation_slot_start_unix_nano: Option<u64>,
+    #[serde(default)]
+    pub aggregation_slot_value: Option<f64>,
+    #[serde(default)]
+    pub aggregation_slot_peak_at_unix_nano: Option<u64>,
     pub last_observed_at_unix_nano: u64,
 }
 
@@ -498,6 +741,16 @@ impl DetectorEngine {
                     consecutive_anomalous: state.consecutive_anomalous,
                     consecutive_clean: state.consecutive_clean,
                     active_anomalous: state.active_anomalous,
+                    pending_episode_started_at_unix_nano: state
+                        .pending_episode_started_at_unix_nano,
+                    pending_episode_peak_value: state.pending_episode_peak_value,
+                    pending_episode_peak_at_unix_nano: state.pending_episode_peak_at_unix_nano,
+                    active_episode_started_at_unix_nano: state.active_episode_started_at_unix_nano,
+                    active_episode_peak_value: state.active_episode_peak_value,
+                    active_episode_peak_at_unix_nano: state.active_episode_peak_at_unix_nano,
+                    aggregation_slot_start_unix_nano: state.aggregation_slot_start_unix_nano,
+                    aggregation_slot_value: state.aggregation_slot_value,
+                    aggregation_slot_peak_at_unix_nano: state.aggregation_slot_peak_at_unix_nano,
                     last_observed_at_unix_nano: state.last_observed_at_unix_nano,
                 })
                 .collect(),
@@ -559,6 +812,16 @@ impl DetectorEngine {
                     consecutive_anomalous: series.consecutive_anomalous,
                     consecutive_clean: series.consecutive_clean,
                     active_anomalous: series.active_anomalous,
+                    pending_episode_started_at_unix_nano: series
+                        .pending_episode_started_at_unix_nano,
+                    pending_episode_peak_value: series.pending_episode_peak_value,
+                    pending_episode_peak_at_unix_nano: series.pending_episode_peak_at_unix_nano,
+                    active_episode_started_at_unix_nano: series.active_episode_started_at_unix_nano,
+                    active_episode_peak_value: series.active_episode_peak_value,
+                    active_episode_peak_at_unix_nano: series.active_episode_peak_at_unix_nano,
+                    aggregation_slot_start_unix_nano: series.aggregation_slot_start_unix_nano,
+                    aggregation_slot_value: series.aggregation_slot_value,
+                    aggregation_slot_peak_at_unix_nano: series.aggregation_slot_peak_at_unix_nano,
                     last_observed_at_unix_nano: series.last_observed_at_unix_nano,
                 },
             );
@@ -1140,6 +1403,15 @@ mod tests {
                     consecutive_anomalous: 0,
                     consecutive_clean: 0,
                     active_anomalous: false,
+                    pending_episode_started_at_unix_nano: None,
+                    pending_episode_peak_value: None,
+                    pending_episode_peak_at_unix_nano: None,
+                    active_episode_started_at_unix_nano: None,
+                    active_episode_peak_value: None,
+                    active_episode_peak_at_unix_nano: None,
+                    aggregation_slot_start_unix_nano: None,
+                    aggregation_slot_value: None,
+                    aggregation_slot_peak_at_unix_nano: None,
                     last_observed_at_unix_nano: 1,
                 },
                 SeriesCheckpoint {
@@ -1148,6 +1420,15 @@ mod tests {
                     consecutive_anomalous: 0,
                     consecutive_clean: 0,
                     active_anomalous: false,
+                    pending_episode_started_at_unix_nano: None,
+                    pending_episode_peak_value: None,
+                    pending_episode_peak_at_unix_nano: None,
+                    active_episode_started_at_unix_nano: None,
+                    active_episode_peak_value: None,
+                    active_episode_peak_at_unix_nano: None,
+                    aggregation_slot_start_unix_nano: None,
+                    aggregation_slot_value: None,
+                    aggregation_slot_peak_at_unix_nano: None,
                     last_observed_at_unix_nano: 3,
                 },
                 SeriesCheckpoint {
@@ -1156,6 +1437,15 @@ mod tests {
                     consecutive_anomalous: 0,
                     consecutive_clean: 0,
                     active_anomalous: false,
+                    pending_episode_started_at_unix_nano: None,
+                    pending_episode_peak_value: None,
+                    pending_episode_peak_at_unix_nano: None,
+                    active_episode_started_at_unix_nano: None,
+                    active_episode_peak_value: None,
+                    active_episode_peak_at_unix_nano: None,
+                    aggregation_slot_start_unix_nano: None,
+                    aggregation_slot_value: None,
+                    aggregation_slot_peak_at_unix_nano: None,
                     last_observed_at_unix_nano: 2,
                 },
             ],
@@ -1221,6 +1511,7 @@ mod tests {
                 directional: true,
                 min_value: 80.0,
             }),
+            evaluation_interval_ns: None,
         }
     }
 
@@ -1232,6 +1523,7 @@ mod tests {
                 directional: true,
                 min_value: 85.0,
             }),
+            evaluation_interval_ns: Some(30 * 1_000_000_000),
         }
     }
 

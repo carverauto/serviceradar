@@ -277,6 +277,8 @@ mod tests {
             alpha: 0.35,
             beta: 0.05,
             gamma: 0.25,
+            value_min: None,
+            value_max: None,
         }
     }
 

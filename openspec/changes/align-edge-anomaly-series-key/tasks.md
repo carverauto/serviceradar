@@ -16,7 +16,7 @@
 
 ## 3. The parity gate (definition of done)
 - [ ] 3.1 Parity test: for a known SNMP series, a resolved anomaly's `(device_id, metric_name, if_index)` equals the metric's, and a join on that tuple returns the metric's samples. Add a host-series case (M2). Resolve BOTH sides under the **same inventory snapshot** (assert they go through the one `DeviceCorrelation.resolve`) so the cache-backed resolver can't make them diverge spuriously and pass/fail by timing.
-- [ ] 3.2 Negative test: an anomaly whose device cannot be resolved retains its raw id and joins nothing (no false correlation).
+- [x] 3.2 Negative test: an SNMP anomaly whose polled device cannot be resolved is withheld instead of falling back to the polling agent (no false correlation).
 - [ ] 3.3 Cutover (M4): anomalies already open at deploy are not orphaned — re-keyed in place on next evaluation, or remain resolvable by raw id.
 
 ## 4. Verify + close the loop

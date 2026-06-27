@@ -76,7 +76,7 @@ Coverage depends on whether a meaningful hour-of-week **peak** profile exists fo
 - **Raw non-normalized counters (e.g. absolute `ifInOctets`):** no meaningful "normal peak" → edge-only + severity calibration until rate-normalized into a utilization series.
 - A spike stays in **pass-through** until its own `(series, dow, hod)` cell passes the **stability gate** (concrete criteria below), so coverage ramps safely per cell — a class with no stable cells is simply all-pass-through.
 
-## Peak-profile stability gate — Uncertainty-Aware Shrinkage Band (UASB)
+## Robust peak-profile stability gate
 
 Suppression silences a finding, so a **false-suppress hides a real anomaly** — strictly worse than a false-surface. This asymmetry is the north star: every uncertain path must decay toward **pass-through or escalate, never toward suppress**. Replacing the original hard "inert for 6 weeks" cliff, the gate is a continuous band that ramps as the cell's sample count `n` grows. Its form was hardened over **two adversarial-verification rounds** that refuted (a) a one-sided band that silenced every downward anomaly, (b) an additive raw floor that blinded tight series, and (c) a prior pooled across hours that let a spiky hour whitewash its neighbors. What survives is a set of **invariants** plus a decision rule whose constants are implementation-calibrated.
 
@@ -113,7 +113,14 @@ n=1–3 (`(series,hod)` cold) → pass-through (a real 6-σ excursion on a tight
 - Safe a priori: the invariants, the two-sided form, `(series,hod)` locality. Calibration-required against real per-cell distributions (guarded by the invariant test suite): `A, Z_sup, Z_esc, CAP, N_min, D`, saturation thresholds.
 
 ### Implementation substrate (re: DeepCausality)
-UASB lands in `rust/causal-disposition`, which **already depends on `deep_causality_core`** — so it is a **disposition causaloid in the existing DeepCausality idiom**, consistent with the edge detector (`anomaly-core` CausalFlow) and the seasonal/capacity disposition. It does **not** adopt the `deep_causality_uncertain` `Uncertain<T>` crate (unused in the repo today): (a) the adversarial constraint is an **O(1) closed-form** decision over SQL-precomputed robust stats — Monte-Carlo distributional propagation is the wrong model for the per-disposition hot path; and (b) `Uncertain<T>`'s moment-based (mean/variance) propagation is exactly the **non-robust scale** the poison-resistance work eliminated — robustness here is an **estimator** property (the median center + the robust `(p95−p05)` scale + the bounded inner band + the invariants), not a framework feature. (`MaybeUncertain<T>` could model the cold-cell presence gate, but that is a one-line `n < N_min` check.) Net: host in DeepCausality (already there); keep the robust closed-form math; do not reach for sampling-based uncertainty for the band.
+The peak-profile decision belongs on the same DeepCausality substrate as the edge detector
+(`anomaly-core` `CausalFlow`) and the seasonal/capacity dispositions. It is **not** an
+`Uncertain<T>` or Monte-Carlo path: the hot path is an **O(1) deterministic decision** over
+SQL-precomputed robust summaries, and robustness is an **estimator** property (median center,
+robust `(p95-p05)` scale, bounded inner band, and safety invariants), not a sampling-framework
+feature. If/when this becomes a true causal disposition, the peak profile should enter as one
+context signal alongside process, flow, topology, reset, and scan context — not as a branded
+standalone methodology.
 
 ## Non-edge flood drivers — owned by fix-anomaly (out of scope here)
 

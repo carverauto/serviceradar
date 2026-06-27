@@ -50,6 +50,43 @@ export function gridPanelAt(localX, localY, panels) {
   )
 }
 
+export function gridPanelAtPointer(clientX, clientY, rect, geometry) {
+  if (!rect || !geometry) return null
+
+  const viewBoxWidth = Number(geometry.viewBoxWidth) || Number(rect.width) || 1
+  const viewBoxHeight = Number(geometry.viewBoxHeight) || Number(rect.height) || 1
+  const scaleX = viewBoxWidth / Math.max(1, Number(rect.width) || 1)
+  const scaleY = viewBoxHeight / Math.max(1, Number(rect.height) || 1)
+  const localX = (clientX - Number(rect.left || 0)) * scaleX - Number(geometry.marginLeft || 0)
+  const localY = (clientY - Number(rect.top || 0)) * scaleY - Number(geometry.marginTop || 0)
+
+  const cellWidth = Number(geometry.cellWidth) || 1
+  const cellHeight = Number(geometry.cellHeight) || 1
+  const pad = Number(geometry.pad) || 0
+  const cols = Math.max(1, Number(geometry.cols) || 1)
+  const count = Math.max(0, Number(geometry.count) || 0)
+  const col = Math.floor(localX / (cellWidth + pad))
+  const row = Math.floor(localY / (cellHeight + pad))
+  const panelX = localX - col * (cellWidth + pad)
+  const panelY = localY - row * (cellHeight + pad)
+  const index = row * cols + col
+
+  if (
+    col < 0 ||
+    row < 0 ||
+    index < 0 ||
+    index >= count ||
+    panelX < 0 ||
+    panelY < 0 ||
+    panelX > cellWidth ||
+    panelY > cellHeight
+  ) {
+    return null
+  }
+
+  return {index, row, col, localX: panelX, localY: panelY}
+}
+
 export function nearestTimeRow(data, targetTime) {
   if (!Array.isArray(data) || data.length === 0) return null
   const target = targetTime instanceof Date ? targetTime : new Date(targetTime)

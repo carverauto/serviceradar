@@ -52,6 +52,20 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
     end
   end
 
+  defmodule RecordingStateStore do
+    @moduledoc false
+
+    def load_many(_source, keys, opts) do
+      send(Keyword.fetch!(opts, :test_pid), {:seasonal_state_load, keys})
+      {:ok, %{}}
+    end
+
+    def persist_many(_source, actions, opts) do
+      send(Keyword.fetch!(opts, :test_pid), {:seasonal_state_actions, actions})
+      :ok
+    end
+  end
+
   test "manual enqueue uniqueness ignores per-run evaluated_at" do
     first =
       Worker.new(%{
@@ -86,13 +100,70 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
     assert :ok = Worker.run(job(), runner: QueryRecorderRunner)
 
     queries =
-      for _ <- 1..3 do
+      for _ <- 1..2 do
         assert_receive {:seasonal_query, query}
         query
       end
 
     assert Enum.all?(queries, &String.contains?(&1, ~s|timezone:"America/Chicago"|))
     refute Enum.any?(queries, &String.contains?(&1, ~s|timezone:"Etc/UTC"|))
+  end
+
+  test "worker skips unsupported seasonal sources instead of claiming coverage" do
+    event = [:serviceradar, :observability, :seasonal_disposition, :source_skipped]
+    handler_id = {:seasonal_source_skipped, make_ref()}
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      event,
+      fn ^event, measurements, metadata, _config ->
+        send(test_pid, {handler_id, measurements, metadata})
+      end,
+      nil
+    )
+
+    result =
+      try do
+        Worker.run(job(),
+          sources: [
+            %Source{
+              name: "disk_seasonal",
+              resource_type: "disk",
+              metric_class: "disk",
+              metric_name: "usage_percent",
+              query: ~s|in:timeseries_metrics metric_type:"sysmon.disk"|
+            },
+            %Source{
+              name: "snmp_interface_seasonal",
+              resource_type: "interface",
+              metric_class: "snmp",
+              metric_name: "ifInOctets",
+              query: ~s|in:timeseries_metrics metric_type:"snmp.interface"|
+            }
+          ],
+          runner: QueryRecorderRunner
+        )
+      after
+        :telemetry.detach(handler_id)
+      end
+
+    assert result == :ok
+    refute_received {:seasonal_query, _}
+
+    assert_receive {^handler_id, %{count: 1},
+                    %{
+                      source: "disk_seasonal",
+                      metric_class: "disk",
+                      reason: :unsupported_metric_class
+                    }}
+
+    assert_receive {^handler_id, %{count: 1},
+                    %{
+                      source: "snmp_interface_seasonal",
+                      metric_class: "snmp",
+                      reason: :unsupported_metric_class
+                    }}
   end
 
   # A profile row carrying the SQL-aggregated (dow,hod) bucket summary INCLUDING the
@@ -175,6 +246,11 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
     end
   end
 
+  defmodule MissingNifReasoner do
+    @moduledoc false
+    def dispose_batch(_kind, _inputs), do: :erlang.nif_error(:nif_not_loaded)
+  end
+
   test "worker reads the hour-of-week profile through SRQL and disposes via the NIF" do
     event = [:serviceradar, :observability, :seasonal_disposition, :source]
     handler_id = {:seasonal_source, make_ref()}
@@ -232,9 +308,70 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
 
     assert_receive {^handler_id, measurements, %{source: "cpu_seasonal", result: :ok}}
     assert measurements.evaluated == 2
+    assert measurements.covered == 2
     assert measurements.breached == 1
     assert measurements.suppressed == 1
     assert measurements.nif_duration_us >= 0
+  end
+
+  test "worker persists non-surfacing normal dispositions in state store" do
+    busy = for i <- 0..19, do: 800.0 + rem(i, 5) * 2.0
+    rows = [profile_row("svc/cpu/normal", 2, 9, busy, 805.0)]
+
+    assert :ok =
+             Worker.run(job(),
+               sources: [source()],
+               runner: make_runner(rows),
+               state_store: RecordingStateStore,
+               verdict_emitter: TestEmitter,
+               test_pid: self()
+             )
+
+    assert_received {:seasonal_state_load, [{"svc/cpu/normal", 2, 9}]}
+    assert_received {:seasonal_state_actions, [action]}
+
+    assert action.key == {"svc/cpu/normal", 2, 9}
+    assert action.disposition == "normal"
+    assert action.status == "normal"
+    assert action.consecutive_anomalous == 0
+    assert action.evaluated_at == @evaluated_at
+    assert is_number(action.score)
+    assert action.bucket_started_at == ~U[2026-06-11 18:00:00Z]
+    assert action.bucket_ended_at == ~U[2026-06-11 19:00:00Z]
+
+    refute_received {:seasonal_verdict, _}
+  end
+
+  test "worker emits degraded liveness when seasonal NIF is unavailable" do
+    event = [:serviceradar, :observability, :seasonal_disposition, :nif_liveness]
+    handler_id = {:seasonal_nif_liveness, make_ref()}
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      event,
+      fn ^event, measurements, metadata, _config ->
+        send(test_pid, {handler_id, measurements, metadata})
+      end,
+      nil
+    )
+
+    result =
+      try do
+        Worker.run(job(),
+          reasoner: MissingNifReasoner,
+          runner: QueryRecorderRunner
+        )
+      after
+        :telemetry.detach(handler_id)
+      end
+
+    assert {:error, {:seasonal_nif_unavailable, {:nif_call_failed, _}}} = result
+
+    assert_receive {^handler_id, %{count: 1},
+                    %{status: :degraded, reason_class: "nif_call_failed"}}
+
+    refute_received {:seasonal_query, _}
   end
 
   test "worker carries consecutive_anomalous in for confirm-slot hysteresis" do
@@ -372,17 +509,39 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
   end
 
   test "worker gates a thin bucket to insufficient without surfacing a verdict" do
+    event = [:serviceradar, :observability, :seasonal_disposition, :source]
+    handler_id = {:seasonal_thin_bucket, make_ref()}
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      event,
+      fn ^event, measurements, metadata, _config ->
+        send(test_pid, {handler_id, measurements, metadata})
+      end,
+      nil
+    )
+
     rows = [profile_row("svc/cpu/thin", 1, 4, [10.0, 11.0, 9.0], 50.0)]
 
-    assert :ok =
-             Worker.run(job(),
-               sources: [source()],
-               runner: make_runner(rows),
-               verdict_emitter: TestEmitter,
-               test_pid: self()
-             )
+    result =
+      try do
+        Worker.run(job(),
+          sources: [source()],
+          runner: make_runner(rows),
+          verdict_emitter: TestEmitter,
+          test_pid: self()
+        )
+      after
+        :telemetry.detach(handler_id)
+      end
 
+    assert result == :ok
     refute_received {:seasonal_verdict, _}
+    assert_receive {^handler_id, measurements, %{source: "cpu_seasonal", result: :ok}}
+    assert measurements.evaluated == 1
+    assert measurements.covered == 0
+    assert measurements.insufficient == 1
   end
 
   test "worker treats sparse robust profile nulls as insufficient history" do
@@ -410,6 +569,39 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
              )
 
     refute_received {:seasonal_verdict, _}
+  end
+
+  test "median-mad profile resists a single poisoned historical hour in a five-sample cell" do
+    robust_source = %{source() | robust_statistic: :median_mad}
+
+    # Historical profile represented by SQL order stats for [10, 10, 11, 11, 500].
+    # A mean/stddev baseline would be widened by the one historical incident; the
+    # robust center/MAD keeps the current 60% sample visibly off-profile.
+    rows = [
+      %{
+        "series" => "svc/cpu/poisoned-cell",
+        "dow" => 0,
+        "hod" => 3,
+        "sample_value" => 60.0,
+        "bucket_count" => 5,
+        "center" => 11.0,
+        "mad" => 1.0,
+        "bucket" => ~U[2026-06-07 03:00:00Z]
+      }
+    ]
+
+    assert :ok =
+             Worker.run(job(),
+               sources: [robust_source],
+               runner: make_runner(rows),
+               verdict_emitter: TestEmitter,
+               test_pid: self()
+             )
+
+    assert_received {:seasonal_verdict, attrs}
+    assert attrs.series_key == "svc/cpu/poisoned-cell"
+    assert attrs.disposition == "seasonal_breach"
+    assert attrs.metadata["robust_statistic"] == "median_mad"
   end
 
   test "worker emits a clear when a previously confirmed seasonal breach suppresses" do

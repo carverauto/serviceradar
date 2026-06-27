@@ -1,9 +1,22 @@
 defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.EventWriter.DeviceCorrelation
+  alias ServiceRadar.EventWriter.DeviceCorrelationCache
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.CausalSignals
+  alias ServiceRadar.Observability.AnomalyDetection.SeriesKey
   alias ServiceRadar.Observability.CapacityForecasting.VerdictEmitter
+
+  defp seed_device_resolution(candidate, uid) do
+    DeviceCorrelationCache.put(DeviceCorrelationCache.cache_key(candidate), uid)
+  end
+
+  defp seed_snmp_metric_resolution(candidate, uid) do
+    key = DeviceCorrelation.snmp_interface_metric_cache_key(candidate)
+    assert key
+    DeviceCorrelationCache.put(key, uid)
+  end
 
   defmodule ExistingTimeRepo do
     def query(sql, [ids]) do
@@ -201,6 +214,17 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
 
     test "uses SNMP target IP as anomaly device identity when polling agent reports verdict" do
       target_ip = "10.0.0.20"
+      target_device_uid = "sr:snmp-target-10-0-0-20"
+
+      seed_snmp_metric_resolution(
+        %{
+          target_device_ip: target_ip,
+          ip: target_ip,
+          metric_name: "ifHCInOctets",
+          if_index: 7
+        },
+        target_device_uid
+      )
 
       payload = %{
         "event_id" => "snmp-target-anomaly",
@@ -215,6 +239,8 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         "anomaly" => %{
           "series_key" => "snmp:#{target_ip}:7",
           "metric_class" => "snmp",
+          "metric_name" => "ifHCInOctets",
+          "if_index" => 7,
           "state" => "anomaly_open",
           "target_device_ip" => target_ip
         },
@@ -234,10 +260,205 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
           }
         })
 
-      assert row.device["uid"] == target_ip
-      assert row.metadata["service_radar"]["device_uid"] == target_ip
-      assert row.metadata["finding_info"]["dimensions"]["device_uid"] == target_ip
+      assert row.device["uid"] == target_device_uid
+      assert row.metadata["service_radar"]["device_uid"] == target_device_uid
+      assert row.metadata["service_radar"]["device_id"] == target_device_uid
+      assert row.metadata["service_radar"]["metric_name"] == "ifHCInOctets"
+      assert row.metadata["service_radar"]["if_index"] == 7
+      assert row.metadata["finding_info"]["dimensions"]["device_uid"] == target_device_uid
+      assert row.metadata["finding_info"]["dimensions"]["device_id"] == target_device_uid
       assert row.metadata["finding_info"]["dimensions"]["series_key"] == "snmp:#{target_ip}:7"
+      assert row.metadata["finding_info"]["dimensions"]["metric_name"] == "ifHCInOctets"
+      assert row.metadata["finding_info"]["dimensions"]["if_index"] == 7
+    end
+
+    test "withholds SNMP anomaly verdicts when the polled target is missing" do
+      payload = %{
+        "event_id" => "snmp-target-missing",
+        "signal_type" => "causal",
+        "event_type" => "anomaly",
+        "class_uid" => 2004,
+        "time" => 1_812_456_000_000,
+        "severity_id" => 4,
+        "device_uid" => "agent-dusk01",
+        "agent_id" => "agent-dusk01",
+        "anomaly" => %{
+          "series_key" => "v2:class=snmp:identity=agent-dusk01:if_index=6",
+          "metric_class" => "snmp",
+          "state" => "anomaly_open"
+        },
+        "source_identity" => %{
+          "agent_id" => "agent-dusk01",
+          "host_id" => "dusk01"
+        }
+      }
+
+      assert CausalSignals.parse_message(%{
+               data: Jason.encode!(payload),
+               metadata: %{
+                 subject: "signals.causal.predictions.snmp.agent-dusk01.6",
+                 received_at: DateTime.utc_now()
+               }
+             }) == nil
+    end
+
+    test "withholds SNMP anomaly when only the target IP resolves but the metric tuple does not" do
+      target_ip = "10.0.0.25"
+
+      seed_device_resolution(
+        %{
+          device_uid: target_ip,
+          agent_id: nil,
+          hostname: nil,
+          ip: target_ip,
+          partition: nil
+        },
+        "sr:target-without-interface-metric"
+      )
+
+      payload = %{
+        "event_id" => "snmp-target-no-metric-tuple",
+        "signal_type" => "causal",
+        "event_type" => "anomaly",
+        "class_uid" => 2004,
+        "time" => 1_812_456_000_000,
+        "severity_id" => 4,
+        "device_uid" => "agent-dusk01",
+        "agent_id" => "agent-dusk01",
+        "target_device_ip" => target_ip,
+        "anomaly" => %{
+          "series_key" => "snmp:#{target_ip}:7",
+          "metric_class" => "snmp.interface",
+          "metric_name" => "ifHCInOctets",
+          "if_index" => 7,
+          "state" => "anomaly_open",
+          "target_device_ip" => target_ip
+        }
+      }
+
+      assert CausalSignals.parse_message(%{
+               data: Jason.encode!(payload),
+               metadata: %{
+                 subject: "signals.causal.predictions.snmp:#{target_ip}:7",
+                 received_at: DateTime.utc_now()
+               }
+             }) == nil
+    end
+
+    test "accepts canonical SNMP target device identity without target IP" do
+      seed_snmp_metric_resolution(
+        %{
+          device_uid: "sr:farm01",
+          metric_name: "ifHCInOctets",
+          if_index: 6
+        },
+        "sr:farm01"
+      )
+
+      payload = %{
+        "event_id" => "snmp-canonical-target",
+        "signal_type" => "causal",
+        "event_type" => "anomaly",
+        "class_uid" => 2004,
+        "time" => 1_812_456_000_000,
+        "severity_id" => 4,
+        "device_uid" => "sr:farm01",
+        "agent_id" => "agent-dusk01",
+        "anomaly" => %{
+          "series_key" => "v2:class=snmp.interface:identity=sr:farm01:if_index=6",
+          "metric_class" => "snmp.interface",
+          "metric_name" => "ifHCInOctets",
+          "state" => "anomaly_open"
+        },
+        "source_identity" => %{
+          "series_key" => "v2:class=snmp.interface:identity=sr:farm01:if_index=6",
+          "metric_class" => "snmp.interface",
+          "metric_name" => "ifHCInOctets",
+          "device_id" => "sr:farm01",
+          "agent_id" => "agent-dusk01",
+          "tags" => %{"if_index" => "6"}
+        }
+      }
+
+      row =
+        CausalSignals.parse_message(%{
+          data: Jason.encode!(payload),
+          metadata: %{
+            subject: "signals.causal.predictions.snmp.sr-farm01.6",
+            received_at: DateTime.utc_now()
+          }
+        })
+
+      assert row.device["uid"] == "sr:farm01"
+      assert row.metadata["service_radar"]["device_uid"] == "sr:farm01"
+      assert row.metadata["service_radar"]["device_id"] == "sr:farm01"
+      assert row.metadata["service_radar"]["metric_name"] == "ifHCInOctets"
+      assert row.metadata["service_radar"]["if_index"] == 6
+      assert row.metadata["finding_info"]["dimensions"]["device_uid"] == "sr:farm01"
+      assert row.metadata["finding_info"]["dimensions"]["device_id"] == "sr:farm01"
+      assert row.metadata["finding_info"]["dimensions"]["metric_name"] == "ifHCInOctets"
+      assert row.metadata["finding_info"]["dimensions"]["if_index"] == 6
+    end
+
+    test "SNMP anomaly metadata exposes the metric tuple even when metric series key differs" do
+      target_ip = "10.0.0.30"
+      target_device_uid = "sr:farm01"
+
+      seed_snmp_metric_resolution(
+        %{
+          target_device_ip: target_ip,
+          ip: target_ip,
+          metric_name: "ifHCOutOctets",
+          if_index: 4
+        },
+        target_device_uid
+      )
+
+      metric_tuple = %{
+        "device_id" => target_device_uid,
+        "metric_name" => "ifHCOutOctets",
+        "if_index" => 4,
+        "series_key" => "metric:#{target_device_uid}:ifHCOutOctets:4"
+      }
+
+      anomaly_series_key = "edge:v2:agent-dusk01:#{target_ip}:ifHCOutOctets:4"
+
+      payload = %{
+        "event_id" => "snmp-metric-tuple",
+        "signal_type" => "causal",
+        "event_type" => "anomaly",
+        "class_uid" => 2004,
+        "time" => 1_812_456_000_000,
+        "severity_id" => 5,
+        "device_uid" => "agent-dusk01",
+        "agent_id" => "agent-dusk01",
+        "target_device_ip" => target_ip,
+        "anomaly" => %{
+          "series_key" => anomaly_series_key,
+          "metric_class" => "snmp.interface",
+          "metric_name" => metric_tuple["metric_name"],
+          "if_index" => metric_tuple["if_index"],
+          "state" => "anomaly_open",
+          "target_device_ip" => target_ip
+        }
+      }
+
+      row =
+        CausalSignals.parse_message(%{
+          data: Jason.encode!(payload),
+          metadata: %{
+            subject: "signals.causal.predictions.#{anomaly_series_key}",
+            received_at: DateTime.utc_now()
+          }
+        })
+
+      dimensions = row.metadata["finding_info"]["dimensions"]
+
+      assert row.device["uid"] == metric_tuple["device_id"]
+      assert dimensions["device_id"] == metric_tuple["device_id"]
+      assert dimensions["metric_name"] == metric_tuple["metric_name"]
+      assert dimensions["if_index"] == metric_tuple["if_index"]
+      refute dimensions["series_key"] == metric_tuple["series_key"]
     end
 
     test "returns nil on invalid JSON" do
@@ -761,6 +982,103 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       assert central_row.metadata["service_radar"]["verdict_source"] == "central"
     end
 
+    test "stores edge and central verdicts under the same canonical series key after device re-key" do
+      raw_device = "raw-worker-join-key"
+      agent_id = "agent-join-key"
+      partition = "prod-east"
+      canonical_device = "sr:join-key-device"
+
+      seed_device_resolution(
+        %{
+          device_uid: raw_device,
+          agent_id: agent_id,
+          hostname: raw_device,
+          ip: nil,
+          partition: partition
+        },
+        canonical_device
+      )
+
+      source_identity = %{
+        "series_key" => "edge-producer-provisional-key",
+        "metric_class" => "sysmon.cpu",
+        "metric_name" => "cpu.usage_percent",
+        "partition" => partition,
+        "agent_id" => agent_id,
+        "host_id" => raw_device,
+        "device_id" => raw_device,
+        "tags" => %{"core_id" => "6"}
+      }
+
+      canonical_series_key =
+        source_identity
+        |> Map.put("device_id", canonical_device)
+        |> SeriesKey.from_source_identity()
+
+      refute canonical_series_key == source_identity["series_key"]
+
+      edge = %{
+        "event_id" => "anomaly-edge-join-key",
+        "signal_type" => "causal",
+        "event_type" => "anomaly",
+        "class_uid" => 2004,
+        "timestamp" => "2026-06-12T12:00:00Z",
+        "severity_id" => 4,
+        "device_uid" => raw_device,
+        "agent_id" => agent_id,
+        "hostname" => raw_device,
+        "partition" => partition,
+        "verdict_source" => "edge-spike",
+        "source_identity" => source_identity,
+        "anomaly" => %{
+          "series_key" => source_identity["series_key"],
+          "metric_class" => "sysmon.cpu",
+          "metric_name" => "cpu.usage_percent",
+          "state" => "anomaly_open"
+        }
+      }
+
+      central =
+        edge
+        |> Map.put("event_id", "anomaly-central-join-key")
+        |> Map.put("device_uid", canonical_device)
+        |> Map.put("verdict_source", "central-seasonal")
+        |> Map.delete("source_identity")
+        |> put_in(["anomaly", "series_key"], canonical_series_key)
+
+      edge_row =
+        CausalSignals.parse_message(%{
+          data: Jason.encode!(edge),
+          metadata: %{
+            subject: "signals.causal.predictions.#{source_identity["series_key"]}",
+            received_at: DateTime.utc_now()
+          }
+        })
+
+      central_row =
+        CausalSignals.parse_message(%{
+          data: Jason.encode!(central),
+          metadata: %{
+            subject: "signals.causal.predictions.#{canonical_series_key}",
+            received_at: DateTime.utc_now()
+          }
+        })
+
+      assert edge_row.device["uid"] == canonical_device
+      assert edge_row.metadata["service_radar"]["device_uid"] == canonical_device
+
+      for row <- [edge_row, central_row] do
+        assert row.metadata["service_radar"]["series_key"] == canonical_series_key
+        assert row.metadata["security_signal"]["series_key"] == canonical_series_key
+        assert row.metadata["detection_finding"]["series_key"] == canonical_series_key
+        assert row.metadata["finding_info"]["dimensions"]["series_key"] == canonical_series_key
+        assert row.metadata["finding_info"]["dimensions"]["device_uid"] == canonical_device
+      end
+
+      assert edge_row.metadata["service_radar"]["finding_uid"] ==
+               central_row.metadata["service_radar"]["finding_uid"]
+    end
+
     test "overwrites stale edge finding_info with canonical device and series identity" do
       edge = %{
         "event_id" => "anomaly-edge-stale-finding-info",
@@ -819,7 +1137,95 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       assert stale_row.metadata["security_signal"]["finding_uid"] == finding_info["uid"]
     end
 
+    test "preserves edge anomaly episode window and peak metadata" do
+      payload = %{
+        "event_id" => "anomaly-edge-episode-context",
+        "signal_type" => "causal",
+        "event_type" => "anomaly",
+        "class_uid" => 2004,
+        "time" => 1_812_456_040_000,
+        "severity_id" => 4,
+        "device_uid" => "sr:host-a",
+        "verdict_source" => "edge-spike",
+        "anomaly" => %{
+          "series_key" => "cpu-series-a",
+          "metric_class" => "sysmon.cpu",
+          "metric_name" => "cpu.usage_percent",
+          "state" => "anomaly_open",
+          "detector_state" => "anomalous",
+          "score" => 6.2,
+          "baseline_count" => 30,
+          "consecutive_anomalous" => 8,
+          "signals" => [
+            %{
+              "name" => "rolling_zscore",
+              "enabled" => true,
+              "ready" => true,
+              "breached" => true,
+              "score" => 6.2,
+              "threshold" => 3.0,
+              "sample_count" => 300,
+              "mean" => 10.4,
+              "stddev" => 12.5,
+              "reason" => "rolling_zscore breach"
+            }
+          ],
+          "sample_value" => 88.0,
+          "observed_at_unix_nano" => 1_812_456_040_000_000_000,
+          "episode_started_at_unix_nano" => 1_812_456_010_000_000_000,
+          "episode_ended_at_unix_nano" => 1_812_456_040_000_000_000,
+          "episode_peak_value" => 97.7,
+          "episode_peak_at_unix_nano" => 1_812_456_022_000_000_000
+        }
+      }
+
+      row =
+        CausalSignals.parse_message(%{
+          data: Jason.encode!(payload),
+          metadata: %{
+            subject: "signals.causal.predictions.cpu-series-a",
+            received_at: DateTime.utc_now()
+          }
+        })
+
+      dimensions = row.metadata["finding_info"]["dimensions"]
+
+      assert row.metadata["service_radar"]["verdict_source"] == "edge-spike"
+      assert row.metadata["detection_finding"]["score"] == 6.2
+      assert row.metadata["detection_finding"]["consecutive_anomalous"] == 8
+      assert [signal] = row.metadata["detection_finding"]["signals"]
+      assert signal["name"] == "rolling_zscore"
+      assert signal["threshold"] == 3.0
+      assert signal["sample_count"] == 300
+      assert dimensions["detector_state"] == "anomalous"
+      assert dimensions["score"] == 6.2
+      assert dimensions["baseline_count"] == 30
+      assert dimensions["consecutive_anomalous"] == 8
+      assert [dimension_signal] = dimensions["signals"]
+      assert dimension_signal["name"] == "rolling_zscore"
+      assert dimension_signal["mean"] == 10.4
+      assert dimension_signal["stddev"] == 12.5
+      assert dimensions["sample_value"] == 88.0
+      assert dimensions["observed_at_unix_nano"] == 1_812_456_040_000_000_000
+      assert dimensions["episode_started_at_unix_nano"] == 1_812_456_010_000_000_000
+      assert dimensions["episode_ended_at_unix_nano"] == 1_812_456_040_000_000_000
+      assert dimensions["episode_peak_value"] == 97.7
+      assert dimensions["episode_peak_at_unix_nano"] == 1_812_456_022_000_000_000
+    end
+
     test "uses structured anomaly dimensions for titles when series keys are opaque" do
+      target_ip = "192.0.2.20"
+
+      seed_snmp_metric_resolution(
+        %{
+          target_device_ip: target_ip,
+          ip: target_ip,
+          metric_name: "ifHCInOctets",
+          if_index: 7
+        },
+        "sr:opaque-snmp-target"
+      )
+
       opaque_series_key =
         "v2:partition=64656661756c74:class=736e6d702e696e74657266616365:identity=31302e302e302e3230"
 
@@ -830,14 +1236,14 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         "class_uid" => 2004,
         "timestamp" => "2026-06-12T12:00:00Z",
         "severity_id" => 4,
-        "device_uid" => "10.0.0.20",
-        "target_device_ip" => "10.0.0.20",
+        "device_uid" => target_ip,
+        "target_device_ip" => target_ip,
         "verdict_source" => "edge-spike",
         "anomaly" => %{
           "series_key" => opaque_series_key,
           "metric_class" => "snmp.interface",
           "metric_name" => "ifHCInOctets",
-          "target_device_ip" => "10.0.0.20",
+          "target_device_ip" => target_ip,
           "interface_name" => "uplink0",
           "if_index" => 7,
           "state" => "anomaly_open"
@@ -857,18 +1263,18 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       dimensions = finding_info["dimensions"]
 
       assert finding_info["title"] ==
-               "Anomaly detection: ifHCInOctets 10.0.0.20 uplink0 ifIndex 7"
+               "Anomaly detection: ifHCInOctets 192.0.2.20 uplink0 ifIndex 7"
 
       refute finding_info["title"] =~ "v2:"
       assert dimensions["series_key"] == opaque_series_key
       assert dimensions["metric_name"] == "ifHCInOctets"
-      assert dimensions["target_device_ip"] == "10.0.0.20"
+      assert dimensions["target_device_ip"] == target_ip
       assert dimensions["interface_name"] == "uplink0"
       assert dimensions["if_index"] == 7
-      assert dimensions["resource_label"] == "10.0.0.20 uplink0 ifIndex 7"
+      assert dimensions["resource_label"] == "192.0.2.20 uplink0 ifIndex 7"
     end
 
-    test "does not use future versioned opaque series keys as anomaly titles" do
+    test "withholds future versioned opaque SNMP series keys when target is unresolved" do
       opaque_series_key =
         "v3:partition=64656661756c74:class=736e6d702e696e74657266616365:identity=31302e302e302e3230"
 
@@ -897,12 +1303,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
           }
         })
 
-      finding_info = row.metadata["finding_info"]
-
-      assert finding_info["title"] == "Anomaly detection: snmp.interface series"
-      refute finding_info["title"] =~ "v3:"
-      assert finding_info["dimensions"]["series_key"] == opaque_series_key
-      refute Map.has_key?(finding_info["dimensions"], "resource_label")
+      assert row == nil
     end
 
     test "selects capacity causal prediction findings for stateful alert evaluation" do

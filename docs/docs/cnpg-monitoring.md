@@ -89,34 +89,23 @@ ORDER BY mb DESC;
 
 Watching the compressed/uncompressed split helps explain PVC growth and ensures operators run `refresh_continuous_aggregate` after backfills.
 
-## Write-Flood Growth Tracking
+### Write-Flood Growth Tracking
 
 After the anomaly/capacity/flow flood fixes land, track the actual write rate for
-the hot tables called out in F46. During anomaly-engine or flow-volume rollouts,
-capture a baseline and a 24-hour follow-up for the tables touched by the
-write-flood fixes:
+the hot tables called out in F46:
 
 ```bash
 psql "$DATABASE_URL" -f scripts/db/write_flood_growth.sql
 ```
 
-Run the probe before deployment, immediately after deployment, and then hourly
+Run the query before deployment, immediately after deployment, and then hourly
 for at least 24 hours. The output reports current table bytes plus 1-hour and
 24-hour row rates for `platform.ocsf_events`, `platform.capacity_forecasts`, and
-`platform.ocsf_network_activity`. The row-rate columns filter only on each
-hypertable's time partition column so TimescaleDB can prune old chunks; avoid
-adding `created_at`-only counts to this probe. `estimated_total_rows` and
-`table_bytes` come from catalog/table-size helpers and are cheap enough for
-repeated sampling.
-
-The expected post-fix signal is a sustained drop in `ocsf_events` and
-`capacity_forecasts` rows per hour once duplicate anomaly/capacity findings stop
-re-emitting. For `ocsf_network_activity`, compare the row rate with
-`logical_volume_1h`: sampled exporters may keep similar row counts, but
-`logical_volume_1h` should reflect sampling-adjusted traffic after F39 while
-retention keeps physical table growth bounded. Use the flow row rate together
-with the sampling-adjusted logical volume to confirm F39 is no longer
-undercounting sampled traffic.
+`platform.ocsf_network_activity`. The expected post-fix signal is a sustained
+drop in `ocsf_events` and `capacity_forecasts` rows per hour; flow rows may stay
+near the exporter packet rate, so use the flow row rate together with the
+sampling-adjusted logical volume to confirm F39 is no longer undercounting
+sampled traffic while retention bounds physical table growth.
 
 ## Query and pgx Error Watch
 

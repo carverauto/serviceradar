@@ -75,6 +75,21 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
       data-testid="timeseries-annotations"
       stroke-linecap="round"
     >
+      <%= for annotation <- @annotations, is_number(Map.get(annotation, :window_x1)) and is_number(Map.get(annotation, :window_x2)) do %>
+        <rect
+          data-testid="timeseries-annotation-window"
+          data-annotation-label={annotation.label}
+          data-annotation-severity={annotation.severity}
+          x={annotation.window_x1}
+          y={@chart_pad}
+          width={max(annotation.window_x2 - annotation.window_x1, 1)}
+          height={@chart_height - 2 * @chart_pad}
+          fill={annotation.color}
+          opacity="0.12"
+        >
+          <title>{annotation.title}</title>
+        </rect>
+      <% end %>
       <%= for annotation <- @annotations do %>
         <line
           data-testid="timeseries-annotation"

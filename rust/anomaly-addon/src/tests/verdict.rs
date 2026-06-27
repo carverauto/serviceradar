@@ -4,10 +4,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use addon_sdk::metric_pb::{Metric, MetricPoint, MetricResource};
-use serviceradar_anomaly_core::ReasonVerdict;
+use serviceradar_anomaly_core::{ReasonVerdict, SignalVerdict};
 
 use super::support::entry;
-use crate::engine::AnomalyTransition;
+use crate::engine::{AnomalyEpisode, AnomalyTransition};
 use crate::identity::{safe_component, series_key_for};
 use crate::verdict::verdict_record;
 
@@ -57,6 +57,7 @@ fn snmp_remote_target_drives_edge_verdict_identity() {
         &series_key,
         &verdict,
         AnomalyTransition::Open,
+        None,
     );
     let event: serde_json::Value = serde_json::from_slice(&record.payload).unwrap();
 
@@ -127,6 +128,7 @@ fn snmp_tagged_target_drives_edge_verdict_identity_without_resource_target() {
         &series_key,
         &verdict,
         AnomalyTransition::Open,
+        None,
     );
     let event: serde_json::Value = serde_json::from_slice(&record.payload).unwrap();
 
@@ -196,6 +198,7 @@ fn edge_verdict_identity_uses_producer_sample_time() {
         &series_key,
         &verdict,
         AnomalyTransition::Open,
+        None,
     );
     let second = verdict_record(
         &resource,
@@ -204,6 +207,7 @@ fn edge_verdict_identity_uses_producer_sample_time() {
         &series_key,
         &verdict,
         AnomalyTransition::Open,
+        None,
     );
     let event: serde_json::Value = serde_json::from_slice(&first.payload).unwrap();
     let expected_event_id = format!("anomaly:{series_key}:{sample_time}:anomaly_open");
@@ -263,6 +267,7 @@ fn edge_verdict_identity_falls_back_to_point_time_without_sample_time() {
         &series_key,
         &verdict,
         AnomalyTransition::Open,
+        None,
     );
     let event: serde_json::Value = serde_json::from_slice(&record.payload).unwrap();
     let expected_event_id = format!("anomaly:{series_key}:{point_time}:anomaly_open");
@@ -272,4 +277,146 @@ fn edge_verdict_identity_falls_back_to_point_time_without_sample_time() {
     assert_eq!(record.observed_time_unix_nano, point_time as i64);
     assert_eq!(event["time"], (point_time / 1_000_000) as i64);
     assert_eq!(event["anomaly"]["observed_at_unix_nano"], point_time);
+}
+
+#[test]
+fn edge_verdict_includes_episode_window_and_peak_when_present() {
+    let resource = MetricResource {
+        agent_id: "agent-a".to_string(),
+        host_id: "host-a".to_string(),
+        device_id: "device-a".to_string(),
+        partition: "demo".to_string(),
+        ..Default::default()
+    };
+    let metric = Metric {
+        name: "cpu.usage_percent".to_string(),
+        metric_type: "sysmon.cpu".to_string(),
+        ..Default::default()
+    };
+    let point = MetricPoint {
+        value: 88.0,
+        observed_at_unix_nano: 1_812_456_040_000_000_000,
+        series_identity_hint: "device-a|cpu0".to_string(),
+        ..Default::default()
+    };
+    let series_key = series_key_for(&resource, &metric, &point);
+    let verdict = ReasonVerdict {
+        state: "anomalous".to_string(),
+        anomalous: true,
+        breached: true,
+        include_in_baseline: false,
+        next_consecutive_anomalous: 5,
+        score: 6.0,
+        reason: "confirmed".to_string(),
+        baseline_count: 30,
+        next_rolling_acc: serviceradar_anomaly_core::WelfordAcc::default(),
+        next_window_tail: Vec::new(),
+        sample_value: 88.0,
+        observed_at_unix_nano: Some(point.observed_at_unix_nano),
+        signals: Vec::new(),
+    };
+    let episode = AnomalyEpisode {
+        started_at_unix_nano: 1_812_456_010_000_000_000,
+        ended_at_unix_nano: 1_812_456_040_000_000_000,
+        peak_value: 97.7,
+        peak_at_unix_nano: 1_812_456_022_000_000_000,
+    };
+
+    let record = verdict_record(
+        &resource,
+        &metric,
+        &point,
+        &series_key,
+        &verdict,
+        AnomalyTransition::Open,
+        Some(episode),
+    );
+    let event: serde_json::Value = serde_json::from_slice(&record.payload).unwrap();
+
+    assert_eq!(
+        event["anomaly"]["episode_started_at_unix_nano"],
+        episode.started_at_unix_nano
+    );
+    assert_eq!(
+        event["anomaly"]["episode_ended_at_unix_nano"],
+        episode.ended_at_unix_nano
+    );
+    assert_eq!(event["anomaly"]["episode_peak_value"], episode.peak_value);
+    assert_eq!(
+        event["anomaly"]["episode_peak_at_unix_nano"],
+        episode.peak_at_unix_nano
+    );
+}
+
+#[test]
+fn edge_verdict_includes_signal_evidence_for_operator_explanation() {
+    let resource = MetricResource {
+        agent_id: "agent-a".to_string(),
+        host_id: "host-a".to_string(),
+        device_id: "device-a".to_string(),
+        partition: "demo".to_string(),
+        ..Default::default()
+    };
+    let metric = Metric {
+        name: "cpu.usage_percent".to_string(),
+        metric_type: "sysmon.cpu".to_string(),
+        ..Default::default()
+    };
+    let point = MetricPoint {
+        value: 92.0,
+        observed_at_unix_nano: 1_812_456_040_000_000_000,
+        attributes: vec![entry("core_id", "4")],
+        ..Default::default()
+    };
+    let series_key = series_key_for(&resource, &metric, &point);
+    let verdict = ReasonVerdict {
+        state: "anomalous".to_string(),
+        anomalous: true,
+        breached: true,
+        include_in_baseline: false,
+        next_consecutive_anomalous: 8,
+        score: 4.6,
+        reason: "breach confirmed after 8/5 consecutive anomalous slots".to_string(),
+        baseline_count: 300,
+        next_rolling_acc: serviceradar_anomaly_core::WelfordAcc::default(),
+        next_window_tail: Vec::new(),
+        sample_value: 92.0,
+        observed_at_unix_nano: Some(point.observed_at_unix_nano),
+        signals: vec![SignalVerdict {
+            name: "rolling_zscore".to_string(),
+            enabled: true,
+            ready: true,
+            breached: true,
+            score: 4.6,
+            threshold: 3.0,
+            sample_count: 300,
+            mean: Some(11.2),
+            stddev: Some(17.6),
+            reason: "rolling_zscore breach".to_string(),
+        }],
+    };
+
+    let record = verdict_record(
+        &resource,
+        &metric,
+        &point,
+        &series_key,
+        &verdict,
+        AnomalyTransition::Open,
+        None,
+    );
+    let event: serde_json::Value = serde_json::from_slice(&record.payload).unwrap();
+    let signal = &event["anomaly"]["signals"][0];
+
+    assert_eq!(event["anomaly"]["consecutive_anomalous"], 8);
+    assert_eq!(signal["name"], "rolling_zscore");
+    assert_eq!(signal["enabled"], true);
+    assert_eq!(signal["ready"], true);
+    assert_eq!(signal["breached"], true);
+    assert_eq!(signal["score"], 4.6);
+    assert_eq!(signal["threshold"], 3.0);
+    assert_eq!(signal["sample_count"], 300);
+    assert_eq!(signal["mean"], 11.2);
+    assert_eq!(signal["stddev"], 17.6);
+    assert_eq!(signal["reason"], "rolling_zscore breach");
 }

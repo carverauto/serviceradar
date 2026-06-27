@@ -38,6 +38,26 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     end
   end
 
+  defmodule BlankSeriesRunner do
+    @moduledoc false
+    @start ~U[2026-06-01 00:00:00Z]
+
+    def query(query, _opts) do
+      send(self(), {:capacity_forecast_query, query})
+
+      rows =
+        for series <- ["", "sr:device-a"], hour <- 0..23 do
+          %{
+            "timestamp" => DateTime.add(@start, hour * 3_600, :second),
+            "series" => series,
+            "value" => 20.0 + hour
+          }
+        end
+
+      {:ok, rows}
+    end
+  end
+
   defmodule FlowRunner do
     @moduledoc false
     @start ~U[2026-06-01 00:00:00Z]
@@ -50,6 +70,69 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
           %{
             "bucket" => DateTime.add(@start, hour * 3_600, :second),
             "bytes_total" => 500_000_000_000.0 + hour * 10_000_000_000.0
+          }
+        end
+
+      {:ok, rows}
+    end
+  end
+
+  defmodule OutOfDomainPercentRunner do
+    @moduledoc false
+    @start ~U[2026-06-01 00:00:00Z]
+
+    def query(_query, _opts) do
+      rows =
+        for hour <- 0..47 do
+          %{
+            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "device_id" => "device-a",
+            "mount_point" => "/",
+            "avg_usage_percent" => 20.0 + 1.25 * hour
+          }
+        end
+
+      {:ok, rows}
+    end
+  end
+
+  defmodule DecliningPercentRunner do
+    @moduledoc false
+    @start ~U[2026-06-01 00:00:00Z]
+
+    def query(_query, _opts) do
+      rows =
+        for hour <- 0..47 do
+          %{
+            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "device_id" => "device-a",
+            "mount_point" => "/",
+            "avg_usage_percent" => 75.0 - hour * 1.25
+          }
+        end
+
+      {:ok, rows}
+    end
+  end
+
+  defmodule OutOfDomainGaugePercentRunner do
+    @moduledoc false
+    @start ~U[2026-06-01 00:00:00Z]
+
+    def query(_query, _opts) do
+      rows =
+        for hour <- 0..47 do
+          value =
+            case hour do
+              24 -> 239.0
+              _ -> 70.0 + hour * 0.1
+            end
+
+          %{
+            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "device_id" => "device-a",
+            "mount_point" => "/",
+            "avg_usage_percent" => value
           }
         end
 
@@ -252,6 +335,48 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
 
     assert_received {:capacity_forecast_upsert,
                      %{resource_key: "cpu_usage:device-b:device-b-host"}}
+  end
+
+  test "worker skips rows whose configured resource key is blank" do
+    source = %Source{
+      name: "cpu_usage",
+      resource_type: "cpu",
+      metric_class: "cpu",
+      metric_name: "usage_percent",
+      query:
+        ~s|in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:last_180d bucket:1h agg:avg series:uid sort:timestamp:desc limit:50000|,
+      value_field: "value",
+      bucket_field: "timestamp",
+      key_fields: ["series"],
+      label_fields: ["series"],
+      threshold: 100.0,
+      model: "linear",
+      value_unit: "percent"
+    }
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_upsert, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{
+      args: %{"trigger" => "cron"},
+      inserted_at: @forecasted_at,
+      scheduled_at: @forecasted_at
+    }
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: BlankSeriesRunner,
+               upsert_fun: upsert_fun,
+               emit_verdicts?: false,
+               horizon_seconds: 24 * 3_600,
+               min_points: 24
+             )
+
+    assert_received {:capacity_forecast_upsert, %{resource_key: "cpu_usage:sr:device-a"}}
+    refute_received {:capacity_forecast_upsert, %{resource_key: "cpu_usage"}}
   end
 
   test "worker records skipped forecasts for insufficient history" do
@@ -553,7 +678,178 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert attrs.exhaustion_threshold == 250_000_000_000.0
   end
 
-  test "interface forecasts convert byte rates to utilization percent using live speed" do
+  test "percent forecasts keep threshold ETA and clamp projected percent values in the kernel" do
+    source = %Source{
+      name: "disk_usage",
+      resource_type: "disk",
+      metric_class: "disk",
+      metric_name: "usage_percent",
+      query: "in:disk_metrics time:last_180d bucket:1h",
+      value_field: "avg_usage_percent",
+      key_fields: ["device_id", "mount_point"],
+      label_fields: ["mount_point"],
+      threshold: 100.0,
+      model: "linear",
+      value_unit: "percent"
+    }
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_percent_out_of_domain, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: OutOfDomainPercentRunner,
+               upsert_fun: upsert_fun,
+               emit_verdicts?: false,
+               horizon_seconds: 24 * 3_600,
+               min_points: 24
+             )
+
+    assert_received {:capacity_forecast_percent_out_of_domain, attrs}
+    assert attrs.status == "projected"
+    assert attrs.projected_exhaustion_at
+    assert attrs.projected_value == 100.0
+    assert attrs.lower_bound == 100.0
+    assert attrs.upper_bound == 100.0
+    assert attrs.metadata["forecast_value_unit"] == "percent"
+    assert attrs.metadata["diagnostics"]["model"] == "linear"
+    assert attrs.metadata["diagnostics"]["projection_bounded"] == true
+    assert attrs.metadata["diagnostics"]["raw_projected_value"] > 100.0
+  end
+
+  test "worker keeps steep bounded percent forecasts and clamps horizon display value" do
+    source = %Source{
+      name: "disk_usage",
+      resource_type: "disk",
+      metric_class: "disk",
+      metric_name: "usage_percent",
+      query: "in:disk_metrics time:last_180d bucket:1h",
+      value_field: "avg_usage_percent",
+      key_fields: ["device_id", "mount_point"],
+      label_fields: ["mount_point"],
+      threshold: 100.0,
+      model: "linear",
+      value_unit: "percent"
+    }
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_steep_percent, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: Runner,
+               upsert_fun: upsert_fun,
+               emit_verdicts?: false,
+               horizon_seconds: 1_000 * 3_600,
+               min_points: 24
+             )
+
+    assert_received {:capacity_forecast_steep_percent, attrs}
+    assert attrs.status == "projected"
+    assert attrs.skip_reason == nil
+    assert attrs.projected_value == 100.0
+    assert attrs.projected_exhaustion_at
+    assert attrs.lower_bound == 100.0
+    assert attrs.upper_bound == 100.0
+    assert attrs.metadata["diagnostics"]["projection_bounded"] == true
+    assert attrs.metadata["diagnostics"]["raw_projected_value"] > 1_000.0
+  end
+
+  test "worker splits gauge percent series at out-of-domain samples" do
+    source = %Source{
+      name: "disk_usage",
+      resource_type: "disk",
+      metric_class: "disk",
+      metric_name: "usage_percent",
+      query: "in:disk_metrics time:last_180d bucket:1h",
+      value_field: "avg_usage_percent",
+      key_fields: ["device_id", "mount_point"],
+      label_fields: ["mount_point"],
+      threshold: 100.0,
+      model: "linear",
+      value_unit: "percent"
+    }
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_out_of_domain_gauge_percent, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: OutOfDomainGaugePercentRunner,
+               upsert_fun: upsert_fun,
+               emit_verdicts?: false,
+               horizon_seconds: 24 * 3_600,
+               min_points: 24
+             )
+
+    assert_received {:capacity_forecast_out_of_domain_gauge_percent, attrs}
+
+    assert attrs.status == "skipped"
+    assert attrs.skip_reason == "insufficient_history"
+    assert attrs.sample_count == 23
+    assert attrs.current_value == nil
+    assert attrs.metadata["gap_count"] == 1
+    assert attrs.window_started_at == ~U[2026-06-02 01:00:00Z]
+  end
+
+  test "worker skips bounded percent forecasts that never cross the threshold" do
+    source = %Source{
+      name: "disk_usage",
+      resource_type: "disk",
+      metric_class: "disk",
+      metric_name: "usage_percent",
+      query: "in:disk_metrics time:last_180d bucket:1h",
+      value_field: "avg_usage_percent",
+      key_fields: ["device_id", "mount_point"],
+      label_fields: ["mount_point"],
+      threshold: 80.0,
+      model: "linear",
+      value_unit: "percent"
+    }
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_declining_percent, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: DecliningPercentRunner,
+               upsert_fun: upsert_fun,
+               emit_verdicts?: false,
+               horizon_seconds: 24 * 3_600,
+               min_points: 24
+             )
+
+    assert_received {:capacity_forecast_declining_percent, attrs}
+    assert attrs.status == "skipped"
+    assert attrs.skip_reason == "no_projected_exhaustion"
+    assert attrs.projected_value == nil
+    assert attrs.projected_exhaustion_at == nil
+    assert attrs.metadata["forecast_value_unit"] == "percent"
+    assert attrs.metadata["diagnostics"]["projection_bounded"] == true
+    assert attrs.metadata["diagnostics"]["raw_projected_value"] < 0.0
+  end
+
+  test "interface forecasts convert byte rates to utilization percent before no-risk skip" do
     source = interface_source()
 
     resolver = fn row, _opts ->
@@ -590,12 +886,14 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
 
     assert attrs.metric_name == "utilization_percent"
     assert attrs.exhaustion_threshold == 100.0
-    assert attrs.status == "projected"
-    assert_in_delta attrs.current_value, 11.76, 0.01
-    assert attrs.projected_value > attrs.current_value
+    assert attrs.status == "skipped"
+    assert attrs.skip_reason == "no_projected_exhaustion"
+    assert attrs.projected_value == nil
+    assert attrs.projected_exhaustion_at == nil
     assert attrs.metadata["capacity_bps"] == 10_000_000
     assert attrs.metadata["forecast_value_unit"] == "percent"
     assert attrs.metadata["raw_value_unit"] == "bytes_per_second"
+    assert attrs.metadata["diagnostics"]["raw_projected_value"] > 0.0
   end
 
   test "interface forecasts insert a gap for SNMP counter-wrap spikes" do

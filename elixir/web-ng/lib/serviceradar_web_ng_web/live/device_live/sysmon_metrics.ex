@@ -48,10 +48,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
 
   defp finding_annotation(row, selected?) when is_map(row) do
     with section_key when is_binary(section_key) <- finding_section_key(row),
-         time when is_binary(time) <- finding_time(row) do
+         %DateTime{} = time <- finding_marker_time(row) do
       %{
         section_key: section_key,
         dt: time,
+        start_dt: finding_episode_start_time(row),
+        end_dt: finding_episode_end_time(row),
         label: finding_annotation_label(row, selected?),
         severity: finding_severity(row),
         series: finding_annotation_series(row, section_key)
@@ -60,6 +62,55 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   end
 
   defp finding_annotation(_row, _selected?), do: nil
+
+  defp finding_marker_time(row) do
+    episode_peak_time(row) || finding_time(row)
+  end
+
+  defp finding_episode_start_time(row) do
+    row
+    |> first_present([
+      ["episode_started_at_unix_nano"],
+      ["finding_info", "dimensions", "episode_started_at_unix_nano"],
+      ["metadata", "finding_info", "dimensions", "episode_started_at_unix_nano"],
+      ["metadata", "detection_finding", "episode_started_at_unix_nano"],
+      ["metadata", "anomaly", "episode_started_at_unix_nano"],
+      ["raw_data", "anomaly", "episode_started_at_unix_nano"],
+      ["unmapped", "anomaly", "episode_started_at_unix_nano"],
+      ["anomaly", "episode_started_at_unix_nano"]
+    ])
+    |> unix_nano_datetime()
+  end
+
+  defp finding_episode_end_time(row) do
+    row
+    |> first_present([
+      ["episode_ended_at_unix_nano"],
+      ["finding_info", "dimensions", "episode_ended_at_unix_nano"],
+      ["metadata", "finding_info", "dimensions", "episode_ended_at_unix_nano"],
+      ["metadata", "detection_finding", "episode_ended_at_unix_nano"],
+      ["metadata", "anomaly", "episode_ended_at_unix_nano"],
+      ["raw_data", "anomaly", "episode_ended_at_unix_nano"],
+      ["unmapped", "anomaly", "episode_ended_at_unix_nano"],
+      ["anomaly", "episode_ended_at_unix_nano"]
+    ])
+    |> unix_nano_datetime()
+  end
+
+  defp episode_peak_time(row) do
+    row
+    |> first_present([
+      ["episode_peak_at_unix_nano"],
+      ["finding_info", "dimensions", "episode_peak_at_unix_nano"],
+      ["metadata", "finding_info", "dimensions", "episode_peak_at_unix_nano"],
+      ["metadata", "detection_finding", "episode_peak_at_unix_nano"],
+      ["metadata", "anomaly", "episode_peak_at_unix_nano"],
+      ["raw_data", "anomaly", "episode_peak_at_unix_nano"],
+      ["unmapped", "anomaly", "episode_peak_at_unix_nano"],
+      ["anomaly", "episode_peak_at_unix_nano"]
+    ])
+    |> unix_nano_datetime()
+  end
 
   defp finding_section_key(row) do
     metric_name =
@@ -122,22 +173,65 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
         |> String.trim()
         |> case do
           "" -> nil
-          time -> time
+          time -> parse_datetime(time)
         end
 
       %DateTime{} = dt ->
-        DateTime.to_iso8601(dt)
+        dt
 
       %NaiveDateTime{} = ndt ->
-        ndt |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_iso8601()
+        DateTime.from_naive!(ndt, "Etc/UTC")
 
       _ ->
         nil
     end
   end
 
-  defp finding_annotation_label(row, true), do: "Selected: #{finding_title(row)}"
-  defp finding_annotation_label(row, false), do: finding_title(row)
+  defp parse_datetime(value) when is_binary(value) do
+    with {:error, _} <- DateTime.from_iso8601(value),
+         {:ok, ndt} <- NaiveDateTime.from_iso8601(value) do
+      DateTime.from_naive!(ndt, "Etc/UTC")
+    else
+      {:ok, dt, _offset} -> dt
+      {:error, _} -> nil
+    end
+  end
+
+  defp unix_nano_datetime(value) when is_integer(value) and value >= 0 do
+    value
+    |> System.convert_time_unit(:nanosecond, :microsecond)
+    |> DateTime.from_unix!(:microsecond)
+  rescue
+    _ -> nil
+  end
+
+  defp unix_nano_datetime(value) when is_float(value) and value >= 0 do
+    value
+    |> trunc()
+    |> unix_nano_datetime()
+  end
+
+  defp unix_nano_datetime(value) when is_binary(value) do
+    value = String.trim(value)
+
+    case Integer.parse(value) do
+      {integer, ""} -> unix_nano_datetime(integer)
+      _ -> nil
+    end
+  end
+
+  defp unix_nano_datetime(_value), do: nil
+
+  defp finding_annotation_label(row, selected?) do
+    title = finding_title(row)
+
+    cond do
+      selected? and not is_nil(episode_peak_time(row)) -> "Selected peak: #{title}"
+      selected? -> "Selected finding: #{title}"
+      not is_nil(episode_peak_time(row)) -> "Peak: #{title}"
+      true -> title
+    end
+  end
 
   defp finding_title(row) do
     row

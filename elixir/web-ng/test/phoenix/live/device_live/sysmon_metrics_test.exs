@@ -213,6 +213,101 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
     assert unix_list == Enum.sort(unix_list)
   end
 
+  test "anomaly annotations prefer the edge episode peak time over the emitted finding time" do
+    start_dt = ~U[2026-06-19 12:01:00Z]
+    peak_dt = ~U[2026-06-19 12:03:00Z]
+    end_dt = ~U[2026-06-19 12:08:00Z]
+
+    section = %{
+      key: "cpu",
+      panels: [
+        %{
+          id: "cpu",
+          assigns: %{series_points: [{"usage_percent", []}]}
+        }
+      ]
+    }
+
+    row = %{
+      "time" => "2026-06-19T12:05:00Z",
+      "severity" => "High",
+      "metric_name" => "cpu.usage_percent",
+      "message" => "CPU saturation anomaly",
+      "metadata" => %{
+        "finding_info" => %{
+          "dimensions" => %{
+            "episode_started_at_unix_nano" => DateTime.to_unix(start_dt, :nanosecond),
+            "episode_ended_at_unix_nano" => DateTime.to_unix(end_dt, :nanosecond),
+            "episode_peak_at_unix_nano" => DateTime.to_unix(peak_dt, :nanosecond)
+          }
+        },
+        "source_identity" => %{"series_key" => "sysmon.cpu:host:CPU1"}
+      }
+    }
+
+    [%{panels: [%{assigns: assigns}]}] =
+      SysmonMetrics.annotate_metric_sections([section], %{anomaly_rows: [row]}, row)
+
+    assert [
+             %{
+               dt: selected_dt,
+               start_dt: selected_start_dt,
+               end_dt: selected_end_dt,
+               label: "Selected peak: CPU saturation anomaly",
+               severity: "High",
+               series: nil
+             },
+             %{
+               dt: row_dt,
+               start_dt: row_start_dt,
+               end_dt: row_end_dt,
+               label: "Peak: CPU saturation anomaly",
+               severity: "High",
+               series: nil
+             }
+           ] = assigns.annotations
+
+    assert DateTime.compare(selected_dt, peak_dt) == :eq
+    assert DateTime.compare(row_dt, peak_dt) == :eq
+    assert DateTime.compare(selected_start_dt, start_dt) == :eq
+    assert DateTime.compare(row_start_dt, start_dt) == :eq
+    assert DateTime.compare(selected_end_dt, end_dt) == :eq
+    assert DateTime.compare(row_end_dt, end_dt) == :eq
+  end
+
+  test "anomaly annotations fall back to emitted finding time without episode peak metadata" do
+    section = %{
+      key: "cpu",
+      panels: [
+        %{
+          id: "cpu",
+          assigns: %{series_points: [{"avg", []}]}
+        }
+      ]
+    }
+
+    row = %{
+      "time" => "2026-06-19T12:05:00Z",
+      "severity" => "warning",
+      "metric_name" => "cpu.usage_percent",
+      "message" => "CPU saturation anomaly",
+      "metadata" => %{
+        "source_identity" => %{"series_key" => "sysmon.cpu:host:CPU1"}
+      }
+    }
+
+    [%{panels: [%{assigns: assigns}]}] =
+      SysmonMetrics.annotate_metric_sections([section], %{anomaly_rows: [row]})
+
+    assert [
+             %{
+               dt: ~U[2026-06-19 12:05:00Z],
+               label: "CPU saturation anomaly",
+               series: nil
+             }
+           ] = assigns.annotations
+  end
+
   defp parse_number(value) when is_number(value), do: value * 1.0
   defp parse_number(_), do: nil
 

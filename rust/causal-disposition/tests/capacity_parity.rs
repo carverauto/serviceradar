@@ -107,11 +107,7 @@ fn capacity_kernel_matches_legacy_model_within_1e_9() {
 
         match (&out.disposition, &case.expected) {
             (Disposition::Projected(got), Expected::Projected(want)) => {
-                assert_eq!(
-                    got.model, want.model,
-                    "[{}] model kind diverged",
-                    case.name
-                );
+                assert_eq!(got.model, want.model, "[{}] model kind diverged", case.name);
                 close(
                     "current_value",
                     case.name,
@@ -130,6 +126,17 @@ fn capacity_kernel_matches_legacy_model_within_1e_9() {
                     case.name,
                     got.projected_value,
                     want.projected_value,
+                );
+                close(
+                    "raw_projected_value",
+                    case.name,
+                    got.raw_projected_value,
+                    want.projected_value,
+                );
+                assert!(
+                    !got.projection_bounded,
+                    "[{}] unbounded parity fixture unexpectedly reported a bounded projection",
+                    case.name
                 );
                 close("confidence", case.name, got.confidence, want.confidence);
                 close("lower_bound", case.name, got.lower_bound, want.lower_bound);

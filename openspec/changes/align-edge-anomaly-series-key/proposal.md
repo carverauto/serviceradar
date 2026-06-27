@@ -2,7 +2,7 @@
 
 ## Why
 
-Every disposition feature (UASB peak, seasonal, stale-alert auto-resolve `#4288`)
+Every disposition feature (robust peak profile, seasonal, stale-alert auto-resolve `#4288`)
 must correlate an **edge anomaly** to the **central metric** it judges. That
 correlation is the load-bearing precondition, and on demo it does not hold:
 

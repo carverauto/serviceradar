@@ -40,9 +40,7 @@
 //! mean/stddev exact and legible.
 
 use serviceradar_anomaly_core::{ReasonContext, ReasonSample, ReasonVerdict, reason_impl};
-use serviceradar_causal_disposition::{
-    Disposition, SeasonalConfig, SeasonalRow, dispose_seasonal,
-};
+use serviceradar_causal_disposition::{Disposition, SeasonalConfig, SeasonalRow, dispose_seasonal};
 
 /// The flat rolling baseline every case shares: ~100 with a tiny ±0.5 jitter so the
 /// rolling stddev is strictly > 0 (a degenerate zero-variance window would make the
@@ -149,12 +147,15 @@ fn e2e_real_anomaly_escalates() {
 
     // CORE seasonal disposition: this hour's cell is centered at 100 (spread ~1), so
     // a 1000 sample is a massive deseasonalized residual -> confirmed breach.
-    let row = seasonal_cell(/* mu */ 100.0, /* d */ 1.0, /* n */ 29, sample);
+    let row = seasonal_cell(
+        /* mu */ 100.0, /* d */ 1.0, /* n */ 29, sample,
+    );
     let core = dispose_seasonal(row, &SeasonalConfig::default());
     assert!(
         matches!(core.disposition, Disposition::SeasonalBreach { .. }),
         "core should escalate a true spike to SeasonalBreach, got {:?} (score={})",
-        core.disposition, core.score
+        core.disposition,
+        core.score
     );
     // A confirmed breach surfaces upstream as an anomaly.
     assert!(core.disposition.surfaces());
@@ -184,14 +185,17 @@ fn e2e_recurring_normal_suppressed() {
 
     // CORE seasonal disposition: this hour's cell is centered at 1000, so 1000 is
     // recurring-normal -> the seasonal stage SUPPRESSES what the edge flagged.
-    let row = seasonal_cell(/* mu */ 1000.0, /* d */ 10.0, /* n */ 29, sample);
+    let row = seasonal_cell(
+        /* mu */ 1000.0, /* d */ 10.0, /* n */ 29, sample,
+    );
     let core = dispose_seasonal(row, &SeasonalConfig::default());
     assert_eq!(
         core.disposition,
         Disposition::Suppress,
         "CENTERPIECE: recurring-normal must be SUPPRESSED by the seasonal cell even \
          though the edge rolling detector flagged the onset jump (got {:?}, score={})",
-        core.disposition, core.score
+        core.disposition,
+        core.score
     );
     // A suppressed disposition does NOT surface upstream — no page.
     assert!(!core.disposition.surfaces());

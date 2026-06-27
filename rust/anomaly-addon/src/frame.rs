@@ -20,7 +20,9 @@ use crate::addon::{lock_engine, lock_scoring_health};
 use crate::config::{NativeTelemetryDropCounters, VERDICT_CHANNEL_DEPTH};
 use crate::engine::{AnomalyTransition, DetectorEngine, SeriesProfile};
 use crate::health::{ScoringFrameUpdate, ScoringHealth};
-use crate::identity::series_key_for;
+use crate::identity::{
+    is_snmp_metric_class, metric_class, series_key_for, snmp_polled_device_identity,
+};
 use crate::metrics_classify::{
     counter_raw_value, counter_reset_anchor, counter_width, is_cumulative_counter,
     is_process_metric, max_counter_rate_per_second, series_profile_for,
@@ -63,6 +65,7 @@ pub(crate) async fn process_frame(
             // be z-scored as raw values; rate-normalize each reading to a
             // per-second rate the same way central does before scoring.
             let counter = is_cumulative_counter(metric);
+            let metric_class = metric_class(metric);
 
             // Per-series fidelity profile (dispersion floors + saturation gate).
             // A rate-normalized counter has NO saturation ceiling, so it stays
@@ -77,6 +80,13 @@ pub(crate) async fn process_frame(
             };
 
             for point in &metric.points {
+                if is_snmp_metric_class(metric_class)
+                    && snmp_polled_device_identity(&resource, metric_class, metric, point)
+                        .is_empty()
+                {
+                    continue;
+                }
+
                 let series_key = series_key_for(&resource, metric, point);
 
                 let value = if counter {
@@ -116,6 +126,7 @@ pub(crate) async fn process_frame(
                         &series_key,
                         &evaluated.verdict,
                         evaluated.transition,
+                        evaluated.episode,
                     ));
                 }
             }

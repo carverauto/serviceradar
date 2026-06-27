@@ -6,9 +6,28 @@
 //! Series-identity resolution: the per-series key, the device/SNMP-target
 //! identity precedence, metadata lookups, and the attested distinguishing tags.
 
+use std::collections::BTreeMap;
+
 use addon_sdk::metric_pb::{Metric, MetricPoint, MetricResource, StringMapEntry};
 
 use crate::verdict::first_non_empty;
+
+const SERIES_DIMENSION_EXCLUDED_KEYS: &[&str] = &[
+    "host_id",
+    "agent_id",
+    "device_id",
+    "host_ip",
+    "host",
+    "target",
+    "interface_uid",
+    "source",
+    "payload_kind",
+    "producer_id",
+    "producer_kind",
+    "available",
+    "metric",
+    "packet_loss",
+];
 
 pub(crate) trait MetadataEntries {
     fn metadata_entries(&self) -> &[StringMapEntry];
@@ -67,8 +86,11 @@ pub(crate) fn series_key_for(
         .join("|")
     } else {
         // Fallback when the producer did not stamp a hint: resource identity +
-        // metric + interface keeps distinct series apart on one host. Remote
-        // SNMP polls use the polled target, not the polling agent host.
+        // metric + stable per-series dimensions keeps distinct streams apart
+        // on one host. This mirrors central's canonical re-keying rules so edge
+        // detection never collapses per-core or per-mount samples before core
+        // sees the verdict. Remote SNMP polls use the polled target, not the
+        // polling agent host.
         let resource_identity = series_resource_identity(resource, metric, point);
         let mut components = vec![
             "v2".to_string(),
@@ -84,6 +106,8 @@ pub(crate) fn series_key_for(
         if point.if_index > 0 {
             components.push(safe_component("if_index", &point.if_index.to_string()));
         }
+
+        components.extend(series_dimension_components(metric, point));
 
         components.join("|")
     }
@@ -146,7 +170,7 @@ pub(crate) fn snmp_target_identity<'a>(
         return "";
     }
 
-    first_non_empty(&[
+    [
         resource.target_device_ip.as_str(),
         metadata_entry_value(metric, &["target_device_ip"]).unwrap_or(""),
         metadata_entry_value(point, &["target_device_ip"]).unwrap_or(""),
@@ -154,7 +178,10 @@ pub(crate) fn snmp_target_identity<'a>(
         entry_value(&point.attributes, &["host"]).unwrap_or(""),
         entry_value(&metric.tags, &["target"]).unwrap_or(""),
         entry_value(&point.attributes, &["target"]).unwrap_or(""),
-    ])
+    ]
+    .into_iter()
+    .find(|value| !value.is_empty())
+    .unwrap_or("")
 }
 
 pub(crate) fn is_snmp_metric_class(metric_class: &str) -> bool {
@@ -174,6 +201,25 @@ pub(crate) fn target_device_ip_for<'a>(
     }
 }
 
+pub(crate) fn snmp_polled_device_identity<'a>(
+    resource: &'a MetricResource,
+    metric_class: &str,
+    metric: &'a Metric,
+    point: &'a MetricPoint,
+) -> &'a str {
+    if !is_snmp_metric_class(metric_class) {
+        return "";
+    }
+
+    [
+        resource.device_id.as_str(),
+        target_device_ip_for(resource, metric_class, metric, point),
+    ]
+    .into_iter()
+    .find(|value| !value.is_empty())
+    .unwrap_or("")
+}
+
 pub(crate) fn entry_value<'a>(entries: &'a [StringMapEntry], keys: &[&str]) -> Option<&'a str> {
     keys.iter().find_map(|key| {
         entries
@@ -181,6 +227,43 @@ pub(crate) fn entry_value<'a>(entries: &'a [StringMapEntry], keys: &[&str]) -> O
             .find(|entry| entry.key == *key)
             .map(|entry| entry.value.as_str())
     })
+}
+
+fn series_dimension_components(metric: &Metric, point: &MetricPoint) -> Vec<String> {
+    let mut tags = BTreeMap::new();
+
+    for entry in metric.tags.iter().chain(point.attributes.iter()) {
+        if entry.key.is_empty() || entry.value.trim().is_empty() {
+            continue;
+        }
+
+        tags.insert(entry.key.clone(), entry.value.clone());
+    }
+
+    let mut components = Vec::new();
+
+    for key in ["core_id", "mount_point"] {
+        if let Some(value) = tags.get(key) {
+            components.push(tag_component(key, value));
+        }
+    }
+
+    for (key, value) in tags {
+        if key == "core_id"
+            || key == "mount_point"
+            || SERIES_DIMENSION_EXCLUDED_KEYS.contains(&key.as_str())
+        {
+            continue;
+        }
+
+        components.push(tag_component(&key, &value));
+    }
+
+    components
+}
+
+fn tag_component(key: &str, value: &str) -> String {
+    safe_component(&format!("tag_{}", hex::encode(key.as_bytes())), value)
 }
 
 /// Merge the attested distinguishing tags into a JSON object for `source_identity`:

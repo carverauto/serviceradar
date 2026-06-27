@@ -19,6 +19,8 @@ ParityCase {
         alpha: 0.35,
         beta: 0.05,
         gamma: 0.25,
+        value_min: None,
+        value_max: None,
     },
     points: vec![
         CapacityPoint { at_unix_micros: 1780272000000000, value: 10.0 },
@@ -97,6 +99,8 @@ ParityCase {
         alpha: 0.35,
         beta: 0.05,
         gamma: 0.25,
+        value_min: None,
+        value_max: None,
     },
     points: vec![
         CapacityPoint { at_unix_micros: 1780272000000000, value: 5.0 },
@@ -175,6 +179,8 @@ ParityCase {
         alpha: 0.35,
         beta: 0.05,
         gamma: 0.25,
+        value_min: None,
+        value_max: None,
     },
     points: vec![
         CapacityPoint { at_unix_micros: 1780272000000000, value: 90.0 },
@@ -253,6 +259,8 @@ ParityCase {
         alpha: 0.35,
         beta: 0.05,
         gamma: 0.25,
+        value_min: None,
+        value_max: None,
     },
     points: vec![
         CapacityPoint { at_unix_micros: 1780272000000000, value: 10.0 },
@@ -331,6 +339,8 @@ ParityCase {
         alpha: 0.35,
         beta: 0.05,
         gamma: 0.25,
+        value_min: None,
+        value_max: None,
     },
     points: vec![
         CapacityPoint { at_unix_micros: 1780272000000000, value: 150.0 },
@@ -409,6 +419,8 @@ ParityCase {
         alpha: 0.35,
         beta: 0.05,
         gamma: 0.25,
+        value_min: None,
+        value_max: None,
     },
     points: vec![
         CapacityPoint { at_unix_micros: 1780272000000000, value: 10.0 },
@@ -487,6 +499,8 @@ ParityCase {
         alpha: 0.35,
         beta: 0.05,
         gamma: 0.25,
+        value_min: None,
+        value_max: None,
     },
     points: vec![
         CapacityPoint { at_unix_micros: 1780272000000000, value: 20.0 },
@@ -577,6 +591,8 @@ ParityCase {
         alpha: 0.35,
         beta: 0.05,
         gamma: 0.25,
+        value_min: None,
+        value_max: None,
     },
     points: vec![
         CapacityPoint { at_unix_micros: 1780272000000000, value: 40.0 },
@@ -679,6 +695,8 @@ ParityCase {
         alpha: 0.35,
         beta: 0.05,
         gamma: 0.25,
+        value_min: None,
+        value_max: None,
     },
     points: vec![
         CapacityPoint { at_unix_micros: 1780272000000000, value: 40.0 },
@@ -781,6 +799,8 @@ ParityCase {
         alpha: 0.35,
         beta: 0.05,
         gamma: 0.25,
+        value_min: None,
+        value_max: None,
     },
     points: vec![
         CapacityPoint { at_unix_micros: 1780272000000000, value: 15.0 },
@@ -907,6 +927,8 @@ ParityCase {
         alpha: 0.35,
         beta: 0.05,
         gamma: 0.25,
+        value_min: None,
+        value_max: None,
     },
     points: vec![
         CapacityPoint { at_unix_micros: 1780272000000000, value: 10.0 },
@@ -967,6 +989,8 @@ ParityCase {
         alpha: 0.35,
         beta: 0.05,
         gamma: 0.25,
+        value_min: None,
+        value_max: None,
     },
     points: vec![
         CapacityPoint { at_unix_micros: 1780272000000000, value: 10.0 },

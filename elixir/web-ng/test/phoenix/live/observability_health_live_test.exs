@@ -31,8 +31,11 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLiveTest do
     assert html =~ "Interface utilization anomaly"
     assert html =~ "WAN uplink"
     assert html =~ "Projected"
+    refute html =~ "Impossible disk"
+    refute html =~ "Negative disk"
+    refute html =~ "No runway disk"
     assert has_element?(view, "a[href='/observability/health']", "Health")
-    assert has_element?(view, "a[href*='in%3Acapacity_forecasts']", "Open SRQL")
+    assert has_element?(view, "a[href*='has_exhaustion%3Atrue']", "Open SRQL")
     assert has_element?(view, "a[href*='event_type%3A%28anomaly%2Canomaly_detection%29']", "Open events")
   end
 
@@ -77,6 +80,42 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLiveTest do
              "projected_value" => 96.8,
              "exhaustion_threshold" => 95.0,
              "projected_exhaustion_at" => "2026-06-20T12:00:00Z"
+           },
+           %{
+             "forecasted_at" => "2026-06-13T09:00:00Z",
+             "resource_key" => "disk:bad-high",
+             "resource_label" => "Impossible disk",
+             "metric_name" => "usage_percent",
+             "status" => "projected",
+             "current_value" => 73.61,
+             "projected_value" => 239.18,
+             "exhaustion_threshold" => 80.0,
+             "projected_exhaustion_at" => "2026-06-20T12:00:00Z",
+             "metadata" => %{"forecast_value_unit" => "percent"}
+           },
+           %{
+             "forecasted_at" => "2026-06-13T09:00:00Z",
+             "resource_key" => "disk:bad-negative",
+             "resource_label" => "Negative disk",
+             "metric_name" => "usage_percent",
+             "status" => "projected",
+             "current_value" => 75.85,
+             "projected_value" => -400.45,
+             "exhaustion_threshold" => 80.0,
+             "projected_exhaustion_at" => "2026-06-20T12:00:00Z",
+             "metadata" => %{"forecast_value_unit" => "percent"}
+           },
+           %{
+             "forecasted_at" => "2026-06-13T09:00:00Z",
+             "resource_key" => "disk:no-runway",
+             "resource_label" => "No runway disk",
+             "metric_name" => "usage_percent",
+             "status" => "projected",
+             "current_value" => 75.85,
+             "projected_value" => 70.45,
+             "exhaustion_threshold" => 80.0,
+             "projected_exhaustion_at" => nil,
+             "metadata" => %{"forecast_value_unit" => "percent"}
            }
          ]
        }}

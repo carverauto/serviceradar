@@ -20,25 +20,31 @@
 //!   Holt-Winters level/trend/seasonals, the residuals/RMSE, and the projection
 //!   cursor.
 //! - **Context** = [`CapacityConfig`] — `{capacity_threshold, horizon_seconds,
-//!   model_kind, min_history, period, alpha, beta, gamma}`, read-only.
+//!   model_kind, min_history, period, alpha, beta, gamma, value_min, value_max}`,
+//!   read-only.
 //!
 //! # Parity is the gate (graft #4)
-//! Every numeric output field (`slope_per_second`, `intercept`, `projected_value`,
-//! `confidence`, `lower_bound`, `upper_bound`, the exhaustion ETA) must match
-//! `model.ex` to within `1e-9`. To that end this port preserves the **exact**
-//! summation order, the `@epsilon = 1.0e-9` least-squares denominator guard
-//! (`model.ex:14,208`), the `@exhaustion_horizon_multiplier 10` plausibility bound
-//! (`model.ex:21`), the `@seasonal_strength_threshold 0.25` autodetect
-//! (`model.ex:13,352`), the `1.96 * rmse` band, and the `round(cross_x)` ETA
-//! rounding (`model.ex:273`). See the `RISKS` notes in the module tests and the
-//! Elixir golden-fixture parity test for the divergence surface.
+//! With no physical value bounds configured, every numeric output field
+//! (`slope_per_second`, `intercept`, `projected_value`, `confidence`,
+//! `lower_bound`, `upper_bound`, the exhaustion ETA) must match `model.ex` to
+//! within `1e-9`. To that end this port preserves the **exact** summation order,
+//! the `@epsilon = 1.0e-9` least-squares denominator guard (`model.ex:14,208`),
+//! the `@exhaustion_horizon_multiplier 10` plausibility bound (`model.ex:21`),
+//! the `@seasonal_strength_threshold 0.25` autodetect (`model.ex:13,352`), the
+//! `1.96 * rmse` band, and the `round(cross_x)` ETA rounding (`model.ex:273`).
+//! Bounded configs intentionally clamp only the emitted projection/bands after
+//! the raw fit; the ETA remains raw-fit based. See the `RISKS` notes in the
+//! module tests and the Elixir golden-fixture parity test for the divergence
+//! surface.
 //!
 //! # Orchestration stays in Elixir (task 7.4)
 //! This kernel performs ONLY the numeric forecast compute. The interface
-//! bytes→percent conversion (`worker.ex:488`), the `>150%` counter-wrap drop, the
-//! `>10x` implausible-projection skip, `at_risk?`/warning-horizon policy, the Ash
-//! upsert, telemetry, and the `VerdictEmitter` all stay in the worker. The kernel
-//! receives already-resolved `(timestamp, value)` points and emits a fit.
+//! bytes→percent conversion (`worker.ex:488`), the `>150%` counter-wrap drop,
+//! `at_risk?`/warning-horizon policy, the Ash upsert, telemetry, and the
+//! `VerdictEmitter` all stay in the worker. The kernel receives already-resolved
+//! `(timestamp, value)` points and emits a fit. For bounded signals the worker passes
+//! physical value bounds so the emitted horizon projection/bands remain possible
+//! values; the ETA still comes from the raw fit.
 
 mod exhaustion;
 mod holt_winters;
@@ -85,6 +91,47 @@ pub const DEFAULT_PERIOD: usize = 24;
 /// Microseconds per second — the resolution `model.ex` normalizes/diffs at
 /// (`DateTime.diff(_, _, :second)` over `:microsecond`-truncated points).
 const MICROS_PER_SECOND: i64 = 1_000_000;
+
+pub(super) fn bounded_projection(
+    config: &CapacityConfig,
+    raw_projected_value: f64,
+    rmse: f64,
+) -> (f64, f64, f64, bool) {
+    let raw_lower = raw_projected_value - 1.96 * rmse;
+    let raw_upper = raw_projected_value + 1.96 * rmse;
+    let projected_value = clamp_to_value_bounds(raw_projected_value, config);
+    let lower_bound = clamp_to_value_bounds(raw_lower, config);
+    let upper_bound = clamp_to_value_bounds(raw_upper, config);
+    let bounded = bounded_changed(raw_projected_value, projected_value)
+        || bounded_changed(raw_lower, lower_bound)
+        || bounded_changed(raw_upper, upper_bound);
+
+    (projected_value, lower_bound, upper_bound, bounded)
+}
+
+fn clamp_to_value_bounds(value: f64, config: &CapacityConfig) -> f64 {
+    if !value.is_finite() {
+        return value;
+    }
+
+    match normalized_value_bounds(config) {
+        Some((min, max)) => value.clamp(min, max),
+        None => value,
+    }
+}
+
+fn normalized_value_bounds(config: &CapacityConfig) -> Option<(f64, f64)> {
+    match (config.value_min, config.value_max) {
+        (Some(min), Some(max)) if min.is_finite() && max.is_finite() && min < max => {
+            Some((min, max))
+        }
+        _ => None,
+    }
+}
+
+fn bounded_changed(raw: f64, bounded: f64) -> bool {
+    raw.is_finite() && bounded.is_finite() && (raw - bounded).abs() > EPSILON
+}
 
 /// Score one capacity row. The public seam the NIF's per-row loop calls. Always
 /// returns a [`CapacityDisposition`]; gates resolve to a [`Disposition`] variant,

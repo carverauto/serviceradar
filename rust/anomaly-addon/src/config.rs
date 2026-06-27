@@ -16,7 +16,7 @@ use serde::{Deserialize as _, de::Error as _};
 use crate::engine::EngineConfig;
 
 pub(crate) const ADDON_ID: &str = "anomaly";
-pub(crate) const ADDON_VERSION: &str = "0.1.12";
+pub(crate) const ADDON_VERSION: &str = "0.1.20";
 pub(crate) const VERDICT_CHANNEL_DEPTH: usize = 256;
 pub(crate) const ACK_CHANNEL_DEPTH: usize = 64;
 pub(crate) const OCSF_CLASS_EVENT_LOG_ACTIVITY: i64 = 1008;

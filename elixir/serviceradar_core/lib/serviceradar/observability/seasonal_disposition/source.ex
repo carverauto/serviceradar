@@ -90,7 +90,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
         metric_name: "usage_percent",
         query:
           profile_query("sysmon.cpu", "cpu.usage_percent", time_range, limit, profile_timezone),
-        robust_statistic: :mean_stddev,
+        robust_statistic: :median_mad,
         profile_timezone: profile_timezone,
         label_fields: ["series"]
       },
@@ -107,18 +107,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
             limit,
             profile_timezone
           ),
-        robust_statistic: :mean_stddev,
-        profile_timezone: profile_timezone,
-        label_fields: ["series"]
-      },
-      %__MODULE__{
-        name: "disk_seasonal",
-        resource_type: "disk",
-        metric_class: "disk",
-        metric_name: "usage_percent",
-        query:
-          profile_query("sysmon.disk", "disk.used_percent", time_range, limit, profile_timezone),
-        robust_statistic: :mean_stddev,
+        robust_statistic: :median_mad,
         profile_timezone: profile_timezone,
         label_fields: ["series"]
       }
@@ -167,6 +156,23 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
   @spec robust?(t()) :: boolean()
   def robust?(%__MODULE__{robust_statistic: :mean_stddev}), do: false
   def robust?(%__MODULE__{}), do: true
+
+  @doc """
+  Whether a source belongs in central seasonal disposition.
+
+  Seasonal disposition is intentionally limited to sustained host utilization
+  signals. Disk usage is capacity-forecasting territory, and SNMP/interface or
+  counter-like series stay edge-governed until they have metric-class-specific
+  disposition semantics.
+  """
+  @spec seasonal_disposition_supported?(t()) :: boolean()
+  def seasonal_disposition_supported?(%__MODULE__{
+        metric_class: metric_class,
+        metric_name: metric_name
+      }) do
+    metric_class in ["cpu", "memory"] and
+      metric_name in ["usage_percent", "used_percent"]
+  end
 
   # The robust statistic atom is the NIF `RobustStatistic` `NifUnitEnum` ABI contract:
   # rustler derives the variant atom via `to_snake_case` of the Rust ident, so `P05P95`

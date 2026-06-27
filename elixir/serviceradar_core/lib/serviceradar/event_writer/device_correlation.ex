@@ -46,6 +46,41 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
 
   def resolve(_), do: nil
 
+  @doc """
+  Resolve an SNMP/interface anomaly to the canonical device that owns the
+  persisted interface metric tuple.
+
+  SNMP polling runs from an agent, but the metric belongs to the polled network
+  device. This resolver intentionally does not use the anomaly series key and
+  does not fall back to the polling agent: it resolves by
+  `{device_id, metric_name, if_index}` against recent persisted metrics, with
+  the interface hourly rollup as a longer-retention fallback.
+  """
+  @spec resolve_snmp_interface_metric(candidate()) :: String.t() | nil
+  def resolve_snmp_interface_metric(candidate) when is_map(candidate) do
+    case snmp_interface_metric_candidate(candidate) do
+      nil ->
+        nil
+
+      normalized ->
+        DeviceCorrelationCache.fetch(normalized, fn ->
+          resolve_snmp_interface_metric_uncached(normalized)
+        end)
+    end
+  end
+
+  def resolve_snmp_interface_metric(_), do: nil
+
+  @doc false
+  def snmp_interface_metric_cache_key(candidate) when is_map(candidate) do
+    case snmp_interface_metric_candidate(candidate) do
+      nil -> nil
+      normalized -> DeviceCorrelationCache.cache_key(normalized)
+    end
+  end
+
+  def snmp_interface_metric_cache_key(_), do: nil
+
   @doc false
   @spec resolve_uncached(candidate()) :: String.t() | nil
   def resolve_uncached(candidate) when is_map(candidate) do
@@ -62,6 +97,123 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
     error ->
       Logger.debug("Device correlation lookup failed: #{Exception.message(error)}")
       nil
+  end
+
+  defp snmp_interface_metric_candidate(candidate) do
+    metric_name = candidate_value(candidate, :metric_name)
+    if_index = normalize_if_index(candidate_raw_value(candidate, :if_index))
+
+    target_device_ip =
+      candidate_value(candidate, :target_device_ip) || candidate_value(candidate, :ip)
+
+    raw_device_uid = canonical_device_uid(candidate_value(candidate, :device_uid))
+    partition = candidate_value(candidate, :partition)
+
+    has_target? = is_binary(target_device_ip) and target_device_ip != ""
+    has_canonical_device? = canonical_device_uid?(raw_device_uid)
+
+    if metric_name && if_index && (has_target? || has_canonical_device?) do
+      %{
+        device_uid: raw_device_uid,
+        target_device_ip: target_device_ip,
+        ip: target_device_ip,
+        partition: partition,
+        metric_name: metric_name,
+        if_index: if_index
+      }
+    end
+  end
+
+  defp resolve_snmp_interface_metric_uncached(candidate) do
+    canonical_hint = snmp_metric_canonical_hint(candidate)
+
+    cond do
+      is_binary(canonical_hint) ->
+        query_snmp_metric_by_device(candidate, canonical_hint) ||
+          query_snmp_metric_hourly_by_device(candidate, canonical_hint)
+
+      is_binary(candidate.target_device_ip) ->
+        query_snmp_metric_hourly_by_target(candidate)
+
+      true ->
+        nil
+    end
+  rescue
+    error ->
+      Logger.debug("SNMP metric tuple correlation lookup failed: #{Exception.message(error)}")
+      nil
+  end
+
+  defp snmp_metric_canonical_hint(%{device_uid: "sr:" <> _ = uid}), do: uid
+
+  defp snmp_metric_canonical_hint(%{target_device_ip: target_device_ip, partition: partition})
+       when is_binary(target_device_ip) do
+    resolve_uncached(%{
+      device_uid: target_device_ip,
+      ip: target_device_ip,
+      partition: partition
+    })
+  end
+
+  defp snmp_metric_canonical_hint(_candidate), do: nil
+
+  defp query_snmp_metric_by_device(candidate, device_uid) do
+    query_snmp_metric_device_uid(
+      """
+      SELECT device_id
+      FROM platform.timeseries_metrics
+      WHERE device_id = $1
+        AND metric_name = $2
+        AND if_index = $3
+        AND ($4::text IS NULL OR partition = $4)
+        AND timestamp >= now() - INTERVAL '48 hours'
+        AND NULLIF(btrim(device_id), '') IS NOT NULL
+      ORDER BY timestamp DESC
+      LIMIT 1
+      """,
+      [device_uid, candidate.metric_name, candidate.if_index, candidate.partition]
+    )
+  end
+
+  defp query_snmp_metric_hourly_by_device(candidate, device_uid) do
+    query_snmp_metric_device_uid(
+      """
+      SELECT device_id
+      FROM platform.timeseries_metrics_interface_hourly
+      WHERE device_id = $1
+        AND metric_name = $2
+        AND if_index = $3
+        AND ($4::text IS NULL OR partition = $4)
+        AND NULLIF(btrim(device_id), '') IS NOT NULL
+      ORDER BY bucket DESC
+      LIMIT 1
+      """,
+      [device_uid, candidate.metric_name, candidate.if_index, candidate.partition]
+    )
+  end
+
+  defp query_snmp_metric_hourly_by_target(candidate) do
+    query_snmp_metric_device_uid(
+      """
+      SELECT device_id
+      FROM platform.timeseries_metrics_interface_hourly
+      WHERE target_device_ip = $1
+        AND metric_name = $2
+        AND if_index = $3
+        AND ($4::text IS NULL OR partition = $4)
+        AND NULLIF(btrim(device_id), '') IS NOT NULL
+      ORDER BY bucket DESC
+      LIMIT 1
+      """,
+      [candidate.target_device_ip, candidate.metric_name, candidate.if_index, candidate.partition]
+    )
+  end
+
+  defp query_snmp_metric_device_uid(sql, params) do
+    case bounded_lookup(fn -> Repo.query(sql, params) end) do
+      {:ok, %{rows: [[device_uid] | _]}} -> normalize(device_uid)
+      _ -> nil
+    end
   end
 
   defp explicit_device_uid(candidate, actor) do
@@ -255,7 +407,28 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
 
   defp normalize(_), do: nil
 
+  defp normalize_if_index(value) when is_integer(value) and value > 0, do: value
+
+  defp normalize_if_index(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {integer, ""} when integer > 0 -> integer
+      _ -> nil
+    end
+  end
+
+  defp normalize_if_index(_value), do: nil
+
+  defp canonical_device_uid?("sr:" <> _), do: true
+  defp canonical_device_uid?(_), do: false
+
+  defp canonical_device_uid("sr:" <> _ = uid), do: uid
+  defp canonical_device_uid(_), do: nil
+
   defp candidate_value(candidate, key) when is_map(candidate) do
     normalize(candidate[key] || candidate[to_string(key)])
+  end
+
+  defp candidate_raw_value(candidate, key) when is_map(candidate) do
+    candidate[key] || candidate[to_string(key)]
   end
 end
