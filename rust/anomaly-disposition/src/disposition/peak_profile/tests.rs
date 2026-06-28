@@ -3,6 +3,12 @@
 // Licensed under the Apache License, Version 2.0 (the "License").
 // SPDX-License-Identifier: Apache-2.0
 
+// The crate root denies `clippy::panic` for production paths (graft #1). Tests
+// that assert a specific enum/`Option` variant fall through to `panic!` on the
+// wrong variant — the standard test-failure mechanism — so allow it inside the
+// test module only (mirrors `capacity/tests.rs`).
+#![allow(clippy::panic)]
+
 use crate::disposition::peak_profile::{
     PeakProfileAction, PeakProfileConfig, PeakProfileRow, dispose_peak_profile,
     peak_profile_error_disposition,

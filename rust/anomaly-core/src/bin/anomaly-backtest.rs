@@ -273,17 +273,17 @@ fn run(args: Args, mut out: impl Write) -> Result<(), String> {
                 state.cusum_anchor = Some((mean, std.max(f64::EPSILON)));
                 state.cusum = Some(Cusum::new(args.cusum_k, args.cusum_h));
             }
-            if let Some(h) = how {
-                if state.how_vals[h].len() as u32 >= MIN_SEASONAL_BUCKET {
-                    let seasonal = median(&state.how_vals[h]);
-                    if let (Some((_t, scale)), Some(cusum)) =
-                        (state.cusum_anchor, state.cusum.as_mut())
-                    {
-                        let step = cusum.update((sample.value - seasonal) / scale);
-                        cusum_pos = Some(step.pos);
-                        cusum_neg = Some(step.neg);
-                        cusum_alarm = Some(step.alarm);
-                    }
+            if let Some(h) = how
+                && state.how_vals[h].len() as u32 >= MIN_SEASONAL_BUCKET
+            {
+                let seasonal = median(&state.how_vals[h]);
+                if let (Some((_t, scale)), Some(cusum)) =
+                    (state.cusum_anchor, state.cusum.as_mut())
+                {
+                    let step = cusum.update((sample.value - seasonal) / scale);
+                    cusum_pos = Some(step.pos);
+                    cusum_neg = Some(step.neg);
+                    cusum_alarm = Some(step.alarm);
                 }
             }
         }

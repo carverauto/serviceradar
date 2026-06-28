@@ -32,6 +32,13 @@ pub mod reasoner;
 pub mod snapshot;
 pub mod subscriber;
 
+pub use config::Config;
+pub use context_hydrator::{ContextHydrator, ContextStore};
+pub use delta::{StateChangeDelta, apply_delta, parse_state_change};
+pub use domain_model::{Context, Device, EntityId, Service};
+pub use error::{CorrelationEngineError, Result};
+pub use reasoner::{Classification, Reasoner, Verdict};
+
 #[cfg(test)]
 mod metric_proto_contract_tests {
     use serviceradar_metric_proto::pb::{
@@ -75,10 +82,3 @@ mod metric_proto_contract_tests {
         assert_eq!(batch.metrics[0].points[0].raw_value, "128");
     }
 }
-
-pub use config::Config;
-pub use context_hydrator::{ContextHydrator, ContextStore};
-pub use delta::{StateChangeDelta, apply_delta, parse_state_change};
-pub use domain_model::{Context, Device, EntityId, Service};
-pub use error::{CorrelationEngineError, Result};
-pub use reasoner::{Classification, Reasoner, Verdict};

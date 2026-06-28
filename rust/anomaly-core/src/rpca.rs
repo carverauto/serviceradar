@@ -19,6 +19,10 @@
 /// columns. Returns `(u, sigma, v)` where `u` is `m×n` row-major (orthonormal columns),
 /// `sigma` has length `n`, and `v` is `n×n` row-major (orthonormal columns). Robust and
 /// accurate for the modest matrices RPCA reshapes to.
+// The rotation loops index two disjoint columns (`ucol[p][i]`/`ucol[q][i]`) by a shared
+// inner index `i`, including simultaneous disjoint *mutable* access — which a single
+// `.iter_mut()` cannot express, so clippy's `needless_range_loop` rewrite is incorrect here.
+#[allow(clippy::needless_range_loop)]
 pub fn jacobi_svd(a: &[Vec<f64>]) -> (Vec<Vec<f64>>, Vec<f64>, Vec<Vec<f64>>) {
     let m = a.len();
     let n = if m == 0 { 0 } else { a[0].len() };
@@ -241,9 +245,9 @@ mod tests {
 
         // the sparse component recovers the spike locations as its largest entries
         let mut entries: Vec<(f64, usize, usize)> = Vec::new();
-        for i in 0..m {
-            for j in 0..n {
-                entries.push((s[i][j].abs(), i, j));
+        for (i, row) in s.iter().enumerate() {
+            for (j, val) in row.iter().enumerate() {
+                entries.push((val.abs(), i, j));
             }
         }
         entries.sort_by(|x, y| y.0.partial_cmp(&x.0).unwrap());
