@@ -9,7 +9,7 @@ defmodule ServiceRadar.Observability.AnomalyDisposition.PeakProfileTest do
       {:ok,
        [
          %{
-           "series" => "svc/cpu/a",
+           "series" => "sr:ns03",
            "dow" => 2,
            "hod" => 9,
            "center" => 55.0,
@@ -18,7 +18,7 @@ defmodule ServiceRadar.Observability.AnomalyDisposition.PeakProfileTest do
            "bucket_count" => 8
          },
          %{
-           "series" => "svc/cpu/a",
+           "series" => "sr:ns03",
            "dow" => 3,
            "hod" => 9,
            "center" => 40.0,
@@ -28,7 +28,7 @@ defmodule ServiceRadar.Observability.AnomalyDisposition.PeakProfileTest do
          },
          # string-typed numerics (SRQL can return strings) for the same series, other hour
          %{
-           "series" => "svc/cpu/b",
+           "series" => "sr:ns99",
            "dow" => 2,
            "hod" => 9,
            "center" => "61.0",
@@ -52,6 +52,7 @@ defmodule ServiceRadar.Observability.AnomalyDisposition.PeakProfileTest do
 
   @ctx %{
     series_key: "svc/cpu/a",
+    device_id: "sr:ns03",
     metric_class: "sysmon.cpu",
     metric_name: "cpu.usage_percent",
     dow: 2,
@@ -80,7 +81,7 @@ defmodule ServiceRadar.Observability.AnomalyDisposition.PeakProfileTest do
 
   test "parses string-typed numerics and matches the right series" do
     fetch = PeakProfile.fetcher(StubRunner)
-    profile = fetch.(%{@ctx | series_key: "svc/cpu/b"})
+    profile = fetch.(%{@ctx | device_id: "sr:ns99"})
     assert profile.center == 61.0
     assert profile.sample_count == 9
   end

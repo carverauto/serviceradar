@@ -128,6 +128,7 @@ defmodule ServiceRadar.Observability.AnomalyDisposition do
 
       ctx = %{
         series_key: series_key,
+        device_id: get(source_identity, :device_id),
         metric_class: get(source_identity, :metric_class),
         metric_name: get(source_identity, :metric_name),
         dow: dow,

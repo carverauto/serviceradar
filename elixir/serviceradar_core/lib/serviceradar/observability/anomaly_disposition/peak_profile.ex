@@ -13,8 +13,9 @@ defmodule ServiceRadar.Observability.AnomalyDisposition.PeakProfile do
   The verb returns `center` (median peak), `p05`/`p95` (peak percentiles) and
   `bucket_count` per `(series, dow, hod)` — there is no `mad` column. `scale` is derived
   from the upper spread as `(p95 - center) / z₉₅` (z₉₅ ≈ 1.6449), so a peak at p95 scores
-  z ≈ 1.645 against the disposition thresholds. Series identity is `series:uid` — the
-  canonical key the edge finding is re-keyed to (the F14 contract, `series_key_test.exs`).
+  z ≈ 1.645 against the disposition thresholds. The query SELECTs `device_id AS series`,
+  so a row is matched by the finding's `device_id` within the metric scope — NOT the
+  canonical series_key (the seasonal worker consumes this same device_id-keyed shape).
 
   The verb name + output columns (`center`/`p05`/`p95`/`bucket_count`) were verified
   against the real SRQL implementation (`rust/srql/src/query/timeseries_metrics.rs`
@@ -89,8 +90,13 @@ defmodule ServiceRadar.Observability.AnomalyDisposition.PeakProfile do
   defp peak_scale(center, p95) when is_float(p95) and p95 > center, do: (p95 - center) / @z95
   defp peak_scale(_center, _p95), do: 0.0
 
+  # The profile query SELECTs `device_id AS series` (verified in the SQL), so a row is
+  # matched by the finding's DEVICE_ID within the metric scope — NOT the canonical
+  # series_key (a composite that never equals device_id). For cpu/mem this is one series
+  # per device; interface metrics would also need if_index (a later concern).
   defp row_matches?(row, ctx) do
-    field(row, "series") == ctx[:series_key] and
+    not is_nil(ctx[:device_id]) and
+      field(row, "series") == ctx[:device_id] and
       int(field(row, "dow")) == ctx[:dow] and
       int(field(row, "hod")) == ctx[:hod]
   end

@@ -84,9 +84,11 @@ defmodule ServiceRadar.Observability.AnomalyDispositionTest do
       assert ctx.series_key == result.series_key
       assert ctx.dow == expected_dow
       assert ctx.hod == 9
-      # the fetcher receives the metric scope it needs to build the SRQL peak query
+      # the fetcher receives the metric scope it needs to build the SRQL peak query,
+      # plus the device_id it matches rows on (the query's `series` column = device_id)
       assert ctx.metric_class == "sysmon.cpu"
       assert ctx.metric_name == "cpu.usage_percent"
+      assert ctx.device_id == "sr:ns03"
     end
 
     test "suppresses when the central peak profile already covers this hour" do
