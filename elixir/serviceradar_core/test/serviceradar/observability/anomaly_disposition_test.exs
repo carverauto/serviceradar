@@ -68,8 +68,8 @@ defmodule ServiceRadar.Observability.AnomalyDispositionTest do
     test "re-keys the finding, fetches its hour-of-week peak profile, and disposes" do
       parent = self()
 
-      fetch = fn series_key, dow, hod ->
-        send(parent, {:fetched, series_key, dow, hod})
+      fetch = fn ctx ->
+        send(parent, {:fetched, ctx})
         %{center: 55.0, scale: 4.0, sample_count: 8}
       end
 
@@ -80,23 +80,28 @@ defmodule ServiceRadar.Observability.AnomalyDispositionTest do
       assert is_binary(result.series_key)
 
       expected_dow = rem(Date.day_of_week(~D[2026-06-16]), 7)
-      assert_received {:fetched, fetched_key, ^expected_dow, 9}
-      assert fetched_key == result.series_key
+      assert_received {:fetched, ctx}
+      assert ctx.series_key == result.series_key
+      assert ctx.dow == expected_dow
+      assert ctx.hod == 9
+      # the fetcher receives the metric scope it needs to build the SRQL peak query
+      assert ctx.metric_class == "sysmon.cpu"
+      assert ctx.metric_name == "cpu.usage_percent"
     end
 
     test "suppresses when the central peak profile already covers this hour" do
-      fetch = fn _sk, _dow, _hod -> %{center: 90.0, scale: 5.0, sample_count: 9} end
+      fetch = fn _ctx -> %{center: 90.0, scale: 5.0, sample_count: 9} end
       assert %{disposition: :suppress} = D.for_finding(@finding, fetch)
     end
 
     test "returns nil when the finding lacks a forwarded peak" do
-      assert D.for_finding(Map.delete(@finding, "episode_peak_value"), fn _, _, _ -> %{} end) ==
+      assert D.for_finding(Map.delete(@finding, "episode_peak_value"), fn _ctx -> %{} end) ==
                nil
     end
 
     test "returns nil when the source_identity cannot be canonically re-keyed" do
       thin = Map.put(@finding, "source_identity", %{"metric_name" => "cpu.usage_percent"})
-      assert D.for_finding(thin, fn _, _, _ -> %{} end) == nil
+      assert D.for_finding(thin, fn _ctx -> %{} end) == nil
     end
   end
 

@@ -102,17 +102,22 @@ defmodule ServiceRadar.Observability.AnomalyDisposition do
   Re-keys the finding from its `source_identity` (the F14 canonical `series_key`), reads
   the forwarded `episode_peak_value`, derives the (dow, hod) of `episode_peak_at_unix_nano`
   (Postgres `EXTRACT(DOW)` convention: Sun=0..Sat=6), fetches the central hour-of-week
-  PEAK profile via the injected `fetch_peak_profile.(series_key, dow, hod)` (the alert/query
-  layer supplies the SRQL-backed fetch; tests supply a stub), and disposes.
+  PEAK profile via the injected `fetch_peak_profile.(ctx)`, and disposes.
+
+  `ctx` is `%{series_key, metric_class, metric_name, dow, hod}` — it carries the
+  metric_class/metric_name because the SRQL peak query (mirroring
+  `seasonal_disposition/source.ex` `profile_query/5`) scopes the table read by
+  `metric_type`/`metric_name`, not just the series. The alert/query layer supplies the
+  SRQL-backed fetch; tests supply a stub.
 
   Returns `%{series_key, disposition, reason, actionable, peak_value, dow, hod}`, or `nil`
   when the finding lacks the canonical key, a forwarded peak, or a peak timestamp.
   """
-  @spec for_finding(map(), (String.t(), integer(), integer() -> map() | nil), keyword()) ::
-          map() | nil
+  @spec for_finding(map(), (map() -> map() | nil), keyword()) :: map() | nil
   def for_finding(finding, fetch_peak_profile, opts \\ [])
-      when is_map(finding) and is_function(fetch_peak_profile, 3) do
-    series_key = SeriesKey.from_source_identity(get(finding, :source_identity) || %{})
+      when is_map(finding) and is_function(fetch_peak_profile, 1) do
+    source_identity = get(finding, :source_identity) || %{}
+    series_key = SeriesKey.from_source_identity(source_identity)
     peak = num(get(finding, :episode_peak_value))
     how = finding_hour_of_week(finding)
 
@@ -120,7 +125,16 @@ defmodule ServiceRadar.Observability.AnomalyDisposition do
       nil
     else
       {dow, hod} = how
-      profile = fetch_peak_profile.(series_key, dow, hod) || %{}
+
+      ctx = %{
+        series_key: series_key,
+        metric_class: get(source_identity, :metric_class),
+        metric_name: get(source_identity, :metric_name),
+        dow: dow,
+        hod: hod
+      }
+
+      profile = fetch_peak_profile.(ctx) || %{}
       {disposition, reason} = dispose(%{peak_value: peak}, profile, opts)
 
       %{
