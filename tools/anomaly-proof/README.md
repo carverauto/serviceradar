@@ -22,9 +22,11 @@ here that proves it on shipping code.
   baselines and forecast points. Proves the seasonal tier *suppresses* the
   recurring-nightly load the edge over-alerts on, *flags* genuine off-baseline
   hours, and exposes the capacity band overclaim.
-- **Core half (DB feed, planned):** the same kernels fed by the real SRQL
-  `profile_hour_of_week` verb over a seeded TimescaleDB CAGG (the `srql-fixtures`
-  CNPG scratch DB, or docker-compose `cnpg`), proving the data feed end to end.
+- **Core half (DB feed):** the same `dispose_seasonal` kernel fed by the REAL SRQL
+  `profile_hour_of_week` verb SQL over a REAL TimescaleDB continuous aggregate on the
+  `srql-fixtures` CNPG scratch DB — proving the F15 data feed end to end (raw metrics
+  → hourly CAGG → verb → kernel). One command: `run_db_feed.sh` (creates + drops its
+  own scratch DB).
 
 ## Prereqs
 
@@ -65,6 +67,14 @@ python3 tools/anomaly-proof/gen_capacity.py
     --threshold 100 --model linear --horizon-seconds 7776000   # try 604800 / 2592000 too
 ```
 
+### Core half — end-to-end DB feed (TimescaleDB)
+
+```bash
+# raw metrics -> real hourly CAGG -> real profile_hour_of_week verb -> real kernel
+# (creates + drops its own srql-fixtures scratch DB; reads the CNPG admin secret)
+tools/anomaly-proof/run_db_feed.sh
+```
+
 ## Proven results
 
 | Series / class | What it proves | Result |
@@ -78,6 +88,7 @@ python3 tools/anomaly-proof/gen_capacity.py
 | core seasonal: nightly-normal | the open-loop fix target | **suppressed** (z=0) — the same spike the edge flags 21/21 |
 | core seasonal: 7 labeled cases | the seasonal kernel is sound | **7/7** match the expected disposition |
 | core capacity: band vs horizon | the band overclaim | width **constant** at 7d/30d/90d (= 2·1.96·RMSE) |
+| core DB feed: verb → kernel | the F15 feed, end to end | over a real CAGG: dev-anomaly **breach** z=8.3 / dev-normal **suppress** z=0 |
 
 ## Files
 
@@ -88,6 +99,7 @@ Edge half:
 Core half:
 - `gen_seasonal.py` / `plot_seasonal.py` — hour-of-week baseline + labeled cases → `dispose_seasonal` proof
 - `gen_capacity.py` — disk-fill points for the `dispose_capacity` band-overclaim demo
+- `gen_seasonal_db.py` + `db/schema.sql` + `db/seasonal_verb.sql` + `run_db_feed.sh` — the end-to-end DB feed
 - the runner: `rust/causal-disposition/src/bin/disposition-backtest.rs` (`--kind seasonal|capacity`)
 
 - `out/`     — generated artifacts (not source)
