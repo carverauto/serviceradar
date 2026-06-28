@@ -3,6 +3,26 @@ defmodule ServiceRadar.Observability.AnomalyDispositionTest do
 
   alias ServiceRadar.Observability.AnomalyDisposition, as: D
 
+  defmodule ReportRunner do
+    @moduledoc false
+    # payload-wrapped peak profile row for device sr:ns03 at (dow 2, hod 9)
+    def query(_q, _o) do
+      {:ok,
+       [
+         %{
+           "payload" => %{
+             "series" => "sr:ns03",
+             "dow" => 2,
+             "hod" => 9,
+             "center" => 55,
+             "p95" => 61,
+             "bucket_count" => 8
+           }
+         }
+       ]}
+    end
+  end
+
   # a robust hour-of-week PEAK profile: this hour normally peaks ~55 with spread ~4.
   @profile %{center: 55.0, scale: 4.0, sample_count: 8}
 
@@ -121,6 +141,42 @@ defmodule ServiceRadar.Observability.AnomalyDispositionTest do
                suppression_enabled: true,
                min_stable_samples: 6
              )
+    end
+  end
+
+  describe "report_finding/2 (report-only out-of-band entry, 1.11/1.13)" do
+    @report_finding %{
+      "source_identity" => %{
+        "metric_class" => "sysmon.cpu",
+        "metric_name" => "cpu.usage_percent",
+        "device_id" => "sr:ns03"
+      },
+      "episode_peak_value" => 92.0,
+      "episode_peak_at_unix_nano" => DateTime.to_unix(~U[2026-06-16 09:00:00Z], :nanosecond)
+    }
+
+    test "computes the disposition and emits telemetry without acting on the alert" do
+      parent = self()
+      handler = "test-disp-#{System.unique_integer([:positive])}"
+
+      :telemetry.attach(
+        handler,
+        [:serviceradar, :anomaly, :disposition],
+        fn _event, meas, meta, _ -> send(parent, {:disp_telemetry, meas, meta}) end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      result = D.report_finding(@report_finding, runner: ReportRunner)
+
+      assert result.disposition == :escalate
+      assert_received {:disp_telemetry, %{count: 1}, %{disposition: :escalate}}
+    end
+
+    test "returns :ignore when the finding cannot be disposed" do
+      thin = Map.delete(@report_finding, "episode_peak_value")
+      assert D.report_finding(thin, runner: ReportRunner) == :ignore
     end
   end
 end

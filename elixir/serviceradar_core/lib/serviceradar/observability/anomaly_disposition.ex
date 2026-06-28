@@ -21,6 +21,10 @@ defmodule ServiceRadar.Observability.AnomalyDisposition do
   """
 
   alias ServiceRadar.Observability.AnomalyDetection.SeriesKey
+  alias ServiceRadar.Observability.AnomalyDisposition.PeakProfile
+  alias ServiceRadar.Observability.SRQLRunner
+
+  @telemetry_event [:serviceradar, :anomaly, :disposition]
 
   @type disposition :: :suppress | :downgrade | :escalate | :pass_through
 
@@ -147,6 +151,32 @@ defmodule ServiceRadar.Observability.AnomalyDisposition do
         dow: dow,
         hod: hod
       }
+    end
+  end
+
+  @doc """
+  Report-only disposition for an edge anomaly finding (1.11/1.13), the out-of-band
+  entry point a class-2004 consumer calls (NOT the alert hot path). Builds the
+  SRQL-backed peak-profile fetcher, computes the disposition via [`for_finding/3`], and
+  emits it as telemetry `[:serviceradar, :anomaly, :disposition]` (measurement `count: 1`,
+  the disposition map as metadata) WITHOUT changing any alert — suppression stays gated
+  by [`actionable?/2`] behind the per-metric-class kill switch. Returns the disposition
+  map, or `:ignore` when the finding can't be disposed (no peak, no canonical key, etc.).
+
+  `:runner` (default `SRQLRunner`) and the `dispose/3`/`fetcher/2` options pass through.
+  """
+  @spec report_finding(map(), keyword()) :: map() | :ignore
+  def report_finding(finding, opts \\ []) do
+    runner = Keyword.get(opts, :runner, SRQLRunner)
+    fetcher = PeakProfile.fetcher(runner, opts)
+
+    case for_finding(finding, fetcher, opts) do
+      %{} = result ->
+        :telemetry.execute(@telemetry_event, %{count: 1}, result)
+        result
+
+      _ ->
+        :ignore
     end
   end
 
