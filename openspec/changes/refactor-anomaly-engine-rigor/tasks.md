@@ -35,7 +35,7 @@
 
 ### 1f. BREAKING — on-the-wire de-causal envelope rename (D7; dual-publish + dual-consume)
 
-- [ ] 1.f1 Add the honest new names alongside the old (versioned envelope): the verdict `signal_type` value (`rust/anomaly-addon/src/verdict.rs:54`), the NATS subject namespace (`signals.causal.predictions.*` → renamed), and the `SignalSchemaRef`/schema names.
+- [~] 1.f1 Producer-side honest naming added ALONGSIDE the old (additive, non-breaking): the anomaly verdict now emits `detector_method: "rolling_robust_zscore"` next to the legacy routing `signal_type:"causal"` (`rust/anomaly-addon/src/verdict.rs`, 73 tests green). The NATS subject + `SignalSchemaRef` rename and the BMP/topology producers' matching dual-publish (1.f2) are the coordinated breaking parts (the value rename needs dual-consume 1.f3 first).
 - [ ] 1.f2 **Dual-publish** from every producer during the cutover: anomaly addon `verdict.rs`, the BMP producer (`add-bmp-dual-path-observability`), the topology-overlay producer (`topology-causal-overlays`).
 - [ ] 1.f3 **Dual-consume** in every consumer (prefer new, accept old): `.../event_writer/processors/causal_signals.ex`, `rust/causal-engine` evidence consumer, web-ng.
 - [ ] 1.f4 Migrate producers/consumers; add a zero-traffic verification step on the old subject/field; **drop** the old form only after verified zero traffic. Document rollback (revert the regressed side; old form stays live until the verified drop).

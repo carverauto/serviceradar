@@ -48,10 +48,15 @@ pub(crate) fn verdict_record(
     let finding_uid =
         format!("anomaly:finding:2004:anomaly_detection:{device_uid}:{series_key}:{metric_class}");
 
+    // 1f dual-publish (1.f1): emit the honest detector classification ALONGSIDE the
+    // legacy routing value `signal_type:"causal"`, which stays for consumer back-compat
+    // until the coordinated dual-consume + drop-old cutover (1.f2–1.f4, with the BMP +
+    // topology producers). This detector is a rolling robust z-score, NOT causal inference.
     let body = serde_json::json!({
         "event_id": &event_id,
         "id": &event_id,
         "signal_type": "causal",
+        "detector_method": "rolling_robust_zscore",
         "event_type": "anomaly",
         "class_uid": 2004,
         "category_uid": 2,
