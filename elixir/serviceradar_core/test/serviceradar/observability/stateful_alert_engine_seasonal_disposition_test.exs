@@ -89,7 +89,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineSeasonalDispositionTest 
     %{
       signal: :event,
       match: %{
-        "subject_prefix" => "signals.causal.predictions",
+        "subject_prefix" => "signals.analytics.predictions",
         "attribute_equals" => %{
           "signal_type" => "causal",
           "event_type" => ["anomaly", "anomaly_detection"],
@@ -108,7 +108,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineSeasonalDispositionTest 
       severity_id: OCSF.severity_high(),
       severity: OCSF.severity_name(OCSF.severity_high()),
       message: "Anomaly edge-spike",
-      log_name: "signals.causal.predictions.#{series_key}",
+      log_name: "signals.analytics.predictions.#{series_key}",
       log_provider: "anomaly_detection",
       device: %{"uid" => "sr:test-device"},
       unmapped: %{

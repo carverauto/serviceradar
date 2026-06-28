@@ -460,13 +460,16 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   defp causal_predictions_subject?(subject),
     do:
-      subject == "signals.causal.predictions" or
+      subject == "signals.analytics.predictions" or
+        String.starts_with?(subject, "signals.analytics.predictions.") or
+        subject == "signals.causal.predictions" or
         String.starts_with?(subject, "signals.causal.predictions.")
 
   defp bmp_causal_subject?(subject),
     do:
       subject == "bmp.events" or String.starts_with?(subject, "bmp.events.") or
-        subject == "signals.causal" or
+        subject == "signals.analytics" or
+        String.starts_with?(subject, "signals.analytics.") or subject == "signals.causal" or
         String.starts_with?(subject, "signals.causal.")
 
   defp arancini_causal_subject?(subject),

@@ -9,7 +9,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   Expected subjects include:
   - `arancini.updates.>`
   - `siem.events.>`
-  - `signals.causal.>`
+  - `signals.analytics.>`
+  - `signals.causal.>` (legacy back-compat dual-subscribe)
   """
 
   @behaviour ServiceRadar.EventWriter.Processor

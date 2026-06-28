@@ -15,7 +15,7 @@ pub struct Config {
     /// CNPG port.
     #[serde(default = "default_cnpg_port")]
     pub cnpg_port: u16,
-    /// NATS URL (live `signals.state.>` deltas in; `signals.causal.predictions` out).
+    /// NATS URL (live `signals.state.>` deltas in; `signals.analytics.predictions` out).
     #[serde(default = "default_nats_url")]
     pub nats_url: String,
     /// Optional NATS mTLS root CA path.

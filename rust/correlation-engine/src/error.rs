@@ -21,7 +21,7 @@ pub enum CorrelationEngineError {
     #[error("reasoning error: {0}")]
     Reasoning(String),
 
-    /// Verdict emission (signals.causal.predictions) failed.
+    /// Verdict emission (signals.analytics.predictions) failed.
     #[error("emit error: {0}")]
     Emit(String),
 

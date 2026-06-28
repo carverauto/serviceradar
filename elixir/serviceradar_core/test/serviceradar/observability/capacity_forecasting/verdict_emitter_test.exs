@@ -50,7 +50,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitterTest do
     assert :ok = VerdictEmitter.emit(@forecast, publisher: publisher)
 
     assert_received {:published_capacity_verdict, subject, payload}
-    assert subject == "signals.causal.predictions.cpu_usage:device-a:host-a"
+    assert subject == "signals.analytics.predictions.cpu_usage:device-a:host-a"
 
     decoded = Jason.decode!(payload)
     finding_uid = decoded["finding_info"]["uid"]

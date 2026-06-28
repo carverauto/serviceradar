@@ -1,7 +1,7 @@
 //! Live prediction-signal evidence.
 //!
 //! Core-elx emits anomaly and capacity forecast findings on
-//! `signals.causal.predictions.*`. The fused correlation engine consumes those
+//! `signals.analytics.predictions.*`. The fused correlation engine consumes those
 //! signals as evidence by projecting each active finding into the operator-rule
 //! evidence set already evaluated by C12.
 

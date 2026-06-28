@@ -1121,8 +1121,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     first_signals = collect_causal_signals(2)
 
     assert Enum.map(first_signals, & &1.subject) == [
-             "signals.causal.inventory.added",
-             "signals.causal.inventory.added"
+             "signals.analytics.inventory.added",
+             "signals.analytics.inventory.added"
            ]
 
     assert Enum.all?(first_signals, fn signal ->
@@ -1172,9 +1172,9 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     second_signals = collect_causal_signals(3)
 
     assert Enum.map(second_signals, & &1.subject) == [
-             "signals.causal.inventory.added",
-             "signals.causal.inventory.removed",
-             "signals.causal.inventory.version_changed"
+             "signals.analytics.inventory.added",
+             "signals.analytics.inventory.removed",
+             "signals.analytics.inventory.version_changed"
            ]
 
     assert version_changed_signal =

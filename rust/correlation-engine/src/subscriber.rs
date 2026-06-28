@@ -22,7 +22,10 @@ use crate::domain_model::Context;
 /// Wildcard subject for all app-level state-change tables.
 const STATE_SUBJECT: &str = "signals.state.>";
 /// Wildcard subject for anomaly/capacity findings emitted by core-elx.
-const PREDICTION_SUBJECT: &str = "signals.causal.predictions.>";
+const PREDICTION_SUBJECT: &str = "signals.analytics.predictions.>";
+/// Legacy prediction subject kept for back-compat dual-subscribe so any external
+/// producer still publishing on the old `signals.causal.*` namespace is received.
+const LEGACY_PREDICTION_SUBJECT: &str = "signals.causal.predictions.>";
 
 /// Spawn the live state-change subscriber as a background task. The task runs
 /// until the NATS subscription ends; failures are logged, never propagated.
@@ -45,6 +48,13 @@ async fn run(client: Client, ctx: Arc<RwLock<Context>>) -> anyhow::Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("subscribe to {PREDICTION_SUBJECT}: {e}"))?;
 
+    // Dual-subscribe: keep receiving any external producer still on the legacy
+    // `signals.causal.predictions.>` subject after the rename to analytics.
+    let mut legacy_prediction_subscription = client
+        .subscribe(LEGACY_PREDICTION_SUBJECT)
+        .await
+        .map_err(|e| anyhow::anyhow!("subscribe to {LEGACY_PREDICTION_SUBJECT}: {e}"))?;
+
     info!(
         subject = STATE_SUBJECT,
         "subscribed to live state-change feed"
@@ -55,6 +65,11 @@ async fn run(client: Client, ctx: Arc<RwLock<Context>>) -> anyhow::Result<()> {
         "subscribed to live prediction-signal feed"
     );
 
+    info!(
+        subject = LEGACY_PREDICTION_SUBJECT,
+        "subscribed to legacy prediction-signal feed (back-compat)"
+    );
+
     loop {
         tokio::select! {
             message = state_subscription.next() => {
@@ -62,6 +77,10 @@ async fn run(client: Client, ctx: Arc<RwLock<Context>>) -> anyhow::Result<()> {
                 handle_state_message(&ctx, message).await;
             }
             message = prediction_subscription.next() => {
+                let Some(message) = message else { break; };
+                handle_prediction_signal_message(&ctx, message).await;
+            }
+            message = legacy_prediction_subscription.next() => {
                 let Some(message) = message else { break; };
                 handle_prediction_signal_message(&ctx, message).await;
             }

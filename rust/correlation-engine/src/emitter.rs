@@ -1,8 +1,8 @@
-//! Verdict emitter — publishes causal verdicts onto
-//! `signals.causal.predictions.<entity>` over NATS JetStream (task 1.6).
+//! Verdict emitter — publishes analytic verdicts onto
+//! `signals.analytics.predictions.<entity>` over NATS JetStream (task 1.6).
 //!
-//! The existing `CausalSignals` processor + `pipeline.ex` already route the
-//! `signals.causal.*` prefix into `ocsf_events`, so no new inbound plumbing is
+//! The existing `AnalyticsSignals` processor + `pipeline.ex` already route the
+//! `signals.analytics.*` prefix into `ocsf_events`, so no new inbound plumbing is
 //! needed — verdicts re-enter `StatefulAlertEngine.evaluate_events/1` (the
 //! automation loop) and drive the God-View 4-bucket render. Prediction ids are
 //! DETERMINISTIC so re-emitting the same verdict is idempotent (the processor
@@ -16,7 +16,7 @@ use crate::error::{CorrelationEngineError, Result};
 use crate::reasoner::{Classification, Verdict};
 
 /// Root subject for emitted predictions. Per-entity tokens are appended.
-const PREDICTION_SUBJECT_ROOT: &str = "signals.causal.predictions";
+const PREDICTION_SUBJECT_ROOT: &str = "signals.analytics.predictions";
 
 /// Publishes verdicts to the prediction subject via JetStream.
 pub struct Emitter {
@@ -66,7 +66,7 @@ pub fn build_envelope(verdict: &Verdict) -> Value {
         "severity_id": severity_id(verdict.severity),
         "source": {
             "subject": format!("{PREDICTION_SUBJECT_ROOT}.{}", subject_token(&verdict.entity_id)),
-            "collector": "causal-engine",
+            "collector": "correlation-engine",
             "system": "serviceradar"
         },
         "source_identity": { "entity_uid": verdict.entity_id },

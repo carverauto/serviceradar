@@ -46,8 +46,8 @@ pub trait ContextStore: Send + Sync {
 /// current between refreshes by the live `signals.state.>` subscriber
 /// ([`crate::subscriber`]), which applies deltas to the same shared `Context`.
 ///
-/// TODO(1.2b+): a subscriber for the existing causal subjects
-/// (`signals.causal.>`, `arancini.updates.>`, `siem.events.>`, zen OCSF), and
+/// TODO(1.2b+): a subscriber for the existing analytic subjects
+/// (`signals.analytics.>`, `arancini.updates.>`, `siem.events.>`, zen OCSF), and
 /// broaden coverage to interfaces, agents, gateways, flows, virtualization, BGP,
 /// MTR, and health transitions. Never consume TimescaleDB hypertable CDC (those
 /// are queried on demand here).
@@ -97,7 +97,7 @@ impl ContextHydrator {
 
     /// Re-snapshot current state from CNPG, reconcile the shared `Context`, and
     /// persist it to disk. Called periodically to pick up new entities; live
-    /// `signals.state.>` and `signals.causal.>` deltas keep non-SRQL state
+    /// `signals.state.>` and `signals.analytics.>` deltas keep non-SRQL state
     /// current between refreshes.
     pub async fn refresh(&self) -> Result<()> {
         let devices = self.query("in:devices").await?;

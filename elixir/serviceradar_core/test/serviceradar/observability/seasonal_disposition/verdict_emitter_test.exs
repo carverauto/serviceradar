@@ -44,7 +44,9 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitterTest do
     assert :ok = VerdictEmitter.emit(@breach, publisher: publisher)
 
     assert_received {:published_seasonal_verdict, subject, payload}
-    assert subject == "signals.causal.predictions.partition:p1:device:device-a:metric:cpu_usage"
+
+    assert subject ==
+             "signals.analytics.predictions.partition:p1:device:device-a:metric:cpu_usage"
 
     decoded = Jason.decode!(payload)
     assert decoded["event_id"] == VerdictEmitter.event_id(@breach)

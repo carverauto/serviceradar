@@ -53,8 +53,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RuleMatcher do
 
     match_subject_prefix? =
       case Map.get(match, "subject_prefix") do
-        prefix when is_binary(prefix) -> String.starts_with?("signals.causal.predictions", prefix)
-        _ -> false
+        prefix when is_binary(prefix) ->
+          String.starts_with?("signals.analytics.predictions", prefix)
+
+        _ ->
+          false
       end
 
     match_subject_prefix? and

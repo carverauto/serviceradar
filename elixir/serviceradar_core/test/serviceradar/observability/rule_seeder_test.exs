@@ -28,7 +28,7 @@ defmodule ServiceRadar.Observability.RuleSeederTest do
     assert {:ok, [rule]} = Ash.read(query, actor: actor)
     assert rule.enabled
     assert rule.signal == :event
-    assert rule.match["subject_prefix"] == "signals.causal.inventory"
+    assert rule.match["subject_prefix"] == "signals.analytics.inventory"
     assert rule.match["attribute_equals"] == %{"signal_type" => "inventory"}
     assert rule.group_by == ["device"]
     assert rule.threshold == 1
@@ -49,7 +49,7 @@ defmodule ServiceRadar.Observability.RuleSeederTest do
     assert {:ok, [rule]} = Ash.read(query, actor: actor)
     assert rule.enabled
     assert rule.signal == :event
-    assert rule.match["subject_prefix"] == "signals.causal.predictions"
+    assert rule.match["subject_prefix"] == "signals.analytics.predictions"
 
     assert rule.match["attribute_equals"] == %{
              # dual-match the legacy + honest routing values during the 1f wire migration
@@ -84,7 +84,7 @@ defmodule ServiceRadar.Observability.RuleSeederTest do
     assert {:ok, [rule]} = Ash.read(query, actor: actor)
     assert rule.enabled
     assert rule.signal == :event
-    assert rule.match["subject_prefix"] == "signals.causal.predictions"
+    assert rule.match["subject_prefix"] == "signals.analytics.predictions"
 
     assert rule.match["attribute_equals"] == %{
              # dual-match the legacy + honest routing values during the 1f wire migration

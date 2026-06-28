@@ -172,7 +172,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
           AnalyticsSignals.parse_message(%{
             data: Jason.encode!(payload),
             metadata: %{
-              subject: "signals.causal.predictions.sysmon:cpu:sr:anomaly-device:0",
+              subject: "signals.analytics.predictions.sysmon:cpu:sr:anomaly-device:0",
               received_at: DateTime.add(event_time, 1_000, :second)
             }
           })
@@ -215,7 +215,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
         AnalyticsSignals.parse_message(%{
           data: Jason.encode!(payload),
           metadata: %{
-            subject: "signals.causal.predictions.sysmon:cpu:sr:anomaly-device:0",
+            subject: "signals.analytics.predictions.sysmon:cpu:sr:anomaly-device:0",
             received_at: ~U[2026-06-12 12:00:00Z]
           }
         })
@@ -270,7 +270,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
         AnalyticsSignals.parse_message(%{
           data: Jason.encode!(payload),
           metadata: %{
-            subject: "signals.causal.predictions.snmp:#{target_ip}:7",
+            subject: "signals.analytics.predictions.snmp:#{target_ip}:7",
             received_at: DateTime.utc_now()
           }
         })
@@ -313,7 +313,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
       assert AnalyticsSignals.parse_message(%{
                data: Jason.encode!(payload),
                metadata: %{
-                 subject: "signals.causal.predictions.snmp.agent-dusk01.6",
+                 subject: "signals.analytics.predictions.snmp.agent-dusk01.6",
                  received_at: DateTime.utc_now()
                }
              }) == nil
@@ -365,7 +365,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
       assert AnalyticsSignals.parse_message(%{
                data: Jason.encode!(payload),
                metadata: %{
-                 subject: "signals.causal.predictions.snmp:#{target_ip}:7",
+                 subject: "signals.analytics.predictions.snmp:#{target_ip}:7",
                  received_at: DateTime.utc_now()
                }
              }) == nil
@@ -420,7 +420,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
         AnalyticsSignals.parse_message(%{
           data: Jason.encode!(payload),
           metadata: %{
-            subject: "signals.causal.predictions.snmp.sr-farm01.6",
+            subject: "signals.analytics.predictions.snmp.sr-farm01.6",
             received_at: DateTime.utc_now()
           }
         })
@@ -483,7 +483,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
         AnalyticsSignals.parse_message(%{
           data: Jason.encode!(payload),
           metadata: %{
-            subject: "signals.causal.predictions.#{anomaly_series_key}",
+            subject: "signals.analytics.predictions.#{anomaly_series_key}",
             received_at: DateTime.utc_now()
           }
         })
@@ -499,7 +499,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
 
     test "returns nil on invalid JSON" do
       row =
-        AnalyticsSignals.parse_message(%{data: "not-json", metadata: %{subject: "bmp.events.peer"}})
+        AnalyticsSignals.parse_message(%{
+          data: "not-json",
+          metadata: %{subject: "bmp.events.peer"}
+        })
 
       assert row == nil
     end
@@ -538,7 +541,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
 
       message = %{
         data: Jason.encode!(payload),
-        metadata: %{subject: "signals.causal.inventory.added", received_at: DateTime.utc_now()}
+        metadata: %{subject: "signals.analytics.inventory.added", received_at: DateTime.utc_now()}
       }
 
       row = AnalyticsSignals.parse_message(message)
@@ -551,7 +554,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
       assert row.metadata["primary_domain"] == "inventory"
       assert row.metadata["signal_domains"] == ["inventory"]
       assert row.metadata["event_type"] == "added"
-      assert row.metadata["source"]["subject"] == "signals.causal.inventory.added"
+      assert row.metadata["source"]["subject"] == "signals.analytics.inventory.added"
 
       assert row.metadata["explainability"]["source_signal_refs"] == [
                "inventory:agent-a:scan-a:added:coord-hash"
@@ -582,7 +585,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
       message = %{
         data: Jason.encode!(payload),
         metadata: %{
-          subject: "signals.causal.inventory.vulnerability_match",
+          subject: "signals.analytics.inventory.vulnerability_match",
           received_at: DateTime.utc_now()
         }
       }
@@ -632,7 +635,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
         AnalyticsSignals.parse_message(%{
           data: Jason.encode!(payload),
           metadata: %{
-            subject: "signals.causal.inventory.vulnerability_match",
+            subject: "signals.analytics.inventory.vulnerability_match",
             received_at: DateTime.utc_now()
           }
         })
@@ -889,7 +892,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
           fn payload ->
             %{
               data: Jason.encode!(payload),
-              metadata: %{subject: "signals.causal.overlay", received_at: DateTime.utc_now()},
+              metadata: %{subject: "signals.analytics.overlay", received_at: DateTime.utc_now()},
               ack_data: %{}
             }
           end
@@ -934,7 +937,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
       event = %{
         data: Jason.encode!(%{"signal_type" => "causal", "event_type" => "anomaly"}),
         metadata: %{
-          subject: "signals.causal.predictions.sysmon:memory:host-a",
+          subject: "signals.analytics.predictions.sysmon:memory:host-a",
           received_at: DateTime.utc_now()
         },
         ack_data: %{}
@@ -967,7 +970,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
         AnalyticsSignals.parse_message(%{
           data: Jason.encode!(payload),
           metadata: %{
-            subject: "signals.causal.predictions.sysmon:memory:sr:anomaly-device",
+            subject: "signals.analytics.predictions.sysmon:memory:sr:anomaly-device",
             received_at: DateTime.utc_now()
           }
         })
@@ -999,7 +1002,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
       }
 
       meta = %{
-        subject: "signals.causal.predictions.sysmon:cpu:sr:anomaly-device",
+        subject: "signals.analytics.predictions.sysmon:cpu:sr:anomaly-device",
         received_at: DateTime.utc_now()
       }
 
@@ -1086,7 +1089,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
         AnalyticsSignals.parse_message(%{
           data: Jason.encode!(edge),
           metadata: %{
-            subject: "signals.causal.predictions.#{source_identity["series_key"]}",
+            subject: "signals.analytics.predictions.#{source_identity["series_key"]}",
             received_at: DateTime.utc_now()
           }
         })
@@ -1095,7 +1098,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
         AnalyticsSignals.parse_message(%{
           data: Jason.encode!(central),
           metadata: %{
-            subject: "signals.causal.predictions.#{canonical_series_key}",
+            subject: "signals.analytics.predictions.#{canonical_series_key}",
             received_at: DateTime.utc_now()
           }
         })
@@ -1143,7 +1146,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
       }
 
       meta = %{
-        subject: "signals.causal.predictions.canonical-series-key",
+        subject: "signals.analytics.predictions.canonical-series-key",
         received_at: DateTime.utc_now()
       }
 
@@ -1219,7 +1222,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
         AnalyticsSignals.parse_message(%{
           data: Jason.encode!(payload),
           metadata: %{
-            subject: "signals.causal.predictions.cpu-series-a",
+            subject: "signals.analytics.predictions.cpu-series-a",
             received_at: DateTime.utc_now()
           }
         })
@@ -1290,7 +1293,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
         AnalyticsSignals.parse_message(%{
           data: Jason.encode!(payload),
           metadata: %{
-            subject: "signals.causal.predictions.#{opaque_series_key}",
+            subject: "signals.analytics.predictions.#{opaque_series_key}",
             received_at: DateTime.utc_now()
           }
         })
@@ -1334,7 +1337,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
         AnalyticsSignals.parse_message(%{
           data: Jason.encode!(payload),
           metadata: %{
-            subject: "signals.causal.predictions.#{opaque_series_key}",
+            subject: "signals.analytics.predictions.#{opaque_series_key}",
             received_at: DateTime.utc_now()
           }
         })

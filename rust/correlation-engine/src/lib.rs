@@ -11,7 +11,7 @@
 //! a [`context_hydrator`] feeds a `Context` from CNPG (via `EmbeddedSrql`), JetStream
 //! deltas, and the `signals.state.<table>` app-level state-change feed; a [`reasoner`]
 //! evaluates the C1–C13 rules over an `ultragraph` `CsmGraph`; and an [`emitter`]
-//! publishes verdicts on `signals.causal.predictions`, which the `CausalSignals`
+//! publishes verdicts on `signals.analytics.predictions`, which the `AnalyticsSignals`
 //! processor normalizes into `ocsf_events` — re-entering `StatefulAlertEngine` (the
 //! automation loop) and the God-View renderer.
 //!

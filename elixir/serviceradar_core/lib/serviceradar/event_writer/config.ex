@@ -350,6 +350,16 @@ defmodule ServiceRadar.EventWriter.Config do
         batch_timeout: 1_000
       },
       %{
+        name: "ANALYTICS_PREDICTIONS",
+        stream_name: "events",
+        subject: "signals.analytics.predictions.>",
+        processor: AnalyticsSignals,
+        batch_size: 100,
+        batch_timeout: 1_000
+      },
+      # Legacy subject kept for back-compat dual-subscribe so external producers
+      # still publishing on signals.causal.predictions.> keep being consumed.
+      %{
         name: "CAUSAL_PREDICTIONS",
         stream_name: "events",
         subject: "signals.causal.predictions.>",
