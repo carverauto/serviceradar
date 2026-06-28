@@ -1,4 +1,4 @@
-//! God-View causal-state extraction (task 1.10 step 1).
+//! God-View correlation-state extraction (task 1.10 step 1).
 //!
 //! The reasoning that previously lived in the web-ng `god_view_nif`
 //! (`native/god_view_nif/src/core/causality.rs`) — betweenness-weighted
@@ -26,9 +26,9 @@ const MAX_BETWEENNESS_NODES: usize = 4_096;
 /// Affected-cascade hop cap from the selected root (mirrors the NIF's BFS).
 const MAX_AFFECTED_HOPS: usize = 3;
 
-/// A single node's causal verdict in the God-View 4-bucket model.
+/// A single node's verdict in the God-View 4-bucket model.
 #[derive(Debug, Clone, PartialEq)]
-pub struct CausalStateRow {
+pub struct CorrelationStateRow {
     /// Encoded state: 0=root, 1=affected, 2=healthy, 3=unknown.
     pub state: u8,
     /// Programmatic reason the state was assigned.
@@ -41,7 +41,7 @@ pub struct CausalStateRow {
     pub hop_distance: i64,
 }
 
-impl CausalStateRow {
+impl CorrelationStateRow {
     /// Map the encoded state to the engine [`Classification`].
     pub fn classification(&self) -> Classification {
         match self.state {
@@ -90,10 +90,13 @@ fn betweenness_scores(node_count: usize, edges: &[(u32, u32)]) -> Option<Vec<f64
     Some(scores)
 }
 
-/// Evaluate per-node causal states from boolean health signals (0=OK, 1=FAIL)
+/// Evaluate per-node correlation states from boolean health signals (0=OK, 1=FAIL)
 /// over an undirected edge list. Identical in behavior to the former NIF
 /// `evaluate_causal_states_with_reasons_impl`.
-pub fn evaluate_causal_states(health_signals: &[u8], edges: &[(u32, u32)]) -> Vec<CausalStateRow> {
+pub fn evaluate_correlation_states(
+    health_signals: &[u8],
+    edges: &[(u32, u32)],
+) -> Vec<CorrelationStateRow> {
     let node_count = health_signals.len();
     if node_count == 0 {
         return Vec::new();
@@ -122,7 +125,7 @@ pub fn evaluate_causal_states(health_signals: &[u8], edges: &[(u32, u32)]) -> Ve
             .iter()
             .map(|signal| {
                 let state = if *signal == 0 { 2 } else { 3 };
-                CausalStateRow {
+                CorrelationStateRow {
                     state,
                     reason: if state == 2 {
                         "healthy_signal_no_detected_causal_impact".to_string()
@@ -175,7 +178,7 @@ pub fn evaluate_causal_states(health_signals: &[u8], edges: &[(u32, u32)]) -> Ve
     (0..node_count)
         .map(|idx| {
             if idx == root {
-                return CausalStateRow {
+                return CorrelationStateRow {
                     state: 0,
                     reason: "selected_as_root_from_unhealthy_candidates".to_string(),
                     root_index: root as i64,
@@ -189,7 +192,7 @@ pub fn evaluate_causal_states(health_signals: &[u8], edges: &[(u32, u32)]) -> Ve
                 } else {
                     parent[idx] as i64
                 };
-                CausalStateRow {
+                CorrelationStateRow {
                     state: 1,
                     reason: format!("reachable_from_root_within_{}_hops", dist[idx]),
                     root_index: root as i64,
@@ -197,7 +200,7 @@ pub fn evaluate_causal_states(health_signals: &[u8], edges: &[(u32, u32)]) -> Ve
                     hop_distance: dist[idx] as i64,
                 }
             } else if health_signals[idx] == 0 {
-                CausalStateRow {
+                CorrelationStateRow {
                     state: 2,
                     reason: "healthy_signal_no_path_to_selected_root".to_string(),
                     root_index: root as i64,
@@ -205,7 +208,7 @@ pub fn evaluate_causal_states(health_signals: &[u8], edges: &[(u32, u32)]) -> Ve
                     hop_distance: -1,
                 }
             } else {
-                CausalStateRow {
+                CorrelationStateRow {
                     state: 3,
                     reason: "unhealthy_signal_not_reachable_from_selected_root".to_string(),
                     root_index: root as i64,
@@ -223,12 +226,12 @@ mod tests {
 
     #[test]
     fn empty_signals_yield_no_rows() {
-        assert!(evaluate_causal_states(&[], &[]).is_empty());
+        assert!(evaluate_correlation_states(&[], &[]).is_empty());
     }
 
     #[test]
     fn all_healthy_when_no_failures() {
-        let rows = evaluate_causal_states(&[0, 0, 0], &[(0, 1), (1, 2)]);
+        let rows = evaluate_correlation_states(&[0, 0, 0], &[(0, 1), (1, 2)]);
         assert!(rows.iter().all(|r| r.state == 2));
         assert!(rows.iter().all(|r| r.root_index == -1));
     }
@@ -236,7 +239,7 @@ mod tests {
     #[test]
     fn single_failure_is_root_and_neighbors_are_affected() {
         // line 0-1-2; node 1 fails
-        let rows = evaluate_causal_states(&[0, 1, 0], &[(0, 1), (1, 2)]);
+        let rows = evaluate_correlation_states(&[0, 1, 0], &[(0, 1), (1, 2)]);
         assert_eq!(rows[1].state, 0); // root
         assert_eq!(rows[0].state, 1); // affected within 1 hop
         assert_eq!(rows[2].state, 1);
@@ -247,7 +250,7 @@ mod tests {
     fn most_central_unhealthy_node_is_selected_root() {
         // hub 0 wired to 1,2,3 with 1-4 tail; nodes 0 and 4 both fail. The hub is
         // far more central, so it is chosen as the root over the leaf.
-        let rows = evaluate_causal_states(&[1, 0, 0, 0, 1], &[(0, 1), (0, 2), (0, 3), (1, 4)]);
+        let rows = evaluate_correlation_states(&[1, 0, 0, 0, 1], &[(0, 1), (0, 2), (0, 3), (1, 4)]);
         assert_eq!(rows[0].state, 0);
         assert_eq!(rows[0].classification(), Classification::RootCause);
     }
@@ -257,7 +260,7 @@ mod tests {
         // edge only 0-1; nodes 0 and 2 fail. Root is 0 (more connected); node 2
         // is unhealthy but unreachable => unknown(3); node 3 is healthy and
         // unreachable => healthy(2).
-        let rows = evaluate_causal_states(&[1, 0, 1, 0], &[(0, 1)]);
+        let rows = evaluate_correlation_states(&[1, 0, 1, 0], &[(0, 1)]);
         assert_eq!(rows[0].state, 0);
         assert_eq!(rows[2].state, 3);
         assert_eq!(rows[2].classification(), Classification::Unknown);

@@ -1,10 +1,10 @@
-//! Error type for the causal engine.
+//! Error type for the correlation engine.
 
 use thiserror::Error;
 
 /// Errors raised across the engine's hydrate → reason → emit pipeline.
 #[derive(Debug, Error)]
-pub enum CausalEngineError {
+pub enum CorrelationEngineError {
     /// Configuration could not be loaded/validated.
     #[error("config error: {0}")]
     Config(String),
@@ -17,7 +17,7 @@ pub enum CausalEngineError {
     #[error("nats error: {0}")]
     Nats(String),
 
-    /// Causaloid evaluation failed.
+    /// Rule / dependency-graph reasoning failed.
     #[error("reasoning error: {0}")]
     Reasoning(String),
 
@@ -31,4 +31,4 @@ pub enum CausalEngineError {
 }
 
 /// Convenience result alias for the crate.
-pub type Result<T> = std::result::Result<T, CausalEngineError>;
+pub type Result<T> = std::result::Result<T, CorrelationEngineError>;

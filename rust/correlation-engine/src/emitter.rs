@@ -12,7 +12,7 @@ use async_nats::jetstream::Context as JetStreamContext;
 use chrono::Utc;
 use serde_json::{Value, json};
 
-use crate::error::{CausalEngineError, Result};
+use crate::error::{CorrelationEngineError, Result};
 use crate::reasoner::{Classification, Verdict};
 
 /// Root subject for emitted predictions. Per-entity tokens are appended.
@@ -34,7 +34,7 @@ impl Emitter {
         for verdict in verdicts {
             let envelope = build_envelope(verdict);
             let payload = serde_json::to_vec(&envelope)
-                .map_err(|e| CausalEngineError::Emit(format!("encode: {e}")))?;
+                .map_err(|e| CorrelationEngineError::Emit(format!("encode: {e}")))?;
             let subject = format!(
                 "{PREDICTION_SUBJECT_ROOT}.{}",
                 subject_token(&verdict.entity_id)
@@ -42,9 +42,9 @@ impl Emitter {
             self.js
                 .publish(subject, payload.into())
                 .await
-                .map_err(|e| CausalEngineError::Emit(format!("publish: {e}")))?
+                .map_err(|e| CorrelationEngineError::Emit(format!("publish: {e}")))?
                 .await
-                .map_err(|e| CausalEngineError::Emit(format!("ack: {e}")))?;
+                .map_err(|e| CorrelationEngineError::Emit(format!("ack: {e}")))?;
         }
         Ok(())
     }

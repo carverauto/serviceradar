@@ -18,7 +18,7 @@
 //! The crate is scaffolded incrementally; modules carry `TODO(<task>)` markers
 //! referencing `openspec/changes/add-causal-engine/tasks.md`.
 
-pub mod causal_evidence;
+pub mod signal_evidence;
 pub mod config;
 pub mod context_hydrator;
 pub mod delta;
@@ -80,5 +80,5 @@ pub use config::Config;
 pub use context_hydrator::{ContextHydrator, ContextStore};
 pub use delta::{StateChangeDelta, apply_delta, parse_state_change};
 pub use domain_model::{Context, Device, EntityId, Service};
-pub use error::{CausalEngineError, Result};
+pub use error::{CorrelationEngineError, Result};
 pub use reasoner::{Classification, Reasoner, Verdict};

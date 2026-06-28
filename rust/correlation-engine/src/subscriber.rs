@@ -15,14 +15,14 @@ use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
-use crate::causal_evidence::{apply_causal_evidence, parse_causal_prediction};
+use crate::signal_evidence::{apply_signal_evidence, parse_prediction_signal};
 use crate::delta::{apply_delta, parse_state_change};
 use crate::domain_model::Context;
 
 /// Wildcard subject for all app-level state-change tables.
 const STATE_SUBJECT: &str = "signals.state.>";
 /// Wildcard subject for anomaly/capacity findings emitted by core-elx.
-const CAUSAL_PREDICTION_SUBJECT: &str = "signals.causal.predictions.>";
+const PREDICTION_SUBJECT: &str = "signals.causal.predictions.>";
 
 /// Spawn the live state-change subscriber as a background task. The task runs
 /// until the NATS subscription ends; failures are logged, never propagated.
@@ -40,10 +40,10 @@ async fn run(client: Client, ctx: Arc<RwLock<Context>>) -> anyhow::Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("subscribe to {STATE_SUBJECT}: {e}"))?;
 
-    let mut causal_subscription = client
-        .subscribe(CAUSAL_PREDICTION_SUBJECT)
+    let mut prediction_subscription = client
+        .subscribe(PREDICTION_SUBJECT)
         .await
-        .map_err(|e| anyhow::anyhow!("subscribe to {CAUSAL_PREDICTION_SUBJECT}: {e}"))?;
+        .map_err(|e| anyhow::anyhow!("subscribe to {PREDICTION_SUBJECT}: {e}"))?;
 
     info!(
         subject = STATE_SUBJECT,
@@ -51,8 +51,8 @@ async fn run(client: Client, ctx: Arc<RwLock<Context>>) -> anyhow::Result<()> {
     );
 
     info!(
-        subject = CAUSAL_PREDICTION_SUBJECT,
-        "subscribed to live causal prediction feed"
+        subject = PREDICTION_SUBJECT,
+        "subscribed to live prediction-signal feed"
     );
 
     loop {
@@ -61,9 +61,9 @@ async fn run(client: Client, ctx: Arc<RwLock<Context>>) -> anyhow::Result<()> {
                 let Some(message) = message else { break; };
                 handle_state_message(&ctx, message).await;
             }
-            message = causal_subscription.next() => {
+            message = prediction_subscription.next() => {
                 let Some(message) = message else { break; };
-                handle_causal_prediction_message(&ctx, message).await;
+                handle_prediction_signal_message(&ctx, message).await;
             }
         }
     }
@@ -94,27 +94,27 @@ async fn handle_state_message(ctx: &Arc<RwLock<Context>>, message: async_nats::M
     }
 }
 
-async fn handle_causal_prediction_message(
+async fn handle_prediction_signal_message(
     ctx: &Arc<RwLock<Context>>,
     message: async_nats::Message,
 ) {
     match serde_json::from_slice::<serde_json::Value>(&message.payload) {
         Ok(envelope) => {
-            if let Some(evidence) = parse_causal_prediction(&envelope) {
+            if let Some(evidence) = parse_prediction_signal(&envelope) {
                 let applied = {
                     let mut guard = ctx.write().await;
-                    apply_causal_evidence(&mut guard, &evidence)
+                    apply_signal_evidence(&mut guard, &evidence)
                 };
                 debug!(
                     rule = %evidence.rule_id,
                     entity = %evidence.entity_uid,
                     applied,
-                    "applied causal prediction evidence"
+                    "applied prediction-signal evidence"
                 );
             }
         }
         Err(e) => {
-            warn!(error = %e, subject = %message.subject, "undecodable causal prediction envelope")
+            warn!(error = %e, subject = %message.subject, "undecodable prediction-signal envelope")
         }
     }
 }

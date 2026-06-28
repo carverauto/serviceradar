@@ -9,7 +9,7 @@
 use std::path::PathBuf;
 
 use crate::domain_model::Context;
-use crate::error::{CausalEngineError, Result};
+use crate::error::{CorrelationEngineError, Result};
 
 /// On-disk JSON snapshot of the `Context`.
 pub struct SnapshotStore {
@@ -25,19 +25,19 @@ impl SnapshotStore {
     /// Persist the `Context` atomically (write to a temp file, then rename).
     pub fn save(&self, context: &Context) -> Result<()> {
         let json = serde_json::to_vec(context)
-            .map_err(|e| CausalEngineError::Snapshot(format!("encode: {e}")))?;
+            .map_err(|e| CorrelationEngineError::Snapshot(format!("encode: {e}")))?;
 
         if let Some(dir) = self.path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| {
-                CausalEngineError::Snapshot(format!("mkdir {}: {e}", dir.display()))
+                CorrelationEngineError::Snapshot(format!("mkdir {}: {e}", dir.display()))
             })?;
         }
 
         let tmp = self.path.with_extension("tmp");
         std::fs::write(&tmp, &json)
-            .map_err(|e| CausalEngineError::Snapshot(format!("write {}: {e}", tmp.display())))?;
+            .map_err(|e| CorrelationEngineError::Snapshot(format!("write {}: {e}", tmp.display())))?;
         std::fs::rename(&tmp, &self.path).map_err(|e| {
-            CausalEngineError::Snapshot(format!("rename {}: {e}", self.path.display()))
+            CorrelationEngineError::Snapshot(format!("rename {}: {e}", self.path.display()))
         })?;
         Ok(())
     }
@@ -47,9 +47,9 @@ impl SnapshotStore {
         match std::fs::read(&self.path) {
             Ok(bytes) => serde_json::from_slice(&bytes)
                 .map(Some)
-                .map_err(|e| CausalEngineError::Snapshot(format!("decode: {e}"))),
+                .map_err(|e| CorrelationEngineError::Snapshot(format!("decode: {e}"))),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(CausalEngineError::Snapshot(format!(
+            Err(e) => Err(CorrelationEngineError::Snapshot(format!(
                 "read {}: {e}",
                 self.path.display()
             ))),

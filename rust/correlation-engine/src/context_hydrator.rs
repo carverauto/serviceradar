@@ -18,7 +18,7 @@ use crate::domain_model::{
     Context, Device, EdgeKind, Service, TopologyEdge,
     prune_stale_operator_rules as prune_context_operator_rules,
 };
-use crate::error::{CausalEngineError, Result};
+use crate::error::{CorrelationEngineError, Result};
 use crate::snapshot::SnapshotStore;
 
 /// Upper bound on rows pulled per entity in a single current-state snapshot.
@@ -66,10 +66,10 @@ impl ContextHydrator {
     /// snapshot and the periodic refresh tick retries.
     pub async fn connect(snapshot_path: &str) -> Result<Self> {
         let config = AppConfig::from_env()
-            .map_err(|e| CausalEngineError::Hydration(format!("srql config: {e}")))?;
+            .map_err(|e| CorrelationEngineError::Hydration(format!("srql config: {e}")))?;
         let srql = EmbeddedSrql::new(config)
             .await
-            .map_err(|e| CausalEngineError::Hydration(format!("embedded srql: {e}")))?;
+            .map_err(|e| CorrelationEngineError::Hydration(format!("embedded srql: {e}")))?;
 
         let snapshot = SnapshotStore::new(snapshot_path);
         let restored = match snapshot.load() {
@@ -162,10 +162,10 @@ impl ContextHydrator {
             .query
             .execute_query(request)
             .await
-            .map_err(|e| CausalEngineError::Hydration(format!("query '{srql_query}': {e}")))?;
+            .map_err(|e| CorrelationEngineError::Hydration(format!("query '{srql_query}': {e}")))?;
 
         if let Some(error) = response.error {
-            return Err(CausalEngineError::Hydration(format!(
+            return Err(CorrelationEngineError::Hydration(format!(
                 "query '{srql_query}' returned error: {error}"
             )));
         }

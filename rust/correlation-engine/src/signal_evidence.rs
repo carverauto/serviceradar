@@ -1,7 +1,7 @@
-//! Live causal prediction evidence.
+//! Live prediction-signal evidence.
 //!
 //! Core-elx emits anomaly and capacity forecast findings on
-//! `signals.causal.predictions.*`. The fused causal engine consumes those
+//! `signals.causal.predictions.*`. The fused correlation engine consumes those
 //! signals as evidence by projecting each active finding into the operator-rule
 //! evidence set already evaluated by C12.
 
@@ -10,9 +10,9 @@ use serde_json::Value;
 
 use crate::domain_model::{Context, OperatorRule};
 
-/// A causal finding emitted by core-elx and usable as C12 evidence.
+/// A prediction finding emitted by core-elx and usable as C12 evidence.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CausalEvidence {
+pub struct SignalEvidence {
     /// Stable finding/evidence id.
     pub rule_id: String,
     /// Canonical or best-known entity the finding applies to.
@@ -25,8 +25,8 @@ pub struct CausalEvidence {
     pub last_updated_unix_ms: i64,
 }
 
-/// Parse an anomaly or capacity forecast causal prediction envelope.
-pub fn parse_causal_prediction(envelope: &Value) -> Option<CausalEvidence> {
+/// Parse an anomaly or capacity forecast prediction-signal envelope.
+pub fn parse_prediction_signal(envelope: &Value) -> Option<SignalEvidence> {
     // 1.f3 dual-consume: accept the honest new routing value "prediction" alongside the
     // legacy "causal" during the wire-rename migration. No producer emits the new value
     // yet, so this is a dead branch until the coordinated 1.1/1.f2 rename + BMP/topology.
@@ -72,7 +72,7 @@ pub fn parse_causal_prediction(envelope: &Value) -> Option<CausalEvidence> {
 
     let status = evidence_status(envelope);
 
-    Some(CausalEvidence {
+    Some(SignalEvidence {
         rule_id: format!("causal:{event_type}:{evidence_id}"),
         entity_uid,
         condition_met: active_status(&status),
@@ -81,8 +81,8 @@ pub fn parse_causal_prediction(envelope: &Value) -> Option<CausalEvidence> {
     })
 }
 
-/// Upsert causal evidence into the C12 operator-rule evidence vector.
-pub fn apply_causal_evidence(ctx: &mut Context, evidence: &CausalEvidence) -> bool {
+/// Upsert signal evidence into the C12 operator-rule evidence vector.
+pub fn apply_signal_evidence(ctx: &mut Context, evidence: &SignalEvidence) -> bool {
     if !evidence.condition_met {
         let before = ctx.operator_rules.len();
         ctx.operator_rules
@@ -188,8 +188,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_anomaly_prediction_as_causal_evidence() {
-        let evidence = parse_causal_prediction(&json!({
+    fn parses_anomaly_prediction_as_signal_evidence() {
+        let evidence = parse_prediction_signal(&json!({
             "signal_type": "causal",
             "event_type": "anomaly",
             "event_id": "anomaly:e1",
@@ -207,7 +207,7 @@ mod tests {
 
     #[test]
     fn parses_capacity_prediction_with_record_id_fallback() {
-        let evidence = parse_causal_prediction(&json!({
+        let evidence = parse_prediction_signal(&json!({
             "signal_type": "causal",
             "event_type": "capacity_forecast",
             "event_id": "cap:e1",
@@ -222,7 +222,7 @@ mod tests {
 
     #[test]
     fn parses_evidence_timestamp_from_payload() {
-        let evidence = parse_causal_prediction(&json!({
+        let evidence = parse_prediction_signal(&json!({
             "signal_type": "causal",
             "event_type": "anomaly",
             "source_identity": {"entity_uid": "sr:device:a"},
@@ -236,7 +236,7 @@ mod tests {
     #[test]
     fn rejects_non_evidence_predictions() {
         assert!(
-            parse_causal_prediction(&json!({
+            parse_prediction_signal(&json!({
                 "signal_type": "causal",
                 "event_type": "root_cause",
                 "source_identity": {"entity_uid": "sr:device:a"}
@@ -248,7 +248,7 @@ mod tests {
     #[test]
     fn applies_evidence_idempotently() {
         let mut ctx = Context::default();
-        let evidence = CausalEvidence {
+        let evidence = SignalEvidence {
             rule_id: "causal:anomaly:e1".to_string(),
             entity_uid: "sr:device:a".to_string(),
             condition_met: true,
@@ -256,23 +256,23 @@ mod tests {
             last_updated_unix_ms: 1_000,
         };
 
-        assert!(apply_causal_evidence(&mut ctx, &evidence));
+        assert!(apply_signal_evidence(&mut ctx, &evidence));
         assert_eq!(ctx.operator_rules.len(), 1);
-        assert!(!apply_causal_evidence(&mut ctx, &evidence));
+        assert!(!apply_signal_evidence(&mut ctx, &evidence));
         assert_eq!(ctx.operator_rules.len(), 1);
     }
 
     #[test]
     fn prunes_stale_operator_rule_evidence() {
         let mut ctx = Context::default();
-        let fresh = CausalEvidence {
+        let fresh = SignalEvidence {
             rule_id: "causal:anomaly:fresh".to_string(),
             entity_uid: "sr:device:a".to_string(),
             condition_met: true,
             description: "fresh anomaly".to_string(),
             last_updated_unix_ms: 10_000,
         };
-        let stale = CausalEvidence {
+        let stale = SignalEvidence {
             rule_id: "causal:anomaly:stale".to_string(),
             entity_uid: "sr:device:b".to_string(),
             condition_met: true,
@@ -280,8 +280,8 @@ mod tests {
             last_updated_unix_ms: 1_000,
         };
 
-        assert!(apply_causal_evidence(&mut ctx, &fresh));
-        assert!(apply_causal_evidence(&mut ctx, &stale));
+        assert!(apply_signal_evidence(&mut ctx, &fresh));
+        assert!(apply_signal_evidence(&mut ctx, &stale));
 
         let pruned = crate::domain_model::prune_stale_operator_rules(&mut ctx, 10_000, 5_000);
 
@@ -292,7 +292,7 @@ mod tests {
 
     #[test]
     fn prefers_stable_series_identity_over_per_event_id() {
-        let first = parse_causal_prediction(&json!({
+        let first = parse_prediction_signal(&json!({
             "signal_type": "causal",
             "event_type": "anomaly",
             "event_id": "anomaly:series-a:1781260800000000000:anomalous",
@@ -306,7 +306,7 @@ mod tests {
         }))
         .expect("first evidence");
 
-        let second = parse_causal_prediction(&json!({
+        let second = parse_prediction_signal(&json!({
             "signal_type": "causal",
             "event_type": "anomaly",
             "event_id": "anomaly:series-a:1781260860000000000:anomalous",
@@ -330,7 +330,7 @@ mod tests {
     fn updates_existing_evidence_when_status_changes() {
         let mut ctx = Context::default();
 
-        let open = CausalEvidence {
+        let open = SignalEvidence {
             rule_id: "causal:anomaly:stable-finding".to_string(),
             entity_uid: "sr:device:a".to_string(),
             condition_met: true,
@@ -338,15 +338,15 @@ mod tests {
             last_updated_unix_ms: 1_000,
         };
 
-        let resolved = CausalEvidence {
+        let resolved = SignalEvidence {
             condition_met: false,
             description: "anomaly resolved".to_string(),
             ..open.clone()
         };
 
-        assert!(apply_causal_evidence(&mut ctx, &open));
-        assert!(apply_causal_evidence(&mut ctx, &resolved));
+        assert!(apply_signal_evidence(&mut ctx, &open));
+        assert!(apply_signal_evidence(&mut ctx, &resolved));
         assert!(ctx.operator_rules.is_empty());
-        assert!(!apply_causal_evidence(&mut ctx, &resolved));
+        assert!(!apply_signal_evidence(&mut ctx, &resolved));
     }
 }

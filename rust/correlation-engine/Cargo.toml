@@ -3,7 +3,7 @@ name = "correlation-engine"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.90"
-description = "ServiceRadar DeepCausality causal engine (OpenSpec: add-causal-engine)"
+description = "ServiceRadar signal-correlation engine — rule + dependency-graph reasoning over anomaly/BMP/topology signals (OpenSpec: add-causal-engine)"
 
 [dependencies]
 anyhow = "1"

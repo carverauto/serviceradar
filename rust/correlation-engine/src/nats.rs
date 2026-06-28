@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use async_nats::{Client, ConnectOptions, jetstream};
 
 use crate::config::Config;
-use crate::error::{CausalEngineError, Result};
+use crate::error::{CorrelationEngineError, Result};
 
 /// Connect to NATS using the engine config, wiring mTLS when cert paths are set.
 pub async fn connect(config: &Config) -> Result<(Client, jetstream::Context)> {
@@ -23,7 +23,7 @@ pub async fn connect(config: &Config) -> Result<(Client, jetstream::Context)> {
     let client = opts
         .connect(&config.nats_url)
         .await
-        .map_err(|e| CausalEngineError::Nats(format!("connect {}: {e}", config.nats_url)))?;
+        .map_err(|e| CorrelationEngineError::Nats(format!("connect {}: {e}", config.nats_url)))?;
 
     let jetstream = jetstream::new(client.clone());
     Ok((client, jetstream))

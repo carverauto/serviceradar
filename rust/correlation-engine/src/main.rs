@@ -1,4 +1,4 @@
-//! `correlation-engine` binary — the single-pod fused DeepCausality engine.
+//! `correlation-engine` binary — the single-pod fused correlation engine.
 //!
 //! V1 reasoning loop skeleton: hydrate `Context` → evaluate causaloids → emit
 //! verdicts. TODO(1.2–1.7): real hydration, delta-driven ticks, snapshot
@@ -65,7 +65,7 @@ async fn run_tick(
         .await;
 
     if pruned > 0 {
-        info!(pruned, "pruned stale causal operator-rule evidence");
+        info!(pruned, "pruned stale operator-rule evidence");
     }
 
     let context = hydrator.current_context().await?;

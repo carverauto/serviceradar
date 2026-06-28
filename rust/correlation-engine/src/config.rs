@@ -4,7 +4,7 @@
 use serde::Deserialize;
 
 use crate::domain_model::DEFAULT_OPERATOR_RULE_TTL_MS;
-use crate::error::{CausalEngineError, Result};
+use crate::error::{CorrelationEngineError, Result};
 
 /// Runtime configuration for the fused engine.
 #[derive(Debug, Clone, Deserialize)]
@@ -75,6 +75,6 @@ impl Config {
     pub fn from_env() -> Result<Self> {
         envy::prefixed("CAUSAL_ENGINE_")
             .from_env::<Config>()
-            .map_err(|e| CausalEngineError::Config(e.to_string()))
+            .map_err(|e| CorrelationEngineError::Config(e.to_string()))
     }
 }
