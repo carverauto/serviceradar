@@ -145,6 +145,40 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
            } in core_panel.assigns.reference_lines
   end
 
+  test "metric sections honor a caller-provided absolute time range" do
+    previous_responder = Application.get_env(:serviceradar_web_ng, :sysmon_metrics_test_responder)
+
+    Application.put_env(:serviceradar_web_ng, :sysmon_metrics_test_responder, fn query, _opts ->
+      if String.contains?(query, "in:timeseries_metrics") do
+        assert query =~ "time:[2026-06-26T06:30:00Z,2026-06-26T08:30:00Z]"
+        assert query =~ "bucket:1m"
+        send(self(), {:detail_metric_query, query})
+      end
+
+      {:ok, %{"results" => [], "pagination" => %{}}}
+    end)
+
+    on_exit(fn ->
+      restore_env(:sysmon_metrics_test_responder, previous_responder)
+    end)
+
+    sections =
+      SysmonMetrics.load_metric_sections(
+        RecordingSRQLStub,
+        [~s|device_id:"sysmon-detail-test"|],
+        :scope,
+        time_range: "[2026-06-26T06:30:00Z,2026-06-26T08:30:00Z]",
+        bucket: "1m",
+        window_label: "around Jun 26 07:30 UTC"
+      )
+
+    assert Enum.map(sections, & &1.subtitle) == [
+             "around Jun 26 07:30 UTC · overall utilization",
+             "around Jun 26 07:30 UTC · used percent",
+             "around Jun 26 07:30 UTC · used percent"
+           ]
+  end
+
   test "process metrics carry a per-process CPU history series for sparklines" do
     previous_responder = Application.get_env(:serviceradar_web_ng, :sysmon_metrics_test_responder)
     now = DateTime.truncate(DateTime.utc_now(), :second)

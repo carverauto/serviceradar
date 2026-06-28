@@ -101,8 +101,8 @@ defmodule ServiceRadarWebNGWeb.DashboardTopologyPluginTest do
 
     assert {:ok, assigns} = Topology.build(response)
     assert [%{id: id, label: "implicit"}] = assigns.nodes
-    assert String.starts_with?(id, "node-")
-    assert byte_size(id) == byte_size("node-") + 16
+    assert String.starts_with?(id, "node:")
+    assert byte_size(id) == byte_size("node:") + 16
   end
 
   test "build caps oversized topology with a visible truncation node" do

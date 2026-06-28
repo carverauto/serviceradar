@@ -87,11 +87,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Series do
   def sysmon_display_subtitle(rows, series_field, singular, plural, opts \\ [])
 
   def sysmon_display_subtitle(rows, series_field, singular, plural, opts) when is_list(rows) do
-    "#{@sysmon_window_label} · #{Keyword.get(opts, :prefix, "")}#{sysmon_display_subtitle_detail(rows, series_field, singular, plural)}"
+    window_label = Keyword.get(opts, :window_label, @sysmon_window_label)
+
+    "#{window_label} · #{Keyword.get(opts, :prefix, "")}#{sysmon_display_subtitle_detail(rows, series_field, singular, plural)}"
   end
 
   def sysmon_display_subtitle(_rows, _series_field, singular, _plural, opts) do
-    "#{@sysmon_window_label} · #{Keyword.get(opts, :prefix, "")}max per #{singular}"
+    window_label = Keyword.get(opts, :window_label, @sysmon_window_label)
+    "#{window_label} · #{Keyword.get(opts, :prefix, "")}max per #{singular}"
   end
 
   defp sysmon_display_subtitle_detail(rows, series_field, singular, plural) when is_list(rows) do

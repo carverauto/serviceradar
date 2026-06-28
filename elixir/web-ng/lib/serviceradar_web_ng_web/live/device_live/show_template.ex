@@ -238,7 +238,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               <.metric_sections_content
                 sections={@metric_sections_to_render}
                 device_uid={@device_uid}
-                chart_focus={@selected_anomaly_capacity_detail}
               />
 
               <.process_metrics_section
@@ -251,9 +250,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               <.anomaly_capacity_section
                 :if={@can_view_anomaly_capacity}
                 overview={@anomaly_capacity}
+                anomaly_page={@anomaly_capacity_page}
+                anomaly_filters={@anomaly_capacity_filters}
                 detail={@anomaly_capacity_detail}
                 device_uid={@device_uid}
                 device_display_name={@device_display_name}
+                metric_sections={@anomaly_capacity_detail_metric_sections}
               />
 
               <%= for panel <- @panels do %>

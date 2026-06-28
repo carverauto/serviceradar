@@ -35,6 +35,11 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   require Logger
 
   @snmp_varbind_prefix ~r/^[^:]+:\s*(.*)$/
+  @redacted "[REDACTED]"
+  @sensitive_log_keys ~w(
+    authorization api_key apikey bearer cookie credential credentials jwt password
+    private_key secret secret_key seed signing_key token nkey_seed nkey
+  )
   @common_insert_placeholders %{
     trace_id: :logs_trace_id,
     span_id: :logs_span_id,
@@ -87,7 +92,9 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
         {:error, _} = error -> parse_log_payload(error, data, metadata)
       end
 
-    IngestAttribution.attach(case_result, attribution)
+    case_result
+    |> IngestAttribution.attach(attribution)
+    |> redact_log_row()
   end
 
   @doc false
@@ -500,6 +507,87 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   end
 
   defp source_kind(_), do: nil
+
+  defp redact_log_row(nil), do: nil
+
+  defp redact_log_row(rows) when is_list(rows), do: Enum.map(rows, &redact_log_row/1)
+
+  defp redact_log_row(row) when is_map(row) do
+    row
+    |> redact_text_field(:body)
+    |> redact_metadata_field(:attributes)
+    |> redact_metadata_field(:resource_attributes)
+    |> redact_metadata_field(:scope_attributes)
+  end
+
+  defp redact_text_field(row, key) do
+    case Map.get(row, key) do
+      value when is_binary(value) -> Map.put(row, key, redact_secret_text(value))
+      _ -> row
+    end
+  end
+
+  defp redact_metadata_field(row, key) do
+    case Map.get(row, key) do
+      value when is_map(value) or is_list(value) -> Map.put(row, key, redact_secret_value(value))
+      value when is_binary(value) -> Map.put(row, key, redact_secret_text(value))
+      _ -> row
+    end
+  end
+
+  defp redact_secret_value(value) when is_map(value) do
+    Map.new(value, fn {key, nested} ->
+      if sensitive_log_key?(key) do
+        {key, @redacted}
+      else
+        {key, redact_secret_value(nested)}
+      end
+    end)
+  end
+
+  defp redact_secret_value(value) when is_list(value), do: Enum.map(value, &redact_secret_value/1)
+  defp redact_secret_value(value) when is_binary(value), do: redact_secret_text(value)
+  defp redact_secret_value(value), do: value
+
+  defp redact_secret_text(value) when is_binary(value) do
+    value
+    |> redact_erlang_secret("nkey_seed")
+    |> redact_erlang_secret("jwt")
+    |> redact_json_secret("nkey_seed")
+    |> redact_json_secret("jwt")
+    |> redact_json_secret("token")
+    |> redact_json_secret("password")
+    |> redact_json_secret("secret")
+    |> redact_json_secret("api_key")
+    |> redact_assignment_secret("authorization")
+    |> redact_assignment_secret("token")
+    |> redact_assignment_secret("password")
+    |> redact_assignment_secret("secret")
+    |> redact_assignment_secret("api_key")
+  end
+
+  defp redact_erlang_secret(value, key) do
+    Regex.replace(~r/(#{Regex.escape(key)}\s*=>\s*<<")[^"]*(">>)/i, value, "\\1#{@redacted}\\2")
+  end
+
+  defp redact_json_secret(value, key) do
+    Regex.replace(~r/("#{Regex.escape(key)}"\s*:\s*")[^"]*(")/i, value, "\\1#{@redacted}\\2")
+  end
+
+  defp redact_assignment_secret(value, key) do
+    Regex.replace(~r/(#{Regex.escape(key)}\s*[=:]\s*)[^\s,}\]]+/i, value, "\\1#{@redacted}")
+  end
+
+  defp sensitive_log_key?(key) do
+    key
+    |> to_string()
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9_]+/, "_")
+    |> then(fn normalized ->
+      normalized in @sensitive_log_keys or
+        Enum.any?(@sensitive_log_keys, fn key -> String.ends_with?(normalized, "_#{key}") end)
+    end)
+  end
 
   defp generated_uuid do
     Ecto.UUID.dump!(Ecto.UUID.generate())

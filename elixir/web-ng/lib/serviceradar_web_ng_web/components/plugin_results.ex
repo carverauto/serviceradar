@@ -265,10 +265,10 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
     Regex.replace(~r/href\s*=\s*(\"[^\"]*\"|'[^']*')/i, html, fn _full, quoted ->
       url = unquote_attr(quoted)
 
-      if safe_markdown_url?(url) do
-        "href=#{quoted}"
-      else
-        ~s(href="#")
+      cond do
+        String.trim(url) == "" -> ~s(href="#")
+        safe_markdown_url?(url) -> "href=#{quoted}"
+        true -> ~s(href="#")
       end
     end)
   end

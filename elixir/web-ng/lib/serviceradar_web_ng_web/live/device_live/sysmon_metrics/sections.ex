@@ -19,22 +19,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
 
     Enum.filter(
       [
-        build_cpu_section(srql_module, filter_tokens, scope, Map.get(reference_lines, :cpu, [])),
-        build_memory_section(srql_module, filter_tokens, scope, Map.get(reference_lines, :memory, [])),
-        build_disk_section(srql_module, filter_tokens, scope, Map.get(reference_lines, :disk, []))
+        build_cpu_section(srql_module, filter_tokens, scope, Map.get(reference_lines, :cpu, []), opts),
+        build_memory_section(srql_module, filter_tokens, scope, Map.get(reference_lines, :memory, []), opts),
+        build_disk_section(srql_module, filter_tokens, scope, Map.get(reference_lines, :disk, []), opts)
       ],
       & &1
     )
   end
 
-  defp build_cpu_section(srql_module, filter_tokens, scope, reference_lines) do
+  defp build_cpu_section(srql_module, filter_tokens, scope, reference_lines, opts) do
+    query_opts = metric_query_opts(opts)
+
     overall_query =
       Query.timeseries_metric_query(
         "sysmon.cpu",
         "cpu.usage_percent",
         filter_tokens,
         nil,
-        @metrics_limit
+        Keyword.get(opts, :metrics_limit, @metrics_limit),
+        query_opts
       )
 
     per_core_query =
@@ -43,11 +46,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
         "cpu.usage_percent",
         filter_tokens,
         "core_id",
-        @cpu_metrics_limit,
-        agg: "max"
+        Keyword.get(opts, :cpu_metrics_limit, @cpu_metrics_limit),
+        Keyword.put(query_opts, :agg, "max")
       )
 
-    base = section_base("cpu", "CPU", "last 24h · 5m buckets · overall utilization", overall_query)
+    base = section_base("cpu", "CPU", "#{window_label(opts)} · overall utilization", overall_query)
 
     case {srql_module.query(overall_query, %{scope: scope}), srql_module.query(per_core_query, %{scope: scope})} do
       {{:ok, %{"results" => overall_results}}, {:ok, %{"results" => core_results}}}
@@ -76,7 +79,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
 
         %{
           base
-          | subtitle: cpu_display_subtitle(core_rows),
+          | subtitle: cpu_display_subtitle(core_rows, opts),
             panels: panels,
             header_value: Series.latest_metric_value(overall_rows, "usage_percent"),
             header_stats: Series.metric_stats(overall_rows, "usage_percent")
@@ -100,34 +103,36 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
     end
   end
 
-  defp build_memory_section(srql_module, filter_tokens, scope, reference_lines) do
+  defp build_memory_section(srql_module, filter_tokens, scope, reference_lines, opts) do
     query =
       Query.timeseries_metric_query(
         "sysmon.memory",
         "memory.used_percent",
         filter_tokens,
         nil,
-        @metrics_limit
+        Keyword.get(opts, :metrics_limit, @metrics_limit),
+        metric_query_opts(opts)
       )
 
-    build_single_series_section(srql_module, scope, query, "memory", "Memory", "used_percent", reference_lines)
+    build_single_series_section(srql_module, scope, query, "memory", "Memory", "used_percent", reference_lines, opts)
   end
 
-  defp build_disk_section(srql_module, filter_tokens, scope, reference_lines) do
+  defp build_disk_section(srql_module, filter_tokens, scope, reference_lines, opts) do
     query =
       Query.timeseries_metric_query(
         "sysmon.disk",
         "disk.used_percent",
         filter_tokens,
         nil,
-        @disk_metrics_limit
+        Keyword.get(opts, :disk_metrics_limit, @disk_metrics_limit),
+        metric_query_opts(opts)
       )
 
-    build_single_series_section(srql_module, scope, query, "disk", "Disk", "used_percent", reference_lines)
+    build_single_series_section(srql_module, scope, query, "disk", "Disk", "used_percent", reference_lines, opts)
   end
 
-  defp build_single_series_section(srql_module, scope, query, key, title, value_field, reference_lines) do
-    base = section_base(key, title, "last 24h · 5m buckets · used percent", query)
+  defp build_single_series_section(srql_module, scope, query, key, title, value_field, reference_lines, opts) do
+    base = section_base(key, title, "#{window_label(opts)} · used percent", query)
 
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => results}} when is_list(results) and results != [] ->
@@ -173,7 +178,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
     end)
   end
 
-  defp cpu_display_subtitle(rows) when is_list(rows) do
-    Series.sysmon_display_subtitle(rows, "core_id", "core", "cores", prefix: "overall + ")
+  defp cpu_display_subtitle(rows, opts) when is_list(rows) do
+    Series.sysmon_display_subtitle(rows, "core_id", "core", "cores",
+      prefix: "overall + ",
+      window_label: window_label(opts)
+    )
+  end
+
+  defp metric_query_opts(opts) do
+    [
+      time_range: Keyword.get(opts, :time_range, "last_24h"),
+      bucket: Keyword.get(opts, :bucket, "5m")
+    ]
+  end
+
+  defp window_label(opts) do
+    Keyword.get(opts, :window_label, default_window_label(opts))
+  end
+
+  defp default_window_label(opts) do
+    time_range =
+      opts
+      |> Keyword.get(:time_range, "last_24h")
+      |> to_string()
+      |> String.replace("_", " ")
+
+    "#{time_range} · #{Keyword.get(opts, :bucket, "5m")} buckets"
   end
 end

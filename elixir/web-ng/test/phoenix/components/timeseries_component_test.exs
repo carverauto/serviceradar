@@ -70,6 +70,100 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
     assert html =~ "#EF4444"
   end
 
+  test "renders anomaly chart overlays with windows and peak glyphs" do
+    points = [
+      {~U[2025-01-01 00:00:00Z], 10.0},
+      {~U[2025-01-01 00:10:00Z], 20.0},
+      {~U[2025-01-01 00:20:00Z], 30.0}
+    ]
+
+    html =
+      render_component(Timeseries, %{
+        id: "ts-anomaly-overlays",
+        title: "Anomaly overlays",
+        panel_assigns: %{
+          chart_mode: :single,
+          rate_mode: :none,
+          chart_overlays: [
+            %{
+              kind: :anomaly,
+              dt: ~U[2025-01-01 00:10:00Z],
+              window_started_at: ~U[2025-01-01 00:05:00Z],
+              window_ended_at: ~U[2025-01-01 00:15:00Z],
+              value: 20.0,
+              score: 4.7,
+              label: "CPU spike",
+              severity: "critical",
+              disposition: "active",
+              reason: "Burst above baseline"
+            }
+          ]
+        },
+        series_points: [{"cpu", points}]
+      })
+
+    assert html =~ "data-testid=\"timeseries-chart-overlays\""
+    assert html =~ "data-testid=\"timeseries-anomaly-window\""
+    assert html =~ "data-testid=\"timeseries-overlay-marker\""
+    assert html =~ "data-testid=\"timeseries-overlay-value\""
+    assert html =~ "data-overlay-label=\"CPU spike\""
+    assert html =~ "score 4.7"
+    assert html =~ "Burst above baseline"
+  end
+
+  test "renders in-window capacity runway and omits out-of-window forecast marks" do
+    points = [
+      {~U[2025-01-01 00:00:00Z], 50.0},
+      {~U[2025-01-01 00:10:00Z], 60.0},
+      {~U[2025-01-01 00:20:00Z], 70.0}
+    ]
+
+    html =
+      render_component(Timeseries, %{
+        id: "ts-capacity-overlays",
+        title: "Capacity overlays",
+        panel_assigns: %{
+          chart_mode: :single,
+          rate_mode: :none,
+          reference_lines: [
+            %{value: 90.0, label: "Capacity threshold", severity: "critical"}
+          ],
+          chart_overlays: [
+            %{
+              kind: :capacity,
+              forecasted_at: ~U[2025-01-01 00:00:00Z],
+              projected_exhaustion_at: ~U[2025-01-01 00:20:00Z],
+              current_value: 55.0,
+              projected_value: 80.0,
+              threshold_value: 90.0,
+              lower_bound: 75.0,
+              upper_bound: 85.0,
+              label: "Capacity forecast",
+              severity: "critical"
+            },
+            %{
+              kind: :capacity,
+              forecasted_at: ~U[2025-01-01 00:00:00Z],
+              projected_exhaustion_at: ~U[2025-01-02 00:00:00Z],
+              current_value: 55.0,
+              projected_value: 80.0,
+              lower_bound: 75.0,
+              upper_bound: 85.0,
+              label: "Out-of-window forecast",
+              severity: "warning"
+            }
+          ]
+        },
+        spec: %{x: "timestamp", y: "used_percent", series: "label"},
+        series_points: [{"disk", points}]
+      })
+
+    assert html =~ "data-testid=\"timeseries-capacity-runway\""
+    assert html =~ "data-testid=\"timeseries-capacity-confidence\""
+    assert html =~ "data-overlay-label=\"Capacity forecast\""
+    refute html =~ "data-overlay-label=\"Out-of-window forecast\""
+  end
+
   test "focuses a finding on its matching series and time window" do
     points =
       for minute <- 0..20 do
@@ -485,8 +579,8 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
         series_points: [{"gauge", points}]
       })
 
-    assert html =~ "2.51"
-    assert html =~ "39.81"
+    assert html =~ "2.19"
+    assert html =~ "45.7"
   end
 
   test "counter rates drop the synthetic first zero and render resets as gaps" do

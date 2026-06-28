@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
 
   import Phoenix.LiveViewTest
 
+  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries
   alias ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents
 
   @moduletag :db_free
@@ -268,5 +269,66 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
     assert html =~ "current remaining 92.96%"
     refute html =~ "163.46%"
     refute html =~ "over threshold 63.46%"
+  end
+
+  test "renders selected finding metric context with the full detail focus window" do
+    capacity = %{
+      "finding_title" => "Capacity forecast: memory",
+      "metric_class" => "memory",
+      "metric_name" => "usage_percent memory_usage",
+      "severity" => "Low",
+      "status" => "inactive",
+      "time" => "2026-06-22T16:00:00Z"
+    }
+
+    overview = %{
+      status: :ok,
+      anomaly_rows: [capacity],
+      capacity_rows: [],
+      anomaly_query: "in:events limit:20",
+      capacity_query: "in:capacity_forecasts limit:12",
+      anomaly_filter: %{field: "service_radar_device_uid", label: "device", value: "router-1"},
+      capacity_filter: %{field: "resource_id", label: "device", value: "router-1"},
+      anomaly_error: nil,
+      capacity_error: nil,
+      metric_statuses: []
+    }
+
+    points =
+      for hour <- 14..18 do
+        {DateTime.add(~U[2026-06-22 00:00:00Z], hour * 60 * 60, :second), hour * 1.0}
+      end
+
+    metric_sections = [
+      %{
+        key: "memory",
+        title: "Memory",
+        subtitle: "around Jun 22 16:00 UTC",
+        error: nil,
+        panels: [
+          %{
+            plugin: Timeseries,
+            id: "memory-context",
+            assigns: %{
+              chart_mode: :single,
+              rate_mode: :none,
+              series_points: [{"series", points}]
+            }
+          }
+        ]
+      }
+    ]
+
+    html =
+      render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
+        overview: overview,
+        detail: %{kind: "capacity", row: capacity},
+        metric_sections: metric_sections
+      )
+
+    assert html =~ "Metric context"
+    assert html =~ "2:00 PM"
+    assert html =~ "4:00 PM"
+    assert html =~ "6:00 PM"
   end
 end

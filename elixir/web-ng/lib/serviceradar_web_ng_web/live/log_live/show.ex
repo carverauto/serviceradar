@@ -9,6 +9,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   alias ServiceRadarWebNG.Observability.SignalDisplay
   alias ServiceRadarWebNGWeb.Components.PromotionRuleBuilder
 
+  @redacted "[REDACTED]"
+  @sensitive_log_keys ~w(
+    authorization api_key apikey bearer cookie credential credentials jwt password
+    private_key secret secret_key seed signing_key token nkey_seed nkey
+  )
+
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
@@ -339,6 +345,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp log_body(assigns) do
     body = Map.get(assigns.log, "body") || Map.get(assigns.log, "message") || ""
+    body = redact_secret_text(body)
 
     is_json =
       String.starts_with?(String.trim(body), "{") or String.starts_with?(String.trim(body), "[")
@@ -394,8 +401,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       |> Enum.sort()
 
     # Parse attributes fields if present for structured display
-    parsed_attributes = parse_attributes(Map.get(assigns.log, "attributes"))
-    parsed_resource_attributes = parse_attributes(Map.get(assigns.log, "resource_attributes"))
+    parsed_attributes = assigns.log |> Map.get("attributes") |> parse_attributes() |> redact_secret_value()
+
+    parsed_resource_attributes =
+      assigns.log |> Map.get("resource_attributes") |> parse_attributes() |> redact_secret_value()
 
     assigns =
       assigns
@@ -461,7 +470,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
                   {humanize_field(field)}
                 </span>
                 <span class="text-sm flex-1 break-all">
-                  <.format_value value={Map.get(@log, field)} />
+                  <.format_value value={redact_secret_value(Map.get(@log, field))} />
                 </span>
               </div>
             <% end %>
@@ -491,10 +500,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
               <span class="font-mono text-base-content/90">
                 <%= if key == "source" and is_binary(@source_device_uid) do %>
                   <.link navigate={~p"/devices/#{@source_device_uid}"} class="link link-hover">
-                    {format_attribute_value(value)}
+                    {format_attribute_value(key, value)}
                   </.link>
                 <% else %>
-                  {format_attribute_value(value)}
+                  {format_attribute_value(key, value)}
                 <% end %>
               </span>
             </span>
@@ -513,10 +522,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
                     <span class="font-mono text-base-content/90">
                       <%= if key == "source" and is_binary(@source_device_uid) do %>
                         <.link navigate={~p"/devices/#{@source_device_uid}"} class="link link-hover">
-                          {format_attribute_value(value)}
+                          {format_attribute_value(key, value)}
                         </.link>
                       <% else %>
-                        {format_attribute_value(value)}
+                        {format_attribute_value(key, value)}
                       <% end %>
                     </span>
                   </span>
@@ -631,22 +640,90 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     end
   end
 
-  defp format_attribute_value(value) when is_binary(value), do: value
+  defp format_attribute_value(key, value) when is_binary(key) do
+    if sensitive_log_key?(key), do: @redacted, else: format_attribute_value(value)
+  end
+
+  defp format_attribute_value(_key, value), do: format_attribute_value(value)
+
+  defp format_attribute_value(value) when is_binary(value), do: redact_secret_text(value)
   defp format_attribute_value(value) when is_number(value), do: to_string(value)
   defp format_attribute_value(value) when is_boolean(value), do: to_string(value)
-  defp format_attribute_value(value) when is_map(value), do: Jason.encode!(normalize_metadata_value(value))
+
+  defp format_attribute_value(value) when is_map(value) do
+    value |> normalize_metadata_value() |> redact_secret_value() |> Jason.encode!()
+  end
 
   defp format_attribute_value(value) when is_list(value) do
     value
     |> normalize_metadata_value()
+    |> redact_secret_value()
     |> case do
-      normalized when is_binary(normalized) -> normalized
+      normalized when is_binary(normalized) -> redact_secret_text(normalized)
       normalized -> Jason.encode!(normalized)
     end
   end
 
   defp format_attribute_value(nil), do: "—"
   defp format_attribute_value(value), do: inspect(value)
+
+  defp redact_secret_value(nil), do: nil
+
+  defp redact_secret_value(value) when is_map(value) do
+    Map.new(value, fn {key, nested} ->
+      if sensitive_log_key?(key) do
+        {key, @redacted}
+      else
+        {key, redact_secret_value(nested)}
+      end
+    end)
+  end
+
+  defp redact_secret_value(value) when is_list(value), do: Enum.map(value, &redact_secret_value/1)
+  defp redact_secret_value(value) when is_binary(value), do: redact_secret_text(value)
+  defp redact_secret_value(value), do: value
+
+  defp redact_secret_text(value) when is_binary(value) do
+    value
+    |> redact_erlang_secret("nkey_seed")
+    |> redact_erlang_secret("jwt")
+    |> redact_json_secret("nkey_seed")
+    |> redact_json_secret("jwt")
+    |> redact_json_secret("token")
+    |> redact_json_secret("password")
+    |> redact_json_secret("secret")
+    |> redact_json_secret("api_key")
+    |> redact_assignment_secret("authorization")
+    |> redact_assignment_secret("token")
+    |> redact_assignment_secret("password")
+    |> redact_assignment_secret("secret")
+    |> redact_assignment_secret("api_key")
+  end
+
+  defp redact_secret_text(value), do: value
+
+  defp redact_erlang_secret(value, key) do
+    Regex.replace(~r/(#{Regex.escape(key)}\s*=>\s*<<")[^"]*(">>)/i, value, "\\1#{@redacted}\\2")
+  end
+
+  defp redact_json_secret(value, key) do
+    Regex.replace(~r/("#{Regex.escape(key)}"\s*:\s*")[^"]*(")/i, value, "\\1#{@redacted}\\2")
+  end
+
+  defp redact_assignment_secret(value, key) do
+    Regex.replace(~r/(#{Regex.escape(key)}\s*[=:]\s*)[^\s,}\]]+/i, value, "\\1#{@redacted}")
+  end
+
+  defp sensitive_log_key?(key) do
+    key
+    |> to_string()
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9_]+/, "_")
+    |> then(fn normalized ->
+      normalized in @sensitive_log_keys or
+        Enum.any?(@sensitive_log_keys, fn key -> String.ends_with?(normalized, "_#{key}") end)
+    end)
+  end
 
   defp simple_attribute_map?(attributes) when is_map(attributes) do
     Enum.all?(attributes, fn
@@ -683,7 +760,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   end
 
   defp format_value(%{value: value} = assigns) when is_map(value) or is_list(value) do
-    formatted = Jason.encode!(normalize_metadata_value(value), pretty: true)
+    formatted = value |> normalize_metadata_value() |> redact_secret_value() |> Jason.encode!(pretty: true)
     assigns = assign(assigns, :formatted, formatted)
 
     ~H"""
@@ -696,7 +773,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     if String.starts_with?(value, "{") or String.starts_with?(value, "[") do
       case Jason.decode(value) do
         {:ok, decoded} ->
-          formatted = Jason.encode!(decoded, pretty: true)
+          formatted = decoded |> redact_secret_value() |> Jason.encode!(pretty: true)
           assigns = assign(assigns, :formatted, formatted)
 
           ~H"""
@@ -704,11 +781,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
           """
 
         {:error, _} ->
+          assigns = assign(assigns, :value, redact_secret_text(value))
+
           ~H"""
           <span class="font-mono text-xs">{@value}</span>
           """
       end
     else
+      assigns = assign(assigns, :value, redact_secret_text(value))
+
       ~H"""
       <span>{@value}</span>
       """

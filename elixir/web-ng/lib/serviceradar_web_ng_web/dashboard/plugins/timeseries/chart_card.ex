@@ -120,6 +120,108 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
     """
   end
 
+  attr :overlays, :list, required: true
+  attr :chart_left_pad, :integer, required: true
+  attr :chart_right_pad, :integer, required: true
+  attr :chart_top_pad, :integer, required: true
+  attr :chart_bottom_pad, :integer, required: true
+  attr :chart_width, :integer, required: true
+  attr :chart_height, :integer, required: true
+  attr :compact, :boolean, default: false
+
+  def chart_overlays_svg(assigns) do
+    ~H"""
+    <g
+      :if={@overlays != []}
+      data-testid="timeseries-chart-overlays"
+      pointer-events="none"
+      stroke-linecap="round"
+    >
+      <%= for overlay <- @overlays do %>
+        <rect
+          :if={is_number(Map.get(overlay, :window_x1)) and is_number(Map.get(overlay, :window_x2))}
+          data-testid="timeseries-anomaly-window"
+          data-overlay-label={overlay.label}
+          data-overlay-severity={overlay.severity}
+          x={overlay.window_x1}
+          y={@chart_top_pad}
+          width={max(overlay.window_x2 - overlay.window_x1, 1)}
+          height={@chart_height - @chart_top_pad - @chart_bottom_pad}
+          fill={overlay.color}
+          opacity={if Map.get(overlay, :selected), do: "0.18", else: "0.1"}
+        >
+          <title>{overlay.title}</title>
+        </rect>
+
+        <rect
+          :if={is_map(Map.get(overlay, :confidence))}
+          data-testid="timeseries-capacity-confidence"
+          data-overlay-label={overlay.label}
+          x={@chart_left_pad}
+          y={overlay.confidence.y}
+          width={@chart_width - @chart_left_pad - @chart_right_pad}
+          height={overlay.confidence.height}
+          fill={overlay.color}
+          opacity="0.08"
+        >
+          <title>{overlay.title}</title>
+        </rect>
+
+        <line
+          :if={is_map(Map.get(overlay, :runway))}
+          data-testid="timeseries-capacity-runway"
+          data-overlay-label={overlay.label}
+          data-overlay-severity={overlay.severity}
+          x1={overlay.runway.x1}
+          y1={overlay.runway.y1}
+          x2={overlay.runway.x2}
+          y2={overlay.runway.y2}
+          stroke={overlay.color}
+          stroke-width={if @compact, do: "1.5", else: "2"}
+          stroke-dasharray="2 4"
+          opacity="0.95"
+        >
+          <title>{overlay.title}</title>
+        </line>
+
+        <line
+          :if={is_number(Map.get(overlay, :x))}
+          data-testid="timeseries-overlay-marker"
+          data-overlay-kind={overlay.kind}
+          data-overlay-label={overlay.label}
+          data-overlay-severity={overlay.severity}
+          x1={overlay.x}
+          x2={overlay.x}
+          y1={@chart_top_pad}
+          y2={@chart_height - @chart_bottom_pad}
+          stroke={overlay.color}
+          stroke-width={if Map.get(overlay, :selected), do: "2.5", else: "1.5"}
+          stroke-dasharray={if overlay.kind == :capacity, do: "8 4", else: "4 3"}
+          opacity="0.9"
+        >
+          <title>{overlay.title}</title>
+        </line>
+
+        <circle
+          :if={is_number(Map.get(overlay, :x)) and is_number(Map.get(overlay, :value_y))}
+          data-testid="timeseries-overlay-value"
+          data-overlay-label={overlay.label}
+          cx={overlay.x}
+          cy={overlay.value_y}
+          r={if Map.get(overlay, :selected), do: 4.5, else: 3.5}
+          fill={overlay.color}
+          stroke="currentColor"
+          class="text-base-100"
+          stroke-width="1"
+          opacity="0.98"
+        >
+          <title>{overlay.title}</title>
+        </circle>
+      <% end %>
+    </g>
+    """
+  end
+
   attr :reference_lines, :list, required: true
   attr :chart_left_pad, :integer, required: true
   attr :chart_right_pad, :integer, required: true
@@ -197,6 +299,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
             title={"#{@data.utilization}% of interface capacity"}
           >
             {@data.utilization}%
+          </span>
+          <span
+            :if={Map.get(@data, :overlays, []) != []}
+            class="badge badge-xs badge-outline"
+            title={"#{length(@data.overlays)} chart overlays"}
+          >
+            {length(@data.overlays)}
           </span>
         </div>
         <div class={[
@@ -278,6 +387,17 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
             annotations={@data.annotations}
             chart_top_pad={@chart_top_pad}
             chart_bottom_pad={@chart_bottom_pad}
+            chart_height={@chart_height}
+            compact={@compact}
+          />
+
+          <.chart_overlays_svg
+            overlays={Map.get(@data, :overlays, [])}
+            chart_left_pad={@chart_left_pad}
+            chart_right_pad={@chart_right_pad}
+            chart_top_pad={@chart_top_pad}
+            chart_bottom_pad={@chart_bottom_pad}
+            chart_width={@chart_width}
             chart_height={@chart_height}
             compact={@compact}
           />

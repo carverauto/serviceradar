@@ -128,7 +128,7 @@ fn endpoint_packages_example_name_manager_and_cpe() {
         lower.contains("order by \"endpoint_inventory_packages\".\"name\" asc"),
         "expected name asc ordering, got: {sql}"
     );
-    assert_eq!(params.len(), 7);
+    assert_eq!(params.len(), 4);
 }
 
 #[test]
@@ -325,6 +325,50 @@ fn events_rollup_stats_anomaly_findings_scopes_severity_counts_to_anomalies() {
         lower.contains("'high', coalesce(count(*) filter (where (")
             && lower.contains("and coalesce(severity_id, 0) = 4"),
         "expected high severity count to be scoped to anomaly findings, got: {sql}"
+    );
+}
+
+#[test]
+fn events_count_stats_builds_filtered_count_without_page_limit() {
+    let query = r#"in:events class_uid:2004 source_type:anomaly_detection service_radar_device_uid:"sr:device-1" time:last_7d status:(active,open,anomaly_open,inactive,cleared,resolved) stats:"count() as total" limit:5"#;
+    let plan = plan_for(query);
+
+    let (sql, params) = events::to_sql_and_params(&plan).expect("should build events count SQL");
+    let lower = sql.to_lowercase();
+
+    assert!(
+        lower.starts_with("select count(*) from"),
+        "expected count query, got: {sql}"
+    );
+    assert!(
+        lower.contains("source_type")
+            && lower.contains("service_radar")
+            && lower.contains("status")
+            && lower.contains("class_uid"),
+        "expected event filters to be preserved, got: {sql}"
+    );
+    assert!(
+        !lower.contains("limit"),
+        "count query must ignore page limit, got: {sql}"
+    );
+    assert!(
+        !lower.contains("order by"),
+        "count query must ignore event ordering, got: {sql}"
+    );
+    assert_eq!(params.len(), 4);
+}
+
+#[test]
+fn events_stats_rejects_unsupported_aggregations() {
+    let query = r#"in:events time:last_7d stats:"sum(severity_id) as severity_sum""#;
+    let plan = plan_for(query);
+
+    let err = events::to_sql_and_params(&plan).expect_err("unsupported events stats should fail");
+
+    assert!(
+        err.to_string()
+            .contains("events stats only support count() as total"),
+        "unexpected error: {err}"
     );
 }
 

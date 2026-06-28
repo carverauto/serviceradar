@@ -7,7 +7,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
   @max_points 800
   @linear_padding_ratio 0.05
   @constant_padding_ratio 0.05
-  @log_padding_ratio 0.0
+  @log_padding_ratio 0.05
   @log_constant_factor :math.sqrt(10)
 
   def chart_max_from_value(_max_v, _unit, scale_max) when is_number(scale_max) and scale_max > 0, do: scale_max
