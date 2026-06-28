@@ -1,8 +1,15 @@
 ---
-title: Anomaly Detection and Capacity Forecasts
+title: Anomaly Detection (Tuning & Operations)
 ---
 
-# Anomaly Detection and Capacity Forecasts
+# Anomaly Detection (Tuning & Operations)
+
+:::note Looking for how the engine works?
+This page is the **operator-facing tuning and operations guide**. For the
+architecture, the actual statistics, the data contract, honest naming (what is and
+is **not** causal), the disposition loop, and the proof harness, see the
+[Anomaly Engine](./anomaly-engine.md) reference — the single source of truth.
+:::
 
 ServiceRadar can evaluate live metrics for short-term anomalies and long-term
 capacity risk. The detector watches metric streams, emits findings into the
@@ -34,26 +41,6 @@ Anomaly detection settings require the `observability.alerts.manage`
 permission. Users without that permission can still view events and alerts if
 their role grants the normal observability read permissions, but they cannot
 change detector or forecast tuning.
-
-## Tuning Ownership
-
-ServiceRadar intentionally splits anomaly tuning across two ownership surfaces:
-
-- **Settings > Anomaly Detection** stores deployment-level defaults used by
-  central seasonal disposition, capacity-forecast context, and shared runtime
-  configuration. These settings do not rewrite already-created native add-on
-  assignment/profile scalar params.
-- **Anomaly add-on assignments/profiles** own edge spike detector scalar knobs
-  (`n_sigma`, `window_size`, `min_samples`, `confirm_slots`, and related
-  add-on-only limits). The default anomaly add-on profile seeds only
-  `metric_feed.sources=["sysmon","snmp"]`; it deliberately does not seed scalar
-  detector knobs, so the native add-on uses bundle defaults unless an operator
-  sets assignment/profile params.
-
-This split prevents deployment-level seasonal/capacity tuning from silently
-changing every host add-on. To tune edge spike sensitivity, edit the target
-`anomaly` add-on assignment or profile params and let the control plane validate
-them against the package schema before delivery.
 
 ## Edge Spike Detector Tuning
 

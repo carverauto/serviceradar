@@ -21,7 +21,7 @@ here that proves it on shipping code.
   kernels via the `disposition-backtest` binary, over synthetic hour-of-week
   baselines and forecast points. Proves the seasonal tier *suppresses* the
   recurring-nightly load the edge over-alerts on, *flags* genuine off-baseline
-  hours, and exposes the capacity band overclaim.
+  hours, and exercises the capacity prediction interval.
 - **Core half (DB feed):** the same `dispose_seasonal` kernel fed by the REAL SRQL
   `profile_hour_of_week` verb SQL over a REAL TimescaleDB continuous aggregate on the
   `srql-fixtures` CNPG scratch DB — proving the F15 data feed end to end (raw metrics
@@ -61,7 +61,7 @@ python3 tools/anomaly-proof/gen_seasonal.py
 ./target/debug/disposition-backtest --kind seasonal --input $O/seasonal_rows.csv > $O/seasonal_out.csv
 python3 tools/anomaly-proof/plot_seasonal.py        # -> $O/seasonal_proof.png + scorecard
 
-# capacity: forecast/ETA work, but the +/-1.96*RMSE band is a constant-width overclaim
+# capacity: forecast/ETA + a VALID prediction interval (OLS closed-form widens with horizon; HW bootstrap)
 python3 tools/anomaly-proof/gen_capacity.py
 ./target/debug/disposition-backtest --kind capacity --input $O/capacity_points.csv \
     --threshold 100 --model linear --horizon-seconds 7776000   # try 604800 / 2592000 too
@@ -87,7 +87,7 @@ tools/anomaly-proof/run_db_feed.sh
 | disk gate off → on | the 80% saturation gate | sub-80 false alarms 11 → **0**, real >80 kept 11 → 11 |
 | core seasonal: nightly-normal | the open-loop fix target | **suppressed** (z=0) — the same spike the edge flags 21/21 |
 | core seasonal: 7 labeled cases | the seasonal kernel is sound | **7/7** match the expected disposition |
-| core capacity: band vs horizon | the band overclaim | width **constant** at 7d/30d/90d (= 2·1.96·RMSE) |
+| core capacity: band vs horizon | valid prediction interval | band **widens** with horizon 5.89→6.15 (OLS PI; replaced the flat 5.87 ±1.96·RMSE overclaim) |
 | core DB feed: verb → kernel | the F15 feed, end to end | over a real CAGG: dev-anomaly **breach** z=8.3 / dev-normal **suppress** z=0 |
 
 ## Files
@@ -98,7 +98,7 @@ Edge half:
 
 Core half:
 - `gen_seasonal.py` / `plot_seasonal.py` — hour-of-week baseline + labeled cases → `dispose_seasonal` proof
-- `gen_capacity.py` — disk-fill points for the `dispose_capacity` band-overclaim demo
+- `gen_capacity.py` — disk-fill points for the `dispose_capacity` prediction-interval demo
 - `gen_seasonal_db.py` + `db/schema.sql` + `db/seasonal_verb.sql` + `run_db_feed.sh` — the end-to-end DB feed
 - the runner: `rust/causal-disposition/src/bin/disposition-backtest.rs` (`--kind seasonal|capacity`)
 

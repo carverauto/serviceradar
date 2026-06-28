@@ -23,9 +23,9 @@
 ### 1a. Strip cosmetic "causal" branding (detector/disposition layer)
 
 - [ ] 1.1 Change the edge add-on `signal_type` stamp at `rust/anomaly-addon/src/verdict.rs:54` from `"causal"` to an honest statistical classification; update any consumers/queries that key on it (workspace-wide grep for `signal_type` and `"causal"`).
-- [ ] 1.2 Rename cosmetic `causal`-named modules in `rust/causal-disposition` (seasonal/capacity) to honest names; the `CausalFlow` hosting stays but is documented as a pipeline combinator, not causal inference.
+- [x] 1.2 The `causal-disposition` modules are already honestly named (`seasonal`/`capacity`); the `CausalFlow` hosting is now documented as a pipeline/state-machine combinator (NOT causal inference) across `anomaly-core` (lib/detector), `anomaly-addon` (engine), `causal-disposition` (lib), the NIF, and `CausalReasoner`. (The `causal-disposition` crate / `CausalReasoner` module identifier renames and the wire `signal_type` value are the BREAKING 1f task.)
 - [ ] 1.3 Document `rust/causal-engine` honestly as deterministic rule + dependency-graph reasoning (13 if-then rules + ultragraph centrality/reachability; `CausaloidGraph` wraps identity functions). The shared on-the-wire envelope rename is in 1f (D7), not here.
-- [ ] 1.4 Strip causal-inference overclaim from docs + memory.
+- [x] 1.4 Causal-inference overclaim stripped from the engine code module-docs and the docs site (Phase 3); memory reflects the honest framing. (causal-engine's own docs are 1.3.)
 
 ### 1b. Honest capacity uncertainty (valid prediction intervals on both paths)
 
@@ -81,8 +81,8 @@
 ## 3. Phase 3 — Documentation overhaul (single source of truth)
 
 - [ ] 3.1 Clean up stale/overclaiming anomaly docs across the repo: strip the "causal" framing and any causal-inference assertion from engine code module-docs/comments (`rust/anomaly-core`, `rust/anomaly-addon`, `rust/causal-disposition`, `rust/causal-engine`, `causal_disposition_nif`, Elixir `observability` modules) and the docs site. Do **not** rewrite other proposals' archived history.
-- [ ] 3.2 Author the new end-to-end engine doc set under `docs/docs/` (the single source of truth) and register it in `docs/sidebars.ts`, covering: two-tier architecture (edge robust spike detector + core seasonal/capacity disposition + deterministic dependency expert system); data contract (gauges vs monotonic counters, rate normalization, counter wrap/reset, directional saturation gate, series keying); actual statistics (rolling robust z-score; hour-of-week residual-z / S-H-ESD; OLS + Holt-Winters capacity); honest naming (what is and is NOT causal); the disposition loop; operations/tuning knobs; how to run the proof harness (`tools/anomaly-proof`).
-- [ ] 3.3 Overhaul or supersede the existing stale `docs/docs/anomaly-detection.md` with the new set.
+- [x] 3.2 Author the new end-to-end engine doc set under `docs/docs/` (the single source of truth) and register it in `docs/sidebars.ts`, covering: two-tier architecture (edge robust spike detector + core seasonal/capacity disposition + deterministic dependency expert system); data contract (gauges vs monotonic counters, rate normalization, counter wrap/reset, directional saturation gate, series keying); actual statistics (rolling robust z-score; hour-of-week residual-z / S-H-ESD; OLS + Holt-Winters capacity); honest naming (what is and is NOT causal); the disposition loop; operations/tuning knobs; how to run the proof harness (`tools/anomaly-proof`).
+- [x] 3.3 Overhauled the stale `docs/docs/anomaly-detection.md` (retitled "Anomaly Detection (Tuning & Operations)", points to the new engine doc, dropped the duplicated stale section; operator content preserved).
 
 ## 4. Validation, coordination + rollout
 
