@@ -31,6 +31,7 @@ pub fn dispose_peak_profile(
     config: &PeakProfileConfig,
 ) -> PeakProfileDisposition {
     let series_key = row.series_key.clone();
+    let carried_consecutive_anomalous = row.consecutive_anomalous;
 
     match run_peak_profile_flow(row, config) {
         Ok(evaluation) => PeakProfileDisposition {
@@ -42,15 +43,23 @@ pub fn dispose_peak_profile(
             next_consecutive_anomalous: evaluation.next_consecutive_anomalous,
             band: evaluation.band,
         },
-        Err(err) => PeakProfileDisposition {
-            series_key,
-            recommended_action: PeakProfileAction::PassThrough,
-            surfaced_action: PeakProfileAction::PassThrough,
-            reason: format!("peak profile flow error: {err}"),
-            score: 0.0,
-            next_consecutive_anomalous: 0,
-            band: None,
-        },
+        Err(err) => peak_profile_error_disposition(series_key, carried_consecutive_anomalous, &err),
+    }
+}
+
+fn peak_profile_error_disposition(
+    series_key: String,
+    carried_consecutive_anomalous: usize,
+    err: &str,
+) -> PeakProfileDisposition {
+    PeakProfileDisposition {
+        series_key,
+        recommended_action: PeakProfileAction::PassThrough,
+        surfaced_action: PeakProfileAction::PassThrough,
+        reason: format!("peak profile flow error: {err}"),
+        score: 0.0,
+        next_consecutive_anomalous: carried_consecutive_anomalous,
+        band: None,
     }
 }
 

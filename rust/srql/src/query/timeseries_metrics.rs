@@ -1208,7 +1208,7 @@ LEFT JOIN robust_profile r
  AND r.dow = l.dow
  AND r.hod = l.hod{}
 LIMIT {} OFFSET {}"#,
-        build_profile_order_clause(plan),
+        build_profile_order_clause(plan, "p"),
         plan.limit,
         plan.offset
     );
@@ -1319,6 +1319,13 @@ profile_values AS (
    AND l.hod = h.hod
   WHERE h.bucket <> l.bucket
 ),
+prior_values AS (
+  SELECT h.*
+  FROM local_hourly h
+  JOIN latest l
+    ON l.series = h.series
+  WHERE h.bucket <> l.bucket
+),
 cell_profile AS (
   SELECT
     series,
@@ -1335,7 +1342,7 @@ series_prior AS (
     series,
     percentile_cont(0.05) WITHIN GROUP (ORDER BY sample_value)::float8 AS prior_p05,
     percentile_cont(0.95) WITHIN GROUP (ORDER BY sample_value)::float8 AS prior_p95
-  FROM profile_values
+  FROM prior_values
   GROUP BY 1
 )
 SELECT jsonb_build_object(
@@ -1359,7 +1366,7 @@ LEFT JOIN cell_profile c
 LEFT JOIN series_prior p
   ON p.series = l.series{}
 LIMIT {} OFFSET {}"#,
-        build_profile_order_clause(plan),
+        build_profile_order_clause(plan, "c"),
         plan.limit,
         plan.offset
     );
@@ -1440,7 +1447,7 @@ fn build_timeseries_stats_order_parts(
     Ok(parts)
 }
 
-fn build_profile_order_clause(plan: &QueryPlan) -> String {
+fn build_profile_order_clause(plan: &QueryPlan, bucket_count_alias: &str) -> String {
     if plan.order.is_empty() {
         return "\nORDER BY l.series ASC".to_string();
     }
@@ -1453,7 +1460,13 @@ fn build_profile_order_clause(plan: &QueryPlan) -> String {
             "hod" => "l.hod",
             "bucket" => "l.bucket",
             "sample_value" => "l.sample_value",
-            "bucket_count" => "p.bucket_count",
+            "bucket_count" => {
+                if bucket_count_alias == "c" {
+                    "c.bucket_count"
+                } else {
+                    "p.bucket_count"
+                }
+            }
             _ => continue,
         };
 
@@ -2224,7 +2237,9 @@ mod tests {
         assert!(
             sql.sql.contains("FROM timeseries_metrics_hourly")
                 && sql.sql.contains("max_value::float8 AS sample_value")
+                && sql.sql.contains("prior_values AS")
                 && sql.sql.contains("cell_profile")
+                && sql.sql.contains("FROM prior_values")
                 && sql
                     .sql
                     .contains("'scale', ((c.p95 - c.p05) * 0.30398)::float8")
@@ -2244,6 +2259,58 @@ mod tests {
         assert!(
             !should_route_stats_to_cagg(&plan, &spec),
             "peak profile stats must use the dedicated hourly profile route"
+        );
+    }
+
+    #[test]
+    fn profile_hour_of_week_peak_sort_bucket_count_uses_cell_profile_alias() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::days(30);
+        let plan = QueryPlan {
+            entity: Entity::TimeseriesMetrics,
+            filters: vec![
+                Filter {
+                    field: "metric_type".into(),
+                    op: FilterOp::Eq,
+                    value: FilterValue::Scalar("sysmon.cpu".to_string()),
+                },
+                Filter {
+                    field: "metric_name".into(),
+                    op: FilterOp::Eq,
+                    value: FilterValue::Scalar("cpu.usage_percent".to_string()),
+                },
+            ],
+            order: vec![OrderClause {
+                field: "bucket_count".into(),
+                direction: OrderDirection::Desc,
+            }],
+            limit: 25,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "profile_hour_of_week_peak(value)",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        };
+
+        let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
+            .unwrap()
+            .unwrap();
+        let sql = build_profile_hour_of_week_peak_query(&plan, MetricScope::Any, &spec)
+            .expect("peak profile SQL should build");
+
+        assert!(
+            sql.sql.contains("ORDER BY c.bucket_count DESC"),
+            "peak profile bucket_count sort must use the cell_profile alias: {}",
+            sql.sql
+        );
+        assert!(
+            !sql.sql.contains("ORDER BY p.bucket_count"),
+            "series_prior does not expose bucket_count: {}",
+            sql.sql
         );
     }
 

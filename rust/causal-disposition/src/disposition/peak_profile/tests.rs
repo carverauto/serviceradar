@@ -5,6 +5,7 @@
 
 use crate::disposition::peak_profile::{
     PeakProfileAction, PeakProfileConfig, PeakProfileRow, dispose_peak_profile,
+    peak_profile_error_disposition,
 };
 
 fn config() -> PeakProfileConfig {
@@ -99,8 +100,7 @@ fn poisoned_cell_cannot_widen_suppression_band_beyond_series_prior_cap() {
 
     let out = dispose_peak_profile(poisoned, &config());
     let Some(band) = out.band else {
-        assert!(false, "poison-bound case should still be scoreable");
-        return;
+        panic!("poison-bound case should still be scoreable");
     };
 
     assert_eq!(
@@ -189,12 +189,10 @@ fn low_n_inflation_is_sigma_relative_and_decays_with_sample_count() {
     );
 
     let Some(low_band) = low_n.band else {
-        assert!(false, "low-n scoreable row should include a band");
-        return;
+        panic!("low-n scoreable row should include a band");
     };
     let Some(mature_band) = mature.band else {
-        assert!(false, "mature scoreable row should include a band");
-        return;
+        panic!("mature scoreable row should include a band");
     };
 
     assert!(low_band.low_n_multiplier > mature_band.low_n_multiplier);
@@ -219,6 +217,19 @@ fn suppress_decays_confirm_counter_instead_of_resetting_it() {
         out.next_consecutive_anomalous, 4,
         "suppress must leak the counter down, not reset it to zero"
     );
+}
+
+#[test]
+fn flow_error_preserves_confirm_counter_instead_of_resetting_it() {
+    let out = peak_profile_error_disposition("svc/cpu/overall".to_string(), 7, "boom");
+
+    assert_eq!(out.recommended_action, PeakProfileAction::PassThrough);
+    assert_eq!(out.surfaced_action, PeakProfileAction::PassThrough);
+    assert_eq!(
+        out.next_consecutive_anomalous, 7,
+        "flow errors must not reset the carried confirmation counter"
+    );
+    assert!(out.reason.contains("boom"));
 }
 
 #[test]
