@@ -40,7 +40,25 @@ impl QueryEngine {
             ServiceError::Internal(anyhow::anyhow!("{err:?}"))
         })?;
 
-        let results = if plan.downsample.is_some() {
+        // A `profile_hour_of_week[_peak]` stats query is a profile aggregation, never a
+        // downsample — even though its `bucket:1h` clause sets `plan.downsample`. Without
+        // this guard it dispatches to `downsample::execute`, which rejects the `timezone`
+        // filter the profile route requires, so the query never reaches `execute_stats`
+        // where the profile/peak builders live. (Discovered via a real-DB check: the
+        // seasonal-disposition `profile_hour_of_week` query failed this way.)
+        let is_profile_stats = plan
+            .stats
+            .as_ref()
+            .map(|stats| {
+                stats
+                    .as_raw()
+                    .trim_start()
+                    .to_ascii_lowercase()
+                    .starts_with("profile_hour_of_week")
+            })
+            .unwrap_or(false);
+
+        let results = if plan.downsample.is_some() && !is_profile_stats {
             downsample::execute(&mut conn, &plan).await?
         } else {
             match plan.entity {
