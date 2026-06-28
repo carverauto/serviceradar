@@ -525,3 +525,26 @@ fn non_finite_value_is_dropped_then_gated() {
     // 48 finite points survive (NaN dropped) → still a Projected linear fit.
     assert!(matches!(out.disposition, Disposition::Projected { .. }));
 }
+
+#[test]
+fn bounded_projection_clamps_non_finite_raw_outputs() {
+    let cfg = CapacityConfig {
+        value_min: Some(0.0),
+        value_max: Some(100.0),
+        ..config(None, 24 * 3_600, CapacityModelKind::Linear)
+    };
+
+    let (projected, lower, upper, bounded) = bounded_projection(&cfg, f64::INFINITY, 1.0);
+
+    assert_eq!(projected, 100.0);
+    assert_eq!(lower, 100.0);
+    assert_eq!(upper, 100.0);
+    assert!(bounded);
+
+    let (projected, lower, upper, bounded) = bounded_projection(&cfg, f64::NAN, 1.0);
+
+    assert_eq!(projected, 0.0);
+    assert_eq!(lower, 0.0);
+    assert_eq!(upper, 0.0);
+    assert!(bounded);
+}

@@ -141,14 +141,14 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     series_data =
       SeriesData.build_series_data(
         series_points,
-        Map.get(assigns, :spec),
-        Map.get(assigns, :rate_mode, :none),
-        compact,
-        max_speed,
-        annotations,
-        reference_lines,
-        y_scale,
-        chart_overlays
+        spec: Map.get(assigns, :spec),
+        rate_mode: Map.get(assigns, :rate_mode, :none),
+        compact: compact,
+        max_speed: max_speed,
+        annotations: annotations,
+        reference_lines: reference_lines,
+        y_scale: y_scale,
+        chart_overlays: chart_overlays
       )
 
     {combined_charts, individual_series} =

@@ -110,11 +110,17 @@ pub(super) fn bounded_projection(
 }
 
 fn clamp_to_value_bounds(value: f64, config: &CapacityConfig) -> f64 {
-    if !value.is_finite() {
-        return value;
-    }
-
     match normalized_value_bounds(config) {
+        Some((min, _max)) if value.is_nan() => min,
+        Some((min, _max)) if value == f64::NEG_INFINITY => min,
+        Some((_min, max)) if value == f64::INFINITY => max,
+        Some((min, max)) if !value.is_finite() => {
+            if value.is_sign_negative() {
+                min
+            } else {
+                max
+            }
+        }
         Some((min, max)) => value.clamp(min, max),
         None => value,
     }
@@ -130,7 +136,11 @@ fn normalized_value_bounds(config: &CapacityConfig) -> Option<(f64, f64)> {
 }
 
 fn bounded_changed(raw: f64, bounded: f64) -> bool {
-    raw.is_finite() && bounded.is_finite() && (raw - bounded).abs() > EPSILON
+    if raw.is_finite() && bounded.is_finite() {
+        (raw - bounded).abs() > EPSILON
+    } else {
+        raw.to_bits() != bounded.to_bits()
+    }
 }
 
 /// Score one capacity row. The public seam the NIF's per-row loop calls. Always
