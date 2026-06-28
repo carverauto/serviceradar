@@ -2,11 +2,12 @@ defmodule ServiceRadar.Observability.CausalReasoner do
   @moduledoc """
   Rustler NIF facade for the central disposition kernels.
 
-  This is the BEAM-visible seam for the operator directive that moves seasonal (and,
-  in a parity-gated follow-up, capacity) statistics out of Elixir into Rust on the
-  shared DeepCausality substrate (`serviceradar-anomaly-core`). It wraps the
-  `causal_disposition_nif` cdylib, which in turn calls the phase-1
-  `serviceradar-causal-disposition` kernels.
+  This is the BEAM-visible seam for the operator directive that moves seasonal and
+  capacity statistics out of Elixir into Rust. It wraps the `causal_disposition_nif`
+  cdylib, which calls the `serviceradar-causal-disposition` kernels — robust residual
+  z-score (seasonal) and least-squares / Holt-Winters forecast (capacity) hosted on
+  the `CausalFlow` pipeline combinator from `serviceradar-anomaly-core`. The hosting
+  is plumbing; the kernels do not perform causal inference.
 
   ## Boundary
 

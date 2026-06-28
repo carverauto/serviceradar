@@ -3,10 +3,10 @@
 // Licensed under the Apache License, Version 2.0 (the "License").
 // SPDX-License-Identifier: Apache-2.0
 
-//! The central disposition NIF: a thin Rustler cdylib that wraps the phase-1
-//! `serviceradar-causal-disposition` kernels (seasonal residual-z today; capacity
-//! in a gated follow-up) so the BEAM seasonal/capacity tier runs in Rust on the
-//! shared DeepCausality substrate.
+//! The central disposition NIF: a thin Rustler cdylib that wraps the
+//! `serviceradar-causal-disposition` kernels (seasonal residual-z and capacity
+//! forecast) so the BEAM seasonal/capacity tier runs in Rust. The kernels are robust
+//! statistics hosted on a `CausalFlow` pipeline combinator — not causal inference.
 //!
 //! # ABI (design D2)
 //! `dispose_batch(kind, rows) -> Vec<DispositionResult>` over a **typed**

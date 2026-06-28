@@ -27,11 +27,12 @@
 //! inference (no SCM, intervention, or counterfactual).
 //!
 //! The operator directive moves seasonal and capacity statistics out of the BEAM
-//! and runs them in Rust on DeepCausality. This crate is the *second* consumer of
+//! and runs them in Rust. This crate is the *second* consumer of
 //! [`serviceradar_anomaly_core`] (the edge anomaly add-on is the first): it adds
-//! the seasonal residual-z and (in a gated second phase) the capacity forecast
-//! kernels on top of the same `CausalFlow` streaming primitives, so there is one
-//! DeepCausality implementation for both delivery shapes.
+//! the seasonal residual-z and the capacity forecast kernels on top of the same
+//! `CausalFlow` pipeline-combinator + streaming primitives, so there is one
+//! statistical implementation (hosted on, not reasoning with, that combinator) for
+//! both delivery shapes.
 //!
 //! This crate carries **zero** new detector math beyond the disposition kernels;
 //! the streaming primitives ([`serviceradar_anomaly_core::stats`], the
