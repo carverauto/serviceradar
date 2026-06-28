@@ -12,7 +12,7 @@ use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
 use serviceradar_anomaly_core::{
     DEFAULT_CONFIRM_SLOTS, DEFAULT_MIN_SAMPLES, DEFAULT_N_SIGMA, DEFAULT_WINDOW_SIZE,
-    ReasonContext, ReasonSample, reason_impl,
+    ReasonContext, ReasonSample, SaturationGate, reason_impl,
 };
 
 #[derive(Clone, Debug, Parser)]
@@ -44,6 +44,23 @@ struct Args {
     /// Consecutive breached samples required to confirm an anomaly.
     #[arg(long, default_value_t = DEFAULT_CONFIRM_SLOTS)]
     confirm_slots: usize,
+
+    /// Attach a directional saturation gate with this absolute floor (percent for
+    /// used_percent gauges): only an upward excursion that clears this value can
+    /// breach. Mirrors the production cpu/mem/disk gauge profiles (disk/mem 80, cpu
+    /// 85). When unset, the series is purely z-based (the default, as for counters).
+    #[arg(long)]
+    saturation_gate_min: Option<f64>,
+
+    /// Absolute dispersion floor in metric units, applied before the z-score
+    /// divides (raises a near-zero stddev so a near-constant series cannot
+    /// manufacture a huge z). Mirrors the gauge fidelity profiles.
+    #[arg(long)]
+    min_std_floor: Option<f64>,
+
+    /// Relative (coefficient-of-variation) dispersion floor: `min_cv * |mean|`.
+    #[arg(long)]
+    min_cv: Option<f64>,
 }
 
 #[derive(Clone, Copy, Debug, Default, ValueEnum)]
@@ -134,9 +151,12 @@ fn run(args: Args, mut out: impl Write) -> Result<(), String> {
                 trend_n_sigma: None,
                 confirm_slots: Some(args.confirm_slots),
                 consecutive_anomalous: Some(state.consecutive_anomalous),
-                min_std_floor: None,
-                min_cv: None,
-                saturation_gate: None,
+                min_std_floor: args.min_std_floor,
+                min_cv: args.min_cv,
+                saturation_gate: args.saturation_gate_min.map(|min_value| SaturationGate {
+                    directional: true,
+                    min_value,
+                }),
             },
             ReasonSample {
                 value: sample.value,
@@ -227,6 +247,9 @@ mod tests {
                 min_samples: 3,
                 n_sigma: 3.0,
                 confirm_slots: 1,
+                saturation_gate_min: None,
+                min_std_floor: None,
+                min_cv: None,
             },
             &mut output,
         );
