@@ -3,8 +3,11 @@
 // Licensed under the Apache License, Version 2.0 (the "License").
 // SPDX-License-Identifier: Apache-2.0
 
-//! The DeepCausality detector flow: hydrate window state, evaluate the rolling /
-//! seasonal / trend signals, apply confirm-slot hysteresis, and emit a verdict.
+//! The detector flow: hydrate window state, evaluate the rolling / seasonal / trend
+//! signals, apply confirm-slot hysteresis, and emit a verdict. The flow is staged
+//! with `deep_causality_core::CausalFlow` as a pipeline/state-machine combinator that
+//! HOSTS the statistics — the detection itself is a rolling robust z-score, not
+//! causal inference (no SCM, intervention, or counterfactual).
 
 use crate::signal::{SignalGate, evaluate_rolling_signal, evaluate_signal, reason_for_state};
 use crate::stats::{WelfordAcc, clean_threshold};

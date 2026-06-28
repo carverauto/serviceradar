@@ -17,7 +17,8 @@
 //! This crate is the single source of truth for ServiceRadar's per-series
 //! anomaly detection: the O(1) Welford rolling accumulator ([`stats`]), the
 //! sliding-window helpers ([`window`]), the rolling/seasonal/trend signal
-//! evaluation ([`signal`]), and the DeepCausality detector flow ([`detector`]).
+//! evaluation ([`signal`]), and the detector flow ([`detector`]) — a `CausalFlow`-
+//! staged pipeline that hosts the rolling robust z-score, not causal inference.
 //! It is consumed by the edge anomaly add-on (OpenSpec:
 //! `move-anomaly-detection-to-edge`) so per-series scoring does not run in
 //! core-elx.

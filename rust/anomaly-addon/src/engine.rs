@@ -4,7 +4,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Per-series detector state, driven by the shared `serviceradar-anomaly-core`
-//! stateless reason path. This keeps scoring in Rust/DeepCausality at the edge.
+//! stateless reason path. This keeps the rolling robust z-score scoring in Rust at
+//! the edge. (The `CausalFlow` pipeline combinator hosts the statistics; it is not
+//! causal inference.)
 
 use std::collections::HashMap;
 

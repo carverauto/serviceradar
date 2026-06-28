@@ -21,7 +21,10 @@
 // exactly the antipattern this lint forbids. Keep this at the crate root.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-//! Central disposition kernels on ServiceRadar's shared DeepCausality substrate.
+//! Central disposition kernels (seasonal residual-z, capacity forecast): robust
+//! statistics hosted on the shared `CausalFlow` pipeline combinator from
+//! `anomaly-core`. The hosting is plumbing — these kernels do not perform causal
+//! inference (no SCM, intervention, or counterfactual).
 //!
 //! The operator directive moves seasonal and capacity statistics out of the BEAM
 //! and runs them in Rust on DeepCausality. This crate is the *second* consumer of
