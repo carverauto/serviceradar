@@ -50,7 +50,9 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
 
   @default_n_sigma 3.0
   @default_min_bucket_samples 4
-  @default_confirm_slots 1
+  # Default = 2 (1.16 / D-Q3): light hysteresis so a single noisy hourly bucket is a
+  # pending drift, not an immediate breach. Operator-tunable down to 1 or higher.
+  @default_confirm_slots 2
 
   @impl Oban.Worker
   def perform(%Oban.Job{} = job) do

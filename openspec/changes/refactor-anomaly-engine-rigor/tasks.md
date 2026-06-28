@@ -52,8 +52,8 @@
 
 ### 1d. Robust seasonal statistic + hysteresis
 
-- [ ] 1.15 Switch the three default seasonal sources to `median + MAD` (peak profile uses the robust IQR-based scale).
-- [ ] 1.16 Make the core seasonal `confirm_slots` tunable and support `> 1` (hysteresis); **default = 2** (design D-Q3).
+- [x] 1.15 Seasonal robust statistic defaults to `median + MAD`: the live cpu/memory sources were already `:median_mad`; the `Source` struct default + the `from_config` fallback (`source.ex`) now default to `:median_mad` too (the profile verb supplies center/mad). (Peak-profile robust IQR scale lands with the 1c loop.)
+- [x] 1.16 Core seasonal `confirm_slots` is tunable (operator-overridable) and supports `> 1`; **default = 2** — Rust `SeasonalConfig` default + Elixir `@default_confirm_slots` (D-Q3). Hysteresis verified: `drift_pending_until_confirm_slots_met`; the e2e escalation test pins `confirm_slots: 1` for the single-bucket immediate-breach case.
 
 ### 1e. Dead code + stale docs
 

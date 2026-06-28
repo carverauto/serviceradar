@@ -60,7 +60,9 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
             metric_class: nil,
             metric_name: nil,
             query: nil,
-            robust_statistic: :mean_stddev,
+            # Default to the robust median/MAD statistic (1.15) so a past incident hour
+            # cannot poison the seasonal baseline (the profile verb supplies center/mad).
+            robust_statistic: :median_mad,
             series_field: "series",
             dow_field: "dow",
             hod_field: "hod",
@@ -191,7 +193,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
       "median_mad" -> :median_mad
       "p05p95" -> :p05p95
       "p05_p95" -> :p05p95
-      _ -> :mean_stddev
+      # Robust median/MAD is the default for missing/unknown values (1.15).
+      _ -> :median_mad
     end
   end
 

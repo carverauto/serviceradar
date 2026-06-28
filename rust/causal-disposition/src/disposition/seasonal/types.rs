@@ -13,8 +13,8 @@ use crate::disposition::{Disposition, RobustStatistic};
 ///
 /// Defaults mirror the detector defaults in `anomaly-core`. With the crate's
 /// `rustler` feature on this is a `NifMap`, so the worker passes a plain Elixir
-/// map: `%{seasonal_n_sigma: 3.0, min_bucket_samples: 4, confirm_slots: 1,
-/// robust_statistic: :mean_stddev}`.
+/// map: `%{seasonal_n_sigma: 3.0, min_bucket_samples: 4, confirm_slots: 2,
+/// robust_statistic: :median_mad}`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "rustler", derive(rustler::NifMap))]
 pub struct SeasonalConfig {
@@ -39,7 +39,10 @@ impl Default for SeasonalConfig {
         Self {
             seasonal_n_sigma: serviceradar_anomaly_core::DEFAULT_N_SIGMA,
             min_bucket_samples: 4,
-            confirm_slots: 1,
+            // Default = 2 (D-Q3): one over-threshold hourly bucket is a pending drift;
+            // a second consecutive one confirms — light hysteresis against a single
+            // noisy bucket. Operators can lower it to 1 or raise it further.
+            confirm_slots: 2,
             robust_statistic: RobustStatistic::default(),
         }
     }

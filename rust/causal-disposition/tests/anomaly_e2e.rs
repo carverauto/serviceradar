@@ -150,7 +150,16 @@ fn e2e_real_anomaly_escalates() {
     let row = seasonal_cell(
         /* mu */ 100.0, /* d */ 1.0, /* n */ 29, sample,
     );
-    let core = dispose_seasonal(row, &SeasonalConfig::default());
+    // confirm_slots = 1 so a single over-threshold bucket confirms immediately here;
+    // the confirm-slot hysteresis (now default 2, D-Q3) is exercised separately in
+    // `drift_pending_until_confirm_slots_met`.
+    let core = dispose_seasonal(
+        row,
+        &SeasonalConfig {
+            confirm_slots: 1,
+            ..SeasonalConfig::default()
+        },
+    );
     assert!(
         matches!(core.disposition, Disposition::SeasonalBreach { .. }),
         "core should escalate a true spike to SeasonalBreach, got {:?} (score={})",
