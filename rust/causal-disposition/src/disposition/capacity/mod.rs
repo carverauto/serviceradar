@@ -75,6 +75,19 @@ const SEASONAL_STRENGTH_THRESHOLD: f64 = 0.25;
 /// from `model.ex`.
 const EPSILON: f64 = 1.0e-9;
 
+/// Nominal coverage level of the emitted prediction interval (95%). Surfaced in the
+/// `confidence` field for ABI stability, but it is the INTERVAL's coverage level —
+/// NOT a fit-quality probability. The old heuristic `clamp(1 - rmse/scale)` was an
+/// overclaim (a number in `[0,1]` that quantified nothing) and is removed (D2).
+pub(super) const COVERAGE_LEVEL: f64 = 0.95;
+
+/// Standard-normal 0.975 quantile — the large-sample critical value for the 95%
+/// prediction interval. For the `min_history >= 24` windows the worker feeds, the
+/// Student-t quantile for `n-2` df is within a few percent of this; the load-bearing
+/// fix is the leverage term that widens the band with the horizon, not the exact
+/// critical value (a `t`-quantile is a drop-in refinement).
+pub(super) const Z_0975: f64 = 1.959_963_984_540_054;
+
 /// `@exhaustion_horizon_multiplier` (`model.ex:21`): a projected threshold crossing
 /// more than this many horizons past the last sample is noise from a near-zero
 /// slope (the year-5256 exhaustion source), not a forecast — it collapses to "no
@@ -92,13 +105,17 @@ pub const DEFAULT_PERIOD: usize = 24;
 /// (`DateTime.diff(_, _, :second)` over `:microsecond`-truncated points).
 const MICROS_PER_SECOND: i64 = 1_000_000;
 
+/// Clamp the raw projection and its raw prediction-interval bounds to any configured
+/// physical value bounds. The interval is computed per model (closed-form OLS for the
+/// linear path, residual-bootstrap for Holt-Winters) and passed in as `raw_lower`/
+/// `raw_upper`, so the surfaced band is a VALID prediction interval that widens with
+/// the horizon — not the old constant `± 1.96·in-sample-RMSE` (D2).
 pub(super) fn bounded_projection(
     config: &CapacityConfig,
     raw_projected_value: f64,
-    rmse: f64,
+    raw_lower: f64,
+    raw_upper: f64,
 ) -> (f64, f64, f64, bool) {
-    let raw_lower = raw_projected_value - 1.96 * rmse;
-    let raw_upper = raw_projected_value + 1.96 * rmse;
     let projected_value = clamp_to_value_bounds(raw_projected_value, config);
     let lower_bound = clamp_to_value_bounds(raw_lower, config);
     let upper_bound = clamp_to_value_bounds(raw_upper, config);

@@ -293,7 +293,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                           horizon {capacity_horizon_label(row)}
                         </div>
                         <div :if={value(row, "confidence")} class="text-xs text-base-content/50">
-                          confidence {format_percent(value(row, "confidence"))}
+                          PI coverage {format_percent(value(row, "confidence"))}
                         </div>
                       </td>
                     </tr>
@@ -433,7 +433,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
           />
           <.detail_item label="Series" value={detail_series(@detail)} />
           <.detail_item label="Observed" value={detail_time(@detail)} />
-          <.detail_item label="Confidence" value={detail_confidence(@detail)} />
+          <.detail_item label="PI coverage" value={detail_confidence(@detail)} />
         </div>
 
         <div :if={detail_related_query(@detail)} class="mt-3 rounded-lg border border-base-200 p-3">

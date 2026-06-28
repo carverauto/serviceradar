@@ -9,10 +9,11 @@
 
 use super::exhaustion::{project_seasonal, seasonal_exhaustion_at};
 use super::linear::{linear_forecast, rmse};
-use super::stats::{confidence, mean_abs, stddev, valid_ratio};
+use super::stats::{mean_abs, stddev, valid_ratio};
 use super::types::NormPoint;
 use super::{
-    CapacityConfig, EPSILON, MICROS_PER_SECOND, SEASONAL_STRENGTH_THRESHOLD, bounded_projection,
+    COVERAGE_LEVEL, CapacityConfig, EPSILON, MICROS_PER_SECOND, SEASONAL_STRENGTH_THRESHOLD,
+    bounded_projection,
 };
 use crate::disposition::{CapacityForecast, Disposition};
 
@@ -88,8 +89,25 @@ pub(super) fn holt_winters(points: &[NormPoint], config: &CapacityConfig) -> Opt
     // the raw fit for ETA/runway; bounds only affect emitted display values.
     let slope = (raw_projected_value - current_value) / horizon_seconds as f64;
     let rmse = rmse(&residuals_vec);
+    // Residual-bootstrap 95% prediction interval (off the hot path): simulate
+    // `steps`-ahead paths re-injecting resampled in-sample residuals through the same
+    // recurrences, then take the 2.5/97.5 quantiles of the horizon endpoints — a
+    // valid PI for the additive Holt-Winters path, replacing the old ±1.96·RMSE (D2).
+    let (raw_lower, raw_upper) = bootstrap_prediction_bounds(
+        level,
+        trend,
+        &seasons,
+        &residuals_vec,
+        alpha,
+        beta,
+        gamma,
+        count,
+        period,
+        steps,
+        raw_projected_value,
+    );
     let (projected_value, lower_bound, upper_bound, projection_bounded) =
-        bounded_projection(config, raw_projected_value, rmse);
+        bounded_projection(config, raw_projected_value, raw_lower, raw_upper);
     let last = points[count - 1];
 
     let projected_exhaustion = if slope > 0.0 {
@@ -118,7 +136,7 @@ pub(super) fn holt_winters(points: &[NormPoint], config: &CapacityConfig) -> Opt
         raw_projected_value,
         projection_bounded,
         projected_exhaustion_at_unix_micros: projected_exhaustion,
-        confidence: confidence(rmse, &values, threshold),
+        confidence: COVERAGE_LEVEL,
         lower_bound,
         upper_bound,
         rmse,
@@ -220,4 +238,97 @@ pub(super) fn is_seasonal(points: &[NormPoint], period: usize) -> bool {
     let total_std = stddev(&values);
 
     total_std > EPSILON && seasonal_amplitude / total_std >= SEASONAL_STRENGTH_THRESHOLD
+}
+
+/// Residual-bootstrap prediction-interval bounds for the additive Holt-Winters path.
+/// Simulates `steps`-ahead forecast paths from the fitted `(level, trend, seasons)`,
+/// re-injecting residuals resampled with replacement from the in-sample one-step
+/// residuals and propagating them through the same recurrences; the 2.5/97.5
+/// quantiles of the simulated horizon endpoints form the interval. Runs in the
+/// periodic capacity Oban job (off the hot path); the draw count scales down for very
+/// long horizons so total work stays bounded. Deterministic (seeded) so the forecast
+/// is reproducible across runs.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn bootstrap_prediction_bounds(
+    level: f64,
+    trend: f64,
+    seasons: &[f64],
+    residuals: &[f64],
+    alpha: f64,
+    beta: f64,
+    gamma: f64,
+    count: usize,
+    period: usize,
+    steps: i64,
+    center: f64,
+) -> (f64, f64) {
+    if residuals.len() < 2 || steps <= 0 || period == 0 {
+        return (center, center);
+    }
+    let steps = steps as usize;
+    // Bound total simulated transitions (~1M) for pathologically long horizons.
+    let draws = (1_000_000usize / steps.max(1)).clamp(64, 256);
+    let mut rng =
+        SplitMix64::new((count as u64).wrapping_mul(0x9E3779B97F4A7C15) ^ 0xD1B54A32D192ED03);
+    let mut endpoints: Vec<f64> = Vec::with_capacity(draws);
+
+    for _ in 0..draws {
+        let mut lvl = level;
+        let mut tr = trend;
+        let mut seas = seasons.to_vec();
+        let mut last = center;
+        for h in 1..=steps {
+            let sidx = (count + h - 1) % period;
+            let season = season_at(&seas, sidx);
+            let point = lvl + tr + season;
+            let r = residuals[rng.index(residuals.len())];
+            let y = point + r;
+            let next_level = alpha * (y - season) + (1.0 - alpha) * (lvl + tr);
+            let next_trend = beta * (next_level - lvl) + (1.0 - beta) * tr;
+            let next_season = gamma * (y - next_level) + (1.0 - gamma) * season;
+            lvl = next_level;
+            tr = next_trend;
+            set_season(&mut seas, sidx, next_season);
+            last = y;
+        }
+        endpoints.push(last);
+    }
+    endpoints.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    (quantile(&endpoints, 0.025), quantile(&endpoints, 0.975))
+}
+
+/// Linear-interpolated quantile of an ascending-sorted slice.
+fn quantile(sorted: &[f64], q: f64) -> f64 {
+    if sorted.is_empty() {
+        return 0.0;
+    }
+    let pos = q * (sorted.len() - 1) as f64;
+    let lo = pos.floor() as usize;
+    let hi = pos.ceil() as usize;
+    if lo == hi {
+        sorted[lo]
+    } else {
+        sorted[lo] + (pos - lo as f64) * (sorted[hi] - sorted[lo])
+    }
+}
+
+/// A tiny deterministic SplitMix64 PRNG — no `rand` dependency, reproducible runs.
+struct SplitMix64(u64);
+
+impl SplitMix64 {
+    fn new(seed: u64) -> Self {
+        Self(seed)
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9E3779B97F4A7C15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+        z ^ (z >> 31)
+    }
+
+    fn index(&mut self, n: usize) -> usize {
+        (self.next_u64() % n as u64) as usize
+    }
 }

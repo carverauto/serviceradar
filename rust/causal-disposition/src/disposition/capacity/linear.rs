@@ -7,9 +7,8 @@
 //! least-squares / residual / RMSE helpers (`model.ex:66-105,199-250`).
 
 use super::exhaustion::exhaustion_at;
-use super::stats::confidence;
 use super::types::NormPoint;
-use super::{CapacityConfig, EPSILON, bounded_projection};
+use super::{COVERAGE_LEVEL, CapacityConfig, EPSILON, Z_0975, bounded_projection};
 use crate::disposition::{CapacityForecast, Disposition};
 
 /// `linear_forecast/2` (`model.ex:66-105`): least-squares fit, projection at
@@ -30,8 +29,12 @@ pub(super) fn linear_forecast(points: &[NormPoint], config: &CapacityConfig) -> 
     let raw_projected_value = intercept + slope * projected_x;
     let residuals = residuals(&xs, &ys, slope, intercept);
     let rmse = rmse(&residuals);
+    // Closed-form OLS 95% prediction interval (widens with the horizon) — replaces
+    // the old constant ±1.96·RMSE band (D2).
+    let (raw_lower, raw_upper) =
+        ols_prediction_bounds(&xs, &residuals, projected_x, raw_projected_value);
     let (projected_value, lower_bound, upper_bound, projection_bounded) =
-        bounded_projection(config, raw_projected_value, rmse);
+        bounded_projection(config, raw_projected_value, raw_lower, raw_upper);
 
     let first_at = points[0].at_unix_micros;
     let projected_exhaustion = exhaustion_at(
@@ -52,7 +55,7 @@ pub(super) fn linear_forecast(points: &[NormPoint], config: &CapacityConfig) -> 
         raw_projected_value,
         projection_bounded,
         projected_exhaustion_at_unix_micros: projected_exhaustion,
-        confidence: confidence(rmse, &ys, threshold),
+        confidence: COVERAGE_LEVEL,
         lower_bound,
         upper_bound,
         rmse,
@@ -98,4 +101,35 @@ pub(super) fn rmse(residuals: &[f64]) -> f64 {
     let sum_sq: f64 = residuals.iter().map(|r| r * r).sum();
     let denom = residuals.len().max(1) as f64;
     (sum_sq / denom).sqrt()
+}
+
+/// Closed-form OLS prediction-interval bounds for a single future point `x0`:
+/// `center ± Z·s·sqrt(1 + 1/n + (x0 - x̄)² / Sxx)`, where `s` is the residual standard
+/// error (`n-2` df). Unlike the old `± 1.96·RMSE`, the leverage term grows with the
+/// extrapolation distance, so a 90-day projection has a strictly wider band than a
+/// 7-day one. Degenerate windows (`n < 3`, or a constant `x`) fall back to a
+/// zero-width band rather than fabricating one.
+pub(super) fn ols_prediction_bounds(
+    xs: &[f64],
+    residuals: &[f64],
+    x0: f64,
+    center: f64,
+) -> (f64, f64) {
+    let n = xs.len();
+    if n < 3 {
+        return (center, center);
+    }
+    let nf = n as f64;
+    let dof = nf - 2.0;
+    let sse: f64 = residuals.iter().map(|r| r * r).sum();
+    let s = (sse / dof).sqrt(); // residual standard error (n-2 df)
+    let x_mean = xs.iter().sum::<f64>() / nf;
+    let sxx: f64 = xs.iter().map(|x| (x - x_mean) * (x - x_mean)).sum();
+    let leverage = if sxx > EPSILON {
+        1.0 + 1.0 / nf + (x0 - x_mean) * (x0 - x_mean) / sxx
+    } else {
+        1.0 + 1.0 / nf
+    };
+    let half_width = Z_0975 * s * leverage.sqrt();
+    (center - half_width, center + half_width)
 }

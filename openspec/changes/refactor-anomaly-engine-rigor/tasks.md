@@ -14,7 +14,7 @@
 - [x] 0.2 Generate synthetic **labeled** datasets: bounded percent gauges (cpu/mem/disk) + monotonic SNMP counters, with injected spike / step / drift / off-cycle anomalies and a counter wrap/reset (`gen.py`).
 - [ ] 0.3 **Extend `anomaly-backtest`** to expose the `ReasonContext` fields currently hardcoded off (`seasonal_enabled`/`trend_enabled` = false; `min_std_floor`/`min_cv`/`saturation_gate` = None at `rust/anomaly-core/src/bin/anomaly-backtest.rs:124-139`) so the stability-gate, MAD, CUSUM, and seasonal requirements become harness-provable on real code.
 - [ ] 0.4 **Add the core half**: run the **real** Elixir seasonal + capacity workers and the `causal_disposition` NIF against a local TimescaleDB CAGG / the `srql-fixtures` CNPG scratch DB (no production DB).
-- [ ] 0.5 Emit precision / recall / detection-latency scorecards + Twitter-AnomalyDetection Fig-2-style labeled-overlay plots (`plot.py`).
+- [x] 0.5 Emit precision / recall / detection-latency scorecards + Twitter-AnomalyDetection Fig-2-style labeled-overlay plots (`plot.py` edge; `plot_seasonal.py` core; capacity scorecard via `disposition-backtest --kind capacity`).
 - [ ] 0.6 Wire a scenario for **every** behavioral requirement in this change (honest-naming assertions excepted) so acceptance is harness-proven, not assertion-only.
 - [ ] 0.7 Add a self-masking regression scenario (large spike then second spike) that scores recall under the chosen edge dispersion estimator.
 
@@ -29,9 +29,9 @@
 
 ### 1b. Honest capacity uncertainty (valid prediction intervals on both paths)
 
-- [ ] 1.5 Implement the closed-form **OLS prediction interval** (`half-width = t·s·sqrt(1 + 1/n + (x0 - x̄)² / Sxx)`, widens with horizon) for the linear-trend model in `capacity_forecasting/worker.ex:368`.
-- [ ] 1.6 Implement a valid **residual-bootstrap / simulation prediction interval** for the additive Holt-Winters path (off the hot path — periodic Oban job; bound the simulation count, reuse fitted residuals).
-- [ ] 1.7 **Remove** the heuristic `confidence = clamp(1 - rmse/scale)` or replace it with a calibrated quantity (e.g. coverage level); update storage + web-ng capacity panel labels so nothing is shown as a probability unless calibrated. Harness coverage (per task 0.6): OLS band widens with horizon; Holt-Winters simulated interval has valid empirical coverage on labeled data.
+- [x] 1.5 **OLS prediction interval** (`half-width = Z·s·sqrt(1 + 1/n + (x0 - x̄)² / Sxx)`, widens with horizon, residual standard error `s` over `n-2` df). DONE in the Rust kernel `rust/causal-disposition/src/disposition/capacity/linear.rs` (`ols_prediction_bounds`); the worker calls it through the NIF (`worker.ex:368` is the call site, not the math).
+- [x] 1.6 **Residual-bootstrap prediction interval** for the additive Holt-Winters path (off the hot path; bounded deterministic-seeded simulation re-injecting resampled in-sample residuals, 2.5/97.5 quantiles). DONE in `holt_winters.rs` (`bootstrap_prediction_bounds`).
+- [x] 1.7 **Removed** the `clamp(1 - rmse/scale)` heuristic; `confidence` now carries the interval's nominal coverage level (`0.95`), web-ng relabeled "PI coverage". Parity gate updated (fit fields keep parity; band/confidence assert the new behaviour), plus a unit test (`ols_prediction_interval_widens_with_horizon`) and the harness (`disposition-backtest --kind capacity`) prove the OLS band widens with horizon (5.89→6.15 across 7d/30d/90d).
 
 ### 1f. BREAKING — on-the-wire de-causal envelope rename (D7; dual-publish + dual-consume)
 

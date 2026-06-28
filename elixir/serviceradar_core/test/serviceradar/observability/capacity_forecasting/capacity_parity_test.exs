@@ -166,19 +166,27 @@ defmodule ServiceRadar.Observability.CapacityForecasting.CapacityParityTest do
     assert got.model == want["model"],
            "[#{name}] model kind diverged: kernel=#{inspect(got.model)}, legacy=#{inspect(want["model"])}"
 
-    # Float fields: parity within 1e-9.
+    # Fit fields: parity within 1e-9 (the port still reproduces model.ex's fit math).
     for field <- [
           "current_value",
           "slope_per_second",
           "intercept",
           "projected_value",
-          "confidence",
-          "lower_bound",
-          "upper_bound",
           "rmse"
         ] do
       close(name, field, Map.fetch!(got, String.to_existing_atom(field)), want[field])
     end
+
+    # D2: the band + `confidence` intentionally DIVERGE from the legacy
+    # ±1.96·RMSE / clamp(1 - rmse/scale) fixtures. Assert the NEW behaviour — a valid
+    # prediction interval bracketing the projection, and `confidence` carrying the
+    # 0.95 coverage level — not legacy parity.
+    assert abs(got.confidence - 0.95) < 1.0e-9,
+           "[#{name}] confidence should be the 0.95 PI coverage level, got #{got.confidence}"
+
+    assert got.lower_bound <= got.projected_value + 1.0e-9 and
+             got.upper_bound >= got.projected_value - 1.0e-9,
+           "[#{name}] PI [#{got.lower_bound}, #{got.upper_bound}] must bracket projection #{got.projected_value}"
 
     # Integer fields: EXACT match. `sample_count`.
     assert got.sample_count == want["sample_count"],

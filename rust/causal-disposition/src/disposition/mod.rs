@@ -109,11 +109,16 @@ pub struct CapacityForecast {
     /// `None` for the no-ETA cases (non-positive slope, missing threshold,
     /// already-crossed, beyond-`10×`-horizon).
     pub projected_exhaustion_at_unix_micros: Option<i64>,
-    /// `confidence` clamped to `[0, 1]` (`model.ex:93` / `182`).
+    /// The emitted prediction interval's nominal coverage level (`0.95`). Surfaced in
+    /// this field for ABI stability, but it is the INTERVAL's coverage level — NOT a
+    /// fit-quality probability. The old `clamp(1 - rmse/scale)` heuristic was an
+    /// overclaim and was removed (D2).
     pub confidence: f64,
-    /// `lower_bound = projected_value - 1.96 * rmse` (`model.ex:94` / `183`).
+    /// Lower bound of the 95% prediction interval — closed-form OLS for the linear
+    /// path, residual-bootstrap for Holt-Winters, clamped to any physical value
+    /// bounds. Widens with the horizon (not the old constant `projected - 1.96·RMSE`).
     pub lower_bound: f64,
-    /// `upper_bound = projected_value + 1.96 * rmse` (`model.ex:95` / `184`).
+    /// Upper bound of the 95% prediction interval (see [`Self::lower_bound`]).
     pub upper_bound: f64,
     /// `diagnostics["rmse"]` (`model.ex:100` / `189`) — surfaced so the worker can
     /// rebuild the diagnostics map and the parity test compares it directly.

@@ -138,9 +138,30 @@ fn capacity_kernel_matches_legacy_model_within_1e_9() {
                     "[{}] unbounded parity fixture unexpectedly reported a bounded projection",
                     case.name
                 );
-                close("confidence", case.name, got.confidence, want.confidence);
-                close("lower_bound", case.name, got.lower_bound, want.lower_bound);
-                close("upper_bound", case.name, got.upper_bound, want.upper_bound);
+                // D2: the band + `confidence` intentionally DIVERGE from the legacy
+                // `± 1.96·RMSE` / `clamp(1 - rmse/scale)` fixtures. The fit fields above
+                // still hold the parity gate (the port reproduces `model.ex`'s slope/
+                // intercept/projection/RMSE/ETA); the band is now a valid prediction
+                // interval (closed-form OLS / residual-bootstrap) and `confidence` is the
+                // interval's coverage level — so assert the new behaviour, not parity.
+                assert!(
+                    (got.confidence - 0.95).abs() < 1e-9,
+                    "[{}] confidence should be the 0.95 PI coverage level, got {}",
+                    case.name,
+                    got.confidence
+                );
+                assert!(
+                    got.lower_bound <= got.projected_value + 1e-9
+                        && got.upper_bound >= got.projected_value - 1e-9,
+                    "[{}] prediction interval [{}, {}] must bracket the projection {}",
+                    case.name,
+                    got.lower_bound,
+                    got.upper_bound,
+                    got.projected_value
+                );
+                // The legacy band/confidence fixtures are retained for reference but are
+                // deliberately no longer parity-asserted (D2 changed them).
+                let _ = (want.confidence, want.lower_bound, want.upper_bound);
                 close("rmse", case.name, got.rmse, want.rmse);
                 // Integer fields must match EXACTLY.
                 assert_eq!(

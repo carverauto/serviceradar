@@ -58,7 +58,9 @@ fn linear_forecast_projects_and_etas() {
             // ETA at +70 hours from window start.
             let expected = START_MICROS + 70 * 3_600 * MICROS_PER_SECOND;
             assert_eq!(f.projected_exhaustion_at_unix_micros, Some(expected));
-            assert!(f.confidence > 0.99);
+            // `confidence` now carries the prediction interval's nominal coverage
+            // level (0.95), not the old `clamp(1 - rmse/scale)` heuristic (D2).
+            assert!((f.confidence - 0.95).abs() < 1e-9);
         }
         other => panic!("expected Projected, got {other:?}"),
     }
@@ -526,6 +528,40 @@ fn non_finite_value_is_dropped_then_gated() {
     assert!(matches!(out.disposition, Disposition::Projected { .. }));
 }
 
+/// D2: the closed-form OLS prediction interval must WIDEN with the horizon (the
+/// leverage term), unlike the old constant `± 1.96·RMSE` band; and `confidence` now
+/// carries the 0.95 coverage level. This is the harness-checkable acceptance for 1.7.
+#[test]
+fn ols_prediction_interval_widens_with_horizon() {
+    // A noisy linear series so the residuals — hence the interval — are non-zero.
+    let points: Vec<_> = (0..60)
+        .map(|h| point(h, 20.0 + h as f64 * 0.5 + ((h * 7 % 5) as f64 - 2.0)))
+        .collect();
+    let band = |horizon_seconds: i64| {
+        let cfg = config(Some(100.0), horizon_seconds, CapacityModelKind::Linear);
+        match dispose_capacity(
+            CapacityRow {
+                series_key: "s".to_string(),
+                points: points.clone(),
+            },
+            &cfg,
+        )
+        .disposition
+        {
+            Disposition::Projected(f) => {
+                assert!((f.confidence - 0.95).abs() < 1e-9);
+                assert!(f.lower_bound <= f.projected_value && f.upper_bound >= f.projected_value);
+                f.upper_bound - f.lower_bound
+            }
+            other => panic!("expected Projected, got {other:?}"),
+        }
+    };
+    let near = band(7 * 24 * 3_600);
+    let far = band(365 * 24 * 3_600);
+    assert!(near > 0.0, "a noisy fit must produce a non-zero PI");
+    assert!(far > near, "the PI must widen with the horizon: far={far} near={near}");
+}
+
 #[test]
 fn bounded_projection_clamps_non_finite_raw_outputs() {
     let cfg = CapacityConfig {
@@ -534,14 +570,16 @@ fn bounded_projection_clamps_non_finite_raw_outputs() {
         ..config(None, 24 * 3_600, CapacityModelKind::Linear)
     };
 
-    let (projected, lower, upper, bounded) = bounded_projection(&cfg, f64::INFINITY, 1.0);
+    let (projected, lower, upper, bounded) =
+        bounded_projection(&cfg, f64::INFINITY, f64::INFINITY, f64::INFINITY);
 
     assert_eq!(projected, 100.0);
     assert_eq!(lower, 100.0);
     assert_eq!(upper, 100.0);
     assert!(bounded);
 
-    let (projected, lower, upper, bounded) = bounded_projection(&cfg, f64::NAN, 1.0);
+    let (projected, lower, upper, bounded) =
+        bounded_projection(&cfg, f64::NAN, f64::NAN, f64::NAN);
 
     assert_eq!(projected, 0.0);
     assert_eq!(lower, 0.0);
