@@ -75,7 +75,7 @@
 - [ ] 2.5 Adopt **S-H-ESD** (STL/MSTL + median/MAD ESD on residual) as the primary seasonal validator.
 - [ ] 2.6 Make the S-H-ESD profile the **source of the coarse hour-of-week baseline pushed to the edge** (feeds 2.3).
 - [ ] 2.7 Add the optional, feature-flagged, off-hot-path **RPCA** layer — **V1 = single-series hour-of-week reshape only** (host-stacked fleet matrix is a follow-on; design D-Q4); default disabled.
-- [ ] 2.8 Keep Holt-Winters strictly for capacity forecasting (no repurposing as the seasonal validator).
+- [x] 2.8 Verified: Holt-Winters is capacity-only — the seasonal validator is the residual-z kernel; `holt_winters`/`seasonal_forecast` appear only under `disposition/capacity/`. No change needed.
 - [ ] 2.9 Harness: S-H-ESD precision/recall vs the current residual-z; RPCA fleet-correlated detection.
 
 ## 3. Phase 3 — Documentation overhaul (single source of truth)
