@@ -75,10 +75,14 @@ defmodule ServiceRadar.Observability.AnomalyDisposition.PeakProfile do
 
   defp find_profile(rows, ctx) do
     Enum.find_value(rows, fn row ->
-      with true <- row_matches?(row, ctx),
-           center when is_float(center) <- num(field(row, "center")),
-           count when is_integer(count) <- int(field(row, "bucket_count")) do
-        %{center: center, scale: peak_scale(center, num(field(row, "p95"))), sample_count: count}
+      # SRQL wraps each row's columns under a "payload" key (verified against the real
+      # query result); fall back to the row itself for already-flat maps (tests).
+      data = Map.get(row, "payload", row)
+
+      with true <- row_matches?(data, ctx),
+           center when is_float(center) <- num(field(data, "center")),
+           count when is_integer(count) <- int(field(data, "bucket_count")) do
+        %{center: center, scale: peak_scale(center, num(field(data, "p95"))), sample_count: count}
       else
         _ -> nil
       end

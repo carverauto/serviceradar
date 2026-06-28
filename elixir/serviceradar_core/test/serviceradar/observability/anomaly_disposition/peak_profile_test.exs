@@ -91,6 +91,33 @@ defmodule ServiceRadar.Observability.AnomalyDisposition.PeakProfileTest do
     assert fetch.(%{@ctx | hod: 14}) == nil
   end
 
+  defmodule PayloadRunner do
+    @moduledoc false
+    # the REAL SRQL result shape: each row's columns are wrapped under "payload"
+    def query(_query, _opts) do
+      {:ok,
+       [
+         %{
+           "payload" => %{
+             "series" => "sr:ns03",
+             "dow" => 2,
+             "hod" => 9,
+             "center" => 59,
+             "p95" => 61.6,
+             "bucket_count" => 5
+           }
+         }
+       ]}
+    end
+  end
+
+  test "unwraps the SRQL payload envelope (the real row shape)" do
+    profile = PeakProfile.fetcher(PayloadRunner).(@ctx)
+    assert profile.center == 59.0
+    assert profile.sample_count == 5
+    assert_in_delta profile.scale, (61.6 - 59.0) / 1.644_853_626_951_472_2, 1.0e-9
+  end
+
   test "returns nil on empty result, runner error, or missing metric scope" do
     assert PeakProfile.fetcher(EmptyRunner).(@ctx) == nil
     assert PeakProfile.fetcher(ErrorRunner).(@ctx) == nil
