@@ -235,6 +235,22 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       refute html =~ "FunctionClauseError"
     end
 
+    test "redacts sensitive NATS credentials in message body and attributes", %{conn: conn} do
+      user = operator_user_fixture()
+      conn = log_in_user(conn, user)
+
+      log_id = "67d95c6e-b342-47bc-a43e-05ca39cb7528"
+      insert_sensitive_nats_log!(log_id)
+
+      {:ok, _lv, html} = live(conn, ~p"/logs/#{log_id}")
+
+      assert html =~ "nkey_seed"
+      assert html =~ "[REDACTED]"
+      refute html =~ "SENSITIVE_NKEY"
+      refute html =~ "SENSITIVE_JWT"
+      refute html =~ "SENSITIVE_ATTR_TOKEN"
+    end
+
     test "normalizes the OTel SeverityNumber enum name into a colored badge", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
@@ -479,6 +495,27 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
         source: "syslog",
         attributes: Jason.encode!(%{}),
         resource_attributes: "",
+        created_at: now
+      }
+    ])
+  end
+
+  defp insert_sensitive_nats_log!(log_id) when is_binary(log_id) do
+    {:ok, uuid} = Ecto.UUID.dump(log_id)
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    Repo.insert_all("logs", [
+      %{
+        timestamp: now,
+        observed_timestamp: now,
+        id: uuid,
+        severity_text: "ERROR",
+        severity_number: 17,
+        body:
+          ~S|#{label => {gen_server,terminate},state => #{nkey_seed => <<"SENSITIVE_NKEY">>,jwt => <<"SENSITIVE_JWT">>}}|,
+        service_name: "serviceradar-web-ng",
+        attributes: Jason.encode!(%{"token" => "SENSITIVE_ATTR_TOKEN", "safe" => "kept"}),
+        resource_attributes: Jason.encode!(%{"service.name" => "serviceradar-web-ng"}),
         created_at: now
       }
     ])

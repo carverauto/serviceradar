@@ -16,6 +16,47 @@ defmodule ServiceRadarWebNGWeb.UserSessionControllerTest do
   end
 
   describe "POST /users/update-password" do
+    test "updates an operator password when confirmation matches", %{conn: conn} do
+      user = set_password(user_fixture(%{role: :operator}))
+      new_password = "new valid password"
+
+      conn =
+        conn
+        |> log_in_user(user)
+        |> init_test_session(%{"sudo_authenticated_at" => DateTime.to_unix(DateTime.utc_now())})
+        |> post(~p"/users/update-password", %{
+          "user" => %{
+            "current_password" => valid_user_password(),
+            "password" => new_password,
+            "password_confirmation" => new_password
+          }
+        })
+
+      assert Phoenix.Flash.get(conn.assigns.flash, :info) =~ "Password updated successfully"
+      assert Accounts.get_user_by_email_and_password(user.email, new_password)
+    end
+
+    test "renders password validation interpolation before Ash update", %{conn: conn} do
+      user = set_password(user_fixture(%{role: :operator}))
+
+      conn =
+        conn
+        |> log_in_user(user)
+        |> init_test_session(%{"sudo_authenticated_at" => DateTime.to_unix(DateTime.utc_now())})
+        |> post(~p"/users/update-password", %{
+          "user" => %{
+            "current_password" => valid_user_password(),
+            "password" => "short",
+            "password_confirmation" => "short"
+          }
+        })
+
+      assert redirected_to(conn) == ~p"/settings/profile"
+      message = Phoenix.Flash.get(conn.assigns.flash, :error)
+      assert message =~ "password: should be at least 12 character"
+      refute message =~ "%{min}"
+    end
+
     test "denies viewers without password permission", %{conn: conn} do
       user = set_password(user_fixture(%{role: :viewer}))
 

@@ -56,6 +56,32 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       assert %DateTime{} = result.created_at
     end
 
+    test "redacts sensitive NATS credentials before storing log rows" do
+      json_data =
+        Jason.encode!(%{
+          "timestamp" => "2024-01-15T10:30:00Z",
+          "severity_text" => "ERROR",
+          "body" =>
+            ~S|#{label => {gen_server,terminate},state => #{nkey_seed => <<"SENSITIVE_NKEY">>,jwt => <<"SENSITIVE_JWT">>}}|,
+          "attributes" => %{
+            "jwt" => "SENSITIVE_ATTR_JWT",
+            "nested" => %{"nkey_seed" => "SENSITIVE_NESTED_SEED"},
+            "safe" => "kept"
+          },
+          "resource_attributes" => %{"service.name" => "web-ng"}
+        })
+
+      result = Logs.parse_message(%{data: json_data, metadata: %{subject: "logs.otel"}})
+
+      assert result.body =~ ~s|nkey_seed => <<"[REDACTED]">>|
+      assert result.body =~ ~s|jwt => <<"[REDACTED]">>|
+      refute result.body =~ "SENSITIVE_NKEY"
+      refute result.body =~ "SENSITIVE_JWT"
+      assert result.attributes["jwt"] == "[REDACTED]"
+      assert result.attributes["nested"]["nkey_seed"] == "[REDACTED]"
+      assert result.attributes["safe"] == "kept"
+    end
+
     test "parses camelCase fields" do
       json_data =
         Jason.encode!(%{
