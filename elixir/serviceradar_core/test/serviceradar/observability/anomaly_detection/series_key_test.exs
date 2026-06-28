@@ -26,6 +26,35 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKeyTest do
                )
     end
 
+    test "edge<->central alignment: canonical key is invariant to provisional producer hints (1.14)" do
+      # The edge emits provisional producer hints (agent_id/host_id/host_ip and a
+      # producer `host` tag); central re-keys from source_identity. Two views of the
+      # SAME logical series that differ ONLY in those provisional fields MUST re-key
+      # identically — the precondition for joining an edge-spike finding to its
+      # central-seasonal verdict (the matched-resolution disposition loop, 1c).
+      base = %{
+        "metric_class" => "sysmon.cpu",
+        "metric_name" => "cpu.usage_percent",
+        "partition" => "prod-east",
+        "device_id" => "sr:ns03",
+        "tags" => %{"core_id" => "0", "host" => "ns03"}
+      }
+
+      edge_view =
+        Map.merge(base, %{"agent_id" => "agent-A", "host_id" => "ns03", "host_ip" => "10.0.0.10"})
+
+      central_view =
+        Map.merge(base, %{"agent_id" => "agent-B", "host_id" => "ns03b", "host_ip" => "10.0.0.99"})
+
+      k1 = SeriesKey.from_source_identity(edge_view)
+      k2 = SeriesKey.from_source_identity(central_view)
+
+      assert is_binary(k1)
+
+      assert k1 == k2,
+             "the same logical series must re-key identically regardless of provisional producer hints"
+    end
+
     test "uses the same canonical device_id host component for SNMP target metrics" do
       source_identity = %{
         "metric_class" => "snmp",

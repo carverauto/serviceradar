@@ -48,7 +48,7 @@
 - [ ] 1.11 Build the disposition correlation at the alert/query layer (`stateful_alert_engine.ex`, `alert_generator.ex`, web-ng device-detail panel) on the F14-aligned `series_key`; retain raw findings.
 - [ ] 1.12 Implement the robust peak-profile stability gate (invariants in spec), suppression **report-only** behind a per-metric-class kill switch; report suppression-eligible-mass coverage.
 - [ ] 1.13 Disposition-driven effective severity (suppress→off-path, downgrade→lower, escalate→higher).
-- [ ] 1.14 Add the load-bearing test asserting edge `series_key` == central `series_key` after F14 re-key (precondition for the join).
+- [x] 1.14 Edge↔central series_key alignment test added + PASSING (`series_key_test.exs`, 11 tests green): the same logical series re-keys identically regardless of the provisional producer hints the edge varies (agent_id/host_id/host_ip and the `host` tag are excluded; the canonical resource + metric + if_index + partition decide the key). The precondition for the join. (Existing F14 tests already covered device_id-over-host/agent canonicalization.)
 
 ### 1d. Robust seasonal statistic + hysteresis
 
