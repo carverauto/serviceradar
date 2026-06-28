@@ -543,7 +543,6 @@ core:
       # Provide existingConfigMap/existingSecret/existingClaim when you want custom rules.
       enabled: true
   extraEnv:
-    EVENT_WRITER_ENABLED: "true"
     EVENT_WRITER_NATS_CREDS_FILE: "/etc/serviceradar/creds/platform.creds"
     EVENT_WRITER_NATS_URL: "tls://serviceradar-nats:4222"
     EVENT_WRITER_NATS_TLS: "true"
