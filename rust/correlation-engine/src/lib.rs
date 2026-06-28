@@ -1,4 +1,4 @@
-//! `causal-engine` — ServiceRadar's deterministic dependency / expert-reasoning engine.
+//! `correlation-engine` — ServiceRadar's deterministic dependency / expert-reasoning engine.
 //!
 //! Honest framing: this is NOT causal inference (no SCM, do-calculus, counterfactual,
 //! or intervention). It is a deterministic expert system — a fixed set of hand-coded
@@ -39,7 +39,7 @@ mod metric_proto_contract_tests {
     };
 
     #[test]
-    fn causal_engine_links_against_canonical_metric_envelope_prost_types() {
+    fn correlation_engine_links_against_canonical_metric_envelope_prost_types() {
         let batch = MetricBatch {
             schema_version: "serviceradar.metric.v1".to_owned(),
             resource: Some(MetricResource {

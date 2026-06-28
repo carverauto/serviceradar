@@ -3,7 +3,7 @@ name = "serviceradar-causal-disposition"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.90"
-description = "Central disposition kernels (seasonal residual-z, capacity forecast) on ServiceRadar's shared DeepCausality streaming substrate (serviceradar-anomaly-core). The thin Rustler NIF wraps these kernels; this crate carries zero rustler dep so it stays linkable by bazel, tests, and causal-engine (OpenSpec: add-core-causal-disposition-nif)."
+description = "Central disposition kernels (seasonal residual-z, capacity forecast) on ServiceRadar's shared DeepCausality streaming substrate (serviceradar-anomaly-core). The thin Rustler NIF wraps these kernels; this crate carries zero rustler dep so it stays linkable by bazel, tests, and correlation-engine (OpenSpec: add-core-causal-disposition-nif)."
 license = "Apache-2.0"
 
 [lib]
@@ -19,7 +19,7 @@ deep_causality_core = "0.10.0"
 
 # The NIF-facing ABI derives (NifMap/NifStruct) are gated behind this feature so
 # the kernel crate stays dependency-light: bazel, `cargo test`, and (in
-# principle) causal-engine link it WITHOUT pulling rustler / its proc-macro tree.
+# principle) correlation-engine link it WITHOUT pulling rustler / its proc-macro tree.
 # Only `native/causal_disposition_nif` turns this on.
 rustler = { version = "0.38", optional = true, default-features = false }
 

@@ -14,12 +14,12 @@ filegroup(
 )
 
 rust_library(
-    name = "causal_engine_lib",
+    name = "correlation_engine_lib",
     srcs = glob(
         ["src/**/*.rs"],
         exclude = ["src/main.rs"],
     ),
-    crate_name = "causal_engine",
+    crate_name = "correlation_engine",
     crate_root = "src/lib.rs",
     edition = "2024",
     deps = all_crate_deps(normal = True) + [
@@ -31,12 +31,12 @@ rust_library(
 )
 
 rust_binary(
-    name = "causal_engine_bin",
+    name = "correlation_engine_bin",
     srcs = ["src/main.rs"],
-    crate_name = "causal_engine",
+    crate_name = "correlation_engine",
     edition = "2024",
     deps = [
-        ":causal_engine_lib",
+        ":correlation_engine_lib",
         "//rust/metric-proto:serviceradar_metric_proto",
         "//rust/srql:srql_lib",
     ] + all_crate_deps(normal = True),
@@ -45,8 +45,8 @@ rust_binary(
 )
 
 rust_test(
-    name = "causal_engine_test",
-    crate = ":causal_engine_lib",
+    name = "correlation_engine_test",
+    crate = ":correlation_engine_lib",
     deps = all_crate_deps(normal = True, normal_dev = True) + [
         "//rust/metric-proto:serviceradar_metric_proto",
         "//rust/srql:srql_lib",

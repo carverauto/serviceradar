@@ -972,29 +972,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "causal-engine"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-nats",
- "async-trait",
- "chrono",
- "deep_causality",
- "envy",
- "futures",
- "pretty_assertions",
- "serde 1.0.228",
- "serde_json 1.0.150",
- "serviceradar-metric-proto",
- "srql",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "ultragraph",
-]
-
-[[package]]
 name = "cbc"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1266,6 +1243,29 @@ dependencies = [
  "libc",
  "num_cpus",
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "correlation-engine"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-nats",
+ "async-trait",
+ "chrono",
+ "deep_causality",
+ "envy",
+ "futures",
+ "pretty_assertions",
+ "serde 1.0.228",
+ "serde_json 1.0.150",
+ "serviceradar-metric-proto",
+ "srql",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "ultragraph",
 ]
 
 [[package]]

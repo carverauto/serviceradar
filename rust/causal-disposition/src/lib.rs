@@ -39,7 +39,7 @@
 //! `CausalFlow` carrier, the clean/breach branch semantics) come from
 //! `anomaly-core`. It also carries **no** `rustler` dependency by default — the
 //! typed NIF ABI derives are feature-gated behind the `rustler` feature so this
-//! crate stays linkable by bazel, by `cargo test`, and by `causal-engine`
+//! crate stays linkable by bazel, by `cargo test`, and by `correlation-engine`
 //! without pulling the proc-macro tree.
 //!
 //! Phase scope: this crate ships the seasonal kernel first (net-new, no parity

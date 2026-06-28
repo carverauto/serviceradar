@@ -1,4 +1,4 @@
-//! `causal-engine` binary — the single-pod fused DeepCausality engine.
+//! `correlation-engine` binary — the single-pod fused DeepCausality engine.
 //!
 //! V1 reasoning loop skeleton: hydrate `Context` → evaluate causaloids → emit
 //! verdicts. TODO(1.2–1.7): real hydration, delta-driven ticks, snapshot
@@ -9,18 +9,18 @@ use std::time::Duration;
 use chrono::Utc;
 use tracing::{error, info, warn};
 
-use causal_engine::config::Config;
-use causal_engine::context_hydrator::{ContextHydrator, ContextStore};
-use causal_engine::emitter::Emitter;
-use causal_engine::reasoner::Reasoner;
-use causal_engine::{nats, subscriber};
+use correlation_engine::config::Config;
+use correlation_engine::context_hydrator::{ContextHydrator, ContextStore};
+use correlation_engine::emitter::Emitter;
+use correlation_engine::reasoner::Reasoner;
+use correlation_engine::{nats, subscriber};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     init_tracing();
 
     let config = Config::from_env()?;
-    info!(?config, "starting causal-engine");
+    info!(?config, "starting correlation-engine");
 
     let (nats_client, jetstream) = nats::connect(&config).await?;
     let hydrator = ContextHydrator::connect(&config.snapshot_path).await?;
@@ -56,7 +56,7 @@ async fn run_tick(
     hydrator: &ContextHydrator,
     reasoner: &Reasoner,
     emitter: &Emitter,
-) -> causal_engine::Result<usize> {
+) -> correlation_engine::Result<usize> {
     let pruned = hydrator
         .prune_stale_operator_rules(
             Utc::now().timestamp_millis(),
