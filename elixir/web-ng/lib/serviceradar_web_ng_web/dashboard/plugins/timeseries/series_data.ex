@@ -10,23 +10,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
   end
 
   def build_series_data(series_points, spec, rate_mode, compact, max_speed, annotations, reference_lines, y_scale) do
-    build_series_data(series_points, spec, rate_mode, compact, max_speed, annotations, reference_lines, y_scale, [])
-  end
-
-  def build_series_data(
-        series_points,
-        spec,
-        rate_mode,
-        compact,
-        max_speed,
-        annotations,
-        reference_lines,
-        y_scale,
-        chart_overlays
-      ) do
     opts = %{
       annotations: annotations,
-      chart_overlays: chart_overlays,
+      chart_overlays: [],
       compact: compact,
       max_speed: max_speed,
       rate_mode: rate_mode,
@@ -35,6 +21,25 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
       y_scale: y_scale
     }
 
+    build_series_data_from_options(series_points, opts)
+  end
+
+  def build_series_data(series_points, opts) when is_list(opts) do
+    opts = %{
+      annotations: Keyword.get(opts, :annotations, []),
+      chart_overlays: Keyword.get(opts, :chart_overlays, []),
+      compact: Keyword.get(opts, :compact, false),
+      max_speed: Keyword.get(opts, :max_speed),
+      rate_mode: Keyword.get(opts, :rate_mode, :none),
+      reference_lines: Keyword.get(opts, :reference_lines, []),
+      spec: Keyword.get(opts, :spec),
+      y_scale: Keyword.get(opts, :y_scale, :linear)
+    }
+
+    build_series_data_from_options(series_points, opts)
+  end
+
+  defp build_series_data_from_options(series_points, opts) when is_map(opts) do
     series_points
     |> Enum.with_index()
     |> Enum.map(fn {{series, points}, idx} ->
