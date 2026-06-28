@@ -22,6 +22,13 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
     Process.delete(:seasonal_state_store)
     AnomalyConfigRuntime.clear_cache_for_test()
 
+    # Production default confirm_slots is 2 (task 1.16 / D-Q3). The behaviour tests in
+    # this module exercise single-breach surfacing of OTHER concerns (SRQL profile/paging,
+    # median/MAD robustness, clear emission, emission resilience), so pin their default to
+    # 1; the confirm-slot HYSTERESIS itself is covered by the dedicated confirm_slots:1/3
+    # tests below, which set their own runtime config and override this.
+    AnomalyConfigRuntime.put_cache_for_test(%{seasonal_disposition_opts: [confirm_slots: 1]})
+
     on_exit(fn ->
       if previous_worker_config == [] do
         Application.delete_env(:serviceradar_core, Worker)
