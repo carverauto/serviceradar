@@ -57,8 +57,8 @@
 
 ### 1e. Dead code + stale docs
 
-- [ ] 1.17 Remove or unambiguously mark the dead `peak_profile` kernel (`rust/causal-disposition/.../peak_profile`, `types.rs:8` — no NIF ABI, no callers).
-- [ ] 1.18 Correct the false "capacity phase 2 not wired" documentation.
+- [x] 1.17 `peak_profile` kernel unambiguously marked DORMANT/not-wired (no NIF ABI), with the marker now pointing at the matched-resolution loop closure (1c) that will wire it. Kept rather than deleted because that wiring is the next step.
+- [x] 1.18 Corrected the false "capacity phase 2 — NOT yet wired" doc in the NIF (`causal_disposition_nif/src/lib.rs:46`); capacity is live and wired (`dispose_batch(:capacity, ...)`).
 - [ ] 1.19 Write the "what the engine really is" document (robust detector + seasonal/forecast disposition + deterministic dependency expert system).
 
 ## 2. Phase 2 — Statistical rigor

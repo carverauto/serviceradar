@@ -5,9 +5,12 @@
 
 //! Peak-profile disposition data carriers.
 //!
-//! This module intentionally does **not** expose a Rustler ABI yet. The OpenSpec
-//! change keeps the NIF boundary unsettled until the kernel is calibrated against
-//! demo data and wired through the causal context.
+//! DORMANT — not yet wired (no Rustler ABI). This is the matched-resolution peak
+//! disposition (spike peak vs the hour-of-week PEAK profile over
+//! `timeseries_metrics_hourly.max_value`) that the `refactor-anomaly-engine-rigor`
+//! change wires when it closes the disposition loop: once the edge forwards the spike
+//! peak + window and the robust peak-profile stability gate is calibrated. Kept (not
+//! deleted) because that wiring is the next step; it does no causal inference.
 
 /// Read-only peak-profile knobs — the `Context` channel.
 #[derive(Clone, Copy, Debug, PartialEq)]

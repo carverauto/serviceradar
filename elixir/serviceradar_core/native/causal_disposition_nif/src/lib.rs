@@ -41,9 +41,10 @@ use serviceradar_causal_disposition::{
 /// the Elixir side as `:seasonal` / `:capacity` (a `NifUnitEnum`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, NifUnitEnum)]
 pub enum DispositionKind {
-    /// Seasonal residual-z disposition (phase 1, shipped).
+    /// Seasonal residual-z disposition (shipped).
     Seasonal,
-    /// Capacity forecast disposition (phase 2 — parity-gated, NOT yet wired).
+    /// Capacity forecast disposition (least-squares / Holt-Winters; live and wired —
+    /// `dispose_batch(:capacity, ...)` is called by the capacity forecasting worker).
     Capacity,
 }
 
