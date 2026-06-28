@@ -21,25 +21,17 @@ defmodule ServiceRadar.Observability.AnomalyDisposition.PeakProfile do
   `build_profile_hour_of_week_peak_query`) — an earlier `agg:max` + `mad` guess was
   rejected by the live DB.
 
-  > ⚠️ **BLOCKED (DB-discovered) — and NOT peak-specific:** run against the real schema,
-  > this query returns `unsupported filter field for downsample timeseries_metrics:
-  > 'timezone'`. Critically, the **plain `profile_hour_of_week`** query (the EXACT
-  > production seasonal query, `seasonal_disposition/source.ex` `profile_query/5`) fails
-  > the SAME way via `SRQLRunner.query/2`. Root: `parser.rs:207` sets `plan.downsample`
-  > for ANY `bucket:` clause, and `engine.rs:43` dispatches `plan.downsample.is_some()`
-  > → `downsample::execute` BEFORE the stats/profile route is considered — so a
-  > `bucket:1h` + `stats:profile_hour_of_week*` query never reaches `execute_stats`
-  > (line 798), which is where the profile/peak builders live. Without `bucket`, it
-  > instead errors `profile_hour_of_week requires the profile stats route`.
-  >
-  > So neither the peak NOR the non-peak profile query is reachable through `SRQLRunner`
-  > as written. The proof harness only ever verified the RAW profile SQL (`db/seasonal_verb.sql`),
-  > and the seasonal worker tests mock the runner — so the SRQL-string→engine path was
-  > never exercised. **URGENT:** either the seasonal-disposition data feed is broken in
-  > production via this path, or it uses a different invocation. This fetcher's parsing
-  > is correct + unit-tested; it (and the disposition loop) cannot run e2e until the
-  > `rust/srql` downsample-vs-profile routing is fixed and the NIF rebuilt. Task 1.9's
-  > "verb exists" / F15's "confirmed" were checks of the SQL, not the query path.
+  Building this fetcher and checking it against a real DB surfaced — and then fixed — a
+  CRITICAL routing bug that had also silently broken the production seasonal feed: the
+  SRQL translate path dispatched `plan.downsample.is_some()` (set by `bucket:1h`) BEFORE
+  the profile route, so a `profile_hour_of_week[_peak]` query routed to the downsample
+  builder (rejecting `timezone`) and never reached the profile builders — AND
+  `to_sql_and_params` was missing the `_peak` branch. Fixed in `rust/srql`
+  (`translate.rs`/`engine.rs` guard + the missing `to_sql_and_params` peak branch);
+  verified against the real schema that both `profile_hour_of_week` and
+  `profile_hour_of_week_peak` now translate + execute (`{:ok, []}` on empty data). 335
+  srql tests pass. Still TODO: a seed-and-fetch e2e (assert real rows yield a correct
+  profile) and the alert-engine call-site (report-only).
   """
 
   alias ServiceRadar.Observability.SRQLRunner
