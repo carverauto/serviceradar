@@ -416,7 +416,7 @@ fn c11_flap_precursor(ctx: &Context) -> Vec<Verdict> {
 /// C12 — operator-rule promotion.
 ///
 /// An operator-authored stateful alert rule whose condition is currently met is
-/// promoted into causal reasoning as an observation over its target entity.
+/// promoted into the rule evaluation as an observation over its target entity.
 fn c12_operator_rule_promotion(ctx: &Context) -> Vec<Verdict> {
     ctx.operator_rules
         .iter()

@@ -117,7 +117,7 @@ pub struct BgpRoute {
 }
 
 /// An operator-authored stateful alert rule (from `stateful_alert_rules`) whose
-/// condition is currently met, promoted into causal reasoning by causaloid C12.
+/// condition is currently met, promoted into the rule evaluation by rule C12.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OperatorRule {
     /// Stable rule identifier.

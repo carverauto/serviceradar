@@ -3,7 +3,7 @@
 //! The reasoning that previously lived in the web-ng `god_view_nif`
 //! (`native/god_view_nif/src/core/causality.rs`) — betweenness-weighted
 //! root-cause selection plus a 3-hop affected-cascade BFS — moves here so the
-//! engine, not a render-time NIF, owns causal reasoning. The dead DeepCausality
+//! engine, not a render-time NIF, owns the rule + dependency reasoning. The dead DeepCausality
 //! `CausaloidGraph` the NIF built-then-froze-but-never-queried is dropped; the
 //! real logic is the centrality + BFS below.
 //!
