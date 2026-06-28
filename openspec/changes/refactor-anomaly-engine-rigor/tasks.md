@@ -76,7 +76,7 @@
 - [ ] 2.6 Make the S-H-ESD profile the **source of the coarse hour-of-week baseline pushed to the edge** (feeds 2.3).
 - [~] 2.7 RPCA primitive IMPLEMENTED + rigorously verified in `rust/anomaly-core/src/rpca.rs`: PCP via inexact-ALM with a one-sided Jacobi SVD. The SVD is verified DIRECTLY (reconstruction `||A−UΣVᵀ|| < 1e-8` + orthonormal U/V), and RPCA is verified to separate a rank-1 seasonal `L` from injected sparse spikes (the top-|S| entries are exactly the spike locations). V1 = single-series reshape (the caller supplies the `slots × periods` matrix; a host-stacked fleet matrix is the same primitive with hosts as columns). Feature-flag + core integration + harness scenario (2.9) follow.
 - [x] 2.8 Verified: Holt-Winters is capacity-only — the seasonal validator is the residual-z kernel; `holt_winters`/`seasonal_forecast` appear only under `disposition/capacity/`. No change needed.
-- [ ] 2.9 Harness: S-H-ESD precision/recall vs the current residual-z; RPCA fleet-correlated detection.
+- [~] 2.9 S-H-ESD vs raw-ESD comparison VERIFIED in-test (S-H-ESD ignores recurring seasonal peaks a raw ESD flags; finds only genuine off-pattern anomalies); RPCA verified to separate seasonal-`L` from sparse-`S` (recovers the exact spike locations); CUSUM drift recall + FP verified in the streaming harness. Full harness wiring over the `gen.py` synthetic series + the RPCA host-stacked fleet demo follow.
 
 ## 3. Phase 3 — Documentation overhaul (single source of truth)
 

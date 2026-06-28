@@ -278,4 +278,31 @@ mod tests {
         out.sort_unstable();
         assert_eq!(out, vec![6, 78], "S-H-ESD should flag the off-pattern spikes only");
     }
+
+    #[test]
+    fn seasonal_hybrid_esd_ignores_recurring_peaks_that_raw_esd_flags() {
+        // 2.9 comparison: a sharp peak recurs every period (a normal "nightly backup"),
+        // plus one genuine off-pattern anomaly. Raw ESD flags the recurring peaks as the
+        // series extremes (false positives); S-H-ESD deseasonalizes first, so it flags
+        // ONLY the genuine off-pattern point — the seasonal-hybrid advantage.
+        let period = 24;
+        let mut v: Vec<f64> = vec![50.0; 5 * period];
+        for p in 0..5 {
+            v[p * period + 12] = 100.0; // recurring seasonal peak (normal)
+        }
+        v[2 * period + 3] = 90.0; // genuine off-pattern anomaly
+
+        let raw = generalized_esd(&v, 8, 0.05);
+        assert!(
+            raw.iter().any(|&i| i % period == 12),
+            "a RAW ESD wrongly flags the recurring seasonal peaks as extremes"
+        );
+
+        let sh = seasonal_hybrid_esd(&v, period, 8, 0.05);
+        assert_eq!(
+            sh,
+            vec![2 * period + 3],
+            "S-H-ESD flags only the genuine off-pattern anomaly, not the recurring season"
+        );
+    }
 }
