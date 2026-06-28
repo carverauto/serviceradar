@@ -72,7 +72,7 @@
 
 ### 2b. Core
 
-- [ ] 2.5 Adopt **S-H-ESD** (STL/MSTL + median/MAD ESD on residual) as the primary seasonal validator.
+- [~] 2.5 S-H-ESD primitive IMPLEMENTED + reference-verified in `rust/anomaly-core/src/esd.rs`: Generalized ESD (Rosner) with a robust median/MAD center/scale (the "Hybrid") + Acklam normal-inverse-CDF + Cornish-Fisher Student-t quantile for the critical values. Unit tests pin Φ⁻¹(0.975)=1.96, t(0.975,10)=2.228, and that GESD finds exactly the injected outliers / nothing on a clean series. Production integration (swap the per-bucket residual-z for GESD over the deseasonalized hour-of-week residual series) + the harness scenario (2.9) follow.
 - [ ] 2.6 Make the S-H-ESD profile the **source of the coarse hour-of-week baseline pushed to the edge** (feeds 2.3).
 - [ ] 2.7 Add the optional, feature-flagged, off-hot-path **RPCA** layer — **V1 = single-series hour-of-week reshape only** (host-stacked fleet matrix is a follow-on; design D-Q4); default disabled.
 - [x] 2.8 Verified: Holt-Winters is capacity-only — the seasonal validator is the residual-z kernel; `holt_winters`/`seasonal_forecast` appear only under `disposition/capacity/`. No change needed.

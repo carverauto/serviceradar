@@ -25,6 +25,7 @@
 
 pub mod cusum;
 pub mod detector;
+pub mod esd;
 pub mod signal;
 pub mod stats;
 pub mod types;
@@ -43,6 +44,7 @@ pub const WINDOW_CAPACITY_MULTIPLE: usize = 2;
 
 pub use cusum::{Cusum, CusumStep};
 pub use detector::reason_impl;
+pub use esd::{generalized_esd, norm_ppf, t_ppf};
 pub use stats::{BaselineStats, WelfordAcc, clean_threshold, sample_stats, z_score};
 pub use types::{
     ReasonContext, ReasonEventVerdict, ReasonSample, ReasonVerdict, SaturationGate, SignalVerdict,
