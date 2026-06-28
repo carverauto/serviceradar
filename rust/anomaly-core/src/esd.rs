@@ -176,6 +176,34 @@ pub fn generalized_esd(values: &[f64], max_outliers: usize, alpha: f64) -> Vec<u
     removed.into_iter().take(num).collect()
 }
 
+/// Seasonal-Hybrid ESD: deseasonalize the series by subtracting the per-phase
+/// (`i mod period`) MEDIAN, then run [`generalized_esd`] on the residuals. This is the
+/// full S-H-ESD: the robust seasonal estimate removes the periodic component so the
+/// ESD scores genuine off-pattern excursions, and the median front-end (not a mean)
+/// keeps a past incident from biasing the seasonal estimate. Returns anomaly indices
+/// into the original series.
+pub fn seasonal_hybrid_esd(
+    values: &[f64],
+    period: usize,
+    max_outliers: usize,
+    alpha: f64,
+) -> Vec<usize> {
+    if period == 0 || values.len() < period {
+        return generalized_esd(values, max_outliers, alpha);
+    }
+    let mut phase: Vec<Vec<f64>> = vec![Vec::new(); period];
+    for (i, &v) in values.iter().enumerate() {
+        phase[i % period].push(v);
+    }
+    let phase_median: Vec<f64> = phase.iter().map(|p| median(p)).collect();
+    let residual: Vec<f64> = values
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| v - phase_median[i % period])
+        .collect();
+    generalized_esd(&residual, max_outliers, alpha)
+}
+
 fn stddev(values: &[f64]) -> f64 {
     let n = values.len();
     if n < 2 {
@@ -228,5 +256,26 @@ mod tests {
             generalized_esd(&v, 5, 0.05).is_empty(),
             "a clean series must yield no outliers"
         );
+    }
+
+    #[test]
+    fn seasonal_hybrid_esd_finds_offpattern_anomalies_not_the_season() {
+        // Strong period-24 seasonal pattern; a RAW ESD would drown in the seasonal
+        // swing, but after deseasonalization only the injected off-pattern spikes
+        // remain. 5 full periods (120 points) + 2 spikes placed at LOW-season phases.
+        let period = 24;
+        let mut v: Vec<f64> = (0..120)
+            .map(|i| {
+                let phase = (i % period) as f64;
+                50.0 + 20.0 * (2.0 * std::f64::consts::PI * phase / period as f64).sin()
+            })
+            .collect();
+        // inject two off-pattern spikes at the same phase but different periods; a
+        // high reading is flagged only AFTER the per-phase median deseasonalization
+        v[6] = 90.0; // phase 6, period 0
+        v[78] = 88.0; // phase 6, period 3
+        let mut out = seasonal_hybrid_esd(&v, period, 6, 0.05);
+        out.sort_unstable();
+        assert_eq!(out, vec![6, 78], "S-H-ESD should flag the off-pattern spikes only");
     }
 }

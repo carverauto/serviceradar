@@ -44,7 +44,7 @@ pub const WINDOW_CAPACITY_MULTIPLE: usize = 2;
 
 pub use cusum::{Cusum, CusumStep};
 pub use detector::reason_impl;
-pub use esd::{generalized_esd, norm_ppf, t_ppf};
+pub use esd::{generalized_esd, norm_ppf, seasonal_hybrid_esd, t_ppf};
 pub use stats::{BaselineStats, WelfordAcc, clean_threshold, sample_stats, z_score};
 pub use types::{
     ReasonContext, ReasonEventVerdict, ReasonSample, ReasonVerdict, SaturationGate, SignalVerdict,
