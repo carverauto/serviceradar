@@ -88,6 +88,6 @@
 
 - [ ] 4.1 Phase 1 first; suppression report-only; verify on the proof harness before any suppression is enabled live.
 - [ ] 4.2 Phase 2 behind per-metric-class kill switches; calibrate constants against real per-cell distributions guarded by the invariant tests.
-- [ ] 4.3 Confirm no `signal_type:"causal"` remains on a statistical verdict (workspace-wide grep) and no causal-inference claim remains in code docs or the docs site; confirm zero traffic on the old envelope subject/field before dropping it (1f4).
+- [~] 4.3 Code-doc de-causal VERIFIED complete: a workspace grep finds no causal-INFERENCE claims left in engine code docs (the survivors are the honest "not causal inference" framing, crate-NAME references like `causal-engine`/`causal_disposition_nif`, or the wire subject). The `signal_type:"causal"` wire value + `signals.causal.*` subject rename and the zero-traffic check are 1f (BREAKING).
 - [ ] 4.4 **Close `add-anomaly-finding-disposition` #4280 as superseded** by this change (decided), pointing its archive/withdrawal note at this change as the consolidation of record.
-- [ ] 4.5 `openspec validate refactor-anomaly-engine-rigor --strict` passes.
+- [x] 4.5 `openspec validate refactor-anomaly-engine-rigor --strict` passes ("Change 'refactor-anomaly-engine-rigor' is valid").
