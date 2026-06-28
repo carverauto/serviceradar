@@ -1377,7 +1377,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
         })
 
       assert row.class_uid == 2004
-      assert row.metadata["signal_type"] == "causal"
+      assert row.metadata["signal_type"] == "prediction"
       assert row.metadata["event_type"] == "capacity_forecast"
       assert row.metadata["security_signal"]["source"] == "capacity_forecasting"
       assert row.metadata["service_radar"]["source_type"] == "capacity_forecasting"

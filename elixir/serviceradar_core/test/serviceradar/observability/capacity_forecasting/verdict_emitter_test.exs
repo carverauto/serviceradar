@@ -55,7 +55,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitterTest do
     decoded = Jason.decode!(payload)
     finding_uid = decoded["finding_info"]["uid"]
     assert decoded["event_id"] == VerdictEmitter.event_id(@forecast)
-    assert decoded["signal_type"] == "causal"
+    assert decoded["signal_type"] == "prediction"
     assert decoded["event_type"] == "capacity_forecast"
     assert decoded["status"] == "projected"
     assert decoded["finding_type"] == "detection"
@@ -147,7 +147,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitterTest do
     assert row.severity == "Critical"
     assert row.device == %{"uid" => "device-a"}
     assert row.message =~ "Capacity forecast:"
-    assert row.metadata["signal_type"] == "causal"
+    assert row.metadata["signal_type"] == "prediction"
     assert row.metadata["event_type"] == "capacity_forecast"
     assert row.metadata["primary_domain"] == "health"
     assert [alert_row] = AnalyticsSignals.alert_evaluation_rows([row])

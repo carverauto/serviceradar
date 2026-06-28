@@ -50,7 +50,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitterTest do
 
     decoded = Jason.decode!(payload)
     assert decoded["event_id"] == VerdictEmitter.event_id(@breach)
-    assert decoded["signal_type"] == "causal"
+    assert decoded["signal_type"] == "prediction"
     assert decoded["event_type"] == "anomaly"
     assert decoded["verdict_source"] == "central-seasonal"
     assert decoded["status"] == "breach"

@@ -34,7 +34,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitter do
   def payload(attrs, subject) when is_map(attrs) and is_binary(subject) do
     %{
       "event_id" => event_id(attrs),
-      "signal_type" => "causal",
+      "signal_type" => "prediction",
       "event_type" => @event_type,
       "verdict_source" => @verdict_source,
       "status" => status(attrs),
