@@ -53,6 +53,53 @@ defmodule ServiceRadar.Observability.AnomalyDispositionTest do
     assert {:downgrade, _} = D.dispose(%{peak_value: 70.0}, @profile, escalate_sigma: 5.0)
   end
 
+  describe "for_finding/3 (on-demand disposition orchestration, 1.11)" do
+    @finding %{
+      "source_identity" => %{
+        "metric_class" => "sysmon.cpu",
+        "metric_name" => "cpu.usage_percent",
+        "partition" => "prod-east",
+        "device_id" => "sr:ns03"
+      },
+      "episode_peak_value" => 92.0,
+      "episode_peak_at_unix_nano" => DateTime.to_unix(~U[2026-06-16 09:00:00Z], :nanosecond)
+    }
+
+    test "re-keys the finding, fetches its hour-of-week peak profile, and disposes" do
+      parent = self()
+
+      fetch = fn series_key, dow, hod ->
+        send(parent, {:fetched, series_key, dow, hod})
+        %{center: 55.0, scale: 4.0, sample_count: 8}
+      end
+
+      result = D.for_finding(@finding, fetch)
+
+      assert result.disposition == :escalate
+      assert result.peak_value == 92.0
+      assert is_binary(result.series_key)
+
+      expected_dow = rem(Date.day_of_week(~D[2026-06-16]), 7)
+      assert_received {:fetched, fetched_key, ^expected_dow, 9}
+      assert fetched_key == result.series_key
+    end
+
+    test "suppresses when the central peak profile already covers this hour" do
+      fetch = fn _sk, _dow, _hod -> %{center: 90.0, scale: 5.0, sample_count: 9} end
+      assert %{disposition: :suppress} = D.for_finding(@finding, fetch)
+    end
+
+    test "returns nil when the finding lacks a forwarded peak" do
+      assert D.for_finding(Map.delete(@finding, "episode_peak_value"), fn _, _, _ -> %{} end) ==
+               nil
+    end
+
+    test "returns nil when the source_identity cannot be canonically re-keyed" do
+      thin = Map.put(@finding, "source_identity", %{"metric_name" => "cpu.usage_percent"})
+      assert D.for_finding(thin, fn _, _, _ -> %{} end) == nil
+    end
+  end
+
   describe "actionable?/2 (report-only kill switch + stability gate, 1.12)" do
     test "report-only by default (suppression disabled)" do
       refute D.actionable?(@profile)
