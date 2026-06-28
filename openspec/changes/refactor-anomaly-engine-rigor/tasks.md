@@ -74,7 +74,7 @@
 
 - [~] 2.5 S-H-ESD primitive IMPLEMENTED + reference-verified in `rust/anomaly-core/src/esd.rs`: Generalized ESD (Rosner) with a robust median/MAD center/scale (the "Hybrid") + Acklam normal-inverse-CDF + Cornish-Fisher Student-t quantile for the critical values. Unit tests pin Φ⁻¹(0.975)=1.96, t(0.975,10)=2.228, and that GESD finds exactly the injected outliers / nothing on a clean series. Production integration (swap the per-bucket residual-z for GESD over the deseasonalized hour-of-week residual series) + the harness scenario (2.9) follow.
 - [ ] 2.6 Make the S-H-ESD profile the **source of the coarse hour-of-week baseline pushed to the edge** (feeds 2.3).
-- [ ] 2.7 Add the optional, feature-flagged, off-hot-path **RPCA** layer — **V1 = single-series hour-of-week reshape only** (host-stacked fleet matrix is a follow-on; design D-Q4); default disabled.
+- [~] 2.7 RPCA primitive IMPLEMENTED + rigorously verified in `rust/anomaly-core/src/rpca.rs`: PCP via inexact-ALM with a one-sided Jacobi SVD. The SVD is verified DIRECTLY (reconstruction `||A−UΣVᵀ|| < 1e-8` + orthonormal U/V), and RPCA is verified to separate a rank-1 seasonal `L` from injected sparse spikes (the top-|S| entries are exactly the spike locations). V1 = single-series reshape (the caller supplies the `slots × periods` matrix; a host-stacked fleet matrix is the same primitive with hosts as columns). Feature-flag + core integration + harness scenario (2.9) follow.
 - [x] 2.8 Verified: Holt-Winters is capacity-only — the seasonal validator is the residual-z kernel; `holt_winters`/`seasonal_forecast` appear only under `disposition/capacity/`. No change needed.
 - [ ] 2.9 Harness: S-H-ESD precision/recall vs the current residual-z; RPCA fleet-correlated detection.
 
