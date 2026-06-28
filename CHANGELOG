@@ -1,3 +1,25 @@
+# ServiceRadar v1.3.7
+
+Anomaly-UX, log-safety, and demo-release stabilization.
+
+## Whats New
+
+**1.3.7**
+- Improved device anomaly context in web-ng: focused finding charts now explain
+  edge detector evidence, mark emitted/episode timing, hide unconfirmed noise by
+  default, scope sysmon findings to the selected device, and avoid misleading
+  raw SRQL pagination totals when the current page has no visible findings.
+- Fixed CPU anomaly overlays and device chart behavior so operators can inspect
+  the relevant metric window without old modal/chart rendering paths.
+- Hardened log ingestion and display against credential leakage by redacting
+  sensitive keys and connection payloads such as NATS nkey seeds, JWTs, tokens,
+  secrets, API keys, and passwords before persistence and again at render time.
+- Cleaned password-update validation so root/admin password changes report
+  interpolated, accurate validation errors instead of raw `%{min}` templates or
+  mismatched confirmation noise from nested form params.
+- Stabilized the demo rollout path after PR #4314 by shipping the anomaly,
+  password, and log-redaction fixes together as a formal release image tag.
+
 # ServiceRadar v1.3.6
 
 Performance and demo-stability release for core ingestion, netflow/SRQL query
