@@ -133,6 +133,19 @@ def build_cpu(n, cadence_s, rng):
     for j in range(s, min(s + 300, n)):
         klass[j] = "drift"
 
+    # self-masking probe (0.7 / D-Q2): a big spike, then a second spike 20 samples
+    # later — does the first spike's variance inflation mask the second? The
+    # withhold-from-baseline rule should keep the second one detectable; the harness
+    # decides whether a robust median/MAD estimator is actually needed (2.1).
+    s = 16 * spd + int(round(3.0 * 3600 / cadence_s))  # Sun 03:00 (quiet)
+    add_event(values, truth, klass, s, 8, 60.0)
+    for j in range(s, min(s + 8, n)):
+        klass[j] = "selfmask_a"
+    s2 = s + 20
+    add_event(values, truth, klass, s2, 8, 38.0)
+    for j in range(s2, min(s2 + 8, n)):
+        klass[j] = "selfmask_b"
+
     return np.clip(values, 1.0, 99.0), truth, klass
 
 

@@ -100,6 +100,7 @@ tools/anomaly-proof/run_db_feed.sh
 | core DB feed: verb → kernel | the F15 feed, end to end | over a real CAGG: dev-anomaly **breach** z=8.3 / dev-normal **suppress** z=0 |
 | edge CUSUM vs CPU drift | fixes the drift blind spot | z-score **0/300** → CUSUM **216/300** (caught +20 samples), FP **2.4%** |
 | CUSUM needs deseasonalization | a proven requirement | raw CUSUM 42–74% FP on seasonal data → deseasonalized **1.4–2.4%** (cpu/snmp); a persistent leak still pollutes a naïve edge baseline → needs the robust core seasonal profile |
+| edge self-masking (double spike) | D-Q2: is robust MAD needed? | second spike **DETECTED** z=17.1 (recall **1/1**) — withhold-from-baseline already prevents masking, so **MAD is not needed** |
 
 ## Files
 

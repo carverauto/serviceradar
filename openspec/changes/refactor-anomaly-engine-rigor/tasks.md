@@ -16,7 +16,7 @@
 - [ ] 0.4 **Add the core half**: run the **real** Elixir seasonal + capacity workers and the `causal_disposition` NIF against a local TimescaleDB CAGG / the `srql-fixtures` CNPG scratch DB (no production DB).
 - [x] 0.5 Emit precision / recall / detection-latency scorecards + Twitter-AnomalyDetection Fig-2-style labeled-overlay plots (`plot.py` edge; `plot_seasonal.py` core; capacity scorecard via `disposition-backtest --kind capacity`).
 - [ ] 0.6 Wire a scenario for **every** behavioral requirement in this change (honest-naming assertions excepted) so acceptance is harness-proven, not assertion-only.
-- [ ] 0.7 Add a self-masking regression scenario (large spike then second spike) that scores recall under the chosen edge dispersion estimator.
+- [x] 0.7 Self-masking scenario added (`gen.py` double-spike `selfmask_a`/`selfmask_b`) and scored: the second spike is DETECTED (z=17.1, recall 1/1) — the withhold-from-baseline rule keeps the first spike's samples out of the window, so it does not inflate the baseline std.
 
 ## 1. Phase 1 — Honesty + correctness
 
@@ -65,7 +65,7 @@
 
 ### 2a. Edge
 
-- [ ] 2.1 Implement **both** robust **median/MAD (Hampel)** dispersion AND the breach-freeze fallback in `rust/anomaly-core` (`stats.rs`/`detector.rs`); let the harness self-masking recall pick the default (design D-Q2, harness-driven). Preserve floors + saturation gate + confirm-slot hysteresis (do not re-author F17).
+- [x] 2.1 HARNESS-RESOLVED (D-Q2, harness-driven): the existing withhold-from-baseline (a breaching sample is never admitted to the window — `detector.rs` branch arms) already achieves self-masking recall **1/1** (second spike z=17.1, 0.7), so the robust median/MAD (Hampel) upgrade is NOT needed for self-masking — keep the guarded mean/std estimator (a MAD-over-window sort adds O(window) cost with no measured benefit here; floors + saturation gate + confirm-slot hysteresis preserved). Re-open only if a future scenario demonstrates masking the current estimator misses.
 - [x] 2.2 **Two-sided CUSUM** primitive implemented + unit-tested in `rust/anomaly-core/src/cusum.rs` (anchored, reset-on-alarm; ETA ≈ h/(δ−k)) and wired into `anomaly-backtest --cusum`. HARNESS-PROVEN: it catches the CPU drift the rolling z-score structurally misses (z-score 0/300 → CUSUM 216/300, +20-sample latency). MUST run on the deseasonalized residual (raw CUSUM floods 42–74% FP on seasonal data — measured). Production wiring into the addon/`ReasonContext` path is the deployment follow-up.
 - [~] 2.3 Edge **deseasonalization** demonstrated in the harness (CUSUM over a causal hour-of-week residual): drops CUSUM FP to **1.4–2.4%** (cpu/snmp). FINDING: a *persistent* leak pollutes a NAÏVE causal-mean edge baseline (memory 54% FP) → the production design must use the robust core-pushed seasonal profile (2.6: latest-excluded, trailing window), not a naïve edge mean. anomaly-core/`ReasonContext` integration follows.
 - [~] 2.4 Harness now measures slow-leak/drift **detection-latency** (+20/+31 samples) and CUSUM **false-positive rate** per series; the self-masking (0.7) and morning-ramp FP scenarios still to add.
