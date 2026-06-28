@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
 use serviceradar_anomaly_core::{
-    DEFAULT_CONFIRM_SLOTS, DEFAULT_MIN_SAMPLES, DEFAULT_N_SIGMA, DEFAULT_WINDOW_SIZE,
+    Cusum, DEFAULT_CONFIRM_SLOTS, DEFAULT_MIN_SAMPLES, DEFAULT_N_SIGMA, DEFAULT_WINDOW_SIZE,
     ReasonContext, ReasonSample, SaturationGate, reason_impl,
 };
 
@@ -61,6 +61,21 @@ struct Args {
     /// Relative (coefficient-of-variation) dispersion floor: `min_cv * |mean|`.
     #[arg(long)]
     min_cv: Option<f64>,
+
+    /// Run a two-sided CUSUM drift detector alongside the z-score, anchored to the
+    /// frozen baseline when it first warms up. Catches the slow drift/leaks the point
+    /// z-score misses. Adds cusum_pos/cusum_neg/cusum_alarm to the output, and a
+    /// cusum alarm forces the line to be emitted.
+    #[arg(long)]
+    cusum: bool,
+
+    /// CUSUM slack (reference value) in sigma units.
+    #[arg(long, default_value_t = 0.5)]
+    cusum_k: f64,
+
+    /// CUSUM decision interval (alarm threshold).
+    #[arg(long, default_value_t = 5.0)]
+    cusum_h: f64,
 }
 
 #[derive(Clone, Copy, Debug, Default, ValueEnum)]
@@ -94,6 +109,33 @@ struct InputSample {
 struct SeriesState {
     window_tail: Vec<f64>,
     consecutive_anomalous: usize,
+    cusum: Option<Cusum>,
+    cusum_anchor: Option<(f64, f64)>,
+    /// Causal hour-of-week baseline for deseasonalizing the CUSUM input: a running
+    /// sum/count per (dow*24+hod) bucket (168). Lazily sized to 168 on first use.
+    how_sum: Vec<f64>,
+    how_count: Vec<u32>,
+}
+
+/// Mean and sample standard deviation (n-1) of a slice; (0,0) when empty.
+fn mean_std(values: &[f64]) -> (f64, f64) {
+    let n = values.len();
+    if n == 0 {
+        return (0.0, 0.0);
+    }
+    let mean = values.iter().sum::<f64>() / n as f64;
+    let denom = n.saturating_sub(1).max(1) as f64;
+    let var = values.iter().map(|v| (v - mean) * (v - mean)).sum::<f64>() / denom;
+    (mean, var.sqrt())
+}
+
+/// Hour-of-week bucket (0..167) from a unix-nanosecond timestamp, UTC. 1970-01-01 was
+/// a Thursday (dow 4), so `dow = (days + 4) mod 7`.
+fn hour_of_week(observed_at_unix_nano: u64) -> usize {
+    let secs = (observed_at_unix_nano / 1_000_000_000) as i64;
+    let dow = ((secs.div_euclid(86_400) + 4).rem_euclid(7)) as usize;
+    let hod = (secs.rem_euclid(86_400) / 3_600) as usize;
+    dow * 24 + hod
 }
 
 #[derive(Debug, Serialize)]
@@ -107,6 +149,12 @@ struct OutputVerdict<'a> {
     baseline_count: usize,
     sample_value: f64,
     observed_at_unix_nano: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cusum_pos: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cusum_neg: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cusum_alarm: Option<bool>,
 }
 
 fn main() {
@@ -165,10 +213,48 @@ fn run(args: Args, mut out: impl Write) -> Result<(), String> {
         )
         .map_err(|err| format!("line {}: detector failed: {err}", line_number + 1))?;
 
+        // CUSUM drift detector on a DESEASONALIZED residual (`--cusum`). A rolling
+        // z-score's mean tracks a slow ramp and misses it; raw CUSUM floods false
+        // positives on a seasonal series (it accumulates every diurnal swing). So we
+        // accumulate `(x - hour_of_week_mean) / scale` against a CAUSAL hour-of-week
+        // baseline — `scale` is the warmed baseline std (~within-bucket noise). The
+        // bucket is updated AFTER scoring (causal) and CUSUM only scores a warm bucket.
+        let (mut cusum_pos, mut cusum_neg, mut cusum_alarm) = (None, None, None);
+        if args.cusum {
+            const MIN_SEASONAL_BUCKET: u32 = 30;
+            if state.cusum_anchor.is_none() && state.window_tail.len() >= args.min_samples {
+                let (mean, std) = mean_std(&state.window_tail);
+                state.cusum_anchor = Some((mean, std.max(f64::EPSILON)));
+                state.cusum = Some(Cusum::new(args.cusum_k, args.cusum_h));
+            }
+            if state.how_sum.is_empty() {
+                state.how_sum = vec![0.0; 168];
+                state.how_count = vec![0; 168];
+            }
+            if let Some(ts) = sample.observed_at_unix_nano {
+                let how = hour_of_week(ts);
+                let count = state.how_count[how];
+                if count >= MIN_SEASONAL_BUCKET
+                    && let (Some((_t, scale)), Some(cusum)) =
+                        (state.cusum_anchor, state.cusum.as_mut())
+                {
+                    let seasonal_mean = state.how_sum[how] / count as f64;
+                    let step = cusum.update((sample.value - seasonal_mean) / scale);
+                    cusum_pos = Some(step.pos);
+                    cusum_neg = Some(step.neg);
+                    cusum_alarm = Some(step.alarm);
+                }
+                state.how_sum[how] += sample.value;
+                state.how_count[how] += 1;
+            }
+        }
+
         state.window_tail = verdict.next_window_tail.clone();
         state.consecutive_anomalous = verdict.next_consecutive_anomalous;
 
-        if should_emit(args.emit, verdict.anomalous, verdict.breached) {
+        let emit = should_emit(args.emit, verdict.anomalous, verdict.breached)
+            || cusum_alarm == Some(true);
+        if emit {
             let output = OutputVerdict {
                 series_key: &sample.series_key,
                 state: &verdict.state,
@@ -179,6 +265,9 @@ fn run(args: Args, mut out: impl Write) -> Result<(), String> {
                 baseline_count: verdict.baseline_count,
                 sample_value: verdict.sample_value,
                 observed_at_unix_nano: verdict.observed_at_unix_nano,
+                cusum_pos,
+                cusum_neg,
+                cusum_alarm,
             };
 
             serde_json::to_writer(&mut out, &output).map_err(|err| err.to_string())?;
@@ -250,6 +339,9 @@ mod tests {
                 saturation_gate_min: None,
                 min_std_floor: None,
                 min_cv: None,
+                cusum: false,
+                cusum_k: 0.5,
+                cusum_h: 5.0,
             },
             &mut output,
         );

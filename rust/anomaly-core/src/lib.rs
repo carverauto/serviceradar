@@ -23,6 +23,7 @@
 //! `move-anomaly-detection-to-edge`) so per-series scoring does not run in
 //! core-elx.
 
+pub mod cusum;
 pub mod detector;
 pub mod signal;
 pub mod stats;
@@ -40,6 +41,7 @@ pub const DEFAULT_CONFIRM_SLOTS: usize = 5;
 /// Capacity multiple for the backing sliding-window storage.
 pub const WINDOW_CAPACITY_MULTIPLE: usize = 2;
 
+pub use cusum::{Cusum, CusumStep};
 pub use detector::reason_impl;
 pub use stats::{BaselineStats, WelfordAcc, clean_threshold, sample_stats, z_score};
 pub use types::{

@@ -75,6 +75,15 @@ python3 tools/anomaly-proof/gen_capacity.py
 tools/anomaly-proof/run_db_feed.sh
 ```
 
+### Edge drift detection (CUSUM, Phase 2)
+
+```bash
+# CUSUM on a deseasonalized residual catches the slow drift/leak the rolling z-score
+# structurally misses (its mean tracks the ramp). Adds cusum_pos/cusum_neg/cusum_alarm
+# to each line; a cusum alarm forces the line to be emitted.
+./target/debug/anomaly-backtest --input $O/samples.jsonl --cusum --emit all > $O/verdicts_cusum.jsonl
+```
+
 ## Proven results
 
 | Series / class | What it proves | Result |
@@ -89,6 +98,8 @@ tools/anomaly-proof/run_db_feed.sh
 | core seasonal: 7 labeled cases | the seasonal kernel is sound | **7/7** match the expected disposition |
 | core capacity: band vs horizon | valid prediction interval | band **widens** with horizon 5.89→6.15 (OLS PI; replaced the flat 5.87 ±1.96·RMSE overclaim) |
 | core DB feed: verb → kernel | the F15 feed, end to end | over a real CAGG: dev-anomaly **breach** z=8.3 / dev-normal **suppress** z=0 |
+| edge CUSUM vs CPU drift | fixes the drift blind spot | z-score **0/300** → CUSUM **216/300** (caught +20 samples), FP **2.4%** |
+| CUSUM needs deseasonalization | a proven requirement | raw CUSUM 42–74% FP on seasonal data → deseasonalized **1.4–2.4%** (cpu/snmp); a persistent leak still pollutes a naïve edge baseline → needs the robust core seasonal profile |
 
 ## Files
 
