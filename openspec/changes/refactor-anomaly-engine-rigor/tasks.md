@@ -24,7 +24,7 @@
 
 - [ ] 1.1 Change the edge add-on `signal_type` stamp at `rust/anomaly-addon/src/verdict.rs:54` from `"causal"` to an honest statistical classification; update any consumers/queries that key on it (workspace-wide grep for `signal_type` and `"causal"`).
 - [x] 1.2 The `causal-disposition` modules are already honestly named (`seasonal`/`capacity`); the `CausalFlow` hosting is now documented as a pipeline/state-machine combinator (NOT causal inference) across `anomaly-core` (lib/detector), `anomaly-addon` (engine), `causal-disposition` (lib), the NIF, and `CausalReasoner`. (The `causal-disposition` crate / `CausalReasoner` module identifier renames and the wire `signal_type` value are the BREAKING 1f task.)
-- [ ] 1.3 Document `rust/causal-engine` honestly as deterministic rule + dependency-graph reasoning (13 if-then rules + ultragraph centrality/reachability; `CausaloidGraph` wraps identity functions). The shared on-the-wire envelope rename is in 1f (D7), not here.
+- [x] 1.3 `rust/causal-engine` crate moduledoc rewritten as a deterministic dependency/expert-reasoning engine (hand-coded C1–C13 rules + ultragraph centrality/reachability; "causaloids" are largely identity nodes), explicitly NOT causal inference. (The wire `signals.causal.*` subject rename stays in 1f.)
 - [x] 1.4 Causal-inference overclaim stripped from the engine code module-docs and the docs site (Phase 3); memory reflects the honest framing. (causal-engine's own docs are 1.3.)
 
 ### 1b. Honest capacity uncertainty (valid prediction intervals on both paths)

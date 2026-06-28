@@ -1,12 +1,18 @@
-//! `causal-engine` — ServiceRadar's DeepCausality causal engine.
+//! `causal-engine` — ServiceRadar's deterministic dependency / expert-reasoning engine.
+//!
+//! Honest framing: this is NOT causal inference (no SCM, do-calculus, counterfactual,
+//! or intervention). It is a deterministic expert system — a fixed set of hand-coded
+//! rules (C1–C13) plus topology graph algorithms (centrality / reachability /
+//! articulation points / bridges). It is hosted on DeepCausality types (the "causaloids"
+//! are largely identity nodes and the graph is queried with plain `ultragraph`
+//! algorithms), but the reasoning is rule + dependency-graph logic.
 //!
 //! OpenSpec change: `add-causal-engine`. This is the single-pod fused V1 service:
-//! a [`context_hydrator`] feeds a DeepCausality `Context` from CNPG (via
-//! `EmbeddedSrql`), JetStream deltas, and the `signals.state.<table>` app-level
-//! state-change feed; a [`reasoner`] evaluates causaloids C1–C13 over an
-//! `ultragraph` `CsmGraph`; and an [`emitter`] publishes verdicts on
-//! `signals.causal.predictions`, which the existing `CausalSignals` processor
-//! normalizes into `ocsf_events` — re-entering `StatefulAlertEngine` (the
+//! a [`context_hydrator`] feeds a `Context` from CNPG (via `EmbeddedSrql`), JetStream
+//! deltas, and the `signals.state.<table>` app-level state-change feed; a [`reasoner`]
+//! evaluates the C1–C13 rules over an `ultragraph` `CsmGraph`; and an [`emitter`]
+//! publishes verdicts on `signals.causal.predictions`, which the `CausalSignals`
+//! processor normalizes into `ocsf_events` — re-entering `StatefulAlertEngine` (the
 //! automation loop) and the God-View renderer.
 //!
 //! The crate is scaffolded incrementally; modules carry `TODO(<task>)` markers
