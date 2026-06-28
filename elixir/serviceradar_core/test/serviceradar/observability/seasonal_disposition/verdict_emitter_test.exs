@@ -1,7 +1,7 @@
 defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitterTest do
   use ExUnit.Case, async: true
 
-  alias ServiceRadar.EventWriter.Processors.CausalSignals
+  alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.Observability.SeasonalDisposition.VerdictEmitter
 
   defmodule ExistingTimeRepo do
@@ -100,13 +100,13 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitterTest do
     subject = VerdictEmitter.subject(@breach)
 
     first_row =
-      CausalSignals.parse_message(%{
+      AnalyticsSignals.parse_message(%{
         data: Jason.encode!(first_payload),
         metadata: %{subject: subject, received_at: @breach.evaluated_at}
       })
 
     next_row =
-      CausalSignals.parse_message(%{
+      AnalyticsSignals.parse_message(%{
         data: Jason.encode!(next_payload),
         metadata: %{subject: subject, received_at: next_run.evaluated_at}
       })
@@ -117,7 +117,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitterTest do
     Process.put({:seasonal_existing_ocsf_time, event_id}, first_row.time)
 
     assert [%{time: aligned_time}] =
-             CausalSignals.align_existing_ocsf_event_times([next_row], ExistingTimeRepo)
+             AnalyticsSignals.align_existing_ocsf_event_times([next_row], ExistingTimeRepo)
 
     assert DateTime.compare(aligned_time, first_row.time) == :eq
   end

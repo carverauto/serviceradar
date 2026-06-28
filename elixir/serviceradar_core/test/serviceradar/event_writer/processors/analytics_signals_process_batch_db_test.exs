@@ -1,7 +1,7 @@
-defmodule ServiceRadar.EventWriter.Processors.CausalSignalsProcessBatchDBTest do
+defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest do
   use ExUnit.Case, async: false
 
-  alias ServiceRadar.EventWriter.Processors.CausalSignals
+  alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
@@ -37,19 +37,19 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsProcessBatchDBTest do
 
   test "bulk recorded causal predictions skip duplicate delivery without alert re-enqueue" do
     message = anomaly_message()
-    row = CausalSignals.parse_message(message)
+    row = AnalyticsSignals.parse_message(message)
 
     delete_event!(row)
     on_exit(fn -> delete_event!(row) end)
 
-    assert {:ok, 1} = CausalSignals.process_batch([message])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([message])
     assert event_count(row) == 1
 
     assert_receive {:alert_evaluation_events, [alert_row]}
     assert alert_row.id == uuid_string(row.id)
     assert alert_row.metadata["event_identity"] == row.metadata["event_identity"]
 
-    assert {:ok, 1} = CausalSignals.process_batch([message])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([message])
     assert event_count(row) == 1
     refute_receive {:alert_evaluation_events, _}, 100
   end

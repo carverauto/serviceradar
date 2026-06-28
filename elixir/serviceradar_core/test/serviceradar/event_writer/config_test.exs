@@ -80,7 +80,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
 
       assert causal_predictions.stream_name == "events"
       assert causal_predictions.subject == "signals.causal.predictions.>"
-      assert causal_predictions.processor == ServiceRadar.EventWriter.Processors.CausalSignals
+      assert causal_predictions.processor == ServiceRadar.EventWriter.Processors.AnalyticsSignals
     end
 
     test "routes host metrics through a dedicated limits-retention stream" do

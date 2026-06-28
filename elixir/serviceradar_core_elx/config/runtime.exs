@@ -2,7 +2,7 @@ import Config
 
 alias Geolix.Adapter.MMDB2
 alias Oban.Plugins.Cron
-alias ServiceRadar.EventWriter.Processors.CausalSignals
+alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
 alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.Jobs.AlertsRetentionWorker
 alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
@@ -1029,7 +1029,7 @@ if config_env() == :prod do
           name: "BMP_CAUSAL",
           stream_name: "events",
           subject: "bmp.events.>",
-          processor: CausalSignals,
+          processor: AnalyticsSignals,
           batch_size: 100,
           batch_timeout: 1_000
         },
@@ -1037,7 +1037,7 @@ if config_env() == :prod do
           name: "ARANCINI_CAUSAL",
           stream_name: "ARANCINI_CAUSAL",
           subject: "arancini.updates.>",
-          processor: CausalSignals,
+          processor: AnalyticsSignals,
           batch_size: 100,
           batch_timeout: 1_000
         },
@@ -1045,7 +1045,7 @@ if config_env() == :prod do
           name: "SIEM_CAUSAL",
           stream_name: "events",
           subject: "siem.events.>",
-          processor: CausalSignals,
+          processor: AnalyticsSignals,
           batch_size: 100,
           batch_timeout: 1_000
         },
@@ -1053,7 +1053,7 @@ if config_env() == :prod do
           name: "CAUSAL_PREDICTIONS",
           stream_name: "events",
           subject: "signals.causal.predictions.>",
-          processor: CausalSignals,
+          processor: AnalyticsSignals,
           batch_size: 100,
           batch_timeout: 1_000
         },

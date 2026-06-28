@@ -7,7 +7,7 @@ alias Cluster.Strategy.DNSPoll
 alias Cluster.Strategy.Kubernetes.DNS
 alias Geolix.Adapter.MMDB2
 alias ServiceRadar.Edge.RemoteAccessSSHCACommandSigner
-alias ServiceRadar.EventWriter.Processors.CausalSignals
+alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
 alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.EventWriter.Processors.PowerDNS
 alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
@@ -1491,21 +1491,21 @@ if config_env() == :prod do
         %{
           name: "BMP_CAUSAL",
           subject: "bmp.events.>",
-          processor: CausalSignals,
+          processor: AnalyticsSignals,
           batch_size: 100,
           batch_timeout: 1_000
         },
         %{
           name: "ARANCINI_CAUSAL",
           subject: "arancini.updates.>",
-          processor: CausalSignals,
+          processor: AnalyticsSignals,
           batch_size: 100,
           batch_timeout: 1_000
         },
         %{
           name: "SIEM_CAUSAL",
           subject: "siem.events.>",
-          processor: CausalSignals,
+          processor: AnalyticsSignals,
           batch_size: 100,
           batch_timeout: 1_000
         },
@@ -1513,7 +1513,7 @@ if config_env() == :prod do
           name: "CAUSAL_PREDICTIONS",
           stream_name: "events",
           subject: "signals.causal.predictions.>",
-          processor: CausalSignals,
+          processor: AnalyticsSignals,
           batch_size: 100,
           batch_timeout: 1_000
         },

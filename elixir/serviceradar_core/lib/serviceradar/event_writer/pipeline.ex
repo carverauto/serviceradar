@@ -24,7 +24,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   alias Broadway.Message
   alias ServiceRadar.EventWriter.Config
-  alias ServiceRadar.EventWriter.Processors.CausalSignals
+  alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.EventWriter.Processors.Events
   alias ServiceRadar.EventWriter.Processors.Flows
   alias ServiceRadar.EventWriter.Processors.Metrics
@@ -489,11 +489,11 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp get_processor(:pdns_ocsf), do: PowerDNS
   defp get_processor(:falco), do: ServiceRadar.EventWriter.Processors.FalcoEvents
   defp get_processor(:trivy), do: ServiceRadar.EventWriter.Processors.TrivyReports
-  defp get_processor(:bmp_causal), do: CausalSignals
-  defp get_processor(:arancini_causal), do: CausalSignals
-  defp get_processor(:siem_causal), do: CausalSignals
-  defp get_processor(:causal_predictions), do: CausalSignals
-  defp get_processor(:causal_signals), do: CausalSignals
+  defp get_processor(:bmp_causal), do: AnalyticsSignals
+  defp get_processor(:arancini_causal), do: AnalyticsSignals
+  defp get_processor(:siem_causal), do: AnalyticsSignals
+  defp get_processor(:causal_predictions), do: AnalyticsSignals
+  defp get_processor(:causal_signals), do: AnalyticsSignals
   defp get_processor(:logs), do: ServiceRadar.EventWriter.Processors.Logs
   defp get_processor(:metrics), do: Metrics
   defp get_processor(:telemetry), do: Telemetry

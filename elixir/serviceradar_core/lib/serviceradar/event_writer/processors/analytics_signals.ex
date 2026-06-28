@@ -1,4 +1,4 @@
-defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
+defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   @moduledoc """
   Processor for external causal signals (BMP and SIEM) consumed via JetStream.
 
@@ -192,7 +192,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     {valid_rows, invalid_rows} = Enum.split_with(rows, &recordable_ocsf_row?/1)
 
     Enum.each(invalid_rows, fn row ->
-      Logger.warning("Failed to record CausalSignals OCSF event through bulk insert",
+      Logger.warning("Failed to record AnalyticsSignals OCSF event through bulk insert",
         reason: inspect(:missing_event_identity),
         event_id: inspect(row[:id])
       )

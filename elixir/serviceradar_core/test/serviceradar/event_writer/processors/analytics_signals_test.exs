@@ -1,10 +1,10 @@
-defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
+defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.EventWriter.DeviceCorrelation
   alias ServiceRadar.EventWriter.DeviceCorrelationCache
   alias ServiceRadar.EventWriter.Pipeline
-  alias ServiceRadar.EventWriter.Processors.CausalSignals
+  alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.Observability.AnomalyDetection.SeriesKey
   alias ServiceRadar.Observability.CapacityForecasting.VerdictEmitter
 
@@ -51,7 +51,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
 
   describe "table_name/0" do
     test "returns ocsf_events" do
-      assert CausalSignals.table_name() == "ocsf_events"
+      assert AnalyticsSignals.table_name() == "ocsf_events"
     end
   end
 
@@ -73,7 +73,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       }
 
       assert [%{time: ^existing_time}] =
-               CausalSignals.align_existing_ocsf_event_times([row], ExistingTimeRepo)
+               AnalyticsSignals.align_existing_ocsf_event_times([row], ExistingTimeRepo)
 
       assert_received {:existing_time_query, sql, [^event_id]}
       assert sql =~ "min(time)"
@@ -100,7 +100,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         metadata: %{subject: "bmp.events.peer", received_at: DateTime.utc_now()}
       }
 
-      row = CausalSignals.parse_message(message)
+      row = AnalyticsSignals.parse_message(message)
 
       assert row
       assert is_binary(row.id)
@@ -134,7 +134,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         metadata: %{subject: "siem.events.alert", received_at: DateTime.utc_now()}
       }
 
-      row = CausalSignals.parse_message(message)
+      row = AnalyticsSignals.parse_message(message)
 
       assert row
       assert row.type_uid == 100_812
@@ -169,7 +169,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         }
 
         row =
-          CausalSignals.parse_message(%{
+          AnalyticsSignals.parse_message(%{
             data: Jason.encode!(payload),
             metadata: %{
               subject: "signals.causal.predictions.sysmon:cpu:sr:anomaly-device:0",
@@ -212,7 +212,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       }
 
       row =
-        CausalSignals.parse_message(%{
+        AnalyticsSignals.parse_message(%{
           data: Jason.encode!(payload),
           metadata: %{
             subject: "signals.causal.predictions.sysmon:cpu:sr:anomaly-device:0",
@@ -267,7 +267,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       }
 
       row =
-        CausalSignals.parse_message(%{
+        AnalyticsSignals.parse_message(%{
           data: Jason.encode!(payload),
           metadata: %{
             subject: "signals.causal.predictions.snmp:#{target_ip}:7",
@@ -310,7 +310,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         }
       }
 
-      assert CausalSignals.parse_message(%{
+      assert AnalyticsSignals.parse_message(%{
                data: Jason.encode!(payload),
                metadata: %{
                  subject: "signals.causal.predictions.snmp.agent-dusk01.6",
@@ -362,7 +362,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         }
       }
 
-      assert CausalSignals.parse_message(%{
+      assert AnalyticsSignals.parse_message(%{
                data: Jason.encode!(payload),
                metadata: %{
                  subject: "signals.causal.predictions.snmp:#{target_ip}:7",
@@ -417,7 +417,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       }
 
       row =
-        CausalSignals.parse_message(%{
+        AnalyticsSignals.parse_message(%{
           data: Jason.encode!(payload),
           metadata: %{
             subject: "signals.causal.predictions.snmp.sr-farm01.6",
@@ -480,7 +480,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       }
 
       row =
-        CausalSignals.parse_message(%{
+        AnalyticsSignals.parse_message(%{
           data: Jason.encode!(payload),
           metadata: %{
             subject: "signals.causal.predictions.#{anomaly_series_key}",
@@ -499,7 +499,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
 
     test "returns nil on invalid JSON" do
       row =
-        CausalSignals.parse_message(%{data: "not-json", metadata: %{subject: "bmp.events.peer"}})
+        AnalyticsSignals.parse_message(%{data: "not-json", metadata: %{subject: "bmp.events.peer"}})
 
       assert row == nil
     end
@@ -514,8 +514,8 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       metadata = %{subject: "bmp.events.peer", received_at: DateTime.utc_now()}
       message = %{data: Jason.encode!(payload), metadata: metadata}
 
-      row1 = CausalSignals.parse_message(message)
-      row2 = CausalSignals.parse_message(message)
+      row1 = AnalyticsSignals.parse_message(message)
+      row2 = AnalyticsSignals.parse_message(message)
 
       assert row1.id == row2.id
     end
@@ -541,8 +541,8 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         metadata: %{subject: "signals.causal.inventory.added", received_at: DateTime.utc_now()}
       }
 
-      row = CausalSignals.parse_message(message)
-      replayed_row = CausalSignals.parse_message(message)
+      row = AnalyticsSignals.parse_message(message)
+      replayed_row = AnalyticsSignals.parse_message(message)
 
       assert row
       assert row.id == replayed_row.id
@@ -587,7 +587,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         }
       }
 
-      row = CausalSignals.parse_message(message)
+      row = AnalyticsSignals.parse_message(message)
 
       assert row
       assert row.class_uid == 2002
@@ -629,7 +629,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       }
 
       row =
-        CausalSignals.parse_message(%{
+        AnalyticsSignals.parse_message(%{
           data: Jason.encode!(payload),
           metadata: %{
             subject: "signals.causal.inventory.vulnerability_match",
@@ -655,7 +655,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         metadata: %{subject: "bmp.events.peer", received_at: DateTime.utc_now()}
       }
 
-      row = CausalSignals.parse_message(message)
+      row = AnalyticsSignals.parse_message(message)
 
       assert row
       assert row.metadata["primary_domain"] == "security"
@@ -682,7 +682,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         metadata: %{subject: "siem.events.alert", received_at: DateTime.utc_now()}
       }
 
-      row = CausalSignals.parse_message(message)
+      row = AnalyticsSignals.parse_message(message)
 
       assert row
       assert length(row.metadata["grouped_contexts"]) == 32
@@ -709,7 +709,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         metadata: %{subject: "bmp.events.update", received_at: DateTime.utc_now()}
       }
 
-      row = CausalSignals.parse_message(message)
+      row = AnalyticsSignals.parse_message(message)
 
       assert row
       assert row.metadata["source_identity"]["device_uid"] == "router-edge-01"
@@ -734,7 +734,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         metadata: %{subject: "bmp.events.peer_down", received_at: DateTime.utc_now()}
       }
 
-      row = CausalSignals.parse_message(message)
+      row = AnalyticsSignals.parse_message(message)
       assert row
       assert row.metadata["event_type"] == "route_withdraw"
     end
@@ -751,7 +751,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         }
       }
 
-      row = CausalSignals.parse_message(message)
+      row = AnalyticsSignals.parse_message(message)
 
       assert row
       assert row.type_uid == 100_811
@@ -777,7 +777,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         }
       }
 
-      row = CausalSignals.parse_message(message)
+      row = AnalyticsSignals.parse_message(message)
 
       assert row
       assert row.metadata["signal_type"] == "bmp"
@@ -801,7 +801,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         }
       }
 
-      assert CausalSignals.parse_message(message) == nil
+      assert AnalyticsSignals.parse_message(message) == nil
     end
 
     test "decodes arancini Cap'n Proto payloads on arancini subjects" do
@@ -828,7 +828,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         }
       }
 
-      row = CausalSignals.parse_message(message)
+      row = AnalyticsSignals.parse_message(message)
 
       assert row
       assert row.type_uid == 100_811
@@ -964,7 +964,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       }
 
       row =
-        CausalSignals.parse_message(%{
+        AnalyticsSignals.parse_message(%{
           data: Jason.encode!(payload),
           metadata: %{
             subject: "signals.causal.predictions.sysmon:memory:sr:anomaly-device",
@@ -976,7 +976,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       assert row.metadata["signal_type"] == "causal"
       assert row.metadata["event_type"] == "anomaly"
 
-      assert [alert_row] = CausalSignals.alert_evaluation_rows([row])
+      assert [alert_row] = AnalyticsSignals.alert_evaluation_rows([row])
       assert alert_row.id == row.metadata["event_identity"]
       assert alert_row.device == %{"uid" => "sr:anomaly-device"}
     end
@@ -1003,14 +1003,14 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         received_at: DateTime.utc_now()
       }
 
-      row = CausalSignals.parse_message(%{data: Jason.encode!(edge), metadata: meta})
+      row = AnalyticsSignals.parse_message(%{data: Jason.encode!(edge), metadata: meta})
 
       assert row.metadata["service_radar"]["verdict_source"] == "edge-spike"
       assert row.metadata["detection_finding"]["source"] == "edge-spike"
 
       # A central verdict (no label) defaults to "central".
       central_row =
-        CausalSignals.parse_message(%{
+        AnalyticsSignals.parse_message(%{
           data: Jason.encode!(Map.delete(edge, "verdict_source")),
           metadata: meta
         })
@@ -1083,7 +1083,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         |> put_in(["anomaly", "series_key"], canonical_series_key)
 
       edge_row =
-        CausalSignals.parse_message(%{
+        AnalyticsSignals.parse_message(%{
           data: Jason.encode!(edge),
           metadata: %{
             subject: "signals.causal.predictions.#{source_identity["series_key"]}",
@@ -1092,7 +1092,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         })
 
       central_row =
-        CausalSignals.parse_message(%{
+        AnalyticsSignals.parse_message(%{
           data: Jason.encode!(central),
           metadata: %{
             subject: "signals.causal.predictions.#{canonical_series_key}",
@@ -1147,10 +1147,10 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         received_at: DateTime.utc_now()
       }
 
-      stale_row = CausalSignals.parse_message(%{data: Jason.encode!(edge), metadata: meta})
+      stale_row = AnalyticsSignals.parse_message(%{data: Jason.encode!(edge), metadata: meta})
 
       canonical_row =
-        CausalSignals.parse_message(%{
+        AnalyticsSignals.parse_message(%{
           data: Jason.encode!(Map.delete(edge, "finding_info")),
           metadata: meta
         })
@@ -1216,7 +1216,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       }
 
       row =
-        CausalSignals.parse_message(%{
+        AnalyticsSignals.parse_message(%{
           data: Jason.encode!(payload),
           metadata: %{
             subject: "signals.causal.predictions.cpu-series-a",
@@ -1287,7 +1287,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       }
 
       row =
-        CausalSignals.parse_message(%{
+        AnalyticsSignals.parse_message(%{
           data: Jason.encode!(payload),
           metadata: %{
             subject: "signals.causal.predictions.#{opaque_series_key}",
@@ -1331,7 +1331,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       }
 
       row =
-        CausalSignals.parse_message(%{
+        AnalyticsSignals.parse_message(%{
           data: Jason.encode!(payload),
           metadata: %{
             subject: "signals.causal.predictions.#{opaque_series_key}",
@@ -1368,7 +1368,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       subject = VerdictEmitter.subject(forecast)
 
       row =
-        CausalSignals.parse_message(%{
+        AnalyticsSignals.parse_message(%{
           data: Jason.encode!(VerdictEmitter.payload(forecast, subject)),
           metadata: %{subject: subject, received_at: forecast.forecasted_at}
         })
@@ -1382,7 +1382,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       assert row.metadata["detection_finding"]["type"] == "capacity_forecast"
       assert row.log_provider == "capacity_forecasting"
 
-      assert [alert_row] = CausalSignals.alert_evaluation_rows([row])
+      assert [alert_row] = AnalyticsSignals.alert_evaluation_rows([row])
       assert alert_row.id == row.metadata["event_identity"]
     end
 
@@ -1394,7 +1394,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
         unmapped: %{}
       }
 
-      assert [] = CausalSignals.alert_evaluation_rows([row])
+      assert [] = AnalyticsSignals.alert_evaluation_rows([row])
     end
   end
 
@@ -1467,7 +1467,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
   defp parse_causal_rows(messages) do
     messages
     |> Enum.map(fn message ->
-      CausalSignals.parse_message(%{data: message.data, metadata: message.metadata})
+      AnalyticsSignals.parse_message(%{data: message.data, metadata: message.metadata})
     end)
     |> Enum.reject(&is_nil/1)
   end

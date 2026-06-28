@@ -9,7 +9,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.EventWriter.Pipeline
-  alias ServiceRadar.EventWriter.Processors.CausalSignals
+  alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.OcsfEvent
   alias ServiceRadar.Observability.SeasonalDisposition.Source
@@ -415,15 +415,15 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     message = Pipeline.handle_message(:default, broadway_message, %{})
 
     assert message.batcher == :causal_predictions
-    assert CausalSignals.table_name() == "ocsf_events"
+    assert AnalyticsSignals.table_name() == "ocsf_events"
 
-    row = CausalSignals.parse_message(%{data: message.data, metadata: message.metadata})
+    row = AnalyticsSignals.parse_message(%{data: message.data, metadata: message.metadata})
 
     assert row.class_uid == 2004
     assert row.type_uid == 200_401
     assert row.device == %{"uid" => device_uid}
 
-    assert {:ok, 1} = CausalSignals.process_batch([message])
+    assert {:ok, 1} = AnalyticsSignals.process_batch([message])
     assert persisted_ocsf_event?(row)
 
     active_alerts =

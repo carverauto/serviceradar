@@ -375,10 +375,10 @@ defmodule ServiceRadar.StatusHandler do
   # An edge anomaly add-on emits an OCSF Detection Finding shaped as a causal
   # anomaly verdict (signal_type=causal, event_type=anomaly). Route it onto the
   # causal-prediction spine (signals.causal.predictions.<series>) so the
-  # EventWriter CausalSignals processor persists + alert-enqueues it through the
+  # EventWriter AnalyticsSignals processor persists + alert-enqueues it through the
   # same OCSF finding path, instead of the generic OCSF add-on subject. The
   # verdict_source label (edge-spike) rides through in the body and is surfaced
-  # by CausalSignals.
+  # by AnalyticsSignals.
   defp anomaly_verdict?(event) when is_map(event) do
     # 1.f3 dual-consume: accept the honest new routing value alongside the legacy "causal".
     Map.get(event, "signal_type") in ["causal", "prediction"] and
@@ -420,7 +420,7 @@ defmodule ServiceRadar.StatusHandler do
 
   defp causal_prediction_subject(_series_key), do: CausalPredictionSubject.build(nil)
 
-  # Stamp the canonical key onto the persisted verdict so CausalSignals stores it
+  # Stamp the canonical key onto the persisted verdict so AnalyticsSignals stores it
   # under the same series_key edge-derived consumers use (and the producer hint becomes dead
   # debug metadata). Only rewrites blocks that already exist.
   defp rekey_anomaly_verdict(event, series_key) when is_binary(series_key) do
