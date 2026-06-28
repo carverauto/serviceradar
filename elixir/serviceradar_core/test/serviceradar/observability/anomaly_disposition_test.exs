@@ -52,4 +52,21 @@ defmodule ServiceRadar.Observability.AnomalyDispositionTest do
     assert {:escalate, _} = D.dispose(%{peak_value: 70.0}, @profile, escalate_sigma: 3.0)
     assert {:downgrade, _} = D.dispose(%{peak_value: 70.0}, @profile, escalate_sigma: 5.0)
   end
+
+  describe "actionable?/2 (report-only kill switch + stability gate, 1.12)" do
+    test "report-only by default (suppression disabled)" do
+      refute D.actionable?(@profile)
+    end
+
+    test "actionable when explicitly enabled and the peak profile is stable" do
+      assert D.actionable?(@profile, suppression_enabled: true)
+    end
+
+    test "report-only when the profile is too thin even if enabled" do
+      refute D.actionable?(%{center: 55.0, scale: 4.0, sample_count: 3},
+               suppression_enabled: true,
+               min_stable_samples: 6
+             )
+    end
+  end
 end

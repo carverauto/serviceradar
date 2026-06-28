@@ -75,6 +75,25 @@ defmodule ServiceRadar.Observability.AnomalyDisposition do
     end
   end
 
+  @doc """
+  Whether a disposition may ACT (actually suppress/downgrade an alert) vs be applied
+  report-only. Gated on (a) the per-metric-class kill switch `:suppression_enabled`
+  (default `false` — report-only is the safety default until a class's peak profile is
+  proven stable) and (b) peak-profile stability (`>= :min_stable_samples` effective
+  samples and a finite center/scale). This is the 1.12 stability gate: a report-only
+  disposition is recorded and surfaced but never removes a real alert.
+  """
+  @spec actionable?(map(), keyword()) :: boolean()
+  def actionable?(peak_profile, opts \\ []) do
+    enabled = Keyword.get(opts, :suppression_enabled, false)
+    min_stable = Keyword.get(opts, :min_stable_samples, 6)
+    count = int(get(peak_profile, :sample_count))
+    center = num(get(peak_profile, :center))
+    scale = num(get(peak_profile, :scale))
+
+    enabled and count >= min_stable and not is_nil(center) and not is_nil(scale) and scale >= 0.0
+  end
+
   defp get(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
   defp get(_, _), do: nil
 
