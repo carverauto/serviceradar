@@ -42,8 +42,8 @@
 
 ### 1c. Close the matched-resolution disposition loop (absorbs #4280)
 
-- [ ] 1.8 Edge forwards spike **peak + window** in the finding payload (`rust/anomaly-core`/`rust/anomaly-addon`).
-- [ ] 1.9 Add the **peak variant** of `profile_hour_of_week` over `timeseries_metrics_hourly.max_value` in `rust/srql/src/query/timeseries_metrics.rs`.
+- [x] 1.8 Edge ALREADY forwards spike **peak + window** (`verdict.rs:108-111`: episode_peak_value / episode_peak_at / episode_started_at / episode_ended_at) — verified, no change needed.
+- [x] 1.9 The **peak variant** of `profile_hour_of_week` over `timeseries_metrics_hourly.max_value` ALREADY EXISTS (`build_profile_hour_of_week_peak_query`, `rust/srql/src/query/timeseries_metrics.rs:1219`) — verified, no change needed.
 - [ ] 1.10 Seasonal worker records a verdict for **every** evaluated series/window (non-surfacing `normal`).
 - [ ] 1.11 Build the disposition correlation at the alert/query layer (`stateful_alert_engine.ex`, `alert_generator.ex`, web-ng device-detail panel) on the F14-aligned `series_key`; retain raw findings.
 - [ ] 1.12 Implement the robust peak-profile stability gate (invariants in spec), suppression **report-only** behind a per-metric-class kill switch; report suppression-eligible-mass coverage.
@@ -59,7 +59,7 @@
 
 - [x] 1.17 `peak_profile` kernel unambiguously marked DORMANT/not-wired (no NIF ABI), with the marker now pointing at the matched-resolution loop closure (1c) that will wire it. Kept rather than deleted because that wiring is the next step.
 - [x] 1.18 Corrected the false "capacity phase 2 — NOT yet wired" doc in the NIF (`causal_disposition_nif/src/lib.rs:46`); capacity is live and wired (`dispose_batch(:capacity, ...)`).
-- [ ] 1.19 Write the "what the engine really is" document (robust detector + seasonal/forecast disposition + deterministic dependency expert system).
+- [x] 1.19 Write the "what the engine really is" document (robust detector + seasonal/forecast disposition + deterministic dependency expert system).
 
 ## 2. Phase 2 — Statistical rigor
 
