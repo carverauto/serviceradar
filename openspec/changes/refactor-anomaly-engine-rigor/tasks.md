@@ -45,9 +45,9 @@
 - [x] 1.8 Edge ALREADY forwards spike **peak + window** (`verdict.rs:108-111`: episode_peak_value / episode_peak_at / episode_started_at / episode_ended_at) — verified, no change needed.
 - [x] 1.9 The **peak variant** of `profile_hour_of_week` over `timeseries_metrics_hourly.max_value` ALREADY EXISTS (`build_profile_hour_of_week_peak_query`, `rust/srql/src/query/timeseries_metrics.rs:1219`) — verified, no change needed.
 - [ ] 1.10 Seasonal worker records a verdict for **every** evaluated series/window (non-surfacing `normal`).
-- [ ] 1.11 Build the disposition correlation at the alert/query layer (`stateful_alert_engine.ex`, `alert_generator.ex`, web-ng device-detail panel) on the F14-aligned `series_key`; retain raw findings.
+- [~] 1.11 The matched-resolution disposition correlation LOGIC is implemented + unit-tested (`ServiceRadar.Observability.AnomalyDisposition.dispose/3`, 8 tests green): given an edge spike's forwarded peak + the central hour-of-week PEAK profile it returns suppress/downgrade/escalate/pass_through (compares peak-vs-peak, not the diluting hourly mean). The alert/query-layer WIRING (call it in `stateful_alert_engine.ex`/`alert_generator.ex` + the device-detail panel, joined on the F14-aligned `series_key`, raw findings retained) follows.
 - [ ] 1.12 Implement the robust peak-profile stability gate (invariants in spec), suppression **report-only** behind a per-metric-class kill switch; report suppression-eligible-mass coverage.
-- [ ] 1.13 Disposition-driven effective severity (suppress→off-path, downgrade→lower, escalate→higher).
+- [~] 1.13 The disposition decision (suppress→off-path / downgrade→lower / escalate→higher / pass_through) is the `AnomalyDisposition.dispose/3` output (operator-tunable thresholds); applying it to a finding's effective severity in the alert engine is the consumer wiring (follows with 1.11).
 - [x] 1.14 Edge↔central series_key alignment test added + PASSING (`series_key_test.exs`, 11 tests green): the same logical series re-keys identically regardless of the provisional producer hints the edge varies (agent_id/host_id/host_ip and the `host` tag are excluded; the canonical resource + metric + if_index + partition decide the key). The precondition for the join. (Existing F14 tests already covered device_id-over-host/agent canonicalization.)
 
 ### 1d. Robust seasonal statistic + hysteresis
