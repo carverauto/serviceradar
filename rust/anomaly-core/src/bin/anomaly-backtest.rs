@@ -111,10 +111,26 @@ struct SeriesState {
     consecutive_anomalous: usize,
     cusum: Option<Cusum>,
     cusum_anchor: Option<(f64, f64)>,
-    /// Causal hour-of-week baseline for deseasonalizing the CUSUM input: a running
-    /// sum/count per (dow*24+hod) bucket (168). Lazily sized to 168 on first use.
-    how_sum: Vec<f64>,
-    how_count: Vec<u32>,
+    /// Causal hour-of-week baseline for deseasonalizing the CUSUM input: the prior
+    /// values per (dow*24+hod) bucket (168). The baseline is their MEDIAN — robust to
+    /// a persistent shift polluting the reference (a running mean is not). Lazily
+    /// sized to 168; the current sample is appended AFTER scoring (latest-excluded).
+    how_vals: Vec<Vec<f64>>,
+}
+
+/// Median of a slice (mid value for odd n, average of the two middle for even).
+fn median(values: &[f64]) -> f64 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    let mut v = values.to_vec();
+    v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let n = v.len();
+    if n % 2 == 1 {
+        v[n / 2]
+    } else {
+        (v[n / 2 - 1] + v[n / 2]) / 2.0
+    }
 }
 
 /// Mean and sample standard deviation (n-1) of a slice; (0,0) when empty.
@@ -216,8 +232,9 @@ fn run(args: Args, mut out: impl Write) -> Result<(), String> {
         // CUSUM drift detector on a DESEASONALIZED residual (`--cusum`). A rolling
         // z-score's mean tracks a slow ramp and misses it; raw CUSUM floods false
         // positives on a seasonal series (it accumulates every diurnal swing). So we
-        // accumulate `(x - hour_of_week_mean) / scale` against a CAUSAL hour-of-week
-        // baseline — `scale` is the warmed baseline std (~within-bucket noise). The
+        // accumulate `(x - hour_of_week_median) / scale` against a CAUSAL hour-of-week
+        // baseline (median: robust to a persistent shift polluting the reference, which
+        // a running mean is not) — `scale` is the warmed baseline std (~noise). The
         // bucket is updated AFTER scoring (causal) and CUSUM only scores a warm bucket.
         let (mut cusum_pos, mut cusum_neg, mut cusum_alarm) = (None, None, None);
         if args.cusum {
@@ -227,25 +244,23 @@ fn run(args: Args, mut out: impl Write) -> Result<(), String> {
                 state.cusum_anchor = Some((mean, std.max(f64::EPSILON)));
                 state.cusum = Some(Cusum::new(args.cusum_k, args.cusum_h));
             }
-            if state.how_sum.is_empty() {
-                state.how_sum = vec![0.0; 168];
-                state.how_count = vec![0; 168];
+            if state.how_vals.is_empty() {
+                state.how_vals = vec![Vec::new(); 168];
             }
             if let Some(ts) = sample.observed_at_unix_nano {
                 let how = hour_of_week(ts);
-                let count = state.how_count[how];
-                if count >= MIN_SEASONAL_BUCKET
-                    && let (Some((_t, scale)), Some(cusum)) =
+                if state.how_vals[how].len() as u32 >= MIN_SEASONAL_BUCKET {
+                    let seasonal = median(&state.how_vals[how]);
+                    if let (Some((_t, scale)), Some(cusum)) =
                         (state.cusum_anchor, state.cusum.as_mut())
-                {
-                    let seasonal_mean = state.how_sum[how] / count as f64;
-                    let step = cusum.update((sample.value - seasonal_mean) / scale);
-                    cusum_pos = Some(step.pos);
-                    cusum_neg = Some(step.neg);
-                    cusum_alarm = Some(step.alarm);
+                    {
+                        let step = cusum.update((sample.value - seasonal) / scale);
+                        cusum_pos = Some(step.pos);
+                        cusum_neg = Some(step.neg);
+                        cusum_alarm = Some(step.alarm);
+                    }
                 }
-                state.how_sum[how] += sample.value;
-                state.how_count[how] += 1;
+                state.how_vals[how].push(sample.value);
             }
         }
 

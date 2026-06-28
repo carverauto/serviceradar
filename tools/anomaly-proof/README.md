@@ -99,7 +99,7 @@ tools/anomaly-proof/run_db_feed.sh
 | core capacity: band vs horizon | valid prediction interval | band **widens** with horizon 5.89→6.15 (OLS PI; replaced the flat 5.87 ±1.96·RMSE overclaim) |
 | core DB feed: verb → kernel | the F15 feed, end to end | over a real CAGG: dev-anomaly **breach** z=8.3 / dev-normal **suppress** z=0 |
 | edge CUSUM vs CPU drift | fixes the drift blind spot | z-score **0/300** → CUSUM **216/300** (caught +20 samples), FP **2.4%** |
-| CUSUM needs deseasonalization | a proven requirement | raw CUSUM 42–74% FP on seasonal data → deseasonalized **1.4–2.4%** (cpu/snmp); a persistent leak still pollutes a naïve edge baseline → needs the robust core seasonal profile |
+| CUSUM needs deseasonalization | a proven requirement | raw CUSUM 42–74% FP on seasonal data → deseasonalized **0.6%/1.0%** (cpu/snmp, median baseline); memory still 38% (a 2-week leak in a 3-week window — no short-history edge baseline can separate it; needs the core 180-day robust profile, 2.6) |
 | edge self-masking (double spike) | D-Q2: is robust MAD needed? | second spike **DETECTED** z=17.1 (recall **1/1**) — withhold-from-baseline already prevents masking, so **MAD is not needed** |
 
 ## Files
