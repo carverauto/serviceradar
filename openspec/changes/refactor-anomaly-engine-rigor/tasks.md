@@ -86,8 +86,8 @@
 
 ## 4. Validation, coordination + rollout
 
-- [ ] 4.1 Phase 1 first; suppression report-only; verify on the proof harness before any suppression is enabled live.
-- [ ] 4.2 Phase 2 behind per-metric-class kill switches; calibrate constants against real per-cell distributions guarded by the invariant tests.
+- [~] 4.1 Rollout directive — the CODE side is in place: suppression is report-only by default (`AnomalyDisposition.actionable?/2` defaults `suppression_enabled: false`) and the proof harness exists (`tools/anomaly-proof/`, edge + core + DB-feed). The live "verify on harness before enabling suppression" gate is a deploy-time action.
+- [~] 4.2 Rollout directive — the CODE side is in place: Phase-2 detectors (CUSUM/S-H-ESD/RPCA) are reference-verified and the per-metric-class kill switch exists (`actionable?/2`). Calibrating constants against real per-cell distributions is a deploy-time activity guarded by the invariant tests.
 - [~] 4.3 Code-doc de-causal VERIFIED complete: a workspace grep finds no causal-INFERENCE claims left in engine code docs (the survivors are the honest "not causal inference" framing, crate-NAME references like `causal-engine`/`causal_disposition_nif`, or the wire subject). The `signal_type:"causal"` wire value + `signals.causal.*` subject rename and the zero-traffic check are 1f (BREAKING).
-- [ ] 4.4 **Close `add-anomaly-finding-disposition` #4280 as superseded** by this change (decided), pointing its archive/withdrawal note at this change as the consolidation of record.
+- [x] 4.4 `add-anomaly-finding-disposition` (#4280, already merged) marked **SUPERSEDED** by this change — a banner at the top of its `proposal.md` points at `refactor-anomaly-engine-rigor` as the consolidation of record (its Option-B disposition is implemented here as `AnomalyDisposition`).
 - [x] 4.5 `openspec validate refactor-anomaly-engine-rigor --strict` passes ("Change 'refactor-anomaly-engine-rigor' is valid").
