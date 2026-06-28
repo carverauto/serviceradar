@@ -62,6 +62,21 @@ struct Args {
     #[arg(long)]
     min_cv: Option<f64>,
 
+    /// Enable the detector's SEASONAL signal: z-score the sample against the prior
+    /// values in its hour-of-week (dow*24+hod) bucket. Exercises the `ReasonContext`
+    /// seasonal path (otherwise hardcoded off) so the seasonal requirement is harness-
+    /// provable on real code — a recurring hour-of-week pattern must NOT be flagged.
+    #[arg(long)]
+    seasonal: bool,
+
+    /// n-sigma for the seasonal signal (defaults to `--n-sigma`).
+    #[arg(long)]
+    seasonal_n_sigma: Option<f64>,
+
+    /// Min clean samples for the seasonal bucket (defaults to `--min-samples`).
+    #[arg(long)]
+    seasonal_min_samples: Option<usize>,
+
     /// Run a two-sided CUSUM drift detector alongside the z-score, anchored to the
     /// frozen baseline when it first warms up. Catches the slow drift/leaks the point
     /// z-score misses. Adds cusum_pos/cusum_neg/cusum_alarm to the output, and a
@@ -196,22 +211,36 @@ fn run(args: Args, mut out: impl Write) -> Result<(), String> {
             .map_err(|err| format!("line {}: invalid JSON sample: {err}", line_number + 1))?;
 
         let state = states.entry(sample.series_key.clone()).or_default();
+
+        // Hour-of-week (dow*24+hod) bucket shared by --seasonal and --cusum; it holds
+        // the PRIOR values for this slot (the current sample is pushed after scoring,
+        // so both reads stay causal).
+        let how = sample.observed_at_unix_nano.map(hour_of_week);
+        if (args.seasonal || args.cusum) && state.how_vals.is_empty() {
+            state.how_vals = vec![Vec::new(); 168];
+        }
+        let seasonal_baseline = if args.seasonal {
+            how.map(|h| state.how_vals[h].clone())
+        } else {
+            None
+        };
+
         let verdict = reason_impl(
             ReasonContext {
                 baseline: Vec::new(),
                 rolling_acc: None,
                 window_tail: Some(state.window_tail.clone()),
-                seasonal_baseline: None,
+                seasonal_baseline,
                 trend_baseline: None,
                 rolling_enabled: Some(true),
-                seasonal_enabled: Some(false),
+                seasonal_enabled: Some(args.seasonal),
                 trend_enabled: Some(false),
                 min_samples: Some(args.min_samples),
-                seasonal_min_samples: None,
+                seasonal_min_samples: Some(args.seasonal_min_samples.unwrap_or(args.min_samples)),
                 trend_min_samples: None,
                 window_size: Some(args.window_size),
                 n_sigma: Some(args.n_sigma),
-                seasonal_n_sigma: None,
+                seasonal_n_sigma: Some(args.seasonal_n_sigma.unwrap_or(args.n_sigma)),
                 trend_n_sigma: None,
                 confirm_slots: Some(args.confirm_slots),
                 consecutive_anomalous: Some(state.consecutive_anomalous),
@@ -244,13 +273,9 @@ fn run(args: Args, mut out: impl Write) -> Result<(), String> {
                 state.cusum_anchor = Some((mean, std.max(f64::EPSILON)));
                 state.cusum = Some(Cusum::new(args.cusum_k, args.cusum_h));
             }
-            if state.how_vals.is_empty() {
-                state.how_vals = vec![Vec::new(); 168];
-            }
-            if let Some(ts) = sample.observed_at_unix_nano {
-                let how = hour_of_week(ts);
-                if state.how_vals[how].len() as u32 >= MIN_SEASONAL_BUCKET {
-                    let seasonal = median(&state.how_vals[how]);
+            if let Some(h) = how {
+                if state.how_vals[h].len() as u32 >= MIN_SEASONAL_BUCKET {
+                    let seasonal = median(&state.how_vals[h]);
                     if let (Some((_t, scale)), Some(cusum)) =
                         (state.cusum_anchor, state.cusum.as_mut())
                     {
@@ -260,8 +285,15 @@ fn run(args: Args, mut out: impl Write) -> Result<(), String> {
                         cusum_alarm = Some(step.alarm);
                     }
                 }
-                state.how_vals[how].push(sample.value);
             }
+        }
+
+        // Push the current value to its hour-of-week bucket (causal: after both the
+        // seasonal-baseline read above and the CUSUM read).
+        if let Some(h) = how
+            && !state.how_vals.is_empty()
+        {
+            state.how_vals[h].push(sample.value);
         }
 
         state.window_tail = verdict.next_window_tail.clone();
@@ -354,6 +386,9 @@ mod tests {
                 saturation_gate_min: None,
                 min_std_floor: None,
                 min_cv: None,
+                seasonal: false,
+                seasonal_n_sigma: None,
+                seasonal_min_samples: None,
                 cusum: false,
                 cusum_k: 0.5,
                 cusum_h: 5.0,
