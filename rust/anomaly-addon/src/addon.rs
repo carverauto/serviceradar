@@ -168,6 +168,9 @@ impl Addon for AnomalyAddon {
 
         let settings = resolve_checkpoint_settings(&parsed);
         let scoring_stale_after_ns = resolve_scoring_stale_after_ns(&parsed);
+        // Resolve before `into_engine_config` consumes `parsed`. Empty when no
+        // baselines were delivered, leaving the engine rolling-only (back-compat).
+        let seasonal_baselines = parsed.resolve_seasonal_baselines();
 
         let engine_config = match parsed.into_engine_config() {
             Ok(config) => config,
@@ -180,7 +183,11 @@ impl Addon for AnomalyAddon {
             }
         };
 
-        lock_engine(&self.engine).set_config(engine_config);
+        {
+            let mut engine = lock_engine(&self.engine);
+            engine.set_config(engine_config);
+            engine.set_seasonal_baselines(seasonal_baselines);
+        }
         lock_scoring_health(&self.scoring_health).set_stale_after_ns(scoring_stale_after_ns);
 
         // Re-warm from the on-disk checkpoint before scoring resumes, so a

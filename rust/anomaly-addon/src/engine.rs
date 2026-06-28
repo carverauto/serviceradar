@@ -11,8 +11,9 @@
 use std::collections::HashMap;
 
 use serviceradar_anomaly_core::{
-    DEFAULT_CONFIRM_SLOTS, DEFAULT_MIN_SAMPLES, DEFAULT_N_SIGMA, DEFAULT_WINDOW_SIZE,
-    ReasonContext, ReasonSample, ReasonVerdict, SaturationGate, reason_impl,
+    DEFAULT_CONFIRM_SLOTS, DEFAULT_MIN_SAMPLES, DEFAULT_N_SIGMA, DEFAULT_WINDOW_SIZE, HOURS_PER_WEEK,
+    ReasonContext, ReasonSample, ReasonVerdict, SaturationGate, SeasonalBucket, hour_of_week,
+    reason_impl,
 };
 
 /// Lifecycle transition produced by edge state after scoring one sample.
@@ -101,6 +102,72 @@ impl Default for EngineConfig {
     }
 }
 
+/// Default minimum historical points a delivered hour-of-week bucket must carry
+/// before the edge trusts it as a seasonal baseline. Mirrors central
+/// seasonal-disposition's `@default_min_bucket_samples` (4).
+pub const DEFAULT_SEASONAL_MIN_BUCKET_SAMPLES: usize = 4;
+/// Default length of the reconstructed synthetic seasonal window. Large enough to
+/// clear the signal's own min-samples gate; clamped to the window size at scoring.
+pub const DEFAULT_SEASONAL_SYNTHETIC_LEN: usize = 32;
+
+/// Thresholds governing the optional hour-of-week deseasonalization. Independent
+/// of [`EngineConfig`] so a detector with no delivered baselines is byte-for-byte
+/// the prior rolling-only engine.
+#[derive(Clone, Copy, Debug)]
+pub struct SeasonalSettings {
+    /// Breach threshold (sigma) for the seasonal signal. Falls back to the engine
+    /// rolling `n_sigma` when not finite/positive.
+    pub n_sigma: Option<f64>,
+    /// Minimum historical points a delivered bucket must carry before it is
+    /// trusted (a bucket with too little history is ignored, leaving the series on
+    /// the rolling-only path).
+    pub min_bucket_samples: usize,
+    /// Length of the reconstructed synthetic seasonal window; clamped to
+    /// `[2, window_size]` at scoring time so the window is never truncated.
+    pub synthetic_len: usize,
+}
+
+impl Default for SeasonalSettings {
+    fn default() -> Self {
+        Self {
+            n_sigma: None,
+            min_bucket_samples: DEFAULT_SEASONAL_MIN_BUCKET_SAMPLES,
+            synthetic_len: DEFAULT_SEASONAL_SYNTHETIC_LEN,
+        }
+    }
+}
+
+/// One series' 168-bucket hour-of-week seasonal baseline, delivered from core.
+/// Each populated bucket carries a robust `{center, scale}` summary the edge
+/// expands into the detector's `seasonal_baseline` at scoring time.
+#[derive(Clone, Debug, Default)]
+pub struct SeasonalProfile {
+    buckets: Vec<Option<SeasonalBucket>>,
+}
+
+impl SeasonalProfile {
+    /// Build a profile from `(hour_of_week_index, bucket)` pairs. Indices outside
+    /// `0..168` are ignored; a later entry for the same index wins.
+    pub fn from_buckets(entries: impl IntoIterator<Item = (usize, SeasonalBucket)>) -> Self {
+        let mut buckets = vec![None; HOURS_PER_WEEK];
+        for (index, bucket) in entries {
+            if index < HOURS_PER_WEEK {
+                buckets[index] = Some(bucket);
+            }
+        }
+        Self { buckets }
+    }
+
+    fn bucket(&self, index: usize) -> Option<SeasonalBucket> {
+        self.buckets.get(index).copied().flatten()
+    }
+
+    /// How many of the 168 hour-of-week buckets carry a delivered baseline.
+    pub fn populated_bucket_count(&self) -> usize {
+        self.buckets.iter().filter(|bucket| bucket.is_some()).count()
+    }
+}
+
 /// A gap longer than this between two counter readings is treated as a
 /// discontinuity (agent restart, missed polls) rather than a rate. 2 hours,
 /// matching central `CounterNormalizer`'s `@default_max_gap_ns`.
@@ -155,6 +222,11 @@ struct CounterState {
 pub struct DetectorEngine {
     config: EngineConfig,
     series: HashMap<String, SeriesState>,
+    /// Per-series hour-of-week seasonal baselines delivered from core. Empty (the
+    /// default) keeps every series on the rolling-only path — back-compat.
+    seasonal: HashMap<String, SeasonalProfile>,
+    /// Thresholds governing the seasonal signal when a baseline is delivered.
+    seasonal_settings: SeasonalSettings,
     /// Last cumulative-counter reading per series, for rate normalization.
     counters: HashMap<String, CounterState>,
     /// Last sample timestamp that attempted stale-state eviction at capacity.
@@ -171,6 +243,8 @@ impl DetectorEngine {
         Self {
             config,
             series: HashMap::new(),
+            seasonal: HashMap::new(),
+            seasonal_settings: SeasonalSettings::default(),
             counters: HashMap::new(),
             last_capacity_eviction_at_unix_nano: None,
             dropped_at_capacity: 0,
@@ -183,6 +257,71 @@ impl DetectorEngine {
 
     pub fn config(&self) -> EngineConfig {
         self.config.clone()
+    }
+
+    /// Replace the per-series hour-of-week seasonal baselines delivered from core.
+    /// An empty map clears all baselines (every series reverts to the rolling-only
+    /// path); series without a delivered baseline are unaffected. Idempotent and
+    /// fully back-compat: with no baselines this engine scores exactly as before.
+    pub fn set_seasonal_baselines(&mut self, baselines: HashMap<String, SeasonalProfile>) {
+        self.seasonal = baselines;
+    }
+
+    /// Override the thresholds applied to the seasonal signal (sigma, minimum
+    /// bucket history, synthetic window length).
+    pub fn set_seasonal_settings(&mut self, settings: SeasonalSettings) {
+        self.seasonal_settings = settings;
+    }
+
+    /// Number of series with a delivered seasonal baseline.
+    pub fn seasonal_series_count(&self) -> usize {
+        self.seasonal.len()
+    }
+
+    /// Resolve the optional seasonal-signal context for one sample: the synthetic
+    /// baseline window plus its enable/min-samples/threshold knobs, or all-`None`
+    /// (the back-compat rolling-only path) when no usable bucket is delivered for
+    /// this series at this sample's hour-of-week.
+    fn seasonal_context(
+        &self,
+        series_key: &str,
+        observed_at_unix_nano: u64,
+    ) -> (Option<Vec<f64>>, Option<bool>, Option<usize>, Option<f64>) {
+        const NONE: (Option<Vec<f64>>, Option<bool>, Option<usize>, Option<f64>) =
+            (None, None, None, None);
+
+        // No baselines delivered, or a window too small to ever hold a >=2-point
+        // seasonal baseline: stay on the rolling-only path.
+        if self.seasonal.is_empty() || self.config.window_size < 2 {
+            return NONE;
+        }
+
+        let Some(profile) = self.seasonal.get(series_key) else {
+            return NONE;
+        };
+        let Some(bucket) = profile.bucket(hour_of_week(observed_at_unix_nano)) else {
+            return NONE;
+        };
+        if !bucket.usable(self.seasonal_settings.min_bucket_samples) {
+            return NONE;
+        }
+
+        let len = self
+            .seasonal_settings
+            .synthetic_len
+            .clamp(2, self.config.window_size);
+        let n_sigma = self
+            .seasonal_settings
+            .n_sigma
+            .filter(|value| value.is_finite() && *value > 0.0)
+            .unwrap_or(self.config.n_sigma);
+
+        (
+            Some(bucket.synthetic_window(len)),
+            Some(true),
+            Some(len),
+            Some(n_sigma),
+        )
     }
 
     pub fn series_count(&self) -> usize {
@@ -355,6 +494,13 @@ impl DetectorEngine {
             return None;
         }
 
+        // Resolve the optional hour-of-week seasonal context up front, while only
+        // `&self` is borrowed: looking it up after the `state` entry below would
+        // conflict with that `&mut self.series` borrow. All-`None` when no usable
+        // baseline is delivered (the back-compat rolling-only path).
+        let (seasonal_baseline, seasonal_enabled, seasonal_min_samples, seasonal_n_sigma) =
+            self.seasonal_context(series_key, observed_at_unix_nano);
+
         if !self.series.contains_key(series_key) {
             if self.series.len() >= self.config.max_series {
                 self.evict_stale_state_once_per_timestamp(observed_at_unix_nano);
@@ -402,17 +548,17 @@ impl DetectorEngine {
             baseline: Vec::new(),
             rolling_acc: None,
             window_tail: Some(state.window_tail.clone()),
-            seasonal_baseline: None,
+            seasonal_baseline,
             trend_baseline: None,
             rolling_enabled: Some(true),
-            seasonal_enabled: None,
+            seasonal_enabled,
             trend_enabled: None,
             min_samples: Some(self.config.min_samples),
-            seasonal_min_samples: None,
+            seasonal_min_samples,
             trend_min_samples: None,
             window_size: Some(self.config.window_size),
             n_sigma: Some(self.config.n_sigma),
-            seasonal_n_sigma: None,
+            seasonal_n_sigma,
             trend_n_sigma: None,
             confirm_slots: Some(self.config.confirm_slots),
             consecutive_anomalous: Some(state.consecutive_anomalous),
@@ -1713,6 +1859,127 @@ mod tests {
             "a real spike must still breach despite the floor, score {}",
             verdict.score
         );
+    }
+
+    #[test]
+    fn delivered_seasonal_baseline_deseasonalizes_against_hour_of_week() {
+        // The whole point of pushing the central hour-of-week baseline core->edge:
+        // a sample that is HIGH in absolute terms but NORMAL for its hour-of-week
+        // bucket must NOT be flagged, while a sample that breaches its bucket IS —
+        // i.e. the delivered `seasonal_baseline` actually feeds the verdict.
+        let cfg = EngineConfig {
+            window_size: 50,
+            min_samples: 5,
+            n_sigma: 3.0,
+            confirm_slots: 1,
+            max_series: 10,
+            ..EngineConfig::default()
+        };
+
+        // This series' peak-hour center is HIGH (70%) with a robust dispersion of
+        // 3 in metric units, backed by 8 weeks of history. Fill every hour-of-week
+        // bucket so any sample timestamp resolves to a usable baseline.
+        let bucket = SeasonalBucket {
+            center: 70.0,
+            scale: 3.0,
+            sample_count: 8,
+        };
+        let profile = SeasonalProfile::from_buckets((0..HOURS_PER_WEEK).map(|i| (i, bucket)));
+
+        // 1) Back-compat / contrast: with NO baseline delivered, a fresh series has
+        //    no ready signal, so even a large value is not confirmed anomalous. The
+        //    delivered baseline is what enables the seasonal detection below.
+        let mut bare = DetectorEngine::new(cfg.clone());
+        let bare_verdict = bare
+            .evaluate("s", 200.0, 0, SeriesProfile::default())
+            .expect("verdict");
+        assert_eq!(bare_verdict.state, "insufficient_baseline");
+        assert!(!bare_verdict.anomalous, "no baseline -> nothing to breach");
+
+        let mut engine = DetectorEngine::new(cfg);
+        engine.set_seasonal_baselines(HashMap::from([
+            ("s".to_string(), profile.clone()),
+            ("s2".to_string(), profile),
+        ]));
+        assert_eq!(engine.seasonal_series_count(), 2);
+
+        // 2) A sample HIGH in absolute terms (72%) but NORMAL for its hour-of-week
+        //    bucket (center 70) must NOT be flagged. The series is fresh, so the
+        //    only ready signal is the delivered seasonal one.
+        let normal = engine
+            .evaluate("s", 72.0, 0, SeriesProfile::default())
+            .expect("verdict");
+        let seasonal = normal
+            .signals
+            .iter()
+            .find(|signal| signal.name == "seasonal")
+            .expect("delivered baseline must produce a seasonal signal");
+        assert!(
+            seasonal.ready,
+            "the delivered baseline must make the seasonal signal ready"
+        );
+        assert!(
+            !seasonal.breached,
+            "72 is normal for a center-70 hour (score {})",
+            seasonal.score
+        );
+        assert!(
+            !normal.anomalous,
+            "a high-but-seasonally-normal sample must not be flagged"
+        );
+
+        // 3) A sample that BREACHES its hour-of-week bucket (200% vs center 70) IS
+        //    flagged — the delivered seasonal_baseline drives the verdict.
+        let breach = engine
+            .evaluate("s2", 200.0, 0, SeriesProfile::default())
+            .expect("verdict");
+        let seasonal = breach
+            .signals
+            .iter()
+            .find(|signal| signal.name == "seasonal")
+            .expect("seasonal signal");
+        assert!(
+            seasonal.breached,
+            "200 breaches a center-70 bucket (score {})",
+            seasonal.score
+        );
+        assert!(
+            breach.anomalous,
+            "a sample breaching its seasonal bucket must be flagged"
+        );
+    }
+
+    #[test]
+    fn seasonal_baseline_ignored_when_bucket_history_too_thin() {
+        // A bucket backed by too little history (below min_bucket_samples) is not
+        // trusted: the series stays on the rolling-only path (back-compat), so a
+        // fresh series with no rolling window yields no ready signal.
+        let cfg = EngineConfig {
+            window_size: 50,
+            min_samples: 5,
+            n_sigma: 3.0,
+            confirm_slots: 1,
+            max_series: 10,
+            ..EngineConfig::default()
+        };
+        let thin = SeasonalBucket {
+            center: 70.0,
+            scale: 3.0,
+            sample_count: 1, // below DEFAULT_SEASONAL_MIN_BUCKET_SAMPLES (4)
+        };
+        let profile = SeasonalProfile::from_buckets((0..HOURS_PER_WEEK).map(|i| (i, thin)));
+
+        let mut engine = DetectorEngine::new(cfg);
+        engine.set_seasonal_baselines(HashMap::from([("s".to_string(), profile)]));
+
+        let verdict = engine
+            .evaluate("s", 200.0, 0, SeriesProfile::default())
+            .expect("verdict");
+        assert_eq!(
+            verdict.state, "insufficient_baseline",
+            "a thin-history bucket must not feed the seasonal signal"
+        );
+        assert!(!verdict.anomalous);
     }
 
     #[test]

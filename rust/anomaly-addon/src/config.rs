@@ -6,14 +6,16 @@
 //! Operator-supplied configuration and the resolved settings/counters derived
 //! from it for the [`crate::AnomalyAddon`].
 
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize as _, de::Error as _};
+use serviceradar_anomaly_core::SeasonalBucket;
 
-use crate::engine::EngineConfig;
+use crate::engine::{EngineConfig, SeasonalProfile};
 
 pub(crate) const ADDON_ID: &str = "anomaly";
 pub(crate) const ADDON_VERSION: &str = "0.1.20";
@@ -68,6 +70,32 @@ pub(crate) struct AddonConfig {
     /// started, health degrades if no frame finishes scoring within this age.
     #[serde(default, deserialize_with = "deserialize_optional_u64")]
     pub(crate) scoring_stale_after_secs: Option<u64>,
+    /// Optional per-series hour-of-week seasonal baselines delivered from core,
+    /// keyed by edge series key. Each carries up to 168 `(dow, hod)` buckets with a
+    /// robust `{center, scale}` summary the detector deseasonalizes against.
+    /// Omitted/empty keeps every series on the rolling-only path (back-compat).
+    #[serde(default)]
+    pub(crate) seasonal_baselines: Option<HashMap<String, SeasonalBaselineConfig>>,
+}
+
+/// Wire form of one series' delivered hour-of-week baseline.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub(crate) struct SeasonalBaselineConfig {
+    #[serde(default)]
+    pub(crate) buckets: Vec<SeasonalBucketConfig>,
+}
+
+/// Wire form of one `(dow, hod)` seasonal bucket: a robust center (median) + scale
+/// (robust dispersion in metric units) and the historical sample count that backed
+/// them. `dow` is 0..=6 (Sun=0), `hod` is 0..=23.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub(crate) struct SeasonalBucketConfig {
+    pub(crate) dow: u32,
+    pub(crate) hod: u32,
+    pub(crate) center: f64,
+    pub(crate) scale: f64,
+    #[serde(default)]
+    pub(crate) sample_count: u64,
 }
 
 fn deserialize_optional_usize<'de, D>(deserializer: D) -> Result<Option<usize>, D::Error>
@@ -137,6 +165,42 @@ impl Default for CheckpointSettings {
 }
 
 impl AddonConfig {
+    /// Resolve the delivered wire baselines into the engine's per-series
+    /// [`SeasonalProfile`] map. Buckets with an out-of-range `(dow, hod)` or a
+    /// non-finite center/scale are dropped. Returns an empty map when nothing was
+    /// delivered, so the engine stays on the rolling-only path (back-compat).
+    pub(crate) fn resolve_seasonal_baselines(&self) -> HashMap<String, SeasonalProfile> {
+        let Some(baselines) = self.seasonal_baselines.as_ref() else {
+            return HashMap::new();
+        };
+
+        baselines
+            .iter()
+            .map(|(series_key, baseline)| {
+                let buckets = baseline.buckets.iter().filter_map(|bucket| {
+                    if bucket.dow > 6 || bucket.hod > 23 {
+                        return None;
+                    }
+                    if !bucket.center.is_finite() || !bucket.scale.is_finite() {
+                        return None;
+                    }
+
+                    let index = bucket.dow as usize * 24 + bucket.hod as usize;
+                    Some((
+                        index,
+                        SeasonalBucket {
+                            center: bucket.center,
+                            scale: bucket.scale,
+                            sample_count: bucket.sample_count as usize,
+                        },
+                    ))
+                });
+
+                (series_key.clone(), SeasonalProfile::from_buckets(buckets))
+            })
+            .collect()
+    }
+
     pub(crate) fn into_engine_config(self) -> Result<EngineConfig, String> {
         let base = EngineConfig::default();
         let window_size = self.window_size.unwrap_or(base.window_size).max(1);

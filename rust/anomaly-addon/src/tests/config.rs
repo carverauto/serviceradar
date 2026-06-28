@@ -85,6 +85,58 @@ fn config_rejects_min_samples_larger_than_window_size() {
     assert!(err.contains("window_size (5)"));
 }
 
+#[test]
+fn config_resolves_delivered_seasonal_baselines() {
+    let config: AddonConfig = serde_json::from_value(serde_json::json!({
+        "seasonal_baselines": {
+            "series-a": {
+                "buckets": [
+                    {"dow": 1, "hod": 9, "center": 70.0, "scale": 3.0, "sample_count": 8},
+                    {"dow": 9, "hod": 9, "center": 1.0, "scale": 1.0, "sample_count": 8},
+                    {"dow": 2, "hod": 30, "center": 1.0, "scale": 1.0, "sample_count": 8}
+                ]
+            }
+        }
+    }))
+    .expect("seasonal baselines deserialize");
+
+    let resolved = config.resolve_seasonal_baselines();
+    assert_eq!(resolved.len(), 1);
+    let profile = resolved
+        .get("series-a")
+        .expect("series-a baseline resolves");
+    // Only the in-range (dow 1, hod 9) bucket survives; dow 9 and hod 30 are dropped.
+    assert_eq!(profile.populated_bucket_count(), 1);
+}
+
+#[test]
+fn config_without_seasonal_baselines_resolves_empty() {
+    let config: AddonConfig =
+        serde_json::from_value(serde_json::json!({ "window_size": 100 })).expect("config");
+    assert!(
+        config.resolve_seasonal_baselines().is_empty(),
+        "no delivered baselines -> rolling-only (back-compat)"
+    );
+}
+
+#[tokio::test]
+async fn configure_accepts_delivered_seasonal_baselines() {
+    let addon = AnomalyAddon::new();
+
+    let result = addon
+        .configure(
+            br#"{"seasonal_baselines":{"s":{"buckets":[{"dow":1,"hod":9,"center":70.0,"scale":3.0,"sample_count":8}]}}}"#,
+        )
+        .await
+        .expect("configure returns result");
+
+    assert!(
+        result.accepted,
+        "configure must accept delivered baselines: {}",
+        result.error
+    );
+}
+
 #[tokio::test]
 async fn configure_rejects_min_samples_larger_than_window_size() {
     let addon = AnomalyAddon::new();

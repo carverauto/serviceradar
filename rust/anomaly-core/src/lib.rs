@@ -27,6 +27,7 @@ pub mod cusum;
 pub mod detector;
 pub mod esd;
 pub mod rpca;
+pub mod seasonal;
 pub mod signal;
 pub mod stats;
 pub mod types;
@@ -47,6 +48,7 @@ pub use cusum::{Cusum, CusumStep};
 pub use detector::reason_impl;
 pub use esd::{generalized_esd, norm_ppf, seasonal_hybrid_esd, t_ppf};
 pub use rpca::{jacobi_svd, rpca};
+pub use seasonal::{HOURS_PER_WEEK, SeasonalBucket, hour_of_week, synthetic_baseline};
 pub use stats::{BaselineStats, WelfordAcc, clean_threshold, sample_stats, z_score};
 pub use types::{
     ReasonContext, ReasonEventVerdict, ReasonSample, ReasonVerdict, SaturationGate, SignalVerdict,

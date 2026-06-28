@@ -117,6 +117,54 @@
       "description": "Once scoring has started, health degrades if no metric-feed frame finishes scoring within this age. Tune to match the expected local metric feed cadence. Default 300 (5m).",
       "minimum": 1,
       "default": 300
+    },
+    "seasonal_baselines": {
+      "type": "object",
+      "title": "Per-series hour-of-week seasonal baselines",
+      "description": "Optional central hour-of-week baselines pushed core->edge so the detector deseasonalizes against the long-horizon profile instead of only its short rolling window. Keyed by edge series key; each series carries up to 168 (dow, hod) buckets with a robust median center and dispersion scale. Omitted keeps every series on the rolling-only path. Built by core from the seasonal hour-of-week profile (stats:profile_hour_of_week).",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "buckets": {
+            "type": "array",
+            "title": "Hour-of-week buckets",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "dow": {
+                  "type": "integer",
+                  "title": "Day of week (0=Sunday..6=Saturday)",
+                  "minimum": 0,
+                  "maximum": 6
+                },
+                "hod": {
+                  "type": "integer",
+                  "title": "Hour of day (0..23)",
+                  "minimum": 0,
+                  "maximum": 23
+                },
+                "center": {
+                  "type": "number",
+                  "title": "Robust center (median) for this bucket"
+                },
+                "scale": {
+                  "type": "number",
+                  "title": "Robust dispersion (metric units) for this bucket",
+                  "minimum": 0
+                },
+                "sample_count": {
+                  "type": "integer",
+                  "title": "Historical points backing this bucket",
+                  "minimum": 0
+                }
+              },
+              "required": ["dow", "hod", "center", "scale"]
+            }
+          }
+        }
+      }
     }
   }
 }
