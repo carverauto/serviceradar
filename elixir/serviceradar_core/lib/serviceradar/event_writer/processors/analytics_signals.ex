@@ -19,6 +19,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   alias ServiceRadar.EventWriter.DeviceCorrelation
   alias ServiceRadar.EventWriter.Telemetry, as: EventWriterTelemetry
   alias ServiceRadar.Observability.AnomalyDetection.SeriesKey
+  alias ServiceRadar.Observability.AnomalyDispositionReporter
   alias ServiceRadar.Observability.BmpSettingsRuntime
   alias ServiceRadar.Observability.CausalPubSub
   alias ServiceRadar.Observability.StatefulAlertEvaluationQueue
@@ -105,6 +106,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
       enqueue_alert_evaluation(bulk_ocsf_rows, bulk_ocsf_count)
       enqueue_alert_evaluation(recorded_ocsf_events, length(recorded_ocsf_events))
+
+      report_anomaly_dispositions(recorded_ocsf_events)
 
       ocsf_count = bulk_ocsf_count + length(recorded_ocsf_events)
       CausalPubSub.broadcast_ingest(%{count: ocsf_count})
@@ -475,6 +478,73 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       :stateful_alert_evaluation_queue,
       StatefulAlertEvaluationQueue
     )
+  end
+
+  # Out-of-band, report-only anomaly disposition (OpenSpec 1.11). After the class-2004
+  # anomaly findings are persisted, fire-and-forget each to AnomalyDispositionReporter,
+  # which drives AnomalyDisposition.report_finding/2 OFF the stateful-alert hot path.
+  # Telemetry-only: it never mutates an alert and never blocks ingest. Wrapped so a
+  # mapping defect can never fail the batch insert.
+  defp report_anomaly_dispositions(rows) when is_list(rows) do
+    Enum.each(rows, fn row ->
+      with true <- anomaly_disposition_row?(row),
+           %{} = finding <- anomaly_disposition_finding(row) do
+        AnomalyDispositionReporter.report(finding)
+      else
+        _ -> :ok
+      end
+    end)
+
+    :ok
+  rescue
+    error ->
+      Logger.warning("anomaly disposition dispatch failed: #{inspect(error)}")
+      :ok
+  end
+
+  # class-2004 anomaly findings only (NOT capacity_forecast, which carries no spike peak
+  # and would only ever `:ignore` in the disposition).
+  defp anomaly_disposition_row?(%{class_uid: @ocsf_detection_finding_class_uid} = row) do
+    row_value(row, "signal_type") in ["causal", "prediction"] and
+      row_value(row, "event_type") in ["anomaly", "anomaly_detection"]
+  end
+
+  defp anomaly_disposition_row?(_row), do: false
+
+  # Map a persisted class-2004 anomaly OCSF row to the AnomalyDisposition.report_finding/2
+  # shape. The canonical source_identity comes from metadata.service_radar (device_id is
+  # the re-keyed canonical uid), and the FORWARDED edge spike peak from
+  # finding_info.dimensions (episode_peak_value/episode_peak_at_unix_nano, emitted by the
+  # anomaly add-on — see rust/anomaly-addon verdict.rs). Returns nil when the canonical id
+  # or the forwarded peak is absent (report_finding/2 would `:ignore` it anyway).
+  @doc false
+  def anomaly_disposition_finding(row) do
+    metadata = Map.get(row, :metadata) || Map.get(row, "metadata") || %{}
+    service_radar = Map.get(metadata, "service_radar") || %{}
+    dimensions = get_in(metadata, ["finding_info", "dimensions"]) || %{}
+
+    device_id = service_radar["device_id"]
+    peak_value = dimensions["episode_peak_value"]
+    peak_at = dimensions["episode_peak_at_unix_nano"]
+
+    if is_binary(device_id) and not is_nil(peak_value) and not is_nil(peak_at) do
+      source_identity =
+        %{
+          "device_id" => device_id,
+          "metric_class" => service_radar["metric_class"],
+          "metric_name" => service_radar["metric_name"],
+          "if_index" => service_radar["if_index"],
+          "target_device_ip" => dimensions["target_device_ip"]
+        }
+        |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+        |> Map.new()
+
+      %{
+        source_identity: source_identity,
+        episode_peak_value: peak_value,
+        episode_peak_at_unix_nano: peak_at
+      }
+    end
   end
 
   defp persist_to_ocsf?(%{normalized: normalized}) when is_map(normalized) do
