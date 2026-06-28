@@ -21,15 +21,25 @@ defmodule ServiceRadar.Observability.AnomalyDisposition.PeakProfile do
   `build_profile_hour_of_week_peak_query`) — an earlier `agg:max` + `mad` guess was
   rejected by the live DB.
 
-  > ⚠️ **BLOCKED (DB-discovered):** running this query against the real schema returns
-  > `unsupported filter field for downsample timeseries_metrics: 'timezone'`. The SRQL
-  > *planner* routes `stats:profile_hour_of_week_peak(...)` to the downsample path
-  > (which rejects `timezone`), whereas the otherwise-identical `profile_hour_of_week`
-  > routes to the profile path and works (the seasonal worker uses it). So the peak
-  > verb parses (`execute_stats` handles it) but is **not reachable via a query** — a
-  > planner stats-detection gap in `rust/srql`. This fetcher's parsing is correct and
-  > unit-tested; it cannot run end-to-end until that routing gap is fixed (and the SRQL
-  > NIF rebuilt). Task 1.9's "verb exists" was a static check that missed reachability.
+  > ⚠️ **BLOCKED (DB-discovered) — and NOT peak-specific:** run against the real schema,
+  > this query returns `unsupported filter field for downsample timeseries_metrics:
+  > 'timezone'`. Critically, the **plain `profile_hour_of_week`** query (the EXACT
+  > production seasonal query, `seasonal_disposition/source.ex` `profile_query/5`) fails
+  > the SAME way via `SRQLRunner.query/2`. Root: `parser.rs:207` sets `plan.downsample`
+  > for ANY `bucket:` clause, and `engine.rs:43` dispatches `plan.downsample.is_some()`
+  > → `downsample::execute` BEFORE the stats/profile route is considered — so a
+  > `bucket:1h` + `stats:profile_hour_of_week*` query never reaches `execute_stats`
+  > (line 798), which is where the profile/peak builders live. Without `bucket`, it
+  > instead errors `profile_hour_of_week requires the profile stats route`.
+  >
+  > So neither the peak NOR the non-peak profile query is reachable through `SRQLRunner`
+  > as written. The proof harness only ever verified the RAW profile SQL (`db/seasonal_verb.sql`),
+  > and the seasonal worker tests mock the runner — so the SRQL-string→engine path was
+  > never exercised. **URGENT:** either the seasonal-disposition data feed is broken in
+  > production via this path, or it uses a different invocation. This fetcher's parsing
+  > is correct + unit-tested; it (and the disposition loop) cannot run e2e until the
+  > `rust/srql` downsample-vs-profile routing is fixed and the NIF rebuilt. Task 1.9's
+  > "verb exists" / F15's "confirmed" were checks of the SQL, not the query path.
   """
 
   alias ServiceRadar.Observability.SRQLRunner
