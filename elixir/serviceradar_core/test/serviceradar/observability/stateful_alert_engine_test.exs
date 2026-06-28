@@ -426,6 +426,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert {:ok, 1} = AnalyticsSignals.process_batch([message])
     assert persisted_ocsf_event?(row)
 
+    # The async queue path persists the alert and then syncs incident metadata
+    # as a separate write, so wait until the active alert exists AND its incident
+    # metadata is populated (the conditions the assertions below depend on)
+    # rather than just for the alert row to appear.
     active_alerts =
       eventually(
         fn ->
@@ -435,7 +439,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
           |> Page.unwrap!()
           |> Enum.filter(fn alert -> alert.title == alert_title end)
         end,
-        fn alerts -> match?([_], alerts) end
+        fn
+          [alert] -> alert.metadata["incident_rule_id"] == to_string(rule.id)
+          _ -> false
+        end
       )
 
     assert [active_alert] = active_alerts
@@ -735,8 +742,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert :ok = StatefulAlertEngine.evaluate_events([event])
     assert [active_alert] = active_alerts_by_title(actor, alert_title)
 
+    # The engine stringifies every group value (Record.build_group/2 uses
+    # to_string/1 so the group key and values stay consistent), so the integer
+    # if_index is recorded as its string form.
     assert active_alert.metadata["incident_group_values"] == %{
-             "anomaly.if_index" => if_index,
+             "anomaly.if_index" => to_string(if_index),
              "anomaly.metric_name" => metric_name,
              "device_id" => device_uid
            }
@@ -1081,7 +1091,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert [] = active_alerts_by_title(actor, alert_title)
 
     history =
-      rule.id |> StatefulAlertRuleHistory.list_by_rule(actor: actor) |> Page.unwrap()
+      rule.id |> StatefulAlertRuleHistory.list_by_rule(actor: actor) |> Page.unwrap!()
 
     assert Enum.any?(history, &(&1.event_type == :recovered))
 

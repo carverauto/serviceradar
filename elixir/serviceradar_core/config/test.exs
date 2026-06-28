@@ -150,7 +150,17 @@ queue_target = if queue_target, do: parse_int.(queue_target)
 queue_interval = if queue_interval, do: parse_int.(queue_interval)
 ownership_timeout = if ownership_timeout, do: parse_int.(ownership_timeout)
 search_path = System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")
-default_test_pool_size = min(System.schedulers_online() * 2, 8)
+# The stateful alert engine fans evaluation out across N sharded GenServers
+# (`StatefulAlertEngine`, default 8 shards). On a cold batch every shard
+# concurrently performs its own DB reads (`load_state_snapshots` in `init`,
+# `load_rules`) under the Ecto sandbox. If the pool does not exceed that
+# fan-out (plus the test process and background workers), the concurrent
+# shards starve waiting for a connection and the fan-out times out
+# (`{:error, {:shard_exit, :timeout}}`), so alerts never fire. The previous
+# `min(schedulers * 2, 8)` cap equalled the shard count exactly (zero
+# headroom). Keep a floor comfortably above the shard fan-out. Explicit
+# `*_DATABASE_POOL_SIZE` overrides still win for the shared fixture DB.
+default_test_pool_size = max(min(System.schedulers_online() * 2, 16), 12)
 
 repo_config =
   if db_url do
