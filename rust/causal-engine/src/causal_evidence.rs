@@ -27,7 +27,13 @@ pub struct CausalEvidence {
 
 /// Parse an anomaly or capacity forecast causal prediction envelope.
 pub fn parse_causal_prediction(envelope: &Value) -> Option<CausalEvidence> {
-    if envelope.get("signal_type")?.as_str()? != "causal" {
+    // 1.f3 dual-consume: accept the honest new routing value "prediction" alongside the
+    // legacy "causal" during the wire-rename migration. No producer emits the new value
+    // yet, so this is a dead branch until the coordinated 1.1/1.f2 rename + BMP/topology.
+    if !matches!(
+        envelope.get("signal_type").and_then(|v| v.as_str())?,
+        "causal" | "prediction"
+    ) {
         return None;
     }
 

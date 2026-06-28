@@ -380,7 +380,9 @@ defmodule ServiceRadar.StatusHandler do
   # verdict_source label (edge-spike) rides through in the body and is surfaced
   # by CausalSignals.
   defp anomaly_verdict?(event) when is_map(event) do
-    Map.get(event, "signal_type") == "causal" and Map.get(event, "event_type") == "anomaly"
+    # 1.f3 dual-consume: accept the honest new routing value alongside the legacy "causal".
+    Map.get(event, "signal_type") in ["causal", "prediction"] and
+      Map.get(event, "event_type") == "anomaly"
   end
 
   defp anomaly_verdict?(_), do: false

@@ -437,7 +437,9 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     signal_type = row_value(row, "signal_type")
     event_type = row_value(row, "event_type")
 
-    signal_type == "causal" and
+    # 1.f3 dual-consume: accept the honest new routing value "prediction" alongside the
+    # legacy "causal" (no producer emits it yet; dead branch until the 1.1/1.f2 rename).
+    signal_type in ["causal", "prediction"] and
       event_type in ["anomaly", "anomaly_detection", "capacity_forecast"]
   end
 
@@ -1242,7 +1244,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     normalized_event_type = normalize_event_type(event_type)
     finding_type = normalize_event_type(payload["finding_type"] || payload["findingType"])
 
-    signal_type == "causal" and
+    signal_type in ["causal", "prediction"] and
       (payload["class_uid"] == @ocsf_detection_finding_class_uid or
          normalized_event_type in ["anomaly", "anomaly_detection"] or
          finding_type in ["detection", "anomaly", "anomaly_detection"])

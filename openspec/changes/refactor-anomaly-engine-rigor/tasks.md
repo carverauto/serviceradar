@@ -37,7 +37,7 @@
 
 - [~] 1.f1 Producer-side honest naming added ALONGSIDE the old (additive, non-breaking): the anomaly verdict now emits `detector_method: "rolling_robust_zscore"` next to the legacy routing `signal_type:"causal"` (`rust/anomaly-addon/src/verdict.rs`, 73 tests green). The NATS subject + `SignalSchemaRef` rename and the BMP/topology producers' matching dual-publish (1.f2) are the coordinated breaking parts (the value rename needs dual-consume 1.f3 first).
 - [ ] 1.f2 **Dual-publish** from every producer during the cutover: anomaly addon `verdict.rs`, the BMP producer (`add-bmp-dual-path-observability`), the topology-overlay producer (`topology-causal-overlays`).
-- [ ] 1.f3 **Dual-consume** in every consumer (prefer new, accept old): `.../event_writer/processors/causal_signals.ex`, `rust/causal-engine` evidence consumer, web-ng.
+- [~] 1.f3 Dual-consume landed in the CORE consumers (accept the honest new routing value `"prediction"` alongside legacy `"causal"`): `causal_evidence.rs` (Rust evidence consumer), `status_handler.ex`, `causal_signals.ex` (×2 routers, `:440`/`:1245`). Additive dead-branch until a producer emits the new value — compiles clean (warnings-as-errors); 36/37 causal_signals tests pass (the 1 failure is a PRE-EXISTING baseline time-alignment test, unrelated — verified by reverting). web-ng dual-consume + the value rename (1.1) + the BMP/topology producers (1.f2) follow.
 - [ ] 1.f4 Migrate producers/consumers; add a zero-traffic verification step on the old subject/field; **drop** the old form only after verified zero traffic. Document rollback (revert the regressed side; old form stays live until the verified drop).
 
 ### 1c. Close the matched-resolution disposition loop (absorbs #4280)
