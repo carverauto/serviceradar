@@ -52,7 +52,8 @@ defmodule ServiceRadar.Observability.RuleSeederTest do
     assert rule.match["subject_prefix"] == "signals.causal.predictions"
 
     assert rule.match["attribute_equals"] == %{
-             "signal_type" => "causal",
+             # dual-match the legacy + honest routing values during the 1f wire migration
+             "signal_type" => ["causal", "prediction"],
              "event_type" => ["anomaly", "anomaly_detection"],
              "anomaly.state" => ["anomaly_open", "open", "anomalous"]
            }
@@ -86,7 +87,8 @@ defmodule ServiceRadar.Observability.RuleSeederTest do
     assert rule.match["subject_prefix"] == "signals.causal.predictions"
 
     assert rule.match["attribute_equals"] == %{
-             "signal_type" => "causal",
+             # dual-match the legacy + honest routing values during the 1f wire migration
+             "signal_type" => ["causal", "prediction"],
              "event_type" => "capacity_forecast",
              "capacity_forecast.status" => "projected"
            }
