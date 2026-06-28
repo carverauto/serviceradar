@@ -19,12 +19,12 @@ filegroup(
 # for the kernel unit tests. The `rustler` feature is OFF here, so the optional
 # proc-macro dep is not pulled into this target.
 rust_library(
-    name = "serviceradar_causal_disposition",
+    name = "serviceradar_anomaly_disposition",
     srcs = glob(
         ["src/**/*.rs"],
         exclude = ["src/bin/**/*.rs"],
     ),
-    crate_name = "serviceradar_causal_disposition",
+    crate_name = "serviceradar_anomaly_disposition",
     crate_root = "src/lib.rs",
     edition = "2024",
     # path-dep on the shared substrate (the sibling bazel target) + deep_causality_core.
@@ -36,8 +36,8 @@ rust_library(
 )
 
 rust_test(
-    name = "serviceradar_causal_disposition_test",
-    crate = ":serviceradar_causal_disposition",
+    name = "serviceradar_anomaly_disposition_test",
+    crate = ":serviceradar_anomaly_disposition",
     deps = all_crate_deps(
         normal = True,
         normal_dev = True,
@@ -57,7 +57,7 @@ rust_test(
     crate_root = "tests/anomaly_e2e.rs",
     edition = "2024",
     deps = [
-        ":serviceradar_causal_disposition",
+        ":serviceradar_anomaly_disposition",
         "//rust/anomaly-core:serviceradar_anomaly_core",
     ],
 )

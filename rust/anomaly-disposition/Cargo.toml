@@ -1,13 +1,13 @@
 [package]
-name = "serviceradar-causal-disposition"
+name = "serviceradar-anomaly-disposition"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.90"
-description = "Central disposition kernels (seasonal residual-z, capacity forecast) on ServiceRadar's shared DeepCausality streaming substrate (serviceradar-anomaly-core). The thin Rustler NIF wraps these kernels; this crate carries zero rustler dep so it stays linkable by bazel, tests, and correlation-engine (OpenSpec: add-core-causal-disposition-nif)."
+description = "Central disposition kernels (seasonal residual-z, capacity least-squares / Holt-Winters forecast) — robust STATISTICS, not causal inference. Hosted on the shared serviceradar-anomaly-core streaming substrate (a CausalFlow pipeline combinator from the DeepCausality library, used here as plumbing only). The thin Rustler NIF wraps these kernels; this crate carries zero rustler dep so it stays linkable by bazel, tests, and correlation-engine (OpenSpec: add-core-causal-disposition-nif)."
 license = "Apache-2.0"
 
 [lib]
-name = "serviceradar_causal_disposition"
+name = "serviceradar_anomaly_disposition"
 path = "src/lib.rs"
 
 [dependencies]
@@ -20,7 +20,7 @@ deep_causality_core = "0.10.0"
 # The NIF-facing ABI derives (NifMap/NifStruct) are gated behind this feature so
 # the kernel crate stays dependency-light: bazel, `cargo test`, and (in
 # principle) correlation-engine link it WITHOUT pulling rustler / its proc-macro tree.
-# Only `native/causal_disposition_nif` turns this on.
+# Only `native/anomaly_disposition_nif` turns this on.
 rustler = { version = "0.38", optional = true, default-features = false }
 
 [features]
@@ -28,5 +28,5 @@ default = []
 # Turn on the typed NIF ABI derives (NifTaggedEnum / NifMap / NifUnitEnum). We
 # pull rustler with default-features off to stay light, so re-assert the minimal
 # NIF version rustler's own default would set (`nif_version_2_15`); without it the
-# rustler build script aborts. Only `native/causal_disposition_nif` enables this.
+# rustler build script aborts. Only `native/anomaly_disposition_nif` enables this.
 rustler = ["dep:rustler", "rustler/nif_version_2_15"]

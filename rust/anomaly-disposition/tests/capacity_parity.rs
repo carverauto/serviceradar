@@ -25,7 +25,7 @@
 //! (`DateTime.add(first_at, round(cross_x), :second)`), so an off-by-one would be a
 //! real divergence, not a rounding artifact.
 
-use serviceradar_causal_disposition::{
+use serviceradar_anomaly_disposition::{
     CapacityConfig, CapacityModelKind, CapacityPoint, CapacityRow, Disposition, dispose_capacity,
 };
 

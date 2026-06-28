@@ -14,7 +14,7 @@
 #
 # Regenerate (only while `model.ex` still exists) with:
 #   elixirc <path>/model.ex && \
-#   elixir -pa . rust/causal-disposition/tests/fixtures/generate_capacity_parity_fixtures.exs
+#   elixir -pa . rust/anomaly-disposition/tests/fixtures/generate_capacity_parity_fixtures.exs
 #
 # `model.ex` is pure (no Ash/DB/OTP deps), so this compiles and runs standalone.
 

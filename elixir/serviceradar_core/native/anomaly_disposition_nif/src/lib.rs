@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! The central disposition NIF: a thin Rustler cdylib that wraps the
-//! `serviceradar-causal-disposition` kernels (seasonal residual-z and capacity
+//! `serviceradar-anomaly-disposition` kernels (seasonal residual-z and capacity
 //! forecast) so the BEAM seasonal/capacity tier runs in Rust. The kernels are robust
 //! statistics hosted on a `CausalFlow` pipeline combinator — not causal inference.
 //!
@@ -32,7 +32,7 @@
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use rustler::{NifTaggedEnum, NifUnitEnum};
-use serviceradar_causal_disposition::{
+use serviceradar_anomaly_disposition::{
     dispose_capacity, dispose_seasonal, CapacityConfig, CapacityDisposition, CapacityRow,
     SeasonalConfig, SeasonalDisposition, SeasonalRow,
 };
@@ -145,7 +145,7 @@ fn dispose_one(kind: DispositionKind, request: DispositionRequest) -> Dispositio
     }
 }
 
-rustler::init!("Elixir.ServiceRadar.Observability.CausalReasoner");
+rustler::init!("Elixir.ServiceRadar.Observability.DispositionKernels");
 
 #[cfg(test)]
 mod tests {
@@ -157,7 +157,7 @@ mod tests {
     //! construct and run in plain `cargo test` without the BEAM runtime.
 
     use super::*;
-    use serviceradar_causal_disposition::{
+    use serviceradar_anomaly_disposition::{
         CapacityModelKind, CapacityPoint, Disposition, RobustStatistic,
     };
 

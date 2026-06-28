@@ -18,7 +18,7 @@
 use std::collections::HashMap;
 use std::io::{self, BufRead, Read, Write};
 
-use serviceradar_causal_disposition::{
+use serviceradar_anomaly_disposition::{
     CapacityConfig, CapacityModelKind, CapacityPoint, CapacityRow, Disposition, RobustStatistic,
     SeasonalConfig, SeasonalRow, dispose_capacity, dispose_seasonal,
 };

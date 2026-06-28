@@ -3,6 +3,14 @@
 version = 4
 
 [[package]]
+name = "anomaly_disposition_nif"
+version = "0.1.0"
+dependencies = [
+ "rustler",
+ "serviceradar-anomaly-disposition",
+]
+
+[[package]]
 name = "anstream"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -50,14 +58,6 @@ dependencies = [
  "anstyle",
  "once_cell_polyfill",
  "windows-sys",
-]
-
-[[package]]
-name = "causal_disposition_nif"
-version = "0.1.0"
-dependencies = [
- "rustler",
- "serviceradar-causal-disposition",
 ]
 
 [[package]]
@@ -199,9 +199,9 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.45"
+version = "1.0.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41f2619966050689382d2b44f664f4bc593e129785a36d6ee376ddf37259b924"
+checksum = "dfbc457d0c7a0759a614551b11a6409e5951f6c7537be1f1b7682b9ae9230368"
 dependencies = [
  "proc-macro2",
 ]
@@ -299,7 +299,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "serviceradar-causal-disposition"
+name = "serviceradar-anomaly-disposition"
 version = "0.1.0"
 dependencies = [
  "deep_causality_core",

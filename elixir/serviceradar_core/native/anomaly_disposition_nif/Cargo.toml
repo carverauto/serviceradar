@@ -1,10 +1,10 @@
 [package]
-name = "causal_disposition_nif"
+name = "anomaly_disposition_nif"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "causal_disposition_nif"
+name = "anomaly_disposition_nif"
 crate-type = ["cdylib"]
 
 [dependencies]
@@ -17,7 +17,7 @@ rustler = "0.38.0"
 # the NIF-facing ABI types derive NifMap/NifTaggedEnum/NifUnitEnum. The kernel crate
 # keeps that feature OFF by default, so bazel/tests/causal-engine link it without
 # pulling rustler.
-serviceradar-causal-disposition = { path = "../../../../rust/causal-disposition", features = ["rustler"] }
+serviceradar-anomaly-disposition = { path = "../../../../rust/anomaly-disposition", features = ["rustler"] }
 
 # Bare workspace table so this cdylib is NOT a member of the root cargo workspace
 # (mirrors native/zen_nif). Rustler builds it standalone from this directory.

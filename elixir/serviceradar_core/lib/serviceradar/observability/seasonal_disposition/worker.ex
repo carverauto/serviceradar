@@ -15,7 +15,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
     2. Hydrate each profile row into the typed `{:seasonal, %{config, row}}` request
        ABI, carrying in `consecutive_anomalous` from the state store for confirm-slot
        hysteresis.
-    3. Call `CausalReasoner.dispose_batch(:seasonal, rows)` once per source — the NIF
+    3. Call `DispositionKernels.dispose_batch(:seasonal, rows)` once per source — the NIF
        moves only residual-z, breach, baseline-sufficiency, and robust-statistic
        selection; every gate is a typed `Disposition` value, never an unwind.
     4. Persist the returned `next_consecutive_anomalous` per `(series_key, dow, hod)`
@@ -24,7 +24,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
 
   Mirrors `ServiceRadar.Observability.CapacityForecasting.Worker`. Tests can inject
   `:runner`, `:sources`, `:reasoner`, `:state_loader`, `:state_persister`, and
-  `:verdict_emitter`; production uses `SRQLRunner`, the `CausalReasoner` NIF facade,
+  `:verdict_emitter`; production uses `SRQLRunner`, the `DispositionKernels` NIF facade,
   and the Postgres-backed seasonal state store.
   """
 
@@ -38,7 +38,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
     ]
 
   alias ServiceRadar.Observability.AnomalyConfigRuntime
-  alias ServiceRadar.Observability.CausalReasoner
+  alias ServiceRadar.Observability.DispositionKernels
   alias ServiceRadar.Observability.PagedQuery
   alias ServiceRadar.Observability.SeasonalDisposition.Source
   alias ServiceRadar.Observability.SeasonalDisposition.StateStore
@@ -376,7 +376,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   end
 
   defp safe_dispose_batch(kind, inputs, opts) do
-    reasoner = Keyword.get(opts, :reasoner, CausalReasoner)
+    reasoner = Keyword.get(opts, :reasoner, DispositionKernels)
 
     try do
       {:ok, reasoner.dispose_batch(kind, inputs)}

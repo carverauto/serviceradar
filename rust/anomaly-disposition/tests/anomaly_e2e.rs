@@ -8,7 +8,7 @@
 //!
 //! - the AGENT edge detector ([`serviceradar_anomaly_core::reason_impl`]), which
 //!   judges a sample against its recent ROLLING baseline, and
-//! - the CORE disposition ([`serviceradar_causal_disposition::dispose_seasonal`]),
+//! - the CORE disposition ([`serviceradar_anomaly_disposition::dispose_seasonal`]),
 //!   which judges the SAME sample value against that series' SEASONAL `(dow,hod)`
 //!   cell.
 //!
@@ -40,7 +40,7 @@
 //! mean/stddev exact and legible.
 
 use serviceradar_anomaly_core::{ReasonContext, ReasonSample, ReasonVerdict, reason_impl};
-use serviceradar_causal_disposition::{Disposition, SeasonalConfig, SeasonalRow, dispose_seasonal};
+use serviceradar_anomaly_disposition::{Disposition, SeasonalConfig, SeasonalRow, dispose_seasonal};
 
 /// The flat rolling baseline every case shares: ~100 with a tiny ±0.5 jitter so the
 /// rolling stddev is strictly > 0 (a degenerate zero-variance window would make the

@@ -6063,6 +6063,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serviceradar-anomaly-disposition"
+version = "0.1.0"
+dependencies = [
+ "deep_causality_core",
+ "rustler",
+ "serviceradar-anomaly-core",
+]
+
+[[package]]
 name = "serviceradar-bmp-collector"
 version = "0.1.0"
 dependencies = [
@@ -6081,15 +6090,6 @@ dependencies = [
  "serde 1.0.228",
  "serde_json 1.0.150",
  "tokio",
-]
-
-[[package]]
-name = "serviceradar-causal-disposition"
-version = "0.1.0"
-dependencies = [
- "deep_causality_core",
- "rustler",
- "serviceradar-anomaly-core",
 ]
 
 [[package]]

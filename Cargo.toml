@@ -28,7 +28,7 @@ members = [
     "rust/metrics-delta-writer",
     "rust/anomaly-core",
     "rust/anomaly-addon",
-    "rust/causal-disposition",
+    "rust/anomaly-disposition",
 ]
 exclude = [
     "elixir/serviceradar_core_elx/deps/ex_sctp/native/ex_sctp",
