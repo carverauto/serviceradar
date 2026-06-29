@@ -5,28 +5,17 @@ title: Anomaly Engine
 # Anomaly Engine
 
 This is the single source of truth for how ServiceRadar detects metric anomalies
-and forecasts capacity, end to end. It documents the **actual** statistics the
-engine runs, the data contract it depends on, the honest scope of its naming, and
-how to prove every behavioral claim on real code with the proof harness.
-
-:::note What this engine is — and is not
-ServiceRadar's anomaly engine is **robust statistics across two tiers plus a
-deterministic rule/dependency-graph correlation expert system**. It is **not**
-causal inference. Identifiers that historically carried "causal" branding —
-crate names, an OCSF `signal_type` field, NATS subjects, an Elixir facade —
-overclaimed and have been **renamed to honest names** (`causal-engine` →
-`correlation-engine`, `causal-disposition` → `anomaly-disposition`,
-`CausalSignals` → `AnalyticsSignals`, `CausalReasoner` → `DispositionKernels`,
-`signals.causal.*` → `signals.analytics.*`). The only thing that legitimately
-keeps "causal" is the DeepCausality library the engine is *hosted on*. See
-[Honest naming: what is and is not causal](#honest-naming-what-is-and-is-not-causal).
-:::
+and forecasts capacity, end to end. It documents the statistics the engine runs,
+the data contract it depends on, and how to prove every behavioral claim on real
+code with the proof harness.
 
 ## Overview & two-tier architecture
 
 Detection is split across an **edge tier** and a **core tier**, with a
 **deterministic dependency expert system** layered on top for topology-aware
-reasoning.
+reasoning. The engine runs robust statistics (rolling/seasonal/capacity z-scores,
+OLS/Holt-Winters, CUSUM, S-H-ESD, RPCA) plus deterministic rule/dependency-graph
+correlation.
 
 1. **Edge spike detector** — runs in the native `anomaly-addon`, co-located with
    `serviceradar-agent`, using the `rust/anomaly-core` detector. A per-series
@@ -43,8 +32,8 @@ reasoning.
    with a valid prediction interval.
 4. **Deterministic correlation expert system** — `rust/correlation-engine`. ~13
    hand-coded if-then rules plus ultragraph centrality/reachability over the
-   topology graph. Legitimate rule/dependency-graph **correlation** — **not**
-   causal inference.
+   topology graph — rule/dependency-graph **correlation** that follows the wired
+   dependency graph.
 
 ```mermaid
 flowchart TB
@@ -228,52 +217,6 @@ The earlier heuristic `confidence = clamp(1 - rmse/scale)` was removed precisely
 because it was being misread that way.
 :::
 
-## Honest naming: what is and is not causal
-
-This is the most important section to get right, because the engine's whole point
-is being honest about what it is. It runs **robust statistics** and **rule/
-dependency-graph correlation** — **not** causal inference. The identifiers that
-once implied otherwise have therefore been **renamed to honest names**.
-
-**What the engine IS:**
-
-- A **robust statistical spike detector** at the edge (a guarded rolling z-score,
-  with seasonal residual-z, CUSUM, S-H-ESD, and RPCA/GESD kernels as the
-  documented Phase-2 work).
-- A **seasonal residual-z disposition** at the core (hour-of-week median/MAD).
-- A **trend/forecast capacity model** at the core (OLS / Holt-Winters with a valid
-  prediction interval).
-- A **deterministic rule/dependency-graph correlation expert system**
-  (`rust/correlation-engine`): ~13 hand-coded if-then rules plus ultragraph
-  centrality and reachability over the topology graph. This is legitimate, useful
-  **correlation** — it follows a wired dependency graph, not a learned cause.
-
-**What the engine is NOT:**
-
-- It performs **no causal inference**. There is no structural causal model (SCM),
-  no do-calculus, no counterfactuals, and no interventions anywhere in the
-  detector, the disposition tiers, or the correlation expert system. The work is
-  rolling/seasonal/capacity z-scores, OLS/Holt-Winters, CUSUM, S-H-ESD, and RPCA —
-  robust statistics — plus deterministic rule/graph correlation.
-- The overclaiming "causal" identifiers have been **renamed** to match what the
-  code actually does:
-  - `rust/causal-engine` → `rust/correlation-engine` ("correlation, not causation")
-  - crate `causal-disposition` → `anomaly-disposition`; NIF `causal_disposition_nif`
-    → `anomaly_disposition_nif`; Elixir facade `CausalReasoner` → `DispositionKernels`
-  - module `CausalSignals` / `causal_signals.ex` → `AnalyticsSignals` /
-    `analytics_signals.ex`
-  - NATS subjects `signals.causal.*` → `signals.analytics.*`
-  - wire `signal_type: "causal"` → `"prediction"`; `"collector": "causal-engine"`
-    → `"correlation-engine"`
-- The **only** thing that legitimately keeps "causal" is the DeepCausality library
-  the engine is *hosted on*. Its `Causaloid` / `CausalFlow` / `CausableGraph` /
-  `CausaloidGraph` types provide the execution substrate that *hosts* the
-  statistics; they do **not** make the detector "causal."
-
-In short: this is **robust statistics + a seasonal/forecast disposition engine + a
-deterministic rule/dependency-graph correlation expert system**, hosted on
-DeepCausality. Describe it that way.
-
 ## The disposition loop
 
 The two detection tiers are wired into a **closed loop**: the core **disposes** each
@@ -440,7 +383,7 @@ kernels are the documented Phase-2 work measured against it.
 | CUSUM drift kernel | closing the drift gap | cpu drift **9/300** (z) → **230/300** (CUSUM), ~**0.6% FP** on clean; memory leak **0/1500** → **742/1500**, **38% FP** — the short-history caveat that needs the core 180-day hour-of-week profile (why task 2.6 exists) |
 | S-H-ESD seasonal kernel | seasonal suppression | **7/7** — recurring nightly/daytime/weekend load **suppressed at z=0.00** (the same load the naive edge over-flags **21/21**); off-pattern breaches flagged (z=**9.01 / 7.42 / 16.15**); insufficient-baseline gated |
 | RPCA / GESD reference | the robust kernels are correct | **8/8** — GESD finds injected outliers at exact indices **[40,41,42]** and nothing on clean; SVD reconstructs and is orthonormal; `norm_ppf` / `t_ppf` match reference quantiles |
-| Capacity kernel | the band overclaim | PI band **widens with horizon** (7d **5.89** / 30d **5.93** / 90d **6.15**), replacing the old constant-width band; exhaustion ETA emitted at 30d/90d (projected **73.7% / 102.5%**), none at 7d (**62.6%**) |
+| Capacity kernel | the horizon-widening band | PI band **widens with horizon** (7d **5.89** / 30d **5.93** / 90d **6.15**), replacing the old constant-width band; exhaustion ETA emitted at 30d/90d (projected **73.7% / 102.5%**), none at 7d (**62.6%**) |
 | Disposition (matched-resolution, real DB) | the peak-vs-peak loop | hour-of-week PEAK profile center=**55**, scale=**4**, n=**8** → suppress@peak 56 (z≈0.25), downgrade@peak 63 (z=2.0), escalate@peak 90 (novel); a zero-variance profile escalates **any** above-center peak; **report-only by default** (`actionable?` false unless `suppression_enabled`) |
 
 Test suites green on 2026-06-28 (pass/fail):

@@ -6,9 +6,9 @@ title: Anomaly Detection (Tuning & Operations)
 
 :::note Looking for how the engine works?
 This page is the **operator-facing tuning and operations guide**. For the
-architecture, the actual statistics, the data contract, honest naming (what is and
-is **not** causal), the disposition loop, and the proof harness, see the
-[Anomaly Engine](./anomaly-engine.md) reference — the single source of truth.
+architecture, the actual statistics, the data contract, the disposition loop, and
+the proof harness, see the [Anomaly Engine](./anomaly-engine.md) reference — the
+single source of truth.
 :::
 
 ServiceRadar can evaluate live metrics for short-term anomalies and long-term
@@ -190,8 +190,8 @@ or, when available, a targeted series override.
 
 Metrics must enter ServiceRadar through NATS JetStream before they are written
 to CNPG. This keeps anomaly detection and the `correlation-engine` (the
-rule/dependency-graph correlation expert system, formerly `causal-engine`)
-subscribed to the same stream as the persistence consumer.
+rule/dependency-graph correlation expert system) subscribed to the same stream as
+the persistence consumer.
 
 For spike detection, assign the native `anomaly` add-on to the agents that own
 sysmon or SNMP collection. The default profile uses the broad SRQL target
