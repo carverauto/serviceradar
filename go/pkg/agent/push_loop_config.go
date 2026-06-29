@@ -19,6 +19,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"time"
 
@@ -139,7 +140,129 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 		return true
 	}
 
-	// Update intervals from config response
+	p.applyConfigIntervals(configResp)
+
+	// The control plane re-streams the SAME deterministic config version on every dependency
+	// write (not_modified:false), and a genuinely-transient section keeps that version
+	// uncommitted, so the gateway re-streams it on every poll. Re-running the full idempotent
+	// pipeline (sweep clear, mapper, sysmon, SNMP, plugins, checks) on every resend is an
+	// apply storm. Because the version is a deterministic hash of the whole config, an equal
+	// version means identical inputs for those sections, so run them only on the FIRST attempt
+	// of a version — lastAttemptedConfigVersion is recorded once an attempt reaches the end of
+	// the heavy pipeline below (see comment there). The deferrable sections (Bumblebee,
+	// endpoint inventory, add-ons, visibility) always run so a transient failure still retries.
+	firstAttempt := configResp.ConfigVersion == "" ||
+		configResp.ConfigVersion != p.getLastAttemptedConfigVersion()
+
+	if firstAttempt {
+		p.applySweepConfig(ctx, configResp.ConfigJson)
+		p.applyMapperConfig(configResp.ConfigJson)
+	}
+
+	// Apply every config section independently. A section that cannot apply yet only DEFERS
+	// the config-version update so the gateway resends it — it must NOT short-circuit and
+	// block the unrelated sections that follow. A PERMANENT failure (one that a resend of the
+	// identical config cannot fix — a parse error, a missing agent server, a fixed-path write
+	// failure) is recorded + logged but does NOT defer: wedging the version commit on it would
+	// freeze the whole config apply and make the gateway re-stream the same version on every
+	// poll forever (fj #4301). Only a TRANSIENT failure (one that may clear on its own) defers.
+	// This mirrors the permanent-vs-transient split already used for add-on assignments below.
+	deferred := false
+
+	if p.applyBumblebeeConfig(ctx, configResp.BumblebeeConfig, configResp.ConfigJson) == addonDeliveryTransientFailure {
+		p.logger.Warn().
+			Str("version", configResp.ConfigVersion).
+			Str("source", source).
+			Msg("Deferring config version update because Bumblebee config did not apply")
+		deferred = true
+	}
+	if p.applyEndpointInventoryConfig(ctx, configResp.EndpointInventoryConfig, configResp.ConfigJson) == addonDeliveryTransientFailure {
+		p.logger.Warn().
+			Str("version", configResp.ConfigVersion).
+			Str("source", source).
+			Msg("Deferring config version update because endpoint inventory config did not apply")
+		deferred = true
+	}
+	if firstAttempt && p.syncRuntime != nil {
+		p.syncRuntime.ApplyConfig(configResp.ConfigJson)
+	}
+
+	// Apply native add-on assignments before visibility so independent telemetry add-ons
+	// can start even when a netprobe visibility apply is deferred. This also lets
+	// systemd-managed netprobe assignments install before visibility enters attach mode.
+	// applyAddonAssignments already returns false ONLY for a transient delivery failure
+	// (permanent ones are recorded + backed off and do not block the ack).
+	if !p.applyAddonAssignments(ctx, configResp.GetAddons()) {
+		p.logger.Warn().
+			Str("version", configResp.ConfigVersion).
+			Str("source", source).
+			Msg("Deferring config version update because add-on assignments did not apply")
+		return false
+	}
+
+	if firstAttempt {
+		// Apply sysmon config if present
+		if configResp.SysmonConfig != nil {
+			p.applySysmonConfig(configResp.SysmonConfig)
+		}
+
+		// Apply SNMP config if present
+		if configResp.SnmpConfig != nil {
+			p.applySNMPConfig(ctx, configResp.SnmpConfig)
+		}
+
+		// Apply plugin config if present. Older generated clients may not decode
+		// the typed proto field, so keep a JSON fallback in config_json.
+		pluginConfig := configResp.PluginConfig
+		if pluginConfig == nil {
+			pluginConfig = pluginConfigFromConfigJSON(configResp.ConfigJson)
+		}
+		if pluginConfig != nil {
+			p.applyPluginConfig(pluginConfig)
+		}
+	}
+
+	if p.applyVisibilityConfig(ctx, configResp.VisibilityConfig, configResp.GetAddons()) == addonDeliveryTransientFailure {
+		p.logger.Warn().
+			Str("version", configResp.ConfigVersion).
+			Str("source", source).
+			Msg("Deferring config version update because visibility config did not apply")
+		return false
+	}
+
+	if firstAttempt {
+		// Apply check configs (icmp checks supported)
+		p.applyCheckConfigs(configResp.Checks)
+	}
+
+	// Record that this version made it through the full idempotent pipeline at least once, so
+	// a subsequent resend of the SAME (still-uncommitted) version skips the heavy re-apply
+	// above while the deferrable sections keep retrying. Set before the deferred check so a
+	// Bumblebee/endpoint transient defer still records the heavy pass; an add-on/visibility
+	// early return above intentionally leaves it unset so the heavy sections re-run next time.
+	if configResp.ConfigVersion != "" {
+		p.setLastAttemptedConfigVersion(configResp.ConfigVersion)
+	}
+
+	// Defer the version update if any section could not apply yet, so the gateway resends and
+	// the agent retries the still-pending sections — the sections that DID apply stay applied.
+	if deferred {
+		return false
+	}
+
+	// Update version
+	p.setConfigVersion(configResp.ConfigVersion)
+	p.logger.Info().
+		Str("version", p.getConfigVersion()).
+		Str("source", source).
+		Msg("Applied new config from gateway")
+
+	return true
+}
+
+// applyConfigIntervals updates the push/heartbeat and config-poll intervals from the config
+// response, clamping each to safe bounds.
+func (p *PushLoop) applyConfigIntervals(configResp *proto.AgentConfigResponse) {
 	if configResp.HeartbeatIntervalSec > 0 {
 		newInterval := time.Duration(configResp.HeartbeatIntervalSec) * time.Second
 		if newInterval < time.Second {
@@ -177,109 +300,102 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 			p.logger.Info().Dur("interval", newPollInterval).Msg("Updated config poll interval")
 		}
 	}
+}
 
-	p.applySweepConfig(ctx, configResp.ConfigJson)
-	p.applyMapperConfig(configResp.ConfigJson)
-	// Apply every config section independently. A section that cannot apply yet (e.g. a
-	// not-yet-installed add-on, a transiently-unavailable updater) only DEFERS the config
-	// version update so the gateway resends it — it must NOT short-circuit and block the
-	// unrelated sections that follow. Previously a Bumblebee deferral returned early and
-	// silently prevented endpoint-inventory, add-on assignments, sysmon, plugins, and
-	// visibility from EVER applying, which (e.g.) left endpoint inventory disabled fleet-wide.
-	deferred := false
+// errConfigSectionNoAgentServer is recorded as a permanent config-section failure when a
+// section cannot apply because the agent server is unavailable. The server is set at agent
+// construction and never appears mid-run, so a resend of the same config cannot fix it.
+var errConfigSectionNoAgentServer = errors.New("agent server not available")
 
-	if !p.applyBumblebeeConfig(ctx, configResp.BumblebeeConfig, configResp.ConfigJson) {
-		p.logger.Warn().
-			Str("version", configResp.ConfigVersion).
-			Str("source", source).
-			Msg("Deferring config version update because Bumblebee config did not apply")
-		deferred = true
-	}
-	if !p.applyEndpointInventoryConfig(ctx, configResp.EndpointInventoryConfig, configResp.ConfigJson) {
-		p.logger.Warn().
-			Str("version", configResp.ConfigVersion).
-			Str("source", source).
-			Msg("Deferring config version update because endpoint inventory config did not apply")
-		deferred = true
-	}
-	if p.syncRuntime != nil {
-		p.syncRuntime.ApplyConfig(configResp.ConfigJson)
-	}
+// errBumblebeeCatalogMissing is recorded as a permanent failure when a Bumblebee config is
+// enabled but carries no catalog assignment — a control-plane inconsistency that a resend of
+// the identical config version cannot resolve.
+var errBumblebeeCatalogMissing = errors.New("bumblebee config enabled without a catalog assignment")
 
-	// Apply native add-on assignments before visibility so independent telemetry add-ons
-	// can start even when a netprobe visibility apply is deferred. This also lets
-	// systemd-managed netprobe assignments install before visibility enters attach mode.
-	if !p.applyAddonAssignments(ctx, configResp.GetAddons()) {
-		p.logger.Warn().
-			Str("version", configResp.ConfigVersion).
-			Str("source", source).
-			Msg("Deferring config version update because add-on assignments did not apply")
-		return false
-	}
-
-	// Apply sysmon config if present
-	if configResp.SysmonConfig != nil {
-		p.applySysmonConfig(configResp.SysmonConfig)
-	}
-
-	// Apply SNMP config if present
-	if configResp.SnmpConfig != nil {
-		p.applySNMPConfig(ctx, configResp.SnmpConfig)
-	}
-
-	// Apply plugin config if present. Older generated clients may not decode
-	// the typed proto field, so keep a JSON fallback in config_json.
-	pluginConfig := configResp.PluginConfig
-	if pluginConfig == nil {
-		pluginConfig = pluginConfigFromConfigJSON(configResp.ConfigJson)
-	}
-	if pluginConfig != nil {
-		p.applyPluginConfig(pluginConfig)
-	}
-
-	if !p.applyVisibilityConfig(ctx, configResp.VisibilityConfig, configResp.GetAddons()) {
-		p.logger.Warn().
-			Str("version", configResp.ConfigVersion).
-			Str("source", source).
-			Msg("Deferring config version update because visibility config did not apply")
-		return false
-	}
-
-	// Apply check configs (icmp checks supported)
-	p.applyCheckConfigs(configResp.Checks)
-
-	// Defer the version update if any section could not apply yet, so the gateway resends and
-	// the agent retries the still-pending sections — the sections that DID apply stay applied.
-	if deferred {
-		return false
-	}
-
-	// Update version
-	p.setConfigVersion(configResp.ConfigVersion)
+// logConfigSectionFailure logs a PERMANENT non-add-on config-section apply failure — one that a
+// resend of the identical config cannot fix (a parse error, a missing agent server, a fixed-path
+// write failure). It logs at info with permanent=true because the agent commits the version and
+// stops re-streaming, so the section will not retry until the config changes and warn-spam every
+// poll would be misleading. Transient section failures defer the version and are logged at warn
+// inline where they defer.
+func (p *PushLoop) logConfigSectionFailure(section string, err error, msg string) {
 	p.logger.Info().
-		Str("version", p.getConfigVersion()).
-		Str("source", source).
-		Msg("Applied new config from gateway")
+		Err(err).
+		Str("section", section).
+		Bool("permanent", true).
+		Msg(msg)
+}
 
-	return true
+// logBumblebeeCatalogFailure logs a Bumblebee catalog staging failure with its assignment
+// context at a severity matching the classified disposition.
+func (p *PushLoop) logBumblebeeCatalogFailure(
+	catalog *bumblebee.CatalogAssignment,
+	err error,
+	disposition addonDeliveryDisposition,
+) {
+	event := p.logger.Warn()
+	if disposition == addonDeliveryPermanentFailure {
+		event = p.logger.Info()
+	}
+	event.
+		Err(err).
+		Str("section", "bumblebee").
+		Bool("permanent", disposition == addonDeliveryPermanentFailure).
+		Str("snapshot_ref", catalog.SnapshotRef).
+		Str("object_key", catalog.ObjectKey).
+		Str("download_url", catalog.DownloadURL).
+		Msg("Failed to stage Bumblebee catalog assignment")
+}
+
+// classifyBumblebeeCatalogError maps a Bumblebee catalog staging error to a delivery
+// disposition, mirroring classifyAddonDeliveryError: an incomplete reference or sha256
+// mismatch is PERMANENT (a resend of the identical assignment cannot fix it), a 4xx gateway
+// download is PERMANENT (the object is absent/rejected) and an oversize catalog is a
+// PERMANENT budget violation, while a missing object store, a 5xx download, or any
+// connectivity/IO error is TRANSIENT and may clear on its own.
+func classifyBumblebeeCatalogError(err error) addonDeliveryDisposition {
+	switch {
+	case errors.Is(err, bumblebee.ErrCatalogAssignmentIncomplete),
+		errors.Is(err, bumblebee.ErrCatalogHashMismatch),
+		errors.Is(err, errBumblebeeCatalogTooLarge):
+		return addonDeliveryPermanentFailure
+	case errors.Is(err, bumblebee.ErrCatalogObjectStoreUnavailable):
+		return addonDeliveryTransientFailure
+	}
+
+	if errors.Is(err, errBumblebeeCatalogDownloadFailed) {
+		if code, ok := gatewayArtifactStatusCode(err); ok &&
+			code >= http.StatusBadRequest && code < http.StatusInternalServerError {
+			return addonDeliveryPermanentFailure
+		}
+
+		return addonDeliveryTransientFailure
+	}
+
+	return addonDeliveryTransientFailure
 }
 
 func (p *PushLoop) applyBumblebeeConfig(
 	ctx context.Context,
 	protoConfig *proto.BumblebeeConfig,
 	configJSON []byte,
-) bool {
+) addonDeliveryDisposition {
 	cfg, err := resolveGatewayBumblebeeConfig(protoConfig, configJSON)
 	if err != nil {
-		p.logger.Warn().Err(err).Msg("Failed to parse Bumblebee config from gateway")
-		return false
+		// A structurally-fixed payload that fails to parse will fail identically on every
+		// resend of the same config version: permanent, so record it but do not defer.
+		p.logConfigSectionFailure("bumblebee", err,
+			"Failed to parse Bumblebee config from gateway")
+		return addonDeliveryPermanentFailure
 	}
 	if cfg == nil {
-		return true
+		return addonDeliverySucceeded
 	}
 	if p.server == nil {
-		p.logger.Warn().Msg("Cannot apply Bumblebee config without agent server")
-		return false
+		// The agent server is set at construction and never appears mid-run: permanent.
+		p.logConfigSectionFailure("bumblebee", errConfigSectionNoAgentServer,
+			"Cannot apply Bumblebee config without agent server")
+		return addonDeliveryPermanentFailure
 	}
 
 	p.server.mu.RLock()
@@ -313,8 +429,11 @@ func (p *PushLoop) applyBumblebeeConfig(
 		p.server.ensureBumblebeeSpoolService(statusCfg)
 
 		if cfg.Catalog == nil {
-			p.logger.Warn().Msg("Bumblebee config is enabled but has no catalog assignment")
-			return false
+			// Enabled with no catalog is a control-plane config inconsistency for this exact
+			// version; a resend of the identical config cannot supply one: permanent.
+			p.logConfigSectionFailure("bumblebee", errBumblebeeCatalogMissing,
+				"Bumblebee config is enabled but has no catalog assignment")
+			return addonDeliveryPermanentFailure
 		}
 
 		downloader := objectStore
@@ -338,13 +457,13 @@ func (p *PushLoop) applyBumblebeeConfig(
 			*cfg.Catalog,
 		)
 		if err != nil {
-			p.logger.Warn().
-				Err(err).
-				Str("snapshot_ref", cfg.Catalog.SnapshotRef).
-				Str("object_key", cfg.Catalog.ObjectKey).
-				Str("download_url", cfg.Catalog.DownloadURL).
-				Msg("Failed to stage Bumblebee catalog assignment")
-			return false
+			// Catalog staging is a download+verify, so split it like an add-on artifact
+			// delivery: an incomplete reference / sha mismatch / 4xx is permanent (record +
+			// do not defer), while a missing object store / 5xx / connectivity error is
+			// transient (defer + retry on the next poll).
+			disposition := classifyBumblebeeCatalogError(err)
+			p.logBumblebeeCatalogFailure(cfg.Catalog, err, disposition)
+			return disposition
 		}
 
 		if result.Changed {
@@ -360,15 +479,16 @@ func (p *PushLoop) applyBumblebeeConfig(
 		p.logger.Info().
 			Str("agent_id", agentID).
 			Msg("Skipping disabled Bumblebee runtime profile for Kubernetes agent")
-		return true
+		return addonDeliverySucceeded
 	}
 
 	if changed, err := bumblebee.WriteRuntimeProfile(profilePath, tmpDir, cfg.runtimeProfile(agentID)); err != nil {
-		p.logger.Warn().
-			Err(err).
-			Str("profile_path", profilePath).
-			Msg("Failed to write Bumblebee runtime profile")
-		return false
+		// The profile path and contents are fixed for this version, so a resend writes the
+		// same bytes to the same path and fails the same way: permanent (record, do not
+		// defer). A real underlying fault (e.g. disk) is picked up on the next config change.
+		p.logConfigSectionFailure("bumblebee", err,
+			"Failed to write Bumblebee runtime profile")
+		return addonDeliveryPermanentFailure
 	} else if changed {
 		p.logger.Info().
 			Str("profile_path", profilePath).
@@ -376,25 +496,32 @@ func (p *PushLoop) applyBumblebeeConfig(
 			Msg("Wrote Bumblebee runtime profile")
 	}
 
-	return true
+	return addonDeliverySucceeded
 }
 
 func (p *PushLoop) applyEndpointInventoryConfig(
 	_ context.Context,
 	protoConfig *proto.EndpointInventoryConfig,
 	configJSON []byte,
-) bool {
+) addonDeliveryDisposition {
 	cfg, err := resolveGatewayEndpointInventoryConfig(protoConfig, configJSON)
 	if err != nil {
-		p.logger.Warn().Err(err).Msg("Failed to parse endpoint inventory config from gateway")
-		return false
+		// A structurally-fixed payload that fails to parse will fail identically on every
+		// resend of the same config version: permanent, so record it but do not defer. This
+		// is the fj #4301 wedge — endpoint inventory is enabled-by-default, so a defer here
+		// blocked the version commit and made the gateway re-stream the same version forever.
+		p.logConfigSectionFailure("endpoint_inventory", err,
+			"Failed to parse endpoint inventory config from gateway")
+		return addonDeliveryPermanentFailure
 	}
 	if cfg == nil {
-		return true
+		return addonDeliverySucceeded
 	}
 	if p.server == nil {
-		p.logger.Warn().Msg("Cannot apply endpoint inventory config without agent server")
-		return false
+		// The agent server is set at construction and never appears mid-run: permanent.
+		p.logConfigSectionFailure("endpoint_inventory", errConfigSectionNoAgentServer,
+			"Cannot apply endpoint inventory config without agent server")
+		return addonDeliveryPermanentFailure
 	}
 
 	p.server.mu.RLock()
@@ -430,15 +557,16 @@ func (p *PushLoop) applyEndpointInventoryConfig(
 		p.logger.Info().
 			Str("agent_id", agentID).
 			Msg("Skipping disabled endpoint inventory runtime profile for Kubernetes agent")
-		return true
+		return addonDeliverySucceeded
 	}
 
 	if changed, err := endpointinventory.WriteRuntimeProfile(profilePath, tmpDir, cfg.runtimeProfile(agentID)); err != nil {
-		p.logger.Warn().
-			Err(err).
-			Str("profile_path", profilePath).
-			Msg("Failed to write endpoint inventory runtime profile")
-		return false
+		// The profile path and contents are fixed for this version, so a resend writes the
+		// same bytes to the same path and fails the same way: permanent (record, do not
+		// defer). A real underlying fault (e.g. disk) is picked up on the next config change.
+		p.logConfigSectionFailure("endpoint_inventory", err,
+			"Failed to write endpoint inventory runtime profile")
+		return addonDeliveryPermanentFailure
 	} else if changed {
 		p.logger.Info().
 			Str("profile_path", profilePath).
@@ -446,7 +574,7 @@ func (p *PushLoop) applyEndpointInventoryConfig(
 			Msg("Wrote endpoint inventory runtime profile")
 	}
 
-	return true
+	return addonDeliverySucceeded
 }
 
 func (p *PushLoop) applyMapperConfig(configJSON []byte) {
@@ -510,9 +638,9 @@ func (p *PushLoop) applyVisibilityConfig(
 	ctx context.Context,
 	cfg *proto.VisibilityConfig,
 	addons []*proto.AddonAssignmentConfig,
-) bool {
+) addonDeliveryDisposition {
 	if cfg == nil || p.server == nil {
-		return true
+		return addonDeliverySucceeded
 	}
 
 	p.server.mu.RLock()
@@ -535,10 +663,10 @@ func (p *PushLoop) applyVisibilityConfig(
 		p.logger.Info().
 			Str("agent_id", agentID).
 			Msg("Skipping netprobe visibility config for Kubernetes agent")
-		return true
+		return addonDeliverySucceeded
 	}
 	if netprobeSidecar == nil || sidecarManager == nil {
-		return true
+		return addonDeliverySucceeded
 	}
 
 	parsed := agentnetprobe.ParseVisibilityConfig(cfg)
@@ -550,8 +678,11 @@ func (p *PushLoop) applyVisibilityConfig(
 			netprobeAddon.GetConfigJson(),
 		)
 		if err != nil {
-			p.logger.Error().Err(err).Msg("Failed to merge netprobe add-on config")
-			return false
+			// A malformed add-on config JSON is structurally fixed for this version, so it
+			// fails identically on every resend: permanent (record, do not defer).
+			p.logConfigSectionFailure("visibility", err,
+				"Failed to merge netprobe add-on config")
+			return addonDeliveryPermanentFailure
 		}
 		parsed.NetprobeConfig = merged
 	}
@@ -561,8 +692,12 @@ func (p *PushLoop) applyVisibilityConfig(
 			netprobeConfigPath(sidecarStatus),
 			parsed.NetprobeConfig,
 		); err != nil {
-			p.logger.Error().Err(err).Msg("Failed to write netprobe bootstrap config")
-			return false
+			// The bootstrap path and contents are fixed for this version, so a resend writes
+			// the same bytes to the same path and fails the same way: permanent (record, do
+			// not defer). A real underlying fault is picked up on the next config change.
+			p.logConfigSectionFailure("visibility", err,
+				"Failed to write netprobe bootstrap config")
+			return addonDeliveryPermanentFailure
 		}
 		return p.applyVisibilityConfigSystemd(ctx, netprobeSidecar, sidecarManager, parsed.NetprobeConfig)
 	}
@@ -571,7 +706,7 @@ func (p *PushLoop) applyVisibilityConfig(
 	netprobeSidecar.SetDesiredConfig(ctx, nil)
 	p.logger.Info().Msg("Netprobe add-on assignment absent; attach manager stopped")
 
-	return true
+	return addonDeliverySucceeded
 }
 
 // applyVisibilityConfigSystemd handles netprobe delivered as a systemd-service add-on: systemd
@@ -585,7 +720,7 @@ func (p *PushLoop) applyVisibilityConfigSystemd(
 	netprobeSidecar *agentnetprobe.Sidecar,
 	sidecarManager sidecarLifecycleManager,
 	cfg *netprobepb.VisibilityAgentConfig,
-) bool {
+) addonDeliveryDisposition {
 	if started, _ := sidecarManager.Mode(); !started {
 		if err := sidecarManager.StartAttach(ctx); err != nil && !errors.Is(err, agentnetprobe.ErrAttachManagerStarted) {
 			p.logger.Error().Err(err).Msg("Failed to start netprobe attach manager")
@@ -598,7 +733,7 @@ func (p *PushLoop) applyVisibilityConfigSystemd(
 		Int("device_bindings", len(cfg.GetDeviceBindings())).
 		Msg("Netprobe is systemd-managed; attached and handed desired visibility config")
 
-	return true
+	return addonDeliverySucceeded
 }
 
 // stopNetprobeManager stops the sidecar manager (best-effort, bounded) so it can be restarted

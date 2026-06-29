@@ -116,7 +116,7 @@ func TestApplyEndpointInventoryConfigWritesRuntimeProfile(t *testing.T) {
 		logger: logger.NewTestLogger(),
 	}
 
-	ok := pl.applyEndpointInventoryConfig(context.Background(), &monitoringpb.EndpointInventoryConfig{
+	disposition := pl.applyEndpointInventoryConfig(context.Background(), &monitoringpb.EndpointInventoryConfig{
 		Enabled:                true,
 		AgentId:                "agent-from-control-plane",
 		Sources:                []string{"dpkg"},
@@ -133,8 +133,8 @@ func TestApplyEndpointInventoryConfigWritesRuntimeProfile(t *testing.T) {
 		UploadRetryMax:         "20m",
 		UploadRetryMaxAttempts: 3,
 	}, nil)
-	if !ok {
-		t.Fatal("expected endpoint inventory config to apply")
+	if disposition != addonDeliverySucceeded {
+		t.Fatalf("expected endpoint inventory config to apply, got disposition %v", disposition)
 	}
 
 	data, err := os.ReadFile(profilePath)
@@ -197,11 +197,11 @@ func TestApplyEndpointInventoryConfigSkipsDisabledRuntimeProfileForKubernetesAge
 		logger: logger.NewTestLogger(),
 	}
 
-	ok := pl.applyEndpointInventoryConfig(context.Background(), &monitoringpb.EndpointInventoryConfig{
+	disposition := pl.applyEndpointInventoryConfig(context.Background(), &monitoringpb.EndpointInventoryConfig{
 		Enabled: false,
 	}, nil)
-	if !ok {
-		t.Fatal("expected disabled Kubernetes endpoint inventory config application to succeed")
+	if disposition != addonDeliverySucceeded {
+		t.Fatalf("expected disabled Kubernetes endpoint inventory config application to succeed, got %v", disposition)
 	}
 	if _, err := os.Stat(profilePath); !os.IsNotExist(err) {
 		t.Fatalf("expected no runtime profile to be written, stat err=%v", err)
