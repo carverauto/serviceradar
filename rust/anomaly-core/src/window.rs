@@ -6,33 +6,39 @@
 //! Sliding-window helpers for baseline reconstruction.
 
 use crate::WINDOW_CAPACITY_MULTIPLE;
-use crate::stats::WelfordAcc;
+use crate::stats::{RobustStats, WelfordAcc};
 use crate::types::ReasonContext;
 use deep_causality_data_structures::{SlidingWindow, VectorStorage, window_type};
 
 pub type BaselineWindow = SlidingWindow<VectorStorage<f64>, f64>;
 
+/// Rebuild the rolling baseline from the retained clean window: the bounded
+/// `window_tail`, the robust median/MAD estimator the detector scores against, and
+/// the Welford mean/std summary retained as the persisted next-state (the rolling
+/// SCORE itself is the robust [`RobustStats`], not the Welford acc).
 pub fn compact_rolling_state(
     context: &ReasonContext,
     window_size: usize,
-) -> (Vec<f64>, WelfordAcc) {
+) -> (Vec<f64>, WelfordAcc, RobustStats) {
     let source = context.window_tail.as_ref().unwrap_or(&context.baseline);
     let clean_values = clean_window_values(source, window_size);
 
     // This is the STATELESS path (reason / reason_batch and checkpoint restore).
-    // The caller-supplied `rolling_acc` is transported across the BEAM/NIF
-    // boundary with no provenance guarantee, and `valid_for_count` only checks
-    // count + finiteness — NOT that mean/m2 are consistent with `clean_values`.
-    // A count-matching-but-stale acc would therefore install a wrong baseline,
-    // and unlike the stateful runtime there is no eviction-driven recompute
-    // guard to heal it here. Since `clean_values` is already bounded to
-    // `window_size` (so recompute is O(window)), we always rebuild the acc from
-    // the window itself instead of trusting the transported one. The
-    // transported-acc fast path is retained only in the stateful `reason_state_*`
-    // flow where provenance is guaranteed.
+    // The robust median/MAD estimator the detector scores against is rebuilt from
+    // the window itself (an O(window log window) sort — the deliberate cost of the
+    // Hampel estimator over the O(1)-updatable Welford), so a single large spike in
+    // the window cannot poison the center/scale and mask a second spike.
+    let robust = RobustStats::from_values(&clean_values);
+
+    // The Welford mean/std summary is retained as the persisted `next_rolling_acc`
+    // next-state only (a valid summary for a checkpoint consumer); it no longer
+    // drives the rolling score. The caller-supplied `rolling_acc` is transported
+    // across the BEAM/NIF boundary with no provenance guarantee, so — as before —
+    // we always rebuild from `clean_values` rather than trusting the transported
+    // acc (which `valid_for_count` cannot prove consistent with the window).
     let acc = WelfordAcc::from_values(&clean_values);
 
-    (clean_values, acc)
+    (clean_values, acc, robust)
 }
 
 pub fn window_values(values: &[f64], window_size: usize) -> Vec<f64> {
@@ -114,7 +120,7 @@ mod tests {
             "test premise: the stale acc must look valid by count to exercise the fix"
         );
 
-        let (values, acc) =
+        let (values, acc, robust) =
             compact_rolling_state(&context_with_window(window_tail.clone(), Some(stale)), 4);
 
         let expected = WelfordAcc::from_values(&values);
@@ -128,24 +134,30 @@ mod tests {
             acc.mean
         );
         assert!(acc.mean != stale.mean || acc.m2 != stale.m2);
+        // The robust estimator is rebuilt from the same window (median ~100).
+        assert_eq!(robust, RobustStats::from_values(&values));
+        assert!((robust.center - 100.0).abs() < 1.0);
     }
 
     #[test]
     fn correct_acc_still_yields_consistent_baseline() {
         let window_tail = vec![10.0, 12.0, 11.0, 13.0];
         let correct = WelfordAcc::from_values(&window_tail);
-        let (values, acc) =
+        let (values, acc, robust) =
             compact_rolling_state(&context_with_window(window_tail.clone(), Some(correct)), 4);
 
         assert_eq!(acc, WelfordAcc::from_values(&values));
         assert_eq!(acc, correct);
+        assert_eq!(robust, RobustStats::from_values(&values));
     }
 
     #[test]
     fn missing_acc_recomputes_from_window() {
         let window_tail = vec![1.0, 2.0, 3.0];
-        let (values, acc) = compact_rolling_state(&context_with_window(window_tail, None), 4);
+        let (values, acc, robust) =
+            compact_rolling_state(&context_with_window(window_tail, None), 4);
         assert_eq!(acc, WelfordAcc::from_values(&values));
         assert_eq!(acc.count, 3);
+        assert_eq!(robust, RobustStats::from_values(&values));
     }
 }

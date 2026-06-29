@@ -12,8 +12,8 @@ use std::collections::HashMap;
 
 use serviceradar_anomaly_core::{
     Cusum, DEFAULT_CONFIRM_SLOTS, DEFAULT_MIN_SAMPLES, DEFAULT_N_SIGMA, DEFAULT_WINDOW_SIZE,
-    HOURS_PER_WEEK, ReasonContext, ReasonSample, ReasonVerdict, SaturationGate, SeasonalBucket,
-    hour_of_week, reason_impl, sample_stats,
+    HOURS_PER_WEEK, ReasonContext, ReasonSample, ReasonVerdict, RobustStats, SaturationGate,
+    SeasonalBucket, hour_of_week, reason_impl,
 };
 
 /// Default CUSUM slack (reference value `k`) in sigma units. The standard tabular
@@ -704,9 +704,13 @@ impl DetectorEngine {
         let mut cusum_alarm: Option<(f64, f64)> = None;
         if self.config.cusum_enabled {
             if state.cusum_anchor.is_none() && state.window_tail.len() >= self.config.min_samples {
-                let stats = sample_stats(&state.window_tail);
-                let scale = stats.effective_stddev(min_std_floor, min_cv).max(f64::EPSILON);
-                state.cusum_anchor = Some((stats.mean, scale));
+                // Anchor to the ROBUST center/scale (median + MAD*1.4826), matching the
+                // rolling detector's dispersion: the frozen reference and the fallback
+                // deseasonalize target are the robust center now, so a first spike in
+                // the warmup window cannot poison the CUSUM anchor.
+                let stats = RobustStats::from_values(&state.window_tail);
+                let scale = stats.effective_scale(min_std_floor, min_cv).max(f64::EPSILON);
+                state.cusum_anchor = Some((stats.center, scale));
                 state.cusum = Some(Cusum::with_state(
                     self.config.cusum_k,
                     self.config.cusum_h,
@@ -1373,11 +1377,11 @@ mod tests {
     }
 
     #[test]
-    fn engine_score_matches_anomaly_core_zscore() {
-        // Parity: the edge engine's verdict score must equal anomaly-core's
-        // z-score over the same window — i.e. edge math == central math, since
-        // both call the one shared detector crate.
-        use serviceradar_anomaly_core::{sample_stats, z_score};
+    fn engine_score_matches_anomaly_core_robust_score() {
+        // Parity: the edge engine's verdict score must equal anomaly-core's robust
+        // median/MAD score over the same window — i.e. edge math == central math,
+        // since both call the one shared detector crate.
+        use serviceradar_anomaly_core::{RobustStats, robust_score};
 
         let mut engine = DetectorEngine::new(EngineConfig {
             window_size: 100,
@@ -1398,13 +1402,13 @@ mod tests {
             .expect("verdict");
 
         // The window at probe time is the 40 clean baseline samples; the rolling
-        // signal (the only enabled one) scores via anomaly-core's z_score. The
+        // signal (the only enabled one) scores via anomaly-core's robust_score. The
         // default profile applies no floors (0.0/0.0), so the edge engine and the
-        // bare 5-arg z_score must produce the identical score.
-        let expected = z_score(probe, sample_stats(&baseline), 3.0, 0.0, 0.0);
+        // bare 5-arg robust_score must produce the identical score.
+        let expected = robust_score(probe, RobustStats::from_values(&baseline), 3.0, 0.0, 0.0);
         assert!(
             (verdict.score - expected).abs() < 1e-6,
-            "edge score {} must equal anomaly-core z_score {expected}",
+            "edge score {} must equal anomaly-core robust_score {expected}",
             verdict.score
         );
     }
@@ -2502,9 +2506,11 @@ mod tests {
         warm_stationary(&mut engine);
 
         // Ramp just short of the alarm so the CUSUM has a partial `S+` accumulation
-        // (no alarm yet).
+        // (no alarm yet). The slope is set against the ROBUST anchor scale (MAD *
+        // 1.4826 ≈ 1.48 for the ±1 warm-up, larger than the old mean/std ~1.02), so
+        // the partial accumulation lands just under `h` over these five steps.
         for i in 1..=5u64 {
-            let v = 100.0 + 0.4 * i as f64;
+            let v = 100.0 + 0.6 * i as f64;
             let tv = engine
                 .evaluate_transition("s", v, 30 + i, SeriesProfile::default())
                 .expect("verdict");
@@ -2530,7 +2536,7 @@ mod tests {
         let mut restored = DetectorEngine::new(cfg);
         assert_eq!(restored.restore_checkpoint(checkpoint, 1_000, u64::MAX), 1);
         let tv = restored
-            .evaluate_transition("s", 100.0 + 0.4 * 6.0, 36, SeriesProfile::default())
+            .evaluate_transition("s", 100.0 + 0.6 * 6.0, 36, SeriesProfile::default())
             .expect("verdict");
         let drift = tv
             .cusum_drift

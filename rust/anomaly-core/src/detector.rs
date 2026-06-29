@@ -10,7 +10,7 @@
 //! causal inference (no SCM, intervention, or counterfactual).
 
 use crate::signal::{SignalGate, evaluate_rolling_signal, evaluate_signal, reason_for_state};
-use crate::stats::{WelfordAcc, clean_threshold};
+use crate::stats::{RobustStats, WelfordAcc, clean_threshold};
 use crate::types::{ReasonContext, ReasonSample, ReasonVerdict, SaturationGate, SignalVerdict};
 use crate::window::compact_rolling_state;
 use crate::{DEFAULT_CONFIRM_SLOTS, DEFAULT_MIN_SAMPLES, DEFAULT_N_SIGMA, DEFAULT_WINDOW_SIZE};
@@ -52,7 +52,14 @@ impl DetectorThresholds {
 
 struct DetectorState {
     window_tail: Vec<f64>,
+    /// Welford mean/std summary of the clean window, retained only as the persisted
+    /// `next_rolling_acc` next-state. The rolling SCORE is the robust
+    /// [`Self::rolling_stats`], not this acc.
     rolling_acc: WelfordAcc,
+    /// The robust median/MAD estimator over the pre-sample clean window — the
+    /// dispersion the rolling signal scores against (the Hampel identifier that
+    /// does not self-mask).
+    rolling_stats: RobustStats,
     window_size: usize,
     consecutive_anomalous: usize,
     sample: ReasonSample,
@@ -171,11 +178,13 @@ impl DetectorThresholds {
 
 impl DetectorState {
     fn from_context(context: ReasonContext, sample: ReasonSample, window_size: usize) -> Self {
-        let (window_tail, rolling_acc) = compact_rolling_state(&context, window_size);
+        let (window_tail, rolling_acc, rolling_stats) =
+            compact_rolling_state(&context, window_size);
 
         Self {
             window_tail,
             rolling_acc,
+            rolling_stats,
             window_size,
             consecutive_anomalous: context.consecutive_anomalous.unwrap_or_default(),
             sample,
@@ -227,7 +236,8 @@ fn evaluate_detector(
     let signals = vec![
         evaluate_rolling_signal(
             "rolling",
-            state.rolling_acc,
+            state.rolling_stats,
+            state.window_tail.len(),
             thresholds.rolling_enabled,
             thresholds.min_samples,
             thresholds.n_sigma,

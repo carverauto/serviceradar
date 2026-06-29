@@ -5,7 +5,7 @@
 
 //! Rolling / seasonal / trend signal evaluation.
 
-use crate::stats::{BaselineStats, WelfordAcc, sample_stats, z_score};
+use crate::stats::{BaselineStats, RobustStats, robust_score, sample_stats, z_score};
 use crate::types::{SaturationGate, SignalVerdict};
 use crate::window::window_values;
 
@@ -132,9 +132,22 @@ pub fn evaluate_signal(
     )
 }
 
+/// Evaluate the rolling signal against the robust median/MAD ([`RobustStats`])
+/// dispersion over the clean window. `sample_count` is the clean-window length
+/// (used for the readiness gate); `stats` is the precomputed center/scale.
+///
+/// The score is the robust `(value - center) / scale` deviation — the Hampel
+/// identifier that does not self-mask — but the breach/gate/threshold semantics
+/// are identical to the prior mean/std path: `|deviation| >= threshold`, then the
+/// saturation gate (which compares the sample against the robust `center`).
+// The fidelity knobs are bundled into one `SignalGate`; the rest are the signal's
+// distinct primitive inputs passed positionally, so a wrapper struct would not aid
+// the call site. One over the lint (mirrors `evaluate_signal`).
+#[allow(clippy::too_many_arguments)]
 pub fn evaluate_rolling_signal(
     name: &str,
-    acc: WelfordAcc,
+    stats: RobustStats,
+    sample_count: usize,
     enabled: bool,
     min_samples: usize,
     threshold: f64,
@@ -145,39 +158,45 @@ pub fn evaluate_rolling_signal(
         return SignalVerdict::disabled(name, threshold);
     }
 
-    if acc.count < min_samples || acc.count < 2 {
+    if sample_count < min_samples || sample_count < 2 {
         return SignalVerdict::not_ready(
             name,
             threshold,
-            acc.count,
+            sample_count,
             format!(
                 "{name} baseline has {} clean samples; requires at least {}",
-                acc.count,
+                sample_count,
                 min_samples.max(2)
             ),
         );
     }
 
-    let Some(stats) = acc.stats() else {
-        return SignalVerdict::not_ready(
-            name,
-            threshold,
-            acc.count,
-            format!("{name} baseline statistics are invalid"),
-        );
-    };
-
-    let score = z_score(
+    let score = robust_score(
         sample_value,
         stats,
         threshold,
         gate.min_std_floor,
         gate.min_cv,
     );
-    let breached = gated_breach(score, threshold, sample_value, stats, &gate);
+    // The robust center/scale are reported through the verdict's mean/stddev fields
+    // (the robust analogues), and the saturation gate's directional check uses the
+    // robust `center`.
+    let display = BaselineStats {
+        mean: stats.center,
+        stddev: stats.scale,
+    };
+    let breached = gated_breach(score, threshold, sample_value, display, &gate);
     let reason = breach_reason(name, score, threshold, breached);
 
-    SignalVerdict::ready(name, breached, score, threshold, acc.count, stats, reason)
+    SignalVerdict::ready(
+        name,
+        breached,
+        score,
+        threshold,
+        sample_count,
+        display,
+        reason,
+    )
 }
 
 pub fn reason_for_state(
@@ -276,11 +295,29 @@ fn breach_reason(name: &str, score: f64, threshold: f64, breached: bool) -> Stri
 #[cfg(test)]
 mod tests {
     use super::{SignalGate, evaluate_rolling_signal};
-    use crate::stats::WelfordAcc;
-    use crate::types::SaturationGate;
+    use crate::stats::RobustStats;
+    use crate::types::{SaturationGate, SignalVerdict};
 
-    fn acc(values: &[f64]) -> WelfordAcc {
-        WelfordAcc::from_values(values)
+    /// Score the rolling signal over `values` (robust median/MAD), with the window
+    /// length as the readiness count.
+    fn rolling(
+        values: &[f64],
+        enabled: bool,
+        min_samples: usize,
+        threshold: f64,
+        sample_value: f64,
+        gate: SignalGate,
+    ) -> SignalVerdict {
+        evaluate_rolling_signal(
+            "rolling",
+            RobustStats::from_values(values),
+            values.len(),
+            enabled,
+            min_samples,
+            threshold,
+            sample_value,
+            gate,
+        )
     }
 
     #[test]
@@ -288,15 +325,7 @@ mod tests {
         // Baseline ~50 with small noise; a big spike breaches with the default
         // (empty) gate — pure symmetric z, the prior behavior.
         let baseline: Vec<f64> = (0..40).map(|i| 50.0 + (i % 5) as f64).collect();
-        let v = evaluate_rolling_signal(
-            "rolling",
-            acc(&baseline),
-            true,
-            5,
-            3.0,
-            200.0,
-            SignalGate::default(),
-        );
+        let v = rolling(&baseline, true, 5, 3.0, 200.0, SignalGate::default());
         assert!(v.ready && v.breached, "spike must breach without a gate");
     }
 
@@ -316,7 +345,7 @@ mod tests {
         };
 
         // Upward to the 100% ceiling (over the floor, rising): breaches.
-        let up = evaluate_rolling_signal("rolling", acc(&baseline), true, 5, 3.0, 100.0, gate);
+        let up = rolling(&baseline, true, 5, 3.0, 100.0, gate);
         assert!(
             up.breached,
             "a real upward saturation must breach (score {})",
@@ -326,7 +355,7 @@ mod tests {
         // Downward to 60% (below mean, still above the 80% absolute floor would be
         // suppressed too, but 60<80 also fails the floor): a large-z drop is gated
         // off — utilization easing is never an incident.
-        let down = evaluate_rolling_signal("rolling", acc(&baseline), true, 5, 3.0, 60.0, gate);
+        let down = rolling(&baseline, true, 5, 3.0, 60.0, gate);
         assert!(
             down.score >= 3.0,
             "premise: the downward move is large-z ({})",
@@ -336,8 +365,7 @@ mod tests {
 
         // A benign low gauge (1.36% disk) wiggling: gate floor blocks it.
         let low_baseline: Vec<f64> = (0..40).map(|i| 1.36 + 0.01 * (i % 2) as f64).collect();
-        let benign =
-            evaluate_rolling_signal("rolling", acc(&low_baseline), true, 5, 3.0, 1.5, gate);
+        let benign = rolling(&low_baseline, true, 5, 3.0, 1.5, gate);
         assert!(!benign.breached, "a benign low gauge must not breach");
     }
 
@@ -353,12 +381,10 @@ mod tests {
             saturation_gate: None,
         };
 
-        let wiggle =
-            evaluate_rolling_signal("rolling", acc(&baseline), true, 5, 3.0, 50.1, floor_gate);
+        let wiggle = rolling(&baseline, true, 5, 3.0, 50.1, floor_gate);
         assert!(!wiggle.breached, "a sub-floor wiggle must not breach");
 
-        let spike =
-            evaluate_rolling_signal("rolling", acc(&baseline), true, 5, 3.0, 250.0, floor_gate);
+        let spike = rolling(&baseline, true, 5, 3.0, 250.0, floor_gate);
         assert!(
             spike.breached,
             "a real spike must still breach despite the floor"
