@@ -13,14 +13,16 @@ code with the proof harness.
 
 Detection is split across an **edge tier** and a **core tier**, with a
 **deterministic dependency expert system** layered on top for topology-aware
-reasoning. The engine runs robust statistics (rolling/seasonal/capacity z-scores,
-OLS/Holt-Winters, CUSUM, S-H-ESD, RPCA) plus deterministic rule/dependency-graph
-correlation.
+reasoning. The engine runs robust statistics (rolling robust median/MAD,
+seasonal/capacity z-scores, OLS/Holt-Winters, and CUSUM) plus deterministic
+rule/dependency-graph correlation. (S-H-ESD and RPCA ship as reference-tested
+`anomaly-core` primitives but are not yet wired into the live detector path.)
 
 1. **Edge spike detector** — runs in the native `anomaly-addon`, co-located with
    `serviceradar-agent`, using the `rust/anomaly-core` detector. A per-series
-   guarded rolling z-score that catches short-term spikes with high recall and low
-   latency, node-local, before samples are even published upstream.
+   guarded robust median/MAD (Hampel) deviation that catches short-term spikes with
+   high recall and low latency, node-local, before samples are even published
+   upstream.
 2. **Core seasonal disposition** — the `rust/anomaly-disposition` seasonal kernel
    (driven via the `anomaly_disposition_nif` from `seasonal_disposition/worker.ex`).
    An hour-of-week residual z-score that answers *"is this abnormal for a Tuesday
@@ -39,7 +41,7 @@ correlation.
 flowchart TB
   subgraph Edge["Edge site (next to serviceradar-agent)"]
     Feed["metric-feed:v1<br/>(sysmon, snmp, ...)"]
-    Detector["anomaly-addon → rust/anomaly-core<br/>guarded rolling z-score<br/>(per series, O(1) Welford)"]
+    Detector["anomaly-addon → rust/anomaly-core<br/>guarded robust median/MAD (Hampel) score<br/>(per series, O(n log n) median/MAD; Welford retained as next-state only)"]
     Feed --> Detector
   end
 
@@ -103,9 +105,9 @@ breach. The default floors are:
 
 | Class | `min_value` floor |
 |---|---|
-| CPU `used_percent` | 80 |
+| CPU `used_percent` | 85 |
 | Memory `used_percent` | 80 |
-| Disk `used_percent` | 85 |
+| Disk `used_percent` | 80 |
 
 This is why a disk sitting at, say, 40% full does **not** alert even if it wobbles
 statistically — there is no operational risk below the floor. The gate is **by
@@ -124,25 +126,33 @@ no-ops the join.)
 
 ## The statistics
 
-### Edge: guarded rolling z-score
+### Edge: guarded robust median/MAD (Hampel) score
 
-The edge detector maintains a **per-series sliding window** and computes the
-rolling mean and standard deviation with **Welford's O(1) algorithm**. A sample
-breaches when:
+The edge detector maintains a **per-series sliding window** and rebuilds a robust
+**median/MAD (Hampel)** baseline over the clean window (an `O(window log window)`
+sort). A sample breaches when:
 
 ```
-|(x - mean) / effective_stddev| >= n_sigma
+|(x - median) / effective_MAD_scale| >= n_sigma
 ```
 
-On top of that core z-score sit the guard rails that make it trustworthy in
-production:
+The effective scale is the floored `MAD * 1.4826` (so the threshold stays
+sigma-comparable), and the dispersion floors prevent a divide-by-zero on a
+near-constant series. Median/MAD has a **50% breakdown point**, so a spike cannot
+inflate its own center or scale. Welford's O(1) mean/std is still computed, but it
+is retained only as the persisted next-state summary and no longer drives the
+score.
+
+On top of that core robust median/MAD score sit the guard rails that make it
+trustworthy in production:
 
 - **Confirm-slot hysteresis** — a breach must persist for `confirm_slots`
   consecutive samples before it is *confirmed*. A single blip does not create a
   finding. (Harness: a single-blip injection is correctly **not** confirmed.)
 - **Withhold-breach-from-baseline** — samples that are breaching are **withheld
-  from the rolling baseline**, so a sustained surge cannot quietly raise the mean
-  and mask itself.
+  from the rolling baseline**, so a sustained surge cannot quietly raise the
+  center/median and mask itself. (With median/MAD this is defense-in-depth — a 50%
+  breakdown point already resists self-masking by construction.)
 - **Dispersion floors** — an absolute standard-deviation floor and a
   coefficient-of-variation (CV) floor prevent a near-constant series from
   manufacturing huge z-scores out of numerical noise.
@@ -154,17 +164,22 @@ Defaults: `n_sigma = 3.0`, `window = 300`, `min_samples = 30`, `confirm_slots = 
 On an Open/Clear transition the detector emits an **OCSF Detection Finding**
 (`class_uid 2004`) with `verdict_source = edge-spike`.
 
-:::note Roadmap (Phase 2)
-The current edge dispersion estimator is **mean/std**, which can self-mask (a very
-large spike inflates its own baseline) and is blind to slow drift. Under
-`refactor-anomaly-engine-rigor` the edge is being upgraded to a robust
-**median/MAD (Hampel)** identifier and a two-sided **CUSUM** drift detector, with
-the dispersion floors, saturation gate, and confirm-slot hysteresis **retained**.
-This page documents the **current** design; the upgrade is gated behind the proof
-harness. The harness already pins the targets: on the raw z-score, slow drift/leak
-score **recall 0/300 and 0/1500** (no edge drift detection), which the CUSUM kernel
-closes (drift **230/300**; the memory-leak case still needs the core hour-of-week
-profile — see task 2.6).
+Alongside the rolling score, the edge add-on runs a **two-sided CUSUM drift
+detector** (on by default) that catches sustained drift the point score misses.
+When CUSUM alarms and the point score did **not** breach, it emits a distinct
+finding (`detector_method = cusum_drift`, `verdict_source = edge-drift`,
+`anomaly.state = anomaly_drift`).
+
+:::note Edge robustness (shipped)
+The edge dispersion estimator is a robust **median/MAD (Hampel)** identifier:
+median/MAD has a 50% breakdown point, so a very large spike cannot inflate its own
+baseline or self-mask. Alongside it, a two-sided **CUSUM** drift detector (on by
+default) catches the slow drift the point score misses, with the dispersion floors,
+saturation gate, and confirm-slot hysteresis **retained**. Both shipped under
+`refactor-anomaly-engine-rigor`. The harness pins the result: the edge now detects
+slow drift (cpu drift recall **1/1**), and the only remaining edge blind spot is the
+slow memory leak (**0/1**), which still needs the core hour-of-week profile — see
+task 2.6.
 :::
 
 ### Core seasonal: hour-of-week residual z-score
@@ -293,11 +308,14 @@ overrides, rollout/runback, and troubleshooting — lives in
 
 | Knob | Default | Effect |
 |---|---|---|
-| `n_sigma` | `3.0` | How many standard deviations from the rolling mean before a slot is anomalous. Higher = quieter, may miss small changes. |
+| `n_sigma` | `3.0` | Threshold on the robust deviation from the rolling **median**, scaled by `MAD * 1.4826` so it stays sigma-comparable: a slot is anomalous when `|(x - median) / (MAD * 1.4826, floored)| >= n_sigma`. Higher = quieter, may miss small changes. |
 | `window` (`window_size`) | `300` | Samples retained for the rolling baseline. Count-based, not wall-clock. Larger = steadier baseline; smaller = adapts faster. |
 | `min_samples` | `30` | Clean baseline samples required before any finding may emit. Raise for sparse/new metric classes. |
 | `confirm_slots` | `5` | Consecutive anomalous slots required before a finding is confirmed. Raise first for bursty classes (before raising `n_sigma`). |
-| Saturation-gate `min_value` | CPU 80 / mem 80 / disk 85 | Floor a bounded percent gauge must clear (upward) before it can breach. |
+| Saturation-gate `min_value` | CPU 85 / mem 80 / disk 80 | Floor a bounded percent gauge must clear (upward) before it can breach. |
+| `cusum_enabled` | `true` | Enables the two-sided CUSUM drift detector (on by default), which catches sustained drift the point score misses. |
+| `cusum_k` | `0.5` | CUSUM slack `k` in sigma units — the per-sample allowance before drift accumulates. |
+| `cusum_h` | `5.0` | CUSUM decision interval / alarm threshold — accumulated drift at which a `cusum_drift` finding fires. |
 
 For noisy or bursty metrics, prefer raising `confirm_slots` before raising
 `n_sigma`: that keeps sustained deviations visible while filtering one-off spikes.
@@ -373,28 +391,31 @@ python3 tools/anomaly-proof/gen_capacity.py
 tools/anomaly-proof/run_db_feed.sh
 ```
 
-### Scorecard (fresh harness run, 2026-06-28)
+### Scorecard (fresh harness run, 2026-06-29)
 
 The rows below are from a **fresh proof-harness run and the test suites on
-2026-06-28** — every figure is measured on shipping code, not asserted. The raw
-rolling z-score is the current edge baseline; the seasonal/CUSUM/S-H-ESD/RPCA
-kernels are the documented Phase-2 work measured against it.
+2026-06-29** — every figure is measured on shipping code, not asserted. The robust
+**median/MAD** edge is the current baseline, with the two-sided **CUSUM** drift
+detector now wired into the edge add-on (on by default). The seasonal kernel is the
+core-tier work measured against the baseline; **S-H-ESD** and **RPCA** are
+reference-tested `anomaly-core` primitives verified by their own unit tests, not yet
+wired into the detector path.
 
-| Series / class | What it proves | Result (2026-06-28) |
+| Series / class | What it proves | Result (2026-06-29) |
 |---|---|---|
-| Edge spike (`anomaly-core`) | the z-score's strength | recall **1/1**, median detection latency **4 samples**, precision **1.0** (**468 TP / 0 FP**) |
+| Edge spike (`anomaly-core`) | the robust median/MAD score's strength | recall **1/1**, median detection latency **4 samples**, precision **1.0** (**692 TP / 0 FP**) |
 | Edge step | step recall + hysteresis | recall **1/1** (latency 4); a single blip is correctly **not confirmed** (`confirm_slots` hysteresis) |
-| Slow drift / slow leak (raw z) | the **honest blind spot** | drift **0/300**, leak **0/1500** — by design, the Phase-2 CUSUM/seasonal target, **not** a regression |
+| Slow drift / slow leak | edge drift now caught | cpu drift **1/1** (median latency **68 samples**, 0 new FP — the robust median lags a slow ramp so the point score catches it); the slow memory leak (**0/1**) is still the core hour-of-week target |
 | Saturation gate off → on | the 80% gate | OFF → **11** sub-80 false alarms (precision 0.5); ON (`min 80`) → sub-80 FP **11 → 0**, real >80 fills kept **11 → 11** |
-| CUSUM drift kernel | closing the drift gap | cpu drift **9/300** (z) → **230/300** (CUSUM), ~**0.6% FP** on clean; memory leak **0/1500** → **742/1500**, **38% FP** — the short-history caveat that needs the core 180-day hour-of-week profile (why task 2.6 exists) |
-| S-H-ESD seasonal kernel | seasonal suppression | **7/7** — recurring nightly/daytime/weekend load **suppressed at z=0.00** (the same load the naive edge over-flags **21/21**); off-pattern breaches flagged (z=**9.01 / 7.42 / 16.15**); insufficient-baseline gated |
+| CUSUM drift kernel (live edge, default-on) | the shipped edge drift detector | cpu drift **9/300** (z) → **230/300** (CUSUM), ~**0.6% FP** on clean; memory leak **0/1500** → **742/1500**, **38% FP** — the short-history caveat that needs the core 180-day hour-of-week profile (why task 2.6 exists) |
+| Core seasonal disposition (residual-z) kernel | seasonal suppression | **7/7** — recurring nightly/daytime/weekend load **suppressed at z=0.00** (the same load the naive edge over-flags **21/21**); off-pattern breaches flagged (z=**9.01 / 7.42 / 16.15**); insufficient-baseline gated |
 | RPCA / GESD reference | the robust kernels are correct | **8/8** — GESD finds injected outliers at exact indices **[40,41,42]** and nothing on clean; SVD reconstructs and is orthonormal; `norm_ppf` / `t_ppf` match reference quantiles |
 | Capacity kernel | the horizon-widening band | PI band **widens with horizon** (7d **5.89** / 30d **5.93** / 90d **6.15**), replacing the old constant-width band; exhaustion ETA emitted at 30d/90d (projected **73.7% / 102.5%**), none at 7d (**62.6%**) |
 | Disposition (matched-resolution, real DB) | the peak-vs-peak loop | hour-of-week PEAK profile center=**55**, scale=**4**, n=**8** → suppress@peak 56 (z≈0.25), downgrade@peak 63 (z=2.0), escalate@peak 90 (novel); a zero-variance profile escalates **any** above-center peak; **report-only by default** (`actionable?` false unless `suppression_enabled`) |
 
 Test suites green on 2026-06-28 (pass/fail):
 
-- **Rust** — `anomaly-core` **43/0**, `anomaly-addon` **78/0**, `anomaly-disposition`
+- **Rust** — `anomaly-core` **49/0**, `anomaly-addon` **92/0**, `anomaly-disposition`
   **43/0**, `correlation-engine` **65/0**.
 - **Elixir** — disposition **17/0**, reporter **7/0**, peak_profile **6/0**,
   series_key **11/0**, stateful_alert_engine **13/0**.

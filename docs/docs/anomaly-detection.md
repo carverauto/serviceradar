@@ -78,6 +78,10 @@ Important detector fields across these ownership surfaces:
 - **Minimum samples**: clean baseline samples required before findings may
   emit. Raise this when onboarding a new metric class with sparse or irregular
   data.
+- **CUSUM drift knobs**: the two-sided CUSUM drift detector is on by default
+  (`cusum_enabled = true`) and catches sustained drift the point score misses.
+  `cusum_k` (default `0.5`) is the per-sample slack in sigma units, and `cusum_h`
+  (default `5.0`) is the decision interval / alarm threshold.
 
 Start conservatively. For noisy or bursty metrics, prefer increasing
 `confirm_slots` before raising `n_sigma`; that keeps true sustained deviations
@@ -179,7 +183,8 @@ When reviewing a finding:
   and agent sampling cadence.
 - For edge spike findings, check
   `metadata.service_radar.verdict_source`. The native add-on sets it to
-  `edge-spike`.
+  `edge-spike` for point spikes, and `edge-drift` (with
+  `detector_method = cusum_drift`) for sustained drift caught by the CUSUM detector.
 - If a class emits too many short-lived findings, raise `confirm_slots` or
   `min_samples` before raising the global threshold.
 
