@@ -337,9 +337,7 @@ fn push_series_dimension_components(buf: &mut String, metric: &Metric, point: &M
     }
 
     for &(key, value) in &dims {
-        if key == "core_id"
-            || key == "mount_point"
-            || SERIES_DIMENSION_EXCLUDED_KEYS.contains(&key)
+        if key == "core_id" || key == "mount_point" || SERIES_DIMENSION_EXCLUDED_KEYS.contains(&key)
         {
             continue;
         }

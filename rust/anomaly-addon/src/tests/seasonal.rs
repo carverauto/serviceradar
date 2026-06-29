@@ -121,7 +121,10 @@ fn delivered_uid_keyed_baseline_resolves_and_deseasonalizes_a_real_sample() {
         .iter()
         .find(|signal| signal.name == "seasonal")
         .expect("the uid-keyed baseline must produce a seasonal signal");
-    assert!(seasonal.ready, "the delivered baseline must be resolved + ready");
+    assert!(
+        seasonal.ready,
+        "the delivered baseline must be resolved + ready"
+    );
     assert!(
         !seasonal.breached,
         "72 is normal for a center-70 hour (score {})",

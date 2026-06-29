@@ -92,7 +92,10 @@ fn config_accepts_cusum_overrides_and_disable() {
     .expect("cusum config deserializes (bool + string/number knobs)");
 
     let resolved = config.into_engine_config().expect("valid config");
-    assert!(!resolved.cusum_enabled, "cusum_enabled:false disables the detector");
+    assert!(
+        !resolved.cusum_enabled,
+        "cusum_enabled:false disables the detector"
+    );
     assert_eq!(resolved.cusum_k, 0.75);
     assert_eq!(resolved.cusum_h, 8.0);
 }

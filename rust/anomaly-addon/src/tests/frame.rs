@@ -549,7 +549,10 @@ async fn process_frame_emits_a_cusum_drift_finding_for_a_slow_ramp_the_zscore_mi
     while let Ok(batch) = rx.try_recv() {
         for record in batch.records {
             let event: serde_json::Value = serde_json::from_slice(&record.payload).unwrap();
-            let method = event["detector_method"].as_str().unwrap_or_default().to_string();
+            let method = event["detector_method"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
             if method == "cusum_drift" && drift_event.is_none() {
                 drift_event = Some(event.clone());
             }
