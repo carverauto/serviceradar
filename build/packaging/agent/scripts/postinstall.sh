@@ -17,6 +17,17 @@ mkdir -p /var/lib/serviceradar
 mkdir -p /var/lib/serviceradar/cache
 mkdir -p /var/lib/serviceradar/agent/versions
 mkdir -p /var/lib/serviceradar/agent/tmp
+# Endpoint-inventory state dirs: the agent writes its runtime profile here AS THE
+# serviceradar user. Create them explicitly so the recursive chown below owns them
+# as serviceradar from install. Historically they were created while the agent ran
+# as root, so a leftover root-owned dir left the serviceradar agent unable to write
+# its profile — which permanently deferred the config-version ack and produced a
+# config re-stream storm (fj #4301). The chown -R re-owns any such stale dirs on
+# upgrade; creating them here makes fresh installs correct from the start.
+mkdir -p /var/lib/serviceradar/endpoint-inventory/profile
+mkdir -p /var/lib/serviceradar/endpoint-inventory/spool
+mkdir -p /var/lib/serviceradar/endpoint-inventory/cache
+mkdir -p /var/lib/serviceradar/endpoint-inventory/tmp
 mkdir -p /etc/serviceradar/sidecars
 
 
@@ -37,6 +48,7 @@ chmod 755 /var/lib/serviceradar/cache
 chmod 755 /var/lib/serviceradar/agent
 chmod 755 /var/lib/serviceradar/agent/versions
 chmod 755 /var/lib/serviceradar/agent/tmp
+chmod 750 /var/lib/serviceradar/endpoint-inventory
 
 if [ -x /usr/local/bin/serviceradar-agent-updater ]; then
     chown root:serviceradar /usr/local/bin/serviceradar-agent-updater
