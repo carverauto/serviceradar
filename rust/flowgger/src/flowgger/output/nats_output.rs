@@ -22,6 +22,40 @@ use {
     },
 };
 
+/// Whether an existing stream `pattern` subject already covers `subject` under
+/// NATS wildcard semantics (`*` = one token, `>` = tail). Used to skip a literal
+/// subject append already covered (e.g. `logs.syslog` under `logs.>`): appending
+/// it anyway makes JetStream reject the STREAM.UPDATE with a subject-overlap error
+/// (10052) — exactly fj #4302.
+#[cfg(feature = "nats-output")]
+fn subject_covers(pattern: &str, subject: &str) -> bool {
+    let pattern_tokens: Vec<&str> = pattern.split('.').collect();
+    let subject_tokens: Vec<&str> = subject.split('.').collect();
+
+    let mut subject_index = 0;
+    for (idx, token) in pattern_tokens.iter().enumerate() {
+        match *token {
+            ">" => return idx == pattern_tokens.len() - 1,
+            "*" => {
+                if subject_index >= subject_tokens.len() {
+                    return false;
+                }
+                subject_index += 1;
+            }
+            literal => {
+                if subject_index >= subject_tokens.len()
+                    || subject_tokens[subject_index] != literal
+                {
+                    return false;
+                }
+                subject_index += 1;
+            }
+        }
+    }
+
+    subject_index == subject_tokens.len()
+}
+
 #[cfg(feature = "nats-output")]
 pub struct NATSOutput {
     cfg: NATSConfig,
@@ -175,7 +209,14 @@ impl NATSWorker {
                 let mut updated_config = info.config.clone();
                 let mut changed = false;
 
-                if !updated_config.subjects.contains(&self.cfg.subject) {
+                // Skip the append when an existing subject (e.g. `logs.>` on the shared
+                // `events` stream) already covers ours — a literal `logs.syslog` append
+                // would self-overlap and JetStream rejects the UPDATE (10052, #4302).
+                if !updated_config
+                    .subjects
+                    .iter()
+                    .any(|existing| subject_covers(existing, &self.cfg.subject))
+                {
                     updated_config.subjects.push(self.cfg.subject.clone());
                     changed = true;
                 }
