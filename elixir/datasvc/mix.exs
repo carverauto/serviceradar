@@ -26,7 +26,11 @@ defmodule Datasvc.MixProject do
 
   defp deps do
     [
-      {:grpc, "~> 0.9"},
+      {:grpc, "~> 1.0"},
+      # grpc 1.0 makes its transport adapters optional and pins the default Gun
+      # adapter to `~> 2.2.0`. Keep the CVE-patched gun 2.4.1 (Phase-1) and force
+      # it via override so the default Gun client adapter stays available.
+      {:gun, "~> 2.4", override: true},
       {:protobuf, "~> 0.16.0", override: true},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:boundary, "~> 0.10.4", runtime: false},

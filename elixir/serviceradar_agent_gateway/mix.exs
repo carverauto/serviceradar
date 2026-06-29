@@ -46,6 +46,17 @@ defmodule ServiceRadarAgentGateway.MixProject do
     [
       # ServiceRadar Core - shared domains, cluster, registry
       {:serviceradar_core, path: "../serviceradar_core"},
+      # gRPC server. grpc 1.0 split the server into the dedicated grpc_server
+      # package (the `grpc` client lib, inherited via serviceradar_core, no longer
+      # ships GRPC.Server/GRPC.Endpoint/GRPC.Server.Supervisor).
+      {:grpc_server, "~> 1.0"},
+      # Keep the CVE-patched gun 2.4.1 (Phase-1) for the client adapter; grpc 1.0
+      # pins the optional Gun adapter to `~> 2.2.0`, so force it via override.
+      {:gun, "~> 2.4", override: true},
+      # grpc_core 1.0 conservatively requests protobuf `~> 0.17`; the proto-generated
+      # modules across the umbrella target 0.16, so pin it via override (matches the
+      # other Elixir apps). grpc_core compiles cleanly against this line.
+      {:protobuf, "~> 0.16.0", override: true},
       {:bandit, "~> 1.0"},
       {:plug, "~> 1.18"},
       {:telemetry_metrics, "~> 1.0"},

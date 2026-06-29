@@ -100,10 +100,11 @@ defmodule ServiceRadarWebNG.Application do
   end
 
   defp maybe_add_grpc_supervisor(children) do
-    case Process.whereis(GRPC.Client.Supervisor) do
-      nil -> children ++ [{GRPC.Client.Supervisor, []}]
-      _pid -> children
-    end
+    # grpc 1.0 starts the GRPC.Client.Supervisor DynamicSupervisor automatically
+    # via GRPC.Client.Application (mod: in grpc's mix.exs), which boots before this
+    # app. No manual client-supervisor child is required (and GRPC.Client.Supervisor
+    # is no longer a startable module in grpc 1.0).
+    children
   end
 
   defp maybe_add_first_party_plugin_sync_scheduler(children) do
