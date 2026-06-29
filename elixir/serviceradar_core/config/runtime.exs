@@ -876,10 +876,18 @@ if config_env() == :prod do
         "epmd" ->
           hosts_str = System.get_env("CLUSTER_HOSTS", "")
 
+          # libcluster's Epmd strategy requires node-NAME atoms, and deployment-specific
+          # hostnames have no pre-known whitelist, so `String.to_existing_atom` is not an
+          # option here. CLUSTER_HOSTS is trusted operator config, but bound the atom
+          # creation regardless: drop blanks/dupes and cap the count so a malformed env
+          # var can never grow the atom table without bound.
           hosts =
             hosts_str
             |> String.split(",", trim: true)
             |> Enum.map(&String.trim/1)
+            |> Enum.reject(&(&1 == ""))
+            |> Enum.uniq()
+            |> Enum.take(256)
             |> Enum.map(&String.to_atom/1)
 
           if hosts == [] do

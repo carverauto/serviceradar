@@ -144,11 +144,21 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
     end
   end
 
-  # Force the edge-baseline fetch to UTC: rewrite the seasonal query's `timezone:"..."`
-  # literal to `Etc/UTC` so the (dow,hod) buckets align with the edge's UTC hour-of-week.
-  # The central disposition verdict pass keeps the configured tz via `source.query`.
+  # Force the edge-baseline fetch to UTC so the (dow,hod) buckets align with the edge's
+  # UTC hour-of-week. The central disposition verdict pass keeps the configured tz via
+  # `source.query`. We must ALWAYS end up with `timezone:"Etc/UTC"`: rewrite an existing
+  # `timezone:"..."` literal when present, but APPEND it when the source query carries no
+  # timezone term — a plain `Regex.replace` silently no-ops on a tz-less query and would
+  # leave the baseline on the SRQL default (implicit) timezone.
+  @timezone_literal ~r/timezone:"[^"]*"/
+  @utc_timezone_term ~s|timezone:"Etc/UTC"|
+
   defp edge_baseline_query(%Source{query: query}) when is_binary(query) do
-    Regex.replace(~r/timezone:"[^"]*"/, query, ~s|timezone:"Etc/UTC"|)
+    if Regex.match?(@timezone_literal, query) do
+      Regex.replace(@timezone_literal, query, @utc_timezone_term)
+    else
+      String.trim_trailing(query) <> " " <> @utc_timezone_term
+    end
   end
 
   defp edge_baseline_query(%Source{query: query}), do: query

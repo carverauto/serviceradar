@@ -228,7 +228,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
 
       assert_receive {:timestamp_fallback,
                       [:serviceradar, :event_writer, :causal_signals, :timestamp_fallback],
-                      %{count: 1}, %{subject_class: "causal", reason: :malformed_timestamp}}
+                      %{count: 1}, %{subject_class: "analytics", reason: :malformed_timestamp}}
     end
 
     test "uses SNMP target IP as anomaly device identity when polling agent reports verdict" do
@@ -937,7 +937,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
       assert routed.batcher == :arancini_causal
     end
 
-    test "causal prediction subjects route to the declared causal_predictions batcher" do
+    test "analytics prediction subjects route to the declared analytics_predictions batcher" do
       event = %{
         data: Jason.encode!(%{"signal_type" => "prediction", "event_type" => "anomaly"}),
         metadata: %{
@@ -949,7 +949,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
 
       message = Pipeline.transform(event, [])
       routed = Pipeline.handle_message(:default, message, %{})
-      assert routed.batcher == :causal_predictions
+      assert routed.batcher == :analytics_predictions
     end
   end
 
@@ -1466,7 +1466,14 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
     Enum.map(events, fn event ->
       message = Pipeline.transform(event, [])
       routed = Pipeline.handle_message(:default, message, %{})
-      assert routed.batcher in [:bmp_causal, :arancini_causal, :siem_causal, :causal_predictions]
+
+      assert routed.batcher in [
+               :bmp_causal,
+               :arancini_causal,
+               :siem_causal,
+               :analytics_predictions
+             ]
+
       routed
     end)
   end

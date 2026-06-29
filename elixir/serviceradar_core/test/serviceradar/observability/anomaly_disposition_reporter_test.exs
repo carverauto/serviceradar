@@ -164,4 +164,127 @@ defmodule ServiceRadar.Observability.AnomalyDispositionReporterTest do
       refute_receive {:disposition, _measurements, _metadata}
     end
   end
+
+  # Runner that reports every DB round-trip back to the test, so we can prove the
+  # peak-profile fetch is memoized across findings that share a (metric_class, metric_name).
+  defmodule CountingRunner do
+    @moduledoc false
+    def query(query, opts) do
+      send(Keyword.fetch!(opts, :parent), {:query_called, query})
+
+      {:ok,
+       [
+         %{
+           "payload" => %{
+             "series" => "sr:ns03",
+             "dow" => 2,
+             "hod" => 9,
+             "center" => 55,
+             "p95" => 61,
+             "bucket_count" => 8
+           }
+         }
+       ]}
+    end
+  end
+
+  defp finding_for_metric(peak_value, metric_class, metric_name) do
+    %{
+      source_identity: %{
+        "device_id" => "sr:ns03",
+        "metric_class" => metric_class,
+        "metric_name" => metric_name
+      },
+      episode_peak_value: peak_value,
+      episode_peak_at_unix_nano: @peak_at
+    }
+  end
+
+  describe "peak-profile memoization (bounded DB load)" do
+    test "reuses one fetch for findings sharing a (metric_class, metric_name)" do
+      {:ok, pid} =
+        Reporter.start_link(
+          name: :"memo_reporter_#{System.unique_integer([:positive])}",
+          report_opts: [runner: CountingRunner, runner_opts: [parent: self()]]
+        )
+
+      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+
+      # Three findings, same metric -> a single SRQL peak query (one DB round-trip).
+      for _ <- 1..3, do: assert(:ok = Reporter.report(finding(92.0), pid))
+      # Flush the serial cast queue (handle_cast is FIFO, so this returns after all three).
+      :sys.get_state(pid)
+
+      assert_receive {:query_called, cpu_query}
+      refute_receive {:query_called, _}, 50
+
+      # A different metric is a distinct query -> a second, separate fetch.
+      assert :ok =
+               Reporter.report(finding_for_metric(92.0, "sysmon.mem", "mem.usage_percent"), pid)
+
+      :sys.get_state(pid)
+
+      assert_receive {:query_called, mem_query}
+      assert mem_query != cpu_query
+      refute_receive {:query_called, _}, 50
+    end
+  end
+
+  # Runner that blocks on its first call until the test releases it, letting the mailbox
+  # build past the bound while the reporter is held inside one report.
+  defmodule BlockingRunner do
+    @moduledoc false
+    def query(_query, opts) do
+      send(Keyword.fetch!(opts, :parent), {:runner_entered, self()})
+
+      receive do
+        :release -> :ok
+      after
+        5_000 -> :ok
+      end
+
+      {:ok, []}
+    end
+  end
+
+  describe "drop-oldest mailbox bound" do
+    test "sheds the oldest queued report casts past :max_mailbox and emits drop telemetry" do
+      parent = self()
+      handler = "disp-drop-#{System.unique_integer([:positive])}"
+
+      :telemetry.attach(
+        handler,
+        [:serviceradar, :anomaly, :disposition, :dropped],
+        fn _event, measurements, metadata, _config ->
+          send(parent, {:dropped, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      {:ok, pid} =
+        Reporter.start_link(
+          name: :"bound_reporter_#{System.unique_integer([:positive])}",
+          max_mailbox: 2,
+          report_opts: [runner: BlockingRunner, runner_opts: [parent: parent]]
+        )
+
+      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+
+      # Finding #1 starts and BLOCKS inside the runner, holding the reporter so the mailbox
+      # can build up past the bound.
+      assert :ok = Reporter.report(finding(92.0), pid)
+      assert_receive {:runner_entered, ^pid}, 1_000
+
+      # Queue nine more casts while the reporter is blocked.
+      for _ <- 1..9, do: assert(:ok = Reporter.report(finding(92.0), pid))
+
+      # Release: #1 completes; handling #2 sees an 8-deep backlog (> max 2) and drops the
+      # six oldest queued reports.
+      send(pid, :release)
+
+      assert_receive {:dropped, %{count: 6}, %{reason: :mailbox_overflow}}, 1_000
+    end
+  end
 end

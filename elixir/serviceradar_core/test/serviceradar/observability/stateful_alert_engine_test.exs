@@ -414,7 +414,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
     message = Pipeline.handle_message(:default, broadway_message, %{})
 
-    assert message.batcher == :causal_predictions
+    assert message.batcher == :analytics_predictions
     assert AnalyticsSignals.table_name() == "ocsf_events"
 
     row = AnalyticsSignals.parse_message(%{data: message.data, metadata: message.metadata})

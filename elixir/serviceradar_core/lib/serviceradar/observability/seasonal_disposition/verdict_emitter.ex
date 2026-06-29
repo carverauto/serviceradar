@@ -1,10 +1,10 @@
 defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitter do
   @moduledoc """
-  Emits central-seasonal anomaly dispositions through the causal signal spine.
+  Emits central-seasonal anomaly dispositions through the analytics signal spine.
 
-  A confirmed `SeasonalBreach` from the NIF surfaces here as a `signal_type: causal`
-  anomaly verdict carrying its `series_key` and the time window of the bucket under
-  test, with `verdict_source: central-seasonal` so the edge + central tiers compose
+  A confirmed `SeasonalBreach` from the NIF surfaces here as a `signal_type: "prediction"`
+  anomaly verdict (see `payload/2`) carrying its `series_key` and the time window of the
+  bucket under test, with `verdict_source: central-seasonal` so the edge + central tiers compose
   on the existing `source` join contract (design "composed, not merged"). Mirrors
   `ServiceRadar.Observability.CapacityForecasting.VerdictEmitter`; the OCSF re-key
   and alert-enqueue sink downstream are untouched.

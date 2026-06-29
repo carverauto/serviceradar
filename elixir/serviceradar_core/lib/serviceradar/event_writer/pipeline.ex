@@ -425,8 +425,8 @@ defmodule ServiceRadar.EventWriter.Pipeline do
     [
       {:logs, &log_subject?/1},
       {:default, &ignore_events_subject?/1},
-      {:causal_predictions, &causal_predictions_subject?/1},
-      {:bmp_causal, &bmp_causal_subject?/1},
+      {:analytics_predictions, &analytics_predictions_subject?/1},
+      {:bmp_causal, &bmp_or_analytics_subject?/1},
       {:arancini_causal, &arancini_causal_subject?/1},
       {:siem_causal, &siem_causal_subject?/1},
       {:pdns_ocsf, &pdns_ocsf_subject?/1},
@@ -458,12 +458,14 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       String.starts_with?(subject, "snmp.traps")
   end
 
-  defp causal_predictions_subject?(subject),
+  defp analytics_predictions_subject?(subject),
     do:
       subject == "signals.analytics.predictions" or
         String.starts_with?(subject, "signals.analytics.predictions.")
 
-  defp bmp_causal_subject?(subject),
+  # BMP routing events AND the generic analytics-signal catch-all (`signals.analytics.*`,
+  # e.g. inventory/overlay verdicts) share the AnalyticsSignals processor + batcher.
+  defp bmp_or_analytics_subject?(subject),
     do:
       subject == "bmp.events" or String.starts_with?(subject, "bmp.events.") or
         subject == "signals.analytics" or
@@ -492,7 +494,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp get_processor(:bmp_causal), do: AnalyticsSignals
   defp get_processor(:arancini_causal), do: AnalyticsSignals
   defp get_processor(:siem_causal), do: AnalyticsSignals
-  defp get_processor(:causal_predictions), do: AnalyticsSignals
+  defp get_processor(:analytics_predictions), do: AnalyticsSignals
   defp get_processor(:causal_signals), do: AnalyticsSignals
   defp get_processor(:logs), do: ServiceRadar.EventWriter.Processors.Logs
   defp get_processor(:metrics), do: Metrics
@@ -501,10 +503,18 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp get_processor(:netflow_raw), do: Flows
   defp get_processor(_), do: ServiceRadar.EventWriter.Processors.Default
 
+  # Map a configured stream name to its batcher atom WITHOUT minting atoms from runtime
+  # config. Every real batcher (`:events`, `:metrics`, `:bmp_causal`,
+  # `:analytics_predictions`, ...) already exists as a compile-time literal in
+  # `batcher_rules/0` + `get_processor/1`, so `String.to_existing_atom/1` resolves them;
+  # an unknown/custom stream name has no routing rule pointing at it, so it falls back to
+  # the `:default` batcher (its messages route to the Default processor).
   defp stream_to_batcher_name(stream_name) do
     stream_name
     |> String.downcase()
     |> String.replace(~r/[^a-z0-9]/, "_")
-    |> String.to_atom()
+    |> String.to_existing_atom()
+  rescue
+    ArgumentError -> :default
   end
 end

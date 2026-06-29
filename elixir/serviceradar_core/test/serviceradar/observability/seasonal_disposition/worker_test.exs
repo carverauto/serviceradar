@@ -136,6 +136,18 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
     refute String.contains?(query, ~s|timezone:"America/Chicago"|)
   end
 
+  test "edge baseline fetch enforces UTC even when the source query has no timezone term" do
+    # `source/0` carries a profile query with NO `timezone:"..."` literal — a plain
+    # Regex.replace would silently no-op and leave the baseline on SRQL's implicit tz.
+    src = source()
+    refute String.contains?(src.query, "timezone:")
+
+    assert {:ok, _rows} = Worker.edge_baseline_rows(src, runner: QueryRecorderRunner)
+
+    assert_receive {:seasonal_query, query}
+    assert String.contains?(query, ~s|timezone:"Etc/UTC"|)
+  end
+
   test "worker skips unsupported seasonal sources instead of claiming coverage" do
     event = [:serviceradar, :observability, :seasonal_disposition, :source_skipped]
     handler_id = {:seasonal_source_skipped, make_ref()}
