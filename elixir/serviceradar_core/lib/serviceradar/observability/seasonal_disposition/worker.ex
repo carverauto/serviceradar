@@ -15,7 +15,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
     2. Hydrate each profile row into the typed `{:seasonal, %{config, row}}` request
        ABI, carrying in `consecutive_anomalous` from the state store for confirm-slot
        hysteresis.
-    3. Call `CausalReasoner.dispose_batch(:seasonal, rows)` once per source — the NIF
+    3. Call `DispositionKernels.dispose_batch(:seasonal, rows)` once per source — the NIF
        moves only residual-z, breach, baseline-sufficiency, and robust-statistic
        selection; every gate is a typed `Disposition` value, never an unwind.
     4. Persist the returned `next_consecutive_anomalous` per `(series_key, dow, hod)`
@@ -24,7 +24,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
 
   Mirrors `ServiceRadar.Observability.CapacityForecasting.Worker`. Tests can inject
   `:runner`, `:sources`, `:reasoner`, `:state_loader`, `:state_persister`, and
-  `:verdict_emitter`; production uses `SRQLRunner`, the `CausalReasoner` NIF facade,
+  `:verdict_emitter`; production uses `SRQLRunner`, the `DispositionKernels` NIF facade,
   and the Postgres-backed seasonal state store.
   """
 
@@ -38,7 +38,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
     ]
 
   alias ServiceRadar.Observability.AnomalyConfigRuntime
-  alias ServiceRadar.Observability.CausalReasoner
+  alias ServiceRadar.Observability.DispositionKernels
   alias ServiceRadar.Observability.PagedQuery
   alias ServiceRadar.Observability.SeasonalDisposition.Source
   alias ServiceRadar.Observability.SeasonalDisposition.StateStore
@@ -50,7 +50,9 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
 
   @default_n_sigma 3.0
   @default_min_bucket_samples 4
-  @default_confirm_slots 1
+  # Default = 2 (1.16 / D-Q3): light hysteresis so a single noisy hourly bucket is a
+  # pending drift, not an immediate breach. Operator-tunable down to 1 or higher.
+  @default_confirm_slots 2
 
   @impl Oban.Worker
   def perform(%Oban.Job{} = job) do
@@ -103,6 +105,70 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
       {:error, :oban_unavailable}
     end
   end
+
+  @doc """
+  Fetch + hydrate the hour-of-week profile rows for one source into the
+  `EdgeBaseline.build/2` input shape (the same typed `{series_key, dow, hod,
+  center/mad/p05/p95/bucket_*}` rows the disposition path hydrates), WITHOUT
+  loading the carried-hysteresis state the verdict pass needs.
+
+  The edge-baseline producer reduces these rows to the compact per-series
+  `seasonal_baselines` payload pushed core->edge, so it reuses the exact SRQL fetch
+  + row hydration the disposition verdict pass uses — there is only one definition
+  of how a profile row maps to the robust order statistics.
+  """
+  @spec edge_baseline_rows(Source.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  def edge_baseline_rows(%Source{} = source, opts \\ []) do
+    opts = merge_runtime_opts(opts)
+    runner = Keyword.get(opts, :runner, SRQLRunner)
+    runner_opts = Keyword.get(opts, :runner_opts, [])
+    config = seasonal_config(source, opts)
+
+    # The edge detector buckets hour-of-week in UTC (anomaly-core `hour_of_week`), so the
+    # delivered baseline must be UTC-bucketed too — independent of the source's configured
+    # `profile_timezone` (which the central VERDICT pass keeps for local-hour bucketing).
+    # A non-UTC profile would otherwise build local-tz (dow,hod) buckets that resolve
+    # nothing against the edge's UTC clock.
+    case fetch_rows(runner, edge_baseline_query(source), runner_opts, opts) do
+      {:ok, raw_rows} ->
+        rows =
+          raw_rows
+          |> Enum.map(&unwrap_payload/1)
+          |> Enum.map(&seasonal_row(&1, source, config))
+          |> Enum.reject(&is_nil/1)
+
+        {:ok, rows}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # Force the edge-baseline fetch to UTC so the (dow,hod) buckets align with the edge's
+  # UTC hour-of-week. The central disposition verdict pass keeps the configured tz via
+  # `source.query`. We must ALWAYS end up with `timezone:"Etc/UTC"`: rewrite an existing
+  # `timezone:"..."` literal when present, but APPEND it when the source query carries no
+  # timezone term — a plain `Regex.replace` silently no-ops on a tz-less query and would
+  # leave the baseline on the SRQL default (implicit) timezone.
+  @timezone_literal ~r/timezone:"[^"]*"/
+  @utc_timezone_term ~s|timezone:"Etc/UTC"|
+
+  defp edge_baseline_query(%Source{query: query}) when is_binary(query) do
+    if Regex.match?(@timezone_literal, query) do
+      Regex.replace(@timezone_literal, query, @utc_timezone_term)
+    else
+      String.trim_trailing(query) <> " " <> @utc_timezone_term
+    end
+  end
+
+  defp edge_baseline_query(%Source{query: query}), do: query
+
+  # The SRQL `profile_hour_of_week` route returns one `jsonb_build_object(...)`
+  # column, so `SRQLRunner` rows arrive as `%{"payload" => %{...}}`. Flatten that to
+  # the top-level field map `seasonal_row/3` reads. Rows already flat (the injected
+  # test runners) pass through unchanged.
+  defp unwrap_payload(%{"payload" => %{} = payload} = row) when map_size(row) == 1, do: payload
+  defp unwrap_payload(row), do: row
 
   defp refresh_source(%Source{} = source, opts) do
     runner = Keyword.get(opts, :runner, SRQLRunner)
@@ -157,6 +223,11 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   defp profile_rows(%Source{} = source, raw_rows, config, opts) when is_list(raw_rows) do
     hydrated_rows =
       raw_rows
+      # Live `SRQLRunner` wraps each profile_hour_of_week row as `%{"payload" => %{...}}`
+      # (jsonb_build_object); the dispose path must flatten it before `seasonal_row`
+      # reads the top-level fields — otherwise it hydrates nothing against real data
+      # (the same envelope `edge_baseline_rows/2` unwraps). Injected/flat rows pass through.
+      |> Enum.map(&unwrap_payload/1)
       |> Enum.map(&seasonal_row(&1, source, config))
       |> Enum.reject(&is_nil/1)
 
@@ -374,7 +445,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   end
 
   defp safe_dispose_batch(kind, inputs, opts) do
-    reasoner = Keyword.get(opts, :reasoner, CausalReasoner)
+    reasoner = Keyword.get(opts, :reasoner, DispositionKernels)
 
     try do
       {:ok, reasoner.dispose_batch(kind, inputs)}

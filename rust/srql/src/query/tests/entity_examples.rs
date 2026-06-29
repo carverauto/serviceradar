@@ -128,7 +128,8 @@ fn endpoint_packages_example_name_manager_and_cpe() {
         lower.contains("order by \"endpoint_inventory_packages\".\"name\" asc"),
         "expected name asc ordering, got: {sql}"
     );
-    assert_eq!(params.len(), 4);
+    // 5 filter binds (device_uid, name, package_manager, current, cpes) + limit + offset.
+    assert_eq!(params.len(), 7);
 }
 
 #[test]

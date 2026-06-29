@@ -91,9 +91,9 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.SourceTest do
     assert source.label_fields == ["series"]
   end
 
-  test "from_config falls back to mean_stddev for an unknown robust statistic" do
+  test "from_config falls back to median_mad for an unknown robust statistic" do
     source = Source.from_config(%{robust_statistic: "nonsense"})
-    assert source.robust_statistic == :mean_stddev
+    assert source.robust_statistic == :median_mad
   end
 
   test "from_config normalizes the p05-p95 statistic to the :p05p95 NIF ABI atom" do

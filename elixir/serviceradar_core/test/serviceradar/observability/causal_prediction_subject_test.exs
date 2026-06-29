@@ -6,12 +6,12 @@ defmodule ServiceRadar.Observability.CausalPredictionSubjectTest do
 
   test "builds causal prediction subjects with sanitized series tokens" do
     assert CausalPredictionSubject.build("snmp.if_octets:10.0.0.20:7:core *> uplink") ==
-             "signals.causal.predictions.snmp_if_octets:10_0_0_20:7:core____uplink"
+             "signals.analytics.predictions.snmp_if_octets:10_0_0_20:7:core____uplink"
   end
 
   test "uses caller fallback for blank values" do
     assert CausalPredictionSubject.build(" ", "capacity_forecast") ==
-             "signals.causal.predictions.capacity_forecast"
+             "signals.analytics.predictions.capacity_forecast"
   end
 
   test "builds the same sanitized subject central routing uses for edge-derived canonical keys" do
@@ -28,7 +28,7 @@ defmodule ServiceRadar.Observability.CausalPredictionSubjectTest do
     canonical = SeriesKey.from_source_identity(source_identity, partition_id: "prod-east")
     subject = CausalPredictionSubject.build(canonical)
 
-    assert subject == "signals.causal.predictions.#{CausalPredictionSubject.token(canonical)}"
+    assert subject == "signals.analytics.predictions.#{CausalPredictionSubject.token(canonical)}"
     assert subject =~ "partition=#{Base.encode16("prod-east", case: :lower)}"
     refute subject =~ Base.encode16("spoofed", case: :lower)
     refute subject =~ "edge-hint-provisional"

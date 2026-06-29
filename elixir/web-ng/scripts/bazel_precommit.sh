@@ -183,7 +183,7 @@ EOF
   export GIT="$GIT_WRAP_DIR/git"
 fi
 
-mkdir -p "$WORKDIR/addons" "$WORKDIR/elixir" "$WORKDIR/elixir/web-ng" "$WORKDIR/rust/anomaly-core" "$WORKDIR/rust/causal-disposition" "$WORKDIR/rust/srql" "$WORKDIR/rust/kvutil" "$WORKDIR/proto" "$WORKDIR/elixir/connection" "$WORKDIR/elixir/elixir_uuid" "$WORKDIR/elixir/serviceradar_core" "$WORKDIR/elixir/serviceradar_srql" "$WORKDIR/elixir/datasvc" "$WORKDIR/elixir/vendor/opentelemetry_oban"
+mkdir -p "$WORKDIR/addons" "$WORKDIR/elixir" "$WORKDIR/elixir/web-ng" "$WORKDIR/rust/anomaly-core" "$WORKDIR/rust/anomaly-disposition" "$WORKDIR/rust/srql" "$WORKDIR/rust/kvutil" "$WORKDIR/proto" "$WORKDIR/elixir/connection" "$WORKDIR/elixir/elixir_uuid" "$WORKDIR/elixir/serviceradar_core" "$WORKDIR/elixir/serviceradar_srql" "$WORKDIR/elixir/datasvc" "$WORKDIR/elixir/vendor/opentelemetry_oban"
 
 copy_dir() {
   src="$1"
@@ -215,7 +215,7 @@ done
 copy_dir "$ROOT/rust/srql" "$WORKDIR/rust/srql"
 copy_dir "$ROOT/rust/kvutil" "$WORKDIR/rust/kvutil"
 copy_dir "$ROOT/rust/anomaly-core" "$WORKDIR/rust/anomaly-core"
-copy_dir "$ROOT/rust/causal-disposition" "$WORKDIR/rust/causal-disposition"
+copy_dir "$ROOT/rust/anomaly-disposition" "$WORKDIR/rust/anomaly-disposition"
 copy_dir "$ROOT/proto" "$WORKDIR/proto"
 copy_dir "$ROOT/addons/bumblebee-scan" "$WORKDIR/addons/bumblebee-scan"
 copy_dir "$ROOT/addons/netprobe" "$WORKDIR/addons/netprobe"

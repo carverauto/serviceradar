@@ -562,7 +562,6 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
       end
 
     [
-      version: "1.7.0",
       product_name: "ServiceRadar Core",
       correlation_uid:
         "metric_threshold:#{setting.device_id}:#{setting.interface_uid}:#{metric_name}:#{System.unique_integer([:positive])}"

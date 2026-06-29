@@ -120,6 +120,11 @@ defmodule ServiceRadar.Application do
         stateful_alert_evaluation_task_supervisor_child(),
         stateful_alert_evaluation_queue_child(),
 
+        # Out-of-band, report-only anomaly disposition reporter. AnalyticsSignals
+        # casts persisted class-2004 anomaly findings here; it drives
+        # AnomalyDisposition.report_finding/2 (telemetry only) OFF the alert hot path.
+        anomaly_disposition_reporter_child(),
+
         # Short-TTL ETS cache for event-writer device correlation (one DB
         # lookup per device instead of per event under load)
         device_correlation_cache_child(),
@@ -298,6 +303,12 @@ defmodule ServiceRadar.Application do
   defp stateful_alert_evaluation_queue_child do
     if repo_enabled?() do
       ServiceRadar.Observability.StatefulAlertEvaluationQueue
+    end
+  end
+
+  defp anomaly_disposition_reporter_child do
+    if repo_enabled?() do
+      ServiceRadar.Observability.AnomalyDispositionReporter
     end
   end
 

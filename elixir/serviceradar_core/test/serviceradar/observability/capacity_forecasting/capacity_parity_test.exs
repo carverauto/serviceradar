@@ -8,7 +8,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.CapacityParityTest do
   `tests/capacity_parity.rs` (OpenSpec add-core-causal-disposition-nif, task 7.3 /
   graft #4).
 
-  Asserts that `ServiceRadar.Observability.CausalReasoner.dispose_batch(:capacity,
+  Asserts that `ServiceRadar.Observability.DispositionKernels.dispose_batch(:capacity,
   rows)` (the typed Rustler NIF over `dispose_capacity`) reproduces the LEGACY
   `ServiceRadar.Observability.CapacityForecasting.Model.forecast/2` (`model.ex`) to
   within `1e-9` on EVERY numeric output field — `slope_per_second`, `intercept`,
@@ -25,7 +25,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.CapacityParityTest do
   committed JSON oracle
   `test/support/fixtures/capacity_parity_fixtures.json`, which was CAPTURED from
   `Model.forecast/2` by
-  `rust/causal-disposition/tests/fixtures/generate_capacity_parity_fixtures.exs` (the
+  `rust/anomaly-disposition/tests/fixtures/generate_capacity_parity_fixtures.exs` (the
   same snapshot the Rust gate consumes, byte-identical). So this test keeps protecting
   the port after `model.ex` is removed — the JSON is the durable oracle, not a live
   call into the legacy module.
@@ -35,7 +35,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.CapacityParityTest do
   """
   use ExUnit.Case, async: true
 
-  alias ServiceRadar.Observability.CausalReasoner
+  alias ServiceRadar.Observability.DispositionKernels
 
   # The parity tolerance the spec mandates (task 7.3).
   @tol 1.0e-9
@@ -84,7 +84,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.CapacityParityTest do
     # Drive every case through ONE batch call, exercising the per-row batch loop the
     # worker actually uses, then assert each result against its captured oracle.
     requests = Enum.map(@cases, &request_for/1)
-    results = CausalReasoner.dispose_batch(:capacity, requests)
+    results = DispositionKernels.dispose_batch(:capacity, requests)
 
     assert length(results) == length(@cases),
            "every row must yield exactly one result"
@@ -102,7 +102,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.CapacityParityTest do
 
     test "parity: #{name}" do
       fixture = unquote(Macro.escape(fixture))
-      [result] = CausalReasoner.dispose_batch(:capacity, [request_for(fixture)])
+      [result] = DispositionKernels.dispose_batch(:capacity, [request_for(fixture)])
       assert_parity(fixture, result)
     end
   end
@@ -166,19 +166,27 @@ defmodule ServiceRadar.Observability.CapacityForecasting.CapacityParityTest do
     assert got.model == want["model"],
            "[#{name}] model kind diverged: kernel=#{inspect(got.model)}, legacy=#{inspect(want["model"])}"
 
-    # Float fields: parity within 1e-9.
+    # Fit fields: parity within 1e-9 (the port still reproduces model.ex's fit math).
     for field <- [
           "current_value",
           "slope_per_second",
           "intercept",
           "projected_value",
-          "confidence",
-          "lower_bound",
-          "upper_bound",
           "rmse"
         ] do
       close(name, field, Map.fetch!(got, String.to_existing_atom(field)), want[field])
     end
+
+    # D2: the band + `confidence` intentionally DIVERGE from the legacy
+    # ±1.96·RMSE / clamp(1 - rmse/scale) fixtures. Assert the NEW behaviour — a valid
+    # prediction interval bracketing the projection, and `confidence` carrying the
+    # 0.95 coverage level — not legacy parity.
+    assert abs(got.confidence - 0.95) < 1.0e-9,
+           "[#{name}] confidence should be the 0.95 PI coverage level, got #{got.confidence}"
+
+    assert got.lower_bound <= got.projected_value + 1.0e-9 and
+             got.upper_bound >= got.projected_value - 1.0e-9,
+           "[#{name}] PI [#{got.lower_bound}, #{got.upper_bound}] must bracket projection #{got.projected_value}"
 
     # Integer fields: EXACT match. `sample_count`.
     assert got.sample_count == want["sample_count"],

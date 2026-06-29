@@ -1,5 +1,7 @@
 # Add anomaly finding disposition (edge↔central correlation + resolution model)
 
+> **⚠️ SUPERSEDED (2026-06-28) by `refactor-anomaly-engine-rigor`.** This change's central decision — the **matched-resolution disposition** ("Option B": judge an edge spike's *peak* against the hour-of-week *peak* profile, not the diluting hourly mean) — is implemented there as `ServiceRadar.Observability.AnomalyDisposition` (`dispose/3` suppress/escalate/downgrade/pass_through + `actionable?/2` report-only kill switch), with the series_key-alignment test (`series_key_test.exs`) and the on-demand peak-profile query (no emit-every-series flood). Do not implement this change independently; the remaining loop-closure (alert-engine wiring) is tracked under `refactor-anomaly-engine-rigor` tasks 1.10–1.14.
+
 ## Why
 
 `fix-anomaly-engine-semantics-and-delivery` fixes how anomaly findings are *produced and delivered* (edge transition gating, canonical re-keying F4/F14, seasonal data feed F15). It does **not** decide how a finding is *judged real vs seasonal*, and a deep review of the live system + current tree surfaced three gaps that survive that change:

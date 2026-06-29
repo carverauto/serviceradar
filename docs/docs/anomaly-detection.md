@@ -1,8 +1,15 @@
 ---
-title: Anomaly Detection and Capacity Forecasts
+title: Anomaly Detection (Tuning & Operations)
 ---
 
-# Anomaly Detection and Capacity Forecasts
+# Anomaly Detection (Tuning & Operations)
+
+:::note Looking for how the engine works?
+This page is the **operator-facing tuning and operations guide**. For the
+architecture, the actual statistics, the data contract, the disposition loop, and
+the proof harness, see the [Anomaly Engine](./anomaly-engine.md) reference — the
+single source of truth.
+:::
 
 ServiceRadar can evaluate live metrics for short-term anomalies and long-term
 capacity risk. The detector watches metric streams, emits findings into the
@@ -34,26 +41,6 @@ Anomaly detection settings require the `observability.alerts.manage`
 permission. Users without that permission can still view events and alerts if
 their role grants the normal observability read permissions, but they cannot
 change detector or forecast tuning.
-
-## Tuning Ownership
-
-ServiceRadar intentionally splits anomaly tuning across two ownership surfaces:
-
-- **Settings > Anomaly Detection** stores deployment-level defaults used by
-  central seasonal disposition, capacity-forecast context, and shared runtime
-  configuration. These settings do not rewrite already-created native add-on
-  assignment/profile scalar params.
-- **Anomaly add-on assignments/profiles** own edge spike detector scalar knobs
-  (`n_sigma`, `window_size`, `min_samples`, `confirm_slots`, and related
-  add-on-only limits). The default anomaly add-on profile seeds only
-  `metric_feed.sources=["sysmon","snmp"]`; it deliberately does not seed scalar
-  detector knobs, so the native add-on uses bundle defaults unless an operator
-  sets assignment/profile params.
-
-This split prevents deployment-level seasonal/capacity tuning from silently
-changing every host add-on. To tune edge spike sensitivity, edit the target
-`anomaly` add-on assignment or profile params and let the control plane validate
-them against the package schema before delivery.
 
 ## Edge Spike Detector Tuning
 
@@ -91,6 +78,10 @@ Important detector fields across these ownership surfaces:
 - **Minimum samples**: clean baseline samples required before findings may
   emit. Raise this when onboarding a new metric class with sparse or irregular
   data.
+- **CUSUM drift knobs**: the two-sided CUSUM drift detector is on by default
+  (`cusum_enabled = true`) and catches sustained drift the point score misses.
+  `cusum_k` (default `0.5`) is the per-sample slack in sigma units, and `cusum_h`
+  (default `5.0`) is the decision interval / alarm threshold.
 
 Start conservatively. For noisy or bursty metrics, prefer increasing
 `confirm_slots` before raising `n_sigma`; that keeps true sustained deviations
@@ -192,7 +183,8 @@ When reviewing a finding:
   and agent sampling cadence.
 - For edge spike findings, check
   `metadata.service_radar.verdict_source`. The native add-on sets it to
-  `edge-spike`.
+  `edge-spike` for point spikes, and `edge-drift` (with
+  `detector_method = cusum_drift`) for sustained drift caught by the CUSUM detector.
 - If a class emits too many short-lived findings, raise `confirm_slots` or
   `min_samples` before raising the global threshold.
 
@@ -202,8 +194,9 @@ or, when available, a targeted series override.
 ## Rollout Guidance
 
 Metrics must enter ServiceRadar through NATS JetStream before they are written
-to CNPG. This keeps anomaly detection and the causal engine subscribed to the
-same stream as the persistence consumer.
+to CNPG. This keeps anomaly detection and the `correlation-engine` (the
+rule/dependency-graph correlation expert system) subscribed to the same stream as
+the persistence consumer.
 
 For spike detection, assign the native `anomaly` add-on to the agents that own
 sysmon or SNMP collection. The default profile uses the broad SRQL target

@@ -77,7 +77,6 @@ defmodule ServiceRadar.Events.JobWriter do
       status: OCSF.status_name(status_id),
       metadata:
         OCSF.build_metadata(
-          version: "1.7.0",
           product_name: "ServiceRadar Core",
           correlation_uid: correlation_uid(job_name, job_id)
         ),

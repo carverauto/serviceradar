@@ -2,7 +2,7 @@ import Config
 
 alias Geolix.Adapter.MMDB2
 alias Oban.Plugins.Cron
-alias ServiceRadar.EventWriter.Processors.CausalSignals
+alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
 alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.Jobs.AlertsRetentionWorker
 alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
@@ -294,10 +294,18 @@ topologies =
       "epmd" ->
         hosts_str = System.get_env("CLUSTER_HOSTS", "")
 
+        # libcluster's Epmd strategy requires node-NAME atoms, and deployment-specific
+        # hostnames have no pre-known whitelist, so `String.to_existing_atom` is not an
+        # option here. CLUSTER_HOSTS is trusted operator config, but bound the atom
+        # creation regardless: drop blanks/dupes and cap the count so a malformed env var
+        # can never grow the atom table without bound.
         hosts =
           hosts_str
           |> String.split(",", trim: true)
           |> Enum.map(&String.trim/1)
+          |> Enum.reject(&(&1 == ""))
+          |> Enum.uniq()
+          |> Enum.take(256)
           |> Enum.map(&String.to_atom/1)
 
         if hosts == [] do
@@ -1029,7 +1037,7 @@ if config_env() == :prod do
           name: "BMP_CAUSAL",
           stream_name: "events",
           subject: "bmp.events.>",
-          processor: CausalSignals,
+          processor: AnalyticsSignals,
           batch_size: 100,
           batch_timeout: 1_000
         },
@@ -1037,7 +1045,7 @@ if config_env() == :prod do
           name: "ARANCINI_CAUSAL",
           stream_name: "ARANCINI_CAUSAL",
           subject: "arancini.updates.>",
-          processor: CausalSignals,
+          processor: AnalyticsSignals,
           batch_size: 100,
           batch_timeout: 1_000
         },
@@ -1045,15 +1053,15 @@ if config_env() == :prod do
           name: "SIEM_CAUSAL",
           stream_name: "events",
           subject: "siem.events.>",
-          processor: CausalSignals,
+          processor: AnalyticsSignals,
           batch_size: 100,
           batch_timeout: 1_000
         },
         %{
-          name: "CAUSAL_PREDICTIONS",
+          name: "ANALYTICS_PREDICTIONS",
           stream_name: "events",
-          subject: "signals.causal.predictions.>",
-          processor: CausalSignals,
+          subject: "signals.analytics.predictions.>",
+          processor: AnalyticsSignals,
           batch_size: 100,
           batch_timeout: 1_000
         },

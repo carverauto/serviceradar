@@ -6,8 +6,6 @@
 //! Series-identity resolution: the per-series key, the device/SNMP-target
 //! identity precedence, metadata lookups, and the attested distinguishing tags.
 
-use std::collections::BTreeMap;
-
 use addon_sdk::metric_pb::{Metric, MetricPoint, MetricResource, StringMapEntry};
 
 use crate::verdict::first_non_empty;
@@ -78,12 +76,15 @@ pub(crate) fn series_key_for(
     };
 
     if !point.series_identity_hint.is_empty() {
-        [
-            "v2".to_string(),
-            safe_component("partition", partition),
-            safe_component("hint", &point.series_identity_hint),
-        ]
-        .join("|")
+        // v2|partition=<hex>|hint=<hex> — built into one pre-sized buffer instead
+        // of a `Vec<String>` + `join`, so the per-point hot path does no
+        // intermediate component allocation.
+        let hint = point.series_identity_hint.as_str();
+        let mut key = String::with_capacity(2 + 11 + partition.len() * 2 + 6 + hint.len() * 2);
+        key.push_str("v2");
+        push_pipe_component(&mut key, "partition", partition.as_bytes());
+        push_pipe_component(&mut key, "hint", hint.as_bytes());
+        key
     } else {
         // Fallback when the producer did not stamp a hint: resource identity +
         // metric + stable per-series dimensions keeps distinct streams apart
@@ -92,29 +93,98 @@ pub(crate) fn series_key_for(
         // sees the verdict. Remote SNMP polls use the polled target, not the
         // polling agent host.
         let resource_identity = series_resource_identity(resource, metric, point);
-        let mut components = vec![
-            "v2".to_string(),
-            safe_component("partition", partition),
-            safe_component("identity", &resource_identity),
-            safe_component("metric", &metric.name),
-        ];
+        let mut key = String::with_capacity(
+            40 + (partition.len() + resource_identity.len() + metric.name.len()) * 2,
+        );
+        key.push_str("v2");
+        push_pipe_component(&mut key, "partition", partition.as_bytes());
+        push_pipe_component(&mut key, "identity", resource_identity.as_bytes());
+        push_pipe_component(&mut key, "metric", metric.name.as_bytes());
 
         if !point.interface_uid.is_empty() {
-            components.push(safe_component("interface_uid", &point.interface_uid));
+            push_pipe_component(&mut key, "interface_uid", point.interface_uid.as_bytes());
         }
 
         if point.if_index > 0 {
-            components.push(safe_component("if_index", &point.if_index.to_string()));
+            push_pipe_component(&mut key, "if_index", point.if_index.to_string().as_bytes());
         }
 
-        components.extend(series_dimension_components(metric, point));
+        push_series_dimension_components(&mut key, metric, point);
 
-        components.join("|")
+        key
     }
 }
 
+/// Owned `name=<hex(value)>` component. Retained as the reference encoder the
+/// identity tests assert against; production now builds keys in place via
+/// [`push_safe_component`] / [`push_pipe_component`].
+#[cfg(test)]
 pub(crate) fn safe_component(name: &str, value: &str) -> String {
-    format!("{name}={}", hex::encode(value.as_bytes()))
+    let mut buf = String::with_capacity(name.len() + 1 + value.len() * 2);
+    push_safe_component(&mut buf, name, value.as_bytes());
+    buf
+}
+
+const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
+
+/// Append the lowercase hex encoding of `bytes` to `buf`. Byte-for-byte identical
+/// to `hex::encode`, but writes into the caller's buffer with no intermediate
+/// `String` allocation.
+fn push_hex(buf: &mut String, bytes: &[u8]) {
+    buf.reserve(bytes.len() * 2);
+    for &byte in bytes {
+        // Hex digits are ASCII, so each `push` is a single UTF-8 byte.
+        buf.push(HEX_DIGITS[(byte >> 4) as usize] as char);
+        buf.push(HEX_DIGITS[(byte & 0x0f) as usize] as char);
+    }
+}
+
+/// Append `name=<hex(value)>` to `buf` — the in-place form of [`safe_component`].
+fn push_safe_component(buf: &mut String, name: &str, value: &[u8]) {
+    buf.push_str(name);
+    buf.push('=');
+    push_hex(buf, value);
+}
+
+/// Append `|name=<hex(value)>` to `buf` — a `safe_component` joined onto a key
+/// being built with `|` separators.
+fn push_pipe_component(buf: &mut String, name: &str, value: &[u8]) {
+    buf.push('|');
+    push_safe_component(buf, name, value);
+}
+
+/// The seasonal-baseline lookup key for one sample: the canonical device-uid
+/// joined with the metric name.
+///
+/// This deliberately does NOT match the per-series DETECTOR key
+/// ([`series_key_for`], a fine edge-local `v2|partition|identity|metric|dims`
+/// composite). It matches the keyspace of central's hour-of-week profile, which
+/// is built with SRQL `series:uid` (`device_id AS series`) for a fixed metric —
+/// i.e. one device-level series per metric. The core edge-baseline producer
+/// delivers `seasonal_baselines` keyed by `<device_uid>|<metric_name>`, so this
+/// is the key the engine must look the delivered baseline up by, even though the
+/// rolling detector state stays keyed by the finer `series_key`.
+///
+/// `device_uid` uses the same identity precedence as the emitted verdict
+/// ([`anomaly_device_uid`]), so the edge resolves the SAME canonical device the
+/// central profile was keyed by. An empty metric name yields an empty key (no
+/// baseline resolves — the rolling-only path, unchanged).
+pub(crate) fn seasonal_series_key(
+    resource: &MetricResource,
+    metric_class: &str,
+    metric: &Metric,
+    point: &MetricPoint,
+) -> String {
+    if metric.name.is_empty() {
+        return String::new();
+    }
+
+    let uid = anomaly_device_uid(resource, metric_class, metric, point);
+    let mut key = String::with_capacity(uid.len() + 1 + metric.name.len());
+    key.push_str(uid);
+    key.push('|');
+    key.push_str(&metric.name);
+    key
 }
 
 pub(crate) fn series_resource_identity(
@@ -229,41 +299,60 @@ pub(crate) fn entry_value<'a>(entries: &'a [StringMapEntry], keys: &[&str]) -> O
     })
 }
 
-fn series_dimension_components(metric: &Metric, point: &MetricPoint) -> Vec<String> {
-    let mut tags = BTreeMap::new();
-
+/// Append the stable per-series dimension components (`|tag_<hex(key)>=<hex(value)>`)
+/// to the key buffer, in the canonical order: `core_id`, then `mount_point`, then
+/// every remaining non-excluded dimension in sorted key order.
+///
+/// This collects BORROWED `(&str, &str)` pairs and sorts/dedups them in place
+/// rather than cloning every tag key+value through a `BTreeMap<String, String>`.
+/// The collision rule is preserved exactly: a later entry (`point.attributes`
+/// after `metric.tags`) wins on a key clash, and the emitted order matches the
+/// `BTreeMap`'s sorted, last-insert-wins iteration byte-for-byte.
+fn push_series_dimension_components(buf: &mut String, metric: &Metric, point: &MetricPoint) {
+    let mut pairs: Vec<(&str, &str)> =
+        Vec::with_capacity(metric.tags.len() + point.attributes.len());
     for entry in metric.tags.iter().chain(point.attributes.iter()) {
         if entry.key.is_empty() || entry.value.trim().is_empty() {
             continue;
         }
-
-        tags.insert(entry.key.clone(), entry.value.clone());
+        pairs.push((entry.key.as_str(), entry.value.as_str()));
     }
 
-    let mut components = Vec::new();
-
-    for key in ["core_id", "mount_point"] {
-        if let Some(value) = tags.get(key) {
-            components.push(tag_component(key, value));
+    // Stable sort by key so equal keys keep insertion order; collapse runs of the
+    // same key keeping the LAST value (point-wins) — the `BTreeMap` insert order.
+    pairs.sort_by(|left, right| left.0.cmp(right.0));
+    let mut dims: Vec<(&str, &str)> = Vec::with_capacity(pairs.len());
+    for pair in pairs {
+        match dims.last_mut() {
+            Some(last) if last.0 == pair.0 => last.1 = pair.1,
+            _ => dims.push(pair),
         }
     }
 
-    for (key, value) in tags {
-        if key == "core_id"
-            || key == "mount_point"
-            || SERIES_DIMENSION_EXCLUDED_KEYS.contains(&key.as_str())
+    // core_id then mount_point lead, matching the prior explicit ordering.
+    for leading in ["core_id", "mount_point"] {
+        if let Some(value) = dims.iter().find(|(key, _)| *key == leading) {
+            push_tag_component(buf, leading, value.1);
+        }
+    }
+
+    for &(key, value) in &dims {
+        if key == "core_id" || key == "mount_point" || SERIES_DIMENSION_EXCLUDED_KEYS.contains(&key)
         {
             continue;
         }
-
-        components.push(tag_component(&key, &value));
+        push_tag_component(buf, key, value);
     }
-
-    components
 }
 
-fn tag_component(key: &str, value: &str) -> String {
-    safe_component(&format!("tag_{}", hex::encode(key.as_bytes())), value)
+/// Append `|tag_<hex(key)>=<hex(value)>` to `buf`. The in-place form of the prior
+/// `safe_component(&format!("tag_{}", hex::encode(key)), value)`.
+fn push_tag_component(buf: &mut String, key: &str, value: &str) {
+    buf.push('|');
+    buf.push_str("tag_");
+    push_hex(buf, key.as_bytes());
+    buf.push('=');
+    push_hex(buf, value.as_bytes());
 }
 
 /// Merge the attested distinguishing tags into a JSON object for `source_identity`:

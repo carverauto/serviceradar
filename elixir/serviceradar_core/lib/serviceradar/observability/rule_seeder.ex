@@ -142,7 +142,7 @@ defmodule ServiceRadar.Observability.RuleSeeder do
         enabled: true,
         signal: :event,
         match: %{
-          "subject_prefix" => "signals.causal.inventory",
+          "subject_prefix" => "signals.analytics.inventory",
           "attribute_equals" => %{"signal_type" => "inventory"}
         },
         group_by: ["device"],
@@ -168,16 +168,16 @@ defmodule ServiceRadar.Observability.RuleSeeder do
         enabled: true,
         signal: :event,
         match: %{
-          "subject_prefix" => "signals.causal.predictions",
+          "subject_prefix" => "signals.analytics.predictions",
           "attribute_equals" => %{
-            "signal_type" => "causal",
+            "signal_type" => "prediction",
             "event_type" => ["anomaly", "anomaly_detection"],
             "anomaly.state" => ["anomaly_open", "open", "anomalous"]
           },
           "recovery" => %{
-            "subject_prefix" => "signals.causal.predictions",
+            "subject_prefix" => "signals.analytics.predictions",
             "attribute_equals" => %{
-              "signal_type" => "causal",
+              "signal_type" => "prediction",
               "event_type" => ["anomaly", "anomaly_detection"],
               "anomaly.state" => ["anomaly_clear", "clear", "cleared", "inactive"]
             }
@@ -206,16 +206,16 @@ defmodule ServiceRadar.Observability.RuleSeeder do
         enabled: true,
         signal: :event,
         match: %{
-          "subject_prefix" => "signals.causal.predictions",
+          "subject_prefix" => "signals.analytics.predictions",
           "attribute_equals" => %{
-            "signal_type" => "causal",
+            "signal_type" => "prediction",
             "event_type" => "capacity_forecast",
             "capacity_forecast.status" => "projected"
           },
           "recovery" => %{
-            "subject_prefix" => "signals.causal.predictions",
+            "subject_prefix" => "signals.analytics.predictions",
             "attribute_equals" => %{
-              "signal_type" => "causal",
+              "signal_type" => "prediction",
               "event_type" => "capacity_forecast",
               "capacity_forecast.status" => ["inactive", "skipped"]
             }

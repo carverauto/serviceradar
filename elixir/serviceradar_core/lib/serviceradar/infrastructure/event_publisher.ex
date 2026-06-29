@@ -256,7 +256,6 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
       status: OCSF.status_name(status_id),
       metadata:
         OCSF.build_metadata(
-          version: "1.7.0",
           product_name: "ServiceRadar Core",
           correlation_uid: "#{entity_type}:#{entity_id}"
         ),

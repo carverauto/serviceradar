@@ -23,7 +23,7 @@
    - Implemented a deterministic `deep_causality_core::CausalFlow` robust peak-profile kernel.
    - Report-only by default with invariant tests for poison bounds, low-n inflation, cold/over-dispersed/ceiling pass-through, asymmetric safety, and leaky counter decay.
    - Verified with:
-     - `sfw cargo test -p serviceradar-causal-disposition peak_profile -- --nocapture`
+     - `sfw cargo test -p serviceradar-anomaly-disposition peak_profile -- --nocapture`
 
 4. [x] Then fix SNMP attribution
    - SNMP interface anomalies resolve to the polled network device, not the polling agent.
@@ -39,4 +39,4 @@
    - Physically impossible input percent samples split the series as gaps before fitting, so bad source data cannot poison the trend.
    - Verified with:
      - `SERVICERADAR_ALLOW_DB_FREE_TESTS=1 mix test test/serviceradar/observability/capacity_forecasting/worker_test.exs --trace`
-     - `sfw cargo test -p serviceradar-causal-disposition capacity -- --nocapture`
+     - `sfw cargo test -p serviceradar-anomaly-disposition capacity -- --nocapture`

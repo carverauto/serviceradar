@@ -14,7 +14,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   alias ServiceRadar.Observability.CapacityForecasting.InterfaceCapacity
   alias ServiceRadar.Observability.CapacityForecasting.Source
   alias ServiceRadar.Observability.CapacityForecasting.VerdictEmitter
-  alias ServiceRadar.Observability.CausalReasoner
+  alias ServiceRadar.Observability.DispositionKernels
   alias ServiceRadar.Observability.PagedQuery
   alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -365,7 +365,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
       points: points
     }
 
-    case CausalReasoner.dispose_batch(:capacity, [request]) do
+    case DispositionKernels.dispose_batch(:capacity, [request]) do
       [{:capacity_ok, %{disposition: disposition}}] ->
         forecast_from_disposition(disposition, meta)
 

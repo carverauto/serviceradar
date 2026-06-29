@@ -84,7 +84,7 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
           data: "",
           status: {:failed, :db_unavailable},
           metadata: %{
-            subject: "signals.causal.predictions.test",
+            subject: "signals.analytics.predictions.test",
             reply_to: "$JS.ACK.events.consumer.5.9.8.0.0",
             jetstream_ack: %{stream: "events", consumer: "consumer", delivery_count: 5},
             max_deliver: 5,
@@ -115,14 +115,14 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
     assert_receive {:dead_letter_telemetry, [:serviceradar, :event_writer, :dead_letter],
                     %{count: 1, delivery_count: 5, max_deliver: 5},
                     %{
-                      subject_class: "causal",
+                      subject_class: "analytics",
                       stream: "events",
                       consumer: "consumer",
                       reason_class: "db_unavailable"
                     }}
 
     assert_receive {:telemetry, [:serviceradar, :event_writer, :ack], %{count: 1},
-                    %{action: :term, result: :ok, subject_class: "causal"}}
+                    %{action: :term, result: :ok, subject_class: "analytics"}}
   end
 
   test "ack/3 nacks failed messages before max_deliver" do
@@ -134,7 +134,7 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
           data: "",
           status: {:failed, :transient},
           metadata: %{
-            subject: "signals.causal.predictions.test",
+            subject: "signals.analytics.predictions.test",
             reply_to: "$JS.ACK.events.consumer.4.9.8.0.0",
             jetstream_ack: %{stream: "events", consumer: "consumer", delivery_count: 4},
             max_deliver: 5
@@ -204,6 +204,45 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
 
     assert %Message{batcher: :metrics, metadata: %{base_subject: "metrics.sysmon.cpu"}} =
              Pipeline.handle_message(:default, message, %{})
+  end
+
+  test "routes analytics prediction subjects to the declared, configured batcher" do
+    config = %Config{
+      enabled: true,
+      nats: %{},
+      batch_size: 100,
+      batch_timeout: 1_000,
+      consumer_name: "test-consumer",
+      streams: Config.default_streams()
+    }
+
+    # The ANALYTICS_PREDICTIONS stream builds the `:analytics_predictions` batcher, so the
+    # subject router must emit that same atom — otherwise Broadway dispatches to an unknown
+    # batcher and crashes. Guards against the stale `:causal_predictions` routing name.
+    assert :analytics_predictions in Pipeline.configured_batcher_names(config)
+
+    message = %Message{
+      data: Jason.encode!(%{"signal_type" => "prediction"}),
+      metadata: %{subject: "signals.analytics.predictions.cpu-series"},
+      acknowledger: {Pipeline, :ack_ref, %{ack_fun: fn _ -> :ok end}}
+    }
+
+    assert %Message{
+             batcher: :analytics_predictions,
+             metadata: %{base_subject: "signals.analytics.predictions.cpu-series"}
+           } = Pipeline.handle_message(:default, message, %{})
+
+    # The generic `signals.analytics.*` catch-all shares the (configured) bmp batcher.
+    overlay = %Message{
+      data: Jason.encode!(%{"signal_type" => "analytics"}),
+      metadata: %{subject: "signals.analytics.overlay"},
+      acknowledger: {Pipeline, :ack_ref, %{ack_fun: fn _ -> :ok end}}
+    }
+
+    assert :bmp_causal in Pipeline.configured_batcher_names(config)
+
+    assert %Message{batcher: :bmp_causal, metadata: %{base_subject: "signals.analytics.overlay"}} =
+             Pipeline.handle_message(:default, overlay, %{})
   end
 
   test "routes processed logs to the declared logs batcher" do

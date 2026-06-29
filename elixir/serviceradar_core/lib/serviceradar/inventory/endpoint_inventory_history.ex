@@ -116,7 +116,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryHistory do
     event_type = Map.fetch!(row, :event_type)
 
     %{
-      subject: "signals.causal.inventory.#{event_type}",
+      subject: "signals.analytics.inventory.#{event_type}",
       payload: %{
         "schema_version" => @package_change_signal_schema_version,
         "event_id" => row.event_id,

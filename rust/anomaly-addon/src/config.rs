@@ -6,14 +6,16 @@
 //! Operator-supplied configuration and the resolved settings/counters derived
 //! from it for the [`crate::AnomalyAddon`].
 
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize as _, de::Error as _};
+use serviceradar_anomaly_core::SeasonalBucket;
 
-use crate::engine::EngineConfig;
+use crate::engine::{EngineConfig, SeasonalProfile};
 
 pub(crate) const ADDON_ID: &str = "anomaly";
 pub(crate) const ADDON_VERSION: &str = "0.1.20";
@@ -57,6 +59,18 @@ pub(crate) struct AddonConfig {
     pub(crate) min_std_floor: Option<f64>,
     #[serde(default, deserialize_with = "deserialize_optional_f64")]
     pub(crate) min_cv: Option<f64>,
+    /// Run the two-sided CUSUM drift detector alongside the rolling z-score so a
+    /// slow drift/leak the point z-score absorbs into its rolling mean still
+    /// produces a (drift-marked) verdict. Defaults to ON when omitted; set false
+    /// to fall back to the exact prior rolling-only behavior.
+    #[serde(default, deserialize_with = "deserialize_optional_bool")]
+    pub(crate) cusum_enabled: Option<bool>,
+    /// CUSUM slack (reference value `k`) in sigma units (default 0.5).
+    #[serde(default, deserialize_with = "deserialize_optional_f64")]
+    pub(crate) cusum_k: Option<f64>,
+    /// CUSUM decision interval (`h`, the alarm threshold; default 5.0).
+    #[serde(default, deserialize_with = "deserialize_optional_f64")]
+    pub(crate) cusum_h: Option<f64>,
     /// Local path the add-on persists its per-series checkpoint to so a restart
     /// re-warms baselines instead of cold-starting. Unset disables checkpointing.
     pub(crate) checkpoint_path: Option<String>,
@@ -68,6 +82,34 @@ pub(crate) struct AddonConfig {
     /// started, health degrades if no frame finishes scoring within this age.
     #[serde(default, deserialize_with = "deserialize_optional_u64")]
     pub(crate) scoring_stale_after_secs: Option<u64>,
+    /// Optional per-series hour-of-week seasonal baselines delivered from core,
+    /// keyed by the canonical `<device_uid>|<metric_name>` (central's `series:uid`
+    /// profile keyspace — see [`crate::identity::seasonal_series_key`]), NOT the
+    /// fine detector series key. Each carries up to 168 `(dow, hod)` buckets with a
+    /// robust `{center, scale}` summary the detector deseasonalizes against.
+    /// Omitted/empty keeps every series on the rolling-only path (back-compat).
+    #[serde(default)]
+    pub(crate) seasonal_baselines: Option<HashMap<String, SeasonalBaselineConfig>>,
+}
+
+/// Wire form of one series' delivered hour-of-week baseline.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub(crate) struct SeasonalBaselineConfig {
+    #[serde(default)]
+    pub(crate) buckets: Vec<SeasonalBucketConfig>,
+}
+
+/// Wire form of one `(dow, hod)` seasonal bucket: a robust center (median) + scale
+/// (robust dispersion in metric units) and the historical sample count that backed
+/// them. `dow` is 0..=6 (Sun=0), `hod` is 0..=23.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub(crate) struct SeasonalBucketConfig {
+    pub(crate) dow: u32,
+    pub(crate) hod: u32,
+    pub(crate) center: f64,
+    pub(crate) scale: f64,
+    #[serde(default)]
+    pub(crate) sample_count: u64,
 }
 
 fn deserialize_optional_usize<'de, D>(deserializer: D) -> Result<Option<usize>, D::Error>
@@ -89,6 +131,30 @@ where
     D: serde::Deserializer<'de>,
 {
     deserialize_optional_number(deserializer)
+}
+
+/// Tolerant optional bool: accepts a JSON bool, null, or a string form
+/// (`"true"`/`"false"`/`"1"`/`"0"`, empty = unset), mirroring the string-tolerant
+/// number knobs so a control plane that stringifies config still parses.
+fn deserialize_optional_bool<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let Some(value) = Option::<serde_json::Value>::deserialize(deserializer)? else {
+        return Ok(None);
+    };
+
+    match value {
+        serde_json::Value::Null => Ok(None),
+        serde_json::Value::Bool(value) => Ok(Some(value)),
+        serde_json::Value::String(value) => match value.trim().to_ascii_lowercase().as_str() {
+            "" => Ok(None),
+            "true" | "1" | "yes" => Ok(Some(true)),
+            "false" | "0" | "no" => Ok(Some(false)),
+            other => Err(D::Error::custom(format!("invalid bool: {other}"))),
+        },
+        other => Err(D::Error::custom(format!("invalid bool: {other}"))),
+    }
 }
 
 fn deserialize_optional_number<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
@@ -137,6 +203,42 @@ impl Default for CheckpointSettings {
 }
 
 impl AddonConfig {
+    /// Resolve the delivered wire baselines into the engine's per-series
+    /// [`SeasonalProfile`] map. Buckets with an out-of-range `(dow, hod)` or a
+    /// non-finite center/scale are dropped. Returns an empty map when nothing was
+    /// delivered, so the engine stays on the rolling-only path (back-compat).
+    pub(crate) fn resolve_seasonal_baselines(&self) -> HashMap<String, SeasonalProfile> {
+        let Some(baselines) = self.seasonal_baselines.as_ref() else {
+            return HashMap::new();
+        };
+
+        baselines
+            .iter()
+            .map(|(series_key, baseline)| {
+                let buckets = baseline.buckets.iter().filter_map(|bucket| {
+                    if bucket.dow > 6 || bucket.hod > 23 {
+                        return None;
+                    }
+                    if !bucket.center.is_finite() || !bucket.scale.is_finite() {
+                        return None;
+                    }
+
+                    let index = bucket.dow as usize * 24 + bucket.hod as usize;
+                    Some((
+                        index,
+                        SeasonalBucket {
+                            center: bucket.center,
+                            scale: bucket.scale,
+                            sample_count: bucket.sample_count as usize,
+                        },
+                    ))
+                });
+
+                (series_key.clone(), SeasonalProfile::from_buckets(buckets))
+            })
+            .collect()
+    }
+
     pub(crate) fn into_engine_config(self) -> Result<EngineConfig, String> {
         let base = EngineConfig::default();
         let window_size = self.window_size.unwrap_or(base.window_size).max(1);
@@ -158,6 +260,19 @@ impl AddonConfig {
             // treated as "unset" so it can never weaken a gauge's safe floor.
             min_std_floor: self.min_std_floor.filter(|v| v.is_finite() && *v > 0.0),
             min_cv: self.min_cv.filter(|v| v.is_finite() && *v > 0.0),
+            // The operator-facing default is ON: an omitted `cusum_enabled` turns
+            // the drift detector on in production. (`EngineConfig::default()` keeps
+            // it off so bare-default fixtures stay rolling-only.) `k`/`h` fall back
+            // to the standard 0.5 / 5.0 when omitted or non-finite/out-of-range.
+            cusum_enabled: self.cusum_enabled.unwrap_or(true),
+            cusum_k: self
+                .cusum_k
+                .filter(|v| v.is_finite() && *v >= 0.0)
+                .unwrap_or(base.cusum_k),
+            cusum_h: self
+                .cusum_h
+                .filter(|v| v.is_finite() && *v > 0.0)
+                .unwrap_or(base.cusum_h),
         })
     }
 }

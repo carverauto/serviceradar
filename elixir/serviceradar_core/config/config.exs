@@ -7,6 +7,10 @@
 import Config
 
 alias ServiceRadar.Observability.CapacityForecasting.Worker
+
+alias ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer,
+  as: SeasonalEdgeBaselineProducer
+
 alias ServiceRadar.Observability.SeasonalDisposition.Worker, as: SeasonalDispositionWorker
 
 # Ash configuration
@@ -51,6 +55,8 @@ config :serviceradar_core, Oban,
        {"17 3 * * *", ServiceRadar.Observability.DataRetentionWorker, queue: :maintenance},
        {"41 * * * *", Worker, args: %{"trigger" => "cron"}, queue: :maintenance},
        {"47 * * * *", SeasonalDispositionWorker,
+        args: %{"trigger" => "cron"}, queue: :maintenance},
+       {"53 * * * *", SeasonalEdgeBaselineProducer,
         args: %{"trigger" => "cron"}, queue: :maintenance},
        {"*/10 * * * *", ServiceRadar.Edge.RemoteAccessRecordingReaperWorker, queue: :maintenance},
        {"31 3 * * *", ServiceRadar.Edge.RemoteAccessVersionRetentionWorker, queue: :maintenance},

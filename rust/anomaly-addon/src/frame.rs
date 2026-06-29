@@ -21,14 +21,15 @@ use crate::config::{NativeTelemetryDropCounters, VERDICT_CHANNEL_DEPTH};
 use crate::engine::{AnomalyTransition, DetectorEngine, SeriesProfile};
 use crate::health::{ScoringFrameUpdate, ScoringHealth};
 use crate::identity::{
-    is_snmp_metric_class, metric_class, series_key_for, snmp_polled_device_identity,
+    is_snmp_metric_class, metric_class, seasonal_series_key, series_key_for,
+    snmp_polled_device_identity,
 };
 use crate::metrics_classify::{
     counter_raw_value, counter_reset_anchor, counter_width, is_cumulative_counter,
     is_process_metric, max_counter_rate_per_second, series_profile_for,
 };
 use crate::shed::{ShedReport, shed_record};
-use crate::verdict::verdict_record;
+use crate::verdict::{cusum_drift_record, verdict_record};
 use addon_sdk::TelemetryStream;
 
 /// Decode one feed frame's `MetricBatch`, score every eligible point, and push a
@@ -88,6 +89,11 @@ pub(crate) async fn process_frame(
                 }
 
                 let series_key = series_key_for(&resource, metric, point);
+                // The seasonal baseline is delivered keyed by the canonical
+                // device-uid + metric (central's `series:uid` profile keyspace),
+                // NOT the fine detector `series_key`. Resolve it by that key so a
+                // delivered hour-of-week baseline actually applies at the edge.
+                let seasonal_key = seasonal_series_key(&resource, metric_class, metric, point);
 
                 let value = if counter {
                     match engine.normalize_counter_with_max_rate(
@@ -110,24 +116,42 @@ pub(crate) async fn process_frame(
                 last_scored_at_unix_nano =
                     last_scored_at_unix_nano.max(point.observed_at_unix_nano);
 
-                if let Some(evaluated) = engine.evaluate_transition(
+                if let Some(evaluated) = engine.evaluate_transition_with_seasonal_key(
                     &series_key,
+                    &seasonal_key,
                     value,
                     point.observed_at_unix_nano,
                     profile,
-                ) && matches!(
-                    evaluated.transition,
-                    AnomalyTransition::Open | AnomalyTransition::Clear
                 ) {
-                    records.push(verdict_record(
-                        &resource,
-                        metric,
-                        point,
-                        &series_key,
-                        &evaluated.verdict,
+                    if matches!(
                         evaluated.transition,
-                        evaluated.episode,
-                    ));
+                        AnomalyTransition::Open | AnomalyTransition::Clear
+                    ) {
+                        records.push(verdict_record(
+                            &resource,
+                            metric,
+                            point,
+                            &series_key,
+                            &evaluated.verdict,
+                            evaluated.transition,
+                            evaluated.episode,
+                        ));
+                    }
+
+                    // Additive sustained-drift finding: a CUSUM alarm the point
+                    // z-score missed (already gated against a same-sample breach in
+                    // the engine), emitted through the same OCSF path but marked
+                    // `cusum_drift` so a gradual drift/leak is distinct from a spike.
+                    if let Some(drift) = evaluated.cusum_drift {
+                        records.push(cusum_drift_record(
+                            &resource,
+                            metric,
+                            point,
+                            &series_key,
+                            &evaluated.verdict,
+                            drift,
+                        ));
+                    }
                 }
             }
         }

@@ -27,7 +27,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitter do
 
     %{
       "event_id" => event_id(attrs),
-      "signal_type" => "causal",
+      "signal_type" => "prediction",
       "event_type" => @event_type,
       "status" => status(attrs),
       "finding_type" => "detection",

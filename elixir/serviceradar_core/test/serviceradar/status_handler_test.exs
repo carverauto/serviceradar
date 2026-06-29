@@ -417,11 +417,11 @@ defmodule ServiceRadar.StatusHandlerTest do
 
       assert {:noreply, %{}} = StatusHandler.handle_cast({:status_update, status}, %{})
 
-      # Routed onto the causal-prediction spine so the EventWriter CausalSignals
+      # Routed onto the causal-prediction spine so the EventWriter AnalyticsSignals
       # processor persists + alert-enqueues it through the anomaly finding path,
       # not the generic add-on OCSF subject.
       assert_receive {:published, subject, payload}
-      assert String.starts_with?(subject, "signals.causal.predictions.")
+      assert String.starts_with?(subject, "signals.analytics.predictions.")
       refute_receive {:published, "pdns.ocsf", _payload}
 
       assert {:ok, decoded} = Jason.decode(payload)

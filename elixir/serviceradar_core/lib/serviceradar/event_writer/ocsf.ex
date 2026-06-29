@@ -27,6 +27,17 @@ defmodule ServiceRadar.EventWriter.OCSF do
   alias ServiceRadar.EventWriter.FieldParser
 
   # =============================================================================
+  # OCSF Schema Version
+  # =============================================================================
+
+  # Canonical OCSF schema version emitted in event metadata. Bump here only.
+  @schema_version "1.7.0"
+
+  @doc "Canonical OCSF schema version emitted in event metadata."
+  @spec schema_version() :: String.t()
+  def schema_version, do: @schema_version
+
+  # =============================================================================
   # Category UIDs
   # =============================================================================
 
@@ -277,7 +288,7 @@ defmodule ServiceRadar.EventWriter.OCSF do
   """
   def build_metadata(opts \\ []) do
     %{
-      version: Keyword.get(opts, :version, "1.3.0"),
+      version: Keyword.get(opts, :version, @schema_version),
       product: %{
         vendor_name: "ServiceRadar",
         name: Keyword.get(opts, :product_name, "EventWriter"),

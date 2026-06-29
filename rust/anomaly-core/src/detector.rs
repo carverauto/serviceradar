@@ -3,11 +3,14 @@
 // Licensed under the Apache License, Version 2.0 (the "License").
 // SPDX-License-Identifier: Apache-2.0
 
-//! The DeepCausality detector flow: hydrate window state, evaluate the rolling /
-//! seasonal / trend signals, apply confirm-slot hysteresis, and emit a verdict.
+//! The detector flow: hydrate window state, evaluate the rolling / seasonal / trend
+//! signals, apply confirm-slot hysteresis, and emit a verdict. The flow is staged
+//! with `deep_causality_core::CausalFlow` as a pipeline/state-machine combinator that
+//! HOSTS the statistics — the detection itself is a rolling robust z-score, not
+//! causal inference (no SCM, intervention, or counterfactual).
 
 use crate::signal::{SignalGate, evaluate_rolling_signal, evaluate_signal, reason_for_state};
-use crate::stats::{WelfordAcc, clean_threshold};
+use crate::stats::{RobustStats, WelfordAcc, clean_threshold};
 use crate::types::{ReasonContext, ReasonSample, ReasonVerdict, SaturationGate, SignalVerdict};
 use crate::window::compact_rolling_state;
 use crate::{DEFAULT_CONFIRM_SLOTS, DEFAULT_MIN_SAMPLES, DEFAULT_N_SIGMA, DEFAULT_WINDOW_SIZE};
@@ -49,7 +52,14 @@ impl DetectorThresholds {
 
 struct DetectorState {
     window_tail: Vec<f64>,
+    /// Welford mean/std summary of the clean window, retained only as the persisted
+    /// `next_rolling_acc` next-state. The rolling SCORE is the robust
+    /// [`Self::rolling_stats`], not this acc.
     rolling_acc: WelfordAcc,
+    /// The robust median/MAD estimator over the pre-sample clean window — the
+    /// dispersion the rolling signal scores against (the Hampel identifier that
+    /// does not self-mask).
+    rolling_stats: RobustStats,
     window_size: usize,
     consecutive_anomalous: usize,
     sample: ReasonSample,
@@ -168,11 +178,13 @@ impl DetectorThresholds {
 
 impl DetectorState {
     fn from_context(context: ReasonContext, sample: ReasonSample, window_size: usize) -> Self {
-        let (window_tail, rolling_acc) = compact_rolling_state(&context, window_size);
+        let (window_tail, rolling_acc, rolling_stats) =
+            compact_rolling_state(&context, window_size);
 
         Self {
             window_tail,
             rolling_acc,
+            rolling_stats,
             window_size,
             consecutive_anomalous: context.consecutive_anomalous.unwrap_or_default(),
             sample,
@@ -195,9 +207,6 @@ impl DetectorState {
         self.rolling_acc.add(self.sample.value);
     }
 
-    fn window_tail(&self) -> Vec<f64> {
-        self.window_tail.clone()
-    }
 }
 
 fn evaluate_detector_command(
@@ -227,7 +236,8 @@ fn evaluate_detector(
     let signals = vec![
         evaluate_rolling_signal(
             "rolling",
-            state.rolling_acc,
+            state.rolling_stats,
+            state.window_tail.len(),
             thresholds.rolling_enabled,
             thresholds.min_samples,
             thresholds.n_sigma,
@@ -280,7 +290,7 @@ fn evaluate_detector(
 
 fn finalize_detector_verdict(
     value: DetectorValue,
-    state: DetectorState,
+    mut state: DetectorState,
     context: Option<DetectorThresholds>,
 ) -> (DetectorValue, DetectorState, Option<DetectorThresholds>) {
     let DetectorValue::Evaluation(evaluation) = value else {
@@ -328,7 +338,11 @@ fn finalize_detector_verdict(
             reason,
             baseline_count: evaluation.rolling_sample_count,
             next_rolling_acc: state.rolling_acc,
-            next_window_tail: state.window_tail(),
+            // Move the window tail out of the about-to-be-discarded state rather
+            // than cloning it: after this finalize transform the pipeline's
+            // `.finish()` extracts the verdict and drops `state`, so nothing reads
+            // `state.window_tail` again.
+            next_window_tail: std::mem::take(&mut state.window_tail),
             sample_value: state.sample.value,
             observed_at_unix_nano: state.sample.observed_at_unix_nano,
             signals: evaluation.signals,
