@@ -12,7 +12,7 @@ use addon_sdk::{SignalSchemaRef, attach_signal_schema_ref, ocsf_event_record};
 use serviceradar_anomaly_core::{ReasonVerdict, SignalVerdict};
 
 use crate::config::{ADDON_ID, ADDON_VERSION};
-use crate::engine::{AnomalyEpisode, AnomalyTransition};
+use crate::engine::{AnomalyEpisode, AnomalyTransition, CusumDrift};
 use crate::identity::{anomaly_device_uid, attested_tags, metric_class, target_device_ip_for};
 
 /// Build an OCSF Detection Finding (class_uid 2004) shaped to match the central
@@ -115,6 +115,107 @@ pub(crate) fn verdict_record(
             "episode_ended_at_unix_nano": episode.map(|episode| episode.ended_at_unix_nano),
             "episode_peak_value": episode.map(|episode| episode.peak_value),
             "episode_peak_at_unix_nano": episode.map(|episode| episode.peak_at_unix_nano),
+            "signals": signals,
+        },
+    });
+
+    let payload = serde_json::to_vec(&body).unwrap_or_default();
+    let record = ocsf_event_record(event_id, ts_nano as i64, ts_nano as i64, payload);
+    attach_signal_schema_ref(record, &anomaly_signal_schema_ref())
+}
+
+/// Build an OCSF Detection Finding for a CUSUM SUSTAINED-DRIFT alarm — distinct
+/// from the z-score SPIKE [`verdict_record`]. Same envelope/class so core consumes
+/// it identically, but marked `detector_method: "cusum_drift"` /
+/// `verdict_source: "edge-drift"` and a `sustained drift` reason so a gradual
+/// drift/leak is distinguishable downstream from a point spike. The `verdict` is
+/// the same sample's z-score verdict, carried for value/baseline/signal evidence
+/// (it did NOT itself breach — that is why CUSUM is the one reporting).
+pub(crate) fn cusum_drift_record(
+    resource: &MetricResource,
+    metric: &Metric,
+    point: &MetricPoint,
+    series_key: &str,
+    verdict: &ReasonVerdict,
+    drift: CusumDrift,
+) -> TelemetryRecord {
+    let ts_nano = verdict
+        .observed_at_unix_nano
+        .unwrap_or(point.observed_at_unix_nano);
+    let ts_ms = (ts_nano / 1_000_000) as i64;
+    let magnitude = drift.magnitude();
+    let severity_id = severity_id_from_score(magnitude);
+    let direction = drift.direction.as_str();
+    let reason = format!("sustained {direction} drift");
+
+    let metric_class = metric_class(metric);
+    let device_uid = anomaly_device_uid(resource, metric_class, metric, point);
+    let target_device_ip = target_device_ip_for(resource, metric_class, metric, point);
+    let signals = anomaly_signals(verdict);
+
+    let event_id = format!("anomaly:{series_key}:{ts_nano}:drift");
+    let finding_uid = format!(
+        "anomaly:finding:2004:anomaly_detection:drift:{device_uid}:{series_key}:{metric_class}"
+    );
+
+    let body = serde_json::json!({
+        "event_id": &event_id,
+        "id": &event_id,
+        "signal_type": "prediction",
+        "detector_method": "cusum_drift",
+        "event_type": "anomaly",
+        "class_uid": 2004,
+        "category_uid": 2,
+        "type_uid": 200_401,
+        "activity_id": 1,
+        "finding_type": "detection",
+        "provider": "anomaly_detection",
+        "source": "serviceradar",
+        "collector": "anomaly_addon",
+        "verdict_source": "edge-drift",
+        "status": "open",
+        "time": ts_ms,
+        "severity_id": severity_id,
+        "device_uid": device_uid,
+        "device_id": device_uid,
+        "target_device_ip": target_device_ip,
+        "message": &reason,
+        "finding_info": {
+            "uid": finding_uid,
+            "title": format!("{metric_class} sustained drift on {device_uid}"),
+            "type": "anomaly",
+            "type_id": 99,
+        },
+        "source_identity": {
+            "series_key": series_key,
+            "metric_class": metric_class,
+            "agent_id": &resource.agent_id,
+            "host_id": &resource.host_id,
+            "device_id": &resource.device_id,
+            "host_ip": &resource.host_ip,
+            "target_device_ip": target_device_ip,
+            "partition": &resource.partition,
+            "metric_name": &metric.name,
+            "if_index": point.if_index,
+            "interface_uid": &point.interface_uid,
+            "tags": attested_tags(metric, point),
+        },
+        "anomaly": {
+            "series_key": series_key,
+            "metric_class": metric_class,
+            "state": "anomaly_drift",
+            "target_device_ip": target_device_ip,
+            "detector_method": "cusum_drift",
+            "detector_state": &verdict.state,
+            "reason": &reason,
+            "drift_direction": direction,
+            "score": magnitude,
+            "cusum_pos": drift.pos,
+            "cusum_neg": drift.neg,
+            "baseline_count": verdict.baseline_count,
+            "value": verdict.sample_value,
+            "sample_value": verdict.sample_value,
+            "observed_at_unix_nano": ts_nano,
             "signals": signals,
         },
     });

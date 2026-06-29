@@ -49,6 +49,26 @@
       "description": "Optional fleet-wide relative floor: the effective dispersion is at least min_cv * |mean|, so a high-magnitude series with proportionally small jitter is also tamed. Applied as a max with each series' built-in per-class floor (only ever tightens). Omit to keep built-in defaults.",
       "exclusiveMinimum": 0
     },
+    "cusum_enabled": {
+      "type": "boolean",
+      "title": "Enable the CUSUM sustained-drift detector",
+      "description": "Run a two-sided CUSUM drift detector alongside the rolling z-score. A rolling z-score's mean tracks a slow ramp, so a gradual drift/leak is absorbed into the baseline and never trips; the anchored CUSUM accumulates the standardized residual against the frozen warm-up baseline (deseasonalized against the delivered hour-of-week center when present) until it crosses the decision interval and alarms. It is additive — it never changes the z-score verdict — and emits a separate finding marked detector_method 'cusum_drift'. Default true; set false to fall back to the exact rolling-only behavior.",
+      "default": true
+    },
+    "cusum_k": {
+      "type": "number",
+      "title": "CUSUM slack (reference value k, in sigma)",
+      "description": "Only a standardized deviation beyond k accumulates. The standard tabular-CUSUM value 0.5 (paired with h=5.0) detects a sustained ~1-sigma shift.",
+      "minimum": 0,
+      "default": 0.5
+    },
+    "cusum_h": {
+      "type": "number",
+      "title": "CUSUM decision interval (h, the alarm threshold)",
+      "description": "An accumulator past h is a sustained-drift alarm. Expected samples to alarm for a persistent shift d (in sigma) is about h / (d - k). Default 5.0.",
+      "exclusiveMinimum": 0,
+      "default": 5.0
+    },
     "metric_feed": {
       "type": "object",
       "title": "Local metric feed subscription",

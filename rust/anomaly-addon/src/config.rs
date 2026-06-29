@@ -59,6 +59,18 @@ pub(crate) struct AddonConfig {
     pub(crate) min_std_floor: Option<f64>,
     #[serde(default, deserialize_with = "deserialize_optional_f64")]
     pub(crate) min_cv: Option<f64>,
+    /// Run the two-sided CUSUM drift detector alongside the rolling z-score so a
+    /// slow drift/leak the point z-score absorbs into its rolling mean still
+    /// produces a (drift-marked) verdict. Defaults to ON when omitted; set false
+    /// to fall back to the exact prior rolling-only behavior.
+    #[serde(default, deserialize_with = "deserialize_optional_bool")]
+    pub(crate) cusum_enabled: Option<bool>,
+    /// CUSUM slack (reference value `k`) in sigma units (default 0.5).
+    #[serde(default, deserialize_with = "deserialize_optional_f64")]
+    pub(crate) cusum_k: Option<f64>,
+    /// CUSUM decision interval (`h`, the alarm threshold; default 5.0).
+    #[serde(default, deserialize_with = "deserialize_optional_f64")]
+    pub(crate) cusum_h: Option<f64>,
     /// Local path the add-on persists its per-series checkpoint to so a restart
     /// re-warms baselines instead of cold-starting. Unset disables checkpointing.
     pub(crate) checkpoint_path: Option<String>,
@@ -119,6 +131,30 @@ where
     D: serde::Deserializer<'de>,
 {
     deserialize_optional_number(deserializer)
+}
+
+/// Tolerant optional bool: accepts a JSON bool, null, or a string form
+/// (`"true"`/`"false"`/`"1"`/`"0"`, empty = unset), mirroring the string-tolerant
+/// number knobs so a control plane that stringifies config still parses.
+fn deserialize_optional_bool<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let Some(value) = Option::<serde_json::Value>::deserialize(deserializer)? else {
+        return Ok(None);
+    };
+
+    match value {
+        serde_json::Value::Null => Ok(None),
+        serde_json::Value::Bool(value) => Ok(Some(value)),
+        serde_json::Value::String(value) => match value.trim().to_ascii_lowercase().as_str() {
+            "" => Ok(None),
+            "true" | "1" | "yes" => Ok(Some(true)),
+            "false" | "0" | "no" => Ok(Some(false)),
+            other => Err(D::Error::custom(format!("invalid bool: {other}"))),
+        },
+        other => Err(D::Error::custom(format!("invalid bool: {other}"))),
+    }
 }
 
 fn deserialize_optional_number<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
@@ -224,6 +260,19 @@ impl AddonConfig {
             // treated as "unset" so it can never weaken a gauge's safe floor.
             min_std_floor: self.min_std_floor.filter(|v| v.is_finite() && *v > 0.0),
             min_cv: self.min_cv.filter(|v| v.is_finite() && *v > 0.0),
+            // The operator-facing default is ON: an omitted `cusum_enabled` turns
+            // the drift detector on in production. (`EngineConfig::default()` keeps
+            // it off so bare-default fixtures stay rolling-only.) `k`/`h` fall back
+            // to the standard 0.5 / 5.0 when omitted or non-finite/out-of-range.
+            cusum_enabled: self.cusum_enabled.unwrap_or(true),
+            cusum_k: self
+                .cusum_k
+                .filter(|v| v.is_finite() && *v >= 0.0)
+                .unwrap_or(base.cusum_k),
+            cusum_h: self
+                .cusum_h
+                .filter(|v| v.is_finite() && *v > 0.0)
+                .unwrap_or(base.cusum_h),
         })
     }
 }

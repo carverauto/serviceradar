@@ -49,6 +49,29 @@ impl Cusum {
         }
     }
 
+    /// Rebuild an accumulator with slack `k` / decision interval `h` and restored
+    /// `pos`/`neg` partial sums (e.g. from a restart checkpoint), so a drift that
+    /// was mid-accumulation before a restart re-alarms on schedule instead of
+    /// re-accumulating from zero. Non-finite/negative partial sums clamp to 0.
+    pub fn with_state(k: f64, h: f64, pos: f64, neg: f64) -> Self {
+        Self {
+            k: k.max(0.0),
+            h: h.max(0.0),
+            pos: if pos.is_finite() { pos.max(0.0) } else { 0.0 },
+            neg: if neg.is_finite() { neg.max(0.0) } else { 0.0 },
+        }
+    }
+
+    /// Current upper accumulator `S+`, for checkpoint serialization.
+    pub fn pos(&self) -> f64 {
+        self.pos
+    }
+
+    /// Current lower accumulator `S-`, for checkpoint serialization.
+    pub fn neg(&self) -> f64 {
+        self.neg
+    }
+
     /// Update with a standardized residual `(x - target) / scale`. Returns the
     /// (pre-reset) accumulators and whether either side crossed the decision interval.
     /// On alarm the accumulators reset to 0 so a continuing drift re-accumulates and
@@ -120,5 +143,22 @@ mod tests {
             }
         }
         assert!(alarmed, "a downward drift must alarm on the S- side");
+    }
+
+    #[test]
+    fn with_state_restores_partial_accumulation() {
+        // A drift mid-accumulation (pos just under h) re-alarms after a single
+        // further push when restored, rather than re-accumulating from zero.
+        let primed = Cusum::with_state(0.5, 5.0, 4.9, 0.0);
+        assert!((primed.pos() - 4.9).abs() < 1e-12);
+        assert_eq!(primed.neg(), 0.0);
+
+        let mut restored = primed;
+        // +0.6 sigma: pos = 4.9 + 0.6 - 0.5 = 5.0, still not > h on this push, then
+        // one more push crosses.
+        let first = restored.update(0.6);
+        assert!(!first.alarm, "pos at exactly h does not alarm (strict >)");
+        let second = restored.update(0.6);
+        assert!(second.alarm, "a restored near-threshold drift re-alarms promptly");
     }
 }

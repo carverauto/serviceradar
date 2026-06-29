@@ -71,6 +71,33 @@ fn config_accepts_numeric_strings_for_optional_numbers() {
 }
 
 #[test]
+fn config_defaults_cusum_on_with_standard_thresholds() {
+    // Operator omits the CUSUM knobs entirely: production turns the drift detector
+    // ON with the standard k=0.5 / h=5.0 tabular-CUSUM thresholds.
+    let config: AddonConfig =
+        serde_json::from_value(serde_json::json!({ "window_size": 100 })).expect("config");
+    let resolved = config.into_engine_config().expect("default config");
+    assert!(resolved.cusum_enabled, "omitted cusum_enabled defaults ON");
+    assert_eq!(resolved.cusum_k, 0.5);
+    assert_eq!(resolved.cusum_h, 5.0);
+}
+
+#[test]
+fn config_accepts_cusum_overrides_and_disable() {
+    let config: AddonConfig = serde_json::from_value(serde_json::json!({
+        "cusum_enabled": false,
+        "cusum_k": "0.75",
+        "cusum_h": 8.0
+    }))
+    .expect("cusum config deserializes (bool + string/number knobs)");
+
+    let resolved = config.into_engine_config().expect("valid config");
+    assert!(!resolved.cusum_enabled, "cusum_enabled:false disables the detector");
+    assert_eq!(resolved.cusum_k, 0.75);
+    assert_eq!(resolved.cusum_h, 8.0);
+}
+
+#[test]
 fn config_rejects_min_samples_larger_than_window_size() {
     let config: AddonConfig = serde_json::from_value(serde_json::json!({
         "window_size": 5,

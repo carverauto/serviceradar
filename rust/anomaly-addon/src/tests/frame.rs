@@ -517,6 +517,70 @@ async fn recurring_cpu_spikes_separated_by_clean_slots_do_not_accumulate_confirm
 }
 
 #[tokio::test]
+async fn process_frame_emits_a_cusum_drift_finding_for_a_slow_ramp_the_zscore_misses() {
+    // End-to-end through the production frame path: a gentle upward ramp the rolling
+    // z-score absorbs into its mean (never opening a spike) still produces a verdict
+    // — a CUSUM sustained-drift finding marked `cusum_drift`, distinct from a spike.
+    let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig {
+        window_size: 50,
+        min_samples: 30,
+        n_sigma: 3.0,
+        confirm_slots: 1,
+        max_series: 10,
+        cusum_enabled: true,
+        ..EngineConfig::default()
+    })));
+    let (tx, mut rx) = broadcast::channel(128);
+    let telemetry_drops = telemetry_drop_counters();
+
+    // Warm a tight stationary baseline so the CUSUM anchor freezes at ~(100, 1).
+    for ts in 0..30u64 {
+        let v = 100.0 + if ts % 2 == 0 { 1.0 } else { -1.0 };
+        process_anomaly_value(&engine, &tx, &telemetry_drops, v, ts + 1).await;
+    }
+    // Gentle ramp: each step is sub-threshold for the rolling z-score.
+    for i in 1..=30u64 {
+        let v = 100.0 + 0.4 * i as f64;
+        process_anomaly_value(&engine, &tx, &telemetry_drops, v, 30 + i).await;
+    }
+
+    let mut methods = Vec::new();
+    let mut drift_event: Option<serde_json::Value> = None;
+    while let Ok(batch) = rx.try_recv() {
+        for record in batch.records {
+            let event: serde_json::Value = serde_json::from_slice(&record.payload).unwrap();
+            let method = event["detector_method"].as_str().unwrap_or_default().to_string();
+            if method == "cusum_drift" && drift_event.is_none() {
+                drift_event = Some(event.clone());
+            }
+            methods.push(method);
+        }
+    }
+
+    assert!(
+        methods.iter().any(|m| m == "cusum_drift"),
+        "a slow drift must emit a cusum_drift finding, saw methods: {methods:?}"
+    );
+    assert!(
+        !methods.iter().any(|m| m == "rolling_robust_zscore"),
+        "the point z-score must NOT have flagged the gradual ramp (it missed it)"
+    );
+
+    let drift = drift_event.expect("a cusum_drift event");
+    assert_eq!(drift["verdict_source"], "edge-drift");
+    assert_eq!(drift["signal_type"], "prediction");
+    assert_eq!(drift["status"], "open");
+    assert_eq!(drift["anomaly"]["state"], "anomaly_drift");
+    assert_eq!(drift["anomaly"]["detector_method"], "cusum_drift");
+    assert_eq!(drift["anomaly"]["drift_direction"], "upward");
+    assert_eq!(drift["message"], "sustained upward drift");
+    assert!(
+        drift["anomaly"]["cusum_pos"].as_f64().unwrap_or(0.0) > 5.0,
+        "the reported S+ accumulator crossed the decision interval"
+    );
+}
+
+#[tokio::test]
 async fn multi_core_cpu_points_do_not_count_as_consecutive_samples_for_one_series() {
     let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig {
         window_size: 50,

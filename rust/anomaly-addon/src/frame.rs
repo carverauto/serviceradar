@@ -29,7 +29,7 @@ use crate::metrics_classify::{
     is_process_metric, max_counter_rate_per_second, series_profile_for,
 };
 use crate::shed::{ShedReport, shed_record};
-use crate::verdict::verdict_record;
+use crate::verdict::{cusum_drift_record, verdict_record};
 use addon_sdk::TelemetryStream;
 
 /// Decode one feed frame's `MetricBatch`, score every eligible point, and push a
@@ -122,19 +122,36 @@ pub(crate) async fn process_frame(
                     value,
                     point.observed_at_unix_nano,
                     profile,
-                ) && matches!(
-                    evaluated.transition,
-                    AnomalyTransition::Open | AnomalyTransition::Clear
                 ) {
-                    records.push(verdict_record(
-                        &resource,
-                        metric,
-                        point,
-                        &series_key,
-                        &evaluated.verdict,
+                    if matches!(
                         evaluated.transition,
-                        evaluated.episode,
-                    ));
+                        AnomalyTransition::Open | AnomalyTransition::Clear
+                    ) {
+                        records.push(verdict_record(
+                            &resource,
+                            metric,
+                            point,
+                            &series_key,
+                            &evaluated.verdict,
+                            evaluated.transition,
+                            evaluated.episode,
+                        ));
+                    }
+
+                    // Additive sustained-drift finding: a CUSUM alarm the point
+                    // z-score missed (already gated against a same-sample breach in
+                    // the engine), emitted through the same OCSF path but marked
+                    // `cusum_drift` so a gradual drift/leak is distinct from a spike.
+                    if let Some(drift) = evaluated.cusum_drift {
+                        records.push(cusum_drift_record(
+                            &resource,
+                            metric,
+                            point,
+                            &series_key,
+                            &evaluated.verdict,
+                            drift,
+                        ));
+                    }
                 }
             }
         }

@@ -11,10 +11,18 @@
 use std::collections::HashMap;
 
 use serviceradar_anomaly_core::{
-    DEFAULT_CONFIRM_SLOTS, DEFAULT_MIN_SAMPLES, DEFAULT_N_SIGMA, DEFAULT_WINDOW_SIZE, HOURS_PER_WEEK,
-    ReasonContext, ReasonSample, ReasonVerdict, SaturationGate, SeasonalBucket, hour_of_week,
-    reason_impl,
+    Cusum, DEFAULT_CONFIRM_SLOTS, DEFAULT_MIN_SAMPLES, DEFAULT_N_SIGMA, DEFAULT_WINDOW_SIZE,
+    HOURS_PER_WEEK, ReasonContext, ReasonSample, ReasonVerdict, SaturationGate, SeasonalBucket,
+    hour_of_week, reason_impl, sample_stats,
 };
+
+/// Default CUSUM slack (reference value `k`) in sigma units. The standard tabular
+/// CUSUM value: only a standardized deviation beyond `k` accumulates.
+pub const DEFAULT_CUSUM_K: f64 = 0.5;
+/// Default CUSUM decision interval (`h`, the alarm threshold). The standard
+/// value: an accumulator past `h` is a sustained-drift alarm. With `k = 0.5` this
+/// detects a persistent ~1-sigma shift in ≈ `h / (δ - k)` samples.
+pub const DEFAULT_CUSUM_H: f64 = 5.0;
 
 /// Lifecycle transition produced by edge state after scoring one sample.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -33,6 +41,48 @@ pub struct TransitionVerdict {
     pub verdict: ReasonVerdict,
     pub transition: AnomalyTransition,
     pub episode: Option<AnomalyEpisode>,
+    /// A sustained-drift alarm from the CUSUM detector for this sample, when the
+    /// drift detector is enabled and fired AND the point z-score did NOT itself
+    /// breach this sample (so a drift finding captures exactly what the z-score
+    /// misses, never duplicating an obvious spike). `None` otherwise.
+    pub cusum_drift: Option<CusumDrift>,
+}
+
+/// Which side of the two-sided CUSUM crossed the decision interval.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CusumDirection {
+    /// The upper accumulator `S+` crossed: a sustained UPWARD drift / leak.
+    Up,
+    /// The lower accumulator `S-` crossed: a sustained DOWNWARD drift.
+    Down,
+}
+
+impl CusumDirection {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CusumDirection::Up => "upward",
+            CusumDirection::Down => "downward",
+        }
+    }
+}
+
+/// A CUSUM sustained-drift alarm: the (pre-reset) accumulators that crossed the
+/// decision interval and the direction of the drift. Distinct from the z-score
+/// SPIKE — this is the slow drift/leak the point z-score absorbs into its rolling
+/// mean and never flags.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CusumDrift {
+    pub pos: f64,
+    pub neg: f64,
+    pub direction: CusumDirection,
+}
+
+impl CusumDrift {
+    /// The drift magnitude: the accumulator that crossed `h`. Used as the finding
+    /// score (it ranks a deeper sustained drift higher).
+    pub fn magnitude(self) -> f64 {
+        self.pos.max(self.neg)
+    }
 }
 
 /// The edge-observed anomaly episode that led to an externally visible
@@ -86,6 +136,15 @@ pub struct EngineConfig {
     /// gauge's safe default.
     pub min_std_floor: Option<f64>,
     pub min_cv: Option<f64>,
+    /// Run the two-sided CUSUM drift detector alongside the rolling z-score. A
+    /// CUSUM alarm is a SUSTAINED-DRIFT anomaly the point z-score structurally
+    /// misses (its rolling mean tracks a slow ramp). Additive: it never changes
+    /// the z-score verdict. Disabled reproduces the prior rolling-only behavior.
+    pub cusum_enabled: bool,
+    /// CUSUM slack (reference value `k`) in sigma units.
+    pub cusum_k: f64,
+    /// CUSUM decision interval (`h`, the alarm threshold).
+    pub cusum_h: f64,
 }
 
 impl Default for EngineConfig {
@@ -98,6 +157,13 @@ impl Default for EngineConfig {
             max_series: 50_000,
             min_std_floor: None,
             min_cv: None,
+            // The Rust default keeps CUSUM OFF so the bare-default engine (used by
+            // fixtures/tests) is byte-for-byte the prior rolling-only detector. The
+            // operator-facing config default is ON (see `AddonConfig::into_engine_config`),
+            // so production runs the drift detector unless explicitly disabled.
+            cusum_enabled: false,
+            cusum_k: DEFAULT_CUSUM_K,
+            cusum_h: DEFAULT_CUSUM_H,
         }
     }
 }
@@ -201,6 +267,14 @@ struct SeriesState {
     aggregation_slot_start_unix_nano: Option<u64>,
     aggregation_slot_value: Option<f64>,
     aggregation_slot_peak_at_unix_nano: Option<u64>,
+    /// Two-sided CUSUM drift accumulator, lazily created once the rolling baseline
+    /// first warms. `None` until then (or when CUSUM is disabled).
+    cusum: Option<Cusum>,
+    /// The FROZEN `(target_mean, scale)` the CUSUM standardizes against, captured
+    /// once when the rolling baseline first reaches `min_samples`. The residual is
+    /// `(value - target) / scale`, where `target` is the seasonal bucket center
+    /// when one is delivered for the sample's hour-of-week, else `target_mean`.
+    cusum_anchor: Option<(f64, f64)>,
     /// Observed time of the most recent sample, for the restart staleness bound:
     /// a baseline whose last reading is too old is not reseeded (it would
     /// mis-score current traffic).
@@ -282,6 +356,30 @@ impl DetectorEngine {
     /// baseline window plus its enable/min-samples/threshold knobs, or all-`None`
     /// (the back-compat rolling-only path) when no usable bucket is delivered for
     /// this series at this sample's hour-of-week.
+    /// The delivered hour-of-week seasonal bucket for this `seasonal_key` at this
+    /// sample's time, when one is delivered AND trusted (enough history). Shared by
+    /// the seasonal z-score signal and the CUSUM deseasonalize target. `None`
+    /// (the back-compat rolling-only path) when no usable bucket resolves.
+    fn seasonal_bucket(
+        &self,
+        seasonal_key: &str,
+        observed_at_unix_nano: u64,
+    ) -> Option<SeasonalBucket> {
+        // No baselines delivered, or a window too small to ever hold a >=2-point
+        // seasonal baseline: stay on the rolling-only path.
+        if self.seasonal.is_empty() || self.config.window_size < 2 {
+            return None;
+        }
+
+        let bucket = self
+            .seasonal
+            .get(seasonal_key)?
+            .bucket(hour_of_week(observed_at_unix_nano))?;
+        bucket
+            .usable(self.seasonal_settings.min_bucket_samples)
+            .then_some(bucket)
+    }
+
     fn seasonal_context(
         &self,
         seasonal_key: &str,
@@ -290,21 +388,9 @@ impl DetectorEngine {
         const NONE: (Option<Vec<f64>>, Option<bool>, Option<usize>, Option<f64>) =
             (None, None, None, None);
 
-        // No baselines delivered, or a window too small to ever hold a >=2-point
-        // seasonal baseline: stay on the rolling-only path.
-        if self.seasonal.is_empty() || self.config.window_size < 2 {
-            return NONE;
-        }
-
-        let Some(profile) = self.seasonal.get(seasonal_key) else {
+        let Some(bucket) = self.seasonal_bucket(seasonal_key, observed_at_unix_nano) else {
             return NONE;
         };
-        let Some(bucket) = profile.bucket(hour_of_week(observed_at_unix_nano)) else {
-            return NONE;
-        };
-        if !bucket.usable(self.seasonal_settings.min_bucket_samples) {
-            return NONE;
-        }
 
         let len = self
             .seasonal_settings
@@ -510,6 +596,23 @@ impl DetectorEngine {
         observed_at_unix_nano: u64,
         profile: SeriesProfile,
     ) -> Option<ReasonVerdict> {
+        self.evaluate_inner(series_key, seasonal_key, value, observed_at_unix_nano, profile)
+            .map(|(verdict, _drift)| verdict)
+    }
+
+    /// The full scoring path shared by [`Self::evaluate_with_seasonal_key`] and
+    /// [`Self::evaluate_transition_with_seasonal_key`]: the rolling/seasonal
+    /// z-score verdict plus the optional CUSUM sustained-drift alarm. CUSUM is
+    /// advanced here (not at the transition layer) so its per-series state stays
+    /// consistent regardless of which public entry point scored the sample.
+    fn evaluate_inner(
+        &mut self,
+        series_key: &str,
+        seasonal_key: &str,
+        value: f64,
+        observed_at_unix_nano: u64,
+        profile: SeriesProfile,
+    ) -> Option<(ReasonVerdict, Option<CusumDrift>)> {
         if !value.is_finite() {
             return None;
         }
@@ -520,6 +623,15 @@ impl DetectorEngine {
         // baseline is delivered (the back-compat rolling-only path).
         let (seasonal_baseline, seasonal_enabled, seasonal_min_samples, seasonal_n_sigma) =
             self.seasonal_context(seasonal_key, observed_at_unix_nano);
+        // The CUSUM deseasonalize target: the delivered hour-of-week bucket center
+        // when one resolves for this sample, else the frozen rolling anchor mean
+        // (resolved below). Looked up here while only `&self` is borrowed.
+        let cusum_target_center = if self.config.cusum_enabled {
+            self.seasonal_bucket(seasonal_key, observed_at_unix_nano)
+                .map(|bucket| bucket.center)
+        } else {
+            None
+        };
 
         if !self.series.contains_key(series_key) {
             if self.series.len() >= self.config.max_series {
@@ -548,6 +660,8 @@ impl DetectorEngine {
                 aggregation_slot_start_unix_nano: None,
                 aggregation_slot_value: None,
                 aggregation_slot_peak_at_unix_nano: None,
+                cusum: None,
+                cusum_anchor: None,
                 last_observed_at_unix_nano: observed_at_unix_nano,
             });
 
@@ -563,6 +677,39 @@ impl DetectorEngine {
             .config
             .min_cv
             .map_or(profile.min_cv, |o| profile.min_cv.max(o));
+
+        // --- CUSUM sustained-drift detector ---------------------------------
+        // Runs on the PRE-sample window (the rolling baseline before this sample is
+        // folded in). Anchors to the frozen (mean, floored-scale) the first time the
+        // rolling baseline reaches `min_samples`, then standardizes each sample's
+        // residual `(value - target) / scale` — `target` is the delivered seasonal
+        // bucket center when present (deseasonalize), else the frozen anchor mean.
+        // A rolling z-score's mean tracks a slow ramp and never trips; the anchored
+        // CUSUM accumulates that drift until it crosses `h` and alarms. Captured
+        // here, gated on the z-score verdict below.
+        let mut cusum_alarm: Option<(f64, f64)> = None;
+        if self.config.cusum_enabled {
+            if state.cusum_anchor.is_none() && state.window_tail.len() >= self.config.min_samples {
+                let stats = sample_stats(&state.window_tail);
+                let scale = stats.effective_stddev(min_std_floor, min_cv).max(f64::EPSILON);
+                state.cusum_anchor = Some((stats.mean, scale));
+                state.cusum = Some(Cusum::with_state(
+                    self.config.cusum_k,
+                    self.config.cusum_h,
+                    0.0,
+                    0.0,
+                ));
+            }
+            if let (Some((anchor_mean, scale)), Some(cusum)) =
+                (state.cusum_anchor, state.cusum.as_mut())
+            {
+                let target = cusum_target_center.unwrap_or(anchor_mean);
+                let step = cusum.update((value - target) / scale);
+                if step.alarm {
+                    cusum_alarm = Some((step.pos, step.neg));
+                }
+            }
+        }
 
         let context = ReasonContext {
             baseline: Vec::new(),
@@ -596,7 +743,23 @@ impl DetectorEngine {
                 state.window_tail = verdict.next_window_tail.clone();
                 state.consecutive_anomalous = verdict.next_consecutive_anomalous;
                 state.last_observed_at_unix_nano = observed_at_unix_nano;
-                Some(verdict)
+
+                // Additive but de-duplicated: a CUSUM drift finding reports exactly
+                // the sustained drift the point z-score MISSES, so suppress it when
+                // the z-score itself breached this sample (already an edge-spike).
+                let cusum_drift = cusum_alarm
+                    .filter(|_| !verdict.breached)
+                    .map(|(pos, neg)| CusumDrift {
+                        pos,
+                        neg,
+                        direction: if pos >= neg {
+                            CusumDirection::Up
+                        } else {
+                            CusumDirection::Down
+                        },
+                    });
+
+                Some((verdict, cusum_drift))
             }
             Err(_) => None,
         }
@@ -641,13 +804,8 @@ impl DetectorEngine {
     ) -> Option<TransitionVerdict> {
         let (value, observed_at_unix_nano) =
             self.next_evaluation_sample(series_key, value, observed_at_unix_nano, profile)?;
-        let verdict = self.evaluate_with_seasonal_key(
-            series_key,
-            seasonal_key,
-            value,
-            observed_at_unix_nano,
-            profile,
-        )?;
+        let (verdict, cusum_drift) =
+            self.evaluate_inner(series_key, seasonal_key, value, observed_at_unix_nano, profile)?;
         let state = self.series.get_mut(series_key)?;
         let clear_slots = self.config.confirm_slots.max(1);
         let mut episode = None;
@@ -694,6 +852,7 @@ impl DetectorEngine {
             verdict,
             transition,
             episode,
+            cusum_drift,
         })
     }
 
@@ -742,6 +901,8 @@ impl DetectorEngine {
                 aggregation_slot_start_unix_nano: None,
                 aggregation_slot_value: None,
                 aggregation_slot_peak_at_unix_nano: None,
+                cusum: None,
+                cusum_anchor: None,
                 last_observed_at_unix_nano: observed_at_unix_nano,
             });
 
@@ -902,6 +1063,21 @@ pub struct SeriesCheckpoint {
     pub aggregation_slot_value: Option<f64>,
     #[serde(default)]
     pub aggregation_slot_peak_at_unix_nano: Option<u64>,
+    /// Frozen CUSUM anchor mean — `Some` once the rolling baseline warmed and the
+    /// drift detector anchored. Absent in pre-CUSUM checkpoints (`serde(default)`),
+    /// so an upgrade re-anchors cleanly the next time the window warms.
+    #[serde(default)]
+    pub cusum_anchor_mean: Option<f64>,
+    /// Frozen CUSUM anchor scale (the floored dispersion the residual divides by).
+    #[serde(default)]
+    pub cusum_anchor_scale: Option<f64>,
+    /// CUSUM upper accumulator `S+` at checkpoint time, so a drift mid-accumulation
+    /// re-alarms on schedule after a restart instead of restarting from zero.
+    #[serde(default)]
+    pub cusum_pos: Option<f64>,
+    /// CUSUM lower accumulator `S-` at checkpoint time.
+    #[serde(default)]
+    pub cusum_neg: Option<f64>,
     pub last_observed_at_unix_nano: u64,
 }
 
@@ -948,6 +1124,10 @@ impl DetectorEngine {
                     aggregation_slot_start_unix_nano: state.aggregation_slot_start_unix_nano,
                     aggregation_slot_value: state.aggregation_slot_value,
                     aggregation_slot_peak_at_unix_nano: state.aggregation_slot_peak_at_unix_nano,
+                    cusum_anchor_mean: state.cusum_anchor.map(|(mean, _scale)| mean),
+                    cusum_anchor_scale: state.cusum_anchor.map(|(_mean, scale)| scale),
+                    cusum_pos: state.cusum.as_ref().map(Cusum::pos),
+                    cusum_neg: state.cusum.as_ref().map(Cusum::neg),
                     last_observed_at_unix_nano: state.last_observed_at_unix_nano,
                 })
                 .collect(),
@@ -1002,6 +1182,21 @@ impl DetectorEngine {
                 window_tail.drain(0..drop);
             }
 
+            // Re-warm the CUSUM drift detector: the frozen anchor and the `S+`/`S-`
+            // partial sums survive the restart, so a drift mid-accumulation
+            // re-alarms on schedule. `k`/`h` come from the current config so a
+            // retuned decision interval applies immediately. Pre-CUSUM checkpoints
+            // (no anchor) simply re-anchor when the window next warms.
+            let cusum_anchor = series.cusum_anchor_mean.zip(series.cusum_anchor_scale);
+            let cusum = cusum_anchor.map(|_| {
+                Cusum::with_state(
+                    self.config.cusum_k,
+                    self.config.cusum_h,
+                    series.cusum_pos.unwrap_or(0.0),
+                    series.cusum_neg.unwrap_or(0.0),
+                )
+            });
+
             self.series.insert(
                 series.series_key,
                 SeriesState {
@@ -1019,6 +1214,8 @@ impl DetectorEngine {
                     aggregation_slot_start_unix_nano: series.aggregation_slot_start_unix_nano,
                     aggregation_slot_value: series.aggregation_slot_value,
                     aggregation_slot_peak_at_unix_nano: series.aggregation_slot_peak_at_unix_nano,
+                    cusum,
+                    cusum_anchor,
                     last_observed_at_unix_nano: series.last_observed_at_unix_nano,
                 },
             );
@@ -1609,6 +1806,10 @@ mod tests {
                     aggregation_slot_start_unix_nano: None,
                     aggregation_slot_value: None,
                     aggregation_slot_peak_at_unix_nano: None,
+                    cusum_anchor_mean: None,
+                    cusum_anchor_scale: None,
+                    cusum_pos: None,
+                    cusum_neg: None,
                     last_observed_at_unix_nano: 1,
                 },
                 SeriesCheckpoint {
@@ -1626,6 +1827,10 @@ mod tests {
                     aggregation_slot_start_unix_nano: None,
                     aggregation_slot_value: None,
                     aggregation_slot_peak_at_unix_nano: None,
+                    cusum_anchor_mean: None,
+                    cusum_anchor_scale: None,
+                    cusum_pos: None,
+                    cusum_neg: None,
                     last_observed_at_unix_nano: 3,
                 },
                 SeriesCheckpoint {
@@ -1643,6 +1848,10 @@ mod tests {
                     aggregation_slot_start_unix_nano: None,
                     aggregation_slot_value: None,
                     aggregation_slot_peak_at_unix_nano: None,
+                    cusum_anchor_mean: None,
+                    cusum_anchor_scale: None,
+                    cusum_pos: None,
+                    cusum_neg: None,
                     last_observed_at_unix_nano: 2,
                 },
             ],
@@ -2055,5 +2264,259 @@ mod tests {
                 "a weak global override must not weaken the disk floor"
             );
         }
+    }
+
+    /// A detector with CUSUM enabled but otherwise default thresholds. `min_samples`
+    /// is 30 so the rolling baseline (and the frozen CUSUM anchor) warm on a tight
+    /// stationary window before any drift ramp begins.
+    fn cusum_cfg() -> EngineConfig {
+        EngineConfig {
+            window_size: 50,
+            min_samples: 30,
+            n_sigma: 3.0,
+            confirm_slots: 1,
+            max_series: 10,
+            cusum_enabled: true,
+            ..EngineConfig::default()
+        }
+    }
+
+    /// Warm a tight, stationary baseline (std ~1) so the CUSUM anchor freezes at
+    /// roughly (100, 1). Asserts the stationary warmup never drifts.
+    fn warm_stationary(engine: &mut DetectorEngine) {
+        for ts in 0..30u64 {
+            let v = 100.0 + if ts % 2 == 0 { 1.0 } else { -1.0 };
+            let tv = engine
+                .evaluate_transition("s", v, ts, SeriesProfile::default())
+                .expect("verdict");
+            assert!(
+                tv.cusum_drift.is_none(),
+                "a stationary warmup must not raise a drift"
+            );
+            assert_eq!(tv.transition, AnomalyTransition::None);
+        }
+    }
+
+    #[test]
+    fn cusum_catches_slow_drift_the_point_zscore_misses() {
+        // The crux: a gentle upward ramp where the rolling z-score's mean tracks the
+        // drift (so each sample is sub-threshold and never confirms an anomaly), yet
+        // the CUSUM anchored to the frozen warm-up baseline accumulates the
+        // standardized residual until it crosses h and alarms — a DRIFT the point
+        // z-score structurally misses.
+        let mut engine = DetectorEngine::new(cusum_cfg());
+        warm_stationary(&mut engine);
+
+        let mut drift_seen = false;
+        let mut any_open = false;
+        for i in 1..=30u64 {
+            let v = 100.0 + 0.4 * i as f64;
+            let tv = engine
+                .evaluate_transition("s", v, 30 + i, SeriesProfile::default())
+                .expect("verdict");
+            if tv.transition == AnomalyTransition::Open {
+                any_open = true;
+            }
+            if let Some(drift) = tv.cusum_drift {
+                drift_seen = true;
+                assert_eq!(drift.direction, CusumDirection::Up, "an upward ramp drifts up");
+                assert!(drift.magnitude() > engine.config().cusum_h, "the alarm crossed h");
+                // The gated drift only fires where the z-score itself did NOT breach —
+                // i.e. exactly the case the point detector misses.
+                assert!(
+                    !tv.verdict.breached,
+                    "the drift must report what the z-score missed, not a breach"
+                );
+            }
+        }
+
+        assert!(
+            drift_seen,
+            "the anchored CUSUM must alarm on a slow drift the point z-score misses"
+        );
+        assert!(
+            !any_open,
+            "the point z-score must NOT have confirmed the gradual ramp"
+        );
+    }
+
+    #[test]
+    fn cusum_catches_a_slow_leak() {
+        // A leak: a slow, sustained upward growth (slower than the drift above). The
+        // rolling z-score never trips, but the leak eventually accumulates past h.
+        let mut engine = DetectorEngine::new(cusum_cfg());
+        warm_stationary(&mut engine);
+
+        let mut leaked = false;
+        for i in 1..=120u64 {
+            let v = 100.0 + 0.15 * i as f64; // gentle, leak-like growth
+            let tv = engine
+                .evaluate_transition("s", v, 30 + i, SeriesProfile::default())
+                .expect("verdict");
+            assert_ne!(
+                tv.transition,
+                AnomalyTransition::Open,
+                "a slow leak must not trip the point z-score (sample {i})"
+            );
+            if let Some(drift) = tv.cusum_drift {
+                assert_eq!(drift.direction, CusumDirection::Up);
+                leaked = true;
+            }
+        }
+        assert!(leaked, "the CUSUM must eventually flag a slow upward leak");
+    }
+
+    #[test]
+    fn cusum_reports_downward_drift_on_the_neg_side() {
+        // The lower accumulator catches a sustained DOWNWARD drift.
+        let mut engine = DetectorEngine::new(cusum_cfg());
+        warm_stationary(&mut engine);
+
+        let mut down_seen = false;
+        for i in 1..=30u64 {
+            let v = 100.0 - 0.4 * i as f64;
+            let tv = engine
+                .evaluate_transition("s", v, 30 + i, SeriesProfile::default())
+                .expect("verdict");
+            if let Some(drift) = tv.cusum_drift {
+                assert_eq!(drift.direction, CusumDirection::Down);
+                assert!(drift.neg >= drift.pos, "the S- accumulator crossed");
+                down_seen = true;
+            }
+        }
+        assert!(down_seen, "a downward drift must alarm on the neg side");
+    }
+
+    #[test]
+    fn cusum_disabled_is_back_compat_rolling_only() {
+        // With CUSUM disabled the engine is the prior rolling-only detector: the same
+        // ramp produces no drift verdicts and no z-score open (it is the missed case).
+        let cfg = EngineConfig {
+            cusum_enabled: false,
+            ..cusum_cfg()
+        };
+        let mut engine = DetectorEngine::new(cfg);
+        for ts in 0..30u64 {
+            let v = 100.0 + if ts % 2 == 0 { 1.0 } else { -1.0 };
+            engine.evaluate_transition("s", v, ts, SeriesProfile::default());
+        }
+        for i in 1..=30u64 {
+            let v = 100.0 + 0.4 * i as f64;
+            let tv = engine
+                .evaluate_transition("s", v, 30 + i, SeriesProfile::default())
+                .expect("verdict");
+            assert!(
+                tv.cusum_drift.is_none(),
+                "cusum disabled must never raise a drift (sample {i})"
+            );
+            assert_ne!(tv.transition, AnomalyTransition::Open);
+        }
+    }
+
+    #[test]
+    fn cusum_deseasonalizes_against_the_delivered_seasonal_center() {
+        // A series whose elevated steady level matches its delivered hour-of-week
+        // center is NORMAL for the hour and must NOT drift, even though the same level
+        // measured against the (lower) rolling anchor WOULD accumulate a drift. The
+        // warm-up is wide enough that the elevated level never breaches the z-score,
+        // so the only thing that can speak is the CUSUM — and the seasonal target is
+        // what silences it.
+        let cfg = cusum_cfg();
+        let elevated = 135.0;
+
+        // Wide warm-up (std ~30) so `elevated` is a sub-z move, then a steady run AT
+        // the elevated level.
+        let warm = |engine: &mut DetectorEngine| {
+            for ts in 0..30u64 {
+                let v = if ts % 2 == 0 { 70.0 } else { 130.0 };
+                engine.evaluate("s", v, ts, SeriesProfile::default());
+            }
+        };
+
+        // Rolling anchor only (no seasonal): the elevated steady level drifts UP.
+        let mut rolling = DetectorEngine::new(cfg.clone());
+        warm(&mut rolling);
+        let mut rolling_drift = false;
+        for i in 1..=20u64 {
+            let tv = rolling
+                .evaluate_transition("s", elevated, 30 + i, SeriesProfile::default())
+                .expect("verdict");
+            assert_ne!(tv.transition, AnomalyTransition::Open, "elevated is sub-z");
+            rolling_drift |= tv.cusum_drift.is_some();
+        }
+        assert!(
+            rolling_drift,
+            "against the rolling anchor, a sustained elevated level reads as a drift"
+        );
+
+        // Same series, but the delivered hour-of-week center IS the elevated level:
+        // deseasonalizing makes the residual ~0, so no drift.
+        let mut seasonal = DetectorEngine::new(cfg);
+        seasonal.set_seasonal_baselines(HashMap::from([(
+            "s".to_string(),
+            SeasonalProfile::from_buckets((0..HOURS_PER_WEEK).map(|i| {
+                (
+                    i,
+                    SeasonalBucket {
+                        center: elevated,
+                        scale: 3.0,
+                        sample_count: 8,
+                    },
+                )
+            })),
+        )]));
+        warm(&mut seasonal);
+        for i in 1..=20u64 {
+            let tv = seasonal
+                .evaluate_transition("s", elevated, 30 + i, SeriesProfile::default())
+                .expect("verdict");
+            assert!(
+                tv.cusum_drift.is_none(),
+                "a level normal for its hour-of-week must not drift (sample {i})"
+            );
+        }
+    }
+
+    #[test]
+    fn cusum_drift_state_survives_checkpoint_restart() {
+        let cfg = cusum_cfg();
+        let mut engine = DetectorEngine::new(cfg.clone());
+        warm_stationary(&mut engine);
+
+        // Ramp just short of the alarm so the CUSUM has a partial `S+` accumulation
+        // (no alarm yet).
+        for i in 1..=5u64 {
+            let v = 100.0 + 0.4 * i as f64;
+            let tv = engine
+                .evaluate_transition("s", v, 30 + i, SeriesProfile::default())
+                .expect("verdict");
+            assert!(tv.cusum_drift.is_none(), "must not alarm before crossing h");
+        }
+
+        let checkpoint = engine.export_checkpoint();
+        let snap = checkpoint
+            .series
+            .iter()
+            .find(|c| c.series_key == "s")
+            .expect("series checkpoint");
+        assert!(snap.cusum_anchor_mean.is_some(), "anchor mean is checkpointed");
+        assert!(snap.cusum_anchor_scale.is_some(), "anchor scale is checkpointed");
+        assert!(
+            snap.cusum_pos.unwrap_or(0.0) > 0.0,
+            "the partial S+ accumulation is checkpointed"
+        );
+
+        // Reseed a fresh engine and continue the ramp: because the partial
+        // accumulation survived, the next step crosses h and alarms. (A restart that
+        // dropped the CUSUM state would re-accumulate from zero and not alarm here.)
+        let mut restored = DetectorEngine::new(cfg);
+        assert_eq!(restored.restore_checkpoint(checkpoint, 1_000, u64::MAX), 1);
+        let tv = restored
+            .evaluate_transition("s", 100.0 + 0.4 * 6.0, 36, SeriesProfile::default())
+            .expect("verdict");
+        let drift = tv
+            .cusum_drift
+            .expect("the restored CUSUM accumulation must re-alarm promptly");
+        assert_eq!(drift.direction, CusumDirection::Up);
     }
 }
