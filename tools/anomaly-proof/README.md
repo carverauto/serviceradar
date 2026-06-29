@@ -54,7 +54,7 @@ grep '"disk.usage_percent"' $O/samples.jsonl > $O/disk.jsonl
 ### Core half — disposition kernels (no DB)
 
 ```bash
-cargo build --manifest-path rust/causal-disposition/Cargo.toml --bin disposition-backtest
+cargo build --manifest-path rust/anomaly-disposition/Cargo.toml --bin disposition-backtest
 
 # seasonal: does the core tier suppress seasonal-normal and flag real deviations?
 python3 tools/anomaly-proof/gen_seasonal.py
@@ -112,7 +112,7 @@ Core half:
 - `gen_seasonal.py` / `plot_seasonal.py` — hour-of-week baseline + labeled cases → `dispose_seasonal` proof
 - `gen_capacity.py` — disk-fill points for the `dispose_capacity` prediction-interval demo
 - `gen_seasonal_db.py` + `db/schema.sql` + `db/seasonal_verb.sql` + `run_db_feed.sh` — the end-to-end DB feed
-- the runner: `rust/causal-disposition/src/bin/disposition-backtest.rs` (`--kind seasonal|capacity`)
+- the runner: `rust/anomaly-disposition/src/bin/disposition-backtest.rs` (`--kind seasonal|capacity`)
 
 - `out/`     — generated artifacts (not source)
 

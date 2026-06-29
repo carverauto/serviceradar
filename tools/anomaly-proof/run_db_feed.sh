@@ -12,7 +12,7 @@ cd "$(dirname "$0")/../.."   # repo root
 HARNESS=tools/anomaly-proof
 O="$HARNESS/out"; mkdir -p "$O"
 BIN=target/debug/disposition-backtest
-[ -x "$BIN" ] || { echo "build first: cargo build --manifest-path rust/causal-disposition/Cargo.toml --bin disposition-backtest"; exit 1; }
+[ -x "$BIN" ] || { echo "build first: cargo build --manifest-path rust/anomaly-disposition/Cargo.toml --bin disposition-backtest"; exit 1; }
 
 NS=srql-fixtures
 NODEPORT=$(kubectl get svc srql-fixture-rw-ext -n "$NS" -o jsonpath='{.spec.ports[0].nodePort}')
