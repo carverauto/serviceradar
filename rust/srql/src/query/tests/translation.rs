@@ -503,12 +503,12 @@ fn translate_flows_downsample_emits_time_bucket_query() {
 
 #[test]
 fn translate_flows_downsample_30d_reads_prescaled_cagg() {
-    // §26.4: a long-window downsample (bucket:1h over 30d) routes to a
-    // pre-scaled flow CAGG. Pin that the long-window path reads scaled volume
-    // WITHOUT re-applying sampling_rate (no double-scaling) — the CAGG rebuild
-    // baked bytes * sampling_rate in at materialization. (The 1h counterpart
-    // above takes the raw path and DOES apply sampling_rate; both are correct,
-    // scaling applied exactly once on each path.)
+    // §26.4: a long-window downsample (bucket:1h over 30d) routes to a pre-scaled flow CAGG
+    // through the closed-vs-current UNION (fj #33). Pin that scaling is applied exactly once
+    // on each side: the materialized (closed-bucket) CAGG side reads the pre-scaled
+    // `bytes_total` column WITHOUT re-applying sampling_rate (no double-scaling — the CAGG
+    // rebuild baked bytes * sampling_rate in at materialization), while the raw current-bucket
+    // side DOES apply sampling_rate exactly once (raw rows are unscaled).
     let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
     let request = QueryRequest {
         query: "in:flows time:last_30d bucket:1h agg:sum value_field:bytes_total limit:25"
@@ -523,12 +523,24 @@ fn translate_flows_downsample_30d_reads_prescaled_cagg() {
     let sql = response.sql.to_lowercase();
 
     assert!(
-        !sql.contains("sampling_rate"),
-        "30d CAGG route must read pre-scaled columns, not re-apply sampling_rate (would double-scale): {sql}"
+        sql.contains("from flow_traffic_1h"),
+        "expected the long-window 1h bucket to route to the pre-scaled flow_traffic_1h CAGG: {sql}"
+    );
+    // Closed buckets read the pre-scaled column directly (NOT re-scaled).
+    assert!(
+        sql.contains("bytes_total::double precision as weighted_sum"),
+        "CAGG (closed-bucket) side must read pre-scaled bytes_total without re-applying sampling_rate: {sql}"
+    );
+    // The current open bucket comes from raw and scales exactly once.
+    assert!(
+        sql.contains(
+            "sum((bytes_total::double precision * greatest(coalesce(sampling_rate, 1), 1)::double precision)) as weighted_sum"
+        ) && sql.contains("from ocsf_network_activity"),
+        "raw current-bucket side must apply sampling_rate exactly once: {sql}"
     );
     assert!(
-        sql.contains("sum(bytes_total)"),
-        "expected a bytes_total sum (pre-scaled in the CAGG): {sql}"
+        sql.contains("sum(weighted_sum) as value"),
+        "expected the outer sum over pre-scaled volume: {sql}"
     );
 }
 

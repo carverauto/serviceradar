@@ -15,17 +15,18 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
         ServiceError::InvalidRequest("downsample requires bucket:<duration>".into())
     })?;
 
+    // Flows route through a dedicated closed-vs-current UNION builder: materialized buckets
+    // come from the pre-aggregated traffic CAGG and only the still-open bucket is read from
+    // the raw hypertable. This keeps the sampling-rate-weighted throughput chart off the raw
+    // full-table scan that was timing out (fj #33).
+    if let Some(cagg_table) = flow_cagg_route(plan) {
+        return build_flow_cagg_union_sql(downsample, cagg_table);
+    }
+
     let use_hourly_cagg = super::super::should_route_plan_to_hourly_cagg(plan)
         && match plan.entity {
-            Entity::Flows => {
-                cagg_safe_shape_strict(plan)
-                    && downsample.bucket_seconds >= 300
-                    && matches!(downsample.agg, DownsampleAgg::Sum | DownsampleAgg::Count)
-                    && matches!(
-                        downsample.value_field.as_deref(),
-                        None | Some("bytes_total") | Some("packets_total")
-                    )
-            }
+            // Flows CAGG routing is handled by `flow_cagg_route` above.
+            Entity::Flows => false,
             // The timeseries family CAGG (`timeseries_metrics_hourly`) groups by
             // (bucket, device_id, metric_type, metric_name) and stores avg/min/max_value.
             // A device-filtered chart request is safe to route as long as every filter and
@@ -59,12 +60,10 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
         }
     };
 
+    // Flows never reach here with `use_hourly_cagg` (handled by `flow_cagg_route` above);
+    // this path now only covers the metric-family CAGGs.
     let table = if use_hourly_cagg {
-        if matches!(plan.entity, Entity::Flows) {
-            flow_cagg_for_bucket(downsample.bucket_seconds)
-        } else {
-            super::super::cagg_table_for_entity(&plan.entity).unwrap_or(raw_table)
-        }
+        super::super::cagg_table_for_entity(&plan.entity).unwrap_or(raw_table)
     } else {
         raw_table
     };
@@ -106,7 +105,7 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
     let bucket_secs = downsample.bucket_seconds;
 
     let mut clauses = Vec::new();
-    if use_hourly_cagg && !matches!(plan.entity, Entity::Flows) {
+    if use_hourly_cagg {
         clauses.push(super::super::hourly_cagg_lower_bound_clause(ts_col));
         clauses.push(super::super::hourly_cagg_upper_bound_clause(ts_col));
     } else {
@@ -175,16 +174,9 @@ LIMIT ? OFFSET ?"#,
         return Ok(sql);
     }
 
-    // Standard aggregation (non-rate)
-    // For flow CAGGs, COUNT(*) must become SUM(flow_count) since rows are pre-aggregated.
-    let agg_expr = if use_hourly_cagg
-        && matches!(plan.entity, Entity::Flows)
-        && matches!(downsample.agg, DownsampleAgg::Count)
-    {
-        "SUM(flow_count)".to_string()
-    } else {
-        agg_expr(downsample.agg, &value_col)
-    };
+    // Standard aggregation (non-rate). Flow CAGG aggregation (including COUNT(*) ->
+    // SUM(flow_count)) is handled by the dedicated `build_flow_cagg_union_sql` path above.
+    let agg_expr = agg_expr(downsample.agg, &value_col);
 
     // Use standard PostgreSQL floor-based bucketing instead of TimescaleDB's time_bucket
     // This floors the timestamp to the nearest bucket boundary
@@ -195,6 +187,106 @@ LIMIT ? OFFSET ?"#,
     sql.push_str("\nGROUP BY 1, 2\nORDER BY 1 ASC, 2 ASC NULLS FIRST\nLIMIT ? OFFSET ?");
 
     let _ = time_range;
+    Ok(sql)
+}
+
+/// Returns the flow traffic CAGG table when a flows downsample plan can be served from a
+/// pre-aggregated continuous aggregate.
+///
+/// Eligibility (strict shape): the entity is flows, the time range is past the hourly-CAGG
+/// routing threshold, the bucket is at least the 5-minute CAGG resolution, the aggregation is
+/// `sum`/`count`/`avg` over `bytes_total`/`packets_total` (or a bare `count(*)`), and there are
+/// no dimension filters or series grouping — the traffic CAGGs only materialize
+/// `(bucket, bytes_total, packets_total, flow_count)`, so any other dimension would be lossy.
+fn flow_cagg_route(plan: &QueryPlan) -> Option<&'static str> {
+    if !matches!(plan.entity, Entity::Flows) {
+        return None;
+    }
+    if !super::super::should_route_plan_to_hourly_cagg(plan) {
+        return None;
+    }
+
+    let downsample = plan.downsample.as_ref()?;
+
+    let agg_ok = matches!(
+        downsample.agg,
+        DownsampleAgg::Sum | DownsampleAgg::Count | DownsampleAgg::Avg
+    );
+    let value_field_ok = matches!(
+        downsample.value_field.as_deref(),
+        None | Some("bytes_total") | Some("packets_total")
+    );
+
+    if cagg_safe_shape_strict(plan) && downsample.bucket_seconds >= 300 && agg_ok && value_field_ok
+    {
+        Some(flow_cagg_for_bucket(downsample.bucket_seconds))
+    } else {
+        None
+    }
+}
+
+/// Builds the flows throughput downsample SQL that reads materialized buckets from the
+/// pre-aggregated traffic CAGG and the single still-open bucket from the raw hypertable.
+///
+/// The flow traffic CAGGs (`ocsf_network_activity_5m_traffic`, `flow_traffic_1h`,
+/// `flow_traffic_1d`) materialize `bytes_total`/`packets_total` as the sampling-rate-weighted
+/// SUM and `flow_count` as the row COUNT (see migration
+/// `20260621143000_rebuild_flow_caggs_with_sampling_rate`). A chart
+/// `avg(value * sampling_rate)` is therefore reconstructed as
+/// `SUM(weighted_sum) / SUM(flow_count)`; `sum` keeps `SUM(weighted_sum)` and `count(*)`
+/// becomes `SUM(flow_count)`.
+///
+/// These CAGGs are `materialized_only` (no TimescaleDB real-time union) and lag real time by
+/// the continuous-aggregate `end_offset` + schedule, so the current open chart bucket is read
+/// from the raw hypertable and UNION-ed with the materialized closed buckets — mirroring the
+/// closed-vs-current split used by web-ng SecurityTrend (#4263). The raw scan is bounded to a
+/// single open bucket, so it stays cheap instead of scanning the full time range.
+fn build_flow_cagg_union_sql(
+    downsample: &crate::parser::DownsampleSpec,
+    cagg_table: &str,
+) -> Result<String> {
+    let bucket_secs = downsample.bucket_seconds;
+    let field = downsample.value_field.as_deref();
+
+    // CAGG column already holds the sampling-rate-weighted SUM for bytes/packets.
+    let cagg_value_col = resolve_value_column(Entity::Flows, field, true)?;
+    // Raw per-flow sampling-rate-weighted value, matching the CAGG materialization exactly.
+    let raw_value_expr = resolve_value_column(Entity::Flows, field, false)?;
+
+    let outer_value = match downsample.agg {
+        DownsampleAgg::Sum => "SUM(weighted_sum)".to_string(),
+        DownsampleAgg::Count => "SUM(cnt)".to_string(),
+        DownsampleAgg::Avg => "SUM(weighted_sum) / NULLIF(SUM(cnt), 0)".to_string(),
+        other => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "flow CAGG routing does not support {other:?} aggregation"
+            )))
+        }
+    };
+
+    // Start of the current chart bucket; materialized buckets are strictly before it.
+    let boundary =
+        format!("to_timestamp(floor(extract(epoch from now()) / {bucket_secs}) * {bucket_secs})");
+
+    // Placeholders in order: CAGG `bucket >= ?` (start), CAGG `bucket <= ?` (end),
+    // raw `time <= ?` (end), then LIMIT/OFFSET. See `build_bind_values`.
+    let sql = format!(
+        "SELECT to_timestamp(floor(extract(epoch from bucket) / {bucket_secs}) * {bucket_secs}) AT TIME ZONE 'UTC' AS timestamp, series, {outer_value} AS value\n\
+FROM (\n\
+SELECT bucket, NULL::text AS series, {cagg_value_col}::double precision AS weighted_sum, flow_count::double precision AS cnt\n\
+FROM {cagg_table}\n\
+WHERE bucket >= ? AND bucket <= ? AND bucket < {boundary}\n\
+UNION ALL\n\
+SELECT to_timestamp(floor(extract(epoch from time) / {bucket_secs}) * {bucket_secs}) AS bucket, NULL::text AS series, SUM({raw_value_expr}) AS weighted_sum, COUNT(*)::double precision AS cnt\n\
+FROM ocsf_network_activity\n\
+WHERE time >= {boundary} AND time <= ?\n\
+GROUP BY 1, 2\n\
+) combined\n\
+GROUP BY 1, 2\n\
+ORDER BY 1 ASC, 2 ASC NULLS FIRST\n\
+LIMIT ? OFFSET ?",
+    );
+
     Ok(sql)
 }
 
@@ -258,6 +350,15 @@ pub(super) fn build_bind_values(plan: &QueryPlan) -> Result<Vec<SqlBindValue>> {
 
     binds.push(SqlBindValue::Timestamp(*start));
     binds.push(SqlBindValue::Timestamp(*end));
+
+    // The flows CAGG-union SQL references `end` a second time (CAGG upper bound + raw-current
+    // upper bound) and never carries filter/type binds (strict CAGG shape).
+    if flow_cagg_route(plan).is_some() {
+        binds.push(SqlBindValue::Timestamp(*end));
+        binds.push(SqlBindValue::BigInt(plan.limit));
+        binds.push(SqlBindValue::BigInt(plan.offset));
+        return Ok(binds);
+    }
 
     if matches!(plan.entity, Entity::SnmpMetrics) {
         binds.push(SqlBindValue::Text("snmp".to_string()));
