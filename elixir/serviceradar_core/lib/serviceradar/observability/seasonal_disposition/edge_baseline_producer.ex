@@ -139,7 +139,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
   # derives at scoring so the delivered baseline resolves. Two metrics on one
   # device (cpu/memory) therefore never collide in the flat delivered map.
   defp keyed_baselines(%Source{} = source, rows) do
-    metric_name = wire_metric_name(source)
+    metric_name = source.wire_metric_name
 
     rows
     |> EdgeBaseline.build(source.robust_statistic)
@@ -149,30 +149,6 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
   end
 
   defp seasonal_series_key(device_uid, metric_name), do: "#{device_uid}|#{metric_name}"
-
-  # The full dotted metric name the agent stamps on the wire — the add-on keys the
-  # seasonal lookup by it, so the delivered key must match exactly. The
-  # authoritative name is the `metric_name:"..."` literal in the source's profile
-  # query (the `Source.metric_name` field is the SHORT suffix, e.g. memory carries
-  # `usage_percent` while the real series is `memory.used_percent`, so it cannot be
-  # reconstructed from `metric_class.metric_name`). Fall back to that reconstruction
-  # only if the query carries no literal.
-  defp wire_metric_name(%Source{query: query} = source) when is_binary(query) do
-    case Regex.run(~r/metric_name:"([^"]+)"/, query) do
-      [_, metric_name] -> metric_name
-      _ -> wire_metric_name_from_fields(source)
-    end
-  end
-
-  defp wire_metric_name(%Source{} = source), do: wire_metric_name_from_fields(source)
-
-  defp wire_metric_name_from_fields(%Source{metric_class: metric_class, metric_name: metric_name}) do
-    cond do
-      is_binary(metric_name) and String.contains?(metric_name, ".") -> metric_name
-      is_binary(metric_class) and metric_class != "" -> "#{metric_class}.#{metric_name}"
-      true -> to_string(metric_name)
-    end
-  end
 
   defp sources(opts) do
     sources =

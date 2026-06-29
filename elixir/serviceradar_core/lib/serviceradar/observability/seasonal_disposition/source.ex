@@ -37,6 +37,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
           resource_type: String.t(),
           metric_class: String.t(),
           metric_name: String.t(),
+          wire_metric_name: String.t(),
           query: String.t(),
           robust_statistic: robust_statistic(),
           series_field: String.t(),
@@ -59,6 +60,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
             resource_type: nil,
             metric_class: nil,
             metric_name: nil,
+            wire_metric_name: nil,
             query: nil,
             # Default to the robust median/MAD statistic (1.15) so a past incident hour
             # cannot poison the seasonal baseline (the profile verb supplies center/mad).
@@ -90,6 +92,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
         resource_type: "cpu",
         metric_class: "cpu",
         metric_name: "usage_percent",
+        wire_metric_name: "cpu.usage_percent",
         query:
           profile_query("sysmon.cpu", "cpu.usage_percent", time_range, limit, profile_timezone),
         robust_statistic: :median_mad,
@@ -101,6 +104,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
         resource_type: "memory",
         metric_class: "memory",
         metric_name: "usage_percent",
+        wire_metric_name: "memory.used_percent",
         query:
           profile_query(
             "sysmon.memory",
@@ -127,6 +131,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
       resource_type: string_value(values, :resource_type),
       metric_class: string_value(values, :metric_class),
       metric_name: string_value(values, :metric_name),
+      wire_metric_name: wire_metric_name_value(values),
       query: string_value(values, :query),
       robust_statistic: robust_statistic_value(values, :robust_statistic),
       series_field: string_value(values, :series_field, "series"),
@@ -144,6 +149,24 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
       profile_timezone: profile_timezone_value(values),
       label_fields: string_list(values, :label_fields)
     })
+  end
+
+  # The full dotted metric name as it appears in the timeseries series and on the wire
+  # (e.g. "memory.used_percent", which deliberately diverges from
+  # "<metric_class>.<metric_name>"). The add-on keys its seasonal lookup by this exact
+  # string, so it is carried as a first-class field rather than re-parsed from the query.
+  # A custom config whose series name diverges must set `:wire_metric_name`; otherwise we
+  # derive the common `<metric_class>.<metric_name>` form.
+  defp wire_metric_name_value(values) do
+    case string_value(values, :wire_metric_name) do
+      nil ->
+        class = string_value(values, :metric_class)
+        name = string_value(values, :metric_name)
+        if class in [nil, ""], do: name, else: "#{class}.#{name}"
+
+      wire ->
+        wire
+    end
   end
 
   defp profile_query(metric_type, metric_name, time_range, limit, profile_timezone) do
