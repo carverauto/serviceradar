@@ -55,11 +55,11 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
   end
 
   defp anomaly_message do
-    subject = "signals.causal.predictions.test-series-bulk-record"
+    subject = "signals.analytics.predictions.test-series-bulk-record"
 
     payload = %{
       "event_id" => "bulk-recorded-anomaly-#{System.unique_integer([:positive])}",
-      "signal_type" => "causal",
+      "signal_type" => "prediction",
       "event_type" => "anomaly",
       "class_uid" => 2004,
       "time" => 1_812_456_000_000,

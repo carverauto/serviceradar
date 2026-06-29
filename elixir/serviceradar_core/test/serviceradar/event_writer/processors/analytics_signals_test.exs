@@ -72,7 +72,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
         id: event_id,
         time: next_time,
         class_uid: 2004,
-        metadata: %{"signal_type" => "causal", "event_type" => "capacity_forecast"},
+        metadata: %{"signal_type" => "prediction", "event_type" => "capacity_forecast"},
         unmapped: %{}
       }
 
@@ -159,7 +159,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
           ] do
         payload = %{
           "event_id" => "anomaly-time-#{unit}",
-          "signal_type" => "causal",
+          "signal_type" => "prediction",
           "event_type" => "anomaly",
           "class_uid" => 2004,
           "time" => value,
@@ -202,7 +202,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
 
       payload = %{
         "event_id" => "anomaly-bad-time",
-        "signal_type" => "causal",
+        "signal_type" => "prediction",
         "event_type" => "anomaly",
         "class_uid" => 2004,
         "time" => "not-a-timestamp",
@@ -247,7 +247,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
 
       payload = %{
         "event_id" => "snmp-target-anomaly",
-        "signal_type" => "causal",
+        "signal_type" => "prediction",
         "event_type" => "anomaly",
         "class_uid" => 2004,
         "time" => 1_812_456_000_000,
@@ -296,7 +296,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
 
       payload = %{
         "event_id" => "snmp-target-missing",
-        "signal_type" => "causal",
+        "signal_type" => "prediction",
         "event_type" => "anomaly",
         "class_uid" => 2004,
         "time" => 1_812_456_000_000,
@@ -348,7 +348,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
 
       payload = %{
         "event_id" => "snmp-target-no-metric-tuple",
-        "signal_type" => "causal",
+        "signal_type" => "prediction",
         "event_type" => "anomaly",
         "class_uid" => 2004,
         "time" => 1_812_456_000_000,
@@ -397,7 +397,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
 
       payload = %{
         "event_id" => "snmp-canonical-target",
-        "signal_type" => "causal",
+        "signal_type" => "prediction",
         "event_type" => "anomaly",
         "class_uid" => 2004,
         "time" => 1_812_456_000_000,
@@ -465,7 +465,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
 
       payload = %{
         "event_id" => "snmp-metric-tuple",
-        "signal_type" => "causal",
+        "signal_type" => "prediction",
         "event_type" => "anomaly",
         "class_uid" => 2004,
         "time" => 1_812_456_000_000,
@@ -939,7 +939,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
 
     test "causal prediction subjects route to the declared causal_predictions batcher" do
       event = %{
-        data: Jason.encode!(%{"signal_type" => "causal", "event_type" => "anomaly"}),
+        data: Jason.encode!(%{"signal_type" => "prediction", "event_type" => "anomaly"}),
         metadata: %{
           subject: "signals.analytics.predictions.sysmon:memory:host-a",
           received_at: DateTime.utc_now()
@@ -957,7 +957,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
     test "selects anomaly causal prediction findings for stateful alert evaluation" do
       payload = %{
         "event_id" => "anomaly-alert-1",
-        "signal_type" => "causal",
+        "signal_type" => "prediction",
         "event_type" => "anomaly",
         "class_uid" => 2004,
         "timestamp" => "2026-06-12T12:00:00Z",
@@ -980,7 +980,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
         })
 
       assert row.class_uid == 2004
-      assert row.metadata["signal_type"] == "causal"
+      assert row.metadata["signal_type"] == "prediction"
       assert row.metadata["event_type"] == "anomaly"
 
       assert [alert_row] = AnalyticsSignals.alert_evaluation_rows([row])
@@ -991,7 +991,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
     test "carries the verdict_source label into service_radar metadata for the edge<->central join" do
       edge = %{
         "event_id" => "anomaly-edge-1",
-        "signal_type" => "causal",
+        "signal_type" => "prediction",
         "event_type" => "anomaly",
         "class_uid" => 2004,
         "timestamp" => "2026-06-12T12:00:00Z",
@@ -1062,7 +1062,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
 
       edge = %{
         "event_id" => "anomaly-edge-join-key",
-        "signal_type" => "causal",
+        "signal_type" => "prediction",
         "event_type" => "anomaly",
         "class_uid" => 2004,
         "timestamp" => "2026-06-12T12:00:00Z",
@@ -1125,7 +1125,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
     test "overwrites stale edge finding_info with canonical device and series identity" do
       edge = %{
         "event_id" => "anomaly-edge-stale-finding-info",
-        "signal_type" => "causal",
+        "signal_type" => "prediction",
         "event_type" => "anomaly",
         "class_uid" => 2004,
         "time" => 1_812_456_000_000,
@@ -1183,7 +1183,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
     test "preserves edge anomaly episode window and peak metadata" do
       payload = %{
         "event_id" => "anomaly-edge-episode-context",
-        "signal_type" => "causal",
+        "signal_type" => "prediction",
         "event_type" => "anomaly",
         "class_uid" => 2004,
         "time" => 1_812_456_040_000,
@@ -1274,7 +1274,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
 
       payload = %{
         "event_id" => "anomaly-edge-opaque-series-key",
-        "signal_type" => "causal",
+        "signal_type" => "prediction",
         "event_type" => "anomaly",
         "class_uid" => 2004,
         "timestamp" => "2026-06-12T12:00:00Z",
@@ -1323,7 +1323,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
 
       payload = %{
         "event_id" => "anomaly-edge-future-opaque-series-key",
-        "signal_type" => "causal",
+        "signal_type" => "prediction",
         "event_type" => "anomaly",
         "class_uid" => 2004,
         "timestamp" => "2026-06-12T12:00:00Z",

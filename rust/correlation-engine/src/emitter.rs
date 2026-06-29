@@ -57,7 +57,7 @@ pub fn build_envelope(verdict: &Verdict) -> Value {
     let prediction_id = deterministic_prediction_id(verdict);
     json!({
         "schema_version": "1.0",
-        "signal_type": "causal",
+        "signal_type": "prediction",
         // event_type maps cleanly onto the God-View 4 buckets
         // (root_cause / affected / healthy / unknown).
         "event_type": classification,
@@ -147,7 +147,7 @@ mod tests {
 
         assert_eq!(a["event_identity"], b["event_identity"]);
         assert_eq!(a["event_identity"], "pred:sr:device:abc:root_cause");
-        assert_eq!(a["signal_type"], "causal");
+        assert_eq!(a["signal_type"], "prediction");
         assert_eq!(a["event_type"], "root_cause");
         assert_eq!(a["primary_domain"], "causal");
         assert_eq!(a["source_identity"]["entity_uid"], "sr:device:abc");

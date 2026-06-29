@@ -1,4 +1,4 @@
-//! Engine configuration, loaded from the environment (`CAUSAL_ENGINE_*`),
+//! Engine configuration, loaded from the environment (`CORRELATION_ENGINE_*`),
 //! mirroring `rust/srql`'s `envy`-based pattern.
 
 use serde::Deserialize;
@@ -71,9 +71,9 @@ fn default_operator_rule_ttl_ms() -> u64 {
 }
 
 impl Config {
-    /// Load configuration from `CAUSAL_ENGINE_*` environment variables.
+    /// Load configuration from `CORRELATION_ENGINE_*` environment variables.
     pub fn from_env() -> Result<Self> {
-        envy::prefixed("CAUSAL_ENGINE_")
+        envy::prefixed("CORRELATION_ENGINE_")
             .from_env::<Config>()
             .map_err(|e| CorrelationEngineError::Config(e.to_string()))
     }

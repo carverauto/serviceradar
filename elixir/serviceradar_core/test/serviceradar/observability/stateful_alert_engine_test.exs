@@ -331,7 +331,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
           signal: :event,
           match: %{
             "subject_prefix" => "signals.analytics.predictions",
-            "attribute_equals" => %{"signal_type" => "causal", "event_type" => "anomaly"}
+            "attribute_equals" => %{"signal_type" => "prediction", "event_type" => "anomaly"}
           },
           group_by: ["device"],
           threshold: 1,
@@ -359,7 +359,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
     payload = %{
       "event_id" => "anomaly:sample-#{unique}:anomalous",
-      "signal_type" => "causal",
+      "signal_type" => "prediction",
       "event_type" => "anomaly",
       "status" => "open",
       "finding_type" => "detection",
@@ -468,14 +468,14 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
           match: %{
             "subject_prefix" => "signals.analytics.predictions",
             "attribute_equals" => %{
-              "signal_type" => "causal",
+              "signal_type" => "prediction",
               "event_type" => "anomaly",
               "anomaly.state" => ["anomaly_open", "open"]
             },
             "recovery" => %{
               "subject_prefix" => "signals.analytics.predictions",
               "attribute_equals" => %{
-                "signal_type" => "causal",
+                "signal_type" => "prediction",
                 "event_type" => "anomaly",
                 "anomaly.state" => ["anomaly_clear", "inactive"]
               }
@@ -510,7 +510,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
         log_provider: "anomaly_detection",
         device: %{"uid" => device_uid},
         unmapped: %{
-          "signal_type" => "causal",
+          "signal_type" => "prediction",
           "event_type" => "anomaly",
           "anomaly" => %{
             "state" => state,
@@ -518,7 +518,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
             "metric_class" => "sysmon.cpu"
           }
         },
-        metadata: %{"signal_type" => "causal", "event_type" => "anomaly"}
+        metadata: %{"signal_type" => "prediction", "event_type" => "anomaly"}
       }
     end
 
@@ -576,14 +576,14 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
           match: %{
             "subject_prefix" => "signals.analytics.predictions",
             "attribute_equals" => %{
-              "signal_type" => "causal",
+              "signal_type" => "prediction",
               "event_type" => "anomaly",
               "anomaly.state" => ["anomaly_open", "open"]
             },
             "recovery" => %{
               "subject_prefix" => "signals.analytics.predictions",
               "attribute_equals" => %{
-                "signal_type" => "causal",
+                "signal_type" => "prediction",
                 "event_type" => "anomaly",
                 "anomaly.state" => ["anomaly_clear", "inactive"]
               }
@@ -618,7 +618,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
         log_provider: "anomaly_detection",
         device: %{"uid" => device_uid},
         unmapped: %{
-          "signal_type" => "causal",
+          "signal_type" => "prediction",
           "event_type" => "anomaly",
           "anomaly" => %{
             "state" => state,
@@ -626,7 +626,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
             "metric_class" => "sysmon.cpu"
           }
         },
-        metadata: %{"signal_type" => "causal", "event_type" => "anomaly"}
+        metadata: %{"signal_type" => "prediction", "event_type" => "anomaly"}
       }
     end
 
@@ -689,7 +689,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
           match: %{
             "subject_prefix" => "signals.analytics.predictions",
             "attribute_equals" => %{
-              "signal_type" => "causal",
+              "signal_type" => "prediction",
               "event_type" => "anomaly",
               "anomaly.state" => ["anomaly_open", "open", "anomalous"]
             }
@@ -722,7 +722,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       log_provider: "anomaly_detection",
       device: %{"uid" => device_uid},
       unmapped: %{
-        "signal_type" => "causal",
+        "signal_type" => "prediction",
         "event_type" => "anomaly",
         "anomaly" => %{
           "state" => "anomaly_open",
@@ -733,7 +733,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
         }
       },
       metadata: %{
-        "signal_type" => "causal",
+        "signal_type" => "prediction",
         "event_type" => "anomaly",
         "service_radar" => %{"device_id" => device_uid}
       }
@@ -784,7 +784,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
           match: %{
             "subject_prefix" => "signals.analytics.predictions",
             "attribute_equals" => %{
-              "signal_type" => "causal",
+              "signal_type" => "prediction",
               "event_type" => ["anomaly", "anomaly_detection"],
               "anomaly.metric_class" => "sysmon.cpu",
               "anomaly.state" => ["anomaly_open", "open", "anomalous"]
@@ -792,7 +792,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
             "recovery" => %{
               "subject_prefix" => "signals.analytics.predictions",
               "attribute_equals" => %{
-                "signal_type" => "causal",
+                "signal_type" => "prediction",
                 "event_type" => ["anomaly", "anomaly_detection"],
                 "anomaly.state" => ["anomaly_clear", "inactive"]
               }
@@ -848,7 +848,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
         log_provider: "anomaly_detection",
         device: %{"uid" => device_uid},
         unmapped: %{
-          "signal_type" => "causal",
+          "signal_type" => "prediction",
           "event_type" => "anomaly",
           "verdict_source" => verdict_source,
           "anomaly" => %{
@@ -859,7 +859,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
           }
         },
         metadata: %{
-          "signal_type" => "causal",
+          "signal_type" => "prediction",
           "event_type" => "anomaly",
           "service_radar" => %{"verdict_source" => verdict_source}
         }
@@ -940,7 +940,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
             match: %{
               "subject_prefix" => "signals.analytics.predictions",
               "attribute_equals" => %{
-                "signal_type" => "causal",
+                "signal_type" => "prediction",
                 "event_type" => ["anomaly", "anomaly_detection"],
                 "anomaly.metric_class" => metric_class,
                 "anomaly.state" => ["anomaly_open", "open", "anomalous"]
@@ -974,7 +974,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
         log_provider: "anomaly_detection",
         device: %{"uid" => device_uid},
         unmapped: %{
-          "signal_type" => "causal",
+          "signal_type" => "prediction",
           "event_type" => "anomaly",
           "verdict_source" => "edge-spike",
           "anomaly" => %{
@@ -986,7 +986,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
           }
         },
         metadata: %{
-          "signal_type" => "causal",
+          "signal_type" => "prediction",
           "event_type" => "anomaly",
           "service_radar" => %{"verdict_source" => "edge-spike"}
         }
@@ -1021,14 +1021,14 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
           match: %{
             "subject_prefix" => "signals.analytics.predictions",
             "attribute_equals" => %{
-              "signal_type" => "causal",
+              "signal_type" => "prediction",
               "event_type" => "anomaly",
               "anomaly.state" => ["anomaly_open", "open"]
             },
             "recovery" => %{
               "subject_prefix" => "signals.analytics.predictions",
               "attribute_equals" => %{
-                "signal_type" => "causal",
+                "signal_type" => "prediction",
                 "event_type" => "anomaly",
                 "anomaly.state" => ["anomaly_clear", "inactive"]
               }
@@ -1063,7 +1063,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
         log_provider: "anomaly_detection",
         device: %{"uid" => device_uid},
         unmapped: %{
-          "signal_type" => "causal",
+          "signal_type" => "prediction",
           "event_type" => "anomaly",
           "anomaly" => %{
             "state" => state,
@@ -1071,7 +1071,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
             "metric_class" => "sysmon.cpu"
           }
         },
-        metadata: %{"signal_type" => "causal", "event_type" => "anomaly"}
+        metadata: %{"signal_type" => "prediction", "event_type" => "anomaly"}
       }
     end
 
@@ -1118,14 +1118,14 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
           match: %{
             "subject_prefix" => "signals.analytics.predictions",
             "attribute_equals" => %{
-              "signal_type" => "causal",
+              "signal_type" => "prediction",
               "event_type" => "capacity_forecast",
               "capacity_forecast.status" => "projected"
             },
             "recovery" => %{
               "subject_prefix" => "signals.analytics.predictions",
               "attribute_equals" => %{
-                "signal_type" => "causal",
+                "signal_type" => "prediction",
                 "event_type" => "capacity_forecast",
                 "capacity_forecast.status" => ["inactive", "skipped"]
               }
@@ -1160,7 +1160,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
         log_provider: "capacity_forecasting",
         device: %{"uid" => device_uid},
         unmapped: %{
-          "signal_type" => "causal",
+          "signal_type" => "prediction",
           "event_type" => "capacity_forecast",
           "capacity_forecast" => %{
             "status" => status,
@@ -1169,7 +1169,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
             "metric_name" => "usage_percent"
           }
         },
-        metadata: %{"signal_type" => "causal", "event_type" => "capacity_forecast"}
+        metadata: %{"signal_type" => "prediction", "event_type" => "capacity_forecast"}
       }
     end
 

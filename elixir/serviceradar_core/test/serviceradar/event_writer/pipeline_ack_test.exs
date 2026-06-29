@@ -84,7 +84,7 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
           data: "",
           status: {:failed, :db_unavailable},
           metadata: %{
-            subject: "signals.causal.predictions.test",
+            subject: "signals.analytics.predictions.test",
             reply_to: "$JS.ACK.events.consumer.5.9.8.0.0",
             jetstream_ack: %{stream: "events", consumer: "consumer", delivery_count: 5},
             max_deliver: 5,
@@ -134,7 +134,7 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
           data: "",
           status: {:failed, :transient},
           metadata: %{
-            subject: "signals.causal.predictions.test",
+            subject: "signals.analytics.predictions.test",
             reply_to: "$JS.ACK.events.consumer.4.9.8.0.0",
             jetstream_ack: %{stream: "events", consumer: "consumer", delivery_count: 4},
             max_deliver: 5

@@ -27,13 +27,7 @@ pub struct SignalEvidence {
 
 /// Parse an anomaly or capacity forecast prediction-signal envelope.
 pub fn parse_prediction_signal(envelope: &Value) -> Option<SignalEvidence> {
-    // 1.f3 dual-consume: accept the honest new routing value "prediction" alongside the
-    // legacy "causal" during the wire-rename migration. No producer emits the new value
-    // yet, so this is a dead branch until the coordinated 1.1/1.f2 rename + BMP/topology.
-    if !matches!(
-        envelope.get("signal_type").and_then(|v| v.as_str())?,
-        "causal" | "prediction"
-    ) {
+    if envelope.get("signal_type").and_then(|v| v.as_str())? != "prediction" {
         return None;
     }
 
@@ -73,7 +67,7 @@ pub fn parse_prediction_signal(envelope: &Value) -> Option<SignalEvidence> {
     let status = evidence_status(envelope);
 
     Some(SignalEvidence {
-        rule_id: format!("causal:{event_type}:{evidence_id}"),
+        rule_id: format!("correlation:{event_type}:{evidence_id}"),
         entity_uid,
         condition_met: active_status(&status),
         description,
@@ -190,7 +184,7 @@ mod tests {
     #[test]
     fn parses_anomaly_prediction_as_signal_evidence() {
         let evidence = parse_prediction_signal(&json!({
-            "signal_type": "causal",
+            "signal_type": "prediction",
             "event_type": "anomaly",
             "event_id": "anomaly:e1",
             "source_identity": {"entity_uid": "sr:device:a"},
@@ -198,7 +192,7 @@ mod tests {
         }))
         .expect("evidence");
 
-        assert_eq!(evidence.rule_id, "causal:anomaly:anomaly:e1");
+        assert_eq!(evidence.rule_id, "correlation:anomaly:anomaly:e1");
         assert_eq!(evidence.entity_uid, "sr:device:a");
         assert!(evidence.condition_met);
         assert_eq!(evidence.description, "Anomaly detected");
@@ -208,7 +202,7 @@ mod tests {
     #[test]
     fn parses_capacity_prediction_with_record_id_fallback() {
         let evidence = parse_prediction_signal(&json!({
-            "signal_type": "causal",
+            "signal_type": "prediction",
             "event_type": "capacity_forecast",
             "event_id": "cap:e1",
             "routing_correlation": {"record_id": "disk_usage:host-a:/"},
@@ -223,7 +217,7 @@ mod tests {
     #[test]
     fn parses_evidence_timestamp_from_payload() {
         let evidence = parse_prediction_signal(&json!({
-            "signal_type": "causal",
+            "signal_type": "prediction",
             "event_type": "anomaly",
             "source_identity": {"entity_uid": "sr:device:a"},
             "anomaly": {"observed_at_unix_nano": 1_781_260_800_123_000_000i64}
@@ -237,7 +231,7 @@ mod tests {
     fn rejects_non_evidence_predictions() {
         assert!(
             parse_prediction_signal(&json!({
-                "signal_type": "causal",
+                "signal_type": "prediction",
                 "event_type": "root_cause",
                 "source_identity": {"entity_uid": "sr:device:a"}
             }))
@@ -249,7 +243,7 @@ mod tests {
     fn applies_evidence_idempotently() {
         let mut ctx = Context::default();
         let evidence = SignalEvidence {
-            rule_id: "causal:anomaly:e1".to_string(),
+            rule_id: "correlation:anomaly:e1".to_string(),
             entity_uid: "sr:device:a".to_string(),
             condition_met: true,
             description: "anomaly".to_string(),
@@ -266,14 +260,14 @@ mod tests {
     fn prunes_stale_operator_rule_evidence() {
         let mut ctx = Context::default();
         let fresh = SignalEvidence {
-            rule_id: "causal:anomaly:fresh".to_string(),
+            rule_id: "correlation:anomaly:fresh".to_string(),
             entity_uid: "sr:device:a".to_string(),
             condition_met: true,
             description: "fresh anomaly".to_string(),
             last_updated_unix_ms: 10_000,
         };
         let stale = SignalEvidence {
-            rule_id: "causal:anomaly:stale".to_string(),
+            rule_id: "correlation:anomaly:stale".to_string(),
             entity_uid: "sr:device:b".to_string(),
             condition_met: true,
             description: "stale anomaly".to_string(),
@@ -287,13 +281,13 @@ mod tests {
 
         assert_eq!(pruned, 1);
         assert_eq!(ctx.operator_rules.len(), 1);
-        assert_eq!(ctx.operator_rules[0].rule_id, "causal:anomaly:fresh");
+        assert_eq!(ctx.operator_rules[0].rule_id, "correlation:anomaly:fresh");
     }
 
     #[test]
     fn prefers_stable_series_identity_over_per_event_id() {
         let first = parse_prediction_signal(&json!({
-            "signal_type": "causal",
+            "signal_type": "prediction",
             "event_type": "anomaly",
             "event_id": "anomaly:series-a:1781260800000000000:anomalous",
             "status": "open",
@@ -307,7 +301,7 @@ mod tests {
         .expect("first evidence");
 
         let second = parse_prediction_signal(&json!({
-            "signal_type": "causal",
+            "signal_type": "prediction",
             "event_type": "anomaly",
             "event_id": "anomaly:series-a:1781260860000000000:anomalous",
             "status": "resolved",
@@ -321,7 +315,7 @@ mod tests {
         .expect("second evidence");
 
         assert_eq!(first.rule_id, second.rule_id);
-        assert_eq!(first.rule_id, "causal:anomaly:sysmon:memory:host-a");
+        assert_eq!(first.rule_id, "correlation:anomaly:sysmon:memory:host-a");
         assert!(first.condition_met);
         assert!(!second.condition_met);
     }
@@ -331,7 +325,7 @@ mod tests {
         let mut ctx = Context::default();
 
         let open = SignalEvidence {
-            rule_id: "causal:anomaly:stable-finding".to_string(),
+            rule_id: "correlation:anomaly:stable-finding".to_string(),
             entity_uid: "sr:device:a".to_string(),
             condition_met: true,
             description: "anomaly open".to_string(),

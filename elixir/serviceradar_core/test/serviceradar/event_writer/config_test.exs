@@ -59,7 +59,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       assert "BMP_CAUSAL" in stream_names
       assert "ARANCINI_CAUSAL" in stream_names
       assert "SIEM_CAUSAL" in stream_names
-      assert "CAUSAL_PREDICTIONS" in stream_names
+      assert "ANALYTICS_PREDICTIONS" in stream_names
       refute "ATTRIBUTED_FLOW" in stream_names
     end
 
@@ -75,12 +75,15 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       refute Enum.any?(Config.default_streams(), &(&1.subject == "flow.attributed.>"))
     end
 
-    test "consumes causal prediction verdicts from the durable events stream" do
-      causal_predictions = Enum.find(Config.default_streams(), &(&1.name == "CAUSAL_PREDICTIONS"))
+    test "consumes analytics prediction verdicts from the durable events stream" do
+      analytics_predictions =
+        Enum.find(Config.default_streams(), &(&1.name == "ANALYTICS_PREDICTIONS"))
 
-      assert causal_predictions.stream_name == "events"
-      assert causal_predictions.subject == "signals.causal.predictions.>"
-      assert causal_predictions.processor == ServiceRadar.EventWriter.Processors.AnalyticsSignals
+      assert analytics_predictions.stream_name == "events"
+      assert analytics_predictions.subject == "signals.analytics.predictions.>"
+
+      assert analytics_predictions.processor ==
+               ServiceRadar.EventWriter.Processors.AnalyticsSignals
     end
 
     test "routes host metrics through a dedicated limits-retention stream" do

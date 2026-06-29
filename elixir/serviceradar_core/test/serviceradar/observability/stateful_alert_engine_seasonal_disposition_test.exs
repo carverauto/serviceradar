@@ -91,7 +91,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineSeasonalDispositionTest 
       match: %{
         "subject_prefix" => "signals.analytics.predictions",
         "attribute_equals" => %{
-          "signal_type" => "causal",
+          "signal_type" => "prediction",
           "event_type" => ["anomaly", "anomaly_detection"],
           "anomaly.state" => ["anomaly_open", "open", "anomalous"]
         }
@@ -112,7 +112,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineSeasonalDispositionTest 
       log_provider: "anomaly_detection",
       device: %{"uid" => "sr:test-device"},
       unmapped: %{
-        "signal_type" => "causal",
+        "signal_type" => "prediction",
         "event_type" => "anomaly",
         "verdict_source" => "edge-spike",
         "anomaly" => %{
@@ -124,7 +124,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineSeasonalDispositionTest 
         }
       },
       metadata: %{
-        "signal_type" => "causal",
+        "signal_type" => "prediction",
         "event_type" => "anomaly",
         "service_radar" => %{"verdict_source" => "edge-spike"}
       }
