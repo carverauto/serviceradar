@@ -262,10 +262,16 @@ stays in pass-through (so nothing is hidden) until its own peak profile has enou
 trustworthy history to earn suppression. The cardinal error to avoid is a
 **false-suppress** (it would hide a real anomaly), so every uncertain path resolves
 to pass-through or escalate. A related **core→edge hour-of-week baseline push**
-(task 2.6) is also in progress: the core builds a 180-day hour-of-week profile and
-pushes it to the edge so the edge detector can **deseasonalize** against it locally.
-The consumption path and the profile builder are done; **delivery and series-key
-alignment are still pending**.
+(task 2.6) is wired end to end: the core builds a 180-day hour-of-week profile and
+pushes it to the edge (`EdgeBaselineProducer` → the add-on profile → `configure`) so
+the edge detector **deseasonalizes** against it locally. The consumption path, the
+profile builder, the **delivery**, and the **series-key alignment** are all done and
+proven against a real database — the add-on keys the seasonal lookup by
+`<device_uid>|<metric_name>` (matching the central `series:uid`) while the rolling
+detector keeps its finer per-core key, and the edge baseline is bucketed in UTC to
+match the edge clock. The one remaining follow-up is per-agent delivery scoping
+(today the baseline set is profile-wide — harmless, since the add-on only resolves
+keys for series it actually scores).
 :::
 
 ## Operations & tuning knobs
