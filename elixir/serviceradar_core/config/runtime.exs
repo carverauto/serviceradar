@@ -1081,6 +1081,19 @@ if config_env() == :prod do
     canonical_rebuild_heartbeat_ms:
       parse_int_env.("SERVICERADAR_TOPOLOGY_CANONICAL_REBUILD_HEARTBEAT_MS", 3_600_000)
 
+  # Change-detection skip-guard for workload-identity snapshot upserts (fj #33).
+  # persist_snapshot/1 runs once per agent status; on a stable cluster the
+  # container->identity content rarely changes, so the guard fingerprints that
+  # content and skips the redundant workload_identity_current upsert when it is
+  # unchanged, refreshing observed_at at most once per heartbeat. Set
+  # SERVICERADAR_WORKLOAD_IDENTITY_SKIP_GUARD=0 to always write (disable). The
+  # table is not retention-pruned, so the heartbeat only bounds observed_at
+  # staleness (default 30 min).
+  config :serviceradar_core, ServiceRadar.WorkloadIdentity,
+    skip_guard_enabled: System.get_env("SERVICERADAR_WORKLOAD_IDENTITY_SKIP_GUARD", "1") != "0",
+    skip_guard_heartbeat_ms:
+      parse_int_env.("SERVICERADAR_WORKLOAD_IDENTITY_SKIP_GUARD_HEARTBEAT_MS", 1_800_000)
+
   config :serviceradar_core,
     ansible_retention_run_detail_days: ansible_retention_run_detail_days,
     ansible_retention_run_summary_days: ansible_retention_run_summary_days,

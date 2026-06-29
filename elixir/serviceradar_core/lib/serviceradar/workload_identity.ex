@@ -20,7 +20,7 @@ defmodule ServiceRadar.WorkloadIdentity do
   def persist_snapshot(%{message: message} = status) when is_binary(message) do
     with {:ok, snapshot} <- Jason.decode(message),
          {:ok, rows} <- rows_from_snapshot(snapshot, status) do
-      insert_rows(rows)
+      guarded_write(rows, status, [])
     else
       {:error, reason} = error ->
         Logger.warning("WorkloadIdentity.persist_snapshot failed: #{inspect(reason)}")
@@ -29,6 +29,19 @@ defmodule ServiceRadar.WorkloadIdentity do
   end
 
   def persist_snapshot(_status), do: {:error, :missing_workload_identity_message}
+
+  @doc false
+  # Testable seam: decode + build the candidate rows for a snapshot without the
+  # DB write or the skip-guard. Used by the skip-guard unit tests to prove the
+  # fingerprint is stable across snapshots that differ only in observed_at.
+  @spec snapshot_rows(map()) :: {:ok, [map()]} | {:error, term()}
+  def snapshot_rows(%{message: message} = status) when is_binary(message) do
+    with {:ok, snapshot} <- Jason.decode(message) do
+      rows_from_snapshot(snapshot, status)
+    end
+  end
+
+  def snapshot_rows(_status), do: {:error, :missing_workload_identity_message}
 
   defp rows_from_snapshot(snapshot, status) when is_map(snapshot) do
     identities = Map.get(snapshot, "identities", [])
@@ -131,6 +144,226 @@ defmodule ServiceRadar.WorkloadIdentity do
          _snapshot_context
        ),
        do: nil
+
+  # ---------------------------------------------------------------------------
+  # Change-detection skip-guard (fj #33)
+  #
+  # persist_snapshot/1 runs once per agent status report. On a stable cluster the
+  # container->identity snapshot for a given {partition, agent_id} rarely changes,
+  # yet every call previously re-ran the workload_identity_current upsert (plus a
+  # flow-attribution backfill query) with byte-identical content -- the #1
+  # demo-CNPG CPU driver via dead-tuple/WAL/autovacuum churn for zero net change.
+  #
+  # We fingerprint ONLY the identity content of the rows (the volatile
+  # observed_at / inserted_at / updated_at are intentionally EXCLUDED, so an
+  # unchanged snapshot carrying a fresh observed_at hashes identically -- this was
+  # the exact #4298 first-draft bug) and skip the write when the fingerprint is
+  # unchanged for the same {partition, agent_id} AND the heartbeat window has not
+  # elapsed. Mirrors the #4298 canonical-rebuild skip-guard.
+  #
+  # State lives in a process-local named ETS table rather than a shared DB row: a
+  # pod restart simply re-syncs once per agent (a one-time cost, NOT steady-state),
+  # which is cheaper than cross-replica coordination for this hot path.
+  #
+  # RETENTION / HEARTBEAT: platform.workload_identity_current is NOT
+  # retention-pruned anywhere (FlowAttribution.Retention.prune/0 only touches
+  # flow_process_attribution_current, and WorkloadBackfill only reads this table),
+  # so a skip can never let a live row be pruned out from under a reader. We still
+  # force a periodic refresh of observed_at (default 30 min) so staleness reads
+  # stay reasonable. If row-level retention is ever added to this table, set the
+  # heartbeat to roughly HALF that retention so a still-current row is refreshed
+  # well before it could be pruned.
+  #
+  # FAIL-OPEN: any exception raised inside the guard falls through to a normal
+  # write -- a guard bug must never drop a real change.
+
+  @guard_table :workload_identity_skip_guard
+  @default_skip_guard_heartbeat_ms 30 * 60 * 1_000
+
+  @doc false
+  # Apply the skip-guard, then persist via `:writer` (default insert_rows/1).
+  # opts (all optional; used by tests to drive the guard deterministically):
+  #   :writer          - 1-arity row writer (default &insert_rows/1)
+  #   :now_ms          - millisecond clock (default System.system_time/1)
+  #   :heartbeat_ms    - heartbeat window override
+  #   :fingerprint_fun - fingerprint override (used to exercise fail-open)
+  @spec guarded_write([map()], map(), keyword()) :: :ok | {:error, term()}
+  def guarded_write([], _status, opts) do
+    writer(opts).([])
+  end
+
+  def guarded_write(rows, status, opts) do
+    if guard_enabled?() do
+      do_guarded_write(rows, status, opts)
+    else
+      writer(opts).(rows)
+    end
+  end
+
+  defp do_guarded_write(rows, status, opts) do
+    writer = writer(opts)
+    now_ms = Keyword.get(opts, :now_ms, System.system_time(:millisecond))
+
+    decision =
+      try do
+        fingerprint_fun = Keyword.get(opts, :fingerprint_fun, &rows_fingerprint/1)
+        heartbeat_ms = Keyword.get(opts, :heartbeat_ms, heartbeat_ms())
+        key = guard_key(status)
+        fingerprint = fingerprint_fun.(rows)
+
+        case skip_decision(fingerprint, lookup_guard(key), heartbeat_ms, now_ms) do
+          :skip -> :skip
+          :proceed -> {:proceed, key, fingerprint}
+        end
+      rescue
+        error ->
+          Logger.warning(
+            "WorkloadIdentity skip-guard raised; writing through (fail-open): #{inspect(error)}"
+          )
+
+          :fail_open
+      end
+
+    case decision do
+      :skip ->
+        :ok
+
+      :fail_open ->
+        writer.(rows)
+
+      {:proceed, key, fingerprint} ->
+        case writer.(rows) do
+          :ok ->
+            record_guard(key, fingerprint, now_ms)
+            :ok
+
+          other ->
+            other
+        end
+    end
+  end
+
+  defp writer(opts), do: Keyword.get(opts, :writer, &insert_rows/1)
+
+  @doc false
+  # Pure skip/proceed decision (no DB, no ETS) -- unit-testable in isolation.
+  # Returns :skip ONLY when the fingerprint matches the stored fingerprint AND the
+  # heartbeat window has not elapsed. A nil stored entry (cold start / pod
+  # restart), a changed fingerprint, or an elapsed heartbeat all :proceed. The
+  # function is total: any unexpected shape falls through to :proceed (fail-open).
+  @spec skip_decision(
+          non_neg_integer(),
+          {non_neg_integer(), integer()} | nil,
+          pos_integer(),
+          integer()
+        ) :: :skip | :proceed
+  def skip_decision(fingerprint, stored, heartbeat_ms, now_ms)
+
+  def skip_decision(fingerprint, {stored_fingerprint, last_written_ms}, heartbeat_ms, now_ms)
+      when is_integer(fingerprint) and stored_fingerprint == fingerprint and
+             is_integer(last_written_ms) and
+             is_integer(heartbeat_ms) and is_integer(now_ms) do
+    if now_ms - last_written_ms < heartbeat_ms do
+      :skip
+    else
+      :proceed
+    end
+  end
+
+  def skip_decision(_fingerprint, _stored, _heartbeat_ms, _now_ms), do: :proceed
+
+  @doc false
+  # Stable content fingerprint. Rows are sorted by container_id first so list
+  # order can never flip the hash, and the volatile timestamps (observed_at /
+  # inserted_at / updated_at) are excluded so an unchanged snapshot with a fresh
+  # observed_at hashes identically.
+  @spec rows_fingerprint([map()]) :: non_neg_integer()
+  def rows_fingerprint(rows) when is_list(rows) do
+    rows
+    |> Enum.map(&fingerprint_row/1)
+    |> Enum.sort()
+    |> :erlang.phash2()
+  end
+
+  defp fingerprint_row(row) do
+    {
+      Map.get(row, :container_id),
+      Map.get(row, :gateway_id),
+      Map.get(row, :pod_uid),
+      Map.get(row, :pod_namespace),
+      Map.get(row, :pod_name),
+      Map.get(row, :container_name),
+      Map.get(row, :image),
+      Map.get(row, :runtime_source),
+      Map.get(row, :confidence),
+      Map.get(row, :degradation_reason),
+      Map.get(row, :identity)
+    }
+  end
+
+  defp guard_key(status) do
+    partition = normalize_string(status[:partition]) || "default"
+    agent_id = normalize_string(status[:agent_id])
+    {partition, agent_id}
+  end
+
+  defp lookup_guard(key) do
+    ensure_guard_table()
+
+    case :ets.lookup(@guard_table, key) do
+      [{^key, {fingerprint, last_written_ms}}] -> {fingerprint, last_written_ms}
+      _ -> nil
+    end
+  end
+
+  defp record_guard(key, fingerprint, now_ms) do
+    ensure_guard_table()
+    :ets.insert(@guard_table, {key, {fingerprint, now_ms}})
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  defp ensure_guard_table do
+    case :ets.whereis(@guard_table) do
+      :undefined ->
+        try do
+          :ets.new(@guard_table, [
+            :set,
+            :public,
+            :named_table,
+            read_concurrency: true,
+            write_concurrency: true
+          ])
+        rescue
+          # Lost a creation race with a concurrent caller; the table now exists.
+          ArgumentError -> :ok
+        end
+
+      _tid ->
+        :ok
+    end
+
+    @guard_table
+  end
+
+  defp guard_enabled? do
+    case Keyword.get(config(), :skip_guard_enabled, true) do
+      false -> false
+      _ -> true
+    end
+  end
+
+  defp heartbeat_ms do
+    config()
+    |> Keyword.get(:skip_guard_heartbeat_ms, @default_skip_guard_heartbeat_ms)
+    |> normalize_positive_int(@default_skip_guard_heartbeat_ms)
+  end
+
+  defp config, do: Application.get_env(:serviceradar_core, __MODULE__, [])
+
+  defp normalize_positive_int(value, _default) when is_integer(value) and value > 0, do: value
+  defp normalize_positive_int(_value, default), do: default
 
   defp insert_rows([]), do: :ok
 
