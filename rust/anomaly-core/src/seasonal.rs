@@ -89,7 +89,7 @@ pub fn synthetic_baseline(center: f64, scale: f64, len: usize) -> Vec<f64> {
     }
 
     let mut out = Vec::with_capacity(n);
-    if n % 2 == 0 {
+    if n.is_multiple_of(2) {
         // n even: n/2 pairs of (center - d, center + d). Sample variance is
         // n*d^2 / (n - 1), so d = scale * sqrt((n - 1) / n) makes it exactly scale^2.
         let d = scale * (((n - 1) as f64) / (n as f64)).sqrt();

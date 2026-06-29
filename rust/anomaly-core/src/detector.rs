@@ -198,9 +198,6 @@ impl DetectorState {
         self.rolling_acc.add(self.sample.value);
     }
 
-    fn window_tail(&self) -> Vec<f64> {
-        self.window_tail.clone()
-    }
 }
 
 fn evaluate_detector_command(
@@ -283,7 +280,7 @@ fn evaluate_detector(
 
 fn finalize_detector_verdict(
     value: DetectorValue,
-    state: DetectorState,
+    mut state: DetectorState,
     context: Option<DetectorThresholds>,
 ) -> (DetectorValue, DetectorState, Option<DetectorThresholds>) {
     let DetectorValue::Evaluation(evaluation) = value else {
@@ -331,7 +328,11 @@ fn finalize_detector_verdict(
             reason,
             baseline_count: evaluation.rolling_sample_count,
             next_rolling_acc: state.rolling_acc,
-            next_window_tail: state.window_tail(),
+            // Move the window tail out of the about-to-be-discarded state rather
+            // than cloning it: after this finalize transform the pipeline's
+            // `.finish()` extracts the verdict and drops `state`, so nothing reads
+            // `state.window_tail` again.
+            next_window_tail: std::mem::take(&mut state.window_tail),
             sample_value: state.sample.value,
             observed_at_unix_nano: state.sample.observed_at_unix_nano,
             signals: evaluation.signals,

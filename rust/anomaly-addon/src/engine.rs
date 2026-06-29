@@ -234,6 +234,18 @@ impl SeasonalProfile {
     }
 }
 
+/// The resolved hour-of-week seasonal signal for one sample: the reconstructed
+/// synthetic baseline window plus the min-samples and sigma knobs it scores
+/// against. Returned (as `Some`) only when a delivered bucket is usable for this
+/// series at this sample's hour-of-week; `None` is the back-compat rolling-only
+/// path. (A named struct rather than a 4-tuple `Option`, which also clears the
+/// `clippy::type_complexity` lint on the resolver.)
+struct SeasonalContext {
+    baseline: Vec<f64>,
+    min_samples: usize,
+    n_sigma: f64,
+}
+
 /// A gap longer than this between two counter readings is treated as a
 /// discontinuity (agent restart, missed polls) rather than a rate. 2 hours,
 /// matching central `CounterNormalizer`'s `@default_max_gap_ns`.
@@ -384,13 +396,8 @@ impl DetectorEngine {
         &self,
         seasonal_key: &str,
         observed_at_unix_nano: u64,
-    ) -> (Option<Vec<f64>>, Option<bool>, Option<usize>, Option<f64>) {
-        const NONE: (Option<Vec<f64>>, Option<bool>, Option<usize>, Option<f64>) =
-            (None, None, None, None);
-
-        let Some(bucket) = self.seasonal_bucket(seasonal_key, observed_at_unix_nano) else {
-            return NONE;
-        };
+    ) -> Option<SeasonalContext> {
+        let bucket = self.seasonal_bucket(seasonal_key, observed_at_unix_nano)?;
 
         let len = self
             .seasonal_settings
@@ -402,12 +409,11 @@ impl DetectorEngine {
             .filter(|value| value.is_finite() && *value > 0.0)
             .unwrap_or(self.config.n_sigma);
 
-        (
-            Some(bucket.synthetic_window(len)),
-            Some(true),
-            Some(len),
-            Some(n_sigma),
-        )
+        Some(SeasonalContext {
+            baseline: bucket.synthetic_window(len),
+            min_samples: len,
+            n_sigma,
+        })
     }
 
     pub fn series_count(&self) -> usize {
@@ -622,7 +628,15 @@ impl DetectorEngine {
         // conflict with that `&mut self.series` borrow. All-`None` when no usable
         // baseline is delivered (the back-compat rolling-only path).
         let (seasonal_baseline, seasonal_enabled, seasonal_min_samples, seasonal_n_sigma) =
-            self.seasonal_context(seasonal_key, observed_at_unix_nano);
+            match self.seasonal_context(seasonal_key, observed_at_unix_nano) {
+                Some(ctx) => (
+                    Some(ctx.baseline),
+                    Some(true),
+                    Some(ctx.min_samples),
+                    Some(ctx.n_sigma),
+                ),
+                None => (None, None, None, None),
+            };
         // The CUSUM deseasonalize target: the delivered hour-of-week bucket center
         // when one resolves for this sample, else the frozen rolling anchor mean
         // (resolved below). Looked up here while only `&self` is borrowed.
@@ -739,8 +753,12 @@ impl DetectorEngine {
         };
 
         match reason_impl(context, sample) {
-            Ok(verdict) => {
-                state.window_tail = verdict.next_window_tail.clone();
+            Ok(mut verdict) => {
+                // Move the recomputed window tail into the retained state instead of
+                // cloning it: `next_window_tail` is never read downstream of this
+                // (the verdict record path reads score/state/reason only), so the
+                // emptied field on the returned verdict is unobservable.
+                state.window_tail = std::mem::take(&mut verdict.next_window_tail);
                 state.consecutive_anomalous = verdict.next_consecutive_anomalous;
                 state.last_observed_at_unix_nano = observed_at_unix_nano;
 
