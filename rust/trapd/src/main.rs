@@ -180,6 +180,64 @@ fn ensure_rustls_provider_installed() {
     });
 }
 
+/// Whether an existing stream `pattern` subject already covers `subject` under
+/// NATS wildcard semantics (`*` = one token, `>` = tail). Used to skip a literal
+/// subject append that is already covered (e.g. `logs.snmp` under `logs.>`):
+/// appending it anyway makes JetStream reject the STREAM.UPDATE with a
+/// subject-overlap error (10052) — exactly fj #4303.
+fn subject_covers(pattern: &str, subject: &str) -> bool {
+    let pattern_tokens: Vec<&str> = pattern.split('.').collect();
+    let subject_tokens: Vec<&str> = subject.split('.').collect();
+
+    let mut subject_index = 0;
+    for (idx, token) in pattern_tokens.iter().enumerate() {
+        match *token {
+            ">" => return idx == pattern_tokens.len() - 1,
+            "*" => {
+                if subject_index >= subject_tokens.len() {
+                    return false;
+                }
+                subject_index += 1;
+            }
+            literal => {
+                if subject_index >= subject_tokens.len()
+                    || subject_tokens[subject_index] != literal
+                {
+                    return false;
+                }
+                subject_index += 1;
+            }
+        }
+    }
+
+    subject_index == subject_tokens.len()
+}
+
+#[cfg(test)]
+mod subject_covers_tests {
+    use super::subject_covers;
+
+    #[test]
+    fn wildcard_covers_literals() {
+        // the #4303/#4302 cases: the events stream's `logs.>` already owns these,
+        // so the literal append must be skipped (no overlapping STREAM.UPDATE).
+        assert!(subject_covers("logs.>", "logs.snmp"));
+        assert!(subject_covers("logs.>", "logs.syslog"));
+        assert!(subject_covers("logs.>", "logs.snmp.partition-a"));
+        assert!(subject_covers("logs.*", "logs.snmp"));
+        assert!(subject_covers("logs.snmp", "logs.snmp"));
+    }
+
+    #[test]
+    fn does_not_cover_unrelated_or_narrower() {
+        assert!(!subject_covers("otel.>", "logs.snmp"));
+        assert!(!subject_covers("logs.snmp", "logs.syslog"));
+        assert!(!subject_covers("logs.*", "logs.snmp.extra"));
+        // a literal pattern must not be treated as covering the wildcard
+        assert!(!subject_covers("logs.snmp", "logs.>"));
+    }
+}
+
 async fn ensure_stream(js: &async_nats::jetstream::Context, cfg: &Config) -> Result<()> {
     match js.get_stream(&cfg.stream_name).await {
         Ok(mut stream) => {
@@ -187,7 +245,14 @@ async fn ensure_stream(js: &async_nats::jetstream::Context, cfg: &Config) -> Res
             let mut updated_config = info.config.clone();
             let mut changed = false;
 
-            if !updated_config.subjects.contains(&cfg.subject) {
+            // Skip the append when an existing subject (e.g. the `logs.>` wildcard on
+            // the shared `events` stream) already covers ours — a literal `logs.snmp`
+            // append would self-overlap and JetStream rejects the UPDATE (10052, #4303).
+            if !updated_config
+                .subjects
+                .iter()
+                .any(|existing| subject_covers(existing, &cfg.subject))
+            {
                 updated_config.subjects.push(cfg.subject.clone());
                 changed = true;
             }
