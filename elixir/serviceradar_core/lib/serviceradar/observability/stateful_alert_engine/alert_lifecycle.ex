@@ -220,7 +220,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
         status: OCSF.status_name(OCSF.status_failure()),
         metadata:
           [
-            version: "1.7.0",
             product_name: "ServiceRadar Core",
             correlation_uid: "stateful_rule:#{rule.id}:#{snapshot.group_key}"
           ]

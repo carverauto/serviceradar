@@ -151,7 +151,6 @@ defmodule ServiceRadar.Events.AuditWriter do
         status_detail: nil,
         metadata:
           OCSF.build_metadata(
-            version: "1.7.0",
             product_name: "ServiceRadar Core",
             correlation_uid: "#{resource_type}:#{resource_id}"
           ),
