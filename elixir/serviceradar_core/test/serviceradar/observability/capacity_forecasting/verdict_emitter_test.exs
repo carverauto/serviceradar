@@ -6,9 +6,13 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitterTest do
 
   defmodule ExistingTimeRepo do
     def query(_sql, [ids]) do
+      # Mirror the real DB: production binds 16-byte UUID binaries and `SELECT id::text`,
+      # so canonicalize each bound binary to its string identity (the key the test stores
+      # the persisted time under).
       rows =
         Enum.map(ids, fn id ->
-          [id, Process.get({:capacity_existing_ocsf_time, id})]
+          text_id = Ecto.UUID.load!(id)
+          [text_id, Process.get({:capacity_existing_ocsf_time, text_id})]
         end)
 
       {:ok, %{rows: rows}}

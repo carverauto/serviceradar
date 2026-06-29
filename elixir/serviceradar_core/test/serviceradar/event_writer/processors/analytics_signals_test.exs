@@ -35,10 +35,14 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
 
   defmodule ExistingTimeRepo do
     def query(sql, [ids]) do
-      send(Process.get(:causal_signals_test_pid), {:existing_time_query, sql, ids})
+      # Mirror the real DB: production binds 16-byte UUID binaries (Postgrex `uuid[]`)
+      # and `SELECT id::text`, so canonicalize the bound binaries back to their string
+      # identity before echoing/keying — same currency the result-map lookup uses.
+      text_ids = Enum.map(ids, &Ecto.UUID.load!/1)
+      send(Process.get(:causal_signals_test_pid), {:existing_time_query, sql, text_ids})
 
       rows =
-        Enum.flat_map(ids, fn id ->
+        Enum.flat_map(text_ids, fn id ->
           case Process.get({:existing_ocsf_time, id}) do
             %DateTime{} = time -> [[id, time]]
             _ -> []
