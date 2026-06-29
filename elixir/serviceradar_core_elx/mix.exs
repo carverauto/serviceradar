@@ -41,7 +41,18 @@ defmodule ServiceRadarCoreElx.MixProject do
       {:libcluster, "~> 3.4"},
 
       # Minimal gRPC footprint for sync/checker coordination
-      {:grpc, "~> 0.9"},
+      {:grpc, "~> 1.0"},
+      # grpc 1.0 made transport adapters optional and pins the default Gun
+      # adapter to `~> 2.2.0`. Keep the CVE-patched gun 2.4.1 (Phase-1) and force
+      # it via override so the default Gun client adapter stays available.
+      {:gun, "~> 2.4", override: true},
+      # SECURITY: hackney < 4.0.1 has the SSRF allowlist bypass (GHSA-pj7v-xfvx-wmjq)
+      # plus CRLF/header-injection advisories. Transitive consumers (swoosh,
+      # membrane_hackney_plugin) cap it at `~> 1.x`, so force >= 4.0.1 via override.
+      {:hackney, "~> 4.4", override: true},
+      # hackney 4.x requires idna ~> 7.1; older swoosh hard-pins idna ~> 6.0, so
+      # bump swoosh to a release that allows the newer idna line.
+      {:swoosh, "~> 1.26", override: true},
       {:membrane_core, "1.2.6"},
       {:membrane_webrtc_plugin, "~> 0.26.3"},
       # Keep transitive MPEG-TS deps on Elixir 1.19-compatible releases without

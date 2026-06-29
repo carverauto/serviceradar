@@ -89,7 +89,11 @@ defmodule ServiceRadarCore.MixProject do
       {:broadway_dashboard, "~> 0.4"},
 
       # gRPC client for serviceradar-sync communication
-      {:grpc, "~> 0.9"},
+      {:grpc, "~> 1.0"},
+      # grpc 1.0 made transport adapters optional and pins the default Gun
+      # adapter to `~> 2.2.0`. Keep the CVE-patched gun 2.4.1 (Phase-1) and force
+      # it via override so the default Gun client adapter stays available.
+      {:gun, "~> 2.4", override: true},
       {:protobuf, "~> 0.16.0", override: true},
 
       # Telemetry

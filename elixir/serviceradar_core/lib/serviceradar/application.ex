@@ -95,8 +95,9 @@ defmodule ServiceRadar.Application do
         # AshOban schedulers for Ash resource triggers
         ash_oban_scheduler_children(),
 
-        # GRPC client supervisor (required for DataService.Client)
-        grpc_client_supervisor_child(),
+        # NOTE: grpc 1.0 starts the GRPC.Client.Supervisor DynamicSupervisor
+        # automatically via GRPC.Client.Application (mod: in grpc's mix.exs), so
+        # no manual client-supervisor child is required here anymore.
         datasvc_client_child(),
 
         # NATS JetStream connection supervisor (fault-tolerant with auto-reconnect)
@@ -354,12 +355,6 @@ defmodule ServiceRadar.Application do
     end
   end
 
-  defp grpc_client_supervisor_child do
-    if datasvc_enabled?() or spiffe_workload_api?() do
-      {GRPC.Client.Supervisor, []}
-    end
-  end
-
   defp datasvc_client_child do
     if datasvc_enabled?() do
       ServiceRadar.DataService.Client
@@ -400,13 +395,6 @@ defmodule ServiceRadar.Application do
         _ -> false
       end
     end)
-  end
-
-  defp spiffe_workload_api? do
-    :serviceradar_core
-    |> Application.get_env(:spiffe, [])
-    |> Keyword.get(:mode, :filesystem)
-    |> Kernel.==(:workload_api)
   end
 
   defp cluster_children do
