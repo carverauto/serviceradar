@@ -1,14 +1,18 @@
 defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitterTest do
   use ExUnit.Case, async: true
 
-  alias ServiceRadar.EventWriter.Processors.CausalSignals
+  alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.Observability.CapacityForecasting.VerdictEmitter
 
   defmodule ExistingTimeRepo do
     def query(_sql, [ids]) do
+      # Mirror the real DB: production binds 16-byte UUID binaries and `SELECT id::text`,
+      # so canonicalize each bound binary to its string identity (the key the test stores
+      # the persisted time under).
       rows =
         Enum.map(ids, fn id ->
-          [id, Process.get({:capacity_existing_ocsf_time, id})]
+          text_id = Ecto.UUID.load!(id)
+          [text_id, Process.get({:capacity_existing_ocsf_time, text_id})]
         end)
 
       {:ok, %{rows: rows}}
@@ -50,12 +54,12 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitterTest do
     assert :ok = VerdictEmitter.emit(@forecast, publisher: publisher)
 
     assert_received {:published_capacity_verdict, subject, payload}
-    assert subject == "signals.causal.predictions.cpu_usage:device-a:host-a"
+    assert subject == "signals.analytics.predictions.cpu_usage:device-a:host-a"
 
     decoded = Jason.decode!(payload)
     finding_uid = decoded["finding_info"]["uid"]
     assert decoded["event_id"] == VerdictEmitter.event_id(@forecast)
-    assert decoded["signal_type"] == "causal"
+    assert decoded["signal_type"] == "prediction"
     assert decoded["event_type"] == "capacity_forecast"
     assert decoded["status"] == "projected"
     assert decoded["finding_type"] == "detection"
@@ -101,13 +105,13 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitterTest do
     subject = VerdictEmitter.subject(@forecast)
 
     first_row =
-      CausalSignals.parse_message(%{
+      AnalyticsSignals.parse_message(%{
         data: Jason.encode!(first_payload),
         metadata: %{subject: subject, received_at: @forecast.forecasted_at}
       })
 
     next_row =
-      CausalSignals.parse_message(%{
+      AnalyticsSignals.parse_message(%{
         data: Jason.encode!(next_payload),
         metadata: %{subject: subject, received_at: next_run.forecasted_at}
       })
@@ -118,7 +122,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitterTest do
     Process.put({:capacity_existing_ocsf_time, event_id}, first_row.time)
 
     assert [%{time: aligned_time}] =
-             CausalSignals.align_existing_ocsf_event_times([next_row], ExistingTimeRepo)
+             AnalyticsSignals.align_existing_ocsf_event_times([next_row], ExistingTimeRepo)
 
     assert DateTime.compare(aligned_time, first_row.time) == :eq
   end
@@ -128,13 +132,13 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitterTest do
     payload = VerdictEmitter.payload(@forecast, subject)
 
     row =
-      CausalSignals.parse_message(%{
+      AnalyticsSignals.parse_message(%{
         data: Jason.encode!(payload),
         metadata: %{subject: subject, received_at: @forecast.forecasted_at}
       })
 
     replayed_row =
-      CausalSignals.parse_message(%{
+      AnalyticsSignals.parse_message(%{
         data: Jason.encode!(payload),
         metadata: %{subject: subject, received_at: @forecast.forecasted_at}
       })
@@ -147,10 +151,10 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitterTest do
     assert row.severity == "Critical"
     assert row.device == %{"uid" => "device-a"}
     assert row.message =~ "Capacity forecast:"
-    assert row.metadata["signal_type"] == "causal"
+    assert row.metadata["signal_type"] == "prediction"
     assert row.metadata["event_type"] == "capacity_forecast"
     assert row.metadata["primary_domain"] == "health"
-    assert [alert_row] = CausalSignals.alert_evaluation_rows([row])
+    assert [alert_row] = AnalyticsSignals.alert_evaluation_rows([row])
     assert alert_row.id == row.metadata["event_identity"]
     assert row.unmapped["capacity_forecast"]["resource_key"] == @forecast.resource_key
   end

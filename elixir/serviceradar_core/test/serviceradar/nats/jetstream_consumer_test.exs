@@ -101,21 +101,21 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
     payload =
       JetstreamConsumer.consumer_payload(
         "events",
-        "serviceradar-event-writer-CAUSAL_PREDICTIONS",
-        "signals.causal.predictions.>",
-        description: "causal predictions",
+        "serviceradar-event-writer-ANALYTICS_PREDICTIONS",
+        "signals.analytics.predictions.>",
+        description: "analytics predictions",
         deliver_policy: :all,
         max_deliver: 5,
-        deliver_subject: "_INBOX.causal_predictions"
+        deliver_subject: "_INBOX.analytics_predictions"
       )
 
     assert payload.stream_name == "events"
-    assert payload.config.durable_name == "serviceradar-event-writer-CAUSAL_PREDICTIONS"
-    assert payload.config.filter_subject == "signals.causal.predictions.>"
-    assert payload.config.description == "causal predictions"
+    assert payload.config.durable_name == "serviceradar-event-writer-ANALYTICS_PREDICTIONS"
+    assert payload.config.filter_subject == "signals.analytics.predictions.>"
+    assert payload.config.description == "analytics predictions"
     assert payload.config.deliver_policy == :all
     assert payload.config.max_deliver == 5
-    assert payload.config.deliver_subject == "_INBOX.causal_predictions"
+    assert payload.config.deliver_subject == "_INBOX.analytics_predictions"
   end
 
   test "consumer payload omits deliver_subject for pull durable consumers" do

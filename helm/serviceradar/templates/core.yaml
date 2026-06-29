@@ -329,7 +329,7 @@ spec:
         - name: SERVICERADAR_ANOMALY_METRIC_CLASS_OVERRIDES_JSON
           value: {{ default (dict) $anomalyConfig.metricClassOverrides | toJson | quote }}
         # EventWriter consumes NATS JetStream and persists records (incl. edge
-        # anomaly verdicts on signals.causal.predictions.*) into CNPG. Default on
+        # anomaly verdicts on signals.analytics.predictions.*) into CNPG. Default on
         # so anomaly findings/alerts surface without per-deployment extraEnv.
         - name: EVENT_WRITER_ENABLED
           value: {{ default true $eventWriter.enabled | quote }}

@@ -22,6 +22,13 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
     Process.delete(:seasonal_state_store)
     AnomalyConfigRuntime.clear_cache_for_test()
 
+    # Production default confirm_slots is 2 (task 1.16 / D-Q3). The behaviour tests in
+    # this module exercise single-breach surfacing of OTHER concerns (SRQL profile/paging,
+    # median/MAD robustness, clear emission, emission resilience), so pin their default to
+    # 1; the confirm-slot HYSTERESIS itself is covered by the dedicated confirm_slots:1/3
+    # tests below, which set their own runtime config and override this.
+    AnomalyConfigRuntime.put_cache_for_test(%{seasonal_disposition_opts: [confirm_slots: 1]})
+
     on_exit(fn ->
       if previous_worker_config == [] do
         Application.delete_env(:serviceradar_core, Worker)
@@ -107,6 +114,38 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
 
     assert Enum.all?(queries, &String.contains?(&1, ~s|timezone:"America/Chicago"|))
     refute Enum.any?(queries, &String.contains?(&1, ~s|timezone:"Etc/UTC"|))
+  end
+
+  test "edge baseline fetch forces UTC even when the profile timezone is non-UTC" do
+    [source | _] =
+      [seasonal_profile_timezone: "America/Chicago"]
+      |> Source.defaults()
+      |> Enum.map(&Source.from_config/1)
+      |> Enum.filter(&Source.seasonal_disposition_supported?/1)
+
+    # The central verdict query keeps the configured tz...
+    assert String.contains?(source.query, ~s|timezone:"America/Chicago"|)
+
+    # ...but the edge baseline is forced to UTC so its (dow,hod) buckets align with the
+    # edge detector's UTC hour-of-week — a non-UTC profile would otherwise resolve no
+    # bucket at the edge.
+    assert {:ok, _rows} = Worker.edge_baseline_rows(source, runner: QueryRecorderRunner)
+
+    assert_receive {:seasonal_query, query}
+    assert String.contains?(query, ~s|timezone:"Etc/UTC"|)
+    refute String.contains?(query, ~s|timezone:"America/Chicago"|)
+  end
+
+  test "edge baseline fetch enforces UTC even when the source query has no timezone term" do
+    # `source/0` carries a profile query with NO `timezone:"..."` literal — a plain
+    # Regex.replace would silently no-op and leave the baseline on SRQL's implicit tz.
+    src = source()
+    refute String.contains?(src.query, "timezone:")
+
+    assert {:ok, _rows} = Worker.edge_baseline_rows(src, runner: QueryRecorderRunner)
+
+    assert_receive {:seasonal_query, query}
+    assert String.contains?(query, ~s|timezone:"Etc/UTC"|)
   end
 
   test "worker skips unsupported seasonal sources instead of claiming coverage" do

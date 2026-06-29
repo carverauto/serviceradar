@@ -218,9 +218,9 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
               consumer_max_deliver: 9
             },
             %{
-              name: "CAUSAL_PREDICTIONS",
+              name: "ANALYTICS_PREDICTIONS",
               stream_name: "events",
-              subject: "signals.causal.predictions.>",
+              subject: "signals.analytics.predictions.>",
               consumer_max_deliver: 3
             }
           ]
@@ -229,7 +229,7 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
       state = init_state(config)
 
       {:noreply, [], state} = Producer.handle_demand(1, state)
-      {[message], _state} = push_msg(state, "live", "signals.causal.predictions.test")
+      {[message], _state} = push_msg(state, "live", "signals.analytics.predictions.test")
 
       assert message.metadata.max_deliver == 3
     end

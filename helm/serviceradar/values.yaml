@@ -314,7 +314,7 @@ core:
     # Mount a PVC at this path if you want survival across pod restarts.
     catalogBaseDir: "/var/lib/serviceradar/ansible_catalog"
   # EventWriter persists NATS JetStream records (incl. edge anomaly verdicts on
-  # signals.causal.predictions.*) into CNPG. On by default so anomaly findings
+  # signals.analytics.predictions.*) into CNPG. On by default so anomaly findings
   # and alerts surface; set enabled=false only to disable verdict persistence.
   eventWriter:
     enabled: true

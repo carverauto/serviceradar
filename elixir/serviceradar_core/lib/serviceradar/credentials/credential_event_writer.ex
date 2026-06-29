@@ -212,7 +212,6 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
       status_detail: nil,
       metadata:
         OCSF.build_metadata(
-          version: "1.7.0",
           product_name: "ServiceRadar Core",
           correlation_uid: Keyword.fetch!(opts, :correlation_uid)
         ),

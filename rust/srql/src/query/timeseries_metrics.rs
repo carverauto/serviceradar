@@ -143,7 +143,12 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
     let scope = ensure_entity(plan)?;
 
     if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
-        let sql = if spec.is_profile_hour_of_week() {
+        let sql = if spec.is_profile_hour_of_week_peak() {
+            // mirror execute_stats: the to_sql path was missing the peak branch, so a
+            // profile_hour_of_week_peak query fell through to the non-profile builder
+            // and errored "requires the profile stats route".
+            build_profile_hour_of_week_peak_query(plan, scope, &spec)?
+        } else if spec.is_profile_hour_of_week() {
             build_profile_hour_of_week_query(plan, scope, &spec)?
         } else if should_route_stats_to_cagg(plan, &spec) {
             build_cagg_stats_query(plan, scope, &spec)?

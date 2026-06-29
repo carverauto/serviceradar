@@ -553,7 +553,6 @@ defmodule ServiceRadar.Observability.LogPromotion do
     }
 
     [
-      version: "1.7.0",
       correlation_uid: Map.get(log, :id),
       original_time: Map.get(log, :timestamp)
     ]

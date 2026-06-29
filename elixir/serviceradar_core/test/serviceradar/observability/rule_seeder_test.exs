@@ -28,7 +28,7 @@ defmodule ServiceRadar.Observability.RuleSeederTest do
     assert {:ok, [rule]} = Ash.read(query, actor: actor)
     assert rule.enabled
     assert rule.signal == :event
-    assert rule.match["subject_prefix"] == "signals.causal.inventory"
+    assert rule.match["subject_prefix"] == "signals.analytics.inventory"
     assert rule.match["attribute_equals"] == %{"signal_type" => "inventory"}
     assert rule.group_by == ["device"]
     assert rule.threshold == 1
@@ -49,10 +49,10 @@ defmodule ServiceRadar.Observability.RuleSeederTest do
     assert {:ok, [rule]} = Ash.read(query, actor: actor)
     assert rule.enabled
     assert rule.signal == :event
-    assert rule.match["subject_prefix"] == "signals.causal.predictions"
+    assert rule.match["subject_prefix"] == "signals.analytics.predictions"
 
     assert rule.match["attribute_equals"] == %{
-             "signal_type" => "causal",
+             "signal_type" => "prediction",
              "event_type" => ["anomaly", "anomaly_detection"],
              "anomaly.state" => ["anomaly_open", "open", "anomalous"]
            }
@@ -83,10 +83,10 @@ defmodule ServiceRadar.Observability.RuleSeederTest do
     assert {:ok, [rule]} = Ash.read(query, actor: actor)
     assert rule.enabled
     assert rule.signal == :event
-    assert rule.match["subject_prefix"] == "signals.causal.predictions"
+    assert rule.match["subject_prefix"] == "signals.analytics.predictions"
 
     assert rule.match["attribute_equals"] == %{
-             "signal_type" => "causal",
+             "signal_type" => "prediction",
              "event_type" => "capacity_forecast",
              "capacity_forecast.status" => "projected"
            }

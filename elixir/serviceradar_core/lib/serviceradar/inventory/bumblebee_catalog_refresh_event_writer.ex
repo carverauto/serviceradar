@@ -92,7 +92,6 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshEventWriter do
       message: Keyword.fetch!(opts, :message),
       metadata:
         [
-          version: "1.7.0",
           product_name: "ServiceRadar Core",
           correlation_uid: source_correlation_uid(source)
         ]

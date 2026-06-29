@@ -38,7 +38,6 @@ defmodule ServiceRadar.Events.HealthWriter do
       status: OCSF.status_name(OCSF.status_success()),
       metadata:
         OCSF.build_metadata(
-          version: "1.7.0",
           product_name: "ServiceRadar Core",
           correlation_uid: "#{event.entity_type}:#{event.entity_id}"
         ),

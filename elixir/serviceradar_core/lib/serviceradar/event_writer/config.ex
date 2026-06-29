@@ -45,7 +45,7 @@ defmodule ServiceRadar.EventWriter.Config do
   - `EVENT_WRITER_CONSUMER_LAG_POLL_INTERVAL_MS` - JetStream consumer lag poll interval (default: 30000)
   """
 
-  alias ServiceRadar.EventWriter.Processors.CausalSignals
+  alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.EventWriter.Processors.Events
   alias ServiceRadar.EventWriter.Processors.Flows
   alias ServiceRadar.EventWriter.Processors.PowerDNS
@@ -329,7 +329,7 @@ defmodule ServiceRadar.EventWriter.Config do
         name: "BMP_CAUSAL",
         stream_name: "events",
         subject: "bmp.events.>",
-        processor: CausalSignals,
+        processor: AnalyticsSignals,
         batch_size: 100,
         batch_timeout: 1_000
       },
@@ -337,7 +337,7 @@ defmodule ServiceRadar.EventWriter.Config do
         name: "ARANCINI_CAUSAL",
         stream_name: "ARANCINI_CAUSAL",
         subject: "arancini.updates.>",
-        processor: CausalSignals,
+        processor: AnalyticsSignals,
         batch_size: 100,
         batch_timeout: 1_000
       },
@@ -345,15 +345,15 @@ defmodule ServiceRadar.EventWriter.Config do
         name: "SIEM_CAUSAL",
         stream_name: "events",
         subject: "siem.events.>",
-        processor: CausalSignals,
+        processor: AnalyticsSignals,
         batch_size: 100,
         batch_timeout: 1_000
       },
       %{
-        name: "CAUSAL_PREDICTIONS",
+        name: "ANALYTICS_PREDICTIONS",
         stream_name: "events",
-        subject: "signals.causal.predictions.>",
-        processor: CausalSignals,
+        subject: "signals.analytics.predictions.>",
+        processor: AnalyticsSignals,
         batch_size: 100,
         batch_timeout: 1_000
       },

@@ -6,7 +6,7 @@ defmodule ServiceRadar.Observability.CausalPredictionSubject do
   must not contain delimiters, whitespace, or wildcard tokens.
   """
 
-  @subject_root "signals.causal.predictions"
+  @subject_root "signals.analytics.predictions"
 
   @spec build(term(), String.t()) :: String.t()
   def build(value, fallback \\ "anomaly") do

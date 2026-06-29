@@ -17,12 +17,17 @@
 //! This crate is the single source of truth for ServiceRadar's per-series
 //! anomaly detection: the O(1) Welford rolling accumulator ([`stats`]), the
 //! sliding-window helpers ([`window`]), the rolling/seasonal/trend signal
-//! evaluation ([`signal`]), and the DeepCausality detector flow ([`detector`]).
+//! evaluation ([`signal`]), and the detector flow ([`detector`]) — a `CausalFlow`-
+//! staged pipeline that hosts the rolling robust z-score, not causal inference.
 //! It is consumed by the edge anomaly add-on (OpenSpec:
 //! `move-anomaly-detection-to-edge`) so per-series scoring does not run in
 //! core-elx.
 
+pub mod cusum;
 pub mod detector;
+pub mod esd;
+pub mod rpca;
+pub mod seasonal;
 pub mod signal;
 pub mod stats;
 pub mod types;
@@ -39,8 +44,15 @@ pub const DEFAULT_CONFIRM_SLOTS: usize = 5;
 /// Capacity multiple for the backing sliding-window storage.
 pub const WINDOW_CAPACITY_MULTIPLE: usize = 2;
 
+pub use cusum::{Cusum, CusumStep};
 pub use detector::reason_impl;
-pub use stats::{BaselineStats, WelfordAcc, clean_threshold, sample_stats, z_score};
+pub use esd::{generalized_esd, norm_ppf, seasonal_hybrid_esd, t_ppf};
+pub use rpca::{jacobi_svd, rpca};
+pub use seasonal::{HOURS_PER_WEEK, SeasonalBucket, hour_of_week, synthetic_baseline};
+pub use stats::{
+    BaselineStats, MAD_TO_SIGMA, RobustStats, WelfordAcc, clean_threshold, robust_score,
+    sample_stats, z_score,
+};
 pub use types::{
     ReasonContext, ReasonEventVerdict, ReasonSample, ReasonVerdict, SaturationGate, SignalVerdict,
 };

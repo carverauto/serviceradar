@@ -7,13 +7,17 @@ alias Cluster.Strategy.DNSPoll
 alias Cluster.Strategy.Kubernetes.DNS
 alias Geolix.Adapter.MMDB2
 alias ServiceRadar.Edge.RemoteAccessSSHCACommandSigner
-alias ServiceRadar.EventWriter.Processors.CausalSignals
+alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
 alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.EventWriter.Processors.PowerDNS
 alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
 alias ServiceRadar.Jobs.RootSpanRatioWorker
 alias ServiceRadar.Observability.CapacityForecasting.Worker, as: CapacityForecastingWorker
 alias ServiceRadar.Observability.DataRetentionWorker
+
+alias ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer,
+  as: SeasonalEdgeBaselineProducer
+
 alias ServiceRadar.Observability.SeasonalDisposition.Worker, as: SeasonalDispositionWorker
 
 # Netprobe native add-on package — signed artifact refs for the package seeder.
@@ -872,10 +876,18 @@ if config_env() == :prod do
         "epmd" ->
           hosts_str = System.get_env("CLUSTER_HOSTS", "")
 
+          # libcluster's Epmd strategy requires node-NAME atoms, and deployment-specific
+          # hostnames have no pre-known whitelist, so `String.to_existing_atom` is not an
+          # option here. CLUSTER_HOSTS is trusted operator config, but bound the atom
+          # creation regardless: drop blanks/dupes and cap the count so a malformed env
+          # var can never grow the atom table without bound.
           hosts =
             hosts_str
             |> String.split(",", trim: true)
             |> Enum.map(&String.trim/1)
+            |> Enum.reject(&(&1 == ""))
+            |> Enum.uniq()
+            |> Enum.take(256)
             |> Enum.map(&String.to_atom/1)
 
           if hosts == [] do
@@ -1243,6 +1255,27 @@ if config_env() == :prod do
       []
     end
 
+  seasonal_edge_baseline_enabled =
+    "SERVICERADAR_SEASONAL_EDGE_BASELINE_ENABLED"
+    |> System.get_env("true")
+    |> String.downcase()
+    |> Kernel.in(["1", "true", "yes", "on"])
+
+  seasonal_edge_baseline_cron =
+    System.get_env("SERVICERADAR_SEASONAL_EDGE_BASELINE_CRON", "53 * * * *")
+
+  # Push the freshly built hour-of-week baselines onto the anomaly add-on profile
+  # params a few minutes after the disposition pass refreshes the profile rows.
+  seasonal_edge_baseline_crontab =
+    if seasonal_disposition_enabled and seasonal_edge_baseline_enabled do
+      [
+        {seasonal_edge_baseline_cron, SeasonalEdgeBaselineProducer,
+         args: %{"trigger" => "cron"}, queue: :maintenance}
+      ]
+    else
+      []
+    end
+
   config :serviceradar_core, CapacityForecastingWorker,
     enabled: capacity_forecasting_enabled,
     horizon_seconds: capacity_forecasting_horizon_seconds,
@@ -1293,7 +1326,8 @@ if config_env() == :prod do
             queue: :maintenance}
          ] ++
            object_store_retention_crontab ++
-           capacity_forecasting_crontab ++ seasonal_disposition_crontab}
+           capacity_forecasting_crontab ++
+           seasonal_disposition_crontab ++ seasonal_edge_baseline_crontab}
     ],
     peer: Oban.Peers.Database
 
@@ -1491,29 +1525,29 @@ if config_env() == :prod do
         %{
           name: "BMP_CAUSAL",
           subject: "bmp.events.>",
-          processor: CausalSignals,
+          processor: AnalyticsSignals,
           batch_size: 100,
           batch_timeout: 1_000
         },
         %{
           name: "ARANCINI_CAUSAL",
           subject: "arancini.updates.>",
-          processor: CausalSignals,
+          processor: AnalyticsSignals,
           batch_size: 100,
           batch_timeout: 1_000
         },
         %{
           name: "SIEM_CAUSAL",
           subject: "siem.events.>",
-          processor: CausalSignals,
+          processor: AnalyticsSignals,
           batch_size: 100,
           batch_timeout: 1_000
         },
         %{
-          name: "CAUSAL_PREDICTIONS",
+          name: "ANALYTICS_PREDICTIONS",
           stream_name: "events",
-          subject: "signals.causal.predictions.>",
-          processor: CausalSignals,
+          subject: "signals.analytics.predictions.>",
+          processor: AnalyticsSignals,
           batch_size: 100,
           batch_timeout: 1_000
         },
