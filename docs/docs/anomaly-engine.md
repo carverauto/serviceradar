@@ -10,11 +10,15 @@ engine runs, the data contract it depends on, the honest scope of its naming, an
 how to prove every behavioral claim on real code with the proof harness.
 
 :::note What this engine is — and is not
-ServiceRadar's anomaly engine is **sound statistics across two tiers plus a
-deterministic dependency expert system**. It is **not** causal inference. Parts of
-the codebase historically carried "causal" branding (crate names, a
-`signal_type: "causal"` field, DeepCausality `CausalFlow` hosting). That branding
-is cosmetic and is being renamed honestly. See
+ServiceRadar's anomaly engine is **robust statistics across two tiers plus a
+deterministic rule/dependency-graph correlation expert system**. It is **not**
+causal inference. Identifiers that historically carried "causal" branding —
+crate names, an OCSF `signal_type` field, NATS subjects, an Elixir facade —
+overclaimed and have been **renamed to honest names** (`causal-engine` →
+`correlation-engine`, `causal-disposition` → `anomaly-disposition`,
+`CausalSignals` → `AnalyticsSignals`, `CausalReasoner` → `DispositionKernels`,
+`signals.causal.*` → `signals.analytics.*`). The only thing that legitimately
+keeps "causal" is the DeepCausality library the engine is *hosted on*. See
 [Honest naming: what is and is not causal](#honest-naming-what-is-and-is-not-causal).
 :::
 
@@ -28,18 +32,19 @@ reasoning.
    `serviceradar-agent`, using the `rust/anomaly-core` detector. A per-series
    guarded rolling z-score that catches short-term spikes with high recall and low
    latency, node-local, before samples are even published upstream.
-2. **Core seasonal disposition** — the `rust/causal-disposition` seasonal kernel
-   (driven by `seasonal_disposition/worker.ex`). An hour-of-week residual z-score
-   that answers *"is this abnormal for a Tuesday 9am?"* — high precision. It
-   suppresses recurring patterns (e.g. a nightly backup spike) that the edge tier
-   over-alerts on.
-3. **Core capacity forecast** — the `rust/causal-disposition` capacity kernel
-   (driven by `capacity_forecasting/worker.ex`). A trend forecast (least-squares
-   linear or additive Holt-Winters) projecting time-to-exhaustion, with a valid
-   prediction interval.
-4. **Deterministic dependency expert system** — `rust/causal-engine`. ~13
+2. **Core seasonal disposition** — the `rust/anomaly-disposition` seasonal kernel
+   (driven via the `anomaly_disposition_nif` from `seasonal_disposition/worker.ex`).
+   An hour-of-week residual z-score that answers *"is this abnormal for a Tuesday
+   9am?"* — high precision. It suppresses recurring patterns (e.g. a nightly backup
+   spike) that the edge tier over-alerts on.
+3. **Core capacity forecast** — the `rust/anomaly-disposition` capacity kernel
+   (driven via the NIF from `capacity_forecasting/worker.ex`). A trend forecast
+   (least-squares linear or additive Holt-Winters) projecting time-to-exhaustion,
+   with a valid prediction interval.
+4. **Deterministic correlation expert system** — `rust/correlation-engine`. ~13
    hand-coded if-then rules plus ultragraph centrality/reachability over the
-   topology graph. Legitimate dependency reasoning — **not** causal inference.
+   topology graph. Legitimate rule/dependency-graph **correlation** — **not**
+   causal inference.
 
 ```mermaid
 flowchart TB
@@ -50,9 +55,9 @@ flowchart TB
   end
 
   subgraph Core["Core platform"]
-    Seasonal["seasonal_disposition/worker.ex<br/>→ causal-disposition seasonal kernel<br/>hour-of-week residual-z"]
-    Capacity["capacity_forecasting/worker.ex<br/>→ causal-disposition capacity kernel<br/>OLS / Holt-Winters forecast"]
-    Expert["causal-engine<br/>deterministic rules + topology centrality"]
+    Seasonal["seasonal_disposition/worker.ex<br/>→ anomaly-disposition seasonal kernel (NIF)<br/>hour-of-week residual-z"]
+    Capacity["capacity_forecasting/worker.ex<br/>→ anomaly-disposition capacity kernel (NIF)<br/>OLS / Holt-Winters forecast"]
+    Expert["correlation-engine<br/>deterministic rules + topology centrality"]
     CAGG["timeseries_metrics_hourly<br/>(TimescaleDB continuous aggregate)"]
     Alerts["alert engine + device-detail panel"]
   end
@@ -86,7 +91,7 @@ garbage, not anomalies.
 - **Monotonic counters** (e.g. SNMP `ifHCInOctets`, `ifHCOutOctets`) **MUST be
   rate-normalized to a per-second rate by the caller before scoring**. A raw
   counter only ever increases, so its z-score is meaningless. The proof harness
-  makes this concrete: feeding a raw SNMP counter produces **6,956 false alarms**,
+  makes this concrete: feeding a raw SNMP counter produces a flood of false alarms,
   while the same series correctly rate-normalized scores **precision 1.0**.
 
 ### Rate normalization (counters)
@@ -167,8 +172,10 @@ large spike inflates its own baseline) and is blind to slow drift. Under
 **median/MAD (Hampel)** identifier and a two-sided **CUSUM** drift detector, with
 the dispersion floors, saturation gate, and confirm-slot hysteresis **retained**.
 This page documents the **current** design; the upgrade is gated behind the proof
-harness. The harness already pins the targets: slow drift/leak currently scores
-**recall 0/1** (no edge drift detection), which the CUSUM addition closes.
+harness. The harness already pins the targets: on the raw z-score, slow drift/leak
+score **recall 0/300 and 0/1500** (no edge drift detection), which the CUSUM kernel
+closes (drift **230/300**; the memory-leak case still needs the core hour-of-week
+profile — see task 2.6).
 :::
 
 ### Core seasonal: hour-of-week residual z-score
@@ -223,34 +230,49 @@ because it was being misread that way.
 
 ## Honest naming: what is and is not causal
 
-This is the most important section to get right, because the entire point of the
-documentation rewrite is to remove a causal-inference overclaim.
+This is the most important section to get right, because the engine's whole point
+is being honest about what it is. It runs **robust statistics** and **rule/
+dependency-graph correlation** — **not** causal inference. The identifiers that
+once implied otherwise have therefore been **renamed to honest names**.
 
 **What the engine IS:**
 
-- A **robust statistical spike detector** at the edge (a guarded rolling z-score).
+- A **robust statistical spike detector** at the edge (a guarded rolling z-score,
+  with seasonal residual-z, CUSUM, S-H-ESD, and RPCA/GESD kernels as the
+  documented Phase-2 work).
 - A **seasonal residual-z disposition** at the core (hour-of-week median/MAD).
 - A **trend/forecast capacity model** at the core (OLS / Holt-Winters with a valid
   prediction interval).
-- A **deterministic dependency / expert system** (`rust/causal-engine`): ~13
-  hand-coded if-then rules plus ultragraph centrality and reachability over the
-  topology graph. This is legitimate, useful dependency reasoning.
+- A **deterministic rule/dependency-graph correlation expert system**
+  (`rust/correlation-engine`): ~13 hand-coded if-then rules plus ultragraph
+  centrality and reachability over the topology graph. This is legitimate, useful
+  **correlation** — it follows a wired dependency graph, not a learned cause.
 
 **What the engine is NOT:**
 
 - It performs **no causal inference**. There is no structural causal model (SCM),
   no do-calculus, no counterfactuals, and no interventions anywhere in the
-  detector, the disposition tiers, or the dependency expert system.
-- The DeepCausality `CausalFlow` type is used **only as a pipeline / state-machine
-  combinator** — it *hosts* the statistics; it does not *perform* causal inference.
-- The historical "causal" branding — the OCSF `signal_type: "causal"` stamp, the
-  NATS `signals.causal.*` subjects, and crate/module names — is **cosmetic** and is
-  being renamed to honest signal naming under `refactor-anomaly-engine-rigor`. The
-  `causal-engine` component is kept (the dependency reasoning is real and useful);
-  only the *inference* claim and the `causal` label are wrong.
+  detector, the disposition tiers, or the correlation expert system. The work is
+  rolling/seasonal/capacity z-scores, OLS/Holt-Winters, CUSUM, S-H-ESD, and RPCA —
+  robust statistics — plus deterministic rule/graph correlation.
+- The overclaiming "causal" identifiers have been **renamed** to match what the
+  code actually does:
+  - `rust/causal-engine` → `rust/correlation-engine` ("correlation, not causation")
+  - crate `causal-disposition` → `anomaly-disposition`; NIF `causal_disposition_nif`
+    → `anomaly_disposition_nif`; Elixir facade `CausalReasoner` → `DispositionKernels`
+  - module `CausalSignals` / `causal_signals.ex` → `AnalyticsSignals` /
+    `analytics_signals.ex`
+  - NATS subjects `signals.causal.*` → `signals.analytics.*`
+  - wire `signal_type: "causal"` → `"prediction"`; `"collector": "causal-engine"`
+    → `"correlation-engine"`
+- The **only** thing that legitimately keeps "causal" is the DeepCausality library
+  the engine is *hosted on*. Its `Causaloid` / `CausalFlow` / `CausableGraph` /
+  `CausaloidGraph` types provide the execution substrate that *hosts* the
+  statistics; they do **not** make the detector "causal."
 
 In short: this is **robust statistics + a seasonal/forecast disposition engine + a
-deterministic dependency expert system**. Describe it that way.
+deterministic rule/dependency-graph correlation expert system**, hosted on
+DeepCausality. Describe it that way.
 
 ## The disposition loop
 
@@ -285,13 +307,22 @@ unsound (different physical quantities). So:
   always has a partner to be judged against.
 - **Raw edge findings are retained for audit** even when suppressed.
 
+The matched-resolution disposition runs **out-of-band in the live system** via
+`AnomalyDispositionReporter` — an Oban-driven consumer of OCSF Detection Findings
+(`class_uid 2004`) that records a disposition alongside each finding. It **never
+mutates an alert**: the disposition is **report-only by default** (`actionable?`
+returns `false` unless `suppression_enabled` is set for the class).
+
 :::note In progress
-Loop closure is being delivered under `refactor-anomaly-engine-rigor`. Suppression
-ships **report-only** behind a **per-class stability gate**: a class stays in
-pass-through (so nothing is hidden) until its own peak profile has enough trustworthy
-history to earn suppression. The cardinal error to avoid is a **false-suppress** (it
-would hide a real anomaly), so every uncertain path resolves to pass-through or
-escalate.
+Loop closure ships **report-only** behind a **per-class stability gate**: a class
+stays in pass-through (so nothing is hidden) until its own peak profile has enough
+trustworthy history to earn suppression. The cardinal error to avoid is a
+**false-suppress** (it would hide a real anomaly), so every uncertain path resolves
+to pass-through or escalate. A related **core→edge hour-of-week baseline push**
+(task 2.6) is also in progress: the core builds a 180-day hour-of-week profile and
+pushes it to the edge so the edge detector can **deseasonalize** against it locally.
+The consumption path and the profile builder are done; **delivery and series-key
+alignment are still pending**.
 :::
 
 ## Operations & tuning knobs
@@ -372,7 +403,7 @@ grep '"disk.usage_percent"' $O/samples.jsonl > $O/disk.jsonl
 ### Core disposition kernels (no DB)
 
 ```bash
-cargo build --manifest-path rust/causal-disposition/Cargo.toml --bin disposition-backtest
+cargo build --manifest-path rust/anomaly-disposition/Cargo.toml --bin disposition-backtest
 
 # seasonal: does the core tier suppress seasonal-normal and flag real deviations?
 python3 tools/anomaly-proof/gen_seasonal.py
@@ -393,21 +424,30 @@ python3 tools/anomaly-proof/gen_capacity.py
 tools/anomaly-proof/run_db_feed.sh
 ```
 
-### Scorecard (current rolling z-score baseline)
+### Scorecard (fresh harness run, 2026-06-28)
 
-This is the baseline against which the Phase 2 upgrades are measured.
+The rows below are from a **fresh proof-harness run and the test suites on
+2026-06-28** — every figure is measured on shipping code, not asserted. The raw
+rolling z-score is the current edge baseline; the seasonal/CUSUM/S-H-ESD/RPCA
+kernels are the documented Phase-2 work measured against it.
 
-| Series / class | What it proves | Result |
+| Series / class | What it proves | Result (2026-06-28) |
 |---|---|---|
-| CPU / SNMP spike, step, burst | the z-score's strength | recall **1/1**, ~4-sample latency, precision **1.0** |
-| CPU nightly backup | the **seasonal** gap | flagged **21/21 nights** (the dispose target) |
-| CPU single-blip | hysteresis (`confirm_slots`) | **0/1** — correctly not confirmed |
-| CPU / mem slow drift & leak | the **drift blind spot** | **0/1 recall** — Phase 2 CUSUM target |
-| SNMP `counter_raw` | the data contract | **6,956 false alarms** vs rate-normalized **precision 1.0** |
-| disk gate off → on | the 80% saturation gate | sub-80 false alarms 11 → **0**, real >80 kept 11 → 11 |
-| core seasonal: nightly-normal | the open-loop fix target | **suppressed** (z ≈ 0) — the spike the edge flags 21/21 |
-| core seasonal: 7 labeled cases | the seasonal kernel is sound | **7/7** match the expected disposition |
-| core capacity: band vs horizon | the band overclaim | the legacy band is **constant width** at 7d/30d/90d (= 2·1.96·RMSE); the valid PI that replaces it widens with horizon |
-| core DB feed: verb → kernel | the F15 feed end to end | over a real CAGG: dev-anomaly **breach** z≈8.3 / dev-normal **suppress** z≈0 |
+| Edge spike (`anomaly-core`) | the z-score's strength | recall **1/1**, median detection latency **4 samples**, precision **1.0** (**468 TP / 0 FP**) |
+| Edge step | step recall + hysteresis | recall **1/1** (latency 4); a single blip is correctly **not confirmed** (`confirm_slots` hysteresis) |
+| Slow drift / slow leak (raw z) | the **honest blind spot** | drift **0/300**, leak **0/1500** — by design, the Phase-2 CUSUM/seasonal target, **not** a regression |
+| Saturation gate off → on | the 80% gate | OFF → **11** sub-80 false alarms (precision 0.5); ON (`min 80`) → sub-80 FP **11 → 0**, real >80 fills kept **11 → 11** |
+| CUSUM drift kernel | closing the drift gap | cpu drift **9/300** (z) → **230/300** (CUSUM), ~**0.6% FP** on clean; memory leak **0/1500** → **742/1500**, **38% FP** — the short-history caveat that needs the core 180-day hour-of-week profile (why task 2.6 exists) |
+| S-H-ESD seasonal kernel | seasonal suppression | **7/7** — recurring nightly/daytime/weekend load **suppressed at z=0.00** (the same load the naive edge over-flags **21/21**); off-pattern breaches flagged (z=**9.01 / 7.42 / 16.15**); insufficient-baseline gated |
+| RPCA / GESD reference | the robust kernels are correct | **8/8** — GESD finds injected outliers at exact indices **[40,41,42]** and nothing on clean; SVD reconstructs and is orthonormal; `norm_ppf` / `t_ppf` match reference quantiles |
+| Capacity kernel | the band overclaim | PI band **widens with horizon** (7d **5.89** / 30d **5.93** / 90d **6.15**), replacing the old constant-width band; exhaustion ETA emitted at 30d/90d (projected **73.7% / 102.5%**), none at 7d (**62.6%**) |
+| Disposition (matched-resolution, real DB) | the peak-vs-peak loop | hour-of-week PEAK profile center=**55**, scale=**4**, n=**8** → suppress@peak 56 (z≈0.25), downgrade@peak 63 (z=2.0), escalate@peak 90 (novel); a zero-variance profile escalates **any** above-center peak; **report-only by default** (`actionable?` false unless `suppression_enabled`) |
+
+Test suites green on 2026-06-28 (pass/fail):
+
+- **Rust** — `anomaly-core` **43/0**, `anomaly-addon` **78/0**, `anomaly-disposition`
+  **43/0**, `correlation-engine` **65/0**.
+- **Elixir** — disposition **17/0**, reporter **7/0**, peak_profile **6/0**,
+  series_key **11/0**, stateful_alert_engine **13/0**.
 
 See `tools/anomaly-proof/README.md` for the full harness reference and file layout.

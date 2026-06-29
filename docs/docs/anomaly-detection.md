@@ -189,8 +189,9 @@ or, when available, a targeted series override.
 ## Rollout Guidance
 
 Metrics must enter ServiceRadar through NATS JetStream before they are written
-to CNPG. This keeps anomaly detection and the causal engine subscribed to the
-same stream as the persistence consumer.
+to CNPG. This keeps anomaly detection and the `correlation-engine` (the
+rule/dependency-graph correlation expert system, formerly `causal-engine`)
+subscribed to the same stream as the persistence consumer.
 
 For spike detection, assign the native `anomaly` add-on to the agents that own
 sysmon or SNMP collection. The default profile uses the broad SRQL target
