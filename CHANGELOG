@@ -1,3 +1,32 @@
+# ServiceRadar v1.3.8
+
+Anomaly-engine rigor, dependency-security, and demo-CNPG performance release.
+
+## Whats New
+
+**1.3.8**
+- Refactored the anomaly engine away from causal-inference framing into an
+  honest robust edge detector plus disposition pipeline: de-causal renames, a
+  proof harness, a robust median/MAD (Hampel) plus CUSUM edge baseline replacing
+  the edge mean/std, a centralized OCSF schema version, and removal of the legacy
+  `signals.causal` subjects.
+- Upgraded Elixir dependencies for security: gRPC 0.11 to 1.0, gun/cowlib/mint
+  CVE fixes, and hackney, with the affected call sites migrated to the gRPC 1.0
+  API.
+- Resolved the demo CNPG CPU regression by repairing the flow-attribution
+  retention prune (a single un-batched DELETE was failing silently against a
+  large backlog and had bloated the table to tens of millions of rows; it now
+  deletes in bounded batches so the backlog actually clears), skip-guarding
+  redundant workload-identity upserts, routing SRQL flow-throughput averages to
+  the continuous aggregate instead of a raw scan, and tuning autovacuum and
+  fillfactor on the highest-churn tables.
+- Fixed a NATS JetStream subject overlap by making the trapd and flowgger
+  stream-subject append wildcard-aware, so a `logs.>` stream no longer collides
+  with `logs.snmp`/`logs.syslog`.
+- Fixed the agent wedging its config version on a permanent section failure, and
+  created the endpoint-inventory spool directories with correct ownership and
+  permissions.
+
 # ServiceRadar v1.3.7
 
 Anomaly-UX, log-safety, and demo-release stabilization.
