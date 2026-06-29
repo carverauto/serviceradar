@@ -12,6 +12,7 @@ mod checkpoint;
 mod classify;
 mod config;
 mod counter;
+mod engine;
 mod frame;
 mod health;
 mod identity;
