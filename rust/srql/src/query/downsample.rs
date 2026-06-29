@@ -88,4 +88,102 @@ mod tests {
             "expected nullable flow downsample field to be coalesced before aggregation: {sql}"
         );
     }
+
+    fn flow_plan(bucket_seconds: i64, agg: DownsampleAgg, span: ChronoDuration) -> QueryPlan {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        QueryPlan {
+            entity: Entity::Flows,
+            filters: Vec::new(),
+            order: Vec::new(),
+            limit: 4000,
+            offset: 0,
+            time_range: Some(TimeRange {
+                start,
+                end: start + span,
+            }),
+            stats: None,
+            downsample: Some(DownsampleSpec {
+                bucket_seconds,
+                agg,
+                series: None,
+                value_field: Some("bytes_total".to_string()),
+            }),
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        }
+    }
+
+    #[test]
+    fn flow_avg_throughput_routes_to_5m_cagg_with_current_bucket_union() {
+        let plan = flow_plan(300, DownsampleAgg::Avg, ChronoDuration::hours(24));
+        let (sql, params) = to_sql_and_params(&plan).unwrap();
+
+        // Closed buckets from the materialized CAGG ...
+        assert!(
+            sql.contains("FROM ocsf_network_activity_5m_traffic"),
+            "expected closed buckets to read from the 5m traffic CAGG: {sql}"
+        );
+        // ... the current open bucket from the raw hypertable ...
+        assert!(
+            sql.contains("UNION ALL") && sql.contains("FROM ocsf_network_activity\n"),
+            "expected the current open bucket to be unioned from the raw hypertable: {sql}"
+        );
+        // ... and AVG reconstructed from the weighted SUM / flow COUNT.
+        assert!(
+            sql.contains("SUM(weighted_sum) / NULLIF(SUM(cnt), 0) AS value"),
+            "expected sampling-rate-weighted avg to be reconstructed from the CAGG: {sql}"
+        );
+        assert!(
+            sql.contains("flow_count::double precision AS cnt")
+                && sql.contains(
+                    "SUM((bytes_total::double precision * GREATEST(COALESCE(sampling_rate, 1), 1)::double precision)) AS weighted_sum"
+                ),
+            "expected CAGG and raw sides to share sampling-rate-weighted semantics: {sql}"
+        );
+        // start, end (CAGG upper), end (raw upper), limit, offset.
+        assert_eq!(params.len(), 5, "unexpected bind count: {sql}");
+    }
+
+    #[test]
+    fn flow_sum_throughput_routes_to_cagg_union() {
+        let plan = flow_plan(300, DownsampleAgg::Sum, ChronoDuration::hours(24));
+        let (sql, _params) = to_sql_and_params(&plan).unwrap();
+
+        assert!(
+            sql.contains("FROM ocsf_network_activity_5m_traffic")
+                && sql.contains("UNION ALL")
+                && sql.contains("SUM(weighted_sum) AS value"),
+            "expected sum throughput to route to the CAGG union: {sql}"
+        );
+    }
+
+    #[test]
+    fn flow_avg_long_window_routes_to_hourly_cagg() {
+        let plan = flow_plan(3600, DownsampleAgg::Avg, ChronoDuration::hours(48));
+        let (sql, _params) = to_sql_and_params(&plan).unwrap();
+
+        assert!(
+            sql.contains("FROM flow_traffic_1h"),
+            "expected hourly buckets to route to flow_traffic_1h: {sql}"
+        );
+    }
+
+    #[test]
+    fn flow_avg_short_window_stays_on_raw_table() {
+        // Below the 6h CAGG routing threshold: must stay on the raw hypertable.
+        let plan = flow_plan(300, DownsampleAgg::Avg, ChronoDuration::hours(1));
+        let (sql, _params) = to_sql_and_params(&plan).unwrap();
+
+        assert!(
+            sql.contains("FROM ocsf_network_activity\n") && !sql.contains("5m_traffic"),
+            "expected sub-threshold window to stay on the raw hypertable: {sql}"
+        );
+        assert!(
+            sql.contains(
+                "AVG((bytes_total::double precision * GREATEST(COALESCE(sampling_rate, 1), 1)::double precision)) AS value"
+            ),
+            "expected raw avg to keep the sampling-rate-weighted expression: {sql}"
+        );
+    }
 }
