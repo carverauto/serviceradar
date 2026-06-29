@@ -171,9 +171,19 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       Logger.debug("Config not modified for agent #{agent_id}, version: #{current_version}")
       :not_modified
     else
-      Logger.info(
-        "Config changed for agent #{agent_id}: #{current_version} -> #{config.config_version}"
-      )
+      # An empty current_version is a first fetch / not-yet-committed agent (e.g. a config
+      # section that deferred its version commit), not an operator config change. It would
+      # otherwise log "Config changed ...:  -> v<hash>" on every poll, so keep it at debug
+      # and reserve info for a genuine version-to-version change (fj #4301).
+      if current_version == "" do
+        Logger.debug(
+          "Config changed for agent #{agent_id}: #{current_version} -> #{config.config_version}"
+        )
+      else
+        Logger.info(
+          "Config changed for agent #{agent_id}: #{current_version} -> #{config.config_version}"
+        )
+      end
 
       {:ok, config}
     end

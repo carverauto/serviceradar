@@ -496,7 +496,7 @@ func TestApplyBumblebeeConfigDefersWhenCatalogStoreUnavailable(t *testing.T) {
 		logger: logger.NewTestLogger(),
 	}
 
-	ok := pl.applyBumblebeeConfig(context.Background(), &proto.BumblebeeConfig{
+	disposition := pl.applyBumblebeeConfig(context.Background(), &proto.BumblebeeConfig{
 		Enabled: true,
 		Catalog: &proto.BumblebeeCatalogAssignment{
 			SnapshotRef: "snapshot-1",
@@ -505,8 +505,10 @@ func TestApplyBumblebeeConfigDefersWhenCatalogStoreUnavailable(t *testing.T) {
 		},
 	}, nil)
 
-	if ok {
-		t.Fatal("expected Bumblebee config application to defer without an object store")
+	// A missing object store is transient (it can appear once the agent has a kv address),
+	// so it must defer the config-version commit and retry rather than wedge it.
+	if disposition != addonDeliveryTransientFailure {
+		t.Fatalf("expected Bumblebee config application to transiently defer without an object store, got %v", disposition)
 	}
 }
 
@@ -533,7 +535,7 @@ func TestApplyBumblebeeConfigStagesCatalogAndWritesRuntimeProfile(t *testing.T) 
 		logger: logger.NewTestLogger(),
 	}
 
-	ok := pl.applyBumblebeeConfig(context.Background(), &proto.BumblebeeConfig{
+	disposition := pl.applyBumblebeeConfig(context.Background(), &proto.BumblebeeConfig{
 		Enabled:           true,
 		AgentId:           "agent-from-control-plane",
 		RootDiscoveryMode: "explicit",
@@ -548,8 +550,8 @@ func TestApplyBumblebeeConfigStagesCatalogAndWritesRuntimeProfile(t *testing.T) 
 			Sha256:      sha,
 		},
 	}, nil)
-	if !ok {
-		t.Fatal("expected Bumblebee config application to succeed")
+	if disposition != addonDeliverySucceeded {
+		t.Fatalf("expected Bumblebee config application to succeed, got %v", disposition)
 	}
 
 	if current, err := os.ReadFile(catalogPath); err != nil || string(current) != string(catalogData) {
@@ -594,11 +596,11 @@ func TestApplyBumblebeeConfigSkipsDisabledRuntimeProfileForKubernetesAgent(t *te
 		logger: logger.NewTestLogger(),
 	}
 
-	ok := pl.applyBumblebeeConfig(context.Background(), &proto.BumblebeeConfig{
+	disposition := pl.applyBumblebeeConfig(context.Background(), &proto.BumblebeeConfig{
 		Enabled: false,
 	}, nil)
-	if !ok {
-		t.Fatal("expected disabled Kubernetes Bumblebee config application to succeed")
+	if disposition != addonDeliverySucceeded {
+		t.Fatalf("expected disabled Kubernetes Bumblebee config application to succeed, got %v", disposition)
 	}
 	if _, err := os.Stat(profilePath); !os.IsNotExist(err) {
 		t.Fatalf("expected no runtime profile to be written, stat err=%v", err)

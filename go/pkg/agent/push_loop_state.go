@@ -90,6 +90,18 @@ func (p *PushLoop) setConfigVersion(v string) {
 	p.stateMu.Unlock()
 }
 
+func (p *PushLoop) getLastAttemptedConfigVersion() string {
+	p.stateMu.RLock()
+	defer p.stateMu.RUnlock()
+	return p.lastAttemptedConfigVersion
+}
+
+func (p *PushLoop) setLastAttemptedConfigVersion(v string) {
+	p.stateMu.Lock()
+	p.lastAttemptedConfigVersion = v
+	p.stateMu.Unlock()
+}
+
 func (p *PushLoop) setConfigPollInterval(d time.Duration) {
 	p.stateMu.Lock()
 	p.configPollInterval = d

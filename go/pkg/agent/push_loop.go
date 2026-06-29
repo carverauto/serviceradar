@@ -81,42 +81,47 @@ func marshalJSONLimited(v any, limit int) ([]byte, error) {
 
 // PushLoop manages the periodic pushing of agent status to the gateway.
 type PushLoop struct {
-	server                    *Server
-	gateway                   *agentgateway.GatewayClient
-	interval                  time.Duration
-	logger                    logger.Logger
-	done                      chan struct{}
-	stopCh                    chan struct{}
-	stopOnce                  sync.Once
-	doneOnce                  sync.Once
-	configVersion             string        // Current config version for polling
-	configPollInterval        time.Duration // How often to poll for config updates
-	enrolled                  bool          // Whether we've successfully enrolled
-	started                   bool          // Whether Start has been invoked
-	enrollMu                  sync.Mutex
-	enrollInFlight            bool
-	sweepResultsSeq           string
-	icmpChecks                map[string]*icmpCheckConfig
-	icmpLastRun               map[string]time.Time
-	icmpMu                    sync.RWMutex
-	statusDebounce            time.Duration
-	statusHeartbeat           time.Duration
-	statusDebounceConfigured  bool
-	statusHeartbeatConfigured bool
-	lastStatusPush            time.Time
-	lastStatusSignature       string
-	syncRuntime               *SyncRuntime
-	mtrState                  *mtrCheckerState
-	mtrOnDemandSem            chan struct{}
-	mtrBulkJobSem             chan struct{}
-	endpointInventoryFreshSem chan struct{}
-	cameraRelayManager        *cameraRelayManager
-	remoteConsoleManager      *remoteConsoleManager
-	applicationHTTPMu         sync.Mutex
-	applicationHTTPSessions   map[string]*remoteaccess.ApplicationHTTPAdapter
-	applicationHTTPRequests   map[string]map[string]*applicationHTTPRequestState
-	tcpMu                     sync.Mutex
-	tcpSessions               map[string]*remoteaccess.TCPAdapter
+	server        *Server
+	gateway       *agentgateway.GatewayClient
+	interval      time.Duration
+	logger        logger.Logger
+	done          chan struct{}
+	stopCh        chan struct{}
+	stopOnce      sync.Once
+	doneOnce      sync.Once
+	configVersion string // Current config version for polling (set only after a fully-successful apply)
+	// lastAttemptedConfigVersion is the most recent version that ran through the full apply
+	// pipeline, even if it did not commit (a transient section deferred). It lets a resend of
+	// the SAME still-uncommitted version skip the idempotent heavy re-apply while the
+	// deferrable sections keep retrying (fj #4301).
+	lastAttemptedConfigVersion string
+	configPollInterval         time.Duration // How often to poll for config updates
+	enrolled                   bool          // Whether we've successfully enrolled
+	started                    bool          // Whether Start has been invoked
+	enrollMu                   sync.Mutex
+	enrollInFlight             bool
+	sweepResultsSeq            string
+	icmpChecks                 map[string]*icmpCheckConfig
+	icmpLastRun                map[string]time.Time
+	icmpMu                     sync.RWMutex
+	statusDebounce             time.Duration
+	statusHeartbeat            time.Duration
+	statusDebounceConfigured   bool
+	statusHeartbeatConfigured  bool
+	lastStatusPush             time.Time
+	lastStatusSignature        string
+	syncRuntime                *SyncRuntime
+	mtrState                   *mtrCheckerState
+	mtrOnDemandSem             chan struct{}
+	mtrBulkJobSem              chan struct{}
+	endpointInventoryFreshSem  chan struct{}
+	cameraRelayManager         *cameraRelayManager
+	remoteConsoleManager       *remoteConsoleManager
+	applicationHTTPMu          sync.Mutex
+	applicationHTTPSessions    map[string]*remoteaccess.ApplicationHTTPAdapter
+	applicationHTTPRequests    map[string]map[string]*applicationHTTPRequestState
+	tcpMu                      sync.Mutex
+	tcpSessions                map[string]*remoteaccess.TCPAdapter
 
 	addonLastGoodMu sync.Mutex
 	addonLastGood   map[string]agentaddon.Spec // last successfully applied add-on spec, by addon id
@@ -137,7 +142,7 @@ type PushLoop struct {
 	workloadIdentityMu       sync.Mutex
 	lastWorkloadIdentityFile workloadIdentityFileSignature
 
-	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
+	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, lastAttemptedConfigVersion, started
 	cancelMu sync.Mutex
 	cancel   context.CancelFunc
 }
