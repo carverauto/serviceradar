@@ -199,6 +199,11 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   defp profile_rows(%Source{} = source, raw_rows, config, opts) when is_list(raw_rows) do
     hydrated_rows =
       raw_rows
+      # Live `SRQLRunner` wraps each profile_hour_of_week row as `%{"payload" => %{...}}`
+      # (jsonb_build_object); the dispose path must flatten it before `seasonal_row`
+      # reads the top-level fields — otherwise it hydrates nothing against real data
+      # (the same envelope `edge_baseline_rows/2` unwraps). Injected/flat rows pass through.
+      |> Enum.map(&unwrap_payload/1)
       |> Enum.map(&seasonal_row(&1, source, config))
       |> Enum.reject(&is_nil/1)
 
