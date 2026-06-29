@@ -116,6 +116,26 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.WorkerTest do
     refute Enum.any?(queries, &String.contains?(&1, ~s|timezone:"Etc/UTC"|))
   end
 
+  test "edge baseline fetch forces UTC even when the profile timezone is non-UTC" do
+    [source | _] =
+      [seasonal_profile_timezone: "America/Chicago"]
+      |> Source.defaults()
+      |> Enum.map(&Source.from_config/1)
+      |> Enum.filter(&Source.seasonal_disposition_supported?/1)
+
+    # The central verdict query keeps the configured tz...
+    assert String.contains?(source.query, ~s|timezone:"America/Chicago"|)
+
+    # ...but the edge baseline is forced to UTC so its (dow,hod) buckets align with the
+    # edge detector's UTC hour-of-week — a non-UTC profile would otherwise resolve no
+    # bucket at the edge.
+    assert {:ok, _rows} = Worker.edge_baseline_rows(source, runner: QueryRecorderRunner)
+
+    assert_receive {:seasonal_query, query}
+    assert String.contains?(query, ~s|timezone:"Etc/UTC"|)
+    refute String.contains?(query, ~s|timezone:"America/Chicago"|)
+  end
+
   test "worker skips unsupported seasonal sources instead of claiming coverage" do
     event = [:serviceradar, :observability, :seasonal_disposition, :source_skipped]
     handler_id = {:seasonal_source_skipped, make_ref()}

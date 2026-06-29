@@ -124,7 +124,12 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
     runner_opts = Keyword.get(opts, :runner_opts, [])
     config = seasonal_config(source, opts)
 
-    case fetch_rows(runner, source.query, runner_opts, opts) do
+    # The edge detector buckets hour-of-week in UTC (anomaly-core `hour_of_week`), so the
+    # delivered baseline must be UTC-bucketed too — independent of the source's configured
+    # `profile_timezone` (which the central VERDICT pass keeps for local-hour bucketing).
+    # A non-UTC profile would otherwise build local-tz (dow,hod) buckets that resolve
+    # nothing against the edge's UTC clock.
+    case fetch_rows(runner, edge_baseline_query(source), runner_opts, opts) do
       {:ok, raw_rows} ->
         rows =
           raw_rows
@@ -138,6 +143,15 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
         {:error, reason}
     end
   end
+
+  # Force the edge-baseline fetch to UTC: rewrite the seasonal query's `timezone:"..."`
+  # literal to `Etc/UTC` so the (dow,hod) buckets align with the edge's UTC hour-of-week.
+  # The central disposition verdict pass keeps the configured tz via `source.query`.
+  defp edge_baseline_query(%Source{query: query}) when is_binary(query) do
+    Regex.replace(~r/timezone:"[^"]*"/, query, ~s|timezone:"Etc/UTC"|)
+  end
+
+  defp edge_baseline_query(%Source{query: query}), do: query
 
   # The SRQL `profile_hour_of_week` route returns one `jsonb_build_object(...)`
   # column, so `SRQLRunner` rows arrive as `%{"payload" => %{...}}`. Flatten that to
