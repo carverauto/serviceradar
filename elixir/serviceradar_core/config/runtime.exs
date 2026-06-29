@@ -14,6 +14,10 @@ alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
 alias ServiceRadar.Jobs.RootSpanRatioWorker
 alias ServiceRadar.Observability.CapacityForecasting.Worker, as: CapacityForecastingWorker
 alias ServiceRadar.Observability.DataRetentionWorker
+
+alias ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer,
+  as: SeasonalEdgeBaselineProducer
+
 alias ServiceRadar.Observability.SeasonalDisposition.Worker, as: SeasonalDispositionWorker
 
 # Netprobe native add-on package — signed artifact refs for the package seeder.
@@ -1243,6 +1247,27 @@ if config_env() == :prod do
       []
     end
 
+  seasonal_edge_baseline_enabled =
+    "SERVICERADAR_SEASONAL_EDGE_BASELINE_ENABLED"
+    |> System.get_env("true")
+    |> String.downcase()
+    |> Kernel.in(["1", "true", "yes", "on"])
+
+  seasonal_edge_baseline_cron =
+    System.get_env("SERVICERADAR_SEASONAL_EDGE_BASELINE_CRON", "53 * * * *")
+
+  # Push the freshly built hour-of-week baselines onto the anomaly add-on profile
+  # params a few minutes after the disposition pass refreshes the profile rows.
+  seasonal_edge_baseline_crontab =
+    if seasonal_disposition_enabled and seasonal_edge_baseline_enabled do
+      [
+        {seasonal_edge_baseline_cron, SeasonalEdgeBaselineProducer,
+         args: %{"trigger" => "cron"}, queue: :maintenance}
+      ]
+    else
+      []
+    end
+
   config :serviceradar_core, CapacityForecastingWorker,
     enabled: capacity_forecasting_enabled,
     horizon_seconds: capacity_forecasting_horizon_seconds,
@@ -1293,7 +1318,8 @@ if config_env() == :prod do
             queue: :maintenance}
          ] ++
            object_store_retention_crontab ++
-           capacity_forecasting_crontab ++ seasonal_disposition_crontab}
+           capacity_forecasting_crontab ++
+           seasonal_disposition_crontab ++ seasonal_edge_baseline_crontab}
     ],
     peer: Oban.Peers.Database
 

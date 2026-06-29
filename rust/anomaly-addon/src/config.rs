@@ -71,7 +71,9 @@ pub(crate) struct AddonConfig {
     #[serde(default, deserialize_with = "deserialize_optional_u64")]
     pub(crate) scoring_stale_after_secs: Option<u64>,
     /// Optional per-series hour-of-week seasonal baselines delivered from core,
-    /// keyed by edge series key. Each carries up to 168 `(dow, hod)` buckets with a
+    /// keyed by the canonical `<device_uid>|<metric_name>` (central's `series:uid`
+    /// profile keyspace — see [`crate::identity::seasonal_series_key`]), NOT the
+    /// fine detector series key. Each carries up to 168 `(dow, hod)` buckets with a
     /// robust `{center, scale}` summary the detector deseasonalizes against.
     /// Omitted/empty keeps every series on the rolling-only path (back-compat).
     #[serde(default)]

@@ -117,6 +117,36 @@ pub(crate) fn safe_component(name: &str, value: &str) -> String {
     format!("{name}={}", hex::encode(value.as_bytes()))
 }
 
+/// The seasonal-baseline lookup key for one sample: the canonical device-uid
+/// joined with the metric name.
+///
+/// This deliberately does NOT match the per-series DETECTOR key
+/// ([`series_key_for`], a fine edge-local `v2|partition|identity|metric|dims`
+/// composite). It matches the keyspace of central's hour-of-week profile, which
+/// is built with SRQL `series:uid` (`device_id AS series`) for a fixed metric —
+/// i.e. one device-level series per metric. The core edge-baseline producer
+/// delivers `seasonal_baselines` keyed by `<device_uid>|<metric_name>`, so this
+/// is the key the engine must look the delivered baseline up by, even though the
+/// rolling detector state stays keyed by the finer `series_key`.
+///
+/// `device_uid` uses the same identity precedence as the emitted verdict
+/// ([`anomaly_device_uid`]), so the edge resolves the SAME canonical device the
+/// central profile was keyed by. An empty metric name yields an empty key (no
+/// baseline resolves — the rolling-only path, unchanged).
+pub(crate) fn seasonal_series_key(
+    resource: &MetricResource,
+    metric_class: &str,
+    metric: &Metric,
+    point: &MetricPoint,
+) -> String {
+    if metric.name.is_empty() {
+        return String::new();
+    }
+
+    let uid = anomaly_device_uid(resource, metric_class, metric, point);
+    format!("{uid}|{}", metric.name)
+}
+
 pub(crate) fn series_resource_identity(
     resource: &MetricResource,
     metric: &Metric,

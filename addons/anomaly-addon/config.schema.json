@@ -121,7 +121,7 @@
     "seasonal_baselines": {
       "type": "object",
       "title": "Per-series hour-of-week seasonal baselines",
-      "description": "Optional central hour-of-week baselines pushed core->edge so the detector deseasonalizes against the long-horizon profile instead of only its short rolling window. Keyed by edge series key; each series carries up to 168 (dow, hod) buckets with a robust median center and dispersion scale. Omitted keeps every series on the rolling-only path. Built by core from the seasonal hour-of-week profile (stats:profile_hour_of_week).",
+      "description": "Optional central hour-of-week baselines pushed core->edge so the detector deseasonalizes against the long-horizon profile instead of only its short rolling window. Keyed by the canonical '<device_uid>|<metric_name>' (central's series:uid profile keyspace), so a delivered baseline resolves at scoring even though the per-series detector key is finer. Each series carries up to 168 (dow, hod) buckets with a robust median center and dispersion scale. Omitted keeps every series on the rolling-only path. Built by core from the seasonal hour-of-week profile (stats:profile_hour_of_week).",
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,

@@ -15,6 +15,7 @@ mod counter;
 mod frame;
 mod health;
 mod identity;
+mod seasonal;
 mod shed;
 mod stream;
 mod verdict;

@@ -284,7 +284,7 @@ impl DetectorEngine {
     /// this series at this sample's hour-of-week.
     fn seasonal_context(
         &self,
-        series_key: &str,
+        seasonal_key: &str,
         observed_at_unix_nano: u64,
     ) -> (Option<Vec<f64>>, Option<bool>, Option<usize>, Option<f64>) {
         const NONE: (Option<Vec<f64>>, Option<bool>, Option<usize>, Option<f64>) =
@@ -296,7 +296,7 @@ impl DetectorEngine {
             return NONE;
         }
 
-        let Some(profile) = self.seasonal.get(series_key) else {
+        let Some(profile) = self.seasonal.get(seasonal_key) else {
             return NONE;
         };
         let Some(bucket) = profile.bucket(hour_of_week(observed_at_unix_nano)) else {
@@ -490,6 +490,26 @@ impl DetectorEngine {
         observed_at_unix_nano: u64,
         profile: SeriesProfile,
     ) -> Option<ReasonVerdict> {
+        // Default seasonal key == detector key, preserving the prior behavior for
+        // every caller (tests, checkpoint round-trips) that does not separately
+        // reconcile the central device-uid keyspace.
+        self.evaluate_with_seasonal_key(series_key, series_key, value, observed_at_unix_nano, profile)
+    }
+
+    /// [`Self::evaluate`], but the delivered hour-of-week seasonal baseline is
+    /// looked up by `seasonal_key` (the canonical `<device_uid>|<metric_name>`
+    /// the core producer keys by — see [`crate::identity::seasonal_series_key`])
+    /// while the rolling detector state stays keyed by the finer `series_key`.
+    /// This is what reconciles the edge detector keyspace with central's
+    /// `series:uid` profile keyspace so a delivered baseline actually resolves.
+    pub fn evaluate_with_seasonal_key(
+        &mut self,
+        series_key: &str,
+        seasonal_key: &str,
+        value: f64,
+        observed_at_unix_nano: u64,
+        profile: SeriesProfile,
+    ) -> Option<ReasonVerdict> {
         if !value.is_finite() {
             return None;
         }
@@ -499,7 +519,7 @@ impl DetectorEngine {
         // conflict with that `&mut self.series` borrow. All-`None` when no usable
         // baseline is delivered (the back-compat rolling-only path).
         let (seasonal_baseline, seasonal_enabled, seasonal_min_samples, seasonal_n_sigma) =
-            self.seasonal_context(series_key, observed_at_unix_nano);
+            self.seasonal_context(seasonal_key, observed_at_unix_nano);
 
         if !self.series.contains_key(series_key) {
             if self.series.len() >= self.config.max_series {
@@ -596,9 +616,38 @@ impl DetectorEngine {
         observed_at_unix_nano: u64,
         profile: SeriesProfile,
     ) -> Option<TransitionVerdict> {
+        // Default seasonal key == detector key (back-compat for existing callers).
+        self.evaluate_transition_with_seasonal_key(
+            series_key,
+            series_key,
+            value,
+            observed_at_unix_nano,
+            profile,
+        )
+    }
+
+    /// [`Self::evaluate_transition`], but the delivered seasonal baseline is
+    /// resolved by `seasonal_key` (the canonical `<device_uid>|<metric_name>`)
+    /// rather than the finer detector `series_key`. The edge feed path uses this
+    /// so the central hour-of-week baseline keyed by `series:uid` resolves while
+    /// per-core/per-dimension detector state stays separated by `series_key`.
+    pub fn evaluate_transition_with_seasonal_key(
+        &mut self,
+        series_key: &str,
+        seasonal_key: &str,
+        value: f64,
+        observed_at_unix_nano: u64,
+        profile: SeriesProfile,
+    ) -> Option<TransitionVerdict> {
         let (value, observed_at_unix_nano) =
             self.next_evaluation_sample(series_key, value, observed_at_unix_nano, profile)?;
-        let verdict = self.evaluate(series_key, value, observed_at_unix_nano, profile)?;
+        let verdict = self.evaluate_with_seasonal_key(
+            series_key,
+            seasonal_key,
+            value,
+            observed_at_unix_nano,
+            profile,
+        )?;
         let state = self.series.get_mut(series_key)?;
         let clear_slots = self.config.confirm_slots.max(1);
         let mut episode = None;

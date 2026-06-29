@@ -106,6 +106,46 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
     end
   end
 
+  @doc """
+  Fetch + hydrate the hour-of-week profile rows for one source into the
+  `EdgeBaseline.build/2` input shape (the same typed `{series_key, dow, hod,
+  center/mad/p05/p95/bucket_*}` rows the disposition path hydrates), WITHOUT
+  loading the carried-hysteresis state the verdict pass needs.
+
+  The edge-baseline producer reduces these rows to the compact per-series
+  `seasonal_baselines` payload pushed core->edge, so it reuses the exact SRQL fetch
+  + row hydration the disposition verdict pass uses — there is only one definition
+  of how a profile row maps to the robust order statistics.
+  """
+  @spec edge_baseline_rows(Source.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  def edge_baseline_rows(%Source{} = source, opts \\ []) do
+    opts = merge_runtime_opts(opts)
+    runner = Keyword.get(opts, :runner, SRQLRunner)
+    runner_opts = Keyword.get(opts, :runner_opts, [])
+    config = seasonal_config(source, opts)
+
+    case fetch_rows(runner, source.query, runner_opts, opts) do
+      {:ok, raw_rows} ->
+        rows =
+          raw_rows
+          |> Enum.map(&unwrap_payload/1)
+          |> Enum.map(&seasonal_row(&1, source, config))
+          |> Enum.reject(&is_nil/1)
+
+        {:ok, rows}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # The SRQL `profile_hour_of_week` route returns one `jsonb_build_object(...)`
+  # column, so `SRQLRunner` rows arrive as `%{"payload" => %{...}}`. Flatten that to
+  # the top-level field map `seasonal_row/3` reads. Rows already flat (the injected
+  # test runners) pass through unchanged.
+  defp unwrap_payload(%{"payload" => %{} = payload} = row) when map_size(row) == 1, do: payload
+  defp unwrap_payload(row), do: row
+
   defp refresh_source(%Source{} = source, opts) do
     runner = Keyword.get(opts, :runner, SRQLRunner)
     runner_opts = Keyword.get(opts, :runner_opts, [])
