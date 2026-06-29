@@ -140,44 +140,7 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 		return true
 	}
 
-	// Update intervals from config response
-	if configResp.HeartbeatIntervalSec > 0 {
-		newInterval := time.Duration(configResp.HeartbeatIntervalSec) * time.Second
-		if newInterval < time.Second {
-			newInterval = time.Second
-		}
-		if newInterval > time.Hour {
-			newInterval = time.Hour
-		}
-		if newInterval != p.getInterval() {
-			p.setInterval(newInterval)
-			p.logger.Info().Dur("interval", newInterval).Msg("Updated push interval from config")
-			if !p.isStatusDebounceConfigured() {
-				p.setStatusDebounceInterval(newInterval)
-			}
-		}
-		if !p.isStatusHeartbeatConfigured() {
-			p.setStatusHeartbeatInterval(newInterval)
-		}
-	}
-
-	if configResp.ConfigPollIntervalSec > 0 {
-		newPollInterval := time.Duration(configResp.ConfigPollIntervalSec) * time.Second
-		// Safety bounds to avoid gateway/agent overload or "never poll" configurations.
-		const (
-			minConfigPollInterval = 30 * time.Second
-			maxConfigPollInterval = 24 * time.Hour
-		)
-		if newPollInterval < minConfigPollInterval {
-			newPollInterval = minConfigPollInterval
-		} else if newPollInterval > maxConfigPollInterval {
-			newPollInterval = maxConfigPollInterval
-		}
-		if newPollInterval != p.getConfigPollInterval() {
-			p.setConfigPollInterval(newPollInterval)
-			p.logger.Info().Dur("interval", newPollInterval).Msg("Updated config poll interval")
-		}
-	}
+	p.applyConfigIntervals(configResp)
 
 	// The control plane re-streams the SAME deterministic config version on every dependency
 	// write (not_modified:false), and a genuinely-transient section keeps that version
@@ -297,6 +260,48 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 	return true
 }
 
+// applyConfigIntervals updates the push/heartbeat and config-poll intervals from the config
+// response, clamping each to safe bounds.
+func (p *PushLoop) applyConfigIntervals(configResp *proto.AgentConfigResponse) {
+	if configResp.HeartbeatIntervalSec > 0 {
+		newInterval := time.Duration(configResp.HeartbeatIntervalSec) * time.Second
+		if newInterval < time.Second {
+			newInterval = time.Second
+		}
+		if newInterval > time.Hour {
+			newInterval = time.Hour
+		}
+		if newInterval != p.getInterval() {
+			p.setInterval(newInterval)
+			p.logger.Info().Dur("interval", newInterval).Msg("Updated push interval from config")
+			if !p.isStatusDebounceConfigured() {
+				p.setStatusDebounceInterval(newInterval)
+			}
+		}
+		if !p.isStatusHeartbeatConfigured() {
+			p.setStatusHeartbeatInterval(newInterval)
+		}
+	}
+
+	if configResp.ConfigPollIntervalSec > 0 {
+		newPollInterval := time.Duration(configResp.ConfigPollIntervalSec) * time.Second
+		// Safety bounds to avoid gateway/agent overload or "never poll" configurations.
+		const (
+			minConfigPollInterval = 30 * time.Second
+			maxConfigPollInterval = 24 * time.Hour
+		)
+		if newPollInterval < minConfigPollInterval {
+			newPollInterval = minConfigPollInterval
+		} else if newPollInterval > maxConfigPollInterval {
+			newPollInterval = maxConfigPollInterval
+		}
+		if newPollInterval != p.getConfigPollInterval() {
+			p.setConfigPollInterval(newPollInterval)
+			p.logger.Info().Dur("interval", newPollInterval).Msg("Updated config poll interval")
+		}
+	}
+}
+
 // errConfigSectionNoAgentServer is recorded as a permanent config-section failure when a
 // section cannot apply because the agent server is unavailable. The server is set at agent
 // construction and never appears mid-run, so a resend of the same config cannot fix it.
@@ -307,26 +312,17 @@ var errConfigSectionNoAgentServer = errors.New("agent server not available")
 // the identical config version cannot resolve.
 var errBumblebeeCatalogMissing = errors.New("bumblebee config enabled without a catalog assignment")
 
-// logConfigSectionFailure logs a non-add-on config-section apply failure at a severity that
-// matches its disposition, mirroring logSidecarDeliveryFailure for add-ons. A PERMANENT
-// failure (one a resend of the identical config cannot fix) is logged at info with
-// permanent=true: the agent commits the version and stops re-streaming, so the section will
-// not retry until the config changes and warn-spam every poll would be misleading. A
-// TRANSIENT failure stays at warn because the agent defers the version and retries it.
-func (p *PushLoop) logConfigSectionFailure(
-	section string,
-	err error,
-	disposition addonDeliveryDisposition,
-	msg string,
-) {
-	event := p.logger.Warn()
-	if disposition == addonDeliveryPermanentFailure {
-		event = p.logger.Info()
-	}
-	event.
+// logConfigSectionFailure logs a PERMANENT non-add-on config-section apply failure — one that a
+// resend of the identical config cannot fix (a parse error, a missing agent server, a fixed-path
+// write failure). It logs at info with permanent=true because the agent commits the version and
+// stops re-streaming, so the section will not retry until the config changes and warn-spam every
+// poll would be misleading. Transient section failures defer the version and are logged at warn
+// inline where they defer.
+func (p *PushLoop) logConfigSectionFailure(section string, err error, msg string) {
+	p.logger.Info().
 		Err(err).
 		Str("section", section).
-		Bool("permanent", disposition == addonDeliveryPermanentFailure).
+		Bool("permanent", true).
 		Msg(msg)
 }
 
@@ -388,7 +384,7 @@ func (p *PushLoop) applyBumblebeeConfig(
 	if err != nil {
 		// A structurally-fixed payload that fails to parse will fail identically on every
 		// resend of the same config version: permanent, so record it but do not defer.
-		p.logConfigSectionFailure("bumblebee", err, addonDeliveryPermanentFailure,
+		p.logConfigSectionFailure("bumblebee", err,
 			"Failed to parse Bumblebee config from gateway")
 		return addonDeliveryPermanentFailure
 	}
@@ -397,7 +393,7 @@ func (p *PushLoop) applyBumblebeeConfig(
 	}
 	if p.server == nil {
 		// The agent server is set at construction and never appears mid-run: permanent.
-		p.logConfigSectionFailure("bumblebee", errConfigSectionNoAgentServer, addonDeliveryPermanentFailure,
+		p.logConfigSectionFailure("bumblebee", errConfigSectionNoAgentServer,
 			"Cannot apply Bumblebee config without agent server")
 		return addonDeliveryPermanentFailure
 	}
@@ -435,7 +431,7 @@ func (p *PushLoop) applyBumblebeeConfig(
 		if cfg.Catalog == nil {
 			// Enabled with no catalog is a control-plane config inconsistency for this exact
 			// version; a resend of the identical config cannot supply one: permanent.
-			p.logConfigSectionFailure("bumblebee", errBumblebeeCatalogMissing, addonDeliveryPermanentFailure,
+			p.logConfigSectionFailure("bumblebee", errBumblebeeCatalogMissing,
 				"Bumblebee config is enabled but has no catalog assignment")
 			return addonDeliveryPermanentFailure
 		}
@@ -490,7 +486,7 @@ func (p *PushLoop) applyBumblebeeConfig(
 		// The profile path and contents are fixed for this version, so a resend writes the
 		// same bytes to the same path and fails the same way: permanent (record, do not
 		// defer). A real underlying fault (e.g. disk) is picked up on the next config change.
-		p.logConfigSectionFailure("bumblebee", err, addonDeliveryPermanentFailure,
+		p.logConfigSectionFailure("bumblebee", err,
 			"Failed to write Bumblebee runtime profile")
 		return addonDeliveryPermanentFailure
 	} else if changed {
@@ -514,7 +510,7 @@ func (p *PushLoop) applyEndpointInventoryConfig(
 		// resend of the same config version: permanent, so record it but do not defer. This
 		// is the fj #4301 wedge — endpoint inventory is enabled-by-default, so a defer here
 		// blocked the version commit and made the gateway re-stream the same version forever.
-		p.logConfigSectionFailure("endpoint_inventory", err, addonDeliveryPermanentFailure,
+		p.logConfigSectionFailure("endpoint_inventory", err,
 			"Failed to parse endpoint inventory config from gateway")
 		return addonDeliveryPermanentFailure
 	}
@@ -523,7 +519,7 @@ func (p *PushLoop) applyEndpointInventoryConfig(
 	}
 	if p.server == nil {
 		// The agent server is set at construction and never appears mid-run: permanent.
-		p.logConfigSectionFailure("endpoint_inventory", errConfigSectionNoAgentServer, addonDeliveryPermanentFailure,
+		p.logConfigSectionFailure("endpoint_inventory", errConfigSectionNoAgentServer,
 			"Cannot apply endpoint inventory config without agent server")
 		return addonDeliveryPermanentFailure
 	}
@@ -568,7 +564,7 @@ func (p *PushLoop) applyEndpointInventoryConfig(
 		// The profile path and contents are fixed for this version, so a resend writes the
 		// same bytes to the same path and fails the same way: permanent (record, do not
 		// defer). A real underlying fault (e.g. disk) is picked up on the next config change.
-		p.logConfigSectionFailure("endpoint_inventory", err, addonDeliveryPermanentFailure,
+		p.logConfigSectionFailure("endpoint_inventory", err,
 			"Failed to write endpoint inventory runtime profile")
 		return addonDeliveryPermanentFailure
 	} else if changed {
@@ -684,7 +680,7 @@ func (p *PushLoop) applyVisibilityConfig(
 		if err != nil {
 			// A malformed add-on config JSON is structurally fixed for this version, so it
 			// fails identically on every resend: permanent (record, do not defer).
-			p.logConfigSectionFailure("visibility", err, addonDeliveryPermanentFailure,
+			p.logConfigSectionFailure("visibility", err,
 				"Failed to merge netprobe add-on config")
 			return addonDeliveryPermanentFailure
 		}
@@ -699,7 +695,7 @@ func (p *PushLoop) applyVisibilityConfig(
 			// The bootstrap path and contents are fixed for this version, so a resend writes
 			// the same bytes to the same path and fails the same way: permanent (record, do
 			// not defer). A real underlying fault is picked up on the next config change.
-			p.logConfigSectionFailure("visibility", err, addonDeliveryPermanentFailure,
+			p.logConfigSectionFailure("visibility", err,
 				"Failed to write netprobe bootstrap config")
 			return addonDeliveryPermanentFailure
 		}
