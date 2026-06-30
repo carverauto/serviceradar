@@ -607,6 +607,60 @@ fn translate_rate_downsample_orders_by_bucket_and_series() {
 }
 
 #[test]
+fn translate_rate_downsample_is_counter_wrap_aware() {
+    // A busy 1 Gbps link stores 32-bit Counter32 octets that wrap inside the poll
+    // interval. The rate CTE must recover the real delta by adding the counter modulus
+    // on a decrease (instead of dropping the wrapped sample as NULL), branching on the
+    // per-sample counter_width column.
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:snmp metric_name:\"ifOutOctets\" time:last_1h bucket:5m agg:rate series:if_index limit:25"
+            .to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+    let sql = response.sql.to_lowercase();
+
+    assert!(
+        sql.contains("counter_width = 32"),
+        "expected explicit 32-bit wrap branch, got: {}",
+        response.sql
+    );
+    assert!(
+        sql.contains("counter_width = 64"),
+        "expected explicit 64-bit wrap branch, got: {}",
+        response.sql
+    );
+    assert!(
+        sql.contains("4294967296"),
+        "expected 2^32 modulus added on wrap, got: {}",
+        response.sql
+    );
+    assert!(
+        sql.contains("18446744073709551616"),
+        "expected 2^64 modulus added on HC wrap, got: {}",
+        response.sql
+    );
+    // The unknown-width legacy branch only assumes a 32-bit wrap when the previous value
+    // still fit in 32 bits; a larger prev value is treated as a genuine reset.
+    assert!(
+        sql.contains("prev_value < 4294967296"),
+        "expected unknown-width 32-bit heuristic guard, got: {}",
+        response.sql
+    );
+    // The old unconditional drop-on-decrease must be gone for counter_width tables.
+    assert!(
+        !sql.contains("when value < prev_value then null"),
+        "expected wrap-aware CTE to replace the drop-on-decrease rule, got: {}",
+        response.sql
+    );
+}
+
+#[test]
 fn translate_graph_cypher_rejects_mutations() {
     let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
     let request = QueryRequest {

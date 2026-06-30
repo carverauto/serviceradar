@@ -218,7 +218,7 @@ func (c *SNMPCollector) processResult(ctx context.Context, oid string, value int
 		if exists && prevStatus.LastValue != nil && !prevStatus.LastUpdate.IsZero() {
 			elapsed := now.Sub(prevStatus.LastUpdate).Seconds()
 			if elapsed > 0 {
-				delta, ok := calculateDelta(prevStatus.LastValue, converted, 0)
+				delta, ok := calculateDelta(prevStatus.LastValue, converted, counterWidth)
 				if !ok {
 					c.updateOIDStatus(oidConfig.Name, &DataPoint{
 						Value:     converted,

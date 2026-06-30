@@ -114,20 +114,48 @@ func (s *GRPCDiscoveryService) StartDiscovery(ctx context.Context, req *proto.Di
 func convertInterfaceToProto(iface *DiscoveredInterface) (*proto.DiscoveredInterface, bool) {
 	// Since all fields are already of the correct type (int32), no bounds checking is needed
 	return &proto.DiscoveredInterface{
-		DeviceIp:      iface.DeviceIP,
-		DeviceId:      iface.DeviceID,
-		IfIndex:       iface.IfIndex,
-		IfName:        iface.IfName,
-		IfDescr:       iface.IfDescr,
-		IfAlias:       iface.IfAlias,
-		IfSpeed:       wrapperspb.UInt64(iface.IfSpeed), // wrap the uint64 IfSpeed value
-		IfPhysAddress: iface.IfPhysAddress,
-		IpAddresses:   iface.IPAddresses,
-		IfAdminStatus: iface.IfAdminStatus,
-		IfOperStatus:  iface.IfOperStatus,
-		IfType:        iface.IfType,
-		Metadata:      iface.Metadata,
+		DeviceIp:         iface.DeviceIP,
+		DeviceId:         iface.DeviceID,
+		IfIndex:          iface.IfIndex,
+		IfName:           iface.IfName,
+		IfDescr:          iface.IfDescr,
+		IfAlias:          iface.IfAlias,
+		IfSpeed:          wrapperspb.UInt64(iface.IfSpeed), // wrap the uint64 IfSpeed value
+		IfPhysAddress:    iface.IfPhysAddress,
+		IpAddresses:      iface.IPAddresses,
+		IfAdminStatus:    iface.IfAdminStatus,
+		IfOperStatus:     iface.IfOperStatus,
+		IfType:           iface.IfType,
+		Metadata:         iface.Metadata,
+		AvailableMetrics: convertInterfaceMetricsToProto(iface.AvailableMetrics),
 	}, true
+}
+
+// convertInterfaceMetricsToProto carries the SNMP metric capability metadata probed during
+// discovery (notably Supports64Bit / OID64Bit) onto the wire. Dropping it here used to strand
+// 64-bit (HC) counter support so a high-traffic interface kept polling the 32-bit Counter32
+// OIDs that wrap inside the poll interval; the core sync selector needs supports_64bit to
+// switch the interface to ifHC* OIDs.
+func convertInterfaceMetricsToProto(metrics []InterfaceMetric) []*proto.InterfaceMetric {
+	if len(metrics) == 0 {
+		return nil
+	}
+
+	protoMetrics := make([]*proto.InterfaceMetric, 0, len(metrics))
+	for i := range metrics {
+		m := metrics[i]
+		protoMetrics = append(protoMetrics, &proto.InterfaceMetric{
+			Name:           m.Name,
+			Oid:            m.OID,
+			DataType:       m.DataType,
+			Supports_64Bit: m.Supports64Bit,
+			Oid_64Bit:      m.OID64Bit,
+			Category:       m.Category,
+			Unit:           m.Unit,
+		})
+	}
+
+	return protoMetrics
 }
 
 // convertDeviceToProto converts a DiscoveredDevice to proto.DiscoveredDevice

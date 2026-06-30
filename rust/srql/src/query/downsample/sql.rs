@@ -128,8 +128,64 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
     // For rate aggregation, use a CTE with window functions to calculate rate of change
     if is_rate_agg(downsample.agg) {
         // Rate calculation: (current_value - previous_value) / time_delta_seconds
-        // This handles SNMP counter metrics properly by calculating the rate of change per second
-        // We skip rows where value < prev_value (counter wrap/reset) to avoid negative rates
+        // This handles SNMP counter metrics properly by calculating the rate of change per second.
+        //
+        // Counter-wrap awareness: a 32-bit Counter32 (ifInOctets/ifOutOctets) on a busy
+        // 1 Gbps link wraps (2^32 bytes) every ~34s, often *inside* the poll interval. The
+        // old `WHEN value < prev_value THEN NULL` rule dropped every wrapped sample, which
+        // made busy links read as ~KB/s instead of hundreds of Mbps. We now add the counter
+        // modulus on a decrease (value + 2^width - prev_value) so the real delta is recovered,
+        // and only fall back to NULL when the decrease looks like a genuine counter reset
+        // rather than a wrap. The modulus is chosen from the per-sample `counter_width`
+        // column (see migration add_counter_width_to_timeseries_metrics): 64 -> 2^64,
+        // 32 -> 2^32, and NULL/unknown -> a 32-bit heuristic (only when prev_value still fit
+        // in 32 bits; otherwise the prior value could not have been a Counter32 so the
+        // decrease is treated as a reset and dropped).
+        let time_delta = format!("NULLIF(EXTRACT(EPOCH FROM ({ts_col} - prev_timestamp)), 0)");
+
+        // Only the timeseries-family raw tables carry the `counter_width` column. Other
+        // metric tables (cpu/memory/disk/process) keep the legacy drop-on-decrease behavior.
+        let has_counter_width = matches!(
+            plan.entity,
+            Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics
+        );
+
+        let (counter_width_select, rate_case) = if has_counter_width {
+            (
+                ",\n    counter_width".to_string(),
+                format!(
+                    r#"CASE
+      -- Monotonic increase (the common case): plain delta / elapsed seconds.
+      WHEN {value_col} >= prev_value
+        THEN ({value_col} - prev_value) / {time_delta}
+      -- Decrease on a 64-bit (HC) counter: add the 2^64 modulus.
+      WHEN counter_width = 64
+        THEN ({value_col} + 18446744073709551616 - prev_value) / {time_delta}
+      -- Decrease on an explicit 32-bit counter: add the 2^32 modulus.
+      WHEN counter_width = 32
+        THEN ({value_col} + 4294967296 - prev_value) / {time_delta}
+      -- Unknown width (legacy rows): assume a 32-bit wrap only when the previous value
+      -- still fit in 32 bits; otherwise treat the decrease as a genuine reset and drop it.
+      WHEN prev_value < 4294967296
+        THEN ({value_col} + 4294967296 - prev_value) / {time_delta}
+      ELSE NULL
+    END"#
+                ),
+            )
+        } else {
+            (
+                String::new(),
+                format!(
+                    r#"CASE
+      -- Skip counter wraps/resets (when current < previous, counter wrapped or reset)
+      WHEN {value_col} < prev_value THEN NULL
+      -- Calculate rate: delta_value / delta_time_seconds
+      ELSE ({value_col} - prev_value) / {time_delta}
+    END"#
+                ),
+            )
+        };
+
         let sql = format!(
             r#"WITH ordered_data AS (
   SELECT
@@ -137,7 +193,7 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
     {series_expr} AS series,
     {value_col},
     LAG({value_col}) OVER (PARTITION BY {series_expr} ORDER BY {ts_col}) AS prev_value,
-    LAG({ts_col}) OVER (PARTITION BY {series_expr} ORDER BY {ts_col}) AS prev_timestamp
+    LAG({ts_col}) OVER (PARTITION BY {series_expr} ORDER BY {ts_col}) AS prev_timestamp{counter_width_select}
   FROM {table}
   WHERE {where_clause}
 ),
@@ -145,12 +201,7 @@ rate_data AS (
   SELECT
     {ts_col} AS timestamp,
     series,
-    CASE
-      -- Skip counter wraps/resets (when current < previous, counter wrapped or reset)
-      WHEN {value_col} < prev_value THEN NULL
-      -- Calculate rate: delta_value / delta_time_seconds
-      ELSE ({value_col} - prev_value) / NULLIF(EXTRACT(EPOCH FROM ({ts_col} - prev_timestamp)), 0)
-    END AS rate_value
+    {rate_case} AS rate_value
   FROM ordered_data
   WHERE prev_value IS NOT NULL  -- Skip first row which has no previous
 )

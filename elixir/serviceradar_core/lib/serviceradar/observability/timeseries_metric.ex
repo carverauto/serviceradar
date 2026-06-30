@@ -44,6 +44,7 @@ defmodule ServiceRadar.Observability.TimeseriesMetric do
         :partition,
         :scale,
         :is_delta,
+        :counter_width,
         :target_device_ip,
         :if_index,
         :metadata,
@@ -124,6 +125,13 @@ defmodule ServiceRadar.Observability.TimeseriesMetric do
       default false
       public? true
       description "Whether this is a delta value"
+    end
+
+    attribute :counter_width, :integer do
+      public? true
+
+      description "Bit width of the source SNMP counter (32 or 64); NULL when unknown. " <>
+                    "Used by the SRQL rate query to pick the counter modulus on wrap."
     end
 
     attribute :target_device_ip, :string do
