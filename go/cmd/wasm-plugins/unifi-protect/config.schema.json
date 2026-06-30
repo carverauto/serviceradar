@@ -3,7 +3,8 @@
   "properties": {
     "host": {
       "type": "string",
-      "description": "UniFi Protect controller host or IP"
+      "x-serviceradar-ui-hidden": true,
+      "description": "UniFi Protect controller host or IP. Injected per target at runtime from credential rules / SRQL-scoped targets; not configured per assignment."
     },
     "scheme": {
       "type": "string",
@@ -66,6 +67,5 @@
       "description": "Protect RTSP relay port",
       "default": 7447
     }
-  },
-  "required": ["host"]
+  }
 }

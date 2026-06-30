@@ -3,7 +3,8 @@
   "properties": {
     "host": {
       "type": "string",
-      "description": "AXIS camera host or IP"
+      "x-serviceradar-ui-hidden": true,
+      "description": "AXIS camera host or IP. Injected per target at runtime from credential rules / SRQL-scoped targets; not configured per assignment."
     },
     "scheme": {
       "type": "string",
@@ -49,6 +50,5 @@
       "description": "VAPIX websocket sources query string value",
       "default": "events"
     }
-  },
-  "required": ["host"]
+  }
 }
