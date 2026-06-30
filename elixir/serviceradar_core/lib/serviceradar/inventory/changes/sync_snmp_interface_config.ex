@@ -384,6 +384,7 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
 
   defp normalize_metrics(metrics) when is_list(metrics) do
     metrics
+    |> Enum.map(&decode_metric/1)
     |> Enum.filter(&is_map/1)
     |> Map.new(fn metric ->
       {normalize_metric_name(Map.get(metric, "name") || Map.get(metric, :name)), metric}
@@ -391,6 +392,25 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
   end
 
   defp normalize_metrics(_), do: %{}
+
+  # `available_metrics` is an `{:array, :map}` column, but the
+  # `platform.discovered_interfaces.available_metrics` jsonb[] has been observed
+  # holding an array of JSON-encoded strings (e.g.
+  # `"{\"oid\": ..., \"supports_64bit\": true}"`) instead of jsonb objects.
+  # Without decoding, the `is_map/1` filter silently drops every element, so the
+  # 64-bit capability (`supports_64bit`/`oid_64bit`) is never seen and the
+  # selector falls back to the 32-bit OID. Decode string elements so
+  # `resolve_metric_oid/1` can honor the high-capacity counters.
+  defp decode_metric(metric) when is_map(metric), do: metric
+
+  defp decode_metric(metric) when is_binary(metric) do
+    case Jason.decode(metric) do
+      {:ok, decoded} when is_map(decoded) -> decoded
+      _ -> nil
+    end
+  end
+
+  defp decode_metric(_), do: nil
 
   defp normalize_metric_name(metric) when is_atom(metric), do: Atom.to_string(metric)
   defp normalize_metric_name(metric) when is_binary(metric), do: metric
