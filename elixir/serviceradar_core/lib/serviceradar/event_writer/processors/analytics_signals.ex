@@ -35,6 +35,13 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   @ocsf_detection_finding_type_uid 200_401
   @ocsf_create_activity_id 1
   @structured_series_key_pattern ~r/^v\d+:/
+  # Anomaly lifecycle states that represent a CONFIRMED-open anomaly (surface the
+  # finding) versus its resolution (surface the clear so downstream alert state
+  # machines can close it). Every other anomaly.state value (pending_anomaly, clean,
+  # none, insufficient_baseline) is an unconfirmed breadcrumb and is withheld.
+  @anomaly_open_states ["anomalous", "anomaly_open", "anomaly_drift"]
+  @anomaly_clear_states ["anomaly_clear", "cleared", "inactive", "resolved", "closed"]
+  @anomaly_pending_detector_state "pending_anomaly"
   @ocsf_event_conflict_target [:time, :id]
   @ocsf_event_replace_fields [
     :class_uid,
@@ -803,7 +810,28 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   end
 
   defp build_anomaly_detection_finding_row(normalized, payload, raw_data, metadata) do
-    severity_id = normalized["severity_id"] || 0
+    # A. Consumer backstop gate (primary, producer-version-independent). A
+    # prediction-anomaly breadcrumb is surfaced as an OCSF Detection Finding ONLY
+    # once the detector has CONFIRMED the anomaly. An UNCONFIRMED pending breadcrumb
+    # (detector_state "pending_anomaly", a lifecycle state outside the confirmed/open
+    # set, or fewer consecutive breaching slots than the producer's confirm_slots) is
+    # withheld so a stale add-on that emits pre-confirmation cannot raise a
+    # High-severity event. Mirrors the seasonal worker `surfaces?` contract
+    # (observability/seasonal_disposition/worker.ex). Capacity forecasts and
+    # anomaly_clear resolutions are never gated here (see anomaly_finding_unconfirmed?/2).
+    if anomaly_finding_unconfirmed?(normalized, payload) do
+      anomaly_detection_unconfirmed_telemetry(payload)
+      nil
+    else
+      build_confirmed_anomaly_detection_finding_row(normalized, payload, raw_data, metadata)
+    end
+  end
+
+  defp build_confirmed_anomaly_detection_finding_row(normalized, payload, raw_data, metadata) do
+    # B(i). Confirmation-aware severity (defense-in-depth behind the A gate): a
+    # pending breadcrumb that ever reaches row-build is clamped to Informational/Low,
+    # regardless of the producer's severity_id.
+    severity_id = anomaly_detection_severity_id(normalized, payload)
     # Resolve the canonical device uid once and thread it through every consumer
     # (device.uid, metadata.service_radar.device_uid, finding_info dimensions, and
     # the deterministic finding_uid) so the re-key stays coherent and we pay at
@@ -1738,6 +1766,77 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
           anomaly_detection_metric_name(payload, get_in(payload, ["anomaly", "metric_class"])),
         if_index: anomaly_detection_if_index(payload),
         target_device_ip: anomaly_detection_target_device_ip(payload)
+      }
+    )
+  end
+
+  # A. Confirmation backstop. True when an anomaly-detection finding is an UNCONFIRMED
+  # pending breadcrumb that must NOT be surfaced as an OCSF event. Capacity-forecast
+  # verdicts (no anomaly lifecycle) and anomaly resolutions (anomaly_clear, so a
+  # previously-confirmed finding can be closed downstream) always surface.
+  defp anomaly_finding_unconfirmed?(normalized, payload) do
+    cond do
+      capacity_forecast_signal?(normalized, payload) -> false
+      not is_map(payload["anomaly"]) -> false
+      anomaly_clear_finding?(payload) -> false
+      true -> not anomaly_finding_confirmed?(payload)
+    end
+  end
+
+  defp anomaly_clear_finding?(payload) do
+    get_in(payload, ["anomaly", "state"]) in @anomaly_clear_states or
+      get_in(payload, ["anomaly", "detector_state"]) in @anomaly_clear_states
+  end
+
+  defp anomaly_finding_confirmed?(payload) do
+    detector_state = get_in(payload, ["anomaly", "detector_state"])
+    state = get_in(payload, ["anomaly", "state"])
+
+    detector_state != @anomaly_pending_detector_state and
+      state in @anomaly_open_states and
+      not anomaly_consecutive_below_confirm?(payload)
+  end
+
+  # Only treat the slot count as disqualifying when the producer reported BOTH the
+  # observed consecutive count AND its confirm_slots threshold — we must not assume a
+  # default threshold against a producer that may be tuned lower (we would wrongly drop
+  # a legitimately confirmed finding). Absent confirm_slots, detector_state/state are
+  # the authoritative confirmation signals.
+  defp anomaly_consecutive_below_confirm?(payload) do
+    with consecutive when is_integer(consecutive) <-
+           get_in(payload, ["anomaly", "consecutive_anomalous"]),
+         confirm_slots when is_integer(confirm_slots) and confirm_slots > 0 <-
+           get_in(payload, ["anomaly", "confirm_slots"]) do
+      consecutive < confirm_slots
+    else
+      _ -> false
+    end
+  end
+
+  # B(i). Confirmation-aware severity clamp (defense-in-depth behind the A gate): an
+  # unconfirmed pending breadcrumb is never allowed past Low (severity_id 2), regardless
+  # of the producer's severity_id. A confirmed finding keeps its producer severity.
+  @doc false
+  def anomaly_detection_severity_id(normalized, payload) do
+    severity_id = normalized["severity_id"] || 0
+
+    if anomaly_finding_unconfirmed?(normalized, payload) do
+      min(severity_id, 2)
+    else
+      severity_id
+    end
+  end
+
+  defp anomaly_detection_unconfirmed_telemetry(payload) do
+    :telemetry.execute(
+      [:serviceradar, :event_writer, :anomaly_detection, :unconfirmed_skipped],
+      %{count: 1},
+      %{
+        metric_class: get_in(payload, ["anomaly", "metric_class"]),
+        detector_state: get_in(payload, ["anomaly", "detector_state"]),
+        state: get_in(payload, ["anomaly", "state"]),
+        consecutive_anomalous: get_in(payload, ["anomaly", "consecutive_anomalous"]),
+        verdict_source: payload["verdict_source"]
       }
     )
   end

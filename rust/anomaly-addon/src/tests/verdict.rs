@@ -420,3 +420,74 @@ fn edge_verdict_includes_signal_evidence_for_operator_explanation() {
     assert_eq!(signal["stddev"], 17.6);
     assert_eq!(signal["reason"], "rolling_zscore breach");
 }
+
+#[test]
+fn severity_id_clamps_unconfirmed_breadcrumb_to_low() {
+    use crate::verdict::severity_id_from_score;
+
+    // Confirmed: the raw z-score / magnitude maps straight through.
+    assert_eq!(severity_id_from_score(6.5, true), 5);
+    assert_eq!(severity_id_from_score(4.82, true), 4);
+    assert_eq!(severity_id_from_score(2.5, true), 3);
+    assert_eq!(severity_id_from_score(1.0, true), 2);
+
+    // Unconfirmed (pending breadcrumb): never escalates past Low, regardless of
+    // how large the raw score is.
+    assert_eq!(severity_id_from_score(6.5, false), 2);
+    assert_eq!(severity_id_from_score(4.82, false), 2);
+    assert_eq!(severity_id_from_score(2.5, false), 2);
+    assert_eq!(severity_id_from_score(1.0, false), 2);
+}
+
+#[test]
+fn pending_verdict_record_clamps_severity_even_when_surfaced() {
+    // Simulate a (stale) producer emitting a still-pending breadcrumb as if it
+    // were an open transition: the high z-score must not raise a High-severity
+    // event because the anomaly is not yet confirmed.
+    let resource = MetricResource {
+        agent_id: "agent-ns03".to_string(),
+        host_id: "ns03".to_string(),
+        partition: "demo".to_string(),
+        ..Default::default()
+    };
+    let metric = Metric {
+        name: "cpu.usage_percent".to_string(),
+        metric_type: "sysmon.cpu".to_string(),
+        ..Default::default()
+    };
+    let point = MetricPoint {
+        value: 92.0,
+        observed_at_unix_nano: 1_812_456_040_000_000_000,
+        ..Default::default()
+    };
+    let series_key = series_key_for(&resource, &metric, &point);
+    let verdict = ReasonVerdict {
+        state: "pending_anomaly".to_string(),
+        anomalous: false,
+        breached: true,
+        include_in_baseline: false,
+        next_consecutive_anomalous: 1,
+        score: 4.82,
+        reason: "breach pending confirmation at 1/5 consecutive anomalous slots".to_string(),
+        baseline_count: 300,
+        next_rolling_acc: serviceradar_anomaly_core::WelfordAcc::default(),
+        next_window_tail: Vec::new(),
+        sample_value: 92.0,
+        observed_at_unix_nano: Some(point.observed_at_unix_nano),
+        signals: Vec::new(),
+    };
+
+    let record = verdict_record(
+        &resource,
+        &metric,
+        &point,
+        &series_key,
+        &verdict,
+        AnomalyTransition::Open,
+        None,
+    );
+    let event: serde_json::Value = serde_json::from_slice(&record.payload).unwrap();
+
+    assert_eq!(event["anomaly"]["detector_state"], "pending_anomaly");
+    assert_eq!(event["severity_id"], 2);
+}

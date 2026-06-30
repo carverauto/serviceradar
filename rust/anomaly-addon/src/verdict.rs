@@ -34,7 +34,12 @@ pub(crate) fn verdict_record(
         .observed_at_unix_nano
         .unwrap_or(point.observed_at_unix_nano);
     let ts_ms = (ts_nano / 1_000_000) as i64;
-    let severity_id = severity_id_from_score(verdict.score);
+    // Confirmation-aware severity: a pending breadcrumb (a single breaching slot
+    // that has not yet reached `confirm_slots`, i.e. `detector_state ==
+    // "pending_anomaly"` / `!verdict.anomalous`) must never escalate past Low even
+    // when its raw z-score is large; only a CONFIRMED anomaly reaches High/Critical.
+    let confirmed = verdict.anomalous && verdict.state != "pending_anomaly";
+    let severity_id = severity_id_from_score(verdict.score, confirmed);
     let lifecycle_state = anomaly_lifecycle_state(transition);
     let status = anomaly_lifecycle_status(transition);
     let message = anomaly_lifecycle_message(transition, &verdict.reason);
@@ -144,7 +149,10 @@ pub(crate) fn cusum_drift_record(
         .unwrap_or(point.observed_at_unix_nano);
     let ts_ms = (ts_nano / 1_000_000) as i64;
     let magnitude = drift.magnitude();
-    let severity_id = severity_id_from_score(magnitude);
+    // A CUSUM sustained-drift alarm is confirmed by construction (it requires the
+    // accumulated drift to cross the alarm threshold over multiple samples), so it
+    // carries its full magnitude-derived severity.
+    let severity_id = severity_id_from_score(magnitude, true);
     let direction = drift.direction.as_str();
     let reason = format!("sustained {direction} drift");
 
@@ -249,8 +257,17 @@ pub(crate) fn anomaly_lifecycle_message(transition: AnomalyTransition, reason: &
     }
 }
 
-pub(crate) fn severity_id_from_score(score: f64) -> i64 {
-    if score >= 6.0 {
+/// Confirmation-aware OCSF severity for an anomaly verdict.
+///
+/// The raw rolling robust z-score (or CUSUM drift magnitude) maps to a base
+/// severity, but an UNCONFIRMED breadcrumb (`!confirmed`, i.e. `detector_state ==
+/// "pending_anomaly"` / a single breaching slot that has not reached
+/// `confirm_slots`) must never escalate past Low (severity_id 2) — a pending
+/// anomaly is a breadcrumb, not a High/Critical alert. Only a CONFIRMED anomaly
+/// reaches Medium/High/Critical. This mirrors the central consumer backstop in
+/// `ServiceRadar.EventWriter.Processors.AnalyticsSignals`.
+pub(crate) fn severity_id_from_score(score: f64, confirmed: bool) -> i64 {
+    let base = if score >= 6.0 {
         5
     } else if score >= 3.0 {
         4
@@ -258,7 +275,9 @@ pub(crate) fn severity_id_from_score(score: f64) -> i64 {
         3
     } else {
         2
-    }
+    };
+
+    if confirmed { base } else { base.min(2) }
 }
 
 fn anomaly_signals(verdict: &ReasonVerdict) -> Vec<serde_json::Value> {
