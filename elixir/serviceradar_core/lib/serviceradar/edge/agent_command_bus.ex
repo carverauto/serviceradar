@@ -479,15 +479,15 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     GenServer.call(pid, request, @send_timeout)
   catch
     :exit, {:noproc, _} ->
-      ProcessRegistry.unregister({:agent_control, agent_id})
+      maybe_unregister_local({:agent_control, agent_id})
       {:error, :control_session_unavailable}
 
     :exit, {:normal, _} ->
-      ProcessRegistry.unregister({:agent_control, agent_id})
+      maybe_unregister_local({:agent_control, agent_id})
       {:error, :control_session_unavailable}
 
     :exit, reason ->
-      ProcessRegistry.unregister({:agent_control, agent_id})
+      maybe_unregister_local({:agent_control, agent_id})
       {:error, {:control_session_exit, reason}}
   end
 
@@ -1042,11 +1042,24 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   @doc false
   def lookup_control_session_entries(agent_id) when is_binary(agent_id) do
-    if registry_available?() do
+    if ProcessRegistry.registry_present?() do
       ProcessRegistry.lookup_agent_control(agent_id)
     else
-      []
+      case ProcessRegistry.core_node() do
+        nil ->
+          []
+
+        node ->
+          case :erpc.call(node, ProcessRegistry, :lookup_agent_control, [agent_id], 5_000) do
+            entries when is_list(entries) -> entries
+            _ -> []
+          end
+      end
     end
+  rescue
+    error ->
+      Logger.warning("[AgentCommandBus] control-session lookup RPC failed: #{inspect(error)}")
+      []
   end
 
   def lookup_control_session_entries(_agent_id), do: []
@@ -1094,18 +1107,18 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     if process_alive?(pid) do
       true
     else
-      ProcessRegistry.unregister({:agent_control, agent_id})
+      maybe_unregister_local({:agent_control, agent_id})
       false
     end
   end
 
   defp valid_control_session_entry?(_entry, agent_id) do
-    ProcessRegistry.unregister({:agent_control, agent_id})
+    maybe_unregister_local({:agent_control, agent_id})
     false
   end
 
   defp list_online_sessions do
-    if registry_available?() do
+    if ProcessRegistry.registry_present?() do
       :agent_control
       |> ProcessRegistry.select_by_type()
       |> Enum.map(&build_online_session/1)
@@ -1133,7 +1146,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     alive? = is_binary(agent_id) and process_alive?(pid)
 
     if !alive? do
-      ProcessRegistry.unregister(key)
+      maybe_unregister_local(key)
     end
 
     alive?
@@ -1357,7 +1370,18 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   defp present_blob_value?(_value), do: true
 
   defp registry_available? do
-    Process.whereis(ProcessRegistry.registry_name()) != nil
+    ProcessRegistry.registry_present?() or ProcessRegistry.core_node() != nil
+  end
+
+  # web-ng left the Horde mesh (`join_process_registry: false`), so it must only
+  # prune registry entries when it actually holds the local CRDT. A core node owns
+  # the writes; web-ng RPCs its reads and never unregisters remote entries.
+  defp maybe_unregister_local(key) do
+    if ProcessRegistry.registry_present?() do
+      ProcessRegistry.unregister(key)
+    end
+
+    :ok
   end
 
   defp partition_from_metadata(metadata) do
