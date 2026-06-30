@@ -33,6 +33,21 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
     on_exit(fn -> :telemetry.detach(handler_id) end)
   end
 
+  defp attach_unconfirmed_anomaly_telemetry(test_pid \\ self()) do
+    handler_id = {__MODULE__, :unconfirmed_anomaly, make_ref()}
+
+    :telemetry.attach(
+      handler_id,
+      [:serviceradar, :event_writer, :anomaly_detection, :unconfirmed_skipped],
+      fn event, measurements, metadata, _config ->
+        send(test_pid, {:unconfirmed_anomaly, event, measurements, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+  end
+
   defmodule ExistingTimeRepo do
     def query(sql, [ids]) do
       # Mirror the real DB: production binds 16-byte UUID binaries (Postgrex `uuid[]`)
@@ -1403,6 +1418,138 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
 
       assert [] = AnalyticsSignals.alert_evaluation_rows([row])
     end
+  end
+
+  describe "anomaly confirmation gate" do
+    test "withholds unconfirmed pending anomaly breadcrumbs" do
+      attach_unconfirmed_anomaly_telemetry()
+
+      message =
+        anomaly_gate_message(%{
+          "state" => "pending_anomaly",
+          "detector_state" => "pending_anomaly",
+          "consecutive_anomalous" => 1,
+          "confirm_slots" => 5
+        })
+
+      assert AnalyticsSignals.parse_message(message) == nil
+
+      assert_receive {:unconfirmed_anomaly,
+                      [:serviceradar, :event_writer, :anomaly_detection, :unconfirmed_skipped],
+                      %{count: 1},
+                      %{
+                        detector_state: "pending_anomaly",
+                        state: "pending_anomaly",
+                        consecutive_anomalous: 1,
+                        metric_class: "sysmon.cpu"
+                      }}
+    end
+
+    test "withholds breaching slots below confirm_slots even with an open lifecycle state" do
+      message =
+        anomaly_gate_message(%{
+          "state" => "anomaly_open",
+          "consecutive_anomalous" => 1,
+          "confirm_slots" => 5
+        })
+
+      assert AnalyticsSignals.parse_message(message) == nil
+    end
+
+    test "surfaces confirmed anomalies and keeps the producer severity" do
+      message =
+        anomaly_gate_message(%{
+          "state" => "anomaly_open",
+          "detector_state" => "anomalous",
+          "consecutive_anomalous" => 5,
+          "confirm_slots" => 5
+        })
+
+      row = AnalyticsSignals.parse_message(message)
+
+      assert row
+      assert row.class_uid == 2004
+      assert row.severity_id == 4
+      assert row.severity == "High"
+      assert row.metadata["finding_info"]["dimensions"]["detector_state"] == "anomalous"
+    end
+
+    test "surfaces anomaly_clear resolutions so confirmed findings can be closed" do
+      message =
+        anomaly_gate_message(
+          %{
+            "state" => "anomaly_clear",
+            "detector_state" => "inactive"
+          },
+          %{"severity_id" => 2, "status" => "inactive"}
+        )
+
+      row = AnalyticsSignals.parse_message(message)
+
+      assert row
+      assert row.class_uid == 2004
+      assert row.severity_id == 2
+    end
+
+    test "clamps unconfirmed severity to Low and preserves confirmed severity" do
+      pending = %{
+        "anomaly" => %{
+          "metric_class" => "sysmon.cpu",
+          "state" => "pending_anomaly",
+          "detector_state" => "pending_anomaly",
+          "consecutive_anomalous" => 1,
+          "confirm_slots" => 5
+        }
+      }
+
+      confirmed = %{
+        "anomaly" => %{
+          "metric_class" => "sysmon.cpu",
+          "state" => "anomaly_open",
+          "detector_state" => "anomalous",
+          "consecutive_anomalous" => 5,
+          "confirm_slots" => 5
+        }
+      }
+
+      assert AnalyticsSignals.anomaly_detection_severity_id(%{"severity_id" => 4}, pending) == 2
+      assert AnalyticsSignals.anomaly_detection_severity_id(%{"severity_id" => 5}, pending) == 2
+      assert AnalyticsSignals.anomaly_detection_severity_id(%{"severity_id" => 4}, confirmed) == 4
+    end
+  end
+
+  defp anomaly_gate_message(anomaly, overrides \\ %{}) do
+    payload =
+      Map.merge(
+        %{
+          "event_id" => "anomaly-gate-#{System.unique_integer([:positive])}",
+          "signal_type" => "prediction",
+          "event_type" => "anomaly",
+          "class_uid" => 2004,
+          "timestamp" => "2026-06-12T12:00:00Z",
+          "severity_id" => 4,
+          "device_uid" => "sr:anomaly-device",
+          "verdict_source" => "edge-spike",
+          "anomaly" =>
+            Map.merge(
+              %{
+                "series_key" => "sysmon:cpu:sr:anomaly-device",
+                "metric_class" => "sysmon.cpu",
+                "score" => 4.82
+              },
+              anomaly
+            )
+        },
+        overrides
+      )
+
+    %{
+      data: Jason.encode!(payload),
+      metadata: %{
+        subject: "signals.analytics.predictions.sysmon:cpu:sr:anomaly-device",
+        received_at: DateTime.utc_now()
+      }
+    }
   end
 
   defp bmp_burst_messages do
