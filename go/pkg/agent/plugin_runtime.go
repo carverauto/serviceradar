@@ -67,7 +67,6 @@ var (
 	errPluginAssignmentNotFound             = errors.New("plugin assignment not found")
 	errPluginAdmissionDenied                = errors.New("admission denied: max concurrent reached")
 	errPluginActionResultMissing            = errors.New("no result submitted")
-	errPluginResultMetricsUnsupported       = errors.New("plugin result metrics are unsupported; use emit_telemetry serviceradar metrics")
 	errStreamingPluginAssignmentNotFound    = errors.New("streaming plugin assignment not found")
 	errStreamingPluginAdmissionDenied       = errors.New("streaming plugin admission denied: max concurrent reached")
 	errStreamingPluginMediaSessionMissing   = errors.New("streaming plugin did not open a camera media session")

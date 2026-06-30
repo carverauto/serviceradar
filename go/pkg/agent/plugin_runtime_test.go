@@ -1231,15 +1231,26 @@ func TestNormalizePluginPayloadRejectsInvalidStatus(t *testing.T) {
 	}
 }
 
-func TestNormalizePluginPayloadRejectsLegacyMetricArrays(t *testing.T) {
-	pl := &PushLoop{}
+func TestNormalizePluginPayloadStripsLegacyMetricArrays(t *testing.T) {
+	pl := &PushLoop{logger: logger.NewTestLogger()}
 	result := PluginResult{
 		Payload: []byte(`{"status":"ok","summary":"all good","metrics":[{"name":"latency_ms","value":3}]}`),
 	}
 
-	_, _, err := pl.normalizePluginPayload(result, "agent-1", "default")
-	if !errors.Is(err, errPluginResultMetricsUnsupported) {
-		t.Fatalf("expected metrics unsupported error, got %v", err)
+	data, available, err := pl.normalizePluginPayload(result, "agent-1", "default")
+	if err != nil {
+		t.Fatalf("expected legacy metrics to be stripped, got error %v", err)
+	}
+	if !available {
+		t.Fatalf("expected available=true for ok status")
+	}
+
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("decode normalized payload: %v", err)
+	}
+	if _, ok := decoded["metrics"]; ok {
+		t.Fatalf("expected legacy 'metrics' key to be dropped, still present")
 	}
 }
 

@@ -82,7 +82,15 @@ func (p *PushLoop) normalizePluginPayload(
 	}
 
 	if _, ok := payload["metrics"]; ok {
-		return nil, false, errPluginResultMetricsUnsupported
+		// Tolerate plugins built against the pre-cutover SDK that still embed a
+		// top-level `metrics` array in the result body: drop it (it was never
+		// ingested anyway) and continue, so the check's real status/summary/labels
+		// still flow instead of the whole result being discarded as unavailable.
+		// Metrics must now be emitted via emit_telemetry (serviceradar metrics).
+		delete(payload, "metrics")
+		p.logger.Warn().
+			Str("plugin", pluginServiceName(result)).
+			Msg("dropping legacy 'metrics' in plugin result; emit metrics via emit_telemetry serviceradar metrics")
 	}
 
 	summary, ok := payload["summary"].(string)
