@@ -177,6 +177,30 @@ defmodule ServiceRadarWebNGWeb.Api.UserController do
     end
   end
 
+  @doc """
+  POST /api/admin/users/:id/local-login
+
+  Enables or disables local password login for the account (SSO-only vs local).
+  """
+  def set_local_login(conn, %{"id" => id} = params) do
+    scope = conn.assigns.current_scope
+    enabled = parse_bool(params["enabled"])
+
+    case Ash.get(User, id, scope: scope) do
+      {:ok, user} ->
+        user
+        |> Ash.Changeset.for_update(:set_local_login, %{local_login_enabled: enabled}, scope: scope)
+        |> Ash.update(scope: scope)
+        |> case do
+          {:ok, updated} -> json(conn, user_to_json(updated))
+          {:error, error} -> {:error, error}
+        end
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
   defp update_user(user, params, role, scope, conn) do
     display_name = params["display_name"]
     role_profile_id = normalize_profile_id(params["role_profile_id"])
@@ -247,7 +271,7 @@ defmodule ServiceRadarWebNGWeb.Api.UserController do
 
   @impl true
   def skip_preload do
-    [:index, :show, :create, :update, :deactivate, :reactivate]
+    [:index, :show, :create, :update, :deactivate, :reactivate, :set_local_login]
   end
 
   @impl true
@@ -275,6 +299,7 @@ defmodule ServiceRadarWebNGWeb.Api.UserController do
       status: user.status,
       has_password: not is_nil(user.hashed_password) and to_string(user.hashed_password) != "",
       has_external_id: not is_nil(user.external_id) and to_string(user.external_id) != "",
+      local_login_enabled: user.local_login_enabled == true,
       confirmed_at: format_datetime(user.confirmed_at),
       last_login_at: format_datetime(user.last_login_at),
       last_auth_method: user.last_auth_method,
@@ -292,6 +317,12 @@ defmodule ServiceRadarWebNGWeb.Api.UserController do
       :error -> nil
     end
   end
+
+  defp parse_bool(true), do: true
+  defp parse_bool(false), do: false
+  defp parse_bool("true"), do: true
+  defp parse_bool("1"), do: true
+  defp parse_bool(_), do: false
 
   defp format_datetime(nil), do: nil
   defp format_datetime(%DateTime{} = dt), do: DateTime.to_iso8601(dt)

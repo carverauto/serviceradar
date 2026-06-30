@@ -851,6 +851,13 @@ webNg:
   # that rely on UI-driven password changes — otherwise restarts overwrite
   # them.
   adminPasswordForceSync: false
+  # Local-login break-glass + SSO toggle (server-side LoginPolicy).
+  # forceLocalLogin permits local password login regardless of SSO enforcement —
+  # the break-glass recovery hatch for broken AuthSettings/IdP (a valid password is
+  # still required; not a bypass). disableSso hides the SSO button. Both default off.
+  auth:
+    forceLocalLogin: false
+    disableSso: false
   # Trusted Ed25519 public key used to verify signed agent release manifests.
   agentReleasePublicKey: "ZY2//cpkD3oVdC6q4Cg6lN1I2M6SgmDMzL4QyQjptH8="
   # Extra environment variables for the web-ng pod.

@@ -88,6 +88,15 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
   end
 
   @impl true
+  def set_user_local_login(scope, id, enabled) do
+    with {:ok, user} <- Ash.get(User, id, scope: scope) do
+      user
+      |> Ash.Changeset.for_update(:set_local_login, %{local_login_enabled: enabled}, scope: scope)
+      |> Ash.update(scope: scope)
+    end
+  end
+
+  @impl true
   def get_authorization_settings(scope) do
     case AuthorizationSettings
          |> Ash.Query.for_read(:get_singleton, %{}, scope: scope)

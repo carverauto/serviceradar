@@ -157,6 +157,33 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
     end
   end
 
+  def handle_event("toggle_local_login", _params, socket) do
+    scope = socket.assigns.current_scope
+    user = socket.assigns.user
+
+    if ServiceRadarWebNG.RBAC.can?(scope, "settings.auth.manage") do
+      enabled = not (user.local_login_enabled == true)
+
+      case AdminApi.set_user_local_login(scope, user.id, enabled) do
+        {:ok, updated} ->
+          message =
+            if enabled,
+              do: "Local password login enabled",
+              else: "Local password login disabled (SSO-only)"
+
+          {:noreply,
+           socket
+           |> put_flash(:info, message)
+           |> assign(:user, updated)}
+
+        {:error, error} ->
+          {:noreply, put_flash(socket, :error, format_ash_error(error))}
+      end
+    else
+      {:noreply, put_flash(socket, :error, "You don't have permission to manage authentication.")}
+    end
+  end
+
   def handle_event("open_password_modal", _params, socket) do
     if ServiceRadarWebNG.RBAC.can?(socket.assigns.current_scope, "settings.auth.manage") do
       {:noreply,
@@ -219,7 +246,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
       "events_prev" => :read,
       "open_password_modal" => :update,
       "close_password_modal" => :read,
-      "set_password" => :update
+      "set_password" => :update,
+      "toggle_local_login" => :update
     })
   end
 
@@ -353,6 +381,23 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
                   <button class="btn btn-outline btn-sm" type="button" phx-click="open_password_modal">
                     Set password
                   </button>
+                </div>
+
+                <div class="flex items-center justify-between gap-3">
+                  <div>
+                    <div class="text-sm font-semibold">Local password login</div>
+                    <div class="text-xs opacity-60">
+                      Allow this account to sign in with a password when SSO is enforced.
+                      SSO-only accounts should leave this off.
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    class="toggle toggle-primary"
+                    phx-click="toggle_local_login"
+                    checked={@user.local_login_enabled == true}
+                    aria-label="Local password login enabled"
+                  />
                 </div>
               </div>
             </div>

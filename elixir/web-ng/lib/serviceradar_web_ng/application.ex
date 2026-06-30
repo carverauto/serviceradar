@@ -67,6 +67,9 @@ defmodule ServiceRadarWebNG.Application do
     # Bootstrap the default admin user if credentials are available.
     ServiceRadarWebNG.Bootstrap.AdminUser.ensure_admin_user()
 
+    # Loudly surface the local-login break-glass switch when it is active.
+    maybe_warn_break_glass()
+
     # Check core-elx availability for cluster coordination
     check_core_elx_health()
 
@@ -81,6 +84,24 @@ defmodule ServiceRadarWebNG.Application do
   @impl true
   def config_change(changed, _new, removed) do
     web_runtime().config_change(changed, removed)
+    :ok
+  end
+
+  defp maybe_warn_break_glass do
+    auth = Application.get_env(:serviceradar_web_ng, :auth, [])
+
+    if Keyword.get(auth, :force_local_login, false) == true do
+      Logger.warning(
+        "[break-glass] SERVICERADAR_AUTH_FORCE_LOCAL_LOGIN is ACTIVE: local password " <>
+          "login is permitted for any account regardless of SSO enforcement. This is the " <>
+          "break-glass recovery hatch — disable it once normal SSO access is restored."
+      )
+    end
+
+    if Keyword.get(auth, :disable_sso, false) == true do
+      Logger.warning("[auth] SERVICERADAR_AUTH_DISABLE_SSO is active: the SSO button is hidden.")
+    end
+
     :ok
   end
 

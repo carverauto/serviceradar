@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNG.AdminApi do
   @callback update_user(scope(), String.t(), map()) :: {:ok, map()} | {:error, term()}
   @callback deactivate_user(scope(), String.t()) :: {:ok, map()} | {:error, term()}
   @callback reactivate_user(scope(), String.t()) :: {:ok, map()} | {:error, term()}
+  @callback set_user_local_login(scope(), String.t(), boolean()) :: {:ok, map()} | {:error, term()}
   @callback get_authorization_settings(scope()) :: {:ok, map()} | {:error, term()}
   @callback update_authorization_settings(scope(), map()) :: {:ok, map()} | {:error, term()}
   @callback list_role_profiles(scope()) :: {:ok, list()} | {:error, term()}
@@ -49,6 +50,10 @@ defmodule ServiceRadarWebNG.AdminApi do
 
   def reactivate_user(scope, id) do
     client().reactivate_user(scope, id)
+  end
+
+  def set_user_local_login(scope, id, enabled) do
+    client().set_user_local_login(scope, id, enabled)
   end
 
   def get_authorization_settings(scope) do

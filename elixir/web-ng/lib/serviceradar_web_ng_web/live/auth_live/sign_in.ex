@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.AuthLive.SignIn do
   use ServiceRadarWebNGWeb, :live_view
 
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
+  alias ServiceRadarWebNGWeb.Auth.LoginPolicy
 
   @impl true
   def render(assigns) do
@@ -34,11 +35,11 @@ defmodule ServiceRadarWebNGWeb.AuthLive.SignIn do
 
         <%= case @auth_mode do %>
           <% :passive_proxy -> %>
-            <.proxy_mode_message />
+            <.proxy_mode_message force_local_login={@force_local_login} form={@form} />
           <% :active_sso -> %>
             <.sso_login_section
-              allow_password_fallback={@allow_password_fallback}
-              provider_type={@provider_type}
+              disable_sso={@disable_sso}
+              force_local_login={@force_local_login}
               form={@form}
             />
           <% _ -> %>
@@ -75,6 +76,12 @@ defmodule ServiceRadarWebNGWeb.AuthLive.SignIn do
       </div>
     </div>
 
+    <%= if @force_local_login do %>
+      <div class="mt-6">
+        <.password_form form={@form} />
+      </div>
+    <% end %>
+
     <div class="mt-6 text-center">
       <a href={~p"/auth/local"} class="link link-secondary text-sm">
         Administrator Login
@@ -86,27 +93,40 @@ defmodule ServiceRadarWebNGWeb.AuthLive.SignIn do
   defp sso_login_section(assigns) do
     ~H"""
     <div class="space-y-6">
-      <a href={~p"/auth/oidc"} class="btn btn-primary btn-lg w-full">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke-width="1.5"
-          stroke="currentColor"
-          class="w-5 h-5"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z"
-          />
-        </svg>
-        Sign in with Enterprise SSO
-      </a>
+      <%= unless @disable_sso do %>
+        <a href={~p"/auth/oidc"} class="btn btn-primary btn-lg w-full">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke-width="1.5"
+            stroke="currentColor"
+            class="w-5 h-5"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z"
+            />
+          </svg>
+          Sign in with Enterprise SSO
+        </a>
+      <% end %>
 
-      <%= if @allow_password_fallback do %>
+      <%!--
+        Acceptance is enforced server-side by LoginPolicy. Regular accounts are
+        SSO-only; only accounts with local login enabled (or the env break-glass) are
+        accepted. When break-glass is active we render the local form inline.
+      --%>
+      <%= if @force_local_login do %>
         <div class="divider">OR</div>
         <.password_form form={@form} />
+      <% else %>
+        <div class="text-center">
+          <a href={~p"/auth/local"} class="link link-secondary text-sm">
+            Sign in with a local password
+          </a>
+        </div>
       <% end %>
     </div>
     """
@@ -170,33 +190,25 @@ defmodule ServiceRadarWebNGWeb.AuthLive.SignIn do
   def mount(_params, _session, socket) do
     form = to_form(%{"email" => "", "password" => ""}, as: :user)
 
-    # Get auth settings from cache
-    {auth_mode, allow_password_fallback, provider_type} = get_auth_config()
+    # Get auth settings from cache. The form is presentation only; acceptance is
+    # enforced server-side by ServiceRadarWebNGWeb.Auth.LoginPolicy.
+    auth_mode = get_auth_mode()
 
     {:ok,
      assign(socket,
        form: form,
        auth_mode: auth_mode,
-       allow_password_fallback: allow_password_fallback,
-       provider_type: provider_type
+       force_local_login: LoginPolicy.force_local_login?(),
+       disable_sso: LoginPolicy.disable_sso?()
      )}
   end
 
-  defp get_auth_config do
+  defp get_auth_mode do
     case ConfigCache.get_settings() do
-      {:ok, settings} ->
-        mode =
-          if settings.is_enabled do
-            settings.mode
-          else
-            :password_only
-          end
-
-        {mode, settings.allow_password_fallback, settings.provider_type}
-
-      {:error, _} ->
-        # Default to password only if settings not configured
-        {:password_only, true, nil}
+      {:ok, %{is_enabled: true, mode: mode}} -> mode
+      {:ok, _settings} -> :password_only
+      # Presentation default; the server-side policy still governs acceptance.
+      {:error, _} -> :password_only
     end
   end
 end
