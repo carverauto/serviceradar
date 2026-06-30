@@ -39,6 +39,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       "save" => :update,
       "validate" => :read,
       "reset" => :update,
+      "apply_idp_preset" => :read,
       "test_oidc" => :update,
       "test_saml" => :update
     })
@@ -204,7 +205,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
               </.ui_panel>
 
               <%= if to_string(@form[:provider_type].value) == "oidc" do %>
-                <.oidc_config_panel form={@form} />
+                <.oidc_config_panel form={@form} idp_preset={@idp_preset} />
               <% end %>
 
               <%= if to_string(@form[:provider_type].value) == "saml" do %>
@@ -271,6 +272,43 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       <div class="space-y-4">
         <div class="form-control">
           <label class="label">
+            <span class="label-text">Identity Provider Preset</span>
+          </label>
+          <div class="join">
+            <button
+              type="button"
+              phx-click="apply_idp_preset"
+              phx-value-preset="generic"
+              class={"btn btn-sm join-item #{if @idp_preset == "generic", do: "btn-primary", else: "btn-outline"}"}
+            >
+              Generic OIDC
+            </button>
+            <button
+              type="button"
+              phx-click="apply_idp_preset"
+              phx-value-preset="entra"
+              class={"btn btn-sm join-item #{if @idp_preset == "entra", do: "btn-primary", else: "btn-outline"}"}
+            >
+              Microsoft Entra ID
+            </button>
+            <button
+              type="button"
+              phx-click="apply_idp_preset"
+              phx-value-preset="authentik"
+              class={"btn btn-sm join-item #{if @idp_preset == "authentik", do: "btn-primary", else: "btn-outline"}"}
+            >
+              Authentik
+            </button>
+          </div>
+          <label class="label">
+            <span class="label-text-alt">
+              Prefills scopes and claim mappings for a known IdP. Does not submit the form — review and save.
+            </span>
+          </label>
+        </div>
+
+        <div class="form-control">
+          <label class="label">
             <span class="label-text">Discovery URL</span>
           </label>
           <input
@@ -283,6 +321,38 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
           <label class="label">
             <span class="label-text-alt">The OpenID Connect discovery endpoint URL</span>
           </label>
+          <%= if @idp_preset == "entra" do %>
+            <div class="alert alert-warning">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                class="stroke-current shrink-0 w-6 h-6"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                />
+              </svg>
+              <div class="text-xs">
+                <div class="font-medium">
+                  Microsoft Entra ID requires a tenant-pinned Discovery URL.
+                </div>
+                <div class="mt-1">
+                  Use
+                  <code class="bg-base-300 px-1 rounded">
+                    https://login.microsoftonline.com/{"{tenant-id}"}/v2.0/.well-known/openid-configuration
+                  </code>
+                  (replace <code class="bg-base-300 px-1 rounded">{"{tenant-id}"}</code>
+                  with your directory/tenant ID). The
+                  <code class="bg-base-300 px-1 rounded">/common</code>
+                  endpoint accepts any tenant and should not be used.
+                </div>
+              </div>
+            </div>
+          <% end %>
         </div>
 
         <div class="grid grid-cols-2 gap-4">
@@ -712,6 +782,31 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
     Map.get(mappings, key, default)
   end
 
+  # Form-assign overrides applied when an IdP preset button is clicked. These only
+  # prefill scopes + claim mappings (and trigger the discovery-URL hint); they never
+  # auto-submit the form.
+  defp idp_preset_overrides("entra") do
+    %{
+      "oidc_scopes" => "openid email profile",
+      "claim_mappings" => %{"email" => "preferred_username", "name" => "name", "sub" => "oid"}
+    }
+  end
+
+  defp idp_preset_overrides("authentik") do
+    %{
+      "oidc_scopes" => "openid email profile",
+      "claim_mappings" => %{"email" => "email", "name" => "name", "sub" => "sub"}
+    }
+  end
+
+  # "generic" (and any unknown preset) restores the stock OIDC defaults.
+  defp idp_preset_overrides(_generic) do
+    %{
+      "oidc_scopes" => "openid profile email",
+      "claim_mappings" => %{"email" => "email", "name" => "name", "sub" => "sub"}
+    }
+  end
+
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
@@ -722,6 +817,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
         |> assign(:loading, true)
         |> assign(:modes, @modes)
         |> assign(:provider_types, @provider_types)
+        |> assign(:idp_preset, "generic")
         |> assign(:form, nil)
 
       # Load settings asynchronously
@@ -795,7 +891,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
     {:noreply,
      socket
      |> assign(:form, to_form(form_data, as: :settings))
+     |> assign(:idp_preset, "generic")
      |> put_flash(:info, "Form reset to saved values.")}
+  end
+
+  def handle_event("apply_idp_preset", %{"preset" => preset}, socket) do
+    form_data = Map.merge(socket.assigns.form.source, idp_preset_overrides(preset))
+
+    {:noreply,
+     socket
+     |> assign(:form, to_form(form_data, as: :settings))
+     |> assign(:idp_preset, preset)}
   end
 
   def handle_event("test_oidc", _params, socket) do

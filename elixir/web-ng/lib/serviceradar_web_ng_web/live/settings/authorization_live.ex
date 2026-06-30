@@ -49,7 +49,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
        |> put_flash(:info, "Authorization settings updated")}
     else
       {:error, :invalid_role} ->
-        {:noreply, put_flash(socket, :error, "Default role must be viewer, operator, or admin")}
+        {:noreply, put_flash(socket, :error, "Default role must be viewer, helpdesk, operator, or admin")}
 
       {:error, :invalid_json} ->
         {:noreply, assign(socket, :json_error, "Role mappings must be valid JSON")}
@@ -110,7 +110,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
                   field={@form[:default_role]}
                   type="select"
                   label="Default Role"
-                  options={[{"viewer", "viewer"}, {"operator", "operator"}, {"admin", "admin"}]}
+                  options={[
+                    {"viewer", "viewer"},
+                    {"helpdesk", "helpdesk"},
+                    {"operator", "operator"},
+                    {"admin", "admin"}
+                  ]}
                 />
 
                 <div>
@@ -149,6 +154,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
                   {"source": "email_domain", "value": "example.com", "role": "admin"}
                 ]
               </pre>
+              <p class="text-xs text-base-content/60 mt-3">
+                Precedence is <span class="font-medium">first match</span>: the first mapping whose
+                claim matches a user wins, so list the most privileged roles first (admin-first) to
+                avoid a broader rule shadowing a narrower one.
+              </p>
             </div>
           </section>
         </div>
