@@ -41,7 +41,8 @@ defmodule ServiceRadar.Plugins.AddonPackage do
     :source_metadata,
     :imported_at,
     :verification_status,
-    :verification_error
+    :verification_error,
+    :resources
   ]
 
   @package_create_fields [:addon_id, :version | @package_fields]
