@@ -18,13 +18,19 @@ defmodule ServiceRadarWebNGWeb.Endpoint do
   # `Secure` is gated by `SESSION_COOKIE_SECURE` (default true in prod
   # builds) so the cookie is only sent over HTTPS; dev keeps
   # `secure: false` so login works against `http://localhost`.
-  # `SameSite=Strict` matches the ops-console threat model — the only
-  # thing we lose vs Lax is "click a link in email and land already
-  # logged in," which we don't want for a security tool anyway.
+  # `SameSite=Lax` is the standard setting for apps that use an
+  # OAuth/OIDC redirect login: the IdP (Authentik) bounces the browser
+  # back to `/auth/oidc/callback` as a top-level cross-site GET, and
+  # `Strict` would withhold the session cookie on that navigation,
+  # dropping the `:oidc_state`/`:oidc_nonce` we stored at `/auth/oidc`
+  # and failing state validation with `:invalid_state`. `Lax` still
+  # withholds the cookie on cross-site subresource loads and POSTs, and
+  # CSRF on state-changing requests is already covered by Phoenix's
+  # `csrf_token`.
   @session_options [
     store: :cookie,
     key: "_serviceradar_web_ng_key",
-    same_site: "Strict",
+    same_site: "Lax",
     http_only: true,
     signing_salt: Application.compile_env!(:serviceradar_web_ng, [:session, :signing_salt]),
     encryption_salt: Application.compile_env!(:serviceradar_web_ng, [:session, :encryption_salt]),
