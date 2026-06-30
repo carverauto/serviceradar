@@ -212,6 +212,46 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       assert metric["category"] == "traffic"
     end
 
+    test "decodes available_metrics elements that arrive as JSON strings" do
+      update = %{
+        "device_id" => "device-001",
+        "device_ip" => "192.168.1.1",
+        "if_index" => 3,
+        "if_name" => "eth0",
+        "available_metrics" => [
+          Jason.encode!(%{
+            "name" => "ifInOctets",
+            "oid" => ".1.3.6.1.2.1.2.2.1.10",
+            "data_type" => "counter",
+            "supports_64bit" => true,
+            "oid_64bit" => ".1.3.6.1.2.1.31.1.1.1.6"
+          }),
+          # Mixed with a regular map to confirm both shapes normalize.
+          %{
+            "name" => "ifOutOctets",
+            "oid" => ".1.3.6.1.2.1.2.2.1.16",
+            "supports_64bit" => false
+          },
+          # Non-JSON garbage should be dropped, not persisted as nil.
+          "not-json"
+        ]
+      }
+
+      result = MapperResultsIngestor.normalize_interface(update)
+
+      assert result
+      assert [first, second] = result.available_metrics
+
+      # The JSON-string element is decoded into a proper map and the 64-bit
+      # capability is preserved instead of being dropped.
+      assert first["name"] == "ifInOctets"
+      assert first["supports_64bit"] == true
+      assert first["oid_64bit"] == ".1.3.6.1.2.1.31.1.1.1.6"
+
+      assert second["name"] == "ifOutOctets"
+      assert second["supports_64bit"] == false
+    end
+
     test "preserves all interface fields alongside available_metrics" do
       update = %{
         "device_id" => "device-001",

@@ -3565,11 +3565,26 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp get_metrics_list(update, keys) do
     case get_value(update, keys) do
       [_ | _] = value ->
-        # Normalize each metric to ensure consistent key format
-        Enum.map(value, &normalize_metric/1)
+        # Normalize each metric to ensure consistent key format. Drop entries
+        # that cannot be normalized so we never persist nil array elements.
+        case value |> Enum.map(&normalize_metric/1) |> Enum.reject(&is_nil/1) do
+          [] -> nil
+          normalized -> normalized
+        end
 
       _ ->
         nil
+    end
+  end
+
+  # Metric entries usually arrive as decoded maps, but some discovery sources
+  # emit each entry as a JSON-encoded string. Decode those so the persisted
+  # `available_metrics` column holds proper jsonb objects (preserving
+  # supports_64bit/oid_64bit) rather than an array of JSON strings.
+  defp normalize_metric(metric) when is_binary(metric) do
+    case Jason.decode(metric) do
+      {:ok, decoded} when is_map(decoded) -> normalize_metric(decoded)
+      _ -> nil
     end
   end
 
