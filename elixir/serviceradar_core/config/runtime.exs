@@ -1391,9 +1391,17 @@ if config_env() == :prod do
   log_promotion_enabled =
     System.get_env("LOG_PROMOTION_CONSUMER_ENABLED", "true") in ~w(true 1 yes)
 
-  # EventWriter configuration (NATS JetStream → CNPG consumer)
-  # Enable with EVENT_WRITER_ENABLED=true
-  event_writer_enabled = System.get_env("EVENT_WRITER_ENABLED", "false") in ~w(true 1 yes)
+  # EventWriter configuration (NATS JetStream → CNPG consumer).
+  # Default ON when NATS creds are configured: the helm chart sets
+  # EVENT_WRITER_ENABLED and EVENT_WRITER_NATS_CREDS_FILE together, so an UNSET flag
+  # with creds present is a deploy drift that must still run the EventWriter (edge
+  # anomaly verdicts have to persist to CNPG). Stays OFF with no creds so
+  # credential-less dev/test deployments don't trip the creds-required raise below.
+  event_writer_default =
+    if System.get_env("EVENT_WRITER_NATS_CREDS_FILE") in [nil, ""], do: "false", else: "true"
+
+  event_writer_enabled =
+    System.get_env("EVENT_WRITER_ENABLED", event_writer_default) in ~w(true 1 yes)
 
   config :serviceradar_core, ServiceRadar.NATS.Connection,
     host: nats_uri.host || "localhost",
