@@ -235,12 +235,12 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
             <div class="grid gap-3 sm:grid-cols-4">
               <div
                 :if={@show_leader_info}
-                class="rounded-lg border border-base-200/60 bg-base-200/30 p-3"
+                class="min-w-0 rounded-lg border border-base-200/60 bg-base-200/30 p-3"
               >
                 <div class="text-[11px] uppercase tracking-wide text-base-content/60">
                   Leader Node
                 </div>
-                <div class="mt-1 text-sm font-semibold text-base-content">
+                <div class="mt-1 text-sm font-semibold text-base-content break-all">
                   {@leader_node || "Unknown"}
                 </div>
               </div>
