@@ -5,15 +5,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
 
   alias ServiceRadarWebNGWeb.Helpers.InterfaceTypes
 
-  def normalize_interface_metrics_layout(layout) do
-    case to_string(layout || "") do
-      "one" -> "one"
-      "two" -> "two"
-      "four" -> "four"
-      _ -> "two"
-    end
-  end
-
   # ---------------------------------------------------------------------------
   # Interfaces Tab Content (full interfaces list)
   # ---------------------------------------------------------------------------
@@ -25,7 +16,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
   attr(:device_uid, :string, required: true)
   attr(:interface_metrics, :map, default: nil)
   attr(:discovery_job, :any, default: nil)
-  attr(:interface_metrics_layout, :string, default: "two")
   attr(:northbound_actions, :list, default: [])
   attr(:northbound_actions_loading, :boolean, default: false)
   attr(:can_launch_northbound, :boolean, default: false)
@@ -74,7 +64,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
       :if={@interface_metrics}
       metrics={@interface_metrics}
       device_uid={@device_uid}
-      layout_mode={@interface_metrics_layout}
     />
 
     <%= if @interfaces == [] and is_nil(@error) do %>
@@ -294,34 +283,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
 
   attr(:metrics, :map, required: true)
   attr(:device_uid, :string, required: true)
-  attr(:layout_mode, :string, default: "two")
 
   defp interface_metrics_section(assigns) do
-    layout_mode = normalize_interface_metrics_layout(assigns.layout_mode)
-    panel_count = length(assigns.metrics.panels)
-
-    panel_layout_class =
-      case layout_mode do
-        "one" ->
-          "space-y-4"
-
-        "two" ->
-          "grid grid-cols-1 xl:grid-cols-2 gap-4"
-
-        "four" ->
-          cond do
-            panel_count >= 4 -> "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4"
-            panel_count == 3 -> "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"
-            panel_count == 2 -> "grid grid-cols-1 xl:grid-cols-2 gap-4"
-            true -> "space-y-4"
-          end
-      end
-
-    assigns =
-      assigns
-      |> assign(:layout_mode, layout_mode)
-      |> assign(:panel_layout_class, panel_layout_class)
-
     ~H"""
     <div class="rounded-xl border border-base-200 bg-base-100 mb-4">
       <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
@@ -331,47 +294,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
           <span :if={@metrics.favorited_count > 0} class="text-xs text-base-content/50">
             ({@metrics.favorited_count} favorited)
           </span>
-        </div>
-        <div :if={@metrics.panels != []} class="join join-vertical sm:join-horizontal">
-          <button
-            type="button"
-            class={[
-              "btn btn-xs join-item normal-case",
-              @layout_mode == "one" && "btn-primary",
-              @layout_mode != "one" && "btn-ghost"
-            ]}
-            phx-click="set_interface_metrics_layout"
-            phx-value-layout="one"
-            title="One chart per row"
-          >
-            1-up
-          </button>
-          <button
-            type="button"
-            class={[
-              "btn btn-xs join-item normal-case",
-              @layout_mode == "two" && "btn-primary",
-              @layout_mode != "two" && "btn-ghost"
-            ]}
-            phx-click="set_interface_metrics_layout"
-            phx-value-layout="two"
-            title="Two charts per row"
-          >
-            2-up
-          </button>
-          <button
-            type="button"
-            class={[
-              "btn btn-xs join-item normal-case",
-              @layout_mode == "four" && "btn-primary",
-              @layout_mode != "four" && "btn-ghost"
-            ]}
-            phx-click="set_interface_metrics_layout"
-            phx-value-layout="four"
-            title="Four charts per row on wide screens"
-          >
-            4-up
-          </button>
         </div>
       </div>
 
@@ -408,10 +330,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
         </p>
       </div>
 
-      <%!-- Metrics panels --%>
+      <%!-- Metrics panels: viewport-filling responsive grid (auto-fit) --%>
       <div
         :if={@metrics.panels != []}
-        class={["p-4", @panel_layout_class]}
+        class="p-4 grid gap-4 grid-cols-[repeat(auto-fit,minmax(22rem,1fr))]"
       >
         <%= for {panel, idx} <- Enum.with_index(@metrics.panels) do %>
           <.live_component

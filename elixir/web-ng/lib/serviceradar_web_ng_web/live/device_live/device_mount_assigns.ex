@@ -82,7 +82,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
     |> assign(:show_interfaces_bulk_edit, false)
     |> assign(:interfaces_bulk_edit_form, to_form(%{"action" => "favorite"}, as: :bulk))
     |> assign(:interface_metrics, nil)
-    |> assign(:interface_metrics_layout, "two")
     |> assign(:device_flows, [])
     |> assign(:flows_error, nil)
     |> assign(:rdns_map, %{})

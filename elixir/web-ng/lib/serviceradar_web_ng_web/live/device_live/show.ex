@@ -834,8 +834,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     query = SRQLPage.shortcut_query(raw_query)
 
+    # Only route a devices query to the index when it is NOT scoped to a single
+    # device via `uid:`. The device-details default query is
+    # `in:devices uid:"<uid>" ...`; reclassifying it to "/devices" turned a
+    # same-page submit into a push_navigate to the index (a self-inflicted
+    # remount). A broad `in:devices` search (no uid:) still navigates to the list.
     page_path =
-      if String.starts_with?(query, "in:devices") do
+      if String.starts_with?(query, "in:devices") and not String.contains?(query, "uid:") do
         "/devices"
       else
         page_path
@@ -1156,10 +1161,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def handle_event("toggle_interface_favorite", %{"uid" => uid}, socket) do
     {:noreply, InterfaceRuntime.toggle_favorite(socket, uid)}
-  end
-
-  def handle_event("set_interface_metrics_layout", %{"layout" => layout}, socket) do
-    {:noreply, InterfaceRuntime.set_metrics_layout(socket, layout)}
   end
 
   @allowed_flow_filter_fields ~w(

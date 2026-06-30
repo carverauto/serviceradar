@@ -40,6 +40,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceDataReferenceLinesTest do
 
     assert %{value: 10.0, label: "ifInErrors > 10", severity: :warning, series: "ifInErrors"} in lines
     refute Enum.any?(lines, &(&1.series == "ifOutErrors"))
-    assert Enum.any?(lines, &(&1.label == "Interface rate" and &1.series == "ifOutOctets"))
+
+    # The synthetic "Interface rate" capacity reference line is no longer
+    # emitted: folding link capacity into the y-domain squashed real traffic to
+    # ~0. Only user-defined thresholds render so the chart auto-scales to data.
+    refute Enum.any?(lines, &(&1.label == "Interface rate"))
   end
 end
