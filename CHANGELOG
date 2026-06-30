@@ -1,3 +1,24 @@
+# ServiceRadar v1.3.10
+
+v1.3.9 release-blocker fixes: database migration-version collision, SSO never-auto-provision, and CI signing idempotency.
+
+## Whats New
+
+**1.3.10**
+- Fixed a v1.3.9 release blocker where three database migrations were authored
+  with the same version number; Ecto refuses to run any migration when versions
+  collide, so a fresh v1.3.9 install silently booted on the prior schema and
+  broke authentication, metric ingestion, and plugin assignment. The colliding
+  migrations are renamed to unique versions.
+- Enforced "no local account, no login" for single sign-on: just-in-time SSO
+  account provisioning is now gated behind a new `sso_auto_provision` setting
+  that defaults to off, so an SSO identity with no pre-existing local account is
+  denied rather than silently auto-created (with a clear operator message and a
+  settings toggle to opt back in).
+- Made release image signing idempotent so a re-run no longer fails when the
+  legacy cosign signature tag already exists on an immutability-protected
+  registry.
+
 # ServiceRadar v1.3.9
 
 OIDC/Entra single sign-on, SNMP interface-traffic accuracy, and v1.3.8 regression cleanup.
