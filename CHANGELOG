@@ -1,3 +1,37 @@
+# ServiceRadar v1.3.9
+
+OIDC/Entra single sign-on, SNMP interface-traffic accuracy, and v1.3.8 regression cleanup.
+
+## Whats New
+
+**1.3.9**
+- Brought OIDC single sign-on up end to end: SSO versus local login is now
+  enforced server-side (closing a gap where the SSO mode only hid the password
+  form) with a per-account local-login opt-in and an operator break-glass
+  environment switch; the web session cookie is `SameSite=Lax` so the IdP
+  callback round-trips; SSO client secrets persist correctly through AshCloak; a
+  Microsoft Entra ID settings preset and hardened ID-token verification (JWKS
+  refetch on key rotation, `nbf`/`iat`/clock-skew) ship; and `$2y$` bcrypt hashes
+  are accepted on login and password change.
+- Made SNMP interface-traffic accurate on high-speed links: interfaces exposing
+  64-bit HC counters are now polled and their capabilities decoded correctly, the
+  SRQL rate query is counter-wrap aware via a persisted counter width (un-hiding
+  traffic that previously read near-zero), and the device interface charts drop
+  the capacity reference line, auto-scale to the data, and use a responsive grid.
+- Cleaned up the v1.3.8 demo regressions: the EventWriter and its
+  flow-attribution prune default on when NATS credentials are present; plugin
+  WASM is mirrored to datasvc and protected by reference-aware retention; camera
+  plugins assign without a spurious required `host`; web-ng dispatches agent
+  commands via an RPC fallback after leaving the Horde mesh; and legacy
+  plugin-result metrics are tolerated instead of failing the check.
+- Stopped self-scheduling Oban workers from churning every 60 seconds (and
+  showing "Paused"); gave syslog records their real severity instead of UNKNOWN;
+  and kept unconfirmed anomaly findings out of the event stream with
+  confirmation-aware severity.
+- Fixed several UI issues: local users can change their own password, the profile
+  page no longer bounces to the login screen, and long values in the Job
+  Scheduler leader card and Event Details no longer overflow their cards.
+
 # ServiceRadar v1.3.8
 
 Anomaly-engine rigor, dependency-security, and demo-CNPG performance release.
