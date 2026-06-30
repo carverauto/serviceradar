@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioning do
   Shared SSO provisioning rules for OIDC and SAML authentication flows.
   """
 
+  alias ServiceRadar.Identity.AuthSettings
   alias ServiceRadar.Identity.RoleMapping
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.Auth.Hooks
@@ -34,8 +35,27 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioning do
             {:error, :unsafe_account_linking}
 
           {:error, _} ->
-            create_sso_user(email, name, external_id, resolved_role, provider, actor)
+            maybe_create_sso_user(email, name, external_id, resolved_role, provider, actor)
         end
+    end
+  end
+
+  # Default-deny JIT provisioning: an SSO identity with no pre-existing local
+  # account (neither external_id nor email matched) is only auto-created when an
+  # admin has explicitly enabled `sso_auto_provision`. Otherwise login is denied.
+  defp maybe_create_sso_user(email, name, external_id, resolved_role, provider, actor) do
+    if sso_auto_provision?(actor) do
+      create_sso_user(email, name, external_id, resolved_role, provider, actor)
+    else
+      Logger.info("Denied SSO JIT provisioning (sso_auto_provision off) for #{provider}")
+      {:error, :no_local_account}
+    end
+  end
+
+  defp sso_auto_provision?(actor) do
+    case AuthSettings.get_settings(actor: actor) do
+      {:ok, %{sso_auto_provision: true}} -> true
+      _ -> false
     end
   end
 

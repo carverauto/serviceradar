@@ -2608,6 +2608,7 @@ CREATE TABLE platform.auth_settings (
     claim_mappings jsonb DEFAULT '{"sub": "sub", "name": "name", "email": "email"}'::jsonb,
     is_enabled boolean DEFAULT false,
     allow_password_fallback boolean DEFAULT true,
+    sso_auto_provision boolean DEFAULT false NOT NULL,
     inserted_at timestamp without time zone DEFAULT now() NOT NULL,
     updated_at timestamp without time zone DEFAULT now() NOT NULL
 );

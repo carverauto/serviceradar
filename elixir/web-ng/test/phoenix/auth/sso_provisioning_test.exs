@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
   import ServiceRadarWebNG.AccountsFixtures
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.AuthSettings
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNGWeb.Auth.SSOProvisioning
 
@@ -45,6 +46,54 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
 
       assert found.id == existing.id
       assert found.external_id == "saml|existing"
+    end
+
+    test "denies JIT provisioning by default when no local account exists" do
+      actor = SystemActor.system(:test)
+
+      # No AuthSettings row exists, so sso_auto_provision is treated as the
+      # default (false): an unknown SSO identity must be denied, not created.
+      assert {:error, :no_local_account} =
+               SSOProvisioning.find_or_create_user(
+                 %{email: "newcomer@example.com", name: "Newcomer", external_id: "oidc|new-1"},
+                 %{"sub" => "oidc|new-1", "email" => "newcomer@example.com"},
+                 :oidc,
+                 actor
+               )
+
+      assert {:error, _} = User.get_by_email("newcomer@example.com", actor: actor)
+    end
+
+    test "denies JIT provisioning when sso_auto_provision is explicitly off" do
+      actor = SystemActor.system(:test)
+      {:ok, _settings} = AuthSettings.create(%{sso_auto_provision: false}, actor: actor)
+
+      assert {:error, :no_local_account} =
+               SSOProvisioning.find_or_create_user(
+                 %{email: "newcomer2@example.com", name: "Newcomer", external_id: "saml|new-2"},
+                 %{"sub" => "saml|new-2", "email" => "newcomer2@example.com"},
+                 :saml,
+                 actor
+               )
+
+      assert {:error, _} = User.get_by_email("newcomer2@example.com", actor: actor)
+    end
+
+    test "creates a new account when sso_auto_provision is enabled" do
+      actor = SystemActor.system(:test)
+      {:ok, _settings} = AuthSettings.create(%{sso_auto_provision: true}, actor: actor)
+
+      assert {:ok, user} =
+               SSOProvisioning.find_or_create_user(
+                 %{email: "provisioned@example.com", name: "Provisioned", external_id: "oidc|new-3"},
+                 %{"sub" => "oidc|new-3", "email" => "provisioned@example.com"},
+                 :oidc,
+                 actor
+               )
+
+      assert to_string(user.email) == "provisioned@example.com"
+      assert user.external_id == "oidc|new-3"
+      assert user.role == :viewer
     end
   end
 end

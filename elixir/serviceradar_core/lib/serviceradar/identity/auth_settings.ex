@@ -55,7 +55,8 @@ defmodule ServiceRadar.Identity.AuthSettings do
     :jwt_header_name,
     :claim_mappings,
     :is_enabled,
-    :allow_password_fallback
+    :allow_password_fallback,
+    :sso_auto_provision
   ]
 
   postgres do
@@ -330,6 +331,16 @@ defmodule ServiceRadar.Identity.AuthSettings do
       allow_nil? false
       public? true
       description "Allow password login when SSO is enabled"
+    end
+
+    # Just-in-time provisioning. Defaults to false (deny): an SSO identity with no
+    # pre-existing local account is rejected rather than auto-created. Admins must
+    # explicitly opt in to auto-create accounts on first SSO login.
+    attribute :sso_auto_provision, :boolean do
+      default false
+      allow_nil? false
+      public? true
+      description "Auto-create a local account on first SSO login when no account exists"
     end
 
     timestamps()
