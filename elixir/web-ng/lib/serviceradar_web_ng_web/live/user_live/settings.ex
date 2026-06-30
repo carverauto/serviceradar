@@ -10,8 +10,9 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
   alias ServiceRadarWebNG.Accounts
   alias ServiceRadarWebNG.RBAC
 
-  on_mount {ServiceRadarWebNGWeb.UserAuth, :require_sudo_mode}
-
+  # Viewing the profile must not require sudo mode. Sensitive submits
+  # re-check sudo: the password POST in UserSessionController.update_password/2
+  # and the email change via Accounts.sudo_mode?/2 in handle_event/3 below.
   @password_manage_permission Constants.password_manage_permission()
 
   @impl true
@@ -68,7 +69,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
           </.form>
         </.ui_panel>
 
-        <%= if @can_change_password do %>
+        <%= if @can_change_password and has_password?(@current_scope.user) do %>
           <.ui_panel>
             <:header>
               <div>
