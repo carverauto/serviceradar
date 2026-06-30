@@ -13,6 +13,10 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientTest do
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
   alias ServiceRadarWebNGWeb.Auth.OIDCClient
 
+  @issuer "https://idp.example.com"
+  @client_id "client-id"
+  @jwks_uri "https://idp.example.com/jwks"
+
   setup do
     maybe_start_config_cache()
     clear_auth_cache()
@@ -186,6 +190,174 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientTest do
       fake_token = "header.payload.signature"
       assert {:error, :missing_nonce} = OIDCClient.verify_id_token(fake_token)
     end
+  end
+
+  describe "verify_id_token/2 time-claim validation (mocked IdP)" do
+    setup do
+      {jwk, public_jwk} = generate_signing_key("sig-key-1")
+      put_oidc_provider(@jwks_uri)
+      ConfigCache.put_cached("oidc_jwks:#{@jwks_uri}", [public_jwk], ttl: to_timeout(minute: 5))
+
+      %{jwk: jwk}
+    end
+
+    test "accepts a token whose time claims are valid", %{jwk: jwk} do
+      token = sign_id_token(jwk, "sig-key-1", base_claims(%{}))
+
+      assert {:ok, claims} = OIDCClient.verify_id_token(token, nonce: "test-nonce")
+      assert claims["sub"] == "user-1"
+    end
+
+    test "rejects a token expired beyond the clock-skew leeway", %{jwk: jwk} do
+      now = System.system_time(:second)
+      token = sign_id_token(jwk, "sig-key-1", base_claims(%{"exp" => now - 120}))
+
+      assert {:error, :token_expired} = OIDCClient.verify_id_token(token, nonce: "test-nonce")
+    end
+
+    test "accepts a token expired within the clock-skew leeway", %{jwk: jwk} do
+      now = System.system_time(:second)
+      token = sign_id_token(jwk, "sig-key-1", base_claims(%{"exp" => now - 30}))
+
+      assert {:ok, _claims} = OIDCClient.verify_id_token(token, nonce: "test-nonce")
+    end
+
+    test "rejects a token whose nbf is in the future beyond the leeway", %{jwk: jwk} do
+      now = System.system_time(:second)
+      token = sign_id_token(jwk, "sig-key-1", base_claims(%{"nbf" => now + 120}))
+
+      assert {:error, :token_not_yet_valid} = OIDCClient.verify_id_token(token, nonce: "test-nonce")
+    end
+
+    test "accepts a token whose nbf is in the future but within the leeway", %{jwk: jwk} do
+      now = System.system_time(:second)
+      token = sign_id_token(jwk, "sig-key-1", base_claims(%{"nbf" => now + 30}))
+
+      assert {:ok, _claims} = OIDCClient.verify_id_token(token, nonce: "test-nonce")
+    end
+
+    test "rejects a token whose iat is in the far future", %{jwk: jwk} do
+      now = System.system_time(:second)
+      token = sign_id_token(jwk, "sig-key-1", base_claims(%{"iat" => now + 120}))
+
+      assert {:error, :invalid_iat} = OIDCClient.verify_id_token(token, nonce: "test-nonce")
+    end
+
+    test "does not hard-fail when nbf and iat are absent", %{jwk: jwk} do
+      claims = Map.drop(base_claims(%{}), ["nbf", "iat"])
+      token = sign_id_token(jwk, "sig-key-1", claims)
+
+      assert {:ok, _claims} = OIDCClient.verify_id_token(token, nonce: "test-nonce")
+    end
+  end
+
+  describe "verify_id_token/2 JWKS refetch on kid miss (mocked IdP)" do
+    test "verifies a token whose kid is present in the cached JWKS without forcing a refetch" do
+      {jwk, public_jwk} = generate_signing_key("present-key")
+      put_oidc_provider(@jwks_uri)
+      ConfigCache.put_cached("oidc_jwks:#{@jwks_uri}", [public_jwk], ttl: to_timeout(minute: 5))
+
+      token = sign_id_token(jwk, "present-key", base_claims(%{}))
+
+      assert {:ok, _claims} = OIDCClient.verify_id_token(token, nonce: "test-nonce")
+      # No forced refetch should have happened, so the throttle guard is unset.
+      assert :miss = ConfigCache.get_cached("oidc_jwks_refetch:#{@jwks_uri}")
+    end
+
+    test "busts the cache and refetches once on a kid miss, failing closed if still absent" do
+      # A loopback jwks_uri is rejected fast by the outbound URL policy (no DNS,
+      # no live IdP), so the forced refetch yields no new key.
+      jwks_uri = "https://127.0.0.1/jwks"
+      {jwk, _public_jwk} = generate_signing_key("rotated-key")
+      {_old_jwk, old_public} = generate_signing_key("old-key")
+
+      put_oidc_provider(jwks_uri)
+      ConfigCache.put_cached("oidc_jwks:#{jwks_uri}", [old_public], ttl: to_timeout(minute: 5))
+
+      token = sign_id_token(jwk, "rotated-key", base_claims(%{}))
+
+      assert {:error, :key_not_found} = OIDCClient.verify_id_token(token, nonce: "test-nonce")
+      # The forced refetch ran: the throttle guard is set and the stale JWKS cache
+      # was busted (so the next read would go to the network).
+      assert {:ok, true} = ConfigCache.get_cached("oidc_jwks_refetch:#{jwks_uri}")
+      assert :miss = ConfigCache.get_cached("oidc_jwks:#{jwks_uri}")
+    end
+
+    test "throttles forced refetches so a burst of unknown kids cannot storm the IdP" do
+      jwks_uri = "https://127.0.0.1/jwks"
+      {jwk, _public_jwk} = generate_signing_key("rotated-key")
+      {_old_jwk, old_public} = generate_signing_key("old-key")
+
+      put_oidc_provider(jwks_uri)
+      ConfigCache.put_cached("oidc_jwks:#{jwks_uri}", [old_public], ttl: to_timeout(minute: 5))
+      # Simulate a forced refetch having happened moments ago.
+      ConfigCache.put_cached("oidc_jwks_refetch:#{jwks_uri}", true, ttl: to_timeout(minute: 5))
+
+      token = sign_id_token(jwk, "rotated-key", base_claims(%{}))
+
+      assert {:error, :key_not_found} = OIDCClient.verify_id_token(token, nonce: "test-nonce")
+      # Throttled: the stale JWKS cache must NOT have been busted.
+      assert {:ok, [_old]} = ConfigCache.get_cached("oidc_jwks:#{jwks_uri}")
+    end
+  end
+
+  defp generate_signing_key(kid) do
+    jwk = JOSE.JWK.generate_key({:rsa, 2048})
+    {_modules, public_map} = JOSE.JWK.to_public_map(jwk)
+    public_jwk = Map.merge(public_map, %{"kid" => kid, "alg" => "RS256", "use" => "sig"})
+    {jwk, public_jwk}
+  end
+
+  defp sign_id_token(jwk, kid, claims) do
+    {_protected, token} =
+      jwk
+      |> JOSE.JWT.sign(%{"alg" => "RS256", "kid" => kid}, claims)
+      |> JOSE.JWS.compact()
+
+    token
+  end
+
+  defp base_claims(overrides) do
+    now = System.system_time(:second)
+
+    Map.merge(
+      %{
+        "iss" => @issuer,
+        "aud" => @client_id,
+        "sub" => "user-1",
+        "email" => "user@example.com",
+        "nonce" => "test-nonce",
+        "exp" => now + 300,
+        "iat" => now,
+        "nbf" => now
+      },
+      overrides
+    )
+  end
+
+  defp put_oidc_provider(jwks_uri) do
+    put_oidc_settings(%{
+      is_enabled: true,
+      mode: :active_sso,
+      provider_type: :oidc,
+      oidc_client_id: @client_id,
+      oidc_client_secret_encrypted: "client-secret",
+      oidc_discovery_url: @issuer,
+      oidc_scopes: "openid email profile"
+    })
+
+    ConfigCache.put_cached(
+      "oidc_metadata:#{@issuer}",
+      %{
+        "issuer" => @issuer,
+        "authorization_endpoint" => "#{@issuer}/authorize",
+        "token_endpoint" => "#{@issuer}/token",
+        "jwks_uri" => jwks_uri
+      },
+      ttl: to_timeout(minute: 5)
+    )
+
+    :ok
   end
 
   defp maybe_start_config_cache do

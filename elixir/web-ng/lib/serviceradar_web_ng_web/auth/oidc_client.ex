@@ -23,6 +23,15 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
 
   @discovery_suffix "/.well-known/openid-configuration"
 
+  # Allowed clock skew (seconds) when validating the time-based JWT claims
+  # exp/nbf/iat. Accounts for small clock drift between the IdP and this host.
+  @clock_skew_seconds 60
+
+  # Minimum interval (milliseconds) between *forced* JWKS refetches for a given
+  # jwks_uri. A burst of tokens carrying an unknown `kid` would otherwise
+  # stampede the IdP; this throttle bounds forced refetches to one per window.
+  @jwks_refetch_min_interval_ms 60_000
+
   @doc """
   Generates the authorization URL for initiating OIDC login.
 
@@ -80,10 +89,11 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
   Verifies an ID token and extracts claims.
 
   Validates:
-  - Token signature (using JWKS)
+  - Token signature (using JWKS; refetched once on `kid` miss for key rotation)
   - Issuer claim
   - Audience claim
-  - Expiration
+  - Expiration (`exp`), not-before (`nbf`), and issued-at (`iat`) within a small
+    clock-skew leeway. `nbf`/`iat` are only enforced when present.
   - Nonce (if provided)
 
   Returns `{:ok, claims}` on success.
@@ -93,7 +103,9 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
          {:ok, config} <- get_config(),
          {:ok, metadata} <- fetch_discovery_metadata(config.discovery_url),
          {:ok, jwks} <- fetch_jwks(metadata["jwks_uri"]),
-         {:ok, claims} <- decode_and_verify_jwt(id_token, jwks) do
+         {:ok, claims} <- decode_and_verify_jwt(id_token, jwks, metadata["jwks_uri"]) do
+      now = System.system_time(:second)
+
       cond do
         claims["iss"] != metadata["issuer"] ->
           {:error, :invalid_issuer}
@@ -101,8 +113,14 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
         claims["aud"] != config.client_id and config.client_id not in List.wrap(claims["aud"]) ->
           {:error, :invalid_audience}
 
-        claims["exp"] && claims["exp"] < System.system_time(:second) ->
+        token_expired?(claims["exp"], now) ->
           {:error, :token_expired}
+
+        token_not_yet_valid?(claims["nbf"], now) ->
+          {:error, :token_not_yet_valid}
+
+        invalid_iat?(claims["iat"], now) ->
+          {:error, :invalid_iat}
 
         claims["nonce"] != expected_nonce ->
           {:error, :invalid_nonce}
@@ -299,28 +317,68 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
 
   defp validate_redirect_endpoint(_url), do: {:error, :discovery_failed}
 
-  defp decode_and_verify_jwt(token, jwks) do
+  defp decode_and_verify_jwt(token, jwks, jwks_uri) do
     # Parse JWT header to get key ID
     case String.split(token, ".") do
       [header_b64, _payload_b64, _signature] ->
         with {:ok, header_json} <- Base.url_decode64(header_b64, padding: false),
              {:ok, header} <- Jason.decode(header_json) do
-          # Find matching key by kid
-          kid = header["kid"]
-          key_map = Enum.find(jwks, fn k -> k["kid"] == kid end)
-
-          if is_nil(key_map) do
-            {:error, :key_not_found}
-          else
-            # Convert JWK to JOSE key and verify
-            verify_jwt_with_key(token, key_map)
-          end
+          verify_with_kid(token, header["kid"], jwks, jwks_uri)
         else
           _ -> {:error, :invalid_token_format}
         end
 
       _ ->
         {:error, :invalid_token_format}
+    end
+  end
+
+  # Resolve the signing key by `kid` and verify. JWKS is cached (~1h), so when an
+  # IdP rotates signing keys the cached set will be missing the new `kid`. On a
+  # miss, bust the cache and refetch the JWKS once, then retry the lookup before
+  # giving up with `:key_not_found`.
+  defp verify_with_kid(token, kid, jwks, jwks_uri) do
+    case find_signing_key(jwks, kid) do
+      nil ->
+        verify_with_refetched_kid(token, kid, jwks_uri)
+
+      key_map ->
+        verify_jwt_with_key(token, key_map)
+    end
+  end
+
+  defp verify_with_refetched_kid(token, kid, jwks_uri) do
+    case refetch_jwks(jwks_uri) do
+      {:ok, fresh_jwks} ->
+        case find_signing_key(fresh_jwks, kid) do
+          nil -> {:error, :key_not_found}
+          key_map -> verify_jwt_with_key(token, key_map)
+        end
+
+      {:error, _reason} ->
+        {:error, :key_not_found}
+    end
+  end
+
+  defp find_signing_key(jwks, kid) do
+    Enum.find(List.wrap(jwks), fn k -> k["kid"] == kid end)
+  end
+
+  # Force a one-shot JWKS refetch for `jwks_uri`, busting the cached set so the
+  # next read goes to the network. A short min-interval guard (cached under its
+  # own key) ensures at most one forced refetch per window even under a flood of
+  # tokens carrying unknown `kid`s, preventing a refetch storm against the IdP.
+  defp refetch_jwks(jwks_uri) do
+    guard_key = "oidc_jwks_refetch:#{jwks_uri}"
+
+    case ConfigCache.get_cached(guard_key) do
+      {:ok, _recent} ->
+        {:error, :jwks_refetch_throttled}
+
+      :miss ->
+        ConfigCache.put_cached(guard_key, true, ttl: @jwks_refetch_min_interval_ms)
+        ConfigCache.delete_cached("oidc_jwks:#{jwks_uri}")
+        fetch_jwks(jwks_uri)
     end
   end
 
@@ -342,6 +400,23 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
       Logger.error("JWT verification error: #{inspect(e)}")
       {:error, :verification_failed}
   end
+
+  # `exp` is the only mandatory time claim per OIDC, but to stay backward
+  # compatible we only assert it when present/numeric. The token is expired once
+  # `now` passes `exp` plus the allowed clock skew.
+  defp token_expired?(exp, now) when is_number(exp), do: exp + @clock_skew_seconds < now
+  defp token_expired?(_exp, _now), do: false
+
+  # `nbf` (not-before) is optional; when present the token is not yet valid until
+  # `now` reaches `nbf` minus the allowed clock skew.
+  defp token_not_yet_valid?(nbf, now) when is_number(nbf), do: now < nbf - @clock_skew_seconds
+  defp token_not_yet_valid?(_nbf, _now), do: false
+
+  # `iat` (issued-at) sanity: an optional claim that must not be in the future
+  # beyond the allowed clock skew (guards against tokens minted with a skewed or
+  # malicious future timestamp).
+  defp invalid_iat?(iat, now) when is_number(iat), do: iat > now + @clock_skew_seconds
+  defp invalid_iat?(_iat, _now), do: false
 
   defp get_claim(claims, path) when is_binary(path) do
     # Support nested paths like "user.email"
