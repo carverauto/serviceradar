@@ -65,8 +65,20 @@ defmodule ServiceRadarWebNG.Plugins.BlobRetention do
           is_nil(key) ->
             %{key: key, blob: blob, package: package, action: :protect, reason: :invalid_key}
 
-          is_nil(package) ->
+          is_nil(package) and referenced_orphan?(key, referenced_ids) ->
+            # The PluginPackage row is gone but an enabled assignment/policy still
+            # references this package by id, so an agent is still expected to fetch
+            # it. Never reap a still-assigned plugin object.
+            %{key: key, blob: blob, package: nil, action: :protect, reason: :referenced_orphan}
+
+          is_nil(package) and blob_older_than?(blob, now, grace_seconds) ->
             %{key: key, blob: blob, package: nil, action: :delete, reason: :orphaned_blob}
+
+          is_nil(package) ->
+            # Unreferenced orphan, but inside (or of unknown age relative to) the
+            # grace window: protect so a freshly written blob whose row has not yet
+            # committed/propagated is not pruned out from under an in-flight publish.
+            %{key: key, blob: blob, package: nil, action: :protect, reason: :grace_period}
 
           package.status in @protected_statuses ->
             %{key: key, blob: blob, package: package, action: :protect, reason: :active_package}
@@ -160,6 +172,71 @@ defmodule ServiceRadarWebNG.Plugins.BlobRetention do
       _ -> false
     end
   end
+
+  # Plugin object keys are `plugins/<plugin_id>/<version>/<package_id>.wasm`; the
+  # package_id is the basename without the `.wasm` suffix. Protect an orphaned blob
+  # (its PluginPackage row removed) whenever that id is still referenced by an
+  # enabled assignment or target policy.
+  defp referenced_orphan?(key, referenced_ids) do
+    case package_id_from_key(key) do
+      nil -> false
+      package_id -> MapSet.member?(referenced_ids, package_id)
+    end
+  end
+
+  defp package_id_from_key(key) when is_binary(key) do
+    key
+    |> Path.basename()
+    |> String.replace_suffix(".wasm", "")
+    |> case do
+      "" -> nil
+      package_id -> package_id
+    end
+  end
+
+  defp package_id_from_key(_key), do: nil
+
+  # Orphan grace: a blob whose PluginPackage row is gone is only eligible for
+  # deletion once it is older than the grace window, mirroring
+  # `NativeAddonArtifactRetention.object_older_than?/3`. When the storage backend
+  # does not expose a blob timestamp the age is unknown, so we conservatively
+  # protect (never over-delete) rather than reap.
+  defp blob_older_than?(blob, now, grace_seconds) do
+    case blob_updated_at(blob) do
+      %DateTime{} = datetime -> DateTime.diff(now, datetime, :second) >= grace_seconds
+      _ -> false
+    end
+  end
+
+  defp blob_updated_at(blob) do
+    case blob_field(blob, [:created_at_unix, "created_at_unix"]) do
+      timestamp when is_integer(timestamp) and timestamp > 0 ->
+        case DateTime.from_unix(timestamp) do
+          {:ok, datetime} -> datetime
+          _ -> nil
+        end
+
+      _ ->
+        blob |> blob_field([:updated_at, "updated_at", :mtime, "mtime"]) |> coerce_datetime()
+    end
+  end
+
+  defp blob_field(blob, keys) when is_map(blob) do
+    Enum.find_value(keys, fn key -> Map.get(blob, key) end)
+  end
+
+  defp blob_field(_blob, _keys), do: nil
+
+  defp coerce_datetime(%DateTime{} = datetime), do: datetime
+
+  defp coerce_datetime(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> datetime
+      _ -> nil
+    end
+  end
+
+  defp coerce_datetime(_value), do: nil
 
   defp normalize_key(key) when is_binary(key) do
     key = String.trim(key)

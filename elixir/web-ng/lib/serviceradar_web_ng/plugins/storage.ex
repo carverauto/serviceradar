@@ -331,10 +331,37 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
       with {:ok, _} <- ensure_bucket(conn), {:ok, metas} <- Object.list(conn, bucket_name()) do
         metas
         |> Enum.filter(fn meta -> String.starts_with?(meta.name, prefix) end)
-        |> Enum.map(fn meta -> %{key: meta.name, size: meta.size, chunks: meta.chunks, digest: meta.digest} end)
+        |> Enum.map(fn meta ->
+          %{
+            key: meta.name,
+            size: meta.size,
+            chunks: meta.chunks,
+            digest: meta.digest,
+            created_at_unix: object_meta_time(conn, meta.name)
+          }
+        end)
         |> then(&{:ok, &1})
       end
     end)
+  end
+
+  # Best-effort last-write timestamp (unix seconds) for an object, sourced from the
+  # JetStream message time of its rolled-up meta record. The Jetstream object-store
+  # client drops `mtime`, so we read it via STREAM.MSG.GET (`last_by_subj`). Returns
+  # nil on any error so callers (e.g. retention orphan grace) conservatively treat
+  # the age as unknown rather than over-deleting.
+  defp object_meta_time(conn, object_key) do
+    stream = "OBJ_#{bucket_name()}"
+    subject = object_meta_subject(bucket_name(), object_key)
+    body = Jason.encode!(%{last_by_subj: subject})
+
+    with {:ok, %{body: response}} <- Gnat.request(conn, "$JS.API.STREAM.MSG.GET.#{stream}", body),
+         {:ok, %{"message" => %{"time" => time}}} <- Jason.decode(response),
+         {:ok, datetime, _offset} <- DateTime.from_iso8601(time) do
+      DateTime.to_unix(datetime)
+    else
+      _ -> nil
+    end
   end
 
   defp blob_exists_jetstream(object_key) do
