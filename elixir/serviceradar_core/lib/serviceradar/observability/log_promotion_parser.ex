@@ -186,16 +186,26 @@ defmodule ServiceRadar.Observability.LogPromotionParser do
 
   defp normalize_severity_text(_), do: {"INFO", severity_number_for_text("INFO")}
 
-  defp severity_from_level(level) do
+  @doc """
+  Maps a numeric syslog/GELF `level` (0-7) to a normalized OTEL
+  `{severity_text, severity_number}` tuple.
+
+  The numbers are the canonical OTEL severity-number base values and are kept in
+  lockstep with the bundled `syslog_severity` Zen rule
+  (`priv/zen/rules/syslog_severity.json`) so the in-Zen and Elixir-fallback
+  ingestion paths agree. Non-numeric levels fall back to text aliasing.
+  """
+  @spec severity_from_level(term()) :: {String.t(), non_neg_integer()}
+  def severity_from_level(level) do
     case parse_numeric(level) do
       {:ok, value} ->
         case value do
-          v when v in [0, 1, 2] -> {"FATAL", severity_number_for_text("FATAL")}
-          3 -> {"ERROR", severity_number_for_text("ERROR")}
-          4 -> {"WARN", severity_number_for_text("WARN")}
-          v when v in [5, 6] -> {"INFO", severity_number_for_text("INFO")}
-          7 -> {"DEBUG", severity_number_for_text("DEBUG")}
-          _ -> {"INFO", severity_number_for_text("INFO")}
+          v when v in [0, 1, 2] -> {"FATAL", 21}
+          3 -> {"ERROR", 19}
+          4 -> {"WARN", 15}
+          v when v in [5, 6] -> {"INFO", 9}
+          7 -> {"DEBUG", 5}
+          _ -> {"INFO", 9}
         end
 
       :error ->

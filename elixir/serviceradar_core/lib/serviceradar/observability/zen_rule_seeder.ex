@@ -147,8 +147,18 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
     end
   end
 
+  # Seeded (non user-authored) rules whose compiled JDM must be refreshed on
+  # deploy when the bundled template changes. cef_severity/syslog_severity are
+  # included so the severity de-clobber + GELF-level mapping fixes flow through to
+  # already-seeded instances (DB rules win over bundled priv JSON at runtime).
+  @reconcilable_seeded_rules MapSet.new([
+                               {"snmp_severity", "logs.snmp"},
+                               {"cef_severity", "logs.syslog"},
+                               {"syslog_severity", "logs.syslog"}
+                             ])
+
   defp reconcile_rule_if_needed(rule, attrs, opts) do
-    if seeded_snmp_rule?(rule, attrs) and seeded_snmp_rule_changed?(rule, attrs) do
+    if reconcilable_seeded_rule?(rule, attrs) and seeded_rule_changed?(rule, attrs) do
       update_rule(rule, attrs, opts)
     else
       false
@@ -188,18 +198,17 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
     end
   end
 
-  defp seeded_snmp_rule?(rule, attrs) do
-    rule.name == "snmp_severity" and
-      rule.subject == "logs.snmp" and
-      attrs[:name] == "snmp_severity" and
-      attrs[:subject] == "logs.snmp" and
+  defp reconcilable_seeded_rule?(rule, attrs) do
+    MapSet.member?(@reconcilable_seeded_rules, {rule.name, rule.subject}) and
+      rule.name == attrs[:name] and
+      rule.subject == attrs[:subject] and
       rule.template == attrs[:template] and
       normalize_builder_config(rule.builder_config) ==
         normalize_builder_config(attrs[:builder_config]) and
       not user_authored_override?(rule)
   end
 
-  defp seeded_snmp_rule_changed?(rule, attrs) do
+  defp seeded_rule_changed?(rule, attrs) do
     {:ok, compiled} =
       ZenRuleTemplates.compile(attrs[:template], normalize_builder_config(attrs[:builder_config]))
 
@@ -344,6 +353,17 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
         template: "coraza_waf",
         builder_config: %{},
         order: 105,
+        stream_name: "events",
+        agent_id: "default-agent",
+        enabled: true
+      },
+      %{
+        name: "syslog_severity",
+        description: "Map numeric syslog severity (GELF level) into OTEL severity fields.",
+        subject: "logs.syslog",
+        template: "syslog_severity",
+        builder_config: %{},
+        order: 115,
         stream_name: "events",
         agent_id: "default-agent",
         enabled: true

@@ -29,6 +29,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   alias ServiceRadar.EventWriter.OtelId
   alias ServiceRadar.EventWriter.SignalTelemetry
   alias ServiceRadar.Observability.LogPromotion
+  alias ServiceRadar.Observability.LogPromotionParser
   alias ServiceRadar.Observability.LogPubSub
   alias ServiceRadar.Observability.Zen.Normalizer, as: ZenNormalizer
 
@@ -163,6 +164,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     {scope_name, scope_version} = parse_scope_fields(json)
     source = FieldParser.get_field(json, "source", "source") || source_kind(metadata[:subject])
     scope_attributes = parse_scope_attributes(json)
+    {severity_text, severity_number} = log_severity(json)
 
     observed_timestamp = parse_observed_timestamp(json) || metadata[:received_at]
 
@@ -173,13 +175,8 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       trace_id: OtelId.normalize_trace_id(FieldParser.get_field(json, "trace_id", "traceId")),
       span_id: OtelId.normalize_span_id(FieldParser.get_field(json, "span_id", "spanId")),
       trace_flags: parse_trace_flags(json),
-      severity_text:
-        FieldParser.get_field(json, "severity_text", "severityText") || json["severity"] ||
-          json["level"],
-      severity_number:
-        json
-        |> FieldParser.get_field("severity_number", "severityNumber")
-        |> FieldParser.safe_bigint(),
+      severity_text: severity_text,
+      severity_number: severity_number,
       body: extract_body(json),
       event_name: FieldParser.get_field(json, "event_name", "eventName"),
       source: source,
@@ -212,6 +209,33 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   end
 
   defp parse_json_log(_json, _metadata), do: nil
+
+  # Resolves {severity_text, severity_number}. When an explicit severity_text /
+  # severity is present it wins. Otherwise a numeric GELF/syslog `level` is mapped
+  # through the shared LogPromotionParser.severity_from_level/1 helper so we always
+  # populate BOTH columns (by_severity filtering + severity_color need
+  # severity_number) and never store a bare 0-7 int as severity_text. This is the
+  # Elixir-side complement to the bundled `syslog_severity` Zen rule.
+  defp log_severity(json) do
+    text = FieldParser.get_field(json, "severity_text", "severityText") || json["severity"]
+
+    number =
+      json
+      |> FieldParser.get_field("severity_number", "severityNumber")
+      |> FieldParser.safe_bigint()
+
+    cond do
+      is_binary(text) and text != "" ->
+        {text, number}
+
+      not is_nil(json["level"]) ->
+        {level_text, level_number} = LogPromotionParser.severity_from_level(json["level"])
+        {level_text, number || level_number}
+
+      true ->
+        {text, number}
+    end
+  end
 
   defp parse_scope_fields(json) when is_map(json) do
     scope_name = FieldParser.get_field(json, "scope_name", "scopeName")
