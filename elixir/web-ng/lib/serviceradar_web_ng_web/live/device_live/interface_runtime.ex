@@ -3,7 +3,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceRuntime do
 
   import Phoenix.Component, only: [assign: 3, to_form: 2]
   import Phoenix.LiveView, only: [put_flash: 3]
-  import ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents, only: [normalize_interface_metrics_layout: 1]
 
   alias ServiceRadarWebNGWeb.DeviceLive.InterfaceData
   alias ServiceRadarWebNGWeb.DeviceLive.NorthboundInterfaceRuntime
@@ -151,9 +150,5 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceRuntime do
       {:error, _reason} ->
         put_flash(socket, :error, "Failed to update favorite status")
     end
-  end
-
-  def set_metrics_layout(socket, layout) do
-    assign(socket, :interface_metrics_layout, normalize_interface_metrics_layout(layout))
   end
 end

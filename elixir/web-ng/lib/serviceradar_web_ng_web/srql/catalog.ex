@@ -1130,9 +1130,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "admin_status",
         "oper_status",
         "favorited",
-        "metrics_enabled"
+        "metrics_enabled",
+        "latest"
       ],
-      boolean_fields: ["favorited", "metrics_enabled"],
+      boolean_fields: ["favorited", "metrics_enabled", "latest"],
       downsample: false
     },
     %{

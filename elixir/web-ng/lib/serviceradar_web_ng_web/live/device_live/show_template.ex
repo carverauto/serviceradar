@@ -314,7 +314,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               device_uid={@device_uid}
               interface_metrics={@interface_metrics}
               discovery_job={@discovery_job}
-              interface_metrics_layout={@interface_metrics_layout}
               northbound_actions={@northbound_interface_actions}
               northbound_actions_loading={@northbound_interface_actions_loading}
               can_launch_northbound={can_launch_northbound_actions?(@current_scope)}

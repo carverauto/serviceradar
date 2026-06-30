@@ -31,7 +31,7 @@ export default {
 
     const extractTimeToken = (q) => {
       if (!q || typeof q !== "string") return null
-      const m = q.match(/(?:^|\\s)time:(?:\"([^\"]+)\"|(\\S+))/)
+      const m = q.match(/(?:^|\s)time:(?:"([^"]+)"|(\S+))/)
       return m ? (m[1] || m[2] || null) : null
     }
 
@@ -39,8 +39,8 @@ export default {
       if (!q || typeof q !== "string") q = ""
       const trimmed = q.trim()
       const replacement = ` time:${timeToken}`
-      if (/(?:^|\\s)time:(?:\"[^\"]+\"|\\S+)/.test(trimmed)) {
-        return trimmed.replace(/(?:^|\\s)time:(?:\"[^\"]+\"|\\S+)/, replacement).trim()
+      if (/(?:^|\s)time:(?:"[^"]+"|\S+)/.test(trimmed)) {
+        return trimmed.replace(/(?:^|\s)time:(?:"[^"]+"|\S+)/, replacement).trim()
       }
       return (trimmed + replacement).trim()
     }
@@ -63,12 +63,11 @@ export default {
       const current = (this._input.value || "").toString()
       const next = upsertTimeToken(current, token)
       if (next !== current) {
+        // Restore the remembered time token into the input WITHOUT submitting.
+        // Auto-submitting on mount triggered a push_navigate -> full LiveView
+        // remount (the self-inflicted "hard refresh"). The restored token now
+        // rides along with the next user-driven submit instead.
         this._input.value = next
-        if (typeof this.el.requestSubmit === "function") {
-          this.el.requestSubmit()
-        } else {
-          this.el.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
-        }
       }
     }
 

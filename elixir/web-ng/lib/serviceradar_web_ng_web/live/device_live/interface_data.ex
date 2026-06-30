@@ -412,7 +412,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
 
   defp parse_integer(_), do: nil
 
-  defp build_interface_panels(srql_response, iface_name, if_index, max_speed, reference_lines) do
+  defp build_interface_panels(srql_response, iface_name, if_index, _max_speed, reference_lines) do
     srql_response
     |> Engine.build_panels()
     |> Enum.reject(&(&1.plugin == TablePlugin))
@@ -420,7 +420,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
       assigns =
         panel.assigns
         |> Map.put(:interface_label, "#{iface_name} (ifIndex: #{if_index})")
-        |> Map.put(:max_speed_bytes_per_sec, max_speed)
+        # max_speed is intentionally dropped: without the synthetic capacity
+        # reference line the "interface rate" footer and "(0.0%)" utilization
+        # label are meaningless, and clamping rates to link capacity is what
+        # pinned the chart. Charts now auto-scale to the observed traffic.
+        |> Map.put(:max_speed_bytes_per_sec, nil)
         |> Map.put(:chart_mode, :combined)
         |> Map.put(:rate_mode, :counter)
         |> Map.put(:reference_lines, reference_lines)
@@ -439,9 +443,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
       end)
 
     legacy_lines = legacy_reference_lines(interface, max_speed_bytes_per_sec)
-    capacity_lines = capacity_reference_lines(max_speed_bytes_per_sec)
 
-    metric_lines ++ legacy_lines ++ capacity_lines
+    # NOTE: We intentionally do NOT emit a synthetic "Interface rate" capacity
+    # reference line. Folding link capacity (e.g. 125 MB/s) into the chart
+    # pinned the y-domain to capacity and squashed real KB/s–Mbps traffic to
+    # ~0. Only user-defined thresholds render as reference lines now, so the
+    # y-axis auto-scales to the actual data.
+    metric_lines ++ legacy_lines
   end
 
   def interface_reference_lines(_interface, _max_speed_bytes_per_sec), do: []
@@ -537,20 +545,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
       []
     end
   end
-
-  defp capacity_reference_lines(max_speed_bytes_per_sec)
-       when is_number(max_speed_bytes_per_sec) and max_speed_bytes_per_sec > 0 do
-    Enum.map(~w(ifInOctets ifOutOctets ifHCInOctets ifHCOutOctets), fn metric ->
-      %{
-        value: max_speed_bytes_per_sec,
-        label: "Interface rate",
-        severity: :info,
-        series: metric
-      }
-    end)
-  end
-
-  defp capacity_reference_lines(_max_speed_bytes_per_sec), do: []
 
   defp legacy_metric_name_for(:bandwidth_in), do: "ifInOctets"
   defp legacy_metric_name_for("bandwidth_in"), do: "ifInOctets"

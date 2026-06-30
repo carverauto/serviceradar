@@ -27,7 +27,7 @@ export function ensureSrqlLanguage(monaco, completions = []) {
     tokenizer: {
       root: [
         [/\bin:[a-zA-Z0-9_-]+/, "keyword"],
-        [/\b(limit|sort|time|where|group|by|from|select|as|and|or|not)\b/, "keyword"],
+        [/\b(limit|sort|time|where|group|by|from|select|as|and|or|not|latest)\b/, "keyword"],
         [/\b(ok|warn|fail|unknown|true|false|null)\b/, "constant"],
         [/"[^"]*"/, "string"],
         [/'[^']*'/, "string"],
