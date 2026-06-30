@@ -194,6 +194,33 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       assert result.service_name == "syslog-host-1"
     end
 
+    test "maps a bare numeric syslog level to OTEL severity text and number" do
+      result =
+        Logs.parse_message(%{
+          data:
+            Jason.encode!(%{
+              "host" => "unifi-gw",
+              "level" => 4,
+              "short_message" => "[NETFILTER] iptables drop"
+            }),
+          metadata: %{subject: "logs.syslog.processed"}
+        })
+
+      assert result.severity_text == "WARN"
+      assert result.severity_number == 15
+    end
+
+    test "does not store a bare level integer as severity_text" do
+      result =
+        Logs.parse_message(%{
+          data: Jason.encode!(%{"level" => 6, "short_message" => "info line"}),
+          metadata: %{}
+        })
+
+      assert result.severity_text == "INFO"
+      assert result.severity_number == 9
+    end
+
     test "drops empty nested metadata from unmatched Zen rules" do
       result =
         Logs.parse_message(%{

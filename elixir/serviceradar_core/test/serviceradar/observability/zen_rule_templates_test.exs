@@ -35,7 +35,9 @@ defmodule ServiceRadar.Observability.ZenRuleTemplatesTest do
       |> Enum.find(&(&1["key"] == "body"))
       |> Map.fetch!("value")
 
-    assert severity_expression == "severity ?? 'Unknown'"
+    # De-clobbered: leave severity untouched when no SNMP severity is present so
+    # downstream PRI/level mapping is not overwritten with 'Unknown'.
+    assert severity_expression == "severity"
     assert source_expression == "'snmp'"
     assert service_name_expression == "'snmp'"
 

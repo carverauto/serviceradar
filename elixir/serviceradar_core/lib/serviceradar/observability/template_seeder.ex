@@ -280,6 +280,16 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
         enabled: true
       },
       %{
+        name: "syslog_severity",
+        description: "Map numeric syslog severity (GELF level) into OTEL severity fields.",
+        subject: "logs.syslog",
+        template: "syslog_severity",
+        order: 115,
+        stream_name: "events",
+        agent_id: "default-agent",
+        enabled: true
+      },
+      %{
         name: "cef_severity",
         description: "Map CEF severity values into normalized severity.",
         subject: "logs.syslog",

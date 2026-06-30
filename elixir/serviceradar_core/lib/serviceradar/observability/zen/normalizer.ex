@@ -13,7 +13,13 @@ defmodule ServiceRadar.Observability.Zen.Normalizer do
   require Logger
 
   @rule_groups %{
-    "logs.syslog" => ["passthrough", "coraza_waf", "strip_full_message", "cef_severity"],
+    "logs.syslog" => [
+      "passthrough",
+      "coraza_waf",
+      "strip_full_message",
+      "syslog_severity",
+      "cef_severity"
+    ],
     "logs.snmp" => ["passthrough", "snmp_severity"],
     "logs.otel" => ["passthrough"],
     "logs.internal.health" => ["passthrough"],
