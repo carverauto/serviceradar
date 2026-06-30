@@ -4,10 +4,12 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   """
 
   alias ServiceRadar.Automation.Northbound.PluginActionSync
+  alias ServiceRadar.DataService.Client, as: DataServiceClient
   alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Plugins.Manifest
   alias ServiceRadar.Plugins.PackageAssignmentLifecycle
   alias ServiceRadar.Plugins.Plugin
+  alias ServiceRadar.Plugins.PluginArtifactMirror
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.ProducerScheduleCatalog
   alias ServiceRadarWebNG.Plugins.FirstPartyImporter
@@ -16,6 +18,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   alias ServiceRadarWebNG.Plugins.UploadSignature
 
   require Ash.Query
+  require Logger
 
   @default_limit 100
   @max_limit 500
@@ -509,26 +512,103 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   defp store_wasm_blob(package, payload, content_hash, opts) do
     object_key = Storage.object_key_for(package)
 
-    with :ok <- Storage.put_blob(object_key, payload) do
-      package
-      |> Ash.Changeset.for_update(:update, %{
-        wasm_object_key: object_key,
-        content_hash: content_hash
-      })
-      |> update_resource_with_opts(opts)
+    with :ok <- Storage.put_blob(object_key, payload),
+         {:ok, updated} <-
+           package
+           |> Ash.Changeset.for_update(:update, %{
+             wasm_object_key: object_key,
+             content_hash: content_hash
+           })
+           |> update_resource_with_opts(opts) do
+      mirror_plugin_artifact(updated, object_key, payload)
+      {:ok, updated}
     end
   end
 
   defp store_wasm_blob_file(package, path, content_hash, opts) do
     object_key = Storage.object_key_for(package)
 
-    with :ok <- Storage.put_blob_file(object_key, path) do
-      package
-      |> Ash.Changeset.for_update(:update, %{
-        wasm_object_key: object_key,
-        content_hash: content_hash
-      })
-      |> update_resource_with_opts(opts)
+    with :ok <- Storage.put_blob_file(object_key, path),
+         {:ok, updated} <-
+           package
+           |> Ash.Changeset.for_update(:update, %{
+             wasm_object_key: object_key,
+             content_hash: content_hash
+           })
+           |> update_resource_with_opts(opts) do
+      mirror_plugin_artifact_from_storage(updated, object_key)
+      {:ok, updated}
+    end
+  end
+
+  # Mirror the plugin WASM into the datasvc `serviceradar-objects` read bucket so
+  # agents (serviceradar_agent_gateway -> datasvc) can fetch it. web-ng only writes
+  # to the `serviceradar_plugins` bucket, which datasvc cannot read, so without this
+  # mirror the agent download fails with "object not found". Best-effort: a datasvc
+  # outage must not fail the local blob write, which already succeeded.
+  defp mirror_plugin_artifact(%PluginPackage{} = package, object_key, payload) when is_binary(payload) do
+    if datasvc_mirror_available?() do
+      case PluginArtifactMirror.mirror(object_key, payload, plugin_mirror_opts(package)) do
+        {:ok, _key} ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning(
+            "plugin artifact datasvc mirror failed package_id=#{package.id} " <>
+              "object_key=#{object_key} error=#{inspect(reason)}"
+          )
+
+          :ok
+      end
+    else
+      Logger.debug(
+        "plugin artifact datasvc mirror skipped (datasvc unavailable) " <>
+          "package_id=#{package.id} object_key=#{object_key}"
+      )
+
+      :ok
+    end
+  end
+
+  defp mirror_plugin_artifact(_package, _object_key, _payload), do: :ok
+
+  defp mirror_plugin_artifact_from_storage(%PluginPackage{} = package, object_key) do
+    case Storage.fetch_blob(object_key) do
+      {:ok, {:binary, payload}} ->
+        mirror_plugin_artifact(package, object_key, payload)
+
+      _other ->
+        Logger.debug(
+          "plugin artifact datasvc mirror skipped (blob bytes unavailable) " <>
+            "package_id=#{package.id} object_key=#{object_key}"
+        )
+
+        :ok
+    end
+  end
+
+  defp plugin_mirror_opts(%PluginPackage{} = package) do
+    attributes = %{
+      "plugin_id" => to_string(package.plugin_id),
+      "version" => to_string(package.version),
+      "package_id" => to_string(package.id)
+    }
+
+    opts = [attributes: attributes]
+
+    case Application.get_env(:serviceradar_web_ng, :plugin_artifact_upload) do
+      upload when is_function(upload, 3) -> Keyword.put(opts, :upload_object, upload)
+      _ -> opts
+    end
+  end
+
+  # Skip the (cross-service) mirror when datasvc is not reachable so tests and
+  # offline runs do not block on a gRPC connect. An injected upload function always
+  # mirrors (it is the integration/test seam).
+  defp datasvc_mirror_available? do
+    case Application.get_env(:serviceradar_web_ng, :plugin_artifact_upload) do
+      upload when is_function(upload, 3) -> true
+      _ -> DataServiceClient.connected?()
     end
   end
 
