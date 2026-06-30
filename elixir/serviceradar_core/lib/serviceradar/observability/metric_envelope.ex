@@ -206,6 +206,10 @@ defmodule ServiceRadar.Observability.MetricEnvelope do
       partition: non_empty(resource.partition),
       scale: scale(metric.scale),
       is_delta: metric.temporality == :METRIC_TEMPORALITY_DELTA,
+      # Persist the SNMP counter bit-width (32/64) as a first-class column so the SRQL
+      # rate query can pick the correct wrap modulus. nil (unknown) -> NULL, which the
+      # rate CTE handles with a 32-bit heuristic. Mirrors `is_delta` threading.
+      counter_width: positive_int(metric.counter_width),
       target_device_ip: target_device_ip(resource, tags, metadata),
       if_index: positive_int(point.if_index),
       metadata: metadata,

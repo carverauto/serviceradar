@@ -47,6 +47,23 @@ defmodule ServiceRadar.Observability.MetricEnvelopeTest do
     end
   end
 
+  describe "counter_width threading (SNMP counter wrap)" do
+    test "persists the SNMP counter bit-width as a first-class row field" do
+      [row] = decode_one(snmp_metric(tags: %{"host" => "10.0.0.20"}))
+
+      # The width drives the SRQL rate query's wrap modulus (2^32 vs 2^64); it must be a
+      # top-level column, not only buried in metadata, so the rate CTE can branch on it.
+      assert row.counter_width == 64
+      assert row.metadata["counter_width"] == 64
+    end
+
+    test "leaves counter_width nil when the width is unknown (gauge / width 0)" do
+      [row] = decode_one(gauge_metric("memory.used_percent", "sysmon.memory", 42.0, []))
+
+      assert row.counter_width == nil
+    end
+  end
+
   describe "series_key trust boundary (finding 2a)" do
     test "emits telemetry for mismatched producer hints without trusting them" do
       event = [:serviceradar, :observability, :series_identity_hint, :mismatch]

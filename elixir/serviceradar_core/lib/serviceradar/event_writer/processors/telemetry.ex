@@ -29,6 +29,7 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
     partition TEXT,
     scale DOUBLE PRECISION,
     is_delta BOOLEAN DEFAULT FALSE,
+    counter_width INTEGER,
     target_device_ip TEXT,
     if_index INTEGER,
     metadata JSONB,

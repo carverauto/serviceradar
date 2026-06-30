@@ -1338,7 +1338,8 @@ CREATE TABLE platform.timeseries_metrics (
     if_index integer,
     metadata jsonb,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    series_key text NOT NULL
+    series_key text NOT NULL,
+    counter_width integer
 );
 
 
