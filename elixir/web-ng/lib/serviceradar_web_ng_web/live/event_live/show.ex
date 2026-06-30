@@ -274,7 +274,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
       </span>
       <span class={[
         "text-sm break-words",
-        if(@mono, do: "font-mono", else: nil),
+        if(@mono, do: "font-mono break-all", else: nil),
         if(blank?(@value), do: "text-base-content/40", else: nil)
       ]}>
         {display_value(@value)}
@@ -552,19 +552,19 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
         {:error, _} ->
           ~H"""
-          <span class="font-mono text-xs">{@value}</span>
+          <span class="font-mono text-xs break-all">{@value}</span>
           """
       end
     else
       ~H"""
-      <span>{@value}</span>
+      <span class="break-all">{@value}</span>
       """
     end
   end
 
   defp format_value(assigns) do
     ~H"""
-    <span>{to_string(@value)}</span>
+    <span class="break-all">{to_string(@value)}</span>
     """
   end
 
