@@ -90,6 +90,10 @@ defmodule ServiceRadar.Identity.AuthSettings do
 
       argument :oidc_client_secret, :string do
         sensitive? true
+        # Keep secrets verbatim and allow an explicit "" to clear the stored value;
+        # the Ash string defaults (trim?: true, allow_empty?: false) would otherwise
+        # coerce "" -> nil and silently drop the clear request.
+        constraints allow_empty?: true, trim?: false
         description "OIDC client secret (will be encrypted)"
       end
 
@@ -118,11 +122,18 @@ defmodule ServiceRadar.Identity.AuthSettings do
       # Virtual arguments for secrets (not stored directly)
       argument :oidc_client_secret, :string do
         sensitive? true
+        # Keep secrets verbatim and allow an explicit "" to clear the stored value;
+        # the Ash string defaults (trim?: true, allow_empty?: false) would otherwise
+        # coerce "" -> nil and silently drop the clear request.
+        constraints allow_empty?: true, trim?: false
         description "OIDC client secret (will be encrypted)"
       end
 
       argument :saml_private_key, :string do
         sensitive? true
+        # See :oidc_client_secret above: preserve the key verbatim and allow ""
+        # to clear it instead of being coerced to nil by the Ash string defaults.
+        constraints allow_empty?: true, trim?: false
         description "SAML private key (will be encrypted)"
       end
 
@@ -168,11 +179,20 @@ defmodule ServiceRadar.Identity.AuthSettings do
         changeset
 
       "" ->
-        # Clear the encrypted value if empty string provided
-        Ash.Changeset.change_attribute(changeset, encrypted_attr, nil)
+        # Clear the encrypted value if an empty string is provided. AshCloak
+        # rewrites `encrypted_attr` into a decrypt calculation and stores the
+        # ciphertext in the underlying `encrypted_<attr>` column, so null that
+        # storage column directly rather than the (read-only) calculation.
+        storage_attr = String.to_existing_atom("encrypted_#{encrypted_attr}")
+        Ash.Changeset.force_change_attribute(changeset, storage_attr, nil)
 
       value when is_binary(value) ->
-        Ash.Changeset.change_attribute(changeset, encrypted_attr, value)
+        # `encrypted_attr` is no longer a plain attribute: AshCloak turned it into
+        # a decrypt calculation backed by the `encrypted_<attr>` storage column, so
+        # `change_attribute/3` on it raises NoSuchAttribute. Use AshCloak's helper
+        # to encrypt the plaintext and write the ciphertext to the storage column;
+        # the decrypt calculation then round-trips it back to plaintext on read.
+        AshCloak.encrypt_and_set(changeset, encrypted_attr, value)
     end
   end
 
