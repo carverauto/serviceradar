@@ -401,7 +401,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               <.icon name="hero-bell-alert" class="size-5" />
             </.link>
             <.link
-              navigate={~p"/settings/profile"}
+              href={~p"/settings/profile"}
               class="sr-ops-avatar"
               aria-label="Open profile"
               title={profile_title(@current_scope)}

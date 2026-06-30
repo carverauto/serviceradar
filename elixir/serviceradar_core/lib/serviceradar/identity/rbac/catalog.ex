@@ -386,7 +386,7 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           key: "settings.password.manage",
           label: "Change own password",
           description: "Change the signed-in user's password from profile settings",
-          default_roles: @operator_roles
+          default_roles: @all_roles
         },
         %{
           key: "settings.rbac.manage",

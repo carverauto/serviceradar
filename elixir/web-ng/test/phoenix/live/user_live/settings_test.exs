@@ -4,10 +4,12 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
   import Phoenix.LiveViewTest
   import ServiceRadarWebNG.AccountsFixtures
 
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.Accounts
 
   describe "Settings page" do
-    test "renders password controls for users with password permission", %{conn: conn} do
+    test "renders password controls for users with a local password", %{conn: conn} do
       {:ok, _lv, html} =
         conn
         |> log_in_user(user_fixture(%{role: :operator}))
@@ -17,10 +19,36 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       assert html =~ "Save Password"
     end
 
-    test "hides password controls for viewers", %{conn: conn} do
+    test "lets viewers with a local password change their own password", %{conn: conn} do
+      # settings.password.manage is granted to all roles; the change_password
+      # policy scopes the action to the signed-in user (self-service), so a
+      # viewer can rotate their own local password.
       {:ok, _lv, html} =
         conn
         |> log_in_user(user_fixture(%{role: :viewer}))
+        |> live(~p"/settings/profile")
+
+      assert html =~ "Change Email"
+      assert html =~ "Save Password"
+    end
+
+    test "hides password controls for SSO-only users without a local password", %{conn: conn} do
+      actor = SystemActor.system(:test)
+
+      {:ok, sso_user} =
+        User.provision_sso_user(
+          %{
+            email: unique_user_email(),
+            display_name: "SSO User",
+            external_id: "oidc|#{System.unique_integer([:positive])}",
+            provider: :oidc
+          },
+          actor: actor
+        )
+
+      {:ok, _lv, html} =
+        conn
+        |> log_in_user(sso_user)
         |> live(~p"/settings/profile")
 
       assert html =~ "Change Email"
@@ -39,7 +67,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
   describe "update email form" do
     setup %{conn: conn} do
       user = user_fixture()
-      %{conn: log_in_user(conn, user), user: user}
+      %{conn: conn |> log_in_user(user) |> put_sudo_mode(), user: user}
     end
 
     test "updates the user email", %{conn: conn, user: user} do
@@ -96,7 +124,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
   describe "update password form" do
     setup %{conn: conn} do
       user = user_fixture(%{role: :operator})
-      %{conn: log_in_user(conn, user), user: user}
+      %{conn: conn |> log_in_user(user) |> put_sudo_mode(), user: user}
     end
 
     test "renders errors with invalid data (phx-change)", %{conn: conn} do
@@ -136,5 +164,16 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       assert result =~ "length must be greater than or equal to 12"
       assert result =~ "does not match password"
     end
+  end
+
+  # Real logins stamp sudo mode in the session (20-minute window). The view no
+  # longer requires sudo, but the sensitive email/password submits still do, so
+  # tests that submit must simulate the freshly-authenticated session.
+  defp put_sudo_mode(conn) do
+    Plug.Conn.put_session(
+      conn,
+      "sudo_authenticated_at",
+      DateTime.to_unix(DateTime.utc_now())
+    )
   end
 end
