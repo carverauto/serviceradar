@@ -223,6 +223,27 @@ plugin_storage_signing_secret =
 edge_crypto_secret =
   read_secret_env.("SERVICERADAR_EDGE_CRYPTO_SECRET", "SERVICERADAR_EDGE_CRYPTO_SECRET_FILE")
 
+# =============================================================================
+# Local-login break-glass + SSO toggle
+# =============================================================================
+# SERVICERADAR_AUTH_FORCE_LOCAL_LOGIN permits local password login independent of
+# AuthSettings and the IdP. It is a PERMIT, not a bypass — a valid password is still
+# required — and is the recover-from-broken-AuthSettings hatch (no DB read needed).
+# ServiceRadarWebNGWeb.Auth.LoginPolicy checks it first; a loud boot WARNING is emitted
+# in ServiceRadarWebNG.Application when active. SERVICERADAR_AUTH_DISABLE_SSO hides the
+# SSO button on the sign-in page.
+config :serviceradar_web_ng, :auth,
+  force_local_login:
+    "SERVICERADAR_AUTH_FORCE_LOCAL_LOGIN"
+    |> System.get_env("false")
+    |> String.downcase()
+    |> Kernel.in(["1", "true", "yes", "on"]),
+  disable_sso:
+    "SERVICERADAR_AUTH_DISABLE_SSO"
+    |> System.get_env("false")
+    |> String.downcase()
+    |> Kernel.in(["1", "true", "yes", "on"])
+
 if is_binary(edge_crypto_secret) and String.trim(edge_crypto_secret) != "" do
   config :serviceradar_core, :crypto_secret, String.trim(edge_crypto_secret)
 end

@@ -2,10 +2,15 @@ defmodule ServiceRadarWebNGWeb.AuthControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
   alias ServiceRadar.Security.RateLimiter
+  alias ServiceRadarWebNG.AshTestHelpers
+  alias ServiceRadarWebNGWeb.Auth.ConfigCache
+
+  require Ash.Query
 
   @password_action :auth_local
   @reset_action :auth_password_reset
   @ip "127.0.0.1"
+  @fixture_password "test_password_123!"
 
   setup do
     RateLimiter.clear(@password_action, @ip)
@@ -49,5 +54,115 @@ defmodule ServiceRadarWebNGWeb.AuthControllerTest do
 
     assert Phoenix.Flash.get(conn.assigns.flash, :error) =~
              "Too many password reset requests. Please try again"
+  end
+
+  describe "server-side local-login enforcement" do
+    setup do
+      previous_loader = Application.get_env(:serviceradar_web_ng, :auth_settings_loader)
+      previous_auth = Application.get_env(:serviceradar_web_ng, :auth, [])
+      Application.put_env(:serviceradar_web_ng, :auth, force_local_login: false, disable_sso: false)
+
+      on_exit(fn ->
+        if previous_loader do
+          Application.put_env(:serviceradar_web_ng, :auth_settings_loader, previous_loader)
+        else
+          Application.delete_env(:serviceradar_web_ng, :auth_settings_loader)
+        end
+
+        Application.put_env(:serviceradar_web_ng, :auth, previous_auth)
+        clear_auth_cache()
+      end)
+
+      :ok
+    end
+
+    test "denies a regular (SSO-only) account when SSO is enforced", %{conn: conn} do
+      set_auth_mode(:active_sso)
+      user = AshTestHelpers.user_fixture()
+      {:ok, _} = set_local_login(user, false)
+
+      conn = post_login(conn, user.email, @fixture_password)
+
+      assert redirected_to(conn) == "/auth/oidc"
+      assert is_nil(get_session(conn, "user_token"))
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) =~ "organization's SSO"
+    end
+
+    test "denies a regular account at the /auth/local backdoor too", %{conn: conn} do
+      set_auth_mode(:active_sso)
+      user = AshTestHelpers.user_fixture()
+      {:ok, _} = set_local_login(user, false)
+
+      conn =
+        conn
+        |> Map.put(:remote_ip, {127, 0, 0, 1})
+        |> post(~p"/auth/local/sign-in", %{
+          "user" => %{"email" => to_string(user.email), "password" => @fixture_password}
+        })
+
+      assert redirected_to(conn) == "/auth/oidc"
+      assert is_nil(get_session(conn, "user_token"))
+    end
+
+    test "allows an opted-in account when SSO is enforced", %{conn: conn} do
+      set_auth_mode(:active_sso)
+      # Locally-registered fixture users are local_login_enabled by default.
+      user = AshTestHelpers.user_fixture()
+
+      conn = post_login(conn, user.email, @fixture_password)
+
+      assert redirected_to(conn) == ~p"/dashboard"
+      assert get_session(conn, "user_token")
+    end
+
+    test "password_only mode allows any account regardless of the flag", %{conn: conn} do
+      set_auth_mode(:password_only)
+      user = AshTestHelpers.user_fixture()
+      {:ok, _} = set_local_login(user, false)
+
+      conn = post_login(conn, user.email, @fixture_password)
+
+      assert redirected_to(conn) == ~p"/dashboard"
+      assert get_session(conn, "user_token")
+    end
+
+    test "break-glass env permits an SSO-only account with a valid password", %{conn: conn} do
+      set_auth_mode(:active_sso)
+      Application.put_env(:serviceradar_web_ng, :auth, force_local_login: true, disable_sso: false)
+      user = AshTestHelpers.user_fixture()
+      {:ok, _} = set_local_login(user, false)
+
+      conn = post_login(conn, user.email, @fixture_password)
+
+      assert redirected_to(conn) == ~p"/dashboard"
+      assert get_session(conn, "user_token")
+    end
+  end
+
+  defp post_login(conn, email, password) do
+    conn
+    |> Map.put(:remote_ip, {127, 0, 0, 1})
+    |> post(~p"/auth/sign-in", %{
+      "user" => %{"email" => to_string(email), "password" => password}
+    })
+  end
+
+  defp set_auth_mode(mode) do
+    settings = %{is_enabled: mode != :password_only, mode: mode, provider_type: :oidc}
+    Application.put_env(:serviceradar_web_ng, :auth_settings_loader, fn -> {:ok, settings} end)
+    clear_auth_cache()
+    ConfigCache.refresh()
+    :ok
+  end
+
+  defp set_local_login(user, enabled) do
+    user
+    |> Ash.Changeset.for_update(:set_local_login, %{local_login_enabled: enabled}, actor: AshTestHelpers.system_actor())
+    |> Ash.update()
+  end
+
+  defp clear_auth_cache do
+    if :ets.whereis(ConfigCache) != :undefined, do: :ets.delete(ConfigCache, :auth_settings)
+    :ok
   end
 end

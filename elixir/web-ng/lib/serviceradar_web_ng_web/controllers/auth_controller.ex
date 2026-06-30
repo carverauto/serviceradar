@@ -25,11 +25,17 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   alias ServiceRadarWebNG.Audit.UserAuthEvents
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.Auth.Hooks
+  alias ServiceRadarWebNGWeb.Auth.ConfigCache
+  alias ServiceRadarWebNGWeb.Auth.LoginPolicy
   alias ServiceRadarWebNGWeb.AuthURL
   alias ServiceRadarWebNGWeb.ClientIP
   alias ServiceRadarWebNGWeb.UserAuth
 
+  # Shown on a server-side local-login deny. Intentionally generic so it is not an
+  # account-enumeration oracle (the bcrypt verify already ran before this point).
   require Logger
+
+  @sso_required_flash "This account must sign in via your organization's SSO."
 
   plug :fetch_session
 
@@ -57,11 +63,19 @@ defmodule ServiceRadarWebNGWeb.AuthController do
 
     case User.authenticate(email, password, actor: actor) do
       {:ok, user} ->
-        record_successful_auth_async(conn, user, :password)
+        # Credentials are valid; the bcrypt verify already ran. Now enforce
+        # local-login-vs-SSO server-side (fail closed) before creating a session.
+        case enforce_local_login(user) do
+          {:allow, _settings} ->
+            record_successful_auth_async(conn, user, :password, break_glass?: LoginPolicy.force_local_login?())
 
-        conn
-        |> put_flash(:info, "Signed in successfully.")
-        |> UserAuth.log_in_user(user)
+            conn
+            |> put_flash(:info, "Signed in successfully.")
+            |> UserAuth.log_in_user(user)
+
+          {:deny, settings} ->
+            deny_local_login(conn, user.email, settings)
+        end
 
       {:error, _} ->
         Lockouts.record_failed_login(email, %{
@@ -101,13 +115,26 @@ defmodule ServiceRadarWebNGWeb.AuthController do
 
     case User.authenticate(email, password, actor: actor) do
       {:ok, user} ->
-        Logger.info("Successful local admin login for #{email} from IP: #{client_ip}")
+        # The /auth/local backdoor must honor the same server-side policy as the
+        # main login — a valid password is not sufficient when SSO is enforced.
+        case enforce_local_login(user) do
+          {:allow, _settings} ->
+            Logger.info("Successful local admin login for #{email} from IP: #{client_ip}")
 
-        record_successful_auth_async(conn, user, :password, hook_method: "local_password")
+            record_successful_auth_async(conn, user, :password,
+              hook_method: "local_password",
+              break_glass?: LoginPolicy.force_local_login?()
+            )
 
-        conn
-        |> put_flash(:info, "Signed in successfully.")
-        |> UserAuth.log_in_user(user)
+            conn
+            |> put_flash(:info, "Signed in successfully.")
+            |> UserAuth.log_in_user(user)
+
+          {:deny, settings} ->
+            Logger.warning("Local admin login denied by policy (SSO-enforced) for #{email} from IP: #{client_ip}")
+
+            deny_local_login(conn, user.email, settings)
+        end
 
       {:error, _} ->
         Logger.warning("Failed local admin login attempt for #{email} from IP: #{client_ip}")
@@ -160,8 +187,37 @@ defmodule ServiceRadarWebNGWeb.AuthController do
     :ok
   end
 
-  defp record_successful_auth_async(conn, user, auth_method, opts \\ []) do
+  # Resolves AuthSettings (fail closed on error) and applies the server-side
+  # local-login policy. Returns `{:allow, settings}` or `{:deny, settings}`.
+  defp enforce_local_login(user) do
+    settings =
+      case ConfigCache.get_settings() do
+        {:ok, settings} -> settings
+        # Fail closed: do NOT fall back to a password_only default on error. With
+        # nil settings only the per-account flag or the env break-glass can permit.
+        {:error, _} -> nil
+      end
+
+    if LoginPolicy.local_login_allowed?(user, settings) do
+      {:allow, settings}
+    else
+      {:deny, settings}
+    end
+  end
+
+  # Generic deny: no session, generic flash (no enumeration oracle), redirect toward
+  # the SSO entry. The bcrypt verify already ran, so timing is uniform.
+  defp deny_local_login(conn, email, settings) do
+    Logger.info("Local login denied by policy (SSO-enforced) for #{email}")
+
+    conn
+    |> put_flash(:error, @sso_required_flash)
+    |> redirect(to: LoginPolicy.sso_entry_path(settings))
+  end
+
+  defp record_successful_auth_async(conn, user, auth_method, opts) do
     hook_method = Keyword.get(opts, :hook_method, Atom.to_string(auth_method))
+    break_glass? = Keyword.get(opts, :break_glass?, false)
     ip = ClientIP.get(conn)
     user_agent = conn |> Plug.Conn.get_req_header("user-agent") |> List.first()
     actor = SystemActor.system(:auth_controller)
@@ -170,6 +226,16 @@ defmodule ServiceRadarWebNGWeb.AuthController do
       _ = User.record_authentication(user, actor: actor)
       _ = Hooks.on_user_authenticated(user, %{"method" => hook_method})
       _ = UserAuthEvents.record_login_context(user, auth_method, ip, user_agent)
+
+      if break_glass? do
+        Logger.warning(
+          "[break-glass] Local login permitted by SERVICERADAR_AUTH_FORCE_LOCAL_LOGIN " <>
+            "for #{user.email} from IP: #{ip}"
+        )
+
+        _ = UserAuthEvents.record_login_context(user, :break_glass_local_login, ip, user_agent)
+      end
+
       :ok
     end
 

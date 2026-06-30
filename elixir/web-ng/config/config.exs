@@ -210,6 +210,14 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Plugs.SecurityHeaders,
 
 config :serviceradar_web_ng, :allow_insecure_metadata_urls, false
 
+# Local-login break-glass + SSO toggle. Overridden at runtime from
+# SERVICERADAR_AUTH_FORCE_LOCAL_LOGIN / SERVICERADAR_AUTH_DISABLE_SSO (see
+# config/runtime.exs). Default off: server-side local-login policy is governed by the
+# auth mode plus the per-account `local_login_enabled` flag.
+config :serviceradar_web_ng, :auth,
+  force_local_login: false,
+  disable_sso: false
+
 config :serviceradar_web_ng, :client_ip,
   trust_x_forwarded_for: false,
   trusted_proxy_cidrs: []

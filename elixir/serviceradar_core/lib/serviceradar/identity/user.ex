@@ -61,6 +61,7 @@ defmodule ServiceRadar.Identity.User do
     :update_role,
     :update_role_profile,
     :admin_set_password,
+    :set_local_login,
     :deactivate,
     :reactivate
   ]
@@ -86,6 +87,7 @@ defmodule ServiceRadar.Identity.User do
     define :update_role
     define :update_role_profile, action: :update_role_profile
     define :admin_set_password, action: :admin_set_password
+    define :set_local_login, action: :set_local_login
   end
 
   actions do
@@ -147,6 +149,9 @@ defmodule ServiceRadar.Identity.User do
         constraints min_length: 12
       end
 
+      # Accounts created with a local password may sign in locally.
+      change set_attribute(:local_login_enabled, true)
+
       change {HashPassword, force?: true}
     end
 
@@ -168,6 +173,9 @@ defmodule ServiceRadar.Identity.User do
       end
 
       validate PasswordConfirmationMatches
+
+      # Locally-registered accounts may sign in locally (SSO/JIT accounts do not).
+      change set_attribute(:local_login_enabled, true)
 
       change {HashPassword, force?: true}
     end
@@ -280,6 +288,11 @@ defmodule ServiceRadar.Identity.User do
       change {HashPassword, force?: true}
     end
 
+    update :set_local_login do
+      description "Enable or disable local password login for this account (admin-only)"
+      accept [:local_login_enabled]
+    end
+
     update :record_authentication do
       description "Record authentication timestamp for sudo mode"
       change set_attribute(:authenticated_at, &DateTime.utc_now/0)
@@ -382,6 +395,19 @@ defmodule ServiceRadar.Identity.User do
       allow_nil? true
       sensitive? true
       description "Bcrypt-hashed password"
+    end
+
+    attribute :local_login_enabled, :boolean do
+      allow_nil? false
+      default false
+      public? true
+
+      description """
+      Whether this account may authenticate with a local password when SSO is the
+      primary mode. SSO/JIT-provisioned accounts are SSO-only (false); locally
+      created/registered accounts are true. Governs server-side local-login policy
+      (see ServiceRadarWebNGWeb.Auth.LoginPolicy). Has no effect in password_only mode.
+      """
     end
 
     attribute :display_name, :string do

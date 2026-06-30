@@ -406,6 +406,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     patch("/users/:id", UserController, :update)
     post("/users/:id/deactivate", UserController, :deactivate)
     post("/users/:id/reactivate", UserController, :reactivate)
+    post("/users/:id/local-login", UserController, :set_local_login)
 
     get("/authorization-settings", AuthorizationSettingsController, :show)
     put("/authorization-settings", AuthorizationSettingsController, :update)

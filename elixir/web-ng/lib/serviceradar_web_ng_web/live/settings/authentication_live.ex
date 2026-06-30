@@ -215,24 +215,39 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
               <.ui_panel>
                 <:header>
                   <div>
-                    <div class="text-sm font-semibold">Password Fallback</div>
+                    <div class="text-sm font-semibold">Local Password Login</div>
                     <p class="text-xs text-base-content/60">
-                      Allow password login as a fallback when SSO is primary.
+                      Who may sign in with a password while SSO is enforced.
                     </p>
                   </div>
                 </:header>
 
-                <label class="label cursor-pointer justify-start gap-3">
-                  <input
-                    type="checkbox"
-                    name="settings[allow_password_fallback]"
-                    checked={@form[:allow_password_fallback].value}
-                    class="checkbox checkbox-primary"
-                  />
-                  <span class="label-text">
-                    Allow users to sign in with password in addition to SSO
-                  </span>
-                </label>
+                <div class="alert">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    class="stroke-info shrink-0 w-6 h-6"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    >
+                    </path>
+                  </svg>
+                  <div class="text-sm">
+                    Password login is now controlled <span class="font-medium">per account</span>,
+                    enforced on the server. Regular accounts are SSO-only; enable
+                    <span class="font-medium">Local password login</span>
+                    on an account in
+                    <.link navigate={~p"/settings/auth/users"} class="link link-primary">Users</.link>
+                    to let it keep password access. The
+                    <code class="bg-base-300 px-1 rounded">SERVICERADAR_AUTH_FORCE_LOCAL_LOGIN</code>
+                    environment switch is the break-glass recovery path.
+                  </div>
+                </div>
               </.ui_panel>
             <% end %>
 
@@ -1182,7 +1197,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       "is_enabled" => Map.get(settings, :is_enabled, false),
       "mode" => Map.get(settings, :mode, :password_only),
       "provider_type" => Map.get(settings, :provider_type),
-      "allow_password_fallback" => Map.get(settings, :allow_password_fallback, true),
       # OIDC settings
       "oidc_discovery_url" => Map.get(settings, :oidc_discovery_url),
       "oidc_client_id" => Map.get(settings, :oidc_client_id),
@@ -1209,18 +1223,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       "is_enabled",
       new_params["is_enabled"] == "true" || new_params["is_enabled"] == true
     )
-    |> Map.put(
-      "allow_password_fallback",
-      new_params["allow_password_fallback"] == "true" ||
-        new_params["allow_password_fallback"] == true
-    )
   end
 
   defp build_update_params(params) do
     base = %{
       is_enabled: params["is_enabled"] == "true",
-      mode: String.to_existing_atom(params["mode"] || "password_only"),
-      allow_password_fallback: params["allow_password_fallback"] == "true"
+      mode: String.to_existing_atom(params["mode"] || "password_only")
     }
 
     base =

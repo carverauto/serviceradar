@@ -388,6 +388,10 @@ webNg:
   # if it gets rotated while the database persists, force-sync resets the
   # stored hash on the next restart instead of locking us out of the UI.
   adminPasswordForceSync: true
+  # Local-login break-glass + SSO toggle (server-side LoginPolicy). Default off.
+  auth:
+    forceLocalLogin: false
+    disableSso: false
   publicUrl: "https://demo.serviceradar.cloud"
   pluginStorage:
     enabled: true

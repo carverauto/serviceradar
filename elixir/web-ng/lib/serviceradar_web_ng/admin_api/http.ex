@@ -40,6 +40,11 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
   end
 
   @impl true
+  def set_user_local_login(scope, id, enabled) do
+    request(scope, :post, Path.admin_path(["users", id, "local-login"]), %{enabled: enabled})
+  end
+
+  @impl true
   def get_authorization_settings(scope) do
     request(scope, :get, "/api/admin/authorization-settings", %{})
   end
@@ -142,6 +147,7 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
       status: parse_status(body["status"]),
       has_password: body["has_password"] || false,
       has_external_id: body["has_external_id"] || false,
+      local_login_enabled: body["local_login_enabled"] || false,
       confirmed_at: body["confirmed_at"],
       last_login_at: body["last_login_at"],
       last_auth_method: parse_auth_method(body["last_auth_method"]),

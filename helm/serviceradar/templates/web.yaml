@@ -271,6 +271,18 @@ spec:
           # hash to match instead of silently locking the operator out.
           value: "true"
         {{- end }}
+        {{- if (default (dict) $webNg.auth).forceLocalLogin }}
+        - name: SERVICERADAR_AUTH_FORCE_LOCAL_LOGIN
+          # Break-glass: permit local password login regardless of SSO
+          # enforcement (server-side LoginPolicy). A valid password is still
+          # required — this is the recover-from-broken-AuthSettings hatch, not a
+          # bypass. Disable once normal SSO access is restored.
+          value: "true"
+        {{- end }}
+        {{- if (default (dict) $webNg.auth).disableSso }}
+        - name: SERVICERADAR_AUTH_DISABLE_SSO
+          value: "true"
+        {{- end }}
         - name: SERVICERADAR_GATEWAY_ADDR
           value: {{ $gatewayAddress | quote }}
         - name: NATS_URL
