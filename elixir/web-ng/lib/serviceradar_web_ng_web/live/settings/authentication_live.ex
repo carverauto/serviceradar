@@ -249,6 +249,73 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                   </div>
                 </div>
               </.ui_panel>
+
+              <.ui_panel>
+                <:header>
+                  <div class="flex items-center justify-between w-full">
+                    <div>
+                      <div class="text-sm font-semibold">Auto-provision Accounts (JIT)</div>
+                      <p class="text-xs text-base-content/60">
+                        Auto-create a local account on first SSO login when none exists.
+                      </p>
+                    </div>
+                    <label class="label cursor-pointer gap-2">
+                      <span class="label-text">Enabled</span>
+                      <input
+                        type="checkbox"
+                        name="settings[sso_auto_provision]"
+                        checked={@form[:sso_auto_provision].value}
+                        class="toggle toggle-warning"
+                      />
+                    </label>
+                  </div>
+                </:header>
+
+                <%= if @form[:sso_auto_provision].value do %>
+                  <div class="alert alert-warning">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      class="stroke-current shrink-0 w-6 h-6"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                      />
+                    </svg>
+                    <span>
+                      Any user who authenticates via your IdP will have a local account
+                      created automatically on first login. Only enable this if every IdP
+                      identity should be granted access.
+                    </span>
+                  </div>
+                <% else %>
+                  <div class="alert">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      class="stroke-info shrink-0 w-6 h-6"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                      >
+                      </path>
+                    </svg>
+                    <span>
+                      SSO identities without a pre-existing local account are denied login.
+                      Provision accounts ahead of time in
+                      <.link navigate={~p"/settings/auth/users"} class="link link-primary">Users</.link>.
+                    </span>
+                  </div>
+                <% end %>
+              </.ui_panel>
             <% end %>
 
             <%= if to_string(@form[:mode].value) == "passive_proxy" do %>
@@ -1195,6 +1262,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
   defp settings_to_form_data(settings) when is_map(settings) do
     %{
       "is_enabled" => Map.get(settings, :is_enabled, false),
+      "sso_auto_provision" => Map.get(settings, :sso_auto_provision, false),
       "mode" => Map.get(settings, :mode, :password_only),
       "provider_type" => Map.get(settings, :provider_type),
       # OIDC settings
@@ -1223,11 +1291,16 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       "is_enabled",
       new_params["is_enabled"] == "true" || new_params["is_enabled"] == true
     )
+    |> Map.put(
+      "sso_auto_provision",
+      new_params["sso_auto_provision"] == "true" || new_params["sso_auto_provision"] == true
+    )
   end
 
   defp build_update_params(params) do
     base = %{
       is_enabled: params["is_enabled"] == "true",
+      sso_auto_provision: params["sso_auto_provision"] == "true",
       mode: String.to_existing_atom(params["mode"] || "password_only")
     }
 

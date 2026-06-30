@@ -196,6 +196,17 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
         )
         |> redirect(to: ~p"/users/log-in")
 
+      {:error, :no_local_account} ->
+        Logger.warning("OIDC authentication denied: no local account and JIT provisioning disabled")
+        record_validated_failure(conn, email, :no_local_account)
+
+        conn
+        |> put_flash(
+          :error,
+          "No account is provisioned for this identity. Contact your administrator."
+        )
+        |> redirect(to: ~p"/users/log-in")
+
       {:error, :user_creation_failed} ->
         Logger.error("Failed to create/update user from OIDC")
         record_validated_failure(conn, email, :user_creation_failed)

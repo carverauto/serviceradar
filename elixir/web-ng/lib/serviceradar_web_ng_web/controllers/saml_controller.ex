@@ -679,6 +679,17 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
         )
         |> redirect(to: ~p"/users/log-in")
 
+      {:error, :no_local_account} ->
+        Logger.warning("SAML authentication denied: no local account and JIT provisioning disabled")
+        record_validated_failure(conn, user_info, :no_local_account)
+
+        conn
+        |> put_flash(
+          :error,
+          "No account is provisioned for this identity. Contact your administrator."
+        )
+        |> redirect(to: ~p"/users/log-in")
+
       {:error, reason} ->
         Logger.error("Failed to provision SAML user: #{inspect(reason)}")
         record_validated_failure(conn, user_info, reason)
