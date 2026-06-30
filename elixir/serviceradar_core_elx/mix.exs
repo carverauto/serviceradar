@@ -46,12 +46,12 @@ defmodule ServiceRadarCoreElx.MixProject do
       # adapter to `~> 2.2.0`. Keep the CVE-patched gun 2.4.1 (Phase-1) and force
       # it via override so the default Gun client adapter stays available.
       {:gun, "~> 2.4", override: true},
-      # SECURITY: hackney < 4.0.1 has the SSRF allowlist bypass (GHSA-pj7v-xfvx-wmjq)
-      # plus CRLF/header-injection advisories. Transitive consumers (swoosh,
-      # membrane_hackney_plugin) cap it at `~> 1.x`, so force >= 4.0.1 via override.
-      {:hackney, "~> 4.4", override: true},
-      # hackney 4.x requires idna ~> 7.1; older swoosh hard-pins idna ~> 6.0, so
-      # bump swoosh to a release that allows the newer idna line.
+      # hackney is intentionally absent. Its only consumer was boombox's generic HTTP
+      # media-file source (membrane_hackney_plugin), which the vendored boombox no longer
+      # pulls. hackney 4.x (the SSRF-patched line, GHSA-pj7v-xfvx-wmjq) dragged in `h2`,
+      # whose h2_* modules collide with grpcbox's chatterbox and break `mix release`;
+      # dropping hackney removes that collision AND the SSRF lineage entirely. Do not
+      # re-add hackney without resolving the h2/chatterbox module clash.
       {:swoosh, "~> 1.26", override: true},
       {:membrane_core, "1.2.6"},
       {:membrane_webrtc_plugin, "~> 0.26.3"},

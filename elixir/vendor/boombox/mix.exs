@@ -62,7 +62,9 @@ defmodule Boombox.Mixfile do
       {:membrane_rtp_h265_plugin, "~> 0.5.2"},
       {:membrane_vpx_plugin, "~> 0.4.2"},
       {:membrane_ffmpeg_swresample_plugin, "~> 0.20.0"},
-      {:membrane_hackney_plugin, "~> 0.11.0"},
+      # membrane_hackney_plugin removed: it pulled hackney -> h2, colliding with grpcbox's
+      # chatterbox (same h2_* modules) in `mix release`. Only the HTTP media-file source used
+      # it; RTSP/RTMP/WebRTC/HLS/file paths do not. See internal_bin/storage_endpoints.ex.
       {:membrane_ffmpeg_swscale_plugin, "~> 0.16.2"},
       {:membrane_wav_plugin, "~> 0.10.1"},
       {:membrane_ivf_plugin, "~> 0.8.0"},
