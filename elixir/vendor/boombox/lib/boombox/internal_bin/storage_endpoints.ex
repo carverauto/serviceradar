@@ -22,11 +22,15 @@ defmodule Boombox.InternalBin.StorageEndpoints do
     child(:file_source, %Membrane.File.Source{location: location, seekable?: seekable})
   end
 
-  def get_source(location, :http, _seekable) do
-    child(:http_source, %Membrane.Hackney.Source{
-      location: location,
-      hackney_opts: [follow_redirect: true]
-    })
+  def get_source(_location, :http, _seekable) do
+    # HTTP(S) media-file input was served by Membrane.Hackney.Source, which pulls hackney
+    # -> h2, whose h2_* modules collide with grpcbox's chatterbox and break `mix release`.
+    # The camera RTSP/RTMP/WebRTC/HLS/file paths don't use this leg, so it is removed; an
+    # http(s):// media *file* source now fails loudly instead of dragging hackney back in.
+    raise ArgumentError,
+          "HTTP(S) media-file input is not supported in this build (membrane_hackney_plugin " <>
+            "removed to avoid the hackney/grpcbox h2 module collision). Use RTSP, RTMP, " <>
+            "WebRTC, HLS, or a local file source."
   end
 
   @spec get_spec_for_single_track_output(
