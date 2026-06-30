@@ -32,6 +32,7 @@ defmodule ServiceRadar.Identity.User do
   alias ServiceRadar.Identity.Changes.HashPassword
   alias ServiceRadar.Identity.Changes.InvalidateUserRbacCache
   alias ServiceRadar.Identity.Constants
+  alias ServiceRadar.Identity.PasswordHash
   alias ServiceRadar.Identity.Validations.CurrentPassword
   alias ServiceRadar.Identity.Validations.PasswordConfirmationMatches
   alias ServiceRadar.Policies.Checks.ActorHasPermission
@@ -474,5 +475,5 @@ defmodule ServiceRadar.Identity.User do
   defp verify_password(nil, _hash), do: false
   defp verify_password(_password, nil), do: false
   defp verify_password(_password, ""), do: false
-  defp verify_password(password, hash), do: Bcrypt.verify_pass(password, hash)
+  defp verify_password(password, hash), do: PasswordHash.verify(password, hash)
 end

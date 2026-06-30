@@ -5,6 +5,8 @@ defmodule ServiceRadar.Identity.Validations.CurrentPassword do
 
   use Ash.Resource.Validation
 
+  alias ServiceRadar.Identity.PasswordHash
+
   @impl true
   def init(opts) do
     {:ok,
@@ -31,7 +33,7 @@ defmodule ServiceRadar.Identity.Validations.CurrentPassword do
       blank?(current_password) ->
         {:error, field: :current_password, message: required_message}
 
-      Bcrypt.verify_pass(current_password, user.hashed_password) ->
+      PasswordHash.verify(current_password, user.hashed_password) ->
         :ok
 
       true ->

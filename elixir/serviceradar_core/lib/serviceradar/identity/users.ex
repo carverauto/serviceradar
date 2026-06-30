@@ -12,6 +12,7 @@ defmodule ServiceRadar.Identity.Users do
   PostgreSQL schema isolation handles multi-tenancy at the infrastructure level.
   """
 
+  alias ServiceRadar.Identity.PasswordHash
   alias ServiceRadar.Identity.User
 
   require Ash.Query
@@ -74,7 +75,7 @@ defmodule ServiceRadar.Identity.Users do
   @spec valid_password?(User.t(), String.t()) :: boolean()
   def valid_password?(%User{hashed_password: hashed_password}, password)
       when is_binary(hashed_password) and byte_size(password) > 0 do
-    Bcrypt.verify_pass(password, hashed_password)
+    PasswordHash.verify(password, hashed_password)
   end
 
   def valid_password?(_, _), do: false
