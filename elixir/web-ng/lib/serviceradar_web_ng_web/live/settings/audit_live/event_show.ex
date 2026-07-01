@@ -9,7 +9,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.EventShow do
 
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Security.SecurityEvent
-  alias ServiceRadarWebNGWeb.SettingsComponents
+  alias ServiceRadarWebNGWeb.Settings.Shell
 
   require Ash.Query
 
@@ -85,12 +85,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.EventShow do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <SettingsComponents.settings_shell current_path={@current_path}>
-        <SettingsComponents.settings_nav
-          current_path={@current_path}
-          current_scope={@current_scope}
-        />
-
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path={@current_path}
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+        legacy_subnav={:none}
+      >
         <header class="space-y-2">
           <.link navigate={~p"/settings/audit/events"} class="link link-hover text-sm">
             Back to audit events
@@ -150,7 +155,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.EventShow do
               </section>
             </div>
         <% end %>
-      </SettingsComponents.settings_shell>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end

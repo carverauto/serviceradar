@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   alias ServiceRadarWebNGWeb.Plugs.LockoutCheck
   alias ServiceRadarWebNGWeb.Plugs.RateLimit
   alias ServiceRadarWebNGWeb.Plugs.SecurityHeaders
+  alias ServiceRadarWebNGWeb.Settings.ShellHook
 
   @frame_src if Mix.env() == :dev, do: "'self'", else: "'none'"
   @csp "default-src 'self'; " <>
@@ -699,6 +700,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     pipe_through([:browser, :require_authenticated_user])
 
     get("/users/settings", PageController, :redirect_to_settings_profile)
+    get("/settings/ui-preference", Settings.UiPreferenceController, :update)
     get("/flows", PageController, :redirect_to_observability_flows)
     get("/flows/visualize", PageController, :redirect_to_observability_flows)
     get("/observability/flows", PageController, :redirect_to_observability_flows)
@@ -707,7 +709,8 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     live_session :require_authenticated_user,
       on_mount: [
-        {ServiceRadarWebNGWeb.UserAuth, :require_authenticated}
+        {ServiceRadarWebNGWeb.UserAuth, :require_authenticated},
+        ShellHook
       ] do
       live("/analytics", AuthoredDashboardLive.Index, :index)
       live("/dashboard", DashboardLive.Index, :index)
@@ -875,7 +878,8 @@ defmodule ServiceRadarWebNGWeb.Router do
     live_session :require_authenticated_user_with_permit,
       on_mount: [
         {ServiceRadarWebNGWeb.UserAuth, :require_authenticated},
-        Permit.Phoenix.LiveView.AuthorizeHook
+        Permit.Phoenix.LiveView.AuthorizeHook,
+        ShellHook
       ] do
       # Authentication settings (admin only - enforced by Permit policies)
       live("/settings/authentication", Settings.AuthenticationLive, :index)

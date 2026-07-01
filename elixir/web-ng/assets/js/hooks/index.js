@@ -1,5 +1,6 @@
 import BulkEditTagsToggle from "./BulkEditTagsToggle"
 import CameraRelayStatusStream from "./CameraRelayStatusStream"
+import CommandPalette from "./CommandPalette"
 import DashboardBuilderCanvas from "./DashboardBuilderCanvas"
 import DashboardPanelChart from "./DashboardPanelChart"
 import DashboardMapViewSelect from "./DashboardMapViewSelect"
@@ -40,6 +41,7 @@ import BandwidthGauge from "./charts/BandwidthGauge"
 export default {
   BulkEditTagsToggle,
   CameraRelayStatusStream,
+  CommandPalette,
   DashboardBuilderCanvas,
   DashboardPanelChart,
   DashboardMapViewSelect,
