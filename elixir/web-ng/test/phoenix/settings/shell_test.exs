@@ -1,7 +1,6 @@
 defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
   @moduledoc """
-  DB-free render tests for the catalog-driven Settings shell and the
-  Original-UI toggle branch in `settings_chrome/1`.
+  DB-free render tests for the catalog-driven Settings shell.
   """
 
   # async: false because we start the (globally-named) Endpoint so that the
@@ -35,7 +34,6 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
     category = Catalog.category_for_view(view)
 
     %{
-      settings_ui: :catalog,
       current_path: path,
       current_scope: scope,
       active_view: view,
@@ -46,8 +44,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
         groups: Catalog.nav_tree(scope, category.id)
       },
       palette: Catalog.palette_index(scope),
-      stats: StatusCards.for_view(view),
-      legacy_subnav: :none
+      stats: StatusCards.for_view(view)
     }
   end
 
@@ -57,7 +54,6 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
     html =
       rendered_to_string(~H"""
       <Shell.settings_chrome
-        settings_ui={@settings_ui}
         current_path={@current_path}
         current_scope={@current_scope}
         active_view={@active_view}
@@ -66,7 +62,6 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
         nav_tree={@nav_tree}
         palette={@palette}
         stats={@stats}
-        legacy_subnav={@legacy_subnav}
       >
         <p data-test="page-body">audit events body</p>
       </Shell.settings_chrome>
@@ -94,7 +89,6 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
     html =
       rendered_to_string(~H"""
       <Shell.settings_chrome
-        settings_ui={@settings_ui}
         current_path={@current_path}
         current_scope={@current_scope}
         active_view={@active_view}
@@ -103,14 +97,13 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
         nav_tree={@nav_tree}
         palette={@palette}
         stats={@stats}
-        legacy_subnav={@legacy_subnav}
       >
         <p data-test="page-body">audit events body</p>
       </Shell.settings_chrome>
       """)
 
     # Header branding + the Ctrl+K palette trigger.
-    assert html =~ "ServiceRadar Console"
+    assert html =~ "Settings Console"
     assert html =~ "data-command-palette-open"
     assert html =~ "Press Ctrl+K to jump anywhere"
 
@@ -221,47 +214,5 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
 
     refute html =~ "Cluster health"
     refute html =~ ~s(class="stat py-2")
-  end
-
-  test "original chrome renders the legacy nav and no new palette" do
-    assigns = %{
-      settings_ui: :original,
-      current_path: "/settings/audit/history",
-      current_scope: auditor_scope(),
-      legacy_subnav: :audit
-    }
-
-    html =
-      rendered_to_string(~H"""
-      <Shell.settings_chrome
-        settings_ui={@settings_ui}
-        current_path={@current_path}
-        current_scope={@current_scope}
-        legacy_subnav={@legacy_subnav}
-      >
-        <p data-test="page-body">legacy body</p>
-      </Shell.settings_chrome>
-      """)
-
-    # Legacy audit sub-nav tabs are present.
-    assert html =~ "Events"
-    assert html =~ "History"
-    # Page body still renders.
-    assert html =~ ~s(data-test="page-body")
-    # The new catalog-only command palette is absent in the legacy chrome.
-    refute html =~ ~s(id="settings-command-palette")
-  end
-
-  test "ui_toggle links to the opposite mode with a local return path" do
-    assigns = %{current_path: "/settings/audit/events", mode: :catalog}
-
-    html =
-      rendered_to_string(~H"""
-      <Shell.ui_toggle current_path={@current_path} mode={@mode} />
-      """)
-
-    assert html =~ "/settings/ui-preference?"
-    assert html =~ "mode=original"
-    assert html =~ "Original UI"
   end
 end

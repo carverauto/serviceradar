@@ -130,7 +130,6 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
       shell={:operations}
     >
       <Shell.settings_chrome
-        settings_ui={@settings_ui}
         current_path={@current_path}
         current_scope={@current_scope}
         active_view={@settings_active_view}
@@ -139,7 +138,6 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
         nav_tree={@settings_nav_tree}
         palette={@settings_palette}
         stats={@settings_stats}
-        legacy_subnav={:inline}
       >
         <div class="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
           <section class="flex flex-col gap-3 border-b border-base-300 pb-5 lg:flex-row lg:items-end lg:justify-between">

@@ -2,13 +2,8 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
   @moduledoc """
   The catalog-driven Settings shell.
 
-  `settings_chrome/1` is the single wrapper the migrated Settings pages render
-  their body into. It branches on the per-user `settings_ui` preference:
-
-    * `:original` (default) — renders the untouched legacy
-      `ServiceRadarWebNGWeb.SettingsComponents` chrome, so existing users are
-      unaffected, and
-    * `:catalog` — renders `settings_shell/1`.
+  `settings_chrome/1` is the single wrapper every Settings page renders its body
+  into. It always renders `settings_shell/1`.
 
   The catalog shell renders **inside the application layout**, which already
   provides the global icon rail, so the shell renders NO icon rail of its own.
@@ -32,15 +27,10 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
   use ServiceRadarWebNGWeb, :html
 
   alias ServiceRadarWebNGWeb.Settings.Catalog
-  alias ServiceRadarWebNGWeb.SettingsComponents
 
   @doc """
-  Wrap a migrated Settings page body in the appropriate chrome.
-
-  Renders the legacy chrome when `settings_ui` is `:original`, and the new
-  catalog shell when `:catalog`.
+  Wrap a Settings page body in the catalog shell chrome.
   """
-  attr(:settings_ui, :atom, default: :original)
   attr(:current_path, :string, required: true)
   attr(:current_scope, :map, default: nil)
   attr(:active_view, :map, default: nil)
@@ -49,61 +39,22 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
   attr(:nav_tree, :map, default: %{categories: [], groups: []})
   attr(:palette, :list, default: [])
   attr(:stats, :any, default: [])
-
-  attr(:legacy_subnav, :atom,
-    default: :none,
-    doc:
-      "Which built-in legacy sub-nav to render under :original chrome: " <>
-        "`:audit` renders `settings_nav` + `audit_nav`; `:none` renders `settings_nav`; " <>
-        "`:inline` renders NO nav here because the page's `inner_block` carries its own " <>
-        "legacy nav guarded by `:if={@settings_ui == :original}` (used where the nav is " <>
-        "nested inside a shared wrapper with the body and cannot be split into `:legacy`)."
-  )
-
-  slot(:legacy,
-    doc:
-      "The page's exact legacy nav markup (`settings_nav` + its category sub-nav), " <>
-        "rendered verbatim only under :original. Preferred over `legacy_subnav` so a " <>
-        "migrated page keeps a byte-identical legacy chrome."
-  )
-
   slot(:inner_block, required: true)
 
   def settings_chrome(assigns) do
     ~H"""
-    <%= if @settings_ui == :catalog do %>
-      <.settings_shell
-        current_path={@current_path}
-        current_scope={@current_scope}
-        active_view={@active_view}
-        active_category={@active_category}
-        breadcrumbs={@breadcrumbs}
-        nav_tree={@nav_tree}
-        palette={@palette}
-        stats={@stats}
-      >
-        {render_slot(@inner_block)}
-      </.settings_shell>
-    <% else %>
-      <SettingsComponents.settings_shell current_path={@current_path}>
-        <%= cond do %>
-          <% @legacy != [] -> %>
-            {render_slot(@legacy)}
-          <% @legacy_subnav == :inline -> %>
-          <% true -> %>
-            <SettingsComponents.settings_nav
-              current_path={@current_path}
-              current_scope={@current_scope}
-            />
-            <SettingsComponents.audit_nav
-              :if={@legacy_subnav == :audit}
-              current_path={@current_path}
-              current_scope={@current_scope}
-            />
-        <% end %>
-        {render_slot(@inner_block)}
-      </SettingsComponents.settings_shell>
-    <% end %>
+    <.settings_shell
+      current_path={@current_path}
+      current_scope={@current_scope}
+      active_view={@active_view}
+      active_category={@active_category}
+      breadcrumbs={@breadcrumbs}
+      nav_tree={@nav_tree}
+      palette={@palette}
+      stats={@stats}
+    >
+      {render_slot(@inner_block)}
+    </.settings_shell>
     """
   end
 
@@ -214,7 +165,6 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
                 active_view={@active_view}
               />
             </div>
-            <.ui_toggle current_path={@current_path} mode={:catalog} />
           </div>
 
           <.status_strip stats={@stats} />
@@ -535,28 +485,6 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
         <button>close</button>
       </form>
     </dialog>
-    """
-  end
-
-  # --- Original-UI toggle link -----------------------------------------------
-  attr(:current_path, :string, required: true)
-  attr(:mode, :atom, required: true, doc: "The CURRENT mode; the link flips to the other.")
-
-  def ui_toggle(assigns) do
-    target = if assigns.mode == :catalog, do: "original", else: "catalog"
-    label = if assigns.mode == :catalog, do: "Original UI", else: "New UI"
-
-    assigns = assign(assigns, target: target, label: label)
-
-    ~H"""
-    <.link
-      href={~p"/settings/ui-preference?#{[mode: @target, return_to: @current_path]}"}
-      class="btn btn-ghost btn-xs gap-1 whitespace-nowrap"
-      title={"Switch to the #{@label}"}
-    >
-      <.icon name="hero-arrows-right-left" class="size-3.5" />
-      {@label}
-    </.link>
     """
   end
 

@@ -4,8 +4,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
   """
   use ServiceRadarWebNGWeb, :live_view
 
-  import ServiceRadarWebNGWeb.SettingsComponents
-
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadarWebNG.Capabilities
@@ -129,7 +127,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <Shell.settings_chrome
-        settings_ui={@settings_ui}
         current_path="/admin/edge-sites"
         current_scope={@current_scope}
         active_view={@settings_active_view}
@@ -139,11 +136,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
         palette={@settings_palette}
         stats={@settings_stats}
       >
-        <:legacy>
-          <.settings_nav current_path="/admin/edge-sites" current_scope={@current_scope} />
-          <.edge_nav current_path="/admin/edge-sites" class="mt-2" />
-        </:legacy>
-
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
             <div class="text-sm breadcrumbs">

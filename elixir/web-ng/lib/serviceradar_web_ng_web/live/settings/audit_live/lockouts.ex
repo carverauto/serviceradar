@@ -107,7 +107,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Lockouts do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} current_path={@current_path}>
       <Shell.settings_chrome
-        settings_ui={@settings_ui}
         current_path={@current_path}
         current_scope={@current_scope}
         active_view={@settings_active_view}
@@ -116,7 +115,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Lockouts do
         nav_tree={@settings_nav_tree}
         palette={@settings_palette}
         stats={@settings_stats}
-        legacy_subnav={:none}
       >
         <header class="space-y-1">
           <h1 class="text-2xl font-semibold">Audit · Lockouts</h1>

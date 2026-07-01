@@ -19,7 +19,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
   alias ServiceRadarWebNGWeb.Auth.OutboundURLPolicy
   alias ServiceRadarWebNGWeb.Settings.Shell
-  alias ServiceRadarWebNGWeb.SettingsComponents
 
   require Logger
 
@@ -66,7 +65,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <Shell.settings_chrome
-        settings_ui={@settings_ui}
         current_path="/settings/authentication"
         current_scope={@current_scope}
         active_view={@settings_active_view}
@@ -76,19 +74,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
         palette={@settings_palette}
         stats={@settings_stats}
       >
-        <:legacy>
-          <div class="space-y-4">
-            <SettingsComponents.settings_nav
-              current_path="/settings/authentication"
-              current_scope={@current_scope}
-            />
-            <SettingsComponents.auth_nav
-              current_path="/settings/authentication"
-              current_scope={@current_scope}
-            />
-          </div>
-        </:legacy>
-
         <div>
           <h1 class="text-2xl font-semibold text-base-content">Authentication Settings</h1>
           <p class="text-sm text-base-content/60">

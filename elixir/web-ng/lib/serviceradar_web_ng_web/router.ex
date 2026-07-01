@@ -700,7 +700,6 @@ defmodule ServiceRadarWebNGWeb.Router do
     pipe_through([:browser, :require_authenticated_user])
 
     get("/users/settings", PageController, :redirect_to_settings_profile)
-    get("/settings/ui-preference", Settings.UiPreferenceController, :update)
     get("/flows", PageController, :redirect_to_observability_flows)
     get("/flows/visualize", PageController, :redirect_to_observability_flows)
     get("/observability/flows", PageController, :redirect_to_observability_flows)

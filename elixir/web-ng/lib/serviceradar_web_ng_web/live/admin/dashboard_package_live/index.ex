@@ -5,8 +5,6 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
 
   use ServiceRadarWebNGWeb, :live_view
 
-  import ServiceRadarWebNGWeb.SettingsComponents
-
   alias ServiceRadar.Dashboards.DashboardInstance
   alias ServiceRadar.Dashboards.DashboardPackage
   alias ServiceRadarWebNG.Dashboards
@@ -324,7 +322,6 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <Shell.settings_chrome
-        settings_ui={@settings_ui}
         current_path={@current_path}
         current_scope={@current_scope}
         active_view={@settings_active_view}
@@ -334,10 +331,6 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
         palette={@settings_palette}
         stats={@settings_stats}
       >
-        <:legacy>
-          <.settings_nav current_path={@current_path} current_scope={@current_scope} />
-        </:legacy>
-
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 class="text-2xl font-semibold text-base-content">Dashboard Packages</h1>

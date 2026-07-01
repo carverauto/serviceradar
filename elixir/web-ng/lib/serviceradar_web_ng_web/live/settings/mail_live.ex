@@ -5,8 +5,6 @@ defmodule ServiceRadarWebNGWeb.Settings.MailLive do
 
   use ServiceRadarWebNGWeb, :live_view
 
-  import ServiceRadarWebNGWeb.SettingsComponents
-
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Integrations.OutboundMailSettings
   alias ServiceRadar.OutboundMail
@@ -92,7 +90,6 @@ defmodule ServiceRadarWebNGWeb.Settings.MailLive do
       shell={:operations}
     >
       <Shell.settings_chrome
-        settings_ui={@settings_ui}
         current_path={@current_path}
         current_scope={@current_scope}
         active_view={@settings_active_view}
@@ -102,10 +99,6 @@ defmodule ServiceRadarWebNGWeb.Settings.MailLive do
         palette={@settings_palette}
         stats={@settings_stats}
       >
-        <:legacy>
-          <.settings_nav current_path={@current_path} current_scope={@current_scope} />
-        </:legacy>
-
         <section class="space-y-2">
           <p class="text-sm font-medium text-primary">Settings</p>
           <h1 class="text-2xl font-semibold tracking-normal">Outbound Mail</h1>

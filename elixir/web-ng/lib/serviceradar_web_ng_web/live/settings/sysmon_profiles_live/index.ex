@@ -8,7 +8,6 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.QueryBuilderComponents
-  import ServiceRadarWebNGWeb.SettingsComponents
 
   alias AshPhoenix.Form
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
@@ -348,7 +347,6 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <Shell.settings_chrome
-        settings_ui={@settings_ui}
         current_path="/settings/sysmon"
         current_scope={@current_scope}
         active_view={@settings_active_view}
@@ -358,11 +356,6 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
         palette={@settings_palette}
         stats={@settings_stats}
       >
-        <:legacy>
-          <.settings_nav current_path="/settings/sysmon" current_scope={@current_scope} />
-          <.edge_nav current_path="/settings/sysmon" current_scope={@current_scope} />
-        </:legacy>
-
         <div class="space-y-4">
           <!-- Content based on form state -->
           <%= if @show_form in [:new_profile, :edit_profile] do %>

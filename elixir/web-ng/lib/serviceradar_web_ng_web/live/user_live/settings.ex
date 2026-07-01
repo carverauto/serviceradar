@@ -26,7 +26,6 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
       page_title="Settings"
     >
       <Shell.settings_chrome
-        settings_ui={@settings_ui}
         current_path="/settings/profile"
         current_scope={@current_scope}
         active_view={@settings_active_view}
@@ -35,7 +34,6 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
         nav_tree={@settings_nav_tree}
         palette={@settings_palette}
         stats={@settings_stats}
-        legacy_subnav={:inline}
       >
         <div class="mx-auto w-full max-w-4xl p-6 space-y-6">
           <div>
