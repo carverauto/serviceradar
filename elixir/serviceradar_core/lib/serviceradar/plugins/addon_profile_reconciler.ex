@@ -737,8 +737,13 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
 
   defp target_query(profile) do
     case ValueUtils.string_value(profile, [:target_query, "target_query"]) do
-      nil -> "in:devices"
-      "" -> "in:devices"
+      # Default to the `agents` entity: the reconciler materializes one assignment
+      # per enrolled agent, and the `agents` projection has a usable `uid` for
+      # every enrolled agent. `in:devices` only carries a denormalized `agent_id`
+      # on the subset of device rows that have one, silently dropping the rest as
+      # `no_enrolled_agent`.
+      nil -> "in:agents"
+      "" -> "in:agents"
       query -> query
     end
   end

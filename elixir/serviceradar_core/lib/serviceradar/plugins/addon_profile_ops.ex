@@ -52,10 +52,16 @@ defmodule ServiceRadar.Plugins.AddonProfileOps do
   defp failure_summary(error) do
     errors = normalize_errors(error)
 
+    # Pin every count the UI card reads to 0 AND carry a non-nil `last_error`
+    # (plus `status: "failed"`) so a FAILED reconcile is visually distinguishable
+    # from a genuine empty match. Without matched_rows/eligible_agents here the
+    # card defaults both to 0 and renders identically to a 0/0/0 success.
     %{
       status: "failed",
       errors: errors,
-      last_error: List.first(errors),
+      last_error: List.first(errors) || "reconcile failed",
+      matched_rows: 0,
+      eligible_agents: 0,
       desired_assignments: 0,
       upserted: 0,
       unchanged: 0,

@@ -3,10 +3,17 @@ defmodule ServiceRadar.Plugins.AnomalyAddonProfileSeeder do
   Seeds the default profile for the edge anomaly native add-on.
 
   The add-on consumes the local metric-feed stream, so the default profile keeps
-  targeting broad (`in:devices`) while limiting feed sources to sysmon and SNMP
+  targeting broad (`in:agents`) while limiting feed sources to sysmon and SNMP
   in assignment params. That avoids starting analysis for every possible local
   add-on feed and keeps future SRQL targeting improvements independent from the
   source subscription contract.
+
+  Targeting the `agents` entity (rather than `devices`) is deliberate: the
+  reconciler materializes profile assignments per enrolled agent, and the
+  `agents` projection carries a usable `uid` for every enrolled agent. The
+  `devices` projection only carries a denormalized `agent_id` on the subset of
+  device rows that happen to have one, so an `in:devices` default silently drops
+  every device without an `agent_id` as `no_enrolled_agent`.
 
   Scalar detector knobs such as `window_size`, `min_samples`, `n_sigma`, and
   `confirm_slots` are intentionally not seeded here. Operators tune those on
@@ -25,7 +32,7 @@ defmodule ServiceRadar.Plugins.AnomalyAddonProfileSeeder do
 
   @addon_id "anomaly"
   @profile_name "Default Edge Anomaly Detection"
-  @target_query "in:devices"
+  @target_query "in:agents"
   @seeded_by "ServiceRadar.Plugins.AnomalyAddonProfileSeeder"
   @default_params %{"metric_feed" => %{"sources" => ["sysmon", "snmp"]}}
 
