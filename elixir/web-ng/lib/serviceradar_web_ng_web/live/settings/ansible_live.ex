@@ -30,7 +30,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
-  alias ServiceRadarWebNGWeb.SettingsComponents
 
   require Ash.Query
   require Logger
@@ -318,7 +317,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <Shell.settings_chrome
-        settings_ui={@settings_ui}
         current_path={@current_path}
         current_scope={@current_scope}
         active_view={@settings_active_view}
@@ -328,13 +326,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
         palette={@settings_palette}
         stats={@settings_stats}
       >
-        <:legacy>
-          <SettingsComponents.settings_nav
-            current_path={@current_path}
-            current_scope={@current_scope}
-          />
-        </:legacy>
-
         <header class="space-y-1">
           <h1 class="text-2xl font-semibold">Ansible</h1>
           <p class="text-sm text-base-content/70">

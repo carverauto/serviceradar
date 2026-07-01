@@ -16,8 +16,6 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
 
   use ServiceRadarWebNGWeb, :live_view
 
-  import ServiceRadarWebNGWeb.SettingsComponents
-
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
 
@@ -139,7 +137,6 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
       shell={:operations}
     >
       <Shell.settings_chrome
-        settings_ui={@settings_ui}
         current_path={@current_path}
         current_scope={@current_scope}
         active_view={@settings_active_view}
@@ -149,11 +146,6 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
         palette={@settings_palette}
         stats={@settings_stats}
       >
-        <:legacy>
-          <.settings_nav current_path={@current_path} current_scope={@current_scope} />
-          <.edge_nav current_path={@current_path} current_scope={@current_scope} class="mt-2" />
-        </:legacy>
-
         <section class="space-y-2">
           <p class="text-sm font-medium text-primary">Edge Ops</p>
           <h1 class="text-2xl font-semibold tracking-normal">Send your telemetry</h1>

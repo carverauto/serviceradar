@@ -146,7 +146,6 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
       current_path={~p"/settings/cluster/nodes/#{@node_name}"}
     >
       <Shell.settings_chrome
-        settings_ui={@settings_ui}
         current_path={~p"/settings/cluster/nodes/#{@node_name}"}
         current_scope={@current_scope}
         active_view={@settings_active_view}
@@ -155,7 +154,6 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
         nav_tree={@settings_nav_tree}
         palette={@settings_palette}
         stats={@settings_stats}
-        legacy_subnav={:inline}
       >
         <div class="mx-auto max-w-4xl p-6">
           <.header>

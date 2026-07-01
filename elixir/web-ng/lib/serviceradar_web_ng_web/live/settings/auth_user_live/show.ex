@@ -16,7 +16,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
   alias ServiceRadar.Identity.UserAuthEvent
   alias ServiceRadarWebNG.AdminApi
   alias ServiceRadarWebNGWeb.Settings.Shell
-  alias ServiceRadarWebNGWeb.SettingsComponents
 
   @event_page_limit 50
 
@@ -275,7 +274,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <Shell.settings_chrome
-        settings_ui={@settings_ui}
         current_path="/settings/auth/users"
         current_scope={@current_scope}
         active_view={@settings_active_view}
@@ -284,19 +282,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
         nav_tree={@settings_nav_tree}
         palette={@settings_palette}
         stats={@settings_stats}
-        legacy_subnav={:inline}
       >
         <div class="space-y-6">
-          <div :if={@settings_ui == :original} class="space-y-2">
-            <SettingsComponents.settings_nav
-              current_path="/settings/auth/users"
-              current_scope={@current_scope}
-            />
-            <SettingsComponents.auth_nav
-              current_path="/settings/auth/users"
-              current_scope={@current_scope}
-            />
-          </div>
           <div class="flex flex-wrap items-start justify-between gap-4">
             <div class="space-y-1">
               <div class="flex items-center gap-2">

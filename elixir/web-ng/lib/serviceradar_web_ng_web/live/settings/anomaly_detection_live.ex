@@ -5,8 +5,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
 
   use ServiceRadarWebNGWeb, :live_view
 
-  import ServiceRadarWebNGWeb.SettingsComponents
-
   alias Ash.Error.Invalid
   alias ServiceRadar.Observability.AnomalyConfigRuntime
   alias ServiceRadar.Observability.AnomalyDetectionConfig
@@ -156,7 +154,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <Shell.settings_chrome
-        settings_ui={@settings_ui}
         current_path={@current_path}
         current_scope={@current_scope}
         active_view={@settings_active_view}
@@ -166,13 +163,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
         palette={@settings_palette}
         stats={@settings_stats}
       >
-        <:legacy>
-          <div class="space-y-4">
-            <.settings_nav current_path={@current_path} current_scope={@current_scope} />
-            <.events_nav current_path={@current_path} current_scope={@current_scope} />
-          </div>
-        </:legacy>
-
         <section class="space-y-5">
           <div>
             <h1 class="text-xl font-semibold">Anomaly Detection</h1>

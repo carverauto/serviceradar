@@ -5,8 +5,6 @@ defmodule ServiceRadarWebNGWeb.Settings.EndpointInventoryLive.Index do
 
   use ServiceRadarWebNGWeb, :live_view
 
-  import ServiceRadarWebNGWeb.SettingsComponents
-
   alias ServiceRadar.Inventory.EndpointInventorySettings
   alias ServiceRadar.Inventory.EndpointInventorySettingsRuntime
   alias ServiceRadarWebNG.RBAC
@@ -83,7 +81,6 @@ defmodule ServiceRadarWebNGWeb.Settings.EndpointInventoryLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <Shell.settings_chrome
-        settings_ui={@settings_ui}
         current_path={@current_path}
         current_scope={@current_scope}
         active_view={@settings_active_view}
@@ -93,13 +90,6 @@ defmodule ServiceRadarWebNGWeb.Settings.EndpointInventoryLive.Index do
         palette={@settings_palette}
         stats={@settings_stats}
       >
-        <:legacy>
-          <div class="space-y-4">
-            <.settings_nav current_path={@current_path} current_scope={@current_scope} />
-            <.edge_nav current_path={@current_path} current_scope={@current_scope} />
-          </div>
-        </:legacy>
-
         <section class="space-y-4 max-w-2xl">
           <div>
             <h1 class="text-xl font-semibold">Endpoint Inventory</h1>

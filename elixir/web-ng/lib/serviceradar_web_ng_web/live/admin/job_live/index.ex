@@ -10,8 +10,6 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
   """
   use ServiceRadarWebNGWeb, :live_view
 
-  import ServiceRadarWebNGWeb.SettingsComponents
-
   alias ServiceRadarWebNG.Jobs.JobCatalog
   alias ServiceRadarWebNGWeb.Settings.Shell
 
@@ -179,7 +177,6 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <Shell.settings_chrome
-        settings_ui={@settings_ui}
         current_path="/admin/jobs"
         current_scope={@current_scope}
         active_view={@settings_active_view}
@@ -189,10 +186,6 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
         palette={@settings_palette}
         stats={@settings_stats}
       >
-        <:legacy>
-          <.settings_nav current_path="/admin/jobs" current_scope={@current_scope} />
-        </:legacy>
-
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 class="text-2xl font-semibold text-base-content">Job Scheduler</h1>

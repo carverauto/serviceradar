@@ -6,7 +6,6 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
   import Ash.Expr
   import ServiceRadarWebNGWeb.QueryBuilderComponents
-  import ServiceRadarWebNGWeb.SettingsComponents
 
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandBus
@@ -407,7 +406,6 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <Shell.settings_chrome
-        settings_ui={@settings_ui}
         current_path={@current_path}
         current_scope={@current_scope}
         active_view={@settings_active_view}
@@ -417,11 +415,6 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
         palette={@settings_palette}
         stats={@settings_stats}
       >
-        <:legacy>
-          <.settings_nav current_path={@current_path} current_scope={@current_scope} />
-          <.network_nav current_path={@current_path} current_scope={@current_scope} />
-        </:legacy>
-
         <%= if @show_form in [:new_profile, :edit_profile] do %>
           <.profile_form
             form={@form}

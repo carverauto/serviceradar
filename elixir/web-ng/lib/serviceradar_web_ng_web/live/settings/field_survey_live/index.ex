@@ -4,8 +4,6 @@ defmodule ServiceRadarWebNGWeb.Settings.FieldSurveyLive.Index do
   """
   use ServiceRadarWebNGWeb, :live_view
 
-  import ServiceRadarWebNGWeb.SettingsComponents
-
   alias ServiceRadar.Spatial.FieldSurveyDashboardPlaylistEntry
   alias ServiceRadarWebNG.FieldSurveyDashboardPlaylist
   alias ServiceRadarWebNG.RBAC
@@ -144,7 +142,6 @@ defmodule ServiceRadarWebNGWeb.Settings.FieldSurveyLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <Shell.settings_chrome
-        settings_ui={@settings_ui}
         current_path={@current_path}
         current_scope={@current_scope}
         active_view={@settings_active_view}
@@ -154,13 +151,6 @@ defmodule ServiceRadarWebNGWeb.Settings.FieldSurveyLive.Index do
         palette={@settings_palette}
         stats={@settings_stats}
       >
-        <:legacy>
-          <div class="space-y-4">
-            <.settings_nav current_path={@current_path} current_scope={@current_scope} />
-            <.network_nav current_path={@current_path} current_scope={@current_scope} />
-          </div>
-        </:legacy>
-
         <section class="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.8fr)]">
           <div class="space-y-4">
             <div>
