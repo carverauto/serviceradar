@@ -183,7 +183,7 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
 
       conn
       |> put_flash(:info, "Signed in successfully via SSO.")
-      |> UserAuth.log_in_user(%{"identity_claims" => claims})
+      |> UserAuth.log_in_user(user, %{"identity_claims" => claims})
     else
       {:error, :unsafe_account_linking} ->
         Logger.warning("OIDC authentication rejected implicit email-based account linking")
