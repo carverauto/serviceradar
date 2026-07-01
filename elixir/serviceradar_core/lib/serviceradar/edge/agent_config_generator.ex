@@ -969,6 +969,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       config_schema
       |> maybe_add_secret_ref_property(params, "api_token_secret_ref")
       |> maybe_add_secret_ref_property(params, "credential_secret")
+      |> maybe_add_secret_ref_property(params, "password_secret_ref")
+      |> maybe_add_secret_ref_property(params, "api_key_secret_ref")
     else
       config_schema
     end
@@ -987,7 +989,9 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp credential_broker_params?(params, broker) do
     fetch_map_value(broker, :schema) == "serviceradar.edge_credential_broker_grant.v1" and
       (SecretRefs.secret_ref?(fetch_map_value(params, :api_token_secret_ref)) or
-         SecretRefs.secret_ref?(fetch_map_value(params, :credential_secret)))
+         SecretRefs.secret_ref?(fetch_map_value(params, :credential_secret)) or
+         SecretRefs.secret_ref?(fetch_map_value(params, :password_secret_ref)) or
+         SecretRefs.secret_ref?(fetch_map_value(params, :api_key_secret_ref)))
   end
 
   defp maybe_add_secret_ref_property(config_schema, params, field) do

@@ -202,6 +202,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
                     :proxmox_api_token,
                     :ssh_private_key,
                     :username_password,
+                    :api_key,
                     :certificate,
                     :opaque
                   ]
@@ -211,7 +212,15 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
       allow_nil? false
       public? true
       default :inventory_enrichment
-      constraints one_of: [:inventory_enrichment, :console_access, :discovery, :generic]
+
+      constraints one_of: [
+                    :inventory_enrichment,
+                    :console_access,
+                    :discovery,
+                    :generic,
+                    :camera_inventory,
+                    :camera_stream
+                  ]
     end
 
     attribute :target_query, :string do
