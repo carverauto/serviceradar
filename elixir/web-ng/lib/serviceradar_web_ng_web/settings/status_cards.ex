@@ -69,7 +69,7 @@ defmodule ServiceRadarWebNGWeb.Settings.StatusCards do
     [
       %{title: "Total users", value: total_users()},
       %{title: "Active (30d)", value: active_users_30d()},
-      %{title: "Active (24h)", value: active_users_24h()},
+      %{title: "Admins", value: admin_users()},
       %{title: "API keys", value: api_credentials_count()}
     ]
   end
@@ -201,19 +201,12 @@ defmodule ServiceRadarWebNGWeb.Settings.StatusCards do
     _, _ -> nil
   end
 
-  # "Currently active" web users. Web/browser sessions are stateless Guardian
-  # JWTs carried in the Phoenix session cookie ("user_token") — there is no
-  # queryable web-session table (CliSession only tracks serviceradar-cli device
-  # sessions). So we surface distinct users active in the last 24h as the
-  # proxy, using the same last-activity field as the 30d card (`authenticated_at`
-  # is stamped on every web login). One `ng_users` row per user, so the count is
-  # already distinct. Card titled "Active (24h)" to match this semantics.
-  defp active_users_24h do
-    cutoff = DateTime.add(DateTime.utc_now(), -24 * 3600, :second)
-
+  # Count of admin accounts — users with role :admin and status :active — via the
+  # User resource's `:admins` read (the same criterion AuthUsersLive uses for its
+  # active-admin count). Non-overlapping with the "Active (30d)" activity card.
+  defp admin_users do
     User
-    |> Ash.Query.for_read(:read, %{})
-    |> Ash.Query.filter(last_login_at >= ^cutoff or authenticated_at >= ^cutoff)
+    |> Ash.Query.for_read(:admins, %{})
     |> Ash.count!(authorize?: false)
   rescue
     _ -> nil
