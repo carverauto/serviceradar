@@ -6,12 +6,24 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   matching rules into the existing SRQL plugin targeting path so edge agents get
   normal `serviceradar.plugin_inputs.v1` assignments without plugin-specific
   host lists.
+
+  The module is parameterized over a
+  `ServiceRadar.Credentials.CredentialProviderProfile`, which supplies the
+  provider-specific constants (provider string, plugin ids, purposes), the
+  credential-broker grant spec, and the stored params template. Proxmox flows
+  through `ProxmoxProfile` via thin shims so its output stays byte-identical to
+  the previous Proxmox-only implementation; camera providers (unifi-protect,
+  axis) flow through the same generic path.
   """
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentRegistry
   alias ServiceRadar.Credentials.CredentialBrokerGrant
+  alias ServiceRadar.Credentials.CredentialProviderProfile
   alias ServiceRadar.Credentials.NetworkCredentialRule
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Credentials.ProviderProfiles.ProxmoxProfile
+  alias ServiceRadar.Credentials.RuleAccessors
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.PolicyAssignmentReconciler
@@ -20,11 +32,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
 
   require Ash.Query
 
-  @proxmox_provider "proxmox"
-  @proxmox_inventory_plugin_id "proxmox-inventory"
-  @proxmox_console_plugin_id "proxmox-console"
   @inventory_purpose :inventory_enrichment
-  @console_purpose :console_access
 
   @doc """
   Reconciles enabled Proxmox inventory credential rules that are in scope for an agent.
@@ -32,7 +40,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   @spec reconcile_proxmox_inventory_for_agent(String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def reconcile_proxmox_inventory_for_agent(agent_id, opts \\ []) when is_binary(agent_id) do
-    reconcile_proxmox_for_agent(agent_id, @inventory_purpose, @proxmox_inventory_plugin_id, opts)
+    reconcile_provider_for_agent(ProxmoxProfile, agent_id, :inventory_enrichment, opts)
   end
 
   @doc """
@@ -41,23 +49,62 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   @spec reconcile_proxmox_console_for_agent(String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def reconcile_proxmox_console_for_agent(agent_id, opts \\ []) when is_binary(agent_id) do
-    reconcile_proxmox_for_agent(agent_id, @console_purpose, @proxmox_console_plugin_id, opts)
+    reconcile_provider_for_agent(ProxmoxProfile, agent_id, :console_access, opts)
   end
 
-  defp reconcile_proxmox_for_agent(agent_id, purpose, plugin_id, opts) do
-    actor = Keyword.get(opts, :actor, SystemActor.system(:proxmox_credential_materializer))
+  @doc """
+  Reconciles enabled camera inventory credential rules (unifi-protect + axis) in scope for an agent.
+  """
+  @spec reconcile_camera_inventory_for_agent(String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def reconcile_camera_inventory_for_agent(agent_id, opts \\ []) when is_binary(agent_id) do
+    reconcile_camera_for_agent(agent_id, :camera_inventory, opts)
+  end
 
-    with {:ok, rules} <- rules_for_agent_scope(agent_id, purpose, actor, opts) do
+  @doc """
+  Reconciles enabled camera stream credential rules (unifi-protect + axis) in scope for an agent.
+  """
+  @spec reconcile_camera_stream_for_agent(String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def reconcile_camera_stream_for_agent(agent_id, opts \\ []) when is_binary(agent_id) do
+    reconcile_camera_for_agent(agent_id, :camera_stream, opts)
+  end
+
+  defp reconcile_camera_for_agent(agent_id, purpose, opts) do
+    Enum.reduce_while(
+      CredentialProviderProfile.camera_profiles(),
+      {:ok, empty_summary()},
+      fn profile, {:ok, acc} ->
+        case reconcile_provider_for_agent(profile, agent_id, purpose, opts) do
+          {:ok, summary} -> {:cont, {:ok, add_summaries(acc, summary)}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end
+    )
+  end
+
+  @doc """
+  Reconciles enabled credential rules for a provider profile + purpose in scope for an agent.
+  """
+  @spec reconcile_provider_for_agent(module(), String.t(), atom(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def reconcile_provider_for_agent(profile, agent_id, purpose, opts \\ [])
+      when is_atom(profile) and is_binary(agent_id) and is_atom(purpose) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:credential_materializer))
+
+    with {:ok, rules} <- rules_for_agent_scope(profile, agent_id, purpose, actor, opts) do
       case rules do
         [] ->
           {:ok, empty_summary()}
 
         _ ->
-          with {:ok, package} <- approved_plugin_package(plugin_id, actor, opts) do
+          with {:ok, package} <-
+                 approved_plugin_package(profile.plugin_id(purpose), actor, opts) do
             opts =
               opts
               |> Keyword.put(:actor, actor)
               |> Keyword.put(:purpose, purpose)
+              |> Keyword.put(:profile, profile)
 
             reconcile_rules(rules, agent_id, package, opts)
           end
@@ -76,11 +123,12 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
       when is_list(rules) and is_binary(agent_id) and is_map(package) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:credential_rule_reconcile))
     reconciler = Keyword.get(opts, :reconciler, PolicyAssignmentReconciler)
+    profile = Keyword.get(opts, :profile, ProxmoxProfile)
     purpose = Keyword.get(opts, :purpose, @inventory_purpose)
 
-    with {:ok, selected_rules} <- selected_rules_for_agent(rules, agent_id, purpose) do
+    with {:ok, selected_rules} <- selected_rules_for_agent(profile, rules, agent_id, purpose) do
       Enum.reduce_while(selected_rules, {:ok, empty_summary()}, fn rule, {:ok, acc} ->
-        case reconcile_rule(rule, agent_id, package, purpose, actor, reconciler, opts) do
+        case reconcile_rule(profile, rule, agent_id, package, purpose, actor, reconciler, opts) do
           {:ok, result} ->
             {:cont, {:ok, merge_summary(acc, result)}}
 
@@ -91,8 +139,8 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     end
   end
 
-  defp reconcile_rule(rule, agent_id, package, purpose, actor, reconciler, opts) do
-    with {:ok, policy} <- policy_for_rule(rule, package, purpose, agent_id, actor, opts),
+  defp reconcile_rule(profile, rule, agent_id, package, purpose, actor, reconciler, opts) do
+    with {:ok, policy} <- policy_for_rule(profile, rule, package, purpose, agent_id, actor, opts),
          {:ok, input_defs} <- input_defs_for_rule(rule, purpose) do
       reconcile_opts =
         opts
@@ -104,12 +152,12 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     end
   end
 
-  defp policy_for_rule(rule, package, purpose, agent_id, actor, opts) do
+  defp policy_for_rule(profile, rule, package, purpose, agent_id, actor, opts) do
     with {:ok, rule_id} <- required_string(rule, [:id, "id"], "id"),
          {:ok, secret_id} <- required_string(rule, [:secret_id, "secret_id"], "secret_id"),
          {:ok, package_id} <- required_string(package, [:id, "id"], "plugin package id"),
          {:ok, params_template} <-
-           proxmox_params_template(rule, secret_id, purpose, agent_id, actor, opts) do
+           build_params_template(profile, rule, secret_id, purpose, agent_id, actor, opts) do
       {:ok,
        %{
          policy_id: policy_id_for_rule(rule_id, purpose),
@@ -129,99 +177,43 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     end
   end
 
-  defp proxmox_params_template(rule, secret_id, @inventory_purpose, agent_id, actor, opts) do
-    with {:ok, grant} <-
-           proxmox_inventory_credential_broker_grant(rule, secret_id, agent_id, actor, opts) do
-      {:ok,
-       %{
-         "credential_broker" => grant,
-         "api_token_secret_ref" => SecretRefs.network_credential_ref(secret_id),
-         "include_guests" => metadata_bool(rule, "include_guests", true),
-         "timeout_ms" => metadata_int(rule, "timeout_ms", 30_000),
-         "insecure_skip_verify" => tls_policy(rule) == :skip_verify,
-         "auto_discovery_enabled" => metadata_bool(rule, "auto_discovery_enabled", false),
-         "credential_rule_id" => value_string(rule, [:id, "id"])
-       }}
-    end
-  end
+  # Issues the credential-broker grant for the profile/purpose, resolves the
+  # public (non-secret) username when the profile requires it, then delegates to
+  # the profile to build the stored params template embedding the grant payload.
+  defp build_params_template(profile, rule, secret_id, purpose, agent_id, actor, opts) do
+    {grant_attrs, extras} = profile.grant_spec(purpose, rule, secret_id, agent_id)
 
-  defp proxmox_params_template(rule, secret_id, @console_purpose, agent_id, actor, opts) do
-    with {:ok, grant} <-
-           proxmox_console_credential_broker_grant(rule, secret_id, agent_id, actor, opts) do
-      params = %{
-        "credential_broker" => grant,
-        "timeout_ms" => metadata_int(rule, "timeout_ms", 30_000),
-        "insecure_skip_verify" => tls_policy(rule) == :skip_verify,
-        "ssh_host_key_policy" => ssh_host_key_policy(rule),
-        "credential_rule_id" => value_string(rule, [:id, "id"])
+    with {:ok, grant} <- issue_grant(grant_attrs, actor, opts, extras),
+         {:ok, username} <-
+           maybe_resolve_username(profile, purpose, rule, secret_id, actor, opts) do
+      ctx = %{
+        grant: grant,
+        secret_ref: SecretRefs.network_credential_ref(secret_id),
+        username: username
       }
 
-      if auth_method(rule) == "proxmox_api_token" do
-        {:ok,
-         Map.put(params, "api_token_secret_ref", SecretRefs.network_credential_ref(secret_id))}
-      else
-        {:ok, Map.put(params, "credential_secret", SecretRefs.network_credential_ref(secret_id))}
-      end
+      profile.params_template(purpose, rule, secret_id, ctx)
     end
   end
 
-  defp proxmox_params_template(rule, secret_id, _purpose, agent_id, actor, opts),
-    do: proxmox_params_template(rule, secret_id, @inventory_purpose, agent_id, actor, opts)
-
-  defp proxmox_inventory_credential_broker_grant(rule, secret_id, agent_id, actor, opts) do
-    issue_grant(
-      %{
-        secret_id: secret_id,
-        secret_ref: SecretRefs.network_credential_ref(secret_id),
-        credential_rule_id: value_string(rule, [:id, "id"]),
-        grant_type: "proxmox_api_token",
-        consumer_kind: :plugin,
-        consumer_id: @proxmox_inventory_plugin_id,
-        purpose: "inventory_enrichment",
-        agent_id: agent_id,
-        resolution_location: :agent,
-        inject: %{
-          "type" => "http_header",
-          "name" => "Authorization",
-          "scheme" => "PVEAPIToken"
-        },
-        allowed_methods: ["GET"],
-        # Proxmox VE's historical REST API prefix is /api2/json.
-        allowed_paths: [
-          "/api2/json/version",
-          "/api2/json/cluster/status",
-          "/api2/json/nodes",
-          "/api2/json/nodes/*",
-          "/api2/json/cluster/resources"
-        ],
-        ttl_seconds: metadata_int(rule, "credential_broker_ttl_seconds", 300)
-      },
-      actor,
-      opts
-    )
+  defp maybe_resolve_username(profile, purpose, rule, secret_id, actor, opts) do
+    if profile.resolve_username?(purpose, rule) do
+      resolver = Keyword.get(opts, :username_resolver, &default_username_resolver/2)
+      resolver.(secret_id, actor)
+    else
+      {:ok, nil}
+    end
   end
 
-  defp proxmox_console_credential_broker_grant(rule, secret_id, agent_id, actor, opts) do
-    issue_grant(
-      %{
-        secret_id: secret_id,
-        secret_ref: SecretRefs.network_credential_ref(secret_id),
-        credential_rule_id: value_string(rule, [:id, "id"]),
-        grant_type: "proxmox_console",
-        consumer_kind: :plugin,
-        consumer_id: @proxmox_console_plugin_id,
-        purpose: "console_access",
-        agent_id: agent_id,
-        resolution_location: :agent,
-        ttl_seconds: metadata_int(rule, "credential_broker_ttl_seconds", 300)
-      },
-      actor,
-      opts,
-      %{"auth_method" => auth_method(rule)}
-    )
+  defp default_username_resolver(secret_id, actor) do
+    case NetworkCredentialSecret.get_by_id(secret_id, actor: actor) do
+      {:ok, nil} -> {:ok, nil}
+      {:ok, secret} -> {:ok, value_string(secret, [:username, "username"])}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
-  defp issue_grant(attrs, actor, opts, extras \\ %{}) do
+  defp issue_grant(attrs, actor, opts, extras) do
     issuer = Keyword.get(opts, :grant_issuer, default_grant_issuer(actor))
 
     case issuer.(attrs) do
@@ -254,10 +246,10 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     {:ok, grant}
   end
 
-  defp rules_for_agent_scope(agent_id, purpose, actor, opts) do
+  defp rules_for_agent_scope(profile, agent_id, purpose, actor, opts) do
     case Keyword.fetch(opts, :rules) do
       {:ok, rules} ->
-        {:ok, Enum.filter(rules, &rule_has_purpose?(&1, purpose))}
+        {:ok, Enum.filter(rules, &profile.rule_has_purpose?(&1, purpose))}
 
       :error ->
         scopes = agent_scopes(agent_id, actor)
@@ -265,13 +257,13 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
         scopes
         |> Enum.reduce_while({:ok, []}, fn {scope_type, scope_value}, {:ok, acc} ->
           case NetworkCredentialRule.list_enabled_for_scope(
-                 @proxmox_provider,
+                 profile.provider(),
                  scope_type,
                  scope_value,
                  actor: actor
                ) do
             {:ok, rules} ->
-              {:cont, {:ok, acc ++ Enum.filter(rules, &rule_has_purpose?(&1, purpose))}}
+              {:cont, {:ok, acc ++ Enum.filter(rules, &profile.rule_has_purpose?(&1, purpose))}}
 
             {:error, reason} ->
               {:halt, {:error, reason}}
@@ -284,10 +276,11 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     end
   end
 
-  defp selected_rules_for_agent(rules, agent_id, purpose) do
+  defp selected_rules_for_agent(profile, rules, agent_id, purpose) do
     rules
     |> Enum.filter(
-      &(rule_has_purpose?(&1, purpose) and rule_enabled?(&1) and scope_allows_agent?(&1, agent_id))
+      &(profile.rule_has_purpose?(&1, purpose) and rule_enabled?(&1) and
+          scope_allows_agent?(&1, agent_id))
     )
     |> Enum.sort_by(&{rule_priority(&1), value_string(&1, [:inserted_at, "inserted_at"]) || ""})
     |> collapse_by_target_query()
@@ -407,71 +400,8 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     |> Enum.find_value(fn {_pid, metadata} -> metadata_value(metadata, "partition_id") end)
   end
 
-  defp rule_purpose(rule) do
-    case value_string(rule, [:purpose, "purpose"]) do
-      "inventory_enrichment" -> :inventory_enrichment
-      "discovery" -> :discovery
-      "console_access" -> :console_access
-      "generic" -> :generic
-      _ -> @inventory_purpose
-    end
-  end
-
-  defp rule_has_purpose?(rule, purpose) do
-    purpose_string = Atom.to_string(purpose)
-
-    rule
-    |> rule_purposes()
-    |> Enum.member?(purpose_string)
-    |> case do
-      true ->
-        true
-
-      false ->
-        purpose == @console_purpose and rule_purpose(rule) == @inventory_purpose and
-          auth_method(rule) == "proxmox_api_token"
-    end
-  end
-
-  defp rule_purposes(rule) do
-    metadata_purposes =
-      rule
-      |> metadata()
-      |> ValueUtils.list_value(["purposes", :purposes])
-      |> nil_to_empty_list()
-      |> Enum.map(&to_string/1)
-      |> Enum.reject(&(&1 == ""))
-
-    if metadata_purposes == [] do
-      [Atom.to_string(rule_purpose(rule))]
-    else
-      metadata_purposes
-    end
-  end
-
-  defp nil_to_empty_list(nil), do: []
-  defp nil_to_empty_list(value), do: value
-
   defp policy_id_for_rule(rule_id, @inventory_purpose), do: "network-credential-rule:#{rule_id}"
   defp policy_id_for_rule(rule_id, purpose), do: "network-credential-rule:#{rule_id}:#{purpose}"
-
-  defp auth_method(rule) do
-    case value_string(rule, [:auth_method, "auth_method"]) do
-      "ssh_private_key" -> "ssh_private_key"
-      "username_password" -> "username_password"
-      "certificate" -> "certificate"
-      "opaque" -> "opaque"
-      _ -> "proxmox_api_token"
-    end
-  end
-
-  defp ssh_host_key_policy(rule) do
-    case value_string(rule, [:ssh_host_key_policy, "ssh_host_key_policy"]) do
-      "trust_on_first_use" -> "trust_on_first_use"
-      "skip_verify" -> "skip_verify"
-      _ -> "known_hosts"
-    end
-  end
 
   defp rule_enabled?(rule) do
     case raw_rule_value(rule, [:enabled, "enabled"]) do
@@ -503,36 +433,8 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     end
   end
 
-  defp tls_policy(rule) do
-    case value_string(rule, [:tls_policy, "tls_policy"]) do
-      "skip_verify" -> :skip_verify
-      _ -> :verify
-    end
-  end
-
   defp metadata_int(rule, key, default) do
-    rule
-    |> metadata()
-    |> ValueUtils.int_value([key, metadata_atom_key(key)], default)
-  end
-
-  defp metadata_bool(rule, key, default) do
-    metadata = metadata(rule)
-
-    cond do
-      is_boolean(Map.get(metadata, key)) ->
-        Map.get(metadata, key)
-
-      is_boolean(Map.get(metadata, metadata_atom_key(key))) ->
-        Map.get(metadata, metadata_atom_key(key))
-
-      true ->
-        default
-    end
-  end
-
-  defp metadata(rule) do
-    ValueUtils.map_value(rule, [:metadata, "metadata"], stringify_keys: true) || %{}
+    RuleAccessors.metadata_int(rule, key, default)
   end
 
   defp metadata_value(nil, _key), do: nil
@@ -547,17 +449,10 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     end
   end
 
-  defp metadata_atom_key("chunk_size"), do: :chunk_size
-  defp metadata_atom_key("auto_discovery_enabled"), do: :auto_discovery_enabled
   defp metadata_atom_key("gateway_id"), do: :gateway_id
-  defp metadata_atom_key("include_guests"), do: :include_guests
-  defp metadata_atom_key("interval_seconds"), do: :interval_seconds
   defp metadata_atom_key("partition_id"), do: :partition_id
-  defp metadata_atom_key("credential_broker_ttl_seconds"), do: :credential_broker_ttl_seconds
-  defp metadata_atom_key("timeout_ms"), do: :timeout_ms
-  defp metadata_atom_key("timeout_seconds"), do: :timeout_seconds
 
-  defp value_string(map, keys), do: ValueUtils.string_value(map, keys)
+  defp value_string(map, keys), do: RuleAccessors.value_string(map, keys)
 
   defp raw_rule_value(map, keys) when is_map(map) do
     Enum.reduce_while(keys, nil, fn key, _acc ->
@@ -595,6 +490,17 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
       upserted: acc.upserted + Map.get(result, :upserted, 0),
       unchanged: acc.unchanged + Map.get(result, :unchanged, 0),
       disabled: acc.disabled + Map.get(result, :disabled, 0)
+    }
+  end
+
+  defp add_summaries(acc, summary) do
+    %{
+      rules: acc.rules + Map.get(summary, :rules, 0),
+      resolved_inputs: acc.resolved_inputs + Map.get(summary, :resolved_inputs, 0),
+      desired_assignments: acc.desired_assignments + Map.get(summary, :desired_assignments, 0),
+      upserted: acc.upserted + Map.get(summary, :upserted, 0),
+      unchanged: acc.unchanged + Map.get(summary, :unchanged, 0),
+      disabled: acc.disabled + Map.get(summary, :disabled, 0)
     }
   end
 end
