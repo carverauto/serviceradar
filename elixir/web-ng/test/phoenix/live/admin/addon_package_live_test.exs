@@ -174,7 +174,12 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
         }
       })
 
-    {:ok, lv, _html} = live(conn, ~p"/settings/agents/addons/#{package.id}")
+    {:ok, lv, html} = live(conn, ~p"/settings/agents/addons/#{package.id}")
+
+    # The override panel must carry the DetailsState hook so its open/closed
+    # state survives the phx-change re-renders triggered by the selects below.
+    assert html =~ ~s(id="advanced-manual-assignment-override")
+    assert html =~ ~s(phx-hook="DetailsState")
 
     params = %{
       "assignment" => %{

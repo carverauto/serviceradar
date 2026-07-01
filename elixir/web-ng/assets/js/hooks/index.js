@@ -4,6 +4,7 @@ import DashboardBuilderCanvas from "./DashboardBuilderCanvas"
 import DashboardPanelChart from "./DashboardPanelChart"
 import DashboardMapViewSelect from "./DashboardMapViewSelect"
 import DashboardWasmHost from "./DashboardWasmHost"
+import DetailsState from "./DetailsState"
 import JdmEditorHook from "./JdmEditorHook"
 import LocalTime from "./LocalTime"
 import MapboxFlowMap from "./MapboxFlowMap"
@@ -43,6 +44,7 @@ export default {
   DashboardPanelChart,
   DashboardMapViewSelect,
   DashboardWasmHost,
+  DetailsState,
   JdmEditorHook,
   LocalTime,
   MapboxFlowMap,
