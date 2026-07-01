@@ -2,5 +2,5 @@
 useDefault = true
 
 [allowlist]
-description = "Allow deterministic fake credential UUID used in secret ref tests"
-regexes = ['''018f3f56-1111-7222-8333-123456789abc''']
+description = "Allow deterministic fake credential UUIDs (018f3f56-XXXX-7YYY-8ZZZ-123456789abc convention) used in secret-ref tests"
+regexes = ['''018f3f56-[0-9a-f]{4}-7[0-9a-f]{3}-8[0-9a-f]{3}-123456789abc''']
