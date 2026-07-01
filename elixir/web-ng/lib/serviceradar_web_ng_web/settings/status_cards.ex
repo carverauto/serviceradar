@@ -19,7 +19,6 @@ defmodule ServiceRadarWebNGWeb.Settings.StatusCards do
   import Ecto.Query, only: [from: 2]
 
   alias ServiceRadar.Edge.AgentRelease
-  alias ServiceRadar.Identity.CliSession
   alias ServiceRadar.Identity.OAuthClient
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Infrastructure.Agent
@@ -70,7 +69,7 @@ defmodule ServiceRadarWebNGWeb.Settings.StatusCards do
     [
       %{title: "Total users", value: total_users()},
       %{title: "Active (30d)", value: active_users_30d()},
-      %{title: "Active sessions", value: active_cli_sessions()},
+      %{title: "Active (24h)", value: active_users_24h()},
       %{title: "API keys", value: api_credentials_count()}
     ]
   end
@@ -182,12 +181,19 @@ defmodule ServiceRadarWebNGWeb.Settings.StatusCards do
     _, _ -> nil
   end
 
+  # Users active in the last 30 days, counted by the SAME field the Users page
+  # renders in its "Last Activity" column — `coalesce(last_login_at,
+  # authenticated_at)` (see AuthUsersLive.format_last_activity/1). The web login
+  # flows only call `User.record_authentication` (sets `authenticated_at`); none
+  # call `User.record_login` (the only writer of `last_login_at`), so
+  # `last_login_at` is empty and filtering on it alone always returned 0. We now
+  # count a user active when EITHER activity timestamp falls in the window.
   defp active_users_30d do
     cutoff = DateTime.add(DateTime.utc_now(), -30 * 86_400, :second)
 
     User
     |> Ash.Query.for_read(:read, %{})
-    |> Ash.Query.filter(last_login_at >= ^cutoff)
+    |> Ash.Query.filter(last_login_at >= ^cutoff or authenticated_at >= ^cutoff)
     |> Ash.count!(authorize?: false)
   rescue
     _ -> nil
@@ -195,11 +201,19 @@ defmodule ServiceRadarWebNGWeb.Settings.StatusCards do
     _, _ -> nil
   end
 
-  # Active serviceradar-cli sessions (CliSession's `:active` read filters on the
-  # stored `status == :active`).
-  defp active_cli_sessions do
-    CliSession
-    |> Ash.Query.for_read(:active, %{})
+  # "Currently active" web users. Web/browser sessions are stateless Guardian
+  # JWTs carried in the Phoenix session cookie ("user_token") — there is no
+  # queryable web-session table (CliSession only tracks serviceradar-cli device
+  # sessions). So we surface distinct users active in the last 24h as the
+  # proxy, using the same last-activity field as the 30d card (`authenticated_at`
+  # is stamped on every web login). One `ng_users` row per user, so the count is
+  # already distinct. Card titled "Active (24h)" to match this semantics.
+  defp active_users_24h do
+    cutoff = DateTime.add(DateTime.utc_now(), -24 * 3600, :second)
+
+    User
+    |> Ash.Query.for_read(:read, %{})
+    |> Ash.Query.filter(last_login_at >= ^cutoff or authenticated_at >= ^cutoff)
     |> Ash.count!(authorize?: false)
   rescue
     _ -> nil
@@ -269,6 +283,14 @@ defmodule ServiceRadarWebNGWeb.Settings.StatusCards do
     _, _ -> nil
   end
 
+  # Mirror `AuditHistory.list_recent/1`'s per-resource `read_versions/6`: it
+  # isolates every resource behind a `rescue -> []` and treats `{:error, _}` as
+  # empty, so one resource whose `<Resource>.Version` table is unavailable (e.g.
+  # not migrated on this deployment, or an RBAC/read failure) is dropped rather
+  # than crashing the whole timeline. The previous unwrapped `Ash.count!` here
+  # let a single such failure bubble up to `config_changes_24h`'s outer rescue,
+  # dashing the entire card. Now each resource contributes its real count, or 0
+  # when its versions can't be read — never nil — so a genuine 0 renders as 0.
   defp count_versions_since(resource, cutoff) do
     version_module = Module.concat(resource, Version)
 
@@ -276,10 +298,18 @@ defmodule ServiceRadarWebNGWeb.Settings.StatusCards do
       version_module
       |> Ash.Query.for_read(:read, %{})
       |> Ash.Query.filter(version_inserted_at >= ^cutoff)
-      |> Ash.count!(authorize?: false)
+      |> Ash.count(authorize?: false)
+      |> case do
+        {:ok, count} -> count
+        _ -> 0
+      end
     else
       0
     end
+  rescue
+    _ -> 0
+  catch
+    _, _ -> 0
   end
 
   defp pending_jobs do
