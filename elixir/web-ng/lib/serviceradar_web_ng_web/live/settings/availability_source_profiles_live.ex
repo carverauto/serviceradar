@@ -189,6 +189,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AvailabilitySourceProfilesLive do
         breadcrumbs={@settings_breadcrumbs}
         nav_tree={@settings_nav_tree}
         palette={@settings_palette}
+        stats={@settings_stats}
       >
         <:legacy>
           <div class="space-y-4">

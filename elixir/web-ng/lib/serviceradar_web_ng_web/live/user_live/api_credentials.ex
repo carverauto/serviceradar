@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
 
   alias ServiceRadar.Identity.OAuthClient
   alias ServiceRadar.Identity.OAuthClient.Credentials
+  alias ServiceRadarWebNGWeb.Settings.Shell
 
   on_mount {ServiceRadarWebNGWeb.UserAuth, :require_sudo_mode}
 
@@ -24,256 +25,269 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
       current_path="/settings/api-credentials"
       page_title="Settings"
     >
-      <div class="mx-auto w-full max-w-4xl p-6 space-y-6">
-        <div class="flex justify-between items-center">
-          <div>
-            <h1 class="text-2xl font-semibold text-base-content">API Credentials</h1>
-            <p class="text-sm text-base-content/60">
-              Create and manage OAuth2 client credentials for programmatic API access.
-            </p>
-          </div>
-          <button
-            type="button"
-            phx-click="open_create_modal"
-            class="btn btn-primary"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke-width="1.5"
-              stroke="currentColor"
-              class="w-5 h-5"
-            >
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-            </svg>
-            Create Client
-          </button>
-        </div>
-
-        <%= if @show_secret_modal do %>
-          <.secret_modal secret={@new_secret} client={@new_client} />
-        <% end %>
-
-        <%= if @show_create_modal do %>
-          <.create_modal form={@create_form} />
-        <% end %>
-
-        <%= if @show_revoke_modal do %>
-          <.revoke_modal client={@client_to_revoke} />
-        <% end %>
-
-        <.ui_panel>
-          <:header>
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path="/settings/api-credentials"
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+        stats={@settings_stats}
+        legacy_subnav={:inline}
+      >
+        <div class="mx-auto w-full max-w-4xl p-6 space-y-6">
+          <div class="flex justify-between items-center">
             <div>
-              <div class="text-sm font-semibold">Your API Clients</div>
-              <p class="text-xs text-base-content/60">
-                These clients can be used to access the ServiceRadar API programmatically.
+              <h1 class="text-2xl font-semibold text-base-content">API Credentials</h1>
+              <p class="text-sm text-base-content/60">
+                Create and manage OAuth2 client credentials for programmatic API access.
               </p>
             </div>
-          </:header>
-
-          <%= if Enum.empty?(@clients) do %>
-            <div class="text-center py-8 text-base-content/60">
+            <button
+              type="button"
+              phx-click="open_create_modal"
+              class="btn btn-primary"
+            >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke-width="1.5"
                 stroke="currentColor"
-                class="w-12 h-12 mx-auto mb-4 opacity-50"
+                class="w-5 h-5"
               >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z"
-                />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
               </svg>
-              <p>No API clients yet.</p>
-              <p class="text-sm">Create a client to get started with API access.</p>
-            </div>
-          <% else %>
-            <div class="overflow-x-auto">
-              <table class="table table-zebra">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Client ID</th>
-                    <th>Scopes</th>
-                    <th>Status</th>
-                    <th>Last Used</th>
-                    <th>Uses</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <%= for client <- @clients do %>
-                    <tr>
-                      <td>
-                        <div class="font-medium">{client.name}</div>
-                        <%= if client.description do %>
-                          <div class="text-xs text-base-content/60">{client.description}</div>
-                        <% end %>
-                      </td>
-                      <td>
-                        <code class="text-xs bg-base-200 px-2 py-1 rounded">
-                          {client.id |> to_string() |> String.slice(0..7)}...
-                        </code>
-                        <button
-                          type="button"
-                          phx-click="copy_client_id"
-                          phx-value-id={client.id}
-                          class="btn btn-ghost btn-xs ml-1"
-                          title="Copy full Client ID"
-                        >
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke-width="1.5"
-                            stroke="currentColor"
-                            class="w-4 h-4"
-                          >
-                            <path
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                              d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184"
-                            />
-                          </svg>
-                        </button>
-                      </td>
-                      <td>
-                        <%= for scope <- client.scopes do %>
-                          <span class={"badge badge-sm #{scope_badge_class(scope)}"}>{scope}</span>
-                        <% end %>
-                      </td>
-                      <td>
-                        <span class={"badge badge-sm badge-#{status_color(client)}"}>
-                          {status_label(client)}
-                        </span>
-                      </td>
-                      <td class="text-sm">
-                        <%= if client.last_used_at do %>
-                          <span title={DateTime.to_iso8601(client.last_used_at)}>
-                            {format_relative_time(client.last_used_at)}
-                          </span>
-                        <% else %>
-                          <span class="text-base-content/40">Never</span>
-                        <% end %>
-                      </td>
-                      <td class="text-sm">{client.use_count}</td>
-                      <td>
-                        <%= if is_nil(client.revoked_at) do %>
-                          <div class="dropdown dropdown-end">
-                            <div tabindex="0" role="button" class="btn btn-ghost btn-xs">
-                              <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke-width="1.5"
-                                stroke="currentColor"
-                                class="w-4 h-4"
-                              >
-                                <path
-                                  stroke-linecap="round"
-                                  stroke-linejoin="round"
-                                  d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z"
-                                />
-                              </svg>
-                            </div>
-                            <ul
-                              tabindex="0"
-                              class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-40"
-                            >
-                              <li>
-                                <button
-                                  phx-click="open_revoke_modal"
-                                  phx-value-id={client.id}
-                                  class="text-warning"
-                                >
-                                  Revoke
-                                </button>
-                              </li>
-                              <li>
-                                <button
-                                  phx-click="delete_client"
-                                  phx-value-id={client.id}
-                                  class="text-error"
-                                >
-                                  Delete
-                                </button>
-                              </li>
-                            </ul>
-                          </div>
-                        <% else %>
-                          <button
-                            phx-click="delete_client"
-                            phx-value-id={client.id}
-                            class="btn btn-ghost btn-xs text-error"
-                          >
-                            Delete
-                          </button>
-                        <% end %>
-                      </td>
-                    </tr>
-                  <% end %>
-                </tbody>
-              </table>
-            </div>
-          <% end %>
-        </.ui_panel>
-
-        <.ui_panel>
-          <:header>
-            <div>
-              <div class="text-sm font-semibold">How to Use</div>
-              <p class="text-xs text-base-content/60">
-                Use the OAuth2 client credentials flow to get access tokens.
-              </p>
-            </div>
-          </:header>
-
-          <div class="space-y-4 text-sm">
-            <div>
-              <h4 class="font-medium mb-2">1. Exchange credentials for a token</h4>
-              <div class="mockup-code text-xs">
-                <pre data-prefix="$"><code>curl -X POST <%= @base_url %>/oauth/token \</code></pre>
-                <pre data-prefix=" "><code>  -d "grant_type=client_credentials" \</code></pre>
-                <pre data-prefix=" "><code>  -d "client_id=YOUR_CLIENT_ID" \</code></pre>
-                <pre data-prefix=" "><code>  -d "client_secret=YOUR_CLIENT_SECRET"</code></pre>
-              </div>
-            </div>
-
-            <div>
-              <h4 class="font-medium mb-2">2. Use the token in API requests</h4>
-              <div class="mockup-code text-xs">
-                <pre data-prefix="$"><code>curl -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \</code></pre>
-                <pre data-prefix=" "><code>  <%= @base_url %>/api/v2/devices</code></pre>
-              </div>
-            </div>
-
-            <div class="alert alert-info">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                class="stroke-current shrink-0 w-6 h-6"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                >
-                </path>
-              </svg>
-              <span>
-                Access tokens are valid for 1 hour. Request a new token when the current one expires.
-              </span>
-            </div>
+              Create Client
+            </button>
           </div>
-        </.ui_panel>
-      </div>
+
+          <%= if @show_secret_modal do %>
+            <.secret_modal secret={@new_secret} client={@new_client} />
+          <% end %>
+
+          <%= if @show_create_modal do %>
+            <.create_modal form={@create_form} />
+          <% end %>
+
+          <%= if @show_revoke_modal do %>
+            <.revoke_modal client={@client_to_revoke} />
+          <% end %>
+
+          <.ui_panel>
+            <:header>
+              <div>
+                <div class="text-sm font-semibold">Your API Clients</div>
+                <p class="text-xs text-base-content/60">
+                  These clients can be used to access the ServiceRadar API programmatically.
+                </p>
+              </div>
+            </:header>
+
+            <%= if Enum.empty?(@clients) do %>
+              <div class="text-center py-8 text-base-content/60">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke-width="1.5"
+                  stroke="currentColor"
+                  class="w-12 h-12 mx-auto mb-4 opacity-50"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z"
+                  />
+                </svg>
+                <p>No API clients yet.</p>
+                <p class="text-sm">Create a client to get started with API access.</p>
+              </div>
+            <% else %>
+              <div class="overflow-x-auto">
+                <table class="table table-zebra">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Client ID</th>
+                      <th>Scopes</th>
+                      <th>Status</th>
+                      <th>Last Used</th>
+                      <th>Uses</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <%= for client <- @clients do %>
+                      <tr>
+                        <td>
+                          <div class="font-medium">{client.name}</div>
+                          <%= if client.description do %>
+                            <div class="text-xs text-base-content/60">{client.description}</div>
+                          <% end %>
+                        </td>
+                        <td>
+                          <code class="text-xs bg-base-200 px-2 py-1 rounded">
+                            {client.id |> to_string() |> String.slice(0..7)}...
+                          </code>
+                          <button
+                            type="button"
+                            phx-click="copy_client_id"
+                            phx-value-id={client.id}
+                            class="btn btn-ghost btn-xs ml-1"
+                            title="Copy full Client ID"
+                          >
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke-width="1.5"
+                              stroke="currentColor"
+                              class="w-4 h-4"
+                            >
+                              <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184"
+                              />
+                            </svg>
+                          </button>
+                        </td>
+                        <td>
+                          <%= for scope <- client.scopes do %>
+                            <span class={"badge badge-sm #{scope_badge_class(scope)}"}>{scope}</span>
+                          <% end %>
+                        </td>
+                        <td>
+                          <span class={"badge badge-sm badge-#{status_color(client)}"}>
+                            {status_label(client)}
+                          </span>
+                        </td>
+                        <td class="text-sm">
+                          <%= if client.last_used_at do %>
+                            <span title={DateTime.to_iso8601(client.last_used_at)}>
+                              {format_relative_time(client.last_used_at)}
+                            </span>
+                          <% else %>
+                            <span class="text-base-content/40">Never</span>
+                          <% end %>
+                        </td>
+                        <td class="text-sm">{client.use_count}</td>
+                        <td>
+                          <%= if is_nil(client.revoked_at) do %>
+                            <div class="dropdown dropdown-end">
+                              <div tabindex="0" role="button" class="btn btn-ghost btn-xs">
+                                <svg
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  stroke-width="1.5"
+                                  stroke="currentColor"
+                                  class="w-4 h-4"
+                                >
+                                  <path
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z"
+                                  />
+                                </svg>
+                              </div>
+                              <ul
+                                tabindex="0"
+                                class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-40"
+                              >
+                                <li>
+                                  <button
+                                    phx-click="open_revoke_modal"
+                                    phx-value-id={client.id}
+                                    class="text-warning"
+                                  >
+                                    Revoke
+                                  </button>
+                                </li>
+                                <li>
+                                  <button
+                                    phx-click="delete_client"
+                                    phx-value-id={client.id}
+                                    class="text-error"
+                                  >
+                                    Delete
+                                  </button>
+                                </li>
+                              </ul>
+                            </div>
+                          <% else %>
+                            <button
+                              phx-click="delete_client"
+                              phx-value-id={client.id}
+                              class="btn btn-ghost btn-xs text-error"
+                            >
+                              Delete
+                            </button>
+                          <% end %>
+                        </td>
+                      </tr>
+                    <% end %>
+                  </tbody>
+                </table>
+              </div>
+            <% end %>
+          </.ui_panel>
+
+          <.ui_panel>
+            <:header>
+              <div>
+                <div class="text-sm font-semibold">How to Use</div>
+                <p class="text-xs text-base-content/60">
+                  Use the OAuth2 client credentials flow to get access tokens.
+                </p>
+              </div>
+            </:header>
+
+            <div class="space-y-4 text-sm">
+              <div>
+                <h4 class="font-medium mb-2">1. Exchange credentials for a token</h4>
+                <div class="mockup-code text-xs">
+                  <pre data-prefix="$"><code>curl -X POST <%= @base_url %>/oauth/token \</code></pre>
+                  <pre data-prefix=" "><code>  -d "grant_type=client_credentials" \</code></pre>
+                  <pre data-prefix=" "><code>  -d "client_id=YOUR_CLIENT_ID" \</code></pre>
+                  <pre data-prefix=" "><code>  -d "client_secret=YOUR_CLIENT_SECRET"</code></pre>
+                </div>
+              </div>
+
+              <div>
+                <h4 class="font-medium mb-2">2. Use the token in API requests</h4>
+                <div class="mockup-code text-xs">
+                  <pre data-prefix="$"><code>curl -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \</code></pre>
+                  <pre data-prefix=" "><code>  <%= @base_url %>/api/v2/devices</code></pre>
+                </div>
+              </div>
+
+              <div class="alert alert-info">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  class="stroke-current shrink-0 w-6 h-6"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  >
+                  </path>
+                </svg>
+                <span>
+                  Access tokens are valid for 1 hour. Request a new token when the current one expires.
+                </span>
+              </div>
+            </div>
+          </.ui_panel>
+        </div>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end

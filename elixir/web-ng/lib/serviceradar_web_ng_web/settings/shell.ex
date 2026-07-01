@@ -1,6 +1,6 @@
 defmodule ServiceRadarWebNGWeb.Settings.Shell do
   @moduledoc """
-  The catalog-driven Settings shell (Phase 1).
+  The catalog-driven Settings shell.
 
   `settings_chrome/1` is the single wrapper the migrated Settings pages render
   their body into. It branches on the per-user `settings_ui` preference:
@@ -8,14 +8,23 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
     * `:original` (default) — renders the untouched legacy
       `ServiceRadarWebNGWeb.SettingsComponents` chrome, so existing users are
       unaffected, and
-    * `:catalog` — renders `settings_shell/1`, the new grid
-      `[icon-rail w-16][view-list w-64][content]` that derives every navigation
-      surface (icon rail, topbar category switcher, view list, breadcrumbs,
-      status strip, Ctrl+K palette) from `ServiceRadarWebNGWeb.Settings.Catalog`.
+    * `:catalog` — renders `settings_shell/1`.
+
+  The catalog shell renders **inside the application layout**, which already
+  provides the global icon rail, so the shell renders NO icon rail of its own.
+  Its layout mirrors the product mockup:
+
+    * Row A — a full-width category switcher (the seven catalog categories, sized
+      to fit on one line with no horizontal scroll) plus a "Portal State"
+      indicator on the right.
+    * Row B — a two-column grid: the left panel lists the **selected** category's
+      views, and the content column carries the breadcrumbs, the status-card
+      strip, and the page body.
 
   All catalog-derived assigns (`settings_active_view`, `settings_active_category`,
-  `settings_breadcrumbs`, `settings_nav_tree`, `settings_palette`) are populated
-  by `ServiceRadarWebNGWeb.Settings.ShellHook` from the connection URI.
+  `settings_breadcrumbs`, `settings_nav_tree`, `settings_palette`,
+  `settings_stats`) are populated by `ServiceRadarWebNGWeb.Settings.ShellHook`
+  from the connection URI.
   """
 
   use ServiceRadarWebNGWeb, :html
@@ -97,8 +106,9 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
   end
 
   @doc """
-  The new catalog-driven Settings shell: CSS grid
-  `[icon-rail w-16][view-list w-64][content]`.
+  The new catalog-driven Settings shell. Renders to the right of the application
+  layout's global icon rail: a full-width category switcher above a
+  `[view-list w-64][content]` grid.
   """
   attr(:current_path, :string, required: true)
   attr(:current_scope, :map, default: nil)
@@ -117,128 +127,235 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
       |> assign(:views, Map.get(assigns.nav_tree, :views, []))
 
     ~H"""
-    <div class="grid grid-cols-[4rem_16rem_1fr] gap-0 rounded-lg border border-base-200 bg-base-100 overflow-hidden min-h-[70vh]">
-      <.icon_rail current_path={@current_path} />
-
-      <aside class="border-r border-base-200 bg-base-200/30 hidden md:block">
-        <.view_list views={@views} active_view={@active_view} active_category={@active_category} />
-      </aside>
-
-      <section class="min-w-0 flex flex-col">
-        <div class="flex items-center justify-between gap-3 border-b border-base-200 px-4 py-2 overflow-x-auto">
-          <.category_switcher categories={@categories} active_category={@active_category} />
-          <.ui_toggle current_path={@current_path} mode={:catalog} />
+    <div class="flex flex-col rounded-lg border border-base-200 bg-base-100 overflow-hidden min-h-[70vh]">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-base-200 bg-base-200/40 px-4 py-2.5">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2 font-semibold">
+            <.icon name="hero-cog-6-tooth" class="size-4 text-accent" />
+            <span class="truncate">ServiceRadar Console</span>
+            <span class="badge badge-sm badge-ghost font-mono">v{app_version()}</span>
+          </div>
+          <p class="text-xs text-base-content/55">
+            Unified Administrative Platform &amp; Settings Control
+          </p>
         </div>
 
-        <div class="border-b border-base-200 px-4 py-2">
-          <.breadcrumbs_bar breadcrumbs={@breadcrumbs} />
-        </div>
+        <button
+          type="button"
+          data-command-palette-open
+          class="btn btn-sm btn-ghost gap-2 border border-base-300 bg-base-100 font-normal text-base-content/70"
+          title="Search settings (Ctrl+K)"
+        >
+          <.icon name="hero-magnifying-glass" class="size-4 opacity-60" />
+          <span class="hidden sm:inline">Press Ctrl+K to jump anywhere</span>
+          <span class="ml-1 flex items-center gap-0.5">
+            <kbd class="kbd kbd-xs">Ctrl</kbd>
+            <kbd class="kbd kbd-xs">K</kbd>
+          </span>
+        </button>
+      </div>
 
-        <.status_strip stats={@stats} />
+      <div class="flex items-center gap-3 border-b border-base-200 px-3 py-2 overflow-hidden">
+        <.category_switcher categories={@categories} active_category={@active_category} />
+        <.portal_state />
+      </div>
 
-        <div class="p-4 md:p-6 space-y-6">
-          {render_slot(@inner_block)}
-        </div>
-      </section>
+      <div class="grid grid-cols-1 md:grid-cols-[16rem_1fr] flex-1 min-h-0">
+        <aside class="border-b md:border-b-0 md:border-r border-base-200 bg-base-200/30">
+          <.view_list views={@views} active_view={@active_view} active_category={@active_category} />
+        </aside>
+
+        <section class="min-w-0 flex flex-col">
+          <div class="flex items-center justify-between gap-3 border-b border-base-200 px-4 py-2">
+            <.breadcrumbs_bar
+              breadcrumbs={@breadcrumbs}
+              views={@views}
+              active_view={@active_view}
+            />
+            <.ui_toggle current_path={@current_path} mode={:catalog} />
+          </div>
+
+          <.status_strip stats={@stats} />
+
+          <div class="p-4 md:p-6 space-y-6">
+            {render_slot(@inner_block)}
+          </div>
+        </section>
+      </div>
 
       <.command_palette palette={@palette} />
     </div>
     """
   end
 
-  # --- Icon rail (reuses .sr-ops-sidebar styling) ----------------------------
-  attr(:current_path, :string, required: true)
-
-  defp icon_rail(assigns) do
-    assigns = assign(assigns, :rail_groups, Catalog.rail_groups())
-
-    ~H"""
-    <aside class="sr-ops-sidebar !static !h-auto min-h-full" aria-label="Settings sections">
-      <nav class="sr-ops-nav">
-        <.link
-          :for={group <- @rail_groups}
-          navigate={group.route}
-          title={group.title}
-          aria-label={group.title}
-          aria-current={rail_active?(@current_path, group) && "page"}
-          class={[
-            "sr-ops-nav-button",
-            rail_active?(@current_path, group) && "is-active"
-          ]}
-        >
-          <.icon name={group.icon} class="size-5" />
-        </.link>
-      </nav>
-    </aside>
-    """
-  end
-
-  # --- Topbar category switcher (overflow-x scroll, never flex-wrap) ----------
+  # --- Full-width topbar category switcher (fits on one line, no scroll) ------
+  # Each tab is `flex-1`, so the seven categories share the full width evenly and
+  # never overflow into a horizontal scroller.
   attr(:categories, :list, default: [])
   attr(:active_category, :map, default: nil)
 
   defp category_switcher(assigns) do
     ~H"""
-    <div class="overflow-x-auto">
-      <div role="tablist" class="tabs tabs-boxed flex-nowrap w-max" aria-label="Settings categories">
-        <.link
-          :for={category <- @categories}
-          role="tab"
-          navigate={category_landing_route(category)}
-          aria-selected={active_category?(@active_category, category)}
-          class={[
-            "tab whitespace-nowrap gap-1",
-            active_category?(@active_category, category) && "tab-active"
-          ]}
-        >
-          <.icon name={category.icon} class="size-4" />
-          <span>{category.title}</span>
-        </.link>
-        <span :if={@categories == []} class="tab tab-disabled text-base-content/50">
-          No settings categories available
-        </span>
-      </div>
+    <div
+      role="tablist"
+      class="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-hidden"
+      aria-label="Settings categories"
+    >
+      <.link
+        :for={category <- @categories}
+        role="tab"
+        navigate={category_landing_route(category)}
+        aria-selected={active_category?(@active_category, category)}
+        title={category.title}
+        class={[
+          "flex flex-1 min-w-0 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-sm",
+          if(active_category?(@active_category, category),
+            do: "bg-base-300 text-accent border border-base-300 shadow-sm font-bold",
+            else: "text-base-content/70 hover:bg-base-200"
+          )
+        ]}
+      >
+        <.icon
+          name={category.icon}
+          class={["size-4 shrink-0", active_category?(@active_category, category) && "text-accent"]}
+        />
+        <span class="truncate">{category.title}</span>
+      </.link>
+      <span :if={@categories == []} class="text-sm text-base-content/50">
+        No settings categories available
+      </span>
     </div>
     """
   end
 
-  # --- Left view list (daisyUI menu) -----------------------------------------
+  # --- "Portal State" indicator (far right of the topbar) --------------------
+  defp portal_state(assigns) do
+    ~H"""
+    <div class="flex shrink-0 items-center gap-2 whitespace-nowrap pl-2 pr-1">
+      <span class="inline-block size-2 animate-pulse rounded-full bg-success"></span>
+      <span class="font-mono text-[11px] uppercase tracking-wide text-base-content/60">
+        Portal State: Connected
+      </span>
+    </div>
+    """
+  end
+
+  # --- Left view list of the selected category (daisyUI menu) -----------------
   attr(:views, :list, default: [])
   attr(:active_view, :map, default: nil)
   attr(:active_category, :map, default: nil)
 
   defp view_list(assigns) do
     ~H"""
-    <ul class="menu w-full gap-0.5 p-2">
-      <li :if={@active_category} class="menu-title">{@active_category.title}</li>
-      <li :for={view <- @views}>
-        <.link
-          navigate={view.route}
-          aria-current={active_view?(@active_view, view) && "page"}
-          class={active_view?(@active_view, view) && "menu-active"}
+    <div id="settings-view-filter" phx-hook="SettingsViewFilter" class="p-2">
+      <label class="input input-sm input-bordered flex items-center gap-2 mb-1">
+        <.icon name="hero-magnifying-glass" class="size-4 opacity-60" />
+        <input
+          type="text"
+          placeholder="Search views…"
+          class="grow"
+          data-view-filter-input
+          autocomplete="off"
+          aria-label="Search views"
+        />
+      </label>
+
+      <ul class="menu w-full gap-0.5 p-0">
+        <li :if={@active_category} class="menu-title" data-view-filter-skip>
+          {@active_category.title}
+        </li>
+        <li :for={view <- @views} data-view-search={view_search(view)}>
+          <.link
+            navigate={view.route}
+            aria-current={active_view?(@active_view, view) && "page"}
+            class={[
+              "gap-2 rounded-lg",
+              active_view?(@active_view, view) &&
+                "text-accent bg-primary/10 font-semibold border border-primary/20"
+            ]}
+          >
+            <.icon name={view.icon} class="size-4 shrink-0" />
+            <span class="truncate">{view.title}</span>
+            <span :if={view.badge} class="badge badge-sm badge-primary">{view.badge}</span>
+            <.icon
+              name="hero-chevron-right"
+              class={[
+                "size-4 shrink-0 ml-auto transition-transform",
+                active_view?(@active_view, view) && "rotate-90 text-accent"
+              ]}
+            />
+          </.link>
+        </li>
+        <li :if={@views == []} class="px-3 py-2 text-sm text-base-content/50" data-view-filter-skip>
+          No views available
+        </li>
+        <li
+          data-view-filter-empty
+          class="hidden px-3 py-2 text-sm text-base-content/50"
         >
-          <.icon name={view.icon} class="size-4 shrink-0" />
-          <span class="truncate">{view.title}</span>
-          <span :if={view.badge} class="badge badge-sm badge-primary ml-auto">{view.badge}</span>
-        </.link>
-      </li>
-      <li :if={@views == []} class="px-3 py-2 text-sm text-base-content/50">
-        No views available
-      </li>
-    </ul>
+          No matching views.
+        </li>
+      </ul>
+    </div>
     """
   end
 
   # --- Breadcrumbs (daisyUI breadcrumbs) -------------------------------------
+  # The final segment (current view) is a dropdown that jumps to sibling views in
+  # the same category.
   attr(:breadcrumbs, :list, default: [])
+  attr(:views, :list, default: [])
+  attr(:active_view, :map, default: nil)
 
   defp breadcrumbs_bar(assigns) do
+    assigns = assign(assigns, :last_index, length(assigns.breadcrumbs) - 1)
+
     ~H"""
-    <nav class="breadcrumbs text-sm" aria-label="Breadcrumb">
+    <nav class="breadcrumbs text-sm min-w-0" aria-label="Breadcrumb">
       <ul>
-        <li :for={crumb <- @breadcrumbs}>
-          <.link :if={crumb.route} navigate={crumb.route}>{crumb.label}</.link>
-          <span :if={is_nil(crumb.route)}>{crumb.label}</span>
+        <li :for={{crumb, index} <- Enum.with_index(@breadcrumbs)}>
+          <%= cond do %>
+            <% index == @last_index and @views != [] -> %>
+              <div class="dropdown dropdown-bottom">
+                <div
+                  tabindex="0"
+                  role="button"
+                  class="inline-flex items-center gap-1 font-medium text-accent cursor-pointer"
+                  title="Jump to a sibling view"
+                >
+                  <span class="truncate">{crumb.label}</span>
+                  <.icon name="hero-chevron-down" class="size-3.5" />
+                </div>
+                <div
+                  tabindex="0"
+                  class="dropdown-content z-[60] mt-1 w-64 rounded-lg border border-base-200 bg-base-100 shadow-lg"
+                >
+                  <div class="px-3 pt-2 text-[11px] font-semibold uppercase tracking-wide text-base-content/50">
+                    Navigate Views
+                  </div>
+                  <ul class="menu w-full p-2">
+                    <li :for={view <- @views}>
+                      <.link
+                        navigate={view.route}
+                        class={active_view?(@active_view, view) && "text-accent font-semibold"}
+                      >
+                        <.icon name={view.icon} class="size-4 shrink-0" />
+                        <span class="truncate">{view.title}</span>
+                        <.icon
+                          :if={active_view?(@active_view, view)}
+                          name="hero-check"
+                          class="size-4 ml-auto text-accent"
+                        />
+                      </.link>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            <% crumb.route -> %>
+              <.link navigate={crumb.route}>{crumb.label}</.link>
+            <% true -> %>
+              <span>{crumb.label}</span>
+          <% end %>
         </li>
       </ul>
     </nav>
@@ -284,31 +401,64 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
       phx-hook="CommandPalette"
       phx-update="ignore"
     >
-      <div class="modal-box max-w-xl p-0" data-command-palette-box>
+      <div class="modal-box max-w-2xl p-0" data-command-palette-box>
         <div class="border-b border-base-200 p-3">
           <label class="input input-bordered flex items-center gap-2">
             <.icon name="hero-magnifying-glass" class="size-4 opacity-60" />
             <input
               type="text"
-              placeholder="Jump to a setting…"
+              placeholder="Search settings, tools, actions… (e.g. sweeps, certificates)"
               class="grow"
               data-command-palette-input
               autocomplete="off"
             />
-            <kbd class="kbd kbd-sm">ESC</kbd>
+            <button type="button" class="btn btn-ghost btn-xs btn-circle" data-command-palette-close>
+              <.icon name="hero-x-mark" class="size-4" />
+            </button>
           </label>
         </div>
 
-        <ul class="menu w-full max-h-80 overflow-y-auto p-2" data-command-palette-list>
+        <div class="flex items-center justify-between px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/50">
+          <span>Settings &amp; Deep Sections</span>
+          <span>(<span data-command-palette-count>{length(@palette)}</span>)</span>
+        </div>
+
+        <ul
+          class="menu menu-vertical flex-nowrap w-full max-h-96 overflow-y-auto p-2"
+          data-command-palette-list
+        >
           <li
             :for={item <- @palette}
             data-command-palette-item
             data-search={palette_search(item)}
           >
-            <.link navigate={item.route} class="flex items-center gap-2" data-command-palette-link>
-              <.icon name={item.icon} class="size-4 shrink-0" />
-              <span class="truncate">{item.view_title}</span>
-              <span class="ml-auto text-xs text-base-content/50">{item.category_title}</span>
+            <.link
+              navigate={item.route}
+              class="flex items-start gap-3"
+              data-command-palette-link
+            >
+              <span class="mt-0.5 rounded-md bg-base-200 p-1.5">
+                <.icon name={item.icon} class="size-4" />
+              </span>
+              <span class="min-w-0 flex-1">
+                <span class="flex items-center gap-2">
+                  <span class="truncate font-medium" data-command-palette-title>
+                    {item.view_title}
+                  </span>
+                  <span class="badge badge-xs badge-ghost uppercase tracking-wide">
+                    {item.category_title}
+                  </span>
+                </span>
+                <span :if={item.description} class="block truncate text-xs text-base-content/55">
+                  {item.description}
+                </span>
+              </span>
+              <span
+                class="ml-auto hidden items-center gap-1 self-center text-xs text-accent"
+                data-command-palette-jump
+              >
+                Jump <kbd class="kbd kbd-xs">↵</kbd>
+              </span>
             </.link>
           </li>
           <li
@@ -320,11 +470,10 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
         </ul>
 
         <div class="flex items-center gap-3 border-t border-base-200 px-3 py-2 text-xs text-base-content/50">
-          <span><kbd class="kbd kbd-xs">↑</kbd> <kbd class="kbd kbd-xs">↓</kbd> to navigate</span>
-          <span><kbd class="kbd kbd-xs">↵</kbd> to open</span>
-          <span class="ml-auto">
-            <kbd class="kbd kbd-xs">Ctrl</kbd> + <kbd class="kbd kbd-xs">K</kbd>
-          </span>
+          <span>Navigation:</span>
+          <span><kbd class="kbd kbd-xs">↑</kbd> <kbd class="kbd kbd-xs">↓</kbd> Arrow Keys</span>
+          <span><kbd class="kbd kbd-xs">↵</kbd> Select</span>
+          <span><kbd class="kbd kbd-xs">ESC</kbd> Close</span>
         </div>
       </div>
       <form method="dialog" class="modal-backdrop">
@@ -358,6 +507,14 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
 
   # --- Helpers ---------------------------------------------------------------
 
+  defp app_version do
+    case Application.spec(:serviceradar_web_ng, :vsn) do
+      vsn when is_list(vsn) -> List.to_string(vsn)
+      vsn when is_binary(vsn) -> vsn
+      _ -> "dev"
+    end
+  end
+
   defp active_category?(%{id: id}, %{id: id}), do: true
   defp active_category?(_, _), do: false
 
@@ -371,14 +528,6 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
     end
   end
 
-  defp rail_active?(current_path, %{route: "/settings" <> _}) when is_binary(current_path),
-    do: String.starts_with?(current_path, "/settings")
-
-  defp rail_active?(current_path, %{route: route}) when is_binary(current_path),
-    do: current_path == route or String.starts_with?(current_path, route <> "/")
-
-  defp rail_active?(_, _), do: false
-
   defp stat_value(stats, key) do
     case Map.get(stats, key) do
       nil -> "—"
@@ -388,6 +537,12 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
 
   defp palette_search(item) do
     [item.view_title, item.category_title, item.route | item.keywords]
+    |> Enum.join(" ")
+    |> String.downcase()
+  end
+
+  defp view_search(view) do
+    [view.title, view.route | List.wrap(Map.get(view, :keywords))]
     |> Enum.join(" ")
     |> String.downcase()
   end

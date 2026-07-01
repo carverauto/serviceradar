@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
 
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Settings.Shell
 
   @current_path "/settings/user-groups"
 
@@ -128,103 +129,120 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
       current_path={@current_path}
       shell={:operations}
     >
-      <div class="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
-        <section class="flex flex-col gap-3 border-b border-base-300 pb-5 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p class="text-sm font-medium text-primary">Settings</p>
-            <h1 class="mt-1 text-2xl font-semibold tracking-normal">User Groups</h1>
-            <p class="mt-2 max-w-3xl text-sm text-base-content/65">
-              Manage reusable groups for dashboard sharing and future access-controlled workflows.
-            </p>
-          </div>
-          <.link navigate={~p"/analytics"} class="btn btn-sm btn-ghost">
-            <.icon name="hero-squares-2x2" class="size-4" /> Dashboard Creator
-          </.link>
-        </section>
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path={@current_path}
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+        stats={@settings_stats}
+        legacy_subnav={:inline}
+      >
+        <div class="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+          <section class="flex flex-col gap-3 border-b border-base-300 pb-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p class="text-sm font-medium text-primary">Settings</p>
+              <h1 class="mt-1 text-2xl font-semibold tracking-normal">User Groups</h1>
+              <p class="mt-2 max-w-3xl text-sm text-base-content/65">
+                Manage reusable groups for dashboard sharing and future access-controlled workflows.
+              </p>
+            </div>
+            <.link navigate={~p"/analytics"} class="btn btn-sm btn-ghost">
+              <.icon name="hero-squares-2x2" class="size-4" /> Dashboard Creator
+            </.link>
+          </section>
 
-        <section class="rounded-lg border border-base-300 bg-base-100">
-          <div class="border-b border-base-300 px-4 py-3">
-            <h2 class="text-sm font-semibold">Groups</h2>
-          </div>
+          <section class="rounded-lg border border-base-300 bg-base-100">
+            <div class="border-b border-base-300 px-4 py-3">
+              <h2 class="text-sm font-semibold">Groups</h2>
+            </div>
 
-          <div :if={@loading?} class="p-4 text-sm text-base-content/60">
-            Loading groups...
-          </div>
+            <div :if={@loading?} class="p-4 text-sm text-base-content/60">
+              Loading groups...
+            </div>
 
-          <div :if={!@loading?} class="grid grid-cols-1 gap-6 p-4 lg:grid-cols-[1fr_360px]">
-            <div class="space-y-3">
-              <div
-                :if={@user_groups == []}
-                class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60"
-              >
-                No user groups have been created yet.
+            <div :if={!@loading?} class="grid grid-cols-1 gap-6 p-4 lg:grid-cols-[1fr_360px]">
+              <div class="space-y-3">
+                <div
+                  :if={@user_groups == []}
+                  class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60"
+                >
+                  No user groups have been created yet.
+                </div>
+
+                <article :for={group <- @user_groups} class="rounded-lg border border-base-300 p-4">
+                  <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <h3 class="text-sm font-semibold">{group.name}</h3>
+                      <p class="mt-1 text-xs text-base-content/55">
+                        {group.description || "No description"}
+                      </p>
+                    </div>
+                    <span class="badge badge-outline">
+                      {membership_count(@user_group_memberships, group.id)} members
+                    </span>
+                  </div>
+                  <div class="mt-3 flex flex-wrap gap-2">
+                    <span
+                      :for={membership <- memberships_for(@user_group_memberships, group.id)}
+                      class="badge badge-ghost"
+                    >
+                      {user_label(membership.user)}
+                    </span>
+                  </div>
+                </article>
               </div>
 
-              <article :for={group <- @user_groups} class="rounded-lg border border-base-300 p-4">
-                <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <h3 class="text-sm font-semibold">{group.name}</h3>
-                    <p class="mt-1 text-xs text-base-content/55">
-                      {group.description || "No description"}
-                    </p>
-                  </div>
-                  <span class="badge badge-outline">
-                    {membership_count(@user_group_memberships, group.id)} members
-                  </span>
-                </div>
-                <div class="mt-3 flex flex-wrap gap-2">
-                  <span
-                    :for={membership <- memberships_for(@user_group_memberships, group.id)}
-                    class="badge badge-ghost"
+              <div :if={@can_manage_groups?} class="space-y-4">
+                <.form
+                  for={@group_form}
+                  as={:group}
+                  phx-change="validate_group"
+                  phx-submit="create_group"
+                  class="space-y-3"
+                >
+                  <.input field={@group_form[:name]} type="text" label="Group name" />
+                  <.input field={@group_form[:description]} type="text" label="Description" />
+                  <button type="submit" class="btn btn-sm btn-primary">
+                    <.icon name="hero-user-group" class="size-4" /> Create Group
+                  </button>
+                </.form>
+
+                <.form
+                  for={@membership_form}
+                  as={:membership}
+                  phx-change="validate_membership"
+                  phx-submit="add_group_member"
+                  class="space-y-3 border-t border-base-300 pt-4"
+                >
+                  <.input
+                    field={@membership_form[:group_id]}
+                    type="select"
+                    label="Group"
+                    options={group_select_options(@user_groups)}
+                  />
+                  <.input
+                    field={@membership_form[:user_id]}
+                    type="select"
+                    label="User"
+                    options={user_select_options(@users)}
+                  />
+                  <button
+                    type="submit"
+                    class="btn btn-sm"
+                    disabled={@user_groups == [] or @users == []}
                   >
-                    {user_label(membership.user)}
-                  </span>
-                </div>
-              </article>
+                    <.icon name="hero-user-plus" class="size-4" /> Add Member
+                  </button>
+                </.form>
+              </div>
             </div>
-
-            <div :if={@can_manage_groups?} class="space-y-4">
-              <.form
-                for={@group_form}
-                as={:group}
-                phx-change="validate_group"
-                phx-submit="create_group"
-                class="space-y-3"
-              >
-                <.input field={@group_form[:name]} type="text" label="Group name" />
-                <.input field={@group_form[:description]} type="text" label="Description" />
-                <button type="submit" class="btn btn-sm btn-primary">
-                  <.icon name="hero-user-group" class="size-4" /> Create Group
-                </button>
-              </.form>
-
-              <.form
-                for={@membership_form}
-                as={:membership}
-                phx-change="validate_membership"
-                phx-submit="add_group_member"
-                class="space-y-3 border-t border-base-300 pt-4"
-              >
-                <.input
-                  field={@membership_form[:group_id]}
-                  type="select"
-                  label="Group"
-                  options={group_select_options(@user_groups)}
-                />
-                <.input
-                  field={@membership_form[:user_id]}
-                  type="select"
-                  label="User"
-                  options={user_select_options(@users)}
-                />
-                <button type="submit" class="btn btn-sm" disabled={@user_groups == [] or @users == []}>
-                  <.icon name="hero-user-plus" class="size-4" /> Add Member
-                </button>
-              </.form>
-            </div>
-          </div>
-        </section>
-      </div>
+          </section>
+        </div>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end

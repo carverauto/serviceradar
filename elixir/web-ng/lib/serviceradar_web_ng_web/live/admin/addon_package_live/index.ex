@@ -412,6 +412,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
         breadcrumbs={@settings_breadcrumbs}
         nav_tree={@settings_nav_tree}
         palette={@settings_palette}
+        stats={@settings_stats}
       >
         <:legacy>
           <.settings_nav

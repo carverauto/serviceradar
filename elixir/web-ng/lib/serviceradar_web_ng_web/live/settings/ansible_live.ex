@@ -326,6 +326,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
         breadcrumbs={@settings_breadcrumbs}
         nav_tree={@settings_nav_tree}
         palette={@settings_palette}
+        stats={@settings_stats}
       >
         <:legacy>
           <SettingsComponents.settings_nav

@@ -168,7 +168,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
+    <Layouts.app flash={@flash} current_scope={@current_scope} current_path={@current_path}>
       <Shell.settings_chrome
         settings_ui={@settings_ui}
         current_path={@current_path}
@@ -178,6 +178,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
         breadcrumbs={@settings_breadcrumbs}
         nav_tree={@settings_nav_tree}
         palette={@settings_palette}
+        stats={@settings_stats}
         legacy_subnav={:none}
       >
         <header class="space-y-1">

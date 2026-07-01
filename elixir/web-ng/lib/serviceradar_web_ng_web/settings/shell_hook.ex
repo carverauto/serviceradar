@@ -22,6 +22,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellHook do
   import Phoenix.LiveView, only: [attach_hook: 4]
 
   alias ServiceRadarWebNGWeb.Settings.Catalog
+  alias ServiceRadarWebNGWeb.Settings.StatusCards
 
   @session_key "settings_ui"
 
@@ -52,6 +53,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellHook do
       |> assign(:settings_breadcrumbs, [])
       |> assign(:settings_nav_tree, %{categories: [], views: []})
       |> assign(:settings_palette, [])
+      |> assign(:settings_stats, %{})
       |> attach_hook(:settings_shell_active_view, :handle_params, &resolve_active_view/3)
 
     {:cont, socket}
@@ -78,13 +80,24 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellHook do
             views: nav_views(scope, category)
           })
           |> assign(:settings_palette, Catalog.palette_index(scope))
+          |> maybe_load_stats()
       end
 
     {:cont, socket}
   end
 
+  # The topbar lists every visible category; the left panel lists the selected
+  # category's visible views.
   defp nav_views(_scope, nil), do: []
   defp nav_views(scope, %{id: category_id}), do: Catalog.visible_views(scope, category_id)
+
+  # Compute the status-card metrics once per LiveView process, and only when the
+  # catalog shell is actually shown, so `:original`-mode users pay nothing.
+  defp maybe_load_stats(%{assigns: %{settings_ui: :catalog, settings_stats: stats}} = socket) when stats == %{} do
+    assign(socket, :settings_stats, StatusCards.load())
+  end
+
+  defp maybe_load_stats(socket), do: socket
 
   defp uri_path(uri) when is_binary(uri) do
     case URI.parse(uri) do

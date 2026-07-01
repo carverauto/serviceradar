@@ -82,6 +82,55 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
     refute html =~ "System Event Logs"
   end
 
+  test "catalog shell renders the phase-3 surfaces (header, search, status, palette)" do
+    assigns = catalog_assigns("/settings/audit/events")
+
+    html =
+      rendered_to_string(~H"""
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path={@current_path}
+        current_scope={@current_scope}
+        active_view={@active_view}
+        active_category={@active_category}
+        breadcrumbs={@breadcrumbs}
+        nav_tree={@nav_tree}
+        palette={@palette}
+        legacy_subnav={@legacy_subnav}
+      >
+        <p data-test="page-body">audit events body</p>
+      </Shell.settings_chrome>
+      """)
+
+    # Header branding + the Ctrl+K palette trigger.
+    assert html =~ "ServiceRadar Console"
+    assert html =~ "data-command-palette-open"
+    assert html =~ "Press Ctrl+K to jump anywhere"
+
+    # Topbar "Portal State" indicator.
+    assert html =~ "Portal State: Connected"
+
+    # Left panel "Search views…" filter input + its hook.
+    assert html =~ "SettingsViewFilter"
+    assert html =~ "Search views"
+
+    # Status-card strip is present and degrades to em dashes with empty stats.
+    assert html =~ "Cluster health"
+    assert html =~ "Connected agents"
+    assert html =~ "Pending jobs"
+    assert html =~ "Active alerts"
+
+    # Command palette rows surface the per-view description + section header.
+    assert html =~ "Settings &amp; Deep Sections"
+    assert html =~ "Browse stateless security events and audit entries."
+
+    # The final breadcrumb is a "Navigate Views" sibling jumper.
+    assert html =~ "Navigate Views"
+
+    # No leftover second icon rail: the shell must not render `.sr-ops-sidebar`.
+    refute html =~ "sr-ops-sidebar"
+  end
+
   test "original chrome renders the legacy nav and no new palette" do
     assigns = %{
       settings_ui: :original,
