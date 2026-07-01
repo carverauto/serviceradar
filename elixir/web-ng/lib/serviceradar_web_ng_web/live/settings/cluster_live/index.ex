@@ -11,12 +11,11 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   """
   use ServiceRadarWebNGWeb, :live_view
 
-  import ServiceRadarWebNGWeb.SettingsComponents
-
   alias ServiceRadar.Cluster.ClusterStatus
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Jobs.JobCatalog
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Settings.Shell
 
   @refresh_interval to_timeout(second: 10)
   @stale_threshold_ms to_timeout(minute: 2)
@@ -55,6 +54,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
       socket =
         socket
         |> assign(:page_title, "Cluster Status")
+        |> assign(:current_path, "/settings/cluster")
         |> assign(:cluster_status, cluster_status)
         |> assign(:cluster_health, cluster_health)
         |> assign(:gateways_cache, gateways_cache)
@@ -258,10 +258,19 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <.settings_shell current_path="/settings/cluster">
-        <.settings_nav current_path="/settings/cluster" current_scope={@current_scope} />
-
+    <Layouts.app flash={@flash} current_scope={@current_scope} current_path={@current_path}>
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path={@current_path}
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+        stats={@settings_stats}
+        legacy_subnav={:none}
+      >
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 class="text-2xl font-semibold text-base-content">Cluster Status</h1>
@@ -479,7 +488,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             </table>
           </div>
         </.ui_panel>
-      </.settings_shell>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end

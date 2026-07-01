@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
 
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias ServiceRadarWebNGWeb.Settings.Shell
+
   require Logger
 
   @impl true
@@ -137,60 +139,78 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
-      <div class="mx-auto max-w-4xl p-6">
-        <.header>
-          Node Details
-          <:subtitle>
-            <span class="font-mono text-xs">{@node_name}</span>
-          </:subtitle>
-          <:actions>
-            <.ui_button href={~p"/settings/cluster"} variant="ghost" size="sm">
-              Back to cluster
-            </.ui_button>
-          </:actions>
-        </.header>
+    <Layouts.app
+      flash={@flash}
+      current_scope={@current_scope}
+      srql={@srql}
+      current_path={~p"/settings/cluster/nodes/#{@node_name}"}
+    >
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path={~p"/settings/cluster/nodes/#{@node_name}"}
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+        stats={@settings_stats}
+        legacy_subnav={:inline}
+      >
+        <div class="mx-auto max-w-4xl p-6">
+          <.header>
+            Node Details
+            <:subtitle>
+              <span class="font-mono text-xs">{@node_name}</span>
+            </:subtitle>
+            <:actions>
+              <.ui_button href={~p"/settings/cluster"} variant="ghost" size="sm">
+                Back to cluster
+              </.ui_button>
+            </:actions>
+          </.header>
 
-        <div
-          :if={@error && !@is_connected}
-          class="rounded-xl border border-error/30 bg-error/5 p-6 text-center"
-        >
-          <p class="text-sm text-error">{@error}</p>
-        </div>
-
-        <div class="space-y-4">
-          <!-- Connection Status Banner -->
           <div
-            :if={@is_connected}
-            class="rounded-lg bg-success/10 border border-success/30 p-3 flex items-center gap-3"
+            :if={@error && !@is_connected}
+            class="rounded-xl border border-error/30 bg-error/5 p-6 text-center"
           >
-            <span class="size-2.5 rounded-full bg-success animate-pulse"></span>
-            <span class="text-sm text-success font-medium">Connected</span>
-            <span :if={@is_current} class="badge badge-primary badge-sm">Current Node</span>
-            <span class="text-xs text-base-content/60">Node is connected to the cluster</span>
-          </div>
-          <div
-            :if={!@is_connected}
-            class="rounded-lg bg-error/10 border border-error/30 p-3 flex items-center gap-3"
-          >
-            <span class="size-2.5 rounded-full bg-error"></span>
-            <span class="text-sm text-error font-medium">Disconnected</span>
-            <span class="text-xs text-base-content/60">Node is not reachable</span>
+            <p class="text-sm text-error">{@error}</p>
           </div>
 
-          <.node_summary node_name={@node_name} node_type={@node_type} is_connected={@is_connected} />
-          <.node_system_info :if={@node_info} node_info={@node_info} node={@node_name} />
-          
+          <div class="space-y-4">
+            <!-- Connection Status Banner -->
+            <div
+              :if={@is_connected}
+              class="rounded-lg bg-success/10 border border-success/30 p-3 flex items-center gap-3"
+            >
+              <span class="size-2.5 rounded-full bg-success animate-pulse"></span>
+              <span class="text-sm text-success font-medium">Connected</span>
+              <span :if={@is_current} class="badge badge-primary badge-sm">Current Node</span>
+              <span class="text-xs text-base-content/60">Node is connected to the cluster</span>
+            </div>
+            <div
+              :if={!@is_connected}
+              class="rounded-lg bg-error/10 border border-error/30 p-3 flex items-center gap-3"
+            >
+              <span class="size-2.5 rounded-full bg-error"></span>
+              <span class="text-sm text-error font-medium">Disconnected</span>
+              <span class="text-xs text-base-content/60">Node is not reachable</span>
+            </div>
+
+            <.node_summary node_name={@node_name} node_type={@node_type} is_connected={@is_connected} />
+            <.node_system_info :if={@node_info} node_info={@node_info} node={@node_name} />
+            
     <!-- Gateway-specific info -->
-          <.gateways_on_node :if={@node_type == :gateway && @gateways != []} gateways={@gateways} />
-          
+            <.gateways_on_node :if={@node_type == :gateway && @gateways != []} gateways={@gateways} />
+            
     <!-- Agent-specific info -->
-          <.agents_on_node :if={@node_type == :agent && @agents != []} agents={@agents} />
-          
+            <.agents_on_node :if={@node_type == :agent && @agents != []} agents={@agents} />
+            
     <!-- Node Role Description -->
-          <.node_role_card node_type={@node_type} />
+            <.node_role_card node_type={@node_type} />
+          </div>
         </div>
-      </div>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end

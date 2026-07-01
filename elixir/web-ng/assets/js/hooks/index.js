@@ -17,6 +17,8 @@ import RemoteAccessSSHConsole from "./RemoteAccessSSHConsole"
 import RemoteAccessTCPText from "./RemoteAccessTCPText"
 import RemoteAccessTerminal from "./RemoteAccessTerminal"
 import RemoteConsoleTerminal from "./RemoteConsoleTerminal"
+import SettingsNavTree from "./SettingsNavTree"
+import SettingsViewFilter from "./SettingsViewFilter"
 import SRQLEditor from "./SRQLEditor"
 import SRQLInput from "./SRQLInput"
 import SRQLTimeCookie from "./SRQLTimeCookie"
@@ -58,6 +60,8 @@ export default {
   RemoteAccessTCPText,
   RemoteAccessTerminal,
   RemoteConsoleTerminal,
+  SettingsNavTree,
+  SettingsViewFilter,
   SRQLEditor,
   SRQLInput,
   SRQLTimeCookie,

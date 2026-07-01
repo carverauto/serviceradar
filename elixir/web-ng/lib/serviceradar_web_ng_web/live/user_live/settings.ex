@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
   alias ServiceRadar.Identity.Constants
   alias ServiceRadarWebNG.Accounts
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Settings.Shell
 
   # Viewing the profile must not require sudo mode. Sensitive submits
   # re-check sudo: the password POST in UserSessionController.update_password/2
@@ -24,105 +25,118 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
       current_path="/settings/profile"
       page_title="Settings"
     >
-      <div class="mx-auto w-full max-w-4xl p-6 space-y-6">
-        <div>
-          <h1 class="text-2xl font-semibold text-base-content">Account Settings</h1>
-          <p class="text-sm text-base-content/60">
-            Manage your login email and account profile settings.
-          </p>
-        </div>
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path="/settings/profile"
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+        stats={@settings_stats}
+        legacy_subnav={:inline}
+      >
+        <div class="mx-auto w-full max-w-4xl p-6 space-y-6">
+          <div>
+            <h1 class="text-2xl font-semibold text-base-content">Account Settings</h1>
+            <p class="text-sm text-base-content/60">
+              Manage your login email and account profile settings.
+            </p>
+          </div>
 
-        <.ui_panel>
-          <:header>
-            <div>
-              <div class="text-sm font-semibold">Email</div>
-              <p class="text-xs text-base-content/60">
-                Update the email used to sign in to ServiceRadar.
-              </p>
-            </div>
-          </:header>
-
-          <.form
-            for={@email_form}
-            id="email_form"
-            phx-submit="update_email"
-            phx-change="validate_email"
-          >
-            <.input
-              field={@email_form[:email]}
-              type="email"
-              label="Email"
-              autocomplete="username"
-              required
-            />
-            <%= if has_password?(@current_scope.user) do %>
-              <.input
-                field={@email_form[:current_password]}
-                id="email_current_password"
-                type="password"
-                label="Current password"
-                autocomplete="current-password"
-                required
-              />
-            <% end %>
-            <.button variant="primary" phx-disable-with="Changing...">Change Email</.button>
-          </.form>
-        </.ui_panel>
-
-        <%= if @can_change_password and has_password?(@current_scope.user) do %>
           <.ui_panel>
             <:header>
               <div>
-                <div class="text-sm font-semibold">Password</div>
+                <div class="text-sm font-semibold">Email</div>
                 <p class="text-xs text-base-content/60">
-                  Rotate your password and confirm the new credentials.
+                  Update the email used to sign in to ServiceRadar.
                 </p>
               </div>
             </:header>
 
             <.form
-              for={@password_form}
-              id="password_form"
-              action={~p"/users/update-password"}
-              method="post"
-              phx-change="validate_password"
-              phx-submit="update_password"
-              phx-trigger-action={@trigger_submit}
+              for={@email_form}
+              id="email_form"
+              phx-submit="update_email"
+              phx-change="validate_email"
             >
-              <input
-                name="user[email]"
-                type="hidden"
-                id="hidden_user_email"
+              <.input
+                field={@email_form[:email]}
+                type="email"
+                label="Email"
                 autocomplete="username"
-                value={@current_email}
-              />
-              <.input
-                field={@password_form[:current_password]}
-                id="password_current_password"
-                type="password"
-                label="Current password"
-                autocomplete="current-password"
-              />
-              <.input
-                field={@password_form[:password]}
-                type="password"
-                label="New password"
-                autocomplete="new-password"
                 required
               />
-              <.input
-                field={@password_form[:password_confirmation]}
-                type="password"
-                label="Confirm new password"
-                autocomplete="new-password"
-              />
-              <.button variant="primary" phx-disable-with="Saving...">
-                Save Password
-              </.button>
+              <%= if has_password?(@current_scope.user) do %>
+                <.input
+                  field={@email_form[:current_password]}
+                  id="email_current_password"
+                  type="password"
+                  label="Current password"
+                  autocomplete="current-password"
+                  required
+                />
+              <% end %>
+              <.button variant="primary" phx-disable-with="Changing...">Change Email</.button>
             </.form>
           </.ui_panel>
-        <% end %>
-      </div>
+
+          <%= if @can_change_password and has_password?(@current_scope.user) do %>
+            <.ui_panel>
+              <:header>
+                <div>
+                  <div class="text-sm font-semibold">Password</div>
+                  <p class="text-xs text-base-content/60">
+                    Rotate your password and confirm the new credentials.
+                  </p>
+                </div>
+              </:header>
+
+              <.form
+                for={@password_form}
+                id="password_form"
+                action={~p"/users/update-password"}
+                method="post"
+                phx-change="validate_password"
+                phx-submit="update_password"
+                phx-trigger-action={@trigger_submit}
+              >
+                <input
+                  name="user[email]"
+                  type="hidden"
+                  id="hidden_user_email"
+                  autocomplete="username"
+                  value={@current_email}
+                />
+                <.input
+                  field={@password_form[:current_password]}
+                  id="password_current_password"
+                  type="password"
+                  label="Current password"
+                  autocomplete="current-password"
+                />
+                <.input
+                  field={@password_form[:password]}
+                  type="password"
+                  label="New password"
+                  autocomplete="new-password"
+                  required
+                />
+                <.input
+                  field={@password_form[:password_confirmation]}
+                  type="password"
+                  label="Confirm new password"
+                  autocomplete="new-password"
+                />
+                <.button variant="primary" phx-disable-with="Saving...">
+                  Save Password
+                </.button>
+              </.form>
+            </.ui_panel>
+          <% end %>
+        </div>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end

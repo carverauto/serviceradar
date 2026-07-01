@@ -41,6 +41,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
       |> assign(:severities, SecurityEvent.severities())
       |> assign(:kind_filter, nil)
       |> assign(:severity_filter, nil)
+      |> assign(:selected_event, nil)
       |> load_events()
 
     {:ok, socket}
@@ -61,6 +62,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
      |> assign(:kind_filter, nil)
      |> assign(:severity_filter, nil)
      |> load_events()}
+  end
+
+  def handle_event("show-event", %{"id" => id}, socket) do
+    event = Enum.find(socket.assigns.events, &(to_string(&1.id) == id))
+    {:noreply, assign(socket, :selected_event, event)}
+  end
+
+  def handle_event("close-event", _params, socket) do
+    {:noreply, assign(socket, :selected_event, nil)}
   end
 
   @impl true
@@ -168,7 +178,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
+    <Layouts.app flash={@flash} current_scope={@current_scope} current_path={@current_path}>
       <Shell.settings_chrome
         settings_ui={@settings_ui}
         current_path={@current_path}
@@ -178,6 +188,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
         breadcrumbs={@settings_breadcrumbs}
         nav_tree={@settings_nav_tree}
         palette={@settings_palette}
+        stats={@settings_stats}
         legacy_subnav={:none}
       >
         <header class="space-y-1">
@@ -226,8 +237,19 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
             </button>
           </form>
 
-          <div class="overflow-x-auto rounded-lg border border-base-200 bg-base-100">
-            <table class="min-w-full text-sm text-base-content">
+          <%!-- table-fixed + per-cell truncation keeps the whole table inside the
+                container with NO horizontal scroll even for long IPv6 addresses;
+                the full value is available on hover (title) and in the row modal. --%>
+          <div class="rounded-lg border border-base-200 bg-base-100">
+            <table class="w-full table-fixed text-sm text-base-content">
+              <colgroup>
+                <col class="w-[11rem]" />
+                <col class="w-[9rem]" />
+                <col class="w-[6rem]" />
+                <col />
+                <col />
+                <col />
+              </colgroup>
               <thead class="bg-base-200/70 text-base-content/70">
                 <tr>
                   <th class="px-4 py-2 text-left">When</th>
@@ -240,17 +262,30 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
               </thead>
               <tbody class="divide-y divide-base-200">
                 <%= for e <- @events do %>
-                  <tr class="hover:bg-base-200/40">
+                  <tr
+                    class="cursor-pointer hover:bg-base-200/50 focus:bg-base-200/60 focus:outline-none"
+                    tabindex="0"
+                    role="button"
+                    aria-label={"View audit event #{e.kind} at #{format_dt(e.occurred_at)}"}
+                    phx-click="show-event"
+                    phx-keydown="show-event"
+                    phx-key="Enter"
+                    phx-value-id={e.id}
+                  >
                     <td class="px-4 py-2 font-mono text-xs whitespace-nowrap">
-                      <.link navigate={~p"/settings/audit/events/#{e.id}"} class="link link-hover">
-                        {format_dt(e.occurred_at)}
-                      </.link>
+                      {format_dt(e.occurred_at)}
                     </td>
-                    <td class="px-4 py-2">{e.kind}</td>
+                    <td class="px-4 py-2 truncate" title={to_string(e.kind)}>{e.kind}</td>
                     <td class="px-4 py-2">{e.severity}</td>
-                    <td class="px-4 py-2 font-mono text-xs">{e.actor_id || "—"}</td>
-                    <td class="px-4 py-2 font-mono text-xs">{e.ip || "—"}</td>
-                    <td class="px-4 py-2 font-mono text-xs">{e.route || "—"}</td>
+                    <td class="px-4 py-2 font-mono text-xs truncate" title={e.actor_id || ""}>
+                      {e.actor_id || "—"}
+                    </td>
+                    <td class="px-4 py-2 font-mono text-xs truncate" title={e.ip || ""}>
+                      {e.ip || "—"}
+                    </td>
+                    <td class="px-4 py-2 font-mono text-xs truncate" title={e.route || ""}>
+                      {e.route || "—"}
+                    </td>
                   </tr>
                 <% end %>
                 <%= if Enum.empty?(@events) do %>
@@ -263,6 +298,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
               </tbody>
             </table>
           </div>
+
+          <.event_modal :if={@selected_event} event={@selected_event} />
         <% else %>
           <p class="text-sm text-error">
             You need <code>settings.audit.view</code> to see security events.
@@ -272,6 +309,105 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
     </Layouts.app>
     """
   end
+
+  # --- Row detail modal ------------------------------------------------------
+  # A keyboard-accessible detail modal for a single security event. Opened by a
+  # row click or Enter; closed by the X button, the Close action, a backdrop
+  # click, or the Escape key (phx-window-keydown). Shows every event field,
+  # including the full (untruncated) IP and route plus any details payload.
+  attr(:event, :map, required: true)
+
+  defp event_modal(assigns) do
+    ~H"""
+    <div
+      class="modal modal-open"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Audit event details"
+      phx-window-keydown="close-event"
+      phx-key="Escape"
+    >
+      <div class="modal-box max-w-2xl">
+        <div class="flex items-start justify-between gap-4">
+          <h2 class="text-lg font-semibold">Audit Event</h2>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm btn-circle"
+            phx-click="close-event"
+            aria-label="Close"
+          >
+            <.icon name="hero-x-mark" class="size-5" />
+          </button>
+        </div>
+
+        <dl class="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+          <div class="sm:col-span-2">
+            <dt class="text-xs uppercase text-base-content/50">When</dt>
+            <dd class="font-mono text-xs">{format_dt(@event.occurred_at)}</dd>
+          </div>
+          <div>
+            <dt class="text-xs uppercase text-base-content/50">Kind</dt>
+            <dd>{@event.kind}</dd>
+          </div>
+          <div>
+            <dt class="text-xs uppercase text-base-content/50">Severity</dt>
+            <dd>{@event.severity}</dd>
+          </div>
+          <div>
+            <dt class="text-xs uppercase text-base-content/50">Actor</dt>
+            <dd class="font-mono text-xs break-all">{@event.actor_id || "—"}</dd>
+          </div>
+          <div>
+            <dt class="text-xs uppercase text-base-content/50">IP</dt>
+            <dd class="font-mono text-xs break-all">{@event.ip || "—"}</dd>
+          </div>
+          <div class="sm:col-span-2">
+            <dt class="text-xs uppercase text-base-content/50">Route</dt>
+            <dd class="font-mono text-xs break-all">{@event.route || "—"}</dd>
+          </div>
+          <div :if={@event.correlation_id} class="sm:col-span-2">
+            <dt class="text-xs uppercase text-base-content/50">Correlation ID</dt>
+            <dd class="font-mono text-xs break-all">{@event.correlation_id}</dd>
+          </div>
+        </dl>
+
+        <div :if={has_details?(@event)} class="mt-4">
+          <h3 class="text-xs uppercase text-base-content/50">Details</h3>
+          <pre class="mt-1 max-h-64 overflow-auto rounded bg-base-200/60 p-3 text-xs leading-relaxed"><%= pretty_details(@event.details) %></pre>
+        </div>
+
+        <div class="modal-action">
+          <.link
+            navigate={~p"/settings/audit/events/#{@event.id}"}
+            class="btn btn-sm btn-ghost"
+          >
+            Open full page
+          </.link>
+          <button type="button" class="btn btn-sm" phx-click="close-event">Close</button>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="modal-backdrop"
+        phx-click="close-event"
+        aria-label="Close audit event details"
+      >
+        close
+      </button>
+    </div>
+    """
+  end
+
+  defp has_details?(%{details: details}) when is_map(details) and map_size(details) > 0, do: true
+  defp has_details?(_), do: false
+
+  defp pretty_details(details) when is_map(details) do
+    Jason.encode!(details, pretty: true)
+  rescue
+    _ -> inspect(details, pretty: true)
+  end
+
+  defp pretty_details(details), do: inspect(details, pretty: true)
 
   defp format_dt(nil), do: "—"
 

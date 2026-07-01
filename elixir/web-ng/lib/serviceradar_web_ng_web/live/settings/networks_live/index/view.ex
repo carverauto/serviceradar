@@ -26,6 +26,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
         breadcrumbs={@settings_breadcrumbs}
         nav_tree={@settings_nav_tree}
         palette={@settings_palette}
+        stats={@settings_stats}
       >
         <:legacy>
           <.settings_nav current_path={@current_path} current_scope={@current_scope} />
@@ -34,14 +35,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
 
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 class="text-2xl font-semibold text-base-content">Network Sweeps</h1>
+            <h1 class="text-2xl font-semibold text-base-content">{page_heading(@live_action)}</h1>
             <p class="text-sm text-base-content/60">
-              Configure network discovery sweeps and scanner profiles.
+              {page_subheading(@live_action)}
             </p>
           </div>
         </div>
 
-        <%= if @live_action in [:discovery, :new_mapper_job, :edit_mapper_job] do %>
+        <%= if discovery_action?(@live_action) do %>
           <Discovery.render
             jobs={@mapper_jobs}
             show_form={@show_mapper_form}
@@ -112,4 +113,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
     </Layouts.app>
     """
   end
+
+  # The discovery-jobs live_actions share this LiveView with the sweep-profile
+  # ones; give them a distinct H1/subtitle so `/settings/networks` (Sweep
+  # Profiles) and `/settings/networks/discovery` (Discovery Jobs) are not
+  # visually identical.
+  @discovery_actions [:discovery, :new_mapper_job, :edit_mapper_job]
+
+  defp discovery_action?(action), do: action in @discovery_actions
+
+  defp page_heading(action) when action in @discovery_actions, do: "Discovery Jobs"
+  defp page_heading(_action), do: "Network Sweeps"
+
+  defp page_subheading(action) when action in @discovery_actions,
+    do: "View active discovery jobs, mapper runs, and trigger frequencies."
+
+  defp page_subheading(_action), do: "Configure network discovery sweeps and scanner profiles."
 end

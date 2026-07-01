@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.AuthorizationSettings
   alias ServiceRadar.Identity.RBAC
+  alias ServiceRadarWebNGWeb.Settings.Shell
 
   on_mount {ServiceRadarWebNGWeb.UserAuth, :require_authenticated}
 
@@ -78,77 +79,90 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
       current_path={@current_path}
       page_title={@page_title}
     >
-      <div class="mx-auto w-full max-w-2xl p-6 space-y-6">
-        <header>
-          <h1 class="text-2xl font-semibold text-base-content">CLI authentication</h1>
-          <p class="text-sm text-base-content/70">
-            Controls the RFC 8628 device-code flow that powers <code class="font-mono">serviceradar-cli auth login</code>. Disabling the
-            flow does not revoke tokens already issued — use Settings → CLI sessions
-            to revoke individual sessions.
-          </p>
-        </header>
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path={@current_path}
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+        stats={@settings_stats}
+        legacy_subnav={:inline}
+      >
+        <div class="mx-auto w-full max-w-2xl p-6 space-y-6">
+          <header>
+            <h1 class="text-2xl font-semibold text-base-content">CLI authentication</h1>
+            <p class="text-sm text-base-content/70">
+              Controls the RFC 8628 device-code flow that powers <code class="font-mono">serviceradar-cli auth login</code>. Disabling the
+              flow does not revoke tokens already issued — use Settings → CLI sessions
+              to revoke individual sessions.
+            </p>
+          </header>
 
-        <form phx-submit="save" class="space-y-6">
-          <div class="form-control">
-            <label class="label cursor-pointer justify-start gap-3">
+          <form phx-submit="save" class="space-y-6">
+            <div class="form-control">
+              <label class="label cursor-pointer justify-start gap-3">
+                <input
+                  type="checkbox"
+                  name="settings[cli_auth_enabled]"
+                  value="true"
+                  checked={@form_values.cli_auth_enabled}
+                  class="toggle toggle-primary"
+                />
+                <span class="label-text">
+                  Allow new CLI device-code authorizations on this instance
+                </span>
+              </label>
+              <p class="text-xs text-base-content/60 mt-1">
+                When off, both <code class="font-mono">/api/v1/cli/auth/device</code>
+                and <code class="font-mono">/api/v1/cli/auth/token</code>
+                respond with 503 <code class="font-mono">cli_auth_disabled</code>; the
+                CLI falls back to manual-token paste.
+              </p>
+            </div>
+
+            <div class="form-control">
+              <label class="label">
+                <span class="label-text">Issued-token TTL (days)</span>
+              </label>
               <input
-                type="checkbox"
-                name="settings[cli_auth_enabled]"
-                value="true"
-                checked={@form_values.cli_auth_enabled}
-                class="toggle toggle-primary"
+                type="number"
+                name="settings[cli_session_ttl_days]"
+                value={@form_values.cli_session_ttl_days}
+                min="1"
+                max="365"
+                class="input input-bordered w-32"
               />
-              <span class="label-text">
-                Allow new CLI device-code authorizations on this instance
-              </span>
-            </label>
-            <p class="text-xs text-base-content/60 mt-1">
-              When off, both <code class="font-mono">/api/v1/cli/auth/device</code>
-              and <code class="font-mono">/api/v1/cli/auth/token</code>
-              respond with 503 <code class="font-mono">cli_auth_disabled</code>; the
-              CLI falls back to manual-token paste.
-            </p>
-          </div>
+              <p class="text-xs text-base-content/60 mt-1">
+                Default 30 days. Existing tokens keep their original TTL — only
+                freshly-issued sessions use the new value.
+              </p>
+            </div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Issued-token TTL (days)</span>
-            </label>
-            <input
-              type="number"
-              name="settings[cli_session_ttl_days]"
-              value={@form_values.cli_session_ttl_days}
-              min="1"
-              max="365"
-              class="input input-bordered w-32"
-            />
-            <p class="text-xs text-base-content/60 mt-1">
-              Default 30 days. Existing tokens keep their original TTL — only
-              freshly-issued sessions use the new value.
-            </p>
-          </div>
+            <div class="form-control">
+              <label class="label">
+                <span class="label-text">Allowed scopes</span>
+              </label>
+              <textarea
+                name="settings[cli_allowed_scopes]"
+                rows="3"
+                class="textarea textarea-bordered font-mono text-sm"
+                placeholder="dashboard.publish&#10;dashboard.import"
+              ><%= @form_values.cli_allowed_scopes %></textarea>
+              <p class="text-xs text-base-content/60 mt-1">
+                One scope per line (or whitespace/comma separated). Requests for
+                scopes outside the list are rejected with 400 <code class="font-mono">invalid_scope</code>.
+              </p>
+            </div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Allowed scopes</span>
-            </label>
-            <textarea
-              name="settings[cli_allowed_scopes]"
-              rows="3"
-              class="textarea textarea-bordered font-mono text-sm"
-              placeholder="dashboard.publish&#10;dashboard.import"
-            ><%= @form_values.cli_allowed_scopes %></textarea>
-            <p class="text-xs text-base-content/60 mt-1">
-              One scope per line (or whitespace/comma separated). Requests for
-              scopes outside the list are rejected with 400 <code class="font-mono">invalid_scope</code>.
-            </p>
-          </div>
-
-          <div class="flex justify-end">
-            <button type="submit" class="btn btn-primary">Save</button>
-          </div>
-        </form>
-      </div>
+            <div class="flex justify-end">
+              <button type="submit" class="btn btn-primary">Save</button>
+            </div>
+          </form>
+        </div>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end

@@ -94,12 +94,17 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
     test "resolves an exact route" do
       assert %{id: :audit_trail} = Catalog.view_for_path("/settings/audit/events")
       assert %{id: :lockouts} = Catalog.view_for_path("/settings/audit/lockouts")
-      assert %{id: :system_event_logs} = Catalog.view_for_path("/logs")
+      assert %{id: :snmp_profiles} = Catalog.view_for_path("/settings/snmp")
     end
 
     test "resolves a nested/child path to the owning view via prefix match" do
       assert %{id: :audit_trail} = Catalog.view_for_path("/settings/audit/events/abc-123")
-      assert %{id: :system_event_logs} = Catalog.view_for_path("/logs/xyz")
+      assert %{id: :snmp_profiles} = Catalog.view_for_path("/settings/snmp/v3")
+    end
+
+    test "the dropped System Event Logs view no longer resolves (/logs is not a settings view)" do
+      refute Catalog.view_for_path("/logs")
+      refute Catalog.view_for_path("/logs/xyz")
     end
 
     test "ignores a trailing slash and query string" do
@@ -139,70 +144,72 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
   end
 
   describe "breadcrumbs_for_path/1" do
-    test "returns Settings > Category > View for a known path" do
+    test "returns Settings > Category > View for a known path, all crumbs navigable" do
+      # "Settings" links to the default landing (first category's first view); the
+      # category crumb links to that category's first view; the view crumb to itself.
+      # Audit Trail now lives under the System category (Security parent-group).
       assert [
-               %{label: "Settings", route: nil},
-               %{label: "Audit & System Log", route: nil},
+               %{label: "Settings", route: settings_route},
+               %{label: "System", route: "/settings/cluster"},
                %{label: "Audit Trail", route: "/settings/audit/events"}
              ] = Catalog.breadcrumbs_for_path("/settings/audit/events")
+
+      assert settings_route == Catalog.settings_landing_route()
+      assert settings_route == "/settings/cluster"
+      assert is_binary(settings_route)
     end
 
-    test "returns just the root crumb for an unknown path" do
-      assert [%{label: "Settings", route: nil}] = Catalog.breadcrumbs_for_path("/nope")
+    test "the root crumb for an unknown path still links to the settings landing" do
+      assert [%{label: "Settings", route: route}] = Catalog.breadcrumbs_for_path("/nope")
+      assert route == Catalog.settings_landing_route()
     end
   end
 
   describe "scope-aware visibility" do
-    test "an auditor sees the audit views but not the logs-gated view" do
+    test "an auditor sees the audit views under System / Security" do
       scope = %Scope{permissions: MapSet.new(["settings.audit.view"])}
 
-      visible = Catalog.visible_views(scope, :audit_system_log)
+      visible = Catalog.visible_views(scope, :system)
       ids = Enum.map(visible, & &1.id)
 
       assert :audit_trail in ids
       assert :lockouts in ids
       assert :history in ids
-      refute :system_event_logs in ids
 
-      assert Enum.any?(Catalog.visible_categories(scope), &(&1.id == :audit_system_log))
+      # All three audit views sit in the Security parent-group.
+      for id <- [:audit_trail, :lockouts, :history] do
+        assert Catalog.view(id).parent_group == :sys_security
+      end
+
+      assert Enum.any?(Catalog.visible_categories(scope), &(&1.id == :system))
     end
 
-    test "a scope with the logs permission also sees System Event Logs" do
-      scope =
-        %Scope{permissions: MapSet.new(["settings.audit.view", "observability.logs.view"])}
-
-      ids = scope |> Catalog.visible_views(:audit_system_log) |> Enum.map(& &1.id)
-      assert :system_event_logs in ids
-    end
-
-    test "a scope with no permissions sees no gated category" do
+    test "a scope with no permissions sees no fully-gated category" do
       scope = %Scope{permissions: MapSet.new([])}
 
       category_ids = Enum.map(Catalog.visible_categories(scope), & &1.id)
 
-      # No gated category is visible with an empty scope.
-      refute :audit_system_log in category_ids
-      refute :core_cluster in category_ids
-      refute :discovery_sweeps in category_ids
-      refute :edge_ops in category_ids
+      # Network Services and Edge Ops have no ungated views, so an empty scope
+      # sees neither. (System stays visible via the ungated personal pages.)
       refute :network_services in category_ids
-      refute :mail_alerts in category_ids
+      refute :edge_ops in category_ids
 
-      assert Catalog.visible_views(scope, :audit_system_log) == []
+      assert Catalog.visible_views(scope, :network_services) == []
+      assert Catalog.visible_views(scope, :edge_ops) == []
     end
 
     test "an authenticated scope always sees ungated personal views (orphan rescue)" do
       # `API Credentials` (and `Profile`, though nav-hidden) are per-user pages
-      # with no permission gate, so Security & Auth is minimally visible even to a
-      # scope with no RBAC permissions.
+      # with no permission gate, so System is minimally visible even to a scope
+      # with no RBAC permissions.
       scope = %Scope{permissions: MapSet.new([])}
 
-      ids = scope |> Catalog.visible_views(:security_auth) |> Enum.map(& &1.id)
+      ids = scope |> Catalog.visible_views(:system) |> Enum.map(& &1.id)
       assert :api_credentials in ids
       refute :profile in ids, "profile is hidden_from_nav and must not appear in nav lists"
-      refute :auth_users in ids, "gated Security & Auth views stay hidden for an empty scope"
+      refute :auth_users in ids, "gated System views stay hidden for an empty scope"
 
-      assert Enum.any?(Catalog.visible_categories(scope), &(&1.id == :security_auth))
+      assert Enum.any?(Catalog.visible_categories(scope), &(&1.id == :system))
     end
 
     test "each category is reachable by some permission set" do
@@ -220,16 +227,21 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
       end
     end
 
-    test "a networks admin sees Discovery & Sweeps and Network Services" do
+    test "a networks admin sees Network Services (Discovery + Services groups)" do
       scope = %Scope{permissions: MapSet.new(["settings.networks.manage"])}
       category_ids = Enum.map(Catalog.visible_categories(scope), & &1.id)
 
-      assert :discovery_sweeps in category_ids
       assert :network_services in category_ids
 
-      discovery_ids = scope |> Catalog.visible_views(:discovery_sweeps) |> Enum.map(& &1.id)
-      assert :sweep_profiles in discovery_ids
-      refute :snmp_profiles in discovery_ids, "SNMP needs its own permission"
+      ids = scope |> Catalog.visible_views(:network_services) |> Enum.map(& &1.id)
+      assert :sweep_profiles in ids
+      assert :bmp in ids
+      refute :snmp_profiles in ids, "SNMP needs its own permission"
+
+      # The scoped nav tree exposes both parent-groups.
+      group_ids = scope |> Catalog.nav_tree(:network_services) |> Enum.map(& &1.group.id)
+      assert :net_discovery in group_ids
+      assert :net_services in group_ids
     end
 
     test "an edge admin sees Edge Ops views" do
@@ -241,12 +253,13 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
       refute :plugins in ids, "plugins needs plugins.view"
     end
 
-    test "a cluster viewer sees Core Cluster / Cluster Status" do
+    test "a cluster viewer sees System / Cluster Status" do
       scope = %Scope{permissions: MapSet.new(["settings.view"])}
-      ids = scope |> Catalog.visible_views(:core_cluster) |> Enum.map(& &1.id)
+      ids = scope |> Catalog.visible_views(:system) |> Enum.map(& &1.id)
 
       assert :cluster_status in ids
-      assert Enum.any?(Catalog.visible_categories(scope), &(&1.id == :core_cluster))
+      assert Catalog.view(:cluster_status).parent_group == :sys_cluster
+      assert Enum.any?(Catalog.visible_categories(scope), &(&1.id == :system))
     end
 
     test "palette_index/1 only includes permitted views and is well-shaped" do
@@ -255,8 +268,94 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
 
       assert Enum.all?(index, &Map.has_key?(&1, :route))
       assert Enum.all?(index, &Map.has_key?(&1, :view_title))
+      assert Enum.all?(index, &Map.has_key?(&1, :description))
       assert Enum.any?(index, &(&1.id == :audit_trail))
-      refute Enum.any?(index, &(&1.id == :system_event_logs))
+    end
+  end
+
+  describe "2-level tree model" do
+    test "there are exactly three categories: System, Network Services, Edge Ops" do
+      titles = Catalog.categories() |> Enum.sort_by(& &1.order) |> Enum.map(& &1.title)
+      assert titles == ["System", "Network Services", "Edge Ops"]
+    end
+
+    test "every view.parent_group exists and belongs to the same category" do
+      groups = Map.new(Catalog.parent_groups(), &{&1.id, &1})
+
+      for view <- Catalog.views() do
+        group = Map.get(groups, view.parent_group)
+
+        assert group,
+               "view #{inspect(view.id)} references unknown parent_group #{inspect(view.parent_group)}"
+
+        assert group.category == view.category,
+               "view #{inspect(view.id)} (category #{inspect(view.category)}) is filed under " <>
+                 "parent_group #{inspect(view.parent_group)} which belongs to #{inspect(group.category)}"
+      end
+    end
+
+    test "every parent_group.category exists in @categories" do
+      category_ids = MapSet.new(Catalog.categories(), & &1.id)
+
+      for group <- Catalog.parent_groups() do
+        assert MapSet.member?(category_ids, group.category),
+               "parent_group #{inspect(group.id)} references unknown category #{inspect(group.category)}"
+      end
+    end
+
+    test "every view carries a boolean has_own_stats and a non-empty description" do
+      for view <- Catalog.views() do
+        assert is_boolean(view.has_own_stats),
+               "view #{inspect(view.id)} has_own_stats must be boolean"
+
+        assert is_binary(view.description) and view.description != "",
+               "view #{inspect(view.id)} must have a non-empty description"
+      end
+    end
+
+    test "Cluster Status is the only view flagged has_own_stats (renders its own metrics)" do
+      own_stats = Catalog.views() |> Enum.filter(& &1.has_own_stats) |> Enum.map(& &1.id)
+      assert own_stats == [:cluster_status]
+    end
+
+    test "the dropped System Event Logs view is gone and no view routes to /logs" do
+      refute Enum.any?(Catalog.views(), &(&1.id == :system_event_logs))
+      refute Enum.any?(Catalog.views(), &(&1.route == "/logs"))
+    end
+
+    test "nav_tree/2 returns groups with subgroup-chunked sections" do
+      # An admin-ish scope that can see the whole Security parent-group.
+      scope =
+        %Scope{
+          permissions:
+            MapSet.new([
+              "settings.auth.manage",
+              "settings.audit.view",
+              "identity.user_groups.manage"
+            ])
+        }
+
+      tree = Catalog.nav_tree(scope, :system)
+      security = Enum.find(tree, &(&1.group.id == :sys_security))
+
+      assert security, "Security parent-group should be present"
+      subgroups = Enum.map(security.sections, & &1.subgroup)
+      assert "Users & Access" in subgroups
+
+      # Every section is a %{subgroup, views} shape with a contiguous view run.
+      for section <- security.sections do
+        assert Map.has_key?(section, :subgroup)
+        assert is_list(section.views) and section.views != []
+      end
+    end
+
+    test "siblings/2 returns the active view's parent-group peers" do
+      scope = %Scope{permissions: MapSet.new(["settings.audit.view"])}
+      sibling_ids = scope |> Catalog.siblings(Catalog.view(:audit_trail)) |> Enum.map(& &1.id)
+
+      assert :lockouts in sibling_ids
+      assert :history in sibling_ids
+      assert :audit_trail in sibling_ids
     end
   end
 

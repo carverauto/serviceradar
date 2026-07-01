@@ -493,6 +493,14 @@ defmodule ServiceRadarWebNGWeb.Layouts do
           String.starts_with?(current_path, "/events/") or
           String.starts_with?(current_path, "/alerts/")
 
+      # The Settings gear links to /settings/cluster but owns the whole Settings
+      # area (and the merged /admin/* + /users/settings routes), so it stays lit
+      # on every settings page, not just the cluster landing.
+      href == "/settings/cluster" ->
+        String.starts_with?(current_path, "/settings") or
+          String.starts_with?(current_path, "/admin") or
+          String.starts_with?(current_path, "/users/settings")
+
       true ->
         String.starts_with?(current_path, href)
     end

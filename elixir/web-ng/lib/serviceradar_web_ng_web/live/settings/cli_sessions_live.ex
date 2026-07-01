@@ -23,6 +23,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
   alias ServiceRadar.Identity.CliSession
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadarWebNG.Auth.CliSessions, as: CliSessionsContext
+  alias ServiceRadarWebNGWeb.Settings.Shell
 
   on_mount {ServiceRadarWebNGWeb.UserAuth, :require_authenticated}
 
@@ -92,78 +93,91 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
       current_path={@current_path}
       page_title={@page_title}
     >
-      <div class="mx-auto w-full max-w-5xl p-6 space-y-6">
-        <header>
-          <h1 class="text-2xl font-semibold text-base-content">CLI Sessions</h1>
-          <p class="text-sm text-base-content/70">
-            Each row is a long-lived bearer token issued to
-            <code class="font-mono">serviceradar-cli</code>
-            after you approved a device-code authorization. Revoking a row stops
-            the holder of that token from making any further API calls.
-          </p>
-        </header>
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path={@current_path}
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+        stats={@settings_stats}
+        legacy_subnav={:inline}
+      >
+        <div class="mx-auto w-full max-w-5xl p-6 space-y-6">
+          <header>
+            <h1 class="text-2xl font-semibold text-base-content">CLI Sessions</h1>
+            <p class="text-sm text-base-content/70">
+              Each row is a long-lived bearer token issued to
+              <code class="font-mono">serviceradar-cli</code>
+              after you approved a device-code authorization. Revoking a row stops
+              the holder of that token from making any further API calls.
+            </p>
+          </header>
 
-        <%= if Enum.empty?(@sessions) do %>
-          <div class="alert alert-info">
-            <span>
-              No active CLI sessions. Run
-              <code class="font-mono">serviceradar-cli auth login --instance &lt;url&gt;</code>
-              to create one.
-            </span>
-          </div>
-        <% else %>
-          <div class="overflow-x-auto">
-            <table class="table table-zebra">
-              <thead>
-                <tr>
-                  <%= if @show_user_column? do %>
-                    <th>User</th>
-                  <% end %>
-                  <th>Client</th>
-                  <th>Scope</th>
-                  <th>Issued</th>
-                  <th>Last used</th>
-                  <th>Expires</th>
-                  <th>Status</th>
-                  <th class="text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                <%= for session <- @sessions do %>
+          <%= if Enum.empty?(@sessions) do %>
+            <div class="alert alert-info">
+              <span>
+                No active CLI sessions. Run
+                <code class="font-mono">serviceradar-cli auth login --instance &lt;url&gt;</code>
+                to create one.
+              </span>
+            </div>
+          <% else %>
+            <div class="overflow-x-auto">
+              <table class="table table-zebra">
+                <thead>
                   <tr>
                     <%= if @show_user_column? do %>
-                      <td class="font-mono text-xs">{session.user_id}</td>
+                      <th>User</th>
                     <% end %>
-                    <td>{session.client_id}</td>
-                    <td class="font-mono text-xs">{session.scope}</td>
-                    <td>{format_timestamp(session.issued_at)}</td>
-                    <td>{format_timestamp(session.last_used_at)}</td>
-                    <td>{format_timestamp(session.expires_at)}</td>
-                    <td>
-                      <span class={status_badge_class(session.status)}>
-                        {Atom.to_string(session.status)}
-                      </span>
-                    </td>
-                    <td class="text-right">
-                      <%= if session.status == :active and can_revoke_session?(session, assigns) do %>
-                        <button
-                          type="button"
-                          phx-click="revoke"
-                          phx-value-jti={session.jti}
-                          data-confirm="Revoke this CLI session? Any open serviceradar-cli will receive 401s on its next API call."
-                          class="btn btn-sm btn-ghost text-error"
-                        >
-                          Revoke
-                        </button>
-                      <% end %>
-                    </td>
+                    <th>Client</th>
+                    <th>Scope</th>
+                    <th>Issued</th>
+                    <th>Last used</th>
+                    <th>Expires</th>
+                    <th>Status</th>
+                    <th class="text-right">Actions</th>
                   </tr>
-                <% end %>
-              </tbody>
-            </table>
-          </div>
-        <% end %>
-      </div>
+                </thead>
+                <tbody>
+                  <%= for session <- @sessions do %>
+                    <tr>
+                      <%= if @show_user_column? do %>
+                        <td class="font-mono text-xs">{session.user_id}</td>
+                      <% end %>
+                      <td>{session.client_id}</td>
+                      <td class="font-mono text-xs">{session.scope}</td>
+                      <td>{format_timestamp(session.issued_at)}</td>
+                      <td>{format_timestamp(session.last_used_at)}</td>
+                      <td>{format_timestamp(session.expires_at)}</td>
+                      <td>
+                        <span class={status_badge_class(session.status)}>
+                          {Atom.to_string(session.status)}
+                        </span>
+                      </td>
+                      <td class="text-right">
+                        <%= if session.status == :active and can_revoke_session?(session, assigns) do %>
+                          <button
+                            type="button"
+                            phx-click="revoke"
+                            phx-value-jti={session.jti}
+                            data-confirm="Revoke this CLI session? Any open serviceradar-cli will receive 401s on its next API call."
+                            class="btn btn-sm btn-ghost text-error"
+                          >
+                            Revoke
+                          </button>
+                        <% end %>
+                      </td>
+                    </tr>
+                  <% end %>
+                </tbody>
+              </table>
+            </div>
+          <% end %>
+        </div>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end

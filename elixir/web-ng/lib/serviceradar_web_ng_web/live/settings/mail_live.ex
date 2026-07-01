@@ -100,6 +100,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MailLive do
         breadcrumbs={@settings_breadcrumbs}
         nav_tree={@settings_nav_tree}
         palette={@settings_palette}
+        stats={@settings_stats}
       >
         <:legacy>
           <.settings_nav current_path={@current_path} current_scope={@current_scope} />
