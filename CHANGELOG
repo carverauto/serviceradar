@@ -1,3 +1,43 @@
+# ServiceRadar v1.4.0
+
+A ground-up Settings redesign on a declarative navigation catalog, camera credential auto-provisioning, and the v1.3.11 fix batch.
+
+## Whats New
+
+**1.4.0**
+- Rebuilt the entire Settings experience on a single declarative navigation
+  catalog that is now the sole source of truth for every settings surface — the
+  icon rail, the category topbar, the left view tree, the breadcrumbs, and a
+  Ctrl+K command palette all render from it, so adding a settings page is one
+  catalog entry and can no longer break the navigation. The information
+  architecture collapses to three top-level categories (System, Network
+  Services, Edge Ops) with a two-level collapsible tree; the active page is
+  resolved by deterministic longest-prefix URI matching rather than hand-typed
+  path checks; every page carries contextual status cards wired to the same live
+  sources the pages themselves use (and suppressed on pages that render their own
+  metrics); the command palette auto-focuses its search box and lists every view
+  with a description; the Audit trail truncates long IPv6 addresses and opens a
+  keyboard-accessible event detail modal; and the shell is responsive down to
+  mobile. With the catalog complete and verified, the transitional "Original UI"
+  toggle and the entire legacy settings chrome have been removed — the catalog is
+  now the only Settings UI.
+- Generalized the Proxmox-only credential-to-plugin materializer to a
+  provider-registry model so camera providers (UniFi Protect, Axis) have their
+  host injected from an SRQL-targeted credential rule instead of failing with
+  "host is required"; the camera WASM plugins now read the per-target host from
+  the plugin-inputs envelope, and stream plugins fall back to the relay source
+  URL.
+- Fixed a cluster of operational issues: the OIDC callback now passes the
+  resolved user (not the raw claims map) to the login step so SSO sign-in
+  completes; rolled-out agents are no longer mislabeled "already at the desired
+  version"; the favorited interface-metrics query no longer breaks on a semicolon
+  inside a SQL comment; add-on profile SRQL assignment targets agents rather than
+  devices; the Advanced Manual Assignment Override stays open across field
+  changes; the ScaLibr endpoint-inventory add-on ships sensible no-touch defaults
+  and no longer demands a per-agent id for cohort or profile assignment; and a
+  netprobe sidecar health race (marking the sidecar healthy only after flipping
+  status to Running) is fixed.
+
 # ServiceRadar v1.3.10
 
 v1.3.9 release-blocker fixes: database migration-version collision, SSO never-auto-provision, and CI signing idempotency.
