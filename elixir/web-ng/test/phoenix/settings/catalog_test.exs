@@ -139,16 +139,22 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
   end
 
   describe "breadcrumbs_for_path/1" do
-    test "returns Settings > Category > View for a known path" do
+    test "returns Settings > Category > View for a known path, all crumbs navigable" do
+      # "Settings" links to the default landing (first category's first view); the
+      # category crumb links to that category's first view; the view crumb to itself.
       assert [
-               %{label: "Settings", route: nil},
-               %{label: "Audit & System Log", route: nil},
+               %{label: "Settings", route: settings_route},
+               %{label: "Audit & System Log", route: "/settings/audit/events"},
                %{label: "Audit Trail", route: "/settings/audit/events"}
              ] = Catalog.breadcrumbs_for_path("/settings/audit/events")
+
+      assert settings_route == Catalog.settings_landing_route()
+      assert is_binary(settings_route)
     end
 
-    test "returns just the root crumb for an unknown path" do
-      assert [%{label: "Settings", route: nil}] = Catalog.breadcrumbs_for_path("/nope")
+    test "the root crumb for an unknown path still links to the settings landing" do
+      assert [%{label: "Settings", route: route}] = Catalog.breadcrumbs_for_path("/nope")
+      assert route == Catalog.settings_landing_route()
     end
   end
 

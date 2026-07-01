@@ -107,12 +107,19 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
     assert html =~ "data-command-palette-open"
     assert html =~ "Press Ctrl+K to jump anywhere"
 
-    # Topbar "Portal State" indicator.
-    assert html =~ "Portal State: Connected"
+    # The "Portal State" indicator was removed to give the tabs room for full labels.
+    refute html =~ "Portal State"
+
+    # Mobile off-canvas drawer: a peer checkbox + hamburger/backdrop toggle labels.
+    assert html =~ ~s(id="settings-nav-drawer")
+    assert html =~ "Open settings navigation"
 
     # Left panel "Search views…" filter input + its hook.
     assert html =~ "SettingsViewFilter"
     assert html =~ "Search views"
+
+    # Leaf view-list items must NOT render an expand chevron (misleading affordance).
+    refute html =~ "hero-chevron-right"
 
     # Status-card strip is present and degrades to em dashes with empty stats.
     assert html =~ "Cluster health"
@@ -124,8 +131,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
     assert html =~ "Settings &amp; Deep Sections"
     assert html =~ "Browse stateless security events and audit entries."
 
-    # The final breadcrumb is a "Navigate Views" sibling jumper.
+    # The final breadcrumb is a "Navigate Views" sibling jumper (keeps its ▾ dropdown).
     assert html =~ "Navigate Views"
+    assert html =~ "hero-chevron-down"
 
     # No leftover second icon rail: the shell must not render `.sr-ops-sidebar`.
     refute html =~ "sr-ops-sidebar"

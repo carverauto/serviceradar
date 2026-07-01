@@ -155,23 +155,61 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
         </button>
       </div>
 
-      <div class="flex items-center gap-3 border-b border-base-200 px-3 py-2 overflow-hidden">
+      <div class="border-b border-base-200 px-3 py-2">
         <.category_switcher categories={@categories} active_category={@active_category} />
-        <.portal_state />
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-[16rem_1fr] flex-1 min-h-0">
-        <aside class="border-b md:border-b-0 md:border-r border-base-200 bg-base-200/30">
+      <div class="relative flex-1 min-h-0 md:grid md:grid-cols-[16rem_1fr]">
+        <%!-- Mobile off-canvas drawer state: a CSS-only peer checkbox toggled by the
+              hamburger/backdrop labels. On md+ the aside is a static grid column. --%>
+        <input type="checkbox" id="settings-nav-drawer" class="peer hidden" aria-hidden="true" />
+
+        <label
+          for="settings-nav-drawer"
+          class="hidden peer-checked:max-md:block fixed inset-0 z-40 bg-black/40"
+          aria-label="Close settings navigation"
+        >
+        </label>
+
+        <aside class={[
+          "hidden peer-checked:block md:block",
+          "max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:z-50 max-md:w-72",
+          "max-md:overflow-y-auto max-md:shadow-xl max-md:bg-base-100",
+          "border-b md:border-b-0 md:border-r border-base-200 bg-base-200/30"
+        ]}>
+          <div class="flex items-center justify-between px-3 pt-2 md:hidden">
+            <span class="text-sm font-semibold">
+              {@active_category && @active_category.title}
+            </span>
+            <label
+              for="settings-nav-drawer"
+              class="btn btn-ghost btn-xs btn-circle"
+              aria-label="Close navigation"
+            >
+              <.icon name="hero-x-mark" class="size-4" />
+            </label>
+          </div>
+
           <.view_list views={@views} active_view={@active_view} active_category={@active_category} />
         </aside>
 
         <section class="min-w-0 flex flex-col">
-          <div class="flex items-center justify-between gap-3 border-b border-base-200 px-4 py-2">
-            <.breadcrumbs_bar
-              breadcrumbs={@breadcrumbs}
-              views={@views}
-              active_view={@active_view}
-            />
+          <div class="flex items-center gap-2 border-b border-base-200 px-3 py-2 md:px-4">
+            <label
+              for="settings-nav-drawer"
+              class="btn btn-ghost btn-sm btn-square md:hidden"
+              aria-label="Open settings navigation"
+              title="Settings menu"
+            >
+              <.icon name="hero-bars-3" class="size-5" />
+            </label>
+            <div class="min-w-0 flex-1 overflow-x-auto">
+              <.breadcrumbs_bar
+                breadcrumbs={@breadcrumbs}
+                views={@views}
+                active_view={@active_view}
+              />
+            </div>
             <.ui_toggle current_path={@current_path} mode={:catalog} />
           </div>
 
@@ -188,9 +226,11 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
     """
   end
 
-  # --- Full-width topbar category switcher (fits on one line, no scroll) ------
-  # Each tab is `flex-1`, so the seven categories share the full width evenly and
-  # never overflow into a horizontal scroller.
+  # --- Topbar category switcher ----------------------------------------------
+  # On md+ the seven categories share the full row width evenly (`flex-1`) and
+  # show their full labels with no horizontal scroll. On narrow/mobile viewports
+  # they size to content and scroll horizontally with snap points instead of
+  # cramming into unreadable slivers.
   attr(:categories, :list, default: [])
   attr(:active_category, :map, default: nil)
 
@@ -198,17 +238,18 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
     ~H"""
     <div
       role="tablist"
-      class="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-hidden"
+      class="flex items-center gap-1 overflow-x-auto md:overflow-hidden snap-x scroll-smooth"
       aria-label="Settings categories"
     >
       <.link
         :for={category <- @categories}
         role="tab"
-        navigate={category_landing_route(category)}
+        navigate={Catalog.category_landing_route(category)}
         aria-selected={active_category?(@active_category, category)}
         title={category.title}
         class={[
-          "flex flex-1 min-w-0 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-sm",
+          "flex flex-none md:flex-1 min-w-0 snap-start items-center justify-center gap-1.5",
+          "whitespace-nowrap rounded-md px-3 md:px-2 py-1.5 text-sm",
           if(active_category?(@active_category, category),
             do: "bg-base-300 text-accent border border-base-300 shadow-sm font-bold",
             else: "text-base-content/70 hover:bg-base-200"
@@ -223,18 +264,6 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
       </.link>
       <span :if={@categories == []} class="text-sm text-base-content/50">
         No settings categories available
-      </span>
-    </div>
-    """
-  end
-
-  # --- "Portal State" indicator (far right of the topbar) --------------------
-  defp portal_state(assigns) do
-    ~H"""
-    <div class="flex shrink-0 items-center gap-2 whitespace-nowrap pl-2 pr-1">
-      <span class="inline-block size-2 animate-pulse rounded-full bg-success"></span>
-      <span class="font-mono text-[11px] uppercase tracking-wide text-base-content/60">
-        Portal State: Connected
       </span>
     </div>
     """
@@ -276,13 +305,14 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
           >
             <.icon name={view.icon} class="size-4 shrink-0" />
             <span class="truncate">{view.title}</span>
-            <span :if={view.badge} class="badge badge-sm badge-primary">{view.badge}</span>
+            <span :if={view.badge} class="badge badge-sm badge-primary ml-auto">{view.badge}</span>
+            <%!-- Only leaf-less views get an expand chevron. Every catalog view is
+                  currently a leaf, so this renders for none of them; it stays
+                  conditional so a future view with sub-items shows one. --%>
             <.icon
+              :if={view_has_children?(view)}
               name="hero-chevron-right"
-              class={[
-                "size-4 shrink-0 ml-auto transition-transform",
-                active_view?(@active_view, view) && "rotate-90 text-accent"
-              ]}
+              class="size-4 shrink-0 ml-auto"
             />
           </.link>
         </li>
@@ -367,8 +397,8 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
 
   defp status_strip(assigns) do
     ~H"""
-    <div class="px-4 pt-3">
-      <div class="stats stats-horizontal w-full overflow-x-auto border border-base-200 bg-base-100 shadow-sm">
+    <div class="px-3 pt-3 md:px-4">
+      <div class="stats stats-vertical sm:stats-horizontal w-full overflow-x-auto border border-base-200 bg-base-100 shadow-sm">
         <div class="stat py-2">
           <div class="stat-title text-xs">Cluster health</div>
           <div class="stat-value text-lg">{stat_value(@stats, :cluster_health)}</div>
@@ -411,6 +441,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
               class="grow"
               data-command-palette-input
               autocomplete="off"
+              autofocus
             />
             <button type="button" class="btn btn-ghost btn-xs btn-circle" data-command-palette-close>
               <.icon name="hero-x-mark" class="size-4" />
@@ -424,7 +455,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
         </div>
 
         <ul
-          class="menu menu-vertical flex-nowrap w-full max-h-96 overflow-y-auto p-2"
+          class="menu menu-vertical flex-nowrap w-full max-h-[min(24rem,60vh)] overflow-y-auto p-2"
           data-command-palette-list
         >
           <li
@@ -521,12 +552,9 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
   defp active_view?(%{id: id}, %{id: id}), do: true
   defp active_view?(_, _), do: false
 
-  defp category_landing_route(category) do
-    case Catalog.views_for_category(category.id) do
-      [%{route: route} | _] -> route
-      _ -> "/settings/audit/events"
-    end
-  end
+  # Catalog views are currently all leaves; this stays conditional so a future
+  # view carrying `:children` renders an expand chevron and childless ones never do.
+  defp view_has_children?(view), do: Map.get(view, :children, []) not in [nil, []]
 
   defp stat_value(stats, key) do
     case Map.get(stats, key) do

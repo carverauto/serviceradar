@@ -1071,7 +1071,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
   """
   @spec breadcrumbs_for_path(String.t() | nil) :: [%{label: String.t(), route: String.t() | nil}]
   def breadcrumbs_for_path(path) do
-    root = %{label: "Settings", route: nil}
+    root = %{label: "Settings", route: settings_landing_route()}
 
     case view_for_path(path) do
       nil ->
@@ -1082,9 +1082,35 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
 
         [
           root,
-          %{label: category_title(category), route: nil},
+          %{label: category_title(category), route: category_landing_route(category)},
           %{label: view.title, route: view.route}
         ]
+    end
+  end
+
+  @doc """
+  The default Settings landing route: the first category's first view. Lets the
+  "Settings" breadcrumb crumb be a real navigable link.
+  """
+  @spec settings_landing_route() :: String.t()
+  def settings_landing_route do
+    case Enum.sort_by(@categories, & &1.order) do
+      [%{id: id} | _] -> category_landing_route(id)
+      _ -> "/settings/cluster"
+    end
+  end
+
+  @doc """
+  The landing route for a category: its first view by `:order`. Used by the topbar
+  category switcher and the category breadcrumb crumb.
+  """
+  @spec category_landing_route(atom() | map()) :: String.t()
+  def category_landing_route(%{id: id}), do: category_landing_route(id)
+
+  def category_landing_route(category_id) when is_atom(category_id) do
+    case views_for_category(category_id) do
+      [%{route: route} | _] -> route
+      _ -> "/settings/cluster"
     end
   end
 

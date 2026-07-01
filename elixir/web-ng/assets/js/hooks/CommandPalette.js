@@ -68,11 +68,22 @@ export default {
     } else {
       this.el.setAttribute("open", "open")
     }
-    if (this.input) {
-      this.input.value = ""
-      this.input.focus()
-    }
     this._filter()
+    // Auto-focus the search box so the user can type immediately (whether opened
+    // via Ctrl/Cmd+K or the header trigger). `showModal()` moves focus to the
+    // dialog, so we re-assert focus on the input after it settles (next frame and
+    // a macrotask) and select any residual text. Re-query fresh to avoid a stale
+    // node reference after LiveView re-renders.
+    const focusInput = () => {
+      const input = this.el.querySelector("[data-command-palette-input]")
+      if (input) {
+        input.focus()
+        input.select()
+      }
+    }
+    focusInput()
+    requestAnimationFrame(focusInput)
+    setTimeout(focusInput, 0)
   },
 
   _restoreFocus() {
