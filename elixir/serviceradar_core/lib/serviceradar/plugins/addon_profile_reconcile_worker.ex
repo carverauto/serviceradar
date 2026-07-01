@@ -2,8 +2,8 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcileWorker do
   @moduledoc """
   Periodic Oban worker that reconciles all enabled add-on profiles so
   profile -> assignment materialization happens automatically. Operators should
-  not have to click "Reconcile" for a profile's SRQL target (e.g. `in:devices`)
-  to materialize add-on assignments onto the matching agent-bearing devices.
+  not have to click "Reconcile" for a profile's SRQL target (e.g. `in:agents`)
+  to materialize add-on assignments onto the matching enrolled agents.
   """
 
   use Oban.Worker,

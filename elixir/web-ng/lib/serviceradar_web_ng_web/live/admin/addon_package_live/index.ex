@@ -811,7 +811,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                   <div>
                     <div class="text-sm font-semibold">Profile assignment</div>
                     <p class="text-xs text-base-content/60">
-                      Target devices with SRQL, then reconcile to materialize eligible agent assignments.
+                      Target agents with SRQL (e.g. <span class="font-mono">in:agents</span>), then reconcile to materialize eligible agent assignments.
                     </p>
                   </div>
                 </div>
@@ -918,7 +918,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                       name="profile[target_query]"
                       class="input input-bordered w-full font-mono text-xs"
                       value={@profile_form["target_query"]}
-                      placeholder="in:devices hostname:%ns% include_inactive:true"
+                      placeholder="in:agents"
                     />
                   </div>
                   <details class="rounded border border-base-200 bg-base-200/30">
