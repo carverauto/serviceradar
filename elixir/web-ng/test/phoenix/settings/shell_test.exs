@@ -149,6 +149,50 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
     refute html =~ "sr-ops-sidebar"
   end
 
+  test "the active view's parent-group is force-open and flagged for the deep-link reveal" do
+    # A broad scope so more than one System parent-group renders, letting us
+    # assert the active group differs from an inactive sibling.
+    scope = %Scope{permissions: MapSet.new(["settings.audit.view", "settings.view"])}
+    view = Catalog.view_for_path("/settings/audit/events")
+    category = Catalog.category_for_view(view)
+
+    assigns = %{
+      scope: scope,
+      view: view,
+      category: category,
+      breadcrumbs: Catalog.breadcrumbs_for_path("/settings/audit/events"),
+      nav_tree: %{
+        categories: Catalog.visible_categories(scope),
+        groups: Catalog.nav_tree(scope, category.id)
+      },
+      stats: StatusCards.for_view(view)
+    }
+
+    html =
+      rendered_to_string(~H"""
+      <Shell.settings_shell
+        current_path="/settings/audit/events"
+        current_scope={@scope}
+        active_view={@view}
+        active_category={@category}
+        breadcrumbs={@breadcrumbs}
+        nav_tree={@nav_tree}
+        palette={[]}
+        stats={@stats}
+      >
+        <p>audit body</p>
+      </Shell.settings_shell>
+      """)
+
+    # Audit Trail lives under System → Security: that group renders `open` AND
+    # carries `data-active-group` so a deep-link expands it to reveal the leaf.
+    assert html =~ ~r/data-group-id="sys_security"[^>]*data-active-group[^>]*open/
+    # A visible but inactive sibling group (Cluster, via settings.view) is neither
+    # flagged nor force-open.
+    assert html =~ ~s(data-group-id="sys_cluster")
+    refute html =~ ~r/data-group-id="sys_cluster"[^>]*data-active-group/
+  end
+
   test "status strip is suppressed on a has_own_stats page (Cluster Status)" do
     # Cluster Status renders its own Oban metrics, so `for_view/1` returns
     # :suppressed and the shared strip must not render.

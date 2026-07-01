@@ -279,7 +279,10 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
   # native `<details>` so it collapses with no JS; the `SettingsNavTree` hook adds
   # localStorage persistence and search-aware expansion. Only parent-group headers
   # carry a chevron (they have children); leaf views never do. The active group is
-  # expanded by default and the active leaf gets a blue highlighted box.
+  # rendered `open` AND flagged `data-active-group` so a deep-link always reveals
+  # the active leaf (the hook keeps it open even over a stale persisted collapse),
+  # while every other group restores its persisted state. The active leaf gets a
+  # blue highlighted box.
   attr(:groups, :list, default: [])
   attr(:active_view, :map, default: nil)
 
@@ -309,6 +312,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
         :for={%{group: group, sections: sections} <- @groups}
         data-nav-group
         data-group-id={group.id}
+        data-active-group={active_group?(group, @active_view)}
         open={active_group?(group, @active_view)}
         class="group/nav rounded-lg"
       >
@@ -573,7 +577,8 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
   defp active_view?(%{id: id}, %{id: id}), do: true
   defp active_view?(_, _), do: false
 
-  # A parent-group is expanded by default when it owns the active view.
+  # A parent-group is the active one when it owns the active view. Used both to
+  # render `open` by default and to flag `data-active-group` for the nav hook.
   defp active_group?(%{id: group_id}, %{parent_group: group_id}), do: true
   defp active_group?(_, _), do: false
 

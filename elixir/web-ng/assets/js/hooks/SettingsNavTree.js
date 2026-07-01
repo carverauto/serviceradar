@@ -50,6 +50,15 @@ export default {
   },
 
   _restore(g) {
+    // The active group (server-flagged via `data-active-group`) always opens so a
+    // deep-link reveals the active leaf, even over a stale persisted "closed".
+    // Every other group restores its persisted open/closed state, falling back to
+    // the server-rendered default when there is none.
+    if (g.hasAttribute("data-active-group")) {
+      g.open = true
+      return
+    }
+
     let saved = null
     try {
       saved = localStorage.getItem(this._key(g))
@@ -58,7 +67,7 @@ export default {
     }
     if (saved === "open") g.open = true
     else if (saved === "closed") g.open = false
-    // else: leave the server-rendered default (active group open).
+    // else: leave the server-rendered default.
   },
 
   _save(g) {
