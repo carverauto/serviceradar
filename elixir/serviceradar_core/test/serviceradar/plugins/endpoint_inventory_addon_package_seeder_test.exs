@@ -148,6 +148,20 @@ defmodule ServiceRadar.Plugins.EndpointInventoryAddonPackageSeederTest do
     assert package.artifacts == %{}
     assert package.capabilities == ["endpoint-inventory", "software-sbom", "scanner:v1"]
     assert package.config_schema["title"] == "ScaLibr Endpoint Software Inventory Configuration"
+
+    # No-touch cohort/profile contract: agent_id is runtime-injected by the agent
+    # (from its own identity via the runtime profile file), so it must be hidden from
+    # the config form and never a required assignment param. The remaining required
+    # fields all ship sensible defaults, so a cohort assignment needs zero manual config.
+    schema = package.config_schema
+    refute "agent_id" in Map.get(schema, "required", [])
+    assert schema["properties"]["agent_id"]["x-serviceradar-ui-hidden"] == true
+    refute Map.has_key?(schema["properties"]["agent_id"], "default")
+    assert schema["properties"]["enabled"]["default"] == true
+    assert schema["properties"]["scan_roots"]["default"] == ["/"]
+    assert schema["properties"]["scalibr_plugins"]["default"] == ["os/dpkg", "os/rpm", "os/apk"]
+    assert schema["properties"]["cadence"]["default"] == "24h"
+    assert schema["properties"]["scan_timeout"]["default"] == "5m"
   end
 
   defp read_package(version, actor) do
