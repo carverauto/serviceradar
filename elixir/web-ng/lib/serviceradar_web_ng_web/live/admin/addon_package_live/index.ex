@@ -976,7 +976,11 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                 </form>
               </div>
 
-              <details class="rounded-xl border border-base-200 p-4">
+              <details
+                id="advanced-manual-assignment-override"
+                phx-hook="DetailsState"
+                class="rounded-xl border border-base-200 p-4"
+              >
                 <summary class="cursor-pointer">
                   <div class="inline-flex flex-col gap-1 align-middle">
                     <span class="text-sm font-semibold">Advanced Manual Assignment Override</span>
