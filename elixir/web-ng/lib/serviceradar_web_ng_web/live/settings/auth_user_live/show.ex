@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Identity.UserAuthEvent
   alias ServiceRadarWebNG.AdminApi
+  alias ServiceRadarWebNGWeb.Settings.Shell
   alias ServiceRadarWebNGWeb.SettingsComponents
 
   @event_page_limit 50
@@ -273,9 +274,19 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <SettingsComponents.settings_shell current_path="/settings/auth/users">
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path="/settings/auth/users"
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+        legacy_subnav={:inline}
+      >
         <div class="space-y-6">
-          <div class="space-y-2">
+          <div :if={@settings_ui == :original} class="space-y-2">
             <SettingsComponents.settings_nav
               current_path="/settings/auth/users"
               current_scope={@current_scope}
@@ -285,7 +296,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
               current_scope={@current_scope}
             />
           </div>
-
           <div class="flex flex-wrap items-start justify-between gap-4">
             <div class="space-y-1">
               <div class="flex items-center gap-2">
@@ -515,7 +525,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
             <button phx-click="close_password_modal" type="button">close</button>
           </div>
         </div>
-      </SettingsComponents.settings_shell>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end

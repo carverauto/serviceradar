@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MailLive do
   alias ServiceRadar.Integrations.OutboundMailSettings
   alias ServiceRadar.OutboundMail
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Settings.Shell
 
   require Ash.Query
 
@@ -90,8 +91,19 @@ defmodule ServiceRadarWebNGWeb.Settings.MailLive do
       current_path={@current_path}
       shell={:operations}
     >
-      <.settings_shell current_path={@current_path}>
-        <.settings_nav current_path={@current_path} current_scope={@current_scope} />
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path={@current_path}
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+      >
+        <:legacy>
+          <.settings_nav current_path={@current_path} current_scope={@current_scope} />
+        </:legacy>
 
         <section class="space-y-2">
           <p class="text-sm font-medium text-primary">Settings</p>
@@ -202,7 +214,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MailLive do
             </div>
           </aside>
         </section>
-      </.settings_shell>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end

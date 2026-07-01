@@ -565,7 +565,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     pipe_through([:browser, :require_authenticated_user])
 
     live_session :admin,
-      on_mount: [{ServiceRadarWebNGWeb.UserAuth, :require_authenticated}] do
+      on_mount: [{ServiceRadarWebNGWeb.UserAuth, :require_authenticated}, ShellHook] do
       live("/jobs", Admin.JobLive.Index, :index)
       live("/jobs/:id", Admin.JobLive.Show, :show)
       live("/edge-packages", Admin.EdgePackageLive.Index, :index)

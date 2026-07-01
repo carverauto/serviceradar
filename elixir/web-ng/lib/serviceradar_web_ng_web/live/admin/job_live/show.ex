@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
   import ServiceRadarWebNGWeb.SettingsComponents
 
   alias ServiceRadarWebNG.Jobs.JobCatalog
+  alias ServiceRadarWebNGWeb.Settings.Shell
 
   @refresh_intervals [
     {5, "5s"},
@@ -150,8 +151,19 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <.settings_shell current_path="/admin/jobs">
-        <.settings_nav current_path="/admin/jobs" current_scope={@current_scope} />
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path="/admin/jobs"
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+      >
+        <:legacy>
+          <.settings_nav current_path="/admin/jobs" current_scope={@current_scope} />
+        </:legacy>
 
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div class="flex items-center gap-3">
@@ -433,7 +445,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
             </.ui_panel>
           </div>
         </div>
-      </.settings_shell>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end

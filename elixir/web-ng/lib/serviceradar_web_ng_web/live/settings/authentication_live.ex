@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
   alias ServiceRadar.Identity.AuthSettings
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
   alias ServiceRadarWebNGWeb.Auth.OutboundURLPolicy
+  alias ServiceRadarWebNGWeb.Settings.Shell
   alias ServiceRadarWebNGWeb.SettingsComponents
 
   require Logger
@@ -64,17 +65,28 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <SettingsComponents.settings_shell current_path="/settings/authentication">
-        <div class="space-y-4">
-          <SettingsComponents.settings_nav
-            current_path="/settings/authentication"
-            current_scope={@current_scope}
-          />
-          <SettingsComponents.auth_nav
-            current_path="/settings/authentication"
-            current_scope={@current_scope}
-          />
-        </div>
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path="/settings/authentication"
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+      >
+        <:legacy>
+          <div class="space-y-4">
+            <SettingsComponents.settings_nav
+              current_path="/settings/authentication"
+              current_scope={@current_scope}
+            />
+            <SettingsComponents.auth_nav
+              current_path="/settings/authentication"
+              current_scope={@current_scope}
+            />
+          </div>
+        </:legacy>
 
         <div>
           <h1 class="text-2xl font-semibold text-base-content">Authentication Settings</h1>
@@ -336,7 +348,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             </div>
           </.form>
         <% end %>
-      </SettingsComponents.settings_shell>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end

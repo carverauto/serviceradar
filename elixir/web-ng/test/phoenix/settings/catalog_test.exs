@@ -116,6 +116,26 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
       refute Catalog.view_for_path("/nope")
       refute Catalog.view_for_path(nil)
     end
+
+    test "shared /settings/networks root resolves via longest prefix" do
+      # Sweep Profiles owns /settings/networks; BGP / BMP owns the longer child.
+      assert %{id: :sweep_profiles} = Catalog.view_for_path("/settings/networks")
+      assert %{id: :bmp} = Catalog.view_for_path("/settings/networks/bmp")
+      assert %{id: :integrations} = Catalog.view_for_path("/settings/networks/integrations/new")
+      assert %{id: :discovery_jobs} = Catalog.view_for_path("/settings/networks/discovery")
+    end
+
+    test "legacy /admin/* duplicate routes resolve to their canonical catalog view" do
+      assert %{id: :cluster_status} = Catalog.view_for_path("/admin/cluster")
+      assert %{id: :plugins} = Catalog.view_for_path("/admin/plugins")
+      assert %{id: :addons} = Catalog.view_for_path("/admin/addons")
+      assert %{id: :agent_deploy} = Catalog.view_for_path("/admin/edge-packages")
+    end
+
+    test "the add-on fleet child wins over the add-ons parent prefix" do
+      assert %{id: :addons} = Catalog.view_for_path("/settings/agents/addons")
+      assert %{id: :addon_fleet} = Catalog.view_for_path("/settings/agents/addons/fleet")
+    end
   end
 
   describe "breadcrumbs_for_path/1" do
@@ -155,10 +175,78 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
       assert :system_event_logs in ids
     end
 
-    test "a scope with no permissions sees no categories" do
+    test "a scope with no permissions sees no gated category" do
       scope = %Scope{permissions: MapSet.new([])}
-      assert Catalog.visible_categories(scope) == []
+
+      category_ids = Enum.map(Catalog.visible_categories(scope), & &1.id)
+
+      # No gated category is visible with an empty scope.
+      refute :audit_system_log in category_ids
+      refute :core_cluster in category_ids
+      refute :discovery_sweeps in category_ids
+      refute :edge_ops in category_ids
+      refute :network_services in category_ids
+      refute :mail_alerts in category_ids
+
       assert Catalog.visible_views(scope, :audit_system_log) == []
+    end
+
+    test "an authenticated scope always sees ungated personal views (orphan rescue)" do
+      # `API Credentials` (and `Profile`, though nav-hidden) are per-user pages
+      # with no permission gate, so Security & Auth is minimally visible even to a
+      # scope with no RBAC permissions.
+      scope = %Scope{permissions: MapSet.new([])}
+
+      ids = scope |> Catalog.visible_views(:security_auth) |> Enum.map(& &1.id)
+      assert :api_credentials in ids
+      refute :profile in ids, "profile is hidden_from_nav and must not appear in nav lists"
+      refute :auth_users in ids, "gated Security & Auth views stay hidden for an empty scope"
+
+      assert Enum.any?(Catalog.visible_categories(scope), &(&1.id == :security_auth))
+    end
+
+    test "each category is reachable by some permission set" do
+      # Every category must own at least one view, and a scope holding that view's
+      # permission must make the category visible. Guards against an empty category.
+      for category <- Catalog.categories() do
+        views = Catalog.views_for_category(category.id)
+        assert views != [], "category #{inspect(category.id)} has no views"
+
+        permission = Enum.find_value(views, & &1.permission)
+        scope = %Scope{permissions: MapSet.new(List.wrap(permission))}
+
+        assert Enum.any?(Catalog.visible_categories(scope), &(&1.id == category.id)),
+               "category #{inspect(category.id)} is not visible to any single-permission scope"
+      end
+    end
+
+    test "a networks admin sees Discovery & Sweeps and Network Services" do
+      scope = %Scope{permissions: MapSet.new(["settings.networks.manage"])}
+      category_ids = Enum.map(Catalog.visible_categories(scope), & &1.id)
+
+      assert :discovery_sweeps in category_ids
+      assert :network_services in category_ids
+
+      discovery_ids = scope |> Catalog.visible_views(:discovery_sweeps) |> Enum.map(& &1.id)
+      assert :sweep_profiles in discovery_ids
+      refute :snmp_profiles in discovery_ids, "SNMP needs its own permission"
+    end
+
+    test "an edge admin sees Edge Ops views" do
+      scope = %Scope{permissions: MapSet.new(["settings.edge.manage"])}
+      ids = scope |> Catalog.visible_views(:edge_ops) |> Enum.map(& &1.id)
+
+      assert :agent_releases in ids
+      assert :agent_deploy in ids
+      refute :plugins in ids, "plugins needs plugins.view"
+    end
+
+    test "a cluster viewer sees Core Cluster / Cluster Status" do
+      scope = %Scope{permissions: MapSet.new(["settings.view"])}
+      ids = scope |> Catalog.visible_views(:core_cluster) |> Enum.map(& &1.id)
+
+      assert :cluster_status in ids
+      assert Enum.any?(Catalog.visible_categories(scope), &(&1.id == :core_cluster))
     end
 
     test "palette_index/1 only includes permitted views and is well-shaped" do

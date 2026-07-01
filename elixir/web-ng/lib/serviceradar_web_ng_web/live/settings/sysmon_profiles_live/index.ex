@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.SysmonProfiles.SysmonProfile
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Settings.Shell
   alias ServiceRadarWebNGWeb.SRQL.Catalog
 
   @impl true
@@ -346,9 +347,20 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <.settings_shell current_path="/settings/sysmon">
-        <.settings_nav current_path="/settings/sysmon" current_scope={@current_scope} />
-        <.edge_nav current_path="/settings/sysmon" current_scope={@current_scope} />
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path="/settings/sysmon"
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+      >
+        <:legacy>
+          <.settings_nav current_path="/settings/sysmon" current_scope={@current_scope} />
+          <.edge_nav current_path="/settings/sysmon" current_scope={@current_scope} />
+        </:legacy>
 
         <div class="space-y-4">
           <!-- Content based on form state -->
@@ -370,7 +382,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
         
     <!-- JSON Preview Modal -->
         <.json_preview_modal :if={@json_preview && @show_form == nil} json_preview={@json_preview} />
-      </.settings_shell>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end

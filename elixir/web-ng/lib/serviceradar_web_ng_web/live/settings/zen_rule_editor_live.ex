@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
 
   alias ServiceRadar.Observability.ZenRule
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Settings.Shell
 
   require Ash.Query
 
@@ -232,8 +233,19 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <.settings_shell current_path="/settings/rules">
-        <.settings_nav current_path="/settings/rules" current_scope={@current_scope} />
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path="/settings/rules"
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+      >
+        <:legacy>
+          <.settings_nav current_path="/settings/rules" current_scope={@current_scope} />
+        </:legacy>
 
         <div class="flex items-center justify-between">
           <div>
@@ -360,7 +372,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
             </.ui_panel>
           </div>
         </.form>
-      </.settings_shell>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end

@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.SRQLInputResolver
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Settings.Shell
 
   require Ash.Query
 
@@ -168,11 +169,22 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <.settings_shell current_path={@current_path}>
-        <div class="space-y-4">
-          <.settings_nav current_path={@current_path} current_scope={@current_scope} />
-          <.network_nav current_path={@current_path} current_scope={@current_scope} />
-        </div>
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path={@current_path}
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+      >
+        <:legacy>
+          <div class="space-y-4">
+            <.settings_nav current_path={@current_path} current_scope={@current_scope} />
+            <.network_nav current_path={@current_path} current_scope={@current_scope} />
+          </div>
+        </:legacy>
 
         <section class="space-y-4">
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -318,7 +330,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
         <.rule_preview_modal :if={@rule_preview} rule_preview={@rule_preview} />
         <.secret_form_modal :if={@secret_form} form={@secret_form} tls_policies={@tls_policies} />
-      </.settings_shell>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end

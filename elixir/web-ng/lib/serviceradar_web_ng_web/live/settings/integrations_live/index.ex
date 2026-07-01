@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   alias ServiceRadar.Integrations.IntegrationUpdateRun
   alias ServiceRadar.Integrations.MapboxSettings
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Settings.Shell
 
   @impl true
   def mount(_params, _session, socket) do
@@ -635,9 +636,23 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       current_path="/settings/networks/integrations"
       page_title={@page_title}
     >
-      <.settings_shell current_path="/settings/networks/integrations">
-        <.settings_nav current_path="/settings/networks/integrations" current_scope={@current_scope} />
-        <.network_nav current_path="/settings/networks/integrations" current_scope={@current_scope} />
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path="/settings/networks/integrations"
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+      >
+        <:legacy>
+          <.settings_nav
+            current_path="/settings/networks/integrations"
+            current_scope={@current_scope}
+          />
+          <.network_nav current_path="/settings/networks/integrations" current_scope={@current_scope} />
+        </:legacy>
 
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -945,7 +960,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             <div class="text-sm text-base-content/60">Mapbox settings are unavailable.</div>
           <% end %>
         </.ui_panel>
-      </.settings_shell>
+      </Shell.settings_chrome>
 
       <.create_modal
         :if={@show_create_modal}

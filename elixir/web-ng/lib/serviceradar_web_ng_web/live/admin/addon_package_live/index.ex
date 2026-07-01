@@ -22,6 +22,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   alias ServiceRadarWebNG.Plugins.AddonProfiles
   alias ServiceRadarWebNG.Plugins.NativeAddonImporter
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Settings.Shell
 
   require Ash.Query
 
@@ -402,16 +403,27 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <.settings_shell current_path={@current_path || @addons_base_path}>
-        <.settings_nav
-          current_path={@current_path || @addons_base_path}
-          current_scope={@current_scope}
-        />
-        <.edge_nav
-          current_path={@current_path || @addons_base_path}
-          class="mt-2"
-          current_scope={@current_scope}
-        />
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path={@current_path || @addons_base_path}
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+      >
+        <:legacy>
+          <.settings_nav
+            current_path={@current_path || @addons_base_path}
+            current_scope={@current_scope}
+          />
+          <.edge_nav
+            current_path={@current_path || @addons_base_path}
+            class="mt-2"
+            current_scope={@current_scope}
+          />
+        </:legacy>
 
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -1177,7 +1189,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
             </div>
           </div>
         <% end %>
-      </.settings_shell>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end

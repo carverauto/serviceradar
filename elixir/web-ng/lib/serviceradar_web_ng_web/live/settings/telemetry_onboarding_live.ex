@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
   import ServiceRadarWebNGWeb.SettingsComponents
 
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Settings.Shell
 
   @poll_interval_ms 10_000
 
@@ -137,9 +138,20 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
       current_path={@current_path}
       shell={:operations}
     >
-      <.settings_shell current_path={@current_path}>
-        <.settings_nav current_path={@current_path} current_scope={@current_scope} />
-        <.edge_nav current_path={@current_path} current_scope={@current_scope} class="mt-2" />
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path={@current_path}
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+      >
+        <:legacy>
+          <.settings_nav current_path={@current_path} current_scope={@current_scope} />
+          <.edge_nav current_path={@current_path} current_scope={@current_scope} class="mt-2" />
+        </:legacy>
 
         <section class="space-y-2">
           <p class="text-sm font-medium text-primary">Edge Ops</p>
@@ -400,7 +412,7 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
             </div>
           </div>
         </section>
-      </.settings_shell>
+      </Shell.settings_chrome>
 
       <script :type={Phoenix.LiveView.ColocatedHook} name=".CopyText">
         export default {
