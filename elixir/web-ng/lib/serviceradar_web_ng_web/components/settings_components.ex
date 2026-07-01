@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   alias ServiceRadarWebNG.Capabilities
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.FeatureFlags
+  alias ServiceRadarWebNGWeb.Settings.Catalog
 
   attr(:current_path, :string, required: true)
   attr(:class, :any, default: nil)
@@ -42,6 +43,12 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
     """
   end
 
+  # Adapter (OpenSpec redesign-settings-catalog-nav, task 1.6): the top-level
+  # tab bar is unchanged in appearance, but every tab now sources its route from
+  # the single `Settings.Catalog` source of truth (`Catalog.route/1`) instead of
+  # a duplicated `~p"..."` literal, so the legacy chrome and the new catalog
+  # shell can never disagree on a route. Active-state and multi-permission
+  # visibility logic stay legacy here and are removed at the visual cutover.
   def settings_tabs(current_path, current_scope \\ nil) do
     path = current_path || ""
 
@@ -67,7 +74,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   defp audit_tab(path, current_scope) do
     %{
       label: "Audit",
-      navigate: ~p"/settings/audit/events",
+      navigate: Catalog.route(:audit_trail),
       active: String.starts_with?(path, "/settings/audit"),
       show: RBAC.can?(current_scope, "settings.audit.view")
     }
@@ -76,7 +83,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   defp ansible_tab(path, current_scope) do
     %{
       label: "Ansible",
-      navigate: ~p"/settings/ansible",
+      navigate: Catalog.route(:ansible),
       active: String.starts_with?(path, "/settings/ansible"),
       show: can_ansible_tab?(current_scope)
     }
@@ -91,7 +98,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   defp cluster_tab(path, current_scope) do
     %{
       label: "Cluster",
-      navigate: ~p"/settings/cluster",
+      navigate: Catalog.route(:cluster_status),
       active:
         String.starts_with?(path, "/settings/cluster") or
           String.starts_with?(path, "/admin/cluster"),
@@ -102,7 +109,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   defp network_tab(path, current_scope) do
     %{
       label: "Network",
-      navigate: ~p"/settings/flows",
+      navigate: Catalog.route(:network_flows),
       active: network_active?(path),
       show: can_networks_tab?(current_scope)
     }
@@ -111,7 +118,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   defp mail_tab(path, current_scope) do
     %{
       label: "Mail",
-      navigate: ~p"/settings/mail",
+      navigate: Catalog.route(:mail),
       active: String.starts_with?(path, "/settings/mail"),
       show: RBAC.can?(current_scope, "settings.mail.manage")
     }
@@ -120,7 +127,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   defp security_tab(path, current_scope) do
     %{
       label: "Security",
-      navigate: ~p"/settings/security/vulnerability-feeds",
+      navigate: Catalog.route(:vulnerability_feeds),
       active: String.starts_with?(path, "/settings/security"),
       show: RBAC.can?(current_scope, "settings.integrations.manage")
     }
@@ -129,7 +136,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   defp discovery_tab(path, current_scope) do
     %{
       label: "Discovery",
-      navigate: ~p"/settings/networks",
+      navigate: Catalog.route(:sweep_profiles),
       active: discovery_active?(path),
       show: can_discovery_tab?(current_scope)
     }
@@ -174,7 +181,9 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   end
 
   defp events_tab_href(current_scope) do
-    if can_rules_tab?(current_scope), do: ~p"/settings/rules", else: ~p"/settings/anomaly-detection"
+    if can_rules_tab?(current_scope),
+      do: Catalog.route(:rules),
+      else: Catalog.route(:anomaly_detection)
   end
 
   defp events_active?(path) do
@@ -185,7 +194,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   defp dashboards_tab(path, current_scope) do
     %{
       label: "Dashboards",
-      navigate: ~p"/settings/dashboards/packages",
+      navigate: Catalog.route(:dashboard_packages),
       active: String.starts_with?(path, "/settings/dashboards"),
       show: RBAC.can?(current_scope, "plugins.view")
     }
@@ -209,10 +218,10 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
 
   defp edge_ops_tab_href(current_scope) do
     cond do
-      RBAC.can?(current_scope, "settings.edge.manage") -> ~p"/settings/agents/releases"
-      RBAC.can?(current_scope, "settings.sysmon_profiles.manage") -> ~p"/settings/sysmon"
-      RBAC.can?(current_scope, "plugins.view") -> ~p"/settings/agents/plugins"
-      true -> ~p"/admin/edge-sites"
+      RBAC.can?(current_scope, "settings.edge.manage") -> Catalog.route(:agent_releases)
+      RBAC.can?(current_scope, "settings.sysmon_profiles.manage") -> Catalog.route(:host_health)
+      RBAC.can?(current_scope, "plugins.view") -> Catalog.route(:plugins)
+      true -> Catalog.route(:edge_sites)
     end
   end
 
@@ -223,7 +232,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   defp jobs_tab(path, current_scope) do
     %{
       label: "Jobs",
-      navigate: ~p"/admin/jobs",
+      navigate: Catalog.route(:jobs),
       active: String.starts_with?(path, "/admin/jobs"),
       show: RBAC.can?(current_scope, "settings.jobs.manage")
     }
@@ -232,7 +241,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   defp auth_tab(path, current_scope) do
     %{
       label: "Auth",
-      navigate: ~p"/settings/auth/users",
+      navigate: Catalog.route(:auth_users),
       active:
         String.starts_with?(path, "/settings/authentication") or
           String.starts_with?(path, "/settings/auth/"),

@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadarWebNG.RBAC, as: WebRBAC
+  alias ServiceRadarWebNGWeb.Settings.Shell
   alias ServiceRadarWebNGWeb.SettingsComponents
 
   require Ash.Query
@@ -394,9 +395,19 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <SettingsComponents.settings_shell current_path="/settings/auth/rbac">
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path="/settings/auth/rbac"
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+        legacy_subnav={:inline}
+      >
         <div class="space-y-4">
-          <div class="space-y-2">
+          <div :if={@settings_ui == :original} class="space-y-2">
             <SettingsComponents.settings_nav
               current_path="/settings/auth/rbac"
               current_scope={@current_scope}
@@ -406,7 +417,6 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
               current_scope={@current_scope}
             />
           </div>
-
           <div class="flex flex-wrap items-start justify-between gap-4">
             <div class="space-y-1">
               <div class="badge badge-outline">Policy Editor</div>
@@ -484,7 +494,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
         <.new_profile_modal :if={@show_new_profile_modal} form={@new_profile_form} />
         <.delete_profile_modal :if={@confirm_delete_profile} profile={@confirm_delete_profile} />
-      </SettingsComponents.settings_shell>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end

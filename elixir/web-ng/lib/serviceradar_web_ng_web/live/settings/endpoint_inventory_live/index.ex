@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.Settings.EndpointInventoryLive.Index do
   alias ServiceRadar.Inventory.EndpointInventorySettings
   alias ServiceRadar.Inventory.EndpointInventorySettingsRuntime
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Settings.Shell
 
   @path "/settings/agents/endpoint-inventory"
 
@@ -81,11 +82,22 @@ defmodule ServiceRadarWebNGWeb.Settings.EndpointInventoryLive.Index do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <.settings_shell current_path={@current_path}>
-        <div class="space-y-4">
-          <.settings_nav current_path={@current_path} current_scope={@current_scope} />
-          <.edge_nav current_path={@current_path} current_scope={@current_scope} />
-        </div>
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path={@current_path}
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+      >
+        <:legacy>
+          <div class="space-y-4">
+            <.settings_nav current_path={@current_path} current_scope={@current_scope} />
+            <.edge_nav current_path={@current_path} current_scope={@current_scope} />
+          </div>
+        </:legacy>
 
         <section class="space-y-4 max-w-2xl">
           <div>
@@ -116,7 +128,7 @@ defmodule ServiceRadarWebNGWeb.Settings.EndpointInventoryLive.Index do
             </.form>
           </div>
         </section>
-      </.settings_shell>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end

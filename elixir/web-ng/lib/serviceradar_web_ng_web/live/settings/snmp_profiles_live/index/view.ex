@@ -10,12 +10,25 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View do
   import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrowserModal
   import ServiceRadarWebNGWeb.SettingsComponents
 
+  alias ServiceRadarWebNGWeb.Settings.Shell
+
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <.settings_shell current_path="/settings/snmp">
-        <.settings_nav current_path="/settings/snmp" current_scope={@current_scope} />
-        <.network_nav current_path="/settings/snmp" current_scope={@current_scope} />
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path="/settings/snmp"
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+      >
+        <:legacy>
+          <.settings_nav current_path="/settings/snmp" current_scope={@current_scope} />
+          <.network_nav current_path="/settings/snmp" current_scope={@current_scope} />
+        </:legacy>
 
         <div class="space-y-4">
           <!-- Content based on form state -->
@@ -68,7 +81,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View do
           oids={@custom_template_oids}
           editing={@editing_custom_template}
         />
-      </.settings_shell>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end

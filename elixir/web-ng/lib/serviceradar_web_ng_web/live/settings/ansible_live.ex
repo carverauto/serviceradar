@@ -29,6 +29,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   alias ServiceRadar.Automation.Ansible.ScheduleEvaluatorWorker
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Settings.Shell
   alias ServiceRadarWebNGWeb.SettingsComponents
 
   require Ash.Query
@@ -316,8 +317,22 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <SettingsComponents.settings_shell current_path={@current_path}>
-        <SettingsComponents.settings_nav current_path={@current_path} current_scope={@current_scope} />
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path={@current_path}
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+      >
+        <:legacy>
+          <SettingsComponents.settings_nav
+            current_path={@current_path}
+            current_scope={@current_scope}
+          />
+        </:legacy>
 
         <header class="space-y-1">
           <h1 class="text-2xl font-semibold">Ansible</h1>
@@ -373,7 +388,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
         <section :if={@active_tab == :retention} class="space-y-4">
           <.retention_panel config={@retention_config} />
         </section>
-      </SettingsComponents.settings_shell>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end

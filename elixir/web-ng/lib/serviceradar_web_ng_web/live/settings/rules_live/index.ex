@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
   alias ServiceRadar.Observability.ZenRule
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Components.PromotionRuleBuilder
+  alias ServiceRadarWebNGWeb.Settings.Shell
 
   @impl true
   def mount(_params, _session, socket) do
@@ -335,8 +336,19 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <.settings_shell current_path="/settings/rules">
-        <.settings_nav current_path="/settings/rules" current_scope={@current_scope} />
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path="/settings/rules"
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+      >
+        <:legacy>
+          <.settings_nav current_path="/settings/rules" current_scope={@current_scope} />
+        </:legacy>
 
         <div>
           <h1 class="text-2xl font-semibold text-base-content">Events</h1>
@@ -684,7 +696,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
             </div>
           </.ui_panel>
         </div>
-      </.settings_shell>
+      </Shell.settings_chrome>
 
       <div
         :if={@show_stateful_rule_editor}

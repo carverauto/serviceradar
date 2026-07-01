@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Index do
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.Inventory.VisibilityProfile
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Settings.Shell
 
   @current_path "/settings/networks/visibility-profiles"
   @read_permission "visibility_profiles:read"
@@ -302,9 +303,20 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Index do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <.settings_shell current_path={@current_path}>
-        <.settings_nav current_path={@current_path} current_scope={@current_scope} />
-        <.discovery_nav current_path={@current_path} current_scope={@current_scope} />
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path={@current_path}
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+      >
+        <:legacy>
+          <.settings_nav current_path={@current_path} current_scope={@current_scope} />
+          <.discovery_nav current_path={@current_path} current_scope={@current_scope} />
+        </:legacy>
 
         <%= if @show_form in [:new_profile, :edit_profile] do %>
           <.profile_form
@@ -322,7 +334,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Index do
         <% end %>
 
         <.json_preview_modal :if={@json_preview && @show_form == nil} json_preview={@json_preview} />
-      </.settings_shell>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end

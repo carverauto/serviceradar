@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadarWebNG.Edge.ReleaseSourceImporter
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Settings.Shell
 
   require Ash.Query
 
@@ -585,9 +586,20 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <.settings_shell current_path={@current_path}>
-        <.settings_nav current_path={@current_path} current_scope={@current_scope} />
-        <.agents_nav current_path={@current_path} current_scope={@current_scope} />
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path={@current_path}
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+      >
+        <:legacy>
+          <.settings_nav current_path={@current_path} current_scope={@current_scope} />
+          <.agents_nav current_path={@current_path} current_scope={@current_scope} />
+        </:legacy>
 
         <div class="space-y-6">
           <div class="flex flex-wrap items-center justify-between gap-4">
@@ -1232,7 +1244,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
             targets={Map.get(@rollout_targets, selected_rollout.id, [])}
           />
         <% end %>
-      </.settings_shell>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end

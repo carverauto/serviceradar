@@ -41,7 +41,19 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
 
   attr(:legacy_subnav, :atom,
     default: :none,
-    doc: "Which legacy sub-nav to render under :original chrome (:audit | :none)."
+    doc:
+      "Which built-in legacy sub-nav to render under :original chrome: " <>
+        "`:audit` renders `settings_nav` + `audit_nav`; `:none` renders `settings_nav`; " <>
+        "`:inline` renders NO nav here because the page's `inner_block` carries its own " <>
+        "legacy nav guarded by `:if={@settings_ui == :original}` (used where the nav is " <>
+        "nested inside a shared wrapper with the body and cannot be split into `:legacy`)."
+  )
+
+  slot(:legacy,
+    doc:
+      "The page's exact legacy nav markup (`settings_nav` + its category sub-nav), " <>
+        "rendered verbatim only under :original. Preferred over `legacy_subnav` so a " <>
+        "migrated page keeps a byte-identical legacy chrome."
   )
 
   slot(:inner_block, required: true)
@@ -63,15 +75,21 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
       </.settings_shell>
     <% else %>
       <SettingsComponents.settings_shell current_path={@current_path}>
-        <SettingsComponents.settings_nav
-          current_path={@current_path}
-          current_scope={@current_scope}
-        />
-        <SettingsComponents.audit_nav
-          :if={@legacy_subnav == :audit}
-          current_path={@current_path}
-          current_scope={@current_scope}
-        />
+        <%= cond do %>
+          <% @legacy != [] -> %>
+            {render_slot(@legacy)}
+          <% @legacy_subnav == :inline -> %>
+          <% true -> %>
+            <SettingsComponents.settings_nav
+              current_path={@current_path}
+              current_scope={@current_scope}
+            />
+            <SettingsComponents.audit_nav
+              :if={@legacy_subnav == :audit}
+              current_path={@current_path}
+              current_scope={@current_scope}
+            />
+        <% end %>
         {render_slot(@inner_block)}
       </SettingsComponents.settings_shell>
     <% end %>

@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNG.RemoteAccessDesktopTargets
   alias ServiceRadarWebNGWeb.FeatureFlags
+  alias ServiceRadarWebNGWeb.Settings.Shell
 
   require Ash.Query
 
@@ -137,11 +138,22 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <.settings_shell current_path={@current_path}>
-        <div class="space-y-4">
-          <.settings_nav current_path={@current_path} current_scope={@current_scope} />
-          <.network_nav current_path={@current_path} current_scope={@current_scope} />
-        </div>
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path={@current_path}
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+      >
+        <:legacy>
+          <div class="space-y-4">
+            <.settings_nav current_path={@current_path} current_scope={@current_scope} />
+            <.network_nav current_path={@current_path} current_scope={@current_scope} />
+          </div>
+        </:legacy>
 
         <section class="space-y-4">
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -278,7 +290,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
           gateway_options={@gateway_options}
           credential_rule_options={@credential_rule_options}
         />
-      </.settings_shell>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end

@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
   alias ServiceRadar.Events.AuditWriter
   alias ServiceRadar.Inventory.DeviceEnrichmentRules
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Settings.Shell
 
   require Logger
 
@@ -550,9 +551,20 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <.settings_shell current_path={@current_path}>
-        <.settings_nav current_path={@current_path} current_scope={@current_scope} />
-        <.network_nav current_path={@current_path} current_scope={@current_scope} />
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path={@current_path}
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+      >
+        <:legacy>
+          <.settings_nav current_path={@current_path} current_scope={@current_scope} />
+          <.network_nav current_path={@current_path} current_scope={@current_scope} />
+        </:legacy>
 
         <div class="space-y-2">
           <h1 class="text-2xl font-semibold">Device Enrichment Rules</h1>
@@ -1014,7 +1026,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
             <button type="button" phx-click="keep_editing_rule">close</button>
           </form>
         </div>
-      </.settings_shell>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end
