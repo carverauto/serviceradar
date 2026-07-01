@@ -11,21 +11,11 @@ import (
 )
 
 func loadConfig() (Config, error) {
-	cfg := Config{
-		CameraPluginConfig: sdk.CameraPluginConfig{
-			Scheme:          "https",
-			DiscoverStreams: true,
-			CollectEvents:   false,
-			EventSources:    "updates",
-			Timeout:         "10s",
-		},
-		BootstrapPath: "/proxy/protect/api/bootstrap",
-		LoginPath:     "/api/auth/login",
-		RTSPPort:      7447,
+	raw, err := loadRawConfigBytes()
+	if err != nil {
+		return defaultConfig(), err
 	}
-
-	err := sdk.LoadConfig(&cfg)
-	return cfg, err
+	return decodeConfig(raw)
 }
 
 func (c Config) normalizedBootstrapPath() string {

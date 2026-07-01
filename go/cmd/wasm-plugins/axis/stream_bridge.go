@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"strings"
 	"time"
 
 	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
@@ -42,21 +44,39 @@ func closeAxisMedia(stream *sdk.CameraMediaStream, reason string) error {
 }
 
 func loadStreamConfig() (StreamConfig, error) {
-	type rawConfig struct {
-		sdk.CameraStreamingConfig
-		EventTopicFilters string `json:"event_topic_filters"`
+	raw, err := loadRawConfigBytes()
+	if err != nil {
+		return StreamConfig{Config: defaultConfig()}, err
+	}
+	return decodeStreamConfig(raw)
+}
+
+// decodeStreamConfig parses the streaming config (flat or plugin_inputs
+// envelope), then injects the camera host from the relay source URL when no host
+// was supplied inline or via the per-target envelope.
+func decodeStreamConfig(raw []byte) (StreamConfig, error) {
+	cfg, err := decodeConfig(raw)
+	stream := StreamConfig{Config: cfg}
+	if err != nil {
+		return stream, err
 	}
 
-	cfg := rawConfig{CameraStreamingConfig: sdk.DefaultCameraStreamingConfig()}
-	err := sdk.LoadConfig(&cfg)
+	if len(strings.TrimSpace(string(raw))) > 0 {
+		var relayHolder struct {
+			Relay RelayConfig `json:"relay"`
+		}
+		if unmarshalErr := json.Unmarshal(raw, &relayHolder); unmarshalErr == nil {
+			stream.Relay = relayHolder.Relay
+		}
+	}
 
-	return StreamConfig{
-		Config: Config{
-			CameraPluginConfig: cfg.CameraPluginConfig,
-			EventTopicFilters:  cfg.EventTopicFilters,
-		},
-		Relay: cfg.Relay,
-	}, err
+	if strings.TrimSpace(stream.Host) == "" {
+		if host := hostFromRelaySourceURL(stream.Relay.SourceURL); host != "" {
+			stream.Host = host
+		}
+	}
+
+	return stream, nil
 }
 
 func buildAxisStreamSourceURL(cfg StreamConfig) string {
@@ -64,5 +84,5 @@ func buildAxisStreamSourceURL(cfg StreamConfig) string {
 		return cfg.Relay.SourceURL
 	}
 
-	return buildRTSPURL(cfg.Host, nil)
+	return buildRTSPURL(axisRTSPHost(cfg.Config), nil)
 }
