@@ -3,12 +3,26 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
   Declarative catalog of the web-ng Settings navigation.
 
   This module is the single source of truth for the Settings information
-  architecture. It is modeled on `ServiceRadar.Identity.RBAC.Catalog`: two
-  literal data structures (`@categories` and a flat `@views`) plus pure derived
-  accessors. Every Settings navigation surface — the icon rail, the topbar
-  category switcher, the left view list, the breadcrumbs, and the Ctrl+K command
-  palette — renders entirely from this catalog, so adding a page is one map entry
-  with zero layout risk.
+  architecture. It is modeled on `ServiceRadar.Identity.RBAC.Catalog`: literal
+  data structures (`@categories`, `@parent_groups`, and a flat `@views`) plus
+  pure derived accessors. Every Settings navigation surface — the icon rail, the
+  topbar category switcher, the left view tree, the breadcrumbs, and the Ctrl+K
+  command palette — renders entirely from this catalog, so adding a page is one
+  map entry with zero layout risk.
+
+  ## Information architecture (2-level tree)
+
+  There are exactly **three** top-level categories — `System`,
+  `Network Services`, and `Edge Ops` — shown as the topbar tabs. Under each
+  category the left panel renders a **two-level tree**:
+
+      category → collapsible parent-group → leaf view
+
+  A view names its owning category (`:category`) and its `:parent_group`. Within
+  a parent-group, views may additionally carry a `:subgroup` string that renders
+  as a non-collapsible labelled run (e.g. Security → *Users & Access* /
+  *Credentials*, Discovery → *Profiles*). The only collapsible level is the
+  parent-group.
 
   ## Why here (web-ng) and not in serviceradar_core
 
@@ -30,14 +44,14 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
   `/settings/networks/bmp` (BGP / BMP) coexist because the longest matching
   prefix always wins.
 
-  ## Phased population
+  ## Contextual status cards
 
-  Phase 1 populated the full `@categories` set (7 target categories) plus the
-  `Audit & System Log` pilot category's `@views`. Phase 2 populates the `@views`
-  for the remaining six categories (Core Cluster, Discovery & Sweeps, Edge Ops,
-  Network Services, Mail & Alerts, Security & Auth). Categories with no
-  permitted, enabled child views are still hidden from the switcher, so a
-  category renders only when a scope can see at least one of its views.
+  Each view carries a `:has_own_stats` boolean. When it is `true` (e.g. the
+  Cluster Status page, which renders its own Oban queue metrics) the shell
+  suppresses the shared status-card strip entirely. Otherwise the strip is
+  contextual: `ServiceRadarWebNGWeb.Settings.StatusCards.for_view/1` resolves a
+  card set from the view → parent-group → category, and each metric independently
+  degrades to `"—"`.
   """
 
   alias ServiceRadarWebNG.Capabilities
@@ -55,10 +69,21 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
           feature_flag: atom() | nil
         }
 
-  @typedoc "A settings view (left-list entry + deep-linkable page)."
+  @typedoc "A collapsible parent-group inside a category (the middle tree level)."
+  @type parent_group :: %{
+          id: atom(),
+          category: atom(),
+          title: String.t(),
+          icon: String.t(),
+          order: non_neg_integer()
+        }
+
+  @typedoc "A settings view (left-tree leaf + deep-linkable page)."
   @type view :: %{
           id: atom(),
           category: atom(),
+          parent_group: atom(),
+          subgroup: String.t() | nil,
           title: String.t(),
           description: String.t(),
           icon: String.t(),
@@ -66,6 +91,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
           live_view: module(),
           permission: String.t() | nil,
           order: non_neg_integer(),
+          has_own_stats: boolean(),
           feature_flag: atom() | nil,
           capability: atom() | nil,
           match_prefixes: [String.t()] | nil,
@@ -75,12 +101,12 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
         }
 
   # ---------------------------------------------------------------------------
-  # Categories (topbar switcher order). Seven target categories from the mockups.
+  # Categories (topbar switcher order). Exactly three.
   # ---------------------------------------------------------------------------
   @categories [
     %{
-      id: :core_cluster,
-      title: "Core Cluster",
+      id: :system,
+      title: "System",
       icon: "hero-server-stack",
       order: 10,
       rail_group: :settings,
@@ -88,9 +114,9 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       feature_flag: nil
     },
     %{
-      id: :discovery_sweeps,
-      title: "Discovery & Sweeps",
-      icon: "hero-magnifying-glass",
+      id: :network_services,
+      title: "Network Services",
+      icon: "hero-globe-alt",
       order: 20,
       rail_group: :settings,
       permission: nil,
@@ -104,61 +130,76 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       rail_group: :settings,
       permission: nil,
       feature_flag: nil
-    },
-    %{
-      id: :network_services,
-      title: "Network Services",
-      icon: "hero-globe-alt",
-      order: 40,
-      rail_group: :settings,
-      permission: nil,
-      feature_flag: nil
-    },
-    %{
-      id: :mail_alerts,
-      title: "Mail & Alerts",
-      icon: "hero-envelope",
-      order: 50,
-      rail_group: :settings,
-      permission: nil,
-      feature_flag: nil
-    },
-    %{
-      id: :security_auth,
-      title: "Security & Auth",
-      icon: "hero-shield-check",
-      order: 60,
-      rail_group: :settings,
-      permission: nil,
-      feature_flag: nil
-    },
-    %{
-      id: :audit_system_log,
-      title: "Audit & System Log",
-      icon: "hero-clipboard-document-list",
-      order: 70,
-      rail_group: :settings,
-      permission: nil,
-      feature_flag: nil
     }
   ]
 
   # ---------------------------------------------------------------------------
-  # Views (flat list; each carries `category:` as an FK into @categories).
+  # Parent-groups (the collapsible middle tree level). Each names its category.
+  # ---------------------------------------------------------------------------
+  @parent_groups [
+    # System
+    %{id: :sys_cluster, category: :system, title: "Cluster", icon: "hero-server-stack", order: 10},
+    %{id: :sys_security, category: :system, title: "Security", icon: "hero-shield-check", order: 20},
+    %{id: :sys_alerts, category: :system, title: "Alerts", icon: "hero-bell-alert", order: 30},
+
+    # Network Services
+    %{
+      id: :net_discovery,
+      category: :network_services,
+      title: "Discovery",
+      icon: "hero-magnifying-glass",
+      order: 10
+    },
+    %{
+      id: :net_services,
+      category: :network_services,
+      title: "Services",
+      icon: "hero-globe-alt",
+      order: 20
+    },
+
+    # Edge Ops
+    %{id: :edge_agents, category: :edge_ops, title: "Agents", icon: "hero-rocket-launch", order: 10},
+    %{id: :edge_addons, category: :edge_ops, title: "Add-ons", icon: "hero-squares-plus", order: 20},
+    %{
+      id: :edge_fleet,
+      category: :edge_ops,
+      title: "Fleet Health",
+      icon: "hero-cpu-chip",
+      order: 30
+    },
+    %{
+      id: :edge_sites,
+      category: :edge_ops,
+      title: "Sites & Collectors",
+      icon: "hero-building-office-2",
+      order: 40
+    },
+    %{
+      id: :edge_automation,
+      category: :edge_ops,
+      title: "Automation",
+      icon: "hero-command-line",
+      order: 50
+    }
+  ]
+
+  # ---------------------------------------------------------------------------
+  # Views (flat list; each carries `category:` + `parent_group:` as FKs).
   #
-  # Phase 2 populates all seven categories. Every entry maps to an existing
-  # route + LiveView verified against the router (the orphan detector in the
-  # catalog test enforces this). `permission:` carries a KEY validated against
-  # `ServiceRadar.Identity.RBAC.Catalog.permission_keys/0`. `match_prefixes:`
-  # is set only where a view must also own a legacy `/admin/*` duplicate route
-  # so the shell highlights the correct view there (the `/admin/*` MERGE
-  # redirects themselves are a follow-up phase).
+  # Every entry maps to an existing route + LiveView verified against the router
+  # (the orphan detector in the catalog test enforces this). `permission:` carries
+  # a KEY validated against `ServiceRadar.Identity.RBAC.Catalog.permission_keys/0`.
+  # `match_prefixes:` is set only where a view must also own a legacy `/admin/*`
+  # duplicate route so the shell highlights the correct view there.
   # ---------------------------------------------------------------------------
   @views [
-    # --- Core Cluster --------------------------------------------------------
+    # === System · Cluster ====================================================
     %{
       id: :cluster_status,
-      category: :core_cluster,
+      category: :system,
+      parent_group: :sys_cluster,
+      subgroup: nil,
       title: "Cluster Status",
       description: "Monitor the distributed ERTS cluster, gateways, agents, and job queues.",
       icon: "hero-server-stack",
@@ -166,6 +207,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       live_view: ServiceRadarWebNGWeb.Settings.ClusterLive.Index,
       permission: "settings.view",
       order: 10,
+      has_own_stats: true,
       feature_flag: nil,
       capability: nil,
       match_prefixes: ["/settings/cluster", "/admin/cluster"],
@@ -174,32 +216,18 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       hidden_from_nav: false
     },
     %{
-      id: :jobs,
-      category: :core_cluster,
-      title: "Jobs",
-      description: "Inspect and manage Oban background job queues across the cluster.",
-      icon: "hero-queue-list",
-      route: "/admin/jobs",
-      live_view: ServiceRadarWebNGWeb.Admin.JobLive.Index,
-      permission: "settings.jobs.manage",
-      order: 20,
-      feature_flag: nil,
-      capability: nil,
-      match_prefixes: nil,
-      keywords: ["jobs", "oban", "background", "queue", "workers"],
-      badge: nil,
-      hidden_from_nav: false
-    },
-    %{
       id: :dashboard_packages,
-      category: :core_cluster,
+      category: :system,
+      parent_group: :sys_cluster,
+      subgroup: nil,
       title: "Dashboard Packages",
-      description: "Install and manage packaged dashboards shipped as bundles.",
+      description: "Install and manage packaged dashboards shipped as signed bundles.",
       icon: "hero-squares-2x2",
       route: "/settings/dashboards/packages",
       live_view: ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index,
       permission: "plugins.view",
-      order: 30,
+      order: 20,
+      has_own_stats: false,
       feature_flag: nil,
       capability: nil,
       match_prefixes: nil,
@@ -207,18 +235,367 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       badge: nil,
       hidden_from_nav: false
     },
+    %{
+      id: :jobs,
+      category: :system,
+      parent_group: :sys_cluster,
+      subgroup: nil,
+      title: "Jobs",
+      description: "Schedule background jobs, trigger limits, and cron profiles.",
+      icon: "hero-queue-list",
+      route: "/admin/jobs",
+      live_view: ServiceRadarWebNGWeb.Admin.JobLive.Index,
+      permission: "settings.jobs.manage",
+      order: 30,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["jobs", "oban", "background", "queue", "workers"],
+      badge: nil,
+      hidden_from_nav: false
+    },
 
-    # --- Discovery & Sweeps --------------------------------------------------
+    # === System · Security · Users & Access ==================================
+    %{
+      id: :auth_users,
+      category: :system,
+      parent_group: :sys_security,
+      subgroup: "Users & Access",
+      title: "Users",
+      description: "Manage user accounts, roles, and access.",
+      icon: "hero-users",
+      route: "/settings/auth/users",
+      live_view: ServiceRadarWebNGWeb.Settings.AuthUsersLive,
+      permission: "settings.auth.manage",
+      order: 110,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["users", "accounts", "identity", "members"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
+      id: :user_groups,
+      category: :system,
+      parent_group: :sys_security,
+      subgroup: "Users & Access",
+      title: "User Groups",
+      description: "Manage reusable groups for dashboard sharing and access.",
+      icon: "hero-user-group",
+      route: "/settings/user-groups",
+      live_view: ServiceRadarWebNGWeb.Settings.UserGroupsLive,
+      permission: "identity.user_groups.manage",
+      order: 120,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["groups", "teams", "membership", "share"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
+      id: :authentication,
+      category: :system,
+      parent_group: :sys_security,
+      subgroup: "Users & Access",
+      title: "Authentication",
+      description: "Configure Single Sign-On (SSO), SAML, OIDC, and password criteria.",
+      icon: "hero-identification",
+      route: "/settings/authentication",
+      live_view: ServiceRadarWebNGWeb.Settings.AuthenticationLive,
+      permission: "settings.auth.manage",
+      order: 130,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["authentication", "oidc", "saml", "sso", "login"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
+      id: :policy_editor,
+      category: :system,
+      parent_group: :sys_security,
+      subgroup: "Users & Access",
+      title: "Policy Editor",
+      description: "Edit authorization policies and role bindings.",
+      icon: "hero-shield-check",
+      route: "/settings/auth/rbac",
+      live_view: ServiceRadarWebNGWeb.Settings.RbacLive,
+      permission: "settings.rbac.manage",
+      order: 140,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["rbac", "roles", "permissions", "policy", "access"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
+      id: :cli_sessions,
+      category: :system,
+      parent_group: :sys_security,
+      subgroup: "Users & Access",
+      title: "CLI Sessions",
+      description: "Review and revoke active serviceradar-cli sessions.",
+      icon: "hero-command-line",
+      route: "/settings/cli-sessions",
+      live_view: ServiceRadarWebNGWeb.Settings.CliSessionsLive,
+      permission: "cli.session.read_own",
+      order: 150,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["cli", "sessions", "device", "tokens"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
+      id: :cli_auth,
+      category: :system,
+      parent_group: :sys_security,
+      subgroup: "Users & Access",
+      title: "CLI Auth Policy",
+      description: "Control the CLI device-code authorization policy.",
+      icon: "hero-lock-closed",
+      route: "/settings/cli-auth",
+      live_view: ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive,
+      permission: "cli.policy.manage",
+      order: 160,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["cli", "auth", "policy", "device code"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
+      id: :recordings,
+      category: :system,
+      parent_group: :sys_security,
+      subgroup: "Users & Access",
+      title: "Session Recordings",
+      description: "Browse recorded remote-access session replays.",
+      icon: "hero-film",
+      route: "/settings/networks/recordings",
+      live_view: ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive,
+      permission: "devices.remote_access.recordings.view_all",
+      order: 170,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["session", "recordings", "replay", "audit"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
+      id: :audit_trail,
+      category: :system,
+      parent_group: :sys_security,
+      subgroup: "Users & Access",
+      title: "Audit Trail",
+      description: "Browse stateless security events and audit entries.",
+      icon: "hero-finger-print",
+      route: "/settings/audit/events",
+      live_view: ServiceRadarWebNGWeb.Settings.AuditLive.Events,
+      permission: "settings.audit.view",
+      order: 180,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["security", "events", "audit", "denials", "signature", "policy", "csp"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
+      id: :lockouts,
+      category: :system,
+      parent_group: :sys_security,
+      subgroup: "Users & Access",
+      title: "Lockouts",
+      description: "Review account lockouts and rate-limit triggers.",
+      icon: "hero-lock-closed",
+      route: "/settings/audit/lockouts",
+      live_view: ServiceRadarWebNGWeb.Settings.AuditLive.Lockouts,
+      permission: "settings.audit.view",
+      order: 190,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["lockout", "auth", "failed", "login", "rate limit"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
+      id: :history,
+      category: :system,
+      parent_group: :sys_security,
+      subgroup: "Users & Access",
+      title: "History",
+      description: "Cross-resource change history from AshPaperTrail.",
+      icon: "hero-clock",
+      route: "/settings/audit/history",
+      live_view: ServiceRadarWebNGWeb.Settings.AuditLive.History,
+      permission: "settings.audit.view",
+      order: 200,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["history", "papertrail", "versions", "changes", "diff", "timeline"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
+      id: :profile,
+      category: :system,
+      parent_group: :sys_security,
+      subgroup: "Users & Access",
+      title: "Profile",
+      description: "Manage your account, password, and preferences.",
+      icon: "hero-user-circle",
+      route: "/settings/profile",
+      live_view: ServiceRadarWebNGWeb.UserLive.Settings,
+      permission: nil,
+      order: 210,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["profile", "account", "password", "me", "preferences"],
+      badge: nil,
+      hidden_from_nav: true
+    },
+
+    # === System · Security · Credentials =====================================
+    %{
+      id: :api_credentials,
+      category: :system,
+      parent_group: :sys_security,
+      subgroup: "Credentials",
+      title: "API Credentials",
+      description: "Manage access scopes and generate personal API tokens and clients.",
+      icon: "hero-key",
+      route: "/settings/api-credentials",
+      live_view: ServiceRadarWebNGWeb.UserLive.ApiCredentials,
+      permission: nil,
+      order: 230,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["api", "tokens", "keys", "credentials", "personal"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
+      id: :host_keys,
+      category: :system,
+      parent_group: :sys_security,
+      subgroup: "Credentials",
+      title: "Host Keys",
+      description: "Manage SSH known-host keys and fingerprints.",
+      icon: "hero-finger-print",
+      route: "/settings/networks/host-keys",
+      live_view: ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive,
+      permission: "settings.remote_access_host_keys.manage",
+      order: 240,
+      has_own_stats: false,
+      feature_flag: :remote_access_ssh,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["ssh", "host keys", "known hosts", "fingerprint", "mtls", "certificates"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+
+    # === System · Alerts =====================================================
+    %{
+      id: :mail,
+      category: :system,
+      parent_group: :sys_alerts,
+      subgroup: nil,
+      title: "Mail",
+      description: "Enter credential endpoints for mailers and service digests.",
+      icon: "hero-envelope",
+      route: "/settings/mail",
+      live_view: ServiceRadarWebNGWeb.Settings.MailLive,
+      permission: "settings.mail.manage",
+      order: 310,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["mail", "smtp", "email", "notifications"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
+      id: :rules,
+      category: :system,
+      parent_group: :sys_alerts,
+      subgroup: nil,
+      title: "Rules",
+      description: "Author alerting and automation rules.",
+      icon: "hero-funnel",
+      route: "/settings/rules",
+      live_view: ServiceRadarWebNGWeb.Settings.RulesLive.Index,
+      permission: "observability.rules.view",
+      order: 320,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["rules", "alerting", "zen", "jdm", "conditions", "webhooks", "templates"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
+      id: :anomaly_detection,
+      category: :system,
+      parent_group: :sys_alerts,
+      subgroup: nil,
+      title: "Anomaly Detection",
+      description: "Tune anomaly-detection baselines and sensitivity.",
+      icon: "hero-bell-alert",
+      route: "/settings/anomaly-detection",
+      live_view: ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive,
+      permission: "observability.alerts.manage",
+      order: 330,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["anomaly", "detection", "baseline", "seasonal", "alerts"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+
+    # === Network Services · Discovery · Profiles =============================
     %{
       id: :sweep_profiles,
-      category: :discovery_sweeps,
+      category: :network_services,
+      parent_group: :net_discovery,
+      subgroup: "Profiles",
       title: "Sweep Profiles",
-      description: "Configure network discovery sweeps, CIDR ranges, and scanner profiles.",
+      description: "Configure network discovery sweeps and scanner profiles.",
       icon: "hero-map",
       route: "/settings/networks",
       live_view: ServiceRadarWebNGWeb.Settings.NetworksLive.Index,
       permission: "settings.networks.manage",
       order: 10,
+      has_own_stats: false,
       feature_flag: nil,
       capability: nil,
       match_prefixes: nil,
@@ -227,15 +604,60 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       hidden_from_nav: false
     },
     %{
+      id: :visibility_profiles,
+      category: :network_services,
+      parent_group: :net_discovery,
+      subgroup: "Profiles",
+      title: "Visibility Profiles",
+      description: "Manage network scanning visibility presets.",
+      icon: "hero-eye",
+      route: "/settings/networks/visibility-profiles",
+      live_view: ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Index,
+      permission: "visibility_profiles:read",
+      order: 20,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["visibility", "profiles", "scope", "partition"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
+      id: :snmp_profiles,
+      category: :network_services,
+      parent_group: :net_discovery,
+      subgroup: "Profiles",
+      title: "SNMP Profiles",
+      description: "Configure community strings and trap notification channels.",
+      icon: "hero-adjustments-horizontal",
+      route: "/settings/snmp",
+      live_view: ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index,
+      permission: "settings.snmp_profiles.manage",
+      order: 30,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["snmp", "oid", "community", "v3", "polling"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+
+    # === Network Services · Discovery (leaves) ===============================
+    %{
       id: :discovery_jobs,
-      category: :discovery_sweeps,
+      category: :network_services,
+      parent_group: :net_discovery,
+      subgroup: nil,
       title: "Discovery Jobs",
-      description: "Schedule and track network mapper discovery jobs.",
+      description: "View active running sweeps and trigger frequencies.",
       icon: "hero-magnifying-glass-circle",
       route: "/settings/networks/discovery",
       live_view: ServiceRadarWebNGWeb.Settings.NetworksLive.Index,
       permission: "settings.networks.manage",
-      order: 20,
+      order: 40,
+      has_own_stats: false,
       feature_flag: nil,
       capability: nil,
       match_prefixes: nil,
@@ -245,14 +667,17 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
     },
     %{
       id: :device_enrichment,
-      category: :discovery_sweeps,
+      category: :network_services,
+      parent_group: :net_discovery,
+      subgroup: nil,
       title: "Device Enrichment",
-      description: "Define rules that enrich discovered devices with metadata.",
+      description: "Manage asset enrichment criteria and device profile rules.",
       icon: "hero-sparkles",
       route: "/settings/networks/device-enrichment",
       live_view: ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive,
       permission: "settings.networks.manage",
-      order: 30,
+      order: 50,
+      has_own_stats: false,
       feature_flag: nil,
       capability: nil,
       match_prefixes: nil,
@@ -262,14 +687,17 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
     },
     %{
       id: :availability_sources,
-      category: :discovery_sweeps,
+      category: :network_services,
+      parent_group: :net_discovery,
+      subgroup: nil,
       title: "Availability Sources",
       description: "Choose which sources decide device availability and uptime.",
       icon: "hero-signal",
       route: "/settings/networks/availability-sources",
       live_view: ServiceRadarWebNGWeb.Settings.AvailabilitySourceProfilesLive,
       permission: "settings.networks.manage",
-      order: 40,
+      order: 60,
+      has_own_stats: false,
       feature_flag: nil,
       capability: nil,
       match_prefixes: nil,
@@ -278,32 +706,18 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       hidden_from_nav: false
     },
     %{
-      id: :visibility_profiles,
-      category: :discovery_sweeps,
-      title: "Visibility Profiles",
-      description: "Scope which devices and partitions each profile can see.",
-      icon: "hero-eye",
-      route: "/settings/networks/visibility-profiles",
-      live_view: ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Index,
-      permission: "visibility_profiles:read",
-      order: 50,
-      feature_flag: nil,
-      capability: nil,
-      match_prefixes: nil,
-      keywords: ["visibility", "profiles", "scope", "partition"],
-      badge: nil,
-      hidden_from_nav: false
-    },
-    %{
       id: :credential_rules,
-      category: :discovery_sweeps,
+      category: :network_services,
+      parent_group: :net_discovery,
+      subgroup: nil,
       title: "Credential Rules",
-      description: "Map network credentials to hosts for authenticated scans.",
+      description: "Define SSH, SNMP, and WinRM access profiles for scanners.",
       icon: "hero-key",
       route: "/settings/networks/credentials",
       live_view: ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive,
       permission: "settings.credentials.manage",
-      order: 60,
+      order: 70,
+      has_own_stats: false,
       feature_flag: nil,
       capability: nil,
       match_prefixes: nil,
@@ -311,224 +725,21 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       badge: nil,
       hidden_from_nav: false
     },
-    %{
-      id: :snmp_profiles,
-      category: :discovery_sweeps,
-      title: "SNMP Profiles",
-      description: "Configure SNMP versions, communities, and polling profiles.",
-      icon: "hero-adjustments-horizontal",
-      route: "/settings/snmp",
-      live_view: ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index,
-      permission: "settings.snmp_profiles.manage",
-      order: 70,
-      feature_flag: nil,
-      capability: nil,
-      match_prefixes: nil,
-      keywords: ["snmp", "oid", "community", "v3", "polling"],
-      badge: nil,
-      hidden_from_nav: false
-    },
 
-    # --- Edge Ops ------------------------------------------------------------
-    %{
-      id: :agent_releases,
-      category: :edge_ops,
-      title: "Agent Releases",
-      description: "Browse and promote agent release channels and versions.",
-      icon: "hero-rocket-launch",
-      route: "/settings/agents/releases",
-      live_view: ServiceRadarWebNGWeb.Settings.AgentsLive.Releases,
-      permission: "settings.edge.manage",
-      order: 10,
-      feature_flag: nil,
-      capability: nil,
-      match_prefixes: nil,
-      keywords: ["agents", "releases", "versions", "rollout"],
-      badge: nil,
-      hidden_from_nav: false
-    },
-    %{
-      id: :agent_deploy,
-      category: :edge_ops,
-      title: "Agent Deploy",
-      description: "Deploy and roll out agents to your fleet.",
-      icon: "hero-cloud-arrow-up",
-      route: "/settings/agents/deploy",
-      live_view: ServiceRadarWebNGWeb.Settings.AgentsLive.Deploy,
-      permission: "settings.edge.manage",
-      order: 20,
-      feature_flag: nil,
-      capability: nil,
-      match_prefixes: ["/settings/agents/deploy", "/admin/edge-packages"],
-      keywords: ["deploy", "edge", "packages", "provisioning", "install"],
-      badge: nil,
-      hidden_from_nav: false
-    },
-    %{
-      id: :plugins,
-      category: :edge_ops,
-      title: "Plugins",
-      description: "Package, sign, and distribute agent plugins.",
-      icon: "hero-puzzle-piece",
-      route: "/settings/agents/plugins",
-      live_view: ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index,
-      permission: "plugins.view",
-      order: 30,
-      feature_flag: nil,
-      capability: nil,
-      match_prefixes: ["/settings/agents/plugins", "/admin/plugins"],
-      keywords: ["plugins", "packages", "extensions"],
-      badge: nil,
-      hidden_from_nav: false
-    },
-    %{
-      id: :addons,
-      category: :edge_ops,
-      title: "Add-ons",
-      description: "Manage optional agent add-on packages.",
-      icon: "hero-squares-plus",
-      route: "/settings/agents/addons",
-      live_view: ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index,
-      permission: "plugins.view",
-      order: 40,
-      feature_flag: nil,
-      capability: nil,
-      match_prefixes: ["/settings/agents/addons", "/admin/addons"],
-      keywords: ["addons", "add-ons", "extensions", "packages"],
-      badge: nil,
-      hidden_from_nav: false
-    },
-    %{
-      id: :addon_fleet,
-      category: :edge_ops,
-      title: "Add-on Fleet",
-      description: "Assign add-ons to agents and track fleet rollout.",
-      icon: "hero-server",
-      route: "/settings/agents/addons/fleet",
-      live_view: ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index,
-      permission: "plugins.view",
-      order: 50,
-      feature_flag: nil,
-      capability: nil,
-      match_prefixes: nil,
-      keywords: ["addon", "fleet", "rollout", "assignments"],
-      badge: nil,
-      hidden_from_nav: false
-    },
-    %{
-      id: :host_health,
-      category: :edge_ops,
-      title: "Host Health",
-      description: "Review host-level health and resource telemetry.",
-      icon: "hero-cpu-chip",
-      route: "/settings/sysmon",
-      live_view: ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index,
-      permission: "settings.sysmon_profiles.manage",
-      order: 60,
-      feature_flag: nil,
-      capability: nil,
-      match_prefixes: nil,
-      keywords: ["sysmon", "host", "cpu", "memory", "disk", "health"],
-      badge: nil,
-      hidden_from_nav: false
-    },
-    %{
-      id: :endpoint_inventory,
-      category: :edge_ops,
-      title: "Endpoint Inventory",
-      description: "Configure endpoint software and SBOM inventory collection.",
-      icon: "hero-clipboard-document-check",
-      route: "/settings/agents/endpoint-inventory",
-      live_view: ServiceRadarWebNGWeb.Settings.EndpointInventoryLive.Index,
-      permission: "settings.edge.manage",
-      order: 70,
-      feature_flag: nil,
-      capability: nil,
-      match_prefixes: nil,
-      keywords: ["endpoint", "inventory", "sbom", "packages", "software"],
-      badge: nil,
-      hidden_from_nav: false
-    },
-    %{
-      id: :telemetry_onboarding,
-      category: :edge_ops,
-      title: "Telemetry Onboarding",
-      description: "Send your first telemetry: OTLP endpoints, keys, and snippets.",
-      icon: "hero-arrow-up-on-square-stack",
-      route: "/settings/agents/telemetry-onboarding",
-      live_view: ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive,
-      permission: "settings.edge.manage",
-      order: 80,
-      feature_flag: nil,
-      capability: nil,
-      match_prefixes: nil,
-      keywords: ["telemetry", "otlp", "onboarding", "ingest", "exporter"],
-      badge: nil,
-      hidden_from_nav: false
-    },
-    %{
-      id: :edge_sites,
-      category: :edge_ops,
-      title: "Edge Sites",
-      description: "Manage edge sites and their agent groupings.",
-      icon: "hero-building-office-2",
-      route: "/admin/edge-sites",
-      live_view: ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index,
-      permission: "settings.edge.manage",
-      order: 90,
-      feature_flag: nil,
-      capability: nil,
-      match_prefixes: nil,
-      keywords: ["edge", "sites", "locations", "regions"],
-      badge: nil,
-      hidden_from_nav: false
-    },
-    %{
-      id: :data_collectors,
-      category: :edge_ops,
-      title: "Data Collectors",
-      description: "Configure data collectors that ingest external telemetry.",
-      icon: "hero-inbox-arrow-down",
-      route: "/admin/collectors",
-      live_view: ServiceRadarWebNGWeb.Admin.CollectorLive.Index,
-      permission: "plugins.view",
-      order: 100,
-      feature_flag: nil,
-      capability: :collectors_enabled,
-      match_prefixes: nil,
-      keywords: ["collectors", "nats", "data", "ingest"],
-      badge: nil,
-      hidden_from_nav: false
-    },
-    %{
-      id: :ansible,
-      category: :edge_ops,
-      title: "Ansible",
-      description: "Manage Ansible controllers, repositories, and schedules.",
-      icon: "hero-command-line",
-      route: "/settings/ansible",
-      live_view: ServiceRadarWebNGWeb.Settings.AnsibleLive,
-      permission: "ansible.controllers.manage",
-      order: 110,
-      feature_flag: nil,
-      capability: nil,
-      match_prefixes: nil,
-      keywords: ["ansible", "automation", "playbook", "controllers"],
-      badge: nil,
-      hidden_from_nav: false
-    },
-
-    # --- Network Services ----------------------------------------------------
+    # === Network Services · Services =========================================
     %{
       id: :network_flows,
       category: :network_services,
+      parent_group: :net_services,
+      subgroup: nil,
       title: "Network Flows",
       description: "Configure NetFlow directionality and enrichment rules.",
       icon: "hero-arrows-right-left",
       route: "/settings/flows",
       live_view: ServiceRadarWebNGWeb.Settings.NetflowLive.Index,
       permission: "settings.netflow.manage",
-      order: 10,
+      order: 110,
+      has_own_stats: false,
       feature_flag: nil,
       capability: nil,
       match_prefixes: nil,
@@ -539,13 +750,16 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
     %{
       id: :bmp,
       category: :network_services,
+      parent_group: :net_services,
+      subgroup: nil,
       title: "BGP / BMP",
       description: "Inspect BGP and BMP monitoring sessions and route state.",
       icon: "hero-globe-alt",
       route: "/settings/networks/bmp",
       live_view: ServiceRadarWebNGWeb.Settings.BmpLive.Index,
       permission: "settings.networks.manage",
-      order: 20,
+      order: 120,
+      has_own_stats: false,
       feature_flag: nil,
       capability: nil,
       match_prefixes: nil,
@@ -556,13 +770,16 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
     %{
       id: :field_survey,
       category: :network_services,
+      parent_group: :net_services,
+      subgroup: nil,
       title: "FieldSurvey",
       description: "Review WiFi FieldSurvey captures and coverage.",
       icon: "hero-wifi",
       route: "/settings/networks/field-survey",
       live_view: ServiceRadarWebNGWeb.Settings.FieldSurveyLive.Index,
       permission: "settings.networks.manage",
-      order: 30,
+      order: 130,
+      has_own_stats: false,
       feature_flag: nil,
       capability: nil,
       match_prefixes: nil,
@@ -573,13 +790,16 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
     %{
       id: :mtr,
       category: :network_services,
+      parent_group: :net_services,
+      subgroup: nil,
       title: "MTR",
       description: "Configure MTR traceroute diagnostic profiles.",
       icon: "hero-arrow-trending-up",
       route: "/settings/networks/mtr",
       live_view: ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index,
       permission: "settings.networks.manage",
-      order: 40,
+      order: 140,
+      has_own_stats: false,
       feature_flag: nil,
       capability: nil,
       match_prefixes: nil,
@@ -590,13 +810,16 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
     %{
       id: :integrations,
       category: :network_services,
+      parent_group: :net_services,
+      subgroup: nil,
       title: "Integrations",
       description: "Connect external asset and inventory integration sources.",
       icon: "hero-link",
       route: "/settings/networks/integrations",
       live_view: ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index,
       permission: "settings.integrations.manage",
-      order: 50,
+      order: 150,
+      has_own_stats: false,
       feature_flag: nil,
       capability: nil,
       match_prefixes: nil,
@@ -607,13 +830,16 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
     %{
       id: :threat_intel,
       category: :network_services,
+      parent_group: :net_services,
+      subgroup: nil,
       title: "Threat Intel",
       description: "Manage threat-intelligence feeds and enrichment.",
       icon: "hero-shield-exclamation",
       route: "/settings/networks/threat-intel",
       live_view: ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index,
       permission: "plugins.assign",
-      order: 60,
+      order: 160,
+      has_own_stats: false,
       feature_flag: nil,
       capability: nil,
       match_prefixes: nil,
@@ -621,139 +847,19 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       badge: nil,
       hidden_from_nav: false
     },
-
-    # --- Mail & Alerts -------------------------------------------------------
-    %{
-      id: :mail,
-      category: :mail_alerts,
-      title: "Mail",
-      description: "Configure outbound mail delivery for notifications.",
-      icon: "hero-envelope",
-      route: "/settings/mail",
-      live_view: ServiceRadarWebNGWeb.Settings.MailLive,
-      permission: "settings.mail.manage",
-      order: 10,
-      feature_flag: nil,
-      capability: nil,
-      match_prefixes: nil,
-      keywords: ["mail", "smtp", "email", "notifications"],
-      badge: nil,
-      hidden_from_nav: false
-    },
-    %{
-      id: :rules,
-      category: :mail_alerts,
-      title: "Rules",
-      description: "Author alerting and automation rules.",
-      icon: "hero-funnel",
-      route: "/settings/rules",
-      live_view: ServiceRadarWebNGWeb.Settings.RulesLive.Index,
-      permission: "observability.rules.view",
-      order: 20,
-      feature_flag: nil,
-      capability: nil,
-      match_prefixes: nil,
-      keywords: ["rules", "alerting", "zen", "jdm", "conditions"],
-      badge: nil,
-      hidden_from_nav: false
-    },
-    %{
-      id: :anomaly_detection,
-      category: :mail_alerts,
-      title: "Anomaly Detection",
-      description: "Tune anomaly-detection baselines and sensitivity.",
-      icon: "hero-bell-alert",
-      route: "/settings/anomaly-detection",
-      live_view: ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive,
-      permission: "observability.alerts.manage",
-      order: 30,
-      feature_flag: nil,
-      capability: nil,
-      match_prefixes: nil,
-      keywords: ["anomaly", "detection", "baseline", "seasonal", "alerts"],
-      badge: nil,
-      hidden_from_nav: false
-    },
-
-    # --- Security & Auth -----------------------------------------------------
-    %{
-      id: :auth_users,
-      category: :security_auth,
-      title: "Users",
-      description: "Manage user accounts, roles, and access.",
-      icon: "hero-users",
-      route: "/settings/auth/users",
-      live_view: ServiceRadarWebNGWeb.Settings.AuthUsersLive,
-      permission: "settings.auth.manage",
-      order: 10,
-      feature_flag: nil,
-      capability: nil,
-      match_prefixes: nil,
-      keywords: ["users", "accounts", "identity", "members"],
-      badge: nil,
-      hidden_from_nav: false
-    },
-    %{
-      id: :policy_editor,
-      category: :security_auth,
-      title: "Policy Editor",
-      description: "Edit authorization policies and role bindings.",
-      icon: "hero-shield-check",
-      route: "/settings/auth/rbac",
-      live_view: ServiceRadarWebNGWeb.Settings.RbacLive,
-      permission: "settings.rbac.manage",
-      order: 20,
-      feature_flag: nil,
-      capability: nil,
-      match_prefixes: nil,
-      keywords: ["rbac", "roles", "permissions", "policy", "access"],
-      badge: nil,
-      hidden_from_nav: false
-    },
-    %{
-      id: :authentication,
-      category: :security_auth,
-      title: "Authentication",
-      description: "Configure SSO, OIDC, and login authentication.",
-      icon: "hero-identification",
-      route: "/settings/authentication",
-      live_view: ServiceRadarWebNGWeb.Settings.AuthenticationLive,
-      permission: "settings.auth.manage",
-      order: 30,
-      feature_flag: nil,
-      capability: nil,
-      match_prefixes: nil,
-      keywords: ["authentication", "oidc", "saml", "sso", "login"],
-      badge: nil,
-      hidden_from_nav: false
-    },
-    %{
-      id: :user_groups,
-      category: :security_auth,
-      title: "User Groups",
-      description: "Manage reusable groups for dashboard sharing and access.",
-      icon: "hero-user-group",
-      route: "/settings/user-groups",
-      live_view: ServiceRadarWebNGWeb.Settings.UserGroupsLive,
-      permission: "identity.user_groups.manage",
-      order: 40,
-      feature_flag: nil,
-      capability: nil,
-      match_prefixes: nil,
-      keywords: ["groups", "teams", "membership", "share"],
-      badge: nil,
-      hidden_from_nav: false
-    },
     %{
       id: :vulnerability_feeds,
-      category: :security_auth,
+      category: :network_services,
+      parent_group: :net_services,
+      subgroup: nil,
       title: "Vulnerability Feeds",
       description: "Configure CVE, CPE, and vulnerability feed sources.",
       icon: "hero-bug-ant",
       route: "/settings/security/vulnerability-feeds",
       live_view: ServiceRadarWebNGWeb.Settings.SecurityLive.VulnerabilityFeeds,
       permission: "settings.integrations.manage",
-      order: 50,
+      order: 170,
+      has_own_stats: false,
       feature_flag: nil,
       capability: nil,
       match_prefixes: nil,
@@ -762,32 +868,18 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       hidden_from_nav: false
     },
     %{
-      id: :host_keys,
-      category: :security_auth,
-      title: "Host Keys",
-      description: "Manage SSH known-host keys and fingerprints.",
-      icon: "hero-finger-print",
-      route: "/settings/networks/host-keys",
-      live_view: ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive,
-      permission: "settings.remote_access_host_keys.manage",
-      order: 60,
-      feature_flag: :remote_access_ssh,
-      capability: nil,
-      match_prefixes: nil,
-      keywords: ["ssh", "host keys", "known hosts", "fingerprint"],
-      badge: nil,
-      hidden_from_nav: false
-    },
-    %{
       id: :desktop_targets,
-      category: :security_auth,
+      category: :network_services,
+      parent_group: :net_services,
+      subgroup: nil,
       title: "Desktop Targets",
       description: "Configure RDP desktop remote-access targets.",
       icon: "hero-computer-desktop",
       route: "/settings/networks/desktop-targets",
       live_view: ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive,
       permission: "settings.edge.manage",
-      order: 70,
+      order: 180,
+      has_own_stats: false,
       feature_flag: :remote_access_desktop_rdp,
       capability: nil,
       match_prefixes: nil,
@@ -795,158 +887,233 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       badge: nil,
       hidden_from_nav: false
     },
+
+    # === Edge Ops · Agents ===================================================
     %{
-      id: :recordings,
-      category: :security_auth,
-      title: "Session Recordings",
-      description: "Browse recorded remote-access session replays.",
-      icon: "hero-film",
-      route: "/settings/networks/recordings",
-      live_view: ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive,
-      permission: "devices.remote_access.recordings.view_all",
-      order: 80,
+      id: :agent_releases,
+      category: :edge_ops,
+      parent_group: :edge_agents,
+      subgroup: nil,
+      title: "Agent Releases",
+      description: "Publish signed agent releases and orchestrate fleet rollouts from the existing control plane.",
+      icon: "hero-rocket-launch",
+      route: "/settings/agents/releases",
+      live_view: ServiceRadarWebNGWeb.Settings.AgentsLive.Releases,
+      permission: "settings.edge.manage",
+      order: 10,
+      has_own_stats: false,
       feature_flag: nil,
       capability: nil,
       match_prefixes: nil,
-      keywords: ["session", "recordings", "replay", "audit"],
+      keywords: ["agents", "releases", "versions", "rollout", "fleet"],
       badge: nil,
       hidden_from_nav: false
     },
     %{
-      id: :api_credentials,
-      category: :security_auth,
-      title: "API Credentials",
-      description: "Create and revoke personal API tokens and clients.",
-      icon: "hero-key",
-      route: "/settings/api-credentials",
-      live_view: ServiceRadarWebNGWeb.UserLive.ApiCredentials,
-      permission: nil,
-      order: 90,
+      id: :agent_deploy,
+      category: :edge_ops,
+      parent_group: :edge_agents,
+      subgroup: nil,
+      title: "Agent Deploy",
+      description: "Deploy and roll out agents to your fleet.",
+      icon: "hero-cloud-arrow-up",
+      route: "/settings/agents/deploy",
+      live_view: ServiceRadarWebNGWeb.Settings.AgentsLive.Deploy,
+      permission: "settings.edge.manage",
+      order: 20,
+      has_own_stats: false,
       feature_flag: nil,
       capability: nil,
-      match_prefixes: nil,
-      keywords: ["api", "tokens", "keys", "credentials", "personal"],
+      match_prefixes: ["/settings/agents/deploy", "/admin/edge-packages"],
+      keywords: ["deploy", "edge", "packages", "provisioning", "install"],
       badge: nil,
       hidden_from_nav: false
-    },
-    %{
-      id: :cli_sessions,
-      category: :security_auth,
-      title: "CLI Sessions",
-      description: "Review and revoke active serviceradar-cli sessions.",
-      icon: "hero-command-line",
-      route: "/settings/cli-sessions",
-      live_view: ServiceRadarWebNGWeb.Settings.CliSessionsLive,
-      permission: "cli.session.read_own",
-      order: 100,
-      feature_flag: nil,
-      capability: nil,
-      match_prefixes: nil,
-      keywords: ["cli", "sessions", "device", "tokens"],
-      badge: nil,
-      hidden_from_nav: false
-    },
-    %{
-      id: :cli_auth,
-      category: :security_auth,
-      title: "CLI Auth Policy",
-      description: "Control the CLI device-code authorization policy.",
-      icon: "hero-lock-closed",
-      route: "/settings/cli-auth",
-      live_view: ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive,
-      permission: "cli.policy.manage",
-      order: 110,
-      feature_flag: nil,
-      capability: nil,
-      match_prefixes: nil,
-      keywords: ["cli", "auth", "policy", "device code"],
-      badge: nil,
-      hidden_from_nav: false
-    },
-    %{
-      id: :profile,
-      category: :security_auth,
-      title: "Profile",
-      description: "Manage your account, password, and preferences.",
-      icon: "hero-user-circle",
-      route: "/settings/profile",
-      live_view: ServiceRadarWebNGWeb.UserLive.Settings,
-      permission: nil,
-      order: 120,
-      feature_flag: nil,
-      capability: nil,
-      match_prefixes: nil,
-      keywords: ["profile", "account", "password", "me", "preferences"],
-      badge: nil,
-      hidden_from_nav: true
     },
 
-    # --- Audit & System Log (Phase 1 pilot) ----------------------------------
+    # === Edge Ops · Add-ons ==================================================
     %{
-      id: :audit_trail,
-      category: :audit_system_log,
-      title: "Audit Trail",
-      description: "Browse stateless security events and audit entries.",
-      icon: "hero-finger-print",
-      route: "/settings/audit/events",
-      live_view: ServiceRadarWebNGWeb.Settings.AuditLive.Events,
-      permission: "settings.audit.view",
-      order: 10,
+      id: :addons,
+      category: :edge_ops,
+      parent_group: :edge_addons,
+      subgroup: nil,
+      title: "Add-ons Catalog",
+      description: "Select native agent add-ons (feature sets) and push them down to your agents.",
+      icon: "hero-squares-plus",
+      route: "/settings/agents/addons",
+      live_view: ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index,
+      permission: "plugins.view",
+      order: 110,
+      has_own_stats: false,
       feature_flag: nil,
       capability: nil,
-      match_prefixes: nil,
-      keywords: ["security", "events", "audit", "denials", "signature", "policy", "csp"],
+      match_prefixes: ["/settings/agents/addons", "/admin/addons"],
+      keywords: ["addons", "add-ons", "extensions", "packages", "catalog"],
       badge: nil,
       hidden_from_nav: false
     },
     %{
-      id: :lockouts,
-      category: :audit_system_log,
-      title: "Lockouts",
-      description: "Review account lockouts and rate-limit triggers.",
-      icon: "hero-lock-closed",
-      route: "/settings/audit/lockouts",
-      live_view: ServiceRadarWebNGWeb.Settings.AuditLive.Lockouts,
-      permission: "settings.audit.view",
-      order: 20,
+      id: :addon_fleet,
+      category: :edge_ops,
+      parent_group: :edge_addons,
+      subgroup: nil,
+      title: "Add-on Fleet",
+      description: "Schedule canary updates and package rollback strategies.",
+      icon: "hero-server",
+      route: "/settings/agents/addons/fleet",
+      live_view: ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index,
+      permission: "plugins.view",
+      order: 120,
+      has_own_stats: false,
       feature_flag: nil,
       capability: nil,
       match_prefixes: nil,
-      keywords: ["lockout", "auth", "failed", "login", "rate limit"],
+      keywords: ["addon", "fleet", "rollout", "assignments", "canary"],
       badge: nil,
       hidden_from_nav: false
     },
     %{
-      id: :history,
-      category: :audit_system_log,
-      title: "History",
-      description: "Cross-resource change history from AshPaperTrail.",
-      icon: "hero-clock",
-      route: "/settings/audit/history",
-      live_view: ServiceRadarWebNGWeb.Settings.AuditLive.History,
-      permission: "settings.audit.view",
-      order: 30,
+      id: :plugins,
+      category: :edge_ops,
+      parent_group: :edge_addons,
+      subgroup: nil,
+      title: "Plugins Manager",
+      description: "Install or update core engine plugins.",
+      icon: "hero-puzzle-piece",
+      route: "/settings/agents/plugins",
+      live_view: ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index,
+      permission: "plugins.view",
+      order: 130,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: ["/settings/agents/plugins", "/admin/plugins"],
+      keywords: ["plugins", "packages", "extensions"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+
+    # === Edge Ops · Fleet Health =============================================
+    %{
+      id: :host_health,
+      category: :edge_ops,
+      parent_group: :edge_fleet,
+      subgroup: nil,
+      title: "Host Health",
+      description: "Set warning metrics for CPU, RAM, and disk utilization thresholds.",
+      icon: "hero-cpu-chip",
+      route: "/settings/sysmon",
+      live_view: ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index,
+      permission: "settings.sysmon_profiles.manage",
+      order: 210,
+      has_own_stats: false,
       feature_flag: nil,
       capability: nil,
       match_prefixes: nil,
-      keywords: ["history", "papertrail", "versions", "changes", "diff", "timeline"],
+      keywords: ["sysmon", "host", "cpu", "memory", "disk", "health"],
       badge: nil,
       hidden_from_nav: false
     },
     %{
-      id: :system_event_logs,
-      category: :audit_system_log,
-      title: "System Event Logs",
-      description: "Search ingested system and application event logs.",
-      icon: "hero-document-text",
-      route: "/logs",
-      live_view: ServiceRadarWebNGWeb.LogLive.Index,
-      permission: "observability.logs.view",
-      order: 40,
+      id: :endpoint_inventory,
+      category: :edge_ops,
+      parent_group: :edge_fleet,
+      subgroup: nil,
+      title: "Endpoint Inventory",
+      description: "Configure endpoint software and SBOM inventory collection.",
+      icon: "hero-clipboard-document-check",
+      route: "/settings/agents/endpoint-inventory",
+      live_view: ServiceRadarWebNGWeb.Settings.EndpointInventoryLive.Index,
+      permission: "settings.edge.manage",
+      order: 220,
+      has_own_stats: false,
       feature_flag: nil,
       capability: nil,
-      match_prefixes: ["/logs"],
-      keywords: ["logs", "syslog", "system", "otel", "explorer"],
+      match_prefixes: nil,
+      keywords: ["endpoint", "inventory", "sbom", "packages", "software"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
+      id: :telemetry_onboarding,
+      category: :edge_ops,
+      parent_group: :edge_fleet,
+      subgroup: nil,
+      title: "Telemetry Onboarding",
+      description: "Send your first telemetry: OTLP endpoints, keys, and snippets.",
+      icon: "hero-arrow-up-on-square-stack",
+      route: "/settings/agents/telemetry-onboarding",
+      live_view: ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive,
+      permission: "settings.edge.manage",
+      order: 230,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["telemetry", "otlp", "onboarding", "ingest", "exporter"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+
+    # === Edge Ops · Sites & Collectors =======================================
+    %{
+      id: :edge_sites,
+      category: :edge_ops,
+      parent_group: :edge_sites,
+      subgroup: nil,
+      title: "Edge Sites",
+      description: "Configure geographical sites, datacenters, and boundary groups.",
+      icon: "hero-building-office-2",
+      route: "/admin/edge-sites",
+      live_view: ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index,
+      permission: "settings.edge.manage",
+      order: 310,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["edge", "sites", "locations", "regions"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
+      id: :data_collectors,
+      category: :edge_ops,
+      parent_group: :edge_sites,
+      subgroup: nil,
+      title: "Data Collectors",
+      description: "Provision lightweight edge endpoint collectors.",
+      icon: "hero-inbox-arrow-down",
+      route: "/admin/collectors",
+      live_view: ServiceRadarWebNGWeb.Admin.CollectorLive.Index,
+      permission: "plugins.view",
+      order: 320,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: :collectors_enabled,
+      match_prefixes: nil,
+      keywords: ["collectors", "nats", "data", "ingest"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+
+    # === Edge Ops · Automation ===============================================
+    %{
+      id: :ansible,
+      category: :edge_ops,
+      parent_group: :edge_automation,
+      subgroup: nil,
+      title: "Ansible",
+      description: "Manage Ansible controllers, repositories, and schedules.",
+      icon: "hero-command-line",
+      route: "/settings/ansible",
+      live_view: ServiceRadarWebNGWeb.Settings.AnsibleLive,
+      permission: "ansible.controllers.manage",
+      order: 410,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["ansible", "automation", "playbook", "controllers"],
       badge: nil,
       hidden_from_nav: false
     }
@@ -959,7 +1126,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
     %{id: :home, title: "Dashboard", icon: "hero-home", route: "/dashboard"},
     %{id: :apps, title: "Dashboards", icon: "hero-squares-2x2", route: "/dashboards"},
     %{id: :stack, title: "Devices", icon: "hero-server-stack", route: "/devices"},
-    %{id: :settings, title: "Settings", icon: "hero-cog-6-tooth", route: "/settings/audit/events"}
+    %{id: :settings, title: "Settings", icon: "hero-cog-6-tooth", route: "/settings/cluster"}
   ]
 
   # ---------------------------------------------------------------------------
@@ -969,6 +1136,10 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
   @doc "All categories, unsorted (declaration order)."
   @spec categories() :: [category()]
   def categories, do: @categories
+
+  @doc "All parent-groups, unsorted (declaration order)."
+  @spec parent_groups() :: [parent_group()]
+  def parent_groups, do: @parent_groups
 
   @doc "All views, unsorted (declaration order)."
   @spec views() :: [view()]
@@ -981,6 +1152,10 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
   @doc "Look up a category by id."
   @spec category(atom()) :: category() | nil
   def category(id) when is_atom(id), do: Enum.find(@categories, &(&1.id == id))
+
+  @doc "Look up a parent-group by id."
+  @spec parent_group(atom()) :: parent_group() | nil
+  def parent_group(id) when is_atom(id), do: Enum.find(@parent_groups, &(&1.id == id))
 
   @doc "Look up a view by id."
   @spec view(atom()) :: view() | nil
@@ -1018,6 +1193,19 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
     |> Enum.filter(&(&1.category == category_id))
     |> Enum.sort_by(& &1.order)
   end
+
+  @doc "All parent-groups belonging to a category, sorted by `:order`."
+  @spec parent_groups_for_category(atom()) :: [parent_group()]
+  def parent_groups_for_category(category_id) when is_atom(category_id) do
+    @parent_groups
+    |> Enum.filter(&(&1.category == category_id))
+    |> Enum.sort_by(& &1.order)
+  end
+
+  @doc "The parent-group that owns a view."
+  @spec parent_group_for_view(view() | nil) :: parent_group() | nil
+  def parent_group_for_view(%{parent_group: id}), do: parent_group(id)
+  def parent_group_for_view(_), do: nil
 
   @doc """
   The match prefixes for a view.
@@ -1155,6 +1343,53 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
     category_id
     |> views_for_category()
     |> Enum.filter(fn view -> not view.hidden_from_nav and visible_view?(scope, view) end)
+  end
+
+  @doc """
+  The 2-level nav tree for a category, scoped to `scope`.
+
+  Returns a list of `%{group: parent_group, sections: [...]}`, one per
+  parent-group that has at least one visible view, sorted by parent-group order.
+  Each section is `%{subgroup: String.t() | nil, views: [view]}` — a contiguous
+  run of views sharing a `:subgroup` label (or `nil` for ungrouped leaves), so
+  the shell can render *Users & Access* / *Credentials* / *Profiles* sub-headers
+  without a third collapsible level.
+  """
+  @spec nav_tree(term(), atom()) :: [%{group: parent_group(), sections: [map()]}]
+  def nav_tree(scope, category_id) when is_atom(category_id) do
+    visible = visible_views(scope, category_id)
+    by_group = Enum.group_by(visible, & &1.parent_group)
+
+    category_id
+    |> parent_groups_for_category()
+    |> Enum.flat_map(fn group ->
+      case Map.get(by_group, group.id, []) do
+        [] -> []
+        views -> [%{group: group, sections: sections(views)}]
+      end
+    end)
+  end
+
+  @doc """
+  The visible sibling views of `view` — the views in the same parent-group,
+  scoped to `scope`, sorted by order. Powers the breadcrumb "Navigate Views"
+  dropdown.
+  """
+  @spec siblings(term(), view() | nil) :: [view()]
+  def siblings(_scope, nil), do: []
+
+  def siblings(scope, %{category: category_id, parent_group: group_id}) do
+    scope
+    |> visible_views(category_id)
+    |> Enum.filter(&(&1.parent_group == group_id))
+  end
+
+  # Split an ordered view list into contiguous `:subgroup` runs.
+  defp sections(views) do
+    views
+    |> Enum.sort_by(& &1.order)
+    |> Enum.chunk_by(& &1.subgroup)
+    |> Enum.map(fn [%{subgroup: subgroup} | _] = chunk -> %{subgroup: subgroup, views: chunk} end)
   end
 
   @doc """

@@ -51,9 +51,10 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellHook do
       |> assign(:settings_active_view, nil)
       |> assign(:settings_active_category, nil)
       |> assign(:settings_breadcrumbs, [])
-      |> assign(:settings_nav_tree, %{categories: [], views: []})
+      |> assign(:settings_nav_tree, %{categories: [], groups: []})
+      |> assign(:settings_siblings, [])
       |> assign(:settings_palette, [])
-      |> assign(:settings_stats, %{})
+      |> assign(:settings_stats, [])
       |> attach_hook(:settings_shell_active_view, :handle_params, &resolve_active_view/3)
 
     {:cont, socket}
@@ -77,27 +78,30 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellHook do
           |> assign(:settings_breadcrumbs, Catalog.breadcrumbs_for_path(path))
           |> assign(:settings_nav_tree, %{
             categories: Catalog.visible_categories(scope),
-            views: nav_views(scope, category)
+            groups: nav_groups(scope, category)
           })
+          |> assign(:settings_siblings, Catalog.siblings(scope, view))
           |> assign(:settings_palette, Catalog.palette_index(scope))
-          |> maybe_load_stats()
+          |> maybe_load_stats(view)
       end
 
     {:cont, socket}
   end
 
-  # The topbar lists every visible category; the left panel lists the selected
-  # category's visible views.
-  defp nav_views(_scope, nil), do: []
-  defp nav_views(scope, %{id: category_id}), do: Catalog.visible_views(scope, category_id)
+  # The topbar lists every visible category; the left panel renders the selected
+  # category's 2-level tree (parent-group → subgroup → view).
+  defp nav_groups(_scope, nil), do: []
+  defp nav_groups(scope, %{id: category_id}), do: Catalog.nav_tree(scope, category_id)
 
-  # Compute the status-card metrics once per LiveView process, and only when the
-  # catalog shell is actually shown, so `:original`-mode users pay nothing.
-  defp maybe_load_stats(%{assigns: %{settings_ui: :catalog, settings_stats: stats}} = socket) when stats == %{} do
-    assign(socket, :settings_stats, StatusCards.load())
+  # Compute the CONTEXTUAL status cards for the active view, and only when the
+  # catalog shell is actually shown, so `:original`-mode users pay nothing. The
+  # result is either `:suppressed` (page renders its own metrics) or a list of
+  # `%{title, value}` cards resolved from view → parent-group → category.
+  defp maybe_load_stats(%{assigns: %{settings_ui: :catalog}} = socket, view) do
+    assign(socket, :settings_stats, StatusCards.for_view(view))
   end
 
-  defp maybe_load_stats(socket), do: socket
+  defp maybe_load_stats(socket, _view), do: socket
 
   defp uri_path(uri) when is_binary(uri) do
     case URI.parse(uri) do

@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.Settings.Catalog
   alias ServiceRadarWebNGWeb.Settings.Shell
+  alias ServiceRadarWebNGWeb.Settings.StatusCards
 
   @moduletag :db_free
 
@@ -42,9 +43,10 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
       breadcrumbs: Catalog.breadcrumbs_for_path(path),
       nav_tree: %{
         categories: Catalog.visible_categories(scope),
-        views: Catalog.visible_views(scope, category.id)
+        groups: Catalog.nav_tree(scope, category.id)
       },
       palette: Catalog.palette_index(scope),
+      stats: StatusCards.for_view(view),
       legacy_subnav: :none
     }
   end
@@ -63,22 +65,26 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
         breadcrumbs={@breadcrumbs}
         nav_tree={@nav_tree}
         palette={@palette}
+        stats={@stats}
         legacy_subnav={@legacy_subnav}
       >
         <p data-test="page-body">audit events body</p>
       </Shell.settings_chrome>
       """)
 
-    # View list (menu) + breadcrumbs + category switcher come from the catalog.
+    # View tree (parent-group + subgroup + leaves) + category switcher come from
+    # the catalog. Audit Trail sits under System → Security → Users & Access.
     assert html =~ "Audit Trail"
-    assert html =~ "Audit &amp; System Log"
+    assert html =~ "System"
+    assert html =~ "Security"
+    assert html =~ "Users &amp; Access"
     assert html =~ "Lockouts"
     # Ctrl+K command palette dialog is present.
     assert html =~ ~s(id="settings-command-palette")
     assert html =~ "CommandPalette"
     # The page body is rendered in the content slot.
     assert html =~ ~s(data-test="page-body")
-    # The unpermitted logs-gated view is NOT listed for this scope.
+    # The dropped System Event Logs view is gone from the catalog entirely.
     refute html =~ "System Event Logs"
   end
 
@@ -96,6 +102,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
         breadcrumbs={@breadcrumbs}
         nav_tree={@nav_tree}
         palette={@palette}
+        stats={@stats}
         legacy_subnav={@legacy_subnav}
       >
         <p data-test="page-body">audit events body</p>
@@ -114,18 +121,21 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
     assert html =~ ~s(id="settings-nav-drawer")
     assert html =~ "Open settings navigation"
 
-    # Left panel "Search views…" filter input + its hook.
-    assert html =~ "SettingsViewFilter"
+    # Left panel collapsible tree: the "Search views…" filter + the tree hook +
+    # native <details> parent-groups with a chevron affordance.
+    assert html =~ "SettingsNavTree"
     assert html =~ "Search views"
+    assert html =~ "data-nav-group"
 
-    # Leaf view-list items must NOT render an expand chevron (misleading affordance).
+    # Leaf view items must NOT render an expand chevron (only parent-groups do,
+    # via hero-chevron-down on the <details> summary).
     refute html =~ "hero-chevron-right"
 
-    # Status-card strip is present and degrades to em dashes with empty stats.
-    assert html =~ "Cluster health"
-    assert html =~ "Connected agents"
-    assert html =~ "Pending jobs"
-    assert html =~ "Active alerts"
+    # Contextual status-card strip: on an audit page the cards are the AUDIT set
+    # (never cluster-health), each degrading to an em dash with no data source.
+    assert html =~ "Audit events (24h)"
+    assert html =~ "Config changes"
+    refute html =~ "Cluster health"
 
     # Command palette rows surface the per-view description + section header.
     assert html =~ "Settings &amp; Deep Sections"
@@ -137,6 +147,36 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
 
     # No leftover second icon rail: the shell must not render `.sr-ops-sidebar`.
     refute html =~ "sr-ops-sidebar"
+  end
+
+  test "status strip is suppressed on a has_own_stats page (Cluster Status)" do
+    # Cluster Status renders its own Oban metrics, so `for_view/1` returns
+    # :suppressed and the shared strip must not render.
+    view = Catalog.view(:cluster_status)
+    assert StatusCards.for_view(view) == :suppressed
+
+    assigns = %{stats: :suppressed}
+
+    html =
+      rendered_to_string(~H"""
+      <div>
+        <Shell.settings_shell
+          current_path="/settings/cluster"
+          current_scope={%Scope{permissions: MapSet.new(["settings.view"])}}
+          active_view={ServiceRadarWebNGWeb.Settings.Catalog.view(:cluster_status)}
+          active_category={ServiceRadarWebNGWeb.Settings.Catalog.category(:system)}
+          breadcrumbs={ServiceRadarWebNGWeb.Settings.Catalog.breadcrumbs_for_path("/settings/cluster")}
+          nav_tree={%{categories: [], groups: []}}
+          palette={[]}
+          stats={@stats}
+        >
+          <p>cluster body</p>
+        </Shell.settings_shell>
+      </div>
+      """)
+
+    refute html =~ "Cluster health"
+    refute html =~ ~s(class="stat py-2")
   end
 
   test "original chrome renders the legacy nav and no new palette" do

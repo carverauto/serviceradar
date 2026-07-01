@@ -14,12 +14,14 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
   provides the global icon rail, so the shell renders NO icon rail of its own.
   Its layout mirrors the product mockup:
 
-    * Row A — a full-width category switcher (the seven catalog categories, sized
-      to fit on one line with no horizontal scroll) plus a "Portal State"
-      indicator on the right.
-    * Row B — a two-column grid: the left panel lists the **selected** category's
-      views, and the content column carries the breadcrumbs, the status-card
-      strip, and the page body.
+    * A header row with the ServiceRadar Console branding and a "Press Ctrl+K to
+      jump anywhere" palette trigger.
+    * A full-width topbar of the three catalog categories (System · Network
+      Services · Edge Ops), sized to fit on one line with no horizontal scroll.
+    * A two-column grid: the left panel is a "Search views…" filter over a
+      collapsible **2-level tree** (parent-group → subgroup → leaf view), and the
+      content column carries the breadcrumbs, the contextual status-card strip,
+      and the page body.
 
   All catalog-derived assigns (`settings_active_view`, `settings_active_category`,
   `settings_breadcrumbs`, `settings_nav_tree`, `settings_palette`,
@@ -44,9 +46,9 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
   attr(:active_view, :map, default: nil)
   attr(:active_category, :map, default: nil)
   attr(:breadcrumbs, :list, default: [])
-  attr(:nav_tree, :map, default: %{categories: [], views: []})
+  attr(:nav_tree, :map, default: %{categories: [], groups: []})
   attr(:palette, :list, default: [])
-  attr(:stats, :map, default: %{})
+  attr(:stats, :any, default: [])
 
   attr(:legacy_subnav, :atom,
     default: :none,
@@ -108,23 +110,26 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
   @doc """
   The new catalog-driven Settings shell. Renders to the right of the application
   layout's global icon rail: a full-width category switcher above a
-  `[view-list w-64][content]` grid.
+  `[view-tree w-64][content]` grid.
   """
   attr(:current_path, :string, required: true)
   attr(:current_scope, :map, default: nil)
   attr(:active_view, :map, default: nil)
   attr(:active_category, :map, default: nil)
   attr(:breadcrumbs, :list, default: [])
-  attr(:nav_tree, :map, default: %{categories: [], views: []})
+  attr(:nav_tree, :map, default: %{categories: [], groups: []})
   attr(:palette, :list, default: [])
-  attr(:stats, :map, default: %{})
+  attr(:stats, :any, default: [])
   slot(:inner_block, required: true)
 
   def settings_shell(assigns) do
+    groups = Map.get(assigns.nav_tree, :groups, [])
+
     assigns =
       assigns
       |> assign(:categories, Map.get(assigns.nav_tree, :categories, []))
-      |> assign(:views, Map.get(assigns.nav_tree, :views, []))
+      |> assign(:groups, groups)
+      |> assign(:sibling_views, sibling_views(groups, assigns.active_view))
 
     ~H"""
     <div class="flex flex-col rounded-lg border border-base-200 bg-base-100 overflow-hidden min-h-[70vh]">
@@ -190,7 +195,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
             </label>
           </div>
 
-          <.view_list views={@views} active_view={@active_view} active_category={@active_category} />
+          <.view_tree groups={@groups} active_view={@active_view} />
         </aside>
 
         <section class="min-w-0 flex flex-col">
@@ -206,7 +211,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
             <div class="min-w-0 flex-1 overflow-x-auto">
               <.breadcrumbs_bar
                 breadcrumbs={@breadcrumbs}
-                views={@views}
+                views={@sibling_views}
                 active_view={@active_view}
               />
             </div>
@@ -227,7 +232,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
   end
 
   # --- Topbar category switcher ----------------------------------------------
-  # On md+ the seven categories share the full row width evenly (`flex-1`) and
+  # On md+ the three categories share the full row width evenly (`flex-1`) and
   # show their full labels with no horizontal scroll. On narrow/mobile viewports
   # they size to content and scroll horizontally with snap points instead of
   # cramming into unreadable slivers.
@@ -269,14 +274,18 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
     """
   end
 
-  # --- Left view list of the selected category (daisyUI menu) -----------------
-  attr(:views, :list, default: [])
+  # --- Left 2-level view tree (collapsible parent-groups) ---------------------
+  # A "Search views…" live filter over collapsible parent-groups. Each group is a
+  # native `<details>` so it collapses with no JS; the `SettingsNavTree` hook adds
+  # localStorage persistence and search-aware expansion. Only parent-group headers
+  # carry a chevron (they have children); leaf views never do. The active group is
+  # expanded by default and the active leaf gets a blue highlighted box.
+  attr(:groups, :list, default: [])
   attr(:active_view, :map, default: nil)
-  attr(:active_category, :map, default: nil)
 
-  defp view_list(assigns) do
+  defp view_tree(assigns) do
     ~H"""
-    <div id="settings-view-filter" phx-hook="SettingsViewFilter" class="p-2">
+    <div id="settings-view-tree" phx-hook="SettingsNavTree" class="p-2 space-y-1">
       <label class="input input-sm input-bordered flex items-center gap-2 mb-1">
         <.icon name="hero-magnifying-glass" class="size-4 opacity-60" />
         <input
@@ -289,50 +298,71 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
         />
       </label>
 
-      <ul class="menu w-full gap-0.5 p-0">
-        <li :if={@active_category} class="menu-title" data-view-filter-skip>
-          {@active_category.title}
-        </li>
-        <li :for={view <- @views} data-view-search={view_search(view)}>
-          <.link
-            navigate={view.route}
-            aria-current={active_view?(@active_view, view) && "page"}
-            class={[
-              "gap-2 rounded-lg",
-              active_view?(@active_view, view) &&
-                "text-accent bg-primary/10 font-semibold border border-primary/20"
-            ]}
-          >
-            <.icon name={view.icon} class="size-4 shrink-0" />
-            <span class="truncate">{view.title}</span>
-            <span :if={view.badge} class="badge badge-sm badge-primary ml-auto">{view.badge}</span>
-            <%!-- Only leaf-less views get an expand chevron. Every catalog view is
-                  currently a leaf, so this renders for none of them; it stays
-                  conditional so a future view with sub-items shows one. --%>
-            <.icon
-              :if={view_has_children?(view)}
-              name="hero-chevron-right"
-              class="size-4 shrink-0 ml-auto"
-            />
-          </.link>
-        </li>
-        <li :if={@views == []} class="px-3 py-2 text-sm text-base-content/50" data-view-filter-skip>
-          No views available
-        </li>
-        <li
-          data-view-filter-empty
-          class="hidden px-3 py-2 text-sm text-base-content/50"
-        >
-          No matching views.
-        </li>
-      </ul>
+      <div
+        data-view-filter-empty
+        class="hidden px-3 py-2 text-sm text-base-content/50"
+      >
+        No matching views.
+      </div>
+
+      <details
+        :for={%{group: group, sections: sections} <- @groups}
+        data-nav-group
+        data-group-id={group.id}
+        open={active_group?(group, @active_view)}
+        class="group/nav rounded-lg"
+      >
+        <summary class="flex cursor-pointer list-none items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-base-content/80 hover:bg-base-200 [&::-webkit-details-marker]:hidden">
+          <.icon name={group.icon} class="size-4 shrink-0 opacity-70" />
+          <span class="truncate flex-1">{group.title}</span>
+          <.icon
+            name="hero-chevron-down"
+            class="size-4 shrink-0 opacity-60 transition-transform group-open/nav:rotate-180"
+          />
+        </summary>
+
+        <div class="mt-0.5 pl-2">
+          <div :for={section <- sections}>
+            <div
+              :if={section.subgroup}
+              data-view-filter-skip
+              class="px-3 pt-2 pb-0.5 text-[11px] font-semibold uppercase tracking-wide text-base-content/45"
+            >
+              {section.subgroup}
+            </div>
+            <ul class="menu w-full gap-0.5 p-0">
+              <li :for={view <- section.views} data-view-search={view_search(view)}>
+                <.link
+                  navigate={view.route}
+                  aria-current={active_view?(@active_view, view) && "page"}
+                  class={[
+                    "gap-2 rounded-lg",
+                    active_view?(@active_view, view) &&
+                      "text-info bg-info/10 font-semibold border border-info/20"
+                  ]}
+                >
+                  <.icon name={view.icon} class="size-4 shrink-0" />
+                  <span class="truncate">{view.title}</span>
+                  <span :if={view.badge} class="badge badge-sm badge-primary ml-auto">
+                    {view.badge}
+                  </span>
+                </.link>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </details>
+
+      <div :if={@groups == []} class="px-3 py-2 text-sm text-base-content/50">
+        No views available
+      </div>
     </div>
     """
   end
 
   # --- Breadcrumbs (daisyUI breadcrumbs) -------------------------------------
   # The final segment (current view) is a dropdown that jumps to sibling views in
-  # the same category.
+  # the same parent-group.
   attr(:breadcrumbs, :list, default: [])
   attr(:views, :list, default: [])
   attr(:active_view, :map, default: nil)
@@ -392,28 +422,19 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
     """
   end
 
-  # --- Status card strip (daisyUI stats), degrades gracefully ----------------
-  attr(:stats, :map, default: %{})
+  # --- Contextual status card strip (daisyUI stats) --------------------------
+  # Renders whatever card list the shell is handed. Suppressed entirely when the
+  # active page renders its own metrics (`:suppressed`) or there are no cards.
+  # Each card value degrades to an em dash when nil.
+  attr(:stats, :any, default: [])
 
   defp status_strip(assigns) do
     ~H"""
-    <div class="px-3 pt-3 md:px-4">
+    <div :if={is_list(@stats) and @stats != []} class="px-3 pt-3 md:px-4">
       <div class="stats stats-vertical sm:stats-horizontal w-full overflow-x-auto border border-base-200 bg-base-100 shadow-sm">
-        <div class="stat py-2">
-          <div class="stat-title text-xs">Cluster health</div>
-          <div class="stat-value text-lg">{stat_value(@stats, :cluster_health)}</div>
-        </div>
-        <div class="stat py-2">
-          <div class="stat-title text-xs">Connected agents</div>
-          <div class="stat-value text-lg">{stat_value(@stats, :connected_agents)}</div>
-        </div>
-        <div class="stat py-2">
-          <div class="stat-title text-xs">Pending jobs</div>
-          <div class="stat-value text-lg">{stat_value(@stats, :pending_jobs)}</div>
-        </div>
-        <div class="stat py-2">
-          <div class="stat-title text-xs">Active alerts</div>
-          <div class="stat-value text-lg">{stat_value(@stats, :active_alerts)}</div>
+        <div :for={card <- @stats} class="stat py-2">
+          <div class="stat-title text-xs">{card.title}</div>
+          <div class="stat-value text-lg">{stat_display(card.value)}</div>
         </div>
       </div>
     </div>
@@ -552,16 +573,25 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
   defp active_view?(%{id: id}, %{id: id}), do: true
   defp active_view?(_, _), do: false
 
-  # Catalog views are currently all leaves; this stays conditional so a future
-  # view carrying `:children` renders an expand chevron and childless ones never do.
-  defp view_has_children?(view), do: Map.get(view, :children, []) not in [nil, []]
+  # A parent-group is expanded by default when it owns the active view.
+  defp active_group?(%{id: group_id}, %{parent_group: group_id}), do: true
+  defp active_group?(_, _), do: false
 
-  defp stat_value(stats, key) do
-    case Map.get(stats, key) do
-      nil -> "—"
-      value -> value
+  # Flatten the active view's parent-group into a sibling list for the breadcrumb
+  # "Navigate Views" dropdown.
+  defp sibling_views(_groups, nil), do: []
+
+  defp sibling_views(groups, %{parent_group: group_id}) do
+    groups
+    |> Enum.find(fn %{group: %{id: id}} -> id == group_id end)
+    |> case do
+      %{sections: sections} -> Enum.flat_map(sections, & &1.views)
+      _ -> []
     end
   end
+
+  defp stat_display(nil), do: "—"
+  defp stat_display(value), do: value
 
   defp palette_search(item) do
     [item.view_title, item.category_title, item.route | item.keywords]
