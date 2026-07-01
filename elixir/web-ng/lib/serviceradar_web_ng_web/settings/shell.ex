@@ -137,8 +137,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
         <div class="min-w-0">
           <div class="flex items-center gap-2 font-semibold">
             <.icon name="hero-cog-6-tooth" class="size-4 text-accent" />
-            <span class="truncate">ServiceRadar Console</span>
-            <span class="badge badge-sm badge-ghost font-mono">v{app_version()}</span>
+            <span class="truncate">Settings Console</span>
           </div>
           <p class="text-xs text-base-content/55">
             Unified Administrative Platform &amp; Settings Control
@@ -562,14 +561,6 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
   end
 
   # --- Helpers ---------------------------------------------------------------
-
-  defp app_version do
-    case Application.spec(:serviceradar_web_ng, :vsn) do
-      vsn when is_list(vsn) -> List.to_string(vsn)
-      vsn when is_binary(vsn) -> vsn
-      _ -> "dev"
-    end
-  end
 
   defp active_category?(%{id: id}, %{id: id}), do: true
   defp active_category?(_, _), do: false
