@@ -279,7 +279,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
           :healthy,
           %{
             current_version: agent.version,
-            last_status_message: "agent already at desired version",
+            last_status_message: reconcile_completion_message(target),
             progress_percent: 100
           },
           actor
@@ -297,6 +297,16 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
       end
     end
   end
+
+  # A heartbeat reconcile can win the race against the agent's command result and
+  # complete the target itself. Only call it "already at desired version" when the
+  # target was truly never rolled out (still pending with no dispatched command);
+  # otherwise it was an active update that converged, so use completion wording
+  # consistent with the command-result path.
+  defp reconcile_completion_message(%AgentReleaseTarget{status: :pending, command_id: nil}),
+    do: "agent already at desired version"
+
+  defp reconcile_completion_message(%AgentReleaseTarget{}), do: "release activated"
 
   defp retry_unacknowledged_release_command(
          %AgentReleaseTarget{status: status, command_id: command_id} = target,
