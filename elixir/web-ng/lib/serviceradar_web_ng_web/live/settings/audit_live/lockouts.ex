@@ -13,7 +13,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Lockouts do
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Security.AuthLockout
   alias ServiceRadar.Security.Lockouts
-  alias ServiceRadarWebNGWeb.SettingsComponents
+  alias ServiceRadarWebNGWeb.Settings.Shell
 
   on_mount {ServiceRadarWebNGWeb.UserAuth, :require_authenticated}
 
@@ -106,12 +106,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Lockouts do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <SettingsComponents.settings_shell current_path={@current_path}>
-        <SettingsComponents.settings_nav
-          current_path={@current_path}
-          current_scope={@current_scope}
-        />
-
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path={@current_path}
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+        legacy_subnav={:none}
+      >
         <header class="space-y-1">
           <h1 class="text-2xl font-semibold">Audit · Lockouts</h1>
           <p class="text-sm text-base-content/60">
@@ -171,7 +176,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Lockouts do
             You need <code>settings.audit.view</code> to see lockouts.
           </p>
         <% end %>
-      </SettingsComponents.settings_shell>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end

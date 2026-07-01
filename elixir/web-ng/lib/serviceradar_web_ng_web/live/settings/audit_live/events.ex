@@ -14,7 +14,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
 
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Security.SecurityEvent
-  alias ServiceRadarWebNGWeb.SettingsComponents
+  alias ServiceRadarWebNGWeb.Settings.Shell
 
   require Ash.Query
 
@@ -169,12 +169,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <SettingsComponents.settings_shell current_path={@current_path}>
-        <SettingsComponents.settings_nav
-          current_path={@current_path}
-          current_scope={@current_scope}
-        />
-
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path={@current_path}
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+        legacy_subnav={:none}
+      >
         <header class="space-y-1">
           <h1 class="text-2xl font-semibold">Audit · Events</h1>
           <p class="text-sm text-base-content/60">
@@ -263,7 +268,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
             You need <code>settings.audit.view</code> to see security events.
           </p>
         <% end %>
-      </SettingsComponents.settings_shell>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end

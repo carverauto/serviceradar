@@ -13,7 +13,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
 
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Security.AuditHistory
-  alias ServiceRadarWebNGWeb.SettingsComponents
+  alias ServiceRadarWebNGWeb.Settings.Shell
 
   on_mount {ServiceRadarWebNGWeb.UserAuth, :require_authenticated}
 
@@ -199,17 +199,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <SettingsComponents.settings_shell current_path={@current_path}>
-        <SettingsComponents.settings_nav
-          current_path={@current_path}
-          current_scope={@current_scope}
-        />
-
-        <SettingsComponents.audit_nav
-          current_path={@current_path}
-          current_scope={@current_scope}
-        />
-
+      <Shell.settings_chrome
+        settings_ui={@settings_ui}
+        current_path={@current_path}
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+        legacy_subnav={:audit}
+      >
         <header class="space-y-1">
           <h1 class="text-2xl font-semibold">Audit · History</h1>
           <p class="text-sm text-base-content/60">
@@ -319,7 +319,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
             You need <code>settings.audit.view</code> to see version history.
           </p>
         <% end %>
-      </SettingsComponents.settings_shell>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end
