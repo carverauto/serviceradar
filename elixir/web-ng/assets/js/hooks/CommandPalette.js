@@ -69,21 +69,26 @@ export default {
       this.el.setAttribute("open", "open")
     }
     this._filter()
-    // Auto-focus the search box so the user can type immediately (whether opened
-    // via Ctrl/Cmd+K or the header trigger). `showModal()` moves focus to the
-    // dialog, so we re-assert focus on the input after it settles (next frame and
-    // a macrotask) and select any residual text. Re-query fresh to avoid a stale
-    // node reference after LiveView re-renders.
+    // Auto-focus the search box so the user can type immediately. This is
+    // finicky: the input's `autofocus` attribute is only honoured on the FIRST
+    // showModal() (subsequent opens ignore it), showModal() runs its own dialog
+    // focusing steps, and daisyUI plays an open transition — any of which can
+    // leave focus off the input if we grab it too early. So we re-assert focus
+    // ourselves across several timings (this tick, after the next paint via a
+    // double rAF, and after the transition settles), re-querying the node fresh
+    // each time and skipping once focus has already landed.
     const focusInput = () => {
       const input = this.el.querySelector("[data-command-palette-input]")
-      if (input) {
+      if (!input) return
+      if (document.activeElement !== input) {
         input.focus()
         input.select()
       }
     }
     focusInput()
-    requestAnimationFrame(focusInput)
-    setTimeout(focusInput, 0)
+    requestAnimationFrame(() => requestAnimationFrame(focusInput))
+    setTimeout(focusInput, 60)
+    setTimeout(focusInput, 180)
   },
 
   _restoreFocus() {
