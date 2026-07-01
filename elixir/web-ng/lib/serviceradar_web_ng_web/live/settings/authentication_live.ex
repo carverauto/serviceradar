@@ -310,8 +310,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                     </svg>
                     <span>
                       SSO identities without a pre-existing local account are denied login.
-                      Provision accounts ahead of time in
-                      <.link navigate={~p"/settings/auth/users"} class="link link-primary">Users</.link>.
+                      Provision accounts ahead of time in <.link
+                        navigate={~p"/settings/auth/users"}
+                        class="link link-primary"
+                      >Users</.link>.
                     </span>
                   </div>
                 <% end %>
