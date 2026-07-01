@@ -165,7 +165,7 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
       WHEN counter_width = 32
         THEN ({value_col} + 4294967296 - prev_value) / {time_delta}
       -- Unknown width (legacy rows): assume a 32-bit wrap only when the previous value
-      -- still fit in 32 bits; otherwise treat the decrease as a genuine reset and drop it.
+      -- still fit in 32 bits, otherwise treat the decrease as a genuine reset and drop it.
       WHEN prev_value < 4294967296
         THEN ({value_col} + 4294967296 - prev_value) / {time_delta}
       ELSE NULL
