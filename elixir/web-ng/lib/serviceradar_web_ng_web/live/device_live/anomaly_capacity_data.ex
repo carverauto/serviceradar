@@ -238,10 +238,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       "class_uid:2004",
       # Anomaly findings carry source_type='anomaly_detection' in
       # metadata.service_radar; event_type is NULL on these rows. Filtering
-      # source_type (not event_type) both returns the findings AND matches the
-      # partial index idx_ocsf_events_sr_anomaly_device_time (class_uid=2004
-      # AND source_type='anomaly_detection', keyed on device_uid,time) — turns
-      # a 5s full-scan timeout into a sub-ms index scan.
+      # source_type (not event_type) is what returns the findings.
+      #
+      # Index note: this query does NOT ride the anomaly-specific partial index
+      # idx_ocsf_events_sr_anomaly_device_time (class_uid=2004 AND
+      # source_type='anomaly_detection'). SRQL expands `source_type:...` into a
+      # nine-way OR (log_provider / log_name / metadata #>> service_radar &
+      # serviceradar source_type & addon_id / metadata->>source / unmapped
+      # source_type & addon_id), and an OR cannot imply that partial index's
+      # source_type='anomaly_detection' predicate — so the narrow index is dead
+      # for this query. What actually serves it is the broad class_uid=2004-only
+      # device index idx_ocsf_events_sr_device_uid_time ((device_uid, time DESC)
+      # WHERE class_uid = 2004): class_uid=2004 implies its partial predicate,
+      # device_uid=X seeks the leading key, time DESC satisfies the ORDER BY, and
+      # the 9-way OR collapses to a cheap residual Filter over that one device's
+      # 2004 rows. Do NOT re-narrow the device index onto source_type (see
+      # migration 20260625120000_restore_ocsf_events_broad_device_index) — doing
+      # so drops the plan back to a 7-day full scan that trips the 5000ms panel
+      # timeout for every device. A durable fix is a dedicated narrow SRQL field
+      # that compiles source_type to a single pushable equality (future work).
       "source_type:anomaly_detection",
       ~s|#{field}:"#{QueryData.escape_value(value)}"|,
       "time:last_7d",
