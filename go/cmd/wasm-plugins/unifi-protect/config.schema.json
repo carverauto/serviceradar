@@ -27,10 +27,10 @@
       "type": "string",
       "description": "Optional pre-provisioned controller Cookie header value"
     },
-    "timeout": {
-      "type": "string",
-      "description": "Request timeout duration",
-      "default": "10s"
+    "timeout_ms": {
+      "type": "integer",
+      "description": "Request timeout in milliseconds",
+      "default": 30000
     },
     "insecure_skip_verify": {
       "type": "boolean",

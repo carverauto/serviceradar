@@ -1,6 +1,11 @@
 package main
 
-import "code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
+import (
+	"encoding/json"
+	"strings"
+
+	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
+)
 
 type RelayConfig = sdk.CameraRelayConfig
 
@@ -30,21 +35,37 @@ func closeProtectMedia(stream *sdk.CameraMediaStream, reason string) error {
 }
 
 func loadStreamConfig() (StreamConfig, error) {
-	cfg := StreamConfig{
-		Config: Config{
-			CameraPluginConfig: sdk.CameraPluginConfig{
-				Scheme:          "https",
-				DiscoverStreams: true,
-				CollectEvents:   false,
-				EventSources:    "updates",
-				Timeout:         "10s",
-			},
-			BootstrapPath: "/proxy/protect/api/bootstrap",
-			LoginPath:     "/api/auth/login",
-			RTSPPort:      7447,
-		},
+	raw, err := loadRawConfigBytes()
+	if err != nil {
+		return StreamConfig{Config: defaultConfig()}, err
+	}
+	return decodeStreamConfig(raw)
+}
+
+// decodeStreamConfig parses the streaming config (flat or plugin_inputs
+// envelope), then injects the controller host from the relay source URL when no
+// host was supplied inline or via the per-target envelope.
+func decodeStreamConfig(raw []byte) (StreamConfig, error) {
+	cfg, err := decodeConfig(raw)
+	stream := StreamConfig{Config: cfg}
+	if err != nil {
+		return stream, err
 	}
 
-	err := sdk.LoadConfig(&cfg)
-	return cfg, err
+	if len(strings.TrimSpace(string(raw))) > 0 {
+		var relayHolder struct {
+			Relay RelayConfig `json:"relay"`
+		}
+		if unmarshalErr := json.Unmarshal(raw, &relayHolder); unmarshalErr == nil {
+			stream.Relay = relayHolder.Relay
+		}
+	}
+
+	if strings.TrimSpace(stream.Host) == "" {
+		if host := hostFromRelaySourceURL(stream.Relay.SourceURL); host != "" {
+			stream.Host = host
+		}
+	}
+
+	return stream, nil
 }

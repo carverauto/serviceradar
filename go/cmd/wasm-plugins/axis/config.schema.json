@@ -9,7 +9,7 @@
     "scheme": {
       "type": "string",
       "description": "http or https",
-      "default": "http"
+      "default": "https"
     },
     "username": {
       "type": "string",
@@ -26,10 +26,15 @@
       "default": "unknown",
       "enum": ["none", "basic", "digest", "unknown"]
     },
-    "timeout": {
-      "type": "string",
-      "description": "Request timeout duration",
-      "default": "10s"
+    "timeout_ms": {
+      "type": "integer",
+      "description": "Request timeout in milliseconds",
+      "default": 30000
+    },
+    "rtsp_port": {
+      "type": "integer",
+      "description": "RTSP port (appended to the stream URL only when non-standard)",
+      "default": 554
     },
     "discover_streams": {
       "type": "boolean",

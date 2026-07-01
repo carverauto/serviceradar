@@ -19,6 +19,11 @@ type Config struct {
 	EventTopicFilters string `json:"event_topic_filters"`
 	PasswordSecretRef string `json:"password_secret_ref"`
 	StreamAuthMode    string `json:"stream_auth_mode"`
+	RTSPPort          int    `json:"rtsp_port"`
+	// TimeoutMS is the canonical request timeout in milliseconds emitted by the
+	// credential materializer (params_template). It takes precedence over the
+	// legacy string Timeout when set. See config_envelope.go normalizeTimeout.
+	TimeoutMS int `json:"timeout_ms"`
 }
 
 type EndpointResult struct {
@@ -113,9 +118,11 @@ func getEndpoint(ctx context.Context, client cameraHTTPGetter, path string) Endp
 }
 
 func loadAxisConfig() (Config, error) {
-	cfg := Config{CameraPluginConfig: sdk.DefaultCameraPluginConfig()}
-	err := sdk.LoadConfig(&cfg)
-	return cfg, err
+	raw, err := loadRawConfigBytes()
+	if err != nil {
+		return defaultConfig(), err
+	}
+	return decodeConfig(raw)
 }
 
 //export run_check
@@ -178,7 +185,7 @@ func run_check() {
 				collectStreamInfo(
 					ctx,
 					client,
-					cfg.Host,
+					axisRTSPHost(cfg),
 					details.StreamAuthMode,
 					details.CredentialRefID,
 				)

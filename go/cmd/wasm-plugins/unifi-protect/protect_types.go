@@ -14,6 +14,10 @@ type Config struct {
 	BootstrapPath string `json:"bootstrap_path"`
 	LoginPath     string `json:"login_path"`
 	RTSPPort      int    `json:"rtsp_port"`
+	// TimeoutMS is the canonical request timeout in milliseconds emitted by the
+	// credential materializer (params_template). It takes precedence over the
+	// legacy string Timeout when set. See config_envelope.go normalizeTimeout.
+	TimeoutMS int `json:"timeout_ms"`
 }
 
 type EndpointResult struct {
