@@ -11,19 +11,31 @@ defmodule ServiceRadarWebNGWeb.Settings.StatusCards do
   Every metric is computed independently and fails soft to `nil`, so a single
   unavailable source degrades only its own card to `"—"` (see
   `ServiceRadarWebNGWeb.Settings.Shell`, which renders a `nil` value as an em
-  dash). Metrics without a cheap local source are intentionally rendered as `nil`
-  cards: the card *titles* still communicate the page context, and real values
-  populate wherever a source is available.
+  dash). Each metric is wired to the same authoritative source the corresponding
+  page reads from (agent/user/device/sweep/audit resources), resolved with cheap
+  aggregate counts rather than per-row queries.
   """
 
   import Ecto.Query, only: [from: 2]
 
+  alias ServiceRadar.Edge.AgentRelease
+  alias ServiceRadar.Identity.CliSession
+  alias ServiceRadar.Identity.OAuthClient
+  alias ServiceRadar.Identity.User
+  alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Repo
+  alias ServiceRadar.Security.AuditHistory
+  alias ServiceRadar.Security.SecurityEvent
+  alias ServiceRadar.SweepJobs.SweepGroup
+  alias ServiceRadarWebNG.TenantUsage
   alias ServiceRadarWebNGWeb.Stats
 
-  @rpc_timeout 1_000
-  @stream_timeout 1_500
+  require Ash.Query
 
+  # Counts are computed unscoped (`authorize?: false`): the status strip is an
+  # operator-facing summary and each resolver is wrapped fail-soft below, so a
+  # missing/unauthorized/unavailable source only dashes its own card.
   @type card :: %{title: String.t(), value: term() | nil}
 
   @doc """
@@ -56,17 +68,17 @@ defmodule ServiceRadarWebNGWeb.Settings.StatusCards do
 
   defp cards(:users) do
     [
-      %{title: "Total users", value: nil},
-      %{title: "Active (30d)", value: nil},
-      %{title: "Active sessions", value: nil},
-      %{title: "API keys", value: nil}
+      %{title: "Total users", value: total_users()},
+      %{title: "Active (30d)", value: active_users_30d()},
+      %{title: "Active sessions", value: active_cli_sessions()},
+      %{title: "API keys", value: api_credentials_count()}
     ]
   end
 
   defp cards(:audit) do
     [
-      %{title: "Audit events (24h)", value: nil},
-      %{title: "Config changes", value: nil}
+      %{title: "Audit events (24h)", value: audit_events_24h()},
+      %{title: "Config changes", value: config_changes_24h()}
     ]
   end
 
@@ -79,19 +91,17 @@ defmodule ServiceRadarWebNGWeb.Settings.StatusCards do
 
   defp cards(:network) do
     [
-      %{title: "Discovered devices", value: nil},
-      %{title: "Active sweeps", value: nil}
+      %{title: "Discovered devices", value: discovered_devices()},
+      %{title: "Active sweeps", value: active_sweeps()}
     ]
   end
 
   defp cards(:edge) do
-    agents = connected_agents()
-
     [
-      %{title: "Total agents", value: agents},
-      %{title: "Online", value: agents},
-      %{title: "Add-ons", value: nil},
-      %{title: "Latest release", value: nil}
+      %{title: "Total agents", value: connected_agents()},
+      %{title: "Online", value: reporting_agents()},
+      %{title: "Add-ons", value: addon_packages_count()},
+      %{title: "Latest release", value: latest_release()}
     ]
   end
 
@@ -108,36 +118,168 @@ defmodule ServiceRadarWebNGWeb.Settings.StatusCards do
     _, _ -> nil
   end
 
+  # Total connected agents — the same authoritative source the Agent Releases page
+  # counts for "Connected agents available now" (`Agent`'s `:connected` read:
+  # status connected + healthy + seen in the last 30m). Replaces the old
+  # `AgentTracker` RPC, which reported 0 on single-node deployments.
   defp connected_agents do
-    [Node.self() | Node.list()]
-    |> Task.async_stream(
-      fn node ->
-        case :rpc.call(node, ServiceRadar.AgentTracker, :list_agents, [], @rpc_timeout) do
-          agents when is_list(agents) -> agents
-          _ -> []
-        end
-      end,
-      timeout: @stream_timeout,
-      on_timeout: :kill_task,
-      max_concurrency: 4
-    )
-    |> Enum.flat_map(fn
-      {:ok, agents} -> agents
-      _ -> []
-    end)
-    |> Enum.map(&agent_id/1)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.uniq()
-    |> length()
+    Agent
+    |> Ash.Query.for_read(:connected, %{})
+    |> Ash.count!(authorize?: false)
   rescue
     _ -> nil
   catch
     _, _ -> nil
   end
 
-  defp agent_id(agent) do
-    id = Map.get(agent, :agent_id) || Map.get(agent, "agent_id")
-    if is_binary(id) and id != "", do: id
+  # A distinct, tighter "reporting" count: agents seen in the last 5 minutes.
+  defp reporting_agents do
+    Agent
+    |> Ash.Query.for_read(:recently_seen, %{})
+    |> Ash.count!(authorize?: false)
+  rescue
+    _ -> nil
+  catch
+    _, _ -> nil
+  end
+
+  # Latest published agent release version string (same resource + sort the
+  # Agent Releases page lists from).
+  defp latest_release do
+    AgentRelease
+    |> Ash.Query.for_read(:read, %{})
+    |> Ash.Query.sort(published_at: :desc, inserted_at: :desc)
+    |> Ash.Query.limit(1)
+    |> Ash.read!(authorize?: false)
+    |> case do
+      [%{version: version} | _] when is_binary(version) and version != "" -> version
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  catch
+    _, _ -> nil
+  end
+
+  # Count of add-on packages in the catalog (the Add-ons Catalog page lists these).
+  defp addon_packages_count do
+    AddonPackage
+    |> Ash.Query.for_read(:read, %{})
+    |> Ash.count!(authorize?: false)
+  rescue
+    _ -> nil
+  catch
+    _, _ -> nil
+  end
+
+  defp total_users do
+    User
+    |> Ash.Query.for_read(:read, %{})
+    |> Ash.count!(authorize?: false)
+  rescue
+    _ -> nil
+  catch
+    _, _ -> nil
+  end
+
+  defp active_users_30d do
+    cutoff = DateTime.add(DateTime.utc_now(), -30 * 86_400, :second)
+
+    User
+    |> Ash.Query.for_read(:read, %{})
+    |> Ash.Query.filter(last_login_at >= ^cutoff)
+    |> Ash.count!(authorize?: false)
+  rescue
+    _ -> nil
+  catch
+    _, _ -> nil
+  end
+
+  # Active serviceradar-cli sessions (CliSession's `:active` read filters on the
+  # stored `status == :active`).
+  defp active_cli_sessions do
+    CliSession
+    |> Ash.Query.for_read(:active, %{})
+    |> Ash.count!(authorize?: false)
+  rescue
+    _ -> nil
+  catch
+    _, _ -> nil
+  end
+
+  # Count of API credential clients (the API Credentials page manages these).
+  defp api_credentials_count do
+    OAuthClient
+    |> Ash.Query.for_read(:read, %{})
+    |> Ash.count!(authorize?: false)
+  rescue
+    _ -> nil
+  catch
+    _, _ -> nil
+  end
+
+  # Managed+active devices — the canonical runtime device count (also drives
+  # plan/usage visibility). `managed_device_count/0` fails soft to 0 itself.
+  defp discovered_devices do
+    TenantUsage.managed_device_count()
+  rescue
+    _ -> nil
+  catch
+    _, _ -> nil
+  end
+
+  # Enabled sweep groups (the Sweep Profiles / Discovery page manages these).
+  defp active_sweeps do
+    SweepGroup
+    |> Ash.Query.for_read(:enabled_groups, %{})
+    |> Ash.count!(authorize?: false)
+  rescue
+    _ -> nil
+  catch
+    _, _ -> nil
+  end
+
+  # Security events recorded in the last 24h. The Audit → Events page live-tails
+  # these over PubSub but also reads them from the `security_events` table, so a
+  # windowed count is a real value here.
+  defp audit_events_24h do
+    cutoff = DateTime.add(DateTime.utc_now(), -24 * 3600, :second)
+
+    SecurityEvent
+    |> Ash.Query.for_read(:read, %{})
+    |> Ash.Query.filter(occurred_at >= ^cutoff)
+    |> Ash.count!(authorize?: false)
+  rescue
+    _ -> nil
+  catch
+    _, _ -> nil
+  end
+
+  # AshPaperTrail version rows written in the last 24h, summed across the same
+  # resource allow-list the Audit → History page reads from.
+  defp config_changes_24h do
+    cutoff = DateTime.add(DateTime.utc_now(), -24 * 3600, :second)
+
+    AuditHistory.resources()
+    |> Enum.map(&count_versions_since(&1, cutoff))
+    |> Enum.sum()
+  rescue
+    _ -> nil
+  catch
+    _, _ -> nil
+  end
+
+  defp count_versions_since(resource, cutoff) do
+    version_module = Module.concat(resource, Version)
+
+    if Code.ensure_loaded?(version_module) do
+      version_module
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(version_inserted_at >= ^cutoff)
+      |> Ash.count!(authorize?: false)
+    else
+      0
+    end
   end
 
   defp pending_jobs do
