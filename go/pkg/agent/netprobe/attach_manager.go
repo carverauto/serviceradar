@@ -227,8 +227,10 @@ func (m *AttachManager) probeHealth(ctx context.Context, client sidecar.Client, 
 	}
 	if err == nil {
 		*failures = 0
-		m.setHealthy()
+		// Mark the sidecar healthy before flipping status to StateRunning so any
+		// observer that sees StateRunning is guaranteed to also see Healthy().
 		m.sidecar.OnHealthy(client)
+		m.setHealthy()
 		return client
 	}
 
@@ -239,8 +241,10 @@ func (m *AttachManager) probeHealth(ctx context.Context, client sidecar.Client, 
 
 	*failures++
 	if *failures == m.cfg.UnhealthyThreshold {
-		m.setUnhealthy(err)
+		// Mirror the healthy path: mark the sidecar unhealthy before flipping
+		// status to StateUnhealthy so observers see a consistent view.
 		m.sidecar.OnUnhealthy(err)
+		m.setUnhealthy(err)
 	}
 
 	return nil
