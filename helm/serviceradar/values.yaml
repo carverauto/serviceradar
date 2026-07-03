@@ -714,6 +714,41 @@ cnpg:
   # Helm reuses existing secrets and does not rotate CNPG credentials on upgrade.
   # Delete/recreate cnpg-superuser or serviceradar-db-credentials to rotate.
   sslmode: verify-full
+  backup:
+    # Enables CNPG native Barman object-store backup configuration. Keep disabled
+    # for single-node/dev installs; hosted tenant values turn this on with a
+    # per-tenant bucket and per-tenant credential secret.
+    enabled: false
+    retentionPolicy: "30d"
+    target: prefer-standby
+    barmanObjectStore:
+      destinationPath: ""
+      endpointURL: ""
+      serverName: ""
+      endpointCA:
+        name: ""
+        key: ca.crt
+      s3Credentials:
+        secretName: ""
+        accessKeyIdKey: ACCESS_KEY_ID
+        secretAccessKeyKey: ACCESS_SECRET_KEY
+        sessionTokenKey: ""
+      wal:
+        compression: gzip
+        encryption: AES256
+        maxParallel: 8
+      data:
+        compression: gzip
+        encryption: AES256
+    scheduledBackup:
+      enabled: true
+      name: ""
+      schedule: "0 0 0 * * *"
+      immediate: true
+      suspend: false
+      backupOwnerReference: cluster
+      # Leave blank to let CNPG default to barmanObjectStore on older CRDs.
+      method: ""
   localDevAccess:
     # Optional CNPG ingress NetworkPolicy for local developer workstations.
     # Keep disabled by default; demo can opt in with explicit LAN CIDRs.
