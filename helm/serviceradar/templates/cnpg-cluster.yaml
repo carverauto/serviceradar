@@ -5,6 +5,26 @@
 {{- if and (default true $cnpg.enabled) (not $spiffeCnpgManaged) }}
 {{- $ns := .Release.Namespace -}}
 {{- $globalStorage := default (dict) .Values.global.storage -}}
+{{- $backup := default (dict) $cnpg.backup -}}
+{{- $barman := default (dict) $backup.barmanObjectStore -}}
+{{- $s3Credentials := default (dict) $barman.s3Credentials -}}
+{{- $scheduledBackup := default (dict) $backup.scheduledBackup -}}
+{{- $backupEnabled := false -}}
+{{- if hasKey $backup "enabled" -}}
+  {{- $backupEnabled = $backup.enabled -}}
+{{- end -}}
+{{- $scheduledBackupEnabled := true -}}
+{{- if hasKey $scheduledBackup "enabled" -}}
+  {{- $scheduledBackupEnabled = $scheduledBackup.enabled -}}
+{{- end -}}
+{{- $scheduledBackupImmediate := true -}}
+{{- if hasKey $scheduledBackup "immediate" -}}
+  {{- $scheduledBackupImmediate = $scheduledBackup.immediate -}}
+{{- end -}}
+{{- $scheduledBackupSuspend := false -}}
+{{- if hasKey $scheduledBackup "suspend" -}}
+  {{- $scheduledBackupSuspend = $scheduledBackup.suspend -}}
+{{- end -}}
 {{- $encryptedStorageClass := default "encrypted" $globalStorage.encryptedStorageClassName -}}
 {{- $allowInsecureStorage := default false $globalStorage.allowInsecureStorage -}}
 {{- $cnpgStorageClass := default "" $cnpg.storageClass -}}
@@ -145,6 +165,48 @@ spec:
   certificates:
     clientCASecret: {{ $clientCASecret | quote }}
   {{- end }}
+  {{- if $backupEnabled }}
+  backup:
+    {{- with $backup.retentionPolicy }}
+    retentionPolicy: {{ . | quote }}
+    {{- end }}
+    {{- with $backup.target }}
+    target: {{ . | quote }}
+    {{- end }}
+    barmanObjectStore:
+      destinationPath: {{ required "cnpg.backup.barmanObjectStore.destinationPath is required when cnpg.backup.enabled=true" $barman.destinationPath | quote }}
+      {{- with $barman.endpointURL }}
+      endpointURL: {{ . | quote }}
+      {{- end }}
+      {{- with $barman.serverName }}
+      serverName: {{ . | quote }}
+      {{- end }}
+      {{- if and $barman.endpointCA $barman.endpointCA.name }}
+      endpointCA:
+        name: {{ $barman.endpointCA.name | quote }}
+        key: {{ default "ca.crt" $barman.endpointCA.key | quote }}
+      {{- end }}
+      s3Credentials:
+        accessKeyId:
+          name: {{ required "cnpg.backup.barmanObjectStore.s3Credentials.secretName is required when cnpg.backup.enabled=true" $s3Credentials.secretName | quote }}
+          key: {{ default "ACCESS_KEY_ID" $s3Credentials.accessKeyIdKey | quote }}
+        secretAccessKey:
+          name: {{ required "cnpg.backup.barmanObjectStore.s3Credentials.secretName is required when cnpg.backup.enabled=true" $s3Credentials.secretName | quote }}
+          key: {{ default "ACCESS_SECRET_KEY" $s3Credentials.secretAccessKeyKey | quote }}
+        {{- with $s3Credentials.sessionTokenKey }}
+        sessionToken:
+          name: {{ required "cnpg.backup.barmanObjectStore.s3Credentials.secretName is required when cnpg.backup.enabled=true" $s3Credentials.secretName | quote }}
+          key: {{ . | quote }}
+        {{- end }}
+      {{- with $barman.wal }}
+      wal:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $barman.data }}
+      data:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- end }}
   managed:
     roles:
       - name: {{ $appUser | quote }}
@@ -156,4 +218,22 @@ spec:
     enablePodMonitor: true
   enableSuperuserAccess: true
   failoverDelay: 0
+{{- if and $backupEnabled $scheduledBackupEnabled }}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: {{ default (printf "%s-base-backup" $clusterName) $scheduledBackup.name }}
+  namespace: {{ $ns }}
+spec:
+  schedule: {{ required "cnpg.backup.scheduledBackup.schedule is required when scheduled backup is enabled" $scheduledBackup.schedule | quote }}
+  immediate: {{ $scheduledBackupImmediate }}
+  suspend: {{ $scheduledBackupSuspend }}
+  backupOwnerReference: {{ default "cluster" $scheduledBackup.backupOwnerReference | quote }}
+  {{- with $scheduledBackup.method }}
+  method: {{ . | quote }}
+  {{- end }}
+  cluster:
+    name: {{ $clusterName | quote }}
+{{- end }}
 {{- end }}

@@ -82,6 +82,31 @@ networkPolicy:
 cnpg:
   instances: 3
   storageSize: 100Gi
+  backup:
+    enabled: true
+    retentionPolicy: "30d"
+    target: prefer-standby
+    barmanObjectStore:
+      destinationPath: s3://tenant-acme-cnpg-backups/serviceradar
+      endpointURL: https://object-storage.example.invalid
+      serverName: cnpg
+      s3Credentials:
+        secretName: serviceradar-cnpg-backup-credentials
+        accessKeyIdKey: ACCESS_KEY_ID
+        secretAccessKeyKey: ACCESS_SECRET_KEY
+      wal:
+        compression: gzip
+        encryption: AES256
+        maxParallel: 8
+      data:
+        compression: gzip
+        encryption: AES256
+    scheduledBackup:
+      enabled: true
+      name: cnpg-base-backup
+      schedule: "0 0 0 * * *"
+      immediate: true
+      backupOwnerReference: cluster
   pooler:
     enabled: true
     instances: 3

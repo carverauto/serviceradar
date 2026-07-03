@@ -39,5 +39,23 @@ trusted-CIDR allow-lists when that section lands.
 ## Backup Values
 
 Day-one readiness requires the control plane to verify the first CNPG backup to
-the tenant bucket before marking an environment ready. The tenant baseline will
-grow CNPG Barman/object-store values when the chart exposes that configuration.
+the tenant bucket before marking an environment ready. The tenant baseline
+enables CNPG native Barman object-store backups through:
+
+- `cnpg.backup.barmanObjectStore.destinationPath`
+- `cnpg.backup.barmanObjectStore.endpointURL`
+- `cnpg.backup.barmanObjectStore.s3Credentials.secretName`
+- `cnpg.backup.scheduledBackup`
+
+The values file carries only bucket destinations and Kubernetes secret
+references. The control plane creates the per-tenant bucket and credential
+secret before rendering the final values; credentials are never stored inline in
+chart values.
+
+The credential secret named by
+`cnpg.backup.barmanObjectStore.s3Credentials.secretName` must already exist in
+the release namespace before the CNPG `Cluster` starts. Hosted bootstrap must
+therefore create the per-tenant bucket and write the object-storage access keys
+into that Kubernetes secret before running `helm upgrade --install`; otherwise
+WAL archiving and the immediate base backup cannot complete, and the control
+plane's backup readiness gate will keep the environment out of service.
