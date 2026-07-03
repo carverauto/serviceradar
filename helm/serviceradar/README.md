@@ -24,6 +24,13 @@ helm upgrade --install serviceradar ./helm/serviceradar \
   -n serviceradar --create-namespace
 ```
 
+### Hosted Tenant Runtime Baseline
+
+Dedicated hosted tenant clusters use [values-tenant.yaml](values-tenant.yaml)
+as the chart baseline rendered by the ServiceRadar control plane. See
+[TENANT_RUNTIME.md](TENANT_RUNTIME.md) for the render-validation command and
+hosted exposure model.
+
 Optional dev overrides to follow mutable tags on restart:
 ```bash
 helm upgrade --install serviceradar ./helm/serviceradar \

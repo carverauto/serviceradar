@@ -1,0 +1,185 @@
+# Baseline values for a dedicated hosted tenant runtime.
+#
+# The hosted control plane renders this shape per tenant from the
+# hosted-runtime-contract plus plan entitlements. Keep this file free of
+# provider resource IDs, kubeconfigs, passwords, API tokens, and inline creds.
+
+namespace: tenant-acme
+partitionId: acme
+
+global:
+  storage:
+    encryptedStorageClassName: encrypted
+    allowInsecureStorage: false
+
+image:
+  registryPullSecret: registry-carverauto-dev-cred
+
+hostedRuntime:
+  contractVersion: "1"
+  tenant:
+    slug: acme
+    namespace: tenant-acme
+    plan: standard_250
+  publicEndpoints:
+    webHost: acme.serviceradar.cloud
+    grpcHost: acme.grpc.serviceradar.cloud
+    grpcPort: 50052
+    gatewayServerName: acme.grpc.serviceradar.cloud
+    gatewayAddr: acme.grpc.serviceradar.cloud:50052
+  entitlements:
+    plan: standard_250
+    max_devices: 250
+    collector_deployments_enabled: true
+    leaf_nodes_enabled: true
+    hot_retention_days: 30
+    state_retention_days: 90
+    nats_profile: standard_250
+    nats_limits:
+      js_disk_storage: 2G
+      js_memory_storage: 256M
+
+ingress:
+  enabled: false
+
+gatewayApi:
+  enabled: true
+  mode: managed
+  host: acme.serviceradar.cloud
+  dns:
+    enabled: true
+    hostname: acme.serviceradar.cloud
+  http:
+    enabled: true
+    redirectToHttps: true
+  tls:
+    enabled: true
+    secretName: serviceradar-gateway-tls
+    clusterIssuer: serviceradar-tenant-issuer
+  syslog:
+    # Syslog rides the tenant Gateway UDP listener; no dedicated syslog
+    # LoadBalancer is allocated for the hosted baseline.
+    enabled: true
+
+networkPolicy:
+  enabled: true
+  ingress:
+    # Section 6 control-plane sync writes tenant trusted-CIDR allow-lists.
+    # Keep all external telemetry allow-lists empty in the baseline.
+    agentGatewayExternal:
+      allowedCIDRs: []
+    flowCollectorExternal:
+      allowedCIDRs: []
+    logCollectorExternal:
+      allowedCIDRs: []
+    otlpExternal:
+      allowedCIDRs: []
+    trapdExternal:
+      allowedCIDRs: []
+    bmpCollectorExternal:
+      allowedCIDRs: []
+
+cnpg:
+  instances: 3
+  storageSize: 100Gi
+  pooler:
+    enabled: true
+    instances: 3
+    route:
+      core: true
+      webNg: true
+
+nats:
+  replicas: 3
+  jetstream:
+    maxMemoryStore: 256M
+    maxFileStore: 2G
+
+webNg:
+  replicas: 3
+  host: acme.serviceradar.cloud
+  publicUrl: https://acme.serviceradar.cloud
+  gatewayAddress: acme.grpc.serviceradar.cloud:50052
+  extraEnv: &plan_env
+    SERVICERADAR_HOSTED_RUNTIME_CONTRACT_VERSION: "1"
+    SERVICERADAR_PLAN_NAME: standard_250
+    SERVICERADAR_MAX_DEVICES: "250"
+    SERVICERADAR_COLLECTORS_ENABLED: "true"
+    SERVICERADAR_LEAF_NODES_ENABLED: "true"
+    SERVICERADAR_RETENTION_HOT_DAYS: "30"
+    SERVICERADAR_RETENTION_STATE_DAYS: "90"
+    SERVICERADAR_NATS_PROFILE: standard_250
+
+core:
+  replicas: 3
+  extraEnv: *plan_env
+
+agentGateway:
+  enabled: true
+  replicas: 3
+  publicHostname: acme.grpc.serviceradar.cloud
+  clusterStrategy: dns
+  clusterCoreService: serviceradar-core-elx-headless
+  clusterCoreNodeBasename: serviceradar_core
+  kubernetesNodeBasename: serviceradar_agent_gateway
+
+datasvc:
+  replicaCount: 3
+  jetstreamReplicas: 3
+
+logCollector:
+  replicaCount: 3
+  streamReplicas: 3
+  externalService:
+    enabled: false
+    ports:
+      netflow:
+        enabled: false
+  tcpCollector:
+    enabled: true
+    replicaCount: 3
+    streamReplicas: 3
+    externalService:
+      enabled: false
+  otlp:
+    service:
+      enabled: true
+      type: ClusterIP
+      http:
+        enabled: true
+    gateway:
+      enabled: true
+      httpHostname: otlp-acme.serviceradar.cloud
+      grpcHostname: otlp-grpc-acme.serviceradar.cloud
+
+trapd:
+  replicaCount: 3
+  streamReplicas: 3
+  externalService:
+    enabled: true
+
+flowCollector:
+  enabled: true
+  replicaCount: 1
+  streamReplicas: 3
+  config:
+    stream_replicas: 3
+  service:
+    type: LoadBalancer
+    ports:
+      netflow:
+        enabled: true
+      sflow:
+        enabled: true
+      ipfix:
+        enabled: false
+      metrics:
+        enabled: false
+
+bmpCollector:
+  enabled: true
+  replicaCount: 1
+  config:
+    streamReplicas: 3
+  service:
+    type: LoadBalancer
