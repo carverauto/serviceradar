@@ -42,6 +42,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.ConfigSchema
   alias ServiceRadar.Plugins.CredentialBrokerDelivery
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
@@ -604,6 +605,10 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       binary_path: addon_binary_path(package),
       args: args,
       params: normalize_map(params),
+      # Threaded through to `to_proto_addons/1` so assignment params can be
+      # schema-coerced at the delivery choke point, right before `config_json`
+      # encoding (fj#4381).
+      config_schema: package.config_schema,
       capabilities: effective_addon_capabilities(package),
       os_capabilities: addon_os_capabilities(package),
       resources: normalize_map(package.resources),
@@ -1639,7 +1644,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         enabled: addon[:enabled] || false,
         binary_path: assignment_string(addon[:binary_path]),
         args: addon[:args] || [],
-        config_json: encode_json(normalize_map(addon[:params])),
+        config_json: encode_json(coerce_addon_params(addon)),
         capabilities: addon[:capabilities] || [],
         os_capabilities: addon[:os_capabilities] || [],
         delivery: assignment_enum_string(addon[:delivery]),
@@ -1657,6 +1662,20 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   defp to_proto_addons(_), do: []
+
+  # fj#4381: assignment params are persisted JSONB and can carry
+  # representational drift that the typed Go add-on decoders reject — the demo
+  # netprobe outage stored `capture_interfaces` as a scalar string, the agent's
+  # `[]string` decode failed permanently, and the agent never acked another
+  # config version (flow attribution stopped fleet-wide). Coerce params against
+  # the package's declared `config_schema` at the delivery choke point, right
+  # before `config_json` encoding, so we never ship JSON the agent decoder is
+  # known to reject. Packages with an absent/empty schema (or one without
+  # properties) pass params through unchanged — there is nothing to coerce
+  # against, and delivery must not invent shapes the package never declared.
+  defp coerce_addon_params(addon) do
+    ConfigSchema.coerce_params(addon[:config_schema], normalize_map(addon[:params]))
+  end
 
   # Manifest `resources` (addon.yaml) → the proto AddonResources the agent
   # supervisor enforces. The package attribute is JSONB (string keys); a missing
