@@ -8,9 +8,9 @@
 - [ ] 1.5 Verify on demo: SNMP-L2/UniFi-API rows resume in `platform.mapper_topology_links`; `CANONICAL_TOPOLOGY` repopulates on next rebuild; god-view shows connected backbone again
 
 ## 2. Starvation defense in canonical rebuild
-- [ ] 2.1 Add evidence-freshness tracking: last-accepted evidence timestamp per (protocol, agent) exposed via telemetry + `canonical_topology_rebuild_stats`
+- [ ] 2.1 Add evidence-freshness tracking: last-accepted evidence timestamp per (protocol, agent) exposed via telemetry + `canonical_topology_rebuild_stats`; raise an actionable core-side health alert when `mapper_topology` payloads keep arriving for an (agent, protocol) but acceptance stays frozen past the freshness window
 - [ ] 2.2 Starvation guard: when `after_upsert_edges == 0` (or < configurable floor) while `mapper_evidence_edges > 0`, SKIP the stale prune, emit `canonical_rebuild_starved` health event; add defense-in-depth cap (refuse to prune >50% of canonical edges in one pass without override)
-- [ ] 2.3 Self-heal escalation: recovery rebuild ending with 0 canonical edges while evidence exists logs at error level, emits a health event, and stops claiming "completed"; repeat occurrences deduplicate into a persistent unhealthy state visible in the UI
+- [ ] 2.3 Self-heal escalation across BOTH recovery mechanisms — `CanonicalRebuild.maybe_self_heal_zero_canonical` (canonical_rebuild.ex:369) and the separate one-shot recovery in `TopologyStateCleanupWorker` (topology_state_cleanup_worker.ex:96): ending with 0 canonical edges while evidence exists logs at error level, emits a health event, and stops claiming "completed"; repeat occurrences deduplicate into a persistent unhealthy state visible in the UI
 - [ ] 2.4 Tests: frozen-evidence scenario (evidence older than cutoff) must not delete existing canonical edges and must raise the starved signal; normal topology-change scenario still prunes
 
 ## 3. Endpoint attachment identity (switch↔host edges)

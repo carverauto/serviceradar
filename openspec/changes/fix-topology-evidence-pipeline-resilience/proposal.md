@@ -40,20 +40,27 @@ Verified root-cause chain (live demo evidence + code):
    (`canonical_topology_rebuild_stats %{mapper_evidence_edges: 675,
    after_upsert_edges: 0, after_prune_edges: 0}`). Nothing distinguishes
    "topology changed" from "evidence stopped arriving".
-4. **Self-heal theater.** `maybe_self_heal_zero_canonical`
-   (`canonical_rebuild.ex:369`) re-runs the same upsert against the same stale
-   evidence, logs "Canonical topology recovery rebuild completed", and reports
-   `after: 0` — hourly, forever, at info/warning level. No alert, no health
-   surface, no escalation.
+4. **Self-heal theater — in two places.**
+   `maybe_self_heal_zero_canonical` (`canonical_rebuild.ex:369-400`) re-runs
+   the same upsert against the same stale evidence and returns
+   `%{status: :completed}` with no zero-edge check; separately, the one-shot
+   recovery in `TopologyStateCleanupWorker`
+   (`topology_state_cleanup_worker.ex:96`) re-runs the full rebuild and
+   unconditionally logs "Canonical topology recovery rebuild completed" (and
+   emits `:cleanup_recovery, :completed` telemetry) even when the retry still
+   yields 0 edges — hourly, forever, at info/warning level. Neither path emits
+   an error-level log, health event, or alarm on a zero-edge outcome.
 5. **Endpoint attachment identity gap (never worked).** The only switch↔host
    producers are SNMP-L2 ARP+FDB correlation
    (`go/pkg/mapper/snmp_l2_query.go:27`) and UniFi port/wireless-client tables
    (`go/pkg/mapper/ubnt_topology.go`). Their neighbors are keyed by MAC/IP only;
    core resolution (`mapper_results_ingestor.ex` `resolve_topology_uid`) fails
    for hosts that aren't already devices with matching mac/ip;
-   `suppress_topology_sighting_candidate?` explicitly suppresses
-   `snmp-arp-fdb` sightings without a system name (i.e. ordinary hosts), so no
-   `sr:` device is ever minted; the AGE projection then fabricates raw-IP/MAC
+   `suppress_topology_sighting_candidate?` suppresses sightings matching the
+   4-way conjunction protocol `snmp-l2` + confidence reason
+   `single_identifier_inference` + source `snmp-arp-fdb` + blank system name
+   (i.e. exactly the ordinary hosts behind switch ports), so no `sr:` device is
+   ever minted; the AGE projection then fabricates raw-IP/MAC
    pseudo-vertices (`topology_graph/projection/payload.ex:81`) which the
    canonical rebuild (`queries/canonical_rebuild.ex:148`) and runtime projection
    (`runtime_topology_projection.ex:30,98`) filter out via `STARTS WITH 'sr:'`
@@ -129,8 +136,18 @@ Verified root-cause chain (live demo evidence + code):
     presentation. Its "Topology quality regressions are surfaced explicitly"
     counters complement (and do not replace) the ingest-freshness dead-man and
     starvation guard specified here.
-  - `add-unifi-wifi-discovery-parity` (0/86): owns wireless discovery features;
-    the ingest fixes here are a *precondition* for its wireless-client records
-    (nil neighbor port ids) to survive ingestion at all.
+  - `add-unifi-wifi-discovery-parity` (0/86): owns UniFi controller discovery
+    features (wireless AND wired client coverage); the ingest fixes here are a
+    *precondition* for its wireless-client records (nil neighbor port ids) to
+    survive ingestion at all. This change's task 3.4 only diagnoses the current
+    `port_links:0` defect as part of restoring attachment evidence — new wired
+    extraction features remain owned by the parity change.
+  - Ownership note: `improve-mapper-topology-fidelity` also ADDs a
+    device-inventory requirement ("Inventory promotion from topology endpoint
+    sightings") that overlaps endpoint promotion. THIS change owns the identity
+    mechanics (provisional MAC-keyed `sr:` devices, merge-inert guardrail,
+    corroboration GC); that change's inventory-promotion requirement should be
+    reconciled to consume these provisional identities rather than defining a
+    parallel candidate-record mechanism.
 - **BREAKING**: none at API level; `TopologyLink` validation loosens (empty
   strings accepted where they were silently required before).

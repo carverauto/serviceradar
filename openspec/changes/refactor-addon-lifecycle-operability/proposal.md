@@ -36,7 +36,8 @@ and the Settings UI actively hides fleet state behind noise:
    (`ConfigSchema.normalize_params`, `config_schema.ex:357-366`, which would
    split a string into a list) is never invoked on the delivery path; and the
    author-time validation (`AddonAssignmentParams` against the package
-   `config_schema`) is bypassable by seeded/reconciler-written rows. The Go
+   `config_schema`) does not cover rows persisted before the guards existed
+   and skips entirely for packages with an empty `config_schema`. The Go
    decoder (`go/pkg/agent/netprobe/config.go:49`, `[]string`) then fails
    permanently. Nothing in CI decodes core-emitted `config_json` with the real
    agent decoders. (`fix-staging-observability-addon-regressions` PR6.3 fixes
@@ -85,7 +86,7 @@ and the Settings UI actively hides fleet state behind noise:
   known to reject. Agent-side parsers accept documented compatibility forms
   (string→[]string for singletons) as defense in depth. CI contract tests
   decode representative core-emitted `config_json` with the real Go decoders
-  for every bundled add-on (netprobe, otel, anomaly, bumblebee,
+  for every bundled add-on (netprobe, otel-collector, anomaly, bumblebee,
   endpoint-inventory, workload-identity, rdp).
 - **Fix the concrete netprobe regression**: remediate corrupt string-typed
   assignment params (coordinate with
@@ -102,9 +103,11 @@ and the Settings UI actively hides fleet state behind noise:
     rows inside the fleet table).
   - No horizontal scroll at standard desktop widths; badges never truncate;
     full error text reachable (expand/tooltip/detail).
-- **Catalog import UX**: import is idempotent and stateful — the action shows
-  imported-vs-available state, disables or relabels when everything is already
-  imported, and shows progress + a result summary when triggered.
+- **Catalog import UX** (add-on catalog AND the WASM plugin catalog "Plugins
+  Manager", which has the identical problem): import is idempotent and
+  stateful — the action shows imported-vs-available state, disables or
+  relabels when everything is already imported, and shows progress + a result
+  summary when triggered.
 - **Version presentation model**: fleet and assignment flows default to the
   latest approved version; older versions are selectable only inside a specific
   add-on's detail page; agents already on the latest are visibly marked

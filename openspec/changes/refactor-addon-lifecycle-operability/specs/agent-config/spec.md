@@ -6,11 +6,11 @@
 The agent SHALL apply control-stream configuration per section with an explicit per-section failure disposition (success, transient, permanent). A failing section SHALL NOT prevent other sections from applying in the same cycle. Transient failures defer the config version commit (so delivery retries); permanent failures record persistent state, allow the version to commit and be acknowledged, and escalate once instead of retrying identically every cycle.
 
 #### Scenario: One failing section does not block the others
-- **GIVEN** a config version whose netprobe visibility section fails to parse (permanent)
+- **GIVEN** a config version whose add-on config section fails to parse (permanent failure, e.g. type-invalid `config_json`)
 - **AND** its sysmon and mapper sections are valid
 - **WHEN** the agent applies the config version
 - **THEN** the sysmon and mapper sections SHALL be applied
-- **AND** the version SHALL be committed and acknowledged with the visibility section reported as permanently failed
+- **AND** the version SHALL be committed and acknowledged with the add-on section reported as permanently failed
 
 #### Scenario: Transient failure defers without skipping later sections
 - **GIVEN** a config version whose add-on assignment section fails transiently (e.g. artifact fetch timeout)

@@ -20,7 +20,7 @@
 - [ ] 3.5 Alert rule/runbook: config-unhealthy agents alarm instead of living in journald only
 
 ## 4. Typed add-on config contracts
-- [ ] 4.1 Enforce `AddonAssignmentParams` schema validation on every params write path (manual assignment, `addon_profile_reconciler.ex`, package seeders) — no bypassable writes
+- [ ] 4.1 Enforce `AddonAssignmentParams` schema validation on every params write path (manual assignment, `addon_profile_reconciler.ex`, package seeders); backfill-validate legacy rows persisted before the guards existed; decide behavior for packages with empty `config_schema` (today validation silently skips)
 - [ ] 4.2 Delivery refuses uncoercible params with a visible per-assignment validation error (never ships known-undecodable `config_json`)
 - [ ] 4.3 CI: contract test suite decoding representative core-emitted `config_json` with the real Go decoders for all bundled add-ons (netprobe, otel-collector, anomaly, bumblebee, endpoint-inventory, workload-identity, rdp)
 - [ ] 4.4 Document compatibility-form rules (scalar→list coercion) for add-on authors
@@ -32,10 +32,10 @@
 - [ ] 5.4 Layout: fit 1440px without horizontal scroll; long diagnostics (e.g. "resource limits not enforced: …") expandable to full text in a detail drawer
 - [ ] 5.5 Playwright coverage: no horizontal overflow, no truncated badges, drift render rules, catalog-only separation
 
-## 6. Catalog import UX
-- [ ] 6.1 Import action reflects state (nothing-to-import → disabled/relabeled with count); idempotent server-side
-- [ ] 6.2 Progress indication while running + completion summary (imported / skipped / failed)
-- [ ] 6.3 Tests for repeated import (second run reports all-skipped, UI shows already-imported state)
+## 6. Catalog import UX (add-on catalog AND WASM plugin catalog "Plugins Manager")
+- [ ] 6.1 Import action reflects state (nothing-to-import → disabled/relabeled with count); idempotent server-side — both catalogs
+- [ ] 6.2 Progress indication while running + completion summary (imported / skipped / failed) — both catalogs
+- [ ] 6.3 Tests for repeated import (second run reports all-skipped, UI shows already-imported state) — both catalogs
 
 ## 7. Version presentation model
 - [ ] 7.1 Assignment/deploy flows preselect latest approved version; older versions only via add-on detail drill-in

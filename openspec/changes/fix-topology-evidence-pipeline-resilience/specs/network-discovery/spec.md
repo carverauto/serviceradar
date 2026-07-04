@@ -41,6 +41,7 @@ The system SHALL track the last-accepted topology evidence timestamp per protoco
 #### Scenario: Ingest freeze detected while agents still push
 - **GIVEN** an agent delivers `mapper_topology` payloads on its normal cadence
 - **AND** no records for a protocol have been accepted for longer than the freshness window
+- **WHEN** ingest freshness is evaluated
 - **THEN** the system SHALL emit a topology-ingest health alert identifying the agent and protocol
 - **AND** the alert SHALL be visible in core-side observability without requiring host log access
 
@@ -57,7 +58,7 @@ The system SHALL resolve switch-to-host attachment evidence (ARP/FDB port mappin
 #### Scenario: Provisional identities are merge-inert
 - **GIVEN** a provisional topology-sighted device and a corroborated device
 - **WHEN** identity reconciliation evaluates merges
-- **THEN** the provisional device MAY be merged into the corroborated device when evidence supports it
+- **THEN** the provisional device MAY be merged into the corroborated device only when identity-proof requirements are met (topology evidence alone SHALL NOT drive the merge, per "Topology Evidence Must Not Drive Identity Equivalence")
 - **AND** the provisional device SHALL NOT absorb identifiers from corroborated devices
 - **AND** devices with distinct MAC addresses SHALL NOT be merged
 

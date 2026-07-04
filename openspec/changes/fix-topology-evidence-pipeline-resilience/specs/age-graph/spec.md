@@ -24,6 +24,21 @@ The system SHALL expire inferred AGE edges when supporting evidence has aged bey
 - **WHEN** no operator override is present
 - **THEN** the prune SHALL be refused and an error-level health event emitted
 
+### Requirement: Confidence-aware topology edge lifecycle
+The system SHALL maintain topology edges in AGE with confidence-aware projection and observation freshness controls. Stale retirement is subject to the evidence-starvation exception defined in "Evidence-backed stale-edge lifecycle": when zero (or near-zero) edges were upserted while mapper evidence exists, retirement is suspended rather than applied unconditionally.
+
+#### Scenario: Idempotent edge upsert with confidence metadata
+- **GIVEN** a topology link candidate eligible for projection
+- **WHEN** projection runs repeatedly for the same source/target/interface tuple
+- **THEN** the AGE edge SHALL be upserted once
+- **AND** edge confidence and last-observed timestamp SHALL be updated in place
+
+#### Scenario: Stale projected edge is retired
+- **GIVEN** a projected topology edge has not been observed for longer than the configured stale threshold
+- **AND** the evidence-starvation exception does not apply
+- **WHEN** topology reconciliation runs
+- **THEN** the edge SHALL be removed or marked inactive based on configured retention policy
+
 ## ADDED Requirements
 
 ### Requirement: Canonical rebuild self-heal escalation

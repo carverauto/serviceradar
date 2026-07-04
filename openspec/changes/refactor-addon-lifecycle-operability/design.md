@@ -40,7 +40,9 @@ Verified incidents motivating this change (demo fleet, 2026-07-04):
   config-broken netprobe reads as healthy/running in the fleet view; (d) core
   discards acks — the gateway logs `config_ack` at debug
   (`control_stream_session.ex:226-228`), persists nothing, and detects no ack
-  drift.
+  drift; (e) one unconditional ack-blocker remains even post-split — a
+  supervisor `manager.Apply` error in `applyAddonAssignments`
+  (`push_loop_addons.go:370-373`).
 - Both incidents were invisible from core: no ack-gap detection, no health
   event, no UI surface. Diagnosis required ssh + journalctl on the host.
 - **Fleet UI evidence** (screenshots attached to the change record): drift
@@ -127,8 +129,8 @@ Verified incidents motivating this change (demo fleet, 2026-07-04):
 
 ## Migration Plan
 
-1. Tier 1 (hotfix): netprobe decoder tolerance + compiler list emission +
-   stored-profile normalization → restores flow attribution on demo.
+1. Tier 1 (hotfix): corrupt-row remediation + delivery-path coercion +
+   tolerant netprobe decoder → restores flow attribution on demo.
 2. Tier 2: sectioned apply/ack (agent), ack persistence + wedge detection
    (core), UI surfacing. Protocol-compat gated; mixed-version verified.
 3. Tier 3: schema contract enforcement + CI suite.
@@ -138,6 +140,13 @@ Rollback: each tier independently revertible; tier 2 protocol fields are
 optional so old agents remain functional throughout.
 
 ## Open Questions
+
+- Add-on build/versioning hygiene is unaudited: what increments versions, why
+  adjacent versions (0.1.19/0.1.20) linger as peer assignments, whether
+  `staged → approved` verification is actually wired, and whether sample
+  add-ons belong in production catalogs. Needs a dedicated audit (tracked as a
+  follow-up issue); its outcome sets the version-retention policy the fleet UI
+  assumes.
 
 - Where should add-on config schemas canonically live — package manifest
   (travels with the artifact) vs core repo (versioned with compilers)?

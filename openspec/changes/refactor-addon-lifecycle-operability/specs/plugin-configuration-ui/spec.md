@@ -38,18 +38,23 @@ Version drift indicators SHALL present the compared values ("running X, assigned
 - **AND** the row SHALL state that the add-on is running but unassigned
 
 ### Requirement: Idempotent catalog import with progress feedback
-The add-on catalog import action SHALL reflect current import state, be idempotent, and provide visible progress and a result summary.
+Catalog import actions (add-on catalog and WASM plugin catalog alike) SHALL reflect current import state, be idempotent, and provide visible progress and a result summary.
 
 #### Scenario: Import state is visible before acting
-- **GIVEN** all catalog add-ons are already imported
+- **GIVEN** all catalog entries are already imported
 - **WHEN** the catalog page renders
 - **THEN** the import action SHALL indicate there is nothing new to import (disabled or relabeled with a count of importable items)
 
 #### Scenario: Import shows progress and outcome
-- **GIVEN** importable catalog add-ons exist
+- **GIVEN** importable catalog entries exist
 - **WHEN** the operator triggers import
 - **THEN** the UI SHALL show an in-progress state while the import runs
 - **AND** on completion SHALL summarize what was imported, skipped, and failed
+
+#### Scenario: Plugin catalog parity
+- **GIVEN** the WASM plugin catalog page ("Plugins Manager")
+- **WHEN** the operator views or triggers Import All
+- **THEN** the same state-visibility, idempotence, progress, and summary behavior SHALL apply as for the add-on catalog
 
 ### Requirement: Version selection defaults to latest
 Assignment and deployment flows SHALL default to the latest approved version of an add-on; selecting an older version SHALL be an explicit drill-in choice on the add-on's detail page; and agents already on the latest version SHALL be visibly marked up to date.
