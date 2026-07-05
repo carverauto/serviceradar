@@ -170,6 +170,62 @@ mod tests {
     }
 
     #[test]
+    fn snmp_rate_downsample_keeps_regex_literal_and_bind_numbering_aligned() {
+        // Regression for fj #4408: the `?` regex quantifier inside the
+        // max_counter_rate_per_second literal was rewritten to `$1`, shifting every
+        // real bind and making Postgres fail all agg:rate queries with 42P18.
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let plan = QueryPlan {
+            entity: Entity::SnmpMetrics,
+            filters: Vec::new(),
+            order: Vec::new(),
+            limit: 4000,
+            offset: 0,
+            time_range: Some(TimeRange {
+                start,
+                end: start + ChronoDuration::hours(6),
+            }),
+            stats: None,
+            downsample: Some(DownsampleSpec {
+                bucket_seconds: 300,
+                agg: DownsampleAgg::Rate,
+                series: None,
+                value_field: None,
+            }),
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        };
+
+        let (sql, params) = to_sql_and_params(&plan).unwrap();
+
+        // The plausibility-ceiling regex literal must survive placeholder rewriting
+        // intact (no `$N` injected into the quoted string).
+        assert!(
+            sql.contains(r"~ '^[0-9]+(\.[0-9]+){0,1}$'"),
+            "expected the max_counter_rate regex literal to survive rewriting: {sql}"
+        );
+        // Every `?` must have been rewritten; none may remain.
+        assert!(
+            !sql.contains('?'),
+            "unrewritten placeholder left behind: {sql}"
+        );
+        // The number of `$N` placeholders must match the bind list exactly
+        // (start, end, metric_type, limit, offset).
+        let placeholder_count = (1..).take_while(|n| sql.contains(&format!("${n}"))).count();
+        assert_eq!(
+            placeholder_count,
+            params.len(),
+            "placeholder count must match bind count: {sql}"
+        );
+        assert_eq!(
+            params.len(),
+            5,
+            "unexpected bind count for snmp rate plan: {sql}"
+        );
+    }
+
+    #[test]
     fn flow_avg_short_window_stays_on_raw_table() {
         // Below the 6h CAGG routing threshold: must stay on the raw hypertable.
         let plan = flow_plan(300, DownsampleAgg::Avg, ChronoDuration::hours(1));
