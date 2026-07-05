@@ -96,8 +96,9 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
   defp validation_schema(%{} = schema), do: Map.delete(schema, "$schema")
 
   defp runtime_injected_property?(%{} = property) do
-    Map.get(property, "x-serviceradar-ui-hidden") == true and
-      Map.get(property, "default") in [nil, ""]
+    Map.get(property, "x-serviceradar-credential-materialized") == true or
+      (Map.get(property, "x-serviceradar-ui-hidden") == true and
+         Map.get(property, "default") in [nil, ""])
   end
 
   defp runtime_injected_property?(_property), do: false

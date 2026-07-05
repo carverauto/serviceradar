@@ -4,6 +4,7 @@
     "host": {
       "type": "string",
       "x-serviceradar-ui-hidden": true,
+      "x-serviceradar-credential-materialized": true,
       "description": "AXIS camera host or IP. Injected per target at runtime from credential rules / SRQL-scoped targets or derived from the relay source URL; not configured per assignment."
     },
     "scheme": {

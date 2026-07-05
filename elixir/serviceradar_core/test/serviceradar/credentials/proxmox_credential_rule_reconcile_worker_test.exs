@@ -70,7 +70,8 @@ defmodule ServiceRadar.Credentials.ProxmoxCredentialRuleReconcileWorkerTest do
              desired_assignments: 8,
              upserted: 4,
              unchanged: 4,
-             disabled: 0
+             disabled: 0,
+             skips: %{}
            }
   end
 end

@@ -4,6 +4,7 @@
     "host": {
       "type": "string",
       "x-serviceradar-ui-hidden": true,
+      "x-serviceradar-credential-materialized": true,
       "description": "UniFi Protect controller host or IP. Injected per target at runtime from credential rules / SRQL-scoped targets; not configured per assignment."
     },
     "scheme": {
