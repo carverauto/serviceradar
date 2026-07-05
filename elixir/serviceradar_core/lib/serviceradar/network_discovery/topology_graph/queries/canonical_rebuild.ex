@@ -109,6 +109,18 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Queries.CanonicalRebuild d
     "coalesce((properties->'\"#{field}\"')::text, '')"
   end
 
+  # Relation types that count as mapper evidence for the canonical rebuild.
+  # Shared by the evidence count and the evidence-freshness queries so the
+  # starvation guard judges freshness over exactly the evidence set it counts.
+  @mapper_evidence_relation_types [
+    "CONNECTS_TO",
+    "LOGICAL_PEER",
+    "HOSTED_ON",
+    "INFERRED_TO",
+    "ATTACHED_TO",
+    "OBSERVED_TO"
+  ]
+
   @doc false
   @spec canonical_edge_count_query() :: String.t()
   def canonical_edge_count_query do
@@ -124,9 +136,30 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Queries.CanonicalRebuild d
     """
     MATCH ()-[r]->()
     WHERE r.ingestor = 'mapper_topology_v1'
-      AND type(r) IN ['CONNECTS_TO', 'LOGICAL_PEER', 'HOSTED_ON', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']
+      AND type(r) IN #{mapper_evidence_relation_in_list()}
     RETURN {count: count(r)}
     """
+  end
+
+  @doc """
+  Max evidence recency (`last_observed_at`, falling back to `observed_at`)
+  across the mapper evidence edges the canonical rebuild reads. Lets the
+  rebuild stats/telemetry expose evidence freshness vs. the stale cutoff so
+  evidence starvation (frozen ingest) is distinguishable from real topology
+  change.
+  """
+  @spec mapper_evidence_freshness_query() :: String.t()
+  def mapper_evidence_freshness_query do
+    """
+    MATCH ()-[r]->()
+    WHERE r.ingestor = 'mapper_topology_v1'
+      AND type(r) IN #{mapper_evidence_relation_in_list()}
+    RETURN {max_last_observed_at: max(coalesce(r.last_observed_at, r.observed_at))}
+    """
+  end
+
+  defp mapper_evidence_relation_in_list do
+    "[" <> Enum.map_join(@mapper_evidence_relation_types, ", ", &"'#{&1}'") <> "]"
   end
 
   @doc false
@@ -329,10 +362,31 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Queries.CanonicalRebuild d
   def canonical_rebuild_prune_query(stale_cutoff) when is_binary(stale_cutoff) do
     """
     MATCH ()-[r:CANONICAL_TOPOLOGY]->()
-    WHERE r.ingestor = 'mapper_topology_v1'
-      AND r.last_observed_at IS NOT NULL
-      AND r.last_observed_at < '#{Graph.escape(stale_cutoff)}'
+    WHERE #{canonical_prune_predicate(stale_cutoff)}
     DELETE r
     """
+  end
+
+  @doc """
+  Counts the `CANONICAL_TOPOLOGY` edges the stale prune would delete. Built
+  from the same predicate as `canonical_rebuild_prune_query/1` so the
+  mass-deletion guardrail judges exactly the set the prune would remove.
+  """
+  @spec canonical_rebuild_prune_candidate_count_query(String.t()) :: String.t()
+  def canonical_rebuild_prune_candidate_count_query(stale_cutoff) when is_binary(stale_cutoff) do
+    """
+    MATCH ()-[r:CANONICAL_TOPOLOGY]->()
+    WHERE #{canonical_prune_predicate(stale_cutoff)}
+    RETURN {count: count(r)}
+    """
+  end
+
+  # The single source of truth for what the canonical stale prune deletes.
+  # Both the DELETE and the guardrail count query interpolate this so they can
+  # never drift apart.
+  defp canonical_prune_predicate(stale_cutoff) when is_binary(stale_cutoff) do
+    "r.ingestor = 'mapper_topology_v1'\n" <>
+      "  AND r.last_observed_at IS NOT NULL\n" <>
+      "  AND r.last_observed_at < '#{Graph.escape(stale_cutoff)}'"
   end
 end

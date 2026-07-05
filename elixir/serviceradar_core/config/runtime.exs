@@ -1079,7 +1079,28 @@ if config_env() == :prod do
   # per-report churn for a mostly-static demo topology.
   config :serviceradar_core, ServiceRadar.NetworkDiscovery.TopologyGraph,
     canonical_rebuild_heartbeat_ms:
-      parse_int_env.("SERVICERADAR_TOPOLOGY_CANONICAL_REBUILD_HEARTBEAT_MS", 3_600_000)
+      parse_int_env.("SERVICERADAR_TOPOLOGY_CANONICAL_REBUILD_HEARTBEAT_MS", 3_600_000),
+    # Starvation guard (fj #4378): a rebuild whose canonical edge count after
+    # the upsert is at or below this floor while mapper evidence exists is
+    # treated as starved (stale prune skipped, starvation signal raised).
+    # 0 = only an empty canonical graph triggers via the count term; the
+    # evidence-freshness term catches the first fatal run regardless.
+    canonical_rebuild_min_upsert_floor:
+      "SERVICERADAR_TOPOLOGY_CANONICAL_REBUILD_MIN_UPSERT_FLOOR"
+      |> parse_int_env.(0)
+      |> max(0),
+    # Mass-deletion guardrail: refuse a single stale-prune pass that would
+    # delete more than this percentage of the canonical edges (default 50%).
+    canonical_prune_max_fraction:
+      "SERVICERADAR_TOPOLOGY_CANONICAL_PRUNE_MAX_PERCENT"
+      |> parse_int_env.(50)
+      |> max(1)
+      |> min(100)
+      |> Kernel./(100),
+    # Operator override for the guardrail: set to force a legitimate large
+    # prune (e.g. after a deliberate topology cutover), then unset.
+    canonical_prune_guard_override:
+      parse_bool.("SERVICERADAR_TOPOLOGY_CANONICAL_PRUNE_GUARD_OVERRIDE", false)
 
   # Change-detection skip-guard for workload-identity snapshot upserts (fj #33).
   # persist_snapshot/1 runs once per agent status; on a stable cluster the

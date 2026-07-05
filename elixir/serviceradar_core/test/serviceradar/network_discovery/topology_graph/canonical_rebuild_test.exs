@@ -3,11 +3,40 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuildTest do
 
   alias ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.HealthConditions
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Queries.CanonicalRebuild, as: Queries
 
   @moduletag :db_free
 
   @heartbeat_ms 3_600_000
+
+  # Demo outage shape (fj #4378): evidence froze 2026-06-25, 7-day cutoff
+  # crossed it 2026-07-02, prune wiped all 675 canonical edges.
+  @stale_cutoff "2026-07-02T07:51:15Z"
+  @frozen_evidence_max "2026-06-25T07:51:15Z"
+  @fresh_evidence_max "2026-07-04T09:00:00Z"
+
+  defp unique_condition(tag) do
+    condition = {:canonical_rebuild_test, tag, System.unique_integer([:positive])}
+    on_exit(fn -> HealthConditions.clear(condition) end)
+    condition
+  end
+
+  defp attach_telemetry(event) do
+    handler_id = "canonical-rebuild-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        event,
+        fn ev, measurements, metadata, pid ->
+          send(pid, {:telemetry, ev, measurements, metadata})
+        end,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+  end
 
   describe "skip_decision/4 (durable shared skip-guard)" do
     test "(a) unchanged input across restart skips the rebuild" do
@@ -179,6 +208,238 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuildTest do
 
       assert {:replace, replace_fields} = Keyword.fetch!(opts, :on_conflict)
       refute :input_hash in replace_fields
+    end
+  end
+
+  describe "starvation_check/5 (starvation guard, fj #4378)" do
+    test "(a) frozen evidence with canonical edges still present is starved (freshness term)" do
+      # First fatal run: all evidence is older than the cutoff, so the upsert
+      # matched nothing, but the 675 stale canonical edges still exist — the
+      # count term alone would sail past this and the prune would delete the
+      # entire canonical set. The freshness term must catch it.
+      assert :starved =
+               CanonicalRebuild.starvation_check(
+                 675,
+                 675,
+                 @frozen_evidence_max,
+                 @stale_cutoff,
+                 0
+               )
+    end
+
+    test "zero canonical edges after upsert with evidence present is starved (post-wipe steady state)" do
+      assert :starved =
+               CanonicalRebuild.starvation_check(0, 675, @frozen_evidence_max, @stale_cutoff, 0)
+    end
+
+    test "zero upsert with evidence is starved even when evidence freshness is unknown" do
+      assert :starved = CanonicalRebuild.starvation_check(0, 675, nil, @stale_cutoff, 0)
+    end
+
+    test "zero upsert with fresh evidence is still starved via the count term" do
+      # Evidence is arriving but nothing survives to the canonical graph
+      # (e.g. endpoint resolution rejects everything): pruning would still
+      # zero the graph for a non-topology reason.
+      assert :starved =
+               CanonicalRebuild.starvation_check(0, 675, @fresh_evidence_max, @stale_cutoff, 0)
+    end
+
+    test "(b) fresh evidence with a healthy upsert is not starved (normal topology change)" do
+      assert :ok ==
+               CanonicalRebuild.starvation_check(
+                 675,
+                 675,
+                 @fresh_evidence_max,
+                 @stale_cutoff,
+                 0
+               )
+    end
+
+    test "no mapper evidence at all is not starved (nothing to starve on)" do
+      assert :ok == CanonicalRebuild.starvation_check(0, 0, nil, @stale_cutoff, 0)
+    end
+
+    test "unknown evidence freshness alone does not starve a healthy upsert" do
+      assert :ok == CanonicalRebuild.starvation_check(675, 675, nil, @stale_cutoff, 0)
+    end
+
+    test "configurable floor widens the zero-only count trigger" do
+      assert :starved =
+               CanonicalRebuild.starvation_check(3, 675, @fresh_evidence_max, @stale_cutoff, 5)
+
+      assert :starved =
+               CanonicalRebuild.starvation_check(5, 675, @fresh_evidence_max, @stale_cutoff, 5)
+
+      assert :ok ==
+               CanonicalRebuild.starvation_check(6, 675, @fresh_evidence_max, @stale_cutoff, 5)
+    end
+  end
+
+  describe "prune_guard_check/4 (mass-deletion guardrail, fj #4378)" do
+    test "(c) refuses a single pass deleting more than the max fraction" do
+      # The demo wipe: every canonical edge was a prune candidate.
+      assert {:refuse, :mass_deletion} = CanonicalRebuild.prune_guard_check(675, 675, 0.5, false)
+      assert {:refuse, :mass_deletion} = CanonicalRebuild.prune_guard_check(6, 10, 0.5, false)
+    end
+
+    test "allows pruning at or below the max fraction" do
+      assert :allow == CanonicalRebuild.prune_guard_check(5, 10, 0.5, false)
+      assert :allow == CanonicalRebuild.prune_guard_check(1, 10, 0.5, false)
+    end
+
+    test "zero candidates is always allowed (deletes nothing)" do
+      assert :allow == CanonicalRebuild.prune_guard_check(0, 0, 0.5, false)
+      assert :allow == CanonicalRebuild.prune_guard_check(0, 675, 0.5, false)
+    end
+
+    test "operator override bypasses the guardrail" do
+      assert :allow == CanonicalRebuild.prune_guard_check(675, 675, 0.5, true)
+    end
+
+    test "an unavailable candidate count fails closed" do
+      assert {:refuse, :candidate_count_unavailable} =
+               CanonicalRebuild.prune_guard_check(nil, 675, 0.5, false)
+    end
+  end
+
+  describe "report_starvation/5 (starved signal)" do
+    test "(a) emits starved telemetry with counts + freshness and records the unhealthy condition" do
+      attach_telemetry([:serviceradar, :topology, :canonical_rebuild, :starved])
+      condition = unique_condition(:starved)
+
+      counts = %{before_edges: 675, mapper_evidence_edges: 675, after_upsert_edges: 675}
+
+      assert :ok =
+               CanonicalRebuild.report_starvation(
+                 counts,
+                 @stale_cutoff,
+                 @frozen_evidence_max,
+                 0,
+                 condition: condition
+               )
+
+      assert_receive {:telemetry, [:serviceradar, :topology, :canonical_rebuild, :starved],
+                      measurements, metadata}
+
+      assert measurements.before_edges == 675
+      assert measurements.mapper_evidence_edges == 675
+      assert measurements.after_upsert_edges == 675
+      assert metadata.stale_cutoff == @stale_cutoff
+      assert metadata.evidence_max_last_observed_at == @frozen_evidence_max
+      assert HealthConditions.unhealthy?(condition)
+    end
+
+    test "repeated starvation deduplicates into one ongoing condition" do
+      condition = unique_condition(:starved_repeat)
+      counts = %{before_edges: 675, mapper_evidence_edges: 675, after_upsert_edges: 675}
+
+      for _ <- 1..3 do
+        assert :ok =
+                 CanonicalRebuild.report_starvation(
+                   counts,
+                   @stale_cutoff,
+                   @frozen_evidence_max,
+                   0,
+                   condition: condition
+                 )
+      end
+
+      assert %{occurrences: 3} = HealthConditions.get(condition)
+    end
+  end
+
+  describe "report_prune_refusal/5 (guardrail signal)" do
+    test "(c) emits prune_refused telemetry with candidate counts and the configured fraction" do
+      attach_telemetry([:serviceradar, :topology, :canonical_rebuild, :prune_refused])
+
+      counts = %{before_edges: 675, mapper_evidence_edges: 675, after_upsert_edges: 675}
+
+      assert :ok =
+               CanonicalRebuild.report_prune_refusal(
+                 :mass_deletion,
+                 675,
+                 counts,
+                 @stale_cutoff,
+                 0.5
+               )
+
+      assert_receive {:telemetry, [:serviceradar, :topology, :canonical_rebuild, :prune_refused],
+                      measurements, metadata}
+
+      assert measurements.prune_candidates == 675
+      assert measurements.before_edges == 675
+      assert metadata.reason == :mass_deletion
+      assert metadata.max_fraction == 0.5
+      assert metadata.stale_cutoff == @stale_cutoff
+    end
+  end
+
+  describe "finalize_self_heal_outcome/5 (honest self-heal, fj #4378)" do
+    test "(d) a zero-edge outcome with evidence present is a failure, not completion" do
+      attach_telemetry([:serviceradar, :topology, :canonical_rebuild, :self_heal_failed])
+      condition = unique_condition(:self_heal_failed)
+
+      result =
+        CanonicalRebuild.finalize_self_heal_outcome(0, 0, 675, 1, condition: condition)
+
+      assert result.status == :failed
+      assert result.reason == :canonical_edges_below_threshold
+      assert result.after == 0
+
+      assert_receive {:telemetry,
+                      [:serviceradar, :topology, :canonical_rebuild, :self_heal_failed],
+                      measurements, metadata}
+
+      assert measurements.after_edges == 0
+      assert measurements.mapper_evidence_edges == 675
+      assert metadata.reason == :canonical_edges_below_threshold
+      assert HealthConditions.unhealthy?(condition)
+    end
+
+    test "repeated identical failures deduplicate into one ongoing condition" do
+      condition = unique_condition(:self_heal_dedup)
+
+      for _ <- 1..3 do
+        assert %{status: :failed} =
+                 CanonicalRebuild.finalize_self_heal_outcome(0, 0, 675, 1, condition: condition)
+      end
+
+      assert %{occurrences: 3} = HealthConditions.get(condition)
+    end
+
+    test "(e) recovery above the threshold completes and clears the condition" do
+      condition = unique_condition(:self_heal_recovery)
+
+      assert %{status: :failed} =
+               CanonicalRebuild.finalize_self_heal_outcome(0, 0, 675, 1, condition: condition)
+
+      assert HealthConditions.unhealthy?(condition)
+
+      result =
+        CanonicalRebuild.finalize_self_heal_outcome(0, 42, 675, 1, condition: condition)
+
+      assert result.status == :completed
+      assert result.after == 42
+      refute HealthConditions.unhealthy?(condition)
+    end
+  end
+
+  describe "prune guard queries (fj #4378)" do
+    test "prune candidate count query mirrors the prune WHERE clause exactly" do
+      prune = Queries.canonical_rebuild_prune_query(@stale_cutoff)
+      count = Queries.canonical_rebuild_prune_candidate_count_query(@stale_cutoff)
+
+      assert count == String.replace(prune, "DELETE r", "RETURN {count: count(r)}")
+    end
+
+    test "evidence freshness query covers the same relation set as the evidence count" do
+      freshness = Queries.mapper_evidence_freshness_query()
+      count = Queries.mapper_evidence_edge_count_query()
+
+      assert [_, in_list] = Regex.run(~r/type\(r\) IN (\[[^\]]+\])/, count)
+      assert freshness =~ in_list
+      assert freshness =~ "max(coalesce(r.last_observed_at, r.observed_at))"
+      assert freshness =~ "r.ingestor = 'mapper_topology_v1'"
     end
   end
 
