@@ -159,6 +159,73 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconcilerTest do
     assert MemoryStore.records()["ansible:awx-inventory-sync:agent-a"].enabled == false
   end
 
+  test "reconcile_agent scopes retraction to its own agent (never disables other agents)" do
+    package = %{id: Ecto.UUID.generate(), version: "0.1.1"}
+
+    controllers = [
+      controller("ctrl-a", "agent-a", "https://awx-a.example.com", "secret-a"),
+      controller("ctrl-b", "agent-b", "https://awx-b.example.com", "secret-b")
+    ]
+
+    # Seed both agents' assignments.
+    assert {:ok, _} =
+             AwxInventorySyncReconciler.reconcile_controllers(controllers,
+               plugin_package: package,
+               store: MemoryStore,
+               grant_template: &grant_template/1
+             )
+
+    assert MemoryStore.records()["ansible:awx-inventory-sync:agent-a"].enabled == true
+    assert MemoryStore.records()["ansible:awx-inventory-sync:agent-b"].enabled == true
+
+    # Reconciling ONLY agent-a must leave agent-b's assignment enabled — the
+    # pre-fix bug fed a single-agent desired set into a policy-wide disable and
+    # tore down every other agent.
+    assert {:ok, stats} =
+             AwxInventorySyncReconciler.reconcile_agent("agent-a",
+               controllers: controllers,
+               plugin_package: package,
+               store: MemoryStore,
+               grant_template: &grant_template/1
+             )
+
+    assert stats.disabled == 0
+    assert MemoryStore.records()["ansible:awx-inventory-sync:agent-a"].enabled == true
+    assert MemoryStore.records()["ansible:awx-inventory-sync:agent-b"].enabled == true
+  end
+
+  test "reconcile_agent disables only its OWN stale assignment when its controllers are gone" do
+    package = %{id: Ecto.UUID.generate(), version: "0.1.1"}
+
+    controllers = [
+      controller("ctrl-a", "agent-a", "https://awx-a.example.com", "secret-a"),
+      controller("ctrl-b", "agent-b", "https://awx-b.example.com", "secret-b")
+    ]
+
+    assert {:ok, _} =
+             AwxInventorySyncReconciler.reconcile_controllers(controllers,
+               plugin_package: package,
+               store: MemoryStore,
+               grant_template: &grant_template/1
+             )
+
+    # agent-a's controller removed. A per-agent reconcile for agent-a retracts
+    # agent-a's now-stale assignment but must not touch agent-b's.
+    assert {:ok, stats} =
+             AwxInventorySyncReconciler.reconcile_agent("agent-a",
+               controllers: [
+                 controller("ctrl-b", "agent-b", "https://awx-b.example.com", "secret-b")
+               ],
+               plugin_package: package,
+               store: MemoryStore,
+               grant_template: &grant_template/1
+             )
+
+    assert stats.disabled == 1
+    assert MemoryStore.records()["ansible:awx-inventory-sync:agent-a"].enabled == false
+    assert MemoryStore.records()["ansible:awx-inventory-sync:agent-b"].enabled == true
+  end
+
   defp controller(id, agent_id, base_url, secret_id, opts \\ []) do
     %{
       id: id,

@@ -246,9 +246,31 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   defp allowed_methods_for(_), do: ["GET"]
 
   defp allowed_hosts_for(base_url) do
-    case URI.parse(to_string(base_url)) do
-      %URI{host: host} when is_binary(host) and host != "" -> [host]
+    case host_from_base_url(base_url) do
+      host when is_binary(host) and host != "" -> [host]
       _ -> []
+    end
+  end
+
+  # A base_url without a scheme (e.g. "awx.example.com") parses with host: nil
+  # (the value lands in :path), which would yield an EMPTY allowed_hosts and a
+  # host-unscoped grant. Re-parse with a default scheme so the grant stays
+  # pinned to the controller host.
+  defp host_from_base_url(base_url) do
+    url = String.trim(to_string(base_url))
+
+    case URI.parse(url) do
+      %URI{host: host} when is_binary(host) and host != "" ->
+        host
+
+      _ when url != "" ->
+        case URI.parse("https://" <> url) do
+          %URI{host: host} when is_binary(host) and host != "" -> host
+          _ -> nil
+        end
+
+      _ ->
+        nil
     end
   end
 

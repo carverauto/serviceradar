@@ -83,6 +83,19 @@ defmodule ServiceRadar.Automation.Ansible.LifecycleTest do
            ]
   end
 
+  test "teardown_controller retracts the agent assignment WITHOUT re-scheduling controller workers" do
+    assert :ok =
+             Lifecycle.teardown_controller(%{id: "ctrl-a", agent_id: "agent-a"},
+               per_controller_workers: [HealthWorker, CatalogWorker, PulseWorker],
+               global_workers: [GlobalWorker],
+               inventory_reconciler: InventoryReconciler
+             )
+
+    # Only the agent-scoped reconcile runs; no health/catalog/pulse/global
+    # worker is (re)scheduled for a controller that is being removed.
+    assert Recorder.events() == [{:reconcile_agent, "agent-a"}]
+  end
+
   test "seed_all schedules every controller and reconciles all assignments" do
     assert :ok =
              Lifecycle.seed_all(

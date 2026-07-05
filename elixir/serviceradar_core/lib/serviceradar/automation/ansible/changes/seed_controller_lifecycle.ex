@@ -1,7 +1,9 @@
 defmodule ServiceRadar.Automation.Ansible.Changes.SeedControllerLifecycle do
   @moduledoc """
-  Ash change that seeds AWX/AAP controller jobs and plugin assignments after
-  controller writes.
+  Ash change that converges AWX/AAP controller jobs and plugin assignments after
+  controller writes. `mode: :seed` (create/update) seeds jobs + materializes the
+  inventory-sync assignment; `mode: :teardown` (destroy) retracts the removed
+  controller's assignment contribution without re-seeding its jobs.
   """
 
   use Ash.Resource.Change
@@ -10,8 +12,11 @@ defmodule ServiceRadar.Automation.Ansible.Changes.SeedControllerLifecycle do
   alias ServiceRadar.Changes.AfterAction
 
   @impl true
-  def change(changeset, _opts, _context) do
-    AfterAction.after_action(changeset, &Lifecycle.seed_controller/1)
+  def change(changeset, opts, _context) do
+    case Keyword.get(opts, :mode, :seed) do
+      :teardown -> AfterAction.after_action(changeset, &Lifecycle.teardown_controller/1)
+      _ -> AfterAction.after_action(changeset, &Lifecycle.seed_controller/1)
+    end
   end
 
   @impl true

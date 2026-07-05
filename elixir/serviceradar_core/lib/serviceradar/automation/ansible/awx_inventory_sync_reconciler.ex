@@ -43,7 +43,15 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconciler do
     actor = Keyword.get(opts, :actor, SystemActor.system(:awx_inventory_sync_reconciler))
 
     with {:ok, controllers} <- load_controllers_for_agent(agent_id, actor, opts) do
-      reconcile_controllers(controllers, Keyword.put(opts, :actor, actor))
+      # Scope retraction to this agent — a single-agent desired set must NOT
+      # disable other agents' inventory-sync assignments (cross-agent stale
+      # retraction is the job of reconcile_all).
+      reconcile_controllers(
+        controllers,
+        opts
+        |> Keyword.put(:actor, actor)
+        |> Keyword.put(:agent_scope, [agent_id])
+      )
     end
   end
 
@@ -65,7 +73,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconciler do
         actor: actor,
         resolver: __MODULE__.Resolver,
         planner: __MODULE__.Planner,
-        store: Keyword.get(opts, :store, PolicyAssignmentReconciler.AshStore)
+        store: Keyword.get(opts, :store, PolicyAssignmentReconciler.AshStore),
+        agent_scope: Keyword.get(opts, :agent_scope)
       )
     end
   end
@@ -209,32 +218,38 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconciler do
   end
 
   defp controller_rows(controllers, opts) do
-    controllers
-    |> Enum.reject(&blank?(string_value(&1, [:agent_id, "agent_id"])))
-    |> Enum.reduce_while({:ok, []}, fn controller, {:ok, acc} ->
-      case controller_row(controller, opts) do
-        {:ok, row} ->
-          {:cont, {:ok, [row | acc]}}
+    # A single unprocessable controller (e.g. transient grant issuance failure)
+    # is skipped and logged rather than aborting the whole-fleet reconcile — the
+    # remaining controllers still converge, and the bad one recovers on the next
+    # reconcile.
+    rows =
+      controllers
+      |> Enum.reject(&blank?(string_value(&1, [:agent_id, "agent_id"])))
+      |> Enum.flat_map(fn controller ->
+        case controller_row(controller, opts) do
+          {:ok, row} ->
+            [row]
 
-        {:error, reason} ->
-          {:halt, {:error, reason}}
-      end
-    end)
-    |> case do
-      {:ok, rows} ->
-        {:ok,
-         [
-           %{
-             name: "awx_controllers",
-             entity: "ansible_controllers",
-             query: "in:ansible_controllers",
-             rows: Enum.reverse(rows)
-           }
-         ]}
+          {:error, reason} ->
+            Logger.warning(
+              "AwxInventorySyncReconciler: skipping controller " <>
+                inspect(string_value(controller, [:id, "id"])) <>
+                " (#{string_value(controller, [:agent_id, "agent_id"])}): #{inspect(reason)}"
+            )
 
-      error ->
-        error
-    end
+            []
+        end
+      end)
+
+    {:ok,
+     [
+       %{
+         name: "awx_controllers",
+         entity: "ansible_controllers",
+         query: "in:ansible_controllers",
+         rows: rows
+       }
+     ]}
   end
 
   defp controller_row(controller, opts) do

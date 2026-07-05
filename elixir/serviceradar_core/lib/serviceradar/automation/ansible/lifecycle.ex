@@ -36,20 +36,52 @@ defmodule ServiceRadar.Automation.Ansible.Lifecycle do
 
     ensure_global_workers(opts)
 
-    if agent_id do
-      case inventory_reconciler(opts).reconcile_agent(agent_id, opts) do
-        {:ok, _summary} ->
-          :ok
+    if agent_id, do: safe_reconcile_agent(agent_id, opts)
 
-        {:error, reason} ->
-          Logger.debug("AWX inventory sync reconciliation deferred",
-            agent_id: agent_id,
-            reason: inspect(reason)
-          )
-      end
+    :ok
+  end
+
+  @doc """
+  Tear down a removed controller: retract its contribution to its agent's
+  inventory-sync assignment (rebuilt without it, or disabled if it was the
+  agent's last controller). Unlike `seed_controller/2`, this does NOT re-ensure
+  the per-controller jobs — the controller is gone, and its self-scheduling
+  workers terminate on their next tick when the controller can no longer be
+  read.
+  """
+  @spec teardown_controller(map(), keyword()) :: :ok
+  def teardown_controller(controller, opts \\ []) do
+    case string_value(controller, :agent_id) do
+      nil -> :ok
+      agent_id -> safe_reconcile_agent(agent_id, opts)
     end
 
     :ok
+  end
+
+  # Seeding runs inside the controller-write transaction (an Ash after_action
+  # hook). It must never raise: a raised error would roll back the controller
+  # write itself. Any reconcile failure is logged and left to the boot/backstop
+  # reconcile to heal.
+  defp safe_reconcile_agent(agent_id, opts) do
+    case inventory_reconciler(opts).reconcile_agent(agent_id, opts) do
+      {:ok, _summary} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.debug("AWX inventory sync reconciliation deferred",
+          agent_id: agent_id,
+          reason: inspect(reason)
+        )
+    end
+  rescue
+    error ->
+      Logger.warning("AWX inventory sync reconciliation raised; deferred to backstop",
+        agent_id: agent_id,
+        reason: Exception.message(error)
+      )
+
+      :ok
   end
 
   @spec seed_all(keyword()) :: :ok

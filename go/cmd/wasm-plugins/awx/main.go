@@ -911,10 +911,11 @@ func runInventorySync(cfg InventorySyncConfig) *sdk.Result {
 
 	if failures == len(controllers) {
 		result = sdk.Critical(summary)
-	} else if failures > 0 {
-		result.SetStatus(sdk.StatusWarning)
-		result.SetSummary(summary)
 	} else {
+		// Partial success stays StatusOK so the healthy controllers'
+		// DeviceDiscovery is never gated out of ingestion by a non-OK status;
+		// the degradation is surfaced via the summary and the
+		// controllers_failed label rather than by failing the whole check.
 		result.SetSummary(summary)
 	}
 

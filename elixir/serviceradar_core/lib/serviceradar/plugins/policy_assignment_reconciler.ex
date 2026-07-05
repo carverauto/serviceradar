@@ -37,11 +37,13 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
     planner = Keyword.get(opts, :planner, PolicyAssignmentPlanner)
     store = Keyword.get(opts, :store, __MODULE__.AshStore)
 
+    agent_scope = normalize_agent_scope(Keyword.get(opts, :agent_scope))
+
     with {:ok, resolved_inputs} <- resolver.resolve(input_defs, opts),
          {:ok, %{assignments: desired}} <- planner.plan(policy, resolved_inputs, opts),
          {:ok, policy_id} <- policy_id(policy),
          {:ok, existing} <- store.list_policy_assignments(policy_id, actor),
-         {:ok, stats} <- apply_plan(desired, existing, actor, store) do
+         {:ok, stats} <- apply_plan(desired, existing, actor, store, agent_scope) do
       {:ok,
        %{
          resolved_inputs: length(resolved_inputs),
@@ -66,7 +68,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
     end
   end
 
-  defp apply_plan(desired_specs, existing_rows, actor, store) do
+  defp apply_plan(desired_specs, existing_rows, actor, store, agent_scope) do
     desired_by_key = Map.new(desired_specs, &{&1.assignment_key, &1})
 
     existing_by_key =
@@ -74,8 +76,15 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
       |> Enum.filter(&is_binary(&1.source_key))
       |> Map.new(&{&1.source_key, &1})
 
+    # In a per-agent reconcile (agent_scope set), retraction is restricted to
+    # the reconciled agent(s): existing rows owned by OTHER agents must be left
+    # enabled — a single-agent desired set would otherwise disable the whole
+    # fleet's assignments. A full reconcile (agent_scope == nil) retracts across
+    # every agent.
+    stale_candidates = scope_existing(existing_by_key, agent_scope)
+
     with {:ok, upsert_stats} <- upsert_desired(desired_by_key, existing_by_key, actor, store),
-         {:ok, disabled_count} <- disable_stale(desired_by_key, existing_by_key, actor, store) do
+         {:ok, disabled_count} <- disable_stale(desired_by_key, stale_candidates, actor, store) do
       {:ok,
        %{
          upserted: upsert_stats.upserted,
@@ -98,6 +107,27 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
     |> Enum.reject(fn {key, _} -> Map.has_key?(desired_by_key, key) end)
     |> Enum.reduce_while({:ok, 0}, fn {_key, assignment}, {:ok, count} ->
       disable_one(assignment, count, actor, store)
+    end)
+  end
+
+  # nil => full sweep across all agents; a list of agent_uids => restrict
+  # retraction to those agents only.
+  defp normalize_agent_scope(nil), do: nil
+
+  defp normalize_agent_scope(scope) when is_list(scope) do
+    scope
+    |> Enum.map(&to_string/1)
+    |> Enum.reject(&(&1 == ""))
+    |> MapSet.new()
+  end
+
+  defp normalize_agent_scope(scope) when is_binary(scope), do: normalize_agent_scope([scope])
+
+  defp scope_existing(existing_by_key, nil), do: existing_by_key
+
+  defp scope_existing(existing_by_key, %MapSet{} = scope) do
+    Map.filter(existing_by_key, fn {_key, assignment} ->
+      MapSet.member?(scope, to_string(assignment.agent_uid))
     end)
   end
 

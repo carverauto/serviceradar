@@ -68,7 +68,7 @@ defmodule ServiceRadar.Automation.Ansible.Controller do
 
   actions do
     destroy :destroy do
-      change SeedControllerLifecycle
+      change {SeedControllerLifecycle, mode: :teardown}
     end
 
     read :read do

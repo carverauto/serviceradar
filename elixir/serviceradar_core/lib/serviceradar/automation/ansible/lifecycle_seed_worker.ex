@@ -12,9 +12,6 @@ defmodule ServiceRadar.Automation.Ansible.LifecycleSeedWorker do
   alias ServiceRadar.Automation.Ansible.Lifecycle
   alias ServiceRadar.SweepJobs.ObanSupport
 
-  @default_reschedule_seconds 300
-  @min_reschedule_seconds 60
-
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
     if ObanSupport.available?() do
@@ -28,20 +25,14 @@ defmodule ServiceRadar.Automation.Ansible.LifecycleSeedWorker do
     end
   end
 
+  # Cadence is driven entirely by LifecycleScheduler (an ObanEnsureScheduled
+  # ticker): it re-enqueues this job once the previous run completes. A
+  # perform-time self-reschedule was removed — the job's `unique` window
+  # includes `:executing`, so a self-insert deduped against the currently
+  # running job and never landed (the reschedule was silently dead).
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
     Lifecycle.seed_all()
-    schedule_next()
-    :ok
-  end
-
-  defp schedule_next do
-    seconds =
-      :serviceradar_core
-      |> Application.get_env(:awx_lifecycle_seed_interval_seconds, @default_reschedule_seconds)
-      |> max(@min_reschedule_seconds)
-
-    _ = %{} |> new(schedule_in: seconds) |> ObanSupport.safe_insert()
     :ok
   end
 
