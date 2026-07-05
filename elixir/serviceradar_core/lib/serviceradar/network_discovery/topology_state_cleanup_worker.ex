@@ -11,6 +11,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker do
   import Ecto.Query, only: [from: 2]
 
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.HealthConditions
   alias ServiceRadar.NetworkDiscovery.TopologyStateCleanup
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -92,8 +94,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker do
 
       case TopologyGraph.rebuild_canonical_links_from_current_with_stats() do
         {:ok, retry_stats} ->
-          emit_recovery_telemetry(:completed, retry_stats, min_canonical_edges)
-          Logger.info("Canonical topology recovery rebuild completed", stats: retry_stats)
+          report_recovery_outcome(stats, retry_stats, min_canonical_edges)
 
         {:error, reason, retry_stats} ->
           emit_recovery_telemetry(:failed, retry_stats, min_canonical_edges, reason)
@@ -108,6 +109,68 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker do
   end
 
   defp maybe_recover_canonical_rebuild(_stats, _min_canonical_edges), do: :ok
+
+  @doc false
+  # Honest recovery outcome (fj #4378): a recovery rebuild that still leaves the
+  # canonical edge count below the threshold while mapper evidence exists is a
+  # FAILURE — emit failed telemetry and the deduplicated unhealthy condition
+  # (shared with CanonicalRebuild's in-rebuild self-heal) instead of the old
+  # unconditional "completed" claim. Genuine recovery emits completed, clears
+  # the condition, and logs the all-clear.
+  @spec report_recovery_outcome(map(), map(), integer(), keyword()) :: :completed | :failed
+  def report_recovery_outcome(stats, retry_stats, min_canonical_edges, opts \\ [])
+      when is_map(stats) and is_map(retry_stats) and is_integer(min_canonical_edges) do
+    condition = Keyword.get(opts, :condition, CanonicalRebuild.self_heal_condition())
+    outcome_stats = recovery_outcome_stats(stats, retry_stats)
+
+    if recovery_needed?(outcome_stats, min_canonical_edges) do
+      emit_recovery_telemetry(
+        :failed,
+        outcome_stats,
+        min_canonical_edges,
+        :canonical_edges_below_threshold
+      )
+
+      _ =
+        HealthConditions.report_failure(
+          condition,
+          "Canonical topology recovery rebuild FAILED: canonical edges still below threshold while mapper evidence exists",
+          after_prune_edges: Map.get(outcome_stats, :after_prune_edges, 0),
+          mapper_evidence_edges: Map.get(outcome_stats, :mapper_evidence_edges, 0),
+          min_canonical_edges: min_canonical_edges
+        )
+
+      :failed
+    else
+      emit_recovery_telemetry(:completed, outcome_stats, min_canonical_edges)
+
+      _ =
+        HealthConditions.report_recovery(
+          condition,
+          "Canonical topology recovery rebuild restored canonical edges",
+          after_prune_edges: Map.get(outcome_stats, :after_prune_edges, 0),
+          min_canonical_edges: min_canonical_edges
+        )
+
+      Logger.info("Canonical topology recovery rebuild completed", stats: retry_stats)
+      :completed
+    end
+  end
+
+  @doc false
+  # The retry can be skipped by the rebuild's change-detection guard (unchanged
+  # fingerprint) or the advisory lock — a skipped run carries no fresh edge
+  # counts, and nothing changed, so the pre-retry failing counts still describe
+  # reality. Judging the skipped retry's empty stats would count 0 mapper
+  # evidence and falsely claim completion at 0 canonical edges.
+  @spec recovery_outcome_stats(map(), map()) :: map()
+  def recovery_outcome_stats(stats, retry_stats) when is_map(stats) and is_map(retry_stats) do
+    if Map.has_key?(retry_stats, :after_prune_edges) do
+      retry_stats
+    else
+      stats
+    end
+  end
 
   @doc false
   @spec recovery_needed?(map(), integer()) :: boolean()
@@ -134,7 +197,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker do
     }
 
     metadata =
-      maybe_put_reason(%{status: status, stale_cutoff: Map.get(stats, :stale_cutoff)}, reason)
+      maybe_put_reason(
+        %{
+          status: status,
+          stale_cutoff: Map.get(stats, :stale_cutoff),
+          starved: Map.get(stats, :starved, false),
+          evidence_max_last_observed_at: Map.get(stats, :evidence_max_last_observed_at)
+        },
+        reason
+      )
 
     :telemetry.execute(
       [:serviceradar, :topology, :cleanup_rebuild, status],

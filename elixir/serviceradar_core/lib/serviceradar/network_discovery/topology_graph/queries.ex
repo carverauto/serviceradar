@@ -24,8 +24,13 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Queries do
   defdelegate canonical_edge_telemetry_batch_query(updates), to: Telemetry
   defdelegate canonical_edge_count_query(), to: CanonicalRebuild
   defdelegate mapper_evidence_edge_count_query(), to: CanonicalRebuild
+  defdelegate mapper_evidence_freshness_query(), to: CanonicalRebuild
   defdelegate canonical_rebuild_upsert_query(stale_cutoff), to: CanonicalRebuild
   defdelegate canonical_rebuild_prune_query(stale_cutoff), to: CanonicalRebuild
+
+  defdelegate canonical_rebuild_prune_candidate_count_query(stale_cutoff),
+    to: CanonicalRebuild
+
   defdelegate rebuild_input_fingerprint_query(), to: CanonicalRebuild
   defdelegate rebuild_input_edge_labels(), to: CanonicalRebuild
   defdelegate rebuild_input_property_fields(), to: CanonicalRebuild
