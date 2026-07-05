@@ -228,6 +228,53 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
     |> Enum.sort_by(&elem(&1, 0))
   end
 
+  @doc """
+  True when two devices are corroborated as the SAME physical host by a shared
+  strong identity: a common MAC address or a common Proxmox host reference
+  (`integration_id` / `hypervisor_provider_ref` / `hypervisor_host_provider_ref`
+  / `legacy_integration_ids`).
+
+  A shared hostname is deliberately NOT sufficient. Distinct Proxmox clusters
+  routinely reuse node hostnames (`pve01`, `pve02`, …), so merging on hostname
+  alone would fuse distinct hardware across clusters — the exact over-merge this
+  guard exists to prevent. Devices are expected to carry `:macs` and
+  `:host_refs` as `MapSet`s of normalized tokens; absent both (network-probed
+  candidates with no MAC and no enrichment ref), no corroboration exists and the
+  pair is treated as distinct.
+  """
+  @spec same_physical_host?(map(), map()) :: boolean()
+  def same_physical_host?(a, b) do
+    shared_tokens?(Map.get(a, :macs), Map.get(b, :macs)) or
+      shared_tokens?(Map.get(a, :host_refs), Map.get(b, :host_refs))
+  end
+
+  @doc """
+  Partition a same-hostname group into identity components: two devices land in
+  the same component iff they are (transitively) corroborated as the same
+  physical host via `same_physical_host?/2`. Devices that share only a hostname
+  fall into separate singleton components and are therefore never merged.
+
+  Returns a list of components (each a list of devices). Merge planning collapses
+  only components of size >= 2, so a hostname group spanning multiple clusters
+  yields one component per physical host and never merges across them.
+  """
+  @spec identity_components([map()]) :: [[map()]]
+  def identity_components(devices) do
+    Enum.reduce(devices, [], fn device, components ->
+      {matching, rest} =
+        Enum.split_with(components, fn component ->
+          Enum.any?(component, &same_physical_host?(&1, device))
+        end)
+
+      [[device | List.flatten(matching)] | rest]
+    end)
+  end
+
+  defp shared_tokens?(%MapSet{} = a, %MapSet{} = b),
+    do: MapSet.size(a) > 0 and not MapSet.disjoint?(a, b)
+
+  defp shared_tokens?(_, _), do: false
+
   # ---------------------------------------------------------------------------
   # Shared helpers
   # ---------------------------------------------------------------------------

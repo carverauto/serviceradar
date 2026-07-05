@@ -3,23 +3,33 @@ defmodule ServiceRadar.Inventory.Remediation.ProxmoxDups do
   Step `proxmox-dups` (OpenSpec refactor-device-identity-reconciliation 4.4).
 
   Collapses intra-Proxmox duplicate device rows created by `integration_id`
-  format churn: live devices whose `discovery_sources` include `proxmox` are
-  grouped by normalized hostname; in every group with more than one device,
-  the non-canonical rows are merged into the canonical one via
+  format churn and multi-homed Proxmox hosts: live devices whose
+  `discovery_sources` include `proxmox` or whose metadata marks
+  `proxmox_candidate=true` are grouped by normalized hostname, then each
+  hostname group is split into identity components
+  (`Decisions.identity_components/1`) — devices corroborated as the SAME physical
+  host by a shared MAC or Proxmox host reference. Only within a component of two
+  or more devices are the non-canonical rows merged into the canonical one via
   `IdentityReconciler.merge_devices/3`.
+
+  Hostname alone is NEVER a merge key. Distinct Proxmox clusters routinely reuse
+  node hostnames (`pve01`, `pve02`, …), so two same-hostname rows from different
+  clusters — with no shared MAC and no shared enrichment reference — are distinct
+  hardware and are left untouched (counted as `skipped_unrelated`). Multi-homed
+  rows of one host (sharing its node reference) and `integration_id`-churn rows
+  (sharing a `legacy_integration_ids` token) still collapse.
 
   Canonical selection (see `Decisions.select_canonical/2`): an agent-linked
   device wins, then the most recently seen, then lowest uid. A duplicate that
   an actively-connected agent links to is never merged away (skipped with a
   warning).
 
-  Merges use reason `"manual_remediation"`. This is deliberate: the merge
-  guards added in phase 1 (distinct-agent veto + per-pair cooldown) are
-  bypassed for reasons starting with `"manual"` — verified against
-  `Identity.MergeEngine.manual_override_merge_reason?/1`
-  (`String.starts_with?(reason, "manual")`) — because this is an
-  operator-invoked administrative merge. Each merge is fully audited by the
-  merge engine itself; the manifest records every from->to pair.
+  Merges use reason `"proxmox_dedupe"` (NOT a `"manual"` reason). This is
+  deliberate: a non-manual reason keeps the merge engine's identity guards
+  (distinct-agent veto, provisional-topology / distinct-MAC veto, per-pair
+  cooldown) ENGAGED as defense-in-depth, on top of this step's own
+  same-physical-host corroboration requirement. Each merge is fully audited by
+  the merge engine; the manifest records every from->to pair.
   """
 
   alias ServiceRadar.Inventory.IdentityReconciler
@@ -30,7 +40,7 @@ defmodule ServiceRadar.Inventory.Remediation.ProxmoxDups do
   require Logger
 
   @step "proxmox-dups"
-  @merge_reason "manual_remediation"
+  @merge_reason "proxmox_dedupe"
 
   @doc false
   def run(mode, opts, manifest, actor) do
@@ -43,13 +53,14 @@ defmodule ServiceRadar.Inventory.Remediation.ProxmoxDups do
 
     groups = Decisions.duplicate_hostname_groups(devices, denylist)
 
-    {merges, skipped} = plan_merges(groups, linked, protected)
+    {merges, skipped, skipped_unrelated} = plan_merges(groups, linked, protected)
 
     base = %{
       proxmox_devices: length(devices),
       duplicate_groups: length(groups),
       planned_merges: length(merges),
       skipped_protected: skipped,
+      skipped_unrelated: skipped_unrelated,
       merge_plan:
         Enum.map(merges, fn {hostname, from, to} ->
           %{hostname: hostname, from: from, to: to}
@@ -70,21 +81,64 @@ defmodule ServiceRadar.Inventory.Remediation.ProxmoxDups do
     %{rows: rows} =
       query!(
         """
-        SELECT uid, hostname, last_seen_time
-        FROM platform.ocsf_devices
-        WHERE deleted_at IS NULL
-          AND $1 = ANY(discovery_sources)
-          AND hostname IS NOT NULL
-          AND btrim(hostname) <> ''
-        ORDER BY uid
+        SELECT d.uid, d.hostname, d.last_seen_time,
+          COALESCE(mac.macs, '{}') AS macs,
+          (
+            COALESCE(
+              ARRAY(
+                SELECT jsonb_array_elements_text(d.metadata->'legacy_integration_ids')
+                WHERE jsonb_typeof(d.metadata->'legacy_integration_ids') = 'array'
+              ),
+              '{}'
+            )
+            || ARRAY_REMOVE(
+                 ARRAY[
+                   NULLIF(btrim(d.metadata->>'integration_id'), ''),
+                   NULLIF(btrim(d.metadata->>'hypervisor_provider_ref'), ''),
+                   NULLIF(btrim(d.metadata->>'hypervisor_host_provider_ref'), '')
+                 ],
+                 NULL
+               )
+          ) AS host_refs
+        FROM platform.ocsf_devices d
+        LEFT JOIN LATERAL (
+          SELECT array_agg(DISTINCT upper(btrim(di.identifier_value))) AS macs
+          FROM platform.device_identifiers di
+          WHERE di.device_id = d.uid
+            AND di.identifier_type = 'mac'
+            AND btrim(COALESCE(di.identifier_value, '')) <> ''
+        ) mac ON true
+        WHERE d.deleted_at IS NULL
+          AND (
+            COALESCE($1 = ANY(d.discovery_sources), false)
+            OR lower(COALESCE(d.metadata->>'proxmox_candidate', '')) IN ('true', '1', 'yes')
+          )
+          AND d.hostname IS NOT NULL
+          AND btrim(d.hostname) <> ''
+        ORDER BY d.uid
         """,
         [source]
       )
 
-    Enum.map(rows, fn [uid, hostname, last_seen] ->
-      %{uid: uid, hostname: hostname, last_seen_time: to_datetime(last_seen)}
+    Enum.map(rows, fn [uid, hostname, last_seen, macs, host_refs] ->
+      %{
+        uid: uid,
+        hostname: hostname,
+        last_seen_time: to_datetime(last_seen),
+        macs: token_set(macs),
+        host_refs: token_set(host_refs)
+      }
     end)
   end
+
+  defp token_set(values) when is_list(values) do
+    values
+    |> Enum.map(fn v -> v |> to_string() |> String.trim() end)
+    |> Enum.reject(&(&1 == ""))
+    |> MapSet.new()
+  end
+
+  defp token_set(_), do: MapSet.new()
 
   defp linked_device_uids do
     %{rows: rows} =
@@ -109,25 +163,38 @@ defmodule ServiceRadar.Inventory.Remediation.ProxmoxDups do
 
   defp plan_merges(groups, linked, protected) do
     groups
-    |> Enum.reduce({[], 0}, fn {hostname, group}, {merges, skipped} ->
-      canonical = Decisions.select_canonical(group, linked)
-
+    |> Enum.reduce({[], 0, 0}, fn {hostname, group}, acc ->
       group
-      |> Enum.reject(&(&1.uid == canonical.uid))
-      |> Enum.reduce({merges, skipped}, fn duplicate, {merges, skipped} ->
-        if MapSet.member?(protected, duplicate.uid) do
-          Logger.warning(
-            "ProxmoxDups: refusing to merge away #{duplicate.uid} (#{hostname}) — " <>
-              "an active agent links to it"
-          )
-
-          {merges, skipped + 1}
-        else
-          {[{hostname, duplicate.uid, canonical.uid} | merges], skipped}
-        end
-      end)
+      |> Decisions.identity_components()
+      |> Enum.reduce(acc, &plan_component(&1, hostname, linked, protected, &2))
     end)
-    |> then(fn {merges, skipped} -> {Enum.reverse(merges), skipped} end)
+    |> then(fn {merges, skipped, unrelated} -> {Enum.reverse(merges), skipped, unrelated} end)
+  end
+
+  # A device that shares a hostname with others but has no same-physical-host
+  # peer (no shared MAC / Proxmox host reference) is a distinct host — never
+  # merged; only tallied so operators can see how many hostname collisions were
+  # deliberately left intact (e.g. `pve02` in two different clusters).
+  defp plan_component([_single], _hostname, _linked, _protected, {merges, skipped, unrelated}),
+    do: {merges, skipped, unrelated + 1}
+
+  defp plan_component(component, hostname, linked, protected, acc) do
+    canonical = Decisions.select_canonical(component, linked)
+
+    component
+    |> Enum.reject(&(&1.uid == canonical.uid))
+    |> Enum.reduce(acc, fn duplicate, {merges, skipped, unrelated} ->
+      if MapSet.member?(protected, duplicate.uid) do
+        Logger.warning(
+          "ProxmoxDups: refusing to merge away #{duplicate.uid} (#{hostname}) — " <>
+            "an active agent links to it"
+        )
+
+        {merges, skipped + 1, unrelated}
+      else
+        {[{hostname, duplicate.uid, canonical.uid} | merges], skipped, unrelated}
+      end
+    end)
   end
 
   defp execute_merges(merges, manifest, actor) do
