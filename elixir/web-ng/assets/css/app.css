@@ -2619,6 +2619,20 @@ body {
   color: #94a3b8;
 }
 
+.sr-ops-camera-status-row.tone-warning span {
+  color: #f59e0b;
+}
+
+.sr-ops-camera-status-row span small.sr-ops-camera-status-detail {
+  min-width: 0;
+  color: #94a3b8;
+  font-size: 0.62rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .sr-ops-camera-wall {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2810,6 +2824,20 @@ body {
 
 .sr-ops-camera-tile-caption i.is-offline {
   background: #ef4444;
+}
+
+.sr-ops-camera-tile-caption i.is-degraded {
+  background: #f59e0b;
+}
+
+.sr-ops-camera-tile-caption small.sr-ops-camera-tile-degraded {
+  justify-self: start;
+  max-width: 100%;
+  padding: 0.1rem 0.38rem;
+  border: 1px solid rgba(245, 158, 11, 0.38);
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
 }
 
 .sr-ops-camera-tile-error {

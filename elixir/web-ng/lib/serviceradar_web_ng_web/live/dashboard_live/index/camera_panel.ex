@@ -7,10 +7,20 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.CameraPanel do
   alias ServiceRadarWebNGWeb.CameraRelayComponents
   alias ServiceRadarWebNGWeb.DashboardLive.Index.Common
 
+  @inventory_available_statuses ["available", "online", "active", "healthy"]
+  @inventory_offline_statuses ["offline", "unavailable", "failed", "error"]
+
   attr(:dashboard, :map, required: true)
 
   def render(%{dashboard: dashboard} = assigns) do
     assigns = Map.merge(assigns, dashboard)
+
+    assigns =
+      Map.put(
+        assigns,
+        :camera_stream_health,
+        camera_stream_health(assigns.camera_summary, assigns[:camera_preview_tiles])
+      )
 
     ~H"""
     <Common.panel
@@ -29,25 +39,38 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.CameraPanel do
             label="Available"
             value={to_string(@camera_summary.online)}
             icon="hero-video-camera"
-            tone="success"
+            tone={if @camera_stream_health.contradicted, do: "warning", else: "success"}
+            detail={if @camera_stream_health.contradicted, do: "not streamable", else: nil}
+            provenance="Source: inventory (camera source availability status)"
+          />
+          <.camera_status_row
+            label="Streamable"
+            value={to_string(@camera_stream_health.streamable)}
+            icon="hero-signal"
+            tone={streamable_tone(@camera_stream_health)}
+            detail={streamable_detail(@camera_stream_health)}
+            provenance="Source: live relay (preview stream resolution)"
           />
           <.camera_status_row
             label="Offline"
             value={to_string(@camera_summary.offline)}
             icon="hero-video-camera-slash"
             tone="error"
+            provenance="Source: inventory (camera source availability status)"
           />
           <.camera_status_row
             label="Recording"
             value={to_string(@camera_summary.recording)}
             icon="hero-camera"
             tone="info"
+            provenance="Source: live relay (active relay sessions)"
           />
           <.camera_status_row
             label="Total Cameras"
             value={to_string(@camera_summary.total)}
             icon="hero-squares-2x2"
             tone="neutral"
+            provenance="Source: inventory (camera sources)"
           />
         </div>
         <div class="sr-ops-camera-wall">
@@ -68,9 +91,15 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.CameraPanel do
             </div>
             <div class="sr-ops-camera-tile-caption">
               <span>
-                <i class={camera_status_dot_class(tile.source_status)}></i>{tile.label}
+                <i class={camera_preview_dot_class(tile)}></i>{tile.label}
               </span>
-              <small>{camera_preview_detail(tile)}</small>
+              <small
+                class={camera_preview_detail_class(tile)}
+                title={camera_preview_title(tile)}
+                data-testid="camera-tile-state"
+              >
+                {camera_preview_detail(tile)}
+              </small>
             </div>
           </.link>
           <.link
@@ -84,7 +113,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.CameraPanel do
             </div>
             <div class="sr-ops-camera-tile-caption">
               <span><i class={camera_status_dot_class(tile.status)}></i>{tile.label}</span>
-              <small>{camera_status_label(tile.status)}</small>
+              <small title={camera_inventory_title(tile.status)} data-testid="camera-tile-state">
+                {camera_status_label(tile.status)}
+              </small>
             </div>
           </.link>
         </div>
@@ -97,17 +128,61 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.CameraPanel do
   attr(:value, :string, required: true)
   attr(:icon, :string, required: true)
   attr(:tone, :string, default: "neutral")
+  attr(:detail, :string, default: nil)
+  attr(:provenance, :string, default: nil)
 
   defp camera_status_row(assigns) do
     ~H"""
-    <div class={["sr-ops-camera-status-row", "tone-#{@tone}"]}>
+    <div
+      class={["sr-ops-camera-status-row", "tone-#{@tone}"]}
+      title={camera_row_title(@provenance, @detail)}
+    >
       <span>
         <.icon name={@icon} class="size-4" />
         {@label}
+        <small :if={@detail} class="sr-ops-camera-status-detail">{@detail}</small>
       </span>
       <strong>{@value}</strong>
     </div>
     """
+  end
+
+  defp camera_row_title(nil, nil), do: nil
+
+  defp camera_row_title(provenance, detail) do
+    [provenance, detail]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" · ")
+  end
+
+  # Stream operability is derived from the relay preview tiles the panel
+  # already resolves (live relay source) — not from inventory availability.
+  # Cameras that were never previewed cannot be assumed operable; they are
+  # counted as "unchecked".
+  defp camera_stream_health(summary, preview_tiles) do
+    tiles = List.wrap(preview_tiles)
+    streamable = Enum.count(tiles, &(Map.get(&1, :session) != nil))
+    blocked = length(tiles) - streamable
+    available = Map.get(summary || %{}, :online, 0)
+
+    %{
+      streamable: streamable,
+      blocked: blocked,
+      unchecked: max(available - streamable - blocked, 0),
+      contradicted: available > 0 and streamable == 0 and blocked > 0
+    }
+  end
+
+  defp streamable_tone(%{streamable: 0, blocked: blocked}) when blocked > 0, do: "warning"
+  defp streamable_tone(%{streamable: streamable}) when streamable > 0, do: "success"
+  defp streamable_tone(_health), do: "neutral"
+
+  defp streamable_detail(%{blocked: 0, unchecked: 0}), do: nil
+
+  defp streamable_detail(%{blocked: blocked, unchecked: unchecked}) do
+    [{blocked, "blocked"}, {unchecked, "unchecked"}]
+    |> Enum.reject(fn {count, _label} -> count == 0 end)
+    |> Enum.map_join(" · ", fn {count, label} -> "#{count} #{label}" end)
   end
 
   defp camera_tiles(tiles, preview_tiles) do
@@ -139,37 +214,97 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.CameraPanel do
   defp camera_tile_id(_tile), do: nil
 
   defp camera_status_label(value) do
-    case value |> to_string() |> String.trim() |> String.downcase() do
-      status when status in ["available", "online", "active", "healthy"] -> "Online"
-      status when status in ["offline", "unavailable", "failed", "error"] -> "Offline"
+    case normalize_camera_status(value) do
+      status when status in @inventory_available_statuses -> "Available · stream unchecked"
+      status when status in @inventory_offline_statuses -> "Offline"
       "empty" -> "No relay"
       "" -> "Unknown"
       status -> String.capitalize(status)
     end
   end
 
+  defp camera_inventory_title(value) do
+    case normalize_camera_status(value) do
+      status when status in @inventory_available_statuses ->
+        "Inventory reports this camera as available; its live stream has not been checked"
+
+      "empty" ->
+        nil
+
+      _status ->
+        "Source: inventory (camera source availability status)"
+    end
+  end
+
   defp camera_preview_detail(%{session: session, detail: detail}) when not is_nil(session), do: detail
 
-  defp camera_preview_detail(%{error: error}) when is_binary(error) and error != "" do
+  defp camera_preview_detail(tile) do
+    reason = camera_preview_block_reason(tile)
+
+    if camera_inventory_available?(tile) do
+      "available, not streamable — #{reason}"
+    else
+      upcase_first(reason)
+    end
+  end
+
+  defp camera_preview_detail_class(tile) do
+    if is_nil(Map.get(tile, :session)) and camera_inventory_available?(tile) do
+      "sr-ops-camera-tile-degraded"
+    end
+  end
+
+  defp camera_preview_dot_class(tile) do
+    cond do
+      not is_nil(Map.get(tile, :session)) -> "is-online"
+      camera_inventory_available?(tile) -> "is-degraded"
+      true -> camera_status_dot_class(Map.get(tile, :source_status))
+    end
+  end
+
+  defp camera_preview_title(%{session: session}) when not is_nil(session), do: "Source: live relay (stream open)"
+
+  defp camera_preview_title(tile) do
+    relay_state = Map.get(tile, :error) || "no relay session"
+
+    if camera_inventory_available?(tile) do
+      "Inventory reports this camera as available; live relay: #{relay_state}"
+    else
+      "Source: live relay — #{relay_state}"
+    end
+  end
+
+  defp camera_preview_block_reason(%{error: error}) when is_binary(error) and error != "" do
     cond do
       String.contains?(error, "Assigned agent") and String.contains?(error, "offline") ->
-        "Agent offline"
+        "agent offline"
 
       String.contains?(error, "No relay-capable") ->
-        "No relay profile"
+        "no relay profile"
 
       true ->
         error
     end
   end
 
-  defp camera_preview_detail(_tile), do: "No relay"
+  defp camera_preview_block_reason(_tile), do: "no relay"
+
+  defp camera_inventory_available?(tile) do
+    normalize_camera_status(Map.get(tile, :source_status)) in @inventory_available_statuses
+  end
 
   defp camera_status_dot_class(value) do
-    case camera_status_label(value) do
-      "Online" -> "is-online"
-      "Offline" -> "is-offline"
-      _ -> "is-unknown"
+    case normalize_camera_status(value) do
+      status when status in @inventory_available_statuses -> "is-online"
+      status when status in @inventory_offline_statuses -> "is-offline"
+      _status -> "is-unknown"
     end
   end
+
+  defp normalize_camera_status(value) do
+    value |> to_string() |> String.trim() |> String.downcase()
+  end
+
+  defp upcase_first(<<first::utf8, rest::binary>>), do: String.upcase(<<first::utf8>>) <> rest
+  defp upcase_first(other), do: to_string(other)
 end
