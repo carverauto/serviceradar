@@ -44,6 +44,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.ConfigSchema
   alias ServiceRadar.Plugins.CredentialBrokerDelivery
+  alias ServiceRadar.Plugins.MapUtils
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.RetiredNativeAddons
@@ -245,7 +246,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       plugin_config: proto_plugins,
       bumblebee_config: Map.get(config, :bumblebee_config),
       endpoint_inventory_config: Map.get(config, :endpoint_inventory_config),
-      addons: to_proto_addons(Map.get(config, :addons, []))
+      addons: to_proto_addons(Map.get(config, :addons, []), Map.get(config, :agent_id))
     }
   end
 
@@ -278,8 +279,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       engine_limits: plugin_engine_limits
     }
 
-    build_config(
-      checks,
+    checks
+    |> build_config(
       sync_payload,
       sweep_config,
       mapper_config,
@@ -291,6 +292,10 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       plugin_config,
       addon_assignments
     )
+    # Carried for delivery-refusal telemetry/log context in `to_proto_addons/2`
+    # (fj#4383); deliberately not a version-hash input, so it cannot perturb
+    # config-change detection.
+    |> Map.put(:agent_id, agent_id)
   end
 
   # Load service checks assigned to this agent from the database
@@ -538,7 +543,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         artifact,
         enabled: assignment.enabled,
         args: assignment.args || [],
-        params: normalize_map(assignment.params)
+        params: normalize_map(assignment.params),
+        assignment_id: assignment.id
       )
     end
   end
@@ -605,10 +611,13 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       binary_path: addon_binary_path(package),
       args: args,
       params: normalize_map(params),
-      # Threaded through to `to_proto_addons/1` so assignment params can be
+      # Threaded through to `to_proto_addons/2` so assignment params can be
       # schema-coerced at the delivery choke point, right before `config_json`
-      # encoding (fj#4381).
+      # encoding (fj#4381), and validated post-coercion so uncoercible params
+      # refuse delivery instead of shipping undecodable JSON (fj#4383).
       config_schema: package.config_schema,
+      # nil for required (config-declared) add-ons, which have no assignment row.
+      assignment_id: Keyword.get(opts, :assignment_id),
       capabilities: effective_addon_capabilities(package),
       os_capabilities: addon_os_capabilities(package),
       resources: normalize_map(package.resources),
@@ -1636,32 +1645,47 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     }
   end
 
-  defp to_proto_addons(addons) when is_list(addons) do
-    Enum.map(addons, fn addon ->
-      %Monitoring.AddonAssignmentConfig{
-        addon_id: assignment_string(addon[:addon_id]),
-        version: assignment_string(addon[:version]),
-        enabled: addon[:enabled] || false,
-        binary_path: assignment_string(addon[:binary_path]),
-        args: addon[:args] || [],
-        config_json: encode_json(coerce_addon_params(addon)),
-        capabilities: addon[:capabilities] || [],
-        os_capabilities: addon[:os_capabilities] || [],
-        delivery: assignment_enum_string(addon[:delivery]),
-        supervision: assignment_enum_string(addon[:supervision]),
-        artifact_object_key: assignment_string(addon[:artifact_object_key]),
-        artifact_sha256: assignment_string(addon[:artifact_sha256]),
-        artifact_signature: assignment_string(addon[:artifact_signature]),
-        target_os: assignment_string(addon[:target_os]),
-        target_arch: assignment_string(addon[:target_arch]),
-        download_url: assignment_string(addon[:download_url]),
-        download_token: assignment_string(addon[:download_token]),
-        resources: to_proto_addon_resources(addon[:resources])
-      }
-    end)
+  defp to_proto_addons(addons, agent_id) when is_list(addons) do
+    addons
+    |> Enum.map(&to_proto_addon(&1, agent_id))
+    |> Enum.reject(&is_nil/1)
   end
 
-  defp to_proto_addons(_), do: []
+  defp to_proto_addons(_, _agent_id), do: []
+
+  defp to_proto_addon(addon, agent_id) do
+    params = coerce_addon_params(addon)
+
+    case validate_coerced_addon_params(addon, params) do
+      :ok ->
+        note_addon_delivery_resumed(addon, agent_id)
+
+        %Monitoring.AddonAssignmentConfig{
+          addon_id: assignment_string(addon[:addon_id]),
+          version: assignment_string(addon[:version]),
+          enabled: addon[:enabled] || false,
+          binary_path: assignment_string(addon[:binary_path]),
+          args: addon[:args] || [],
+          config_json: encode_json(params),
+          capabilities: addon[:capabilities] || [],
+          os_capabilities: addon[:os_capabilities] || [],
+          delivery: assignment_enum_string(addon[:delivery]),
+          supervision: assignment_enum_string(addon[:supervision]),
+          artifact_object_key: assignment_string(addon[:artifact_object_key]),
+          artifact_sha256: assignment_string(addon[:artifact_sha256]),
+          artifact_signature: assignment_string(addon[:artifact_signature]),
+          target_os: assignment_string(addon[:target_os]),
+          target_arch: assignment_string(addon[:target_arch]),
+          download_url: assignment_string(addon[:download_url]),
+          download_token: assignment_string(addon[:download_token]),
+          resources: to_proto_addon_resources(addon[:resources])
+        }
+
+      {:error, errors} ->
+        refuse_addon_delivery(addon, agent_id, params, errors)
+        nil
+    end
+  end
 
   # fj#4381: assignment params are persisted JSONB and can carry
   # representational drift that the typed Go add-on decoders reject — the demo
@@ -1673,9 +1697,104 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   # known to reject. Packages with an absent/empty schema (or one without
   # properties) pass params through unchanged — there is nothing to coerce
   # against, and delivery must not invent shapes the package never declared.
+  #
+  # Keys are stringified first (fj#4383) so post-coercion schema validation
+  # sees the same shape the agent will decode from JSON — atom-keyed test/dev
+  # params would otherwise read as "missing property + unknown key" to
+  # ExJsonSchema and refuse delivery spuriously. Encoding is unaffected: Jason
+  # writes atom and string keys identically.
   defp coerce_addon_params(addon) do
-    ConfigSchema.coerce_params(addon[:config_schema], normalize_map(addon[:params]))
+    ConfigSchema.coerce_params(
+      addon[:config_schema],
+      MapUtils.stringify_keys_or_empty(normalize_map(addon[:params]))
+    )
   end
+
+  # fj#4383: coercion handles the drift shapes it knows how to fix; anything
+  # still schema-invalid afterwards is known-undecodable and MUST NOT ship
+  # (spec `agent-config`, "Uncoercible params refuse delivery visibly").
+  # An absent/empty schema validates vacuously — the empty-schema policy is
+  # owned by `Validations.AddonAssignmentParams` at write time.
+  defp validate_coerced_addon_params(addon, params) do
+    schema = addon[:config_schema]
+
+    if is_map(schema) do
+      ConfigSchema.validate_params(schema, params)
+    else
+      :ok
+    end
+  end
+
+  # Refusing delivery must be loud but not a 5-second-cycle log storm: the
+  # config generator runs on every agent poll, so the error log is deduped via
+  # a persistent_term last-state marker keyed by (agent, addon) storing the
+  # refused params hash. Telemetry fires on every refusal (cheap; consumers
+  # aggregate). There is currently no per-assignment validation-status field to
+  # persist the error on (`profile_reconcile_status`/`_error` are owned by the
+  # profile reconciler lifecycle and get overwritten on reconcile) — surfacing
+  # the refusal on the assignment record itself is deferred to fj#4386b.
+  defp refuse_addon_delivery(addon, agent_id, params, errors) do
+    addon_id = assignment_string(addon[:addon_id])
+    assignment_id = addon[:assignment_id]
+
+    :telemetry.execute(
+      [:serviceradar, :addon_config, :delivery_refused],
+      %{count: 1},
+      %{
+        agent_id: agent_id,
+        addon_id: addon_id,
+        assignment_id: assignment_id,
+        errors: errors
+      }
+    )
+
+    marker_key = addon_delivery_marker_key(agent_id, addon_id)
+    params_hash = :erlang.phash2(params)
+
+    if :persistent_term.get(marker_key, :none) != {:refused, params_hash} do
+      :persistent_term.put(marker_key, {:refused, params_hash})
+
+      Logger.error(
+        "Refusing add-on config delivery for #{addon_id} to agent #{inspect(agent_id)}" <>
+          assignment_suffix(assignment_id) <>
+          ": params failed schema validation after coercion: #{Enum.join(errors, "; ")}. " <>
+          "The add-on section is withheld from the agent config until the assignment " <>
+          "params are fixed (see mix serviceradar.validate_addon_params)."
+      )
+    end
+
+    :ok
+  end
+
+  # Transition marker back to delivered so a later re-breakage of the same
+  # (agent, addon) logs again, and operators get one recovery line. Writes to
+  # persistent_term only happen on refusal/recovery transitions, never on the
+  # steady-state delivery path.
+  defp note_addon_delivery_resumed(addon, agent_id) do
+    addon_id = assignment_string(addon[:addon_id])
+    marker_key = addon_delivery_marker_key(agent_id, addon_id)
+
+    case :persistent_term.get(marker_key, :none) do
+      {:refused, _hash} ->
+        :persistent_term.put(marker_key, :delivered)
+
+        Logger.info(
+          "Add-on config delivery resumed for #{addon_id} to agent #{inspect(agent_id)}: " <>
+            "params now pass schema validation"
+        )
+
+      _ ->
+        :ok
+    end
+
+    :ok
+  end
+
+  defp addon_delivery_marker_key(agent_id, addon_id),
+    do: {__MODULE__, :addon_delivery_state, agent_id, addon_id}
+
+  defp assignment_suffix(nil), do: ""
+  defp assignment_suffix(assignment_id), do: " (assignment #{assignment_id})"
 
   # Manifest `resources` (addon.yaml) → the proto AddonResources the agent
   # supervisor enforces. The package attribute is JSONB (string keys); a missing
