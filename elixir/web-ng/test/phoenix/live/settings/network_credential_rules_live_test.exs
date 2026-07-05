@@ -63,7 +63,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new")
 
     lv
-    |> form("form",
+    |> form("#credential-rule-form",
       credential_rule: %{
         "name" => "PVE inventory",
         "description" => "",
@@ -77,7 +77,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
         "priority" => "25",
         "allowed_ports" => "8006",
         "tls_policy" => "verify",
-        "ssh_host_key_policy" => "known_hosts",
         "auto_discovery_enabled" => "true"
       }
     )
@@ -100,7 +99,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
 
     html =
       lv
-      |> form("form",
+      |> form("#credential-rule-form",
         credential_rule: %{
           "name" => "",
           "description" => "",
@@ -114,7 +113,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
           "priority" => "25",
           "allowed_ports" => "8006",
           "tls_policy" => "verify",
-          "ssh_host_key_policy" => "known_hosts",
           "auto_discovery_enabled" => "false"
         }
       )
@@ -153,7 +151,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
 
     html =
       lv
-      |> form("form",
+      |> form("#credential-rule-form",
         credential_rule:
           Map.merge(default_rule_form_params(), %{
             "scope_type" => "gateway",
@@ -166,7 +164,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
 
     html =
       lv
-      |> form("form",
+      |> form("#credential-rule-form",
         credential_rule:
           Map.merge(default_rule_form_params(), %{
             "scope_type" => "gateway",
@@ -180,7 +178,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
 
     html =
       lv
-      |> form("form",
+      |> form("#credential-rule-form",
         credential_rule:
           Map.merge(default_rule_form_params(), %{
             "scope_type" => "agent",
@@ -304,7 +302,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert html =~ ~s(in:devices vendor:&quot;Ubiquiti&quot;)
     assert checked_purpose?(html, "camera_inventory")
     assert checked_purpose?(html, "camera_stream")
-    refute checked_purpose?(html, "inventory_enrichment")
+    refute html =~ ~s(value="inventory_enrichment")
+    refute html =~ ~s(value="console_access")
+    refute html =~ "SSH Host Key Policy"
+    refute html =~ "Allow auto-discovery credential trials"
+    assert html =~ "Controller Host Override"
+    assert html =~ "New secret for this rule"
   end
 
   test "axis preset seeds a username_password camera rule form", %{conn: conn} do
@@ -315,6 +318,32 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert html =~ ~s(in:devices vendor:&quot;Axis&quot;)
     assert checked_purpose?(html, "camera_inventory")
     assert checked_purpose?(html, "camera_stream")
+    refute html =~ ~s(value="api_key")
+    refute html =~ "SSH Host Key Policy"
+    refute html =~ "Allow auto-discovery credential trials"
+  end
+
+  test "provider changes clamp auth methods and purposes to provider preset", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new")
+
+    html =
+      lv
+      |> form("#credential-rule-form",
+        credential_rule:
+          Map.merge(default_rule_form_params(), %{
+            "provider" => "axis",
+            "auth_method" => "proxmox_api_token",
+            "purposes" => ["inventory_enrichment", "console_access"]
+          })
+      )
+      |> render_change()
+
+    assert html =~ ~s(value="axis")
+    assert html =~ ~r/<option selected[^>]*value="username_password"/
+    assert checked_purpose?(html, "camera_inventory")
+    assert checked_purpose?(html, "camera_stream")
+    refute html =~ ~s(value="inventory_enrichment")
+    refute html =~ ~s(value="console_access")
   end
 
   test "creates a camera credential rule with api_key auth and camera purposes", %{
@@ -326,7 +355,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new?provider=unifi-protect")
 
     lv
-    |> form("form",
+    |> form("#credential-rule-form",
       credential_rule: %{
         "name" => "Protect cameras",
         "description" => "",
@@ -340,8 +369,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
         "priority" => "100",
         "allowed_ports" => "443, 7447",
         "tls_policy" => "skip_verify",
-        "ssh_host_key_policy" => "known_hosts",
-        "auto_discovery_enabled" => "false"
+        "controller_host" => "protect-controller.local"
       }
     )
     |> render_submit()
@@ -358,6 +386,56 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert rule.target_query == ~s(in:devices vendor:"Ubiquiti")
     assert rule.tls_policy == :skip_verify
     assert rule.metadata["purposes"] == ["camera_inventory", "camera_stream"]
+    assert rule.metadata["host"] == "protect-controller.local"
+    assert rule.metadata["auto_discovery_enabled"] == false
+  end
+
+  test "camera rule secret picker filters by provider and auth method", %{conn: conn, scope: scope} do
+    pve_secret = credential_secret_fixture(scope)
+    protect_secret = api_key_secret_fixture(scope)
+
+    {:ok, _lv, html} = live(conn, ~p"/settings/networks/credentials/new?provider=unifi-protect")
+
+    assert html =~ "unifi-protect / #{protect_secret.name} / api token"
+    refute html =~ "proxmox / #{pve_secret.name} / api token"
+  end
+
+  test "inline rule secret creation preserves and selects the current rule provider", %{
+    conn: conn,
+    scope: scope
+  } do
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new?provider=unifi-protect")
+
+    assert lv
+           |> element("#credential-rule-new-secret")
+           |> render_click() =~ "New API Key Secret"
+
+    html =
+      lv
+      |> form("form[phx-submit='save_secret']",
+        credential_secret: %{
+          "kind" => "api_key",
+          "name" => "Inline Protect key",
+          "description" => "",
+          "provider" => "unifi-protect",
+          "api_key" => "inline-protect-key"
+        }
+      )
+      |> render_submit()
+
+    assert html =~ "Credential secret saved"
+    assert html =~ "Inline Protect key"
+    assert html =~ ~s(value="unifi-protect")
+    assert html =~ ~r/<option selected[^>]*value="api_key"/
+    assert checked_purpose?(html, "camera_inventory")
+
+    secret = get_secret_by_name!(scope, "Inline Protect key")
+    assert secret.provider == "unifi-protect"
+
+    assert has_element?(
+             lv,
+             "select[name='credential_rule[secret_id]'] option[value='#{secret.id}'][selected]"
+           )
   end
 
   test "creates an API key secret for the rule's provider", %{conn: conn, scope: scope} do
@@ -478,7 +556,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/#{rule.id}/edit")
 
     lv
-    |> form("form",
+    |> form("#credential-rule-form",
       credential_rule: %{
         "name" => "Updated rule",
         "description" => "",
@@ -492,7 +570,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
         "priority" => "30",
         "allowed_ports" => "8006",
         "tls_policy" => "verify",
-        "ssh_host_key_policy" => "known_hosts",
         "auto_discovery_enabled" => "false"
       }
     )
@@ -712,7 +789,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
       "priority" => "100",
       "allowed_ports" => "8006",
       "tls_policy" => "verify",
-      "ssh_host_key_policy" => "known_hosts",
       "auto_discovery_enabled" => "false"
     }
   end

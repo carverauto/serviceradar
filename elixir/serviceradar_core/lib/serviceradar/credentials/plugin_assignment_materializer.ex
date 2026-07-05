@@ -219,7 +219,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
          rule_id: value_string(rule, [:id, "id"]),
          provider: provider,
          target_query: value_string(rule, [:target_query, "target_query"]),
-         targets: bounded_targets(resolved_inputs, target_limit),
+         targets: bounded_targets(resolved_inputs, target_limit, rule),
          purposes: purposes
        }}
     end
@@ -301,16 +301,42 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
 
   defp mask_dry_run_grant(template), do: template
 
-  defp bounded_targets(resolved_inputs, limit) do
+  defp bounded_targets(resolved_inputs, limit, rule) do
     rows =
-      Enum.flat_map(resolved_inputs, fn input ->
+      resolved_inputs
+      |> Enum.flat_map(fn input ->
         ValueUtils.list_value(input, [:rows, "rows"]) || []
       end)
+      |> Enum.filter(&target_in_rule_scope?(&1, rule))
 
     total = length(rows)
 
     %{total: total, sample: Enum.take(rows, limit), truncated?: total > limit}
   end
+
+  defp target_in_rule_scope?(row, rule) when is_map(row) do
+    case {raw_rule_value(rule, [:scope_type, "scope_type"]),
+          value_string(rule, [:scope_value, "scope_value"])} do
+      {scope, value} when scope in [:agent, "agent"] ->
+        case value_string(row, [:agent_id, "agent_id", :agent_uid, "agent_uid"]) do
+          nil -> true
+          "" -> true
+          row_scope -> row_scope == value
+        end
+
+      {scope, value} when scope in [:gateway, "gateway"] ->
+        value_string(row, [:gateway_id, "gateway_id"]) == value
+
+      {scope, value} when scope in [:partition, "partition"] ->
+        value_string(row, [:partition_id, "partition_id", :partition, "partition", :site, "site"]) ==
+          value
+
+      _ ->
+        false
+    end
+  end
+
+  defp target_in_rule_scope?(_row, _rule), do: false
 
   @doc """
   Reconciles already-loaded credential rules.

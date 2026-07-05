@@ -116,6 +116,19 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerDryRunTest do
     assert result.targets.truncated?
   end
 
+  test "scopes resolved targets before rendering the dry-run sample" do
+    rows = [
+      %{"uid" => "dev-1", "hostname" => "cam-a", "agent_id" => "agent-cam"},
+      %{"uid" => "dev-2", "hostname" => "cam-b", "agent_id" => "other-agent"}
+    ]
+
+    assert {:ok, result} = dry_run(camera_rule(%{}), fake_rows: rows)
+
+    assert result.targets.total == 1
+    assert [%{"hostname" => "cam-a"}] = result.targets.sample
+    refute inspect(result.targets.sample) =~ "cam-b"
+  end
+
   test "unknown provider is an error" do
     assert {:error, {:unknown_credential_provider, "nope"}} =
              dry_run(camera_rule(%{provider: "nope"}))

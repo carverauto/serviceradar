@@ -20,6 +20,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   require Ash.Query
 
   @current_path "/settings/networks/credentials"
+  @providers ~w(proxmox unifi-protect axis)a
   @auth_methods ~w(proxmox_api_token ssh_private_key username_password api_key certificate opaque)a
   @purposes ~w(inventory_enrichment console_access discovery generic camera_inventory camera_stream)a
   @scope_types ~w(agent gateway partition)a
@@ -177,6 +178,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     {:noreply, assign(socket, :secret_form, secret_form(default_username_password_secret_params()))}
   end
 
+  def handle_event("new_rule_secret", _params, socket) do
+    provider = form_string(socket.assigns.rule_form, :provider)
+    auth_method = form_string(socket.assigns.rule_form, :auth_method)
+
+    {:noreply, assign(socket, :secret_form, secret_form(default_secret_params_for_rule(provider, auth_method)))}
+  end
+
   def handle_event("close_secret_form", _params, socket) do
     {:noreply, assign(socket, :secret_form, nil)}
   end
@@ -198,6 +206,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   def render(assigns) do
     assigns =
       assigns
+      |> assign(:providers, @providers)
       |> assign(:auth_methods, @auth_methods)
       |> assign(:purposes, @purposes)
       |> assign(:scope_types, @scope_types)
@@ -413,7 +422,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           :if={@form_mode in [:new, :edit]}
           form={@rule_form}
           mode={@form_mode}
-          secret_options={@secret_options}
+          secrets={@secrets}
+          providers={@providers}
           auth_methods={@auth_methods}
           purposes={@purposes}
           scope_types={@scope_types}
@@ -759,7 +769,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   attr :form, :map, required: true
   attr :mode, :atom, required: true
-  attr :secret_options, :list, required: true
+  attr :secrets, :list, required: true
+  attr :providers, :list, required: true
   attr :auth_methods, :list, required: true
   attr :purposes, :list, required: true
   attr :scope_types, :list, required: true
@@ -772,6 +783,25 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       assigns
       |> assign(:scope_type_value, form_string(assigns.form, :scope_type))
       |> assign(:provider_value, form_string(assigns.form, :provider))
+      |> assign(:auth_method_value, form_string(assigns.form, :auth_method))
+
+    assigns =
+      assigns
+      |> assign(:provider_auth_methods, provider_auth_methods(assigns.provider_value))
+      |> assign(:provider_purposes, provider_purposes(assigns.provider_value))
+      |> assign(:camera_provider?, camera_provider?(assigns.provider_value))
+      |> assign(:show_ssh_policy?, assigns.auth_method_value == "ssh_private_key")
+      |> assign(:show_auto_discovery?, assigns.provider_value == "proxmox")
+      |> assign(:show_controller_host?, assigns.provider_value == "unifi-protect")
+      |> assign(
+        :secret_options_for_rule,
+        secret_options_for(
+          assigns.secrets,
+          assigns.provider_value,
+          assigns.auth_method_value,
+          form_string(assigns.form, :secret_id)
+        )
+      )
 
     ~H"""
     <div class="modal modal-open">
@@ -785,7 +815,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           </.link>
         </div>
 
-        <.form for={@form} phx-change="change_rule" phx-submit="save_rule" class="space-y-4">
+        <.form
+          for={@form}
+          id="credential-rule-form"
+          phx-change="change_rule"
+          phx-submit="save_rule"
+          class="space-y-4"
+        >
           <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-base-content/80">
             <span :if={@provider_value == "proxmox"}>
               Select every use this scoped credential should allow. For Proxmox, the same API token
@@ -822,21 +858,37 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
           <div class="grid gap-4 md:grid-cols-2">
             <.input field={@form[:name]} label="Name" required />
-            <.input field={@form[:provider]} label="Provider" required />
-            <.input field={@form[:priority]} type="number" label="Priority" min="0" required />
             <.input
-              field={@form[:secret_id]}
+              field={@form[:provider]}
               type="select"
-              label="Secret"
-              options={@secret_options}
-              prompt="Select a secret"
+              label="Provider"
+              options={enum_options(@providers)}
               required
             />
+            <.input field={@form[:priority]} type="number" label="Priority" min="0" required />
+            <div class="space-y-2">
+              <.input
+                field={@form[:secret_id]}
+                type="select"
+                label="Secret"
+                options={@secret_options_for_rule}
+                prompt="Select a secret"
+                required
+              />
+              <button
+                id="credential-rule-new-secret"
+                type="button"
+                class="btn btn-ghost btn-xs"
+                phx-click="new_rule_secret"
+              >
+                New secret for this rule
+              </button>
+            </div>
             <.input
               field={@form[:auth_method]}
               type="select"
               label="Auth Method"
-              options={enum_options(@auth_methods)}
+              options={enum_options(@provider_auth_methods)}
               required
             />
             <fieldset class="rounded-lg border border-base-300 p-3 md:col-span-2">
@@ -844,7 +896,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               <input type="hidden" name="credential_rule[purposes][]" value="" />
               <div class="grid gap-2 sm:grid-cols-2">
                 <label
-                  :for={purpose <- @purposes}
+                  :for={purpose <- @provider_purposes}
                   class="flex items-center gap-2 rounded-md border border-base-300 bg-base-100 px-3 py-2 text-sm"
                 >
                   <input
@@ -881,6 +933,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               required
             />
             <.input
+              :if={@show_controller_host?}
+              field={@form[:controller_host]}
+              label="Controller Host Override"
+            />
+            <.input
               field={@form[:tls_policy]}
               type="select"
               label="TLS Policy"
@@ -888,6 +945,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               required
             />
             <.input
+              :if={@show_ssh_policy?}
               field={@form[:ssh_host_key_policy]}
               type="select"
               label="SSH Host Key Policy"
@@ -898,6 +956,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
           <.input field={@form[:target_query]} type="textarea" label="Target Query" required />
           <.input
+            :if={@show_auto_discovery?}
             field={@form[:auto_discovery_enabled]}
             type="checkbox"
             label="Allow auto-discovery credential trials"
@@ -921,31 +980,34 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   end
 
   defp load_page(socket, params) do
-    scope = socket.assigns.current_scope
-    {rules, secrets, agents} = {load_rules(scope), load_secrets(scope), load_agents(scope)}
-    secret_names = Map.new(secrets, &{&1.id, secret_label(&1)})
-
-    socket =
-      socket
-      |> assign(:rules, rules)
-      |> assign(:secrets, secrets)
-      |> assign(:secret_options, Enum.map(secrets, &{secret_label(&1), &1.id}))
-      |> assign(:secret_names, secret_names)
-      |> assign(:agent_options, agent_options(agents))
-      |> assign(:loading?, false)
+    socket = reload_page_data(socket)
 
     case socket.assigns.form_mode do
       :new ->
         assign(socket, :rule_form, rule_form(default_rule_params(params)))
 
       :edit ->
-        assign_edit_form(socket, params["id"], rules)
+        assign_edit_form(socket, params["id"], socket.assigns.rules)
 
       _ ->
         socket
         |> assign(:editing_rule, nil)
         |> assign(:rule_form, rule_form(default_rule_params()))
     end
+  end
+
+  defp reload_page_data(socket) do
+    scope = socket.assigns.current_scope
+    {rules, secrets, agents} = {load_rules(scope), load_secrets(scope), load_agents(scope)}
+    secret_names = Map.new(secrets, &{&1.id, secret_label(&1)})
+
+    socket
+    |> assign(:rules, rules)
+    |> assign(:secrets, secrets)
+    |> assign(:secret_options, Enum.map(secrets, &{secret_label(&1), &1.id}))
+    |> assign(:secret_names, secret_names)
+    |> assign(:agent_options, agent_options(agents))
+    |> assign(:loading?, false)
   end
 
   defp assign_edit_form(socket, id, rules) do
@@ -1002,12 +1064,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     case NetworkCredentialSecret
          |> Ash.Changeset.for_create(:create, attrs, scope: socket.assigns.current_scope)
          |> Ash.create(scope: socket.assigns.current_scope) do
-      {:ok, _secret} ->
+      {:ok, secret} ->
         {:noreply,
          socket
          |> put_flash(:info, "Credential secret saved")
          |> assign(:secret_form, nil)
-         |> load_page(%{})}
+         |> reload_page_data()
+         |> maybe_select_rule_secret(secret)}
 
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Failed to save credential secret: #{format_error(reason)}")}
@@ -1033,6 +1096,46 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Failed to update rule: #{format_error(reason)}")}
     end
+  end
+
+  defp maybe_select_rule_secret(%{assigns: %{form_mode: mode, rule_form: form}} = socket, secret)
+       when mode in [:new, :edit] do
+    provider = form_string(form, :provider)
+    auth_method = form_string(form, :auth_method)
+
+    if secret_matches_rule?(secret, provider, auth_method) do
+      params =
+        form
+        |> rule_form_params()
+        |> Map.put("secret_id", to_string(secret.id))
+
+      assign(socket, :rule_form, rule_form(params))
+    else
+      socket
+    end
+  end
+
+  defp maybe_select_rule_secret(socket, _secret), do: socket
+
+  defp rule_form_params(form) do
+    %{
+      "name" => form_string(form, :name),
+      "description" => form_string(form, :description),
+      "provider" => form_string(form, :provider),
+      "auth_method" => form_string(form, :auth_method),
+      "purpose" => form_string(form, :purpose),
+      "purposes" => form_purposes(form),
+      "target_query" => form_string(form, :target_query),
+      "scope_type" => form_string(form, :scope_type),
+      "scope_value" => form_string(form, :scope_value),
+      "secret_id" => form_string(form, :secret_id),
+      "priority" => form_string(form, :priority),
+      "allowed_ports" => form_string(form, :allowed_ports),
+      "tls_policy" => form_string(form, :tls_policy),
+      "ssh_host_key_policy" => form_string(form, :ssh_host_key_policy),
+      "auto_discovery_enabled" => form_string(form, :auto_discovery_enabled),
+      "controller_host" => form_string(form, :controller_host)
+    }
   end
 
   defp load_rules(scope) do
@@ -1080,19 +1183,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   defp active_agent?(_agent), do: false
 
   defp normalize_rule_params(params) do
-    with {:ok, auth_method} <- enum_param(params, "auth_method", @auth_methods, "auth method"),
-         {:ok, purposes} <- purposes_param(params),
+    with {:ok, provider} <- enum_param(params, "provider", @providers, "provider"),
+         {:ok, auth_method} <-
+           enum_param(params, "auth_method", provider_auth_methods(provider), "auth method"),
+         {:ok, purposes} <- purposes_param(params, provider),
          {:ok, scope_type} <- enum_param(params, "scope_type", @scope_types, "scope type"),
          {:ok, tls_policy} <- enum_param(params, "tls_policy", @tls_policies, "TLS policy"),
-         {:ok, ssh_policy} <-
-           enum_param(params, "ssh_host_key_policy", @ssh_host_key_policies, "SSH host key policy"),
+         {:ok, ssh_policy} <- ssh_host_key_policy_param(params, auth_method),
          {:ok, priority} <- integer_param(params, "priority", "priority"),
          {:ok, allowed_ports} <- allowed_ports(params["allowed_ports"]) do
       {:ok,
        %{
          name: required_string(params, "name"),
          description: blank_to_nil(params["description"]),
-         provider: required_string(params, "provider"),
+         provider: to_string(provider),
          auth_method: auth_method,
          purpose: primary_purpose(purposes),
          target_query: required_string(params, "target_query"),
@@ -1103,10 +1207,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
          allowed_ports: allowed_ports,
          tls_policy: tls_policy,
          ssh_host_key_policy: ssh_policy,
-         metadata: %{
-           "purposes" => Enum.map(purposes, &Atom.to_string/1),
-           "auto_discovery_enabled" => boolean_param(params, "auto_discovery_enabled")
-         }
+         metadata: rule_metadata(params, provider, purposes)
        }}
     end
   rescue
@@ -1226,6 +1327,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       "allowed_ports" => "22",
       "tls_policy" => "verify",
       "ssh_host_key_policy" => "known_hosts",
+      "controller_host" => "",
       "auto_discovery_enabled" => "false"
     }
   end
@@ -1246,6 +1348,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       "allowed_ports" => "443, 7447",
       "tls_policy" => "verify",
       "ssh_host_key_policy" => "known_hosts",
+      "controller_host" => "",
       "auto_discovery_enabled" => "false"
     }
   end
@@ -1266,6 +1369,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       "allowed_ports" => "443, 554",
       "tls_policy" => "verify",
       "ssh_host_key_policy" => "known_hosts",
+      "controller_host" => "",
       "auto_discovery_enabled" => "false"
     }
   end
@@ -1286,6 +1390,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       "allowed_ports" => "8006",
       "tls_policy" => "verify",
       "ssh_host_key_policy" => "known_hosts",
+      "controller_host" => "",
       "auto_discovery_enabled" => "false"
     }
   end
@@ -1324,6 +1429,23 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     }
   end
 
+  defp default_secret_params_for_rule(_provider, "ssh_private_key"), do: default_ssh_secret_params()
+
+  defp default_secret_params_for_rule(provider, "api_key") do
+    Map.put(default_api_key_secret_params(), "provider", provider_for_secret(provider, "unifi-protect"))
+  end
+
+  defp default_secret_params_for_rule(provider, "username_password") do
+    Map.put(default_username_password_secret_params(), "provider", provider_for_secret(provider, "axis"))
+  end
+
+  defp default_secret_params_for_rule(_provider, _auth_method), do: default_secret_params()
+
+  defp provider_for_secret(provider, fallback) do
+    provider = provider |> to_string() |> String.trim()
+    if provider == "", do: fallback, else: provider
+  end
+
   defp default_ssh_secret_params do
     %{
       "kind" => "ssh_private_key",
@@ -1351,15 +1473,28 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       "allowed_ports" => Enum.join(rule.allowed_ports || [], ", "),
       "tls_policy" => to_string(rule.tls_policy),
       "ssh_host_key_policy" => to_string(rule.ssh_host_key_policy),
+      "controller_host" => controller_host_from_metadata(rule.metadata),
       "auto_discovery_enabled" => auto_discovery_enabled?(rule)
     }
   end
 
   defp normalize_rule_form_params(params) when is_map(params) do
+    provider = normalize_provider(Map.get(params, "provider"))
+    defaults = default_rule_params(%{"provider" => to_string(provider)})
+    auth_method = normalize_auth_method(provider, Map.get(params, "auth_method"))
+    purposes = normalize_form_purposes(provider, Map.get(params, "purposes", Map.get(params, "purpose")))
+
     params
+    |> Map.put("provider", to_string(provider))
+    |> Map.put("auth_method", to_string(auth_method))
+    |> Map.put("purposes", purposes)
+    |> Map.put("purpose", List.first(purposes))
     |> Map.put_new("scope_type", "agent")
     |> Map.put_new("scope_value", "")
-    |> Map.update("purposes", [Map.get(params, "purpose", "inventory_enrichment")], &normalize_purpose_values/1)
+    |> put_default_when_blank("target_query", defaults["target_query"])
+    |> put_default_when_blank("allowed_ports", defaults["allowed_ports"])
+    |> Map.put_new("controller_host", "")
+    |> maybe_clear_camera_only_fields(provider)
   end
 
   defp normalize_rule_form_params(_), do: default_rule_params()
@@ -1373,18 +1508,60 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   defp secret_form_title("username_password"), do: "New Username & Password Secret"
   defp secret_form_title(_kind), do: "New Proxmox Token"
 
+  defp provider_auth_methods(provider) do
+    case to_string(provider) do
+      "unifi-protect" -> [:api_key, :username_password]
+      "axis" -> [:username_password]
+      _ -> [:proxmox_api_token, :ssh_private_key]
+    end
+  end
+
+  defp provider_purposes(provider) do
+    if camera_provider?(provider) do
+      [:camera_inventory, :camera_stream]
+    else
+      [:inventory_enrichment, :console_access]
+    end
+  end
+
+  defp camera_provider?(provider), do: to_string(provider) in ["unifi-protect", "axis"]
+
+  defp normalize_provider(value) do
+    value = value |> to_string() |> String.trim()
+    Enum.find(@providers, &(to_string(&1) == value)) || :proxmox
+  end
+
+  defp normalize_auth_method(provider, value) do
+    value = value |> to_string() |> String.trim()
+    Enum.find(provider_auth_methods(provider), &(to_string(&1) == value)) || hd(provider_auth_methods(provider))
+  end
+
+  defp normalize_form_purposes(provider, values) do
+    allowed = Enum.map(provider_purposes(provider), &to_string/1)
+
+    values
+    |> normalize_purpose_values()
+    |> Enum.filter(&(&1 in allowed))
+    |> case do
+      [] -> Enum.map(provider_purposes(provider), &to_string/1)
+      purposes -> purposes
+    end
+  end
+
   defp enum_param(params, key, allowed, label) do
     value = params |> Map.get(key, "") |> to_string()
     atom = Enum.find(allowed, &(to_string(&1) == value))
     if atom, do: {:ok, atom}, else: {:error, "Invalid #{label}"}
   end
 
-  defp purposes_param(params) do
+  defp purposes_param(params, provider) do
+    allowed = provider_purposes(provider)
+
     purposes =
       params
       |> Map.get("purposes", Map.get(params, "purpose", ""))
       |> normalize_purpose_values()
-      |> Enum.map(fn value -> Enum.find(@purposes, &(to_string(&1) == value)) end)
+      |> Enum.map(fn value -> Enum.find(allowed, &(to_string(&1) == value)) end)
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 
@@ -1441,6 +1618,57 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
+  defp ssh_host_key_policy_param(params, :ssh_private_key),
+    do: enum_param(params, "ssh_host_key_policy", @ssh_host_key_policies, "SSH host key policy")
+
+  defp ssh_host_key_policy_param(_params, _auth_method), do: {:ok, :known_hosts}
+
+  defp rule_metadata(params, provider, purposes) do
+    maybe_put_metadata_string(
+      %{
+        "purposes" => Enum.map(purposes, &Atom.to_string/1),
+        "auto_discovery_enabled" => to_string(provider) == "proxmox" and boolean_param(params, "auto_discovery_enabled")
+      },
+      "host",
+      params["controller_host"],
+      to_string(provider) == "unifi-protect"
+    )
+  end
+
+  defp maybe_put_metadata_string(metadata, key, value, true) do
+    case blank_to_nil(value) do
+      nil -> metadata
+      value -> Map.put(metadata, key, value)
+    end
+  end
+
+  defp maybe_put_metadata_string(metadata, _key, _value, _condition), do: metadata
+
+  defp controller_host_from_metadata(metadata) do
+    metadata = normalize_metadata(metadata)
+
+    first_non_empty([
+      Map.get(metadata, "host"),
+      Map.get(metadata, "controller_host"),
+      Map.get(metadata, "static_host")
+    ]) || ""
+  end
+
+  defp put_default_when_blank(params, key, default) do
+    case blank_to_nil(Map.get(params, key)) do
+      nil -> Map.put(params, key, default)
+      _value -> params
+    end
+  end
+
+  defp maybe_clear_camera_only_fields(params, provider) when provider in [:"unifi-protect", :axis] do
+    params
+    |> Map.put("auto_discovery_enabled", "false")
+    |> Map.put("ssh_host_key_policy", "known_hosts")
+  end
+
+  defp maybe_clear_camera_only_fields(params, _provider), do: params
+
   defp required_string(params, key) do
     case params |> Map.get(key, "") |> to_string() |> String.trim() do
       "" -> raise ArgumentError, key
@@ -1489,9 +1717,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     metadata =
       rule.metadata
       |> normalize_metadata()
+      |> Map.drop(managed_rule_metadata_keys())
       |> Map.merge(Map.get(attrs, :metadata, %{}))
 
     Map.put(attrs, :metadata, metadata)
+  end
+
+  defp managed_rule_metadata_keys do
+    ["purposes", "auto_discovery_enabled", "host", "controller_host", "static_host"]
   end
 
   defp normalize_metadata(metadata) when is_map(metadata), do: metadata
@@ -1517,6 +1750,31 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   end
 
   defp enum_options(values), do: Enum.map(values, &{format_atom(&1), to_string(&1)})
+
+  defp secret_options_for(secrets, provider, auth_method, selected_secret_id) do
+    secrets
+    |> Enum.filter(fn secret ->
+      secret_matches_rule?(secret, provider, auth_method) or
+        to_string(secret.id) == to_string(selected_secret_id)
+    end)
+    |> Enum.map(&{secret_label(&1), &1.id})
+  end
+
+  defp secret_matches_rule?(secret, provider, auth_method) do
+    to_string(secret.provider) == to_string(provider) and
+      secret_kind_matches_auth?(secret.credential_kind, auth_method)
+  end
+
+  defp secret_kind_matches_auth?(:api_token, auth_method)
+       when auth_method in [:proxmox_api_token, "proxmox_api_token", :api_key, "api_key"], do: true
+
+  defp secret_kind_matches_auth?(:username_password, auth_method)
+       when auth_method in [:username_password, "username_password"], do: true
+
+  defp secret_kind_matches_auth?(:ssh_private_key, auth_method) when auth_method in [:ssh_private_key, "ssh_private_key"],
+    do: true
+
+  defp secret_kind_matches_auth?(_kind, _auth_method), do: false
 
   defp secret_label(secret) do
     [secret.provider, secret.name, format_atom(secret.credential_kind)]
