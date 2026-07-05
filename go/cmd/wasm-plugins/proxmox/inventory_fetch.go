@@ -343,15 +343,31 @@ func enrichGuests(cfg Config, target Target, token string, guests []proxmoxResou
 			continue
 		}
 
+		agentEnabled := false
 		config, err := fetchGuestConfig(cfg, target, token, resource.Node, kind, resource.VMID)
 		if err != nil {
 			warnings[fmt.Sprintf("guest:%s:%d:config", kind, resource.VMID)] = sanitizeError(err)
 		} else {
-			guest.Config = sanitizeStringMap(config)
-			guest.Interfaces = mergeGuestInterfaces(guest.Interfaces, interfacesFromGuestConfig(guest.Config))
+			// Parse interfaces from the full (sanitized) config, but retain only a
+			// small metadata allowlist on the guest. Keeping the entire raw config
+			// (every disk line, cloud-init user-data, smbios, …) for every guest
+			// blew the WASM heap and the 2MB submit_result cap on large clusters.
+			sanitized := sanitizeStringMap(config)
+			guest.Interfaces = mergeGuestInterfaces(guest.Interfaces, interfacesFromGuestConfig(sanitized))
+			guest.Config = trimGuestConfig(sanitized)
+			agentEnabled = guestAgentEnabled(sanitized)
 		}
 
-		if kind == "qemu" && strings.EqualFold(resource.Status, "running") {
+		// Runtime probes (qemu-guest-agent, lxc interfaces) are the expensive
+		// calls: a stopped or unresponsive agent blocks each request until the
+		// per-request timeout, and doing that for every guest is what blew the
+		// plugin execution deadline on large clusters. Skip them entirely when
+		// the config already yielded a usable IP (static netN, or cloud-init
+		// ipconfigN) — that address is enough to place the guest as a device.
+		// Only probe the qemu-guest-agent when it is actually enabled.
+		hasConfigIP := primaryIP(guest.Interfaces) != ""
+
+		if kind == "qemu" && agentEnabled && !hasConfigIP && strings.EqualFold(resource.Status, "running") {
 			agentInterfaces, err := fetchGuestAgentNetworkInterfaces(cfg, target, token, resource.Node, resource.VMID)
 			if err != nil {
 				warnings[fmt.Sprintf("guest:%s:%d:agent_network", kind, resource.VMID)] = sanitizeError(err)
@@ -371,7 +387,7 @@ func enrichGuests(cfg Config, target Target, token string, guests []proxmoxResou
 			}
 		}
 
-		if kind == "lxc" && strings.EqualFold(resource.Status, "running") {
+		if kind == "lxc" && !hasConfigIP && strings.EqualFold(resource.Status, "running") {
 			lxcInterfaces, err := fetchLXCInterfaces(cfg, target, token, resource.Node, resource.VMID)
 			if err != nil {
 				warnings[fmt.Sprintf("guest:%s:%d:interfaces", kind, resource.VMID)] = sanitizeError(err)
@@ -431,29 +447,140 @@ func interfacesFromGuestConfig(config map[string]string) []proxmoxGuestNetworkIn
 		return nil
 	}
 
-	keys := make([]string, 0, len(config))
+	netKeys := make([]string, 0)
+	ipConfigKeys := make([]string, 0)
 	for key := range config {
-		if isGuestNetConfigKey(key) {
-			keys = append(keys, key)
+		switch {
+		case isGuestNetConfigKey(key):
+			netKeys = append(netKeys, key)
+		case isGuestIPConfigKey(key):
+			ipConfigKeys = append(ipConfigKeys, key)
 		}
 	}
-	sort.Strings(keys)
+	sort.Strings(netKeys)
+	sort.Strings(ipConfigKeys)
 
-	out := make([]proxmoxGuestNetworkInterface, 0, len(keys))
-	for _, key := range keys {
+	// Build the netN interfaces first, tracking each by its numeric index so a
+	// matching ipconfigN can merge its address on. Interfaces are NOT dropped
+	// here for lacking an IP — a QEMU netN typically only carries a MAC, and its
+	// cloud-init IP lives in ipconfigN (merged below); the final filter runs
+	// after that merge.
+	out := make([]proxmoxGuestNetworkInterface, 0, len(netKeys))
+	byIndex := make(map[string]int, len(netKeys))
+	for _, key := range netKeys {
 		raw := config[key]
 		if strings.TrimSpace(raw) == "" {
 			continue
 		}
+		byIndex[configKeyIndex(key, "net")] = len(out)
+		out = append(out, interfaceFromGuestConfigValue(key, raw))
+	}
 
-		iface := interfaceFromGuestConfigValue(key, raw)
+	// Cloud-init QEMU guests carry their IP in ipconfigN (e.g.
+	// `ipconfig0: ip=10.0.0.5/24,gw=…`), never in netN, so netN parsing alone
+	// leaves them IP-less. Merge ipconfigN addresses onto the matching netN
+	// interface by index (ipconfig0 <-> net0).
+	for _, key := range ipConfigKeys {
+		values := parseProxmoxConfigList(config[key])
+		var ips []string
+		for _, k := range []string{"ip", "ip6"} {
+			if ip := normalizeGuestIP(values[k]); ip != "" {
+				ips = appendUniqueString(ips, ip)
+			}
+		}
+		if len(ips) == 0 {
+			continue
+		}
+
+		idx := configKeyIndex(key, "ipconfig")
+		if pos, ok := byIndex[idx]; ok {
+			for _, ip := range ips {
+				out[pos].IPAddresses = appendUniqueString(out[pos].IPAddresses, ip)
+			}
+		} else {
+			byIndex[idx] = len(out)
+			out = append(out, proxmoxGuestNetworkInterface{
+				ConfigKey:   "net" + idx,
+				Name:        "net" + idx,
+				Source:      "cloudinit",
+				IPAddresses: ips,
+			})
+		}
+	}
+
+	filtered := out[:0]
+	for _, iface := range out {
 		if iface.MACAddress == "" && len(iface.IPAddresses) == 0 {
 			continue
 		}
-		out = append(out, iface)
+		filtered = append(filtered, iface)
+	}
+
+	return filtered
+}
+
+// configKeyIndex returns the numeric suffix of a proxmox config key
+// (e.g. configKeyIndex("net0","net") == "0", configKeyIndex("ipconfig12","ipconfig") == "12").
+func configKeyIndex(key, prefix string) string {
+	return strings.TrimPrefix(key, prefix)
+}
+
+func isGuestIPConfigKey(key string) bool {
+	if !strings.HasPrefix(key, "ipconfig") || len(key) == len("ipconfig") {
+		return false
+	}
+	for _, r := range key[len("ipconfig"):] {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// trimGuestConfig keeps only a small, cheap metadata allowlist from a guest's
+// raw Proxmox config. The interesting network data has already been extracted
+// into structured interfaces; retaining the entire config map per guest (disks,
+// cloud-init user-data, smbios, …) is what exhausted the WASM heap and the 2MB
+// result cap on large clusters.
+func trimGuestConfig(config map[string]string) map[string]string {
+	if len(config) == 0 {
+		return nil
+	}
+
+	allow := []string{
+		"name", "ostype", "arch", "cores", "sockets", "cpu",
+		"memory", "onboot", "tags", "description", "template", "hostname",
+	}
+
+	out := make(map[string]string, len(allow))
+	for _, key := range allow {
+		if value, ok := config[key]; ok && strings.TrimSpace(value) != "" {
+			out[key] = value
+		}
+	}
+
+	if len(out) == 0 {
+		return nil
 	}
 
 	return out
+}
+
+// guestAgentEnabled reports whether a QEMU guest has the qemu-guest-agent
+// enabled in its config (`agent: 1` / `agent: enabled=1,…`). When false, the
+// agent network/fsinfo probes are skipped to avoid blocking on a guest that
+// will never answer.
+func guestAgentEnabled(config map[string]string) bool {
+	raw := strings.TrimSpace(config["agent"])
+	if raw == "" {
+		return false
+	}
+
+	if first := strings.TrimSpace(strings.SplitN(raw, ",", 2)[0]); first == "1" {
+		return true
+	}
+
+	return strings.TrimSpace(parseProxmoxConfigList(raw)["enabled"]) == "1"
 }
 
 func isGuestNetConfigKey(key string) bool {
@@ -475,7 +602,6 @@ func interfaceFromGuestConfigValue(configKey, raw string) proxmoxGuestNetworkInt
 		Name:      firstNonEmpty(values["name"], configKey),
 		Bridge:    values["bridge"],
 		Source:    "config",
-		Metadata:  map[string]string{"config": raw},
 	}
 
 	if vlanID := parsePositiveInt(firstNonEmpty(values["tag"], values["vlan-id"], values["vlan_id"])); vlanID > 0 {

@@ -2,11 +2,23 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
 )
 
+// submitResult is the sink for streamed inventory batches. It is a package
+// variable so tests can capture what the plugin emits without a live host.
+var submitResult = submitPluginResult
+
+// runProxmoxCheck enumerates every configured target and streams inventory to
+// the host one node at a time. Each node's guests are fetched, enriched, emitted
+// as their own result, and then dropped before the next node is processed, so
+// peak memory (and the per-result payload) stays bounded to a single node
+// regardless of how many guests the cluster has. Partial progress survives a
+// mid-run cancellation because every node's batch is submitted as it completes.
+// It returns a small final status result carrying only aggregate counts.
 func runProxmoxCheck(cfg Config) (*pluginResult, error) {
 	cfg.applyDefaults()
 	applyHTTPClientLimits(cfg)
@@ -17,85 +29,224 @@ func runProxmoxCheck(cfg Config) (*pluginResult, error) {
 	}
 
 	now := time.Now().UTC()
-	discovery := sdk.NewDeviceDiscovery(discoverySource)
-	discovery.ObservedAt = now.Format(time.RFC3339Nano)
-	details := proxmoxDetails{
-		Schema:  "serviceradar.proxmox_enrichment.v1",
-		Targets: make([]proxmoxTarget, 0, len(targets)),
-		Errors:  map[string]string{},
-	}
+	observedAt := now.Format(time.RFC3339Nano)
+
+	var totals checkSummary
+	targetErrors := map[string]string{}
 
 	for _, target := range targets {
-		inventory, err := fetchTargetInventory(cfg, target)
-		if err != nil {
-			details.Errors[target.safeName()] = sanitizeError(err)
+		token := normalizeProxmoxAPIToken(firstNonEmpty(target.APIToken, cfg.APIToken))
+		if token == "" {
+			targetErrors[target.safeName()] = errMissingToken.Error()
 			continue
 		}
 
-		addNodeDiscoveries(discovery, target, inventory.Nodes)
-		addGuestDiscoveries(discovery, inventory.Guests)
+		version, cluster, nodes, warnings := fetchTargetTopology(cfg, target, token)
+		if nodes == nil {
+			targetErrors[target.safeName()] = firstNonEmpty(warnings["nodes"], "fetch nodes failed")
+			continue
+		}
+		totals.Targets++
 
-		details.Targets = append(details.Targets, proxmoxTarget{
-			BaseURL:  target.redactedBaseURL(),
-			Version:  inventory.Version,
-			Cluster:  inventory.Cluster,
-			Nodes:    inventory.Nodes,
-			Guests:   inventory.Guests,
-			Summary:  inventory.Summary,
-			Warnings: inventory.Warnings,
-			Meta:     targetMetadata(target),
-		})
-		details.Summary.Targets++
-		details.Summary.Nodes += len(inventory.Nodes)
-		details.Summary.Guests += len(inventory.Guests)
-		details.Summary.QEMU += countGuests(inventory.Guests, "qemu")
-		details.Summary.LXC += countGuests(inventory.Guests, "lxc")
-		details.Summary.Storage += inventory.Summary.StorageCount
-		details.Summary.NetworkInterfaces += inventory.Summary.NetworkInterfaceCount
-		details.Summary.Disks += inventory.Summary.DiskCount
-		details.Summary.CephEnabledNodes += inventory.Summary.CephEnabledNodes
-		details.Summary.Bottleneck += inventory.Summary.ResourceBottleneck
-		details.ResourceSummary = mergeResourceSummary(details.ResourceSummary, inventory.Summary)
+		// Batch 1: the target's nodes (always a small set) + topology details.
+		accumulateSummary(&totals, emitProxmoxBatch(observedAt, target, version, cluster, nodes, nil, warnings))
+
+		if !cfg.includeGuests() {
+			continue
+		}
+
+		// Batches 2..N: one per node. Fetch + enrich only that node's guests,
+		// emit them, then let the slice fall out of scope so the conservative GC
+		// reclaims it before the next node — peak memory is one node's worth.
+		remaining := cfg.MaxGuests
+		for _, node := range nodes {
+			if strings.TrimSpace(node.Node) == "" {
+				continue
+			}
+
+			// Guest batches carry cluster + version (so the v2 guest identity can
+			// still be minted) but NOT the node object — the node was already
+			// emitted and counted in its own batch, and re-including it here would
+			// double-count nodes and re-emit the node discovery.
+			guests, truncated := fetchNodeGuestsEnriched(cfg, target, token, node.Node, remaining, warnings)
+			if len(guests) > 0 {
+				accumulateSummary(&totals, emitProxmoxBatch(observedAt, target, version, cluster, nil, guests, warnings))
+			}
+
+			if cfg.MaxGuests > 0 {
+				remaining -= len(guests)
+				if remaining <= 0 || truncated {
+					warnings["guests:limit"] = fmt.Sprintf("guest listing truncated at max_guests=%d", cfg.MaxGuests)
+					break
+				}
+			}
+		}
 	}
 
-	if details.Summary.Targets == 0 {
-		return nil, fmt.Errorf("all Proxmox targets failed: %s", joinErrors(details.Errors))
-	}
-
-	if len(details.Errors) == 0 {
-		details.Errors = nil
-	}
-
-	body, err := marshalProxmoxDetails(details)
-	if err != nil {
-		return nil, fmt.Errorf("encode details: %w", err)
+	if totals.Targets == 0 {
+		return nil, fmt.Errorf("all Proxmox targets failed: %s", joinErrors(targetErrors))
 	}
 
 	status := sdk.StatusOK
 	summary := fmt.Sprintf(
 		"Proxmox inventory: %d target(s), %d node(s), %d guest(s)",
-		details.Summary.Targets,
-		details.Summary.Nodes,
-		details.Summary.Guests,
+		totals.Targets,
+		totals.Nodes,
+		totals.Guests,
 	)
-	if len(details.Errors) > 0 {
+	if len(targetErrors) > 0 {
 		status = sdk.StatusWarning
-		summary += fmt.Sprintf(", %d target error(s)", len(details.Errors))
+		summary += fmt.Sprintf(", %d target error(s)", len(targetErrors))
 	}
-	if details.Summary.Bottleneck > 0 {
+	if totals.Bottleneck > 0 {
 		status = sdk.StatusWarning
-		summary += fmt.Sprintf(", %d resource bottleneck(s)", details.Summary.Bottleneck)
+		summary += fmt.Sprintf(", %d resource bottleneck(s)", totals.Bottleneck)
 	}
 
 	result := newPluginResult(status, summary)
-	result.Details = string(body)
-	result.ObservedAt = now.Format(time.RFC3339Nano)
+	result.ObservedAt = observedAt
 	result.AddLabel("plugin_id", pluginID)
+	return result, nil
+}
+
+// fetchTargetTopology fetches the small, bounded per-target data: version,
+// cluster status, and the enriched node list. Returns nil nodes only when the
+// node listing itself failed (a hard target error).
+func fetchTargetTopology(cfg Config, target Target, token string) (*proxmoxVersion, []proxmoxClusterNode, []proxmoxNode, map[string]string) {
+	warnings := map[string]string{}
+
+	var version *proxmoxVersion
+	if v, err := fetchVersion(cfg, target, token); err != nil {
+		warnings["version"] = sanitizeError(err)
+	} else {
+		version = &v
+	}
+
+	// Identity contract: the enrichment ingestor derives the versioned
+	// integration identity from the cluster-status entry of type "cluster",
+	// node names, and guest type+vmid. Keep the cluster attached to every batch
+	// so per-node guest batches can still mint the v2 identity.
+	var cluster []proxmoxClusterNode
+	if c, err := fetchClusterStatus(cfg, target, token); err != nil {
+		warnings["cluster_status"] = sanitizeError(err)
+	} else {
+		cluster = c
+	}
+
+	nodes, err := fetchNodes(cfg, target, token)
+	if err != nil {
+		warnings["nodes"] = sanitizeError(err)
+		return version, cluster, nil, warnings
+	}
+
+	nodes = annotateNodesWithClusterStatus(enrichNodes(cfg, target, token, nodes, warnings), cluster)
+
+	return version, cluster, nodes, warnings
+}
+
+// fetchNodeGuestsEnriched fetches and enriches only the guests on a single node.
+// budget is the remaining max_guests allowance for the target; truncated is true
+// when that allowance was hit while listing this node.
+func fetchNodeGuestsEnriched(cfg Config, target Target, token, node string, budget int, warnings map[string]string) ([]proxmoxGuest, bool) {
+	resources := make([]proxmoxResource, 0)
+	truncated := false
+
+	for _, kind := range []string{"qemu", "lxc"} {
+		got, err := fetchNodeGuests(cfg, target, token, node, kind)
+		if err != nil {
+			warnings[fmt.Sprintf("node:%s:%s_guests", node, kind)] = sanitizeError(err)
+			continue
+		}
+
+		resources, truncated = appendGuestResourcesWithinLimit(resources, got, budget)
+		if truncated {
+			break
+		}
+	}
+
+	return enrichGuests(cfg, target, token, resources, warnings), truncated
+}
+
+// emitProxmoxBatch builds and submits one self-contained inventory result for a
+// bounded slice of nodes and/or guests, and returns the batch's summary counts.
+func emitProxmoxBatch(
+	observedAt string,
+	target Target,
+	version *proxmoxVersion,
+	cluster []proxmoxClusterNode,
+	nodes []proxmoxNode,
+	guests []proxmoxGuest,
+	warnings map[string]string,
+) checkSummary {
+	discovery := sdk.NewDeviceDiscovery(discoverySource)
+	discovery.ObservedAt = observedAt
+	addNodeDiscoveries(discovery, target, nodes)
+	addGuestDiscoveries(discovery, guests)
+
+	resources := summarizeInventory(nodes, guests)
+	summary := checkSummary{
+		Nodes:             len(nodes),
+		Guests:            len(guests),
+		QEMU:              countGuests(guests, "qemu"),
+		LXC:               countGuests(guests, "lxc"),
+		Storage:           resources.StorageCount,
+		NetworkInterfaces: resources.NetworkInterfaceCount,
+		Disks:             resources.DiskCount,
+		CephEnabledNodes:  resources.CephEnabledNodes,
+		Bottleneck:        resources.ResourceBottleneck,
+	}
+
+	details := proxmoxDetails{
+		Schema: "serviceradar.proxmox_enrichment.v1",
+		Targets: []proxmoxTarget{
+			{
+				BaseURL:  target.redactedBaseURL(),
+				Version:  version,
+				Cluster:  cluster,
+				Nodes:    nodes,
+				Guests:   guests,
+				Summary:  resources,
+				Warnings: nilIfEmpty(warnings),
+				Meta:     targetMetadata(target),
+			},
+		},
+		Summary:         summary,
+		ResourceSummary: resources,
+	}
+
+	body, err := marshalProxmoxDetails(details)
+	if err != nil {
+		// Never let one batch's encode failure sink the whole run.
+		return summary
+	}
+
+	result := newPluginResult(sdk.StatusOK, fmt.Sprintf(
+		"Proxmox inventory batch: %d node(s), %d guest(s)",
+		len(nodes),
+		len(guests),
+	))
+	result.ObservedAt = observedAt
+	result.AddLabel("plugin_id", pluginID)
+	result.Details = string(body)
 	emitResourceEvents(result, details)
 	emitProxmoxMetricTelemetry(pluginID, details)
 	if len(discovery.Devices) > 0 {
 		result.AddDeviceDiscovery(*discovery)
 	}
 
-	return result, nil
+	_ = submitResult(result)
+
+	return summary
+}
+
+func accumulateSummary(acc *checkSummary, add checkSummary) {
+	acc.Nodes += add.Nodes
+	acc.Guests += add.Guests
+	acc.QEMU += add.QEMU
+	acc.LXC += add.LXC
+	acc.Storage += add.Storage
+	acc.NetworkInterfaces += add.NetworkInterfaces
+	acc.Disks += add.Disks
+	acc.CephEnabledNodes += add.CephEnabledNodes
+	acc.Bottleneck += add.Bottleneck
 }
