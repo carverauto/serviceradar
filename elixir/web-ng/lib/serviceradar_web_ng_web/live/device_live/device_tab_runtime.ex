@@ -125,14 +125,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
     request_ref = make_ref()
 
     socket
-    |> assign(:device_logs, [])
-    |> assign(:logs_pagination, %{})
-    |> assign(:logs_error, nil)
+    |> maybe_reset_logs(Keyword.get(opts, :preserve_rendered, false))
     |> assign(:logs_loading, false)
     |> assign(:logs_request_ref, request_ref)
     |> assign(:logs_cursor, cursor)
     |> assign(:has_logs, true)
     |> maybe_start_logs_async(uid, request_ref, srql_module, scope, cursor, opts)
+  end
+
+  # On a same-device refresh (preserve_rendered: true) keep the currently
+  # rendered log rows on screen — the async result replaces them wholesale
+  # when it lands instead of blanking the tab while the load is in flight.
+  defp maybe_reset_logs(socket, true = _preserve_rendered?), do: socket
+
+  defp maybe_reset_logs(socket, false = _preserve_rendered?) do
+    socket
+    |> assign(:device_logs, [])
+    |> assign(:logs_pagination, %{})
+    |> assign(:logs_error, nil)
   end
 
   defp maybe_start_logs_async(socket, uid, request_ref, srql_module, scope, cursor, opts) do

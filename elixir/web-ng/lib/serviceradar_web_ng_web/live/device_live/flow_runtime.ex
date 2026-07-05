@@ -155,24 +155,40 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowRuntime do
     |> FlowIpEnrichment.enrich_socket()
   end
 
-  def begin_background_loads(socket, "flows", uid, flows, srql_mod) do
+  def begin_background_loads(socket, active_tab, uid, flows, srql_mod, opts \\ [])
+
+  def begin_background_loads(socket, "flows", uid, flows, srql_mod, opts) do
     socket
-    |> begin_stats_refresh(uid, srql_mod)
+    |> begin_stats_refresh(uid, srql_mod, opts)
     |> begin_ip_enrichment(uid, flows)
   end
 
-  def begin_background_loads(socket, _active_tab, _uid, _flows, _srql_mod), do: socket
+  def begin_background_loads(socket, _active_tab, _uid, _flows, _srql_mod, _opts), do: socket
 
-  def begin_stats_refresh(socket, uid, srql_mod) do
+  def begin_stats_refresh(socket, uid, srql_mod, opts \\ []) do
     scope = socket.assigns.current_scope
     request_ref = make_ref()
 
+    socket
+    |> maybe_reset_flow_stats(Keyword.get(opts, :preserve_rendered, false))
+    |> assign(:flow_stats_request_ref, request_ref)
+    |> start_async({:flow_stats, uid, request_ref}, fn ->
+      FlowData.load_device_flow_stats(srql_mod, uid, scope)
+    end)
+  end
+
+  # On a same-device refresh (preserve_rendered: true) keep the currently
+  # rendered stats bundle on screen — the async result replaces it wholesale
+  # when it lands. Blanking here unmounted the traffic-profile chart and
+  # flipped the stat cards to loading skeletons on every refresh.
+  defp maybe_reset_flow_stats(socket, true = _preserve_rendered?), do: socket
+
+  defp maybe_reset_flow_stats(socket, false = _preserve_rendered?) do
     {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json, top_destinations_json,
      top_peers_json, top_ports_json, top_protocols_json, facets} =
       FlowData.empty_flow_stats_bundle()
 
     socket
-    |> assign(:flow_stats_request_ref, request_ref)
     |> assign(:flow_stats, flow_stats)
     |> assign(:flow_stats_loading, true)
     |> assign(:flow_sparkline_json, sparkline_json)
@@ -185,9 +201,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowRuntime do
     |> assign(:flow_top_ports_json, top_ports_json)
     |> assign(:flow_top_protocols_json, top_protocols_json)
     |> assign(:flow_facets, facets)
-    |> start_async({:flow_stats, uid, request_ref}, fn ->
-      FlowData.load_device_flow_stats(srql_mod, uid, scope)
-    end)
   end
 
   def begin_ip_enrichment(socket, uid, flows) do

@@ -36,6 +36,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   @logs_limit 50
   @details_supplemental_timeout_ms 3_000
   @tab_supplemental_timeout_ms 15_000
+  # Minimum spacing between :device_updated-triggered refreshes of the
+  # currently displayed device. Core broadcasts on a global topic for every
+  # Ash device update, so busy devices get touched every 30s–2.5min on
+  # clustered deployments; without a cooldown each broadcast forced a full
+  # reload. Overridable for tests via :device_refresh_cooldown_ms app env.
+  @device_refresh_cooldown_ms 30_000
   @slow_device_task_ms 1_500
   @detail_metric_bucket "1m"
   @detail_metric_min_window_seconds 14_400
@@ -111,6 +117,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_info({:device_deleted, uid}, socket) do
+    maybe_refresh_current_device(socket, uid)
+  end
+
+  # Trailing refresh scheduled by coalesce_device_refresh/2: a broadcast
+  # arrived during the cooldown window, so exactly one deferred refresh runs
+  # at cooldown expiry to make the page converge on the latest data.
+  def handle_info({:deferred_device_refresh, uid}, socket) do
+    socket = assign(socket, :device_refresh_timer, nil)
     maybe_refresh_current_device(socket, uid)
   end
 
@@ -331,6 +345,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {requested_tab, device_row, srql_module, scope, params, supplemental_assigns} =
       pop_details_meta(assigns)
 
+    refresh? = Map.get(socket.assigns, :device_load_mode, :full) == :refresh
+
     socket =
       socket
       |> assign(supplemental_assigns)
@@ -344,7 +360,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       srql_module,
       scope,
       params,
-      supplemental_assigns
+      supplemental_assigns,
+      refresh?
     )
   end
 
@@ -363,14 +380,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   # The details tab is fixed, so there is nothing to re-resolve and no
   # tab-specific follow-up loads.
-  defp resolve_active_tab_after_details(socket, "details", _row, _srql, _scope, _params, _supp) do
+  defp resolve_active_tab_after_details(socket, "details", _row, _srql, _scope, _params, _supp, _refresh?) do
     assign(socket, :active_tab, "details")
   end
 
   # Other tabs: now that the supplemental batch reported which tabs have data,
   # re-resolve the active tab (it may downgrade to "details") and kick the
-  # tab-specific background loads that must run in the LiveView process.
-  defp resolve_active_tab_after_details(socket, requested_tab, device_row, srql_module, scope, params, supp) do
+  # tab-specific background loads that must run in the LiveView process. On a
+  # same-device refresh those follow-up loads preserve the rendered data
+  # instead of blanking it while their async results are in flight.
+  defp resolve_active_tab_after_details(socket, requested_tab, device_row, srql_module, scope, params, supp, refresh?) do
     active_tab =
       requested_tab
       |> DeviceTabRuntime.resolve_active_tab(
@@ -394,13 +413,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       socket.assigns.device_uid,
       QueryData.normalize_cursor(Map.get(params, "cursor")),
       srql_module,
-      tab_runtime_opts()
+      tab_runtime_opts() ++ [preserve_rendered: refresh?]
     )
     |> FlowRuntime.begin_background_loads(
       active_tab,
       socket.assigns.device_uid,
       Map.get(supp, :device_flows, []),
-      srql_module
+      srql_module,
+      preserve_rendered: refresh?
     )
   end
 
@@ -485,29 +505,92 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp term_type(term) when is_bitstring(term), do: :bitstring
   defp term_type(_term), do: :unknown
 
+  # Device lifecycle broadcasts arrive on a global topic for every device in
+  # the deployment, so the currently displayed device can be "refreshed" far
+  # more often than its data meaningfully changes. Refreshes of the
+  # already-loaded device are therefore (a) non-destructive — mode: :refresh
+  # keeps the rendered supplemental data on screen while the async batch
+  # fetches fresh values — and (b) coalesced: broadcasts are ignored while a
+  # refresh is in flight, and rate-limited to one per cooldown window with a
+  # single trailing refresh scheduled so the page still converges.
   defp maybe_refresh_current_device(socket, uid) when is_binary(uid) do
     if uid == socket.assigns.device_uid do
-      params =
-        socket.assigns
-        |> Map.get(:last_params, %{})
-        |> Map.put("uid", uid)
-
-      uri = Map.get(socket.assigns, :last_uri, "/devices/#{uid}")
-      limit = QueryData.parse_limit(Map.get(params, "limit"), socket.assigns.limit, @max_limit)
-
-      requested_tab =
-        DeviceTabRuntime.normalize_requested_tab(
-          Map.get(params, "tab"),
-          socket.assigns.active_tab
-        )
-
-      load_device_data(socket, uid, limit, requested_tab, params, uri)
+      coalesce_device_refresh(socket, uid)
     else
       {:noreply, socket}
     end
   end
 
   defp maybe_refresh_current_device(socket, _uid), do: {:noreply, socket}
+
+  defp coalesce_device_refresh(socket, uid) do
+    cond do
+      device_refresh_in_flight?(socket) ->
+        {:noreply, socket}
+
+      device_refresh_cooldown_remaining(socket) > 0 ->
+        {:noreply, schedule_trailing_device_refresh(socket, uid)}
+
+      true ->
+        refresh_current_device(socket, uid)
+    end
+  end
+
+  defp refresh_current_device(socket, uid) do
+    params =
+      socket.assigns
+      |> Map.get(:last_params, %{})
+      |> Map.put("uid", uid)
+
+    uri = Map.get(socket.assigns, :last_uri, "/devices/#{uid}")
+    limit = QueryData.parse_limit(Map.get(params, "limit"), socket.assigns.limit, @max_limit)
+
+    requested_tab =
+      DeviceTabRuntime.normalize_requested_tab(
+        Map.get(params, "tab"),
+        socket.assigns.active_tab
+      )
+
+    load_device_data(socket, uid, limit, requested_tab, params, uri, mode: :refresh)
+  end
+
+  defp device_refresh_in_flight?(socket) do
+    is_reference(Map.get(socket.assigns, :device_details_request_ref))
+  end
+
+  defp device_refresh_cooldown_remaining(socket) do
+    case Map.get(socket.assigns, :device_refresh_last_at) do
+      nil ->
+        0
+
+      last_at ->
+        device_refresh_cooldown_ms() - (System.monotonic_time(:millisecond) - last_at)
+    end
+  end
+
+  # Cancel/replace any pending trailing timer so rapid broadcast bursts
+  # collapse into exactly one deferred refresh at cooldown expiry.
+  defp schedule_trailing_device_refresh(socket, uid) do
+    socket = cancel_trailing_device_refresh(socket)
+    delay = max(device_refresh_cooldown_remaining(socket), 0)
+    timer = Process.send_after(self(), {:deferred_device_refresh, uid}, delay)
+    assign(socket, :device_refresh_timer, timer)
+  end
+
+  defp cancel_trailing_device_refresh(socket) do
+    case Map.get(socket.assigns, :device_refresh_timer) do
+      nil ->
+        socket
+
+      timer ->
+        Process.cancel_timer(timer)
+        assign(socket, :device_refresh_timer, nil)
+    end
+  end
+
+  defp device_refresh_cooldown_ms do
+    Application.get_env(:serviceradar_web_ng, :device_refresh_cooldown_ms, @device_refresh_cooldown_ms)
+  end
 
   defp begin_device_metrics_refresh(socket, uid, srql_module, sysmon_identity, scope) do
     request_ref = make_ref()
@@ -571,7 +654,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     AnomalyCapacityData.empty()
   end
 
-  defp load_device_data(socket, uid, limit, requested_tab, params, uri) do
+  defp load_device_data(socket, uid, limit, requested_tab, params, uri, opts \\ []) do
+    refresh? = Keyword.get(opts, :mode, :full) == :refresh
     default_query = QueryData.default_device_query(uid, limit)
 
     query = normalized_device_query(params, default_query)
@@ -636,10 +720,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     # apply_device_details_assigns). active_tab is resolved optimistically to the
     # requested tab and re-resolved once the batch reports which tabs have data.
     socket
+    |> cancel_trailing_device_refresh()
+    |> assign(:device_refresh_last_at, System.monotonic_time(:millisecond))
+    |> assign(:device_load_mode, if(refresh?, do: :refresh, else: :full))
     |> assign(:device_uid, uid)
     |> assign(:limit, limit)
     |> assign(:results, results)
-    |> reset_supplemental_defaults()
+    |> maybe_reset_supplemental_defaults(refresh?)
     |> assign(:active_tab, requested_tab)
     |> assign(
       :panels,
@@ -674,6 +761,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp maybe_begin_metrics_refresh(socket, true, _uid, _srql_module, _device_row, _scope), do: socket
+
+  # On a same-device refresh (mode: :refresh) keep the currently rendered
+  # supplemental data on screen — the async batch swaps in fresh values
+  # wholesale when it lands, so the tabs never unmount mid-refresh. Initial
+  # mounts and device switches still reset to safe defaults so stale data
+  # from a previously viewed device never leaks into the new shell.
+  defp maybe_reset_supplemental_defaults(socket, true = _refresh?), do: socket
+
+  defp maybe_reset_supplemental_defaults(socket, false = _refresh?) do
+    reset_supplemental_defaults(socket)
+  end
 
   # Reset every supplemental assign to a safe default before the async batch
   # repopulates them. Keeps stale data from a previously viewed device out of

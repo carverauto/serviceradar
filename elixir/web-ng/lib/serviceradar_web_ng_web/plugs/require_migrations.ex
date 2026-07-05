@@ -100,7 +100,12 @@ defmodule ServiceRadarWebNGWeb.Plugs.RequireMigrations do
   end
 
   defp repo_migrations_ready?(opts) do
-    repo = Keyword.get(opts, :repo, ServiceRadarWebNG.Repo)
+    # ServiceRadarWebNG.Repo is a defdelegate shim and never a registered
+    # process; the running repo process is ServiceRadar.Repo (same trap as
+    # ServiceRadarWebNGWeb.Stats.repo_started?/0). Checking the shim name
+    # made Process.whereis/1 permanently nil, so this fallback always
+    # reported the repo as down when no migration marker was configured.
+    repo = Keyword.get(opts, :repo, ServiceRadar.Repo)
 
     case Process.whereis(repo) do
       nil ->
