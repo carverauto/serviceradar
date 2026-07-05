@@ -380,6 +380,9 @@ func (p *PushLoop) handleControlStream(
 					ConfigAck: &proto.ConfigAck{
 						ConfigVersion: cfg.ConfigVersion,
 						Timestamp:     time.Now().Unix(),
+						// Per-section apply status: sections that failed permanently
+						// still commit + ack, and this is where core learns about them.
+						SectionStatuses: p.configSectionAckStatuses(),
 					},
 				},
 			}); err != nil {

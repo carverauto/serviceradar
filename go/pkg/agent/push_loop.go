@@ -129,6 +129,9 @@ type PushLoop struct {
 	addonDeliveryMu       sync.Mutex
 	addonDeliveryFailures map[string]addonDeliveryFailure // permanent add-on artifact delivery failure, by addon id (drives backoff + status)
 
+	configSectionMu       sync.Mutex
+	configSectionFailures map[string]configSectionFailure // persistent config-section apply failure, by section name (drives skip + escalate-once + per-section ack)
+
 	addonReconcileMu sync.Mutex // serializes applyAddonAssignments across the poll/control-stream/enroll goroutines
 
 	systemdAddonsMu        sync.Mutex

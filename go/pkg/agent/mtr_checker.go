@@ -302,6 +302,12 @@ func (p *PushLoop) applyMtrCheckConfigs(checks []*proto.AgentCheckConfig) {
 		parsed[cfg.ID] = cfg
 	}
 
+	// mtrState is always set by NewPushLoop; guard for directly-constructed instances
+	// (tests) now that the check section runs even when an earlier section deferred.
+	if p.mtrState == nil {
+		return
+	}
+
 	p.mtrState.mu.Lock()
 	p.mtrState.checks = parsed
 

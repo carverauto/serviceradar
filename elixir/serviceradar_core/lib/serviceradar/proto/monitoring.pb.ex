@@ -659,6 +659,20 @@ defmodule Monitoring.CommandResult do
   field :timestamp, 6, type: :int64
 end
 
+defmodule Monitoring.ConfigSectionStatus do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.ConfigSectionStatus",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :section, 1, type: :string
+  field :disposition, 2, type: :string
+  field :error, 3, type: :string
+  field :since, 4, type: :int64
+end
+
 defmodule Monitoring.ConfigAck do
   @moduledoc false
 
@@ -669,6 +683,11 @@ defmodule Monitoring.ConfigAck do
 
   field :config_version, 1, type: :string, json_name: "configVersion"
   field :timestamp, 2, type: :int64
+
+  field :section_statuses, 3,
+    repeated: true,
+    type: Monitoring.ConfigSectionStatus,
+    json_name: "sectionStatuses"
 end
 
 defmodule Monitoring.ConsoleFrame do

@@ -101,6 +101,11 @@ func (p *PushLoop) buildAgentCapabilityGatewayStatus(
 	// add-on silently vanishing. Skip any add-on that already has a real status entry
 	// (a last-known-good process still running keeps reporting its actual state).
 	sidecars = append(sidecars, p.addonDeliveryFailureStatuses(sidecars)...)
+	// Surface add-ons whose CONFIG section permanently fails to apply (e.g. netprobe
+	// running on bootstrap-only config after a type-invalid config_json) as unhealthy —
+	// unlike delivery failures this overrides a running entry, because the process is
+	// alive but configured wrong.
+	sidecars = append(sidecars, p.configApplyFailureStatuses(sidecars)...)
 
 	corpusRevisions := p.netprobeCorpusRevisions()
 	sweepBannerGrab := p.sweepBannerGrabCapabilityStatus(sidecars, corpusRevisions)
