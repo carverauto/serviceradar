@@ -156,7 +156,7 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
                 r#",
     counter_width,
     CASE
-      WHEN metadata->>'max_counter_rate_per_second' ~ '^[0-9]+(\.[0-9]+)?$'
+      WHEN metadata->>'max_counter_rate_per_second' ~ '^[0-9]+(\.[0-9]+){0,1}$'
         THEN (metadata->>'max_counter_rate_per_second')::double precision
       ELSE NULL
     END AS max_rate_per_second"#
@@ -458,17 +458,64 @@ pub(super) fn build_bind_values(plan: &QueryPlan) -> Result<Vec<SqlBindValue>> {
     Ok(binds)
 }
 
+/// Rewrites `?` bind placeholders to Postgres `$1..$N`, skipping any `?` that
+/// occurs inside a single-quoted SQL string literal (e.g. a `?` regex
+/// quantifier such as `~ '^[0-9]+(\.[0-9]+)?$'`). Rewriting a literal's `?`
+/// shifts every real bind by one and Postgres rejects the query with 42P18
+/// "could not determine data type of parameter $1" (fj #4408).
+///
+/// SQL escapes a quote inside a literal by doubling it (`''`); a doubled quote
+/// toggles the in-literal state twice, so simple toggling tracks it correctly.
 pub(super) fn rewrite_placeholders(sql: &str) -> String {
     let mut result = String::with_capacity(sql.len());
     let mut index = 1;
+    let mut in_literal = false;
     for ch in sql.chars() {
-        if ch == '?' {
-            result.push('$');
-            result.push_str(&index.to_string());
-            index += 1;
-        } else {
-            result.push(ch);
+        match ch {
+            '\'' => {
+                in_literal = !in_literal;
+                result.push(ch);
+            }
+            '?' if !in_literal => {
+                result.push('$');
+                result.push_str(&index.to_string());
+                index += 1;
+            }
+            _ => result.push(ch),
         }
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rewrite_placeholders;
+
+    #[test]
+    fn rewrite_placeholders_numbers_binds_outside_literals() {
+        assert_eq!(
+            rewrite_placeholders("SELECT 1 WHERE a >= ? AND b <= ? LIMIT ? OFFSET ?"),
+            "SELECT 1 WHERE a >= $1 AND b <= $2 LIMIT $3 OFFSET $4"
+        );
+    }
+
+    #[test]
+    fn rewrite_placeholders_skips_question_marks_inside_string_literals() {
+        let sql = r"SELECT x ~ '^[0-9]+(\.[0-9]+)?$' AS ok FROM t WHERE a = ? AND b = ?";
+        assert_eq!(
+            rewrite_placeholders(sql),
+            r"SELECT x ~ '^[0-9]+(\.[0-9]+)?$' AS ok FROM t WHERE a = $1 AND b = $2"
+        );
+    }
+
+    #[test]
+    fn rewrite_placeholders_handles_escaped_quote_doubling() {
+        // `''` inside a literal is an escaped quote, not a literal boundary:
+        // the `?` after it is still inside the string and must not be rewritten.
+        let sql = "SELECT 'what''s this?' AS q WHERE a = ? AND b = 'x' AND c = ?";
+        assert_eq!(
+            rewrite_placeholders(sql),
+            "SELECT 'what''s this?' AS q WHERE a = $1 AND b = 'x' AND c = $2"
+        );
+    }
 }
