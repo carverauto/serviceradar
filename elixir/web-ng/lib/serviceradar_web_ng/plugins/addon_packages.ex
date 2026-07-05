@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonPackages do
   Wasm Packages context.
   """
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.RetiredNativeAddons
   alias ServiceRadarWebNG.Plugins.NativeAddonImporter
@@ -51,13 +52,25 @@ defmodule ServiceRadarWebNG.Plugins.AddonPackages do
     discovery_attrs = maybe_put(%{}, :repo_url, repo_url)
 
     with {:ok, addons} <- NativeAddonImporter.list_recent_addons(discovery_attrs, limit) do
-      results =
+      existing = existing_import_keys(opts)
+
+      candidates =
         addons
         |> maybe_filter_release_tag(release_tag)
         |> Enum.reject(&RetiredNativeAddons.retired?(&1.addon_id))
         |> Enum.filter(&Map.get(&1, :import_ready?))
         |> dedupe_first_party_addon_versions()
-        |> Enum.map(fn addon ->
+
+      # Idempotence: a catalog entry whose (addon_id, version, release_tag) is
+      # already imported (with its artifacts intact) is skipped, not re-imported.
+      {already_imported, to_import} =
+        Enum.split_with(
+          candidates,
+          &MapSet.member?(existing, {&1.addon_id, &1.version, &1.release_tag})
+        )
+
+      results =
+        Enum.map(to_import, fn addon ->
           import_attrs = %{
             repo_url: addon.repo_url,
             release_tag: addon.release_tag,
@@ -68,7 +81,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonPackages do
           {addon, NativeAddonImporter.import(import_attrs)}
         end)
 
-      {:ok, sync_summary(addons, results)}
+      {:ok, sync_summary(addons, results, length(already_imported))}
     end
   end
 
@@ -208,7 +221,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonPackages do
     {package.name |> to_string() |> String.downcase(), package.addon_id || ""}
   end
 
-  defp sync_summary(discovered, results) do
+  defp sync_summary(discovered, results, skipped) do
     imported = Enum.count(results, fn {_addon, result} -> match?({:ok, _package}, result) end)
 
     failed =
@@ -225,10 +238,34 @@ defmodule ServiceRadarWebNG.Plugins.AddonPackages do
 
     %{
       discovered: length(discovered),
-      import_ready: length(results),
+      import_ready: length(results) + skipped,
       imported: imported,
+      skipped: skipped,
       failed: failed
     }
+  end
+
+  # (addon_id, version, release_tag) keys of packages that are already imported
+  # with their artifacts intact. Packages whose blobs went missing are excluded
+  # so a re-import can heal them.
+  defp existing_import_keys(opts) do
+    scope = Keyword.get(opts, :scope)
+    actor = Keyword.get(opts, :actor)
+
+    read_opts =
+      case ash_opts(scope, actor) do
+        [] -> [actor: SystemActor.system(:native_addon_importer)]
+        other -> other
+      end
+
+    AddonPackage
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.limit(@max_limit)
+    |> Ash.read!(read_opts)
+    |> Enum.reject(&(&1.verification_status == "blob_missing"))
+    |> MapSet.new(&{&1.addon_id, &1.version, &1.source_release_tag})
+  rescue
+    _ -> MapSet.new()
   end
 
   defp ash_opts(scope, actor) when not is_nil(scope) do

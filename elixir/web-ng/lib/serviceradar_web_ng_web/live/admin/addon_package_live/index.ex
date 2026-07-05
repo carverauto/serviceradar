@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.RetiredNativeAddons
   alias ServiceRadarWebNG.Plugins.AddonAssignments
+  alias ServiceRadarWebNG.Plugins.AddonFleet
   alias ServiceRadarWebNG.Plugins.AddonPackages
   alias ServiceRadarWebNG.Plugins.AddonProfiles
   alias ServiceRadarWebNG.Plugins.NativeAddonImporter
@@ -61,6 +62,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
        |> assign(:cohort_options, @cohort_options)
        |> assign(:show_details_modal, false)
        |> assign(:selected_package, nil)
+       |> assign(:newer_approved_package, nil)
+       |> assign(:import_running?, false)
        |> assign(:assignments, [])
        |> assign(:addon_profiles, [])
        |> assign(:assignment_preview, empty_assignment_preview())
@@ -89,6 +92,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     socket
     |> assign(:show_details_modal, false)
     |> assign(:selected_package, nil)
+    |> assign(:newer_approved_package, nil)
   end
 
   defp apply_action(socket, :show, %{"id" => id}) do
@@ -98,6 +102,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
       {:ok, package} ->
         socket
         |> assign(:selected_package, package)
+        |> assign(:newer_approved_package, newer_approved_package(socket.assigns.packages, package))
         |> assign(:show_details_modal, true)
         |> assign(:assignment_form, default_assignment_form())
         |> assign(:assignment_preview, build_assignment_preview(default_assignment_form(), package, scope))
@@ -115,6 +120,35 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   @impl true
   def handle_info(:load_first_party_addon_catalog, socket) do
     {:noreply, load_first_party_catalog(socket)}
+  end
+
+  @impl true
+  def handle_async(:import_first_party_catalog, {:ok, result}, socket) do
+    socket = assign(socket, :import_running?, false)
+
+    case result do
+      {:ok, summary} ->
+        release_label = socket.assigns.first_party_release_tag || "the selected release"
+
+        {:noreply,
+         socket
+         |> put_flash(:info, import_summary_message(summary, release_label))
+         |> assign(:packages, list_addon_packages(socket.assigns.current_scope))
+         |> load_first_party_catalog()}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "First-party add-on import failed: #{format_error(reason)}")
+         |> load_first_party_catalog()}
+    end
+  end
+
+  def handle_async(:import_first_party_catalog, {:exit, reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:import_running?, false)
+     |> put_flash(:error, "First-party add-on import failed: #{format_error(reason)}")}
   end
 
   @impl true
@@ -142,28 +176,25 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     {:noreply, put_flash(socket, :error, "You don't have permission to import add-ons.")}
   end
 
+  def handle_event("import_first_party_catalog", _params, %{assigns: %{import_running?: true}} = socket) do
+    {:noreply, socket}
+  end
+
   def handle_event("import_first_party_catalog", _params, socket) do
-    case AddonPackages.sync_first_party_addons(
-           repo_url: socket.assigns.first_party_repo_url,
-           release_tag: socket.assigns.first_party_release_tag,
-           limit: first_party_sync_limit()
-         ) do
-      {:ok, summary} ->
-        message =
-          "Imported #{summary.imported} first-party add-on package(s) from #{socket.assigns.first_party_release_tag || "the selected release"}"
+    repo_url = socket.assigns.first_party_repo_url
+    release_tag = socket.assigns.first_party_release_tag
+    limit = first_party_sync_limit()
 
-        {:noreply,
-         socket
-         |> put_flash(:info, message)
-         |> assign(:packages, list_addon_packages(socket.assigns.current_scope))
-         |> load_first_party_catalog()}
-
-      {:error, reason} ->
-        {:noreply,
-         socket
-         |> put_flash(:error, "First-party add-on import failed: #{format_error(reason)}")
-         |> load_first_party_catalog()}
-    end
+    {:noreply,
+     socket
+     |> assign(:import_running?, true)
+     |> start_async(:import_first_party_catalog, fn ->
+       AddonPackages.sync_first_party_addons(
+         repo_url: repo_url,
+         release_tag: release_tag,
+         limit: limit
+       )
+     end)}
   end
 
   def handle_event("import_first_party_addon", _params, %{assigns: %{can_review_addons: false}} = socket) do
@@ -424,6 +455,14 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
           </.ui_button>
         </div>
 
+        <% catalog_rows =
+          combined_catalog_rows(
+            @first_party_catalog,
+            @packages,
+            @first_party_release_tag
+          ) %>
+        <% import_state = catalog_import_state(catalog_rows) %>
+
         <.ui_panel>
           <:header>
             <div class="flex flex-wrap items-center justify-between gap-3">
@@ -454,10 +493,12 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                   :if={@can_review_addons}
                   variant="primary"
                   size="sm"
-                  disabled={@first_party_catalog == []}
+                  disabled={@import_running? or import_state.importable == 0}
                   phx-click="import_first_party_catalog"
                 >
-                  <.icon name="hero-arrow-down-tray" class="size-4" /> Import All
+                  <span :if={@import_running?} class="loading loading-spinner loading-xs"></span>
+                  <.icon :if={not @import_running?} name="hero-arrow-down-tray" class="size-4" />
+                  {import_all_label(@import_running?, import_state)}
                 </.ui_button>
               </div>
             </div>
@@ -474,13 +515,6 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
               {@first_party_catalog_status}
             </div>
           <% end %>
-
-          <% catalog_rows =
-            combined_catalog_rows(
-              @first_party_catalog,
-              @packages,
-              @first_party_release_tag
-            ) %>
 
           <%= cond do %>
             <% catalog_rows == [] and is_nil(@first_party_catalog_error) -> %>
@@ -650,6 +684,24 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                     </div>
                   </dl>
                 </div>
+              </div>
+
+              <div
+                :if={@newer_approved_package}
+                class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-info/30 bg-info/5 p-4 text-sm"
+              >
+                <div>
+                  A newer approved version of this add-on is available: <span class="font-mono">v{@newer_approved_package.version}</span>.
+                  New assignments default to the latest approved version.
+                </div>
+                <.ui_button
+                  variant="ghost"
+                  size="sm"
+                  phx-click="view_package"
+                  phx-value-id={@newer_approved_package.id}
+                >
+                  Open latest
+                </.ui_button>
               </div>
 
               <div
@@ -1393,8 +1445,72 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     |> Enum.join(", ")
   end
 
+  # Latest version first within each add-on (semver descending; non-semver
+  # versions sort after semver ones, tie-broken by raw string) so the default
+  # choice at the top is always the newest.
   defp catalog_row_sort_key(row) do
-    {row.name |> to_string() |> String.downcase(), row.addon_id, row.version}
+    {row.name |> to_string() |> String.downcase(), row.addon_id, version_desc_key(row.version), to_string(row.version)}
+  end
+
+  defp version_desc_key(version) do
+    case Version.parse(to_string(version || "")) do
+      {:ok, parsed} -> {0, -parsed.major, -parsed.minor, -parsed.patch}
+      :error -> {1, 0, 0, 0}
+    end
+  end
+
+  # --- import state ---------------------------------------------------------
+
+  # A row is importable when the remote entry is import-ready and there is no
+  # healthy imported package for it yet (blob-missing packages are re-importable).
+  defp catalog_import_state(catalog_rows) do
+    importable =
+      Enum.count(catalog_rows, fn row ->
+        row.import_ready and (is_nil(row.package) or addon_blob_missing?(row.package))
+      end)
+
+    imported = Enum.count(catalog_rows, &(not is_nil(&1.package)))
+
+    %{importable: importable, imported: imported, total: length(catalog_rows)}
+  end
+
+  defp import_all_label(true, _state), do: "Importing…"
+
+  defp import_all_label(false, %{importable: 0, imported: imported}) when imported > 0 do
+    "All #{imported} imported"
+  end
+
+  defp import_all_label(false, %{importable: 0}), do: "Import All"
+  defp import_all_label(false, %{importable: importable}), do: "Import All (#{importable})"
+
+  defp import_summary_message(summary, release_label) do
+    skipped = Map.get(summary, :skipped, 0)
+    failed = length(summary.failed)
+
+    parts =
+      ["#{summary.imported} imported", "#{skipped} skipped (already imported)"] ++
+        if failed > 0, do: ["#{failed} failed"], else: []
+
+    "Import finished for #{release_label}: #{Enum.join(parts, ", ")}."
+  end
+
+  # The latest approved package of the same add-on when it is strictly newer
+  # than the one being viewed (drives the "open latest" banner so older
+  # versions are an explicit drill-in choice, not the default).
+  defp newer_approved_package(packages, %{addon_id: addon_id} = current) do
+    candidates =
+      Enum.filter(packages, fn package ->
+        package.addon_id == addon_id and package.status == :approved and
+          package.id != current.id and not addon_blob_missing?(package)
+      end)
+
+    case AddonFleet.latest_package(candidates) do
+      nil ->
+        nil
+
+      latest ->
+        if AddonFleet.compare_versions(latest.version, current.version) == :gt, do: latest
+    end
   end
 
   defp catalog_row_status(%{package: nil}), do: "not imported"

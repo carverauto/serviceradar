@@ -229,12 +229,24 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
     discovery_attrs = maybe_put(%{}, :repo_url, repo_url)
 
     with {:ok, plugins} <- FirstPartyImporter.list_recent_plugins(discovery_attrs, limit) do
-      results =
+      existing = existing_import_keys(opts)
+
+      candidates =
         plugins
         |> maybe_filter_release_tag(release_tag)
         |> Enum.filter(&Map.get(&1, :import_ready?))
         |> dedupe_first_party_plugin_versions()
-        |> Enum.map(fn plugin ->
+
+      # Idempotence: a catalog entry whose (plugin_id, version, release_tag) is
+      # already imported is skipped, not re-imported (and never duplicated).
+      {already_imported, to_import} =
+        Enum.split_with(
+          candidates,
+          &MapSet.member?(existing, {&1.plugin_id, &1.version, &1.release_tag})
+        )
+
+      results =
+        Enum.map(to_import, fn plugin ->
           import_attrs = %{
             source_type: :first_party,
             repo_url: plugin.repo_url,
@@ -264,11 +276,36 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       {:ok,
        %{
          discovered: length(plugins),
-         import_ready: length(results),
+         import_ready: length(results) + length(already_imported),
          imported: imported,
+         skipped: length(already_imported),
          failed: failed
        }}
     end
+  end
+
+  # (plugin_id, version, release_tag) keys of already-imported packages, read
+  # with the caller's scope/actor (falling back to an unauthorized read only if
+  # neither is provided).
+  defp existing_import_keys(opts) do
+    scope = Keyword.get(opts, :scope)
+    actor = Keyword.get(opts, :actor)
+
+    query =
+      PluginPackage
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.limit(@max_limit)
+
+    packages =
+      cond do
+        not is_nil(scope) -> Ash.read!(query, scope: scope)
+        not is_nil(actor) -> Ash.read!(query, actor: actor)
+        true -> Ash.read!(query)
+      end
+
+    MapSet.new(packages, &{&1.plugin_id, &1.version, &1.source_release_tag})
+  rescue
+    _ -> MapSet.new()
   end
 
   defp maybe_filter_release_tag(plugins, release_tag) when is_binary(release_tag) and release_tag != "" do

@@ -56,6 +56,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:first_party_release_tag, selected_first_party_release(release_options, nil))
         |> assign(:first_party_release_selected?, false)
         |> assign(:first_party_repo_url, first_party_repo_url())
+        |> assign(:import_running?, false)
         |> assign(:show_create_modal, false)
         |> assign(:show_details_modal, false)
         |> assign(:create_form, default_create_form())
@@ -255,32 +256,27 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     {:noreply, put_flash(socket, :error, "You don't have permission to stage plugin packages.")}
   end
 
+  def handle_event("import_first_party_catalog", _params, %{assigns: %{import_running?: true}} = socket) do
+    {:noreply, socket}
+  end
+
   def handle_event("import_first_party_catalog", _params, socket) do
     scope = socket.assigns.current_scope
+    repo_url = socket.assigns.first_party_repo_url
+    release_tag = socket.assigns.first_party_release_tag
+    limit = first_party_sync_limit()
 
-    case Packages.sync_first_party_plugins(
-           scope: scope,
-           repo_url: socket.assigns.first_party_repo_url,
-           release_tag: socket.assigns.first_party_release_tag,
-           limit: first_party_sync_limit()
-         ) do
-      {:ok, summary} ->
-        message =
-          "Imported #{summary.imported} first-party plugin package(s) from #{socket.assigns.first_party_release_tag || "the selected release"}" <>
-            if(summary.failed == [], do: ".", else: "; #{length(summary.failed)} failed.")
-
-        {:noreply,
-         socket
-         |> put_flash(:info, message)
-         |> assign(:packages, list_packages(current_filters(socket), scope))
-         |> load_first_party_catalog()}
-
-      {:error, reason} ->
-        {:noreply,
-         socket
-         |> put_flash(:error, "First-party catalog import failed: #{format_error(reason)}")
-         |> load_first_party_catalog()}
-    end
+    {:noreply,
+     socket
+     |> assign(:import_running?, true)
+     |> start_async(:import_first_party_catalog, fn ->
+       Packages.sync_first_party_plugins(
+         scope: scope,
+         repo_url: repo_url,
+         release_tag: release_tag,
+         limit: limit
+       )
+     end)}
   end
 
   def handle_event(
@@ -897,6 +893,35 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   @impl true
+  def handle_async(:import_first_party_catalog, {:ok, result}, socket) do
+    socket = assign(socket, :import_running?, false)
+
+    case result do
+      {:ok, summary} ->
+        release_label = socket.assigns.first_party_release_tag || "the selected release"
+
+        {:noreply,
+         socket
+         |> put_flash(:info, import_summary_message(summary, release_label))
+         |> assign(:packages, list_packages(current_filters(socket), socket.assigns.current_scope))
+         |> load_first_party_catalog()}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "First-party catalog import failed: #{format_error(reason)}")
+         |> load_first_party_catalog()}
+    end
+  end
+
+  def handle_async(:import_first_party_catalog, {:exit, reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:import_running?, false)
+     |> put_flash(:error, "First-party catalog import failed: #{format_error(reason)}")}
+  end
+
+  @impl true
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
@@ -932,6 +957,14 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
           </div>
         </div>
 
+        <% catalog_rows =
+          combined_catalog_rows(
+            @first_party_catalog,
+            @packages,
+            @first_party_release_tag
+          ) %>
+        <% import_state = catalog_import_state(catalog_rows) %>
+
         <.ui_panel>
           <:header>
             <div>
@@ -964,10 +997,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 :if={@can_stage_plugins}
                 variant="primary"
                 size="sm"
-                disabled={@first_party_catalog == []}
+                disabled={@import_running? or import_state.importable == 0}
                 phx-click="import_first_party_catalog"
               >
-                <.icon name="hero-arrow-down-tray" class="size-4" /> Import All
+                <span :if={@import_running?} class="loading loading-spinner loading-xs"></span>
+                <.icon :if={not @import_running?} name="hero-arrow-down-tray" class="size-4" />
+                {import_all_label(@import_running?, import_state)}
               </.ui_button>
             </div>
           </:header>
@@ -983,13 +1018,6 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               {@first_party_catalog_status}
             </div>
           <% end %>
-
-          <% catalog_rows =
-            combined_catalog_rows(
-              @first_party_catalog,
-              @packages,
-              @first_party_release_tag
-            ) %>
 
           <%= cond do %>
             <% catalog_rows == [] and is_nil(@first_party_catalog_error) -> %>
@@ -2160,6 +2188,35 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   defp catalog_row_updated_at(%{package: nil}), do: nil
   defp catalog_row_updated_at(%{package: package}), do: package.updated_at || package.inserted_at
+
+  # --- import state ---------------------------------------------------------
+
+  defp catalog_import_state(catalog_rows) do
+    importable = Enum.count(catalog_rows, &(is_nil(&1.package) and &1.import_ready))
+    imported = Enum.count(catalog_rows, &(not is_nil(&1.package)))
+
+    %{importable: importable, imported: imported, total: length(catalog_rows)}
+  end
+
+  defp import_all_label(true, _state), do: "Importing…"
+
+  defp import_all_label(false, %{importable: 0, imported: imported}) when imported > 0 do
+    "All #{imported} imported"
+  end
+
+  defp import_all_label(false, %{importable: 0}), do: "Import All"
+  defp import_all_label(false, %{importable: importable}), do: "Import All (#{importable})"
+
+  defp import_summary_message(summary, release_label) do
+    skipped = Map.get(summary, :skipped, 0)
+    failed = length(summary.failed)
+
+    parts =
+      ["#{summary.imported} imported", "#{skipped} skipped (already imported)"] ++
+        if failed > 0, do: ["#{failed} failed"], else: []
+
+    "Import finished for #{release_label}: #{Enum.join(parts, ", ")}."
+  end
 
   defp first_party_repo_url do
     config = Application.get_env(:serviceradar_web_ng, :first_party_plugin_import, [])
