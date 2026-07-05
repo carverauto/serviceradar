@@ -1,9 +1,9 @@
 # Tasks — refactor-addon-lifecycle-operability
 
 ## 1. Restore flow attribution (hotfix tier)
-- [ ] 1.1 Remediate corrupt string-typed `AddonAssignment.params` rows (`capture_interfaces` scalar string) — coordinate with `fix-staging-observability-addon-regressions` PR6.3 so it's done once
-- [ ] 1.2 Delivery-path coercion: wire schema-driven param coercion (`ConfigSchema.normalize_params` / `split_list`) into the deliverable-config path (`agent_config_generator.ex` `to_proto_addons`/`normalize_map`) so params are coerced against the package `config_schema` before `config_json` encoding
-- [ ] 1.3 Agent: tolerant `capture_interfaces` decoding in `go/pkg/agent/netprobe/config.go` (string → single-element []string with compatibility notice); unit tests for both forms
+- [x] 1.1 Remediate corrupt string-typed `AddonAssignment.params` rows (`capture_interfaces` scalar string) — coordinate with `fix-staging-observability-addon-regressions` PR6.3 so it's done once
+- [x] 1.2 Delivery-path coercion: wire schema-driven param coercion (`ConfigSchema.normalize_params` / `split_list`) into the deliverable-config path (`agent_config_generator.ex` `to_proto_addons`/`normalize_map`) so params are coerced against the package `config_schema` before `config_json` encoding
+- [x] 1.3 Agent: tolerant `capture_interfaces` decoding in `go/pkg/agent/netprobe/config.go` (string → single-element []string with compatibility notice); unit tests for both forms
 - [ ] 1.4 Roll fixed agent + core to demo; verify netprobe config applies, agent resumes config acks, `flow_process_attribution_current` repopulates
 
 ## 2. Sectioned config apply: specify + close the gaps
@@ -26,21 +26,21 @@
 - [ ] 4.4 Document compatibility-form rules (scalar→list coercion) for add-on authors
 
 ## 5. Add-on fleet UI overhaul (`addon_fleet_live` / `addon_fleet.ex`)
-- [ ] 5.1 Rework fleet read model presentation: one row per (agent, add-on) with assigned version, running version, health; historical/unassigned versions behind the add-on detail view
-- [ ] 5.2 Separate catalog-only inventory from fleet status (kill "— (catalog only)" rows in the fleet table)
-- [ ] 5.3 Drift rendering: comparison form ("running 0.1.19 → assigned 0.1.20"); suppressed when unassigned or unreported (never "drift: 0.0.0"); attention badges sized to content (no clipped text)
-- [ ] 5.4 Layout: fit 1440px without horizontal scroll; long diagnostics (e.g. "resource limits not enforced: …") expandable to full text in a detail drawer
-- [ ] 5.5 Playwright coverage: no horizontal overflow, no truncated badges, drift render rules, catalog-only separation
+- [x] 5.1 Rework fleet read model presentation: one row per (agent, add-on) with assigned version, running version, health; historical/unassigned versions behind the add-on detail view
+- [x] 5.2 Separate catalog-only inventory from fleet status (kill "— (catalog only)" rows in the fleet table)
+- [x] 5.3 Drift rendering: comparison form ("running 0.1.19 → assigned 0.1.20"); suppressed when unassigned or unreported (never "drift: 0.0.0"); attention badges sized to content (no clipped text)
+- [x] 5.4 Layout: fit 1440px without horizontal scroll; long diagnostics (e.g. "resource limits not enforced: …") expandable to full text in a detail drawer
+- [x] 5.5 Playwright coverage: no horizontal overflow, no truncated badges, drift render rules, catalog-only separation
 
 ## 6. Catalog import UX (add-on catalog AND WASM plugin catalog "Plugins Manager")
-- [ ] 6.1 Import action reflects state (nothing-to-import → disabled/relabeled with count); idempotent server-side — both catalogs
-- [ ] 6.2 Progress indication while running + completion summary (imported / skipped / failed) — both catalogs
-- [ ] 6.3 Tests for repeated import (second run reports all-skipped, UI shows already-imported state) — both catalogs
+- [x] 6.1 Import action reflects state (nothing-to-import → disabled/relabeled with count); idempotent server-side — both catalogs
+- [x] 6.2 Progress indication while running + completion summary (imported / skipped / failed) — both catalogs
+- [x] 6.3 Tests for repeated import (second run reports all-skipped, UI shows already-imported state) — both catalogs
 
 ## 7. Version presentation model
-- [ ] 7.1 Assignment/deploy flows preselect latest approved version; older versions only via add-on detail drill-in
-- [ ] 7.2 Explicit "up to date" indicator when running == latest approved
-- [ ] 7.3 Fleet/list views stop enumerating stale versions as peer rows
+- [x] 7.1 Assignment/deploy flows preselect latest approved version; older versions only via add-on detail drill-in
+- [x] 7.2 Explicit "up to date" indicator when running == latest approved
+- [x] 7.3 Fleet/list views stop enumerating stale versions as peer rows
 
 ## 8. Rollout & verification
 - [ ] 8.1 Ship tier-1 (1.x) to demo; confirm attribution restored and acks resume

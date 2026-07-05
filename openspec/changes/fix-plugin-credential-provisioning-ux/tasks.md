@@ -1,15 +1,15 @@
 # Tasks — fix-plugin-credential-provisioning-ux
 
 ## 1. Unlock camera credential rules in the UI (hotfix tier)
-- [ ] 1.1 `network_credential_rules_live.ex`: include `api_key` in auth methods (:21) and `camera_inventory`/`camera_stream` in purposes (:22); provider presets for `unifi-protect` and `axis` (defaults, target-query templates) alongside proxmox
-- [ ] 1.2 Camera/API-key secret creation modal (parity with Proxmox-token and SSH modals; stop hardcoding `provider: "proxmox"` in `normalize_secret_params`)
-- [ ] 1.3 Rewrite page copy to be provider-neutral (currently proxmox-specific)
+- [x] 1.1 `network_credential_rules_live.ex`: include `api_key` in auth methods (:21) and `camera_inventory`/`camera_stream` in purposes (:22); provider presets for `unifi-protect` and `axis` (defaults, target-query templates) alongside proxmox
+- [x] 1.2 Camera/API-key secret creation modal (parity with Proxmox-token and SSH modals; stop hardcoding `provider: "proxmox"` in `normalize_secret_params`)
+- [x] 1.3 Rewrite page copy to be provider-neutral (currently proxmox-specific)
 - [ ] 1.4 On demo: create the UniFi Protect rule, verify the materializer emits `serviceradar.plugin_inputs.v1` assignments, camera checks go green, and the camera dashboard tiles resolve
-- [ ] 1.5 Regression test: camera rule → materialized envelope → unifi-protect `decodeConfig` per-target host derivation succeeds
+- [x] 1.5 Regression test: camera rule → materialized envelope → unifi-protect `decodeConfig` per-target host derivation succeeds
 
 ## 2. Proxmox materialization regression
-- [ ] 2.1 Diagnose why Proxmox Inventory reports "API token is required" with an enabled rule + running reconciler (manual assignment shadowing? grant refresh failure? `35f7716d9` regression? untested secret?)
-- [ ] 2.2 Fix + pinned regression test (rule → materialized inputs → plugin decode) for both proxmox and camera profiles
+- [x] 2.1 Diagnose why Proxmox Inventory reports "API token is required" with an enabled rule + running reconciler (manual assignment shadowing? grant refresh failure? `35f7716d9` regression? untested secret?)
+- [x] 2.2 Fix + pinned regression test (rule → materialized inputs → plugin decode) for both proxmox and camera profiles
 - [ ] 2.3 Rule "Test" action wired for all providers (page currently shows "Not tested" with no signal)
 
 ## 3. Materialization observability
