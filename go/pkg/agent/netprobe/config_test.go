@@ -177,6 +177,78 @@ func TestApplyAddonConfigJSONMergesNetprobeOnlyFields(t *testing.T) {
 	}
 }
 
+func TestApplyAddonConfigJSONCoercesScalarCaptureInterfaces(t *testing.T) {
+	// Compatibility form (fj#4381): a corrupt assignment row delivered
+	// `capture_interfaces` as a scalar string and permanently wedged config
+	// apply. The decoder now treats a non-empty string as a single-element
+	// list, trimming whitespace like the array form does.
+	for _, payload := range []string{
+		`{"enabled": true, "capture_interfaces": "ens18"}`,
+		`{"enabled": true, "capture_interfaces": " ens18 "}`,
+	} {
+		merged, err := ApplyAddonConfigJSON(&netprobepb.VisibilityAgentConfig{
+			CaptureInterfaces: []string{"eth0"},
+		}, []byte(payload))
+		if err != nil {
+			t.Fatalf("ApplyAddonConfigJSON(%s) error = %v", payload, err)
+		}
+
+		if got := merged.GetCaptureInterfaces(); len(got) != 1 || got[0] != "ens18" {
+			t.Fatalf("CaptureInterfaces = %#v for %s, want [ens18]", got, payload)
+		}
+		if !merged.GetEnabled() {
+			t.Fatalf("Enabled = false for %s, want true", payload)
+		}
+	}
+}
+
+func TestApplyAddonConfigJSONScalarEmptyCaptureInterfacesClears(t *testing.T) {
+	// An empty (or whitespace-only) scalar string means "explicitly no capture
+	// interfaces", matching the semantics of an explicit empty array.
+	for _, payload := range []string{
+		`{"capture_interfaces": ""}`,
+		`{"capture_interfaces": "   "}`,
+	} {
+		merged, err := ApplyAddonConfigJSON(&netprobepb.VisibilityAgentConfig{
+			CaptureInterfaces: []string{"eth0"},
+		}, []byte(payload))
+		if err != nil {
+			t.Fatalf("ApplyAddonConfigJSON(%s) error = %v", payload, err)
+		}
+
+		if got := merged.GetCaptureInterfaces(); len(got) != 0 {
+			t.Fatalf("CaptureInterfaces = %#v for %s, want empty", got, payload)
+		}
+	}
+}
+
+func TestApplyAddonConfigJSONNullCaptureInterfacesKeepsBase(t *testing.T) {
+	merged, err := ApplyAddonConfigJSON(&netprobepb.VisibilityAgentConfig{
+		CaptureInterfaces: []string{"eth0"},
+	}, []byte(`{"capture_interfaces": null}`))
+	if err != nil {
+		t.Fatalf("ApplyAddonConfigJSON() error = %v", err)
+	}
+
+	if got := merged.GetCaptureInterfaces(); len(got) != 1 || got[0] != "eth0" {
+		t.Fatalf("CaptureInterfaces = %#v, want base [eth0] preserved", got)
+	}
+}
+
+func TestApplyAddonConfigJSONRejectsNonStringCaptureInterfaces(t *testing.T) {
+	// Tolerance is bounded to the documented string form; other type drift is
+	// still a decode error.
+	for _, payload := range []string{
+		`{"capture_interfaces": 42}`,
+		`{"capture_interfaces": {"eth0": true}}`,
+		`{"capture_interfaces": [1, 2]}`,
+	} {
+		if _, err := ApplyAddonConfigJSON(nil, []byte(payload)); err == nil {
+			t.Fatalf("ApplyAddonConfigJSON(%s) error = nil, want unmarshal error", payload)
+		}
+	}
+}
+
 func TestApplyAddonConfigJSONDefaultsAttributionControlsWhenBaseMissing(t *testing.T) {
 	merged, err := ApplyAddonConfigJSON(nil, []byte(`{"enabled":true}`))
 	if err != nil {

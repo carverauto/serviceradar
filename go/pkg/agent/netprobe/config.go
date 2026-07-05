@@ -34,25 +34,70 @@ type ParsedVisibilityConfig struct {
 	BinaryOverridePath string
 }
 
+// stringList decodes a JSON array of strings while additionally tolerating the
+// documented compatibility form of a plain JSON string: a non-empty string
+// (whitespace-trimmed) decodes as a single-element list, and an empty or
+// whitespace-only string decodes as an explicit empty list. Core-side delivery
+// coerces scalar-string drift against the package config schema before
+// shipping (fj#4381); this decoder-side tolerance is defense in depth so
+// schema-compatible drift that still slips through degrades gracefully instead
+// of wedging config apply with a permanent unmarshal failure (the demo
+// flow-attribution outage: `capture_interfaces` persisted as a scalar string
+// failed the `[]string` decode on every cycle and the agent never acked
+// another config version).
+type stringList []string
+
+func (s *stringList) UnmarshalJSON(data []byte) error {
+	token := strings.TrimSpace(string(data))
+	if token == "null" {
+		*s = nil
+		return nil
+	}
+
+	if strings.HasPrefix(token, `"`) {
+		var single string
+		if err := json.Unmarshal(data, &single); err != nil {
+			return err
+		}
+
+		if single = strings.TrimSpace(single); single == "" {
+			*s = stringList{}
+		} else {
+			*s = stringList{single}
+		}
+
+		return nil
+	}
+
+	var values []string
+	if err := json.Unmarshal(data, &values); err != nil {
+		return err
+	}
+
+	*s = stringList(values)
+
+	return nil
+}
+
 type bootstrapConfig struct {
-	Enabled                      bool     `json:"enabled"`
-	CaptureInterfaces            []string `json:"capture_interfaces,omitempty"`
-	FlowTableMaxEntries          uint32   `json:"flow_table_max_entries,omitempty"`
-	ProcessSnapshotIntervalS     uint32   `json:"process_snapshot_interval_s,omitempty"`
-	ExternalFlowMatchWindowMs    uint32   `json:"external_flow_match_window_ms,omitempty"`
-	FlowAttributionIpcBatch      bool     `json:"flow_attribution_ipc_batch"`
-	EmitRawFlowAttributionEvents bool     `json:"emit_raw_flow_attribution_events"`
+	Enabled                      bool       `json:"enabled"`
+	CaptureInterfaces            stringList `json:"capture_interfaces,omitempty"`
+	FlowTableMaxEntries          uint32     `json:"flow_table_max_entries,omitempty"`
+	ProcessSnapshotIntervalS     uint32     `json:"process_snapshot_interval_s,omitempty"`
+	ExternalFlowMatchWindowMs    uint32     `json:"external_flow_match_window_ms,omitempty"`
+	FlowAttributionIpcBatch      bool       `json:"flow_attribution_ipc_batch"`
+	EmitRawFlowAttributionEvents bool       `json:"emit_raw_flow_attribution_events"`
 }
 
 type addonConfig struct {
-	Enabled                      *bool    `json:"enabled"`
-	CaptureInterfaces            []string `json:"capture_interfaces"`
-	DefaultSampleIntervalMs      *uint32  `json:"default_sample_interval_ms"`
-	FlowTableMaxEntries          *uint32  `json:"flow_table_max_entries"`
-	ProcessSnapshotIntervalS     *uint32  `json:"process_snapshot_interval_s"`
-	ExternalFlowMatchWindowMs    *uint32  `json:"external_flow_match_window_ms"`
-	FlowAttributionIpcBatch      *bool    `json:"flow_attribution_ipc_batch"`
-	EmitRawFlowAttributionEvents *bool    `json:"emit_raw_flow_attribution_events"`
+	Enabled                      *bool      `json:"enabled"`
+	CaptureInterfaces            stringList `json:"capture_interfaces"`
+	DefaultSampleIntervalMs      *uint32    `json:"default_sample_interval_ms"`
+	FlowTableMaxEntries          *uint32    `json:"flow_table_max_entries"`
+	ProcessSnapshotIntervalS     *uint32    `json:"process_snapshot_interval_s"`
+	ExternalFlowMatchWindowMs    *uint32    `json:"external_flow_match_window_ms"`
+	FlowAttributionIpcBatch      *bool      `json:"flow_attribution_ipc_batch"`
+	EmitRawFlowAttributionEvents *bool      `json:"emit_raw_flow_attribution_events"`
 }
 
 func defaultVisibilityAgentConfig() *netprobepb.VisibilityAgentConfig {
