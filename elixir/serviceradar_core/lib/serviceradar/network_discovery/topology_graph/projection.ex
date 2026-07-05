@@ -1,6 +1,7 @@
 defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Projection do
   @moduledoc false
 
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Projection.Payload
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Projection.Policy
 
   @type projection_payload :: %{
@@ -64,7 +65,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Projection do
     Enum.reduce(links, empty_projection_diagnostics(), fn link, diagnostics ->
       case projection_payload(link) do
         nil ->
-          increment_diagnostic(diagnostics, :rejected, :missing_ids)
+          increment_diagnostic(diagnostics, :rejected, drop_reason(link) || :missing_ids)
 
         payload ->
           increment_projection_diagnostic(diagnostics, payload)
@@ -81,7 +82,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Projection do
   end
 
   defdelegate projection_payload(link),
-    to: ServiceRadar.NetworkDiscovery.TopologyGraph.Projection.Payload
+    to: Payload
+
+  defdelegate drop_reason(link),
+    to: Payload
 
   defdelegate projection_mode(payload),
     to: Policy

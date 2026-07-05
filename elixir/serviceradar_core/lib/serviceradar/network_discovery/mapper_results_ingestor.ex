@@ -352,20 +352,28 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp promote_topology_sightings([], _actor), do: :ok
 
   defp promote_topology_sightings(records, actor) do
-    candidates = Enum.filter(records, &topology_sighting_candidate?/1)
+    endpoint_promotion? = endpoint_identity_promotion_enabled?()
 
-    suppressed_count =
-      Enum.count(records, fn record ->
-        topology_sighting_candidate_base?(record) and
-          suppress_topology_sighting_candidate?(record)
-      end)
+    %{endpoint: endpoint_candidates, ip: candidates, suppressed: suppressed_count} =
+      partition_topology_sighting_candidates(records, endpoint_promotion?)
 
-    if candidates != [] or suppressed_count > 0 do
-      Logger.info(
-        "topology_sighting_promotion_stats total=#{length(records)} candidates=#{length(candidates)} suppressed=#{suppressed_count}"
-      )
+    cond do
+      endpoint_promotion? and
+          (candidates != [] or endpoint_candidates != [] or suppressed_count > 0) ->
+        Logger.info(
+          "topology_sighting_promotion_stats total=#{length(records)} candidates=#{length(candidates)} endpoint_candidates=#{length(endpoint_candidates)} suppressed=#{suppressed_count}"
+        )
+
+      candidates != [] or suppressed_count > 0 ->
+        Logger.info(
+          "topology_sighting_promotion_stats total=#{length(records)} candidates=#{length(candidates)} suppressed=#{suppressed_count}"
+        )
+
+      true ->
+        :ok
     end
 
+    Enum.each(endpoint_candidates, &promote_endpoint_topology_sighting(&1, actor))
     Enum.each(candidates, &promote_topology_sighting(&1, actor))
 
     :ok
@@ -373,6 +381,40 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     e ->
       Logger.warning("Topology sighting promotion failed: #{inspect(e)}")
       :ok
+  end
+
+  # Endpoint attachment identity promotion (task: fix-topology-evidence-pipeline-
+  # resilience 3.1). When disabled (default), the legacy candidate/suppression
+  # split is unchanged: FDB neighbors matching the 4-way suppression conjunction
+  # never mint devices. When enabled, MAC-carrying FDB/UniFi-client neighbors are
+  # carved out FIRST and promoted with MAC+partition-keyed provisional `sr:`
+  # identities instead of being suppressed; the remaining records keep the legacy
+  # IP-keyed candidate rules (including suppression for MAC-less records —
+  # identity is never keyed on IP alone here, per the network-agnostic rule).
+  @doc false
+  def partition_topology_sighting_candidates(records, endpoint_promotion_enabled?)
+      when is_list(records) do
+    {endpoint_candidates, remaining} =
+      if endpoint_promotion_enabled? do
+        Enum.split_with(records, &endpoint_identity_candidate?/1)
+      else
+        {[], records}
+      end
+
+    candidates = Enum.filter(remaining, &topology_sighting_candidate?/1)
+
+    suppressed_count =
+      Enum.count(remaining, fn record ->
+        topology_sighting_candidate_base?(record) and
+          suppress_topology_sighting_candidate?(record)
+      end)
+
+    %{endpoint: endpoint_candidates, ip: candidates, suppressed: suppressed_count}
+  end
+
+  defp endpoint_identity_promotion_enabled? do
+    Application.get_env(:serviceradar_core, :topology_endpoint_identity_promotion_enabled, false) ==
+      true
   end
 
   defp topology_sighting_candidate?(record) when is_map(record) do
@@ -404,6 +446,145 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   def suppress_topology_sighting_candidate?(_record), do: false
+
+  # Evidence sources whose neighbors are ordinary hosts observed behind a switch
+  # port / AP association (ARP+FDB correlation and UniFi client tables). These
+  # are the only producers of switch↔host attachment evidence.
+  @endpoint_attachment_sighting_sources ~w(snmp-arp-fdb unifi-api-port-table unifi-api-wireless-client)
+
+  @doc false
+  def endpoint_identity_candidate?(record) when is_map(record) do
+    not present?(record.neighbor_device_id) and
+      present?(record.local_device_id) and
+      metadata_value(record.metadata, "source") in @endpoint_attachment_sighting_sources and
+      normalize_mac(record.neighbor_chassis_id) != nil
+  end
+
+  def endpoint_identity_candidate?(_record), do: false
+
+  @doc false
+  def endpoint_identity_confidence_tier(evidence_class) do
+    case normalize_topology_evidence_class(evidence_class) do
+      "endpoint-attachment" -> "high"
+      "direct-physical" -> "high"
+      "direct-logical" -> "high"
+      "hosted-virtual" -> "medium"
+      "inferred-segment" -> "medium"
+      "observed-only" -> "low"
+      _ -> "low"
+    end
+  end
+
+  defp promote_endpoint_topology_sighting(record, actor) do
+    mac = normalize_mac(record.neighbor_chassis_id)
+    partition = normalize_partition(record.partition)
+    candidate_ip = endpoint_candidate_ip(record)
+    metadata = endpoint_topology_candidate_metadata(record, mac)
+
+    case resolve_or_create_endpoint_topology_device(
+           mac,
+           candidate_ip,
+           partition,
+           record.local_device_id,
+           metadata,
+           actor
+         ) do
+      {:ok, uid} ->
+        touch_topology_candidate(uid, candidate_ip, metadata, actor)
+
+      {:error, reason} ->
+        Logger.debug(
+          "Endpoint topology sighting promotion skipped for mac #{mac}: #{inspect(reason)}"
+        )
+    end
+  end
+
+  defp endpoint_candidate_ip(record) do
+    ip = normalize_alias_ip(record.neighbor_mgmt_addr)
+    if valid_alias_ip?(ip), do: ip
+  end
+
+  # Identity is keyed on the neighbor MAC within the partition: DIRE resolution
+  # consults registered MAC identifiers and the merge-audit canonical mapping
+  # first, then falls back to the deterministic MAC+partition-seeded `sr:` uid
+  # (never the IP when a MAC is present), so repeated sightings of the same
+  # hardware converge on one uid and distinct MACs mint distinct devices.
+  defp resolve_or_create_endpoint_topology_device(
+         mac,
+         candidate_ip,
+         partition,
+         source_device_id,
+         metadata,
+         actor
+       ) do
+    with {:ok, uid} <- resolve_device_uid_via_dire(candidate_ip, partition, [mac], actor) do
+      if device_exists?(uid, actor) do
+        # DIRE resolved the sighting onto an existing device (MAC identifier,
+        # alias, or merge-audit canonical hit) — reuse it, never duplicate.
+        {:ok, uid}
+      else
+        create_endpoint_topology_device(
+          uid,
+          mac,
+          candidate_ip,
+          partition,
+          source_device_id,
+          metadata,
+          actor
+        )
+      end
+    end
+  end
+
+  defp create_endpoint_topology_device(
+         uid,
+         mac,
+         candidate_ip,
+         partition,
+         source_device_id,
+         metadata,
+         actor
+       ) do
+    attrs =
+      maybe_put(
+        %{
+          uid: uid,
+          mac: mac,
+          discovery_sources: ["mapper", "sighting"],
+          metadata:
+            metadata
+            |> Map.put("identity_state", "provisional")
+            |> Map.put("identity_source", "mapper_topology_sighting")
+            |> Map.put("candidate_from_device_id", source_device_id)
+        },
+        :ip,
+        candidate_ip
+      )
+
+    case Device
+         |> Ash.Changeset.for_create(:create, attrs)
+         |> Ash.create(actor: actor) do
+      {:ok, _device} ->
+        register_mapper_mac_identifiers(uid, [mac], candidate_ip, partition, actor)
+        {:ok, uid}
+
+      {:error, %Invalid{errors: errors}} ->
+        recover_existing_device_uid(uid, candidate_ip, errors, actor)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc false
+  def endpoint_topology_candidate_metadata(record, mac) when is_map(record) do
+    evidence_class = metadata_value(record.metadata, "evidence_class")
+
+    record
+    |> topology_candidate_metadata()
+    |> Map.put("topology_last_seen_neighbor_mac", mac)
+    |> Map.put("identity_confidence_tier", endpoint_identity_confidence_tier(evidence_class))
+  end
 
   defp promote_topology_sighting(record, actor) do
     candidate_ip = normalize_alias_ip(record.neighbor_mgmt_addr)
@@ -500,7 +681,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       merged_metadata = Map.merge(Map.new(device.metadata || %{}), metadata)
       merged_sources = merge_topology_discovery_sources(device.discovery_sources)
       attrs = %{metadata: merged_metadata, discovery_sources: merged_sources}
-      attrs = if present?(device.ip), do: attrs, else: Map.put(attrs, :ip, candidate_ip)
+
+      attrs =
+        if present?(device.ip) or is_nil(candidate_ip),
+          do: attrs,
+          else: Map.put(attrs, :ip, candidate_ip)
 
       device
       |> Ash.Changeset.for_update(:update, attrs)

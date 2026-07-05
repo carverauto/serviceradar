@@ -96,6 +96,9 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
       AliasGuard.distinct_agent_identity_conflict?(from_device_id, to_device_id, actor) ->
         :distinct_agent_identity
 
+      guard = provisional_topology_merge_violation(from_device_id, to_device_id, actor) ->
+        guard
+
       recent_pair_merge?(from_device_id, to_device_id, actor) ->
         :merge_cooldown
 
@@ -103,6 +106,59 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
         nil
     end
   end
+
+  # Merge-inert provisional topology identities (endpoint attachment identity
+  # promotion): a device minted from mapper topology sightings may be merged
+  # INTO a corroborated device when identity-proof rules allow it, but it must
+  # never absorb a corroborated device's identifiers (the corroborated device
+  # is never merged INTO the provisional one), and devices with distinct
+  # registered hardware MACs are never merged in either direction.
+  defp provisional_topology_merge_violation(from_device_id, to_device_id, actor) do
+    from_provisional? = provisional_topology_sighting_device?(from_device_id, actor)
+    to_provisional? = provisional_topology_sighting_device?(to_device_id, actor)
+
+    if from_provisional? or to_provisional? do
+      provisional_topology_merge_guard(
+        from_provisional?,
+        to_provisional?,
+        AliasGuard.distinct_mac_conflict?(from_device_id, to_device_id, actor)
+      )
+    end
+  end
+
+  # Pure decision table for the provisional-topology merge guard; public for
+  # tests. Inputs: whether the merge source/target is a provisional
+  # mapper-topology-sighted device, and whether the pair holds disjoint
+  # registered MAC identities.
+  @doc false
+  def provisional_topology_merge_guard(from_provisional?, to_provisional?, distinct_macs?) do
+    cond do
+      not from_provisional? and not to_provisional? -> nil
+      to_provisional? and not from_provisional? -> :provisional_identity_absorb
+      distinct_macs? -> :distinct_mac_identity
+      true -> nil
+    end
+  end
+
+  defp provisional_topology_sighting_device?(device_id, actor) when is_binary(device_id) do
+    case Device.get_by_uid(device_id, true, actor: actor) do
+      {:ok, %Device{metadata: metadata}} when is_map(metadata) ->
+        Map.get(metadata, "identity_state") == "provisional" and
+          Map.get(metadata, "identity_source") == "mapper_topology_sighting"
+
+      _ ->
+        false
+    end
+  rescue
+    e ->
+      Logger.warning(
+        "Provisional-identity merge guard lookup failed for #{device_id}: #{inspect(e)}"
+      )
+
+      false
+  end
+
+  defp provisional_topology_sighting_device?(_device_id, _actor), do: false
 
   # Oscillation breaker: a pair that already merged (in either direction)
   # within the cooldown window is ping-ponging — re-merging would feed the

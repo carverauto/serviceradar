@@ -1163,6 +1163,16 @@ if config_env() == :prod do
   config :serviceradar_core,
     sync_ingestor_queue_max_chunks: sync_ingestor_queue_max_chunks || 10
 
+  # Endpoint attachment identity promotion (fix-topology-evidence-pipeline-
+  # resilience, task 3.1/3.3): when enabled, FDB/UniFi-client topology
+  # neighbors mint provisional MAC-keyed `sr:` devices instead of being
+  # suppressed, so switch<->host attachment edges can render. Default off for
+  # one release; enable on demo first and watch device_identifiers growth and
+  # inventory counts.
+  config :serviceradar_core,
+    topology_endpoint_identity_promotion_enabled:
+      parse_bool.("SERVICERADAR_TOPOLOGY_ENDPOINT_IDENTITY_PROMOTION", false)
+
   config :serviceradar_core,
     topology_v2_contract_consumption_enabled: topology_v2_contract_consumption_enabled
 
