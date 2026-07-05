@@ -1,7 +1,14 @@
 defmodule ServiceRadar.Edge.AgentConfigGeneratorProtoTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.Edge.AgentConfigGenerator
+
+  # Params that stay schema-invalid after coercion: the coercion helpers
+  # leave unparseable scalars untouched, so this fails integer validation
+  # against @netprobe_style_schema (fj#4383 refusal tests).
+  @uncoercible_params %{"enabled" => true, "flow_table_max_entries" => "not-a-number"}
 
   @base_config %{
     config_version: "v-test",
@@ -141,5 +148,121 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorProtoTest do
       assert addon_config_json(params, nil) == Jason.encode!(params)
       assert addon_config_json(params, %{}) == Jason.encode!(params)
     end
+  end
+
+  describe "add-on config delivery refusal (fj#4383)" do
+    test "withholds the add-on section when params stay invalid after coercion" do
+      log =
+        capture_log(fn ->
+          assert render_addons(
+                   [netprobe_addon(@uncoercible_params)],
+                   "agent-refusal-#{System.unique_integer([:positive])}"
+                 ) == []
+        end)
+
+      assert log =~ "Refusing add-on config delivery for netprobe"
+      assert log =~ "flow_table_max_entries"
+    end
+
+    test "other add-ons in the same config still deliver" do
+      agent = "agent-partial-#{System.unique_integer([:positive])}"
+      parent = self()
+
+      capture_log(fn ->
+        send(
+          parent,
+          {:addons,
+           render_addons(
+             [
+               netprobe_addon(@uncoercible_params),
+               netprobe_addon(%{"enabled" => true}, %{addon_id: "otel-collector"})
+             ],
+             agent
+           )}
+        )
+      end)
+
+      assert_received {:addons, addons}
+      assert [%Monitoring.AddonAssignmentConfig{addon_id: "otel-collector"}] = addons
+    end
+
+    test "emits delivery_refused telemetry with agent, addon, assignment and errors" do
+      agent = "agent-telemetry-#{System.unique_integer([:positive])}"
+      handler_id = "delivery-refused-#{agent}"
+      parent = self()
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          [:serviceradar, :addon_config, :delivery_refused],
+          fn _event, measurements, metadata, _cfg ->
+            send(parent, {:refused, measurements, metadata})
+          end,
+          nil
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      capture_log(fn ->
+        render_addons(
+          [netprobe_addon(@uncoercible_params, %{assignment_id: "assignment-123"})],
+          agent
+        )
+      end)
+
+      assert_received {:refused, %{count: 1}, metadata}
+      assert metadata.agent_id == agent
+      assert metadata.addon_id == "netprobe"
+      assert metadata.assignment_id == "assignment-123"
+      assert Enum.any?(metadata.errors, &(&1 =~ "flow_table_max_entries"))
+    end
+
+    test "error log is deduped for identical refused params and re-fires after recovery" do
+      agent = "agent-dedup-#{System.unique_integer([:positive])}"
+
+      first = capture_log(fn -> render_addons([netprobe_addon(@uncoercible_params)], agent) end)
+      assert first =~ "Refusing add-on config delivery"
+
+      # Same (agent, addon, params) refusal on the next config cycle: no new
+      # error line (the generator runs every poll; refusal must not log-storm).
+      second = capture_log(fn -> render_addons([netprobe_addon(@uncoercible_params)], agent) end)
+      refute second =~ "Refusing add-on config delivery"
+
+      # Recovery flips the marker (and says so at info)...
+      recovered =
+        capture_log(fn ->
+          assert [_] = render_addons([netprobe_addon(%{"enabled" => true})], agent)
+        end)
+
+      assert recovered =~ "Add-on config delivery resumed for netprobe"
+
+      # ...so a re-breakage logs at error again.
+      rebroken =
+        capture_log(fn -> render_addons([netprobe_addon(@uncoercible_params)], agent) end)
+
+      assert rebroken =~ "Refusing add-on config delivery"
+    end
+  end
+
+  defp render_addons(addons, agent_id) do
+    @base_config
+    |> Map.merge(%{agent_id: agent_id, addons: addons})
+    |> AgentConfigGenerator.to_proto_response()
+    |> Map.fetch!(:addons)
+  end
+
+  defp netprobe_addon(params, overrides \\ %{}) do
+    Map.merge(
+      %{
+        addon_id: "netprobe",
+        version: "0.1.20",
+        enabled: true,
+        binary_path: "/usr/local/bin/serviceradar-netprobe",
+        args: [],
+        params: params,
+        config_schema: @netprobe_style_schema
+      },
+      overrides
+    )
   end
 end

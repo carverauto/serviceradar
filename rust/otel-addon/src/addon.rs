@@ -755,6 +755,33 @@ mod tests {
         assert_eq!(config.output.backend, OutputBackend::Jetstream);
     }
 
+    /// fj#4383 add-on config contract test: decodes the committed
+    /// core-emitted `config_json` fixture with the REAL decoder entry point
+    /// so core's delivery-path emitter and this config shape cannot drift
+    /// apart. Regenerate the fixture with
+    /// `cd elixir/serviceradar_core && mix serviceradar.gen.addon_contract_fixtures`.
+    #[test]
+    fn parse_config_decodes_core_emitted_contract_fixture() {
+        const CORE_EMITTED_FIXTURE: &str =
+            include_str!("../../../go/pkg/agent/testdata/addonconfig_contract/otel-collector.json");
+
+        let config = parse_config(CORE_EMITTED_FIXTURE.as_bytes()).unwrap();
+
+        // Explicit backend in the delivered config must be preserved.
+        assert_eq!(config.output.backend, OutputBackend::Jetstream);
+
+        let nats = config.nats.expect("nats section present");
+        assert_eq!(nats.url, "tls://nats.demo.internal:4222");
+        assert_eq!(nats.stream, "events");
+        assert_eq!(nats.timeout_secs, 15);
+
+        assert_eq!(config.server.bind_address, "0.0.0.0");
+        assert_eq!(config.server.port, 4317);
+
+        let forward = config.agent_forward.expect("agent_forward section present");
+        assert_eq!(forward.spool_dir, "/var/lib/serviceradar/otel-spool");
+    }
+
     #[tokio::test]
     async fn health_is_degraded_before_configuration() {
         let addon = OtelCollectorAddon::default();
