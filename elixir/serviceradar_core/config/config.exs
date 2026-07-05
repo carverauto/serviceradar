@@ -41,7 +41,10 @@ config :serviceradar_core, Oban,
     integrations: 5,
     nats_accounts: 3,
     maintenance: 2,
-    monitoring: 5
+    monitoring: 5,
+    ansible_pulse: 5,
+    ansible_catalog: 3,
+    ansible_retention: 1
   ],
   plugins: [
     Oban.Plugins.Pruner,

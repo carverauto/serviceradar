@@ -65,6 +65,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         mtr_consensus_worker_child(),
         topology_state_scheduler_child(),
         identity_maintenance_scheduler_child(),
+        ansible_lifecycle_scheduler_child(),
         plugin_target_policy_scheduler_child(),
         bumblebee_catalog_scheduler_child(),
         cli_auth_scheduler_child(),
@@ -335,6 +336,12 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
          true
        ) do
       ServiceRadar.Inventory.IdentityMaintenanceScheduler
+    end
+  end
+
+  defp ansible_lifecycle_scheduler_child do
+    if enabled?("ANSIBLE_LIFECYCLE_SCHEDULER_ENABLED", :ansible_lifecycle_scheduler_enabled, true) do
+      ServiceRadar.Automation.Ansible.LifecycleScheduler
     end
   end
 

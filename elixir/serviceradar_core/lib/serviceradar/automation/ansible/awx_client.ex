@@ -116,6 +116,25 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
     dispatch_verb(controller, "awx.fetch_events_for_jobs", %{"pairs" => normalized}, opts)
   end
 
+  @doc """
+  Builds the stable broker-grant template stored on the scheduled
+  `awx-inventory-sync` plugin assignment.
+
+  The returned payload intentionally omits `grant_id` and `expires_at`. Agent
+  config delivery re-mints a short-lived persisted grant from the template so
+  reconciles do not churn assignments just because a grant clock changed.
+  """
+  @spec inventory_sync_grant_template(Controller.t()) :: {:ok, map()} | {:error, term()}
+  def inventory_sync_grant_template(%Controller{} = controller) do
+    with :ok <- ensure_controller_dispatchable(controller) do
+      controller
+      |> credential_broker_grant_attrs("awx.inventory_sync")
+      |> CredentialBrokerGrant.to_payload()
+      |> Map.drop(["grant_id", "expires_at"])
+      |> then(&{:ok, &1})
+    end
+  end
+
   ## Internals
 
   defp dispatch_verb(%Controller{} = controller, verb, args, opts) do
@@ -172,6 +191,12 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   end
 
   defp credential_broker_grant(%Controller{} = controller, verb, opts) do
+    attrs = credential_broker_grant_attrs(controller, verb)
+    issuer = Keyword.get(opts, :grant_issuer, &issue_persisted_grant/1)
+    issuer.(attrs)
+  end
+
+  defp credential_broker_grant_attrs(%Controller{} = controller, verb) do
     inject = %{
       "type" => "http_header",
       "name" => "Authorization",
@@ -185,7 +210,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
         inject
       end
 
-    attrs = %{
+    %{
       secret_id: controller.credential_secret_id,
       secret_ref: SecretRefs.network_credential_ref(controller.credential_secret_id),
       grant_type: @grant_type,
@@ -202,9 +227,6 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
       allowed_paths: ["/api/v2/"],
       ttl_seconds: @default_grant_ttl_seconds
     }
-
-    issuer = Keyword.get(opts, :grant_issuer, &issue_persisted_grant/1)
-    issuer.(attrs)
   end
 
   defp issue_persisted_grant(attrs) do
@@ -224,9 +246,31 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   defp allowed_methods_for(_), do: ["GET"]
 
   defp allowed_hosts_for(base_url) do
-    case URI.parse(to_string(base_url)) do
-      %URI{host: host} when is_binary(host) and host != "" -> [host]
+    case host_from_base_url(base_url) do
+      host when is_binary(host) and host != "" -> [host]
       _ -> []
+    end
+  end
+
+  # A base_url without a scheme (e.g. "awx.example.com") parses with host: nil
+  # (the value lands in :path), which would yield an EMPTY allowed_hosts and a
+  # host-unscoped grant. Re-parse with a default scheme so the grant stays
+  # pinned to the controller host.
+  defp host_from_base_url(base_url) do
+    url = String.trim(to_string(base_url))
+
+    case URI.parse(url) do
+      %URI{host: host} when is_binary(host) and host != "" ->
+        host
+
+      _ when url != "" ->
+        case URI.parse("https://" <> url) do
+          %URI{host: host} when is_binary(host) and host != "" -> host
+          _ -> nil
+        end
+
+      _ ->
+        nil
     end
   end
 

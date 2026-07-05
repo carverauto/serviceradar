@@ -1,12 +1,11 @@
 id: awx-inventory-sync
 name: AWX Inventory Sync
-version: 0.1.0
+version: 0.1.1
 description: >
-  Scheduled assignment that walks an AWX/AAP controller's inventories and
-  hosts and emits a DeviceDiscovery aggregate (discovery_source=awx) into
-  the existing agent → gateway → DIRE pipeline. One assignment per
-  AnsibleController; the assignment's config carries the controller's
-  resolved API token. Mirrors the proxmox-inventory plugin's pattern.
+  Scheduled assignment that walks one or more AWX/AAP controllers' inventories
+  and hosts and emits DeviceDiscovery aggregates (discovery_source=awx) into
+  the existing agent -> gateway -> DIRE pipeline. One assignment per reachable
+  agent carries that agent's controller list and resolved API tokens.
 entrypoint: inventory_sync
 runtime: wasi-preview1
 outputs: serviceradar.plugin_result.v1

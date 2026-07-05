@@ -219,6 +219,29 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
     end
   end
 
+  describe "inventory_sync_grant_template/1" do
+    test "builds a stable grant template without persisted grant identity or expiry" do
+      assert {:ok, payload} = AwxClient.inventory_sync_grant_template(controller())
+
+      assert payload["schema"] == "serviceradar.edge_credential_broker_grant.v1"
+      assert payload["grant_type"] == "awx_oauth2_token"
+
+      assert payload["credential_secret_ref"] ==
+               "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc"
+
+      assert payload["consumer"] == %{
+               "kind" => "ansible",
+               "id" => "ctrl-uuid-1",
+               "purpose" => "awx.inventory_sync"
+             }
+
+      assert payload["target"]["agent_id"] == "agent-a"
+      assert payload["allow"]["methods"] == ["GET"]
+      refute Map.has_key?(payload, "grant_id")
+      refute Map.has_key?(payload, "expires_at")
+    end
+  end
+
   describe "insecure_skip_verify" do
     test "is false by default" do
       assert {:ok, _} = AwxClient.ping(controller(), dispatch_opts())

@@ -199,6 +199,74 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
     assert audit.grant_id == to_string(grant.id)
   end
 
+  test "controller-list policy grants resolve independently and keep config version stable",
+       %{admin: admin, system: system, agent_uid: agent_uid, unique_id: unique_id} do
+    {:ok, _agent} = create_connected_agent(admin, agent_uid)
+    package = create_approved_plugin_package!(admin, unique_id)
+    secret = create_proxmox_secret!(admin, unique_id)
+    stale_grant_1 = issue_expired_grant!(system, secret, agent_uid)
+    stale_grant_2 = issue_expired_grant!(system, secret, agent_uid)
+
+    {:ok, _assignment} =
+      PluginAssignment
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          agent_uid: agent_uid,
+          plugin_package_id: package.id,
+          source: :policy,
+          source_key: "awx-policy-key-#{unique_id}",
+          policy_id: "ansible:awx-inventory-sync",
+          enabled: true,
+          interval_seconds: 300,
+          timeout_seconds: 60,
+          params: %{
+            "controllers" => [
+              %{
+                "controller_id" => "awx-a-#{unique_id}",
+                "base_url" => "https://awx-a.example.invalid",
+                "credential_broker" => CredentialBrokerGrant.to_payload(stale_grant_1),
+                "api_token_secret_ref" => SecretRefs.network_credential_ref(to_string(secret.id))
+              },
+              %{
+                "controller_id" => "awx-b-#{unique_id}",
+                "base_url" => "https://awx-b.example.invalid",
+                "credential_broker" => CredentialBrokerGrant.to_payload(stale_grant_2),
+                "api_token_secret_ref" => SecretRefs.network_credential_ref(to_string(secret.id))
+              }
+            ]
+          }
+        },
+        actor: admin
+      )
+      |> Ash.create()
+
+    {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+    assert [plugin] = config.plugins
+    controllers = plugin.params["controllers"]
+
+    assert Enum.map(controllers, & &1["api_token"]) == [@api_token_payload, @api_token_payload]
+    refute Enum.any?(controllers, &Map.has_key?(&1, "_secret_material"))
+
+    assert Enum.all?(controllers, fn controller ->
+             is_binary(controller["controller_id"]) and controller["controller_id"] != "" and
+               is_binary(controller["base_url"]) and controller["base_url"] != "" and
+               is_binary(controller["api_token"]) and controller["api_token"] != ""
+           end)
+
+    grant_ids =
+      controllers
+      |> Enum.map(&get_in(&1, ["credential_broker", "grant_id"]))
+      |> Enum.reject(&is_nil/1)
+
+    assert length(grant_ids) == 2
+    refute to_string(stale_grant_1.id) in grant_ids
+    refute to_string(stale_grant_2.id) in grant_ids
+
+    {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid)
+    assert config.config_version == config2.config_version
+  end
+
   defp create_connected_agent(actor, agent_uid) do
     Agent
     |> Ash.Changeset.for_create(

@@ -153,6 +153,7 @@ WASM_PLUGIN_BUNDLES = [
         "entries": [
             ("plugin.yaml", "//go/cmd/wasm-plugins/awx:plugin.inventory_sync.yaml"),
             ("plugin.wasm", ":awx_wasm"),
+            ("config.schema.json", "//go/cmd/wasm-plugins/awx:config.inventory_sync.schema.json"),
         ],
     },
     {

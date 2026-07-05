@@ -749,10 +749,10 @@ func primeTinyGoJSON() {
 	_, _ = json.Marshal(map[string]any{"t": time.Time{}})
 }
 
-// InventorySyncConfig drives the scheduled `inventory_sync` entrypoint.
-// One assignment per AWX controller; the assignment carries the resolved
-// API token (the agent's broker resolved a grant before invoking us).
-type InventorySyncConfig struct {
+// InventorySyncControllerConfig describes one AWX controller in the scheduled
+// `inventory_sync` entrypoint. The assignment carries resolved API tokens; core
+// resolves credential-broker refs before invoking the plugin.
+type InventorySyncControllerConfig struct {
 	// ControllerID is the ServiceRadar AnsibleController.id. We embed
 	// it in DeviceID so DIRE can attribute hosts back to the right
 	// controller even when the AWX host_id is reused across instances.
@@ -769,8 +769,45 @@ type InventorySyncConfig struct {
 	InsecureSkipVerify bool `json:"insecure_skip_verify,omitempty"`
 }
 
+// InventorySyncConfig drives the scheduled `inventory_sync` entrypoint.
+// New assignments carry one controller list per agent. The legacy top-level
+// fields are still accepted so already-delivered single-controller assignments
+// continue to run during rollout.
+type InventorySyncConfig struct {
+	Controllers []InventorySyncControllerConfig `json:"controllers,omitempty"`
+
+	ControllerID       string `json:"controller_id,omitempty"`
+	ControllerName     string `json:"controller_name,omitempty"`
+	BaseURL            string `json:"base_url,omitempty"`
+	APIToken           string `json:"api_token,omitempty"`
+	TimeoutMS          int    `json:"timeout_ms,omitempty"`
+	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty"`
+}
+
+func (cfg InventorySyncConfig) controllerConfigs() []InventorySyncControllerConfig {
+	if len(cfg.Controllers) > 0 {
+		return cfg.Controllers
+	}
+
+	if strings.TrimSpace(cfg.ControllerID) == "" &&
+		strings.TrimSpace(cfg.ControllerName) == "" &&
+		strings.TrimSpace(cfg.BaseURL) == "" &&
+		strings.TrimSpace(cfg.APIToken) == "" {
+		return nil
+	}
+
+	return []InventorySyncControllerConfig{{
+		ControllerID:       cfg.ControllerID,
+		ControllerName:     cfg.ControllerName,
+		BaseURL:            cfg.BaseURL,
+		APIToken:           cfg.APIToken,
+		TimeoutMS:          cfg.TimeoutMS,
+		InsecureSkipVerify: cfg.InsecureSkipVerify,
+	}}
+}
+
 // asConfig returns a request-shaped Config for reusing getJSON / listAWXPath.
-func (c InventorySyncConfig) asConfig() Config {
+func (c InventorySyncControllerConfig) asConfig() Config {
 	return Config{
 		BaseURL:            c.BaseURL,
 		APIToken:           c.APIToken,
@@ -796,14 +833,21 @@ func inventory_sync() {
 }
 
 func validateInventorySyncConfig(cfg InventorySyncConfig) error {
-	if strings.TrimSpace(cfg.BaseURL) == "" {
-		return fmt.Errorf("base_url is required")
+	controllers := cfg.controllerConfigs()
+	if len(controllers) == 0 {
+		return fmt.Errorf("controllers is required")
 	}
-	if strings.TrimSpace(cfg.APIToken) == "" {
-		return fmt.Errorf("api_token is required (resolved from credential broker grant)")
-	}
-	if strings.TrimSpace(cfg.ControllerID) == "" {
-		return fmt.Errorf("controller_id is required")
+
+	for i, controller := range controllers {
+		if strings.TrimSpace(controller.BaseURL) == "" {
+			return fmt.Errorf("controllers[%d].base_url is required", i)
+		}
+		if strings.TrimSpace(controller.APIToken) == "" {
+			return fmt.Errorf("controllers[%d].api_token is required (resolved from credential broker grant)", i)
+		}
+		if strings.TrimSpace(controller.ControllerID) == "" {
+			return fmt.Errorf("controllers[%d].controller_id is required", i)
+		}
 	}
 	return nil
 }
@@ -829,10 +873,60 @@ type awxHostRow struct {
 	Variables   string `json:"variables"`
 }
 
-// runInventorySync walks every inventory + host on the controller and
-// emits a single DeviceDiscovery aggregate via WithDeviceDiscovery. The
-// agent → gateway → DIRE pipeline carries it the rest of the way.
+// runInventorySync walks every inventory + host on each configured controller.
+// It emits one DeviceDiscovery aggregate per controller; the agent → gateway →
+// DIRE pipeline carries those envelopes the rest of the way.
 func runInventorySync(cfg InventorySyncConfig) *sdk.Result {
+	controllers := cfg.controllerConfigs()
+	if len(controllers) == 1 {
+		return runInventorySyncController(controllers[0])
+	}
+
+	totalHosts := 0
+	totalInventories := 0
+	failures := 0
+	result := sdk.Ok("")
+
+	for _, controller := range controllers {
+		controllerResult := runInventorySyncController(controller)
+		if controllerResult.Status == sdk.StatusCritical {
+			failures++
+			continue
+		}
+
+		for _, discovery := range controllerResult.DeviceDiscovery {
+			totalHosts += len(discovery.Devices)
+			totalInventories += intFromDiscoveryMetadata(discovery.Metadata, "inventory_count")
+			result.AddDeviceDiscovery(discovery)
+		}
+	}
+
+	summary := fmt.Sprintf(
+		"AWX inventory_sync: %d hosts across %d inventories on %d/%d controllers",
+		totalHosts,
+		totalInventories,
+		len(controllers)-failures,
+		len(controllers),
+	)
+
+	if failures == len(controllers) {
+		result = sdk.Critical(summary)
+	} else {
+		// Partial success stays StatusOK so the healthy controllers'
+		// DeviceDiscovery is never gated out of ingestion by a non-OK status;
+		// the degradation is surfaced via the summary and the
+		// controllers_failed label rather than by failing the whole check.
+		result.SetSummary(summary)
+	}
+
+	result.WithLabel("controllers", strconv.Itoa(len(controllers)))
+	result.WithLabel("controllers_failed", strconv.Itoa(failures))
+	result.WithLabel("inventories", strconv.Itoa(totalInventories))
+	result.WithLabel("hosts", strconv.Itoa(totalHosts))
+	return result
+}
+
+func runInventorySyncController(cfg InventorySyncControllerConfig) *sdk.Result {
 	now := time.Now().UTC()
 	discovery := sdk.NewDeviceDiscovery("awx")
 	discovery.ObservedAt = now.Format(time.RFC3339Nano)
@@ -880,6 +974,7 @@ func runInventorySync(cfg InventorySyncConfig) *sdk.Result {
 			totalHosts++
 		}
 	}
+	discovery.Metadata["inventory_count"] = totalInventories
 
 	summary := fmt.Sprintf(
 		"AWX inventory_sync: %d hosts across %d inventories on %s",
@@ -894,10 +989,26 @@ func runInventorySync(cfg InventorySyncConfig) *sdk.Result {
 	return result
 }
 
+func intFromDiscoveryMetadata(metadata map[string]any, key string) int {
+	switch value := metadata[key].(type) {
+	case int:
+		return value
+	case int64:
+		return int(value)
+	case float64:
+		return int(value)
+	case string:
+		parsed, _ := strconv.Atoi(value)
+		return parsed
+	default:
+		return 0
+	}
+}
+
 // buildDiscoveredHost maps one AWX host row to a DiscoveredDevice. The
 // `Metadata.awx` block carries the controller_id, inventory_id, host_id, and
 // host_name that AnsibleController/PlaybookRunTarget joins resolve against.
-func buildDiscoveredHost(cfg InventorySyncConfig, inv awxInventoryRow, host awxHostRow) sdk.DiscoveredDevice {
+func buildDiscoveredHost(cfg InventorySyncControllerConfig, inv awxInventoryRow, host awxHostRow) sdk.DiscoveredDevice {
 	enabled := host.Enabled
 
 	hostname := host.Name
