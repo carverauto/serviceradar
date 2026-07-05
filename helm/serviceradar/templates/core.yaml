@@ -326,6 +326,10 @@ spec:
           value: {{ default 5 $anomalyConfig.confirmSlots | quote }}
         - name: SERVICERADAR_ANOMALY_MIN_SAMPLES
           value: {{ default 30 $anomalyConfig.minSamples | quote }}
+        - name: SERVICERADAR_ANOMALY_METRIC_DENYLIST_JSON
+          value: {{ default (list "cpu.frequency_hz") $anomalyConfig.metricDenylist | toJson | quote }}
+        - name: SERVICERADAR_ANOMALY_EMISSION_JSON
+          value: {{ default (dict "cooldown_secs" 300 "budget_per_tick" 100 "episode_update_interval_secs" 1800 "reopen_cooldown_secs" 600) $anomalyConfig.emission | toJson | quote }}
         - name: SERVICERADAR_ANOMALY_METRIC_CLASS_OVERRIDES_JSON
           value: {{ default (dict) $anomalyConfig.metricClassOverrides | toJson | quote }}
         # EventWriter consumes NATS JetStream and persists records (incl. edge

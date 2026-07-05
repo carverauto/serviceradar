@@ -326,12 +326,27 @@ core:
     windowDurationSeconds: 900
     confirmSlots: 5
     minSamples: 30
+    metricDenylist:
+      - cpu.frequency_hz
+    emission:
+      cooldown_secs: 300
+      budget_per_tick: 100
+      episode_update_interval_secs: 1800
+      reopen_cooldown_secs: 600
     metricClassOverrides:
-      interface: {}
+      cpu:
+        drift_mode: deseasonalized_only
+      memory:
+        drift_mode: deseasonalized_only
+      interface:
+        drift_mode: deseasonalized_only
+      disk:
+        drift_mode: off
+      icmp:
+        drift_mode: off
+      other:
+        drift_mode: off
       red: {}
-      cpu: {}
-      memory: {}
-      disk: {}
   # First-boot defaults for CNPG-backed capacity forecast settings. These seed
   # the singleton config row when missing and do not overwrite operator edits.
   capacityForecasting:

@@ -458,7 +458,12 @@ func installStagedAddonSystemdUnitsViaUpdater(ctx context.Context, addonID strin
 		return ErrAddonSystemdNoUnits
 	}
 
-	updaterPath, err := ValidatedAgentUpdaterPath()
+	requiredFlags := []string{"addon-id", "addon-systemd-install", "addon-systemd-enable"}
+	if !resources.IsZero() {
+		requiredFlags = append(requiredFlags, "addon-systemd-resources")
+	}
+
+	updaterPath, err := ValidatedPrivilegedAgentUpdaterPath(requiredFlags...)
 	if err != nil {
 		return fmt.Errorf("locate agent updater for systemd install: %w", err)
 	}
@@ -480,10 +485,7 @@ func installStagedAddonSystemdUnitsViaUpdater(ctx context.Context, addonID strin
 		args = append(args, "--addon-systemd-resources", string(encoded))
 	}
 
-	cmd := exec.CommandContext(ctx, updaterPath, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	if err := runAgentUpdaterCommand(ctx, updaterPath, args...); err != nil {
 		return fmt.Errorf("agent-updater systemd install failed: %w", err)
 	}
 
@@ -497,15 +499,12 @@ func uninstallAddonSystemdUnitsViaUpdater(ctx context.Context, units []string) e
 		return nil
 	}
 
-	updaterPath, err := ValidatedAgentUpdaterPath()
+	updaterPath, err := ValidatedPrivilegedAgentUpdaterPath("addon-systemd-uninstall")
 	if err != nil {
 		return fmt.Errorf("locate agent updater for systemd uninstall: %w", err)
 	}
 
-	cmd := exec.CommandContext(ctx, updaterPath, "--addon-systemd-uninstall", strings.Join(units, ","))
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	if err := runAgentUpdaterCommand(ctx, updaterPath, "--addon-systemd-uninstall", strings.Join(units, ",")); err != nil {
 		return fmt.Errorf("agent-updater systemd uninstall failed: %w", err)
 	}
 

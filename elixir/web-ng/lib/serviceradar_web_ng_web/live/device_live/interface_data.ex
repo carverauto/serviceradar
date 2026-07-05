@@ -426,7 +426,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
         # pinned the chart. Charts now auto-scale to the observed traffic.
         |> Map.put(:max_speed_bytes_per_sec, nil)
         |> Map.put(:chart_mode, :combined)
-        |> Map.put(:rate_mode, :counter)
+        |> Map.put(:rate_mode, :rate)
         |> Map.put(:reference_lines, reference_lines)
 
       %{panel | assigns: assigns}

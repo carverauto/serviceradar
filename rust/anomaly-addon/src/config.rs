@@ -15,10 +15,20 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde::{Deserialize as _, de::Error as _};
 use serviceradar_anomaly_core::SeasonalBucket;
 
-use crate::engine::{EngineConfig, SeasonalProfile};
+use crate::engine::DriftMode;
+use crate::engine::{
+    DEFAULT_ANCHOR_MAX_AGE_SECS, DEFAULT_DRIFT_ADOPT_AFTER_SAMPLES, DEFAULT_DRIFT_CLEAR_SLOTS,
+    DEFAULT_DRIFT_CONFIRM_WINDOW, DEFAULT_DRIFT_MIN_EFFECT, DEFAULT_EPISODE_UPDATE_INTERVAL_SECS,
+    DEFAULT_H_CONFIRM_MULT, DEFAULT_METRIC_DENYLIST, DEFAULT_REOPEN_COOLDOWN_SECS,
+};
+use crate::engine::{
+    DEFAULT_CRITICAL_MIN_DURATION_SECS, DEFAULT_CUSUM_H, DEFAULT_DRIFT_ESCALATE_AFTER_SECS,
+    DEFAULT_EMISSION_BUDGET_PER_TICK, DEFAULT_EMISSION_COOLDOWN_SECS, EngineConfig,
+    MetricClassOverride, SeasonalProfile,
+};
 
 pub(crate) const ADDON_ID: &str = "anomaly";
-pub(crate) const ADDON_VERSION: &str = "0.1.20";
+pub(crate) const ADDON_VERSION: &str = "0.2.0";
 pub(crate) const VERDICT_CHANNEL_DEPTH: usize = 256;
 pub(crate) const ACK_CHANNEL_DEPTH: usize = 64;
 pub(crate) const OCSF_CLASS_EVENT_LOG_ACTIVITY: i64 = 1008;
@@ -49,6 +59,10 @@ pub(crate) struct AddonConfig {
     pub(crate) confirm_slots: Option<usize>,
     #[serde(default, deserialize_with = "deserialize_optional_usize")]
     pub(crate) max_series: Option<usize>,
+    /// Core-projected settings from the Anomaly Detection singleton. These are
+    /// lower precedence than operator-explicit top-level params on the profile.
+    #[serde(default)]
+    pub(crate) managed: Option<ManagedConfig>,
     /// Optional GLOBAL dispersion-floor overrides (fix #2). When set, these only
     /// ever RAISE a series' built-in per-class floor (max), letting an operator
     /// tighten the whole fleet without per-class tuning. Omitted leaves every
@@ -59,18 +73,60 @@ pub(crate) struct AddonConfig {
     pub(crate) min_std_floor: Option<f64>,
     #[serde(default, deserialize_with = "deserialize_optional_f64")]
     pub(crate) min_cv: Option<f64>,
-    /// Run the two-sided CUSUM drift detector alongside the rolling z-score so a
-    /// slow drift/leak the point z-score absorbs into its rolling mean still
-    /// produces a (drift-marked) verdict. Defaults to ON when omitted; set false
-    /// to fall back to the exact prior rolling-only behavior.
-    #[serde(default, deserialize_with = "deserialize_optional_bool")]
-    pub(crate) cusum_enabled: Option<bool>,
     /// CUSUM slack (reference value `k`) in sigma units (default 0.5).
     #[serde(default, deserialize_with = "deserialize_optional_f64")]
     pub(crate) cusum_k: Option<f64>,
-    /// CUSUM decision interval (`h`, the alarm threshold; default 5.0).
+    /// CUSUM decision interval (`h`, the alarm threshold; default 8.0).
     #[serde(default, deserialize_with = "deserialize_optional_f64")]
     pub(crate) cusum_h: Option<f64>,
+    /// Confirmation threshold multiplier; emit only after crossing h * multiplier.
+    #[serde(default, deserialize_with = "deserialize_optional_f64")]
+    pub(crate) h_confirm_mult: Option<f64>,
+    /// Samples after pending latch allowed to reach confirmation threshold.
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    pub(crate) drift_confirm_window: Option<u64>,
+    /// Minimum estimated sustained shift (`k + S/N`, in sigma units) before a
+    /// CUSUM alarm emits a drift finding.
+    #[serde(default, deserialize_with = "deserialize_optional_f64")]
+    pub(crate) drift_min_effect: Option<f64>,
+    /// Consecutive recovered samples before an open drift episode clears.
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    pub(crate) drift_clear_slots: Option<u64>,
+    /// Samples after open before a persistent new level is adopted and cleared.
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    pub(crate) drift_adopt_after_samples: Option<u64>,
+    /// Seconds between still-open drift heartbeat updates.
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    pub(crate) episode_update_interval_secs: Option<u64>,
+    /// Seconds after a clear during which a re-open reuses the episode identity.
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    pub(crate) reopen_cooldown_secs: Option<u64>,
+    /// Maximum age for an idle always-on rolling CUSUM anchor before refresh.
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    pub(crate) anchor_max_age_secs: Option<u64>,
+    /// Minimum episode duration before a High spike can become Critical.
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    pub(crate) critical_min_duration_secs: Option<u64>,
+    /// Minimum open drift duration before Medium drift can escalate to High.
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    pub(crate) drift_escalate_after_secs: Option<u64>,
+    /// Minimum seconds between non-clear emissions for one detector series.
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    pub(crate) emission_cooldown_secs: Option<u64>,
+    /// Maximum non-clear anomaly records emitted per frame/tick before rollup.
+    #[serde(default, deserialize_with = "deserialize_optional_usize")]
+    pub(crate) emission_budget_per_tick: Option<usize>,
+    /// Additive nested emission config. Flat legacy keys remain honored for one
+    /// release; nested values take precedence when both are present.
+    #[serde(default)]
+    pub(crate) emission: Option<EmissionConfig>,
+    /// Additive per-class override surface projected by core.
+    #[serde(default)]
+    pub(crate) metric_classes: Option<HashMap<String, MetricClassConfig>>,
+    /// Metric names that should not produce detector findings. Omitted uses the
+    /// built-in denylist; an explicit empty list disables the denylist.
+    #[serde(default)]
+    pub(crate) metric_denylist: Option<Vec<String>>,
     /// Local path the add-on persists its per-series checkpoint to so a restart
     /// re-warms baselines instead of cold-starting. Unset disables checkpointing.
     pub(crate) checkpoint_path: Option<String>,
@@ -89,7 +145,88 @@ pub(crate) struct AddonConfig {
     /// robust `{center, scale}` summary the detector deseasonalizes against.
     /// Omitted/empty keeps every series on the rolling-only path (back-compat).
     #[serde(default)]
+    pub(crate) seasonal: Option<SeasonalConfig>,
+    /// Delivered per-series hour-of-week baselines.
+    #[serde(default)]
     pub(crate) seasonal_baselines: Option<HashMap<String, SeasonalBaselineConfig>>,
+}
+
+/// Core-managed defaults projected into `params.managed`. This intentionally
+/// mirrors only the Settings singleton fields that should reach the edge.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub(crate) struct ManagedConfig {
+    #[serde(default, deserialize_with = "deserialize_optional_usize")]
+    pub(crate) window_size: Option<usize>,
+    #[serde(default, deserialize_with = "deserialize_optional_usize")]
+    pub(crate) min_samples: Option<usize>,
+    #[serde(default, deserialize_with = "deserialize_optional_f64")]
+    pub(crate) n_sigma: Option<f64>,
+    #[serde(default, deserialize_with = "deserialize_optional_usize")]
+    pub(crate) confirm_slots: Option<usize>,
+    #[serde(default)]
+    pub(crate) emission: Option<EmissionConfig>,
+    #[serde(default)]
+    pub(crate) metric_denylist: Option<Vec<String>>,
+    #[serde(default)]
+    pub(crate) metric_classes: Option<HashMap<String, MetricClassConfig>>,
+}
+
+/// Nested emission governance knobs. Mirrors the OpenSpec/projected config shape
+/// while preserving the legacy flat keys in [`AddonConfig`].
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub(crate) struct EmissionConfig {
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    pub(crate) cooldown_secs: Option<u64>,
+    #[serde(default, deserialize_with = "deserialize_optional_usize")]
+    pub(crate) budget_per_tick: Option<usize>,
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    pub(crate) episode_update_interval_secs: Option<u64>,
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    pub(crate) reopen_cooldown_secs: Option<u64>,
+}
+
+/// Additive per-class config surface accepted from core. The runtime applies the
+/// class enable switch, drift mode, and dispersion floors here; numeric CUSUM
+/// threshold splitting remains global until the drift state machine grows
+/// per-class threshold state.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub(crate) struct MetricClassConfig {
+    #[serde(default, deserialize_with = "deserialize_optional_bool")]
+    pub(crate) enabled: Option<bool>,
+    #[serde(default)]
+    pub(crate) drift_mode: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_f64")]
+    pub(crate) cusum_k: Option<f64>,
+    #[serde(default, deserialize_with = "deserialize_optional_f64")]
+    pub(crate) cusum_h: Option<f64>,
+    #[serde(default, deserialize_with = "deserialize_optional_f64")]
+    pub(crate) h_confirm_mult: Option<f64>,
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    pub(crate) drift_confirm_window: Option<u64>,
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    pub(crate) drift_clear_slots: Option<u64>,
+    #[serde(default, deserialize_with = "deserialize_optional_f64")]
+    pub(crate) drift_min_effect: Option<f64>,
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    pub(crate) drift_adopt_after_samples: Option<u64>,
+    #[serde(default, deserialize_with = "deserialize_optional_u64")]
+    pub(crate) drift_escalate_after_secs: Option<u64>,
+    #[serde(default, deserialize_with = "deserialize_optional_f64")]
+    pub(crate) min_std_floor: Option<f64>,
+    #[serde(default, deserialize_with = "deserialize_optional_f64")]
+    pub(crate) min_cv: Option<f64>,
+    #[serde(default)]
+    pub(crate) severity_cap: Option<String>,
+    #[serde(default)]
+    pub(crate) severity_bands: Option<serde_json::Value>,
+}
+
+/// Seasonal payload-governance knobs for delivered edge baselines.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub(crate) struct SeasonalConfig {
+    #[serde(default, deserialize_with = "deserialize_optional_usize")]
+    pub(crate) max_baselines: Option<usize>,
 }
 
 /// Wire form of one series' delivered hour-of-week baseline.
@@ -97,6 +234,15 @@ pub(crate) struct AddonConfig {
 pub(crate) struct SeasonalBaselineConfig {
     #[serde(default)]
     pub(crate) buckets: Vec<SeasonalBucketConfig>,
+    /// Compact 168-slot center array. JSON has no f32 type; core rounds values to
+    /// float32 precision before delivery, and the edge stores them as f64 for the
+    /// existing detector math.
+    #[serde(default)]
+    pub(crate) centers: Vec<Option<f64>>,
+    #[serde(default)]
+    pub(crate) scales: Vec<Option<f64>>,
+    #[serde(default)]
+    pub(crate) sample_counts: Vec<Option<u64>>,
 }
 
 /// Wire form of one `(dow, hod)` seasonal bucket: a robust center (median) + scale
@@ -211,11 +357,19 @@ impl AddonConfig {
         let Some(baselines) = self.seasonal_baselines.as_ref() else {
             return HashMap::new();
         };
+        let max_baselines = self
+            .seasonal
+            .as_ref()
+            .and_then(|seasonal| seasonal.max_baselines)
+            .unwrap_or(usize::MAX);
+        let mut entries: Vec<_> = baselines.iter().collect();
+        entries.sort_by(|(left, _), (right, _)| left.cmp(right));
 
-        baselines
-            .iter()
+        entries
+            .into_iter()
+            .take(max_baselines)
             .map(|(series_key, baseline)| {
-                let buckets = baseline.buckets.iter().filter_map(|bucket| {
+                let object_buckets = baseline.buckets.iter().filter_map(|bucket| {
                     if bucket.dow > 6 || bucket.hod > 23 {
                         return None;
                     }
@@ -234,15 +388,74 @@ impl AddonConfig {
                     ))
                 });
 
-                (series_key.clone(), SeasonalProfile::from_buckets(buckets))
+                let compact_buckets =
+                    (0..serviceradar_anomaly_core::HOURS_PER_WEEK).filter_map(|index| {
+                        let center = baseline.centers.get(index).copied().flatten()?;
+                        let scale = baseline.scales.get(index).copied().flatten()?;
+
+                        if !center.is_finite() || !scale.is_finite() {
+                            return None;
+                        }
+
+                        let sample_count = baseline
+                            .sample_counts
+                            .get(index)
+                            .copied()
+                            .flatten()
+                            .unwrap_or_default()
+                            as usize;
+
+                        Some((
+                            index,
+                            SeasonalBucket {
+                                center,
+                                scale,
+                                sample_count,
+                            },
+                        ))
+                    });
+
+                (
+                    series_key.clone(),
+                    SeasonalProfile::from_buckets(object_buckets.chain(compact_buckets)),
+                )
             })
             .collect()
     }
 
+    #[cfg(test)]
+    pub(crate) fn metric_class_override_count(&self) -> usize {
+        self.metric_classes.as_ref().map_or_else(
+            || {
+                self.managed
+                    .as_ref()
+                    .and_then(|managed| managed.metric_classes.as_ref())
+                    .map_or(0, HashMap::len)
+            },
+            HashMap::len,
+        )
+    }
+
     pub(crate) fn into_engine_config(self) -> Result<EngineConfig, String> {
         let base = EngineConfig::default();
-        let window_size = self.window_size.unwrap_or(base.window_size).max(1);
-        let min_samples = self.min_samples.unwrap_or(base.min_samples).max(1);
+        let managed = self.managed.as_ref().cloned().unwrap_or_default();
+        let window_size = self
+            .window_size
+            .or(managed.window_size)
+            .unwrap_or(base.window_size)
+            .max(1);
+        let min_samples = self
+            .min_samples
+            .or(managed.min_samples)
+            .unwrap_or(base.min_samples)
+            .max(1);
+        let managed_emission = managed.emission.clone().unwrap_or_default();
+        let emission = self.emission.unwrap_or_default();
+        let metric_class_overrides = resolve_metric_class_overrides(
+            self.metric_classes
+                .as_ref()
+                .or(managed.metric_classes.as_ref()),
+        );
 
         if min_samples > window_size {
             return Err(format!(
@@ -253,18 +466,20 @@ impl AddonConfig {
         Ok(EngineConfig {
             window_size,
             min_samples,
-            n_sigma: self.n_sigma.unwrap_or(base.n_sigma),
-            confirm_slots: self.confirm_slots.unwrap_or(base.confirm_slots).max(1),
+            n_sigma: self.n_sigma.or(managed.n_sigma).unwrap_or(base.n_sigma),
+            confirm_slots: self
+                .confirm_slots
+                .or(managed.confirm_slots)
+                .unwrap_or(base.confirm_slots)
+                .max(1),
             max_series: self.max_series.unwrap_or(base.max_series).max(1),
             // Only accept a finite, positive override; a 0/negative/NaN value is
             // treated as "unset" so it can never weaken a gauge's safe floor.
             min_std_floor: self.min_std_floor.filter(|v| v.is_finite() && *v > 0.0),
             min_cv: self.min_cv.filter(|v| v.is_finite() && *v > 0.0),
-            // The operator-facing default is ON: an omitted `cusum_enabled` turns
-            // the drift detector on in production. (`EngineConfig::default()` keeps
-            // it off so bare-default fixtures stay rolling-only.) `k`/`h` fall back
-            // to the standard 0.5 / 5.0 when omitted or non-finite/out-of-range.
-            cusum_enabled: self.cusum_enabled.unwrap_or(true),
+            // CUSUM enablement is per metric class via `drift_mode`; the legacy
+            // top-level `cusum_enabled` key is intentionally not modeled in 0.2.0
+            // so stale profile data cannot disable drift globally.
             cusum_k: self
                 .cusum_k
                 .filter(|v| v.is_finite() && *v >= 0.0)
@@ -272,9 +487,137 @@ impl AddonConfig {
             cusum_h: self
                 .cusum_h
                 .filter(|v| v.is_finite() && *v > 0.0)
-                .unwrap_or(base.cusum_h),
+                .unwrap_or(DEFAULT_CUSUM_H),
+            h_confirm_mult: self
+                .h_confirm_mult
+                .filter(|v| v.is_finite() && *v >= 1.0)
+                .unwrap_or(DEFAULT_H_CONFIRM_MULT),
+            drift_confirm_window: self
+                .drift_confirm_window
+                .filter(|v| *v > 0)
+                .unwrap_or(DEFAULT_DRIFT_CONFIRM_WINDOW),
+            drift_min_effect: self
+                .drift_min_effect
+                .filter(|v| v.is_finite() && *v > 0.0)
+                .unwrap_or(DEFAULT_DRIFT_MIN_EFFECT),
+            drift_clear_slots: self
+                .drift_clear_slots
+                .filter(|v| *v > 0)
+                .unwrap_or(DEFAULT_DRIFT_CLEAR_SLOTS),
+            drift_adopt_after_samples: self
+                .drift_adopt_after_samples
+                .filter(|v| *v > 0)
+                .unwrap_or(DEFAULT_DRIFT_ADOPT_AFTER_SAMPLES),
+            episode_update_interval_secs: emission
+                .episode_update_interval_secs
+                .or(self.episode_update_interval_secs)
+                .or(managed_emission.episode_update_interval_secs)
+                .filter(|v| *v > 0)
+                .unwrap_or(DEFAULT_EPISODE_UPDATE_INTERVAL_SECS),
+            reopen_cooldown_secs: emission
+                .reopen_cooldown_secs
+                .or(self.reopen_cooldown_secs)
+                .or(managed_emission.reopen_cooldown_secs)
+                .filter(|v| *v > 0)
+                .unwrap_or(DEFAULT_REOPEN_COOLDOWN_SECS),
+            anchor_max_age_secs: self
+                .anchor_max_age_secs
+                .filter(|v| *v > 0)
+                .unwrap_or(DEFAULT_ANCHOR_MAX_AGE_SECS),
+            critical_min_duration_secs: self
+                .critical_min_duration_secs
+                .filter(|v| *v > 0)
+                .unwrap_or(DEFAULT_CRITICAL_MIN_DURATION_SECS),
+            drift_escalate_after_secs: self
+                .drift_escalate_after_secs
+                .filter(|v| *v > 0)
+                .unwrap_or(DEFAULT_DRIFT_ESCALATE_AFTER_SECS),
+            emission_cooldown_secs: emission
+                .cooldown_secs
+                .or(self.emission_cooldown_secs)
+                .or(managed_emission.cooldown_secs)
+                .filter(|v| *v > 0)
+                .unwrap_or(DEFAULT_EMISSION_COOLDOWN_SECS),
+            emission_budget_per_tick: emission
+                .budget_per_tick
+                .or(self.emission_budget_per_tick)
+                .or(managed_emission.budget_per_tick)
+                .filter(|v| *v > 0)
+                .unwrap_or(DEFAULT_EMISSION_BUDGET_PER_TICK),
+            metric_denylist: self
+                .metric_denylist
+                .or_else(|| managed.metric_denylist.clone())
+                .map(sanitize_metric_denylist)
+                .unwrap_or_else(default_metric_denylist),
+            metric_class_overrides,
         })
     }
+}
+
+fn resolve_metric_class_overrides(
+    configs: Option<&HashMap<String, MetricClassConfig>>,
+) -> HashMap<String, MetricClassOverride> {
+    let Some(configs) = configs else {
+        return HashMap::new();
+    };
+
+    configs
+        .iter()
+        .filter_map(|(class, config)| {
+            let class = normalize_metric_class_key(class)?;
+            let class_override = MetricClassOverride {
+                enabled: config.enabled,
+                drift_mode: config.drift_mode.as_deref().and_then(parse_drift_mode),
+                min_std_floor: finite_positive(config.min_std_floor),
+                min_cv: finite_positive(config.min_cv),
+            };
+
+            Some((class, class_override))
+        })
+        .collect()
+}
+
+fn normalize_metric_class_key(class: &str) -> Option<String> {
+    let trimmed = class.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    Some(trimmed.to_ascii_lowercase())
+}
+
+fn parse_drift_mode(value: &str) -> Option<DriftMode> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "off" => Some(DriftMode::Off),
+        "deseasonalized_only" => Some(DriftMode::DeseasonalizedOnly),
+        "always" => Some(DriftMode::Always),
+        _ => None,
+    }
+}
+
+fn finite_positive(value: Option<f64>) -> Option<f64> {
+    value.filter(|value| value.is_finite() && *value > 0.0)
+}
+
+fn default_metric_denylist() -> Vec<String> {
+    DEFAULT_METRIC_DENYLIST
+        .iter()
+        .map(|name| (*name).to_string())
+        .collect()
+}
+
+fn sanitize_metric_denylist(values: Vec<String>) -> Vec<String> {
+    let mut denylist = Vec::new();
+
+    for value in values {
+        let metric_name = value.trim();
+        if metric_name.is_empty() || denylist.iter().any(|existing| existing == metric_name) {
+            continue;
+        }
+        denylist.push(metric_name.to_string());
+    }
+
+    denylist
 }
 
 #[derive(Default)]

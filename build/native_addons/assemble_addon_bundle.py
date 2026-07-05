@@ -128,6 +128,53 @@ def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+_ELF_MACHINE_BY_ARCH = {
+    "amd64": 62,  # EM_X86_64
+    "arm64": 183,  # EM_AARCH64
+}
+
+
+def validate_artifact_binary(os_name: str, arch: str, source_path: Path):
+    """Fail closed when artifact metadata disagrees with the executable."""
+    if os_name != "linux":
+        raise SystemExit(f"error: unsupported native add-on artifact OS: {os_name!r}")
+
+    expected_machine = _ELF_MACHINE_BY_ARCH.get(arch)
+    if expected_machine is None:
+        raise SystemExit(f"error: unsupported linux native add-on artifact arch: {arch!r}")
+
+    header = source_path.read_bytes()[:64]
+    if len(header) < 20 or header[:4] != b"\x7fELF":
+        raise SystemExit(
+            f"error: {source_path}: expected linux/{arch} ELF executable for native "
+            "add-on artifact, but file header is not ELF"
+        )
+
+    elf_class = header[4]
+    endian_flag = header[5]
+    if elf_class != 2:
+        raise SystemExit(
+            f"error: {source_path}: expected linux/{arch} 64-bit ELF executable, "
+            f"got ELF class {elf_class}"
+        )
+    if endian_flag == 1:
+        endian = "little"
+    elif endian_flag == 2:
+        endian = "big"
+    else:
+        raise SystemExit(
+            f"error: {source_path}: expected linux/{arch} ELF executable, "
+            f"got invalid ELF endian flag {endian_flag}"
+        )
+
+    actual_machine = int.from_bytes(header[18:20], endian)
+    if actual_machine != expected_machine:
+        raise SystemExit(
+            f"error: {source_path}: expected linux/{arch} ELF machine "
+            f"{expected_machine}, got {actual_machine}"
+        )
+
+
 # Enum constraints mirrored from addons/native-addon-manifest.schema.json. The
 # authoritative gate is the Go validator (go/tools/addon-manifest-validator), run
 # as a build/CI gate before bundling. This in-assembler check is defense-in-depth:
@@ -293,6 +340,8 @@ def main():
 
     # Fail closed before producing any bundle output on an invalid manifest.
     validate_manifest(members)
+    for os_name, arch, _archive_path, source_path in artifacts:
+        validate_artifact_binary(os_name, arch, source_path)
 
     write_zip(bundle_path, members)
     digest = sha256_file(bundle_path)

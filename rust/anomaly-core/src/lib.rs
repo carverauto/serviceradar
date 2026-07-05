@@ -50,8 +50,8 @@ pub use esd::{generalized_esd, norm_ppf, seasonal_hybrid_esd, t_ppf};
 pub use rpca::{jacobi_svd, rpca};
 pub use seasonal::{HOURS_PER_WEEK, SeasonalBucket, hour_of_week, synthetic_baseline};
 pub use stats::{
-    BaselineStats, MAD_TO_SIGMA, RobustStats, WelfordAcc, clean_threshold, robust_score,
-    sample_stats, z_score,
+    BaselineStats, MAD_TO_SIGMA, RobustStats, WelfordAcc, clean_threshold, effective_scoring_scale,
+    robust_score, sample_stats, z_score,
 };
 pub use types::{
     ReasonContext, ReasonEventVerdict, ReasonSample, ReasonVerdict, SaturationGate, SignalVerdict,

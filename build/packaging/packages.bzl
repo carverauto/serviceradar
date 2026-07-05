@@ -54,7 +54,11 @@ PACKAGES = {
             {
                 "src": "//go/cmd/agent-updater:agent_updater",
                 "dest": "/usr/local/bin/serviceradar-agent-updater",
-                "mode": "0755",
+                # Keep the package payload aligned with postinstall: the helper must
+                # run setuid-root when the non-root agent applies add-on capabilities
+                # or installs native add-on systemd units. postinstall still assigns
+                # group serviceradar after ensuring that group exists.
+                "mode": "4750",
             },
             {
                 "src": "bin/serviceradar-agent",

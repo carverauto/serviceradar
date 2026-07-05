@@ -11,6 +11,8 @@
 //! anomaly verdicts upstream over the native telemetry stream
 //! (`native-telemetry:v1`).
 
+#![recursion_limit = "256"]
+
 pub mod engine;
 
 mod addon;

@@ -4,6 +4,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
   import ExUnit.CaptureLog
 
   alias ServiceRadar.Observability.AnomalyConfigRuntime
+  alias ServiceRadar.Observability.CapacityForecastConfig
   alias ServiceRadar.Observability.CapacityForecasting.Source
   alias ServiceRadar.Observability.CapacityForecasting.Worker
 
@@ -35,6 +36,36 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
         end
 
       {:ok, rows}
+    end
+  end
+
+  defmodule ThreeDayRunner do
+    @moduledoc false
+    @start ~U[2026-06-01 00:00:00Z]
+
+    def query(query, _opts) do
+      send(self(), {:capacity_forecast_query, query})
+
+      rows =
+        for hour <- 0..71 do
+          %{
+            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "device_id" => "device-a",
+            "host_id" => "host-a",
+            "avg_usage_percent" => 20.0 + hour
+          }
+        end
+
+      {:ok, rows}
+    end
+  end
+
+  defmodule EmptyRunner do
+    @moduledoc false
+
+    def query(query, _opts) do
+      send(self(), {:capacity_forecast_query, query})
+      {:ok, []}
     end
   end
 
@@ -70,6 +101,27 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
           %{
             "bucket" => DateTime.add(@start, hour * 3_600, :second),
             "bytes_total" => 500_000_000_000.0 + hour * 10_000_000_000.0
+          }
+        end
+
+      {:ok, rows}
+    end
+  end
+
+  defmodule NoisyTrendRunner do
+    @moduledoc false
+    @start ~U[2026-06-01 00:00:00Z]
+
+    def query(_query, _opts) do
+      rows =
+        for hour <- 0..71 do
+          noise = if rem(hour, 2) == 0, do: 18.0, else: -18.0
+
+          %{
+            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "device_id" => "device-a",
+            "mount_point" => "/",
+            "avg_usage_percent" => 28.0 + hour * 0.55 + noise
           }
         end
 
@@ -208,6 +260,49 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     end
   end
 
+  defp previous_forecasts_loader(forecasts) when is_list(forecasts) do
+    fn _attrs, _actor, _limit -> {:ok, forecasts} end
+  end
+
+  defp previous_projected_forecast(hours_ago \\ 1, overrides \\ %{}) do
+    forecasted_at = DateTime.add(@forecasted_at, -hours_ago * 3_600, :second)
+
+    Map.merge(
+      %{
+        status: "projected",
+        forecasted_at: forecasted_at,
+        projected_exhaustion_at: DateTime.add(forecasted_at, 50, :second)
+      },
+      overrides
+    )
+  end
+
+  defp previous_inactive_forecast(hours_ago), do: previous_inactive_forecast(hours_ago, %{})
+
+  defp previous_inactive_forecast(hours_ago, overrides) do
+    Map.merge(
+      %{
+        status: "inactive",
+        forecasted_at: DateTime.add(@forecasted_at, -hours_ago * 3_600, :second),
+        projected_exhaustion_at: DateTime.add(@forecasted_at, 2 * 3_600, :second)
+      },
+      overrides
+    )
+  end
+
+  defp previous_skipped_forecast(hours_ago), do: previous_skipped_forecast(hours_ago, %{})
+
+  defp previous_skipped_forecast(hours_ago, overrides) do
+    Map.merge(
+      %{
+        status: "skipped",
+        skip_reason: "no_projected_exhaustion",
+        forecasted_at: DateTime.add(@forecasted_at, -hours_ago * 3_600, :second)
+      },
+      overrides
+    )
+  end
+
   test "worker reads aggregate history through SRQL and upserts projected forecasts" do
     event = [:serviceradar, :observability, :capacity_forecasting, :source]
     handler_id = {:capacity_source_projected, make_ref()}
@@ -232,7 +327,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       value_field: "avg_usage_percent",
       key_fields: ["device_id", "host_id"],
       label_fields: ["host_id", "device_id"],
-      threshold: 100.0,
+      threshold: 80.0,
       model: "linear"
     }
 
@@ -302,7 +397,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       value_field: "avg_usage_percent",
       key_fields: ["device_id", "host_id"],
       label_fields: ["host_id", "device_id"],
-      threshold: 100.0,
+      threshold: 80.0,
       model: "linear"
     }
 
@@ -349,7 +444,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       bucket_field: "timestamp",
       key_fields: ["series"],
       label_fields: ["series"],
-      threshold: 100.0,
+      threshold: 80.0,
       model: "linear",
       value_unit: "percent"
     }
@@ -454,19 +549,33 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert attrs.window_ended_at == ~U[2026-06-01 01:00:00Z]
   end
 
-  test "worker merges hot-reloaded forecast settings into each run" do
+  test "worker reads forecast settings at run start instead of trusting stale cache" do
     AnomalyConfigRuntime.put_cache_for_test(%{
       capacity_forecasting_opts: [
-        horizon_seconds: 12 * 3_600,
-        warning_horizon_seconds: 6 * 3_600,
-        warning_threshold_percent: 75.0,
-        forecast_model: "linear",
+        horizon_seconds: 90 * 24 * 3_600,
+        warning_horizon_seconds: 30 * 24 * 3_600,
+        warning_threshold_percent: 100.0,
+        forecast_model: "seasonal_linear",
         min_points: 24,
-        capacity_metric_class_overrides: %{
-          "cpu" => %{"minimum_history_points" => 30}
-        }
+        capacity_metric_class_overrides: %{}
       ]
     })
+
+    settings = %CapacityForecastConfig{
+      forecast_horizon_seconds: 12 * 3_600,
+      warning_horizon_seconds: 6 * 3_600,
+      warning_threshold_percent: 75.0,
+      model: :linear,
+      minimum_history_points: 24,
+      metric_class_overrides: %{
+        "cpu" => %{"minimum_history_points" => 30}
+      }
+    }
+
+    runtime_opts_fetcher = fn actor ->
+      send(self(), {:capacity_forecast_runtime_config_fetch, actor})
+      {:ok, settings}
+    end
 
     source = %Source{
       name: "cpu_usage",
@@ -478,7 +587,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       value_field: "avg_usage_percent",
       key_fields: ["device_id", "host_id"],
       label_fields: ["host_id", "device_id"],
-      threshold: 100.0,
+      threshold: 80.0,
       model: "auto"
     }
 
@@ -498,9 +607,12 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
                sources: [source],
                runner: Runner,
                upsert_fun: upsert_fun,
-               emit_verdicts?: false
+               emit_verdicts?: false,
+               runtime_config_source: :database,
+               runtime_opts_fetcher: runtime_opts_fetcher
              )
 
+    assert_received {:capacity_forecast_runtime_config_fetch, %{role: :system}}
     assert_received {:capacity_forecast_runtime_config, attrs}
     assert attrs.horizon_seconds == 12 * 3_600
     assert attrs.horizon_ends_at == DateTime.add(@forecasted_at, 12 * 3_600, :second)
@@ -529,7 +641,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       value_field: "avg_usage_percent",
       key_fields: ["device_id", "host_id"],
       label_fields: ["host_id", "device_id"],
-      threshold: 100.0,
+      threshold: 80.0,
       model: "holt_winters"
     }
 
@@ -557,33 +669,68 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert attrs.model == "holt_winters_additive"
   end
 
-  test "default sources cover long-horizon resource, interface, and flow aggregates" do
+  test "default sources cover only monotone long-horizon consumables" do
     sources = Source.defaults()
     queries = Enum.map(sources, & &1.query)
 
-    assert Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.cpu"|))
+    refute Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.cpu"|))
     assert Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.memory"|))
     assert Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.disk"|))
     refute Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.process"|))
     refute Enum.any?(queries, &String.contains?(&1, ~s|metric_name:"process.count"|))
-    assert Enum.any?(queries, &String.contains?(&1, "in:timeseries_metric_interface_hourly"))
-    assert Enum.any?(queries, &String.contains?(&1, "in:flows"))
+    refute Enum.any?(queries, &String.contains?(&1, "in:timeseries_metric_interface_hourly"))
+    refute Enum.any?(queries, &String.contains?(&1, "in:flows"))
     refute Enum.any?(sources, &(&1.name == "timeseries_value"))
 
-    cpu_source = Enum.find(sources, &(&1.name == "cpu_usage"))
-    assert cpu_source.value_field == "value"
-    assert cpu_source.bucket_field == "timestamp"
-    assert cpu_source.key_fields == ["series"]
+    memory_source = Enum.find(sources, &(&1.name == "memory_usage"))
+    assert memory_source.value_field == "value"
+    assert memory_source.bucket_field == "timestamp"
+    assert memory_source.key_fields == ["series"]
+  end
+
+  test "bursty and non-consumable default sources are explicit opt-ins" do
+    sources =
+      Source.defaults(include_sources: ["cpu_usage", "interface_rate", "flow_bytes_per_hour"])
+
+    queries = Enum.map(sources, & &1.query)
+
+    assert Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.cpu"|))
+    assert Enum.any?(queries, &String.contains?(&1, "in:timeseries_metric_interface_hourly"))
+    assert Enum.any?(queries, &String.contains?(&1, "in:flows"))
 
     interface_source = Enum.find(sources, &(&1.resource_type == "interface"))
     assert interface_source.metric_name == "utilization_percent"
-    assert interface_source.threshold == 100.0
+    assert interface_source.threshold == 90.0
+    assert interface_source.sustained_statistic == "daily_p95"
 
     flow_source = Enum.find(sources, &(&1.resource_type == "flow"))
     assert flow_source.name == "flow_bytes_per_hour"
     assert flow_source.metric_name == "bytes_per_hour"
     assert flow_source.value_field == "bytes_total"
     assert flow_source.threshold == 1_000_000_000_000.0
+  end
+
+  test "worker default source opt-ins add bursty sources without explicit source list" do
+    job = %Oban.Job{args: %{"trigger" => "cron"}, inserted_at: @forecasted_at}
+
+    assert :ok =
+             Worker.run(job,
+               runner: EmptyRunner,
+               emit_verdicts?: false,
+               default_source_opt_ins: ["cpu_usage", "interface_rate"]
+             )
+
+    queries =
+      for _ <- 1..4 do
+        assert_receive {:capacity_forecast_query, query}
+        query
+      end
+
+    assert Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.cpu"|))
+    assert Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.memory"|))
+    assert Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.disk"|))
+    assert Enum.any?(queries, &String.contains?(&1, "in:timeseries_metric_interface_hourly"))
+    refute Enum.any?(queries, &String.contains?(&1, "in:flows"))
   end
 
   test "runtime percent threshold does not override non-percent flow capacity source" do
@@ -678,6 +825,91 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert attrs.exhaustion_threshold == 250_000_000_000.0
   end
 
+  test "worker forecasts sustained daily p95 instead of raw hourly averages when configured" do
+    source = %Source{
+      name: "cpu_usage",
+      resource_type: "cpu",
+      metric_class: "cpu",
+      metric_name: "usage_percent",
+      query:
+        "in:cpu_metrics time:last_180d bucket:1h stats:avg(usage_percent) as avg_usage_percent",
+      value_field: "avg_usage_percent",
+      key_fields: ["device_id", "host_id"],
+      label_fields: ["host_id", "device_id"],
+      threshold: 95.0,
+      model: "linear",
+      value_unit: "percent",
+      sustained_statistic: "daily_p95"
+    }
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_sustained_daily_p95, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: ThreeDayRunner,
+               upsert_fun: upsert_fun,
+               emit_verdicts?: false,
+               min_points: 3,
+               horizon_seconds: 10 * 24 * 3_600
+             )
+
+    assert_received {:capacity_forecast_sustained_daily_p95, attrs}
+
+    assert attrs.sample_count == 3
+    assert_in_delta attrs.current_value, 89.85, 0.001
+    assert DateTime.truncate(attrs.window_started_at, :second) == ~U[2026-06-01 23:00:00Z]
+    assert DateTime.truncate(attrs.window_ended_at, :second) == ~U[2026-06-03 23:00:00Z]
+    assert attrs.metadata["sustained_statistic"] == "daily_p95"
+    assert attrs.metadata["sustained_input_points"] == 72
+    assert attrs.status == "projected"
+  end
+
+  test "worker gates weak noisy trends when the prediction lower bound misses threshold" do
+    source = %Source{
+      name: "disk_usage",
+      resource_type: "disk",
+      metric_class: "disk",
+      metric_name: "usage_percent",
+      query: "in:disk_metrics time:last_180d bucket:1h",
+      value_field: "avg_usage_percent",
+      key_fields: ["device_id", "mount_point"],
+      label_fields: ["mount_point"],
+      threshold: 80.0,
+      model: "linear",
+      value_unit: "percent"
+    }
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_noisy_trend, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: NoisyTrendRunner,
+               upsert_fun: upsert_fun,
+               emit_verdicts?: false,
+               horizon_seconds: 48 * 3_600,
+               min_points: 24
+             )
+
+    assert_received {:capacity_forecast_noisy_trend, attrs}
+
+    assert attrs.status == "skipped"
+    assert attrs.skip_reason == "no_projected_exhaustion"
+    assert attrs.projected_exhaustion_at == nil
+    assert attrs.metadata["diagnostics"]["lower_bound"] < 80.0
+  end
+
   test "percent forecasts keep threshold ETA and clamp projected percent values in the kernel" do
     source = %Source{
       name: "disk_usage",
@@ -688,7 +920,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       value_field: "avg_usage_percent",
       key_fields: ["device_id", "mount_point"],
       label_fields: ["mount_point"],
-      threshold: 100.0,
+      threshold: 80.0,
       model: "linear",
       value_unit: "percent"
     }
@@ -732,7 +964,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       value_field: "avg_usage_percent",
       key_fields: ["device_id", "mount_point"],
       label_fields: ["mount_point"],
-      threshold: 100.0,
+      threshold: 80.0,
       model: "linear",
       value_unit: "percent"
     }
@@ -775,7 +1007,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       value_field: "avg_usage_percent",
       key_fields: ["device_id", "mount_point"],
       label_fields: ["mount_point"],
-      threshold: 100.0,
+      threshold: 80.0,
       model: "linear",
       value_unit: "percent"
     }
@@ -841,12 +1073,11 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
 
     assert_received {:capacity_forecast_declining_percent, attrs}
     assert attrs.status == "skipped"
-    assert attrs.skip_reason == "no_projected_exhaustion"
+    assert attrs.skip_reason == "trend_not_significant"
     assert attrs.projected_value == nil
     assert attrs.projected_exhaustion_at == nil
     assert attrs.metadata["forecast_value_unit"] == "percent"
-    assert attrs.metadata["diagnostics"]["projection_bounded"] == true
-    assert attrs.metadata["diagnostics"]["raw_projected_value"] < 0.0
+    assert attrs.metadata["diagnostics"]["sample_count"] == 48
   end
 
   test "interface forecasts convert byte rates to utilization percent before no-risk skip" do
@@ -885,6 +1116,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert_received {:capacity_forecast_interface, attrs}
 
     assert attrs.metric_name == "utilization_percent"
+    assert attrs.resource_id == "device-a:if7"
     assert attrs.exhaustion_threshold == 100.0
     assert attrs.status == "skipped"
     assert attrs.skip_reason == "no_projected_exhaustion"
@@ -979,6 +1211,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
                runner: __MODULE__.InterfaceRunner,
                interface_capacity_resolver: resolver,
                upsert_fun: upsert_fun,
+               emit_verdicts?: false,
                min_points: 24
              )
 
@@ -1010,6 +1243,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
                runner: __MODULE__.InterfacePacketRunner,
                interface_capacity_resolver: resolver,
                upsert_fun: upsert_fun,
+               emit_verdicts?: false,
                min_points: 24
              )
 
@@ -1058,7 +1292,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       value_field: "avg_usage_percent",
       key_fields: ["device_id", "host_id"],
       label_fields: ["host_id", "device_id"],
-      threshold: 100.0,
+      threshold: 80.0,
       model: "linear"
     }
 
@@ -1071,6 +1305,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
                runner: Runner,
                upsert_fun: upsert_fun,
                verdict_emitter: VerdictEmitter,
+               previous_forecasts_loader:
+                 previous_forecasts_loader([previous_projected_forecast()]),
                test_pid: self(),
                horizon_seconds: 24 * 3_600,
                warning_horizon_seconds: 24 * 3_600,
@@ -1083,6 +1319,86 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert DateTime.compare(attrs.projected_exhaustion_at, attrs.horizon_ends_at) != :gt
   end
 
+  test "worker persists but does not emit the first unconfirmed projected forecast" do
+    source = %Source{
+      name: "cpu_usage",
+      resource_type: "cpu",
+      metric_class: "cpu",
+      metric_name: "usage_percent",
+      query: "in:cpu_metrics time:last_180d bucket:1h",
+      value_field: "avg_usage_percent",
+      key_fields: ["device_id", "host_id"],
+      label_fields: ["host_id", "device_id"],
+      threshold: 80.0,
+      model: "linear"
+    }
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_upsert, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: Runner,
+               upsert_fun: upsert_fun,
+               verdict_emitter: VerdictEmitter,
+               previous_forecasts_loader: previous_forecasts_loader([]),
+               test_pid: self(),
+               horizon_seconds: 24 * 3_600,
+               warning_horizon_seconds: 24 * 3_600,
+               min_points: 24
+             )
+
+    assert_received {:capacity_forecast_upsert, %{status: "projected"}}
+    refute_received {:capacity_forecast_verdict, _attrs}
+  end
+
+  test "worker suppresses unchanged capacity forecast verdict states" do
+    source = %Source{
+      name: "cpu_usage",
+      resource_type: "cpu",
+      metric_class: "cpu",
+      metric_name: "usage_percent",
+      query: "in:cpu_metrics time:last_180d bucket:1h",
+      value_field: "avg_usage_percent",
+      key_fields: ["device_id", "host_id"],
+      label_fields: ["host_id", "device_id"],
+      threshold: 80.0,
+      model: "linear"
+    }
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_upsert, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: Runner,
+               upsert_fun: upsert_fun,
+               verdict_emitter: VerdictEmitter,
+               previous_forecasts_loader:
+                 previous_forecasts_loader([
+                   previous_projected_forecast(1),
+                   previous_projected_forecast(2)
+                 ]),
+               test_pid: self(),
+               horizon_seconds: 24 * 3_600,
+               warning_horizon_seconds: 24 * 3_600,
+               min_points: 24
+             )
+
+    assert_received {:capacity_forecast_upsert, %{status: "projected"}}
+    refute_received {:capacity_forecast_verdict, _attrs}
+  end
+
   test "worker keeps persisted forecasts when verdict emission fails" do
     source = %Source{
       name: "cpu_usage",
@@ -1093,7 +1409,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       value_field: "avg_usage_percent",
       key_fields: ["device_id", "host_id"],
       label_fields: ["host_id", "device_id"],
-      threshold: 100.0,
+      threshold: 80.0,
       model: "linear"
     }
 
@@ -1112,6 +1428,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
                    runner: Runner,
                    upsert_fun: upsert_fun,
                    verdict_emitter: FailingVerdictEmitter,
+                   previous_forecasts_loader:
+                     previous_forecasts_loader([previous_projected_forecast()]),
                    test_pid: self(),
                    horizon_seconds: 24 * 3_600,
                    warning_horizon_seconds: 24 * 3_600,
@@ -1152,6 +1470,12 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
                runner: RecentRunner,
                upsert_fun: upsert_fun,
                verdict_emitter: VerdictEmitter,
+               previous_forecasts_loader:
+                 previous_forecasts_loader([
+                   previous_inactive_forecast(1),
+                   previous_projected_forecast(2),
+                   previous_projected_forecast(3)
+                 ]),
                test_pid: self(),
                horizon_seconds: 48 * 3_600,
                warning_horizon_seconds: 60,
@@ -1166,7 +1490,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert verdict_attrs.resource_key == attrs.resource_key
   end
 
-  test "worker clamps warning horizon to the forecast horizon for verdicts" do
+  test "worker skips forecasts whose PI lower bound misses the threshold horizon" do
     source = %Source{
       name: "cpu_usage",
       resource_type: "cpu",
@@ -1193,6 +1517,12 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
                runner: RecentRunner,
                upsert_fun: upsert_fun,
                verdict_emitter: VerdictEmitter,
+               previous_forecasts_loader:
+                 previous_forecasts_loader([
+                   previous_skipped_forecast(1),
+                   previous_projected_forecast(2),
+                   previous_projected_forecast(3)
+                 ]),
                test_pid: self(),
                horizon_seconds: 24 * 3_600,
                warning_horizon_seconds: 48 * 3_600,
@@ -1200,11 +1530,12 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
              )
 
     assert_received {:capacity_forecast_clamped_warning, attrs}
-    assert attrs.status == "projected"
-    assert attrs.projected_exhaustion_at
-    assert DateTime.after?(attrs.projected_exhaustion_at, attrs.horizon_ends_at)
+    assert attrs.status == "skipped"
+    assert attrs.skip_reason == "no_projected_exhaustion"
+    assert attrs.projected_exhaustion_at == nil
+    assert attrs.metadata["diagnostics"]["lower_bound"] < attrs.exhaustion_threshold
     assert_received {:capacity_forecast_verdict, verdict_attrs}
-    assert verdict_attrs.status == "inactive"
+    assert verdict_attrs.status == "skipped"
     assert verdict_attrs.resource_key == attrs.resource_key
   end
 
@@ -1230,6 +1561,12 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
                runner: __MODULE__.ShortRunner,
                upsert_fun: upsert_fun,
                verdict_emitter: VerdictEmitter,
+               previous_forecasts_loader:
+                 previous_forecasts_loader([
+                   previous_skipped_forecast(1, %{skip_reason: "insufficient_history"}),
+                   previous_projected_forecast(2),
+                   previous_projected_forecast(3)
+                 ]),
                test_pid: self(),
                min_points: 3
              )
@@ -1237,6 +1574,41 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert_received {:capacity_forecast_verdict, attrs}
     assert attrs.status == "skipped"
     assert attrs.skip_reason
+  end
+
+  test "worker suppresses initial cleared capacity forecast verdicts" do
+    source = %Source{
+      name: "disk_usage",
+      resource_type: "disk",
+      metric_class: "disk",
+      metric_name: "usage_percent",
+      query: "in:disk_metrics time:last_180d bucket:1h",
+      value_field: "avg_usage_percent",
+      key_fields: ["device_id", "mount_point"],
+      label_fields: ["mount_point"],
+      threshold: 100.0
+    }
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_upsert, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: __MODULE__.ShortRunner,
+               upsert_fun: upsert_fun,
+               verdict_emitter: VerdictEmitter,
+               previous_forecasts_loader: previous_forecasts_loader([]),
+               test_pid: self(),
+               min_points: 3
+             )
+
+    assert_received {:capacity_forecast_upsert, %{status: "skipped"}}
+    refute_received {:capacity_forecast_verdict, _attrs}
   end
 
   defmodule ShortRunner do

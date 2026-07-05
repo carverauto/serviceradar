@@ -172,14 +172,20 @@ defmodule ServiceRadar.Observability.RuleSeeder do
           "attribute_equals" => %{
             "signal_type" => "prediction",
             "event_type" => ["anomaly", "anomaly_detection"],
-            "anomaly.state" => ["anomaly_open", "open", "anomalous"]
+            "anomaly.state" => ["anomaly_open", "anomaly_drift_open", "open", "anomalous"]
           },
           "recovery" => %{
             "subject_prefix" => "signals.analytics.predictions",
             "attribute_equals" => %{
               "signal_type" => "prediction",
               "event_type" => ["anomaly", "anomaly_detection"],
-              "anomaly.state" => ["anomaly_clear", "clear", "cleared", "inactive"]
+              "anomaly.state" => [
+                "anomaly_clear",
+                "anomaly_drift_clear",
+                "clear",
+                "cleared",
+                "inactive"
+              ]
             }
           }
         },

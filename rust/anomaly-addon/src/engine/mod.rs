@@ -12,8 +12,8 @@ use std::collections::HashMap;
 
 use serviceradar_anomaly_core::{
     Cusum, DEFAULT_CONFIRM_SLOTS, DEFAULT_MIN_SAMPLES, DEFAULT_N_SIGMA, DEFAULT_WINDOW_SIZE,
-    ReasonContext, ReasonSample, ReasonVerdict, RobustStats, SeasonalBucket, hour_of_week,
-    reason_impl,
+    ReasonContext, ReasonSample, ReasonVerdict, RobustStats, SeasonalBucket,
+    effective_scoring_scale, hour_of_week, reason_impl,
 };
 
 mod checkpoint;
@@ -29,7 +29,8 @@ pub use seasonal_profile::{
     SeasonalSettings,
 };
 pub use types::{
-    AnomalyEpisode, AnomalyTransition, CusumDirection, CusumDrift, SeriesProfile, TransitionVerdict,
+    AnomalyEpisode, AnomalyTransition, CusumDirection, CusumDrift, DriftClearReason, DriftMode,
+    DriftUpdateReason, MetricClassOverride, SeriesProfile, TransitionVerdict,
 };
 
 use episode::{
@@ -38,8 +39,10 @@ use episode::{
     update_aggregation_slot,
 };
 use seasonal_profile::SeasonalContext;
-pub(crate) use state::STATE_EVICTION_MAX_AGE_NS;
-use state::{CounterState, SeriesState};
+use state::{CounterState, HostCpuSlotState, SeriesState};
+pub(crate) use state::{HostCpuAggregateSample, STATE_EVICTION_MAX_AGE_NS};
+
+use counter::CounterDropCounts;
 
 #[cfg(test)]
 pub(crate) use counter::{COUNTER32_MODULUS, plausible_counter_delta};
@@ -50,7 +53,21 @@ pub const DEFAULT_CUSUM_K: f64 = 0.5;
 /// Default CUSUM decision interval (`h`, the alarm threshold). The standard
 /// value: an accumulator past `h` is a sustained-drift alarm. With `k = 0.5` this
 /// detects a persistent ~1-sigma shift in ≈ `h / (δ - k)` samples.
-pub const DEFAULT_CUSUM_H: f64 = 5.0;
+pub const DEFAULT_CUSUM_H: f64 = 8.0;
+pub const DEFAULT_H_CONFIRM_MULT: f64 = 1.5;
+pub const DEFAULT_DRIFT_CONFIRM_WINDOW: u64 = 30;
+pub const DEFAULT_DRIFT_MIN_EFFECT: f64 = 2.0;
+pub const DEFAULT_DRIFT_CLEAR_SLOTS: u64 = 30;
+pub const DEFAULT_DRIFT_ADOPT_AFTER_SAMPLES: u64 = 600;
+pub const DEFAULT_EPISODE_UPDATE_INTERVAL_SECS: u64 = 1_800;
+pub const DEFAULT_REOPEN_COOLDOWN_SECS: u64 = 600;
+pub const DEFAULT_ANCHOR_MAX_AGE_SECS: u64 = 86_400;
+pub const DEFAULT_CRITICAL_MIN_DURATION_SECS: u64 = 600;
+pub const DEFAULT_DRIFT_ESCALATE_AFTER_SECS: u64 = 3_600;
+pub const DEFAULT_EMISSION_COOLDOWN_SECS: u64 = 300;
+pub const DEFAULT_EMISSION_BUDGET_PER_TICK: usize = 100;
+const EMISSION_STORM_EXIT_FRAMES: u8 = 10;
+pub const DEFAULT_METRIC_DENYLIST: &[&str] = &["cpu.frequency_hz"];
 
 /// Detector thresholds + the per-host series cap (the edge-resource bound).
 #[derive(Clone, Debug)]
@@ -70,15 +87,42 @@ pub struct EngineConfig {
     /// gauge's safe default.
     pub min_std_floor: Option<f64>,
     pub min_cv: Option<f64>,
-    /// Run the two-sided CUSUM drift detector alongside the rolling z-score. A
-    /// CUSUM alarm is a SUSTAINED-DRIFT anomaly the point z-score structurally
-    /// misses (its rolling mean tracks a slow ramp). Additive: it never changes
-    /// the z-score verdict. Disabled reproduces the prior rolling-only behavior.
-    pub cusum_enabled: bool,
     /// CUSUM slack (reference value `k`) in sigma units.
     pub cusum_k: f64,
     /// CUSUM decision interval (`h`, the alarm threshold).
     pub cusum_h: f64,
+    /// Confirmation threshold multiplier: pending drift emits only when the
+    /// latched accumulator reaches `cusum_h * h_confirm_mult`.
+    pub h_confirm_mult: f64,
+    /// Number of samples after a drift latch may reach the confirmation
+    /// threshold before the pending state silently decays/reset.
+    pub drift_confirm_window: u64,
+    /// Minimum estimated sustained shift, in sigma units, before a CUSUM alarm
+    /// becomes an emitted drift finding.
+    pub drift_min_effect: f64,
+    /// Consecutive recovered samples before an open drift episode clears.
+    pub drift_clear_slots: u64,
+    /// Samples after open before a persistent new level is adopted and cleared.
+    pub drift_adopt_after_samples: u64,
+    /// Minimum seconds between still-open drift heartbeat updates.
+    pub episode_update_interval_secs: u64,
+    /// Seconds after a clear during which a re-open reuses the episode identity.
+    pub reopen_cooldown_secs: u64,
+    /// Maximum age for an idle always-on rolling CUSUM anchor before it refreshes
+    /// to the current rolling window.
+    pub anchor_max_age_secs: u64,
+    /// Minimum episode duration before a High spike can become Critical.
+    pub critical_min_duration_secs: u64,
+    /// Minimum open drift duration before Medium drift can escalate to High.
+    pub drift_escalate_after_secs: u64,
+    /// Minimum seconds between non-clear emissions for one detector series.
+    pub emission_cooldown_secs: u64,
+    /// Maximum non-clear anomaly records emitted per frame/tick before rollup.
+    pub emission_budget_per_tick: usize,
+    /// Metric names that should not produce detector findings.
+    pub metric_denylist: Vec<String>,
+    /// Per-class operator overrides projected by the control plane.
+    pub metric_class_overrides: HashMap<String, MetricClassOverride>,
 }
 
 impl Default for EngineConfig {
@@ -91,15 +135,379 @@ impl Default for EngineConfig {
             max_series: 50_000,
             min_std_floor: None,
             min_cv: None,
-            // The Rust default keeps CUSUM OFF so the bare-default engine (used by
-            // fixtures/tests) is byte-for-byte the prior rolling-only detector. The
-            // operator-facing config default is ON (see `AddonConfig::into_engine_config`),
-            // so production runs the drift detector unless explicitly disabled.
-            cusum_enabled: false,
             cusum_k: DEFAULT_CUSUM_K,
             cusum_h: DEFAULT_CUSUM_H,
+            h_confirm_mult: DEFAULT_H_CONFIRM_MULT,
+            drift_confirm_window: DEFAULT_DRIFT_CONFIRM_WINDOW,
+            drift_min_effect: DEFAULT_DRIFT_MIN_EFFECT,
+            drift_clear_slots: DEFAULT_DRIFT_CLEAR_SLOTS,
+            drift_adopt_after_samples: DEFAULT_DRIFT_ADOPT_AFTER_SAMPLES,
+            episode_update_interval_secs: DEFAULT_EPISODE_UPDATE_INTERVAL_SECS,
+            reopen_cooldown_secs: DEFAULT_REOPEN_COOLDOWN_SECS,
+            anchor_max_age_secs: DEFAULT_ANCHOR_MAX_AGE_SECS,
+            critical_min_duration_secs: DEFAULT_CRITICAL_MIN_DURATION_SECS,
+            drift_escalate_after_secs: DEFAULT_DRIFT_ESCALATE_AFTER_SECS,
+            emission_cooldown_secs: DEFAULT_EMISSION_COOLDOWN_SECS,
+            emission_budget_per_tick: DEFAULT_EMISSION_BUDGET_PER_TICK,
+            metric_denylist: DEFAULT_METRIC_DENYLIST
+                .iter()
+                .map(|name| (*name).to_string())
+                .collect(),
+            metric_class_overrides: HashMap::new(),
         }
     }
+}
+
+fn drift_shift_estimate(k: f64, accumulator: f64, samples: u64) -> f64 {
+    let samples = samples.max(1) as f64;
+    k.max(0.0) + accumulator.max(0.0) / samples
+}
+
+fn drift_direction_for(pos: f64, neg: f64) -> CusumDirection {
+    if pos >= neg {
+        CusumDirection::Up
+    } else {
+        CusumDirection::Down
+    }
+}
+
+fn drift_accumulator_for(direction: CusumDirection, pos: f64, neg: f64) -> f64 {
+    match direction {
+        CusumDirection::Up => pos,
+        CusumDirection::Down => neg,
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct DriftSample {
+    pos: f64,
+    neg: f64,
+    direction: CusumDirection,
+    shift_estimate: f64,
+    standardized_residual: f64,
+    target: f64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct DriftLifecycleContext {
+    profile: SeriesProfile,
+    value: f64,
+    observed_at_unix_nano: u64,
+    min_std_floor: f64,
+    min_cv: f64,
+}
+
+fn drift_severity_band(score: f64) -> u8 {
+    if score >= 8.0 {
+        4
+    } else if score >= 4.0 {
+        3
+    } else {
+        2
+    }
+}
+
+fn seconds_to_ns(seconds: u64) -> u64 {
+    seconds.saturating_mul(1_000_000_000)
+}
+
+fn elapsed_ns(now: u64, then: Option<u64>) -> u64 {
+    then.map_or(u64::MAX, |then| now.saturating_sub(then))
+}
+
+fn drift_episode(state: &SeriesState, ended_at_unix_nano: u64) -> Option<AnomalyEpisode> {
+    Some(AnomalyEpisode {
+        started_at_unix_nano: state.drift_episode_started_at_unix_nano?,
+        ended_at_unix_nano,
+        peak_value: state.drift_episode_peak_value?,
+        peak_at_unix_nano: state.drift_episode_peak_at_unix_nano?,
+    })
+}
+
+fn reset_drift_pending_and_cusum(state: &mut SeriesState) {
+    if let Some(cusum) = state.cusum.as_mut() {
+        cusum.reset();
+    }
+    state.cusum_run_samples = 0;
+    state.cusum_pending_direction = None;
+    state.cusum_pending_samples = 0;
+}
+
+fn clear_drift_episode_state(state: &mut SeriesState) {
+    state.drift_active = false;
+    state.drift_active_direction = None;
+    state.drift_episode_started_at_unix_nano = None;
+    state.drift_episode_peak_value = None;
+    state.drift_episode_peak_at_unix_nano = None;
+    state.drift_episode_peak_shift = 0.0;
+    state.drift_peak_severity_band = 0;
+    state.drift_active_samples = 0;
+    state.drift_clear_samples = 0;
+    state.drift_last_emitted_at_unix_nano = None;
+}
+
+fn update_drift_peak(
+    state: &mut SeriesState,
+    value: f64,
+    observed_at_unix_nano: u64,
+    shift_estimate: f64,
+) {
+    if shift_estimate >= state.drift_episode_peak_shift {
+        state.drift_episode_peak_shift = shift_estimate;
+        state.drift_episode_peak_value = Some(value);
+        state.drift_episode_peak_at_unix_nano = Some(observed_at_unix_nano);
+    }
+}
+
+fn current_window_drift_anchor(
+    state: &SeriesState,
+    min_std_floor: f64,
+    min_cv: f64,
+    profile: SeriesProfile,
+) -> Option<(f64, f64)> {
+    if state.window_tail.is_empty() {
+        return None;
+    }
+
+    let stats = RobustStats::from_values(&state.window_tail);
+    let scale = effective_scoring_scale(stats, min_std_floor, min_cv.max(profile.drift_min_cv));
+    Some((stats.center, scale))
+}
+
+fn reanchor_drift_to_current_window(
+    state: &mut SeriesState,
+    cusum_k: f64,
+    cusum_h: f64,
+    min_std_floor: f64,
+    min_cv: f64,
+    profile: SeriesProfile,
+    observed_at_unix_nano: u64,
+) {
+    match current_window_drift_anchor(state, min_std_floor, min_cv, profile) {
+        Some((center, scale)) => {
+            state.cusum_anchor = Some((center, scale));
+            state.cusum_anchor_captured_at_unix_nano = Some(observed_at_unix_nano);
+            state.cusum = Some(Cusum::with_state(cusum_k, cusum_h, 0.0, 0.0));
+        }
+        None => {
+            state.cusum_anchor = None;
+            state.cusum_anchor_captured_at_unix_nano = None;
+            state.cusum = None;
+        }
+    }
+}
+
+fn refresh_drift_anchor_scale(
+    state: &mut SeriesState,
+    min_std_floor: f64,
+    min_cv: f64,
+    profile: SeriesProfile,
+) {
+    let Some((center, _scale)) = state.cusum_anchor else {
+        return;
+    };
+    let Some((_current_center, scale)) =
+        current_window_drift_anchor(state, min_std_floor, min_cv, profile)
+    else {
+        return;
+    };
+
+    state.cusum_anchor = Some((center, scale));
+}
+
+fn seasonal_drift_scale(
+    bucket: SeasonalBucket,
+    min_std_floor: f64,
+    min_cv: f64,
+    profile: SeriesProfile,
+) -> f64 {
+    effective_scoring_scale(
+        RobustStats {
+            center: bucket.center,
+            scale: bucket.scale,
+        },
+        min_std_floor,
+        min_cv.max(profile.drift_min_cv),
+    )
+}
+
+fn clear_open_drift_episode(
+    config: &EngineConfig,
+    state: &mut SeriesState,
+    ctx: DriftLifecycleContext,
+    sample: DriftSample,
+    clear_reason: DriftClearReason,
+) -> Option<CusumDrift> {
+    let episode = drift_episode(state, ctx.observed_at_unix_nano);
+    let reopen_count = state.drift_reopen_count;
+    let clear_reason = if clear_reason == DriftClearReason::Recovered && reopen_count > 0 {
+        DriftClearReason::FlapMerged
+    } else {
+        clear_reason
+    };
+    state.drift_last_cleared_at_unix_nano = Some(ctx.observed_at_unix_nano);
+    state.drift_last_episode_started_at_unix_nano =
+        episode.map(|episode| episode.started_at_unix_nano);
+    clear_drift_episode_state(state);
+    reset_drift_pending_and_cusum(state);
+    reanchor_drift_to_current_window(
+        state,
+        config.cusum_k,
+        config.cusum_h,
+        ctx.min_std_floor,
+        ctx.min_cv,
+        ctx.profile,
+        ctx.observed_at_unix_nano,
+    );
+
+    Some(CusumDrift {
+        pos: sample.pos,
+        neg: sample.neg,
+        direction: sample.direction,
+        shift_estimate: sample.shift_estimate,
+        transition: AnomalyTransition::Clear,
+        episode,
+        clear_reason: Some(clear_reason),
+        update_reason: None,
+        reopen_count,
+    })
+}
+
+fn apply_drift_lifecycle(
+    config: &EngineConfig,
+    state: &mut SeriesState,
+    ctx: DriftLifecycleContext,
+    drift_sample: Option<DriftSample>,
+    allow_new_open: bool,
+) -> Option<CusumDrift> {
+    let sample = drift_sample?;
+
+    if state.drift_active {
+        state.drift_active_samples = state.drift_active_samples.saturating_add(1);
+        update_drift_peak(
+            state,
+            ctx.value,
+            ctx.observed_at_unix_nano,
+            sample.shift_estimate,
+        );
+
+        let recovered = sample.standardized_residual.abs() < config.cusum_k
+            || state.drift_active_direction != Some(sample.direction);
+        if recovered {
+            state.drift_clear_samples = state.drift_clear_samples.saturating_add(1);
+        } else {
+            state.drift_clear_samples = 0;
+        }
+
+        if state.drift_clear_samples >= config.drift_clear_slots.max(1) {
+            let reopened_episode = state.drift_reopen_count > 0;
+            let inside_flap_window = elapsed_ns(
+                ctx.observed_at_unix_nano,
+                state.drift_last_emitted_at_unix_nano,
+            ) <= seconds_to_ns(config.reopen_cooldown_secs.max(1));
+            if reopened_episode && inside_flap_window {
+                return None;
+            }
+
+            return clear_open_drift_episode(
+                config,
+                state,
+                ctx,
+                sample,
+                DriftClearReason::Recovered,
+            );
+        }
+
+        let adoption_blocked = ctx
+            .profile
+            .saturation_gate
+            .is_some_and(|gate| gate.allows_breach(ctx.value, sample.target));
+        if state.drift_active_samples >= config.drift_adopt_after_samples.max(1)
+            && !adoption_blocked
+        {
+            return clear_open_drift_episode(config, state, ctx, sample, DriftClearReason::Adopted);
+        }
+
+        let band = drift_severity_band(sample.shift_estimate);
+        let update_reason = if band > state.drift_peak_severity_band {
+            state.drift_peak_severity_band = band;
+            Some(DriftUpdateReason::SeverityEscalated)
+        } else {
+            let heartbeat_interval_ns = seconds_to_ns(config.episode_update_interval_secs.max(1));
+            (elapsed_ns(
+                ctx.observed_at_unix_nano,
+                state.drift_last_emitted_at_unix_nano,
+            ) >= heartbeat_interval_ns)
+                .then_some(DriftUpdateReason::Heartbeat)
+        };
+
+        return update_reason.map(|reason| {
+            state.drift_last_emitted_at_unix_nano = Some(ctx.observed_at_unix_nano);
+            CusumDrift {
+                pos: sample.pos,
+                neg: sample.neg,
+                direction: sample.direction,
+                shift_estimate: sample.shift_estimate,
+                transition: AnomalyTransition::Update,
+                episode: drift_episode(state, ctx.observed_at_unix_nano),
+                clear_reason: None,
+                update_reason: Some(reason),
+                reopen_count: state.drift_reopen_count,
+            }
+        });
+    }
+
+    if !allow_new_open {
+        reset_drift_pending_and_cusum(state);
+        return None;
+    }
+
+    let reopen_window_ns = seconds_to_ns(config.reopen_cooldown_secs.max(1));
+    let reuse_previous_episode = elapsed_ns(
+        ctx.observed_at_unix_nano,
+        state.drift_last_cleared_at_unix_nano,
+    ) <= reopen_window_ns;
+    let started_at = if reuse_previous_episode {
+        state
+            .drift_last_episode_started_at_unix_nano
+            .unwrap_or(ctx.observed_at_unix_nano)
+    } else {
+        ctx.observed_at_unix_nano
+    };
+
+    if reuse_previous_episode {
+        state.drift_reopen_count = state.drift_reopen_count.saturating_add(1);
+    } else {
+        state.drift_reopen_count = 0;
+    }
+
+    state.drift_active = true;
+    state.drift_active_direction = Some(sample.direction);
+    state.drift_episode_started_at_unix_nano = Some(started_at);
+    state.drift_episode_peak_value = Some(ctx.value);
+    state.drift_episode_peak_at_unix_nano = Some(ctx.observed_at_unix_nano);
+    state.drift_episode_peak_shift = sample.shift_estimate;
+    state.drift_peak_severity_band = drift_severity_band(sample.shift_estimate);
+    state.drift_active_samples = 0;
+    state.drift_clear_samples = 0;
+    state.drift_last_emitted_at_unix_nano = Some(ctx.observed_at_unix_nano);
+    reset_drift_pending_and_cusum(state);
+
+    Some(CusumDrift {
+        pos: sample.pos,
+        neg: sample.neg,
+        direction: sample.direction,
+        shift_estimate: sample.shift_estimate,
+        transition: if reuse_previous_episode {
+            AnomalyTransition::Update
+        } else {
+            AnomalyTransition::Open
+        },
+        episode: drift_episode(state, ctx.observed_at_unix_nano),
+        clear_reason: None,
+        update_reason: reuse_previous_episode.then_some(DriftUpdateReason::Flapping),
+        reopen_count: state.drift_reopen_count,
+    })
 }
 
 /// Bounded map of per-series detector state.
@@ -113,6 +521,10 @@ pub struct DetectorEngine {
     seasonal_settings: SeasonalSettings,
     /// Last cumulative-counter reading per series, for rate normalization.
     pub(crate) counters: HashMap<String, CounterState>,
+    /// Counted reasons why counter readings did not produce a rate sample.
+    pub(crate) counter_drop_counts: CounterDropCounts,
+    /// Per-host CPU aggregate slot state, keyed by the host-level CPU series key.
+    pub(crate) host_cpu_slots: HashMap<String, HostCpuSlotState>,
     /// Last sample timestamp that attempted stale-state eviction at capacity.
     /// Metric-feed frames commonly carry many new keys with the same observation
     /// time; scanning both maps once per timestamp bounds a fruitless full scan
@@ -120,6 +532,18 @@ pub struct DetectorEngine {
     last_capacity_eviction_at_unix_nano: Option<u64>,
     /// Number of new series dropped because the `max_series` cap was reached.
     pub dropped_at_capacity: u64,
+    /// Number of samples whose seasonal-only drift path stayed inactive because
+    /// no usable hour-of-week baseline resolved.
+    pub drift_inactive_no_baseline: u64,
+    emission_storm_active: bool,
+    emission_storm_below_exit_frames: u8,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct EmissionStormUpdate {
+    pub(crate) active: bool,
+    pub(crate) entered: bool,
+    pub(crate) exited: bool,
 }
 
 impl DetectorEngine {
@@ -130,8 +554,13 @@ impl DetectorEngine {
             seasonal: HashMap::new(),
             seasonal_settings: SeasonalSettings::default(),
             counters: HashMap::new(),
+            counter_drop_counts: CounterDropCounts::default(),
+            host_cpu_slots: HashMap::new(),
             last_capacity_eviction_at_unix_nano: None,
             dropped_at_capacity: 0,
+            drift_inactive_no_baseline: 0,
+            emission_storm_active: false,
+            emission_storm_below_exit_frames: 0,
         }
     }
 
@@ -141,6 +570,111 @@ impl DetectorEngine {
 
     pub fn config(&self) -> EngineConfig {
         self.config.clone()
+    }
+
+    pub(crate) fn anomaly_emission_allowed(
+        &self,
+        series_key: &str,
+        transition: AnomalyTransition,
+        observed_at_unix_nano: u64,
+        cooldown_secs: u64,
+    ) -> bool {
+        if transition == AnomalyTransition::Clear {
+            return true;
+        }
+
+        let cooldown_ns = seconds_to_ns(cooldown_secs.max(1));
+        self.series
+            .get(series_key)
+            .and_then(|state| state.last_non_clear_emitted_at_unix_nano)
+            .is_none_or(|last| observed_at_unix_nano.saturating_sub(last) >= cooldown_ns)
+    }
+
+    pub(crate) fn mark_anomaly_emitted(
+        &mut self,
+        series_key: &str,
+        transition: AnomalyTransition,
+        observed_at_unix_nano: u64,
+    ) {
+        if transition == AnomalyTransition::Clear {
+            return;
+        }
+
+        if let Some(state) = self.series.get_mut(series_key) {
+            state.last_non_clear_emitted_at_unix_nano = Some(observed_at_unix_nano);
+        }
+    }
+
+    pub(crate) fn update_emission_storm(
+        &mut self,
+        governed_non_clear: usize,
+        budget_per_tick: usize,
+    ) -> EmissionStormUpdate {
+        let budget = budget_per_tick.max(1);
+        let exhausted = governed_non_clear > budget;
+        let below_exit = governed_non_clear.saturating_mul(2) <= budget;
+        let mut entered = false;
+        let mut exited = false;
+
+        if exhausted {
+            if !self.emission_storm_active {
+                entered = true;
+            }
+            self.emission_storm_active = true;
+            self.emission_storm_below_exit_frames = 0;
+        } else if self.emission_storm_active {
+            if below_exit {
+                self.emission_storm_below_exit_frames =
+                    self.emission_storm_below_exit_frames.saturating_add(1);
+                if self.emission_storm_below_exit_frames >= EMISSION_STORM_EXIT_FRAMES {
+                    self.emission_storm_active = false;
+                    self.emission_storm_below_exit_frames = 0;
+                    exited = true;
+                }
+            } else {
+                self.emission_storm_below_exit_frames = 0;
+            }
+        }
+
+        EmissionStormUpdate {
+            active: self.emission_storm_active,
+            entered,
+            exited,
+        }
+    }
+
+    pub(crate) fn observe_host_cpu_core_sample(
+        &mut self,
+        aggregate_series_key: &str,
+        core_id: &str,
+        value: f64,
+        observed_at_unix_nano: u64,
+        interval_ns: u64,
+        saturation_gate: f64,
+    ) -> Option<HostCpuAggregateSample> {
+        if !value.is_finite() || core_id.is_empty() || interval_ns == 0 {
+            return None;
+        }
+
+        let slot_start = observed_at_unix_nano - (observed_at_unix_nano % interval_ns);
+        let state = self
+            .host_cpu_slots
+            .entry(aggregate_series_key.to_string())
+            .or_insert_with(|| HostCpuSlotState::new(slot_start));
+
+        if slot_start < state.slot_start_unix_nano {
+            return None;
+        }
+
+        if slot_start == state.slot_start_unix_nano {
+            state.observe_core(core_id, value, observed_at_unix_nano);
+            return None;
+        }
+
+        let ready = state.aggregate(saturation_gate);
+        *state = HostCpuSlotState::new(slot_start);
+        state.observe_core(core_id, value, observed_at_unix_nano);
+        ready
     }
 
     /// Replace the per-series hour-of-week seasonal baselines delivered from core.
@@ -182,12 +716,26 @@ impl DetectorEngine {
         }
 
         let bucket = self
-            .seasonal
-            .get(seasonal_key)?
+            .seasonal_profile(seasonal_key)?
             .bucket(hour_of_week(observed_at_unix_nano))?;
         bucket
             .usable(self.seasonal_settings.min_bucket_samples)
             .then_some(bucket)
+    }
+
+    fn seasonal_profile(&self, seasonal_key: &str) -> Option<&SeasonalProfile> {
+        self.seasonal
+            .get(seasonal_key)
+            .or_else(|| self.seasonal_fallback_key(seasonal_key))
+    }
+
+    fn seasonal_fallback_key(&self, seasonal_key: &str) -> Option<&SeasonalProfile> {
+        let (fallback, if_index) = seasonal_key.rsplit_once('|')?;
+        if if_index.is_empty() || !if_index.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+
+        self.seasonal.get(fallback)
     }
 
     fn seasonal_context(
@@ -226,6 +774,49 @@ impl DetectorEngine {
         self.config.max_series
     }
 
+    pub fn metric_denied(&self, metric_name: &str) -> bool {
+        self.config
+            .metric_denylist
+            .iter()
+            .any(|denied| denied == metric_name)
+    }
+
+    pub(crate) fn metric_class_enabled(&self, class: &str) -> bool {
+        self.config
+            .metric_class_overrides
+            .get(class)
+            .and_then(|class_override| class_override.enabled)
+            .unwrap_or(true)
+    }
+
+    pub(crate) fn apply_metric_class_override(
+        &self,
+        class: &str,
+        mut profile: SeriesProfile,
+    ) -> SeriesProfile {
+        let Some(class_override) = self.config.metric_class_overrides.get(class) else {
+            return profile;
+        };
+
+        if let Some(drift_mode) = class_override.drift_mode {
+            profile.drift_mode = drift_mode;
+        }
+        if let Some(min_std_floor) = class_override
+            .min_std_floor
+            .filter(|value| value.is_finite() && *value > 0.0)
+        {
+            profile.min_std_floor = profile.min_std_floor.max(min_std_floor);
+        }
+        if let Some(min_cv) = class_override
+            .min_cv
+            .filter(|value| value.is_finite() && *value > 0.0)
+        {
+            profile.min_cv = profile.min_cv.max(min_cv);
+        }
+
+        profile
+    }
+
     fn evict_stale_state(&mut self, now_unix_nano: u64) {
         self.series.retain(|_, state| {
             now_unix_nano.saturating_sub(state.last_observed_at_unix_nano)
@@ -233,6 +824,10 @@ impl DetectorEngine {
         });
         self.counters.retain(|_, counter| {
             now_unix_nano.saturating_sub(counter.timestamp) <= STATE_EVICTION_MAX_AGE_NS
+        });
+        self.host_cpu_slots.retain(|_, slot| {
+            now_unix_nano.saturating_sub(slot.last_observed_at_unix_nano)
+                <= STATE_EVICTION_MAX_AGE_NS
         });
     }
 
@@ -326,12 +921,11 @@ impl DetectorEngine {
                 ),
                 None => (None, None, None, None),
             };
-        // The CUSUM deseasonalize target: the delivered hour-of-week bucket center
-        // when one resolves for this sample, else the frozen rolling anchor mean
-        // (resolved below). Looked up here while only `&self` is borrowed.
-        let cusum_target_center = if self.config.cusum_enabled {
+        // The CUSUM deseasonalize target: the delivered hour-of-week bucket when
+        // one resolves for this sample. Deseasonalized-only profiles require this
+        // context; always-on profiles may fall back to the rolling anchor below.
+        let cusum_target_bucket = if profile.drift_mode == DriftMode::DeseasonalizedOnly {
             self.seasonal_bucket(seasonal_key, observed_at_unix_nano)
-                .map(|bucket| bucket.center)
         } else {
             None
         };
@@ -349,24 +943,7 @@ impl DetectorEngine {
         let state = self
             .series
             .entry(series_key.to_owned())
-            .or_insert_with(|| SeriesState {
-                window_tail: Vec::new(),
-                consecutive_anomalous: 0,
-                consecutive_clean: 0,
-                active_anomalous: false,
-                pending_episode_started_at_unix_nano: None,
-                pending_episode_peak_value: None,
-                pending_episode_peak_at_unix_nano: None,
-                active_episode_started_at_unix_nano: None,
-                active_episode_peak_value: None,
-                active_episode_peak_at_unix_nano: None,
-                aggregation_slot_start_unix_nano: None,
-                aggregation_slot_value: None,
-                aggregation_slot_peak_at_unix_nano: None,
-                cusum: None,
-                cusum_anchor: None,
-                last_observed_at_unix_nano: observed_at_unix_nano,
-            });
+            .or_insert_with(|| SeriesState::new(observed_at_unix_nano));
 
         // A global operator floor override (fix #2) only ever RAISES the floor:
         // take the max of the series' built-in per-class floor and any configured
@@ -383,39 +960,140 @@ impl DetectorEngine {
 
         // --- CUSUM sustained-drift detector ---------------------------------
         // Runs on the PRE-sample window (the rolling baseline before this sample is
-        // folded in). Anchors to the frozen (mean, floored-scale) the first time the
-        // rolling baseline reaches `min_samples`, then standardizes each sample's
-        // residual `(value - target) / scale` — `target` is the delivered seasonal
-        // bucket center when present (deseasonalize), else the frozen anchor mean.
-        // A rolling z-score's mean tracks a slow ramp and never trips; the anchored
-        // CUSUM accumulates that drift until it crosses `h` and alarms. Captured
-        // here, gated on the z-score verdict below.
-        let mut cusum_alarm: Option<(f64, f64)> = None;
-        if self.config.cusum_enabled {
+        // folded in). Anchors to a robust `(mean, floored-scale)` once the rolling
+        // baseline reaches `min_samples`. Deseasonalized-only profiles advance only
+        // when a delivered seasonal target resolves; always-on profiles can use the
+        // frozen anchor. Captured here, gated on the z-score verdict below.
+        let mut drift_sample: Option<DriftSample> = None;
+        if profile.drift_mode == DriftMode::DeseasonalizedOnly && cusum_target_bucket.is_none() {
+            self.drift_inactive_no_baseline = self.drift_inactive_no_baseline.saturating_add(1);
+        }
+
+        if profile.drift_mode != DriftMode::Off {
             if state.cusum_anchor.is_none() && state.window_tail.len() >= self.config.min_samples {
-                // Anchor to the ROBUST center/scale (median + MAD*1.4826), matching the
-                // rolling detector's dispersion: the frozen reference and the fallback
-                // deseasonalize target are the robust center now, so a first spike in
-                // the warmup window cannot poison the CUSUM anchor.
-                let stats = RobustStats::from_values(&state.window_tail);
-                let scale = stats
-                    .effective_scale(min_std_floor, min_cv)
-                    .max(f64::EPSILON);
-                state.cusum_anchor = Some((stats.center, scale));
-                state.cusum = Some(Cusum::with_state(
+                // Anchor to the ROBUST center/scale (median + MAD*1.4826), matching
+                // the rolling detector's dispersion. The scale uses the same
+                // magnitude-aware floor as robust scoring so a quiet series cannot
+                // divide by EPSILON and manufacture astronomical drift evidence.
+                reanchor_drift_to_current_window(
+                    state,
                     self.config.cusum_k,
                     self.config.cusum_h,
-                    0.0,
-                    0.0,
-                ));
-            }
-            if let (Some((anchor_mean, scale)), Some(cusum)) =
-                (state.cusum_anchor, state.cusum.as_mut())
+                    min_std_floor,
+                    min_cv,
+                    profile,
+                    observed_at_unix_nano,
+                );
+            } else if profile.drift_mode == DriftMode::Always
+                && state.cusum_anchor.is_some()
+                && !state.drift_active
+                && state.cusum_pending_direction.is_none()
+                && state.window_tail.len() >= self.config.min_samples
+                && elapsed_ns(
+                    observed_at_unix_nano,
+                    state.cusum_anchor_captured_at_unix_nano,
+                ) >= seconds_to_ns(self.config.anchor_max_age_secs.max(1))
             {
-                let target = cusum_target_center.unwrap_or(anchor_mean);
-                let step = cusum.update((value - target) / scale);
-                if step.alarm {
-                    cusum_alarm = Some((step.pos, step.neg));
+                reset_drift_pending_and_cusum(state);
+                reanchor_drift_to_current_window(
+                    state,
+                    self.config.cusum_k,
+                    self.config.cusum_h,
+                    min_std_floor,
+                    min_cv,
+                    profile,
+                    observed_at_unix_nano,
+                );
+            } else {
+                refresh_drift_anchor_scale(state, min_std_floor, min_cv, profile);
+            }
+            let drift_target = match profile.drift_mode {
+                DriftMode::Off => None,
+                DriftMode::DeseasonalizedOnly => cusum_target_bucket.map(|bucket| {
+                    (
+                        bucket.center,
+                        seasonal_drift_scale(bucket, min_std_floor, min_cv, profile),
+                    )
+                }),
+                DriftMode::Always => state.cusum_anchor.map(|(anchor_mean, anchor_scale)| {
+                    cusum_target_bucket.map_or((anchor_mean, anchor_scale), |bucket| {
+                        (
+                            bucket.center,
+                            seasonal_drift_scale(bucket, min_std_floor, min_cv, profile),
+                        )
+                    })
+                }),
+            };
+
+            if let (Some((target, scale)), Some(cusum)) = (drift_target, state.cusum.as_mut()) {
+                let standardized_residual = (value - target) / scale;
+
+                if state.drift_active {
+                    let direction = if standardized_residual >= 0.0 {
+                        CusumDirection::Up
+                    } else {
+                        CusumDirection::Down
+                    };
+                    let shift_estimate = standardized_residual.abs();
+                    let (pos, neg) = match direction {
+                        CusumDirection::Up => (shift_estimate, 0.0),
+                        CusumDirection::Down => (0.0, shift_estimate),
+                    };
+                    drift_sample = Some(DriftSample {
+                        pos,
+                        neg,
+                        direction,
+                        shift_estimate,
+                        standardized_residual,
+                        target,
+                    });
+                } else {
+                    let step = cusum.update_retaining(standardized_residual);
+                    if step.pos <= 0.0 && step.neg <= 0.0 {
+                        state.cusum_run_samples = 0;
+                        state.cusum_pending_direction = None;
+                        state.cusum_pending_samples = 0;
+                    } else {
+                        state.cusum_run_samples = state.cusum_run_samples.saturating_add(1);
+                    }
+
+                    if let Some(pending_direction) = state.cusum_pending_direction {
+                        state.cusum_pending_samples = state.cusum_pending_samples.saturating_add(1);
+                        let pending_accumulator =
+                            drift_accumulator_for(pending_direction, step.pos, step.neg);
+                        let h_confirm = self.config.cusum_h * self.config.h_confirm_mult;
+
+                        if pending_accumulator > h_confirm {
+                            let gate_allows = profile
+                                .saturation_gate
+                                .is_none_or(|gate| gate.allows_breach(value, target));
+                            let shift_estimate = drift_shift_estimate(
+                                self.config.cusum_k,
+                                pending_accumulator,
+                                state.cusum_run_samples,
+                            );
+
+                            if gate_allows && shift_estimate >= self.config.drift_min_effect {
+                                drift_sample = Some(DriftSample {
+                                    pos: step.pos,
+                                    neg: step.neg,
+                                    direction: pending_direction,
+                                    shift_estimate,
+                                    standardized_residual,
+                                    target,
+                                });
+                            }
+                        } else if state.cusum_pending_samples >= self.config.drift_confirm_window {
+                            cusum.reset();
+                            state.cusum_run_samples = 0;
+                            state.cusum_pending_direction = None;
+                            state.cusum_pending_samples = 0;
+                        }
+                    } else if step.alarm {
+                        state.cusum_pending_direction =
+                            Some(drift_direction_for(step.pos, step.neg));
+                        state.cusum_pending_samples = 0;
+                    }
                 }
             }
         }
@@ -460,18 +1138,19 @@ impl DetectorEngine {
                 // Additive but de-duplicated: a CUSUM drift finding reports exactly
                 // the sustained drift the point z-score MISSES, so suppress it when
                 // the z-score itself breached this sample (already an edge-spike).
-                let cusum_drift =
-                    cusum_alarm
-                        .filter(|_| !verdict.breached)
-                        .map(|(pos, neg)| CusumDrift {
-                            pos,
-                            neg,
-                            direction: if pos >= neg {
-                                CusumDirection::Up
-                            } else {
-                                CusumDirection::Down
-                            },
-                        });
+                let cusum_drift = apply_drift_lifecycle(
+                    &self.config,
+                    state,
+                    DriftLifecycleContext {
+                        profile,
+                        value,
+                        observed_at_unix_nano,
+                        min_std_floor,
+                        min_cv,
+                    },
+                    drift_sample,
+                    !verdict.breached,
+                );
 
                 Some((verdict, cusum_drift))
             }
@@ -606,24 +1285,7 @@ impl DetectorEngine {
         let state = self
             .series
             .entry(series_key.to_owned())
-            .or_insert_with(|| SeriesState {
-                window_tail: Vec::new(),
-                consecutive_anomalous: 0,
-                consecutive_clean: 0,
-                active_anomalous: false,
-                pending_episode_started_at_unix_nano: None,
-                pending_episode_peak_value: None,
-                pending_episode_peak_at_unix_nano: None,
-                active_episode_started_at_unix_nano: None,
-                active_episode_peak_value: None,
-                active_episode_peak_at_unix_nano: None,
-                aggregation_slot_start_unix_nano: None,
-                aggregation_slot_value: None,
-                aggregation_slot_peak_at_unix_nano: None,
-                cusum: None,
-                cusum_anchor: None,
-                last_observed_at_unix_nano: observed_at_unix_nano,
-            });
+            .or_insert_with(|| SeriesState::new(observed_at_unix_nano));
 
         let slot_start = observed_at_unix_nano - (observed_at_unix_nano % interval_ns);
 

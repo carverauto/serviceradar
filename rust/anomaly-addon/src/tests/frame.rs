@@ -3,6 +3,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License").
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use addon_sdk::HealthStatus;
@@ -14,15 +15,42 @@ use tokio::sync::broadcast;
 use super::support::{
     assert_no_batch, metric_feed_frame, metric_feed_frame_from_batch, process_anomaly_value,
     recv_single_event, sysmon_cpu_core_batch, sysmon_cpu_debug_spike_batch,
-    telemetry_drop_counters,
+    sysmon_cpu_multi_core_batch, telemetry_drop_counters,
 };
-use crate::engine::{DetectorEngine, EngineConfig};
+use crate::engine::{DetectorEngine, EngineConfig, MetricClassOverride};
 use crate::frame::process_frame;
 use crate::health::{EngineHealthSnapshot, ScoringHealth};
 use crate::identity::safe_component;
 
 fn tag_component(key: &str, value: &str) -> String {
     safe_component(&format!("tag_{}", hex::encode(key.as_bytes())), value)
+}
+
+fn multi_series_custom_batch(values: &[(&str, f64)], observed_at_unix_nano: u64) -> MetricBatch {
+    MetricBatch {
+        resource: Some(MetricResource {
+            agent_id: "agent-a".to_string(),
+            host_id: "host-a".to_string(),
+            device_id: "device-a".to_string(),
+            partition: "demo".to_string(),
+            ..Default::default()
+        }),
+        metrics: vec![Metric {
+            name: "custom.value".to_string(),
+            metric_type: "custom".to_string(),
+            points: values
+                .iter()
+                .map(|(series, value)| MetricPoint {
+                    value: *value,
+                    observed_at_unix_nano,
+                    series_identity_hint: (*series).to_string(),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    }
 }
 
 #[tokio::test]
@@ -90,6 +118,7 @@ async fn process_frame_reports_capacity_shed_once_per_frame() {
             tracked_counters: 0,
             max_series: 1,
             dropped_total: engine.dropped_at_capacity,
+            drift_inactive_no_baseline_total: engine.drift_inactive_no_baseline,
         }
     };
     let health = scoring_health
@@ -210,6 +239,82 @@ async fn snmp_points_without_target_identity_are_not_scored_on_the_agent_series(
 }
 
 #[tokio::test]
+async fn metric_denylist_skips_cpu_frequency() {
+    let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig::default())));
+    let (tx, mut rx) = broadcast::channel(8);
+    let telemetry_drops = telemetry_drop_counters();
+    let scoring_health = Arc::new(Mutex::new(ScoringHealth::default()));
+    let batch = MetricBatch {
+        resource: Some(MetricResource {
+            agent_id: "agent-a".to_string(),
+            host_id: "host-a".to_string(),
+            device_id: "device-a".to_string(),
+            partition: "demo".to_string(),
+            ..Default::default()
+        }),
+        metrics: vec![Metric {
+            name: "cpu.frequency_hz".to_string(),
+            metric_type: "sysmon.cpu".to_string(),
+            points: vec![MetricPoint {
+                value: 1_000_000_000.0,
+                observed_at_unix_nano: 1,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    process_frame(
+        &engine,
+        &tx,
+        &telemetry_drops,
+        &scoring_health,
+        &metric_feed_frame_from_batch(43, batch),
+    )
+    .await;
+
+    assert_no_batch(&mut rx);
+    assert_eq!(engine.lock().unwrap().series_count(), 0);
+    assert_eq!(scoring_health.lock().unwrap().scored_samples, 0);
+}
+
+#[tokio::test]
+async fn metric_class_disabled_skips_cpu_scoring_and_state() {
+    let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig {
+        window_size: 10,
+        min_samples: 1,
+        n_sigma: 1.0,
+        confirm_slots: 1,
+        max_series: 10,
+        metric_class_overrides: HashMap::from([(
+            "cpu".to_string(),
+            MetricClassOverride {
+                enabled: Some(false),
+                ..MetricClassOverride::default()
+            },
+        )]),
+        ..EngineConfig::default()
+    })));
+    let (tx, mut rx) = broadcast::channel(8);
+    let telemetry_drops = telemetry_drop_counters();
+    let scoring_health = Arc::new(Mutex::new(ScoringHealth::default()));
+
+    process_frame(
+        &engine,
+        &tx,
+        &telemetry_drops,
+        &scoring_health,
+        &metric_feed_frame_from_batch(44, sysmon_cpu_core_batch(1, 95.0, 44)),
+    )
+    .await;
+
+    assert_no_batch(&mut rx);
+    assert_eq!(engine.lock().unwrap().series_count(), 0);
+    assert_eq!(scoring_health.lock().unwrap().scored_samples, 0);
+}
+
+#[tokio::test]
 async fn snmp_points_with_canonical_polled_device_are_scored_without_target_ip() {
     let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig {
         window_size: 10,
@@ -309,6 +414,105 @@ async fn process_frame_emits_only_anomaly_open_and_clear_transitions() {
             .unwrap_or_default()
             .contains("pending_anomaly")
     );
+}
+
+#[tokio::test]
+async fn process_frame_cooldown_suppresses_non_clear_and_rolls_up() {
+    let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig {
+        window_size: 50,
+        min_samples: 5,
+        n_sigma: 3.0,
+        confirm_slots: 1,
+        max_series: 10,
+        emission_cooldown_secs: 300,
+        ..EngineConfig::default()
+    })));
+    let (tx, mut rx) = broadcast::channel(8);
+    let telemetry_drops = telemetry_drop_counters();
+
+    for ts in 1..=8 {
+        process_anomaly_value(&engine, &tx, &telemetry_drops, 100.0, ts).await;
+    }
+    assert_no_batch(&mut rx);
+
+    process_anomaly_value(&engine, &tx, &telemetry_drops, 1_000.0, 9).await;
+    let open = recv_single_event(&mut rx);
+    assert_eq!(open["transition"], "open");
+
+    process_anomaly_value(&engine, &tx, &telemetry_drops, 100.0, 10).await;
+    let clear = recv_single_event(&mut rx);
+    assert_eq!(clear["transition"], "clear");
+
+    process_anomaly_value(&engine, &tx, &telemetry_drops, 1_000.0, 11).await;
+    let rollup = recv_single_event(&mut rx);
+    assert_eq!(rollup["status_code"], "anomaly_emission_shed");
+    assert_eq!(rollup["unmapped"]["detected_transitions"], 1);
+    assert_eq!(rollup["unmapped"]["emitted_transitions"], 0);
+    assert_eq!(rollup["unmapped"]["cooldown_suppressed"], 1);
+    assert_eq!(rollup["unmapped"]["accounted_transitions"], 1);
+}
+
+#[tokio::test]
+async fn process_frame_budget_sheds_with_accounted_rollup_and_storm_entry() {
+    let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig {
+        window_size: 50,
+        min_samples: 5,
+        n_sigma: 3.0,
+        confirm_slots: 1,
+        max_series: 20,
+        emission_budget_per_tick: 2,
+        ..EngineConfig::default()
+    })));
+    let (tx, mut rx) = broadcast::channel(8);
+    let telemetry_drops = telemetry_drop_counters();
+    let scoring_health = Arc::new(Mutex::new(ScoringHealth::default()));
+    let series = ["s0", "s1", "s2", "s3", "s4"];
+
+    for ts in 1..=8 {
+        let warm: Vec<_> = series.iter().map(|series| (*series, 100.0)).collect();
+        process_frame(
+            &engine,
+            &tx,
+            &telemetry_drops,
+            &scoring_health,
+            &metric_feed_frame_from_batch(ts, multi_series_custom_batch(&warm, ts)),
+        )
+        .await;
+    }
+    assert_no_batch(&mut rx);
+
+    let high: Vec<_> = series.iter().map(|series| (*series, 1_000.0)).collect();
+    process_frame(
+        &engine,
+        &tx,
+        &telemetry_drops,
+        &scoring_health,
+        &metric_feed_frame_from_batch(9, multi_series_custom_batch(&high, 9)),
+    )
+    .await;
+
+    let batch = rx.try_recv().expect("telemetry batch");
+    assert_eq!(batch.records.len(), 3, "2 opens + 1 emission shed rollup");
+    let events: Vec<serde_json::Value> = batch
+        .records
+        .iter()
+        .map(|record| serde_json::from_slice(&record.payload).expect("event json"))
+        .collect();
+    let anomaly_count = events
+        .iter()
+        .filter(|event| event["event_type"].as_str() == Some("anomaly"))
+        .count();
+    let rollup = events
+        .iter()
+        .find(|event| event["status_code"].as_str() == Some("anomaly_emission_shed"))
+        .expect("emission shed rollup");
+
+    assert_eq!(anomaly_count, 2);
+    assert_eq!(rollup["unmapped"]["detected_transitions"], 5);
+    assert_eq!(rollup["unmapped"]["emitted_transitions"], 2);
+    assert_eq!(rollup["unmapped"]["budget_shed"], 3);
+    assert_eq!(rollup["unmapped"]["accounted_transitions"], 3);
+    assert_eq!(rollup["unmapped"]["storm_entered"], true);
 }
 
 #[tokio::test]
@@ -517,17 +721,16 @@ async fn recurring_cpu_spikes_separated_by_clean_slots_do_not_accumulate_confirm
 }
 
 #[tokio::test]
-async fn process_frame_emits_a_cusum_drift_finding_for_a_slow_ramp_the_zscore_misses() {
-    // End-to-end through the production frame path: a gentle upward ramp the rolling
-    // z-score absorbs into its mean (never opening a spike) still produces a verdict
-    // — a CUSUM sustained-drift finding marked `cusum_drift`, distinct from a spike.
+async fn process_frame_does_not_emit_raw_cusum_drift_without_a_baseline() {
+    // End-to-end through the production frame path: a gentle upward ramp the
+    // rolling z-score absorbs into its mean must not produce raw/frozen-anchor
+    // drift when the metric class has no delivered seasonal baseline.
     let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig {
         window_size: 50,
         min_samples: 30,
         n_sigma: 3.0,
         confirm_slots: 1,
         max_series: 10,
-        cusum_enabled: true,
         ..EngineConfig::default()
     })));
     let (tx, mut rx) = broadcast::channel(128);
@@ -561,25 +764,12 @@ async fn process_frame_emits_a_cusum_drift_finding_for_a_slow_ramp_the_zscore_mi
     }
 
     assert!(
-        methods.iter().any(|m| m == "cusum_drift"),
-        "a slow drift must emit a cusum_drift finding, saw methods: {methods:?}"
-    );
-    assert!(
         !methods.iter().any(|m| m == "rolling_robust_zscore"),
         "the point z-score must NOT have flagged the gradual ramp (it missed it)"
     );
-
-    let drift = drift_event.expect("a cusum_drift event");
-    assert_eq!(drift["verdict_source"], "edge-drift");
-    assert_eq!(drift["signal_type"], "prediction");
-    assert_eq!(drift["status"], "open");
-    assert_eq!(drift["anomaly"]["state"], "anomaly_drift");
-    assert_eq!(drift["anomaly"]["detector_method"], "cusum_drift");
-    assert_eq!(drift["anomaly"]["drift_direction"], "upward");
-    assert_eq!(drift["message"], "sustained upward drift");
     assert!(
-        drift["anomaly"]["cusum_pos"].as_f64().unwrap_or(0.0) > 5.0,
-        "the reported S+ accumulator crossed the decision interval"
+        drift_event.is_none(),
+        "raw drift without a baseline must stay silent, saw methods: {methods:?}"
     );
 }
 
@@ -641,19 +831,156 @@ async fn multi_core_cpu_points_do_not_count_as_consecutive_samples_for_one_serie
     .await;
 
     let batch = rx.try_recv().expect("sustained spike emits one batch");
-    assert_eq!(batch.records.len(), 4);
+    assert_eq!(batch.records.len(), 5);
 
-    let series_keys = batch
+    let events = batch
         .records
         .iter()
         .map(|record| {
-            let event: serde_json::Value = serde_json::from_slice(&record.payload).unwrap();
+            serde_json::from_slice::<serde_json::Value>(&record.payload).expect("event json")
+        })
+        .collect::<Vec<_>>();
+    let series_keys = events
+        .iter()
+        .map(|event| {
             event["source_identity"]["series_key"]
                 .as_str()
                 .unwrap()
                 .to_string()
         })
         .collect::<std::collections::BTreeSet<_>>();
+    let host_events = events
+        .iter()
+        .filter(|event| event["source_identity"]["tags"].get("core_id").is_none())
+        .collect::<Vec<_>>();
+    let per_core_events = events
+        .iter()
+        .filter(|event| event["source_identity"]["tags"].get("core_id").is_some())
+        .count();
 
-    assert_eq!(series_keys.len(), 4);
+    assert_eq!(series_keys.len(), 5);
+    assert_eq!(per_core_events, 4);
+    assert_eq!(host_events.len(), 1);
+    assert_eq!(
+        host_events[0]["source_identity"]["series_key"],
+        [
+            "v2".to_string(),
+            safe_component("partition", "demo"),
+            safe_component("identity", "device-a"),
+            safe_component("metric", "cpu.usage_percent"),
+        ]
+        .join("|")
+    );
+}
+
+#[tokio::test]
+async fn one_busy_core_does_not_emit_host_cpu_aggregate_open() {
+    let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig {
+        window_size: 50,
+        min_samples: 5,
+        n_sigma: 3.0,
+        confirm_slots: 2,
+        max_series: 20,
+        ..EngineConfig::default()
+    })));
+    let (tx, mut rx) = broadcast::channel(8);
+    let telemetry_drops = telemetry_drop_counters();
+    let scoring_health = Arc::new(Mutex::new(ScoringHealth::default()));
+    let start = 1_812_456_000_000_000_000_u64;
+    let sample_time = |slot: u64| start + (slot * 30 * 1_000_000_000);
+    let mostly_idle = [(0, 25.0), (1, 25.0), (2, 25.0), (3, 25.0)];
+
+    for ts in 1..=8 {
+        let frame = metric_feed_frame_from_batch(
+            ts,
+            sysmon_cpu_multi_core_batch(&mostly_idle, sample_time(ts)),
+        );
+        process_frame(&engine, &tx, &telemetry_drops, &scoring_health, &frame).await;
+    }
+    assert_no_batch(&mut rx);
+
+    let one_busy = [(0, 95.0), (1, 25.0), (2, 25.0), (3, 25.0)];
+    for ts in 9..=11 {
+        let frame = metric_feed_frame_from_batch(
+            ts,
+            sysmon_cpu_multi_core_batch(&one_busy, sample_time(ts)),
+        );
+        process_frame(&engine, &tx, &telemetry_drops, &scoring_health, &frame).await;
+    }
+
+    let batch = rx
+        .try_recv()
+        .expect("single busy core emits per-core event");
+    assert_eq!(batch.records.len(), 1);
+    let event: serde_json::Value = serde_json::from_slice(&batch.records[0].payload).unwrap();
+    assert_eq!(event["source_identity"]["tags"]["core_id"], "0");
+    assert!(
+        event["source_identity"]["series_key"]
+            .as_str()
+            .expect("series key")
+            .contains(&tag_component("core_id", "0"))
+    );
+    assert_no_batch(&mut rx);
+}
+
+#[tokio::test]
+async fn host_wide_cpu_saturation_emits_critical_eligible_host_aggregate() {
+    let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig {
+        window_size: 50,
+        min_samples: 5,
+        n_sigma: 3.0,
+        confirm_slots: 2,
+        max_series: 20,
+        critical_min_duration_secs: 1,
+        ..EngineConfig::default()
+    })));
+    let (tx, mut rx) = broadcast::channel(8);
+    let telemetry_drops = telemetry_drop_counters();
+    let scoring_health = Arc::new(Mutex::new(ScoringHealth::default()));
+    let start = 1_812_456_000_000_000_000_u64;
+    let sample_time = |slot: u64| start + (slot * 30 * 1_000_000_000);
+    let idle = [(0, 25.0), (1, 25.0), (2, 25.0), (3, 25.0)];
+    let saturated = [(0, 95.0), (1, 95.0), (2, 95.0), (3, 95.0)];
+
+    for ts in 1..=8 {
+        let frame =
+            metric_feed_frame_from_batch(ts, sysmon_cpu_multi_core_batch(&idle, sample_time(ts)));
+        process_frame(&engine, &tx, &telemetry_drops, &scoring_health, &frame).await;
+    }
+    assert_no_batch(&mut rx);
+
+    for ts in 9..=11 {
+        let frame = metric_feed_frame_from_batch(
+            ts,
+            sysmon_cpu_multi_core_batch(&saturated, sample_time(ts)),
+        );
+        process_frame(&engine, &tx, &telemetry_drops, &scoring_health, &frame).await;
+    }
+
+    let batch = rx.try_recv().expect("host-wide saturation emits events");
+    let events = batch
+        .records
+        .iter()
+        .map(|record| {
+            serde_json::from_slice::<serde_json::Value>(&record.payload).expect("event json")
+        })
+        .collect::<Vec<_>>();
+    let host = events
+        .iter()
+        .find(|event| event["source_identity"]["tags"].get("core_id").is_none())
+        .expect("host aggregate event");
+
+    assert_eq!(events.len(), 5);
+    assert_eq!(host["severity_id"], 5);
+    assert_eq!(host["anomaly"]["sample_value"], 95.0);
+    assert_eq!(
+        host["source_identity"]["series_key"],
+        [
+            "v2".to_string(),
+            safe_component("partition", "demo"),
+            safe_component("identity", "device-a"),
+            safe_component("metric", "cpu.usage_percent"),
+        ]
+        .join("|")
+    );
 }

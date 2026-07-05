@@ -36,6 +36,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaseline do
   # MAD -> sigma consistency constant for a normal distribution.
   @mad_to_sigma 1.4826
 
+  @type encoding :: :buckets | :compact_168
+
   @doc """
   Build the per-series `seasonal_baselines` payload from hydrated profile rows.
 
@@ -43,15 +45,49 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaseline do
   defaults to `:median_mad` (the worker's default). Rows missing required fields,
   with an out-of-range `(dow, hod)`, or a non-finite/negative scale are dropped.
   """
-  @spec build([map()], atom()) :: %{optional(String.t()) => map()}
-  def build(rows, robust_statistic \\ :median_mad) when is_list(rows) do
+  @spec build([map()], atom(), keyword()) :: %{optional(String.t()) => map()}
+  def build(rows, robust_statistic \\ :median_mad, opts \\ []) when is_list(rows) do
+    encoding = Keyword.get(opts, :encoding, :buckets)
+
     rows
     |> Enum.flat_map(&wrap_bucket(&1, robust_statistic))
-    |> Enum.group_by(fn {series_key, _bucket} -> series_key end, fn {_series_key, bucket} ->
-      bucket
-    end)
-    |> Map.new(fn {series_key, buckets} -> {series_key, %{"buckets" => buckets}} end)
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+    |> Map.new(fn {series_key, buckets} -> {series_key, encode_buckets(buckets, encoding)} end)
   end
+
+  defp encode_buckets(buckets, :compact_168), do: compact_168(buckets)
+  defp encode_buckets(buckets, _encoding), do: %{"buckets" => buckets}
+
+  defp compact_168(buckets) do
+    empty_centers = List.duplicate(nil, 168)
+    empty_scales = List.duplicate(nil, 168)
+    empty_counts = List.duplicate(0, 168)
+
+    {centers, scales, sample_counts} =
+      Enum.reduce(buckets, {empty_centers, empty_scales, empty_counts}, fn bucket,
+                                                                           {centers, scales,
+                                                                            counts} ->
+        index = bucket["dow"] * 24 + bucket["hod"]
+
+        {
+          List.replace_at(centers, index, f32ish(bucket["center"])),
+          List.replace_at(scales, index, f32ish(bucket["scale"])),
+          List.replace_at(counts, index, bucket["sample_count"] || 0)
+        }
+      end)
+
+    %{
+      "encoding" => "compact_168_f32",
+      "centers" => centers,
+      "scales" => scales,
+      "sample_counts" => sample_counts
+    }
+  end
+
+  # JSON has only one numeric type, but rounding to float32 precision keeps the
+  # delivered arrays compact and avoids pretending the SQL order stats are exact.
+  defp f32ish(value) when is_number(value), do: value |> :erlang.float() |> Float.round(6)
+  defp f32ish(_value), do: nil
 
   defp wrap_bucket(row, robust_statistic) when is_map(row) do
     with series_key when is_binary(series_key) and series_key != "" <- get(row, :series_key),

@@ -4,12 +4,13 @@ defmodule ServiceRadar.Jobs.AlertsRetentionWorkerTest do
   alias ServiceRadar.Jobs.AlertsRetentionWorker
 
   describe "delete_batch_sql/0" do
-    test "deletes alerts by triggered_at in batches" do
+    test "deletes terminal alerts by triggered_at in batches" do
       sql = AlertsRetentionWorker.delete_batch_sql()
 
       assert sql =~ "SELECT id"
       assert sql =~ "FROM alerts"
       assert sql =~ "triggered_at < $1"
+      assert sql =~ "status IN ('resolved', 'suppressed')"
       assert sql =~ "LIMIT $2"
       assert sql =~ "DELETE FROM alerts AS alerts"
     end

@@ -177,6 +177,86 @@ func TestApplyAddonConfigJSONMergesNetprobeOnlyFields(t *testing.T) {
 	}
 }
 
+func TestApplyAddonConfigJSONAcceptsLegacyStringCaptureInterfaces(t *testing.T) {
+	merged, err := ApplyAddonConfigJSON(&netprobepb.VisibilityAgentConfig{}, []byte(`{
+		"capture_interfaces": " ens18 "
+	}`))
+	if err != nil {
+		t.Fatalf("ApplyAddonConfigJSON() error = %v", err)
+	}
+
+	if got := merged.GetCaptureInterfaces(); len(got) != 1 || got[0] != "ens18" {
+		t.Fatalf("CaptureInterfaces = %#v, want [ens18]", got)
+	}
+}
+
+func TestApplyAddonConfigJSONAcceptsLegacyDelimitedCaptureInterfaces(t *testing.T) {
+	merged, err := ApplyAddonConfigJSON(&netprobepb.VisibilityAgentConfig{}, []byte(`{
+		"capture_interfaces": " ens18\n,enp1s0 "
+	}`))
+	if err != nil {
+		t.Fatalf("ApplyAddonConfigJSON() error = %v", err)
+	}
+
+	if got := merged.GetCaptureInterfaces(); len(got) != 2 || got[0] != "ens18" || got[1] != "enp1s0" {
+		t.Fatalf("CaptureInterfaces = %#v, want [ens18 enp1s0]", got)
+	}
+}
+
+func TestApplyAddonConfigJSONAcceptsLegacyUIFormShape(t *testing.T) {
+	base := &netprobepb.VisibilityAgentConfig{
+		Enabled:                      false,
+		CaptureInterfaces:            []string{"eth0"},
+		DefaultSampleIntervalMs:      250,
+		FlowTableMaxEntries:          262_144,
+		ProcessSnapshotIntervalS:     60,
+		ExternalFlowMatchWindowMs:    30_000,
+		FlowAttributionIpcBatch:      true,
+		EmitRawFlowAttributionEvents: true,
+	}
+
+	merged, err := ApplyAddonConfigJSON(base, []byte(`{
+		"dpi": "",
+		"enabled": "true",
+		"device_bindings": "",
+		"capture_interfaces": "",
+		"flow_table_max_entries": "",
+		"default_sample_interval_ms": "",
+		"flow_attribution_ipc_batch": "false",
+		"process_snapshot_interval_s": "",
+		"external_flow_match_window_ms": "",
+		"emit_raw_flow_attribution_events": "false"
+	}`))
+	if err != nil {
+		t.Fatalf("ApplyAddonConfigJSON() error = %v", err)
+	}
+
+	if !merged.GetEnabled() {
+		t.Fatal("Enabled = false, want true")
+	}
+	if got := merged.GetCaptureInterfaces(); len(got) != 0 {
+		t.Fatalf("CaptureInterfaces = %#v, want empty", got)
+	}
+	if merged.GetFlowAttributionIpcBatch() {
+		t.Fatal("FlowAttributionIpcBatch = true, want false")
+	}
+	if merged.GetEmitRawFlowAttributionEvents() {
+		t.Fatal("EmitRawFlowAttributionEvents = true, want false")
+	}
+	if merged.GetDefaultSampleIntervalMs() != 250 {
+		t.Fatalf("DefaultSampleIntervalMs = %d, want base value 250", merged.GetDefaultSampleIntervalMs())
+	}
+	if merged.GetFlowTableMaxEntries() != 262_144 {
+		t.Fatalf("FlowTableMaxEntries = %d, want base value 262144", merged.GetFlowTableMaxEntries())
+	}
+	if merged.GetProcessSnapshotIntervalS() != 60 {
+		t.Fatalf("ProcessSnapshotIntervalS = %d, want base value 60", merged.GetProcessSnapshotIntervalS())
+	}
+	if merged.GetExternalFlowMatchWindowMs() != 30_000 {
+		t.Fatalf("ExternalFlowMatchWindowMs = %d, want base value 30000", merged.GetExternalFlowMatchWindowMs())
+	}
+}
+
 func TestApplyAddonConfigJSONDefaultsAttributionControlsWhenBaseMissing(t *testing.T) {
 	merged, err := ApplyAddonConfigJSON(nil, []byte(`{"enabled":true}`))
 	if err != nil {

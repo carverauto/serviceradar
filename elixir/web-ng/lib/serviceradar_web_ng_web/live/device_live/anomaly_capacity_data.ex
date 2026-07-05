@@ -1,14 +1,21 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   @moduledoc false
 
+  import Ash.Expr
+
+  alias Ash.Query, as: AshQuery
+  alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.Observability.AnomalyEpisode
   alias ServiceRadarWebNGWeb.DeviceLive.QueryData
 
+  require AshQuery
   require Logger
 
   @metric_classes ~w(cpu memory disk interface snmp other)
   @anomaly_page_limit 5
   @capacity_limit 12
   @query_timeout_ms 5_000
+  @episode_cursor_prefix "offset:"
 
   def empty(status \\ :ok) do
     %{
@@ -39,12 +46,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
     else
       anomaly_task =
         Task.Supervisor.async_nolink(ServiceRadarWebNG.TaskSupervisor, fn ->
-          load_first(srql_module, anomaly_candidates, scope, &anomaly_query/2, &project_anomaly_row/1,
+          load_anomaly_first(srql_module, anomaly_candidates, scope,
             cursor: Keyword.get(opts, :anomaly_cursor),
             limit: @anomaly_page_limit,
             severity: Keyword.get(opts, :anomaly_severity),
             status: Keyword.get(opts, :anomaly_status),
-            sort: Keyword.get(opts, :anomaly_sort)
+            sort: Keyword.get(opts, :anomaly_sort),
+            source: Keyword.get(opts, :anomaly_source)
           )
         end)
 
@@ -55,7 +63,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
             capacity_candidates,
             scope,
             fn candidate, _opts -> capacity_query(candidate) end,
-            &project_capacity_row/1
+            &project_capacity_row/1,
+            dedupe_by: &capacity_row_identity/1
           )
         end)
 
@@ -100,7 +109,49 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
     %{rows: [], query: nil, filter: nil, pagination: empty_pagination(), error: error, status: :error}
   end
 
-  defp load_first(srql_module, candidates, scope, query_fun, project_fun, opts \\ []) do
+  defp load_anomaly_first(srql_module, candidates, scope, opts) do
+    source = anomaly_source(opts)
+
+    candidates
+    |> Enum.reduce_while(nil, fn candidate, acc ->
+      case load_anomaly_source(source, srql_module, candidate, scope, opts) do
+        {:ok, %{} = response} ->
+          rows =
+            response
+            |> response_rows()
+            |> Enum.filter(&is_map/1)
+            |> Enum.map(&project_anomaly_row/1)
+            |> Enum.reject(&is_nil/1)
+
+          result = %{
+            rows: rows,
+            query: response_query(response) || anomaly_episode_drilldown_query(candidate, opts),
+            filter: Map.take(candidate, [:field, :label, :value]),
+            pagination: response |> response_pagination() |> normalize_pagination(opts),
+            error: nil,
+            status: :ok
+          }
+
+          if result.rows == [] do
+            {:cont, acc || result}
+          else
+            {:halt, result}
+          end
+
+        {:error, reason} ->
+          query = anomaly_episode_drilldown_query(candidate, opts)
+          error = "anomaly episode error: #{QueryData.format_error(reason)}"
+          Logger.warning("Failed device anomaly episode query #{query}: #{error}")
+          {:cont, acc || error_result(candidate, query, error)}
+      end
+    end)
+    |> case do
+      nil -> %{rows: [], query: nil, filter: nil, pagination: empty_pagination(), error: nil, status: :ok}
+      result -> result
+    end
+  end
+
+  defp load_first(srql_module, candidates, scope, query_fun, project_fun, opts) do
     candidates
     |> Enum.reduce_while(nil, fn candidate, acc ->
       query = query_fun.(candidate, opts)
@@ -117,6 +168,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
             |> Enum.filter(&is_map/1)
             |> Enum.map(project_fun)
             |> Enum.reject(&is_nil/1)
+            |> maybe_dedupe_rows(Keyword.get(opts, :dedupe_by))
 
           result = %{
             rows: rows,
@@ -149,6 +201,63 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       result -> result
     end
   end
+
+  defp anomaly_source(opts) do
+    Keyword.get(opts, :source) ||
+      Application.get_env(:serviceradar_web_ng, :anomaly_capacity_anomaly_source, :ash)
+  end
+
+  defp load_anomaly_source(:ash, _srql_module, candidate, scope, opts) do
+    load_anomaly_episode_rows(candidate, scope, opts)
+  end
+
+  defp load_anomaly_source(:legacy_srql, srql_module, candidate, scope, opts) do
+    query = anomaly_query(candidate, opts)
+
+    query_opts =
+      %{scope: scope}
+      |> maybe_put_query_opt(:cursor, Keyword.get(opts, :cursor))
+      |> maybe_put_query_opt(:limit, Keyword.get(opts, :limit))
+
+    case srql_module.query(query, query_opts) do
+      {:ok, %{"results" => rows} = response} when is_list(rows) ->
+        {:ok, %{rows: rows, query: query, pagination: Map.get(response, "pagination")}}
+
+      {:ok, other} ->
+        {:error, "unexpected SRQL response: #{inspect(other)}"}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp load_anomaly_source(source, srql_module, candidate, scope, opts) when is_atom(source) do
+    if function_exported?(source, :load, 4) do
+      source.load(srql_module, candidate, scope, opts)
+    else
+      {:error, "unsupported anomaly source #{inspect(source)}"}
+    end
+  end
+
+  defp load_anomaly_source(source, srql_module, candidate, scope, opts) when is_function(source, 4) do
+    source.(srql_module, candidate, scope, opts)
+  end
+
+  defp load_anomaly_source(source, _srql_module, _candidate, _scope, _opts) do
+    {:error, "unsupported anomaly source #{inspect(source)}"}
+  end
+
+  defp response_rows(%{rows: rows}) when is_list(rows), do: rows
+  defp response_rows(%{"rows" => rows}) when is_list(rows), do: rows
+  defp response_rows(_), do: []
+
+  defp response_query(%{query: query}) when is_binary(query), do: query
+  defp response_query(%{"query" => query}) when is_binary(query), do: query
+  defp response_query(_), do: nil
+
+  defp response_pagination(%{pagination: pagination}) when is_map(pagination), do: pagination
+  defp response_pagination(%{"pagination" => pagination}) when is_map(pagination), do: pagination
+  defp response_pagination(_), do: %{}
 
   defp empty_pagination do
     %{"next_cursor" => nil, "prev_cursor" => nil, "limit" => @anomaly_page_limit}
@@ -283,6 +392,111 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp anomaly_sort_token("oldest"), do: "sort:time:asc"
   defp anomaly_sort_token(_), do: "sort:time:desc"
 
+  defp load_anomaly_episode_rows(%{value: device_uid} = candidate, scope, opts) do
+    limit = Keyword.get(opts, :limit, @anomaly_page_limit)
+    offset = episode_cursor_offset(Keyword.get(opts, :cursor))
+
+    query =
+      AnomalyEpisode
+      |> AshQuery.for_read(:read, %{}, scope: scope)
+      |> AshQuery.filter(expr(device_uid == ^device_uid))
+      |> maybe_filter_episode_status(Keyword.get(opts, :status))
+      |> maybe_filter_episode_severity(Keyword.get(opts, :severity))
+      |> sort_episode_query(Keyword.get(opts, :sort))
+      |> AshQuery.limit(limit + 1)
+      |> AshQuery.offset(offset)
+
+    case Ash.read(query, scope: scope) do
+      {:ok, episodes} ->
+        {page_rows, has_next?} = split_episode_page(episodes, limit)
+
+        {:ok,
+         %{
+           rows: Enum.map(page_rows, &episode_to_event_row/1),
+           query: anomaly_episode_drilldown_query(candidate, opts),
+           pagination: episode_pagination(offset, limit, has_next?)
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp maybe_filter_episode_status(query, "open"), do: AshQuery.filter(query, expr(status == "open"))
+
+  defp maybe_filter_episode_status(query, "cleared"),
+    do: AshQuery.filter(query, expr(status in ["cleared", "stale_closed"]))
+
+  defp maybe_filter_episode_status(query, "pending"), do: AshQuery.filter(query, expr(status == "__pending__"))
+  defp maybe_filter_episode_status(query, _), do: query
+
+  defp maybe_filter_episode_severity(query, severity) do
+    case episode_severity_id(severity) do
+      nil -> query
+      id -> AshQuery.filter(query, expr(peak_severity_id == ^id))
+    end
+  end
+
+  defp episode_severity_id("critical"), do: OCSF.severity_critical()
+  defp episode_severity_id("high"), do: OCSF.severity_high()
+  defp episode_severity_id("medium"), do: OCSF.severity_medium()
+  defp episode_severity_id("low"), do: OCSF.severity_low()
+  defp episode_severity_id(_), do: nil
+
+  defp sort_episode_query(query, "oldest"), do: AshQuery.sort(query, opened_at: :asc)
+  defp sort_episode_query(query, "severity"), do: AshQuery.sort(query, peak_severity_id: :desc, last_seen_at: :desc)
+  defp sort_episode_query(query, _), do: AshQuery.sort(query, last_seen_at: :desc)
+
+  defp split_episode_page(rows, limit) do
+    if length(rows) > limit do
+      {Enum.take(rows, limit), true}
+    else
+      {rows, false}
+    end
+  end
+
+  defp episode_pagination(offset, limit, has_next?) do
+    %{
+      "next_cursor" => if(has_next?, do: "#{@episode_cursor_prefix}#{offset + limit}"),
+      "prev_cursor" => if(offset > 0, do: "#{@episode_cursor_prefix}#{max(offset - limit, 0)}"),
+      "limit" => limit
+    }
+  end
+
+  defp episode_cursor_offset(value) when is_binary(value) do
+    if String.starts_with?(value, @episode_cursor_prefix) do
+      value
+      |> String.replace_prefix(@episode_cursor_prefix, "")
+      |> parse_non_negative_int()
+    else
+      0
+    end
+  end
+
+  defp episode_cursor_offset(_), do: 0
+
+  defp parse_non_negative_int(value) do
+    case Integer.parse(value) do
+      {int, ""} when int >= 0 -> int
+      _ -> 0
+    end
+  end
+
+  defp anomaly_episode_drilldown_query(%{field: field, value: value}, opts) do
+    [
+      "in:events",
+      "finding_rollup:health",
+      ~s|#{field}:"#{QueryData.escape_value(value)}"|,
+      "time:last_7d",
+      anomaly_severity_token(Keyword.get(opts, :severity)),
+      anomaly_status_token(Keyword.get(opts, :status)),
+      anomaly_sort_token(Keyword.get(opts, :sort)),
+      "limit:50"
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" ")
+  end
+
   defp capacity_query(%{field: field, value: value}) do
     Enum.join(
       [
@@ -291,17 +505,144 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
         "has_exhaustion:true",
         ~s|#{field}:"#{QueryData.escape_value(value)}"|,
         "time:last_24h",
-        "sort:projected_exhaustion_at:asc",
+        "sort:forecasted_at:desc",
         "limit:#{@capacity_limit}"
       ],
       " "
     )
   end
 
+  defp maybe_dedupe_rows(rows, dedupe_fun) when is_function(dedupe_fun, 1), do: Enum.uniq_by(rows, dedupe_fun)
+  defp maybe_dedupe_rows(rows, _dedupe_fun), do: rows
+
+  defp capacity_row_identity(row) when is_map(row) do
+    {
+      map_value(row, "resource_id"),
+      map_value(row, "resource_key"),
+      map_value(row, "metric_name")
+    }
+  end
+
+  defp episode_to_event_row(episode) do
+    payload = episode |> episode_value(:last_payload) |> normalize_payload()
+    metadata = payload |> map_value("metadata") |> normalize_payload()
+    status = episode_value(episode, :status)
+    opened_at = episode_value(episode, :opened_at)
+    last_seen_at = episode_value(episode, :last_seen_at)
+    cleared_at = episode_value(episode, :cleared_at)
+    severity_id = episode_value(episode, :severity_id) || OCSF.severity_unknown()
+    peak_severity_id = episode_value(episode, :peak_severity_id) || severity_id
+    metric_name = episode_value(episode, :metric_name)
+    metric_class = episode_value(episode, :metric_class)
+    detector = episode_value(episode, :detector)
+    clear_reason = episode_value(episode, :clear_reason)
+
+    base = %{
+      "id" => episode_value(episode, :episode_uid),
+      "episode_uid" => episode_value(episode, :episode_uid),
+      "finding_uid" => episode_value(episode, :finding_uid),
+      "source_device_uid" => episode_value(episode, :device_uid),
+      "device_label" => episode_value(episode, :device_uid),
+      "time" => iso8601(last_seen_at),
+      "finding_title" => episode_title(payload, metric_name, metric_class, detector),
+      "message" => episode_message(payload, status, clear_reason),
+      "metric_class" => metric_class,
+      "metric_name" => metric_name,
+      "series_key" => episode_value(episode, :series_key),
+      "if_index" => episode_value(episode, :if_index),
+      "severity" => OCSF.severity_name(severity_id),
+      "severity_id" => severity_id,
+      "peak_severity_id" => peak_severity_id,
+      "status" => status,
+      "state" => episode_state(status),
+      "score" => episode_value(episode, :peak_score),
+      "effect_size" => episode_value(episode, :effect_size),
+      "window_started_at" => iso8601(opened_at),
+      "window_ended_at" => iso8601(cleared_at),
+      "episode_started_at_unix_nano" => unix_nano(opened_at),
+      "episode_ended_at_unix_nano" => unix_nano(cleared_at),
+      "observed_at_unix_nano" => unix_nano(last_seen_at),
+      "occurrence_count" => episode_value(episode, :occurrence_count),
+      "reopen_count" => episode_value(episode, :reopen_count),
+      "producer_version" => episode_value(episode, :producer_version),
+      "last_transition" => episode_value(episode, :last_transition),
+      "reason" => clear_reason || reason(payload),
+      "anomaly_disposition" => episode_anomaly_disposition(payload),
+      "metadata" =>
+        metadata
+        |> merge_nested_map("service_radar", %{
+          "metric_class" => metric_class,
+          "metric_name" => metric_name,
+          "series_key" => episode_value(episode, :series_key),
+          "status" => status
+        })
+        |> merge_nested_map("anomaly", %{
+          "state" => episode_state(status),
+          "status" => status,
+          "score" => episode_value(episode, :peak_score),
+          "reason" => clear_reason || reason(payload),
+          "episode_started_at_unix_nano" => unix_nano(opened_at),
+          "episode_ended_at_unix_nano" => unix_nano(cleared_at),
+          "observed_at_unix_nano" => unix_nano(last_seen_at)
+        })
+    }
+
+    payload
+    |> Map.merge(base)
+    |> reject_nil_values()
+  end
+
+  defp episode_value(%{} = episode, field), do: Map.get(episode, field) || Map.get(episode, to_string(field))
+  defp episode_value(_episode, _field), do: nil
+
+  defp normalize_payload(%{} = payload), do: payload
+  defp normalize_payload(_), do: %{}
+
+  defp episode_title(payload, metric_name, metric_class, detector) do
+    finding_title(payload) ||
+      [
+        metric_name,
+        metric_class,
+        detector,
+        "anomaly episode"
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.join(" ")
+  end
+
+  defp episode_message(payload, status, clear_reason) do
+    reason(payload) || clear_reason || "Anomaly episode #{status}"
+  end
+
+  defp episode_state("open"), do: "confirmed"
+  defp episode_state("cleared"), do: "cleared"
+  defp episode_state("stale_closed"), do: "cleared"
+  defp episode_state(status), do: status
+
+  defp episode_anomaly_disposition(payload) do
+    anomaly_disposition(payload) || %{"action" => "escalate", "source" => "anomaly_episodes"}
+  end
+
+  defp merge_nested_map(map, key, additions) do
+    existing = map |> map_value(key) |> normalize_payload()
+    Map.put(map, key, Map.merge(existing, reject_nil_values(additions)))
+  end
+
+  defp iso8601(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
+  defp iso8601(%NaiveDateTime{} = naive), do: naive |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_iso8601()
+  defp iso8601(value) when is_binary(value), do: value
+  defp iso8601(_), do: nil
+
+  defp unix_nano(%DateTime{} = datetime), do: DateTime.to_unix(datetime, :nanosecond)
+  defp unix_nano(%NaiveDateTime{} = naive), do: naive |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_unix(:nanosecond)
+  defp unix_nano(_), do: nil
+
   defp project_anomaly_row(row) do
     projected =
       reject_nil_values(%{
         "id" => map_value(row, "id"),
+        "episode_uid" => map_value(row, "episode_uid"),
         "finding_uid" => finding_uid(row),
         "time" => map_value(row, "time"),
         "finding_title" => finding_title(row),
@@ -380,7 +721,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
     unit = capacity_value_unit(row)
     projected = row |> map_value("projected_value") |> number_value()
 
-    if implausible_percent_projection?(projected, unit) do
+    if implausible_percent_projection?(projected, unit) or projection_outside_horizon?(row) do
       nil
     else
       reject_nil_values(%{
@@ -408,6 +749,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
         "upper_bound" => map_value(row, "upper_bound")
       })
     end
+  end
+
+  defp projection_outside_horizon?(row) do
+    status = row |> map_value("status") |> normalize_text()
+    projected_exhaustion_at = row |> map_value("projected_exhaustion_at") |> datetime_value()
+    horizon_ends_at = row |> map_value("horizon_ends_at") |> datetime_value()
+
+    status in ["projected", "at_risk", "exhaustion_projected"] and
+      match?(%DateTime{}, projected_exhaustion_at) and
+      match?(%DateTime{}, horizon_ends_at) and
+      DateTime.after?(projected_exhaustion_at, horizon_ends_at)
   end
 
   defp finding_title(row) do
@@ -734,6 +1086,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   end
 
   defp number_value(_), do: nil
+
+  defp datetime_value(%DateTime{} = value), do: value
+  defp datetime_value(%NaiveDateTime{} = value), do: DateTime.from_naive!(value, "Etc/UTC")
+
+  defp datetime_value(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> datetime
+      _ -> nil
+    end
+  end
+
+  defp datetime_value(_), do: nil
 
   defp reject_nil_values(row) do
     Map.reject(row, fn {_key, value} -> is_nil(value) or value == "" end)

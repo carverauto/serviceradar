@@ -16,7 +16,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsQuery do
       metric_filter(names),
       "time:#{@counter_window}",
       "bucket:#{@counter_bucket}",
-      "agg:max",
+      "agg:rate",
       "series:metric_name",
       "limit:#{row_limit(names)}"
     ]

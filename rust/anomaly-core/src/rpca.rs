@@ -85,8 +85,12 @@ pub fn jacobi_svd(a: &[Vec<f64>]) -> (Vec<Vec<f64>>, Vec<f64>, Vec<Vec<f64>>) {
     }
 
     // back to row-major
-    let u: Vec<Vec<f64>> = (0..m).map(|i| (0..n).map(|j| ucol[j][i]).collect()).collect();
-    let v: Vec<Vec<f64>> = (0..n).map(|i| (0..n).map(|j| vcol[j][i]).collect()).collect();
+    let u: Vec<Vec<f64>> = (0..m)
+        .map(|i| (0..n).map(|j| ucol[j][i]).collect())
+        .collect();
+    let v: Vec<Vec<f64>> = (0..n)
+        .map(|i| (0..n).map(|j| vcol[j][i]).collect())
+        .collect();
     (u, sigma, v)
 }
 
@@ -130,7 +134,11 @@ pub fn rpca(
     let lam = lambda.unwrap_or(1.0 / (m.max(n) as f64).sqrt());
 
     let fro = |x: &[Vec<f64>]| -> f64 {
-        x.iter().flat_map(|r| r.iter()).map(|v| v * v).sum::<f64>().sqrt()
+        x.iter()
+            .flat_map(|r| r.iter())
+            .map(|v| v * v)
+            .sum::<f64>()
+            .sqrt()
     };
     let m_fro = fro(a).max(1e-12);
     let l1: f64 = a.iter().flat_map(|r| r.iter()).map(|v| v.abs()).sum();
@@ -211,7 +219,10 @@ mod tests {
             for q in 0..n {
                 let dot: f64 = (0..u.len()).map(|i| u[i][p] * u[i][q]).sum();
                 let want = if p == q { 1.0 } else { 0.0 };
-                assert!((dot - want).abs() < 1e-7, "U cols not orthonormal: {p},{q}={dot}");
+                assert!(
+                    (dot - want).abs() < 1e-7,
+                    "U cols not orthonormal: {p},{q}={dot}"
+                );
                 let dotv: f64 = (0..n).map(|i| v[i][p] * v[i][q]).sum();
                 assert!((dotv - want).abs() < 1e-7, "V cols not orthonormal");
             }
@@ -241,7 +252,11 @@ mod tests {
                 rerr += (a[i][j] - l[i][j] - s[i][j]).powi(2);
             }
         }
-        assert!(rerr.sqrt() < 1e-3, "L + S must reconstruct A, err={}", rerr.sqrt());
+        assert!(
+            rerr.sqrt() < 1e-3,
+            "L + S must reconstruct A, err={}",
+            rerr.sqrt()
+        );
 
         // the sparse component recovers the spike locations as its largest entries
         let mut entries: Vec<(f64, usize, usize)> = Vec::new();
@@ -252,8 +267,14 @@ mod tests {
         }
         entries.sort_by(|x, y| y.0.partial_cmp(&x.0).unwrap());
         let top: Vec<(usize, usize)> = entries.iter().take(2).map(|e| (e.1, e.2)).collect();
-        assert!(top.contains(&(2, 4)), "S should flag spike (2,4), got {top:?}");
-        assert!(top.contains(&(6, 1)), "S should flag spike (6,1), got {top:?}");
+        assert!(
+            top.contains(&(2, 4)),
+            "S should flag spike (2,4), got {top:?}"
+        );
+        assert!(
+            top.contains(&(6, 1)),
+            "S should flag spike (6,1), got {top:?}"
+        );
         // and the spike magnitudes are recovered to a sensible degree
         assert!(s[2][4].abs() > 15.0 && s[6][1].abs() > 12.0);
     }

@@ -13,10 +13,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
     end
 
     previous_pid = Application.get_env(:serviceradar_web_ng, :anomaly_capacity_data_test_pid)
+    previous_source = Application.get_env(:serviceradar_web_ng, :anomaly_capacity_anomaly_source)
     Application.put_env(:serviceradar_web_ng, :anomaly_capacity_data_test_pid, self())
+    Application.put_env(:serviceradar_web_ng, :anomaly_capacity_anomaly_source, :legacy_srql)
 
     on_exit(fn ->
       restore_env(:anomaly_capacity_data_test_pid, previous_pid)
+      restore_env(:anomaly_capacity_anomaly_source, previous_source)
     end)
 
     :ok
@@ -220,6 +223,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
                  "metric_class" => "cpu",
                  "severity" => "High",
                  "status" => "open",
+                 "anomaly_disposition" => %{"action" => "escalate"},
                  "message" => "breach confirmed after 5/5 consecutive anomalous slots",
                  "time" => "2026-06-27T00:07:02Z"
                }
@@ -352,6 +356,50 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
              "horizon_ends_at" => "2026-06-26T00:00:00Z"
            },
            %{
+             "resource_label" => "Filesystem / older run",
+             "resource_key" => "disk:/",
+             "resource_id" => "router-1",
+             "resource_type" => "disk",
+             "metric_name" => "disk.used_percent",
+             "metric_class" => "disk",
+             "status" => "projected",
+             "model" => "holt_winters",
+             "sample_count" => 150,
+             "forecasted_at" => "2026-06-18T00:00:00Z",
+             "current_value" => 70.0,
+             "projected_value" => 88.0,
+             "projected_exhaustion_at" => "2026-06-21T00:00:00Z",
+             "exhaustion_threshold" => 95.0,
+             "confidence" => 0.8,
+             "lower_bound" => 84.1,
+             "upper_bound" => 91.4,
+             "metadata" => %{"forecast_value_unit" => "percent"},
+             "horizon_seconds" => 604_800,
+             "horizon_ends_at" => "2026-06-25T00:00:00Z"
+           },
+           %{
+             "resource_label" => "Memory outside horizon",
+             "resource_key" => "memory:host",
+             "resource_id" => "router-1",
+             "resource_type" => "memory",
+             "metric_name" => "memory.used_percent",
+             "metric_class" => "memory",
+             "status" => "projected",
+             "model" => "linear",
+             "sample_count" => 168,
+             "forecasted_at" => "2026-06-19T00:00:00Z",
+             "current_value" => 3.4,
+             "projected_value" => 17.8,
+             "projected_exhaustion_at" => "2028-03-06T23:53:27Z",
+             "exhaustion_threshold" => 100.0,
+             "confidence" => 0.95,
+             "lower_bound" => 16.1,
+             "upper_bound" => 19.4,
+             "metadata" => %{"forecast_value_unit" => "percent"},
+             "horizon_seconds" => 7_776_000,
+             "horizon_ends_at" => "2026-10-03T00:00:00Z"
+           },
+           %{
              "resource_label" => "Impossible disk projection",
              "resource_key" => "disk:/bad",
              "resource_id" => "router-1",
@@ -405,6 +453,39 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
     end
   end
 
+  defmodule EpisodeSource do
+    @moduledoc false
+
+    def load(_srql_module, %{value: value} = candidate, _scope, opts) do
+      send(test_pid(), {:episode_source_query, candidate, opts})
+
+      {:ok,
+       %{
+         query: ~s|in:anomaly_episodes device_uid:"#{value}" sort:last_seen_at:desc|,
+         pagination: %{"next_cursor" => "offset:5", "limit" => 5},
+         rows: [
+           %{
+             "episode_uid" => "episode-1",
+             "finding_uid" => "finding-1",
+             "metric_class" => "cpu",
+             "metric_name" => "cpu.usage_percent",
+             "series_key" => "v2|partition|cpu",
+             "status" => "open",
+             "state" => "confirmed",
+             "severity" => "High",
+             "time" => "2026-07-04T12:00:00Z",
+             "message" => "host CPU saturation episode",
+             "anomaly_disposition" => %{"action" => "escalate"}
+           }
+         ]
+       }}
+    end
+
+    defp test_pid do
+      Application.fetch_env!(:serviceradar_web_ng, :anomaly_capacity_data_test_pid)
+    end
+  end
+
   test "uses indexed device identity filters before agent and host fallbacks" do
     data = AnomalyCapacityData.load(FakeSRQL, %{device_uid: "router-1"}, nil)
 
@@ -436,6 +517,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
     assert cpu.count == 1
     assert other.status == "normal"
     assert other.count == 0
+  end
+
+  test "loads anomaly rows from bounded episode source instead of raw event SRQL" do
+    data =
+      AnomalyCapacityData.load(FakeSRQL, %{device_uid: "router-1"}, nil, anomaly_source: EpisodeSource)
+
+    assert_receive {:episode_source_query, %{field: "service_radar_device_uid", value: "router-1"}, opts}
+    assert Keyword.get(opts, :limit) == 5
+
+    queries = drain_fake_queries()
+    refute Enum.any?(queries, &String.contains?(&1, "in:events"))
+    assert Enum.any?(queries, &String.contains?(&1, "in:capacity_forecasts"))
+
+    assert data.anomaly_query == ~s|in:anomaly_episodes device_uid:"router-1" sort:last_seen_at:desc|
+    assert data.anomaly_pagination["next_cursor"] == "offset:5"
+    assert [%{"episode_uid" => "episode-1", "metric_class" => "cpu", "severity" => "High"}] = data.anomaly_rows
+
+    cpu = Enum.find(data.metric_statuses, &(&1.class == "cpu"))
+    assert cpu.status == "confirmed"
+    assert cpu.count == 1
   end
 
   test "SNMP metric subclasses are grouped into the SNMP anomaly status bucket" do
@@ -507,7 +608,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
            }
 
     assert [%{"id" => "worker-anomaly-1", "severity" => "High"}] = data.anomaly_rows
-    assert data.anomaly_pagination["total_count"] == 1
 
     assert Enum.any?(
              anomaly_queries,
@@ -557,6 +657,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
     capacity_row = List.first(data.capacity_rows)
 
     assert length(data.capacity_rows) == 1
+    assert data.capacity_query =~ "sort:forecasted_at:desc"
+    refute Enum.any?(data.capacity_rows, &(&1["resource_key"] == "memory:host"))
 
     assert anomaly_row == %{
              "id" => "event-1",
@@ -589,6 +691,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
              "episode_peak_at_unix_nano" => 1_718_755_440_000_000_000,
              "episode_peak_value" => 97.5,
              "observed_at_unix_nano" => 1_718_755_560_000_000_000,
+             "reason" => "fallback message",
              "signals" => [
                %{
                  "name" => "rolling_baseline",
@@ -634,7 +737,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityDataTest do
         query
       end
 
-    assert Enum.any?(queries, &(String.contains?(&1, "in:events") and String.contains?(&1, "limit:20")))
+    assert Enum.any?(queries, &(String.contains?(&1, "in:events") and String.contains?(&1, "limit:5")))
 
     assert Enum.any?(
              queries,

@@ -776,3 +776,118 @@ The system SHALL use a dedicated camera media service for live-view control and 
 - **WHEN** the platform coordinates the edge uplink
 - **THEN** the agent, gateway, and platform SHALL use the camera media service for relay control and media transport
 - **AND** the generic monitoring status/results service SHALL remain unchanged for health and plugin payload ingestion
+
+### Requirement: Edge add-on metric feed
+The agent SHALL be able to stream its locally collected metric samples to a
+co-located native add-on through a dedicated `AddonService` RPC, before those
+samples are published to the gateway. The feed SHALL apply flow control so a slow
+add-on cannot block the agent's own collection or its gateway publishing path. An
+add-on SHALL only receive the metric sources it explicitly declares.
+
+#### Scenario: Add-on subscribes to local sysmon samples
+- **WHEN** a native add-on declares a subscription to the local sysmon metric source
+- **THEN** the agent SHALL stream locally collected sysmon `MetricBatch` samples to that add-on over the metric-feed RPC
+- **AND** it SHALL NOT stream sources the add-on did not declare
+
+#### Scenario: Slow add-on does not stall the agent
+- **GIVEN** a co-located add-on is consuming the local metric feed slower than samples are produced
+- **WHEN** the add-on falls behind
+- **THEN** the agent SHALL apply bounded flow control to the feed
+- **AND** the agent's own collection and gateway publishing SHALL continue unaffected
+
+### Requirement: Native add-on resource governance
+Native add-on manifests SHALL declare CPU and memory limits, and the add-on
+supervisor and systemd unit generator SHALL enforce those limits. An add-on that
+approaches its limit SHALL shed work and report the shed rather than impacting
+the host or the agent.
+
+#### Scenario: Add-on runs within a declared budget
+- **WHEN** a native add-on is deployed with declared CPU and memory limits
+- **THEN** the supervisor or systemd unit SHALL enforce those limits (for example `MemoryMax` and `CPUQuota`)
+- **AND** the add-on SHALL NOT exceed its declared budget
+
+#### Scenario: Add-on sheds under pressure
+- **GIVEN** an anomaly add-on is approaching its memory or CPU limit
+- **WHEN** the incoming series rate would exceed its bounded capacity
+- **THEN** the add-on SHALL shed analysis for excess series
+- **AND** it SHALL emit a telemetry counter recording the shed
+
+### Requirement: Edge-resident per-series anomaly detection
+A native anomaly add-on SHALL run the shared per-series detector extracted from
+the former central raw-stream analyzer and SHALL own its per-series state
+locally, without central ownership or a distributed lease. Detection verdicts
+produced at the edge SHALL be equivalent to the verdicts the shared detector
+produces for the same input.
+
+#### Scenario: Edge verdict matches shared detector verdict
+- **GIVEN** a captured set of metric samples for a series
+- **WHEN** the edge anomaly add-on and the shared detector each process those samples
+- **THEN** they SHALL produce the same anomaly verdicts
+
+#### Scenario: Add-on restart re-warms without a verdict gap
+- **GIVEN** an anomaly add-on with established per-series baselines
+- **WHEN** the add-on restarts
+- **THEN** it SHALL re-warm baselines from a local checkpoint or the live feed
+- **AND** it SHALL suppress verdicts during a bounded warm-up window to avoid cold-start false positives
+
+### Requirement: Edge Robust Dispersion Estimator
+
+The edge anomaly detector SHALL stop self-masking, where a large spike inflates its own
+mean/std baseline and hides a subsequent spike. Today the detector (`rust/anomaly-core`) computes
+dispersion with Welford O(1) **mean/std** (non-robust). The detector SHALL EITHER (a) replace the
+mean/std dispersion with a **robust median/MAD (Hampel) identifier**, OR (b) at minimum
+**freeze (withhold) the baseline window updates during a confirmed breach** so the breaching
+samples cannot enter the baseline. The detector SHALL **retain** the existing dispersion floors
+(absolute + CV), the directional saturation gate for percent gauges (`min_value` 80/80/85 for
+cpu/mem/disk), and the confirm-slot hysteresis defined in
+`fix-anomaly-engine-semantics-and-delivery` (`Edge Detector Numeric Safety`,
+`Anomaly Confirmation Slot Definition`); this change replaces only the dispersion estimator and
+does not re-author those guards.
+
+#### Scenario: A spike does not poison its own baseline
+
+- **GIVEN** a series whose recent window contains one large sustained spike, followed by a second spike of similar magnitude
+- **WHEN** the robust (median/MAD) detector — or the breach-freeze rule — scores the second spike
+- **THEN** the second spike SHALL still breach (it SHALL NOT be masked by the first spike inflating the baseline)
+
+#### Scenario: Existing guards are preserved
+
+- **GIVEN** a cpu/mem/disk percent gauge below its saturation gate (`min_value` 80/80/85)
+- **WHEN** the detector scores it under the robust dispersion estimator
+- **THEN** the directional saturation gate, the dispersion floors, and the confirm-slot hysteresis SHALL still apply unchanged
+
+### Requirement: Edge Drift Detection Via Two-Sided CUSUM
+
+The edge detector SHALL add a **two-sided CUSUM** over the (deseasonalized, where available)
+residual so slow drifts and leaks — which a point z-score cannot see — are detected. The CUSUM
+SHALL accumulate signed residual deviations and SHALL signal when either the upward or downward
+cumulative sum exceeds a configured decision threshold, complementing (not replacing) the spike
+z-score.
+
+#### Scenario: A slow leak is detected that a point z-score misses
+
+- **GIVEN** a series that drifts slowly upward over a long window with no single sample exceeding the z-score threshold
+- **WHEN** the two-sided CUSUM accumulates the signed residuals
+- **THEN** the detector SHALL signal the drift once the cumulative sum crosses the decision threshold
+- **AND** the point-z-score path SHALL remain unaffected for sudden spikes
+
+### Requirement: Edge Deseasonalization From Coarse Hour-Of-Week Baseline
+
+The edge detector SHALL support consuming a **coarse hour-of-week seasonal baseline** (sourced
+from the core S-H-ESD seasonal profile). When a baseline is available for a series, the detector
+SHALL score the **deseasonalized residual** (value minus the expected seasonal level) rather than
+the raw value, so a normal recurring ramp (for example a morning business-hours ramp) does not
+false-fire. When no baseline is available the detector SHALL fall back to scoring the raw value
+as today.
+
+#### Scenario: Morning ramp does not false-fire when a baseline is present
+
+- **GIVEN** a series with a coarse hour-of-week baseline whose expected level rises during business hours
+- **WHEN** the value rises along the expected seasonal level
+- **THEN** the detector SHALL score the deseasonalized residual and SHALL NOT breach on the expected ramp
+
+#### Scenario: Cold-start falls back to raw scoring
+
+- **GIVEN** a series with no coarse hour-of-week baseline available
+- **WHEN** the detector scores a sample
+- **THEN** it SHALL score the raw value (current behavior) and SHALL NOT block on a missing baseline

@@ -80,7 +80,12 @@ impl RobustStats {
             .collect::<Vec<_>>();
 
         match sorted.len() {
-            0 => return Self { center: 0.0, scale: 0.0 },
+            0 => {
+                return Self {
+                    center: 0.0,
+                    scale: 0.0,
+                };
+            }
             1 => {
                 return Self {
                     center: sorted[0],
@@ -301,7 +306,7 @@ fn effective_scoring_stddev(stats: BaselineStats, min_std_floor: f64, min_cv: f6
     }
 }
 
-fn effective_scoring_scale(stats: RobustStats, min_std_floor: f64, min_cv: f64) -> f64 {
+pub fn effective_scoring_scale(stats: RobustStats, min_std_floor: f64, min_cv: f64) -> f64 {
     let configured = stats.effective_scale(min_std_floor, min_cv);
     let near_zero_floor = near_zero_stddev_floor(stats.center);
 
@@ -589,7 +594,11 @@ mod tests {
         // scale = 1 * 1.4826.
         let window: Vec<f64> = (0..40).map(|i| 50.0 + (i % 5) as f64).collect();
         let stats = RobustStats::from_values(&window);
-        assert!((stats.center - 52.0).abs() < 1e-9, "center {}", stats.center);
+        assert!(
+            (stats.center - 52.0).abs() < 1e-9,
+            "center {}",
+            stats.center
+        );
         assert!(
             (stats.scale - MAD_TO_SIGMA).abs() < 1e-9,
             "scale {}",
@@ -618,13 +627,18 @@ mod tests {
 
     #[test]
     fn robust_score_breaches_a_large_excursion_and_not_a_wiggle() {
-        let window: Vec<f64> = (0..40).map(|i| 100.0 + if i % 2 == 0 { 0.5 } else { -0.5 }).collect();
+        let window: Vec<f64> = (0..40)
+            .map(|i| 100.0 + if i % 2 == 0 { 0.5 } else { -0.5 })
+            .collect();
         let stats = RobustStats::from_values(&window);
         let threshold = 3.0;
 
         let wiggle = robust_score(100.6, stats, threshold, 0.0, 0.0);
         let spike = robust_score(1_000.0, stats, threshold, 0.0, 0.0);
-        assert!(wiggle < threshold, "a small wiggle must not breach ({wiggle})");
+        assert!(
+            wiggle < threshold,
+            "a small wiggle must not breach ({wiggle})"
+        );
         assert!(spike >= threshold, "a large spike must breach ({spike})");
         assert!(spike > wiggle);
     }
@@ -642,8 +656,14 @@ mod tests {
         let small = robust_score(101.0, stats, 3.0, 0.0, 0.0);
         let large = robust_score(10_000.0, stats, 3.0, 0.0, 0.0);
         assert_eq!(no_move, 0.0);
-        assert!(small < 3.0, "a one-unit wiggle on a pinned baseline must not breach");
-        assert!(large >= 3.0 && large.is_finite(), "a large move must still breach");
+        assert!(
+            small < 3.0,
+            "a one-unit wiggle on a pinned baseline must not breach"
+        );
+        assert!(
+            large >= 3.0 && large.is_finite(),
+            "a large move must still breach"
+        );
         assert!(large > small);
     }
 
@@ -657,8 +677,14 @@ mod tests {
 
         let floored = robust_score(50.1, stats, 3.0, 1.0, 0.05);
         let spike = robust_score(250.0, stats, 3.0, 1.0, 0.05);
-        assert!(floored < 1.0, "cv/abs-floored robust score {floored} must be small");
-        assert!(spike >= 3.0, "a real spike {spike} must still breach despite the floor");
+        assert!(
+            floored < 1.0,
+            "cv/abs-floored robust score {floored} must be small"
+        );
+        assert!(
+            spike >= 3.0,
+            "a real spike {spike} must still breach despite the floor"
+        );
     }
 
     #[test]
@@ -676,11 +702,20 @@ mod tests {
         let second_spike = 120.0; // the would-be-masked second spike
         let z_clean = z_score(second_spike, sample_stats(&clean), 3.0, 0.0, 0.0);
         let z_polluted = z_score(second_spike, sample_stats(&polluted), 3.0, 0.0, 0.0);
-        let r_polluted = robust_score(second_spike, RobustStats::from_values(&polluted), 3.0, 0.0, 0.0);
+        let r_polluted = robust_score(
+            second_spike,
+            RobustStats::from_values(&polluted),
+            3.0,
+            0.0,
+            0.0,
+        );
 
         // mean/std self-masks: the first spike inflates the std so the second spike
         // no longer breaches (this is the failure mode the spec targets).
-        assert!(z_clean >= 3.0, "premise: the second spike breaches a clean mean/std baseline");
+        assert!(
+            z_clean >= 3.0,
+            "premise: the second spike breaches a clean mean/std baseline"
+        );
         assert!(
             z_polluted < 3.0,
             "premise: mean/std self-masks the second spike (z={z_polluted})"

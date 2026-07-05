@@ -48,7 +48,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
   end
 
   defp sources do
-    # The two seeded seasonal sources (cpu + memory); both supported.
+    # Default sources include delivery-only interface sources; ProfileRunner returns rows
+    # only for cpu/memory, so these tests keep covering the host baseline contract.
     Source.defaults()
   end
 
@@ -74,6 +75,190 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
     assert Enum.find(mem_buckets, &(&1["dow"] == 1 and &1["hod"] == 9))["center"] == 88.0
   end
 
+  defmodule InterfaceProfileRunner do
+    @moduledoc false
+    @device "sr:router-1"
+
+    def query(query, _opts) do
+      if String.contains?(query, "ifInOctets") do
+        {:ok, [row(7, 125.0), row(8, 250.0)]}
+      else
+        {:ok, []}
+      end
+    end
+
+    defp row(if_index, center) do
+      %{
+        "series" => @device,
+        "partition" => "edge-a",
+        "target_device_ip" => "192.0.2.10",
+        "if_index" => if_index,
+        "metric_name" => "ifInOctets",
+        "dow" => 1,
+        "hod" => 9,
+        "sample_value" => center,
+        "bucket" => "2026-06-22T09:00:00Z",
+        "bucket_count" => 8,
+        "center" => center,
+        "mad" => 5.0
+      }
+    end
+
+    def device, do: @device
+  end
+
+  test "build keys interface baselines by <device_uid>|<metric_name>|<if_index>" do
+    source = Enum.find(Source.defaults(), &(&1.name == "interface_if_in_octets_seasonal"))
+
+    assert {:ok, baselines} =
+             EdgeBaselineProducer.build(sources: [source], runner: InterfaceProfileRunner)
+
+    device = InterfaceProfileRunner.device()
+    if7_key = "#{device}|ifInOctets|7"
+    if8_key = "#{device}|ifInOctets|8"
+
+    assert baselines |> Map.keys() |> Enum.sort() == Enum.sort([if7_key, if8_key])
+
+    assert %{"encoding" => "compact_168_f32", "centers" => if7_centers, "scales" => if7_scales} =
+             baselines[if7_key]
+
+    assert Enum.at(if7_centers, 1 * 24 + 9) == 125.0
+    assert Enum.at(if7_scales, 1 * 24 + 9) == 7.413
+
+    assert %{"encoding" => "compact_168_f32", "centers" => if8_centers} = baselines[if8_key]
+    assert Enum.at(if8_centers, 1 * 24 + 9) == 250.0
+
+    assert :ok =
+             ConfigSchema.validate_params(load_addon_schema(), %{
+               "seasonal_baselines" => baselines
+             })
+  end
+
+  defmodule GovernedInterfaceRunner do
+    @moduledoc false
+
+    def query(query, _opts) do
+      if String.contains?(query, "ifInOctets") do
+        {:ok,
+         [
+           row("agent-a", "sr:router-1", 1, 100.0, 8),
+           row("agent-a", "sr:router-1", 2, 50.0, 8),
+           row("agent-a", "sr:router-1", 3, 10.0, 8),
+           row("agent-a", "sr:router-1", 4, 200.0, 2),
+           row("agent-b", "sr:router-2", 7, 80.0, 8)
+         ]}
+      else
+        {:ok, []}
+      end
+    end
+
+    defp row(agent_uid, device, if_index, center, count) do
+      %{
+        "series" => device,
+        "partition" => agent_uid,
+        "target_device_ip" => "192.0.2.#{if_index}",
+        "if_index" => if_index,
+        "metric_name" => "ifInOctets",
+        "dow" => 1,
+        "hod" => 9,
+        "sample_value" => center,
+        "bucket" => "2026-06-22T09:00:00Z",
+        "bucket_count" => count,
+        "center" => center,
+        "mad" => 5.0
+      }
+    end
+  end
+
+  test "build_scoped gates interface baselines by history, top-K, per-agent cap, and telemetry" do
+    test_pid = self()
+    handler_id = "edge-baseline-producer-test-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach(
+      handler_id,
+      [:serviceradar, :seasonal_disposition, :edge_baseline, :delivery],
+      fn event, measurements, metadata, _config ->
+        send(test_pid, {:telemetry, event, measurements, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    source = Enum.find(Source.defaults(), &(&1.name == "interface_if_in_octets_seasonal"))
+
+    assert {:ok, delivery} =
+             EdgeBaselineProducer.build_scoped(
+               sources: [source],
+               runner: GovernedInterfaceRunner,
+               interface_top_k_per_device: 2,
+               max_baselines_per_agent: 1
+             )
+
+    assert delivery.scoped_baselines |> Map.keys() |> Enum.sort() == ["agent-a", "agent-b"]
+    assert Map.keys(delivery.scoped_baselines["agent-a"]) == ["sr:router-1|ifInOctets|1"]
+    assert Map.keys(delivery.scoped_baselines["agent-b"]) == ["sr:router-2|ifInOctets|7"]
+    assert delivery.stats.scoped_series == 2
+    assert delivery.stats.topk_dropped == 1
+    assert delivery.stats.cap_dropped == 1
+
+    assert_receive {:telemetry, [:serviceradar, :seasonal_disposition, :edge_baseline, :delivery],
+                    measurements, %{result: :ok}}
+
+    assert measurements.cap_dropped == 1
+    assert measurements.scoped_series == 2
+  end
+
+  test "reconcile writes interface baselines only to matching assignment params" do
+    test_pid = self()
+    source = Enum.find(Source.defaults(), &(&1.name == "interface_if_in_octets_seasonal"))
+
+    profiles = [
+      %{id: Ecto.UUID.generate(), params: %{"metric_feed" => %{"sources" => ["sysmon", "snmp"]}}}
+    ]
+
+    assignments = [
+      %{agent_uid: "agent-a", params: %{"metric_feed" => %{"sources" => ["snmp"]}}},
+      %{agent_uid: "agent-z", params: %{"metric_feed" => %{"sources" => ["snmp"]}}}
+    ]
+
+    profile_updater = fn profile, params, _actor ->
+      send(test_pid, {:profile_updated, params})
+      {:ok, Map.put(profile, :params, params)}
+    end
+
+    assignment_updater = fn assignment, params, _actor ->
+      send(test_pid, {:assignment_updated, assignment.agent_uid, params})
+      {:ok, Map.put(assignment, :params, params)}
+    end
+
+    assert {:ok, summary} =
+             EdgeBaselineProducer.reconcile(
+               sources: [source],
+               runner: GovernedInterfaceRunner,
+               profiles_loader: fn _actor -> {:ok, profiles} end,
+               profile_updater: profile_updater,
+               assignments_loader: fn _profiles, _actor -> {:ok, assignments} end,
+               assignment_updater: assignment_updater
+             )
+
+    assert summary.global_series == 0
+    assert summary.scoped_agents == 2
+    assert summary.assignments_updated == 2
+
+    assert_received {:profile_updated, %{"seasonal_baselines" => %{}}}
+
+    assert_received {:assignment_updated, "agent-a", agent_a_params}
+    assert agent_a_params["metric_feed"] == %{"sources" => ["snmp"]}
+    assert Map.has_key?(agent_a_params["seasonal_baselines"], "sr:router-1|ifInOctets|1")
+    assert Map.has_key?(agent_a_params["seasonal_baselines"], "sr:router-1|ifInOctets|2")
+    assert Map.has_key?(agent_a_params["seasonal_baselines"], "sr:router-1|ifInOctets|3")
+    refute Map.has_key?(agent_a_params["seasonal_baselines"], "sr:router-1|ifInOctets|4")
+
+    assert_received {:assignment_updated, "agent-z", agent_z_params}
+    assert agent_z_params["seasonal_baselines"] == %{}
+  end
+
   test "the built payload validates against the add-on config schema" do
     {:ok, baselines} = EdgeBaselineProducer.build(sources: sources(), runner: ProfileRunner)
 
@@ -81,11 +266,17 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
     assert :ok = ConfigSchema.validate_params(schema, %{"seasonal_baselines" => baselines})
   end
 
-  test "reconcile writes seasonal_baselines into profile params, preserving metric_feed" do
+  test "reconcile writes seasonal_baselines into profile params, preserving other writers" do
     test_pid = self()
 
     profiles = [
-      %{id: "profile-1", params: %{"metric_feed" => %{"sources" => ["sysmon", "snmp"]}}}
+      %{
+        id: "profile-1",
+        params: %{
+          "managed" => %{"n_sigma" => 4.0},
+          "metric_feed" => %{"sources" => ["sysmon", "snmp"]}
+        }
+      }
     ]
 
     updater = fn profile, params, _actor ->
@@ -105,6 +296,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
     assert summary.series == 2
 
     assert_received {:updated, "profile-1", params}
+    # Config projection is a disjoint writer under params["managed"].
+    assert params["managed"] == %{"n_sigma" => 4.0}
     # Existing feed ownership is preserved.
     assert params["metric_feed"] == %{"sources" => ["sysmon", "snmp"]}
     # The delivered baseline is keyed by the canonical device-uid|metric.

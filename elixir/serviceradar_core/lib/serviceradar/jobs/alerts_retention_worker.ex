@@ -24,6 +24,7 @@ defmodule ServiceRadar.Jobs.AlertsRetentionWorker do
     SELECT id
     FROM alerts
     WHERE triggered_at < $1
+      AND status IN ('resolved', 'suppressed')
     ORDER BY triggered_at ASC
     LIMIT $2
   )

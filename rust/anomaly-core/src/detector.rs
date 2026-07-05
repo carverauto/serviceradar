@@ -206,7 +206,6 @@ impl DetectorState {
         self.window_tail.push(self.sample.value);
         self.rolling_acc.add(self.sample.value);
     }
-
 }
 
 fn evaluate_detector_command(

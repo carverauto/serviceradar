@@ -12,6 +12,8 @@ mod checkpoint;
 mod classify;
 mod config;
 mod counter;
+mod demo_metric_corpus;
+mod demo_metric_corpus_data;
 mod engine;
 mod frame;
 mod health;

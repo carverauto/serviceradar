@@ -71,13 +71,24 @@ pub(super) fn anomaly_metric_batch(value: f64, observed_at_unix_nano: u64) -> Me
 }
 
 pub(super) fn sysmon_cpu_debug_spike_batch(value: f64, observed_at_unix_nano: u64) -> MetricBatch {
-    let metrics = (0..4)
-        .map(|core_id| Metric {
+    sysmon_cpu_multi_core_batch(
+        &[(0, value), (1, value), (2, value), (3, value)],
+        observed_at_unix_nano,
+    )
+}
+
+pub(super) fn sysmon_cpu_multi_core_batch(
+    values: &[(u32, f64)],
+    observed_at_unix_nano: u64,
+) -> MetricBatch {
+    let metrics = values
+        .iter()
+        .map(|(core_id, value)| Metric {
             name: "cpu.usage_percent".to_string(),
             metric_type: "sysmon.cpu".to_string(),
             unit: "%".to_string(),
             points: vec![MetricPoint {
-                value,
+                value: *value,
                 observed_at_unix_nano,
                 attributes: vec![
                     entry("core_id", &core_id.to_string()),

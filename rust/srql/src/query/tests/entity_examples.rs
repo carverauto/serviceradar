@@ -330,6 +330,66 @@ fn events_rollup_stats_anomaly_findings_scopes_severity_counts_to_anomalies() {
 }
 
 #[test]
+fn events_finding_rollup_filter_matches_anomaly_rollup_predicate() {
+    let query = "in:events finding_rollup:anomaly time:last_24h sort:time:desc";
+    let plan = plan_for(query);
+
+    let (sql, params) =
+        events::to_sql_and_params(&plan).expect("should build anomaly finding filter SQL");
+    let lower = sql.to_lowercase();
+
+    assert!(
+        lower.contains("\"ocsf_events\".\"class_uid\" = 2004")
+            && lower.contains("\"ocsf_events\".\"category_uid\" = 2")
+            && lower.contains("anomaly_detection")
+            && lower.contains("metadata #>> '{detection_finding,type}' = 'anomaly'")
+            && lower.contains("and not ((metadata ->> 'event_type' = 'capacity_forecast'"),
+        "expected anomaly finding filter to mirror rollup anomaly predicate, got: {sql}"
+    );
+    assert_eq!(params.len(), 4);
+}
+
+#[test]
+fn events_finding_rollup_filter_matches_capacity_at_risk_rollup_predicate() {
+    let query = "in:events finding_rollup:capacity_at_risk time:last_24h sort:time:desc";
+    let plan = plan_for(query);
+
+    let (sql, params) =
+        events::to_sql_and_params(&plan).expect("should build capacity finding filter SQL");
+    let lower = sql.to_lowercase();
+
+    assert!(
+        lower.contains("\"ocsf_events\".\"class_uid\" = 2004")
+            && lower.contains("\"ocsf_events\".\"category_uid\" = 2")
+            && lower.contains("metadata ->> 'event_type' = 'capacity_forecast'")
+            && lower.contains("unmapped #>> '{capacity_forecast,status}' in")
+            && lower.contains("projected_exhaustion_at"),
+        "expected capacity finding filter to mirror rollup at-risk predicate, got: {sql}"
+    );
+    assert_eq!(params.len(), 4);
+}
+
+#[test]
+fn events_finding_rollup_filter_matches_health_rollup_predicate() {
+    let query = "in:events finding_rollup:health time:last_24h sort:time:desc";
+    let plan = plan_for(query);
+
+    let (sql, params) =
+        events::to_sql_and_params(&plan).expect("should build health finding filter SQL");
+    let lower = sql.to_lowercase();
+
+    assert!(
+        lower.contains("\"ocsf_events\".\"class_uid\" = 2004")
+            && lower.contains("\"ocsf_events\".\"category_uid\" = 2")
+            && lower.contains("anomaly_detection")
+            && lower.contains("metadata ->> 'event_type' = 'capacity_forecast'")
+            && lower.contains("projected_exhaustion_at"),
+        "expected health finding filter to combine anomaly and at-risk capacity predicates, got: {sql}"
+    );
+    assert_eq!(params.len(), 4);
+}
+
+#[test]
 fn events_count_stats_builds_filtered_count_without_page_limit() {
     let query = r#"in:events class_uid:2004 source_type:anomaly_detection service_radar_device_uid:"sr:device-1" time:last_7d status:(active,open,anomaly_open,inactive,cleared,resolved) stats:"count() as total" limit:5"#;
     let plan = plan_for(query);

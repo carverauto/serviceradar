@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.TimeseriesCounterAxisTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics
+  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData
 
   @moduletag :unit
@@ -48,5 +49,30 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.TimeseriesCounterAxisTest do
     assert Enum.map(combined.series, & &1.raw_series) == ["ifInOctets", "ifOutOctets"]
     assert error_series.raw_series == "ifInErrors"
     assert error_series.unit == :count_per_sec
+  end
+
+  test "widens chart left pad for long y-axis tick labels" do
+    assert Paths.chart_left_pad([{100, "123456789012345"}]) > Paths.chart_left_pad()
+  end
+
+  test "uses the computed chart left pad for ticks and hover point coordinates" do
+    t0 = ~U[2026-01-01 00:00:00Z]
+    t1 = DateTime.add(t0, 60, :second)
+
+    [series] =
+      SeriesData.build_series_data(
+        [{"custom.metric", [{t0, 0.0}, {t1, 1_000_000_000.0}]}],
+        %{},
+        :none,
+        false,
+        nil,
+        [],
+        [],
+        :linear
+      )
+
+    assert [{first_x, _label} | _] = series.x_ticks
+    assert first_x == series.chart_left_pad
+    assert hd(series.point_data).x == series.chart_left_pad
   end
 end

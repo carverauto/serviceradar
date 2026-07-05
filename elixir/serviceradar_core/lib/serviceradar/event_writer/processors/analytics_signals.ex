@@ -16,6 +16,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.DeviceCorrelation
+  alias ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry
   alias ServiceRadar.EventWriter.Telemetry, as: EventWriterTelemetry
   alias ServiceRadar.Observability.AnomalyDetection.SeriesKey
   alias ServiceRadar.Observability.AnomalyDispositionReporter
@@ -34,13 +35,22 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   @ocsf_vulnerability_finding_type_uid 200_201
   @ocsf_detection_finding_type_uid 200_401
   @ocsf_create_activity_id 1
-  @structured_series_key_pattern ~r/^v\d+:/
+  @structured_series_key_pattern ~r/^v\d+[:|]/
+  @legacy_anomaly_class1008_env "SERVICERADAR_ANOMALY_LEGACY_CLASS1008"
   # Anomaly lifecycle states that represent a CONFIRMED-open anomaly (surface the
   # finding) versus its resolution (surface the clear so downstream alert state
   # machines can close it). Every other anomaly.state value (pending_anomaly, clean,
   # none, insufficient_baseline) is an unconfirmed breadcrumb and is withheld.
-  @anomaly_open_states ["anomalous", "anomaly_open", "anomaly_drift"]
-  @anomaly_clear_states ["anomaly_clear", "cleared", "inactive", "resolved", "closed"]
+  @anomaly_open_states ["anomalous", "anomaly_open", "anomaly_drift", "anomaly_drift_open"]
+  @anomaly_clear_states [
+    "anomaly_clear",
+    "anomaly_drift_clear",
+    "clear",
+    "cleared",
+    "inactive",
+    "resolved",
+    "closed"
+  ]
   @anomaly_pending_detector_state "pending_anomaly"
   @ocsf_event_conflict_target [:time, :id]
   @ocsf_event_replace_fields [
@@ -103,6 +113,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
           build_ocsf_event_row(normalized, payload, raw_data, metadata)
         end)
         |> Enum.reject(&is_nil/1)
+        |> AnomalyEpisodeRegistry.transition_rows()
 
       {ash_ocsf_rows, bulk_ocsf_rows} = Enum.split_with(all_ocsf_rows, &ash_recorded_row?/1)
 
@@ -239,10 +250,9 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   defp record_causal_prediction_ocsf_events([]), do: []
 
   defp record_causal_prediction_ocsf_events(rows) when is_list(rows) do
-    rows =
-      rows
-      |> align_existing_ocsf_event_times()
-      |> dedupe_rows_by_conflict_key(&ocsf_event_id_key/1)
+    {rows, existing_id_keys} = align_existing_ocsf_event_times_with_existing_ids(rows)
+
+    rows = dedupe_rows_by_conflict_key(rows, &ocsf_event_id_key/1)
 
     {_count, upserted_rows} =
       BulkInsert.insert_all(table_name(), rows,
@@ -254,7 +264,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     upserted_keys = MapSet.new(Enum.map(upserted_rows, &ocsf_event_conflict_key/1))
 
     rows
-    |> Enum.filter(&MapSet.member?(upserted_keys, ocsf_event_conflict_key(&1)))
+    |> Enum.filter(fn row ->
+      MapSet.member?(upserted_keys, ocsf_event_conflict_key(row)) and
+        not MapSet.member?(existing_id_keys, ocsf_event_id_key(row))
+    end)
     |> dedupe_rows_by_conflict_key(&ocsf_event_conflict_key/1)
   end
 
@@ -264,6 +277,15 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   def align_existing_ocsf_event_times([], _repo), do: []
 
   def align_existing_ocsf_event_times(rows, repo) when is_list(rows) do
+    {rows, _existing_id_keys} = align_existing_ocsf_event_times_with_existing_ids(rows, repo)
+    rows
+  end
+
+  defp align_existing_ocsf_event_times_with_existing_ids(rows, repo \\ ServiceRadar.Repo)
+
+  defp align_existing_ocsf_event_times_with_existing_ids([], _repo), do: {[], MapSet.new()}
+
+  defp align_existing_ocsf_event_times_with_existing_ids(rows, repo) when is_list(rows) do
     ids =
       rows
       |> Enum.map(&ocsf_event_id_key/1)
@@ -272,15 +294,18 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
     case existing_ocsf_event_times(repo, ids) do
       {:ok, existing_times} when map_size(existing_times) > 0 ->
-        Enum.map(rows, fn row ->
-          case Map.get(existing_times, ocsf_event_id_key(row)) do
-            %DateTime{} = existing_time -> %{row | time: existing_time}
-            _ -> row
-          end
-        end)
+        aligned_rows =
+          Enum.map(rows, fn row ->
+            case Map.get(existing_times, ocsf_event_id_key(row)) do
+              %DateTime{} = existing_time -> %{row | time: existing_time}
+              _ -> row
+            end
+          end)
+
+        {aligned_rows, MapSet.new(Map.keys(existing_times))}
 
       _ ->
-        rows
+        {rows, MapSet.new()}
     end
   end
 
@@ -461,20 +486,55 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   end
 
   defp alert_evaluation_row(%{id: <<_::128>> = id} = row) do
-    case Ecto.UUID.load(id) do
-      {:ok, uuid} -> %{row | id: uuid}
-      :error -> row
-    end
+    case_result =
+      case Ecto.UUID.load(id) do
+        {:ok, uuid} -> %{row | id: uuid}
+        :error -> row
+      end
+
+    canonicalize_alert_evaluation_row(case_result)
   end
 
   defp alert_evaluation_row(%{id: id} = row) when is_binary(id) do
-    case Ecto.UUID.cast(id) do
-      {:ok, uuid} -> %{row | id: uuid}
-      :error -> row
+    case_result =
+      case Ecto.UUID.cast(id) do
+        {:ok, uuid} -> %{row | id: uuid}
+        :error -> row
+      end
+
+    canonicalize_alert_evaluation_row(case_result)
+  end
+
+  defp alert_evaluation_row(row), do: canonicalize_alert_evaluation_row(row)
+
+  defp canonicalize_alert_evaluation_row(
+         %{class_uid: @ocsf_detection_finding_class_uid, unmapped: unmapped} = row
+       )
+       when is_map(unmapped) do
+    case {row_value(row, "signal_type"), row_value(row, "event_type")} do
+      {"prediction", event_type} when event_type in ["anomaly", "anomaly_detection"] ->
+        %{
+          row
+          | unmapped:
+              Map.merge(unmapped, %{"signal_type" => "prediction", "event_type" => event_type})
+        }
+
+      {"prediction", "capacity_forecast"} ->
+        %{
+          row
+          | unmapped:
+              Map.merge(unmapped, %{
+                "signal_type" => "prediction",
+                "event_type" => "capacity_forecast"
+              })
+        }
+
+      _ ->
+        row
     end
   end
 
-  defp alert_evaluation_row(row), do: row
+  defp canonicalize_alert_evaluation_row(row), do: row
 
   defp alert_evaluation_queue do
     Application.get_env(
@@ -827,7 +887,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     end
   end
 
-  defp build_confirmed_anomaly_detection_finding_row(normalized, payload, raw_data, metadata) do
+  defp build_confirmed_anomaly_detection_finding_row(normalized, payload, _raw_data, metadata) do
     # B(i). Confirmation-aware severity (defense-in-depth behind the A gate): a
     # pending breadcrumb that ever reaches row-build is clamped to Informational/Low,
     # regardless of the producer's severity_id.
@@ -870,7 +930,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
           log_level: payload["level"],
           log_version: payload["version"] || @schema_version,
           unmapped: payload,
-          raw_data: normalize_raw_data(raw_data),
+          raw_data: nil,
           created_at: DateTime.utc_now()
         }
     end
@@ -1220,12 +1280,31 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   end
 
   defp normalize_severity(payload) do
-    cond do
-      is_integer(payload["severity_id"]) -> clamp_severity(payload["severity_id"])
-      is_integer(payload["severity"]) -> clamp_severity(payload["severity"])
-      is_binary(payload["severity"]) -> severity_from_string(payload["severity"])
-      true -> 3
-    end
+    severity_id =
+      cond do
+        is_integer(payload["severity_id"]) -> clamp_severity(payload["severity_id"])
+        is_integer(payload["severity"]) -> clamp_severity(payload["severity"])
+        is_binary(payload["severity"]) -> severity_from_string(payload["severity"])
+        true -> 3
+      end
+
+    anomaly_severity_backstop(payload, severity_id)
+  end
+
+  defp anomaly_severity_backstop(payload, severity_id) when is_map(payload) do
+    severity_id
+    |> maybe_cap_pending_anomaly_severity(payload)
+    |> maybe_cap_edge_drift_severity(payload)
+  end
+
+  defp anomaly_severity_backstop(_payload, severity_id), do: severity_id
+
+  defp maybe_cap_pending_anomaly_severity(severity_id, payload) do
+    if anomaly_pending_reason?(payload), do: min(severity_id, 2), else: severity_id
+  end
+
+  defp maybe_cap_edge_drift_severity(severity_id, payload) do
+    if anomaly_edge_drift?(payload), do: min(severity_id, 4), else: severity_id
   end
 
   defp clamp_severity(value) when value < 0, do: 0
@@ -1337,16 +1416,47 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   end
 
   defp anomaly_detection_signal?(signal_type, event_type, payload) when is_map(payload) do
-    normalized_event_type = normalize_event_type(event_type)
-    finding_type = normalize_event_type(payload["finding_type"] || payload["findingType"])
+    anomaly_shaped? = anomaly_shaped_payload?(payload, event_type)
 
-    signal_type == "prediction" and
-      (payload["class_uid"] == @ocsf_detection_finding_class_uid or
-         normalized_event_type in ["anomaly", "anomaly_detection"] or
-         finding_type in ["detection", "anomaly", "anomaly_detection"])
+    if legacy_anomaly_class1008_enabled?() do
+      signal_type == "prediction" and anomaly_shaped?
+    else
+      anomaly_shaped?
+    end
   end
 
   defp anomaly_detection_signal?(_, _, _), do: false
+
+  defp anomaly_shaped_payload?(payload, event_type \\ nil)
+
+  defp anomaly_shaped_payload?(payload, event_type) when is_map(payload) do
+    normalized_event_type =
+      normalize_event_type(event_type || payload["event_type"] || payload["eventType"])
+
+    finding_type = normalize_event_type(payload["finding_type"] || payload["findingType"])
+
+    payload["class_uid"] == @ocsf_detection_finding_class_uid or
+      is_map(payload["anomaly"]) or
+      normalized_event_type in ["anomaly", "anomaly_detection"] or
+      finding_type in ["detection", "anomaly", "anomaly_detection"]
+  end
+
+  defp anomaly_shaped_payload?(_, _), do: false
+
+  defp legacy_anomaly_class1008_enabled? do
+    @legacy_anomaly_class1008_env
+    |> System.get_env("")
+    |> normalize_env_truthy?()
+  end
+
+  defp normalize_env_truthy?(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.downcase()
+    |> Kernel.in(["1", "true", "yes", "on"])
+  end
+
+  defp normalize_env_truthy?(_value), do: false
 
   defp payload_device_uid(payload) do
     first_non_blank([
@@ -1417,6 +1527,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     if_index = anomaly_detection_if_index(payload)
 
     normalized
+    |> Map.put("signal_type", "prediction")
+    |> Map.put("event_type", finding_type)
     |> Map.put("primary_domain", "health")
     |> Map.put("finding_info", finding_info)
     |> Map.put(
@@ -1778,6 +1890,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     cond do
       capacity_forecast_signal?(normalized, payload) -> false
       not is_map(payload["anomaly"]) -> false
+      anomaly_pending_reason?(payload) -> true
       anomaly_clear_finding?(payload) -> false
       true -> not anomaly_finding_confirmed?(payload)
     end
@@ -1820,12 +1933,50 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   def anomaly_detection_severity_id(normalized, payload) do
     severity_id = normalized["severity_id"] || 0
 
-    if anomaly_finding_unconfirmed?(normalized, payload) do
-      min(severity_id, 2)
-    else
-      severity_id
-    end
+    severity_id
+    |> maybe_cap_pending_anomaly_severity(payload)
+    |> maybe_cap_edge_drift_severity(payload)
+    |> then(fn severity_id ->
+      if anomaly_finding_unconfirmed?(normalized, payload) do
+        min(severity_id, 2)
+      else
+        severity_id
+      end
+    end)
   end
+
+  defp anomaly_pending_reason?(payload) when is_map(payload) do
+    anomaly_shaped_payload?(payload) and
+      Enum.any?(
+        [
+          get_in(payload, ["anomaly", "reason"]),
+          payload["reason"],
+          payload["message"]
+        ],
+        fn
+          value when is_binary(value) ->
+            value
+            |> String.trim()
+            |> String.downcase()
+            |> String.starts_with?("breach pending")
+
+          _ ->
+            false
+        end
+      )
+  end
+
+  defp anomaly_pending_reason?(_payload), do: false
+
+  defp anomaly_edge_drift?(payload) when is_map(payload) do
+    anomaly_shaped_payload?(payload) and
+      (payload["verdict_source"] == "edge-drift" or
+         get_in(payload, ["anomaly", "verdict_source"]) == "edge-drift" or
+         payload["detector_method"] == "cusum_drift" or
+         get_in(payload, ["anomaly", "detector_method"]) == "cusum_drift")
+  end
+
+  defp anomaly_edge_drift?(_payload), do: false
 
   defp anomaly_detection_unconfirmed_telemetry(payload) do
     :telemetry.execute(

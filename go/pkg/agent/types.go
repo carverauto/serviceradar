@@ -161,10 +161,12 @@ type ServerConfig struct {
 	LocalOtlpEndpoint string `json:"local_otlp_endpoint,omitempty"`
 
 	// AddonCgroupRoot optionally names a delegated cgroup v2 directory the agent
-	// may write to (e.g. "/sys/fs/cgroup/serviceradar-agent.slice/addons") under
-	// which agent-sidecar add-on subprocesses are placed with their manifest
-	// resource limits (cpu.max/memory.max/memory.high/pids.max). Empty disables
-	// cgroup enforcement; systemd-supervised add-ons use unit directives instead
+	// may write to (e.g. "/sys/fs/cgroup/serviceradar.slice/serviceradar-agent.service/addons")
+	// under which agent-sidecar add-on subprocesses are placed with their
+	// manifest resource limits (cpu.max/memory.max/memory.high/pids.max). It
+	// takes precedence over a manifest slice for process-supervised add-ons.
+	// Empty disables cgroup enforcement unless the manifest declares a writable
+	// slice; systemd-supervised add-ons use unit directives instead
 	// (move-anomaly-detection-to-edge §4.2).
 	AddonCgroupRoot string `json:"addon_cgroup_root,omitempty"`
 

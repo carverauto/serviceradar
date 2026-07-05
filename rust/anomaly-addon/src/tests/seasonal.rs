@@ -163,6 +163,71 @@ fn delivered_uid_keyed_baseline_resolves_and_deseasonalizes_a_real_sample() {
 }
 
 #[test]
+fn interface_seasonal_key_uses_exact_key_then_two_segment_fallback() {
+    let cfg = EngineConfig {
+        window_size: 50,
+        min_samples: 5,
+        n_sigma: 3.0,
+        confirm_slots: 1,
+        max_series: 10,
+        ..EngineConfig::default()
+    };
+    let profile = SeriesProfile::default();
+
+    let mut fallback_engine = DetectorEngine::new(cfg.clone());
+    fallback_engine.set_seasonal_baselines(HashMap::from([(
+        "sr:router-1|ifInOctets".to_string(),
+        flat_profile(100.0, 5.0, 8),
+    )]));
+
+    let fallback = fallback_engine
+        .evaluate_with_seasonal_key(
+            "detector-key",
+            "sr:router-1|ifInOctets|7",
+            102.0,
+            0,
+            profile,
+        )
+        .expect("verdict");
+    assert!(
+        fallback
+            .signals
+            .iter()
+            .any(|signal| signal.name == "seasonal" && signal.ready && !signal.breached),
+        "a legacy two-segment baseline must resolve as fallback for a three-segment interface key"
+    );
+
+    let mut exact_engine = DetectorEngine::new(cfg);
+    exact_engine.set_seasonal_baselines(HashMap::from([
+        (
+            "sr:router-1|ifInOctets".to_string(),
+            flat_profile(100.0, 5.0, 8),
+        ),
+        (
+            "sr:router-1|ifInOctets|7".to_string(),
+            flat_profile(200.0, 5.0, 8),
+        ),
+    ]));
+
+    let exact = exact_engine
+        .evaluate_with_seasonal_key(
+            "detector-key",
+            "sr:router-1|ifInOctets|7",
+            102.0,
+            0,
+            profile,
+        )
+        .expect("verdict");
+    assert!(
+        exact
+            .signals
+            .iter()
+            .any(|signal| signal.name == "seasonal" && signal.ready && signal.breached),
+        "the exact three-segment interface baseline must win over the two-segment fallback"
+    );
+}
+
+#[test]
 fn baseline_keyed_by_the_detector_key_does_not_resolve() {
     // Negative control demonstrating the bug this alignment fixes: if the delivered
     // baseline is keyed by the finer DETECTOR series key (the old assumption), the

@@ -40,7 +40,9 @@
 //! mean/stddev exact and legible.
 
 use serviceradar_anomaly_core::{ReasonContext, ReasonSample, ReasonVerdict, reason_impl};
-use serviceradar_anomaly_disposition::{Disposition, SeasonalConfig, SeasonalRow, dispose_seasonal};
+use serviceradar_anomaly_disposition::{
+    Disposition, SeasonalConfig, SeasonalRow, dispose_seasonal,
+};
 
 /// The flat rolling baseline every case shares: ~100 with a tiny ±0.5 jitter so the
 /// rolling stddev is strictly > 0 (a degenerate zero-variance window would make the

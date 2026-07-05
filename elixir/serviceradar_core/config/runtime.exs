@@ -12,6 +12,7 @@ alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.EventWriter.Processors.PowerDNS
 alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
 alias ServiceRadar.Jobs.RootSpanRatioWorker
+alias ServiceRadar.Observability.AnomalyAddonConfigProjector
 alias ServiceRadar.Observability.CapacityForecasting.Worker, as: CapacityForecastingWorker
 alias ServiceRadar.Observability.DataRetentionWorker
 
@@ -1289,6 +1290,25 @@ if config_env() == :prod do
       []
     end
 
+  anomaly_edge_config_projection_enabled =
+    "SERVICERADAR_ANOMALY_EDGE_CONFIG_PROJECTION"
+    |> System.get_env("false")
+    |> String.downcase()
+    |> Kernel.in(["1", "true", "yes", "on"])
+
+  anomaly_edge_config_projection_cron =
+    System.get_env("SERVICERADAR_ANOMALY_EDGE_CONFIG_PROJECTION_CRON", "57 * * * *")
+
+  anomaly_edge_config_projection_crontab =
+    if anomaly_edge_config_projection_enabled do
+      [
+        {anomaly_edge_config_projection_cron, AnomalyAddonConfigProjector,
+         args: %{"trigger" => "cron"}, queue: :maintenance}
+      ]
+    else
+      []
+    end
+
   config :serviceradar_core, CapacityForecastingWorker,
     enabled: capacity_forecasting_enabled,
     horizon_seconds: capacity_forecasting_horizon_seconds,
@@ -1335,12 +1355,15 @@ if config_env() == :prod do
             queue: :maintenance},
            {"31 3 * * *", ServiceRadar.Edge.RemoteAccessVersionRetentionWorker,
             queue: :maintenance},
+           {"*/5 * * * *", ServiceRadar.Observability.AnomalyEpisodeStaleCloseWorker,
+            queue: :maintenance},
            {"*/30 * * * *", ServiceRadar.Observability.ResolveStaleAnomaliesWorker,
             queue: :maintenance}
          ] ++
            object_store_retention_crontab ++
            capacity_forecasting_crontab ++
-           seasonal_disposition_crontab ++ seasonal_edge_baseline_crontab}
+           seasonal_disposition_crontab ++
+           seasonal_edge_baseline_crontab ++ anomaly_edge_config_projection_crontab}
     ],
     peer: Oban.Peers.Database
 

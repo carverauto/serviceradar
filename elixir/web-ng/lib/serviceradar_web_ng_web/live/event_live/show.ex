@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadarWebNG.Observability.SignalDisplay
+  alias ServiceRadarWebNGWeb.AnomalySeriesKey
 
   require Ash.Query
 
@@ -187,11 +188,14 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   defp anomaly_detection_summary(assigns) do
     finding = anomaly_detection_payload(assigns.event)
     finding_info = nested_map(assigns.event, ["metadata", "finding_info"])
+    series_key = map_value(finding, "series_key")
 
     assigns =
       assigns
       |> assign(:finding, finding)
       |> assign(:finding_info, finding_info)
+      |> assign(:series_key, series_key)
+      |> assign(:series_display, AnomalySeriesKey.display(series_key) || series_key)
 
     ~H"""
     <div class="rounded-xl border border-warning/20 bg-warning/5 p-6">
@@ -209,7 +213,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
       </div>
 
       <div class="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <.finding_fact label="Series" value={map_value(@finding, "series_key")} mono />
+        <.finding_fact label="Series" value={@series_display} title={@series_key} />
         <.finding_fact label="Metric Class" value={map_value(@finding, "metric_class")} />
         <.finding_fact label="State" value={map_value(@finding, "state")} />
         <.finding_fact label="Score" value={map_value(@finding, "score")} mono />
@@ -264,19 +268,25 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
   attr(:label, :string, required: true)
   attr(:value, :any, default: nil)
+  attr(:title, :any, default: nil)
   attr(:mono, :boolean, default: false)
 
   defp finding_fact(assigns) do
+    assigns = assign(assigns, :title_value, display_value(assigns.title || assigns.value))
+
     ~H"""
     <div class="min-w-0">
       <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-1">
         {@label}
       </span>
-      <span class={[
-        "text-sm break-words",
-        if(@mono, do: "font-mono break-all", else: nil),
-        if(blank?(@value), do: "text-base-content/40", else: nil)
-      ]}>
+      <span
+        class={[
+          "text-sm break-words",
+          if(@mono, do: "font-mono break-all", else: nil),
+          if(blank?(@value), do: "text-base-content/40", else: nil)
+        ]}
+        title={@title_value}
+      >
         {display_value(@value)}
       </span>
     </div>
@@ -434,10 +444,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
       |> Enum.reject(&(&1 in summary_fields))
       |> Enum.sort()
 
-    assigns =
-      assigns
-      |> assign(:other_fields, other_fields)
-      |> assign(:other_fields, other_fields)
+    assigns = assign(assigns, :other_fields, other_fields)
 
     ~H"""
     <%!-- Event Details --%>
@@ -458,56 +465,6 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
       </div>
     </div>
     """
-  end
-
-  # Render values inline (not in pre blocks)
-  attr(:value, :any, default: nil)
-
-  defp inline_value(%{value: nil} = assigns) do
-    ~H|<span class="text-base-content/40 text-sm">—</span>|
-  end
-
-  defp inline_value(%{value: ""} = assigns) do
-    ~H|<span class="text-base-content/40 text-sm">—</span>|
-  end
-
-  defp inline_value(%{value: value} = assigns) when is_boolean(value) do
-    ~H|<span class="text-sm font-mono">{to_string(@value)}</span>|
-  end
-
-  defp inline_value(%{value: value} = assigns) when is_number(value) do
-    ~H|<span class="text-sm font-mono">{to_string(@value)}</span>|
-  end
-
-  defp inline_value(%{value: value} = assigns) when is_map(value) or is_list(value) do
-    # For nested objects, show a compact summary
-    summary =
-      case value do
-        m when is_map(m) -> "{#{map_size(m)} fields}"
-        l when is_list(l) -> "[#{length(l)} items]"
-      end
-
-    assigns = assign(assigns, :summary, summary)
-
-    ~H|<span class="text-sm text-base-content/60">{@summary}</span>|
-  end
-
-  defp inline_value(%{value: value} = assigns) when is_binary(value) do
-    # Truncate long values
-    display =
-      if String.length(value) > 100 do
-        String.slice(value, 0, 100) <> "…"
-      else
-        value
-      end
-
-    assigns = assign(assigns, :display, display)
-
-    ~H|<span class="text-sm break-words" title={@value}>{@display}</span>|
-  end
-
-  defp inline_value(assigns) do
-    ~H|<span class="text-sm">{to_string(@value)}</span>|
   end
 
   # CloudEvents field ordering

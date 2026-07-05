@@ -1,4 +1,10 @@
-use super::types::EventsQuery;
+use super::{
+    rollup::{
+        anomaly_detection_rollup_source_clause, capacity_forecast_at_risk_rollup_clause,
+        capacity_forecast_rollup_source_clause,
+    },
+    types::EventsQuery,
+};
 use crate::{
     error::{Result, ServiceError},
     parser::Filter,
@@ -159,6 +165,9 @@ pub(super) fn apply_filter<'a>(
         "event_type" => {
             query = apply_event_type_filter(query, filter)?;
         }
+        "finding_rollup" => {
+            query = apply_finding_rollup_filter(query, filter)?;
+        }
         "trace_id" => {
             query = apply_text_filter!(query, filter, col_trace_id)?;
         }
@@ -311,6 +320,72 @@ fn apply_event_type_filter<'a>(query: EventsQuery<'a>, filter: &Filter) -> Resul
         })
         .map(|clause| format!("({clause})"))
         .collect::<Vec<_>>();
+
+    if clauses.is_empty() {
+        return Ok(query);
+    }
+
+    let clause = clauses.join(" OR ");
+    let sql_clause = if negate {
+        format!("NOT ({clause})")
+    } else {
+        format!("({clause})")
+    };
+
+    Ok(query.filter(sql::<Bool>(&sql_clause)))
+}
+
+fn apply_finding_rollup_filter<'a>(
+    query: EventsQuery<'a>,
+    filter: &Filter,
+) -> Result<EventsQuery<'a>> {
+    let negate = matches!(
+        filter.op,
+        crate::parser::FilterOp::NotEq | crate::parser::FilterOp::NotIn
+    );
+
+    let values = match filter.op {
+        crate::parser::FilterOp::Eq | crate::parser::FilterOp::NotEq => {
+            vec![filter.value.as_scalar()?.to_string()]
+        }
+        crate::parser::FilterOp::In | crate::parser::FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(query);
+            }
+            values
+        }
+        _ => {
+            return Err(ServiceError::InvalidRequest(
+                "finding_rollup filter only supports equality and IN/NOT IN comparisons".into(),
+            ))
+        }
+    };
+
+    let anomaly_clause = anomaly_detection_rollup_source_clause();
+    let capacity_source_clause = capacity_forecast_rollup_source_clause();
+    let capacity_at_risk_clause = capacity_forecast_at_risk_rollup_clause();
+    let anomaly_count_clause = format!("({anomaly_clause}) AND NOT ({capacity_source_clause})");
+    let detection_finding_gate =
+        r#""ocsf_events"."class_uid" = 2004 AND "ocsf_events"."category_uid" = 2"#;
+
+    let clauses = values
+        .into_iter()
+        .map(|value| match value.as_str() {
+            "anomaly" | "anomaly_findings" => Ok(format!(
+                "({detection_finding_gate} AND ({anomaly_count_clause}))"
+            )),
+            "capacity_at_risk" | "at_risk_capacity" => Ok(format!(
+                "({detection_finding_gate} AND ({capacity_at_risk_clause}))"
+            )),
+            "health" | "health_findings" => Ok(format!(
+                "({detection_finding_gate} AND (({anomaly_count_clause}) OR ({capacity_at_risk_clause})))"
+            )),
+            other => Err(ServiceError::InvalidRequest(format!(
+                "unsupported finding_rollup value '{other}' (supported: anomaly, capacity_at_risk, health)"
+            ))),
+        })
+        .collect::<Result<Vec<_>>>()?;
 
     if clauses.is_empty() {
         return Ok(query);
@@ -785,6 +860,7 @@ pub(super) fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter
         | "source_type"
         | "addon_id"
         | "event_type"
+        | "finding_rollup"
         | "purl"
         | "purl_canonical"
         | "canonical_purl"

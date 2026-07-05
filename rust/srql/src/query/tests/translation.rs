@@ -420,6 +420,59 @@ fn translate_timeseries_metric_interface_hourly_reads_interface_cagg() {
 }
 
 #[test]
+fn translate_timeseries_metric_interface_hourly_profile_uses_rate_cagg() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:timeseries_metric_interface_hourly metric_name:\"ifInOctets\" time:last_180d stats:profile_hour_of_week(value) timezone:\"Etc/UTC\" sort:series:asc,if_index:asc,dow:asc,hod:asc limit:50000".to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+
+    assert!(
+        response
+            .sql
+            .contains("FROM timeseries_metrics_interface_hourly"),
+        "expected interface hourly CAGG, got: {}",
+        response.sql
+    );
+    assert!(
+        response
+            .sql
+            .contains("avg_rate_per_second::float8 AS sample_value"),
+        "expected profile to use interface rate samples, got: {}",
+        response.sql
+    );
+    assert!(
+        response.sql.contains("'if_index', l.if_index")
+            && response
+                .sql
+                .contains("SELECT DISTINCT ON (series, if_index, metric_name)"),
+        "expected per-ifIndex profile identity, got: {}",
+        response.sql
+    );
+    assert!(
+        response
+            .sql
+            .contains("ORDER BY l.series ASC, l.if_index ASC, l.dow ASC, l.hod ASC"),
+        "expected interface profile ordering, got: {}",
+        response.sql
+    );
+
+    let max_placeholder = super::max_dollar_placeholder(&response.sql);
+    assert_eq!(
+        max_placeholder,
+        response.params.len(),
+        "sql placeholders must match params length\nsql: {}\nparams: {:?}",
+        response.sql,
+        response.params
+    );
+}
+
+#[test]
 fn translate_downsample_respects_value_field() {
     let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
     let request = QueryRequest {
@@ -600,6 +653,18 @@ fn translate_rate_downsample_orders_by_bucket_and_series() {
         response.sql
     );
     assert!(
+        sql.contains(
+            "partition by gateway_id, coalesce(agent_id, ''), metric_type, metric_name, series_key"
+        ),
+        "expected rate LAG to partition by raw polling series, got: {}",
+        response.sql
+    );
+    assert!(
+        !sql.contains("partition by if_index::text"),
+        "rate LAG must not partition by the display series alone, got: {}",
+        response.sql
+    );
+    assert!(
         sql.contains("order by 1 asc, 2 asc nulls first"),
         "expected stable rate downsample ordering by bucket+series, got: {}",
         response.sql
@@ -643,6 +708,21 @@ fn translate_rate_downsample_is_counter_wrap_aware() {
     assert!(
         sql.contains("18446744073709551616"),
         "expected 2^64 modulus added on HC wrap, got: {}",
+        response.sql
+    );
+    assert!(
+        sql.contains("metadata->>'max_counter_rate_per_second'"),
+        "expected producer-supplied plausibility ceiling extraction, got: {}",
+        response.sql
+    );
+    assert!(
+        sql.contains("max_rate_per_second is not null"),
+        "expected 64-bit wrap salvage to require a plausibility ceiling, got: {}",
+        response.sql
+    );
+    assert!(
+        sql.contains("coalesce(max_rate_per_second, 4294967296)"),
+        "expected 32-bit wrap salvage to be plausibility-bounded, got: {}",
         response.sql
     );
     // The unknown-width legacy branch only assumes a 32-bit wrap when the previous value

@@ -9,6 +9,18 @@
 
 use serviceradar_anomaly_core::{ReasonVerdict, SaturationGate};
 
+/// Sustained-drift detector mode for one metric class.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum DriftMode {
+    /// Do not run CUSUM drift detection for this series.
+    #[default]
+    Off,
+    /// Run CUSUM only when a delivered seasonal center resolves for this sample.
+    DeseasonalizedOnly,
+    /// Run CUSUM against a rolling anchor when no seasonal center is available.
+    Always,
+}
+
 /// Lifecycle transition produced by edge state after scoring one sample.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AnomalyTransition {
@@ -16,6 +28,8 @@ pub enum AnomalyTransition {
     None,
     /// A series moved from clean/inactive into confirmed anomalous.
     Open,
+    /// An already-open episode emitted a bounded lifecycle update.
+    Update,
     /// A previously active anomaly returned clean.
     Clear,
 }
@@ -34,7 +48,7 @@ pub struct TransitionVerdict {
 }
 
 /// Which side of the two-sided CUSUM crossed the decision interval.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum CusumDirection {
     /// The upper accumulator `S+` crossed: a sustained UPWARD drift / leak.
     Up,
@@ -51,6 +65,44 @@ impl CusumDirection {
     }
 }
 
+/// Why an open CUSUM drift episode cleared.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DriftClearReason {
+    Recovered,
+    Adopted,
+    Stale,
+    FlapMerged,
+}
+
+impl DriftClearReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DriftClearReason::Recovered => "recovered",
+            DriftClearReason::Adopted => "level adopted as new baseline",
+            DriftClearReason::Stale => "stale",
+            DriftClearReason::FlapMerged => "flap merged",
+        }
+    }
+}
+
+/// Why an open CUSUM drift episode emitted an update.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DriftUpdateReason {
+    SeverityEscalated,
+    Heartbeat,
+    Flapping,
+}
+
+impl DriftUpdateReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DriftUpdateReason::SeverityEscalated => "severity escalated",
+            DriftUpdateReason::Heartbeat => "still open",
+            DriftUpdateReason::Flapping => "flapping",
+        }
+    }
+}
+
 /// A CUSUM sustained-drift alarm: the (pre-reset) accumulators that crossed the
 /// decision interval and the direction of the drift. Distinct from the z-score
 /// SPIKE — this is the slow drift/leak the point z-score absorbs into its rolling
@@ -60,13 +112,20 @@ pub struct CusumDrift {
     pub pos: f64,
     pub neg: f64,
     pub direction: CusumDirection,
+    pub shift_estimate: f64,
+    pub transition: AnomalyTransition,
+    pub episode: Option<AnomalyEpisode>,
+    pub clear_reason: Option<DriftClearReason>,
+    pub update_reason: Option<DriftUpdateReason>,
+    pub reopen_count: u64,
 }
 
 impl CusumDrift {
-    /// The drift magnitude: the accumulator that crossed `h`. Used as the finding
-    /// score (it ranks a deeper sustained drift higher).
+    /// The bounded drift evidence score: an estimate of the sustained shift in
+    /// sigma units (`k + S/N`) at the alarm point. This deliberately is not the
+    /// raw accumulator, which can grow without bound.
     pub fn magnitude(self) -> f64 {
-        self.pos.max(self.neg)
+        self.shift_estimate
     }
 }
 
@@ -101,4 +160,23 @@ pub struct SeriesProfile {
     /// evaluates them. This makes `confirm_slots` count completed evaluation slots
     /// instead of high-frequency raw samples.
     pub evaluation_interval_ns: Option<u64>,
+    /// Sustained-drift mode for this metric class.
+    pub drift_mode: DriftMode,
+    /// Drift-only relative dispersion floor. This lets counter-rate drift use a
+    /// safe denominator without changing rolling z-score behavior.
+    pub drift_min_cv: f64,
+}
+
+/// Resolved operator override for one metric class. This is the load-bearing
+/// runtime projection of `metric_classes.<class>` after config validation.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct MetricClassOverride {
+    /// `Some(false)` disables all detector evaluation for the class.
+    pub enabled: Option<bool>,
+    /// Optional override for the class' sustained-drift mode.
+    pub drift_mode: Option<DriftMode>,
+    /// Optional class-specific dispersion floors. They only raise the built-in
+    /// profile floor, preserving safe gauge defaults.
+    pub min_std_floor: Option<f64>,
+    pub min_cv: Option<f64>,
 }

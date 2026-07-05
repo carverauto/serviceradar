@@ -75,7 +75,7 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntimeTest do
     assert opts[:capacity_metric_class_overrides]["disk"]["minimum_history_points"] == 120
   end
 
-  test "default linear forecast model does not override source auto-selection" do
+  test "linear forecast model is forwarded to the worker" do
     settings = %CapacityForecastConfig{
       forecast_horizon_seconds: 15_552_000,
       warning_horizon_seconds: 1_209_600,
@@ -87,7 +87,7 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntimeTest do
 
     opts = AnomalyConfigRuntime.capacity_forecasting_opts_from_settings(settings)
 
-    refute Keyword.has_key?(opts, :forecast_model)
+    assert opts[:forecast_model] == "linear"
   end
 
   test "refresh hot-swaps cached settings without restarting callers" do

@@ -110,6 +110,10 @@ enum MetricScope<'a> {
 
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
     if matches!(plan.entity, Entity::TimeseriesMetricInterfaceHourly) {
+        if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
+            return execute_interface_hourly_stats(conn, plan, &spec).await;
+        }
+
         return execute_interface_hourly(conn, plan).await;
     }
 
@@ -136,6 +140,12 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     if matches!(plan.entity, Entity::TimeseriesMetricInterfaceHourly) {
+        if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
+            let sql = build_interface_hourly_stats_query(plan, &spec)?;
+            let params = sql.binds.into_iter().map(bind_param_from_stats).collect();
+            return Ok((rewrite_placeholders(&sql.sql), params));
+        }
+
         let sql = build_interface_hourly_query(plan, false)?;
         return Ok((rewrite_placeholders(&sql.sql), sql.binds));
     }
@@ -233,6 +243,29 @@ async fn execute_interface_hourly(
         .collect())
 }
 
+async fn execute_interface_hourly_stats(
+    conn: &mut AsyncPgConnection,
+    plan: &QueryPlan,
+    spec: &TimeseriesStatsSpec,
+) -> Result<Vec<Value>> {
+    let sql = build_interface_hourly_stats_query(plan, spec)?;
+    let mut query = sql_query(rewrite_placeholders(&sql.sql)).into_boxed::<Pg>();
+
+    for bind in &sql.binds {
+        query = bind.apply(query);
+    }
+
+    let rows: Vec<TimeseriesStatsPayload> = query
+        .load::<TimeseriesStatsPayload>(conn)
+        .await
+        .map_err(|err| ServiceError::Internal(err.into()))?;
+
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| row.payload.map(serde_json::Value::from))
+        .collect())
+}
+
 fn build_interface_hourly_query(plan: &QueryPlan, payload: bool) -> Result<InterfaceHourlySql> {
     if plan.stats.is_some() {
         return Err(ServiceError::InvalidRequest(
@@ -299,6 +332,25 @@ fn build_interface_hourly_query(plan: &QueryPlan, payload: bool) -> Result<Inter
         ),
         binds,
     })
+}
+
+fn build_interface_hourly_stats_query(
+    plan: &QueryPlan,
+    spec: &TimeseriesStatsSpec,
+) -> Result<TimeseriesStatsSql> {
+    if spec.is_profile_hour_of_week() {
+        build_interface_profile_hour_of_week_query(plan, spec)
+    } else if spec.is_profile_hour_of_week_peak() {
+        Err(ServiceError::InvalidRequest(
+            "profile_hour_of_week_peak is not supported for timeseries_metrics_interface_hourly"
+                .into(),
+        ))
+    } else {
+        Err(ServiceError::InvalidRequest(
+            "only profile_hour_of_week stats are supported for timeseries_metrics_interface_hourly"
+                .into(),
+        ))
+    }
 }
 
 fn build_interface_hourly_filter_clause(
@@ -877,6 +929,251 @@ fn build_cagg_stats_query(
         Some(&agg_expr),
         true,
     )
+}
+
+fn build_interface_profile_hour_of_week_query(
+    plan: &QueryPlan,
+    spec: &TimeseriesStatsSpec,
+) -> Result<TimeseriesStatsSql> {
+    let Some(field) = spec.profile_hour_of_week.as_deref() else {
+        return Err(ServiceError::InvalidRequest(
+            "interface profile route requires profile_hour_of_week stats".into(),
+        ));
+    };
+
+    if field != "value" {
+        return Err(ServiceError::InvalidRequest(
+            "interface profile_hour_of_week only supports value".into(),
+        ));
+    }
+
+    let mut clauses = vec![
+        "device_id IS NOT NULL".to_string(),
+        "if_index IS NOT NULL".to_string(),
+        "avg_rate_per_second IS NOT NULL".to_string(),
+    ];
+    let mut binds = Vec::new();
+
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        clauses.push(super::hourly_cagg_lower_bound_clause("bucket"));
+        binds.push(SqlBindValue::Timestamp(*start));
+        clauses.push(super::hourly_cagg_upper_bound_clause("bucket"));
+        binds.push(SqlBindValue::Timestamp(*end));
+    } else {
+        return Err(ServiceError::InvalidRequest(
+            "interface profile_hour_of_week requires an explicit time range".into(),
+        ));
+    }
+
+    let timezone = profile_timezone(plan)?;
+
+    for filter in &plan.filters {
+        if filter.field.eq_ignore_ascii_case("timezone") {
+            continue;
+        }
+
+        match build_interface_profile_filter_clause(filter)? {
+            Some((clause, mut values)) => {
+                clauses.push(clause);
+                binds.append(&mut values);
+            }
+            None => {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "unsupported filter field for interface profile_hour_of_week: '{}'",
+                    filter.field
+                )))
+            }
+        }
+    }
+
+    let where_sql = format!("WHERE {}", clauses.join(" AND "));
+
+    for _ in 0..4 {
+        binds.push(SqlBindValue::Text(timezone.clone()));
+    }
+
+    let sql = format!(
+        r#"WITH hourly AS (
+  SELECT
+    device_id AS series,
+    partition,
+    target_device_ip,
+    if_index,
+    metric_type,
+    metric_name,
+    bucket,
+    avg_rate_per_second::float8 AS sample_value
+  FROM {INTERFACE_HOURLY_TABLE}
+  {where_sql}
+),
+local_hourly AS (
+  SELECT
+    series,
+    partition,
+    target_device_ip,
+    if_index,
+    metric_type,
+    metric_name,
+    bucket,
+    sample_value,
+    EXTRACT(DOW FROM timezone(?, bucket))::int AS dow,
+    EXTRACT(HOUR FROM timezone(?, bucket))::int AS hod
+  FROM hourly
+),
+latest AS (
+  SELECT DISTINCT ON (series, if_index, metric_name)
+    series,
+    partition,
+    target_device_ip,
+    if_index,
+    metric_type,
+    metric_name,
+    bucket,
+    sample_value,
+    EXTRACT(DOW FROM timezone(?, bucket))::int AS dow,
+    EXTRACT(HOUR FROM timezone(?, bucket))::int AS hod
+  FROM hourly
+  ORDER BY series, if_index, metric_name, bucket DESC
+),
+mean_profile AS (
+  SELECT
+    series,
+    if_index,
+    metric_name,
+    dow,
+    hod,
+    COUNT(*)::bigint AS bucket_count,
+    SUM(sample_value)::float8 AS bucket_sum,
+    SUM(sample_value * sample_value)::float8 AS bucket_sum_sq
+  FROM local_hourly
+  GROUP BY 1, 2, 3, 4, 5
+),
+robust_values AS (
+  SELECT h.*
+  FROM local_hourly h
+  JOIN latest l
+    ON l.series = h.series
+   AND l.if_index = h.if_index
+   AND l.metric_name = h.metric_name
+   AND l.dow = h.dow
+   AND l.hod = h.hod
+  WHERE h.bucket <> l.bucket
+),
+robust_base AS (
+  SELECT
+    series,
+    if_index,
+    metric_name,
+    dow,
+    hod,
+    percentile_cont(0.5) WITHIN GROUP (ORDER BY sample_value)::float8 AS center,
+    percentile_cont(0.05) WITHIN GROUP (ORDER BY sample_value)::float8 AS p05,
+    percentile_cont(0.95) WITHIN GROUP (ORDER BY sample_value)::float8 AS p95
+  FROM robust_values
+  GROUP BY 1, 2, 3, 4, 5
+),
+robust_profile AS (
+  SELECT
+    b.series,
+    b.if_index,
+    b.metric_name,
+    b.dow,
+    b.hod,
+    b.center,
+    percentile_cont(0.5) WITHIN GROUP (ORDER BY abs(v.sample_value - b.center))::float8 AS mad,
+    b.p05,
+    b.p95
+  FROM robust_base b
+  JOIN robust_values v
+    ON v.series = b.series
+   AND v.if_index = b.if_index
+   AND v.metric_name = b.metric_name
+   AND v.dow = b.dow
+   AND v.hod = b.hod
+  GROUP BY b.series, b.if_index, b.metric_name, b.dow, b.hod, b.center, b.p05, b.p95
+)
+SELECT jsonb_build_object(
+  'series', l.series,
+  'partition', l.partition,
+  'target_device_ip', l.target_device_ip,
+  'if_index', l.if_index,
+  'metric_type', l.metric_type,
+  'metric_name', l.metric_name,
+  'dow', l.dow,
+  'hod', l.hod,
+  'sample_value', l.sample_value,
+  'bucket', l.bucket,
+  'bucket_count', p.bucket_count,
+  'bucket_sum', p.bucket_sum,
+  'bucket_sum_sq', p.bucket_sum_sq,
+  'center', r.center,
+  'mad', r.mad,
+  'p05', r.p05,
+  'p95', r.p95
+) AS payload
+FROM latest l
+JOIN mean_profile p
+  ON p.series = l.series
+ AND p.if_index = l.if_index
+ AND p.metric_name = l.metric_name
+ AND p.dow = l.dow
+ AND p.hod = l.hod
+LEFT JOIN robust_profile r
+  ON r.series = l.series
+ AND r.if_index = l.if_index
+ AND r.metric_name = l.metric_name
+ AND r.dow = l.dow
+ AND r.hod = l.hod{}
+LIMIT {} OFFSET {}"#,
+        build_interface_profile_order_clause(plan),
+        plan.limit,
+        plan.offset
+    );
+
+    Ok(TimeseriesStatsSql { sql, binds })
+}
+
+fn build_interface_profile_filter_clause(
+    filter: &Filter,
+) -> Result<Option<(String, Vec<SqlBindValue>)>> {
+    match filter.field.as_str() {
+        "partition" | "device_id" | "target_device_ip" | "metric_type" | "metric_name"
+        | "series_key" => Ok(Some(build_text_clause(filter.field.as_str(), filter)?)),
+        _ => Ok(None),
+    }
+}
+
+fn build_interface_profile_order_clause(plan: &QueryPlan) -> String {
+    if plan.order.is_empty() {
+        return "\nORDER BY l.series ASC, l.if_index ASC, l.metric_name ASC".to_string();
+    }
+
+    let mut parts = Vec::new();
+    for clause in &plan.order {
+        let column = match clause.field.as_str() {
+            "series" | "series_key" => "l.series",
+            "if_index" => "l.if_index",
+            "metric_name" => "l.metric_name",
+            "dow" => "l.dow",
+            "hod" => "l.hod",
+            "bucket" => "l.bucket",
+            "sample_value" => "l.sample_value",
+            "bucket_count" => "p.bucket_count",
+            _ => continue,
+        };
+
+        let dir = match clause.direction {
+            OrderDirection::Asc => "ASC",
+            OrderDirection::Desc => "DESC",
+        };
+        parts.push(format!("{column} {dir}"));
+    }
+
+    if parts.is_empty() {
+        "\nORDER BY l.series ASC, l.if_index ASC, l.metric_name ASC".to_string()
+    } else {
+        format!("\nORDER BY {}", parts.join(", "))
+    }
 }
 
 fn build_stats_query_with_source(
@@ -2186,6 +2483,79 @@ mod tests {
             !should_route_stats_to_cagg(&plan, &spec),
             "profile stats must use the dedicated hourly profile route"
         );
+    }
+
+    #[test]
+    fn interface_profile_hour_of_week_builds_ifindex_rate_profile_sql() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::days(30);
+        let plan = QueryPlan {
+            entity: Entity::TimeseriesMetricInterfaceHourly,
+            filters: vec![
+                Filter {
+                    field: "metric_name".into(),
+                    op: FilterOp::Eq,
+                    value: FilterValue::Scalar("ifInOctets".to_string()),
+                },
+                Filter {
+                    field: "timezone".into(),
+                    op: FilterOp::Eq,
+                    value: FilterValue::Scalar("America/Chicago".to_string()),
+                },
+            ],
+            order: vec![
+                OrderClause {
+                    field: "series".into(),
+                    direction: OrderDirection::Asc,
+                },
+                OrderClause {
+                    field: "if_index".into(),
+                    direction: OrderDirection::Asc,
+                },
+                OrderClause {
+                    field: "dow".into(),
+                    direction: OrderDirection::Asc,
+                },
+                OrderClause {
+                    field: "hod".into(),
+                    direction: OrderDirection::Asc,
+                },
+            ],
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "profile_hour_of_week(value)",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        };
+
+        let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
+            .unwrap()
+            .unwrap();
+        let sql = build_interface_profile_hour_of_week_query(&plan, &spec)
+            .expect("interface profile SQL should build");
+
+        assert!(
+            sql.sql.contains("FROM timeseries_metrics_interface_hourly")
+                && sql
+                    .sql
+                    .contains("avg_rate_per_second::float8 AS sample_value")
+                && sql
+                    .sql
+                    .contains("SELECT DISTINCT ON (series, if_index, metric_name)")
+                && sql.sql.contains("'if_index', l.if_index")
+                && sql.sql.contains("'target_device_ip', l.target_device_ip")
+                && sql
+                    .sql
+                    .contains("ORDER BY l.series ASC, l.if_index ASC, l.dow ASC, l.hod ASC"),
+            "unexpected interface profile SQL: {}",
+            sql.sql
+        );
+        assert_eq!(sql.binds.len(), 7);
     }
 
     #[test]

@@ -6,6 +6,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
   @default_time_range "last_180d"
   @default_limit 50_000
   @default_flow_threshold_bytes_per_hour 1_000_000_000_000.0
+  @default_source_names MapSet.new(~w(memory_usage disk_usage))
 
   @type t :: %__MODULE__{
           name: String.t(),
@@ -19,7 +20,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
           label_fields: [String.t()],
           threshold: float() | nil,
           model: String.t(),
-          value_unit: String.t() | nil
+          value_unit: String.t() | nil,
+          sustained_statistic: String.t() | nil
         }
 
   defstruct name: nil,
@@ -33,14 +35,16 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
             label_fields: [],
             threshold: nil,
             model: "auto",
-            value_unit: nil
+            value_unit: nil,
+            sustained_statistic: nil
 
   @spec defaults(keyword()) :: [t()]
   def defaults(opts \\ []) do
     time_range = Keyword.get(opts, :time_range, @default_time_range)
     limit = Keyword.get(opts, :limit, @default_limit)
+    include_sources = source_name_set(Keyword.get(opts, :include_sources, []))
 
-    [
+    all_sources = [
       %__MODULE__{
         name: "cpu_usage",
         resource_type: "cpu",
@@ -52,8 +56,9 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
         bucket_field: "timestamp",
         key_fields: ["series"],
         label_fields: ["series"],
-        threshold: 100.0,
-        value_unit: "percent"
+        threshold: 90.0,
+        value_unit: "percent",
+        sustained_statistic: "daily_p95"
       },
       %__MODULE__{
         name: "memory_usage",
@@ -100,8 +105,9 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
           "series_key"
         ],
         label_fields: ["target_device_ip", "if_index", "metric_name"],
-        threshold: 100.0,
-        value_unit: "percent"
+        threshold: 90.0,
+        value_unit: "percent",
+        sustained_statistic: "daily_p95"
       },
       %__MODULE__{
         name: "flow_bytes_per_hour",
@@ -117,6 +123,11 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
         value_unit: "bytes"
       }
     ]
+
+    Enum.filter(all_sources, fn source ->
+      MapSet.member?(@default_source_names, source.name) or
+        MapSet.member?(include_sources, source.name)
+    end)
   end
 
   @spec from_config(map() | keyword() | t()) :: t()
@@ -137,7 +148,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
       label_fields: string_list(values, :label_fields),
       threshold: number_value(values, :threshold),
       model: string_value(values, :model, "auto"),
-      value_unit: string_value(values, :value_unit)
+      value_unit: string_value(values, :value_unit),
+      sustained_statistic: string_value(values, :sustained_statistic)
     })
   end
 
@@ -162,5 +174,16 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
       value when is_number(value) -> value * 1.0
       _ -> nil
     end
+  end
+
+  defp source_name_set(:all),
+    do: MapSet.new(~w(cpu_usage memory_usage disk_usage interface_rate flow_bytes_per_hour))
+
+  defp source_name_set("all"), do: source_name_set(:all)
+
+  defp source_name_set(values) do
+    values
+    |> List.wrap()
+    |> MapSet.new(&to_string/1)
   end
 end

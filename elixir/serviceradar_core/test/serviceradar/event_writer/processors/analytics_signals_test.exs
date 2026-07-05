@@ -7,6 +7,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.Observability.AnomalyDetection.SeriesKey
   alias ServiceRadar.Observability.CapacityForecasting.VerdictEmitter
+  alias ServiceRadar.Observability.StatefulAlertEngine.RuleMatcher
 
   defp seed_device_resolution(candidate, uid) do
     DeviceCorrelationCache.put(DeviceCorrelationCache.cache_key(candidate), uid)
@@ -1003,6 +1004,52 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
       assert alert_row.device == %{"uid" => "sr:anomaly-device"}
     end
 
+    test "canonicalizes legacy causal anomaly findings before stateful alert matching" do
+      match = %{
+        "subject_prefix" => "signals.analytics.predictions",
+        "attribute_equals" => %{
+          "signal_type" => "prediction",
+          "event_type" => ["anomaly", "anomaly_detection"],
+          "anomaly.state" => ["anomaly_open", "anomaly_drift_open", "open", "anomalous"]
+        },
+        "recovery" => %{
+          "subject_prefix" => "signals.analytics.predictions",
+          "attribute_equals" => %{
+            "signal_type" => "prediction",
+            "event_type" => ["anomaly", "anomaly_detection"],
+            "anomaly.state" => ["anomaly_clear", "anomaly_drift_clear", "clear", "cleared"]
+          }
+        }
+      }
+
+      open_row =
+        legacy_anomaly_row("legacy-causal-open", "anomaly_drift_open")
+
+      assert open_row.class_uid == 2004
+      assert open_row.metadata["signal_type"] == "prediction"
+      assert open_row.metadata["event_type"] == "anomaly"
+      assert open_row.unmapped["signal_type"] == "causal"
+
+      assert [open_alert_row] = AnalyticsSignals.alert_evaluation_rows([open_row])
+      assert open_alert_row.unmapped["signal_type"] == "prediction"
+
+      assert RuleMatcher.rule_matches_event?(
+               open_alert_row,
+               %{match: match}
+             )
+
+      clear_row =
+        legacy_anomaly_row("legacy-causal-drift-clear", "anomaly_drift_clear")
+
+      assert [clear_alert_row] = AnalyticsSignals.alert_evaluation_rows([clear_row])
+      assert clear_alert_row.unmapped["signal_type"] == "prediction"
+
+      assert RuleMatcher.rule_recovers_event?(
+               clear_alert_row,
+               %{match: match}
+             )
+    end
+
     test "carries the verdict_source label into service_radar metadata for the edge<->central join" do
       edge = %{
         "event_id" => "anomaly-edge-1",
@@ -1285,7 +1332,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
       )
 
       opaque_series_key =
-        "v2:partition=64656661756c74:class=736e6d702e696e74657266616365:identity=31302e302e302e3230"
+        "v2|partition=64656661756c74|identity=31302e302e302e3230|metric=69664843496e4f6374657473"
 
       payload = %{
         "event_id" => "anomaly-edge-opaque-series-key",
@@ -1323,7 +1370,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
       assert finding_info["title"] ==
                "Anomaly detection: ifHCInOctets 192.0.2.20 uplink0 ifIndex 7"
 
-      refute finding_info["title"] =~ "v2:"
+      refute finding_info["title"] =~ "v2|"
       assert dimensions["series_key"] == opaque_series_key
       assert dimensions["metric_name"] == "ifHCInOctets"
       assert dimensions["target_device_ip"] == target_ip
@@ -1421,6 +1468,56 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
   end
 
   describe "anomaly confirmation gate" do
+    test "routes legacy causal-typed anomaly payloads through detection finding builder" do
+      message =
+        anomaly_gate_message(
+          %{
+            "state" => "anomaly_open",
+            "detector_state" => "anomalous",
+            "consecutive_anomalous" => 5,
+            "confirm_slots" => 5
+          },
+          %{
+            "signal_type" => "causal",
+            "class_uid" => 1008
+          }
+        )
+
+      row = AnalyticsSignals.parse_message(message)
+
+      assert row
+      assert row.class_uid == 2004
+      assert row.type_uid == 200_401
+      assert row.log_provider == "anomaly_detection"
+      assert row.metadata["signal_type"] == "prediction"
+      assert row.unmapped["signal_type"] == "causal"
+      assert row.metadata["detection_finding"]["type"] == "anomaly"
+    end
+
+    test "does not let legacy causal pending anomaly breadcrumbs fall through to class 1008" do
+      attach_unconfirmed_anomaly_telemetry()
+
+      message =
+        anomaly_gate_message(
+          %{
+            "state" => "pending_anomaly",
+            "detector_state" => "pending_anomaly",
+            "consecutive_anomalous" => 1,
+            "confirm_slots" => 5
+          },
+          %{
+            "signal_type" => "causal",
+            "class_uid" => 1008
+          }
+        )
+
+      assert AnalyticsSignals.parse_message(message) == nil
+
+      assert_receive {:unconfirmed_anomaly,
+                      [:serviceradar, :event_writer, :anomaly_detection, :unconfirmed_skipped],
+                      %{count: 1}, %{state: "pending_anomaly"}}
+    end
+
     test "withholds unconfirmed pending anomaly breadcrumbs" do
       attach_unconfirmed_anomaly_telemetry()
 
@@ -1456,6 +1553,25 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
       assert AnalyticsSignals.parse_message(message) == nil
     end
 
+    test "withholds breach-pending reasons even when producer claims open state" do
+      attach_unconfirmed_anomaly_telemetry()
+
+      message =
+        anomaly_gate_message(%{
+          "state" => "anomaly_open",
+          "detector_state" => "anomalous",
+          "reason" => "breach pending: 1/5 slots",
+          "consecutive_anomalous" => 5,
+          "confirm_slots" => 5
+        })
+
+      assert AnalyticsSignals.parse_message(message) == nil
+
+      assert_receive {:unconfirmed_anomaly,
+                      [:serviceradar, :event_writer, :anomaly_detection, :unconfirmed_skipped],
+                      %{count: 1}, %{state: "anomaly_open"}}
+    end
+
     test "surfaces confirmed anomalies and keeps the producer severity" do
       message =
         anomaly_gate_message(%{
@@ -1472,6 +1588,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
       assert row.severity_id == 4
       assert row.severity == "High"
       assert row.metadata["finding_info"]["dimensions"]["detector_state"] == "anomalous"
+      assert row.raw_data == nil
+      assert row.unmapped["anomaly"]["series_key"] == "sysmon:cpu:sr:anomaly-device"
     end
 
     test "surfaces anomaly_clear resolutions so confirmed findings can be closed" do
@@ -1516,32 +1634,80 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
       assert AnalyticsSignals.anomaly_detection_severity_id(%{"severity_id" => 5}, pending) == 2
       assert AnalyticsSignals.anomaly_detection_severity_id(%{"severity_id" => 4}, confirmed) == 4
     end
+
+    test "caps edge drift below Critical and breach-pending severity to Low" do
+      edge_drift =
+        anomaly_payload(%{
+          "state" => "anomaly_open",
+          "detector_state" => "anomalous",
+          "consecutive_anomalous" => 5,
+          "confirm_slots" => 5,
+          "detector_method" => "cusum_drift"
+        })
+
+      breach_pending =
+        anomaly_payload(%{
+          "state" => "anomaly_open",
+          "detector_state" => "anomalous",
+          "reason" => "breach pending: 1/5 slots",
+          "consecutive_anomalous" => 5,
+          "confirm_slots" => 5
+        })
+
+      assert AnalyticsSignals.anomaly_detection_severity_id(%{"severity_id" => 5}, edge_drift) ==
+               4
+
+      assert AnalyticsSignals.anomaly_detection_severity_id(
+               %{"severity_id" => 5},
+               breach_pending
+             ) == 2
+
+      row =
+        AnalyticsSignals.parse_message(
+          anomaly_gate_message(
+            %{
+              "state" => "anomaly_open",
+              "detector_state" => "anomalous",
+              "consecutive_anomalous" => 5,
+              "confirm_slots" => 5,
+              "detector_method" => "cusum_drift"
+            },
+            %{"severity_id" => 5, "verdict_source" => "edge-drift"}
+          )
+        )
+
+      assert row.severity_id == 4
+      assert row.severity == "High"
+    end
+  end
+
+  defp anomaly_payload(anomaly, overrides \\ %{}) do
+    Map.merge(
+      %{
+        "event_id" => "anomaly-gate-#{System.unique_integer([:positive])}",
+        "signal_type" => "prediction",
+        "event_type" => "anomaly",
+        "class_uid" => 2004,
+        "timestamp" => "2026-06-12T12:00:00Z",
+        "severity_id" => 4,
+        "device_uid" => "sr:anomaly-device",
+        "verdict_source" => "edge-spike",
+        "anomaly" =>
+          Map.merge(
+            %{
+              "series_key" => "sysmon:cpu:sr:anomaly-device",
+              "metric_class" => "sysmon.cpu",
+              "score" => 4.82
+            },
+            anomaly
+          )
+      },
+      overrides
+    )
   end
 
   defp anomaly_gate_message(anomaly, overrides \\ %{}) do
-    payload =
-      Map.merge(
-        %{
-          "event_id" => "anomaly-gate-#{System.unique_integer([:positive])}",
-          "signal_type" => "prediction",
-          "event_type" => "anomaly",
-          "class_uid" => 2004,
-          "timestamp" => "2026-06-12T12:00:00Z",
-          "severity_id" => 4,
-          "device_uid" => "sr:anomaly-device",
-          "verdict_source" => "edge-spike",
-          "anomaly" =>
-            Map.merge(
-              %{
-                "series_key" => "sysmon:cpu:sr:anomaly-device",
-                "metric_class" => "sysmon.cpu",
-                "score" => 4.82
-              },
-              anomaly
-            )
-        },
-        overrides
-      )
+    payload = anomaly_payload(anomaly, overrides)
 
     %{
       data: Jason.encode!(payload),
@@ -1550,6 +1716,31 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
         received_at: DateTime.utc_now()
       }
     }
+  end
+
+  defp legacy_anomaly_row(event_id, state) do
+    payload = %{
+      "event_id" => event_id,
+      "signal_type" => "causal",
+      "event_type" => "anomaly",
+      "class_uid" => 2004,
+      "timestamp" => "2026-06-12T12:00:00Z",
+      "severity_id" => 4,
+      "device_uid" => "sr:legacy-anomaly-device",
+      "anomaly" => %{
+        "series_key" => "sysmon:cpu:sr:legacy-anomaly-device",
+        "metric_class" => "sysmon.cpu",
+        "state" => state
+      }
+    }
+
+    AnalyticsSignals.parse_message(%{
+      data: Jason.encode!(payload),
+      metadata: %{
+        subject: "signals.analytics.predictions.sysmon:cpu:sr:legacy-anomaly-device",
+        received_at: DateTime.utc_now()
+      }
+    })
   end
 
   defp bmp_burst_messages do

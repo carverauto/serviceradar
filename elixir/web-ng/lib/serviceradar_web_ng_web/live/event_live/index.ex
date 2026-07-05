@@ -9,9 +9,11 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
   alias ServiceRadar.Infrastructure.HealthPubSub
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
   alias ServiceRadarWebNGWeb.Stats
+  alias ServiceRadarWebNGWeb.Stats.Query, as: StatsQuery
 
   @default_limit 20
   @max_limit 100
+  @events_refresh_debounce_ms 250
 
   @impl true
   def mount(_params, _session, socket) do
@@ -37,6 +39,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
      |> assign(:finding_summary, Stats.empty_anomaly_findings_summary())
      |> assign(:time_window, "last_7d")
      |> assign(:limit, @default_limit)
+     |> assign(:events_refresh_scheduled?, false)
      |> stream(:events, [], dom_id: &event_dom_id/1)
      |> SRQLPage.init("events", default_limit: @default_limit)}
   end
@@ -92,12 +95,20 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
 
   @impl true
   def handle_info({:health_event, _event}, socket) do
-    {:noreply, refresh_events(socket)}
+    {:noreply, schedule_events_refresh(socket)}
   end
 
   @impl true
   def handle_info({:ocsf_event, _event}, socket) do
-    {:noreply, refresh_events(socket)}
+    {:noreply, schedule_events_refresh(socket)}
+  end
+
+  @impl true
+  def handle_info(:debounced_events_refresh, socket) do
+    {:noreply,
+     socket
+     |> assign(:events_refresh_scheduled?, false)
+     |> refresh_events()}
   end
 
   @impl true
@@ -259,21 +270,21 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
         label="Anomaly findings"
         count={@anomalies}
         detail={"#{@critical} critical, #{@high} high"}
-        query={"in:events source_type:anomaly_detection time:#{@time_window} sort:time:desc"}
+        query={StatsQuery.anomaly_findings_data_query(time: @time_window)}
         color="warning"
       />
       <.finding_stat
         label="At-risk capacity"
         count={@at_risk}
         detail="Projected exhaustion events"
-        query={"in:events source:capacity_forecasting time:#{@time_window} sort:time:desc"}
+        query={StatsQuery.capacity_at_risk_data_query(time: @time_window)}
         color="error"
       />
       <.finding_stat
         label="Health findings"
         count={@total}
         detail="Anomaly and capacity signals"
-        query={"in:events source_type:(anomaly_detection,capacity_forecasting) time:#{@time_window} sort:time:desc"}
+        query={StatsQuery.health_findings_data_query(time: @time_window)}
         color="info"
       />
     </div>
@@ -604,6 +615,15 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
     |> assign(:summary, summary)
     |> assign(:time_window, time_window)
     |> assign(:finding_summary, finding_summary)
+  end
+
+  defp schedule_events_refresh(socket) do
+    if socket.assigns[:events_refresh_scheduled?] do
+      socket
+    else
+      Process.send_after(self(), :debounced_events_refresh, @events_refresh_debounce_ms)
+      assign(socket, :events_refresh_scheduled?, true)
+    end
   end
 
   defp events_summary(time_window, events) do

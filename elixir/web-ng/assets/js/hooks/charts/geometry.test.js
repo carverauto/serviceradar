@@ -1,6 +1,11 @@
 import {describe, expect, it} from "vitest"
 
-import {timeseriesClientXToPointIndex, timeseriesPointIndexToLocalX} from "./geometry"
+import {
+  timeseriesClientXToPointIndex,
+  timeseriesNearestPointIndexByX,
+  timeseriesPointIndexToLocalX,
+  timeseriesPointToLocalX,
+} from "./geometry"
 
 describe("timeseries hover geometry", () => {
   const rect = {left: 100, width: 400}
@@ -26,5 +31,17 @@ describe("timeseries hover geometry", () => {
     expect(timeseriesPointIndexToLocalX(0, rect, 5, {chartPad: 8})).toBe(4)
     expect(timeseriesPointIndexToLocalX(2, rect, 5, {chartPad: 8})).toBe(200)
     expect(timeseriesPointIndexToLocalX(4, rect, 5, {chartPad: 8})).toBe(396)
+  })
+
+  it("uses server-provided timestamp x coordinates when present", () => {
+    const points = [{x: 72}, {x: 141.6}, {x: 768}]
+
+    expect(timeseriesNearestPointIndexByX(points, 150)).toBe(1)
+    expect(timeseriesPointToLocalX(points[1], 1, rect, 3)).toBeCloseTo(70.8)
+  })
+
+  it("falls back to index geometry when timestamp x coordinates are absent", () => {
+    expect(timeseriesNearestPointIndexByX([{v: 1}, {v: 2}], 150)).toBeNull()
+    expect(timeseriesPointToLocalX({v: 2}, 1, rect, 3)).toBeCloseTo(210)
   })
 })

@@ -9,9 +9,12 @@
 
 use std::collections::HashMap;
 
+use addon_sdk::metric_pb::{Metric, MetricPoint, MetricResource};
 use serviceradar_anomaly_core::{HOURS_PER_WEEK, SaturationGate, SeasonalBucket};
 
 use crate::engine::*;
+use crate::identity::{metric_class, seasonal_series_key, series_key_for};
+use crate::verdict::cusum_drift_record;
 
 #[test]
 fn flat_baseline_then_spike_breaches() {
@@ -266,6 +269,27 @@ fn unknown_width_decrease_drops() {
 }
 
 #[test]
+fn counter_drop_counts_track_reason_totals() {
+    let mut engine = DetectorEngine::new(EngineConfig::default());
+
+    assert_eq!(engine.normalize_counter("invalid", -1.0, 0, "a", 64), None);
+    engine.normalize_counter("c", 1_000.0, 1_000_000_000, "a", 64);
+    engine.normalize_counter("c", 10.0, 2_000_000_000, "b", 64);
+    engine.normalize_counter("c", 20.0, 1_500_000_000, "b", 64);
+    engine.normalize_counter("c", 30.0, 7_203_000_000_000, "b", 64);
+    engine.normalize_counter("c", 1.0, 7_204_000_000_000, "b", 64);
+
+    let counts = engine.counter_drop_counts;
+    assert_eq!(counts.invalid_sample, 1);
+    assert_eq!(counts.warmup, 1);
+    assert_eq!(counts.reset_lineage, 1);
+    assert_eq!(counts.non_monotonic_time, 1);
+    assert_eq!(counts.gap, 1);
+    assert_eq!(counts.implausible_delta, 1);
+    assert_eq!(counts.total(), 6);
+}
+
+#[test]
 fn counter_gap_too_large_drops() {
     let mut engine = DetectorEngine::new(EngineConfig::default());
     engine.normalize_counter("c", 1_000.0, 0, "b", 64);
@@ -490,8 +514,26 @@ fn restore_checkpoint_caps_series_state_by_freshness() {
                 aggregation_slot_peak_at_unix_nano: None,
                 cusum_anchor_mean: None,
                 cusum_anchor_scale: None,
+                cusum_anchor_captured_at_unix_nano: None,
                 cusum_pos: None,
                 cusum_neg: None,
+                cusum_run_samples: 0,
+                cusum_pending_direction: None,
+                cusum_pending_samples: 0,
+                drift_active: false,
+                drift_active_direction: None,
+                drift_episode_started_at_unix_nano: None,
+                drift_episode_peak_value: None,
+                drift_episode_peak_at_unix_nano: None,
+                drift_episode_peak_shift: 0.0,
+                drift_peak_severity_band: 0,
+                drift_active_samples: 0,
+                drift_clear_samples: 0,
+                drift_last_emitted_at_unix_nano: None,
+                drift_last_cleared_at_unix_nano: None,
+                drift_last_episode_started_at_unix_nano: None,
+                drift_reopen_count: 0,
+                last_non_clear_emitted_at_unix_nano: None,
                 last_observed_at_unix_nano: 1,
             },
             SeriesCheckpoint {
@@ -511,8 +553,26 @@ fn restore_checkpoint_caps_series_state_by_freshness() {
                 aggregation_slot_peak_at_unix_nano: None,
                 cusum_anchor_mean: None,
                 cusum_anchor_scale: None,
+                cusum_anchor_captured_at_unix_nano: None,
                 cusum_pos: None,
                 cusum_neg: None,
+                cusum_run_samples: 0,
+                cusum_pending_direction: None,
+                cusum_pending_samples: 0,
+                drift_active: false,
+                drift_active_direction: None,
+                drift_episode_started_at_unix_nano: None,
+                drift_episode_peak_value: None,
+                drift_episode_peak_at_unix_nano: None,
+                drift_episode_peak_shift: 0.0,
+                drift_peak_severity_band: 0,
+                drift_active_samples: 0,
+                drift_clear_samples: 0,
+                drift_last_emitted_at_unix_nano: None,
+                drift_last_cleared_at_unix_nano: None,
+                drift_last_episode_started_at_unix_nano: None,
+                drift_reopen_count: 0,
+                last_non_clear_emitted_at_unix_nano: None,
                 last_observed_at_unix_nano: 3,
             },
             SeriesCheckpoint {
@@ -532,8 +592,26 @@ fn restore_checkpoint_caps_series_state_by_freshness() {
                 aggregation_slot_peak_at_unix_nano: None,
                 cusum_anchor_mean: None,
                 cusum_anchor_scale: None,
+                cusum_anchor_captured_at_unix_nano: None,
                 cusum_pos: None,
                 cusum_neg: None,
+                cusum_run_samples: 0,
+                cusum_pending_direction: None,
+                cusum_pending_samples: 0,
+                drift_active: false,
+                drift_active_direction: None,
+                drift_episode_started_at_unix_nano: None,
+                drift_episode_peak_value: None,
+                drift_episode_peak_at_unix_nano: None,
+                drift_episode_peak_shift: 0.0,
+                drift_peak_severity_band: 0,
+                drift_active_samples: 0,
+                drift_clear_samples: 0,
+                drift_last_emitted_at_unix_nano: None,
+                drift_last_cleared_at_unix_nano: None,
+                drift_last_episode_started_at_unix_nano: None,
+                drift_reopen_count: 0,
+                last_non_clear_emitted_at_unix_nano: None,
                 last_observed_at_unix_nano: 2,
             },
         ],
@@ -600,6 +678,7 @@ fn disk_profile() -> SeriesProfile {
             min_value: 80.0,
         }),
         evaluation_interval_ns: None,
+        ..SeriesProfile::default()
     }
 }
 
@@ -612,6 +691,21 @@ fn cpu_profile() -> SeriesProfile {
             min_value: 85.0,
         }),
         evaluation_interval_ns: Some(30 * 1_000_000_000),
+        ..SeriesProfile::default()
+    }
+}
+
+fn always_drift_profile() -> SeriesProfile {
+    SeriesProfile {
+        drift_mode: DriftMode::Always,
+        ..SeriesProfile::default()
+    }
+}
+
+fn seasonal_only_drift_profile() -> SeriesProfile {
+    SeriesProfile {
+        drift_mode: DriftMode::DeseasonalizedOnly,
+        ..SeriesProfile::default()
     }
 }
 
@@ -958,7 +1052,7 @@ fn cusum_cfg() -> EngineConfig {
         n_sigma: 3.0,
         confirm_slots: 1,
         max_series: 10,
-        cusum_enabled: true,
+        drift_min_effect: 0.5,
         ..EngineConfig::default()
     }
 }
@@ -969,7 +1063,7 @@ fn warm_stationary(engine: &mut DetectorEngine) {
     for ts in 0..30u64 {
         let v = 100.0 + if ts % 2 == 0 { 1.0 } else { -1.0 };
         let tv = engine
-            .evaluate_transition("s", v, ts, SeriesProfile::default())
+            .evaluate_transition("s", v, ts, always_drift_profile())
             .expect("verdict");
         assert!(
             tv.cusum_drift.is_none(),
@@ -977,6 +1071,245 @@ fn warm_stationary(engine: &mut DetectorEngine) {
         );
         assert_eq!(tv.transition, AnomalyTransition::None);
     }
+}
+
+fn diurnal_10x_value(observed_at_unix_nano: u64) -> f64 {
+    let seconds_of_day = (observed_at_unix_nano / 1_000_000_000) % 86_400;
+    let phase = 2.0 * std::f64::consts::PI * (seconds_of_day as f64 / 86_400.0);
+    10.0 + 90.0 * ((1.0 - phase.cos()) / 2.0)
+}
+
+fn diurnal_hour_of_week_profile(scale: f64) -> SeasonalProfile {
+    SeasonalProfile::from_buckets((0..HOURS_PER_WEEK).map(|how| {
+        let hod = how % 24;
+        let midpoint_ns = ((hod as u64 * 3_600) + 1_800) * 1_000_000_000;
+        (
+            how,
+            SeasonalBucket {
+                center: diurnal_10x_value(midpoint_ns),
+                scale,
+                sample_count: 8,
+            },
+        )
+    }))
+}
+
+#[test]
+fn harness_diurnal_sinusoid_requires_deseasonalized_drift() {
+    const SLOT_NS: u64 = 30 * 1_000_000_000;
+    const SLOTS_PER_DAY: u64 = 24 * 60 * 2;
+    const DAYS: u64 = 14;
+    const TOTAL_SLOTS: u64 = SLOTS_PER_DAY * DAYS;
+
+    let cfg = EngineConfig {
+        window_size: 240,
+        min_samples: 30,
+        n_sigma: 100.0,
+        confirm_slots: 1,
+        max_series: 10,
+        cusum_h: 8.0,
+        h_confirm_mult: 1.0,
+        drift_confirm_window: 300,
+        drift_min_effect: 1.0,
+        drift_clear_slots: 30,
+        drift_adopt_after_samples: 600,
+        episode_update_interval_secs: 1_000_000,
+        reopen_cooldown_secs: 7_200,
+        anchor_max_age_secs: 1_000_000,
+        ..EngineConfig::default()
+    };
+
+    let mut deseasonalized = DetectorEngine::new(cfg.clone());
+    deseasonalized.set_seasonal_baselines(HashMap::from([(
+        "diurnal".to_string(),
+        diurnal_hour_of_week_profile(12.0),
+    )]));
+    let seasonal_profile = SeriesProfile {
+        drift_mode: DriftMode::DeseasonalizedOnly,
+        ..SeriesProfile::default()
+    };
+
+    for slot in 0..TOTAL_SLOTS {
+        let ts = slot * SLOT_NS;
+        let value = diurnal_10x_value(ts);
+        let tv = deseasonalized
+            .evaluate_transition_with_seasonal_key(
+                "diurnal",
+                "diurnal",
+                value,
+                ts,
+                seasonal_profile,
+            )
+            .expect("verdict");
+        assert!(
+            tv.cusum_drift.is_none(),
+            "delivered hour-of-week baseline must silence clean diurnal drift at slot {slot}"
+        );
+    }
+
+    let mut always = DetectorEngine::new(cfg);
+    let always_profile = SeriesProfile {
+        drift_mode: DriftMode::Always,
+        ..SeriesProfile::default()
+    };
+    let mut always_open_count = 0_u64;
+    let mut always_adopted_clears = 0_u64;
+
+    for slot in 0..TOTAL_SLOTS {
+        let ts = slot * SLOT_NS;
+        let value = diurnal_10x_value(ts);
+        let tv = always
+            .evaluate_transition("diurnal", value, ts, always_profile)
+            .expect("verdict");
+
+        if let Some(drift) = tv.cusum_drift {
+            if drift.transition == AnomalyTransition::Open {
+                always_open_count = always_open_count.saturating_add(1);
+            }
+            if drift.clear_reason == Some(DriftClearReason::Adopted) {
+                always_adopted_clears = always_adopted_clears.saturating_add(1);
+            }
+        }
+    }
+
+    assert!(
+        always_open_count <= 2 * DAYS,
+        "always-on raw mode should be bounded by adoption to <=2 opens/day, saw {always_open_count}"
+    );
+    assert!(
+        always_adopted_clears > 0,
+        "always-on raw mode must use adoption instead of paying an infinite annuity"
+    );
+
+    let legacy_anchor = diurnal_10x_value(0);
+    let legacy_scale = 10.0;
+    let legacy_h = 5.0;
+    let legacy_false_positive_ratio = (0..TOTAL_SLOTS)
+        .filter(|slot| {
+            let residual =
+                (diurnal_10x_value(*slot * SLOT_NS) - legacy_anchor).abs() / legacy_scale;
+            residual > legacy_h
+        })
+        .count() as f64
+        / TOTAL_SLOTS as f64;
+
+    assert!(
+        (0.42..=0.74).contains(&legacy_false_positive_ratio),
+        "legacy frozen-anchor raw CUSUM sentinel should document the 42-74% FP band, got {legacy_false_positive_ratio:.3}"
+    );
+}
+
+#[test]
+fn harness_seasonal_interface_shift_opens_exactly_one_drift_episode() {
+    const SLOT_NS: u64 = 30 * 1_000_000_000;
+    const SLOTS_PER_DAY: u64 = 24 * 60 * 2;
+    const MIDDAY_SLOT: u64 = 12 * 60 * 2;
+    const CLEAN_UNTIL_SLOT: u64 = SLOTS_PER_DAY + MIDDAY_SLOT;
+    const SHIFT_SLOTS: u64 = 120;
+
+    let cfg = EngineConfig {
+        window_size: 240,
+        min_samples: 30,
+        n_sigma: 1.0e12,
+        confirm_slots: 1,
+        max_series: 10,
+        cusum_h: 8.0,
+        h_confirm_mult: 1.0,
+        drift_confirm_window: 300,
+        drift_min_effect: 1.0,
+        drift_clear_slots: 10_000,
+        drift_adopt_after_samples: 10_000,
+        episode_update_interval_secs: 1_000_000,
+        drift_escalate_after_secs: 1_000_000,
+        reopen_cooldown_secs: 600,
+        anchor_max_age_secs: 1_000_000,
+        ..EngineConfig::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+    let profile = SeriesProfile {
+        drift_mode: DriftMode::DeseasonalizedOnly,
+        drift_min_cv: 0.05,
+        ..SeriesProfile::default()
+    };
+    let resource = MetricResource {
+        agent_id: "agent-snmp".to_string(),
+        host_id: "snmp-poller".to_string(),
+        device_id: "sr:router-1".to_string(),
+        partition: "demo".to_string(),
+        ..Default::default()
+    };
+    let metric = Metric {
+        name: "ifOutUcastPkts".to_string(),
+        metric_type: "snmp.interface".to_string(),
+        unit: "packets/s".to_string(),
+        ..Default::default()
+    };
+    let point = MetricPoint {
+        if_index: 4,
+        interface_uid: "ifindex:4".to_string(),
+        ..Default::default()
+    };
+    let class = metric_class(&metric);
+    let seasonal_key = seasonal_series_key(&resource, class, &metric, &point);
+    let detector_key = series_key_for(&resource, &metric, &point);
+    assert_eq!(seasonal_key, "sr:router-1|ifOutUcastPkts|4");
+    assert_ne!(
+        seasonal_key, detector_key,
+        "interface seasonal baselines are delivered by device|metric|if_index, not detector key"
+    );
+
+    engine.set_seasonal_baselines(HashMap::from([(
+        seasonal_key.clone(),
+        diurnal_hour_of_week_profile(12.0),
+    )]));
+
+    for slot in 0..CLEAN_UNTIL_SLOT {
+        let ts = slot * SLOT_NS;
+        let tv = engine
+            .evaluate_transition_with_seasonal_key(
+                &detector_key,
+                &seasonal_key,
+                diurnal_10x_value(ts),
+                ts,
+                profile,
+            )
+            .expect("verdict");
+        assert!(
+            tv.cusum_drift.is_none(),
+            "clean interface diurnal data must not drift at slot {slot}"
+        );
+    }
+
+    let mut drift_rows = Vec::new();
+    for slot in CLEAN_UNTIL_SLOT..(CLEAN_UNTIL_SLOT + SHIFT_SLOTS) {
+        let ts = slot * SLOT_NS;
+        let tv = engine
+            .evaluate_transition_with_seasonal_key(
+                &detector_key,
+                &seasonal_key,
+                diurnal_10x_value(ts) * 2.0,
+                ts,
+                profile,
+            )
+            .expect("verdict");
+
+        if let Some(drift) = tv.cusum_drift {
+            drift_rows.push(drift);
+        }
+    }
+
+    assert_eq!(
+        drift_rows.len(),
+        1,
+        "sustained 2x interface shift should emit one lifecycle row, got {drift_rows:?}"
+    );
+    let opened = drift_rows[0];
+    assert_eq!(opened.transition, AnomalyTransition::Open);
+    assert_eq!(opened.direction, CusumDirection::Up);
+    assert!(
+        opened.episode.is_some(),
+        "the open transition must carry episode metadata"
+    );
 }
 
 #[test]
@@ -994,7 +1327,7 @@ fn cusum_catches_slow_drift_the_point_zscore_misses() {
     for i in 1..=30u64 {
         let v = 100.0 + 0.4 * i as f64;
         let tv = engine
-            .evaluate_transition("s", v, 30 + i, SeriesProfile::default())
+            .evaluate_transition("s", v, 30 + i, always_drift_profile())
             .expect("verdict");
         if tv.transition == AnomalyTransition::Open {
             any_open = true;
@@ -1007,8 +1340,12 @@ fn cusum_catches_slow_drift_the_point_zscore_misses() {
                 "an upward ramp drifts up"
             );
             assert!(
-                drift.magnitude() > engine.config().cusum_h,
-                "the alarm crossed h"
+                drift.pos.max(drift.neg) > engine.config().cusum_h,
+                "the raw accumulator crossed h"
+            );
+            assert!(
+                drift.magnitude() >= engine.config().drift_min_effect,
+                "the bounded shift estimate passes the effect gate"
             );
             // The gated drift only fires where the z-score itself did NOT breach —
             // i.e. exactly the case the point detector misses.
@@ -1030,6 +1367,527 @@ fn cusum_catches_slow_drift_the_point_zscore_misses() {
 }
 
 #[test]
+fn cusum_default_effect_gate_suppresses_tiny_persistent_shift() {
+    let cfg = EngineConfig {
+        window_size: 50,
+        min_samples: 30,
+        n_sigma: 100.0,
+        confirm_slots: 1,
+        max_series: 10,
+        ..EngineConfig::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+    warm_stationary(&mut engine);
+
+    for i in 1..=300u64 {
+        let tv = engine
+            .evaluate_transition("s", 103.0, 30 + i, always_drift_profile())
+            .expect("verdict");
+        assert!(
+            tv.cusum_drift.is_none(),
+            "a ~0.6-sigma sustained shift must stay below default drift_min_effect"
+        );
+    }
+}
+
+#[test]
+fn cusum_latches_at_h_and_confirms_at_h_confirm() {
+    let cfg = EngineConfig {
+        window_size: 50,
+        min_samples: 30,
+        n_sigma: 100.0,
+        confirm_slots: 1,
+        max_series: 10,
+        cusum_h: 2.0,
+        h_confirm_mult: 1.5,
+        drift_confirm_window: 5,
+        drift_min_effect: 0.5,
+        ..EngineConfig::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+    warm_stationary(&mut engine);
+
+    let latched = engine
+        .evaluate_transition("s", 115.0, 31, always_drift_profile())
+        .expect("verdict");
+    assert!(
+        latched.cusum_drift.is_none(),
+        "crossing h only latches pending drift"
+    );
+
+    let confirmed = engine
+        .evaluate_transition("s", 115.0, 32, always_drift_profile())
+        .expect("verdict");
+    let drift = confirmed
+        .cusum_drift
+        .expect("a second push past h_confirm confirms drift");
+    assert_eq!(drift.direction, CusumDirection::Up);
+    assert!(drift.pos > engine.config().cusum_h * engine.config().h_confirm_mult);
+}
+
+#[test]
+fn cusum_pending_drift_expires_without_emission() {
+    let cfg = EngineConfig {
+        window_size: 50,
+        min_samples: 30,
+        n_sigma: 100.0,
+        confirm_slots: 1,
+        max_series: 10,
+        cusum_h: 2.0,
+        h_confirm_mult: 10.0,
+        drift_confirm_window: 2,
+        drift_min_effect: 0.5,
+        ..EngineConfig::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+    warm_stationary(&mut engine);
+
+    for ts in 31..=34 {
+        let tv = engine
+            .evaluate_transition("s", 115.0, ts, always_drift_profile())
+            .expect("verdict");
+        assert!(
+            tv.cusum_drift.is_none(),
+            "pending drift must expire silently when h_confirm is not reached"
+        );
+    }
+}
+
+#[test]
+fn cusum_drift_episode_opens_once_and_clears_after_recovery() {
+    let cfg = EngineConfig {
+        window_size: 50,
+        min_samples: 30,
+        n_sigma: 100.0,
+        confirm_slots: 1,
+        max_series: 10,
+        cusum_h: 2.0,
+        h_confirm_mult: 1.0,
+        drift_confirm_window: 5,
+        drift_min_effect: 0.5,
+        drift_clear_slots: 3,
+        drift_adopt_after_samples: 10_000,
+        episode_update_interval_secs: 10_000,
+        reopen_cooldown_secs: 1,
+        ..EngineConfig::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+    warm_stationary(&mut engine);
+
+    let latched = engine
+        .evaluate_transition("s", 115.0, 31, always_drift_profile())
+        .expect("verdict");
+    assert!(latched.cusum_drift.is_none());
+
+    let opened = engine
+        .evaluate_transition("s", 115.0, 32, always_drift_profile())
+        .expect("verdict")
+        .cusum_drift
+        .expect("confirmed drift opens");
+    assert_eq!(opened.transition, AnomalyTransition::Open);
+    let episode_started_at = opened
+        .episode
+        .expect("open carries episode metadata")
+        .started_at_unix_nano;
+
+    for ts in 33..38 {
+        let tv = engine
+            .evaluate_transition("s", 115.0, ts, always_drift_profile())
+            .expect("verdict");
+        assert!(
+            tv.cusum_drift.is_none(),
+            "open drift must not re-open every sample"
+        );
+    }
+
+    for ts in 38..40 {
+        let tv = engine
+            .evaluate_transition("s", 100.0, ts, always_drift_profile())
+            .expect("verdict");
+        assert!(
+            tv.cusum_drift.is_none(),
+            "recovery must clear only after drift_clear_slots"
+        );
+    }
+
+    let cleared = engine
+        .evaluate_transition("s", 100.0, 40, always_drift_profile())
+        .expect("verdict")
+        .cusum_drift
+        .expect("third recovered sample clears drift");
+    assert_eq!(cleared.transition, AnomalyTransition::Clear);
+    assert_eq!(cleared.clear_reason, Some(DriftClearReason::Recovered));
+    assert_eq!(
+        cleared
+            .episode
+            .expect("clear carries episode metadata")
+            .started_at_unix_nano,
+        episode_started_at
+    );
+
+    engine.evaluate_transition("s", 115.0, 41, always_drift_profile());
+    let reopened = engine
+        .evaluate_transition("s", 115.0, 42, always_drift_profile())
+        .expect("verdict")
+        .cusum_drift
+        .expect("re-open inside cooldown emits a flapping update");
+    assert_eq!(reopened.transition, AnomalyTransition::Update);
+    assert_eq!(reopened.update_reason, Some(DriftUpdateReason::Flapping));
+    assert_eq!(reopened.reopen_count, 1);
+    assert_eq!(
+        reopened
+            .episode
+            .expect("reopen carries episode metadata")
+            .started_at_unix_nano,
+        episode_started_at,
+        "reopen inside cooldown reuses the episode identity"
+    );
+
+    for ts in 43..45 {
+        let tv = engine
+            .evaluate_transition("s", 100.0, ts, always_drift_profile())
+            .expect("verdict");
+        assert!(
+            tv.cusum_drift.is_none(),
+            "flapping episode must not immediately re-clear inside cooldown"
+        );
+    }
+
+    let flap_merged = engine
+        .evaluate_transition("s", 100.0, 1_000_000_043, always_drift_profile())
+        .expect("verdict")
+        .cusum_drift
+        .expect("clean signal past cooldown clears flapping episode");
+    assert_eq!(flap_merged.transition, AnomalyTransition::Clear);
+    assert_eq!(flap_merged.clear_reason, Some(DriftClearReason::FlapMerged));
+}
+
+#[test]
+fn cusum_drift_episode_adopts_new_level_and_reanchors() {
+    let cfg = EngineConfig {
+        window_size: 50,
+        min_samples: 30,
+        n_sigma: 100.0,
+        confirm_slots: 1,
+        max_series: 10,
+        cusum_h: 2.0,
+        h_confirm_mult: 1.0,
+        drift_confirm_window: 5,
+        drift_min_effect: 0.5,
+        drift_clear_slots: 10_000,
+        drift_adopt_after_samples: 55,
+        episode_update_interval_secs: 10_000,
+        ..EngineConfig::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+    warm_stationary(&mut engine);
+
+    assert!(
+        engine
+            .evaluate_transition("s", 115.0, 31, always_drift_profile())
+            .expect("verdict")
+            .cusum_drift
+            .is_none()
+    );
+    let opened = engine
+        .evaluate_transition("s", 115.0, 32, always_drift_profile())
+        .expect("verdict")
+        .cusum_drift
+        .expect("confirmed drift opens");
+    assert_eq!(opened.transition, AnomalyTransition::Open);
+
+    let mut adopted = None;
+    for i in 1..=60u64 {
+        let tv = engine
+            .evaluate_transition("s", 115.0, 32 + i, always_drift_profile())
+            .expect("verdict");
+        if let Some(drift) = tv.cusum_drift
+            && drift.clear_reason == Some(DriftClearReason::Adopted)
+        {
+            adopted = Some(drift);
+            break;
+        }
+    }
+
+    let adopted = adopted.expect("persistent new level should be adopted and cleared");
+    assert_eq!(adopted.transition, AnomalyTransition::Clear);
+
+    for i in 1..=20u64 {
+        let tv = engine
+            .evaluate_transition("s", 115.0, 100 + i, always_drift_profile())
+            .expect("verdict");
+        assert!(
+            tv.cusum_drift.is_none(),
+            "adopted level must not immediately reopen drift"
+        );
+    }
+}
+
+#[test]
+fn cusum_anchor_scale_refreshes_from_current_window_without_moving_center() {
+    let cfg = EngineConfig {
+        window_size: 50,
+        min_samples: 10,
+        n_sigma: 1_000.0,
+        cusum_h: 1_000.0,
+        ..EngineConfig::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+
+    for ts in 0..12u64 {
+        let v = 100.0 + if ts % 2 == 0 { 1.0 } else { -1.0 };
+        engine
+            .evaluate_transition("s", v, ts, always_drift_profile())
+            .expect("verdict");
+    }
+    let (initial_center, initial_scale) = engine
+        .series
+        .get("s")
+        .and_then(|state| state.cusum_anchor)
+        .expect("cusum anchor warmed");
+
+    for i in 0..20u64 {
+        let v = 100.0 + if i % 2 == 0 { 20.0 } else { -20.0 };
+        engine
+            .evaluate_transition("s", v, 12 + i, always_drift_profile())
+            .expect("verdict");
+    }
+
+    let (refreshed_center, refreshed_scale) = engine
+        .series
+        .get("s")
+        .and_then(|state| state.cusum_anchor)
+        .expect("cusum anchor remains present");
+    assert_eq!(
+        refreshed_center, initial_center,
+        "scale refresh must not move the frozen drift center"
+    );
+    assert!(
+        refreshed_scale > initial_scale * 5.0,
+        "scale should track the wider current rolling window"
+    );
+}
+
+#[test]
+fn cusum_always_mode_refreshes_idle_anchor_after_max_age() {
+    const SEC: u64 = 1_000_000_000;
+
+    let cfg = EngineConfig {
+        window_size: 30,
+        min_samples: 6,
+        n_sigma: 1_000.0,
+        cusum_h: 1_000_000.0,
+        anchor_max_age_secs: 5,
+        ..EngineConfig::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+
+    for i in 0..8u64 {
+        let v = 100.0 + if i % 2 == 0 { 1.0 } else { -1.0 };
+        engine
+            .evaluate_transition("s", v, i * SEC, always_drift_profile())
+            .expect("verdict");
+    }
+    let (initial_center, initial_captured_at) = {
+        let state = engine.series.get("s").expect("series state");
+        (
+            state.cusum_anchor.expect("anchor warmed").0,
+            state
+                .cusum_anchor_captured_at_unix_nano
+                .expect("anchor capture timestamp"),
+        )
+    };
+
+    for i in 8..28u64 {
+        let v = 200.0 + if i % 2 == 0 { 1.0 } else { -1.0 };
+        let tv = engine
+            .evaluate_transition("s", v, i * SEC, always_drift_profile())
+            .expect("verdict");
+        assert!(
+            tv.cusum_drift.is_none(),
+            "high thresholds isolate idle anchor refresh from drift emission"
+        );
+    }
+
+    let state = engine.series.get("s").expect("series state");
+    let (refreshed_center, _scale) = state.cusum_anchor.expect("anchor still present");
+    assert!(
+        refreshed_center > initial_center + 50.0,
+        "idle anchor should refresh to the new rolling level"
+    );
+    assert!(
+        state
+            .cusum_anchor_captured_at_unix_nano
+            .expect("capture timestamp")
+            > initial_captured_at,
+        "anchor capture timestamp should advance on idle refresh"
+    );
+}
+
+#[test]
+fn cusum_drift_episode_emits_bounded_heartbeat_update() {
+    let cfg = EngineConfig {
+        window_size: 50,
+        min_samples: 30,
+        n_sigma: 100.0,
+        confirm_slots: 1,
+        max_series: 10,
+        cusum_h: 2.0,
+        h_confirm_mult: 1.0,
+        drift_confirm_window: 5,
+        drift_min_effect: 0.5,
+        drift_clear_slots: 10_000,
+        drift_adopt_after_samples: 10_000,
+        episode_update_interval_secs: 1,
+        ..EngineConfig::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+    warm_stationary(&mut engine);
+
+    engine.evaluate_transition("s", 115.0, 31, always_drift_profile());
+    let opened = engine
+        .evaluate_transition("s", 115.0, 32, always_drift_profile())
+        .expect("verdict")
+        .cusum_drift
+        .expect("confirmed drift opens");
+    assert_eq!(opened.transition, AnomalyTransition::Open);
+
+    let heartbeat = engine
+        .evaluate_transition("s", 115.0, 1_000_000_033, always_drift_profile())
+        .expect("verdict")
+        .cusum_drift
+        .expect("still-open heartbeat emits after interval");
+    assert_eq!(heartbeat.transition, AnomalyTransition::Update);
+    assert_eq!(heartbeat.update_reason, Some(DriftUpdateReason::Heartbeat));
+    assert_eq!(
+        heartbeat
+            .episode
+            .expect("heartbeat carries episode metadata")
+            .started_at_unix_nano,
+        opened
+            .episode
+            .expect("open carries episode metadata")
+            .started_at_unix_nano
+    );
+}
+
+#[test]
+fn cusum_drift_adoption_is_blocked_while_saturation_gate_is_active() {
+    let cfg = EngineConfig {
+        window_size: 50,
+        min_samples: 30,
+        n_sigma: 100.0,
+        confirm_slots: 1,
+        max_series: 10,
+        cusum_h: 2.0,
+        h_confirm_mult: 1.0,
+        drift_confirm_window: 5,
+        drift_min_effect: 0.5,
+        drift_clear_slots: 10_000,
+        drift_adopt_after_samples: 3,
+        episode_update_interval_secs: 10_000,
+        ..EngineConfig::default()
+    };
+    let profile = SeriesProfile {
+        min_std_floor: 5.0,
+        min_cv: 0.10,
+        saturation_gate: Some(SaturationGate {
+            directional: true,
+            min_value: 85.0,
+        }),
+        drift_mode: DriftMode::Always,
+        ..SeriesProfile::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+
+    for ts in 0..30u64 {
+        let v = 20.0 + if ts % 2 == 0 { 1.0 } else { -1.0 };
+        engine.evaluate_transition("cpu", v, ts, profile);
+    }
+
+    engine.evaluate_transition("cpu", 92.0, 31, profile);
+    let opened = engine
+        .evaluate_transition("cpu", 92.0, 32, profile)
+        .expect("verdict")
+        .cusum_drift
+        .expect("confirmed saturated drift opens");
+    assert_eq!(opened.transition, AnomalyTransition::Open);
+
+    for ts in 33..40 {
+        let tv = engine
+            .evaluate_transition("cpu", 92.0, ts, profile)
+            .expect("verdict");
+        assert!(
+            !matches!(
+                tv.cusum_drift,
+                Some(CusumDrift {
+                    clear_reason: Some(DriftClearReason::Adopted),
+                    ..
+                })
+            ),
+            "saturated CPU level must not be adopted as normal"
+        );
+    }
+}
+
+#[test]
+fn cusum_drift_respects_saturation_gate_for_bounded_gauges() {
+    let cfg = EngineConfig {
+        window_size: 50,
+        min_samples: 30,
+        n_sigma: 100.0,
+        confirm_slots: 1,
+        max_series: 10,
+        drift_min_effect: 0.5,
+        ..EngineConfig::default()
+    };
+    let profile = SeriesProfile {
+        min_std_floor: 5.0,
+        min_cv: 0.10,
+        saturation_gate: Some(SaturationGate {
+            directional: true,
+            min_value: 85.0,
+        }),
+        drift_mode: DriftMode::Always,
+        ..SeriesProfile::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+
+    for ts in 0..30u64 {
+        let v = 20.0 + if ts % 2 == 0 { 1.0 } else { -1.0 };
+        let tv = engine
+            .evaluate_transition("cpu", v, ts, profile)
+            .expect("verdict");
+        assert!(tv.cusum_drift.is_none());
+    }
+
+    for i in 1..=20u64 {
+        let tv = engine
+            .evaluate_transition("cpu", 40.0, 30 + i, profile)
+            .expect("verdict");
+        assert!(
+            tv.cusum_drift.is_none(),
+            "statistical CPU drift below the saturation gate must stay silent"
+        );
+    }
+
+    let mut saturated_drift = None;
+    for i in 1..=5u64 {
+        let tv = engine
+            .evaluate_transition("cpu", 92.0, 60 + i, profile)
+            .expect("verdict");
+        if tv.cusum_drift.is_some() {
+            saturated_drift = tv.cusum_drift;
+            break;
+        }
+    }
+
+    let drift = saturated_drift.expect("saturated CPU drift should emit");
+    assert_eq!(drift.direction, CusumDirection::Up);
+    assert!(drift.magnitude() >= engine.config().drift_min_effect);
+}
+
+#[test]
 fn cusum_catches_a_slow_leak() {
     // A leak: a slow, sustained upward growth (slower than the drift above). The
     // rolling z-score never trips, but the leak eventually accumulates past h.
@@ -1040,7 +1898,7 @@ fn cusum_catches_a_slow_leak() {
     for i in 1..=120u64 {
         let v = 100.0 + 0.15 * i as f64; // gentle, leak-like growth
         let tv = engine
-            .evaluate_transition("s", v, 30 + i, SeriesProfile::default())
+            .evaluate_transition("s", v, 30 + i, always_drift_profile())
             .expect("verdict");
         assert_ne!(
             tv.transition,
@@ -1056,6 +1914,449 @@ fn cusum_catches_a_slow_leak() {
 }
 
 #[test]
+fn harness_slow_leak_opens_escalates_and_stays_bounded() {
+    const HOUR_NS: u64 = 60 * 60 * 1_000_000_000;
+
+    let cfg = EngineConfig {
+        window_size: 50,
+        min_samples: 30,
+        n_sigma: 100.0,
+        confirm_slots: 1,
+        max_series: 10,
+        drift_confirm_window: 300,
+        drift_clear_slots: 10_000,
+        drift_adopt_after_samples: 10_000,
+        episode_update_interval_secs: 1_000_000,
+        anchor_max_age_secs: 1_000_000,
+        ..EngineConfig::default()
+    };
+    let profile = SeriesProfile {
+        min_std_floor: 1.0,
+        drift_mode: DriftMode::Always,
+        ..SeriesProfile::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+
+    for ts in 0..30u64 {
+        let tv = engine
+            .evaluate_transition("leak", 100.0, ts * HOUR_NS, profile)
+            .expect("verdict");
+        assert!(tv.cusum_drift.is_none());
+    }
+
+    let mut drift_rows = Vec::new();
+    let mut open_hour = None;
+    let mut high_escalation_hour = None;
+    // The effective scale floor for a 100-valued quiet series is ~5 units, so
+    // 0.25 units/hour is the requested 0.05 sigma/hour ramp.
+    let ramp_per_hour = 0.25;
+    for hour in 1..=220u64 {
+        let value = 100.0 + ramp_per_hour * hour as f64;
+        let tv = engine
+            .evaluate_transition("leak", value, (30 + hour) * HOUR_NS, profile)
+            .expect("verdict");
+        assert_ne!(
+            tv.transition,
+            AnomalyTransition::Open,
+            "the rolling z-score must not own this slow-leak scenario"
+        );
+
+        if let Some(drift) = tv.cusum_drift {
+            if drift.transition == AnomalyTransition::Open {
+                open_hour = Some(hour);
+            }
+            if drift.update_reason == Some(DriftUpdateReason::SeverityEscalated) {
+                high_escalation_hour = Some(hour);
+            }
+            drift_rows.push(drift);
+        }
+    }
+
+    assert!(
+        open_hour.is_some_and(|hour| hour <= 140),
+        "0.05 sigma/hour leak should open within the ARL bound; got {open_hour:?}"
+    );
+    assert!(
+        high_escalation_hour.is_some(),
+        "slow leak should eventually emit one Medium-to-High escalation update"
+    );
+    assert!(
+        drift_rows.len() <= 4,
+        "slow leak should stay bounded to <=4 drift rows, saw {}",
+        drift_rows.len()
+    );
+    assert_eq!(
+        drift_rows
+            .iter()
+            .filter(|drift| drift.transition == AnomalyTransition::Open)
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn harness_adversarial_flapper_merges_reopens_and_stays_bounded() {
+    let cfg = EngineConfig {
+        window_size: 50,
+        min_samples: 30,
+        n_sigma: 100.0,
+        confirm_slots: 1,
+        max_series: 10,
+        cusum_h: 2.0,
+        h_confirm_mult: 1.0,
+        drift_confirm_window: 5,
+        drift_min_effect: 0.5,
+        drift_clear_slots: 3,
+        drift_adopt_after_samples: 10_000,
+        episode_update_interval_secs: 10_000,
+        reopen_cooldown_secs: 1,
+        ..EngineConfig::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+    warm_stationary(&mut engine);
+
+    let mut drift_rows = Vec::new();
+    for (ts, value) in [
+        (31, 115.0),
+        (32, 115.0),
+        (33, 100.0),
+        (34, 100.0),
+        (35, 100.0),
+        (36, 115.0),
+        (37, 115.0),
+        (38, 100.0),
+        (39, 100.0),
+        (40, 100.0),
+        (41, 115.0),
+        (42, 115.0),
+        (43, 100.0),
+        (44, 100.0),
+        (45, 100.0),
+        (1_000_000_045, 100.0),
+    ] {
+        let tv = engine
+            .evaluate_transition("s", value, ts, always_drift_profile())
+            .expect("verdict");
+        if let Some(drift) = tv.cusum_drift {
+            drift_rows.push(drift);
+        }
+    }
+
+    assert_eq!(
+        drift_rows
+            .iter()
+            .filter(|drift| drift.transition == AnomalyTransition::Open)
+            .count(),
+        1,
+        "threshold flapping must not mint a new open for every oscillation"
+    );
+    assert!(
+        drift_rows
+            .iter()
+            .any(|drift| drift.transition == AnomalyTransition::Update
+                && drift.update_reason == Some(DriftUpdateReason::Flapping)
+                && drift.reopen_count > 0),
+        "rapid reopen should be folded into the existing episode as flapping"
+    );
+    assert!(
+        drift_rows.iter().any(|drift| {
+            drift.transition == AnomalyTransition::Clear
+                && drift.clear_reason == Some(DriftClearReason::FlapMerged)
+        }),
+        "stable recovery after flapping should clear with a flap-merged reason"
+    );
+
+    let episode_started_at = drift_rows
+        .first()
+        .and_then(|drift| drift.episode)
+        .map(|episode| episode.started_at_unix_nano)
+        .expect("first drift row carries episode");
+    assert!(
+        drift_rows
+            .iter()
+            .filter_map(|drift| drift.episode)
+            .all(|episode| episode.started_at_unix_nano == episode_started_at),
+        "flapping transitions should reuse one episode identity"
+    );
+    assert!(
+        drift_rows.len() <= 4,
+        "oscillating threshold flapper should stay bounded to <=4 drift rows, saw {}",
+        drift_rows.len()
+    );
+}
+
+#[test]
+fn harness_quiet_interface_burst_bounds_score_severity_and_episode_count() {
+    const SEC: u64 = 1_000_000_000;
+
+    let cfg = EngineConfig {
+        window_size: 50,
+        min_samples: 30,
+        n_sigma: 1.0e12,
+        confirm_slots: 1,
+        max_series: 10,
+        cusum_h: 2.0,
+        h_confirm_mult: 1.0,
+        drift_confirm_window: 10,
+        drift_min_effect: 0.5,
+        drift_clear_slots: 3,
+        drift_adopt_after_samples: 10_000,
+        episode_update_interval_secs: 1_000_000,
+        ..EngineConfig::default()
+    };
+    let profile = SeriesProfile {
+        drift_mode: DriftMode::Always,
+        drift_min_cv: 0.05,
+        ..SeriesProfile::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+    let resource = MetricResource {
+        agent_id: "agent-snmp".to_string(),
+        host_id: "snmp-poller".to_string(),
+        device_id: "switch-a".to_string(),
+        partition: "demo".to_string(),
+        ..Default::default()
+    };
+    let metric = Metric {
+        name: "ifHCOutOctets".to_string(),
+        metric_type: "snmp.interface".to_string(),
+        ..Default::default()
+    };
+    let series_key = "quiet-interface-if4";
+
+    for slot in 0..30u64 {
+        let value = if slot % 2 == 0 { 0.0 } else { 0.01 };
+        let tv = engine
+            .evaluate_transition(series_key, value, slot * SEC, profile)
+            .expect("verdict");
+        assert!(tv.cusum_drift.is_none());
+    }
+
+    let mut records = Vec::new();
+    for slot in 30..36u64 {
+        let observed_at_unix_nano = slot * SEC;
+        let tv = engine
+            .evaluate_transition(series_key, 1_000_000.0, observed_at_unix_nano, profile)
+            .expect("verdict");
+        if let Some(drift) = tv.cusum_drift {
+            let point = MetricPoint {
+                value: tv.verdict.sample_value,
+                observed_at_unix_nano,
+                if_index: 4,
+                ..Default::default()
+            };
+            let record =
+                cusum_drift_record(&resource, &metric, &point, series_key, &tv.verdict, drift);
+            records.push(serde_json::from_slice::<serde_json::Value>(&record.payload).unwrap());
+        }
+    }
+
+    for slot in 36..39u64 {
+        let observed_at_unix_nano = slot * SEC;
+        let tv = engine
+            .evaluate_transition(series_key, 0.0, observed_at_unix_nano, profile)
+            .expect("verdict");
+        if let Some(drift) = tv.cusum_drift {
+            let point = MetricPoint {
+                value: tv.verdict.sample_value,
+                observed_at_unix_nano,
+                if_index: 4,
+                ..Default::default()
+            };
+            let record =
+                cusum_drift_record(&resource, &metric, &point, series_key, &tv.verdict, drift);
+            records.push(serde_json::from_slice::<serde_json::Value>(&record.payload).unwrap());
+        }
+    }
+
+    assert!(
+        !records.is_empty(),
+        "the burst should still produce a bounded drift record"
+    );
+    assert_eq!(
+        records
+            .iter()
+            .filter(|event| event["transition"] == "open")
+            .count(),
+        1,
+        "quiet-interface burst should mint at most one open episode"
+    );
+    assert!(
+        records.iter().all(|event| event["anomaly"]["score"]
+            .as_f64()
+            .is_some_and(|score| score <= 50.0)),
+        "all persisted drift scores must be capped at 50: {records:?}"
+    );
+    assert!(
+        records.iter().all(|event| event["severity_id"] != 5),
+        "edge drift must never mint Critical by itself: {records:?}"
+    );
+}
+
+#[test]
+fn harness_regime_change_adopts_once_then_stays_silent_for_seven_days() {
+    const SLOT_NS: u64 = 30 * 1_000_000_000;
+    const SLOTS_PER_DAY: u64 = 24 * 60 * 2;
+
+    let cfg = EngineConfig {
+        window_size: 240,
+        min_samples: 30,
+        n_sigma: 100.0,
+        confirm_slots: 1,
+        max_series: 10,
+        cusum_h: 8.0,
+        h_confirm_mult: 1.0,
+        drift_confirm_window: 300,
+        drift_min_effect: 1.0,
+        drift_clear_slots: 10_000,
+        drift_adopt_after_samples: 600,
+        episode_update_interval_secs: 1_000_000,
+        reopen_cooldown_secs: 600,
+        anchor_max_age_secs: 1_000_000,
+        ..EngineConfig::default()
+    };
+    let mut engine = DetectorEngine::new(cfg);
+    let profile = SeriesProfile {
+        min_std_floor: 1.0,
+        drift_mode: DriftMode::Always,
+        ..SeriesProfile::default()
+    };
+
+    for slot in 0..30u64 {
+        let value = 100.0 + if slot % 2 == 0 { 1.0 } else { -1.0 };
+        let tv = engine
+            .evaluate_transition("regime", value, slot * SLOT_NS, profile)
+            .expect("verdict");
+        assert!(tv.cusum_drift.is_none());
+    }
+
+    let mut open_count = 0_u64;
+    let mut adopted_clear_count = 0_u64;
+    let mut adopted_at_slot = None;
+    let end_slot = 30 + (SLOTS_PER_DAY * 8);
+
+    for slot in 30..end_slot {
+        let tv = engine
+            .evaluate_transition("regime", 115.0, slot * SLOT_NS, profile)
+            .expect("verdict");
+
+        if let Some(drift) = tv.cusum_drift {
+            if adopted_at_slot.is_some() {
+                panic!("adopted regime level reopened after adoption at slot {slot}: {drift:?}");
+            }
+
+            if drift.transition == AnomalyTransition::Open {
+                open_count = open_count.saturating_add(1);
+            }
+            if drift.clear_reason == Some(DriftClearReason::Adopted) {
+                adopted_clear_count = adopted_clear_count.saturating_add(1);
+                adopted_at_slot = Some(slot);
+            }
+        }
+
+        if let Some(adopted_at) = adopted_at_slot
+            && slot.saturating_sub(adopted_at) >= SLOTS_PER_DAY * 7
+        {
+            break;
+        }
+    }
+
+    assert_eq!(open_count, 1, "a benign regime change should open once");
+    assert_eq!(
+        adopted_clear_count, 1,
+        "a benign regime change should clear once via adoption"
+    );
+    assert!(
+        adopted_at_slot.is_some(),
+        "persistent +3 sigma regime change should be adopted"
+    );
+}
+
+#[test]
+fn harness_checkpointless_restart_storm_is_silent_with_baseline_and_bounded_without() {
+    const SLOT_NS: u64 = 30 * 1_000_000_000;
+    const SLOTS_PER_DAY: u64 = 24 * 60 * 2;
+    const RESTARTS_PER_DAY: u64 = 4;
+    const SEGMENT_SLOTS: u64 = SLOTS_PER_DAY / RESTARTS_PER_DAY;
+
+    let cfg = EngineConfig {
+        window_size: 240,
+        min_samples: 30,
+        n_sigma: 100.0,
+        confirm_slots: 1,
+        max_series: 10,
+        cusum_h: 8.0,
+        h_confirm_mult: 1.0,
+        drift_confirm_window: 300,
+        drift_min_effect: 1.0,
+        drift_clear_slots: 30,
+        drift_adopt_after_samples: 600,
+        episode_update_interval_secs: 1_000_000,
+        reopen_cooldown_secs: 600,
+        anchor_max_age_secs: 1_000_000,
+        ..EngineConfig::default()
+    };
+    let seasonal_profile = SeriesProfile {
+        drift_mode: DriftMode::DeseasonalizedOnly,
+        ..SeriesProfile::default()
+    };
+
+    for restart in 0..RESTARTS_PER_DAY {
+        let mut engine = DetectorEngine::new(cfg.clone());
+        engine.set_seasonal_baselines(HashMap::from([(
+            "diurnal".to_string(),
+            diurnal_hour_of_week_profile(12.0),
+        )]));
+
+        for offset in 0..SEGMENT_SLOTS {
+            let slot = restart * SEGMENT_SLOTS + offset;
+            let ts = slot * SLOT_NS;
+            let tv = engine
+                .evaluate_transition_with_seasonal_key(
+                    "diurnal",
+                    "diurnal",
+                    diurnal_10x_value(ts),
+                    ts,
+                    seasonal_profile,
+                )
+                .expect("verdict");
+            assert!(
+                tv.cusum_drift.is_none(),
+                "baseline-covered restart segment {restart} must not drift at slot {slot}"
+            );
+        }
+    }
+
+    let raw_profile = SeriesProfile {
+        drift_mode: DriftMode::Always,
+        ..SeriesProfile::default()
+    };
+    let mut raw_open_count = 0_u64;
+
+    for restart in 0..RESTARTS_PER_DAY {
+        let mut engine = DetectorEngine::new(cfg.clone());
+        for offset in 0..SEGMENT_SLOTS {
+            let slot = restart * SEGMENT_SLOTS + offset;
+            let ts = slot * SLOT_NS;
+            let tv = engine
+                .evaluate_transition("diurnal", diurnal_10x_value(ts), ts, raw_profile)
+                .expect("verdict");
+            if tv
+                .cusum_drift
+                .is_some_and(|drift| drift.transition == AnomalyTransition::Open)
+            {
+                raw_open_count = raw_open_count.saturating_add(1);
+            }
+        }
+    }
+
+    assert!(
+        raw_open_count <= RESTARTS_PER_DAY,
+        "checkpoint-less raw mode should stay bounded to <= one open per restart/day, saw {raw_open_count}"
+    );
+}
+
+#[test]
 fn cusum_reports_downward_drift_on_the_neg_side() {
     // The lower accumulator catches a sustained DOWNWARD drift.
     let mut engine = DetectorEngine::new(cusum_cfg());
@@ -1065,7 +2366,7 @@ fn cusum_reports_downward_drift_on_the_neg_side() {
     for i in 1..=30u64 {
         let v = 100.0 - 0.4 * i as f64;
         let tv = engine
-            .evaluate_transition("s", v, 30 + i, SeriesProfile::default())
+            .evaluate_transition("s", v, 30 + i, always_drift_profile())
             .expect("verdict");
         if let Some(drift) = tv.cusum_drift {
             assert_eq!(drift.direction, CusumDirection::Down);
@@ -1077,28 +2378,48 @@ fn cusum_reports_downward_drift_on_the_neg_side() {
 }
 
 #[test]
-fn cusum_disabled_is_back_compat_rolling_only() {
-    // With CUSUM disabled the engine is the prior rolling-only detector: the same
+fn drift_mode_off_is_back_compat_rolling_only() {
+    // With drift_mode=off the engine is the prior rolling-only detector: the same
     // ramp produces no drift verdicts and no z-score open (it is the missed case).
-    let cfg = EngineConfig {
-        cusum_enabled: false,
-        ..cusum_cfg()
-    };
+    let cfg = EngineConfig { ..cusum_cfg() };
     let mut engine = DetectorEngine::new(cfg);
+    let profile = SeriesProfile {
+        drift_mode: DriftMode::Off,
+        ..SeriesProfile::default()
+    };
     for ts in 0..30u64 {
         let v = 100.0 + if ts % 2 == 0 { 1.0 } else { -1.0 };
-        engine.evaluate_transition("s", v, ts, SeriesProfile::default());
+        engine.evaluate_transition("s", v, ts, profile);
     }
     for i in 1..=30u64 {
         let v = 100.0 + 0.4 * i as f64;
         let tv = engine
-            .evaluate_transition("s", v, 30 + i, SeriesProfile::default())
+            .evaluate_transition("s", v, 30 + i, profile)
             .expect("verdict");
         assert!(
             tv.cusum_drift.is_none(),
-            "cusum disabled must never raise a drift (sample {i})"
+            "drift_mode=off must never raise a drift (sample {i})"
         );
         assert_ne!(tv.transition, AnomalyTransition::Open);
+    }
+}
+
+#[test]
+fn cusum_deseasonalized_only_stays_silent_without_a_baseline() {
+    let mut engine = DetectorEngine::new(cusum_cfg());
+    for ts in 0..30u64 {
+        let v = 100.0 + if ts % 2 == 0 { 1.0 } else { -1.0 };
+        engine.evaluate_transition("s", v, ts, seasonal_only_drift_profile());
+    }
+    for i in 1..=120u64 {
+        let v = 100.0 + 0.4 * i as f64;
+        let tv = engine
+            .evaluate_transition("s", v, 30 + i, seasonal_only_drift_profile())
+            .expect("verdict");
+        assert!(
+            tv.cusum_drift.is_none(),
+            "deseasonalized-only drift must not fall back to a raw anchor (sample {i})"
+        );
     }
 }
 
@@ -1110,25 +2431,28 @@ fn cusum_deseasonalizes_against_the_delivered_seasonal_center() {
     // warm-up is wide enough that the elevated level never breaches the z-score,
     // so the only thing that can speak is the CUSUM — and the seasonal target is
     // what silences it.
-    let cfg = cusum_cfg();
+    let cfg = EngineConfig {
+        n_sigma: 100.0,
+        ..cusum_cfg()
+    };
     let elevated = 135.0;
 
     // Wide warm-up (std ~30) so `elevated` is a sub-z move, then a steady run AT
     // the elevated level.
-    let warm = |engine: &mut DetectorEngine| {
+    let warm = |engine: &mut DetectorEngine, profile: SeriesProfile| {
         for ts in 0..30u64 {
             let v = if ts % 2 == 0 { 70.0 } else { 130.0 };
-            engine.evaluate("s", v, ts, SeriesProfile::default());
+            engine.evaluate("s", v, ts, profile);
         }
     };
 
     // Rolling anchor only (no seasonal): the elevated steady level drifts UP.
     let mut rolling = DetectorEngine::new(cfg.clone());
-    warm(&mut rolling);
+    warm(&mut rolling, always_drift_profile());
     let mut rolling_drift = false;
-    for i in 1..=20u64 {
+    for i in 1..=120u64 {
         let tv = rolling
-            .evaluate_transition("s", elevated, 30 + i, SeriesProfile::default())
+            .evaluate_transition("s", elevated, 30 + i, always_drift_profile())
             .expect("verdict");
         assert_ne!(tv.transition, AnomalyTransition::Open, "elevated is sub-z");
         rolling_drift |= tv.cusum_drift.is_some();
@@ -1154,10 +2478,10 @@ fn cusum_deseasonalizes_against_the_delivered_seasonal_center() {
             )
         })),
     )]));
-    warm(&mut seasonal);
-    for i in 1..=20u64 {
+    warm(&mut seasonal, seasonal_only_drift_profile());
+    for i in 1..=40u64 {
         let tv = seasonal
-            .evaluate_transition("s", elevated, 30 + i, SeriesProfile::default())
+            .evaluate_transition("s", elevated, 30 + i, seasonal_only_drift_profile())
             .expect("verdict");
         assert!(
             tv.cusum_drift.is_none(),
@@ -1168,18 +2492,23 @@ fn cusum_deseasonalizes_against_the_delivered_seasonal_center() {
 
 #[test]
 fn cusum_drift_state_survives_checkpoint_restart() {
-    let cfg = cusum_cfg();
+    let cfg = EngineConfig {
+        n_sigma: 100.0,
+        h_confirm_mult: 1.0,
+        drift_confirm_window: 5,
+        ..cusum_cfg()
+    };
     let mut engine = DetectorEngine::new(cfg.clone());
     warm_stationary(&mut engine);
 
     // Ramp just short of the alarm so the CUSUM has a partial `S+` accumulation
-    // (no alarm yet). The slope is set against the ROBUST anchor scale (MAD *
-    // 1.4826 ≈ 1.48 for the ±1 warm-up, larger than the old mean/std ~1.02), so
-    // the partial accumulation lands just under `h` over these five steps.
+    // (no alarm yet). The slope is set against the magnitude-aware CUSUM anchor
+    // floor (5% of the ~100 center), so the partial accumulation lands just
+    // under `h` over these five steps.
     for i in 1..=5u64 {
-        let v = 100.0 + 0.6 * i as f64;
+        let v = 100.0 + 3.3 * i as f64;
         let tv = engine
-            .evaluate_transition("s", v, 30 + i, SeriesProfile::default())
+            .evaluate_transition("s", v, 30 + i, always_drift_profile())
             .expect("verdict");
         assert!(tv.cusum_drift.is_none(), "must not alarm before crossing h");
     }
@@ -1199,8 +2528,16 @@ fn cusum_drift_state_survives_checkpoint_restart() {
         "anchor scale is checkpointed"
     );
     assert!(
+        snap.cusum_anchor_captured_at_unix_nano.is_some(),
+        "anchor capture timestamp is checkpointed"
+    );
+    assert!(
         snap.cusum_pos.unwrap_or(0.0) > 0.0,
         "the partial S+ accumulation is checkpointed"
+    );
+    assert!(
+        snap.cusum_run_samples > 0,
+        "the CUSUM run sample count is checkpointed"
     );
 
     // Reseed a fresh engine and continue the ramp: because the partial
@@ -1208,11 +2545,140 @@ fn cusum_drift_state_survives_checkpoint_restart() {
     // dropped the CUSUM state would re-accumulate from zero and not alarm here.)
     let mut restored = DetectorEngine::new(cfg);
     assert_eq!(restored.restore_checkpoint(checkpoint, 1_000, u64::MAX), 1);
-    let tv = restored
-        .evaluate_transition("s", 100.0 + 0.6 * 6.0, 36, SeriesProfile::default())
+    let latched = restored
+        .evaluate_transition("s", 100.0 + 3.3 * 6.0, 36, always_drift_profile())
         .expect("verdict");
-    let drift = tv
+    assert!(
+        latched.cusum_drift.is_none(),
+        "the restored CUSUM first latches instead of emitting"
+    );
+    let confirmed = restored
+        .evaluate_transition("s", 100.0 + 3.3 * 7.0, 37, always_drift_profile())
+        .expect("verdict");
+    let drift = confirmed
         .cusum_drift
-        .expect("the restored CUSUM accumulation must re-alarm promptly");
+        .expect("the restored CUSUM accumulation must confirm promptly");
     assert_eq!(drift.direction, CusumDirection::Up);
+}
+
+#[test]
+fn cusum_pending_latch_survives_checkpoint_restart() {
+    let cfg = EngineConfig {
+        window_size: 50,
+        min_samples: 30,
+        n_sigma: 100.0,
+        confirm_slots: 1,
+        max_series: 10,
+        cusum_h: 2.0,
+        h_confirm_mult: 1.5,
+        drift_confirm_window: 5,
+        drift_min_effect: 0.5,
+        ..EngineConfig::default()
+    };
+    let mut engine = DetectorEngine::new(cfg.clone());
+    warm_stationary(&mut engine);
+
+    let latched = engine
+        .evaluate_transition("s", 115.0, 31, always_drift_profile())
+        .expect("verdict");
+    assert!(
+        latched.cusum_drift.is_none(),
+        "crossing h only latches pending drift"
+    );
+
+    let checkpoint = engine.export_checkpoint();
+    let snap = checkpoint
+        .series
+        .iter()
+        .find(|c| c.series_key == "s")
+        .expect("series checkpoint");
+    assert_eq!(snap.cusum_pending_direction, Some(CusumDirection::Up));
+    assert_eq!(snap.cusum_pending_samples, 0);
+
+    let mut restored = DetectorEngine::new(cfg);
+    assert_eq!(restored.restore_checkpoint(checkpoint, 1_000, u64::MAX), 1);
+
+    let confirmed = restored
+        .evaluate_transition("s", 115.0, 32, always_drift_profile())
+        .expect("verdict");
+    let drift = confirmed
+        .cusum_drift
+        .expect("restored pending latch should confirm instead of relatching");
+    assert_eq!(drift.transition, AnomalyTransition::Open);
+    assert_eq!(drift.direction, CusumDirection::Up);
+}
+
+#[test]
+fn open_drift_episode_survives_checkpoint_restart() {
+    let cfg = EngineConfig {
+        window_size: 50,
+        min_samples: 30,
+        n_sigma: 100.0,
+        confirm_slots: 1,
+        max_series: 10,
+        cusum_h: 2.0,
+        h_confirm_mult: 1.0,
+        drift_confirm_window: 5,
+        drift_min_effect: 0.5,
+        drift_clear_slots: 3,
+        drift_adopt_after_samples: 10_000,
+        episode_update_interval_secs: 10_000,
+        ..EngineConfig::default()
+    };
+    let mut engine = DetectorEngine::new(cfg.clone());
+    warm_stationary(&mut engine);
+
+    engine.evaluate_transition("s", 115.0, 31, always_drift_profile());
+    let opened = engine
+        .evaluate_transition("s", 115.0, 32, always_drift_profile())
+        .expect("verdict")
+        .cusum_drift
+        .expect("confirmed drift opens");
+    assert_eq!(opened.transition, AnomalyTransition::Open);
+    let episode_started_at = opened
+        .episode
+        .expect("open carries episode metadata")
+        .started_at_unix_nano;
+
+    let checkpoint = engine.export_checkpoint();
+    let snap = checkpoint
+        .series
+        .iter()
+        .find(|c| c.series_key == "s")
+        .expect("series checkpoint");
+    assert!(snap.drift_active);
+    assert_eq!(snap.drift_active_direction, Some(CusumDirection::Up));
+    assert_eq!(
+        snap.drift_episode_started_at_unix_nano,
+        Some(episode_started_at)
+    );
+
+    let mut restored = DetectorEngine::new(cfg);
+    assert_eq!(restored.restore_checkpoint(checkpoint, 1_000, u64::MAX), 1);
+
+    for ts in 33..35 {
+        let tv = restored
+            .evaluate_transition("s", 100.0, ts, always_drift_profile())
+            .expect("verdict");
+        assert!(
+            tv.cusum_drift.is_none(),
+            "restored open drift must clear only after drift_clear_slots"
+        );
+    }
+
+    let cleared = restored
+        .evaluate_transition("s", 100.0, 35, always_drift_profile())
+        .expect("verdict")
+        .cusum_drift
+        .expect("third recovered sample clears restored drift");
+    assert_eq!(cleared.transition, AnomalyTransition::Clear);
+    assert_eq!(cleared.clear_reason, Some(DriftClearReason::Recovered));
+    assert_eq!(
+        cleared
+            .episode
+            .expect("clear carries episode metadata")
+            .started_at_unix_nano,
+        episode_started_at,
+        "restart must not fork a new drift episode"
+    );
 }

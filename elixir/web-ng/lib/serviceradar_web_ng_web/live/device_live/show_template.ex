@@ -460,18 +460,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
   defp format_value(v) when is_binary(v), do: v
   defp format_value(v), do: to_string(v)
 
-  attr(:label, :string, required: true)
-  attr(:value, :any, default: nil)
-
-  defp kv_block(assigns) do
-    ~H"""
-    <div>
-      <div class="text-xs text-base-content/50">{@label}</div>
-      <div class="font-medium">{format_value(@value)}</div>
-    </div>
-    """
-  end
-
   defp can_edit_device?(scope), do: RBAC.can?(scope, "devices.update")
   defp can_manage_device?(scope), do: RBAC.can?(scope, "devices.update")
   defp can_console_device?(scope), do: RBAC.can?(scope, "devices.console.open")

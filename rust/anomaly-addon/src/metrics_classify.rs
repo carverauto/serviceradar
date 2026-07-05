@@ -9,10 +9,10 @@
 use addon_sdk::metric_pb::{Metric, MetricKind, MetricPoint, MetricTemporality};
 use serviceradar_anomaly_core::SaturationGate;
 
-use crate::engine::SeriesProfile;
+use crate::engine::{DriftMode, SeriesProfile};
 use crate::identity::{metadata_f64_value, metadata_u32_value};
 
-const CPU_EVALUATION_INTERVAL_NS: u64 = 30 * 1_000_000_000;
+pub(crate) const CPU_EVALUATION_INTERVAL_NS: u64 = 30 * 1_000_000_000;
 
 pub(crate) fn is_process_metric(metric: &Metric) -> bool {
     metric.metric_type == "process" || metric.name.starts_with("process.")
@@ -114,6 +114,8 @@ pub(crate) fn series_profile_for(metric: &Metric) -> SeriesProfile {
                 min_value: 80.0,
             }),
             evaluation_interval_ns: None,
+            drift_mode: DriftMode::Off,
+            drift_min_cv: 0.0,
         },
         // Memory used_percent: commonly runs 60-80% benignly (caches, buffers).
         // Same dispersion floors; only sustained pressure above 80% breaches.
@@ -125,6 +127,8 @@ pub(crate) fn series_profile_for(metric: &Metric) -> SeriesProfile {
                 min_value: 80.0,
             }),
             evaluation_interval_ns: None,
+            drift_mode: DriftMode::DeseasonalizedOnly,
+            drift_min_cv: 0.0,
         },
         // CPU used_percent (per-core): the noisiest gauge — individual cores spike
         // to 100% constantly and benignly. A higher absolute floor + std/CV floor
@@ -138,8 +142,43 @@ pub(crate) fn series_profile_for(metric: &Metric) -> SeriesProfile {
                 min_value: 85.0,
             }),
             evaluation_interval_ns: Some(CPU_EVALUATION_INTERVAL_NS),
+            drift_mode: DriftMode::DeseasonalizedOnly,
+            drift_min_cv: 0.0,
         },
         None => SeriesProfile::default(),
+    }
+}
+
+pub(crate) fn metric_profile_class(metric: &Metric, metric_class: &str) -> &'static str {
+    match gauge_class(metric) {
+        Some(GaugeClass::Cpu) => "cpu",
+        Some(GaugeClass::Mem) => "memory",
+        Some(GaugeClass::Disk) => "disk",
+        None if metric_class == "snmp" || metric_class.starts_with("snmp.") => "interface",
+        None if metric_class == "icmp" || metric_class.starts_with("icmp.") => "icmp",
+        None => "other",
+    }
+}
+
+pub(crate) fn counter_series_profile() -> SeriesProfile {
+    SeriesProfile {
+        drift_mode: DriftMode::DeseasonalizedOnly,
+        drift_min_cv: 0.05,
+        ..SeriesProfile::default()
+    }
+}
+
+pub(crate) fn host_cpu_aggregate_profile() -> SeriesProfile {
+    SeriesProfile {
+        min_std_floor: 5.0,
+        min_cv: 0.10,
+        saturation_gate: Some(SaturationGate {
+            directional: true,
+            min_value: 85.0,
+        }),
+        evaluation_interval_ns: None,
+        drift_mode: DriftMode::DeseasonalizedOnly,
+        drift_min_cv: 0.0,
     }
 }
 

@@ -207,24 +207,35 @@ impl Addon for AnomalyAddon {
     async fn health(&self) -> anyhow::Result<Health> {
         let drop_snapshot = self.telemetry_drops.snapshot();
         let engine = lock_engine(&self.engine);
+        let counter_drop_message = engine.counter_drop_counts.health_message();
         let engine_snapshot = EngineHealthSnapshot {
             tracked_series: engine.series_count(),
             tracked_counters: engine.counter_count(),
             max_series: engine.max_series(),
             dropped_total: engine.dropped_at_capacity,
+            drift_inactive_no_baseline_total: engine.drift_inactive_no_baseline,
         };
         drop(engine);
 
         let scoring = lock_scoring_health(&self.scoring_health).clone();
         let summary = scoring.health_summary(engine_snapshot);
 
-        let degradation_reason = if drop_snapshot.total() == 0 {
+        let mut degradation_reason = if drop_snapshot.total() == 0 {
             summary.detail
         } else if summary.detail.is_empty() {
             drop_snapshot.health_message()
         } else {
             format!("{};{}", summary.detail, drop_snapshot.health_message())
         };
+
+        if let Some(message) = counter_drop_message {
+            if degradation_reason.is_empty() {
+                degradation_reason = message;
+            } else {
+                degradation_reason.push(';');
+                degradation_reason.push_str(&message);
+            }
+        }
 
         Ok(Health {
             status: summary.status,

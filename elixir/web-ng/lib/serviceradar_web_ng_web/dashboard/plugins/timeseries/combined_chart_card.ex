@@ -29,7 +29,11 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
       end)
       |> Jason.encode!()
 
-    assigns = assign(assigns, :series_tooltip_data, series_tooltip_data)
+    assigns =
+      assigns
+      |> assign(:series_tooltip_data, series_tooltip_data)
+      |> assign(:effective_chart_left_pad, Map.get(assigns.data, :chart_left_pad, assigns.chart_left_pad))
+      |> assign(:annotation_window_notice, ChartCard.annotation_window_notice(Map.get(assigns.data, :annotations, [])))
 
     ~H"""
     <div
@@ -45,7 +49,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
       data-y-max={@data.chart_max}
       data-y-scale={@data.y_scale}
       data-chart-width={@chart_width}
-      data-chart-left-pad={@chart_left_pad}
+      data-chart-left-pad={@effective_chart_left_pad}
       data-chart-right-pad={@chart_right_pad}
     >
       <div class="flex items-center justify-between gap-3 mb-2">
@@ -102,7 +106,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
 
           <g stroke="currentColor" class="text-base-content/10" stroke-dasharray="3 4">
             <%= for {y, _label} <- @data.y_ticks do %>
-              <line x1={@chart_left_pad} x2={@chart_width - @chart_right_pad} y1={y} y2={y} />
+              <line x1={@effective_chart_left_pad} x2={@chart_width - @chart_right_pad} y1={y} y2={y} />
             <% end %>
             <%= for {x, _label} <- @data.x_ticks do %>
               <line x1={x} x2={x} y1={@chart_top_pad} y2={@chart_height - @chart_bottom_pad} />
@@ -111,13 +115,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
 
           <g stroke="currentColor" class="text-base-content/40">
             <line
-              x1={@chart_left_pad}
-              x2={@chart_left_pad}
+              x1={@effective_chart_left_pad}
+              x2={@effective_chart_left_pad}
               y1={@chart_top_pad}
               y2={@chart_height - @chart_bottom_pad}
             />
             <line
-              x1={@chart_left_pad}
+              x1={@effective_chart_left_pad}
               x2={@chart_width - @chart_right_pad}
               y1={@chart_height - @chart_bottom_pad}
               y2={@chart_height - @chart_bottom_pad}
@@ -126,7 +130,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
 
           <g stroke="currentColor" class="text-base-content/40">
             <%= for {y, _label} <- @data.y_ticks do %>
-              <line x1={@chart_left_pad - 3} x2={@chart_left_pad} y1={y} y2={y} />
+              <line x1={@effective_chart_left_pad - 3} x2={@effective_chart_left_pad} y1={y} y2={y} />
             <% end %>
             <%= for {x, _label} <- @data.x_ticks do %>
               <line
@@ -140,7 +144,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
 
           <g class="text-[12px] fill-base-content/70 font-mono">
             <%= for {y, label} <- @data.y_ticks do %>
-              <text x={@chart_left_pad - 10} y={y + 4} text-anchor="end">{label}</text>
+              <text x={@effective_chart_left_pad - 10} y={y + 4} text-anchor="end">{label}</text>
             <% end %>
           </g>
 
@@ -160,7 +164,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
 
           <ChartCard.chart_overlays_svg
             overlays={Map.get(@data, :overlays, [])}
-            chart_left_pad={@chart_left_pad}
+            chart_left_pad={@effective_chart_left_pad}
             chart_right_pad={@chart_right_pad}
             chart_top_pad={@chart_top_pad}
             chart_bottom_pad={@chart_bottom_pad}
@@ -171,7 +175,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
 
           <ChartCard.reference_lines_svg
             reference_lines={@data.reference_lines}
-            chart_left_pad={@chart_left_pad}
+            chart_left_pad={@effective_chart_left_pad}
             chart_right_pad={@chart_right_pad}
             chart_width={@chart_width}
           />
@@ -200,6 +204,14 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
           data-hover-line
         >
         </div>
+      </div>
+
+      <div
+        :if={@annotation_window_notice}
+        data-testid="timeseries-marker-window-note"
+        class="mt-1 text-[10px] leading-snug text-base-content/60"
+      >
+        {@annotation_window_notice}
       </div>
 
       <div class={[

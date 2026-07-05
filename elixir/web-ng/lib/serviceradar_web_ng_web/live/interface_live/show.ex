@@ -1514,8 +1514,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   defp fetch_interface_metrics(srql_module, device_uid, interface, settings, scope) do
     if_index = Map.get(interface, "if_index")
 
-    # Use agg:max to pull the latest counter values per bucket.
-    # Rate deltas are calculated client-side for SNMP counter metrics.
+    # SRQL agg:rate returns per-second rates; Timeseries uses rate_mode :rate
+    # below only for units/labels, never for a second client-side delta.
     query = MetricsQuery.build_snmp_counter_query(device_uid, if_index, metric_query_names(settings))
 
     # Get interface speed for proper graph scaling (bps -> bytes per second)

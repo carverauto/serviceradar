@@ -121,12 +121,20 @@ func TestResolveAddonCgroupRootRequiresRootOrSlice(t *testing.T) {
 		t.Fatalf("explicit root = %q, want /tmp/addons", got)
 	}
 
-	got, err = resolveAddonCgroupRoot(Resources{MemoryMaxBytes: 64 << 20, Slice: "serviceradar-addons.slice"}, "/tmp/addons")
+	got, err = resolveAddonCgroupRoot(Resources{MemoryMaxBytes: 64 << 20, Slice: "serviceradar-addons.slice"}, "")
 	if err != nil {
 		t.Fatalf("resolve slice root: %v", err)
 	}
 	if got != "/sys/fs/cgroup/serviceradar.slice/serviceradar-addons.slice" {
 		t.Fatalf("slice root = %q, want serviceradar-addons.slice path", got)
+	}
+
+	got, err = resolveAddonCgroupRoot(Resources{MemoryMaxBytes: 64 << 20, Slice: "serviceradar-addons.slice"}, "/tmp/addons")
+	if err != nil {
+		t.Fatalf("resolve explicit root over slice: %v", err)
+	}
+	if got != "/tmp/addons" {
+		t.Fatalf("explicit root with slice = %q, want /tmp/addons", got)
 	}
 }
 

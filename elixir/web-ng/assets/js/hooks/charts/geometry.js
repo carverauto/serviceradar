@@ -35,3 +35,33 @@ export function timeseriesPointIndexToLocalX(index, rect, pointCount, opts = {})
   const viewX = chartLeftPad + (idx / maxIndex) * usable
   return (viewX / viewBoxWidth) * width
 }
+
+export function timeseriesNearestPointIndexByX(points, viewX) {
+  if (!Array.isArray(points) || points.length === 0) return 0
+
+  let bestIndex = 0
+  let bestDistance = Number.POSITIVE_INFINITY
+
+  points.forEach((point, index) => {
+    const pointX = Number(point?.x)
+    if (!Number.isFinite(pointX)) return
+
+    const distance = Math.abs(pointX - viewX)
+    if (distance < bestDistance) {
+      bestDistance = distance
+      bestIndex = index
+    }
+  })
+
+  return Number.isFinite(bestDistance) ? bestIndex : null
+}
+
+export function timeseriesPointToLocalX(point, fallbackIndex, rect, pointCount, opts = {}) {
+  const viewBoxWidth = opts.viewBoxWidth ?? TIMESERIES_VIEWBOX_WIDTH
+  const width = Math.max(1, Number(rect?.width || 0))
+  const pointX = Number(point?.x)
+
+  if (Number.isFinite(pointX)) return (pointX / viewBoxWidth) * width
+
+  return timeseriesPointIndexToLocalX(fallbackIndex, rect, pointCount, opts)
+}

@@ -8,9 +8,12 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
     max_attempts: 3,
     unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
 
+  import Ash.Expr
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.AnomalyConfigRuntime
   alias ServiceRadar.Observability.CapacityForecast
+  alias ServiceRadar.Observability.CapacityForecastConfig
   alias ServiceRadar.Observability.CapacityForecasting.InterfaceCapacity
   alias ServiceRadar.Observability.CapacityForecasting.Source
   alias ServiceRadar.Observability.CapacityForecasting.VerdictEmitter
@@ -19,6 +22,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.SweepJobs.ObanSupport
 
+  require Ash.Query
   require Logger
 
   @default_horizon_seconds 90 * 24 * 60 * 60
@@ -41,6 +45,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   # series at that sample before the model sees it.
   @min_percent_sample 0.0
   @max_percent_sample 100.0
+  @daily_sustained_min_points 20
 
   @impl Oban.Worker
   def perform(%Oban.Job{} = job) do
@@ -186,13 +191,17 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
       horizon_seconds: horizon_seconds,
       horizon_ends_at: horizon_ends_at,
       exhaustion_threshold: source.threshold,
-      metadata: %{
-        "source" => source.name,
-        "query" => source.query,
-        "value_field" => source.value_field,
-        "forecast_value_unit" => source.value_unit,
-        "key_fields" => source.key_fields
-      }
+      metadata:
+        %{
+          "source" => source.name,
+          "query" => source.query,
+          "value_field" => source.value_field,
+          "forecast_value_unit" => source.value_unit,
+          "key_fields" => source.key_fields,
+          "sustained_statistic" => source.sustained_statistic
+        }
+        |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+        |> Map.new()
     }
 
     case value_context(source, first_row, opts) do
@@ -220,11 +229,19 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   end
 
   defp forecast_attrs(source, points, common, opts) do
-    {forecast_points, gap_count} = latest_contiguous_points(points)
+    {contiguous_points, gap_count} = latest_contiguous_points(points)
+    {forecast_points, sustained_metadata} = sustained_forecast_points(source, contiguous_points)
 
     common =
       if gap_count > 0 do
         update_in(common.metadata, &Map.put(&1, "gap_count", gap_count))
+      else
+        common
+      end
+
+    common =
+      if map_size(sustained_metadata) > 0 do
+        update_in(common.metadata, &Map.merge(&1, sustained_metadata))
       else
         common
       end
@@ -256,16 +273,6 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
 
   defp forecast_projection_attrs(source, forecast_points, common, forecast) do
     cond do
-      no_projected_exhaustion?(forecast, common.exhaustion_threshold) ->
-        skipped_attrs(
-          source,
-          forecast_points,
-          common,
-          "no_projected_exhaustion",
-          forecast.diagnostics,
-          model: forecast.model
-        )
-
       threshold_already_crossed?(forecast, common.exhaustion_threshold) ->
         projected_attrs(source, common, forecast,
           projected_exhaustion_at: common.forecasted_at,
@@ -275,10 +282,53 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
             |> Map.put("projected_exhaustion_source", "current_value")
         )
 
+      no_projected_exhaustion?(forecast, common.exhaustion_threshold) ->
+        skipped_attrs(
+          source,
+          forecast_points,
+          common,
+          "no_projected_exhaustion",
+          forecast.diagnostics
+          |> Map.put("lower_bound", forecast.lower_bound)
+          |> Map.put("upper_bound", forecast.upper_bound),
+          model: forecast.model
+        )
+
+      projected_exhaustion_after_horizon?(forecast, common.horizon_ends_at) ->
+        skipped_attrs(
+          source,
+          forecast_points,
+          common,
+          "outside_forecast_horizon",
+          forecast.diagnostics
+          |> Map.put("projected_exhaustion_at", forecast.projected_exhaustion_at)
+          |> Map.put("horizon_ends_at", common.horizon_ends_at),
+          model: forecast.model
+        )
+
       true ->
         projected_attrs(source, common, forecast)
     end
   end
+
+  defp projected_exhaustion_after_horizon?(
+         %{projected_exhaustion_at: %DateTime{} = projected_exhaustion_at},
+         %DateTime{} = horizon_ends_at
+       ) do
+    DateTime.after?(projected_exhaustion_at, horizon_ends_at)
+  end
+
+  defp projected_exhaustion_after_horizon?(
+         %{projected_exhaustion_at: %NaiveDateTime{} = projected_exhaustion_at},
+         %DateTime{} = horizon_ends_at
+       ) do
+    projected_exhaustion_at
+    |> DateTime.from_naive!("Etc/UTC")
+    |> DateTime.compare(horizon_ends_at)
+    |> Kernel.==(:gt)
+  end
+
+  defp projected_exhaustion_after_horizon?(_forecast, _horizon_ends_at), do: false
 
   defp projected_attrs(source, common, forecast, overrides \\ []) do
     diagnostics =
@@ -487,11 +537,19 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
 
   defp no_projected_exhaustion?(forecast, threshold)
        when is_number(threshold) and threshold > 0 do
-    is_nil(Map.get(forecast, :projected_exhaustion_at)) and
-      not threshold_already_crossed?(forecast, threshold)
+    not threshold_already_crossed?(forecast, threshold) and
+      (is_nil(Map.get(forecast, :projected_exhaustion_at)) or
+         prediction_interval_lower_bound_misses_threshold?(forecast, threshold))
   end
 
   defp no_projected_exhaustion?(_forecast, _threshold), do: false
+
+  defp prediction_interval_lower_bound_misses_threshold?(%{lower_bound: lower_bound}, threshold)
+       when is_number(lower_bound) do
+    lower_bound < threshold
+  end
+
+  defp prediction_interval_lower_bound_misses_threshold?(_forecast, _threshold), do: false
 
   defp threshold_already_crossed?(%{current_value: current_value}, threshold)
        when is_number(current_value) and is_number(threshold) do
@@ -554,24 +612,167 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
 
   defp maybe_emit_verdict(attrs, opts) do
     if emit_verdicts?(opts) do
-      emitter = Keyword.get(opts, :verdict_emitter, VerdictEmitter)
       verdict_attrs = verdict_attrs(attrs, opts)
 
-      case emitter.emit(verdict_attrs, opts) do
-        :ok ->
-          :ok
-
-        other ->
-          Logger.warning("Capacity forecast verdict emit failed: #{inspect(other)}",
-            resource_key: attrs[:resource_key],
-            reason: inspect(other)
-          )
-
-          :ok
+      case capacity_transition_decision(attrs, verdict_attrs, opts) do
+        :emit -> emit_capacity_verdict(verdict_attrs, opts)
+        :skip -> :ok
       end
     else
       :ok
     end
+  end
+
+  defp emit_capacity_verdict(verdict_attrs, opts) do
+    emitter = Keyword.get(opts, :verdict_emitter, VerdictEmitter)
+
+    case emitter.emit(verdict_attrs, opts) do
+      :ok ->
+        :ok
+
+      other ->
+        Logger.warning("Capacity forecast verdict emit failed: #{inspect(other)}",
+          resource_key: Map.get(verdict_attrs, :resource_key),
+          reason: inspect(other)
+        )
+
+        :ok
+    end
+  end
+
+  defp capacity_transition_decision(attrs, verdict_attrs, opts) do
+    if Keyword.get(opts, :transition_only_verdicts?, true) do
+      confirm_runs =
+        opts
+        |> Keyword.get(:capacity_transition_confirm_runs)
+        |> positive_integer(2)
+
+      history_limit =
+        opts
+        |> Keyword.get(:capacity_transition_history_runs)
+        |> positive_integer(max(confirm_runs * 4, 6))
+
+      current_state = capacity_verdict_state(verdict_attrs)
+
+      case previous_forecasts(attrs, opts, history_limit) do
+        {:ok, previous} ->
+          previous_states = Enum.map(previous, &capacity_verdict_state(verdict_attrs(&1, opts)))
+          states = [current_state | previous_states]
+          current_confirmed = confirmed_state_at_head(states, confirm_runs)
+          prior_confirmed = latest_confirmed_state(previous_states, confirm_runs)
+
+          confirmed_capacity_transition_decision(current_confirmed, prior_confirmed)
+
+        {:error, reason} ->
+          Logger.warning("Capacity forecast transition lookup failed; emitting verdict",
+            resource_key: Map.get(attrs, :resource_key),
+            reason: inspect(reason)
+          )
+
+          :emit
+      end
+    else
+      :emit
+    end
+  end
+
+  defp confirmed_capacity_transition_decision(nil, _prior_confirmed), do: :skip
+  defp confirmed_capacity_transition_decision(:projected, nil), do: :emit
+  defp confirmed_capacity_transition_decision(:cleared, nil), do: :skip
+  defp confirmed_capacity_transition_decision(state, state), do: :skip
+  defp confirmed_capacity_transition_decision(_current_confirmed, _prior_confirmed), do: :emit
+
+  defp confirmed_state_at_head(states, confirm_runs) do
+    states
+    |> Enum.take(confirm_runs)
+    |> confirmed_state(confirm_runs)
+  end
+
+  defp latest_confirmed_state(states, confirm_runs) do
+    cond do
+      length(states) < confirm_runs ->
+        nil
+
+      state = confirmed_state_at_head(states, confirm_runs) ->
+        state
+
+      true ->
+        states
+        |> tl()
+        |> latest_confirmed_state(confirm_runs)
+    end
+  end
+
+  defp confirmed_state(states, confirm_runs) when length(states) == confirm_runs do
+    first = List.first(states)
+
+    if Enum.all?(states, &(&1 == first)), do: first
+  end
+
+  defp confirmed_state(_states, _confirm_runs), do: nil
+
+  defp capacity_verdict_state(%{status: "projected"}), do: :projected
+
+  defp capacity_verdict_state(%{status: status})
+       when status in ["inactive", "resolved", "closed", "skipped"],
+       do: :cleared
+
+  defp capacity_verdict_state(_attrs), do: :cleared
+
+  defp previous_forecasts(attrs, opts, limit) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:capacity_forecasting))
+
+    cond do
+      loader = Keyword.get(opts, :previous_forecasts_loader) ->
+        normalize_previous_forecasts(loader.(attrs, actor, limit))
+
+      loader = Keyword.get(opts, :previous_forecast_loader) ->
+        normalize_previous_forecasts(loader.(attrs, actor))
+
+      true ->
+        load_previous_forecasts(attrs, actor, limit)
+    end
+  end
+
+  defp normalize_previous_forecasts({:ok, forecasts}), do: normalize_previous_forecasts(forecasts)
+  defp normalize_previous_forecasts({:error, reason}), do: {:error, reason}
+  defp normalize_previous_forecasts(nil), do: {:ok, []}
+
+  defp normalize_previous_forecasts(forecasts) when is_list(forecasts) do
+    if Enum.all?(forecasts, &capacity_forecast_like?/1) do
+      {:ok, forecasts}
+    else
+      {:error, {:unexpected_previous_forecast_result, forecasts}}
+    end
+  end
+
+  defp normalize_previous_forecasts(%CapacityForecast{} = forecast), do: {:ok, [forecast]}
+  defp normalize_previous_forecasts(forecast) when is_map(forecast), do: {:ok, [forecast]}
+
+  defp normalize_previous_forecasts(other),
+    do: {:error, {:unexpected_previous_forecast_result, other}}
+
+  defp capacity_forecast_like?(%CapacityForecast{}), do: true
+  defp capacity_forecast_like?(forecast) when is_map(forecast), do: true
+  defp capacity_forecast_like?(_forecast), do: false
+
+  defp load_previous_forecasts(attrs, actor, limit) do
+    resource_key = Map.fetch!(attrs, :resource_key)
+    metric_name = Map.fetch!(attrs, :metric_name)
+    horizon_seconds = Map.fetch!(attrs, :horizon_seconds)
+    forecasted_at = Map.fetch!(attrs, :forecasted_at)
+
+    CapacityForecast
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(
+      expr(
+        resource_key == ^resource_key and metric_name == ^metric_name and
+          horizon_seconds == ^horizon_seconds and forecasted_at < ^forecasted_at
+      )
+    )
+    |> Ash.Query.sort(forecasted_at: :desc)
+    |> Ash.Query.limit(limit)
+    |> Ash.read(actor: actor)
   end
 
   defp emit_source_telemetry(%Source{} = source, attrs, row_count, result) do
@@ -737,6 +938,61 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
     {forecast_points, gap_count}
   end
 
+  defp sustained_forecast_points(%Source{sustained_statistic: statistic}, points)
+       when statistic in ["daily_p95", :daily_p95] do
+    daily_points =
+      points
+      |> Enum.group_by(&DateTime.to_date(&1.at))
+      |> Enum.map(fn {_date, day_points} -> sustained_daily_point(day_points) end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.sort_by(&point_time_micros/1)
+
+    metadata = %{
+      "sustained_statistic" => "daily_p95",
+      "sustained_input_points" => length(points),
+      "sustained_min_points_per_day" => @daily_sustained_min_points
+    }
+
+    {daily_points, metadata}
+  end
+
+  defp sustained_forecast_points(_source, points), do: {points, %{}}
+
+  defp sustained_daily_point(day_points) do
+    value_points =
+      day_points
+      |> Enum.filter(&(is_number(Map.get(&1, :value)) and match?(%DateTime{}, Map.get(&1, :at))))
+      |> Enum.sort_by(&point_time_micros/1)
+
+    if length(value_points) >= @daily_sustained_min_points do
+      %{
+        at: value_points |> List.last() |> Map.fetch!(:at),
+        value: percentile_cont(Enum.map(value_points, & &1.value), 0.95)
+      }
+    end
+  end
+
+  defp percentile_cont(values, percentile) when is_list(values) do
+    values = Enum.sort(values)
+    count = length(values)
+
+    cond do
+      count == 0 ->
+        nil
+
+      count == 1 ->
+        List.first(values) * 1.0
+
+      true ->
+        rank = percentile * (count - 1)
+        lower_index = rank |> :math.floor() |> trunc()
+        upper_index = rank |> :math.ceil() |> trunc()
+        lower = Enum.at(values, lower_index)
+        upper = Enum.at(values, upper_index)
+        lower + (upper - lower) * (rank - lower_index)
+    end
+  end
+
   defp point_from_row(row, source, context) do
     case datetime_value(row, source.bucket_field) do
       %DateTime{} = at ->
@@ -834,7 +1090,10 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
 
   defp sources(opts) do
     opts
-    |> Keyword.get(:sources, Source.defaults())
+    |> Keyword.get(
+      :sources,
+      Source.defaults(include_sources: Keyword.get(opts, :default_source_opt_ins, []))
+    )
     |> Enum.map(&Source.from_config/1)
   end
 
@@ -871,6 +1130,30 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   end
 
   defp resource_id(%Source{key_fields: []} = source, _row), do: source.name
+
+  defp resource_id(%Source{resource_type: "interface"} = source, row) do
+    device =
+      Enum.find_value(
+        [
+          "device_id",
+          "target_device_id",
+          "device_uid",
+          "source_device_uid",
+          "target_device_ip",
+          "host",
+          "agent_id"
+        ],
+        &present_string_value(row, &1)
+      )
+
+    if_index = present_string_value(row, "if_index")
+
+    cond do
+      device && if_index -> "#{device}:if#{if_index}"
+      device -> device
+      true -> resource_key(source, row)
+    end
+  end
 
   defp resource_id(%Source{} = source, row) do
     source.key_fields
@@ -1021,12 +1304,74 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   defp config_number_value(_value, default), do: default
 
   defp merge_runtime_opts(opts) do
-    config()
-    |> Keyword.merge(AnomalyConfigRuntime.capacity_forecasting_opts())
+    base_config = config()
+
+    base_config
+    |> Keyword.merge(runtime_capacity_forecasting_opts(base_config, opts))
     |> Keyword.merge(opts)
   end
 
   defp config do
     Application.get_env(:serviceradar_core, __MODULE__, [])
+  end
+
+  defp runtime_capacity_forecasting_opts(base_config, opts) do
+    control_opts = Keyword.merge(base_config, opts)
+
+    case Keyword.get(control_opts, :runtime_config_source, :database) do
+      source when source in [:cache, "cache"] ->
+        AnomalyConfigRuntime.capacity_forecasting_opts()
+
+      source when source in [:none, "none", false] ->
+        []
+
+      _source ->
+        case fetch_capacity_forecasting_opts(control_opts) do
+          {:ok, runtime_opts} ->
+            runtime_opts
+
+          {:error, reason} ->
+            Logger.warning("Capacity forecasting config fetch failed; using cached runtime opts",
+              reason: inspect(reason)
+            )
+
+            AnomalyConfigRuntime.capacity_forecasting_opts()
+        end
+    end
+  end
+
+  defp fetch_capacity_forecasting_opts(opts) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:capacity_forecasting_config))
+    fetcher = Keyword.get(opts, :runtime_opts_fetcher, &fetch_capacity_forecast_settings/1)
+
+    case fetcher.(actor) do
+      {:ok, %CapacityForecastConfig{} = settings} ->
+        {:ok, AnomalyConfigRuntime.capacity_forecasting_opts_from_settings(settings)}
+
+      {:ok, runtime_opts} when is_list(runtime_opts) ->
+        {:ok, runtime_opts}
+
+      {:ok, nil} ->
+        {:ok, []}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      other ->
+        {:error, {:unexpected_capacity_forecast_config_result, other}}
+    end
+  end
+
+  defp fetch_capacity_forecast_settings(actor) do
+    [CapacityForecastConfig]
+    |> Ash.transaction(fn ->
+      CapacityForecastConfig.get_settings(actor: actor)
+    end)
+    |> case do
+      {:ok, {:ok, settings}} -> {:ok, settings}
+      {:ok, {:error, reason}} -> {:error, reason}
+      {:error, reason} -> {:error, reason}
+      {:error, reason, _stacktrace} -> {:error, reason}
+    end
   end
 end

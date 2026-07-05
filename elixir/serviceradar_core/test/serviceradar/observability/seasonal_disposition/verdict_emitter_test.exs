@@ -61,7 +61,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitterTest do
     assert decoded["finding_type"] == "detection"
     assert decoded["class_uid"] == 2004
     assert decoded["signal_domain"] == "health"
-    assert decoded["severity_id"] == 4
+    assert decoded["severity_id"] == 3
     assert decoded["device_id"] == "device-a"
     assert decoded["device_uid"] == "device-a"
     assert decoded["finding_info"]["source"] == "seasonal_disposition"
@@ -83,7 +83,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitterTest do
     assert payload["seasonal_disposition"]["status"] == "cleared"
   end
 
-  test "event identity ignores per-run seasonal wall-clock fields" do
+  test "event identity ignores per-run seasonal wall-clock and hour-bucket fields" do
     next_run =
       Map.merge(@breach, %{
         evaluated_at: ~U[2026-06-12 12:05:00Z],
@@ -101,7 +101,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitterTest do
     assert first_payload["timestamp"] != next_payload["timestamp"]
 
     other_hour_payload = @breach |> Map.put(:hod, 10) |> VerdictEmitter.payload()
-    refute first_payload["event_id"] == other_hour_payload["event_id"]
+    assert first_payload["event_id"] == other_hour_payload["event_id"]
+    assert first_payload["finding_info"]["uid"] == other_hour_payload["finding_info"]["uid"]
 
     subject = VerdictEmitter.subject(@breach)
 
@@ -126,5 +127,27 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitterTest do
              AnalyticsSignals.align_existing_ocsf_event_times([next_row], ExistingTimeRepo)
 
     assert DateTime.compare(aligned_time, first_row.time) == :eq
+  end
+
+  test "seasonal severity follows bounded bands and cannot mint Critical alone" do
+    assert @breach
+           |> Map.put(:score, 3.9)
+           |> VerdictEmitter.payload()
+           |> Access.get("severity_id") == 2
+
+    assert @breach
+           |> Map.put(:score, 4.0)
+           |> VerdictEmitter.payload()
+           |> Access.get("severity_id") == 3
+
+    assert @breach
+           |> Map.put(:score, 8.0)
+           |> VerdictEmitter.payload()
+           |> Access.get("severity_id") == 4
+
+    assert @breach
+           |> Map.put(:score, 100.0)
+           |> VerdictEmitter.payload()
+           |> Access.get("severity_id") == 4
   end
 end

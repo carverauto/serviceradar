@@ -19,6 +19,83 @@ pub(crate) const COUNTER_MAX_GAP_NS: u64 = 2 * 60 * 60 * 1_000_000_000;
 /// rate used to sanity-check a wrap (central `@counter32_modulus`).
 pub(crate) const COUNTER32_MODULUS: f64 = 4_294_967_296.0;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct CounterDropCounts {
+    pub(crate) warmup: u64,
+    pub(crate) invalid_sample: u64,
+    pub(crate) at_capacity: u64,
+    pub(crate) reset_lineage: u64,
+    pub(crate) non_monotonic_time: u64,
+    pub(crate) gap: u64,
+    pub(crate) implausible_delta: u64,
+}
+
+impl CounterDropCounts {
+    pub(crate) fn record(&mut self, reason: CounterDropReason) {
+        match reason {
+            CounterDropReason::Warmup => {
+                self.warmup = self.warmup.saturating_add(1);
+            }
+            CounterDropReason::InvalidSample => {
+                self.invalid_sample = self.invalid_sample.saturating_add(1);
+            }
+            CounterDropReason::AtCapacity => {
+                self.at_capacity = self.at_capacity.saturating_add(1);
+            }
+            CounterDropReason::ResetLineage => {
+                self.reset_lineage = self.reset_lineage.saturating_add(1);
+            }
+            CounterDropReason::NonMonotonicTime => {
+                self.non_monotonic_time = self.non_monotonic_time.saturating_add(1);
+            }
+            CounterDropReason::Gap => {
+                self.gap = self.gap.saturating_add(1);
+            }
+            CounterDropReason::ImplausibleDelta => {
+                self.implausible_delta = self.implausible_delta.saturating_add(1);
+            }
+        }
+    }
+
+    pub(crate) fn total(&self) -> u64 {
+        self.warmup
+            .saturating_add(self.invalid_sample)
+            .saturating_add(self.at_capacity)
+            .saturating_add(self.reset_lineage)
+            .saturating_add(self.non_monotonic_time)
+            .saturating_add(self.gap)
+            .saturating_add(self.implausible_delta)
+    }
+
+    pub(crate) fn health_message(&self) -> Option<String> {
+        let total = self.total();
+
+        (total > 0).then(|| {
+            format!(
+                "counter_rate_drops_total={total};counter_rate_drop_warmup_total={};counter_rate_drop_invalid_sample_total={};counter_rate_drop_at_capacity_total={};counter_rate_drop_reset_lineage_total={};counter_rate_drop_non_monotonic_time_total={};counter_rate_drop_gap_total={};counter_rate_drop_implausible_delta_total={}",
+                self.warmup,
+                self.invalid_sample,
+                self.at_capacity,
+                self.reset_lineage,
+                self.non_monotonic_time,
+                self.gap,
+                self.implausible_delta
+            )
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CounterDropReason {
+    Warmup,
+    InvalidSample,
+    AtCapacity,
+    ResetLineage,
+    NonMonotonicTime,
+    Gap,
+    ImplausibleDelta,
+}
+
 impl DetectorEngine {
     /// Rate-normalize one cumulative-monotonic counter reading against this
     /// series' previous reading, mirroring central `CounterNormalizer`: returns
@@ -61,6 +138,8 @@ impl DetectorEngine {
         max_counter_rate_per_second: Option<f64>,
     ) -> Option<f64> {
         if !raw_value.is_finite() || raw_value < 0.0 {
+            self.counter_drop_counts
+                .record(CounterDropReason::InvalidSample);
             return None;
         }
 
@@ -71,6 +150,8 @@ impl DetectorEngine {
             }
             if self.counters.len() >= self.config.max_series {
                 self.dropped_at_capacity = self.dropped_at_capacity.saturating_add(1);
+                self.counter_drop_counts
+                    .record(CounterDropReason::AtCapacity);
                 return None;
             }
             self.counters.insert(
@@ -81,6 +162,7 @@ impl DetectorEngine {
                     reset_anchor: reset_anchor.to_owned(),
                 },
             );
+            self.counter_drop_counts.record(CounterDropReason::Warmup);
             return None;
         };
 
@@ -90,6 +172,8 @@ impl DetectorEngine {
             previous.value = raw_value;
             previous.timestamp = observed_at_unix_nano;
             replace_reset_anchor(&mut previous.reset_anchor, reset_anchor);
+            self.counter_drop_counts
+                .record(CounterDropReason::ResetLineage);
             return None;
         }
 
@@ -109,6 +193,8 @@ impl DetectorEngine {
                 previous.timestamp = observed_at_unix_nano;
                 replace_reset_anchor(&mut previous.reset_anchor, reset_anchor);
             }
+            self.counter_drop_counts
+                .record(CounterDropReason::NonMonotonicTime);
             return None;
         }
 
@@ -117,6 +203,7 @@ impl DetectorEngine {
             previous.value = raw_value;
             previous.timestamp = observed_at_unix_nano;
             replace_reset_anchor(&mut previous.reset_anchor, reset_anchor);
+            self.counter_drop_counts.record(CounterDropReason::Gap);
             return None;
         }
 
@@ -136,7 +223,11 @@ impl DetectorEngine {
         replace_reset_anchor(&mut previous.reset_anchor, reset_anchor);
 
         match delta {
-            Some(d) if elapsed_seconds > 0.0 => Some(d / elapsed_seconds),
+            Ok(delta) if elapsed_seconds > 0.0 => Some(delta / elapsed_seconds),
+            Err(reason) => {
+                self.counter_drop_counts.record(reason);
+                None
+            }
             _ => None,
         }
     }
@@ -174,9 +265,9 @@ fn counter_delta(
     counter_width: u32,
     elapsed_seconds: f64,
     max_counter_rate_per_second: Option<f64>,
-) -> Option<f64> {
+) -> Result<f64, CounterDropReason> {
     if elapsed_seconds <= 0.0 {
-        return None;
+        return Err(CounterDropReason::NonMonotonicTime);
     }
 
     if current >= previous {
@@ -184,7 +275,8 @@ fn counter_delta(
             current - previous,
             elapsed_seconds,
             valid_counter_max_rate(max_counter_rate_per_second),
-        );
+        )
+        .ok_or(CounterDropReason::ImplausibleDelta);
     }
 
     if counter_width == 32 {
@@ -192,10 +284,11 @@ fn counter_delta(
         let max_rate =
             valid_counter_max_rate(max_counter_rate_per_second).unwrap_or(COUNTER32_MODULUS);
 
-        return plausible_counter_delta(wrapped, elapsed_seconds, Some(max_rate));
+        return plausible_counter_delta(wrapped, elapsed_seconds, Some(max_rate))
+            .ok_or(CounterDropReason::ImplausibleDelta);
     }
 
-    None
+    Err(CounterDropReason::ImplausibleDelta)
 }
 
 fn valid_counter_max_rate(max_counter_rate_per_second: Option<f64>) -> Option<f64> {

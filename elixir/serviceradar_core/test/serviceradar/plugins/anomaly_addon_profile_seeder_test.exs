@@ -62,6 +62,22 @@ defmodule ServiceRadar.Plugins.AnomalyAddonProfileSeederTest do
       assert :ok = ConfigSchema.validate_params(@config_schema, params)
     end
 
+    test "sanitized existing params remove the stale 0.1.20 global cusum toggle" do
+      # Negative-control input from pre-0.2.0 profile data. The value is
+      # deliberately ignored; per-class drift_mode controls CUSUM now.
+      params =
+        AnomalyAddonProfileSeeder.sanitize_profile_params(%{
+          :cusum_enabled => true,
+          "metric_feed" => %{"sources" => ["sysmon"]},
+          "n_sigma" => 4.0
+        })
+
+      refute Map.has_key?(params, "cusum_enabled")
+      assert params["metric_feed"] == %{"sources" => ["sysmon"]}
+      assert params["n_sigma"] == 4.0
+      assert :ok = ConfigSchema.validate_params(@config_schema, params)
+    end
+
     test "schema pins native defaults for omitted scalar detector knobs" do
       assert get_in(@config_schema, ["properties", "window_size", "default"]) == 300
       assert get_in(@config_schema, ["properties", "min_samples", "default"]) == 30

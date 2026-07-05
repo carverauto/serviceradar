@@ -264,7 +264,11 @@ fn ref_seasonal_series_key(
         return String::new();
     }
     let uid = anomaly_device_uid(resource, metric_class, metric, point);
-    format!("{uid}|{}", metric.name)
+    if point.if_index > 0 {
+        format!("{uid}|{}|{}", metric.name, point.if_index)
+    } else {
+        format!("{uid}|{}", metric.name)
+    }
 }
 
 /// Representative `(resource, metric, point)` fixtures spanning every branch of
@@ -429,4 +433,28 @@ fn seasonal_series_key_matches_legacy_builder() {
             "seasonal_series_key diverged from the legacy builder for {metric:?} / {point:?}"
         );
     }
+}
+
+#[test]
+fn seasonal_series_key_appends_if_index_for_interface_baselines() {
+    let resource = MetricResource {
+        partition: "net".to_string(),
+        target_device_ip: "192.168.1.5".to_string(),
+        ..Default::default()
+    };
+    let metric = Metric {
+        name: "ifInOctets".to_string(),
+        metric_type: "snmp.interface".to_string(),
+        ..Default::default()
+    };
+    let point = MetricPoint {
+        if_index: 7,
+        ..Default::default()
+    };
+
+    let class = metric_class(&metric);
+    assert_eq!(
+        seasonal_series_key(&resource, class, &metric, &point),
+        "192.168.1.5|ifInOctets|7"
+    );
 }

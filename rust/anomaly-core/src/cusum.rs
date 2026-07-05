@@ -77,6 +77,16 @@ impl Cusum {
     /// On alarm the accumulators reset to 0 so a continuing drift re-accumulates and
     /// re-alarms rather than latching. A non-finite input is a no-op.
     pub fn update(&mut self, standardized: f64) -> CusumStep {
+        let step = self.update_retaining(standardized);
+        if step.alarm {
+            self.reset();
+        }
+        step
+    }
+
+    /// Update without resetting on threshold crossing. This supports callers that
+    /// latch at `h` and require a stronger confirmation threshold before emitting.
+    pub fn update_retaining(&mut self, standardized: f64) -> CusumStep {
         if !standardized.is_finite() {
             return CusumStep {
                 pos: self.pos,
@@ -87,16 +97,17 @@ impl Cusum {
         self.pos = (self.pos + standardized - self.k).max(0.0);
         self.neg = (self.neg - standardized - self.k).max(0.0);
         let alarm = self.pos > self.h || self.neg > self.h;
-        let step = CusumStep {
+        CusumStep {
             pos: self.pos,
             neg: self.neg,
             alarm,
-        };
-        if alarm {
-            self.pos = 0.0;
-            self.neg = 0.0;
         }
-        step
+    }
+
+    /// Clear both accumulators.
+    pub fn reset(&mut self) {
+        self.pos = 0.0;
+        self.neg = 0.0;
     }
 }
 
@@ -129,7 +140,10 @@ mod tests {
         }
         let i = alarmed_at.expect("a sustained drift must eventually alarm");
         // ≈ h / (δ - k) = 5 / (0.6 - 0.5) = 50 steps; allow generous slack.
-        assert!(i < 80, "drift should alarm within ~50 steps, alarmed at {i}");
+        assert!(
+            i < 80,
+            "drift should alarm within ~50 steps, alarmed at {i}"
+        );
     }
 
     #[test]
@@ -159,6 +173,22 @@ mod tests {
         let first = restored.update(0.6);
         assert!(!first.alarm, "pos at exactly h does not alarm (strict >)");
         let second = restored.update(0.6);
-        assert!(second.alarm, "a restored near-threshold drift re-alarms promptly");
+        assert!(
+            second.alarm,
+            "a restored near-threshold drift re-alarms promptly"
+        );
+    }
+
+    #[test]
+    fn update_retaining_latches_without_resetting() {
+        let mut c = Cusum::with_state(0.5, 5.0, 4.9, 0.0);
+        let first = c.update_retaining(0.7);
+
+        assert!(first.alarm);
+        assert!(c.pos() > 5.0, "retaining update keeps S+ latched");
+
+        c.reset();
+        assert_eq!(c.pos(), 0.0);
+        assert_eq!(c.neg(), 0.0);
     }
 }

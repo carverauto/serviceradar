@@ -48,6 +48,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
       "status" => "projected",
       "model" => "holt_winters",
       "sample_count" => 168,
+      "forecasted_at" => "2026-06-19T00:00:00Z",
       "current_value" => 72.5,
       "projected_value" => 91.2,
       "projected_exhaustion_at" => "2026-06-20T00:00:00Z",
@@ -84,19 +85,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
     assert html =~ ~s(title="finding-1")
     assert html =~ "CPU saturation"
     assert html =~ "raw verdict reason should be secondary"
-    assert html =~ "CPU / cpu.usage_percent"
+    assert html =~ "cpu.usage_percent"
     assert html =~ "value 97.50"
     assert html =~ "score 4.20"
     assert html =~ "disk.used_percent"
     assert html =~ "percent"
-    assert html =~ "current remaining 22.50%"
+    assert html =~ "headroom 22.50%"
     assert html =~ "Finding UID"
     assert html =~ "partition:agent:cpu0"
-    assert html =~ "Alert disposition"
-    assert html =~ "escalated"
-    assert html =~ "Central seasonal context also found this series off baseline"
-    assert html =~ "seasonal_breach"
-    assert html =~ "central seasonal breach"
 
     capacity_html =
       render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
@@ -104,12 +100,77 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
         detail: %{kind: "capacity", row: capacity}
       )
 
-    assert capacity_html =~ "Projection"
+    assert capacity_html =~ "Capacity forecast"
     assert capacity_html =~ "projected 91.20%"
-    assert capacity_html =~ "current remaining 22.50%"
+    assert capacity_html =~ "headroom 22.50%"
+    assert capacity_html =~ "Forecasted"
+    assert capacity_html =~ "Projected crossing"
+    assert capacity_html =~ "Confidence"
+    refute capacity_html =~ "PI coverage"
   end
 
-  test "renders edge episode evidence with distinct peak and confirmation labels" do
+  test "decodes v2 series identity and uses source identity tags in finding details" do
+    series_key =
+      Enum.join(
+        [
+          "v2",
+          series_component("partition", "demo"),
+          series_component("class", "sysmon"),
+          series_component("family", "cpu"),
+          series_component("identity", "sr:ns03"),
+          series_component("if_index", "20"),
+          series_tag_component("core_id", "20"),
+          series_tag_component("label", "CPU20")
+        ],
+        ":"
+      )
+
+    anomaly = %{
+      "id" => "event-1",
+      "finding_uid" => "finding-1",
+      "finding_title" => "CPU saturation",
+      "metric_class" => "sysmon.cpu",
+      "metric_name" => "cpu.usage_percent",
+      "metric_value" => 97.5,
+      "score" => 8.2,
+      "series_key" => series_key,
+      "severity" => "High",
+      "status" => "anomaly_open",
+      "state" => "confirmed",
+      "time" => "2026-06-19T00:00:00Z",
+      "metadata" => %{
+        "source_identity" => %{
+          "tags" => %{"core_id" => "20", "label" => "CPU20"}
+        }
+      }
+    }
+
+    overview = %{
+      status: :ok,
+      anomaly_rows: [anomaly],
+      capacity_rows: [],
+      anomaly_query: "in:events limit:20",
+      capacity_query: "in:capacity_forecasts limit:12",
+      anomaly_filter: %{field: "service_radar_device_uid", label: "device", value: "router-1"},
+      capacity_filter: %{field: "resource_id", label: "device", value: "router-1"},
+      anomaly_error: nil,
+      capacity_error: nil,
+      metric_statuses: []
+    }
+
+    html =
+      render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
+        overview: overview,
+        detail: %{kind: "anomaly", row: anomaly}
+      )
+
+    assert html =~ "demo | sysmon/cpu | sr:ns03 | ifIndex 20 | core_id=20 | label=CPU20"
+    assert html =~ "CPU20 / ifIndex 20"
+    assert html =~ "CPU20 (core 20)"
+    assert html =~ ~s(title="#{series_key}")
+  end
+
+  test "renders selected edge findings with distinct value and observed-time labels" do
     episode_started = ~U[2026-06-19 00:00:00Z]
     episode_peak = ~U[2026-06-19 00:04:00Z]
     finding_emitted = ~U[2026-06-19 00:06:00Z]
@@ -174,23 +235,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
         detail: %{kind: "anomaly", row: anomaly}
       )
 
-    assert html =~ "Edge detector evidence"
-    assert html =~ "edge spike detector"
-    assert html =~ "Chart markers use the episode"
-    assert html =~ "shaded chart window"
-    assert html =~ "Seasonal or causal disposition"
-    assert html =~ "CPU raw samples are max-aggregated into 30-second evaluation slots"
-    assert html =~ "short high-CPU spike can be visible on the chart"
-    assert html =~ "Opened because 8 of 5 consecutive evaluation slots breached the detector."
-    assert html =~ "8 consecutive slots"
-    assert html =~ "Episode start"
-    assert html =~ "Peak sample"
-    assert html =~ "Finding emitted"
-    assert html =~ "Episode clear"
-    assert html =~ "rolling_baseline"
-    assert html =~ "breached"
-    assert html =~ "4.20 / 3.00"
-    assert html =~ "mean 12.00"
+    assert html =~ "CPU saturation"
+    assert html =~ "Finding UID"
+    assert html =~ "finding-1"
+    assert html =~ "cpu.usage_percent"
+    assert html =~ "High"
+    assert html =~ "value 97.50"
+    assert html =~ "score 4.20"
+    assert html =~ "Observed"
+    assert html =~ "2026-06-19 00:06 UTC"
+    assert html =~ "breach confirmed after 8/5 consecutive anomalous slots"
   end
 
   test "does not treat opaque series keys as anomaly values" do
@@ -230,7 +284,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
     refute html =~ "value partition:agent:cpu0"
   end
 
-  test "renders bounded percent forecasts as threshold crossings when the horizon value is outside domain" do
+  test "renders bounded percent forecast values with current headroom" do
     capacity = %{
       "resource_label" => "Filesystem /",
       "resource_key" => "disk:/",
@@ -265,9 +319,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
         detail: %{kind: "capacity", row: capacity}
       )
 
-    assert html =~ "crosses 100.00%"
-    assert html =~ "current remaining 92.96%"
-    refute html =~ "163.46%"
+    assert html =~ "projected 163.46%"
+    assert html =~ "headroom 92.96%"
+    refute html =~ "current remaining"
     refute html =~ "over threshold 63.46%"
   end
 
@@ -312,7 +366,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
             assigns: %{
               chart_mode: :single,
               rate_mode: :none,
-              series_points: [{"series", points}]
+              series_points: [{"usage_percent memory_usage", points}]
             }
           }
         ]
@@ -331,4 +385,69 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
     assert html =~ "4:00 PM"
     assert html =~ "6:00 PM"
   end
+
+  test "renders an explicit note when the detail marker is outside the metric context window" do
+    capacity = %{
+      "finding_title" => "Capacity forecast: memory",
+      "metric_class" => "memory",
+      "metric_name" => "usage_percent memory_usage",
+      "severity" => "Low",
+      "status" => "projected",
+      "forecasted_at" => "2026-06-22T20:00:00Z",
+      "projected_exhaustion_at" => "2026-06-29T20:00:00Z"
+    }
+
+    overview = %{
+      status: :ok,
+      anomaly_rows: [],
+      capacity_rows: [capacity],
+      anomaly_query: "in:events limit:20",
+      capacity_query: "in:capacity_forecasts limit:12",
+      anomaly_filter: %{field: "service_radar_device_uid", label: "device", value: "router-1"},
+      capacity_filter: %{field: "resource_id", label: "device", value: "router-1"},
+      anomaly_error: nil,
+      capacity_error: nil,
+      metric_statuses: []
+    }
+
+    points =
+      for hour <- 14..18 do
+        {DateTime.add(~U[2026-06-22 00:00:00Z], hour * 60 * 60, :second), hour * 1.0}
+      end
+
+    metric_sections = [
+      %{
+        key: "memory",
+        title: "Memory",
+        subtitle: "around Jun 22 20:00 UTC",
+        error: nil,
+        panels: [
+          %{
+            plugin: Timeseries,
+            id: "memory-context",
+            assigns: %{
+              chart_mode: :single,
+              rate_mode: :none,
+              series_points: [{"usage_percent memory_usage", points}]
+            }
+          }
+        ]
+      }
+    ]
+
+    html =
+      render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
+        overview: overview,
+        detail: %{kind: "capacity", row: capacity},
+        metric_sections: metric_sections
+      )
+
+    assert html =~ "data-annotation-window-position=\"after_window\""
+    assert html =~ "data-testid=\"timeseries-marker-window-note\""
+    assert html =~ "Capacity forecast is after this chart window"
+  end
+
+  defp series_component(name, value), do: "#{name}=#{series_hex(value)}"
+  defp series_tag_component(name, value), do: "tag_#{series_hex(name)}=#{series_hex(value)}"
+  defp series_hex(value), do: value |> to_string() |> Base.encode16(case: :lower)
 end

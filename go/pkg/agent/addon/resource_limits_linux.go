@@ -101,14 +101,14 @@ func applyResourceLimits(cmd *exec.Cmd, id string, res Resources, cgroupRoot str
 }
 
 func resolveAddonCgroupRoot(res Resources, cgroupRoot string) (string, error) {
-	// The manifest-declared systemd slice is the accounting boundary operators
-	// see. The legacy/additional cgroup root is only a fallback for manifests
-	// that declare hard limits without a slice.
-	if slice := strings.TrimSpace(res.Slice); slice != "" {
-		return systemdSliceCgroupPath(slice)
-	}
 	if root := strings.TrimSpace(cgroupRoot); root != "" {
 		return root, nil
+	}
+
+	// The manifest-declared systemd slice is the accounting boundary operators
+	// see when no delegated process-supervision root is configured.
+	if slice := strings.TrimSpace(res.Slice); slice != "" {
+		return systemdSliceCgroupPath(slice)
 	}
 
 	return "", errNoCgroupRootOrSlice

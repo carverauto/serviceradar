@@ -12,6 +12,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.OcsfEvent
+  alias ServiceRadar.Observability.AnomalyAlertLivenessCheck
   alias ServiceRadar.Observability.SeasonalDisposition.Source
   alias ServiceRadar.Observability.SeasonalDisposition.StateStore, as: SeasonalStateStore
   alias ServiceRadar.Observability.StatefulAlertEngine
@@ -548,6 +549,28 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert resolved_alert.status == :resolved
   end
 
+  test "anomaly alert liveness check fires and resolves a synthetic drift episode", %{
+    actor: actor
+  } do
+    now = DateTime.utc_now()
+    series_key = "synthetic:anomaly-alert-liveness:test:#{System.unique_integer([:positive])}"
+
+    assert {:ok, result} =
+             AnomalyAlertLivenessCheck.run(
+               actor: actor,
+               now: now,
+               series_key: series_key,
+               timeout_ms: 1_000
+             )
+
+    assert result.series_key == series_key
+    assert result.device_uid == "sr:anomaly-alert-liveness"
+    assert result.resolved_at
+
+    {:ok, alert} = Alert.get_by_id(result.alert_id, actor: actor)
+    assert alert.status == :resolved
+  end
+
   test "recovery on an already-terminal alert is an idempotent no-op (no KeyError, no re-resolve)",
        %{actor: actor} do
     # Regression for two live-demo errors that share the recovery path:
@@ -710,7 +733,17 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       )
       |> Ash.create()
 
-    anomaly_series_key = "edge:v2:agent-dusk01:192.168.10.1:#{metric_name}:#{if_index}"
+    anomaly_series_key =
+      Enum.join(
+        [
+          "v2",
+          anomaly_key_component("partition", "net"),
+          anomaly_key_component("identity", "192.168.10.1"),
+          anomaly_key_component("metric", metric_name),
+          anomaly_key_component("if_index", if_index)
+        ],
+        "|"
+      )
 
     event = %{
       id: Ash.UUID.generate(),
@@ -1562,4 +1595,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
   defp uuid_query_param(<<_::128>> = uuid), do: {:ok, uuid}
   defp uuid_query_param(id) when is_binary(id), do: Ecto.UUID.dump(id)
+
+  defp anomaly_key_component(name, value) do
+    "#{name}=#{value |> to_string() |> Base.encode16(case: :lower)}"
+  end
 end

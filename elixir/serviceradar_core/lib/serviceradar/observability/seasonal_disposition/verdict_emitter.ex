@@ -130,9 +130,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitter do
           @provider,
           Map.get(attrs, :resource_id),
           Map.get(attrs, :series_key),
-          Map.get(attrs, :metric_name),
-          Map.get(attrs, :dow),
-          Map.get(attrs, :hod)
+          Map.get(attrs, :metric_name)
         ],
         ":",
         &string_value/1
@@ -238,18 +236,18 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitter do
 
   defp severity_id(attrs) do
     case Map.get(attrs, :score) do
-      score when is_number(score) and score >= 8.0 -> 5
-      score when is_number(score) and score >= 5.0 -> 4
-      _ -> 3
+      score when is_number(score) and score >= 8.0 -> 4
+      score when is_number(score) and score >= 4.0 -> 3
+      _ -> 2
     end
   end
 
   defp severity_score(attrs) do
     case severity_id(attrs) do
-      5 -> 90
       4 -> 75
       3 -> 55
       2 -> 20
+      _ -> 0
     end
   end
 

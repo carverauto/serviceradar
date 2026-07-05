@@ -145,7 +145,11 @@ mod tests {
         assert_eq!(window.len(), 31);
         let stats = sample_stats(&window);
         assert!((stats.mean - 12.5).abs() < 1e-9, "mean {}", stats.mean);
-        assert!((stats.stddev - 0.75).abs() < 1e-9, "stddev {}", stats.stddev);
+        assert!(
+            (stats.stddev - 0.75).abs() < 1e-9,
+            "stddev {}",
+            stats.stddev
+        );
     }
 
     #[test]
