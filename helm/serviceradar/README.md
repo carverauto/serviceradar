@@ -137,6 +137,10 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `observability.grafana.dashboards.labels` | Grafana sidecar discovery labels for dashboard ConfigMaps | `grafana_dashboard: "1"` |
 | `secrets.autoGenerate` | Auto-generate secrets | `true` |
 | `spire.enabled` | Enable SPIRE identity plane | `false` |
+| `webNg.adminEmail` | Bootstrap admin email | `root@localhost` |
+| `webNg.adminPasswordForceSync` | Treat the generated/admin-password secret as authoritative on restart. Leave false for normal installs that allow UI password changes. | `false` |
+| `webNg.auth.forceLocalLogin` | Break-glass switch that permits local password login regardless of SSO enforcement. Leave false for normal installs; use the per-user Local password login toggle instead. | `false` |
+| `webNg.auth.disableSso` | Hide the SSO button on the sign-in page | `false` |
 | `agent.resources.limits.cpu` | Agent CPU limit | `500m` |
 | `agent.checkersStorage.enabled` | Persist agent checker config under `/var/lib/serviceradar/checkers` | `true` |
 | `agent.cacheStorage.enabled` | Persist agent runtime cache under `/var/lib/serviceradar/cache` | `true` |
