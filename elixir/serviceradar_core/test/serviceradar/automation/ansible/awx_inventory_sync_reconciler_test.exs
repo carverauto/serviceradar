@@ -159,6 +159,57 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconcilerTest do
     assert MemoryStore.records()["ansible:awx-inventory-sync:agent-a"].enabled == false
   end
 
+  test "disabled controllers are excluded from the materialized assignment" do
+    package = %{id: Ecto.UUID.generate(), version: "0.1.1"}
+
+    controllers = [
+      controller("ctrl-on", "agent-a", "https://awx-on.example.com", "secret-a"),
+      controller("ctrl-off", "agent-a", "https://awx-off.example.com", "secret-b", enabled: false)
+    ]
+
+    assert {:ok, stats} =
+             AwxInventorySyncReconciler.reconcile_controllers(controllers,
+               plugin_package: package,
+               store: MemoryStore,
+               grant_template: &grant_template/1
+             )
+
+    assert stats.desired_assignments == 1
+    agent_a = MemoryStore.records()["ansible:awx-inventory-sync:agent-a"]
+    assert [only] = agent_a.params["controllers"]
+    assert only["controller_id"] == "ctrl-on"
+  end
+
+  test "disabling an agent's last controller retracts its assignment" do
+    package = %{id: Ecto.UUID.generate(), version: "0.1.1"}
+
+    assert {:ok, _} =
+             AwxInventorySyncReconciler.reconcile_controllers(
+               [controller("ctrl-a", "agent-a", "https://awx-a.example.com", "secret-a")],
+               plugin_package: package,
+               store: MemoryStore,
+               grant_template: &grant_template/1
+             )
+
+    assert MemoryStore.records()["ansible:awx-inventory-sync:agent-a"].enabled == true
+
+    # Same controller, now disabled → an agent-scoped reconcile retracts.
+    assert {:ok, stats} =
+             AwxInventorySyncReconciler.reconcile_agent("agent-a",
+               controllers: [
+                 controller("ctrl-a", "agent-a", "https://awx-a.example.com", "secret-a",
+                   enabled: false
+                 )
+               ],
+               plugin_package: package,
+               store: MemoryStore,
+               grant_template: &grant_template/1
+             )
+
+    assert stats.disabled == 1
+    assert MemoryStore.records()["ansible:awx-inventory-sync:agent-a"].enabled == false
+  end
+
   test "reconcile_agent scopes retraction to its own agent (never disables other agents)" do
     package = %{id: Ecto.UUID.generate(), version: "0.1.1"}
 
@@ -233,6 +284,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconcilerTest do
       base_url: base_url,
       credential_secret_id: secret_id,
       name: Keyword.get(opts, :name, id),
+      enabled: Keyword.get(opts, :enabled, true),
       inventory_sync_interval_seconds: Keyword.get(opts, :interval, 300),
       metadata: Keyword.get(opts, :metadata, %{})
     }

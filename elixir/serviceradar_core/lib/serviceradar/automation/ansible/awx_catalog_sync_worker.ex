@@ -49,6 +49,10 @@ defmodule ServiceRadar.Automation.Ansible.AwxCatalogSyncWorker do
     actor = SystemActor.system(:awx_catalog_sync_worker)
 
     case Controller.get_by_id(controller_id, actor: actor) do
+      {:ok, %Controller{enabled: false}} ->
+        # Controller paused -- end the chain (re-enabling re-seeds it).
+        :ok
+
       {:ok, controller} ->
         _ = sync(controller)
         schedule_next(controller)

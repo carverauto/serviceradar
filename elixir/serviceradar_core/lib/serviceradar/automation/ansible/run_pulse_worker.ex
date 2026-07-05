@@ -58,6 +58,10 @@ defmodule ServiceRadar.Automation.Ansible.RunPulseWorker do
     actor = SystemActor.system(:awx_run_pulse_worker)
 
     case Controller.get_by_id(controller_id, actor: actor) do
+      {:ok, %Controller{enabled: false}} ->
+        # Controller paused -- end the chain (re-enabling re-seeds it).
+        :ok
+
       {:ok, controller} ->
         case PlaybookRun.list_active_for_controller(controller.id, actor: actor) do
           {:ok, runs} ->
