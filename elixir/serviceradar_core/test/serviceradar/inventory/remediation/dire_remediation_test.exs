@@ -469,6 +469,46 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
     refute Enum.any?(second.merge_plan, &(&1.hostname == hostname))
   end
 
+  test "proxmox-dups: includes proxmox candidate devices without proxmox discovery source",
+       %{actor: actor} do
+    seed = test_seed()
+    hostname = "remtest-pmx-candidate-#{seed}"
+
+    {:ok, candidate_a} =
+      create_device(actor, %{
+        hostname: hostname,
+        discovery_sources: ["sweep"],
+        metadata: %{"proxmox_candidate" => true},
+        last_seen_time: ~U[2026-05-09 02:21:03Z]
+      })
+
+    {:ok, candidate_b} =
+      create_device(actor, %{
+        hostname: hostname,
+        discovery_sources: ["sweep"],
+        metadata: %{"proxmox_candidate" => true},
+        last_seen_time: DateTime.utc_now()
+      })
+
+    {:ok, non_candidate} =
+      create_device(actor, %{
+        hostname: hostname,
+        discovery_sources: ["sweep"],
+        metadata: %{},
+        last_seen_time: DateTime.add(DateTime.utc_now(), 300, :second)
+      })
+
+    assert {:ok, %{reports: %{"proxmox-dups" => dry}}} =
+             DireRemediation.run(steps: ["proxmox-dups"], actor: actor)
+
+    assert %{from: from, to: to} =
+             Enum.find(dry.merge_plan, &(&1.hostname == hostname))
+
+    assert from == candidate_a.uid
+    assert to == candidate_b.uid
+    refute Enum.any?(dry.merge_plan, &(&1.to == non_candidate.uid))
+  end
+
   # ---------------------------------------------------------------------------
   # helpers
   # ---------------------------------------------------------------------------

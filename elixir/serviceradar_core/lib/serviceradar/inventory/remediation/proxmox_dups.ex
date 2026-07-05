@@ -3,10 +3,11 @@ defmodule ServiceRadar.Inventory.Remediation.ProxmoxDups do
   Step `proxmox-dups` (OpenSpec refactor-device-identity-reconciliation 4.4).
 
   Collapses intra-Proxmox duplicate device rows created by `integration_id`
-  format churn: live devices whose `discovery_sources` include `proxmox` are
-  grouped by normalized hostname; in every group with more than one device,
-  the non-canonical rows are merged into the canonical one via
-  `IdentityReconciler.merge_devices/3`.
+  format churn and multi-homed Proxmox discovery candidates: live devices whose
+  `discovery_sources` include `proxmox` or whose metadata marks
+  `proxmox_candidate=true` are grouped by normalized hostname; in every group
+  with more than one device, the non-canonical rows are merged into the
+  canonical one via `IdentityReconciler.merge_devices/3`.
 
   Canonical selection (see `Decisions.select_canonical/2`): an agent-linked
   device wins, then the most recently seen, then lowest uid. A duplicate that
@@ -73,7 +74,10 @@ defmodule ServiceRadar.Inventory.Remediation.ProxmoxDups do
         SELECT uid, hostname, last_seen_time
         FROM platform.ocsf_devices
         WHERE deleted_at IS NULL
-          AND $1 = ANY(discovery_sources)
+          AND (
+            COALESCE($1 = ANY(discovery_sources), false)
+            OR lower(COALESCE(metadata->>'proxmox_candidate', '')) IN ('true', '1', 'yes')
+          )
           AND hostname IS NOT NULL
           AND btrim(hostname) <> ''
         ORDER BY uid
