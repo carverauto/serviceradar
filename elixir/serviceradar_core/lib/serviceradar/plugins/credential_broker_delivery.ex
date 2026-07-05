@@ -89,6 +89,40 @@ defmodule ServiceRadar.Plugins.CredentialBrokerDelivery do
   def refresh_embedded_grant(params, _opts), do: {params, nil}
 
   @doc """
+  Refreshes credential-broker payloads embedded in a top-level `"controllers"`
+  list.
+
+  Returns `{params, grants}` where `grants` is a list of `{index, grant}` pairs
+  for controller entries whose payload was usable or successfully re-minted.
+  The caller can use the grant at that index to resolve the controller's own
+  `*_secret_ref` fields without leaking a grant across controllers.
+  """
+  @spec refresh_controller_grants(map(), keyword()) ::
+          {map(), [{non_neg_integer(), CredentialBrokerGrant.t() | map()}]}
+  def refresh_controller_grants(params, opts \\ [])
+
+  def refresh_controller_grants(params, opts) when is_map(params) do
+    params = MapUtils.stringify_keys_or_empty(params)
+
+    case Map.get(params, "controllers") do
+      controllers when is_list(controllers) ->
+        {refreshed, grants} =
+          controllers
+          |> Enum.with_index()
+          |> Enum.map_reduce([], fn {controller, index}, acc ->
+            refresh_controller_grant(controller, index, acc, opts)
+          end)
+
+        {Map.put(params, "controllers", refreshed), Enum.reverse(grants)}
+
+      _ ->
+        {params, []}
+    end
+  end
+
+  def refresh_controller_grants(params, _opts), do: {params, []}
+
+  @doc """
   Returns the broker options used to resolve secret material with a refreshed
   grant at config delivery time. Resolution writes an audit row per attempt.
   """
@@ -137,6 +171,32 @@ defmodule ServiceRadar.Plugins.CredentialBrokerDelivery do
   defp put_in_params(params, [outer, inner], payload) do
     Map.update(params, outer, %{inner => payload}, &Map.put(&1, inner, payload))
   end
+
+  defp refresh_controller_grant(controller, index, acc, opts) when is_map(controller) do
+    controller = MapUtils.stringify_keys_or_empty(controller)
+
+    case Map.get(controller, "credential_broker") do
+      payload when is_map(payload) ->
+        case ensure_fresh_grant(payload, opts) do
+          {:ok, grant, refreshed_payload} ->
+            {Map.put(controller, "credential_broker", refreshed_payload), [{index, grant} | acc]}
+
+          {:error, reason} ->
+            Logger.warning(
+              "Failed to refresh controller credential broker grant for plugin config delivery: #{inspect(reason)}",
+              controller_index: index,
+              controller_id: string_value(controller, "controller_id")
+            )
+
+            {controller, acc}
+        end
+
+      _ ->
+        {controller, acc}
+    end
+  end
+
+  defp refresh_controller_grant(controller, _index, acc, _opts), do: {controller, acc}
 
   defp ensure_fresh_grant(payload, opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now())

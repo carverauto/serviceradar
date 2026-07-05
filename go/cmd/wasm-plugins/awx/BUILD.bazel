@@ -1,6 +1,7 @@
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
+    "config.inventory_sync.schema.json",
     "main.go",
     "plugin.inventory_sync.yaml",
     "plugin.yaml",

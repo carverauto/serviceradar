@@ -1,0 +1,90 @@
+{
+  "type": "object",
+  "properties": {
+    "controllers": {
+      "type": "array",
+      "description": "AWX/AAP controllers reachable from this agent. Core materializes one inventory-sync assignment per agent.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "controller_id": {
+            "type": "string"
+          },
+          "controller_name": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "credential_broker": {
+            "type": "object",
+            "x-serviceradar-internal": true,
+            "description": "Internal credential broker grant generated from the AWX controller credential. Do not configure manually."
+          },
+          "api_token_secret_ref": {
+            "type": "string",
+            "secretRef": true,
+            "x-serviceradar-internal": true,
+            "x-serviceradar-ui-hidden": true,
+            "description": "Internal network credential reference resolved into api_token only in scoped agent runtime config."
+          },
+          "api_token": {
+            "type": "string",
+            "x-serviceradar-internal": true,
+            "x-serviceradar-ui-hidden": true
+          },
+          "timeout_ms": {
+            "type": "integer",
+            "default": 30000,
+            "minimum": 1000,
+            "maximum": 300000
+          },
+          "insecure_skip_verify": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": ["controller_id", "base_url"]
+      },
+      "minItems": 1
+    },
+    "controller_id": {
+      "type": "string",
+      "x-serviceradar-ui-hidden": true,
+      "description": "Legacy single-controller compatibility field."
+    },
+    "controller_name": {
+      "type": "string",
+      "x-serviceradar-ui-hidden": true
+    },
+    "base_url": {
+      "type": "string",
+      "x-serviceradar-ui-hidden": true
+    },
+    "credential_broker": {
+      "type": "object",
+      "x-serviceradar-internal": true
+    },
+    "api_token_secret_ref": {
+      "type": "string",
+      "secretRef": true,
+      "x-serviceradar-internal": true,
+      "x-serviceradar-ui-hidden": true
+    },
+    "api_token": {
+      "type": "string",
+      "x-serviceradar-internal": true,
+      "x-serviceradar-ui-hidden": true
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "default": 30000,
+      "minimum": 1000,
+      "maximum": 300000
+    },
+    "insecure_skip_verify": {
+      "type": "boolean",
+      "default": false
+    }
+  }
+}

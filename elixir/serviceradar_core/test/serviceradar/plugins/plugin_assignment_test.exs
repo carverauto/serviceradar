@@ -4,8 +4,29 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Plugins.PolicyAssignmentReconciler
+
+  require Ash.Query
 
   @moduletag :integration
+
+  defmodule SingleRowResolver do
+    @moduledoc false
+
+    def resolve(_input_defs, opts) do
+      agent_uid = Keyword.fetch!(opts, :target_agent_uid)
+
+      {:ok,
+       [
+         %{
+           name: "devices",
+           entity: "devices",
+           query: "in:devices",
+           rows: [%{"uid" => "sr:test-device", "agent_id" => agent_uid}]
+         }
+       ]}
+    end
+  end
 
   setup_all do
     ServiceRadar.TestSupport.start_core!()
@@ -216,6 +237,76 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
              |> Ash.update()
 
     assert updated.plugin_package_id == new_package.id
+  end
+
+  test "policy reconciler adopts manual assignment from older package version", %{
+    actor: actor,
+    unique_id: unique_id
+  } do
+    plugin_id = "policy-adopts-manual-#{unique_id}"
+    agent_uid = "agent-policy-adopts-manual-#{unique_id}"
+    {:ok, old_package} = create_approved_package(actor, plugin_id)
+    {:ok, new_package} = create_package_version(actor, plugin_id, "1.0.1")
+
+    {:ok, manual_assignment} =
+      PluginAssignment
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          agent_uid: agent_uid,
+          plugin_package_id: old_package.id,
+          source: :manual,
+          enabled: true,
+          interval_seconds: 60,
+          timeout_seconds: 10,
+          params: %{"legacy" => true}
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, _revoked_old} =
+      old_package
+      |> Ash.Changeset.for_update(
+        :revoke,
+        %{denied_reason: "superseded by policy adoption test"},
+        actor: actor
+      )
+      |> Ash.update()
+
+    {:ok, new_package} = approve_package(actor, new_package)
+
+    policy = %{
+      policy_id: "policy-adopts-manual-#{unique_id}",
+      policy_version: 1,
+      plugin_package_id: new_package.id,
+      params_template: %{"collect" => true},
+      interval_seconds: 300,
+      timeout_seconds: 30,
+      enabled: true
+    }
+
+    assert {:ok, stats} =
+             PolicyAssignmentReconciler.reconcile(policy, [],
+               actor: actor,
+               resolver: SingleRowResolver,
+               target_agent_uid: agent_uid,
+               generated_at: "2026-07-05T00:00:00Z"
+             )
+
+    assert stats.upserted == 1
+
+    assert {:ok, [assignment]} =
+             PluginAssignment
+             |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_uid}, actor: actor)
+             |> Ash.Query.filter(plugin_id == ^plugin_id and enabled == true)
+             |> Ash.read(actor: actor)
+
+    assert assignment.id == manual_assignment.id
+    assert assignment.source == :policy
+    assert assignment.policy_id == policy.policy_id
+    assert assignment.plugin_package_id == new_package.id
+    refute assignment.params["legacy"]
   end
 
   defp create_approved_package(actor, plugin_id) do

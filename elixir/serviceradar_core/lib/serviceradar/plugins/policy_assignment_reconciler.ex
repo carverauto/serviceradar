@@ -189,6 +189,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
     @behaviour ServiceRadar.Plugins.PolicyAssignmentReconciler
 
     alias ServiceRadar.Plugins.PluginAssignment
+    alias ServiceRadar.Plugins.PluginPackage
 
     require Ash.Query
 
@@ -248,26 +249,23 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
 
     @impl true
     def find_enabled_assignment(agent_uid, plugin_package_id, actor) do
-      PluginAssignment
-      |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_uid}, actor: actor)
-      |> Ash.Query.filter(plugin_package_id == ^plugin_package_id and enabled == true)
-      |> Ash.read(actor: actor)
-      |> case do
-        {:ok, [assignment | _]} -> {:ok, assignment}
-        {:ok, []} -> {:ok, nil}
-        {:error, reason} -> {:error, reason}
+      with {:ok, plugin_id} <- plugin_id_for_package(plugin_package_id, actor) do
+        PluginAssignment
+        |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_uid}, actor: actor)
+        |> Ash.Query.filter(plugin_id == ^plugin_id and enabled == true)
+        |> Ash.read(actor: actor)
+        |> case do
+          {:ok, [assignment | _]} -> {:ok, assignment}
+          {:ok, []} -> {:ok, nil}
+          {:error, reason} -> {:error, reason}
+        end
       end
     end
 
     defp disable_manual_duplicate({:ok, assignment}, spec, actor) do
       _ =
-        PluginAssignment
-        |> Ash.Query.for_read(:read)
-        |> Ash.Query.filter(
-          source == :manual and enabled == true and agent_uid == ^spec.agent_uid and
-            plugin_package_id == ^spec.plugin_package_id
-        )
-        |> Ash.read(actor: actor)
+        spec
+        |> manual_duplicates(actor)
         |> case do
           {:ok, manual_assignments} ->
             Enum.each(manual_assignments, fn manual_assignment ->
@@ -282,5 +280,29 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
     end
 
     defp disable_manual_duplicate(result, _spec, _actor), do: result
+
+    defp manual_duplicates(spec, actor) do
+      with {:ok, plugin_id} <- plugin_id_for_package(spec.plugin_package_id, actor) do
+        PluginAssignment
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(
+          source == :manual and enabled == true and agent_uid == ^spec.agent_uid and
+            plugin_id == ^plugin_id
+        )
+        |> Ash.read(actor: actor)
+      end
+    end
+
+    defp plugin_id_for_package(package_id, actor) do
+      PluginPackage
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(id == ^package_id)
+      |> Ash.read_one(actor: actor)
+      |> case do
+        {:ok, %PluginPackage{plugin_id: plugin_id}} when is_binary(plugin_id) -> {:ok, plugin_id}
+        {:ok, nil} -> {:error, :plugin_package_not_found}
+        {:error, reason} -> {:error, reason}
+      end
+    end
   end
 end

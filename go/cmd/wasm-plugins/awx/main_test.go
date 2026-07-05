@@ -624,6 +624,92 @@ func TestRunInventorySyncContinuesOnPerInventoryError(t *testing.T) {
 	}
 }
 
+func TestRunInventorySyncSupportsMultipleControllers(t *testing.T) {
+	inventories := []byte(`{
+		"count": 1,
+		"next": null,
+		"results": [
+			{"id": 7, "name": "Production"}
+		]
+	}`)
+	hosts := []byte(`{"count":1,"next":null,"results":[{"id":100,"name":"web01","inventory":7,"enabled":true}]}`)
+	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
+		"/api/v2/inventories/?page_size=200":         {Status: http.StatusOK, Body: inventories},
+		"/api/v2/inventories/7/hosts/?page_size=200": {Status: http.StatusOK, Body: hosts},
+	}}
+	swapHTTP(t, fake)
+
+	cfg := InventorySyncConfig{
+		Controllers: []InventorySyncControllerConfig{
+			{
+				ControllerID:   "ctrl-a",
+				ControllerName: "AWX A",
+				BaseURL:        "https://awx-a.example.com",
+				APIToken:       "tok-a",
+			},
+			{
+				ControllerID:   "ctrl-b",
+				ControllerName: "AWX B",
+				BaseURL:        "https://awx-b.example.com",
+				APIToken:       "tok-b",
+			},
+		},
+	}
+	res := runInventorySync(cfg)
+
+	if res.Status != sdk.StatusOK {
+		t.Fatalf("expected OK, got %s: %s", res.Status, res.Summary)
+	}
+	if len(res.DeviceDiscovery) != 2 {
+		t.Fatalf("expected 2 DeviceDiscovery envelopes, got %d", len(res.DeviceDiscovery))
+	}
+	if res.Labels["controllers"] != "2" {
+		t.Errorf("controllers label = %q", res.Labels["controllers"])
+	}
+	if res.Labels["hosts"] != "2" {
+		t.Errorf("hosts label = %q", res.Labels["hosts"])
+	}
+
+	gotIDs := map[string]bool{}
+	for _, discovery := range res.DeviceDiscovery {
+		if len(discovery.Devices) != 1 {
+			t.Fatalf("expected one device per discovery, got %d", len(discovery.Devices))
+		}
+		gotIDs[discovery.Devices[0].DeviceID] = true
+	}
+	if !gotIDs["awx:ctrl-a:host:100"] || !gotIDs["awx:ctrl-b:host:100"] {
+		t.Fatalf("missing controller-scoped device IDs: %#v", gotIDs)
+	}
+}
+
+func TestInventorySyncConfigAcceptsResolvedControllerListContract(t *testing.T) {
+	payload := []byte(`{
+		"controllers": [
+			{
+				"controller_id": "awx-a",
+				"controller_name": "AWX A",
+				"base_url": "https://awx-a.example.invalid",
+				"api_token": "root@pam!sr-inventory=secret-a",
+				"timeout_ms": 30000,
+				"insecure_skip_verify": false
+			},
+			{
+				"controller_id": "awx-b",
+				"base_url": "https://awx-b.example.invalid",
+				"api_token": "root@pam!sr-inventory=secret-b"
+			}
+		]
+	}`)
+
+	var cfg InventorySyncConfig
+	if err := json.Unmarshal(payload, &cfg); err != nil {
+		t.Fatalf("unmarshal resolved controller-list contract: %v", err)
+	}
+	if err := validateInventorySyncConfig(cfg); err != nil {
+		t.Fatalf("validate resolved controller-list contract: %v", err)
+	}
+}
+
 func TestRunInventorySyncFailsHardWhenInventoriesEndpointFails(t *testing.T) {
 	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
 		"/api/v2/inventories/?page_size=200": {Status: http.StatusInternalServerError, Body: []byte(`{}`)},
@@ -684,11 +770,11 @@ func TestIsProbablyIP(t *testing.T) {
 
 func TestArgHelpers(t *testing.T) {
 	args := map[string]any{
-		"int_f":  float64(7),
-		"int_i":  10,
-		"str":    "hello",
-		"map":    map[string]any{"a": 1.0},
-		"wrong":  []any{},
+		"int_f": float64(7),
+		"int_i": 10,
+		"str":   "hello",
+		"map":   map[string]any{"a": 1.0},
+		"wrong": []any{},
 	}
 	if v, ok := argInt(args, "int_f"); !ok || v != 7 {
 		t.Errorf("argInt(float64) = (%d, %v)", v, ok)
@@ -726,8 +812,8 @@ func TestRunListInventoriesPaginates(t *testing.T) {
 		]
 	}`)
 	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
-		"/api/v2/inventories/?page_size=200":          {Status: http.StatusOK, Body: page1},
-		"/api/v2/inventories/?page=2&page_size=2":     {Status: http.StatusOK, Body: page2},
+		"/api/v2/inventories/?page_size=200":      {Status: http.StatusOK, Body: page1},
+		"/api/v2/inventories/?page=2&page_size=2": {Status: http.StatusOK, Body: page2},
 	}}
 	swapHTTP(t, fake)
 
@@ -762,8 +848,8 @@ func TestRunListInventoriesAbsoluteNextLinkRebasedToConfiguredHost(t *testing.T)
 	}`)
 	page2 := []byte(`{"count": 1, "next": null, "results": []}`)
 	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
-		"/api/v2/inventories/?page_size=200":          {Status: http.StatusOK, Body: page1},
-		"/api/v2/inventories/?page=2&page_size=200":   {Status: http.StatusOK, Body: page2},
+		"/api/v2/inventories/?page_size=200":        {Status: http.StatusOK, Body: page1},
+		"/api/v2/inventories/?page=2&page_size=200": {Status: http.StatusOK, Body: page2},
 	}}
 	swapHTTP(t, fake)
 

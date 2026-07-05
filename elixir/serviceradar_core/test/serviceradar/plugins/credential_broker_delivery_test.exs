@@ -164,6 +164,37 @@ defmodule ServiceRadar.Plugins.CredentialBrokerDeliveryTest do
     assert refreshed["inputs"] == []
   end
 
+  test "broker payloads nested under controllers are refreshed independently" do
+    expired = DateTime.add(DateTime.utc_now(), -10, :second)
+
+    params = %{
+      "controllers" => [
+        %{
+          "controller_id" => "ctrl-1",
+          "credential_broker" => grant_payload(expired),
+          "api_token_secret_ref" => @secret_ref
+        },
+        %{
+          "controller_id" => "ctrl-2",
+          "api_token_secret_ref" => @secret_ref
+        }
+      ]
+    }
+
+    {refreshed, grants} =
+      CredentialBrokerDelivery.refresh_controller_grants(params,
+        grant_issuer: issuer_returning(),
+        grant_loader: refuse_loader()
+      )
+
+    assert [{0, %{id: "grant-new"}}] = grants
+
+    assert refreshed["controllers"] |> hd() |> get_in(["credential_broker", "grant_id"]) ==
+             "grant-new"
+
+    assert refreshed["controllers"] |> Enum.at(1) |> Map.get("credential_broker") == nil
+  end
+
   test "grant issuer failure leaves params untouched and yields no grant" do
     expired = DateTime.add(DateTime.utc_now(), -10, :second)
     params = %{"credential_broker" => grant_payload(expired)}

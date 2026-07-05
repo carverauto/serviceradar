@@ -17,6 +17,7 @@ defmodule ServiceRadar.Automation.Ansible.Controller do
     extensions: [AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Automation.Ansible.Changes.SeedControllerLifecycle
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @manage_check {ActorHasPermission, permission: "ansible.controllers.manage"}
@@ -66,7 +67,9 @@ defmodule ServiceRadar.Automation.Ansible.Controller do
   end
 
   actions do
-    defaults [:destroy]
+    destroy :destroy do
+      change SeedControllerLifecycle
+    end
 
     read :read do
       prepare build(select: @public_read_fields)
@@ -98,6 +101,8 @@ defmodule ServiceRadar.Automation.Ansible.Controller do
         :run_pulse_interval_ms,
         :metadata
       ]
+
+      change SeedControllerLifecycle
     end
 
     update :update do
@@ -113,6 +118,8 @@ defmodule ServiceRadar.Automation.Ansible.Controller do
         :run_pulse_interval_ms,
         :metadata
       ]
+
+      change SeedControllerLifecycle
     end
 
     update :record_health do

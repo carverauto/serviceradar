@@ -59,6 +59,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   @default_config_poll_interval_sec 300
   @required_addons_config_key :required_agent_addons
   @default_required_addon_ids ["otel-collector"]
+  @controller_secret_schema %{
+    "properties" => %{
+      "api_token_secret_ref" => %{"secretRef" => true}
+    }
+  }
 
   @type check_config :: %{
           check_id: String.t(),
@@ -902,6 +907,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp resolve_plugin_params(config_schema, params, %PluginAssignment{} = assignment) do
     params = normalize_map(params)
     config_schema = maybe_add_policy_credential_secret_fields(config_schema, params, assignment)
+    params = materialize_controller_credentials(params, assignment)
     {params, resolve_opts} = materialize_credential_broker_grant(params, assignment)
 
     case SecretRefs.resolve_runtime_params(config_schema, params, resolve_opts) do
@@ -949,6 +955,75 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   defp materialize_credential_broker_grant(params, _assignment), do: {params, []}
+
+  defp materialize_controller_credentials(params, %PluginAssignment{source: source} = assignment)
+       when source in [:policy, "policy"] do
+    {params, grants} =
+      CredentialBrokerDelivery.refresh_controller_grants(params,
+        agent_id: assignment.agent_uid,
+        consumer_id: logical_plugin_id(assignment)
+      )
+
+    resolve_controller_credentials(params, grants, assignment)
+  end
+
+  defp materialize_controller_credentials(params, _assignment), do: params
+
+  defp resolve_controller_credentials(params, [], _assignment), do: params
+
+  defp resolve_controller_credentials(params, grants, assignment) do
+    grants_by_index = Map.new(grants)
+
+    case Map.get(params, "controllers") do
+      controllers when is_list(controllers) ->
+        controllers =
+          controllers
+          |> Enum.with_index()
+          |> Enum.map(fn {controller, index} ->
+            resolve_controller_credential(
+              controller,
+              Map.get(grants_by_index, index),
+              assignment,
+              index
+            )
+          end)
+
+        Map.put(params, "controllers", controllers)
+
+      _ ->
+        params
+    end
+  end
+
+  defp resolve_controller_credential(controller, nil, _assignment, _index), do: controller
+
+  defp resolve_controller_credential(controller, grant, assignment, index)
+       when is_map(controller) do
+    resolve_opts = [
+      grant: grant,
+      broker_opts:
+        CredentialBrokerDelivery.broker_resolution_opts(grant,
+          agent_id: assignment.agent_uid
+        )
+    ]
+
+    case SecretRefs.resolve_runtime_params(@controller_secret_schema, controller, resolve_opts) do
+      {:ok, resolved} ->
+        resolved
+
+      {:error, errors} ->
+        Logger.warning(
+          "Failed to resolve controller plugin secret refs for assignment #{assignment.id}: #{Enum.join(errors, "; ")}",
+          controller_index: index,
+          controller_id:
+            Map.get(controller, "controller_id") || Map.get(controller, :controller_id)
+        )
+
+        SecretRefs.public_params(controller)
+    end
+  end
+
+  defp resolve_controller_credential(controller, _grant, _assignment, _index), do: controller
 
   defp maybe_add_policy_credential_secret_fields(config_schema, params, %PluginAssignment{
          source: :policy
@@ -1619,6 +1694,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   defp strip_credential_broker_payload(params) do
     params = Map.drop(params, [:credential_broker, "credential_broker"])
+    params = strip_controller_credential_broker_payloads(params)
 
     case Map.get(params, "template") || Map.get(params, :template) do
       template when is_map(template) ->
@@ -1632,6 +1708,32 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         params
     end
   end
+
+  defp strip_controller_credential_broker_payloads(params) do
+    cond do
+      is_list(Map.get(params, "controllers")) ->
+        Map.put(
+          params,
+          "controllers",
+          Enum.map(Map.fetch!(params, "controllers"), &strip_nested_credential_broker_payload/1)
+        )
+
+      is_list(Map.get(params, :controllers)) ->
+        Map.put(
+          params,
+          :controllers,
+          Enum.map(Map.fetch!(params, :controllers), &strip_nested_credential_broker_payload/1)
+        )
+
+      true ->
+        params
+    end
+  end
+
+  defp strip_nested_credential_broker_payload(controller) when is_map(controller),
+    do: Map.drop(controller, [:credential_broker, "credential_broker"])
+
+  defp strip_nested_credential_broker_payload(controller), do: controller
 
   @doc """
   Converts plugin assignments to proto-compatible structs.

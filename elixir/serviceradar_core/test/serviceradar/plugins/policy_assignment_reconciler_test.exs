@@ -42,7 +42,14 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
     end
 
     def stop do
-      if Process.whereis(__MODULE__), do: Agent.stop(__MODULE__)
+      if pid = Process.whereis(__MODULE__) do
+        try do
+          Agent.stop(pid)
+        catch
+          :exit, _ -> :ok
+        end
+      end
+
       :ok
     end
 
@@ -126,7 +133,14 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
     end
 
     def stop do
-      if Process.whereis(__MODULE__), do: Agent.stop(__MODULE__)
+      if pid = Process.whereis(__MODULE__) do
+        try do
+          Agent.stop(pid)
+        catch
+          :exit, _ -> :ok
+        end
+      end
+
       :ok
     end
 
