@@ -1,3 +1,44 @@
+# ServiceRadar v1.4.2
+
+Proxmox and UniFi plugin fixes, network-agnostic identity hardening for multi-cluster Proxmox, provider-aware credential-rule UX, and a deployable AWX/AAP inventory-sync integration.
+
+## Whats New
+
+**1.4.2**
+- Proxmox inventory discovery no longer exhausts the plugin's WASM memory on
+  large clusters and now captures guest addresses: guests are enumerated per
+  node (QEMU/LXC) instead of pulling one cluster-wide response, LXC network
+  config IP/MAC and QEMU guest-agent addresses are extracted onto the guest
+  devices, an unreachable target yields partial results with a warning instead
+  of failing the whole check, a max-guests cap bounds runaway clusters, and the
+  insecure runtime path reuses HTTP connections.
+- Multi-homed and multi-cluster Proxmox hosts reconcile correctly: intra-Proxmox
+  de-duplication now requires a shared strong identity (a common MAC or Proxmox
+  host reference) before collapsing same-hostname rows, so two distinct physical
+  nodes that merely share a hostname across separate clusters (e.g. `pve02` in
+  two clusters) are never fused — honoring the network-agnostic identity rule —
+  while genuine multi-homed hosts and integration_id churn still collapse.
+- UniFi Protect camera credentials can target a controller whose reachable host
+  is not the discovered per-target address: a static controller-host override on
+  the credential rule now wins over the SRQL target host.
+- The credential-rule form is provider-aware: it hides SSH host-key,
+  auto-discovery, and non-camera purpose fields that do not apply to the selected
+  provider, filters the secret selector to the rule's provider and auth method,
+  supports creating a secret inline in the rule dialog, and scopes the dry-run
+  target preview correctly.
+- AWX/AAP inventory sync is deployable end to end: the Ansible automation domain
+  is migrated, registered controllers materialize a scheduled awx-inventory-sync
+  plugin assignment (one per agent, N controllers) carrying an agent-resolved
+  credential-broker grant, controller create/update/delete seeds and retires the
+  health/catalog/inventory jobs (re-seeded at startup), and a controller can be
+  soft-disabled to pause its jobs and retract its assignment without deletion.
+  Per-agent reconciliation is scoped so it never disables other agents'
+  assignments, and concurrent reconciles serialize on a policy advisory lock.
+- Agent config generation no longer writes a credential-resolution audit row on
+  every poll: credential material is still resolved to compute the config
+  version, but the audit is committed only when a changed config is actually
+  delivered to the agent, eliminating steady-state audit-write amplification.
+
 # ServiceRadar v1.4.1
 
 Topology pipeline resilience, add-on lifecycle operability, plugin credential provisioning, interface-metrics chart fix, and the anomaly engine reliability overhaul.
