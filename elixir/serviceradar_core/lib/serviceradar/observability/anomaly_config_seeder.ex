@@ -16,11 +16,20 @@ defmodule ServiceRadar.Observability.AnomalyConfigSeeder do
   require Logger
 
   @anomaly_default_overrides %{
-    "interface" => %{},
-    "red" => %{},
-    "cpu" => %{},
-    "memory" => %{},
-    "disk" => %{}
+    "cpu" => %{"drift_mode" => "deseasonalized_only"},
+    "memory" => %{"drift_mode" => "deseasonalized_only"},
+    "interface" => %{"drift_mode" => "deseasonalized_only"},
+    "disk" => %{"drift_mode" => "off"},
+    "icmp" => %{"drift_mode" => "off"},
+    "other" => %{"drift_mode" => "off"},
+    "red" => %{}
+  }
+  @anomaly_default_metric_denylist ["cpu.frequency_hz"]
+  @anomaly_default_emission %{
+    "cooldown_secs" => 300,
+    "budget_per_tick" => 100,
+    "episode_update_interval_secs" => 1_800,
+    "reopen_cooldown_secs" => 600
   }
   @forecast_default_overrides %{
     "interface" => %{},
@@ -59,6 +68,18 @@ defmodule ServiceRadar.Observability.AnomalyConfigSeeder do
           get_env,
           "SERVICERADAR_ANOMALY_METRIC_CLASS_OVERRIDES_JSON",
           @anomaly_default_overrides
+        ),
+      metric_denylist:
+        list_env(
+          get_env,
+          "SERVICERADAR_ANOMALY_METRIC_DENYLIST_JSON",
+          @anomaly_default_metric_denylist
+        ),
+      emission:
+        map_env(
+          get_env,
+          "SERVICERADAR_ANOMALY_EMISSION_JSON",
+          @anomaly_default_emission
         )
     }
   end
@@ -194,6 +215,31 @@ defmodule ServiceRadar.Observability.AnomalyConfigSeeder do
         case Jason.decode(value) do
           {:ok, %{} = parsed} -> parsed
           _ -> default
+        end
+
+      _ ->
+        default
+    end
+  end
+
+  defp list_env(get_env, name, default) do
+    case get_env.(name) do
+      value when is_binary(value) ->
+        case Jason.decode(value) do
+          {:ok, values} when is_list(values) ->
+            values
+            |> Enum.flat_map(fn
+              value when is_binary(value) ->
+                trimmed = String.trim(value)
+                if trimmed == "", do: [], else: [trimmed]
+
+              _ ->
+                []
+            end)
+            |> Enum.uniq()
+
+          _ ->
+            default
         end
 
       _ ->

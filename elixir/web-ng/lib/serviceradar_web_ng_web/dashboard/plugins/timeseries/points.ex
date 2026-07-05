@@ -48,7 +48,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
   def scale_mode("logarithmic"), do: :log
   def scale_mode(_), do: :linear
 
-  def x_ticks(points, compact) when is_list(points) do
+  def x_ticks(points, compact, opts \\ %{})
+
+  def x_ticks(points, compact, opts) when is_list(points) do
     len = length(points)
 
     case len do
@@ -56,7 +58,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
         []
 
       1 ->
-        [{Paths.idx_to_x(0, len), time_label(elem(List.first(points), 0))}]
+        {dt, _value} = List.first(points)
+        [{Paths.datetime_to_x(dt, points, opts) || Paths.idx_to_x(0, len, opts), time_label(dt)}]
 
       _ ->
         tick_count =
@@ -70,12 +73,12 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
         |> tick_indices(tick_count)
         |> Enum.map(fn idx ->
           {dt, _v} = Enum.at(points, idx)
-          {Paths.idx_to_x(idx, len), time_label(dt)}
+          {Paths.datetime_to_x(dt, points, opts) || Paths.idx_to_x(idx, len, opts), time_label(dt)}
         end)
     end
   end
 
-  def x_ticks(_points, _compact), do: []
+  def x_ticks(_points, _compact, _opts), do: []
 
   def y_ticks(%{min: min_v, max: max_v, scale: scale}, compact, unit)
       when is_number(min_v) and is_number(max_v) and max_v > min_v do

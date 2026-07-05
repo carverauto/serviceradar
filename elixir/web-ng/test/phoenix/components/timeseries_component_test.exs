@@ -202,6 +202,38 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
     refute html =~ "12:20 AM"
   end
 
+  test "clamps out-of-window finding focus markers to the chart edge" do
+    points = [
+      {~U[2025-01-01 00:00:00Z], 10.0},
+      {~U[2025-01-01 00:10:00Z], 20.0},
+      {~U[2025-01-01 00:20:00Z], 30.0}
+    ]
+
+    html =
+      render_component(Timeseries, %{
+        id: "ts-focused-outside-window",
+        title: "Focused finding",
+        panel_assigns: %{
+          chart_mode: :single,
+          rate_mode: :none,
+          chart_focus: %{
+            timestamp: ~U[2025-01-01 01:00:00Z],
+            label: "Capacity forecast",
+            severity: "warning",
+            series: "disk",
+            window_seconds: 60
+          }
+        },
+        series_points: [{"disk", points}]
+      })
+
+    assert html =~ "data-testid=\"timeseries-annotation\""
+    assert html =~ "data-annotation-window-position=\"after_window\""
+    assert html =~ "x1=\"768\""
+    assert html =~ "data-testid=\"timeseries-marker-window-note\""
+    assert html =~ "Capacity forecast is after this chart window"
+  end
+
   test "renders threshold reference lines and includes them in the y domain" do
     points = [
       {~U[2025-01-01 00:00:00Z], 10.0},

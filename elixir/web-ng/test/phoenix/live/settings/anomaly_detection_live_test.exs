@@ -15,8 +15,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLiveTest do
     assert html =~ "Streaming Detector"
     assert html =~ "Capacity Forecast"
     assert html =~ "N-sigma threshold"
-    assert html =~ "Edge spike scalar knobs are managed"
-    assert html =~ "default profile seeds only metric feed"
+    assert html =~ "Emission Governance"
+    assert html =~ "Metric denylist"
+    assert html =~ "Metric Classes"
+    assert html =~ "Deseasonalized only"
+    refute html =~ "Edge spike scalar knobs are managed"
   end
 
   test "updates anomaly detector settings", %{conn: conn} do
@@ -30,7 +33,24 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLiveTest do
         "window_duration_seconds" => "1200",
         "confirm_slots" => "7",
         "min_samples" => "45",
-        "metric_class_overrides" => ~s({"interface":{"n_sigma":5.0}})
+        "metric_denylist" => "cpu.frequency_hz\ncustom.metric",
+        "emission_cooldown_secs" => "120",
+        "emission_budget_per_tick" => "25",
+        "episode_update_interval_secs" => "900",
+        "reopen_cooldown_secs" => "300",
+        "classes" => %{
+          "interface" => %{
+            "enabled" => "true",
+            "drift_mode" => "deseasonalized_only",
+            "drift_min_effect" => "2.5",
+            "drift_clear_slots" => "30",
+            "drift_adopt_after_samples" => "600",
+            "drift_escalate_after_secs" => "3600",
+            "severity_cap" => "high",
+            "severity_bands" => ~s({"medium":4,"high":8})
+          },
+          "cpu" => %{"enabled" => "false", "drift_mode" => "deseasonalized_only"}
+        }
       }
     })
     |> render_submit()
@@ -50,7 +70,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLiveTest do
           "window_duration_seconds" => "1200",
           "confirm_slots" => "7",
           "min_samples" => "45",
-          "metric_class_overrides" => ~s({"interface":{"n_sigma":5.0}})
+          "metric_denylist" => "cpu.frequency_hz",
+          "emission_cooldown_secs" => "120",
+          "emission_budget_per_tick" => "25",
+          "episode_update_interval_secs" => "900",
+          "reopen_cooldown_secs" => "300",
+          "classes" => %{}
         }
       })
       |> render_submit()
@@ -71,7 +96,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLiveTest do
           "window_duration_seconds" => "1200",
           "confirm_slots" => "7",
           "min_samples" => "45",
-          "metric_class_overrides" => ~s({"interface":{"n_sigma":5.0}})
+          "metric_denylist" => "cpu.frequency_hz",
+          "emission_cooldown_secs" => "120",
+          "emission_budget_per_tick" => "25",
+          "episode_update_interval_secs" => "900",
+          "reopen_cooldown_secs" => "300",
+          "classes" => %{}
         }
       })
       |> render_submit()

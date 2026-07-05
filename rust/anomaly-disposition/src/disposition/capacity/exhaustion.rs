@@ -10,6 +10,8 @@
 use super::holt_winters::season_at;
 use super::{EXHAUSTION_HORIZON_MULTIPLIER, MICROS_PER_SECOND};
 
+const HISTORY_SPAN_EXTRAPOLATION_MULTIPLIER: i64 = 2;
+
 /// `exhaustion_at/6` (`model.ex:252-275`). Returns the ETA as **absolute unix
 /// microseconds** (`DateTime.add(first_at, round(cross_x), :second)`), or `None`
 /// for the no-ETA cases (non-positive slope, missing threshold, already-crossed,
@@ -30,7 +32,12 @@ pub(super) fn exhaustion_at(
     let threshold = threshold?;
 
     let cross_x = (threshold - intercept) / slope;
-    let max_cross_x = (last_x + horizon_seconds * EXHAUSTION_HORIZON_MULTIPLIER) as f64;
+    let observed_span_cap = last_x
+        .saturating_mul(HISTORY_SPAN_EXTRAPOLATION_MULTIPLIER)
+        .max(1);
+    let legacy_horizon_cap = horizon_seconds.saturating_mul(EXHAUSTION_HORIZON_MULTIPLIER);
+    let extrapolation_cap = observed_span_cap.min(legacy_horizon_cap);
+    let max_cross_x = (last_x + extrapolation_cap) as f64;
     let last_x_f = last_x as f64;
 
     // `cross_x <= last_x` → nil (model.ex:265). Already crossed in-window.

@@ -25,7 +25,9 @@ defmodule ServiceRadar.Observability.AnomalyDetectionConfigTest do
       :window_duration_seconds,
       :confirm_slots,
       :min_samples,
-      :metric_class_overrides
+      :metric_class_overrides,
+      :metric_denylist,
+      :emission
     ]
 
     assert create_action.accept == expected_fields
@@ -60,7 +62,19 @@ defmodule ServiceRadar.Observability.AnomalyDetectionConfigTest do
     assert attributes.min_samples.default == 30
 
     assert attributes.metric_class_overrides.default |> Map.keys() |> Enum.sort() ==
-             ["cpu", "disk", "interface", "memory", "red"]
+             ["cpu", "disk", "icmp", "interface", "memory", "other", "red"]
+
+    assert attributes.metric_class_overrides.default["interface"]["drift_mode"] ==
+             "deseasonalized_only"
+
+    assert attributes.metric_denylist.default == ["cpu.frequency_hz"]
+
+    assert attributes.emission.default == %{
+             "cooldown_secs" => 300,
+             "budget_per_tick" => 100,
+             "episode_update_interval_secs" => 1_800,
+             "reopen_cooldown_secs" => 600
+           }
   end
 
   test "migration creates unseeded platform anomaly config with guard constraints" do
@@ -72,5 +86,14 @@ defmodule ServiceRadar.Observability.AnomalyDetectionConfigTest do
     assert migration =~ "min_samples <= window_size"
     refute migration =~ "INSERT INTO platform.anomaly_detection_configs"
     refute migration =~ "public.anomaly_detection_configs"
+  end
+
+  test "edge settings migration extends anomaly config without reseeding rows" do
+    migration =
+      File.read!("priv/repo/migrations/20260704190000_extend_anomaly_detection_edge_settings.exs")
+
+    assert migration =~ "ADD COLUMN metric_denylist"
+    assert migration =~ "ADD COLUMN emission"
+    refute migration =~ "INSERT INTO platform.anomaly_detection_configs"
   end
 end

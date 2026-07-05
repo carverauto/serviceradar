@@ -2,6 +2,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   @moduledoc false
   use ServiceRadarWebNGWeb, :html
 
+  alias ServiceRadarWebNGWeb.AnomalySeriesKey
+
   @detail_chart_focus_side_seconds 2 * 60 * 60
 
   attr :overview, :map, required: true
@@ -293,7 +295,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                           horizon {capacity_horizon_label(row)}
                         </div>
                         <div :if={value(row, "confidence")} class="text-xs text-base-content/50">
-                          PI coverage {format_percent(value(row, "confidence"))}
+                          confidence {format_percent(value(row, "confidence"))}
                         </div>
                       </td>
                     </tr>
@@ -351,7 +353,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
       class="flex flex-col gap-2 border-t border-base-200 px-4 py-3 text-xs sm:flex-row sm:items-center sm:justify-between"
     >
       <span class="text-base-content/60">
-        Showing {@range_start}–{@range_end} on this SRQL page
+        Showing {@range_start}–{@range_end} on this episode page
       </span>
       <div class="join">
         <button
@@ -431,9 +433,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
             label="Resource"
             value={detail_resource(@detail, @device_uid, @device_display_name)}
           />
-          <.detail_item label="Series" value={detail_series(@detail)} />
-          <.detail_item label="Observed" value={detail_time(@detail)} />
-          <.detail_item label="PI coverage" value={detail_confidence(@detail)} />
+          <.detail_item
+            label="Series"
+            value={detail_series(@detail)}
+            title={detail_series_title(@detail)}
+          />
+          <.detail_item label={detail_time_label(@detail)} value={detail_time(@detail)} />
+          <.detail_item label="Projected crossing" value={detail_projected_crossing(@detail)} />
+          <.detail_item label="Confidence" value={detail_confidence(@detail)} />
         </div>
 
         <div :if={detail_related_query(@detail)} class="mt-3 rounded-lg border border-base-200 p-3">
@@ -462,7 +469,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
             <div class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
               Metric context
             </div>
-            <p class="text-xs text-base-content/60">
+            <p :if={@detail_chart_focus} class="text-xs text-base-content/60">
               {detail_marker_description(@detail)}
             </p>
           </div>
@@ -491,16 +498,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
   attr :label, :string, required: true
   attr :value, :any, default: nil
+  attr :title, :any, default: nil
 
   defp detail_item(assigns) do
-    assigns = assign(assigns, :display_value, display_detail_value(assigns.value))
+    assigns =
+      assigns
+      |> assign(:display_value, display_detail_value(assigns.value))
+      |> assign(:title_value, display_detail_value(assigns.title || assigns.value))
 
     ~H"""
     <div class="rounded-lg border border-base-200 p-3">
       <div class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
         {@label}
       </div>
-      <div class="mt-1 break-words text-sm [overflow-wrap:anywhere]" title={@display_value}>
+      <div class="mt-1 break-words text-sm [overflow-wrap:anywhere]" title={@title_value}>
         {@display_value}
       </div>
     </div>
@@ -563,7 +574,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   defp maybe_put_detail_chart_focus(assigns, focus), do: Map.put(assigns, :chart_focus, focus)
 
   defp detail_chart_focus(%{kind: kind, row: row}) when is_map(row) do
-    case first_present(row, [["time"], ["timestamp"], ["window_ended_at"], ["projected_exhaustion_at"]]) do
+    timestamp =
+      case kind do
+        "capacity" -> first_present(row, [["forecasted_at"], ["time"], ["timestamp"], ["window_ended_at"]])
+        _ -> first_present(row, [["time"], ["timestamp"], ["window_ended_at"], ["forecasted_at"]])
+      end
+
+    case timestamp do
       nil ->
         nil
 
@@ -637,6 +654,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
     cond do
       state in ["pending", "pending_anomaly"] -> false
       String.contains?(reason, "pending confirmation") -> false
+      present?(value(row, "episode_uid")) and status in ["cleared", "stale_closed"] -> true
       state in ["confirmed", "anomalous"] -> true
       status in ["active", "open", "anomaly_open"] -> true
       status in ["inactive", "cleared", "resolved"] -> String.contains?(reason, "confirmed")
@@ -771,7 +789,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
     [
       finding_metric_name(row),
       interface_label(row),
-      series_key(row),
+      decoded_series_display(row) || series_key(row),
       source_device_uid(row)
     ]
     |> Enum.reject(&blank?/1)
@@ -779,6 +797,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   end
 
   defp interface_label(row) do
+    label =
+      source_identity_tag(row, "label") ||
+        source_identity_tag(row, "if_name") ||
+        source_identity_tag(row, "interface_name") ||
+        source_identity_tag(row, "name") ||
+        decoded_series_tag(row, "label") ||
+        decoded_series_tag(row, "if_name") ||
+        decoded_series_tag(row, "interface_name")
+
     interface_uid =
       first_present(row, [
         ["interface_uid"],
@@ -795,10 +822,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
         ["metadata", "service_radar", "if_index"],
         ["raw_data", "if_index"],
         ["unmapped", "if_index"]
-      ])
+      ]) || decoded_series_component(row, "if_index")
 
     cond do
+      present?(label) and present?(if_index) -> "#{label} / ifIndex #{if_index}"
       present?(interface_uid) and present?(if_index) -> "#{interface_uid} / ifIndex #{if_index}"
+      present?(label) -> label
       present?(interface_uid) -> interface_uid
       present?(if_index) -> "ifIndex #{if_index}"
       true -> nil
@@ -856,6 +885,57 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
       ["raw_data", "series_key"],
       ["unmapped", "series_key"]
     ])
+  end
+
+  defp decoded_series_display(row), do: row |> series_key() |> AnomalySeriesKey.display()
+
+  defp decoded_series_tag(row, key) do
+    row
+    |> series_key()
+    |> AnomalySeriesKey.decode()
+    |> AnomalySeriesKey.tag(key)
+  end
+
+  defp decoded_series_component(row, key) do
+    row
+    |> series_key()
+    |> AnomalySeriesKey.decode()
+    |> AnomalySeriesKey.component(key)
+  end
+
+  defp source_identity_tag(row, key) do
+    first_present(row, [
+      ["source_identity", "tags", key],
+      ["metadata", "source_identity", "tags", key],
+      ["metadata", "service_radar", "source_identity", "tags", key],
+      ["metadata", "anomaly", "source_identity", "tags", key],
+      ["metadata", "detection_finding", "source_identity", "tags", key],
+      ["raw_data", "source_identity", "tags", key],
+      ["unmapped", "source_identity", "tags", key]
+    ])
+  end
+
+  defp series_resource_label(row) do
+    mount_point = source_identity_tag(row, "mount_point") || decoded_series_tag(row, "mount_point")
+    core_id = source_identity_tag(row, "core_id") || decoded_series_tag(row, "core_id")
+    label = source_identity_tag(row, "label") || decoded_series_tag(row, "label")
+
+    cond do
+      present?(mount_point) ->
+        "mount #{mount_point}"
+
+      present?(label) and present?(core_id) ->
+        "#{label} (core #{core_id})"
+
+      present?(label) ->
+        label
+
+      present?(core_id) ->
+        "core #{core_id}"
+
+      true ->
+        nil
+    end
   end
 
   defp source_device_uid(row) do
@@ -1140,26 +1220,41 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   end
 
   defp detail_resource(%{kind: "capacity_notice", row: row}, device_uid, device_display_name) do
-    source_device_title(row, device_uid, device_display_name) ||
+    series_resource_label(row) ||
+      source_device_title(row, device_uid, device_display_name) ||
       source_device_uid(row) ||
       value(row, "resource_id") ||
       value(row, "resource_key")
   end
 
   defp detail_resource(%{row: row}, device_uid, device_display_name) do
-    source_device_title(row, device_uid, device_display_name) || source_device_uid(row)
+    series_resource_label(row) ||
+      source_device_title(row, device_uid, device_display_name) ||
+      source_device_uid(row)
   end
 
   defp detail_resource(_detail, _device_uid, _device_display_name), do: nil
 
   defp detail_series(%{kind: "capacity", row: row}), do: value(row, "resource_key")
-  defp detail_series(%{kind: "capacity_notice", row: row}), do: series_key(row) || value(row, "resource_key")
-  defp detail_series(%{row: row}), do: series_key(row)
+
+  defp detail_series(%{kind: "capacity_notice", row: row}) do
+    decoded_series_display(row) || series_key(row) || value(row, "resource_key")
+  end
+
+  defp detail_series(%{row: row}), do: decoded_series_display(row) || series_key(row)
   defp detail_series(_), do: nil
+
+  defp detail_series_title(%{kind: "capacity", row: row}), do: value(row, "resource_key")
+  defp detail_series_title(%{row: row}), do: series_key(row)
+  defp detail_series_title(_), do: nil
+
+  defp detail_time_label(%{kind: "capacity"}), do: "Forecasted"
+  defp detail_time_label(%{kind: "capacity_notice"}), do: "Event time"
+  defp detail_time_label(_), do: "Observed"
 
   defp detail_time(%{kind: "capacity", row: row}) do
     row
-    |> first_present([["projected_exhaustion_at"], ["forecasted_at"], ["horizon_ends_at"]])
+    |> first_present([["forecasted_at"], ["time"], ["timestamp"], ["window_ended_at"]])
     |> format_timestamp()
   end
 
@@ -1171,6 +1266,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
   defp detail_time(%{row: row}), do: format_timestamp(value(row, "time"))
   defp detail_time(_), do: nil
+
+  defp detail_projected_crossing(%{kind: "capacity", row: row}) do
+    row
+    |> first_present([["projected_exhaustion_at"], ["horizon_ends_at"]])
+    |> format_timestamp()
+  end
+
+  defp detail_projected_crossing(%{kind: "capacity_notice", row: row}) do
+    row
+    |> first_present([["projected_exhaustion_at"], ["horizon_ends_at"]])
+    |> format_timestamp()
+  end
+
+  defp detail_projected_crossing(_), do: nil
 
   defp detail_confidence(%{row: row}), do: value(row, "confidence") && format_percent(value(row, "confidence"))
   defp detail_confidence(_), do: nil
@@ -1414,6 +1523,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   defp known_atom_key("confidence"), do: :confidence
   defp known_atom_key("capacity_forecast"), do: :capacity_forecast
   defp known_atom_key("clears_finding_uid"), do: :clears_finding_uid
+  defp known_atom_key("core_id"), do: :core_id
   defp known_atom_key("current_value"), do: :current_value
   defp known_atom_key("detection_finding"), do: :detection_finding
   defp known_atom_key("device_label"), do: :device_label
@@ -1426,13 +1536,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   defp known_atom_key("horizon_ends_at"), do: :horizon_ends_at
   defp known_atom_key("id"), do: :id
   defp known_atom_key("if_index"), do: :if_index
+  defp known_atom_key("if_name"), do: :if_name
   defp known_atom_key("interface_uid"), do: :interface_uid
+  defp known_atom_key("interface_name"), do: :interface_name
+  defp known_atom_key("label"), do: :label
   defp known_atom_key("message"), do: :message
   defp known_atom_key("metadata"), do: :metadata
   defp known_atom_key("metric_class"), do: :metric_class
   defp known_atom_key("metric_name"), do: :metric_name
   defp known_atom_key("metric_value"), do: :metric_value
   defp known_atom_key("model"), do: :model
+  defp known_atom_key("mount_point"), do: :mount_point
+  defp known_atom_key("name"), do: :name
   defp known_atom_key("projected_exhaustion_at"), do: :projected_exhaustion_at
   defp known_atom_key("projected_value"), do: :projected_value
   defp known_atom_key("raw_data"), do: :raw_data
@@ -1451,6 +1566,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   defp known_atom_key("source_identity"), do: :source_identity
   defp known_atom_key("status"), do: :status
   defp known_atom_key("state"), do: :state
+  defp known_atom_key("tags"), do: :tags
   defp known_atom_key("threshold_value"), do: :threshold_value
   defp known_atom_key("time"), do: :time
   defp known_atom_key("trigger_finding_uid"), do: :trigger_finding_uid

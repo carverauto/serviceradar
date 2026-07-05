@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics do
   @counter_max_32 4_294_967_295.0
   @counter_max_64 18_446_744_073_709_551_615.0
   @rollover_floor_ratio 0.9
+  @counter_rate_drop_event [:serviceradar, :web_ng, :timeseries, :counter_rate, :dropped]
 
   def counter_rates(series_points, max_speed) when is_list(series_points) do
     Enum.map(series_points, fn entry ->
@@ -11,7 +12,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics do
       sorted_points = Enum.sort_by(points, fn {dt, _v} -> dt end)
       effective_max = if traffic_series?(series), do: max_speed
 
-      {series, counter_rate_points(sorted_points, metadata, effective_max)}
+      {series, counter_rate_points(series, sorted_points, metadata, effective_max)}
     end)
   end
 
@@ -149,32 +150,43 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics do
   defp normalize_points(points) when is_list(points), do: points
   defp normalize_points(_), do: []
 
-  defp counter_rate_points(points, metadata, max_speed) do
+  defp counter_rate_points(series, points, metadata, max_speed) do
     {_prev, acc} =
       Enum.reduce(points, {nil, []}, fn point, state ->
-        counter_rate_step(point, state, metadata, max_speed)
+        counter_rate_step(series, point, state, metadata, max_speed)
       end)
 
     Enum.reverse(acc)
   end
 
-  defp counter_rate_step({dt, value}, {nil, acc}, _metadata, _max_speed) when is_number(value) do
+  defp counter_rate_step(series, {dt, value}, {nil, acc}, metadata, _max_speed) when is_number(value) do
+    emit_counter_rate_drop(series, :warmup, dt, metadata)
     {{dt, value}, acc}
   end
 
-  defp counter_rate_step({dt, value}, {{prev_dt, prev_value}, acc}, metadata, max_speed) do
+  defp counter_rate_step(series, {dt, value}, {{prev_dt, prev_value}, acc}, metadata, max_speed) do
     diff = DateTime.diff(dt, prev_dt, :second)
 
     case counter_rate(diff, value, prev_value, metadata, max_speed) do
-      {:ok, rate} -> {{dt, value}, [{dt, rate} | acc]}
-      :gap when is_number(value) -> {{dt, value}, [{dt, nil} | acc]}
-      :gap -> {nil, [{dt, nil} | acc]}
+      {:ok, rate} ->
+        {{dt, value}, [{dt, rate} | acc]}
+
+      {:gap, reason} when is_number(value) ->
+        emit_counter_rate_drop(series, reason, dt, metadata)
+        {{dt, value}, [{dt, nil} | acc]}
+
+      {:gap, reason} ->
+        emit_counter_rate_drop(series, reason, dt, metadata)
+        {nil, [{dt, nil} | acc]}
     end
   end
 
-  defp counter_rate_step({_dt, _value}, state, _metadata, _max_speed), do: state
+  defp counter_rate_step(series, {dt, _value}, state, metadata, _max_speed) do
+    emit_counter_rate_drop(series, :non_numeric, dt, metadata)
+    state
+  end
 
-  defp counter_rate(diff, _value, _prev_value, _metadata, _max_speed) when diff <= 0, do: :gap
+  defp counter_rate(diff, _value, _prev_value, _metadata, _max_speed) when diff <= 0, do: {:gap, :non_monotonic_time}
 
   defp counter_rate(diff, value, prev_value, metadata, max_speed) do
     with {:ok, delta} <- counter_delta(value, prev_value, metadata) do
@@ -190,7 +202,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics do
     end
   end
 
-  defp counter_delta(_, _, _), do: :gap
+  defp counter_delta(_, _, _), do: {:gap, :non_numeric}
 
   defp rollover_delta(current, previous, metadata) do
     max_value = counter_max(metadata, previous)
@@ -198,8 +210,21 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics do
     if plausible_rollover?(previous, max_value) do
       {:ok, max_value - previous + current}
     else
-      :gap
+      {:gap, :counter_decrease}
     end
+  end
+
+  defp emit_counter_rate_drop(series, reason, at, metadata) do
+    :telemetry.execute(
+      @counter_rate_drop_event,
+      %{count: 1},
+      %{
+        series: series,
+        reason: reason,
+        at: at,
+        counter_width: counter_width(metadata)
+      }
+    )
   end
 
   defp plausible_rollover?(previous, max_value) when is_number(previous) and is_number(max_value) and max_value > 0 do

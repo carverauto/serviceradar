@@ -222,9 +222,10 @@ pub(super) fn set_season(seasons: &mut Vec<f64>, idx: usize, value: f64) {
     seasons[idx] = value;
 }
 
-/// `seasonal?/2` (`model.ex:346-355`): seasonal amplitude / total stddev >=
-/// `@seasonal_strength_threshold`, gated on `total_std > @epsilon`. Fewer than
-/// `period * 2` points ⇒ false (model.ex:355).
+/// `seasonal?/2` (`model.ex:346-355`), corrected to derive the seasonal profile
+/// from all complete periods instead of only the first period. Seasonal amplitude /
+/// total stddev must exceed `@seasonal_strength_threshold`, gated on
+/// `total_std > @epsilon`. Fewer than two complete periods ⇒ false.
 pub(super) fn is_seasonal(points: &[NormPoint], period: usize) -> bool {
     // A zero period is never seasonal (and would bypass the length gate, then divide
     // by zero in the strength calc). Treat it as non-seasonal so the Auto path picks
@@ -233,11 +234,37 @@ pub(super) fn is_seasonal(points: &[NormPoint], period: usize) -> bool {
         return false;
     }
     let values: Vec<f64> = points.iter().map(|p| p.value).collect();
-    let seasonals = initial_seasonals(&values, period);
+    let seasonals = complete_period_seasonals(&values, period);
     let seasonal_amplitude = mean_abs(&seasonals);
-    let total_std = stddev(&values);
+    let complete_len = (values.len() / period) * period;
+    let total_std = stddev(&values[..complete_len]);
 
     total_std > EPSILON && seasonal_amplitude / total_std >= SEASONAL_STRENGTH_THRESHOLD
+}
+
+fn complete_period_seasonals(values: &[f64], period: usize) -> Vec<f64> {
+    if period == 0 {
+        return Vec::new();
+    }
+
+    let complete_periods = values.len() / period;
+    if complete_periods < 2 {
+        return Vec::new();
+    }
+
+    let complete_len = complete_periods * period;
+    let complete_values = &values[..complete_len];
+    let overall_mean = complete_values.iter().sum::<f64>() / complete_len as f64;
+
+    (0..period)
+        .map(|slot| {
+            let slot_sum: f64 = (0..complete_periods)
+                .map(|period_index| complete_values[period_index * period + slot])
+                .sum();
+
+            slot_sum / complete_periods as f64 - overall_mean
+        })
+        .collect()
 }
 
 /// Residual-bootstrap prediction-interval bounds for the additive Holt-Winters path.

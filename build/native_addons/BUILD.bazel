@@ -1,4 +1,5 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_test")
+load("@rules_python//python:py_test.bzl", "py_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load(":addon_inventory.bzl", "ADDON_BUNDLES")
 load(":defs.bzl", "declare_native_addon_targets")
@@ -7,6 +8,7 @@ package(default_visibility = ["//visibility:public"])
 
 exports_files([
     "assemble_addon_bundle.py",
+    "assemble_addon_bundle_test.py",
     "binary_portability_test.sh",
     "binary-size-baseline.json",
     "binary_size_test.sh",
@@ -40,6 +42,12 @@ go_test(
 # upload-signature), the discovery index, and the Forgejo release upload reuse the
 # Wasm plugin rails (scripts/ + .forgejo) and consume :all_metadata / :all_bundles.
 declare_native_addon_targets(ADDON_BUNDLES)
+
+py_test(
+    name = "assemble_addon_bundle_test",
+    srcs = ["assemble_addon_bundle_test.py"],
+    data = [":assemble_addon_bundle.py"],
+)
 
 genquery(
     name = "agent_dependency_closure",
@@ -155,6 +163,7 @@ sh_test(
 test_suite(
     name = "build_gates_test",
     tests = [
+        ":assemble_addon_bundle_test",
         ":binary_portability_test",
         ":binary_size_test",
         ":dependency_isolation_test",

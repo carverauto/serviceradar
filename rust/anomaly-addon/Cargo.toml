@@ -1,6 +1,6 @@
 [package]
 name = "serviceradar-anomaly-addon"
-version = "0.1.20"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.90"
 description = "ServiceRadar edge anomaly add-on: consumes the agent's local metric feed (metric-feed:v1), runs the shared serviceradar-anomaly-core detector per series, and emits anomaly verdicts upstream (native-telemetry:v1). OpenSpec: move-anomaly-detection-to-edge."

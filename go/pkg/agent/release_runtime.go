@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -46,6 +47,8 @@ var errReleaseUpdaterOwnershipUnknown = errors.New("release updater ownership co
 var errReleaseUpdaterOwnershipInvalid = errors.New("release updater must be owned by root")
 var errReleaseUpdaterModeInvalid = errors.New("release updater must not be group or world writable")
 var errReleaseUpdaterNotRegular = errors.New("release updater must be a regular file")
+var errReleaseUpdaterPrivilegedModeInvalid = errors.New("release updater must be setuid root for privileged add-on operations")
+var errReleaseUpdaterFlagUnsupported = errors.New("release updater does not support required flag")
 var errReleaseActivationVersionInvalid = errors.New("release activation version is invalid")
 var errReleaseActivationCommandIDInvalid = errors.New("release activation command id is invalid")
 var errReleaseActivationCommandTypeInvalid = errors.New("release activation command type is invalid")
@@ -251,6 +254,10 @@ func ValidatedAgentUpdaterPath() (string, error) {
 	return validatePackageOwnedExecutable(AgentUpdaterPath())
 }
 
+func ValidatedPrivilegedAgentUpdaterPath(requiredFlags ...string) (string, error) {
+	return validatePrivilegedPackageOwnedExecutable(AgentUpdaterPath(), requiredFlags...)
+}
+
 func validatePackageOwnedExecutable(path string) (string, error) {
 	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil {
@@ -272,6 +279,49 @@ func validatePackageOwnedExecutable(path string) (string, error) {
 	}
 
 	return resolved, nil
+}
+
+func validatePrivilegedPackageOwnedExecutable(path string, requiredFlags ...string) (string, error) {
+	resolved, err := validatePackageOwnedExecutable(path)
+	if err != nil {
+		return "", err
+	}
+
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", fmt.Errorf("stat release updater path: %w", err)
+	}
+	if os.Geteuid() != 0 && info.Mode()&os.ModeSetuid == 0 {
+		return "", errReleaseUpdaterPrivilegedModeInvalid
+	}
+	if err := validateAgentUpdaterSupportsFlags(resolved, requiredFlags...); err != nil {
+		return "", err
+	}
+
+	return resolved, nil
+}
+
+func validateAgentUpdaterSupportsFlags(path string, requiredFlags ...string) error {
+	if len(requiredFlags) == 0 {
+		return nil
+	}
+
+	out, err := exec.Command(path, "--help").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("inspect release updater flags: %w", err)
+	}
+	usage := string(out)
+	for _, flag := range requiredFlags {
+		name := strings.TrimLeft(strings.TrimSpace(flag), "-")
+		if name == "" {
+			continue
+		}
+		if !strings.Contains(usage, "-"+name) {
+			return fmt.Errorf("%w: --%s", errReleaseUpdaterFlagUnsupported, name)
+		}
+	}
+
+	return nil
 }
 
 func validateReleaseActivationExecArgs(version, commandID, commandType string) (releaseActivationExecArgs, error) {

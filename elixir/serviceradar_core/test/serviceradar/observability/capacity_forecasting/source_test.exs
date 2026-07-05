@@ -21,21 +21,44 @@ defmodule ServiceRadar.Observability.CapacityForecasting.SourceTest do
     refute Enum.any?(queries, &String.contains?(&1, "sort:bucket:asc"))
   end
 
-  test "defaults use normalized sysmon timeseries and interface counter rollups" do
+  test "defaults include only monotone consumable sources" do
     sources = Source.defaults()
+    queries = Enum.map(sources, & &1.query)
 
     refute Enum.any?(sources, &(&1.name == "timeseries_value"))
+    refute Enum.any?(sources, &(&1.name == "cpu_usage"))
+    refute Enum.any?(sources, &(&1.name == "interface_rate"))
+    refute Enum.any?(sources, &(&1.name == "flow_bytes_per_hour"))
 
-    assert Enum.any?(sources, &String.contains?(&1.query, ~s|metric_type:"sysmon.cpu"|))
-    assert Enum.any?(sources, &String.contains?(&1.query, ~s|metric_name:"memory.used_percent"|))
-    assert Enum.any?(sources, &String.contains?(&1.query, ~s|metric_name:"disk.used_percent"|))
-    refute Enum.any?(sources, &String.contains?(&1.query, ~s|metric_type:"sysmon.process"|))
-    refute Enum.any?(sources, &String.contains?(&1.query, ~s|metric_name:"process.count"|))
+    refute Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.cpu"|))
+    assert Enum.any?(queries, &String.contains?(&1, ~s|metric_name:"memory.used_percent"|))
+    assert Enum.any?(queries, &String.contains?(&1, ~s|metric_name:"disk.used_percent"|))
+    refute Enum.any?(queries, &String.contains?(&1, "in:timeseries_metric_interface_hourly"))
+    refute Enum.any?(queries, &String.contains?(&1, "in:flows"))
+    refute Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.process"|))
+    refute Enum.any?(queries, &String.contains?(&1, ~s|metric_name:"process.count"|))
 
     assert Enum.all?(
              Enum.filter(sources, &String.contains?(&1.query, "in:timeseries_metrics")),
              &(&1.value_field == "value" and &1.bucket_field == "timestamp")
            )
+
+    assert sources
+           |> Enum.filter(&(&1.resource_type in ["memory", "disk"]))
+           |> Enum.all?(&(&1.value_unit == "percent"))
+  end
+
+  test "bursty and non-consumable sources are explicit opt-ins" do
+    sources =
+      Source.defaults(include_sources: ["cpu_usage", "interface_rate", "flow_bytes_per_hour"])
+
+    queries = Enum.map(sources, & &1.query)
+
+    assert Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.cpu"|))
+
+    cpu_source = Enum.find(sources, &(&1.name == "cpu_usage"))
+    assert cpu_source.threshold == 90.0
+    assert cpu_source.sustained_statistic == "daily_p95"
 
     assert Enum.any?(
              sources,
@@ -45,6 +68,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.SourceTest do
     interface_source = Enum.find(sources, &(&1.name == "interface_rate"))
     assert "partition" in interface_source.key_fields
     assert interface_source.value_unit == "percent"
+    assert interface_source.threshold == 90.0
+    assert interface_source.sustained_statistic == "daily_p95"
 
     assert sources
            |> Enum.filter(&(&1.resource_type in ["cpu", "memory", "disk"]))

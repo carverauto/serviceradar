@@ -204,19 +204,16 @@ func applyStagedAddonCapabilitiesViaUpdater(ctx context.Context, addonID, binary
 		return err
 	}
 
-	updaterPath, err := ValidatedAgentUpdaterPath()
+	updaterPath, err := ValidatedPrivilegedAgentUpdaterPath("addon-id", "addon-binary", "addon-capabilities")
 	if err != nil {
 		return fmt.Errorf("locate agent updater for capability application: %w", err)
 	}
 
-	cmd := exec.CommandContext(ctx, updaterPath,
+	if err := runAgentUpdaterCommand(ctx, updaterPath,
 		"--addon-id", addonID,
 		"--addon-binary", binaryName,
 		"--addon-capabilities", strings.Join(normalized, ","),
-	)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	); err != nil {
 		return fmt.Errorf("agent-updater capability application failed: %w", err)
 	}
 

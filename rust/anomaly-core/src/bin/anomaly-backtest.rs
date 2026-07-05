@@ -277,8 +277,7 @@ fn run(args: Args, mut out: impl Write) -> Result<(), String> {
                 && state.how_vals[h].len() as u32 >= MIN_SEASONAL_BUCKET
             {
                 let seasonal = median(&state.how_vals[h]);
-                if let (Some((_t, scale)), Some(cusum)) =
-                    (state.cusum_anchor, state.cusum.as_mut())
+                if let (Some((_t, scale)), Some(cusum)) = (state.cusum_anchor, state.cusum.as_mut())
                 {
                     let step = cusum.update((sample.value - seasonal) / scale);
                     cusum_pos = Some(step.pos);

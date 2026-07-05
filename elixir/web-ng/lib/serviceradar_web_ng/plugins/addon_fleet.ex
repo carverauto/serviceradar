@@ -113,6 +113,12 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
     agent_labels = agent_labels(scope)
     package_index = index_packages(packages)
 
+    row_context = %{
+      agent_labels: agent_labels,
+      package_index: package_index,
+      scans_by_agent: scans_by_agent
+    }
+
     assigned_rows =
       assignments
       |> Enum.group_by(&{&1.agent_uid, &1.addon_id})
@@ -128,9 +134,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
           assignment,
           status,
           stale_assignment_infos(stale, package_index),
-          package_index,
-          scans_by_agent,
-          agent_labels
+          row_context
         )
       end)
 
@@ -149,9 +153,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
           nil,
           status,
           [],
-          package_index,
-          scans_by_agent,
-          agent_labels
+          row_context
         )
       end)
 
@@ -318,28 +320,18 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
 
   # --- row construction -----------------------------------------------------
 
-  defp build_row(
-         agent_uid,
-         addon_id,
-         package,
-         assignment,
-         status,
-         stale_assignments,
-         package_index,
-         scans_by_agent,
-         agent_labels
-       ) do
+  defp build_row(agent_uid, addon_id, package, assignment, status, stale_assignments, row_context) do
     collector? = MapSet.member?(@collector_addon_ids, addon_id)
-    last_scan_at = if collector?, do: Map.get(scans_by_agent, agent_uid)
+    last_scan_at = if collector?, do: Map.get(row_context.scans_by_agent, agent_uid)
 
     base = %{
       agent_uid: agent_uid,
-      agent_label: Map.get(agent_labels, agent_uid, agent_uid || "—"),
+      agent_label: Map.get(row_context.agent_labels, agent_uid, agent_uid || "—"),
       addon_id: addon_id,
       addon_name: package_name(package, addon_id),
       package_id: package && package.id,
       assigned_version: if(assignment, do: package && package.version),
-      latest_approved_version: latest_approved_for_addon(package_index, addon_id),
+      latest_approved_version: latest_approved_for_addon(row_context.package_index, addon_id),
       content_hash: package && package.source_oci_digest,
       package_status: package && package.status,
       verification_status: package && package.verification_status,

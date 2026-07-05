@@ -15,6 +15,8 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
 
   require Ash.Query
 
+  @seasonal_baselines_key "seasonal_baselines"
+
   @type reconcile_result :: %{
           matched_rows: non_neg_integer(),
           resolved_devices: non_neg_integer(),
@@ -164,6 +166,8 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
           {:cont, {:ok, %{stats | unchanged: stats.unchanged + 1}}}
 
         true ->
+          spec = %{spec | params: assignment_params_for_spec(existing, spec.params)}
+
           case store.update_assignment(existing, spec, actor) do
             {:ok, _} -> {:cont, {:ok, %{stats | upserted: stats.upserted + 1}}}
             {:error, reason} -> {:halt, {:error, reason}}
@@ -193,9 +197,56 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
       existing.source == :profile and
       existing.source_key == spec.assignment_key and
       existing.addon_profile_id == spec.addon_profile_id and
-      existing.params == spec.params and
+      existing.params == assignment_params_for_spec(existing, spec.params) and
       existing.args == spec.args
   end
+
+  # Edge seasonal baselines are profile-wide for host metrics but assignment-
+  # scoped for interface metrics. Preserve the scoped 3-segment interface keys
+  # that `EdgeBaselineProducer` writes onto an assignment, while still applying
+  # the profile's current params and letting profile-owned baselines override.
+  defp assignment_params_for_spec(existing, spec_params) do
+    existing_params = ValueUtils.map_value(existing, [:params, "params"]) || %{}
+    spec_params = spec_params || %{}
+
+    existing_scoped =
+      existing_params
+      |> seasonal_baselines()
+      |> Enum.filter(fn {key, _value} -> interface_baseline_key?(key) end)
+      |> Map.new()
+
+    spec_seasonal = seasonal_baselines(spec_params)
+    merged_seasonal = Map.merge(existing_scoped, spec_seasonal)
+
+    cond do
+      map_size(merged_seasonal) > 0 ->
+        Map.put(spec_params, @seasonal_baselines_key, merged_seasonal)
+
+      Map.has_key?(stringify_keys(spec_params), @seasonal_baselines_key) ->
+        Map.put(spec_params, @seasonal_baselines_key, %{})
+
+      true ->
+        spec_params
+    end
+  end
+
+  defp seasonal_baselines(params) when is_map(params) do
+    case Map.get(params, @seasonal_baselines_key) || Map.get(params, :seasonal_baselines) do
+      baselines when is_map(baselines) -> baselines
+      _ -> %{}
+    end
+  end
+
+  defp seasonal_baselines(_params), do: %{}
+
+  defp interface_baseline_key?(key) when is_binary(key) do
+    key |> String.split("|") |> length() >= 3
+  end
+
+  defp interface_baseline_key?(_key), do: false
+
+  defp stringify_keys(map) when is_map(map),
+    do: Map.new(map, fn {key, value} -> {to_string(key), value} end)
 
   defp extract_targets(resolved_inputs, max_targets) do
     rows =

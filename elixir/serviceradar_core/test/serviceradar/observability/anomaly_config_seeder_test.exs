@@ -16,7 +16,17 @@ defmodule ServiceRadar.Observability.AnomalyConfigSeederTest do
     assert attrs.min_samples == 30
 
     assert attrs.metric_class_overrides |> Map.keys() |> Enum.sort() ==
-             ["cpu", "disk", "interface", "memory", "red"]
+             ["cpu", "disk", "icmp", "interface", "memory", "other", "red"]
+
+    assert attrs.metric_class_overrides["interface"]["drift_mode"] == "deseasonalized_only"
+    assert attrs.metric_denylist == ["cpu.frequency_hz"]
+
+    assert attrs.emission == %{
+             "cooldown_secs" => 300,
+             "budget_per_tick" => 100,
+             "episode_update_interval_secs" => 1_800,
+             "reopen_cooldown_secs" => 600
+           }
   end
 
   test "anomaly seed attrs parse Helm-rendered env values" do
@@ -26,7 +36,12 @@ defmodule ServiceRadar.Observability.AnomalyConfigSeederTest do
       "SERVICERADAR_ANOMALY_WINDOW_DURATION_SECONDS" => "1800",
       "SERVICERADAR_ANOMALY_CONFIRM_SLOTS" => "7",
       "SERVICERADAR_ANOMALY_MIN_SAMPLES" => "45",
-      "SERVICERADAR_ANOMALY_METRIC_CLASS_OVERRIDES_JSON" => ~s({"interface":{"n_sigma":5.0}})
+      "SERVICERADAR_ANOMALY_METRIC_CLASS_OVERRIDES_JSON" =>
+        ~s({"interface":{"drift_mode":"deseasonalized_only","drift_min_effect":2.5}}),
+      "SERVICERADAR_ANOMALY_METRIC_DENYLIST_JSON" =>
+        ~s(["cpu.frequency_hz"," custom.metric ","custom.metric"]),
+      "SERVICERADAR_ANOMALY_EMISSION_JSON" =>
+        ~s({"cooldown_secs":120,"budget_per_tick":25,"episode_update_interval_secs":900,"reopen_cooldown_secs":300})
     }
 
     attrs = AnomalyConfigSeeder.anomaly_attrs_from_env(&Map.get(env, &1))
@@ -36,7 +51,10 @@ defmodule ServiceRadar.Observability.AnomalyConfigSeederTest do
     assert attrs.window_duration_seconds == 1800
     assert attrs.confirm_slots == 7
     assert attrs.min_samples == 45
-    assert attrs.metric_class_overrides["interface"]["n_sigma"] == 5.0
+    assert attrs.metric_class_overrides["interface"]["drift_min_effect"] == 2.5
+    assert attrs.metric_denylist == ["cpu.frequency_hz", "custom.metric"]
+    assert attrs.emission["cooldown_secs"] == 120
+    assert attrs.emission["budget_per_tick"] == 25
   end
 
   test "forecast seed attrs parse Helm-rendered env values" do
@@ -99,6 +117,8 @@ defmodule ServiceRadar.Observability.AnomalyConfigSeederTest do
       "SERVICERADAR_ANOMALY_N_SIGMA" => "not-a-float",
       "SERVICERADAR_ANOMALY_WINDOW_SIZE" => "twelve",
       "SERVICERADAR_ANOMALY_METRIC_CLASS_OVERRIDES_JSON" => "{bad-json",
+      "SERVICERADAR_ANOMALY_METRIC_DENYLIST_JSON" => ~s({"not":"a-list"}),
+      "SERVICERADAR_ANOMALY_EMISSION_JSON" => "[]",
       "SERVICERADAR_CAPACITY_FORECAST_CONFIG_MODEL" => "unsupported_model",
       "SERVICERADAR_CAPACITY_FORECAST_CONFIG_WARNING_THRESHOLD_PERCENT" => "eighty",
       "SERVICERADAR_CAPACITY_FORECAST_CONFIG_METRIC_CLASS_OVERRIDES_JSON" => "[]"
@@ -110,6 +130,8 @@ defmodule ServiceRadar.Observability.AnomalyConfigSeederTest do
     assert anomaly_attrs.n_sigma == 3.0
     assert anomaly_attrs.window_size == 300
     assert Map.has_key?(anomaly_attrs.metric_class_overrides, "interface")
+    assert anomaly_attrs.metric_denylist == ["cpu.frequency_hz"]
+    assert anomaly_attrs.emission["cooldown_secs"] == 300
 
     assert forecast_attrs.model == :linear
     assert forecast_attrs.warning_threshold_percent == 80.0
@@ -129,6 +151,8 @@ defmodule ServiceRadar.Observability.AnomalyConfigSeederTest do
 
     for env_name <- [
           "SERVICERADAR_ANOMALY_N_SIGMA",
+          "SERVICERADAR_ANOMALY_METRIC_DENYLIST_JSON",
+          "SERVICERADAR_ANOMALY_EMISSION_JSON",
           "SERVICERADAR_ANOMALY_METRIC_CLASS_OVERRIDES_JSON",
           "SERVICERADAR_CAPACITY_FORECAST_CONFIG_HORIZON_SECONDS",
           "SERVICERADAR_CAPACITY_FORECAST_CONFIG_WARNING_THRESHOLD_PERCENT",

@@ -35,6 +35,7 @@ defmodule ServiceRadar.Plugins.AnomalyAddonProfileSeeder do
   @target_query "in:agents"
   @seeded_by "ServiceRadar.Plugins.AnomalyAddonProfileSeeder"
   @default_params %{"metric_feed" => %{"sources" => ["sysmon", "snmp"]}}
+  @removed_profile_param_keys ~w(cusum_enabled)
 
   @doc """
   The default profile params seeded for the edge anomaly add-on.
@@ -53,6 +54,17 @@ defmodule ServiceRadar.Plugins.AnomalyAddonProfileSeeder do
   @doc "The add-on id this seeder manages (`\"anomaly\"`)."
   @spec addon_id() :: String.t()
   def addon_id, do: @addon_id
+
+  @doc false
+  @spec sanitize_profile_params(map() | term()) :: map()
+  def sanitize_profile_params(params) when is_map(params) do
+    params
+    |> stringify_keys()
+    |> Map.drop(@removed_profile_param_keys)
+    |> Map.put_new("metric_feed", @default_params["metric_feed"])
+  end
+
+  def sanitize_profile_params(_params), do: @default_params
 
   @spec seed_defaults(keyword()) :: :ok | {:error, term()}
   def seed_defaults(opts \\ []) do
@@ -143,7 +155,7 @@ defmodule ServiceRadar.Plugins.AnomalyAddonProfileSeeder do
   defp update_attrs(%AddonProfile{} = profile, %AddonPackage{} = package) do
     %{
       addon_package_id: package.id,
-      params: ensure_metric_feed_params(profile.params || %{}),
+      params: sanitize_profile_params(profile.params || %{}),
       metadata:
         Map.merge(profile.metadata || %{}, %{
           "seeded_by" => @seeded_by,
@@ -152,9 +164,10 @@ defmodule ServiceRadar.Plugins.AnomalyAddonProfileSeeder do
     }
   end
 
-  defp ensure_metric_feed_params(params) when is_map(params) do
-    Map.put_new(params, "metric_feed", @default_params["metric_feed"])
+  defp stringify_keys(params) when is_map(params) do
+    Map.new(params, fn {key, value} -> {to_string(key), stringify_keys(value)} end)
   end
 
-  defp ensure_metric_feed_params(_params), do: @default_params
+  defp stringify_keys(values) when is_list(values), do: Enum.map(values, &stringify_keys/1)
+  defp stringify_keys(value), do: value
 end

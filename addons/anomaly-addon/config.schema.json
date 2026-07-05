@@ -6,6 +6,140 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
+    "managed": {
+      "type": "object",
+      "title": "Managed detector configuration",
+      "description": "Settings projected by ServiceRadar core from the Anomaly Detection settings singleton. Operator-explicit top-level params take precedence over these managed defaults.",
+      "additionalProperties": false,
+      "properties": {
+        "window_size": {
+          "type": "integer",
+          "title": "Rolling window size (samples)",
+          "minimum": 1
+        },
+        "min_samples": {
+          "type": "integer",
+          "title": "Minimum samples before a baseline is ready",
+          "minimum": 1
+        },
+        "n_sigma": {
+          "type": "number",
+          "title": "Z-score breach threshold (sigma)",
+          "exclusiveMinimum": 0
+        },
+        "confirm_slots": {
+          "type": "integer",
+          "title": "Consecutive breaches required to confirm an anomaly",
+          "minimum": 1
+        },
+        "metric_denylist": {
+          "type": "array",
+          "title": "Managed metric denylist",
+          "description": "Metric names that should not produce detector findings. An empty list explicitly disables the denylist.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "default": ["cpu.frequency_hz"]
+        },
+        "emission": {
+          "type": "object",
+          "title": "Managed emission governance",
+          "additionalProperties": false,
+          "properties": {
+            "cooldown_secs": {
+              "type": "integer",
+              "title": "Emission cooldown (seconds)",
+              "minimum": 1
+            },
+            "budget_per_tick": {
+              "type": "integer",
+              "title": "Emission budget per tick",
+              "minimum": 1
+            },
+            "episode_update_interval_secs": {
+              "type": "integer",
+              "title": "Episode heartbeat interval (seconds)",
+              "minimum": 1
+            },
+            "reopen_cooldown_secs": {
+              "type": "integer",
+              "title": "Episode reopen cooldown (seconds)",
+              "minimum": 1
+            }
+          },
+          "default": {}
+        },
+        "metric_classes": {
+          "type": "object",
+          "title": "Managed per-metric-class detector overrides",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "drift_mode": {
+                "type": "string",
+                "enum": ["off", "deseasonalized_only", "always"]
+              },
+              "cusum_k": {
+                "type": "number",
+                "minimum": 0
+              },
+              "cusum_h": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "h_confirm_mult": {
+                "type": "number",
+                "minimum": 1.0
+              },
+              "drift_confirm_window": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "drift_clear_slots": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "drift_min_effect": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "drift_adopt_after_samples": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "drift_escalate_after_secs": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "min_std_floor": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "min_cv": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "severity_cap": {
+                "type": "string",
+                "enum": ["low", "medium", "high", "critical"]
+              },
+              "severity_bands": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          "default": {}
+        }
+      },
+      "default": {}
+    },
     "window_size": {
       "type": "integer",
       "title": "Rolling window size (samples)",
@@ -49,25 +183,221 @@
       "description": "Optional fleet-wide relative floor: the effective dispersion is at least min_cv * |mean|, so a high-magnitude series with proportionally small jitter is also tamed. Applied as a max with each series' built-in per-class floor (only ever tightens). Omit to keep built-in defaults.",
       "exclusiveMinimum": 0
     },
-    "cusum_enabled": {
-      "type": "boolean",
-      "title": "Enable the CUSUM sustained-drift detector",
-      "description": "Run a two-sided CUSUM drift detector alongside the rolling z-score. A rolling z-score's mean tracks a slow ramp, so a gradual drift/leak is absorbed into the baseline and never trips; the anchored CUSUM accumulates the standardized residual against the frozen warm-up baseline (deseasonalized against the delivered hour-of-week center when present) until it crosses the decision interval and alarms. It is additive — it never changes the z-score verdict — and emits a separate finding marked detector_method 'cusum_drift'. Default true; set false to fall back to the exact rolling-only behavior.",
-      "default": true
-    },
     "cusum_k": {
       "type": "number",
       "title": "CUSUM slack (reference value k, in sigma)",
-      "description": "Only a standardized deviation beyond k accumulates. The standard tabular-CUSUM value 0.5 (paired with h=5.0) detects a sustained ~1-sigma shift.",
+      "description": "Only a standardized deviation beyond k accumulates. The standard tabular-CUSUM value 0.5 (paired with h=8.0) detects a sustained ~1-sigma shift with a lower false-open rate.",
       "minimum": 0,
       "default": 0.5
     },
     "cusum_h": {
       "type": "number",
       "title": "CUSUM decision interval (h, the alarm threshold)",
-      "description": "An accumulator past h is a sustained-drift alarm. Expected samples to alarm for a persistent shift d (in sigma) is about h / (d - k). Default 5.0.",
+      "description": "An accumulator past h is a sustained-drift alarm. Expected samples to alarm for a persistent shift d (in sigma) is about h / (d - k). Default 8.0.",
       "exclusiveMinimum": 0,
-      "default": 5.0
+      "default": 8.0
+    },
+    "h_confirm_mult": {
+      "type": "number",
+      "title": "CUSUM confirmation multiplier",
+      "description": "After an accumulator crosses h, drift enters pending state and emits only if the same accumulator reaches h * h_confirm_mult within drift_confirm_window samples.",
+      "minimum": 1.0,
+      "default": 1.5
+    },
+    "drift_confirm_window": {
+      "type": "integer",
+      "title": "Drift confirmation window (samples)",
+      "description": "Number of samples after a pending drift latch may reach the confirmation threshold before decaying back to zero silently.",
+      "minimum": 1,
+      "default": 30
+    },
+    "drift_min_effect": {
+      "type": "number",
+      "title": "Minimum drift effect size (sigma)",
+      "description": "Minimum estimated sustained shift before a CUSUM alarm emits a drift finding. The estimate is k + S/N, so the finding score is bounded by effect size rather than the raw unbounded accumulator.",
+      "exclusiveMinimum": 0,
+      "default": 2.0
+    },
+    "drift_clear_slots": {
+      "type": "integer",
+      "title": "Drift clear confirmation window (samples)",
+      "description": "Consecutive recovered samples required before an open drift episode emits a clear.",
+      "minimum": 1,
+      "default": 30
+    },
+    "drift_adopt_after_samples": {
+      "type": "integer",
+      "title": "Drift adoption window (samples)",
+      "description": "Samples after drift open before a persistent non-saturated new level is adopted as the baseline and cleared.",
+      "minimum": 1,
+      "default": 600
+    },
+    "episode_update_interval_secs": {
+      "type": "integer",
+      "title": "Episode heartbeat interval (seconds)",
+      "description": "Minimum interval between still-open drift heartbeat updates.",
+      "minimum": 1,
+      "default": 1800
+    },
+    "reopen_cooldown_secs": {
+      "type": "integer",
+      "title": "Episode reopen cooldown (seconds)",
+      "description": "Re-opens within this interval after a clear reuse the previous drift episode identity with reopen_count incremented.",
+      "minimum": 1,
+      "default": 600
+    },
+    "anchor_max_age_secs": {
+      "type": "integer",
+      "title": "CUSUM anchor maximum age (seconds)",
+      "description": "Maximum age for an idle always-on rolling CUSUM anchor before it refreshes to the current rolling window.",
+      "minimum": 1,
+      "default": 86400
+    },
+    "critical_min_duration_secs": {
+      "type": "integer",
+      "title": "Critical minimum duration (seconds)",
+      "description": "Minimum episode duration before a High anomaly can become Critical.",
+      "minimum": 1,
+      "default": 600
+    },
+    "drift_escalate_after_secs": {
+      "type": "integer",
+      "title": "Drift escalation delay (seconds)",
+      "description": "Minimum open drift duration before a Medium drift episode can escalate to High.",
+      "minimum": 1,
+      "default": 3600
+    },
+    "emission_cooldown_secs": {
+      "type": "integer",
+      "title": "Emission cooldown (seconds)",
+      "description": "Minimum interval between non-clear anomaly emissions for one detector series. Clear transitions are exempt.",
+      "minimum": 1,
+      "default": 300
+    },
+    "emission_budget_per_tick": {
+      "type": "integer",
+      "title": "Emission budget per tick",
+      "description": "Maximum non-clear anomaly records emitted per metric-feed tick before remaining transitions are accounted in an anomaly_emission_shed rollup.",
+      "minimum": 1,
+      "default": 100
+    },
+    "emission": {
+      "type": "object",
+      "title": "Emission governance",
+      "description": "Nested replacement for the legacy flat emission keys. When both forms are present, nested values take precedence.",
+      "additionalProperties": false,
+      "properties": {
+        "cooldown_secs": {
+          "type": "integer",
+          "title": "Emission cooldown (seconds)",
+          "description": "Minimum interval between non-clear anomaly emissions for one detector series. Clear transitions are exempt.",
+          "minimum": 1,
+          "default": 300
+        },
+        "budget_per_tick": {
+          "type": "integer",
+          "title": "Emission budget per tick",
+          "description": "Maximum non-clear anomaly records emitted per metric-feed tick before remaining transitions are accounted in an anomaly_emission_shed rollup.",
+          "minimum": 1,
+          "default": 100
+        },
+        "episode_update_interval_secs": {
+          "type": "integer",
+          "title": "Episode heartbeat interval (seconds)",
+          "description": "Minimum interval between still-open drift heartbeat updates.",
+          "minimum": 1,
+          "default": 1800
+        },
+        "reopen_cooldown_secs": {
+          "type": "integer",
+          "title": "Episode reopen cooldown (seconds)",
+          "description": "Re-opens within this interval after a clear reuse the previous drift episode identity with reopen_count incremented.",
+          "minimum": 1,
+          "default": 600
+        }
+      },
+      "default": {}
+    },
+    "metric_denylist": {
+      "type": "array",
+      "title": "Metric denylist",
+      "description": "Metric names that should not produce detector findings. Omit to use the built-in denylist; set an empty list to disable it explicitly.",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true,
+      "default": ["cpu.frequency_hz"]
+    },
+    "metric_classes": {
+      "type": "object",
+      "title": "Per-metric-class detector overrides",
+      "description": "Additive per-class configuration surface projected from core. Supported class keys include cpu, memory, disk, interface, icmp, and other; unknown class keys are accepted for forward compatibility but must use the same object shape.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enable detection for this class"
+          },
+          "drift_mode": {
+            "type": "string",
+            "title": "CUSUM drift mode",
+            "enum": ["off", "deseasonalized_only", "always"]
+          },
+          "cusum_k": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cusum_h": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "h_confirm_mult": {
+            "type": "number",
+            "minimum": 1.0
+          },
+          "drift_confirm_window": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "drift_clear_slots": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "drift_min_effect": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "drift_adopt_after_samples": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "drift_escalate_after_secs": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "min_std_floor": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "min_cv": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "severity_cap": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"]
+          },
+          "severity_bands": {
+            "type": "object",
+            "description": "Reserved for per-class severity band overrides.",
+            "additionalProperties": true
+          }
+        }
+      },
+      "default": {}
     },
     "metric_feed": {
       "type": "object",
@@ -138,6 +468,20 @@
       "minimum": 1,
       "default": 300
     },
+    "seasonal": {
+      "type": "object",
+      "title": "Seasonal baseline delivery governance",
+      "additionalProperties": false,
+      "properties": {
+        "max_baselines": {
+          "type": "integer",
+          "title": "Maximum delivered baselines accepted",
+          "description": "Caps the number of delivered seasonal baselines the add-on accepts from one config payload. Omit for no local cap.",
+          "minimum": 0
+        }
+      },
+      "default": {}
+    },
     "seasonal_baselines": {
       "type": "object",
       "title": "Per-series hour-of-week seasonal baselines",
@@ -146,6 +490,12 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
+          "encoding": {
+            "type": "string",
+            "title": "Baseline encoding",
+            "description": "Optional producer hint. 'compact_168_f32' means centers/scales/sample_counts are 168-slot hour-of-week arrays.",
+            "enum": ["compact_168_f32"]
+          },
           "buckets": {
             "type": "array",
             "title": "Hour-of-week buckets",
@@ -181,6 +531,38 @@
                 }
               },
               "required": ["dow", "hod", "center", "scale"]
+            }
+          },
+          "centers": {
+            "type": "array",
+            "title": "Compact hour-of-week centers",
+            "description": "Optional 168-slot array indexed dow*24+hod. Null slots mean no delivered baseline for that hour.",
+            "minItems": 168,
+            "maxItems": 168,
+            "items": {
+              "type": ["number", "null"]
+            }
+          },
+          "scales": {
+            "type": "array",
+            "title": "Compact hour-of-week scales",
+            "description": "Optional 168-slot array indexed dow*24+hod. Null slots mean no delivered baseline for that hour.",
+            "minItems": 168,
+            "maxItems": 168,
+            "items": {
+              "type": ["number", "null"],
+              "minimum": 0
+            }
+          },
+          "sample_counts": {
+            "type": "array",
+            "title": "Compact hour-of-week sample counts",
+            "description": "Optional 168-slot array indexed dow*24+hod. Zero means no delivered baseline for that hour.",
+            "minItems": 168,
+            "maxItems": 168,
+            "items": {
+              "type": "integer",
+              "minimum": 0
             }
           }
         }

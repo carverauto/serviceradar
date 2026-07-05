@@ -10,6 +10,7 @@ go_library(
         "addon_otlp_relay.go",
         "addon_systemd.go",
         "addon_telemetry.go",
+        "agent_updater_command.go",
         "app_tcp_route.go",
         "banner_grab_handler.go",
         "bumblebee_config.go",

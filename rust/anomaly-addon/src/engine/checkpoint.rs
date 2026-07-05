@@ -11,6 +11,7 @@ use serviceradar_anomaly_core::Cusum;
 
 use super::DetectorEngine;
 use super::state::{CounterState, SeriesState};
+use super::types::CusumDirection;
 
 /// One series' retained detector baseline, serialized for the restart checkpoint.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -48,6 +49,9 @@ pub struct SeriesCheckpoint {
     /// Frozen CUSUM anchor scale (the floored dispersion the residual divides by).
     #[serde(default)]
     pub cusum_anchor_scale: Option<f64>,
+    /// Observed time when the frozen CUSUM anchor center was captured.
+    #[serde(default)]
+    pub cusum_anchor_captured_at_unix_nano: Option<u64>,
     /// CUSUM upper accumulator `S+` at checkpoint time, so a drift mid-accumulation
     /// re-alarms on schedule after a restart instead of restarting from zero.
     #[serde(default)]
@@ -55,6 +59,44 @@ pub struct SeriesCheckpoint {
     /// CUSUM lower accumulator `S-` at checkpoint time.
     #[serde(default)]
     pub cusum_neg: Option<f64>,
+    /// Samples accumulated into the current CUSUM run since the last reset.
+    #[serde(default)]
+    pub cusum_run_samples: u64,
+    /// Pending CUSUM direction latched at `h` but not yet confirmed at `h_confirm`.
+    #[serde(default)]
+    pub cusum_pending_direction: Option<CusumDirection>,
+    /// Samples evaluated since entering the pending CUSUM latch.
+    #[serde(default)]
+    pub cusum_pending_samples: u64,
+    /// Whether a drift episode was open at checkpoint time.
+    #[serde(default)]
+    pub drift_active: bool,
+    #[serde(default)]
+    pub drift_active_direction: Option<CusumDirection>,
+    #[serde(default)]
+    pub drift_episode_started_at_unix_nano: Option<u64>,
+    #[serde(default)]
+    pub drift_episode_peak_value: Option<f64>,
+    #[serde(default)]
+    pub drift_episode_peak_at_unix_nano: Option<u64>,
+    #[serde(default)]
+    pub drift_episode_peak_shift: f64,
+    #[serde(default)]
+    pub drift_peak_severity_band: u8,
+    #[serde(default)]
+    pub drift_active_samples: u64,
+    #[serde(default)]
+    pub drift_clear_samples: u64,
+    #[serde(default)]
+    pub drift_last_emitted_at_unix_nano: Option<u64>,
+    #[serde(default)]
+    pub drift_last_cleared_at_unix_nano: Option<u64>,
+    #[serde(default)]
+    pub drift_last_episode_started_at_unix_nano: Option<u64>,
+    #[serde(default)]
+    pub drift_reopen_count: u64,
+    #[serde(default)]
+    pub last_non_clear_emitted_at_unix_nano: Option<u64>,
     pub last_observed_at_unix_nano: u64,
 }
 
@@ -103,8 +145,27 @@ impl DetectorEngine {
                     aggregation_slot_peak_at_unix_nano: state.aggregation_slot_peak_at_unix_nano,
                     cusum_anchor_mean: state.cusum_anchor.map(|(mean, _scale)| mean),
                     cusum_anchor_scale: state.cusum_anchor.map(|(_mean, scale)| scale),
+                    cusum_anchor_captured_at_unix_nano: state.cusum_anchor_captured_at_unix_nano,
                     cusum_pos: state.cusum.as_ref().map(Cusum::pos),
                     cusum_neg: state.cusum.as_ref().map(Cusum::neg),
+                    cusum_run_samples: state.cusum_run_samples,
+                    cusum_pending_direction: state.cusum_pending_direction,
+                    cusum_pending_samples: state.cusum_pending_samples,
+                    drift_active: state.drift_active,
+                    drift_active_direction: state.drift_active_direction,
+                    drift_episode_started_at_unix_nano: state.drift_episode_started_at_unix_nano,
+                    drift_episode_peak_value: state.drift_episode_peak_value,
+                    drift_episode_peak_at_unix_nano: state.drift_episode_peak_at_unix_nano,
+                    drift_episode_peak_shift: state.drift_episode_peak_shift,
+                    drift_peak_severity_band: state.drift_peak_severity_band,
+                    drift_active_samples: state.drift_active_samples,
+                    drift_clear_samples: state.drift_clear_samples,
+                    drift_last_emitted_at_unix_nano: state.drift_last_emitted_at_unix_nano,
+                    drift_last_cleared_at_unix_nano: state.drift_last_cleared_at_unix_nano,
+                    drift_last_episode_started_at_unix_nano: state
+                        .drift_last_episode_started_at_unix_nano,
+                    drift_reopen_count: state.drift_reopen_count,
+                    last_non_clear_emitted_at_unix_nano: state.last_non_clear_emitted_at_unix_nano,
                     last_observed_at_unix_nano: state.last_observed_at_unix_nano,
                 })
                 .collect(),
@@ -173,29 +234,75 @@ impl DetectorEngine {
                     series.cusum_neg.unwrap_or(0.0),
                 )
             });
+            let restore_cusum_latch = cusum.is_some();
+            let restore_open_drift = series.drift_active
+                && series.drift_active_direction.is_some()
+                && series.drift_episode_started_at_unix_nano.is_some()
+                && series.drift_episode_peak_value.is_some()
+                && series.drift_episode_peak_at_unix_nano.is_some();
 
-            self.series.insert(
-                series.series_key,
-                SeriesState {
-                    window_tail,
-                    consecutive_anomalous: series.consecutive_anomalous,
-                    consecutive_clean: series.consecutive_clean,
-                    active_anomalous: series.active_anomalous,
-                    pending_episode_started_at_unix_nano: series
-                        .pending_episode_started_at_unix_nano,
-                    pending_episode_peak_value: series.pending_episode_peak_value,
-                    pending_episode_peak_at_unix_nano: series.pending_episode_peak_at_unix_nano,
-                    active_episode_started_at_unix_nano: series.active_episode_started_at_unix_nano,
-                    active_episode_peak_value: series.active_episode_peak_value,
-                    active_episode_peak_at_unix_nano: series.active_episode_peak_at_unix_nano,
-                    aggregation_slot_start_unix_nano: series.aggregation_slot_start_unix_nano,
-                    aggregation_slot_value: series.aggregation_slot_value,
-                    aggregation_slot_peak_at_unix_nano: series.aggregation_slot_peak_at_unix_nano,
-                    cusum,
-                    cusum_anchor,
-                    last_observed_at_unix_nano: series.last_observed_at_unix_nano,
-                },
-            );
+            let mut restored_state = SeriesState::new(series.last_observed_at_unix_nano);
+            restored_state.window_tail = window_tail;
+            restored_state.consecutive_anomalous = series.consecutive_anomalous;
+            restored_state.consecutive_clean = series.consecutive_clean;
+            restored_state.active_anomalous = series.active_anomalous;
+            restored_state.pending_episode_started_at_unix_nano =
+                series.pending_episode_started_at_unix_nano;
+            restored_state.pending_episode_peak_value = series.pending_episode_peak_value;
+            restored_state.pending_episode_peak_at_unix_nano =
+                series.pending_episode_peak_at_unix_nano;
+            restored_state.active_episode_started_at_unix_nano =
+                series.active_episode_started_at_unix_nano;
+            restored_state.active_episode_peak_value = series.active_episode_peak_value;
+            restored_state.active_episode_peak_at_unix_nano =
+                series.active_episode_peak_at_unix_nano;
+            restored_state.aggregation_slot_start_unix_nano =
+                series.aggregation_slot_start_unix_nano;
+            restored_state.aggregation_slot_value = series.aggregation_slot_value;
+            restored_state.aggregation_slot_peak_at_unix_nano =
+                series.aggregation_slot_peak_at_unix_nano;
+            restored_state.cusum = cusum;
+            restored_state.cusum_anchor = cusum_anchor;
+            restored_state.cusum_anchor_captured_at_unix_nano = series
+                .cusum_anchor_captured_at_unix_nano
+                .or(cusum_anchor.map(|_| series.last_observed_at_unix_nano));
+            restored_state.cusum_run_samples = if restore_cusum_latch {
+                series.cusum_run_samples
+            } else {
+                0
+            };
+            restored_state.cusum_pending_direction = restore_cusum_latch
+                .then_some(series.cusum_pending_direction)
+                .flatten();
+            restored_state.cusum_pending_samples =
+                if restored_state.cusum_pending_direction.is_some() {
+                    series.cusum_pending_samples
+                } else {
+                    0
+                };
+            restored_state.drift_active = restore_open_drift;
+            if restore_open_drift {
+                restored_state.drift_active_direction = series.drift_active_direction;
+                restored_state.drift_episode_started_at_unix_nano =
+                    series.drift_episode_started_at_unix_nano;
+                restored_state.drift_episode_peak_value = series.drift_episode_peak_value;
+                restored_state.drift_episode_peak_at_unix_nano =
+                    series.drift_episode_peak_at_unix_nano;
+                restored_state.drift_episode_peak_shift = series.drift_episode_peak_shift;
+                restored_state.drift_peak_severity_band = series.drift_peak_severity_band;
+                restored_state.drift_active_samples = series.drift_active_samples;
+                restored_state.drift_clear_samples = series.drift_clear_samples;
+                restored_state.drift_last_emitted_at_unix_nano =
+                    series.drift_last_emitted_at_unix_nano;
+            }
+            restored_state.drift_last_cleared_at_unix_nano = series.drift_last_cleared_at_unix_nano;
+            restored_state.drift_last_episode_started_at_unix_nano =
+                series.drift_last_episode_started_at_unix_nano;
+            restored_state.drift_reopen_count = series.drift_reopen_count;
+            restored_state.last_non_clear_emitted_at_unix_nano =
+                series.last_non_clear_emitted_at_unix_nano;
+
+            self.series.insert(series.series_key, restored_state);
             restored += 1;
         }
 

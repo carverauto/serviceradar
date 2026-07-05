@@ -102,6 +102,7 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
     })?;
 
     let series_expr = series_expr(plan, table)?;
+    let rate_partition_expr = rate_partition_expr(plan, &series_expr);
     let bucket_secs = downsample.bucket_seconds;
 
     let mut clauses = Vec::new();
@@ -152,21 +153,38 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
 
         let (counter_width_select, rate_case) = if has_counter_width {
             (
-                ",\n    counter_width".to_string(),
+                r#",
+    counter_width,
+    CASE
+      WHEN metadata->>'max_counter_rate_per_second' ~ '^[0-9]+(\.[0-9]+)?$'
+        THEN (metadata->>'max_counter_rate_per_second')::double precision
+      ELSE NULL
+    END AS max_rate_per_second"#
+                    .to_string(),
                 format!(
                     r#"CASE
       -- Monotonic increase (the common case): plain delta / elapsed seconds.
       WHEN {value_col} >= prev_value
+        AND (
+          max_rate_per_second IS NULL
+          OR ({value_col} - prev_value) / {time_delta} <= max_rate_per_second
+        )
         THEN ({value_col} - prev_value) / {time_delta}
-      -- Decrease on a 64-bit (HC) counter: add the 2^64 modulus.
+      -- Decrease on a 64-bit (HC) counter: add the 2^64 modulus only when a
+      -- producer-supplied plausibility ceiling rules it in.
       WHEN counter_width = 64
+        AND max_rate_per_second IS NOT NULL
+        AND ({value_col} + 18446744073709551616 - prev_value) / {time_delta} <= max_rate_per_second
         THEN ({value_col} + 18446744073709551616 - prev_value) / {time_delta}
-      -- Decrease on an explicit 32-bit counter: add the 2^32 modulus.
+      -- Decrease on an explicit 32-bit counter: add the 2^32 modulus, bounded
+      -- by a producer-supplied ceiling when present and 2^32/s otherwise.
       WHEN counter_width = 32
+        AND ({value_col} + 4294967296 - prev_value) / {time_delta} <= COALESCE(max_rate_per_second, 4294967296)
         THEN ({value_col} + 4294967296 - prev_value) / {time_delta}
       -- Unknown width (legacy rows): assume a 32-bit wrap only when the previous value
       -- still fit in 32 bits, otherwise treat the decrease as a genuine reset and drop it.
       WHEN prev_value < 4294967296
+        AND ({value_col} + 4294967296 - prev_value) / {time_delta} <= COALESCE(max_rate_per_second, 4294967296)
         THEN ({value_col} + 4294967296 - prev_value) / {time_delta}
       ELSE NULL
     END"#
@@ -192,8 +210,8 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
     {ts_col},
     {series_expr} AS series,
     {value_col},
-    LAG({value_col}) OVER (PARTITION BY {series_expr} ORDER BY {ts_col}) AS prev_value,
-    LAG({ts_col}) OVER (PARTITION BY {series_expr} ORDER BY {ts_col}) AS prev_timestamp{counter_width_select}
+    LAG({value_col}) OVER (PARTITION BY {rate_partition_expr} ORDER BY {ts_col}) AS prev_value,
+    LAG({ts_col}) OVER (PARTITION BY {rate_partition_expr} ORDER BY {ts_col}) AS prev_timestamp{counter_width_select}
   FROM {table}
   WHERE {where_clause}
 ),
@@ -219,6 +237,7 @@ LIMIT ? OFFSET ?"#,
             value_col = value_col,
             table = table,
             where_clause = where_clause,
+            rate_partition_expr = rate_partition_expr,
             bucket_secs = bucket_secs
         );
         let _ = time_range;
@@ -239,6 +258,17 @@ LIMIT ? OFFSET ?"#,
 
     let _ = time_range;
     Ok(sql)
+}
+
+fn rate_partition_expr(plan: &QueryPlan, display_series_expr: &str) -> String {
+    if matches!(
+        plan.entity,
+        Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics
+    ) {
+        "gateway_id, COALESCE(agent_id, ''), metric_type, metric_name, series_key".to_string()
+    } else {
+        display_series_expr.to_string()
+    }
 }
 
 /// Returns the flow traffic CAGG table when a flows downsample plan can be served from a

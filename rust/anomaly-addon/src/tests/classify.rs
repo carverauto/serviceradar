@@ -4,7 +4,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::support::{metric_named, metric_of_type};
-use crate::metrics_classify::{GaugeClass, gauge_class, series_profile_for};
+use crate::engine::DriftMode;
+use crate::metrics_classify::{
+    GaugeClass, counter_series_profile, gauge_class, series_profile_for,
+};
 
 #[test]
 fn gauge_classes_map_like_central_metric_group() {
@@ -49,6 +52,11 @@ fn gauge_profile_carries_directional_floor_gate() {
         assert_eq!(gate.min_value, floor, "{ty} absolute floor");
         assert!(profile.min_std_floor > 0.0, "{ty} must have a std floor");
         assert!(profile.min_cv > 0.0, "{ty} must have a cv floor");
+        if ty == "sysmon.disk" {
+            assert_eq!(profile.drift_mode, DriftMode::Off);
+        } else {
+            assert_eq!(profile.drift_mode, DriftMode::DeseasonalizedOnly);
+        }
     }
 }
 
@@ -59,6 +67,17 @@ fn non_gauge_metric_gets_default_profile() {
     assert!(profile.saturation_gate.is_none());
     assert_eq!(profile.min_std_floor, 0.0);
     assert_eq!(profile.min_cv, 0.0);
+    assert_eq!(profile.drift_mode, DriftMode::Off);
+}
+
+#[test]
+fn counter_profile_is_deseasonalized_only_with_drift_floor() {
+    let profile = counter_series_profile();
+    assert!(profile.saturation_gate.is_none());
+    assert_eq!(profile.min_std_floor, 0.0);
+    assert_eq!(profile.min_cv, 0.0);
+    assert_eq!(profile.drift_mode, DriftMode::DeseasonalizedOnly);
+    assert_eq!(profile.drift_min_cv, 0.05);
 }
 
 #[test]

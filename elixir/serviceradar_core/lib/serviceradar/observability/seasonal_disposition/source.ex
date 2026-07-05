@@ -19,6 +19,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
   @default_time_range "last_180d"
   @default_limit 50_000
   @default_profile_timezone "Etc/UTC"
+  @interface_rate_metrics ~w(ifInOctets ifOutOctets ifInUcastPkts ifOutUcastPkts)
   @profile_timezone_keys [
     :profile_timezone,
     "profile_timezone",
@@ -86,7 +87,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
     limit = Keyword.get(opts, :limit, @default_limit)
     profile_timezone = profile_timezone_value(opts)
 
-    [
+    host_sources = [
       %__MODULE__{
         name: "cpu_seasonal",
         resource_type: "cpu",
@@ -118,6 +119,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
         label_fields: ["series"]
       }
     ]
+
+    host_sources ++ interface_sources(time_range, limit, profile_timezone)
   end
 
   @spec from_config(map() | keyword() | t()) :: t()
@@ -173,6 +176,26 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
     ~s|in:timeseries_metrics metric_type:"#{metric_type}" metric_name:"#{metric_name}" time:#{time_range} bucket:1h agg:avg series:uid stats:profile_hour_of_week(value) timezone:"#{profile_timezone}" sort:dow:asc,hod:asc limit:#{limit}|
   end
 
+  defp interface_sources(time_range, limit, profile_timezone) do
+    Enum.map(@interface_rate_metrics, fn metric_name ->
+      %__MODULE__{
+        name: "interface_#{Macro.underscore(metric_name)}_seasonal",
+        resource_type: "interface",
+        metric_class: "interface",
+        metric_name: metric_name,
+        wire_metric_name: metric_name,
+        query: interface_profile_query(metric_name, time_range, limit, profile_timezone),
+        robust_statistic: :median_mad,
+        profile_timezone: profile_timezone,
+        label_fields: ["series", "if_index", "metric_name"]
+      }
+    end)
+  end
+
+  defp interface_profile_query(metric_name, time_range, limit, profile_timezone) do
+    ~s|in:timeseries_metric_interface_hourly metric_name:"#{metric_name}" time:#{time_range} stats:profile_hour_of_week(value) timezone:"#{profile_timezone}" sort:series:asc,if_index:asc,dow:asc,hod:asc limit:#{limit}|
+  end
+
   @doc """
   Whether the source scores against a robust statistic whose order statistics must
   already exclude the latest bucket in SQL (design D6: order stats cannot be
@@ -197,6 +220,19 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
       }) do
     metric_class in ["cpu", "memory"] and
       metric_name in ["usage_percent", "used_percent"]
+  end
+
+  @doc """
+  Whether a source can be delivered as an edge seasonal baseline.
+
+  This is intentionally broader than central seasonal disposition: interface
+  rates are delivered to the edge for deseasonalized drift, but they do not emit
+  central seasonal verdicts.
+  """
+  @spec baseline_delivery_supported?(t()) :: boolean()
+  def baseline_delivery_supported?(%__MODULE__{} = source) do
+    seasonal_disposition_supported?(source) or
+      (source.resource_type == "interface" and source.metric_name in @interface_rate_metrics)
   end
 
   # The robust statistic atom is the NIF `RobustStatistic` `NifUnitEnum` ABI contract:

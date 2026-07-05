@@ -7,6 +7,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
   @chart_right_pad 32
   @chart_top_pad 12
   @chart_bottom_pad 24
+  @label_char_width 7
+  @label_margin 18
+  @max_chart_left_pad 160
 
   def chart_width, do: @chart_width
   def chart_height, do: @chart_height
@@ -15,7 +18,25 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
   def chart_top_pad, do: @chart_top_pad
   def chart_bottom_pad, do: @chart_bottom_pad
 
-  def chart_paths(points, %{min: min_v, max: max_v, scale: scale}) when is_list(points) do
+  def chart_left_pad(y_ticks) when is_list(y_ticks) do
+    label_width =
+      y_ticks
+      |> Enum.map(fn
+        {_y, label} when is_binary(label) -> String.length(label) * @label_char_width
+        {_y, label} -> label |> to_string() |> String.length() |> Kernel.*(@label_char_width)
+      end)
+      |> Enum.max(fn -> 0 end)
+
+    @chart_left_pad
+    |> max(label_width + @label_margin)
+    |> min(@max_chart_left_pad)
+  end
+
+  def chart_left_pad(_y_ticks), do: @chart_left_pad
+
+  def chart_paths(points, domain), do: chart_paths(points, domain, %{})
+
+  def chart_paths(points, %{min: min_v, max: max_v, scale: scale}, opts) when is_list(points) do
     values =
       points
       |> Enum.map(fn {_dt, v} -> v end)
@@ -32,8 +53,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
           points
           |> Enum.with_index()
           |> Enum.map(fn
-            {{_dt, v}, idx} when is_number(v) ->
-              x = idx_to_x(idx, length(points))
+            {{dt, v}, idx} when is_number(v) ->
+              x = datetime_to_x(dt, points, opts) || idx_to_x(idx, length(points), opts)
 
               case value_to_y(v, min_v, max_v, scale) do
                 y when is_number(y) -> {x, y}
@@ -56,7 +77,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
     end
   end
 
-  def chart_paths(points, max_y) when is_list(points) do
+  def chart_paths(points, max_y, opts) when is_list(points) do
     %{max: max_v} = stats(points)
 
     chart_max =
@@ -66,7 +87,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
         true -> 1.0
       end
 
-    chart_paths(points, %{min: 0.0, max: chart_max, scale: :linear})
+    chart_paths(points, %{min: 0.0, max: chart_max, scale: :linear}, opts)
   end
 
   def stats(points) when is_list(points) do
@@ -89,13 +110,56 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
     end
   end
 
-  def idx_to_x(_idx, 0), do: @chart_left_pad
-  def idx_to_x(0, _len), do: @chart_left_pad
+  def idx_to_x(idx, len), do: idx_to_x(idx, len, %{})
 
-  def idx_to_x(idx, len) when len > 1 do
-    usable = @chart_width - @chart_left_pad - @chart_right_pad
-    round(@chart_left_pad + idx / (len - 1) * usable)
+  def idx_to_x(_idx, 0, opts), do: geometry(opts).left_pad
+  def idx_to_x(0, _len, opts), do: geometry(opts).left_pad
+
+  def idx_to_x(idx, len, opts) when len > 1 do
+    geometry = geometry(opts)
+    usable = @chart_width - geometry.left_pad - geometry.right_pad
+    round(geometry.left_pad + idx / (len - 1) * usable)
   end
+
+  def datetime_to_x(%DateTime{} = dt, points), do: datetime_to_x(dt, points, %{})
+
+  def datetime_to_x(%DateTime{} = dt, points, opts) when is_list(points) do
+    times =
+      points
+      |> Enum.map(fn
+        {%DateTime{} = point_dt, _value} -> DateTime.to_unix(point_dt, :millisecond)
+        _point -> nil
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    case times do
+      [] ->
+        nil
+
+      [only] ->
+        if DateTime.to_unix(dt, :millisecond) == only, do: geometry(opts).left_pad
+
+      _ ->
+        target = DateTime.to_unix(dt, :millisecond)
+        first = List.first(times)
+        last = List.last(times)
+
+        cond do
+          target < first or target > last ->
+            nil
+
+          last == first ->
+            geometry(opts).left_pad
+
+          true ->
+            geometry = geometry(opts)
+            usable = @chart_width - geometry.left_pad - geometry.right_pad
+            Float.round(geometry.left_pad + (target - first) / (last - first) * usable, 2)
+        end
+    end
+  end
+
+  def datetime_to_x(_dt, _points, _opts), do: nil
 
   def value_to_y(_v, min_v, max_v) when min_v == max_v, do: round(@chart_height / 2)
 
@@ -118,7 +182,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
   def value_to_y(v, min_v, max_v, _scale), do: value_to_y(v, min_v, max_v)
 
   defp line_path([]), do: ""
-  defp line_path([{x, y}]), do: "M #{x},#{y}"
+
+  defp line_path([{x, y}]) do
+    "M #{fmt(x - 2)},#{fmt(y)} L #{fmt(x + 2)},#{fmt(y)}"
+  end
 
   defp line_path(coords) when length(coords) < 3 do
     [{x0, y0} | rest] = coords
@@ -270,4 +337,36 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
 
   defp fmt(value) when is_number(value), do: :erlang.float_to_binary(value * 1.0, decimals: 2)
   defp baseline_y, do: @chart_height - @chart_bottom_pad
+
+  defp geometry(opts) do
+    %{
+      left_pad:
+        opts
+        |> geometry_value([:chart_left_pad, :left_pad, "chart_left_pad", "left_pad"], @chart_left_pad)
+        |> clamp_pad(@chart_left_pad, @max_chart_left_pad),
+      right_pad: geometry_value(opts, [:chart_right_pad, :right_pad, "chart_right_pad", "right_pad"], @chart_right_pad)
+    }
+  end
+
+  defp geometry_value(opts, keys, default) when is_map(opts) do
+    Enum.find_value(keys, default, fn key ->
+      case Map.get(opts, key) do
+        value when is_number(value) -> value
+        _ -> nil
+      end
+    end)
+  end
+
+  defp geometry_value(opts, keys, default) when is_list(opts) do
+    Enum.find_value(keys, default, fn key ->
+      case Keyword.get(opts, key) do
+        value when is_number(value) -> value
+        _ -> nil
+      end
+    end)
+  end
+
+  defp geometry_value(_opts, _keys, default), do: default
+
+  defp clamp_pad(value, min_value, max_value), do: value |> max(min_value) |> min(max_value)
 end

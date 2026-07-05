@@ -140,7 +140,11 @@ pub fn generalized_esd(values: &[f64], max_outliers: usize, alpha: f64) -> Vec<u
         let center = median(&cur);
         let scale = {
             let s = mad_scale(&cur, center);
-            if s > 1e-12 { s } else { stddev(&cur).max(1e-12) }
+            if s > 1e-12 {
+                s
+            } else {
+                stddev(&cur).max(1e-12)
+            }
         };
 
         // point with the maximum robust deviation
@@ -246,12 +250,18 @@ mod tests {
         v.push(24.0); // outlier idx 42
         let mut out = generalized_esd(&v, 10, 0.05);
         out.sort_unstable();
-        assert_eq!(out, vec![40, 41, 42], "GESD should find exactly the 3 outliers");
+        assert_eq!(
+            out,
+            vec![40, 41, 42],
+            "GESD should find exactly the 3 outliers"
+        );
     }
 
     #[test]
     fn gesd_clean_series_finds_nothing() {
-        let v: Vec<f64> = (0..50).map(|i| 5.0 + ((i % 7) as f64 - 3.0) * 0.05).collect();
+        let v: Vec<f64> = (0..50)
+            .map(|i| 5.0 + ((i % 7) as f64 - 3.0) * 0.05)
+            .collect();
         assert!(
             generalized_esd(&v, 5, 0.05).is_empty(),
             "a clean series must yield no outliers"
@@ -276,7 +286,11 @@ mod tests {
         v[78] = 88.0; // phase 6, period 3
         let mut out = seasonal_hybrid_esd(&v, period, 6, 0.05);
         out.sort_unstable();
-        assert_eq!(out, vec![6, 78], "S-H-ESD should flag the off-pattern spikes only");
+        assert_eq!(
+            out,
+            vec![6, 78],
+            "S-H-ESD should flag the off-pattern spikes only"
+        );
     }
 
     #[test]

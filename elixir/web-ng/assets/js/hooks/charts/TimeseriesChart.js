@@ -1,4 +1,4 @@
-import {timeseriesClientXToPointIndex, timeseriesPointIndexToLocalX} from "./geometry"
+import {timeseriesClientXToPointIndex, timeseriesNearestPointIndexByX, timeseriesPointToLocalX} from "./geometry"
 import {hoverPosition, plotGeometryFromDataset} from "../../utils/chart_hover_geometry"
 
 export default {
@@ -81,16 +81,16 @@ export default {
       const rect = svg.getBoundingClientRect()
       const geometry = plotGeometryFromDataset(el, svg, rect)
       const position = hoverPosition(e.clientX, rect, geometry)
+      const viewX = geometry.plotLeft + position.pct * geometry.plotWidth
       const idx =
-        pointsData.length > 1
-          ? Math.round(position.pct * (pointsData.length - 1))
-          : timeseriesClientXToPointIndex(e.clientX, rect, pointsData.length)
-      const x = timeseriesPointIndexToLocalX(idx, rect, pointsData.length, {
+        timeseriesNearestPointIndexByX(pointsData, viewX) ??
+        timeseriesClientXToPointIndex(e.clientX, rect, pointsData.length)
+      const point = pointsData[idx]
+      const x = timeseriesPointToLocalX(point, idx, rect, pointsData.length, {
         viewBoxWidth: geometry.viewBoxWidth,
         chartLeftPad: geometry.plotLeft,
         chartRightPad: geometry.plotRight,
       })
-      const point = pointsData[idx]
 
       if (point) {
         const value = formatValue(point.v)

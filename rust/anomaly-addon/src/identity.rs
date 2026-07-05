@@ -25,6 +25,10 @@ const SERIES_DIMENSION_EXCLUDED_KEYS: &[&str] = &[
     "available",
     "metric",
     "packet_loss",
+    "pid",
+    "process_id",
+    "start_time",
+    "start_time_unix_nano",
 ];
 
 pub(crate) trait MetadataEntries {
@@ -154,16 +158,17 @@ fn push_pipe_component(buf: &mut String, name: &str, value: &[u8]) {
 }
 
 /// The seasonal-baseline lookup key for one sample: the canonical device-uid
-/// joined with the metric name.
+/// joined with the metric name, plus `if_index` for per-interface metrics.
 ///
 /// This deliberately does NOT match the per-series DETECTOR key
 /// ([`series_key_for`], a fine edge-local `v2|partition|identity|metric|dims`
 /// composite). It matches the keyspace of central's hour-of-week profile, which
 /// is built with SRQL `series:uid` (`device_id AS series`) for a fixed metric —
 /// i.e. one device-level series per metric. The core edge-baseline producer
-/// delivers `seasonal_baselines` keyed by `<device_uid>|<metric_name>`, so this
-/// is the key the engine must look the delivered baseline up by, even though the
-/// rolling detector state stays keyed by the finer `series_key`.
+/// delivers `seasonal_baselines` keyed by `<device_uid>|<metric_name>` for host
+/// metrics and `<device_uid>|<metric_name>|<if_index>` for interface metrics, so
+/// this is the key the engine must look the delivered baseline up by, even though
+/// the rolling detector state stays keyed by the finer `series_key`.
 ///
 /// `device_uid` uses the same identity precedence as the emitted verdict
 /// ([`anomaly_device_uid`]), so the edge resolves the SAME canonical device the
@@ -184,6 +189,10 @@ pub(crate) fn seasonal_series_key(
     key.push_str(uid);
     key.push('|');
     key.push_str(&metric.name);
+    if point.if_index > 0 {
+        key.push('|');
+        key.push_str(&point.if_index.to_string());
+    }
     key
 }
 

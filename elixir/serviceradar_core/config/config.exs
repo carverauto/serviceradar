@@ -61,6 +61,8 @@ config :serviceradar_core, Oban,
        {"*/10 * * * *", ServiceRadar.Edge.RemoteAccessRecordingReaperWorker, queue: :maintenance},
        {"31 3 * * *", ServiceRadar.Edge.RemoteAccessVersionRetentionWorker, queue: :maintenance},
        {"23 3 * * *", ServiceRadar.Jobs.SecurityEventsRetentionWorker, queue: :maintenance},
+       {"*/5 * * * *", ServiceRadar.Observability.AnomalyEpisodeStaleCloseWorker,
+        queue: :maintenance},
        {"*/30 * * * *", ServiceRadar.Observability.ResolveStaleAnomaliesWorker,
         queue: :maintenance}
      ]}

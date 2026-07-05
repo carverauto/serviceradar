@@ -20,7 +20,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsQueryTest do
     assert query =~ ~s(metric_name:["ifInErrors","ifInOctets","ifOutOctets"])
     assert query =~ "time:last_24h"
     assert query =~ "bucket:1m"
-    assert query =~ "agg:max"
+    assert query =~ "agg:rate"
     assert query =~ "series:metric_name"
     assert query =~ "limit:4320"
     refute query =~ "bucket:5m"

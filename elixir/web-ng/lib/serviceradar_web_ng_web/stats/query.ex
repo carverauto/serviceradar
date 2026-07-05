@@ -141,6 +141,34 @@ defmodule ServiceRadarWebNGWeb.Stats.Query do
     "in:events time:#{time} rollup_stats:anomaly_findings"
   end
 
+  @doc "Build the event-list drill-down query for anomaly finding rollup cards."
+  @spec anomaly_findings_data_query(keyword()) :: String.t()
+  def anomaly_findings_data_query(opts \\ []), do: finding_rollup_data_query(:anomaly, opts)
+
+  @doc "Build the event-list drill-down query for at-risk capacity finding rollup cards."
+  @spec capacity_at_risk_data_query(keyword()) :: String.t()
+  def capacity_at_risk_data_query(opts \\ []), do: finding_rollup_data_query(:capacity_at_risk, opts)
+
+  @doc "Build the event-list drill-down query for the combined health findings rollup card."
+  @spec health_findings_data_query(keyword()) :: String.t()
+  def health_findings_data_query(opts \\ []), do: finding_rollup_data_query(:health, opts)
+
+  @spec finding_rollup_data_query(atom() | String.t(), keyword()) :: String.t()
+  def finding_rollup_data_query(kind, opts \\ []) do
+    time = Keyword.get(opts, :time, @default_time_window)
+    sort = Keyword.get(opts, :sort, "time:desc")
+    limit = Keyword.get(opts, :limit)
+    kind = normalize_finding_rollup_kind(kind)
+
+    base = "in:events finding_rollup:#{kind} time:#{time} sort:#{sort}"
+
+    if is_integer(limit) and limit > 0 do
+      "#{base} limit:#{limit}"
+    else
+      base
+    end
+  end
+
   @doc """
   Build SRQL query for services availability stats.
 
@@ -174,6 +202,14 @@ defmodule ServiceRadarWebNGWeb.Stats.Query do
     |> String.replace("\\", "\\\\")
     |> String.replace("\"", "\\\"")
   end
+
+  defp normalize_finding_rollup_kind(:anomaly), do: "anomaly"
+  defp normalize_finding_rollup_kind(:capacity_at_risk), do: "capacity_at_risk"
+  defp normalize_finding_rollup_kind(:health), do: "health"
+  defp normalize_finding_rollup_kind("anomaly"), do: "anomaly"
+  defp normalize_finding_rollup_kind("capacity_at_risk"), do: "capacity_at_risk"
+  defp normalize_finding_rollup_kind("health"), do: "health"
+  defp normalize_finding_rollup_kind(other), do: raise(ArgumentError, "unknown finding rollup kind: #{inspect(other)}")
 
   defp maybe_add_filter(filters, _field, nil), do: filters
   defp maybe_add_filter(filters, _field, ""), do: filters

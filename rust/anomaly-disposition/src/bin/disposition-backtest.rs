@@ -76,7 +76,9 @@ fn parse_args() -> Args {
                 }
             }
             "--horizon-seconds" => {
-                a.horizon_seconds = next().and_then(|v| v.parse().ok()).unwrap_or(a.horizon_seconds)
+                a.horizon_seconds = next()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(a.horizon_seconds)
             }
             "--threshold" => a.threshold = next().and_then(|v| v.parse().ok()),
             "--model" => {
@@ -217,14 +219,19 @@ fn run_capacity(args: Args, input: Box<dyn BufRead>) {
         }
         let c: Vec<&str> = line.split(',').collect();
         let key = c.first().unwrap_or(&"").trim().to_string();
-        let at: i64 = field(&c, 1, "at_unix_micros").unwrap_or_else(|e| die(format!("line {}: {e}", n + 1)));
-        let value: f64 = field(&c, 2, "value").unwrap_or_else(|e| die(format!("line {}: {e}", n + 1)));
+        let at: i64 =
+            field(&c, 1, "at_unix_micros").unwrap_or_else(|e| die(format!("line {}: {e}", n + 1)));
+        let value: f64 =
+            field(&c, 2, "value").unwrap_or_else(|e| die(format!("line {}: {e}", n + 1)));
         points.entry(key.clone()).or_insert_with(|| {
             order.push(key.clone());
             Vec::new()
         });
         if let Some(v) = points.get_mut(&key) {
-            v.push(CapacityPoint { at_unix_micros: at, value });
+            v.push(CapacityPoint {
+                at_unix_micros: at,
+                value,
+            });
         }
     }
 
@@ -235,7 +242,10 @@ fn run_capacity(args: Args, input: Box<dyn BufRead>) {
 exhaustion_at_unix_micros,confidence,lower_bound,upper_bound,rmse,sample_count"
     );
     for key in order {
-        let row = CapacityRow { series_key: key.clone(), points: points.remove(&key).unwrap_or_default() };
+        let row = CapacityRow {
+            series_key: key.clone(),
+            points: points.remove(&key).unwrap_or_default(),
+        };
         let v = dispose_capacity(row, &config);
         match v.disposition {
             Disposition::Projected(f) => {
@@ -258,7 +268,12 @@ exhaustion_at_unix_micros,confidence,lower_bound,upper_bound,rmse,sample_count"
                 );
             }
             Disposition::Skipped { reason } => {
-                let _ = writeln!(out, "{},skipped:{},,,,,,,,,", v.series_key, reason.replace(',', ";"));
+                let _ = writeln!(
+                    out,
+                    "{},skipped:{},,,,,,,,,",
+                    v.series_key,
+                    reason.replace(',', ";")
+                );
             }
             other => {
                 let _ = writeln!(out, "{},{:?},,,,,,,,,", v.series_key, other);

@@ -287,8 +287,9 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntime do
 
   defp normalize_override_values(_values), do: %{}
 
-  defp maybe_put_forecast_model(opts, model) when model in [:seasonal_linear, :holt_winters],
-    do: Keyword.put(opts, :forecast_model, Atom.to_string(model))
+  defp maybe_put_forecast_model(opts, model)
+       when model in [:linear, :seasonal_linear, :holt_winters],
+       do: Keyword.put(opts, :forecast_model, Atom.to_string(model))
 
   defp maybe_put_forecast_model(opts, _model), do: opts
 

@@ -69,6 +69,7 @@ defmodule ServiceRadar.Observability do
     resource ServiceRadar.Observability.NetflowOuiDatasetSnapshot
     resource ServiceRadar.Observability.NetflowOuiPrefix
     resource ServiceRadar.Observability.AnomalyDetectionConfig
+    resource ServiceRadar.Observability.AnomalyEpisode
     resource ServiceRadar.Observability.CapacityForecastConfig
     # Metrics resources - all map to TimescaleDB hypertables with migrate?: false
     # matching Go schema exactly

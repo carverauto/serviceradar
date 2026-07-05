@@ -146,7 +146,7 @@ WHERE {}"#,
 // idx_ocsf_events_class_category_time. Keep this predicate scoped to explicit
 // anomaly markers only; generic OCSF detection_finding metadata is also used by
 // capacity forecast verdicts and would inflate the anomaly count.
-fn anomaly_detection_rollup_source_clause() -> &'static str {
+pub(super) fn anomaly_detection_rollup_source_clause() -> &'static str {
     r#"(
   metadata #>> '{service_radar,source_type}' = 'anomaly_detection'
   OR metadata #>> '{service_radar,addon_id}' = 'anomaly-detection'
@@ -157,7 +157,7 @@ fn anomaly_detection_rollup_source_clause() -> &'static str {
 )"#
 }
 
-fn capacity_forecast_at_risk_rollup_clause() -> &'static str {
+pub(super) fn capacity_forecast_at_risk_rollup_clause() -> &'static str {
     r#"(metadata ->> 'event_type' = 'capacity_forecast'
   OR unmapped ->> 'event_type' = 'capacity_forecast'
   OR log_provider = 'capacity_forecasting')
@@ -168,7 +168,7 @@ AND (
 )"#
 }
 
-fn capacity_forecast_rollup_source_clause() -> &'static str {
+pub(super) fn capacity_forecast_rollup_source_clause() -> &'static str {
     r#"(metadata ->> 'event_type' = 'capacity_forecast'
   OR unmapped ->> 'event_type' = 'capacity_forecast'
   OR log_provider = 'capacity_forecasting')"#

@@ -78,6 +78,27 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
 
   defmodule ResolverDefaultQuery do
     @moduledoc false
+
+    def resolve([%{entity: "agents", query: "in:agents"}], _opts) do
+      {:ok,
+       [
+         %{
+           name: "targets",
+           entity: "agents",
+           query: "in:agents",
+           rows: [
+             %{
+               "uid" => "agent-good",
+               "os" => "linux",
+               "arch" => "amd64",
+               "agent_version" => "1.2.3",
+               "capabilities" => ["endpoint-inventory"]
+             }
+           ]
+         }
+       ]}
+    end
+
     def resolve([%{entity: "devices", query: "in:devices"}], _opts) do
       {:ok,
        [
@@ -296,7 +317,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
            ]
   end
 
-  test "blank profile target query defaults to all devices" do
+  test "blank profile target query defaults to all agents" do
     profile = Map.put(endpoint_inventory_profile(), :target_query, " ")
 
     assert {:ok, result} =
@@ -312,18 +333,75 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     assert result.target_samples == [
              %{
                agent_uid: "agent-good",
-               device_uid: "device-good",
-               entity: "devices",
+               device_uid: nil,
+               entity: "agents",
                row: %{
-                 "agent_id" => "agent-good",
                  "agent_version" => "1.2.3",
                  "arch" => "amd64",
                  "os" => "linux",
-                 "uid" => "device-good"
+                 "uid" => "agent-good"
                },
                row_index: 0
              }
            ]
+  end
+
+  test "reconcile preserves assignment-scoped interface seasonal baselines" do
+    profile = %{
+      id: Ecto.UUID.generate(),
+      name: "Anomaly",
+      addon_id: "anomaly",
+      addon_package_id: Ecto.UUID.generate(),
+      target_query: "in:agents name:agent-*",
+      params: %{
+        "metric_feed" => %{"sources" => ["sysmon", "snmp"]},
+        "seasonal_baselines" => %{
+          "sr:host-1|cpu.usage_percent" => %{"buckets" => []}
+        }
+      },
+      args: [],
+      priority: 20,
+      enabled: true
+    }
+
+    assert {:ok, first} =
+             AddonProfileReconciler.reconcile(profile,
+               resolver: ResolverV2,
+               store: MemoryStore,
+               reconciled_at: ~U[2026-06-09 17:00:00Z]
+             )
+
+    assert first.upserted == 1
+
+    {:ok, [assignment]} = MemoryStore.list_profile_assignments(profile.id, nil)
+
+    scoped_params =
+      put_in(assignment.params, ["seasonal_baselines", "sr:router-1|ifInOctets|7"], %{
+        "encoding" => "compact_168_f32",
+        "centers" => [],
+        "scales" => [],
+        "sample_counts" => []
+      })
+
+    updated_assignment = %{assignment | params: scoped_params}
+    Agent.update(MemoryStore, &put_in(&1.assignments[assignment.source_key], updated_assignment))
+
+    assert {:ok, second} =
+             AddonProfileReconciler.reconcile(
+               %{profile | params: Map.put(profile.params, "window_size", 300)},
+               resolver: ResolverV2,
+               store: MemoryStore,
+               reconciled_at: ~U[2026-06-09 17:01:00Z]
+             )
+
+    assert second.upserted == 1
+
+    {:ok, [preserved]} = MemoryStore.list_profile_assignments(profile.id, nil)
+    baselines = preserved.params["seasonal_baselines"]
+
+    assert Map.has_key?(baselines, "sr:host-1|cpu.usage_percent")
+    assert Map.has_key?(baselines, "sr:router-1|ifInOctets|7")
+    assert preserved.params["window_size"] == 300
   end
 
   test "preview reports disabled and unapproved package skip reasons" do

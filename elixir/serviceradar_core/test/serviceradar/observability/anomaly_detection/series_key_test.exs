@@ -19,8 +19,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKeyTest do
       assert SeriesKey.from_source_identity(source_identity) ==
                key(
                  partition: "prod-east",
-                 class: "sysmon",
-                 family: "cpu",
+                 metric: "cpu.usage_percent",
                  identity: "sr:ns03",
                  tags: [{"core_id", "0"}]
                )
@@ -71,8 +70,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKeyTest do
       assert SeriesKey.from_source_identity(source_identity) ==
                key(
                  partition: "prod-east",
-                 class: "snmp",
-                 family: "ifHCInOctets",
+                 metric: "ifHCInOctets",
                  identity: "sr:ns03",
                  if_index: 7
                )
@@ -93,8 +91,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKeyTest do
       assert SeriesKey.from_source_identity(source_identity) ==
                key(
                  partition: "prod-east",
-                 class: "snmp",
-                 family: "ifHCInOctets",
+                 metric: "ifHCInOctets",
                  identity: "10.0.0.20",
                  if_index: 7
                )
@@ -116,9 +113,9 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKeyTest do
       refute in_octets == in_packets
       refute out_octets == in_packets
 
-      assert in_octets =~ "family=#{hex("ifInOctets")}"
-      assert out_octets =~ "family=#{hex("ifOutOctets")}"
-      assert in_packets =~ "family=#{hex("ifInUcastPkts")}"
+      assert in_octets =~ "metric=#{hex("ifInOctets")}"
+      assert out_octets =~ "metric=#{hex("ifOutOctets")}"
+      assert in_packets =~ "metric=#{hex("ifInUcastPkts")}"
     end
 
     test "falls back to host_id when no canonical device_id is available" do
@@ -130,7 +127,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKeyTest do
       }
 
       assert SeriesKey.from_source_identity(source_identity) ==
-               key(partition: "default", class: "sysmon", family: "memory", identity: "ns03")
+               key(partition: "default", metric: "memory.used_percent", identity: "ns03")
     end
 
     test "uses default partition when trusted and producer partitions are absent or blank" do
@@ -143,7 +140,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKeyTest do
       }
 
       assert SeriesKey.from_source_identity(source_identity, partition_id: nil) ==
-               key(partition: "default", class: "sysmon", family: "memory", identity: "ns03")
+               key(partition: "default", metric: "memory.used_percent", identity: "ns03")
     end
 
     test "trusted partition option overrides producer supplied partition" do
@@ -177,8 +174,8 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKeyTest do
       assert lab_key =~ "partition=#{hex("lab-west")}"
       assert prod_key =~ "identity=#{hex("10.0.0.20")}"
       assert lab_key =~ "identity=#{hex("10.0.0.20")}"
-      assert prod_key =~ "family=#{hex("ifHCInOctets")}"
-      assert lab_key =~ "family=#{hex("ifHCInOctets")}"
+      assert prod_key =~ "metric=#{hex("ifHCInOctets")}"
+      assert lab_key =~ "metric=#{hex("ifHCInOctets")}"
     end
 
     test "free-form delimiters cannot collide or leak raw into canonical keys" do
@@ -240,20 +237,76 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKeyTest do
         refute second_key =~ raw
       end
     end
+
+    test "byte-parity fixture matches the edge fallback key for host cpu series" do
+      source_identity = %{
+        "metric_class" => "sysmon.cpu",
+        "metric_name" => "cpu.usage_percent",
+        "partition" => "demo",
+        "device_id" => "device-a",
+        "tags" => %{
+          "host" => "device-a",
+          "core_id" => "3",
+          "label" => "cpu3",
+          "pid" => "1234",
+          "start_time" => "1812456000",
+          "zone" => "rack-a"
+        }
+      }
+
+      assert SeriesKey.from_source_identity(source_identity) ==
+               key(
+                 partition: "demo",
+                 identity: "device-a",
+                 metric: "cpu.usage_percent",
+                 tags: [{"core_id", "3"}, {"label", "cpu3"}, {"zone", "rack-a"}]
+               )
+    end
+
+    test "byte-parity fixture matches the edge fallback key for SNMP interface series" do
+      source_identity = %{
+        "metric_class" => "snmp.interface",
+        "metric_name" => "ifHCInOctets",
+        "partition" => "net",
+        "target_device_ip" => "192.168.1.5",
+        "interface_uid" => "if-uid-7",
+        "if_index" => 7,
+        "tags" => %{
+          "mount_point" => "ignored?",
+          "alpha" => "z",
+          "ifName" => "Gi0/1",
+          "interface_uid" => "excluded-from-tags"
+        }
+      }
+
+      assert SeriesKey.from_source_identity(source_identity) ==
+               key(
+                 partition: "net",
+                 identity: "192.168.1.5",
+                 metric: "ifHCInOctets",
+                 interface_uid: "if-uid-7",
+                 if_index: 7,
+                 tags: [
+                   {"mount_point", "ignored?"},
+                   {"alpha", "z"},
+                   {"ifName", "Gi0/1"}
+                 ]
+               )
+    end
   end
 
   defp key(opts) do
     [
       "v2",
       component("partition", Keyword.fetch!(opts, :partition)),
-      component("class", Keyword.fetch!(opts, :class)),
-      component("family", Keyword.get(opts, :family)),
-      component("identity", Keyword.fetch!(opts, :identity))
+      component("identity", Keyword.fetch!(opts, :identity)),
+      component("metric", Keyword.fetch!(opts, :metric)),
+      component("interface_uid", Keyword.get(opts, :interface_uid))
     ]
     |> Enum.reject(&is_nil/1)
-    |> Kernel.++(tag_components(Keyword.get(opts, :tags, [])))
     |> Kernel.++(if_index_component(Keyword.get(opts, :if_index)))
-    |> Enum.join(":")
+    |> Kernel.++(tag_components(Keyword.get(opts, :tags, [])))
+    |> Enum.join("|")
   end
 
   defp component(_name, nil), do: nil

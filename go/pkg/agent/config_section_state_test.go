@@ -151,13 +151,13 @@ func TestApplyConfigResponseNetprobeParseErrorCommitsAndReportsSection(t *testin
 	}, nil, 30*time.Second, logger.NewTestLogger())
 	pl.setConfigVersion("old-version")
 
-	// The corrupt row from the live incident: capture_interfaces delivered as a scalar
-	// string where the Go decoder expects []string.
+	// A corrupt row that still exceeds the decoder's bounded compatibility:
+	// capture_interfaces must be an array, scalar string, or null.
 	badNetprobe := &proto.AddonAssignmentConfig{
 		AddonId:     agentnetprobe.DefaultSidecarName,
 		Enabled:     true,
 		Supervision: addonSupervisionSystemdService,
-		ConfigJson:  []byte(`{"capture_interfaces": "eth0"}`),
+		ConfigJson:  []byte(`{"capture_interfaces": 42}`),
 	}
 
 	resp := &proto.AgentConfigResponse{
@@ -232,7 +232,7 @@ func TestApplyConfigResponsePermanentFailureNotReattemptedForIdenticalPayload(t 
 		AddonId:     agentnetprobe.DefaultSidecarName,
 		Enabled:     true,
 		Supervision: addonSupervisionSystemdService,
-		ConfigJson:  []byte(`{"capture_interfaces": "eth0"}`),
+		ConfigJson:  []byte(`{"capture_interfaces": 42}`),
 	}
 	makeResp := func(version string) *proto.AgentConfigResponse {
 		return &proto.AgentConfigResponse{

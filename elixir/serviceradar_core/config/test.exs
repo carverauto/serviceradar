@@ -230,6 +230,9 @@ config :serviceradar_core, Oban,
 # Use Test adapter for mailer
 config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Test
 
+config :serviceradar_core, ServiceRadar.Observability.CapacityForecasting.Worker,
+  runtime_config_source: :cache
+
 config :serviceradar_core,
        ServiceRadar.Repo,
        repo_config

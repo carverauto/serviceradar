@@ -22,7 +22,11 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKey do
                                     "producer_kind",
                                     "available",
                                     "metric",
-                                    "packet_loss"
+                                    "packet_loss",
+                                    "pid",
+                                    "process_id",
+                                    "start_time",
+                                    "start_time_unix_nano"
                                   ])
 
   @doc """
@@ -43,7 +47,8 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKey do
           host_id: string(source_identity, "host_id"),
           agent_id: string(source_identity, "agent_id"),
           device_id: string(source_identity, "device_id"),
-          host_ip: string(source_identity, "host_ip")
+          host_ip: string(source_identity, "host_ip"),
+          interface_uid: string(source_identity, "interface_uid")
         }
 
         identity = resource_identity(metric_class, base)
@@ -51,7 +56,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKey do
         if_index = int(source_identity, "if_index")
         partition = partition(source_identity, opts)
 
-        canonical_identity(metric_class, base, partition, identity, tags, if_index)
+        canonical_identity(base, partition, identity, tags, if_index)
     end
   end
 
@@ -79,42 +84,18 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKey do
 
   defp snmp_target_identity(_metric_class, _base), do: nil
 
-  defp canonical_identity(metric_class, base, partition, identity, tags, if_index) do
-    {class_component, family} = class_and_family(metric_class, base.metric_name)
-
+  defp canonical_identity(base, partition, identity, tags, if_index) do
     [
       "v2",
       component("partition", partition),
-      component("class", class_component),
-      component("family", family),
-      component("identity", identity_component(identity, base))
+      component("identity", identity_component(identity, base)),
+      component("metric", base.metric_name),
+      component("interface_uid", base.interface_uid)
     ]
     |> Enum.reject(&is_nil/1)
     |> Kernel.++(series_dimensions(tags, if_index))
-    |> Enum.join(":")
+    |> Enum.join("|")
   end
-
-  defp class_and_family(metric_class, metric_name) do
-    case String.split(metric_class, ".", parts: 2) do
-      ["sysmon", family] when family != "" ->
-        {"sysmon", family}
-
-      ["sysmon"] ->
-        {"sysmon", metric_name_family(metric_name)}
-
-      _ ->
-        {metric_class, metric_name_family(metric_name) || metric_name}
-    end
-  end
-
-  defp metric_name_family(metric_name) when is_binary(metric_name) do
-    case String.split(metric_name, ".", parts: 2) do
-      [family, _rest] when family != "" -> family
-      _ -> nil
-    end
-  end
-
-  defp metric_name_family(_metric_name), do: nil
 
   defp identity_component(nil, base), do: base.target_device_ip || "unknown"
   defp identity_component(identity, _base), do: identity
@@ -129,14 +110,6 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKey do
   end
 
   defp series_dimensions(tags, if_index) do
-    leading =
-      Enum.flat_map(["core_id", "mount_point"], fn key ->
-        case string(tags, key) do
-          nil -> []
-          value -> [tag_component(key, value)]
-        end
-      end)
-
     if_index =
       case if_index do
         value when is_integer(value) and value > 0 ->
@@ -145,6 +118,14 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKey do
         _ ->
           []
       end
+
+    leading =
+      Enum.flat_map(["core_id", "mount_point"], fn key ->
+        case string(tags, key) do
+          nil -> []
+          value -> [tag_component(key, value)]
+        end
+      end)
 
     extra =
       tags
@@ -158,7 +139,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesKey do
       |> Enum.sort_by(&to_string(elem(&1, 0)))
       |> Enum.map(fn {key, value} -> tag_component(to_string(key), string_value(value)) end)
 
-    leading ++ if_index ++ extra
+    if_index ++ leading ++ extra
   end
 
   defp component(_name, nil), do: nil

@@ -19,14 +19,25 @@ defmodule ServiceRadar.Observability.AnomalyDetectionConfig do
     :window_duration_seconds,
     :confirm_slots,
     :min_samples,
-    :metric_class_overrides
+    :metric_class_overrides,
+    :metric_denylist,
+    :emission
   ]
   @default_metric_class_overrides %{
-    "interface" => %{},
-    "red" => %{},
-    "cpu" => %{},
-    "memory" => %{},
-    "disk" => %{}
+    "cpu" => %{"drift_mode" => "deseasonalized_only"},
+    "memory" => %{"drift_mode" => "deseasonalized_only"},
+    "interface" => %{"drift_mode" => "deseasonalized_only"},
+    "disk" => %{"drift_mode" => "off"},
+    "icmp" => %{"drift_mode" => "off"},
+    "other" => %{"drift_mode" => "off"},
+    "red" => %{}
+  }
+  @default_metric_denylist ["cpu.frequency_hz"]
+  @default_emission %{
+    "cooldown_secs" => 300,
+    "budget_per_tick" => 100,
+    "episode_update_interval_secs" => 1_800,
+    "reopen_cooldown_secs" => 600
   }
 
   postgres do
@@ -135,7 +146,22 @@ defmodule ServiceRadar.Observability.AnomalyDetectionConfig do
       allow_nil? false
       default @default_metric_class_overrides
       public? true
-      description "Per-metric-class overrides keyed by interface, red, cpu, memory, or disk"
+
+      description "Per-metric-class edge detector overrides keyed by cpu, memory, disk, interface, icmp, or other"
+    end
+
+    attribute :metric_denylist, {:array, :string} do
+      allow_nil? false
+      default @default_metric_denylist
+      public? true
+      description "Metric names that should not produce edge detector findings"
+    end
+
+    attribute :emission, :map do
+      allow_nil? false
+      default @default_emission
+      public? true
+      description "Edge emission governance knobs projected into anomaly add-on managed params"
     end
 
     timestamps()

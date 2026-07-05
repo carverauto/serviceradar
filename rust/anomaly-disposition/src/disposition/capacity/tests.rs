@@ -66,6 +66,29 @@ fn linear_forecast_projects_and_etas() {
     }
 }
 
+#[test]
+fn linear_eta_beyond_two_history_spans_is_suppressed() {
+    let points: Vec<CapacityPoint> = (0..(7 * 24))
+        .map(|h| point(h, 10.0 + h as f64 * 0.1))
+        .collect();
+    let cfg = config(Some(82.0), 90 * 24 * 3_600, CapacityModelKind::Linear);
+    let out = dispose_capacity(
+        CapacityRow {
+            series_key: "svc/disk".to_string(),
+            points,
+        },
+        &cfg,
+    );
+
+    match out.disposition {
+        Disposition::Projected(f) => {
+            assert_eq!(f.projected_exhaustion_at_unix_micros, None);
+            assert!(f.raw_projected_value > 200.0);
+        }
+        other => panic!("expected Projected, got {other:?}"),
+    }
+}
+
 /// A zero period (a malformed config that bypassed the worker's
 /// `positive_integer/2` normalization) must NOT panic at `index % period`; both the
 /// forced-`Seasonal` and `Auto` paths fall back to the linear model.
@@ -187,9 +210,9 @@ fn reversed_input_fits_identically() {
     }
 }
 
-/// Flat/decreasing trend ⇒ no ETA (model_test.exs:60).
+/// Flat/decreasing trend below the threshold is not a runway forecast.
 #[test]
-fn decreasing_trend_has_no_eta() {
+fn decreasing_trend_is_not_significant() {
     let cfg = config(Some(100.0), 24 * 3_600, CapacityModelKind::Linear);
     let points: Vec<CapacityPoint> = (0..48).map(|h| point(h, 90.0 - h as f64 * 0.25)).collect();
     let out = dispose_capacity(
@@ -199,12 +222,59 @@ fn decreasing_trend_has_no_eta() {
         },
         &cfg,
     );
+    assert_eq!(
+        out.disposition,
+        Disposition::Skipped {
+            reason: "trend_not_significant".to_string()
+        }
+    );
+}
+
+#[test]
+fn noisy_weak_positive_trend_is_not_significant() {
+    let cfg = config(Some(80.0), 24 * 3_600, CapacityModelKind::Linear);
+
+    let points: Vec<CapacityPoint> = (0..72)
+        .map(|h| {
+            let noise = if h % 2 == 0 { 8.0 } else { -8.0 };
+            point(h, 40.0 + h as f64 * 0.02 + noise)
+        })
+        .collect();
+
+    let out = dispose_capacity(
+        CapacityRow {
+            series_key: "s".to_string(),
+            points,
+        },
+        &cfg,
+    );
+
+    assert_eq!(
+        out.disposition,
+        Disposition::Skipped {
+            reason: "trend_not_significant".to_string()
+        }
+    );
+}
+
+#[test]
+fn already_crossed_threshold_bypasses_trend_significance_gate() {
+    let cfg = config(Some(80.0), 24 * 3_600, CapacityModelKind::Linear);
+    let points: Vec<CapacityPoint> = (0..48).map(|h| point(h, 95.0 - h as f64 * 0.25)).collect();
+    let out = dispose_capacity(
+        CapacityRow {
+            series_key: "s".to_string(),
+            points,
+        },
+        &cfg,
+    );
+
     match out.disposition {
         Disposition::Projected(f) => {
+            assert!(f.current_value >= 80.0);
             assert!(f.slope_per_second < 0.0);
-            assert_eq!(f.projected_exhaustion_at_unix_micros, None);
         }
-        other => panic!("expected Projected, got {other:?}"),
+        other => panic!("expected already-crossed Projected, got {other:?}"),
     }
 }
 
@@ -317,7 +387,7 @@ fn bounded_linear_percent_projection_clamps_negative_display_value() {
     let cfg = CapacityConfig {
         value_min: Some(0.0),
         value_max: Some(100.0),
-        ..config(Some(80.0), 24 * 3_600, CapacityModelKind::Linear)
+        ..config(None, 24 * 3_600, CapacityModelKind::Linear)
     };
 
     let out = dispose_capacity(
@@ -422,6 +492,46 @@ fn auto_with_seasonality_is_holt_winters() {
             assert!(f.projected_value > 0.0);
         }
         other => panic!("expected Projected, got {other:?}"),
+    }
+}
+
+#[test]
+fn auto_seasonality_uses_all_complete_periods() {
+    let cfg = CapacityConfig {
+        min_history: 72,
+        ..config(None, 24 * 3_600, CapacityModelKind::Auto)
+    };
+
+    let points: Vec<CapacityPoint> = (0..(4 * 24 + 6))
+        .map(|h| {
+            let period = h / 24;
+            let slot = h % 24;
+            let seasonal = if period == 0 {
+                0.0
+            } else if (8..=17).contains(&slot) {
+                30.0
+            } else {
+                -12.0
+            };
+
+            point(h, 50.0 + seasonal)
+        })
+        .collect();
+
+    let out = dispose_capacity(
+        CapacityRow {
+            series_key: "s".to_string(),
+            points,
+        },
+        &cfg,
+    );
+
+    match out.disposition {
+        Disposition::Projected(f) => {
+            assert_eq!(f.model, "holt_winters_additive");
+            assert_eq!(f.sample_count, 4 * 24 + 6);
+        }
+        other => panic!("expected Holt-Winters Projected, got {other:?}"),
     }
 }
 
@@ -538,7 +648,7 @@ fn ols_prediction_interval_widens_with_horizon() {
         .map(|h| point(h, 20.0 + h as f64 * 0.5 + ((h * 7 % 5) as f64 - 2.0)))
         .collect();
     let band = |horizon_seconds: i64| {
-        let cfg = config(Some(100.0), horizon_seconds, CapacityModelKind::Linear);
+        let cfg = config(None, horizon_seconds, CapacityModelKind::Linear);
         match dispose_capacity(
             CapacityRow {
                 series_key: "s".to_string(),
@@ -559,7 +669,10 @@ fn ols_prediction_interval_widens_with_horizon() {
     let near = band(7 * 24 * 3_600);
     let far = band(365 * 24 * 3_600);
     assert!(near > 0.0, "a noisy fit must produce a non-zero PI");
-    assert!(far > near, "the PI must widen with the horizon: far={far} near={near}");
+    assert!(
+        far > near,
+        "the PI must widen with the horizon: far={far} near={near}"
+    );
 }
 
 #[test]
@@ -578,8 +691,7 @@ fn bounded_projection_clamps_non_finite_raw_outputs() {
     assert_eq!(upper, 100.0);
     assert!(bounded);
 
-    let (projected, lower, upper, bounded) =
-        bounded_projection(&cfg, f64::NAN, f64::NAN, f64::NAN);
+    let (projected, lower, upper, bounded) = bounded_projection(&cfg, f64::NAN, f64::NAN, f64::NAN);
 
     assert_eq!(projected, 0.0);
     assert_eq!(lower, 0.0);
