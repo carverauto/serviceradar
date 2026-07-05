@@ -28,6 +28,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tetratelabs/wazero/api"
@@ -50,6 +51,11 @@ type httpResponsePayload struct {
 	BodyBase64   string            `json:"body_base64"`
 	BodyEncoding string            `json:"body_encoding,omitempty"`
 }
+
+var (
+	pluginHTTPInsecureTransportMu    sync.Mutex
+	pluginHTTPInsecureTransportCache = map[*http.Transport]*http.Transport{}
+)
 
 func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, reqPtr, reqLen, respPtr, respLen uint32) int32 {
 	if !e.hasCapability("http_request") {
@@ -420,28 +426,37 @@ func pluginHTTPClient(base *http.Client, insecureSkipVerify bool, timeout time.D
 		return &cloned
 	}
 
-	transport := cloned.Transport
-	if baseTransport, ok := transport.(*http.Transport); ok {
-		transport = baseTransport.Clone()
-	} else if defaultTransport, ok := http.DefaultTransport.(*http.Transport); ok {
-		transport = defaultTransport.Clone()
-	} else {
-		transport = &http.Transport{}
+	cloned.Transport = pluginHTTPInsecureTransport(cloned.Transport)
+
+	return &cloned
+}
+
+func pluginHTTPInsecureTransport(transport http.RoundTripper) http.RoundTripper {
+	baseTransport, ok := transport.(*http.Transport)
+	if !ok || baseTransport == nil {
+		baseTransport, ok = http.DefaultTransport.(*http.Transport)
+		if !ok || baseTransport == nil {
+			baseTransport = &http.Transport{}
+		}
 	}
 
-	httpTransport, ok := transport.(*http.Transport)
-	if !ok {
-		httpTransport = &http.Transport{}
+	pluginHTTPInsecureTransportMu.Lock()
+	defer pluginHTTPInsecureTransportMu.Unlock()
+
+	if cached := pluginHTTPInsecureTransportCache[baseTransport]; cached != nil {
+		return cached
 	}
+
+	httpTransport := baseTransport.Clone()
 	if httpTransport.TLSClientConfig != nil {
 		httpTransport.TLSClientConfig = httpTransport.TLSClientConfig.Clone()
 	} else {
 		httpTransport.TLSClientConfig = &tls.Config{}
 	}
 	httpTransport.TLSClientConfig.InsecureSkipVerify = true //nolint:gosec
-	cloned.Transport = httpTransport
+	pluginHTTPInsecureTransportCache[baseTransport] = httpTransport
 
-	return &cloned
+	return httpTransport
 }
 
 func flattenHeaders(headers http.Header) map[string]string {

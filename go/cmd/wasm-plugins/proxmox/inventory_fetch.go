@@ -51,10 +51,7 @@ func fetchTargetInventory(cfg Config, target Target) (proxmoxInventory, error) {
 		return inventory, nil
 	}
 
-	guests, err := fetchGuests(cfg, target, token)
-	if err != nil {
-		return proxmoxInventory{}, err
-	}
+	guests := fetchGuests(cfg, target, token, inventory.Nodes, inventory.Warnings)
 	inventory.Guests = enrichGuests(cfg, target, token, guests, inventory.Warnings)
 	inventory.Summary = summarizeInventory(inventory.Nodes, inventory.Guests)
 	inventory.Warnings = nilIfEmpty(inventory.Warnings)
@@ -89,13 +86,85 @@ func fetchNodes(cfg Config, target Target, token string) ([]proxmoxNode, error) 
 	return envelope.Data, nil
 }
 
-func fetchGuests(cfg Config, target Target, token string) ([]proxmoxResource, error) {
-	var envelope proxmoxResourcesResponse
-	if err := getJSON(cfg, target, token, "/api2/json/cluster/resources?type=vm", &envelope); err != nil {
-		return nil, fmt.Errorf("fetch guests: %w", err)
+func fetchGuests(
+	cfg Config,
+	target Target,
+	token string,
+	nodes []proxmoxNode,
+	warnings map[string]string,
+) []proxmoxResource {
+	guests := make([]proxmoxResource, 0)
+	limitReached := false
+
+	for _, node := range nodes {
+		nodeName := strings.TrimSpace(node.Node)
+		if nodeName == "" {
+			continue
+		}
+
+		for _, kind := range []string{"qemu", "lxc"} {
+			resources, err := fetchNodeGuests(cfg, target, token, nodeName, kind)
+			if err != nil {
+				warnings[fmt.Sprintf("node:%s:%s_guests", nodeName, kind)] = sanitizeError(err)
+				continue
+			}
+
+			guests, limitReached = appendGuestResourcesWithinLimit(guests, resources, cfg.MaxGuests)
+			if limitReached {
+				warnings["guests:limit"] = fmt.Sprintf("guest listing truncated at max_guests=%d", cfg.MaxGuests)
+				return guests
+			}
+		}
 	}
 
-	return envelope.Data, nil
+	return guests
+}
+
+func fetchNodeGuests(cfg Config, target Target, token, node, kind string) ([]proxmoxResource, error) {
+	var envelope proxmoxResourcesResponse
+	path := fmt.Sprintf("/api2/json/nodes/%s/%s", url.PathEscape(node), kind)
+	if err := getJSON(cfg, target, token, path, &envelope); err != nil {
+		return nil, fmt.Errorf("fetch node %s guests: %w", kind, err)
+	}
+
+	return normalizeNodeGuestResources(envelope.Data, node, kind), nil
+}
+
+func normalizeNodeGuestResources(resources []proxmoxResource, node, kind string) []proxmoxResource {
+	out := make([]proxmoxResource, 0, len(resources))
+	for _, resource := range resources {
+		if resource.Node == "" {
+			resource.Node = node
+		}
+		if resource.Type == "" {
+			resource.Type = kind
+		}
+		if resource.ID == "" && resource.VMID > 0 {
+			resource.ID = fmt.Sprintf("%s/%d", kind, resource.VMID)
+		}
+		out = append(out, resource)
+	}
+
+	return out
+}
+
+func appendGuestResourcesWithinLimit(
+	current []proxmoxResource,
+	incoming []proxmoxResource,
+	limit int,
+) ([]proxmoxResource, bool) {
+	if limit <= 0 {
+		return append(current, incoming...), false
+	}
+	remaining := limit - len(current)
+	if remaining <= 0 {
+		return current, len(incoming) > 0
+	}
+	if len(incoming) > remaining {
+		return append(current, incoming[:remaining]...), true
+	}
+
+	return append(current, incoming...), false
 }
 
 func enrichNodes(cfg Config, target Target, token string, nodes []proxmoxNode, warnings map[string]string) []proxmoxNode {

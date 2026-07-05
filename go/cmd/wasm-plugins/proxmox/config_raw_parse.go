@@ -17,7 +17,7 @@ import (
 // applyConfigStruct. Core resolves api_token_secret_ref at config delivery and
 // writes the resolved token into template.api_token, so dropping the template
 // (as the pre-#4386 TinyGo parser did) loses the API token, TLS policy
-// (insecure_skip_verify), timeout_ms, include_guests and
+// (insecure_skip_verify), timeout_ms, max_guests, include_guests and
 // auto_discovery_enabled for every scheduled run.
 func configFromRawConfigGJSON(raw string) Config {
 	if !gjson.Valid(raw) {
@@ -138,6 +138,7 @@ func applyRawConfigStruct(node gjson.Result, cfg *Config) {
 	cfg.Targets = rawConfigTargets(node.Get("targets"))
 	cfg.TimeoutMS = int(node.Get("timeout_ms").Int())
 	cfg.MaxResponseBytes = int(node.Get("max_response_bytes").Int())
+	cfg.MaxGuests = int(node.Get("max_guests").Int())
 	cfg.IncludeGuests = nil
 	if value := node.Get("include_guests"); value.IsBool() {
 		includeGuests := value.Bool()

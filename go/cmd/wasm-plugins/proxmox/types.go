@@ -13,6 +13,8 @@ const (
 	maxTimeoutMS                = 300000
 	defaultHTTPMaxResponseBytes = 1024 * 1024
 	maxHTTPResponseBytes        = sdk.MaxHTTPResponseBytes
+	defaultMaxGuests            = 1000
+	maxGuests                   = 5000
 )
 
 var (
@@ -33,6 +35,7 @@ type Config struct {
 	Targets            []Target       `json:"targets"`
 	TimeoutMS          int            `json:"timeout_ms"`
 	MaxResponseBytes   int            `json:"max_response_bytes"`
+	MaxGuests          int            `json:"max_guests"`
 	IncludeGuests      *bool          `json:"include_guests"`
 	InsecureSkipVerify bool           `json:"insecure_skip_verify"`
 	AutoDiscovery      bool           `json:"auto_discovery_enabled"`
@@ -53,6 +56,7 @@ type configJSON struct {
 	Targets            []Target `json:"targets"`
 	TimeoutMS          int      `json:"timeout_ms"`
 	MaxResponseBytes   int      `json:"max_response_bytes"`
+	MaxGuests          int      `json:"max_guests"`
 	IncludeGuests      *bool    `json:"include_guests"`
 	InsecureSkipVerify bool     `json:"insecure_skip_verify"`
 	AutoDiscovery      bool     `json:"auto_discovery_enabled"`
