@@ -606,8 +606,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
         detector,
         "anomaly episode"
       ]
-      |> Enum.reject(&is_nil/1)
-      |> Enum.reject(&(&1 == ""))
+      |> Enum.reject(&(&1 in [nil, ""]))
       |> Enum.join(" ")
   end
 

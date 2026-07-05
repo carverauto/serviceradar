@@ -526,8 +526,6 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
 
     if backbone == 0 and other_edges > 0 do
       %{counts: counts, other_edges: other_edges}
-    else
-      nil
     end
   end
 

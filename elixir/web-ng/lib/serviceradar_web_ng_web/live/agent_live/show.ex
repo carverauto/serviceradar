@@ -444,7 +444,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   defp agent_summary(assigns) do
     type_id = Map.get(assigns.agent, "type_id") || 0
-    type_name = ServiceRadar.Infrastructure.Agent.type_name(type_id)
+    type_name = InfrastructureAgent.type_name(type_id)
     assigns = assign(assigns, :type_name, type_name)
 
     ~H"""
@@ -644,7 +644,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     caps_with_info =
       Enum.map(assigns.capabilities || [], fn cap ->
         cap_name = if is_atom(cap), do: Atom.to_string(cap), else: to_string(cap)
-        info = ServiceRadar.Infrastructure.Agent.capability_info(cap_name)
+        info = InfrastructureAgent.capability_info(cap_name)
         {cap_name, info}
       end)
 
@@ -1499,7 +1499,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   defp type_badge(assigns) do
     type_id = assigns.type_id || 0
-    type_name = ServiceRadar.Infrastructure.Agent.type_name(type_id)
+    type_name = InfrastructureAgent.type_name(type_id)
 
     variant =
       case type_id do

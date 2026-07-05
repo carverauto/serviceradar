@@ -699,7 +699,6 @@ mod addon_config_contract_tests {
         assert_eq!(cfg.n_sigma, Some(3.5));
         assert_eq!(cfg.confirm_slots, Some(5));
         assert_eq!(cfg.max_series, Some(50_000));
-        assert_eq!(cfg.cusum_enabled, Some(true));
         assert_eq!(cfg.cusum_k, Some(0.5));
         assert_eq!(cfg.cusum_h, Some(5.0));
         assert_eq!(
@@ -707,6 +706,12 @@ mod addon_config_contract_tests {
             Some("/var/lib/serviceradar/anomaly/checkpoint.bin")
         );
         assert_eq!(cfg.checkpoint_max_age_secs, Some(21_600));
+        let engine_cfg = cfg
+            .into_engine_config()
+            .expect("core-emitted fixture must resolve to engine config");
+        assert_eq!(engine_cfg.cusum_k, 0.5);
+        assert_eq!(engine_cfg.cusum_h, 5.0);
+        assert!(engine_cfg.metric_class_overrides.is_empty());
         // `metric_feed` in the schema/fixture is core-side feed routing
         // (stream_metric_feed), deliberately NOT a field of AddonConfig.
     }

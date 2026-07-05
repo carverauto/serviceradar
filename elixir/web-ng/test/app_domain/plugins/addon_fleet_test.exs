@@ -12,6 +12,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleetTest do
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadarWebNG.Plugins.AddonFleet
 
+  @moduletag :db_free
+
   # A row shaped like AddonFleet.row(); only the keys the transforms read are
   # load-bearing, but we keep the full shape so the test fixtures stay honest.
   defp row(overrides) do
