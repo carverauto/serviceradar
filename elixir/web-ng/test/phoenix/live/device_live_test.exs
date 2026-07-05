@@ -2867,6 +2867,136 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Unavailable"
   end
 
+  # DB-dependent (like the rest of this file): excluded automatically when the
+  # suite runs with the :db_free-only configuration in test_helper.exs.
+  describe "device_updated broadcast refresh (#4409)" do
+    setup %{conn: conn} do
+      device_uid = "test-device-refresh-#{System.unique_integer([:positive])}"
+
+      Repo.insert_all("ocsf_devices", [
+        %{
+          uid: device_uid,
+          type_id: 0,
+          hostname: "refresh-host-before",
+          ip: "192.168.9.77",
+          is_available: true,
+          first_seen_time: ~U[2100-01-01 00:00:00Z],
+          last_seen_time: ~U[2100-01-01 00:00:00Z]
+        }
+      ])
+
+      previous_cooldown = Application.get_env(:serviceradar_web_ng, :device_refresh_cooldown_ms)
+      previous_env = Application.get_env(:serviceradar_web_ng, :env)
+
+      on_exit(fn ->
+        restore_app_env(:device_refresh_cooldown_ms, previous_cooldown)
+        restore_app_env(:env, previous_env)
+      end)
+
+      {:ok, conn: conn, device_uid: device_uid}
+    end
+
+    test "same-device refresh keeps interfaces rendered while the batch is in flight", %{
+      conn: conn,
+      device_uid: device_uid
+    } do
+      insert_test_interfaces!(device_uid)
+
+      {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}?tab=interfaces")
+      assert render(view) =~ "eth0"
+
+      # Let the refresh run immediately and force the production async
+      # supplemental path so the mid-refresh render is observable.
+      Application.put_env(:serviceradar_web_ng, :device_refresh_cooldown_ms, 0)
+      Application.put_env(:serviceradar_web_ng, :env, :prod)
+
+      send(view.pid, {:device_updated, device_uid, %{}})
+
+      # Mid-refresh render: before the fix, reset_supplemental_defaults nilled
+      # has_ifaces here and the whole interfaces tab unmounted until the async
+      # batch completed ("the page keeps reloading").
+      html = render(view)
+      assert html =~ "eth0"
+      assert html =~ "Primary Ethernet"
+
+      # After the async batch lands the tab is still populated (fresh data).
+      html = render_async(view, 15_000)
+      assert html =~ "eth0"
+      assert html =~ "Primary Ethernet"
+    end
+
+    test "broadcasts inside the cooldown window coalesce into one trailing refresh", %{
+      conn: conn,
+      device_uid: device_uid
+    } do
+      Application.put_env(:serviceradar_web_ng, :device_refresh_cooldown_ms, 60_000)
+
+      {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
+      assert current_hostname(view) == "refresh-host-before"
+
+      Repo.query!("UPDATE ocsf_devices SET hostname = 'refresh-host-after' WHERE uid = $1", [device_uid])
+
+      send(view.pid, {:device_updated, device_uid, %{}})
+      render(view)
+
+      # Refresh deferred: the page still shows the previously loaded data.
+      assert current_hostname(view) == "refresh-host-before"
+      timer1 = refresh_assigns(view).device_refresh_timer
+      assert is_reference(timer1)
+
+      send(view.pid, {:device_updated, device_uid, %{}})
+      render(view)
+
+      # Second broadcast cancelled/replaced the pending timer — exactly one
+      # trailing refresh remains scheduled and no reload ran.
+      timer2 = refresh_assigns(view).device_refresh_timer
+      assert is_reference(timer2)
+      refute timer2 == timer1
+      assert Process.read_timer(timer1) == false
+      assert current_hostname(view) == "refresh-host-before"
+    end
+
+    test "a trailing refresh runs at cooldown expiry so the page converges", %{
+      conn: conn,
+      device_uid: device_uid
+    } do
+      Application.put_env(:serviceradar_web_ng, :device_refresh_cooldown_ms, 400)
+
+      {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
+
+      Repo.query!("UPDATE ocsf_devices SET hostname = 'refresh-host-after' WHERE uid = $1", [device_uid])
+
+      send(view.pid, {:device_updated, device_uid, %{}})
+      send(view.pid, {:device_updated, device_uid, %{}})
+
+      # Past cooldown expiry the single deferred refresh fires and reloads.
+      Process.sleep(800)
+      render(view)
+      assert current_hostname(view) == "refresh-host-after"
+    end
+
+    test "broadcasts are ignored while a refresh is in flight", %{
+      conn: conn,
+      device_uid: device_uid
+    } do
+      {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
+
+      Application.put_env(:serviceradar_web_ng, :device_refresh_cooldown_ms, 0)
+      Application.put_env(:serviceradar_web_ng, :env, :prod)
+
+      send(view.pid, {:device_updated, device_uid, %{}})
+      ref1 = refresh_assigns(view).device_details_request_ref
+      assert is_reference(ref1)
+
+      send(view.pid, {:device_updated, device_uid, %{}})
+      assigns = refresh_assigns(view)
+      assert assigns.device_details_request_ref == ref1
+      assert assigns.device_refresh_timer == nil
+
+      render_async(view, 15_000)
+    end
+  end
+
   describe "interfaces bulk edit" do
     setup %{conn: conn} do
       device_uid = "test-device-bulk-#{System.unique_integer([:positive])}"
@@ -3588,6 +3718,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     ])
 
     uid
+  end
+
+  defp restore_app_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
+  defp restore_app_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
+
+  defp refresh_assigns(view), do: :sys.get_state(view.pid).socket.assigns
+
+  defp current_hostname(view) do
+    refresh_assigns(view).results
+    |> Enum.find(%{}, &is_map/1)
+    |> Map.get("hostname")
   end
 
   defp insert_test_interfaces!(device_uid) do
