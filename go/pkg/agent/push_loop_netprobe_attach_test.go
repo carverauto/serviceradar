@@ -119,10 +119,10 @@ func TestApplyVisibilityConfigSkipsKubernetesAgent(t *testing.T) {
 		sidecarStatus:   manager,
 	}, nil, 30*time.Second, logger.NewTestLogger())
 
-	if pl.applyVisibilityConfig(context.Background(), &proto.VisibilityConfig{Enabled: true}, []*proto.AddonAssignmentConfig{
+	if disposition, err := pl.applyVisibilityConfig(context.Background(), &proto.VisibilityConfig{Enabled: true}, []*proto.AddonAssignmentConfig{
 		{AddonId: "netprobe", Enabled: true, Supervision: "systemd_service"},
-	}) != addonDeliverySucceeded {
-		t.Fatal("applyVisibilityConfig() != succeeded, want succeeded for Kubernetes agent")
+	}); disposition != addonDeliverySucceeded || err != nil {
+		t.Fatalf("applyVisibilityConfig() = %v (%v), want succeeded for Kubernetes agent", disposition, err)
 	}
 	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
 		t.Fatalf("expected no netprobe bootstrap config to be written, stat err=%v", err)
@@ -165,10 +165,10 @@ func TestApplyVisibilityConfigRoutesNetprobeBySupervision(t *testing.T) {
 	defer cancel()
 
 	// systemd-managed -> attach mode (connect, don't launch).
-	if pl.applyVisibilityConfig(ctx, &proto.VisibilityConfig{Enabled: true}, []*proto.AddonAssignmentConfig{
+	if disposition, err := pl.applyVisibilityConfig(ctx, &proto.VisibilityConfig{Enabled: true}, []*proto.AddonAssignmentConfig{
 		{AddonId: "netprobe", Enabled: true, Supervision: "systemd_service"},
-	}) != addonDeliverySucceeded {
-		t.Fatal("applyVisibilityConfig(systemdManaged=true) != succeeded, want succeeded")
+	}); disposition != addonDeliverySucceeded || err != nil {
+		t.Fatalf("applyVisibilityConfig(systemdManaged=true) = %v (%v), want succeeded", disposition, err)
 	}
 	if started, attach := manager.Mode(); !started || !attach {
 		t.Fatalf("Mode after systemd-managed apply = (%v,%v), want (true,true)", started, attach)
@@ -176,8 +176,8 @@ func TestApplyVisibilityConfigRoutesNetprobeBySupervision(t *testing.T) {
 
 	// Assignment removed -> stop the attach loop; the agent no longer falls back to
 	// launching netprobe from the base runtime.
-	if pl.applyVisibilityConfig(ctx, &proto.VisibilityConfig{}, nil) != addonDeliverySucceeded {
-		t.Fatal("applyVisibilityConfig(systemdManaged=false, no work) != succeeded, want succeeded")
+	if disposition, err := pl.applyVisibilityConfig(ctx, &proto.VisibilityConfig{}, nil); disposition != addonDeliverySucceeded || err != nil {
+		t.Fatalf("applyVisibilityConfig(systemdManaged=false, no work) = %v (%v), want succeeded", disposition, err)
 	}
 	if started, _ := manager.Mode(); started {
 		t.Fatalf("Mode after launched no-work apply = started %v, want false (stopped)", started)

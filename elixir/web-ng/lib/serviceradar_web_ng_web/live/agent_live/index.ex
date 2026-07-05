@@ -10,9 +10,12 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
   import ServiceRadarWebNGWeb.UIComponents
 
   alias Phoenix.LiveView.JS
+  alias ServiceRadar.Infrastructure.Agent, as: InfrastructureAgent
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
+
+  require Ash.Query
 
   @default_limit 20
   @max_limit 100
@@ -58,6 +61,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
      |> assign(:release_filter_form, release_filter_form())
      |> assign(:version_distribution, [])
      |> assign(:rollout_distribution, [])
+     |> assign(:config_unhealthy_uids, MapSet.new())
      |> assign(:limit, @default_limit)
      |> SRQLPage.init("agents", default_limit: @default_limit)}
   end
@@ -86,7 +90,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
      |> assign(:release_filters, release_filters)
      |> assign(:release_filter_form, release_filter_form(release_filters))
      |> assign(:version_distribution, summarize_versions(summary_agents))
-     |> assign(:rollout_distribution, summarize_rollout_states(summary_agents))}
+     |> assign(:rollout_distribution, summarize_rollout_states(summary_agents))
+     |> assign(:config_unhealthy_uids, load_config_unhealthy_uids(socket.assigns.current_scope))}
   end
 
   @impl true
@@ -187,6 +192,16 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
 
   # Load all live agents from the registry
   # Schema scoping is implicit via PostgreSQL search_path
+  defp load_config_unhealthy_uids(scope) do
+    InfrastructureAgent
+    |> Ash.Query.filter(config_health == :unhealthy)
+    |> Ash.read(scope: scope)
+    |> case do
+      {:ok, agents} -> MapSet.new(agents, & &1.uid)
+      {:error, _reason} -> MapSet.new()
+    end
+  end
+
   defp load_live_agents do
     normalize_live_agents(ServiceRadar.AgentRegistry.find_agents())
   end
@@ -392,10 +407,22 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
             </.form>
           </div>
 
+          <div
+            :if={MapSet.size(@config_unhealthy_uids) > 0}
+            id="config-unhealthy-banner"
+            class="mb-3 flex items-center gap-2 rounded-lg border border-error/30 bg-error/5 px-3 py-2"
+          >
+            <.icon name="hero-exclamation-triangle" class="size-4 text-error" />
+            <span class="text-sm text-error">
+              {MapSet.size(@config_unhealthy_uids)} agent(s) config-unhealthy — config apply wedged or failing
+            </span>
+          </div>
+
           <.agents_table
             id="agents"
             agents={@agents}
             selected_agent_ids={@selected_agent_ids}
+            config_unhealthy_uids={@config_unhealthy_uids}
             allow_selection={RBAC.can?(@current_scope, "settings.edge.manage")}
           />
 
@@ -539,6 +566,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
   attr(:id, :string, required: true)
   attr(:agents, :list, default: [])
   attr(:selected_agent_ids, :list, default: [])
+  attr(:config_unhealthy_uids, :any, default: nil)
   attr(:allow_selection, :boolean, default: false)
 
   defp agents_table(assigns) do
@@ -657,10 +685,19 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
                 </div>
               </td>
               <td class="whitespace-nowrap text-xs">
-                <.release_rollout_badge
-                  state={Map.get(agent, "release_rollout_state")}
-                  has_error={Map.get(agent, "last_update_error") not in [nil, ""]}
-                />
+                <div class="flex flex-col gap-1">
+                  <.release_rollout_badge
+                    state={Map.get(agent, "release_rollout_state")}
+                    has_error={Map.get(agent, "last_update_error") not in [nil, ""]}
+                  />
+                  <.ui_badge
+                    :if={agent_uid(agent) in (@config_unhealthy_uids || [])}
+                    variant="error"
+                    size="xs"
+                  >
+                    config unhealthy
+                  </.ui_badge>
+                </div>
               </td>
               <td class="text-xs">
                 <.capabilities_list capabilities={Map.get(agent, "capabilities", [])} />

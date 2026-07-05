@@ -112,6 +112,64 @@ defmodule ServiceRadarWebNGWeb.AgentLive.ShowTest do
     refute html =~ ">degraded<"
   end
 
+  test "config apply card shows per-section statuses and the failing error verbatim" do
+    config_status = %{
+      health: :unhealthy,
+      acked_version: "cfg-v2",
+      acked_at: ~U[2026-07-04 10:00:00Z],
+      pushed_version: "cfg-v3",
+      pushed_at: ~U[2026-07-04 09:00:00Z],
+      sections: [
+        %{"section" => "bumblebee", "disposition" => "success", "error" => "", "since" => nil},
+        %{
+          "section" => "visibility",
+          "disposition" => "permanent_failure",
+          "error" =>
+            "merge netprobe add-on config: json: cannot unmarshal string into Go struct field " <>
+              "addonConfig.capture_interfaces of type []string",
+          "since" => "2026-07-01T00:44:00Z"
+        }
+      ]
+    }
+
+    html = render_component(&Show.config_apply_card/1, config_status: config_status)
+
+    assert html =~ "Config Apply"
+    assert html =~ "config unhealthy"
+    assert html =~ "cfg-v2"
+    # Pushed-but-unacked version is surfaced.
+    assert html =~ "Pushed, Not Yet Acked"
+    assert html =~ "cfg-v3"
+    # Section detail: name, disposition badge, error verbatim, since.
+    assert html =~ "visibility"
+    assert html =~ "permanent failure"
+    assert html =~ "capture_interfaces of type []string"
+    assert html =~ "2026-07-01"
+    assert html =~ "bumblebee"
+  end
+
+  test "config apply card renders a placeholder without ack data" do
+    html = render_component(&Show.config_apply_card/1, config_status: nil)
+
+    assert html =~ "No config acknowledgement data recorded yet."
+  end
+
+  test "config apply card notes legacy whole-version acks" do
+    config_status = %{
+      health: :healthy,
+      acked_version: "cfg-v1",
+      acked_at: ~U[2026-07-04 10:00:00Z],
+      pushed_version: "cfg-v1",
+      pushed_at: ~U[2026-07-04 09:00:00Z],
+      sections: []
+    }
+
+    html = render_component(&Show.config_apply_card/1, config_status: config_status)
+
+    assert html =~ "legacy whole-version acks"
+    refute html =~ "Pushed, Not Yet Acked"
+  end
+
   test "add-on drift card surfaces unhealthy and architecture-unsupported add-ons", %{conn: conn} do
     user = AccountsFixtures.user_fixture(%{role: :operator})
     conn = log_in_user(conn, user)

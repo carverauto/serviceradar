@@ -118,12 +118,14 @@ func TestAddonDeliveryFailureSurfacesAsStatus(t *testing.T) {
 	srv, _ := statusServer(t, http.StatusNotFound)
 	pl := newDeliveryTestPushLoop(t)
 
-	// A permanent 404 must NOT block the config ack: applyAddonAssignments
-	// returns true (proceed) while recording the failure for status surfacing.
-	if !pl.applyAddonAssignments(context.Background(), []*proto.AddonAssignmentConfig{
+	// A permanent 404 must NOT block the config ack: applyAddonAssignments reports a
+	// permanent (non-deferring) disposition while recording the failure for status
+	// surfacing, so the section is visible on the ack without wedging the version.
+	disposition, err := pl.applyAddonAssignments(context.Background(), []*proto.AddonAssignmentConfig{
 		sidecar404Assignment("netprobe", srv.URL),
-	}) {
-		t.Fatal("applyAddonAssignments() = false, want true: a permanent 404 must not block the config ack")
+	})
+	if disposition != addonDeliveryPermanentFailure || err == nil {
+		t.Fatalf("applyAddonAssignments() = %v (%v), want a reported permanent failure that does not defer the ack", disposition, err)
 	}
 	if _, ok := pl.addonDeliveryFailureSnapshot()["netprobe"]; !ok {
 		t.Fatal("expected a recorded delivery failure for netprobe")
@@ -135,7 +137,7 @@ func TestAddonDeliveryFailureStatusesEmitsUnhealthy(t *testing.T) {
 	srv, _ := statusServer(t, http.StatusNotFound)
 	pl := newDeliveryTestPushLoop(t)
 
-	_ = pl.applyAddonAssignments(context.Background(), []*proto.AddonAssignmentConfig{
+	_, _ = pl.applyAddonAssignments(context.Background(), []*proto.AddonAssignmentConfig{
 		sidecar404Assignment("rdp", srv.URL),
 	})
 
@@ -168,7 +170,7 @@ func TestAddonDeliveryBackoffSuppressesRapidRedownload(t *testing.T) {
 	assignment := sidecar404Assignment("netprobe", srv.URL)
 
 	// First poll: hits the gateway, records the permanent failure.
-	_ = pl.applyAddonAssignments(context.Background(), []*proto.AddonAssignmentConfig{assignment})
+	_, _ = pl.applyAddonAssignments(context.Background(), []*proto.AddonAssignmentConfig{assignment})
 	afterFirst := atomic.LoadInt64(hits)
 	if afterFirst == 0 {
 		t.Fatal("expected the first poll to hit the gateway")
@@ -176,14 +178,14 @@ func TestAddonDeliveryBackoffSuppressesRapidRedownload(t *testing.T) {
 
 	// Several more polls inside the backoff window must NOT re-download.
 	for i := 0; i < 5; i++ {
-		_ = pl.applyAddonAssignments(context.Background(), []*proto.AddonAssignmentConfig{assignment})
+		_, _ = pl.applyAddonAssignments(context.Background(), []*proto.AddonAssignmentConfig{assignment})
 	}
 	if got := atomic.LoadInt64(hits); got != afterFirst {
 		t.Fatalf("gateway hits = %d, want %d: backoff must suppress re-download of the same broken artifact", got, afterFirst)
 	}
 
-	// Every poll still acked the config (returned no-block).
-	if !pl.applyAddonAssignments(context.Background(), []*proto.AddonAssignmentConfig{assignment}) {
+	// Every poll still acked the config (a permanent disposition never defers).
+	if disposition, _ := pl.applyAddonAssignments(context.Background(), []*proto.AddonAssignmentConfig{assignment}); disposition == addonDeliveryTransientFailure {
 		t.Fatal("a backed-off permanent failure must still let the ack proceed")
 	}
 }
@@ -195,14 +197,14 @@ func TestAddonDeliveryBackoffResetsOnAssignmentChange(t *testing.T) {
 	pl := newDeliveryTestPushLoop(t)
 
 	v1 := sidecar404Assignment("netprobe", srv.URL)
-	_ = pl.applyAddonAssignments(context.Background(), []*proto.AddonAssignmentConfig{v1})
+	_, _ = pl.applyAddonAssignments(context.Background(), []*proto.AddonAssignmentConfig{v1})
 	afterV1 := atomic.LoadInt64(hits)
 
 	// Inside the backoff window but with a NEW version+sha: must retry (hit the gateway).
 	v2 := sidecar404Assignment("netprobe", srv.URL)
 	v2.Version = "1.0.1"
 	v2.ArtifactSha256 = sha256Hex([]byte("different-artifact-bytes"))
-	_ = pl.applyAddonAssignments(context.Background(), []*proto.AddonAssignmentConfig{v2})
+	_, _ = pl.applyAddonAssignments(context.Background(), []*proto.AddonAssignmentConfig{v2})
 
 	if got := atomic.LoadInt64(hits); got <= afterV1 {
 		t.Fatalf("gateway hits = %d, want > %d: a changed assignment must reset backoff", got, afterV1)
@@ -284,7 +286,7 @@ func TestApplyConfigResponseDefersAndDoesNotBackoffOnTransient5xx(t *testing.T) 
 	}
 	// ...and is not backed off, so the next poll retries immediately.
 	afterFirst := atomic.LoadInt64(hits)
-	_ = pl.applyAddonAssignments(context.Background(), []*proto.AddonAssignmentConfig{assignment})
+	_, _ = pl.applyAddonAssignments(context.Background(), []*proto.AddonAssignmentConfig{assignment})
 	if got := atomic.LoadInt64(hits); got <= afterFirst {
 		t.Fatalf("gateway hits = %d, want > %d: a transient failure must not be backed off", got, afterFirst)
 	}

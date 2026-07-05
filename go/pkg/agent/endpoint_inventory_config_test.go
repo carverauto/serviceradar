@@ -116,7 +116,7 @@ func TestApplyEndpointInventoryConfigWritesRuntimeProfile(t *testing.T) {
 		logger: logger.NewTestLogger(),
 	}
 
-	disposition := pl.applyEndpointInventoryConfig(context.Background(), &monitoringpb.EndpointInventoryConfig{
+	disposition, _ := pl.applyEndpointInventoryConfig(context.Background(), &monitoringpb.EndpointInventoryConfig{
 		Enabled:                true,
 		AgentId:                "agent-from-control-plane",
 		Sources:                []string{"dpkg"},
@@ -197,7 +197,7 @@ func TestApplyEndpointInventoryConfigSkipsDisabledRuntimeProfileForKubernetesAge
 		logger: logger.NewTestLogger(),
 	}
 
-	disposition := pl.applyEndpointInventoryConfig(context.Background(), &monitoringpb.EndpointInventoryConfig{
+	disposition, _ := pl.applyEndpointInventoryConfig(context.Background(), &monitoringpb.EndpointInventoryConfig{
 		Enabled: false,
 	}, nil)
 	if disposition != addonDeliverySucceeded {

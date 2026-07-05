@@ -67,7 +67,7 @@ func TestApplyAddonAssignmentsSkipsKubernetesAgent(t *testing.T) {
 		addonManager: addons,
 	}, nil, 30*time.Second, logger.NewTestLogger())
 
-	ok := pl.applyAddonAssignments(context.Background(), []*proto.AddonAssignmentConfig{
+	disposition, err := pl.applyAddonAssignments(context.Background(), []*proto.AddonAssignmentConfig{
 		{
 			AddonId:     "netprobe",
 			Enabled:     true,
@@ -75,8 +75,8 @@ func TestApplyAddonAssignmentsSkipsKubernetesAgent(t *testing.T) {
 			Supervision: addonSupervisionAgentSidecar,
 		},
 	})
-	if !ok {
-		t.Fatal("expected Kubernetes add-on assignments to be acknowledged")
+	if disposition != addonDeliverySucceeded || err != nil {
+		t.Fatalf("expected Kubernetes add-on assignments to be acknowledged, got %v (%v)", disposition, err)
 	}
 	if len(addons.applied) != 0 {
 		t.Fatalf("expected no add-on manager apply for Kubernetes agent, got %#v", addons.applied)

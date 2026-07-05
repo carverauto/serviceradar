@@ -473,10 +473,21 @@ message CommandResult {
   int64 timestamp = 6;         // Completion time (unix seconds)
 }
 
+// ConfigSectionStatus reports the apply outcome of a single config section in a
+// ConfigAck. Optional: agents that predate sectioned acks omit it, and core treats
+// an ack without section statuses as a legacy whole-version ack.
+message ConfigSectionStatus {
+  string section = 1;          // Config section name (bumblebee, endpoint_inventory, addons, visibility, ...)
+  string disposition = 2;      // "success" | "transient_failure" | "permanent_failure"
+  string error = 3;            // Failure detail (empty on success)
+  int64 since = 4;             // When the current failure state began (unix seconds; 0 on success)
+}
+
 // ConfigAck acknowledges a pushed config.
 message ConfigAck {
   string config_version = 1;   // Applied config version
   int64 timestamp = 2;         // Ack time (unix seconds)
+  repeated ConfigSectionStatus section_statuses = 3; // Per-section apply status (optional; absent on legacy agents)
 }
 
 // ConsoleFrame carries interactive console bytes and control events over the

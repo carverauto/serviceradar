@@ -18,9 +18,12 @@ package agent
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -223,13 +226,29 @@ func gatewayArtifactDownloadRequiresMTLS(downloadURL string) bool {
 	return strings.EqualFold(parsed.Scheme, "https")
 }
 
+// errAddonAssignmentsDeferred is the section-level error reported when one or more
+// add-on assignments failed transiently this cycle (the version defers and retries).
+var errAddonAssignmentsDeferred = errors.New("one or more add-on assignments had transient delivery failures")
+
+// errAddonAssignmentsPermanent is the section-level error wrapped around the aggregated
+// per-add-on permanent delivery failures reported on the config ack.
+var errAddonAssignmentsPermanent = errors.New("one or more add-on assignments failed permanently")
+
 // applyAddonAssignments reconciles the agent's native add-ons to the assignments
 // delivered in the gateway config. agent-sidecar add-ons are launched as supervised
 // go-plugin subprocesses; systemd-service/systemd-timer add-ons are installed + enabled
 // via the root-owned agent-updater; disabled or removed ones are stopped/uninstalled.
-func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*proto.AddonAssignmentConfig) bool {
+//
+// The returned disposition follows the section failure model: transient delivery
+// failures defer the config-version ack (retry next cycle); permanent per-add-on
+// failures are recorded + backed off and reported in the section status without
+// blocking the ack; everything else is a success.
+func (p *PushLoop) applyAddonAssignments(
+	ctx context.Context,
+	assignments []*proto.AddonAssignmentConfig,
+) (addonDeliveryDisposition, error) {
 	if p.server == nil {
-		return true
+		return addonDeliverySucceeded, nil
 	}
 
 	p.server.mu.RLock()
@@ -238,7 +257,7 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 	serverConfig := p.server.config
 	p.server.mu.RUnlock()
 	if manager == nil {
-		return true
+		return addonDeliverySucceeded, nil
 	}
 	if serverConfig != nil && strings.EqualFold(strings.TrimSpace(serverConfig.AgentID), kubernetesAgentID) {
 		if len(assignments) > 0 {
@@ -247,7 +266,7 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 				Str("agent_id", serverConfig.AgentID).
 				Msg("Skipping native add-on assignments for Kubernetes agent")
 		}
-		return true
+		return addonDeliverySucceeded, nil
 	}
 
 	// Serialize the whole reconcile: applyAddonAssignments is invoked from the
@@ -368,8 +387,12 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 	p.reconcileEphemeralHelpers(desiredEphemeral)
 
 	if err := manager.Apply(ctx, specs); err != nil {
+		// A supervisor apply failure is environmental (an exec/launch race, a busy
+		// supervisor), not a structurally-broken assignment, so classify it TRANSIENT:
+		// the version defers and the reconcile retries next cycle. It must not wedge the
+		// apply pipeline — the caller keeps evaluating the remaining config sections.
 		p.logger.Error().Err(err).Int("addons", len(specs)).Msg("Failed to apply add-on assignments")
-		return false
+		return addonDeliveryTransientFailure, fmt.Errorf("apply add-on assignments via supervisor: %w", err)
 	}
 
 	if len(specs) > 0 {
@@ -379,7 +402,40 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 	// Only transient delivery failures defer the config-version ack. Permanent ones were
 	// recorded as per-add-on failure status and backed off above, so the agent acks the
 	// config version and stops re-applying the whole config every poll.
-	return !blockAck
+	if blockAck {
+		return addonDeliveryTransientFailure, errAddonAssignmentsDeferred
+	}
+
+	// Surface still-standing permanent per-add-on failures as the section status carried
+	// on the config ack (the per-add-on detail also rides the AddonStatus read model).
+	if reason := p.assignedAddonPermanentFailureSummary(); reason != "" {
+		return addonDeliveryPermanentFailure, fmt.Errorf("%w: %s", errAddonAssignmentsPermanent, reason)
+	}
+
+	return addonDeliverySucceeded, nil
+}
+
+// assignedAddonPermanentFailureSummary aggregates the recorded permanent delivery
+// failures for currently-assigned add-ons into one human-readable reason string (empty
+// when there are none). pruneAddonDeliveryFailures has already dropped unassigned ids.
+func (p *PushLoop) assignedAddonPermanentFailureSummary() string {
+	failures := p.addonDeliveryFailureSnapshot()
+	if len(failures) == 0 {
+		return ""
+	}
+
+	ids := make([]string, 0, len(failures))
+	for id := range failures {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	parts := make([]string, 0, len(ids))
+	for _, id := range ids {
+		parts = append(parts, id+": "+failures[id].reason)
+	}
+
+	return strings.Join(parts, "; ")
 }
 
 // buildSidecarAddonSpec stages an agent-sidecar add-on and returns its supervised

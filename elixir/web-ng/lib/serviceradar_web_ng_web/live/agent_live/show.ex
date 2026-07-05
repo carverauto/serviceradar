@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   import ServiceRadarWebNGWeb.UIComponents
 
   alias ServiceRadar.Edge.AgentReleaseTarget
+  alias ServiceRadar.Infrastructure.Agent, as: InfrastructureAgent
   alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
@@ -43,6 +44,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:addon_assignments, [])
      |> assign(:addon_reconciliation, [])
      |> assign(:release_targets, [])
+     |> assign(:config_status, nil)
      |> assign(:live_agent, nil)
      |> assign(:node_info, nil)
      |> assign(:gateway_node_info, nil)
@@ -122,6 +124,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     addon_assignments = load_addon_assignments_for_agent(uid, scope)
     addon_statuses = load_addon_statuses_for_agent(uid, scope)
     release_targets = load_release_targets_for_agent(uid, scope)
+    config_status = load_config_status_for_agent(uid, scope)
     agent = hydrate_agent_release_fields(agent, release_targets)
     addon_reconciliation = build_addon_reconciliation(addon_assignments, addon_statuses, agent)
 
@@ -135,6 +138,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:addon_assignments, addon_assignments)
      |> assign(:addon_reconciliation, addon_reconciliation)
      |> assign(:release_targets, release_targets)
+     |> assign(:config_status, config_status)
      |> assign(:live_agent, live_agent)
      |> assign(:gateway_node_info, gateway_node_info)
      |> assign(:srql, %{enabled: false, page_path: "/agents/#{uid}"})}
@@ -275,6 +279,30 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     end
   end
 
+  defp load_config_status_for_agent(agent_uid, scope) do
+    InfrastructureAgent
+    |> Ash.Query.filter(uid == ^agent_uid)
+    |> Ash.read_one(scope: scope)
+    |> case do
+      {:ok, %InfrastructureAgent{} = record} ->
+        %{
+          health: record.config_health,
+          acked_version: record.acked_config_version,
+          acked_at: record.config_acked_at,
+          pushed_version: record.pushed_config_version,
+          pushed_at: record.config_pushed_at,
+          sections: List.wrap(record.config_section_statuses)
+        }
+
+      {:error, reason} ->
+        Logger.warning("Failed to load config status for #{agent_uid}: #{inspect(reason)}")
+        nil
+
+      _ ->
+        nil
+    end
+  end
+
   defp hydrate_agent_release_fields(nil, _targets), do: nil
   defp hydrate_agent_release_fields(agent, []), do: agent
 
@@ -385,6 +413,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           </div>
 
           <.agent_summary agent={@agent} live_agent={@live_agent} />
+          <.config_apply_card config_status={@config_status} />
           <.release_management_card
             agent={@agent}
             release_targets={@release_targets}
@@ -876,6 +905,154 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
       </div>
     </div>
     """
+  end
+
+  @doc """
+  Config-apply status card: last acked config version, per-section apply
+  statuses from the agent's sectioned config ack, and config-apply health.
+  Public so it can be unit-tested with render_component/2.
+  """
+  attr :config_status, :map, default: nil
+
+  def config_apply_card(assigns) do
+    ~H"""
+    <div id="config-apply" class="rounded-xl border border-base-200 bg-base-100">
+      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-semibold">Config Apply</span>
+          <.ui_badge
+            :if={@config_status}
+            variant={config_health_badge_variant(@config_status.health)}
+            size="xs"
+          >
+            {config_health_text(@config_status.health)}
+          </.ui_badge>
+        </div>
+      </div>
+
+      <div :if={is_nil(@config_status)} class="p-4">
+        <p class="text-sm text-base-content/60">No config acknowledgement data recorded yet.</p>
+      </div>
+
+      <div :if={@config_status} class="p-4 space-y-4">
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div>
+            <div class="text-xs uppercase tracking-wide text-base-content/60">
+              Last Acked Config Version
+            </div>
+            <div class="mt-1 font-mono text-sm break-all">
+              {@config_status.acked_version || "never"}
+            </div>
+            <div :if={@config_status.acked_at} class="text-xs text-base-content/60">
+              {format_timestamp(@config_status.acked_at)} ({time_ago(@config_status.acked_at)})
+            </div>
+          </div>
+          <div :if={config_ack_pending?(@config_status)}>
+            <div class="text-xs uppercase tracking-wide text-base-content/60">
+              Pushed, Not Yet Acked
+            </div>
+            <div class="mt-1 font-mono text-sm break-all text-warning">
+              {@config_status.pushed_version}
+            </div>
+            <div :if={@config_status.pushed_at} class="text-xs text-base-content/60">
+              since {format_timestamp(@config_status.pushed_at)} ({time_ago(@config_status.pushed_at)})
+            </div>
+          </div>
+        </div>
+
+        <div :if={@config_status.sections != []} class="overflow-x-auto">
+          <table class="table table-sm">
+            <thead>
+              <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                <th>Section</th>
+                <th>Status</th>
+                <th>Error</th>
+                <th>Since</th>
+              </tr>
+            </thead>
+            <tbody>
+              <%= for section <- @config_status.sections do %>
+                <tr>
+                  <td class="font-mono text-xs">{config_section_field(section, "section")}</td>
+                  <td>
+                    <.ui_badge
+                      variant={
+                        config_section_badge_variant(config_section_field(section, "disposition"))
+                      }
+                      size="xs"
+                    >
+                      {config_section_text(config_section_field(section, "disposition"))}
+                    </.ui_badge>
+                  </td>
+                  <td class="max-w-md text-xs break-all">
+                    {config_section_field(section, "error") || "—"}
+                  </td>
+                  <td class="whitespace-nowrap text-xs">
+                    {config_section_since(config_section_field(section, "since"))}
+                  </td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+
+        <p :if={@config_status.sections == []} class="text-sm text-base-content/60">
+          No per-section detail (legacy whole-version acks).
+        </p>
+      </div>
+    </div>
+    """
+  end
+
+  defp config_ack_pending?(%{pushed_version: pushed, acked_version: acked}) do
+    is_binary(pushed) and pushed != "" and pushed != acked
+  end
+
+  defp config_health_badge_variant(:unhealthy), do: "error"
+  defp config_health_badge_variant(:healthy), do: "success"
+  defp config_health_badge_variant("unhealthy"), do: "error"
+  defp config_health_badge_variant("healthy"), do: "success"
+  defp config_health_badge_variant(_health), do: "ghost"
+
+  defp config_health_text(:unhealthy), do: "config unhealthy"
+  defp config_health_text(:healthy), do: "healthy"
+  defp config_health_text("unhealthy"), do: "config unhealthy"
+  defp config_health_text("healthy"), do: "healthy"
+  defp config_health_text(_health), do: "unknown"
+
+  defp config_section_badge_variant("permanent_failure"), do: "error"
+  defp config_section_badge_variant("transient_failure"), do: "warning"
+  defp config_section_badge_variant("success"), do: "success"
+  defp config_section_badge_variant(_disposition), do: "ghost"
+
+  defp config_section_text("permanent_failure"), do: "permanent failure"
+  defp config_section_text("transient_failure"), do: "transient failure"
+  defp config_section_text("success"), do: "ok"
+  defp config_section_text(other) when is_binary(other) and other != "", do: other
+  defp config_section_text(_disposition), do: "unknown"
+
+  defp config_section_field(section, key) when is_map(section) do
+    case Map.get(section, key) do
+      nil -> Map.get(section, config_section_atom_key(key))
+      "" -> nil
+      value -> value
+    end
+  end
+
+  defp config_section_field(_section, _key), do: nil
+
+  defp config_section_atom_key("section"), do: :section
+  defp config_section_atom_key("disposition"), do: :disposition
+  defp config_section_atom_key("error"), do: :error
+  defp config_section_atom_key("since"), do: :since
+
+  defp config_section_since(nil), do: "—"
+
+  defp config_section_since(value) do
+    case time_ago(value) do
+      "" -> format_timestamp(value)
+      ago -> "#{format_timestamp(value)} (#{ago})"
+    end
   end
 
   attr :rows, :list, required: true
