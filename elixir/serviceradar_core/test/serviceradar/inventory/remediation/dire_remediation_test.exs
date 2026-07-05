@@ -409,15 +409,21 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
   # proxmox-dups (4.4)
   # ---------------------------------------------------------------------------
 
-  test "proxmox-dups: merges duplicate hostname groups into the canonical device",
+  test "proxmox-dups: merges integration_id-churn rows corroborated as the same host",
        %{actor: actor} do
     seed = test_seed()
     hostname = "remtest-pmx-#{seed}"
+    old_ref = "proxmox:vm:#{seed}"
+    new_ref = "proxmox:hypervisor:#{hostname}"
 
+    # Same physical node whose integration_id churned formats: the newer row
+    # carries the old ref under legacy_integration_ids, so the two rows share a
+    # host reference and collapse (hostname alone would NOT be sufficient).
     {:ok, older} =
       create_device(actor, %{
         hostname: hostname,
         discovery_sources: ["proxmox"],
+        metadata: %{"integration_id" => old_ref},
         last_seen_time: ~U[2026-05-09 02:21:03Z]
       })
 
@@ -425,6 +431,7 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
       create_device(actor, %{
         hostname: hostname,
         discovery_sources: ["proxmox"],
+        metadata: %{"integration_id" => new_ref, "legacy_integration_ids" => [old_ref]},
         last_seen_time: DateTime.utc_now()
       })
 
@@ -459,7 +466,7 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
 
     assert Enum.any?(
              audits,
-             &(&1.reason == "manual_remediation" and &1.to_device_id == newer.uid)
+             &(&1.reason == "proxmox_dedupe" and &1.to_device_id == newer.uid)
            )
 
     # Idempotent: the group is gone on the second pass.
@@ -469,16 +476,20 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
     refute Enum.any?(second.merge_plan, &(&1.hostname == hostname))
   end
 
-  test "proxmox-dups: includes proxmox candidate devices without proxmox discovery source",
+  test "proxmox-dups: merges multi-homed candidate rows corroborated by a shared host ref",
        %{actor: actor} do
     seed = test_seed()
     hostname = "remtest-pmx-candidate-#{seed}"
+    host_ref = "proxmox:hypervisor:#{hostname}"
 
+    # Two network-probed candidate rows for the SAME multi-homed node (shared
+    # host reference) collapse; a same-hostname row that is neither
+    # proxmox-sourced nor a candidate is out of scope entirely.
     {:ok, candidate_a} =
       create_device(actor, %{
         hostname: hostname,
         discovery_sources: ["sweep"],
-        metadata: %{"proxmox_candidate" => true},
+        metadata: %{"proxmox_candidate" => true, "integration_id" => host_ref},
         last_seen_time: ~U[2026-05-09 02:21:03Z]
       })
 
@@ -486,7 +497,7 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
       create_device(actor, %{
         hostname: hostname,
         discovery_sources: ["sweep"],
-        metadata: %{"proxmox_candidate" => true},
+        metadata: %{"proxmox_candidate" => true, "integration_id" => host_ref},
         last_seen_time: DateTime.utc_now()
       })
 
@@ -507,6 +518,89 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
     assert from == candidate_a.uid
     assert to == candidate_b.uid
     refute Enum.any?(dry.merge_plan, &(&1.to == non_candidate.uid))
+  end
+
+  test "proxmox-dups: NEVER merges same-hostname candidates from different clusters",
+       %{actor: actor} do
+    seed = test_seed()
+    hostname = "pve02-#{seed}"
+
+    # The multi-cluster reality: two DIFFERENT physical hosts named `pve02` in
+    # separate Proxmox clusters (distinct host refs, no shared MAC). Merging
+    # them would fuse distinct hardware — must never happen.
+    {:ok, farm_pve02} =
+      create_device(actor, %{
+        hostname: hostname,
+        discovery_sources: ["sweep"],
+        metadata: %{
+          "proxmox_candidate" => true,
+          "integration_id" => "proxmox:hypervisor:farm01:pve02"
+        },
+        last_seen_time: ~U[2026-05-09 02:21:03Z]
+      })
+
+    {:ok, tonka_pve02} =
+      create_device(actor, %{
+        hostname: hostname,
+        discovery_sources: ["sweep"],
+        metadata: %{
+          "proxmox_candidate" => true,
+          "integration_id" => "proxmox:hypervisor:tonka01:pve02"
+        },
+        last_seen_time: DateTime.utc_now()
+      })
+
+    assert {:ok, %{reports: %{"proxmox-dups" => dry}}} =
+             DireRemediation.run(steps: ["proxmox-dups"], actor: actor)
+
+    refute Enum.any?(dry.merge_plan, &(&1.from in [farm_pve02.uid, tonka_pve02.uid]))
+    refute Enum.any?(dry.merge_plan, &(&1.to in [farm_pve02.uid, tonka_pve02.uid]))
+    assert dry.skipped_unrelated >= 2
+
+    # Executing the step must not delete/merge either device.
+    assert {:ok, %{reports: %{"proxmox-dups" => _}}} =
+             DireRemediation.run(
+               mode: :execute,
+               steps: ["proxmox-dups"],
+               actor: actor,
+               manifest_path: manifest_path("pmx-xcluster")
+             )
+
+    assert {:ok, %Device{deleted_at: nil}} =
+             Device.get_by_uid(farm_pve02.uid, false, actor: actor)
+
+    assert {:ok, %Device{deleted_at: nil}} =
+             Device.get_by_uid(tonka_pve02.uid, false, actor: actor)
+  end
+
+  test "proxmox-dups: does NOT merge same-hostname candidates lacking any strong identity",
+       %{actor: actor} do
+    seed = test_seed()
+    hostname = "pve03-#{seed}"
+
+    # Network-probed L3-only fragments: same hostname, no MAC, no enrichment
+    # ref. Without positive corroboration they are treated as distinct.
+    {:ok, frag_a} =
+      create_device(actor, %{
+        hostname: hostname,
+        discovery_sources: ["sweep"],
+        metadata: %{"proxmox_candidate" => true},
+        last_seen_time: ~U[2026-05-09 02:21:03Z]
+      })
+
+    {:ok, frag_b} =
+      create_device(actor, %{
+        hostname: hostname,
+        discovery_sources: ["sweep"],
+        metadata: %{"proxmox_candidate" => true},
+        last_seen_time: DateTime.utc_now()
+      })
+
+    assert {:ok, %{reports: %{"proxmox-dups" => dry}}} =
+             DireRemediation.run(steps: ["proxmox-dups"], actor: actor)
+
+    refute Enum.any?(dry.merge_plan, &(&1.from in [frag_a.uid, frag_b.uid]))
+    assert dry.skipped_unrelated >= 2
   end
 
   # ---------------------------------------------------------------------------

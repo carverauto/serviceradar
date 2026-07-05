@@ -202,4 +202,81 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
       assert Decisions.select_canonical([tie_b, tie_a], MapSet.new()).uid == "sr:a"
     end
   end
+
+  defp dev(macs, refs), do: %{macs: MapSet.new(macs), host_refs: MapSet.new(refs)}
+
+  describe "same_physical_host?/2 (proxmox merge corroboration)" do
+    test "corroborated by a shared host reference" do
+      a = dev([], ["proxmox:hypervisor:pve02"])
+      b = dev([], ["proxmox:hypervisor:pve02"])
+      assert Decisions.same_physical_host?(a, b)
+    end
+
+    test "corroborated by a shared MAC" do
+      a = dev(["001AA0B94040"], [])
+      b = dev(["001AA0B94040"], [])
+      assert Decisions.same_physical_host?(a, b)
+    end
+
+    test "integration_id churn corroborated via a legacy reference token" do
+      old = dev([], ["proxmox:vm:12345"])
+      new = dev([], ["proxmox:hypervisor:pve02", "proxmox:vm:12345"])
+      assert Decisions.same_physical_host?(old, new)
+    end
+
+    test "distinct cluster references are NOT the same host" do
+      farm = dev([], ["proxmox:hypervisor:farm01:pve02"])
+      tonka = dev([], ["proxmox:hypervisor:tonka01:pve02"])
+      refute Decisions.same_physical_host?(farm, tonka)
+    end
+
+    test "no shared identity at all is NOT the same host" do
+      refute Decisions.same_physical_host?(dev([], []), dev([], []))
+    end
+
+    test "distinct MACs are NOT the same host" do
+      refute Decisions.same_physical_host?(dev(["001AA0B94040"], []), dev(["001422F42A2A"], []))
+    end
+  end
+
+  describe "identity_components/1" do
+    test "same-hostname rows from different clusters stay in separate components" do
+      farm = %{uid: "sr:farm-pve02", macs: MapSet.new(), host_refs: MapSet.new(["farm01:pve02"])}
+      tonka_a = %{uid: "sr:tonka-a", macs: MapSet.new(), host_refs: MapSet.new(["tonka01:pve02"])}
+      tonka_b = %{uid: "sr:tonka-b", macs: MapSet.new(), host_refs: MapSet.new(["tonka01:pve02"])}
+
+      components = Decisions.identity_components([farm, tonka_a, tonka_b])
+
+      # farm01/pve02 is its own singleton; the two tonka01/pve02 rows form one
+      # component and are the only pair eligible to merge.
+      assert length(components) == 2
+
+      farm_component =
+        Enum.find(components, fn c -> Enum.any?(c, &(&1.uid == "sr:farm-pve02")) end)
+
+      assert length(farm_component) == 1
+
+      tonka_component =
+        Enum.find(components, fn c -> Enum.any?(c, &(&1.uid == "sr:tonka-a")) end)
+
+      assert MapSet.new(Enum.map(tonka_component, & &1.uid)) ==
+               MapSet.new(["sr:tonka-a", "sr:tonka-b"])
+    end
+
+    test "identity-less rows each form their own singleton component" do
+      a = %{uid: "sr:a", macs: MapSet.new(), host_refs: MapSet.new()}
+      b = %{uid: "sr:b", macs: MapSet.new(), host_refs: MapSet.new()}
+
+      assert [a, b] |> Decisions.identity_components() |> Enum.map(&length/1) == [1, 1]
+    end
+
+    test "transitively unions rows sharing overlapping reference tokens" do
+      a = %{uid: "sr:a", macs: MapSet.new(), host_refs: MapSet.new(["r1"])}
+      b = %{uid: "sr:b", macs: MapSet.new(), host_refs: MapSet.new(["r1", "r2"])}
+      c = %{uid: "sr:c", macs: MapSet.new(), host_refs: MapSet.new(["r2"])}
+
+      assert [component] = Decisions.identity_components([a, b, c])
+      assert MapSet.new(Enum.map(component, & &1.uid)) == MapSet.new(["sr:a", "sr:b", "sr:c"])
+    end
+  end
 end
