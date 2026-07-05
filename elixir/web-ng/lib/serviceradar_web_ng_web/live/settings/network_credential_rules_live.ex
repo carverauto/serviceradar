@@ -6,9 +6,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   use ServiceRadarWebNGWeb, :live_view
 
   alias Phoenix.HTML.Form
+  alias ServiceRadar.Credentials.CredentialRuleConsumers
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialRulePreview
   alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Credentials.PluginAssignmentMaterializer
   alias ServiceRadar.Credentials.SshPrivateKeyCredential
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.SRQLInputResolver
@@ -42,6 +44,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
        |> assign(:form_mode, nil)
        |> assign(:editing_rule, nil)
        |> assign(:rule_preview, nil)
+       |> assign(:expanded_rule_id, nil)
+       |> assign(:rule_consumers, nil)
        |> assign(:secret_form, nil)
        |> assign(:rule_form, rule_form(default_rule_params()))}
     else
@@ -116,7 +120,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
              other_rules: socket.assigns.rules,
              sample_limit: 5
            ) do
-      {:noreply, assign(socket, :rule_preview, %{rule: rule, preview: preview})}
+      effective =
+        PluginAssignmentMaterializer.dry_run_rule(rule,
+          resolver: credential_preview_resolver(),
+          query_opts: [scope: scope],
+          target_limit: 50
+        )
+
+      {:noreply, assign(socket, :rule_preview, %{rule: rule, preview: preview, effective: effective})}
     else
       nil ->
         {:noreply, put_flash(socket, :error, "Credential rule not found")}
@@ -128,6 +139,26 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   def handle_event("close_preview", _params, socket) do
     {:noreply, assign(socket, :rule_preview, nil)}
+  end
+
+  def handle_event("toggle_consumers", %{"id" => id}, socket) do
+    if to_string(socket.assigns.expanded_rule_id) == to_string(id) do
+      {:noreply,
+       socket
+       |> assign(:expanded_rule_id, nil)
+       |> assign(:rule_consumers, nil)}
+    else
+      case CredentialRuleConsumers.list_for_rule(to_string(id)) do
+        {:ok, consumers} ->
+          {:noreply,
+           socket
+           |> assign(:expanded_rule_id, to_string(id))
+           |> assign(:rule_consumers, consumers)}
+
+        {:error, reason} ->
+          {:noreply, put_flash(socket, :error, "Failed to load consumers: #{format_error(reason)}")}
+      end
+    end
   end
 
   def handle_event("new_proxmox_secret", _params, socket) do
@@ -278,85 +309,100 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                       No credential rules found.
                     </td>
                   </tr>
-                  <tr :for={rule <- @rules}>
-                    <td class="font-medium">{rule.name}</td>
-                    <td>{rule.provider}</td>
-                    <td>{format_purposes(rule)}</td>
-                    <td>{format_scope(rule)}</td>
-                    <td>
-                      <span class={[
-                        "badge badge-sm",
-                        if(auto_discovery_enabled?(rule), do: "badge-warning", else: "badge-ghost")
-                      ]}>
-                        {if auto_discovery_enabled?(rule), do: "Auto", else: "SRQL"}
-                      </span>
-                    </td>
-                    <td>{Map.get(@secret_names, rule.secret_id, "Unknown")}</td>
-                    <td>{rule.priority}</td>
-                    <td>
-                      <span class={[
-                        "badge badge-sm",
-                        if(rule.enabled, do: "badge-success", else: "badge-ghost")
-                      ]}>
-                        {if rule.enabled, do: "Enabled", else: "Disabled"}
-                      </span>
-                    </td>
-                    <td>{format_last_test(rule)}</td>
-                    <td>
-                      <div class="flex justify-end gap-2">
-                        <button
-                          :if={testable_rule?(rule)}
-                          type="button"
-                          class="btn btn-ghost btn-xs"
-                          phx-click="test_rule"
-                          phx-value-id={rule.id}
-                        >
-                          Test
-                        </button>
-                        <span
-                          :if={!testable_rule?(rule)}
-                          class="tooltip tooltip-left"
-                          data-tip="Credential test is not yet available for this provider"
-                        >
-                          <button type="button" class="btn btn-ghost btn-xs btn-disabled" disabled>
+                  <%= for rule <- @rules do %>
+                    <tr>
+                      <td class="font-medium">{rule.name}</td>
+                      <td>{rule.provider}</td>
+                      <td>{format_purposes(rule)}</td>
+                      <td>{format_scope(rule)}</td>
+                      <td>
+                        <span class={[
+                          "badge badge-sm",
+                          if(auto_discovery_enabled?(rule), do: "badge-warning", else: "badge-ghost")
+                        ]}>
+                          {if auto_discovery_enabled?(rule), do: "Auto", else: "SRQL"}
+                        </span>
+                      </td>
+                      <td>{Map.get(@secret_names, rule.secret_id, "Unknown")}</td>
+                      <td>{rule.priority}</td>
+                      <td>
+                        <span class={[
+                          "badge badge-sm",
+                          if(rule.enabled, do: "badge-success", else: "badge-ghost")
+                        ]}>
+                          {if rule.enabled, do: "Enabled", else: "Disabled"}
+                        </span>
+                      </td>
+                      <td>{format_last_test(rule)}</td>
+                      <td>
+                        <div class="flex justify-end gap-2">
+                          <button
+                            :if={testable_rule?(rule)}
+                            type="button"
+                            class="btn btn-ghost btn-xs"
+                            phx-click="test_rule"
+                            phx-value-id={rule.id}
+                          >
                             Test
                           </button>
-                        </span>
-                        <button
-                          type="button"
-                          class="btn btn-ghost btn-xs"
-                          phx-click="preview_rule"
-                          phx-value-id={rule.id}
-                        >
-                          Preview
-                        </button>
-                        <.link
-                          navigate={~p"/settings/networks/credentials/#{rule.id}/edit"}
-                          class="btn btn-ghost btn-xs"
-                        >
-                          Edit
-                        </.link>
-                        <button
-                          :if={rule.enabled}
-                          type="button"
-                          class="btn btn-ghost btn-xs"
-                          phx-click="disable_rule"
-                          phx-value-id={rule.id}
-                        >
-                          Disable
-                        </button>
-                        <button
-                          :if={!rule.enabled}
-                          type="button"
-                          class="btn btn-ghost btn-xs"
-                          phx-click="enable_rule"
-                          phx-value-id={rule.id}
-                        >
-                          Enable
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+                          <span
+                            :if={!testable_rule?(rule)}
+                            class="tooltip tooltip-left"
+                            data-tip="Credential test is not yet available for this provider"
+                          >
+                            <button type="button" class="btn btn-ghost btn-xs btn-disabled" disabled>
+                              Test
+                            </button>
+                          </span>
+                          <button
+                            type="button"
+                            class="btn btn-ghost btn-xs"
+                            phx-click="preview_rule"
+                            phx-value-id={rule.id}
+                          >
+                            Preview
+                          </button>
+                          <button
+                            type="button"
+                            class="btn btn-ghost btn-xs"
+                            phx-click="toggle_consumers"
+                            phx-value-id={rule.id}
+                          >
+                            Consumers
+                          </button>
+                          <.link
+                            navigate={~p"/settings/networks/credentials/#{rule.id}/edit"}
+                            class="btn btn-ghost btn-xs"
+                          >
+                            Edit
+                          </.link>
+                          <button
+                            :if={rule.enabled}
+                            type="button"
+                            class="btn btn-ghost btn-xs"
+                            phx-click="disable_rule"
+                            phx-value-id={rule.id}
+                          >
+                            Disable
+                          </button>
+                          <button
+                            :if={!rule.enabled}
+                            type="button"
+                            class="btn btn-ghost btn-xs"
+                            phx-click="enable_rule"
+                            phx-value-id={rule.id}
+                          >
+                            Enable
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    <tr :if={@expanded_rule_id == to_string(rule.id)} class="bg-base-200/40">
+                      <td colspan="10">
+                        <.rule_consumers_panel consumers={@rule_consumers} />
+                      </td>
+                    </tr>
+                  <% end %>
                 </tbody>
               </table>
             </div>
@@ -486,6 +532,60 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     """
   end
 
+  attr :consumers, :map, default: nil
+
+  defp rule_consumers_panel(assigns) do
+    ~H"""
+    <div class="space-y-2 p-2 text-xs">
+      <%= cond do %>
+        <% is_nil(@consumers) -> %>
+          <p class="text-base-content/60">Loading consumers.</p>
+        <% @consumers.total == 0 -> %>
+          <p class="text-base-content/60">
+            No materialized plugin assignments yet — the reconciler has not produced assignments
+            for this rule. Check that the rule is enabled and that its scope, purposes, and
+            target query match connected agents.
+          </p>
+        <% true -> %>
+          <p class="text-base-content/70">
+            Materializes {@consumers.total} assignment(s)
+            ({@consumers.enabled_count} enabled) across {length(@consumers.agent_uids)} agent(s).
+            Last materialized {format_timestamp(@consumers.last_materialized_at)}.
+          </p>
+          <div class="overflow-hidden rounded-lg border border-base-200 bg-base-100">
+            <table class="table table-xs">
+              <thead>
+                <tr>
+                  <th>Agent</th>
+                  <th>Plugin</th>
+                  <th>Purpose</th>
+                  <th>Status</th>
+                  <th>Last Materialized</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={consumer <- @consumers.consumers}>
+                  <td class="font-mono">{consumer.agent_uid}</td>
+                  <td class="font-mono">{consumer.plugin_id}</td>
+                  <td>{consumer.purpose}</td>
+                  <td>
+                    <span class={[
+                      "badge badge-sm",
+                      if(consumer.enabled, do: "badge-success", else: "badge-ghost")
+                    ]}>
+                      {if consumer.enabled, do: "enabled", else: "disabled"}
+                    </span>
+                  </td>
+                  <td>{format_timestamp(consumer.last_materialized_at)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+      <% end %>
+    </div>
+    """
+  end
+
   attr :rule_preview, :map, required: true
 
   defp rule_preview_modal(assigns) do
@@ -593,6 +693,62 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                 </tbody>
               </table>
             </div>
+          </section>
+
+          <section class="space-y-2">
+            <h3 class="text-sm font-semibold">Effective Inputs (dry run)</h3>
+            <%= case Map.get(@rule_preview, :effective) do %>
+              <% {:ok, effective} -> %>
+                <p class="text-xs text-base-content/60">
+                  {effective.targets.total} target(s) resolved from the rule's SRQL query
+                  <span :if={effective.targets.truncated?}>
+                    (showing first {length(effective.targets.sample)})
+                  </span>
+                  — secret references shown as-is; secret material is never resolved or displayed.
+                </p>
+                <div
+                  :for={entry <- effective.purposes}
+                  class="rounded-lg border border-base-200 p-3 space-y-2"
+                >
+                  <div class="flex flex-wrap items-center gap-2 text-xs">
+                    <span class="badge badge-ghost badge-sm">{entry.purpose}</span>
+                    <span class="font-mono">{entry.plugin_id}</span>
+                    <span class="font-mono text-base-content/60">{entry.policy_id}</span>
+                    <span :if={!entry.package_found?} class="badge badge-warning badge-sm">
+                      no approved package
+                    </span>
+                    <span class="text-base-content/60">
+                      every {entry.interval_seconds}s, timeout {entry.timeout_seconds}s
+                    </span>
+                  </div>
+                  <pre class="max-h-64 overflow-auto rounded bg-base-200/60 p-2 text-[11px] font-mono"><%= encode_json(entry.params_template) %></pre>
+                </div>
+                <div
+                  :if={effective.targets.sample != []}
+                  class="overflow-hidden rounded-lg border border-base-200"
+                >
+                  <table class="table table-xs">
+                    <thead>
+                      <tr>
+                        <th>Target</th>
+                        <th>Address</th>
+                        <th>Agent</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr :for={device <- effective.targets.sample}>
+                        <td>{device_label(device)}</td>
+                        <td>{device_address(device)}</td>
+                        <td>{device_agent(device)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              <% {:error, reason} -> %>
+                <p class="text-xs text-error">Dry run failed: {format_error(reason)}</p>
+              <% _ -> %>
+                <p class="text-xs text-base-content/60">Dry run unavailable.</p>
+            <% end %>
           </section>
         </div>
       </div>
@@ -1484,6 +1640,19 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
         nil
     end)
   end
+
+  defp encode_json(value) do
+    case Jason.encode(value, pretty: true) do
+      {:ok, json} -> json
+      _ -> inspect(value, pretty: true)
+    end
+  end
+
+  defp format_timestamp(%DateTime{} = timestamp) do
+    Calendar.strftime(timestamp, "%Y-%m-%d %H:%M:%S UTC")
+  end
+
+  defp format_timestamp(_timestamp), do: "never"
 
   defp format_last_test(%{last_test_status: nil}), do: "Not tested"
 

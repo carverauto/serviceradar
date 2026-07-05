@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.Manifest
   alias ServiceRadarWebNG.Plugins.Assignments
+  alias ServiceRadarWebNG.Plugins.CredentialCoverage
   alias ServiceRadarWebNG.Plugins.FirstPartyImporter
   alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNG.Plugins.Storage
@@ -64,6 +65,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:review_form, default_review_form())
         |> assign(:assignment_form, default_assignment_form())
         |> assign(:assignments, [])
+        |> assign(:credential_fields, [])
+        |> assign(:credential_coverage, nil)
+        |> assign(:assignment_coverage, %{})
         |> assign(:versions, [])
         |> assign(:agents, list_agents(scope))
         |> assign_capacity(scope)
@@ -129,6 +133,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:review_form, build_review_form(package))
         |> assign(:assignment_form, default_assignment_form())
         |> assign(:assignments, list_plugin_assignments(package.plugin_id, scope))
+        |> assign_credential_context(package)
         |> assign(:versions, list_versions(package.plugin_id, scope))
         |> assign(:upload_errors, [])
         |> assign_package_urls(package, scope)
@@ -510,7 +515,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   def handle_event("assignment_change", %{"assignment" => params}, socket) do
-    {:noreply, assign(socket, :assignment_form, Map.merge(socket.assigns.assignment_form, params))}
+    form = Map.merge(socket.assigns.assignment_form, params)
+
+    {:noreply,
+     socket
+     |> assign(:assignment_form, form)
+     |> assign_form_coverage(form["agent_uid"])}
   end
 
   def handle_event("approve_package", %{"review" => _params}, %{assigns: %{can_approve_plugins: false}} = socket) do
@@ -646,6 +656,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         {:noreply,
          socket
          |> assign(:assignments, list_plugin_assignments(socket.assigns.selected_package.plugin_id, scope))
+         |> assign_credential_context(socket.assigns.selected_package)
          |> put_flash(:info, "Assignment removed")}
 
       {:error, error} ->
@@ -776,7 +787,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
          |> assign(:assignments, list_plugin_assignments(socket.assigns.selected_package.plugin_id, scope))
          |> assign(:assignment_form, default_assignment_form())
          |> assign(:show_details_modal, false)
-         |> put_flash(:info, "Assignment created")}
+         |> assignment_saved_flash("Assignment created", attrs.agent_uid)}
 
       {:error, error} ->
         Logger.error("Plugin assignment creation failed: #{inspect(error)}")
@@ -797,7 +808,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
          |> assign(:assignments, list_plugin_assignments(socket.assigns.selected_package.plugin_id, scope))
          |> assign(:assignment_form, default_assignment_form())
          |> assign(:show_details_modal, false)
-         |> put_flash(:info, "Assignment updated")}
+         |> assignment_saved_flash("Assignment updated", assignment.agent_uid)}
 
       {:error, error} ->
         Logger.error("Plugin assignment update failed for #{assignment.id}: #{inspect(error)}")
@@ -814,7 +825,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
          |> assign(:assignments, list_plugin_assignments(socket.assigns.selected_package.plugin_id, scope))
          |> assign(:assignment_form, default_assignment_form())
          |> assign(:show_details_modal, false)
-         |> put_flash(:info, "Assignment upgraded")}
+         |> assignment_saved_flash("Assignment upgraded", attrs.agent_uid)}
 
       {:error, error} ->
         Logger.error("Plugin assignment upgrade failed for #{assignment.id}: #{inspect(error)}")
@@ -1192,6 +1203,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         assignments={@assignments}
         agents={@agents}
         assignment_form={@assignment_form}
+        assignment_coverage={@assignment_coverage}
+        credential_coverage={@credential_coverage}
         versions={@versions}
         blob_present={@blob_present}
         uploads={@uploads}
@@ -1614,6 +1627,14 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                         <%= if assignment.source == :policy do %>
                           <.ui_badge size="xs" variant="ghost">policy</.ui_badge>
                         <% end %>
+                        <%= if uncovered_assignment?(@assignment_coverage, assignment.id) do %>
+                          <span
+                            class="badge badge-warning badge-xs"
+                            title={coverage_badge_title(@assignment_coverage, assignment.id)}
+                          >
+                            no credential rule coverage
+                          </span>
+                        <% end %>
                       </div>
                       <div class="text-base-content/60">
                         every {assignment.interval_seconds}s, timeout {assignment.timeout_seconds}s
@@ -1724,6 +1745,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                     schema={@package.config_schema}
                     params={assignment_params_map(@assignment_form)}
                     base_name="assignment[params]"
+                    credential_coverage={@credential_coverage}
                   />
                 </div>
 
@@ -2863,6 +2885,87 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   defp existing_assignment(_assignments, _agent_uid), do: nil
+
+  # -- Credential-rule coverage (x-serviceradar-credential-materialized) -------
+  #
+  # PluginAssignment has no metadata column to persist a coverage flag, so the
+  # warning is derived dynamically on every view: per-assignment badges in the
+  # Assignments list, live status in the assignment form, and a loud flash on
+  # save. It disappears on its own once a matching rule is enabled.
+
+  defp assign_credential_context(socket, package) do
+    fields = CredentialCoverage.materialized_fields(package.config_schema)
+
+    socket
+    |> assign(:credential_fields, fields)
+    |> assign(:credential_coverage, nil)
+    |> assign(
+      :assignment_coverage,
+      assignment_coverage(fields, package.plugin_id, socket.assigns.assignments)
+    )
+  end
+
+  defp assignment_coverage([], _plugin_id, _assignments), do: %{}
+
+  defp assignment_coverage(_fields, plugin_id, assignments) do
+    Map.new(assignments, fn assignment ->
+      case CredentialCoverage.coverage(plugin_id, assignment.agent_uid) do
+        {:ok, coverage} -> {assignment.id, coverage}
+        _ -> {assignment.id, nil}
+      end
+    end)
+  end
+
+  defp assign_form_coverage(socket, agent_uid) do
+    package = socket.assigns.selected_package
+
+    coverage =
+      with true <- socket.assigns.credential_fields != [],
+           %{plugin_id: plugin_id} when is_binary(plugin_id) <- package,
+           trimmed when is_binary(trimmed) and trimmed != "" <- trim_or_nil(agent_uid),
+           {:ok, coverage} <- CredentialCoverage.coverage(plugin_id, trimmed) do
+        coverage
+      else
+        _ -> nil
+      end
+
+    assign(socket, :credential_coverage, coverage)
+  end
+
+  defp assignment_saved_flash(socket, base_message, agent_uid) do
+    case saved_coverage_warning(socket, agent_uid) do
+      nil -> put_flash(socket, :info, base_message)
+      warning -> put_flash(socket, :error, base_message <> ". Warning: " <> warning)
+    end
+  end
+
+  defp saved_coverage_warning(socket, agent_uid) do
+    with true <- socket.assigns.credential_fields != [],
+         %{plugin_id: plugin_id} when is_binary(plugin_id) <- socket.assigns.selected_package,
+         trimmed when is_binary(trimmed) and trimmed != "" <- trim_or_nil(agent_uid),
+         {:ok, coverage} <- CredentialCoverage.coverage(plugin_id, trimmed) do
+      CredentialCoverage.warning_message(coverage, trimmed)
+    else
+      _ -> nil
+    end
+  end
+
+  defp trim_or_nil(value) when is_binary(value), do: String.trim(value)
+  defp trim_or_nil(_value), do: nil
+
+  defp uncovered_assignment?(coverage_map, assignment_id) do
+    match?(%{state: :uncovered}, Map.get(coverage_map || %{}, assignment_id))
+  end
+
+  defp coverage_badge_title(coverage_map, assignment_id) do
+    case Map.get(coverage_map || %{}, assignment_id) do
+      %{provider: provider, purpose: purpose} ->
+        "No enabled #{provider} #{purpose} credential rule covers this agent"
+
+      _ ->
+        nil
+    end
+  end
 
   defp manifest_source_repo_url(manifest) do
     source = Map.get(manifest || %{}, :source) || Map.get(manifest || %{}, "source") || %{}
