@@ -22,6 +22,10 @@ rust_binary(
 rust_test(
     name = "otel_addon_test",
     srcs = glob(["src/**/*.rs"]),
+    # fj#4383: core-emitted config_json contract fixture, include_str!'d by
+    # src/addon.rs's contract test (regenerated via
+    # `mix serviceradar.gen.addon_contract_fixtures`).
+    compile_data = ["//go/pkg/agent:addonconfig_contract_fixtures"],
     crate_root = "src/main.rs",
     edition = "2024",
     deps = all_crate_deps(

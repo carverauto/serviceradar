@@ -357,3 +357,37 @@ fn default_spool_dir() -> PathBuf {
 fn default_max_identities() -> usize {
     DEFAULT_MAX_IDENTITIES
 }
+
+#[cfg(test)]
+mod addon_config_contract_tests {
+    use super::Config;
+    use std::path::PathBuf;
+
+    /// fj#4383 add-on config contract test: decodes the committed
+    /// core-emitted `config_json` fixture with the REAL daemon decoder so
+    /// core's delivery-path emitter and this struct cannot drift apart.
+    /// Regenerate the fixture with
+    /// `cd elixir/serviceradar_core && mix serviceradar.gen.addon_contract_fixtures`.
+    const CORE_EMITTED_FIXTURE: &str = include_str!(
+        "../../../../go/pkg/agent/testdata/addonconfig_contract/workload-identity.json"
+    );
+
+    #[test]
+    fn decodes_core_emitted_contract_fixture() {
+        let cfg: Config = serde_json::from_str(CORE_EMITTED_FIXTURE)
+            .expect("core-emitted workload-identity config_json must decode with the real decoder");
+
+        assert!(cfg.enabled);
+        assert_eq!(cfg.root, Some(PathBuf::from("/")));
+        assert_eq!(cfg.refresh_interval_s, 120);
+        assert_eq!(cfg.max_identities, 50_000);
+        assert_eq!(cfg.cluster_name.as_deref(), Some("demo-cluster"));
+
+        let runtime = cfg.runtime.expect("runtime section present");
+        assert_eq!(runtime.kind.as_deref(), Some("containerd"));
+        assert_eq!(
+            runtime.socket,
+            Some(PathBuf::from("/run/containerd/containerd.sock"))
+        );
+    }
+}

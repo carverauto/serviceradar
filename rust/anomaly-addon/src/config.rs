@@ -331,3 +331,40 @@ impl NativeTelemetryDropSnapshot {
         )
     }
 }
+
+#[cfg(test)]
+mod addon_config_contract_tests {
+    use super::AddonConfig;
+
+    /// fj#4383 add-on config contract test: decodes the committed
+    /// core-emitted `config_json` fixture with the REAL add-on decoder so
+    /// core's delivery-path emitter and this struct cannot drift apart.
+    /// Regenerate the fixture with
+    /// `cd elixir/serviceradar_core && mix serviceradar.gen.addon_contract_fixtures`.
+    const CORE_EMITTED_FIXTURE: &str =
+        include_str!("../../../go/pkg/agent/testdata/addonconfig_contract/anomaly-addon.json");
+
+    #[test]
+    fn decodes_core_emitted_contract_fixture() {
+        let cfg: AddonConfig = serde_json::from_str(CORE_EMITTED_FIXTURE)
+            .expect("core-emitted anomaly-addon config_json must decode with the real decoder");
+
+        // The decoder is lenient (unknown keys ignored), so assert the values
+        // round-tripped instead of relying on decode failure alone.
+        assert_eq!(cfg.window_size, Some(300));
+        assert_eq!(cfg.min_samples, Some(30));
+        assert_eq!(cfg.n_sigma, Some(3.5));
+        assert_eq!(cfg.confirm_slots, Some(5));
+        assert_eq!(cfg.max_series, Some(50_000));
+        assert_eq!(cfg.cusum_enabled, Some(true));
+        assert_eq!(cfg.cusum_k, Some(0.5));
+        assert_eq!(cfg.cusum_h, Some(5.0));
+        assert_eq!(
+            cfg.checkpoint_path.as_deref(),
+            Some("/var/lib/serviceradar/anomaly/checkpoint.bin")
+        );
+        assert_eq!(cfg.checkpoint_max_age_secs, Some(21_600));
+        // `metric_feed` in the schema/fixture is core-side feed routing
+        // (stream_metric_feed), deliberately NOT a field of AddonConfig.
+    }
+}
