@@ -894,6 +894,9 @@ webNg:
   checkOrigin: "true"
   devRoutes: "false"
   localMailer: "false"
+  # Bootstrap admin identity. The generated admin password is stored in
+  # secrets.existingSecretName under admin-password.
+  adminEmail: "root@localhost"
   # When true, the bootstrap step resets the stored admin password hash to
   # match SERVICERADAR_ADMIN_PASSWORD on every restart. Use this in
   # environments where the secret is the source of truth (e.g. demo, where
@@ -904,7 +907,9 @@ webNg:
   # Local-login break-glass + SSO toggle (server-side LoginPolicy).
   # forceLocalLogin permits local password login regardless of SSO enforcement —
   # the break-glass recovery hatch for broken AuthSettings/IdP (a valid password is
-  # still required; not a bypass). disableSso hides the SSO button. Both default off.
+  # still required; not a bypass). Normal SSO deployments should leave it false
+  # and use the per-account Local password login toggle in Settings -> Auth -> Users.
+  # disableSso hides the SSO button. Both default off.
   auth:
     forceLocalLogin: false
     disableSso: false

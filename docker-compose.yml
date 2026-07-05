@@ -829,11 +829,14 @@ services:
       - SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_AUTO_REFRESH=${SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_AUTO_REFRESH:-true}
       - SERVICERADAR_ADMIN_EMAIL=${SERVICERADAR_ADMIN_EMAIL:-root@localhost}
       - SERVICERADAR_ADMIN_PASSWORD_FILE=/etc/serviceradar/admin/admin-password
-      - SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC=${SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC:-true}
+      # Leave force-sync off by default so UI-driven admin password changes are
+      # not overwritten on restart. Set true only when the mounted admin-password
+      # file is the intended source of truth.
+      - SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC=${SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC:-false}
       # Break-glass: permit local password login regardless of SSO enforcement
       # (server-side LoginPolicy). A valid password is still required — this is the
-      # recover-from-broken-AuthSettings hatch, not a bypass. DISABLE_SSO hides the
-      # SSO button. Both default off.
+      # recover-from-broken-AuthSettings hatch, not a bypass or per-user policy
+      # control. DISABLE_SSO hides the SSO button. Both default off.
       - SERVICERADAR_AUTH_FORCE_LOCAL_LOGIN=${SERVICERADAR_AUTH_FORCE_LOCAL_LOGIN:-false}
       - SERVICERADAR_AUTH_DISABLE_SSO=${SERVICERADAR_AUTH_DISABLE_SSO:-false}
       - SERVICERADAR_GATEWAY_ADDR=${SERVICERADAR_GATEWAY_ADDR:-${SERVICERADAR_HOST:-localhost}:50052}

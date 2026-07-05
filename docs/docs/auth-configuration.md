@@ -16,8 +16,17 @@ Self-hosted deployments bootstrap an admin user at startup if no admin exists.
 - `SERVICERADAR_ADMIN_EMAIL` (default: `root@localhost`)
 - `SERVICERADAR_ADMIN_PASSWORD` (required to bootstrap)
 - `SERVICERADAR_ADMIN_PASSWORD_FILE` (optional alternative to `..._PASSWORD`)
+- `SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC` (default: `false` for shipped Helm and Compose defaults)
 
 Helm and Docker Compose set these for you (typically via a generated secret/file). After the first login, manage users in **Settings -> Auth -> Users**.
+
+Keep `SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC=false` for normal installs so a password changed in the UI is not overwritten on restart. Set it to `true` only when the mounted secret/file is the intended source of truth for the bootstrap admin password.
+
+## Local Password Login With SSO
+
+When Direct SSO or Gateway Proxy mode is enabled, local password login is controlled per account. Admins can enable or disable the **Local password login** toggle for each user under **Settings -> Auth -> Users**.
+
+`SERVICERADAR_AUTH_FORCE_LOCAL_LOGIN` is a deployment-level break-glass switch. Leave it unset or `false` for normal installs. When set to `true`, any account with a valid local password can sign in locally even when SSO is enforced. This is intended only for recovering from broken AuthSettings or an unavailable identity provider.
 
 ## Authentication Modes
 

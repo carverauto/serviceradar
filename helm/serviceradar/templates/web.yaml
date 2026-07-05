@@ -52,6 +52,7 @@
 {{- $objectStoreRetentionDryRun := false -}}
 {{- if hasKey $objectStoreRetention "dryRun" -}}{{- $objectStoreRetentionDryRun = get $objectStoreRetention "dryRun" -}}{{- end -}}
 {{- $agentReleasePublicKey := default "" $webNg.agentReleasePublicKey -}}
+{{- $adminEmail := default "root@localhost" $webNg.adminEmail -}}
 {{- $geoipMmdb := default (dict) .Values.geoipMmdb -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
 {{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
@@ -258,7 +259,7 @@ spec:
           value: {{ $agentReleasePublicKey | quote }}
         {{- end }}
         - name: SERVICERADAR_ADMIN_EMAIL
-          value: "root@localhost"
+          value: {{ $adminEmail | quote }}
         - name: SERVICERADAR_ADMIN_PASSWORD
           valueFrom:
             secretKeyRef:
