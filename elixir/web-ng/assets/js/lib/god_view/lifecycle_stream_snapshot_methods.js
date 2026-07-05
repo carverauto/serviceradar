@@ -1,3 +1,5 @@
+import {formatEdgeClassStatus} from "./topology_class_stats"
+
 export const godViewLifecycleStreamSnapshotMethods = {
   async handleSnapshot(msg) {
     const startedAt = performance.now()
@@ -41,11 +43,13 @@ export const godViewLifecycleStreamSnapshotMethods = {
       this.state.lastSnapshotAt = Date.now()
       const visibleNodeCount = Number(this.state.lastVisibleNodeCount || 0)
       const visibleEdgeCount = Number(this.state.lastVisibleEdgeCount || 0)
+      const edgeClassStatus = formatEdgeClassStatus(this.state.lastPipelineStats)
       this.state.summary.textContent =
         `schema=${snapshot.schemaVersion} revision=${snapshot.revision} nodes=${graph.nodes.length} ` +
         `edges=${graph.edges.length} payload=${bytes.byteLength}B selected=` +
         `${this.state.selectedNodeIndex === null ? "none" : this.state.selectedNodeIndex} visible=` +
-        `${visibleNodeCount}/${graph.nodes.length} rendered_edges=${visibleEdgeCount} layout=${graph._layoutMode || "unknown"}`
+        `${visibleNodeCount}/${graph.nodes.length} rendered_edges=${visibleEdgeCount} layout=${graph._layoutMode || "unknown"}` +
+        (edgeClassStatus ? ` ${edgeClassStatus}` : "")
       const renderMs = Math.round((performance.now() - renderStart) * 100) / 100
       const networkMs = Math.round((performance.now() - startedAt) * 100) / 100
 

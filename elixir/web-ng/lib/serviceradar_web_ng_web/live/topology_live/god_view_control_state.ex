@@ -83,6 +83,23 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewControlState do
     end
   end
 
+  @doc """
+  Enables the attachment/inferred topology layers as the explicit
+  call-to-action of the backbone-empty warning. Reuses the same
+  `god_view:set_topology_layers` event path as the layer toggles so
+  client layer state stays in sync with the LiveView assigns.
+  """
+  def enable_attachment_layers(socket) do
+    layers =
+      socket.assigns.topology_layers
+      |> Map.put(:inferred, true)
+      |> Map.put(:endpoints, true)
+
+    socket
+    |> assign(:topology_layers, layers)
+    |> push_event("god_view:set_topology_layers", %{layers: stringify_filter_keys(layers)})
+  end
+
   def toggle_controls_panel(socket) do
     update(socket, :controls_collapsed, &(!&1))
   end

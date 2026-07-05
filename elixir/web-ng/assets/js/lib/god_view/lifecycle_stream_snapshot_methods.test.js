@@ -274,4 +274,95 @@ describe("lifecycle_stream_snapshot_methods", () => {
     expect(deps.focusClusterNeighborhood).toHaveBeenCalledWith(graph, "cluster:endpoints:sr:test")
     expect(state.pendingClusterFocus).toBe(null)
   })
+
+  it("handleSnapshot appends per-class edge counts and the backbone-empty marker to the status line", async () => {
+    const state = {
+      lastRevision: null,
+      lastSnapshotAt: 0,
+      layoutRequestToken: 0,
+      lastGraph: null,
+      lastVisibleNodeCount: 0,
+      lastVisibleEdgeCount: 0,
+      selectedNodeIndex: null,
+      rendererMode: "deck",
+      zoomTier: "local",
+      zoomMode: "local",
+      lastPipelineStats: {
+        backbone_edge_count: 0,
+        edge_class_backbone: 0,
+        edge_class_attachment: 57,
+        edge_class_inferred: 12,
+        edge_class_hosted: 3,
+        edge_class_observed: 0,
+      },
+      pushEvent: vi.fn(),
+      summary: {textContent: ""},
+    }
+
+    const graph = {nodes: [{id: "a", x: 10, y: 20}], edges: [], _layoutMode: "elk-client"}
+    const deps = {
+      decodeArrowGraph: vi.fn(() => ({nodes: [{id: "a"}], edges: []})),
+      graphTopologyStamp: vi.fn(() => "stamp"),
+      prepareGraphLayout: vi.fn(async () => graph),
+      ensureBitmapMetadata: vi.fn(() => ({})),
+      sameTopology: vi.fn(() => false),
+      renderGraph: vi.fn(),
+      animateTransition: vi.fn(),
+      focusClusterNeighborhood: vi.fn(() => false),
+      normalizePipelineStats: vi.fn((stats) => stats),
+    }
+
+    const methods = createStateBackedContext(state, deps)
+    Object.assign(methods, bindApi(methods, godViewLifecycleStreamSnapshotMethods))
+
+    await methods.handleSnapshot(buildFrame([1, 2, 3]))
+
+    expect(state.summary.textContent).toContain("classes=bb:0/att:57/inf:12/host:3/obs:0")
+    expect(state.summary.textContent).toContain("backbone=EMPTY")
+    expect(state.pushEvent).toHaveBeenCalledWith(
+      "god_view_stream_stats",
+      expect.objectContaining({
+        pipeline_stats: expect.objectContaining({backbone_edge_count: 0, edge_class_attachment: 57}),
+      }),
+    )
+  })
+
+  it("handleSnapshot omits the class fragment when per-class counts are unavailable", async () => {
+    const state = {
+      lastRevision: null,
+      lastSnapshotAt: 0,
+      layoutRequestToken: 0,
+      lastGraph: null,
+      lastVisibleNodeCount: 0,
+      lastVisibleEdgeCount: 0,
+      selectedNodeIndex: null,
+      rendererMode: "deck",
+      zoomTier: "local",
+      zoomMode: "local",
+      lastPipelineStats: null,
+      pushEvent: vi.fn(),
+      summary: {textContent: ""},
+    }
+
+    const graph = {nodes: [{id: "a", x: 10, y: 20}], edges: [], _layoutMode: "elk-client"}
+    const deps = {
+      decodeArrowGraph: vi.fn(() => ({nodes: [{id: "a"}], edges: []})),
+      graphTopologyStamp: vi.fn(() => "stamp"),
+      prepareGraphLayout: vi.fn(async () => graph),
+      ensureBitmapMetadata: vi.fn(() => ({})),
+      sameTopology: vi.fn(() => false),
+      renderGraph: vi.fn(),
+      animateTransition: vi.fn(),
+      focusClusterNeighborhood: vi.fn(() => false),
+      normalizePipelineStats: vi.fn(() => ({})),
+    }
+
+    const methods = createStateBackedContext(state, deps)
+    Object.assign(methods, bindApi(methods, godViewLifecycleStreamSnapshotMethods))
+
+    await methods.handleSnapshot(buildFrame([1, 2, 3]))
+
+    expect(state.summary.textContent).not.toContain("classes=")
+    expect(state.summary.textContent).not.toContain("backbone=EMPTY")
+  })
 })

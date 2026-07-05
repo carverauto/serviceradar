@@ -17,8 +17,15 @@ function parseGeneratedAtMs(headers, name) {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+function putOptionalHeaderInt(stats, headers, key, name) {
+  const raw = headers?.get?.(name)
+  if (raw === null || raw === undefined || raw === "") return
+  const parsed = Number(raw)
+  if (Number.isFinite(parsed) && parsed >= 0) stats[key] = parsed
+}
+
 function pipelineStatsFromHeaders(headers) {
-  return {
+  const stats = {
     raw_links: parseHeaderInt(headers, "x-sr-god-view-pipeline-raw-links"),
     unique_pairs: parseHeaderInt(headers, "x-sr-god-view-pipeline-unique-pairs"),
     final_edges: parseHeaderInt(headers, "x-sr-god-view-pipeline-final-edges"),
@@ -30,6 +37,17 @@ function pipelineStatsFromHeaders(headers) {
     edge_telemetry_fallback: parseHeaderInt(headers, "x-sr-god-view-pipeline-edge-telemetry-fallback"),
     edge_unresolved_directional: parseHeaderInt(headers, "x-sr-god-view-pipeline-edge-unresolved-directional"),
   }
+
+  // Per-edge-class counts are only set when the server actually sent them so
+  // the backbone-empty predicate never fires on zero-filled defaults.
+  putOptionalHeaderInt(stats, headers, "edge_class_backbone", "x-sr-god-view-pipeline-edge-class-backbone")
+  putOptionalHeaderInt(stats, headers, "edge_class_attachment", "x-sr-god-view-pipeline-edge-class-attachment")
+  putOptionalHeaderInt(stats, headers, "edge_class_inferred", "x-sr-god-view-pipeline-edge-class-inferred")
+  putOptionalHeaderInt(stats, headers, "edge_class_hosted", "x-sr-god-view-pipeline-edge-class-hosted")
+  putOptionalHeaderInt(stats, headers, "edge_class_observed", "x-sr-god-view-pipeline-edge-class-observed")
+  putOptionalHeaderInt(stats, headers, "backbone_edge_count", "x-sr-god-view-pipeline-backbone-edge-count")
+
+  return stats
 }
 
 const godViewLifecycleBootstrapChannelCoreMethods = {

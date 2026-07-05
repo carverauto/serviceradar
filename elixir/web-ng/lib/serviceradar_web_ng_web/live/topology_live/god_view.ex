@@ -109,6 +109,10 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
     {:noreply, GodViewControlState.toggle_topology_layer(socket, layer)}
   end
 
+  def handle_event("enable_attachment_layers", _params, socket) do
+    {:noreply, GodViewControlState.enable_attachment_layers(socket)}
+  end
+
   def handle_event("toggle_controls_panel", _params, socket) do
     {:noreply, GodViewControlState.toggle_controls_panel(socket)}
   end

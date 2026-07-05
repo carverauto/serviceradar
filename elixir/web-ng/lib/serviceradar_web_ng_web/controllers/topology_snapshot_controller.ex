@@ -103,6 +103,30 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotController do
               "x-sr-god-view-pipeline-edge-unresolved-directional",
               Integer.to_string(Map.get(pipeline_stats, :edge_unresolved_directional, 0))
             )
+            |> put_resp_header(
+              "x-sr-god-view-pipeline-edge-class-backbone",
+              Integer.to_string(Map.get(pipeline_stats, :edge_class_backbone, 0))
+            )
+            |> put_resp_header(
+              "x-sr-god-view-pipeline-edge-class-attachment",
+              Integer.to_string(Map.get(pipeline_stats, :edge_class_attachment, 0))
+            )
+            |> put_resp_header(
+              "x-sr-god-view-pipeline-edge-class-inferred",
+              Integer.to_string(Map.get(pipeline_stats, :edge_class_inferred, 0))
+            )
+            |> put_resp_header(
+              "x-sr-god-view-pipeline-edge-class-hosted",
+              Integer.to_string(Map.get(pipeline_stats, :edge_class_hosted, 0))
+            )
+            |> put_resp_header(
+              "x-sr-god-view-pipeline-edge-class-observed",
+              Integer.to_string(Map.get(pipeline_stats, :edge_class_observed, 0))
+            )
+            |> put_resp_header(
+              "x-sr-god-view-pipeline-backbone-edge-count",
+              Integer.to_string(Map.get(pipeline_stats, :backbone_edge_count, 0))
+            )
             |> send_resp(200, payload)
 
           {:error, reason} ->
@@ -152,6 +176,12 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotController do
       :final_direct,
       :final_inferred,
       :final_attachment,
+      :edge_class_backbone,
+      :edge_class_attachment,
+      :edge_class_inferred,
+      :edge_class_hosted,
+      :edge_class_observed,
+      :backbone_edge_count,
       :unresolved_endpoints,
       :edge_telemetry_interface,
       :edge_telemetry_fallback,

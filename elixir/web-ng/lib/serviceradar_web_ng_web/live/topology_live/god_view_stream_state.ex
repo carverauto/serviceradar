@@ -154,6 +154,12 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewStreamState do
       :final_direct,
       :final_inferred,
       :final_attachment,
+      :edge_class_backbone,
+      :edge_class_attachment,
+      :edge_class_inferred,
+      :edge_class_hosted,
+      :edge_class_observed,
+      :backbone_edge_count,
       :unresolved_endpoints
     ]
 

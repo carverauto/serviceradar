@@ -49,6 +49,12 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotControllerTest do
     assert get_resp_header(conn, "x-sr-god-view-pipeline-edge-telemetry-interface") != []
     assert get_resp_header(conn, "x-sr-god-view-pipeline-edge-telemetry-fallback") != []
     assert get_resp_header(conn, "x-sr-god-view-pipeline-edge-unresolved-directional") != []
+    assert get_resp_header(conn, "x-sr-god-view-pipeline-edge-class-backbone") != []
+    assert get_resp_header(conn, "x-sr-god-view-pipeline-edge-class-attachment") != []
+    assert get_resp_header(conn, "x-sr-god-view-pipeline-edge-class-inferred") != []
+    assert get_resp_header(conn, "x-sr-god-view-pipeline-edge-class-hosted") != []
+    assert get_resp_header(conn, "x-sr-god-view-pipeline-edge-class-observed") != []
+    assert get_resp_header(conn, "x-sr-god-view-pipeline-backbone-edge-count") != []
     assert binary_part(conn.resp_body, 0, 6) == "ARROW1"
     assert binary_part(conn.resp_body, byte_size(conn.resp_body) - 6, 6) == "ARROW1"
   end
