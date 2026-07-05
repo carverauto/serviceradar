@@ -125,6 +125,7 @@ defmodule ServiceRadar.Automation.Ansible.Lifecycle do
       :error ->
         Controller
         |> Ash.Query.for_read(:read, %{}, actor: actor)
+        |> Ash.Query.filter(enabled == true)
         |> Ash.read(actor: actor)
     end
   end

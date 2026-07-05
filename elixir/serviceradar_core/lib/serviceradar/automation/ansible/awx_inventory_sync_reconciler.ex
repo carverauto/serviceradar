@@ -16,6 +16,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconciler do
   alias ServiceRadar.Plugins.PolicyAssignmentReconciler
   alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.Plugins.ValueUtils
+  alias ServiceRadar.Repo
 
   require Ash.Query
   require Logger
@@ -24,6 +25,10 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconciler do
   @policy_id "ansible:awx-inventory-sync"
   @policy_version 1
   @default_timeout_ms 30_000
+  # Serializes concurrent reconciles of the single AWX policy (per-controller
+  # lifecycle hook vs the backstop seeder, possibly on different nodes) so they
+  # cannot interleave read-modify-write on the shared assignment set.
+  @reconcile_lock_key :erlang.phash2(:awx_inventory_sync_reconcile)
 
   @type reconcile_result :: PolicyAssignmentReconciler.reconcile_result()
 
@@ -69,14 +74,41 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconciler do
         enabled: true
       }
 
-      PolicyAssignmentReconciler.reconcile(policy, rows,
-        actor: actor,
-        resolver: __MODULE__.Resolver,
-        planner: __MODULE__.Planner,
-        store: Keyword.get(opts, :store, PolicyAssignmentReconciler.AshStore),
-        agent_scope: Keyword.get(opts, :agent_scope)
-      )
+      with_reconcile_lock(opts, fn ->
+        PolicyAssignmentReconciler.reconcile(policy, rows,
+          actor: actor,
+          resolver: __MODULE__.Resolver,
+          planner: __MODULE__.Planner,
+          store: Keyword.get(opts, :store, PolicyAssignmentReconciler.AshStore),
+          agent_scope: Keyword.get(opts, :agent_scope)
+        )
+      end)
     end
+  end
+
+  # Holds a transaction-scoped Postgres advisory lock on the AWX policy for the
+  # duration of the reconcile so concurrent reconciles serialize instead of
+  # racing. Skipped when a custom store is injected (unit tests run without a
+  # repo); nests safely inside the controller-write transaction of the lifecycle
+  # hook.
+  defp with_reconcile_lock(opts, fun) do
+    if lock_enabled?(opts) do
+      fn ->
+        Repo.query!("SELECT pg_advisory_xact_lock($1)", [@reconcile_lock_key])
+        fun.()
+      end
+      |> Repo.transaction()
+      |> case do
+        {:ok, inner_result} -> inner_result
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      fun.()
+    end
+  end
+
+  defp lock_enabled?(opts) do
+    Keyword.get(opts, :advisory_lock, is_nil(Keyword.get(opts, :store)))
   end
 
   defmodule Resolver do
@@ -180,6 +212,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconciler do
       :error ->
         Controller
         |> Ash.Query.for_read(:read, %{}, actor: actor)
+        |> Ash.Query.filter(enabled == true)
         |> Ash.read(actor: actor)
     end
   end
@@ -190,7 +223,10 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconciler do
         {:ok, Enum.filter(controllers, &(string_value(&1, [:agent_id, "agent_id"]) == agent_id))}
 
       :error ->
-        Controller.list_by_agent(agent_id, actor: actor)
+        Controller
+        |> Ash.Query.for_read(:by_agent, %{agent_id: agent_id}, actor: actor)
+        |> Ash.Query.filter(enabled == true)
+        |> Ash.read(actor: actor)
     end
   end
 
@@ -224,6 +260,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconciler do
     # reconcile.
     rows =
       controllers
+      |> Enum.reject(&disabled?/1)
       |> Enum.reject(&blank?(string_value(&1, [:agent_id, "agent_id"])))
       |> Enum.flat_map(fn controller ->
         case controller_row(controller, opts) do
@@ -385,6 +422,16 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconciler do
   defp blank?(""), do: true
   defp blank?(value) when is_binary(value), do: String.trim(value) == ""
   defp blank?(_), do: false
+
+  # A `false` `enabled` value (atom or string key, or the Ash struct field)
+  # disables the controller so it is dropped from the desired set and its
+  # inventory-sync assignment retracts. Explicit `== false` because `enabled` is
+  # a boolean — `||`-style lookups would treat `false` as absent.
+  defp disabled?(controller) when is_map(controller) do
+    Map.get(controller, :enabled) == false or Map.get(controller, "enabled") == false
+  end
+
+  defp disabled?(_), do: false
 
   defp compact_map(map) do
     map

@@ -28,6 +28,7 @@ defmodule ServiceRadar.Automation.Ansible.Controller do
     :base_url,
     :awx_version,
     :agent_id,
+    :enabled,
     :credential_secret_id,
     :inventory_sync_interval_seconds,
     :catalog_sync_interval_seconds,
@@ -63,6 +64,8 @@ defmodule ServiceRadar.Automation.Ansible.Controller do
     define :create_controller, action: :create
     define :update_controller, action: :update
     define :destroy_controller, action: :destroy
+    define :enable_controller, action: :enable
+    define :disable_controller, action: :disable
     define :record_health, action: :record_health
   end
 
@@ -95,6 +98,7 @@ defmodule ServiceRadar.Automation.Ansible.Controller do
         :base_url,
         :awx_version,
         :agent_id,
+        :enabled,
         :credential_secret_id,
         :inventory_sync_interval_seconds,
         :catalog_sync_interval_seconds,
@@ -112,6 +116,7 @@ defmodule ServiceRadar.Automation.Ansible.Controller do
         :base_url,
         :awx_version,
         :agent_id,
+        :enabled,
         :credential_secret_id,
         :inventory_sync_interval_seconds,
         :catalog_sync_interval_seconds,
@@ -119,6 +124,20 @@ defmodule ServiceRadar.Automation.Ansible.Controller do
         :metadata
       ]
 
+      change SeedControllerLifecycle
+    end
+
+    update :enable do
+      description "Resume a paused controller: re-seed its jobs and inventory-sync assignment"
+      accept []
+      change set_attribute(:enabled, true)
+      change SeedControllerLifecycle
+    end
+
+    update :disable do
+      description "Pause a controller: retract its inventory-sync assignment and stop its jobs"
+      accept []
+      change set_attribute(:enabled, false)
       change SeedControllerLifecycle
     end
 
@@ -198,6 +217,14 @@ defmodule ServiceRadar.Automation.Ansible.Controller do
       default 2000
       constraints min: 250, max: 60_000
       description "Cadence for RunPulseWorker; lower = lower latency, higher AWX API load"
+    end
+
+    attribute :enabled, :boolean do
+      allow_nil? false
+      public? true
+      default true
+
+      description "When false, the controller is paused: its inventory-sync assignment is retracted and its lifecycle jobs stop; the row is retained."
     end
 
     attribute :status, :atom do
