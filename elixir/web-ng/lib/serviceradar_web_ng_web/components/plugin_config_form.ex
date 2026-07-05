@@ -7,14 +7,24 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
   attr :params, :map, default: %{}
   attr :base_name, :string, default: "params"
 
+  attr :credential_coverage, :map,
+    default: nil,
+    doc:
+      "Matching-rule status for credential-materialized fields: " <>
+        "%{state: :covered | :uncovered, provider:, purpose:, rules: [names]} or nil when unknown."
+
   def plugin_config_fields(assigns) do
     schema = normalize_schema(assigns.schema)
     params = normalize_params(assigns.params)
 
-    properties =
+    # Fields provided by credential-rule materialization render as informational
+    # rows (with live rule-coverage status), never as hidden or ordinary inputs.
+    {materialized_properties, properties} =
       schema
       |> Map.get("properties", %{})
-      |> Enum.reject(fn {name, prop} -> internal_property?(name, prop) end)
+      |> Enum.split_with(fn {_name, prop} -> credential_materialized?(prop) end)
+
+    properties = Enum.reject(properties, fn {name, prop} -> internal_property?(name, prop) end)
 
     # Split into the primary fields (shown inline) and advanced fields (collapsed by
     # default). Advanced fields are opt-in extras; a schema with no advanced hints renders
@@ -28,6 +38,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
       assigns
       |> assign(:schema, schema)
       |> assign(:params, params)
+      |> assign(:materialized_properties, materialized_properties)
       |> assign(:basic_properties, basic_properties)
       |> assign(:advanced_properties, advanced_properties)
       |> assign(:required, required)
@@ -44,6 +55,13 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
           Open the configuration guide
         </a>
       </div>
+
+      <.credential_materialized_field
+        :for={{name, prop} <- @materialized_properties}
+        name={name}
+        prop={prop}
+        coverage={@credential_coverage}
+      />
 
       <.config_field
         :for={{name, prop} <- @basic_properties}
@@ -72,6 +90,44 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
           />
         </div>
       </details>
+    </div>
+    """
+  end
+
+  attr :name, :string, required: true
+  attr :prop, :map, required: true
+  attr :coverage, :map, default: nil
+
+  def credential_materialized_field(assigns) do
+    assigns = assign(assigns, :description, Map.get(assigns.prop, "description"))
+
+    ~H"""
+    <div
+      class="rounded-lg border border-base-300 bg-base-200/40 p-3 space-y-1"
+      data-credential-materialized={@name}
+    >
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="text-sm font-medium">{Map.get(@prop, "title") || @name}</span>
+        <span class="badge badge-ghost badge-sm">Provided by credential rules</span>
+      </div>
+      <p :if={is_binary(@description) and @description != ""} class="text-xs text-base-content/60">
+        {@description}
+      </p>
+      <%= case coverage_state(@coverage) do %>
+        <% :covered -> %>
+          <p class="text-xs text-success">
+            Rule {coverage_rule_names(@coverage)} matches this agent.
+          </p>
+        <% :uncovered -> %>
+          <p class="text-xs text-warning">
+            No enabled {coverage_scope_label(@coverage)} credential rule matches this agent —
+            this input will be missing at runtime until a matching rule is enabled.
+          </p>
+        <% _ -> %>
+          <p class="text-xs text-base-content/60">
+            Value is materialized per target by credential rules at runtime.
+          </p>
+      <% end %>
     </div>
     """
   end
@@ -212,6 +268,38 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
 
   defp advanced?(%{} = prop), do: Map.get(prop, "x-serviceradar-ui-advanced") == true
   defp advanced?(_), do: false
+
+  defp credential_materialized?(%{} = prop) do
+    Map.get(prop, "x-serviceradar-credential-materialized") == true
+  end
+
+  defp credential_materialized?(_), do: false
+
+  defp coverage_state(%{state: state}) when state in [:covered, :uncovered], do: state
+  defp coverage_state(%{"state" => state}) when state in [:covered, :uncovered], do: state
+  defp coverage_state(_coverage), do: :unknown
+
+  defp coverage_rule_names(coverage) when is_map(coverage) do
+    coverage
+    |> Map.get(:rules, Map.get(coverage, "rules", []))
+    |> case do
+      [] -> "(unnamed)"
+      names -> Enum.join(names, ", ")
+    end
+  end
+
+  defp coverage_rule_names(_coverage), do: "(unnamed)"
+
+  defp coverage_scope_label(coverage) when is_map(coverage) do
+    provider = Map.get(coverage, :provider, Map.get(coverage, "provider"))
+    purpose = Map.get(coverage, :purpose, Map.get(coverage, "purpose"))
+
+    [provider, purpose]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map_join("/", &to_string/1)
+  end
+
+  defp coverage_scope_label(_coverage), do: ""
 
   defp docs_url(schema) do
     schema

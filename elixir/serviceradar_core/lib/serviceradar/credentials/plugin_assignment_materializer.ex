@@ -20,6 +20,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   alias ServiceRadar.AgentRegistry
   alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.CredentialProviderProfile
+  alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Credentials.ProviderProfiles.ProxmoxProfile
@@ -28,11 +29,17 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.PolicyAssignmentReconciler
   alias ServiceRadar.Plugins.SecretRefs
+  alias ServiceRadar.Plugins.SRQLInputResolver
   alias ServiceRadar.Plugins.ValueUtils
 
   require Ash.Query
 
   @inventory_purpose :inventory_enrichment
+  @reconcile_telemetry_event [:serviceradar, :credential_rules, :reconcile]
+
+  @doc "Telemetry event emitted once per provider/purpose/agent reconcile."
+  @spec reconcile_telemetry_event() :: [atom()]
+  def reconcile_telemetry_event, do: @reconcile_telemetry_event
 
   @doc """
   Reconciles enabled Proxmox inventory credential rules that are in scope for an agent.
@@ -91,11 +98,16 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   def reconcile_provider_for_agent(profile, agent_id, purpose, opts \\ [])
       when is_atom(profile) and is_binary(agent_id) and is_atom(purpose) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:credential_materializer))
+    result = do_reconcile_provider_for_agent(profile, agent_id, purpose, actor, opts)
+    emit_reconcile_telemetry(profile, purpose, agent_id, result)
+    result
+  end
 
+  defp do_reconcile_provider_for_agent(profile, agent_id, purpose, actor, opts) do
     with {:ok, rules} <- rules_for_agent_scope(profile, agent_id, purpose, actor, opts) do
       case rules do
         [] ->
-          {:ok, empty_summary()}
+          {:ok, skip_summary(:no_matching_rules)}
 
         _ ->
           with {:ok, package} <-
@@ -110,6 +122,194 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
           end
       end
     end
+  end
+
+  defp emit_reconcile_telemetry(profile, purpose, agent_id, {:ok, summary}) do
+    :telemetry.execute(
+      @reconcile_telemetry_event,
+      summary_measurements(summary),
+      %{
+        provider: profile.provider(),
+        purpose: purpose,
+        agent_id: agent_id,
+        status: :ok,
+        skips: Map.get(summary, :skips, %{}),
+        error: nil
+      }
+    )
+  end
+
+  defp emit_reconcile_telemetry(profile, purpose, agent_id, {:error, reason}) do
+    :telemetry.execute(
+      @reconcile_telemetry_event,
+      summary_measurements(empty_summary()),
+      %{
+        provider: profile.provider(),
+        purpose: purpose,
+        agent_id: agent_id,
+        status: :error,
+        skips: %{},
+        error: reason
+      }
+    )
+  end
+
+  defp summary_measurements(summary) do
+    %{
+      rules_matched: Map.get(summary, :rules, 0),
+      targets_resolved: Map.get(summary, :resolved_inputs, 0),
+      desired_assignments: Map.get(summary, :desired_assignments, 0),
+      assignments_written: Map.get(summary, :upserted, 0),
+      assignments_unchanged: Map.get(summary, :unchanged, 0),
+      assignments_disabled: Map.get(summary, :disabled, 0)
+    }
+  end
+
+  @doc """
+  Enabled credential rules for a provider profile + purpose whose scope covers
+  the agent.
+
+  Used by assignment-time credential coverage checks: it answers "would the
+  materializer feed this agent for this provider/purpose right now?" without
+  materializing anything or issuing grants. Rules can be injected via
+  `opts[:rules]` for database-free checks.
+  """
+  @spec covering_rules_for_agent(module(), String.t(), atom(), keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def covering_rules_for_agent(profile, agent_id, purpose, opts \\ [])
+      when is_atom(profile) and is_binary(agent_id) and is_atom(purpose) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:credential_coverage))
+
+    with {:ok, rules} <- rules_for_agent_scope(profile, agent_id, purpose, actor, opts) do
+      {:ok, Enum.filter(rules, &(rule_enabled?(&1) and scope_allows_agent?(&1, agent_id)))}
+    end
+  end
+
+  @doc """
+  Dry-runs a credential rule: renders what the rule would materialize NOW.
+
+  Returns the resolved SRQL target list (bounded by `opts[:target_limit]`,
+  default 50) plus, per eligible purpose, the stored params template with
+  secret material redacted. Secret refs are preserved (they are references, not
+  material); the credential-broker grant is ephemeral — no grant is persisted
+  and no secret is ever resolved.
+
+  Options: `:actor`, `:resolver` (default `SRQLInputResolver`),
+  `:target_limit`, `:agent_id` (defaults to the rule's agent scope value),
+  `:plugin_package` (skip the approved-package lookup), `:username_resolver`.
+  """
+  @spec dry_run_rule(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def dry_run_rule(rule, opts \\ []) when is_map(rule) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:credential_rule_dry_run))
+    resolver = Keyword.get(opts, :resolver, SRQLInputResolver)
+    target_limit = Keyword.get(opts, :target_limit, 50)
+
+    opts =
+      opts
+      |> Keyword.put(:actor, actor)
+      |> Keyword.put(:grant_issuer, &issue_ephemeral_test_grant/1)
+
+    with {:ok, provider} <- required_string(rule, [:provider, "provider"], "provider"),
+         {:ok, profile} <- profile_for_provider(provider),
+         {:ok, input_defs} <- input_defs_for_rule(rule, nil),
+         {:ok, resolved_inputs} <- resolver.resolve(input_defs, opts),
+         {:ok, purposes} <- dry_run_purposes(profile, rule, actor, opts) do
+      {:ok,
+       %{
+         rule_id: value_string(rule, [:id, "id"]),
+         provider: provider,
+         target_query: value_string(rule, [:target_query, "target_query"]),
+         targets: bounded_targets(resolved_inputs, target_limit),
+         purposes: purposes
+       }}
+    end
+  end
+
+  defp profile_for_provider(provider) do
+    case CredentialProviderProfile.profile_for(provider) do
+      {:ok, profile} -> {:ok, profile}
+      :error -> {:error, {:unknown_credential_provider, provider}}
+    end
+  end
+
+  defp dry_run_purposes(profile, rule, actor, opts) do
+    agent_id = dry_run_agent_id(rule, opts)
+
+    profile.purposes()
+    |> Enum.filter(&profile.rule_has_purpose?(rule, &1))
+    |> Enum.reduce_while({:ok, []}, fn purpose, {:ok, acc} ->
+      case dry_run_purpose(profile, rule, purpose, agent_id, actor, opts) do
+        {:ok, entry} -> {:cont, {:ok, acc ++ [entry]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp dry_run_agent_id(rule, opts) do
+    explicit = Keyword.get(opts, :agent_id)
+
+    if is_binary(explicit) and explicit != "" do
+      explicit
+    else
+      rule_scope_agent(rule) || "dry-run-agent"
+    end
+  end
+
+  defp rule_scope_agent(rule) do
+    case {raw_rule_value(rule, [:scope_type, "scope_type"]),
+          value_string(rule, [:scope_value, "scope_value"])} do
+      {scope, value} when scope in [:agent, "agent"] and is_binary(value) and value != "" -> value
+      _ -> nil
+    end
+  end
+
+  defp dry_run_purpose(profile, rule, purpose, agent_id, actor, opts) do
+    {package, package_found?} =
+      case approved_plugin_package(profile.plugin_id(purpose), actor, opts) do
+        {:ok, package} -> {package, true}
+        {:error, _reason} -> {%{id: "missing-approved-package"}, false}
+      end
+
+    with {:ok, policy} <- policy_for_rule(profile, rule, package, purpose, agent_id, actor, opts) do
+      {:ok,
+       %{
+         purpose: purpose,
+         plugin_id: profile.plugin_id(purpose),
+         policy_id: policy.policy_id,
+         package_found?: package_found?,
+         enabled: policy.enabled,
+         interval_seconds: policy.interval_seconds,
+         timeout_seconds: policy.timeout_seconds,
+         params_template: redacted_template(policy.params_template)
+       }}
+    end
+  end
+
+  defp redacted_template(template) do
+    template
+    |> CredentialRedactor.redact()
+    |> mask_dry_run_grant()
+  end
+
+  defp mask_dry_run_grant(%{"credential_broker" => %{} = grant} = template) do
+    Map.put(
+      template,
+      "credential_broker",
+      Map.put(grant, "grant_id", "(issued at materialization)")
+    )
+  end
+
+  defp mask_dry_run_grant(template), do: template
+
+  defp bounded_targets(resolved_inputs, limit) do
+    rows =
+      Enum.flat_map(resolved_inputs, fn input ->
+        ValueUtils.list_value(input, [:rows, "rows"]) || []
+      end)
+
+    total = length(rows)
+
+    %{total: total, sample: Enum.take(rows, limit), truncated?: total > limit}
   end
 
   @doc """
@@ -489,8 +689,17 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
       desired_assignments: 0,
       upserted: 0,
       unchanged: 0,
-      disabled: 0
+      disabled: 0,
+      skips: %{}
     }
+  end
+
+  defp skip_summary(reason) do
+    %{empty_summary() | skips: %{reason => 1}}
+  end
+
+  defp merge_skips(left, right) when is_map(left) and is_map(right) do
+    Map.merge(left, right, fn _reason, a, b -> a + b end)
   end
 
   defp merge_summary(acc, result) do
@@ -500,7 +709,8 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
       desired_assignments: acc.desired_assignments + Map.get(result, :desired_assignments, 0),
       upserted: acc.upserted + Map.get(result, :upserted, 0),
       unchanged: acc.unchanged + Map.get(result, :unchanged, 0),
-      disabled: acc.disabled + Map.get(result, :disabled, 0)
+      disabled: acc.disabled + Map.get(result, :disabled, 0),
+      skips: merge_skips(acc.skips, Map.get(result, :skips, %{}))
     }
   end
 
@@ -511,7 +721,8 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
       desired_assignments: acc.desired_assignments + Map.get(summary, :desired_assignments, 0),
       upserted: acc.upserted + Map.get(summary, :upserted, 0),
       unchanged: acc.unchanged + Map.get(summary, :unchanged, 0),
-      disabled: acc.disabled + Map.get(summary, :disabled, 0)
+      disabled: acc.disabled + Map.get(summary, :disabled, 0),
+      skips: merge_skips(Map.get(acc, :skips, %{}), Map.get(summary, :skips, %{}))
     }
   end
 end
