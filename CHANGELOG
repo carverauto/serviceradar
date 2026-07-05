@@ -65,6 +65,15 @@ Topology pipeline resilience, add-on lifecycle operability, plugin credential pr
 - Overhauled anomaly engine reliability and Wasm plugins now republish
   automatically on every release tag (matching native add-ons), so plugin fixes
   ship with releases instead of requiring an undocumented manual dispatch.
+- Fixed a placeholder-rewriting regression in SRQL's downsample SQL that made
+  every rate-aggregated interface chart fail with a bind-parameter error: the
+  rewriter now understands string literals, and the downsample regex no longer
+  uses a quantifier that could be mistaken for a bind placeholder.
+- Fixed the long-standing "device page keeps reloading" bug: device-updated
+  broadcasts no longer destructively remount the detail tabs (interfaces,
+  flows, logs) on clustered deployments — same-device refreshes keep current
+  data rendered and swap in fresh values when they arrive, with broadcasts
+  debounced to one refresh per thirty seconds.
 
 # ServiceRadar v1.4.0
 
