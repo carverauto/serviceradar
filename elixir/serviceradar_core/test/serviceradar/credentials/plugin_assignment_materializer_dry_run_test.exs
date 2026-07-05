@@ -145,4 +145,15 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerDryRunTest do
       refute Map.has_key?(entry.params_template, "password_secret_ref")
     end
   end
+
+  test "static unifi controller host is visible in dry-run templates" do
+    assert {:ok, result} =
+             dry_run(camera_rule(%{metadata: %{"host" => "protect-controller.local"}}),
+               fake_rows: [%{"uid" => "camera-1", "ip" => "10.40.1.25"}]
+             )
+
+    for entry <- result.purposes do
+      assert entry.params_template["host"] == "protect-controller.local"
+    end
+  end
 end

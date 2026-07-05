@@ -10,11 +10,12 @@ import (
 )
 
 // pluginInputsEnvelope is the typed view of a serviceradar.plugin_inputs.v1
-// payload. The agent injects this for policy-driven, per-target camera
-// assignments: `template` carries the materialized base params (scheme,
-// timeout_ms, credentials, ...) while `inputs[].items[]` carry the resolved
-// SRQL targets. Host is derived per target from the item ip/hostname, mirroring
-// the proxmox plugin so the camera plugins never require an inline host.
+// payload. The agent injects this for policy-driven camera assignments:
+// `template` carries the materialized base params (scheme, timeout_ms,
+// credentials, optional static controller host, ...) while `inputs[].items[]`
+// carry the resolved SRQL targets. When the template omits host, the plugin
+// derives one from the first target item for the legacy "target is controller"
+// flow.
 type pluginInputsEnvelope struct {
 	Schema   string             `json:"schema"`
 	Template json.RawMessage    `json:"template"`
@@ -99,8 +100,9 @@ func decodeConfig(raw []byte) (Config, error) {
 	return cfg, nil
 }
 
-// applyPluginInputs merges the envelope template over the defaulted config and
-// injects the per-target host from the first resolvable device item.
+// applyPluginInputs merges the envelope template over the defaulted config. A
+// template host is an explicit controller override and wins over target rows;
+// when absent, fall back to deriving host from the first resolvable device item.
 func applyPluginInputs(raw []byte, cfg *Config) error {
 	var env pluginInputsEnvelope
 	if err := json.Unmarshal(raw, &env); err != nil {
@@ -110,6 +112,10 @@ func applyPluginInputs(raw []byte, cfg *Config) error {
 		if err := json.Unmarshal(env.Template, cfg); err != nil {
 			return err
 		}
+	}
+	if strings.TrimSpace(cfg.Host) != "" {
+		cfg.Host = strings.TrimSpace(cfg.Host)
+		return nil
 	}
 	if host := hostFromEnvelopeItems(env.Inputs); host != "" {
 		cfg.Host = host

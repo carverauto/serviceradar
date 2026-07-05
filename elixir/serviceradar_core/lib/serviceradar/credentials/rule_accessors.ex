@@ -124,6 +124,9 @@ defmodule ServiceRadar.Credentials.RuleAccessors do
   defp metadata_atom_key("timeout_ms"), do: :timeout_ms
   defp metadata_atom_key("timeout_seconds"), do: :timeout_seconds
   defp metadata_atom_key("scheme"), do: :scheme
+  defp metadata_atom_key("host"), do: :host
+  defp metadata_atom_key("controller_host"), do: :controller_host
+  defp metadata_atom_key("static_host"), do: :static_host
   defp metadata_atom_key("rtsp_port"), do: :rtsp_port
   defp metadata_atom_key("bootstrap_path"), do: :bootstrap_path
   defp metadata_atom_key("login_path"), do: :login_path

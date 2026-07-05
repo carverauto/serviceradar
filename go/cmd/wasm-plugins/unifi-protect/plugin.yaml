@@ -1,6 +1,6 @@
 id: unifi-protect-camera
 name: UniFi Protect Camera
-version: 0.1.0
+version: 0.1.1
 description: Collects UniFi Protect camera inventory and stream metadata
 entrypoint: run_check
 runtime: wasi-preview1
