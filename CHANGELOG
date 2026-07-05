@@ -1,3 +1,71 @@
+# ServiceRadar v1.4.1
+
+Topology pipeline resilience, add-on lifecycle operability, plugin credential provisioning, interface-metrics chart fix, and the anomaly engine reliability overhaul.
+
+## Whats New
+
+**1.4.1**
+- Fixed the outage that emptied the topology graph: mapper topology evidence
+  ingestion no longer rejects records that legitimately lack a neighbor port id
+  (SNMP-L2 ARP/FDB attachments, UniFi wireless clients, wireguard-derived
+  links) — an Ash empty-string cast trap had silently dropped every such record
+  since the DIRE bloat-prevention change — and a partial bulk failure no longer
+  aborts the whole payload, so accepted evidence always reaches the AGE graph
+  with rejected records counted in telemetry instead of vanishing.
+- The canonical topology rebuild can no longer self-destruct under evidence
+  starvation: when the upsert produces zero edges while mapper evidence exists,
+  the stale prune is skipped and a starved health signal raised; a single prune
+  pass refuses to delete more than half the canonical graph without an operator
+  override; and both topology self-heal mechanisms now escalate loudly on a
+  zero-edge outcome instead of logging "completed" forever.
+- Switch-to-host attachment edges can now render: MAC-carrying FDB and UniFi
+  client neighbors mint deterministic, merge-inert provisional identities
+  (flag-gated via SERVICERADAR_TOPOLOGY_ENDPOINT_IDENTITY_PROMOTION, enabled on
+  demo), raw IP/MAC pseudo-vertices are no longer written to the graph, and the
+  god view surfaces an explicit backbone-empty warning with per-class edge
+  counts instead of silently rendering disconnected islands.
+- Restored flow attribution and hardened add-on config delivery end to end:
+  assignment params are schema-coerced at the delivery choke point (the
+  capture_interfaces string that wedged netprobe config apply fleet-wide can no
+  longer ship), the netprobe decoder tolerates documented compatibility forms,
+  typed config contracts are enforced on every write path with CI tests that
+  decode real core-emitted config with the actual agent decoders, and an
+  idempotent remediation task fixes any legacy corrupt rows.
+- Agents now apply control-stream config per section with explicit
+  permanent/transient dispositions and per-section acknowledgements: one failing
+  section can no longer block other sections or wedge config version acks, the
+  gateway persists acks instead of debug-logging them, core detects and surfaces
+  config-wedged agents (health events plus agent-detail and fleet views), and a
+  permanently failing add-on config section now shows the add-on as unhealthy
+  instead of silently running on stale config.
+- Overhauled the add-on fleet and catalog experience: one row per agent and
+  add-on with drift rendered as an honest comparison (never "drift: 0.0.0"),
+  catalog-only entries separated from fleet status, no horizontal scrolling or
+  clipped badges, long diagnostics in an expandable detail, Import All on both
+  the add-on and Wasm plugin catalogs is now stateful and idempotent with
+  progress and a result summary, and version pickers default to the latest
+  approved version with an explicit up-to-date indicator.
+- Unblocked camera credential provisioning: the credential rules UI now offers
+  api_key authentication, camera purposes, provider presets for UniFi Protect
+  and Axis, and inline API-key/username-password secret creation; the proxmox
+  WASM plugin's TinyGo config parser now applies the plugin-inputs template
+  (api_token, TLS policy, timeouts) so scheduled Proxmox inventory works again;
+  credential rule reconciliation reports real counts with per-rule consumer
+  visibility and a redacted effective-inputs preview; and plugin assignments
+  warn at save time when a credential-materialized field has no matching rule.
+- The camera operations panel now distinguishes inventory availability from
+  stream operability with the blocking reason spelled out, so a camera can no
+  longer read "Available" while every tile says "Agent offline" without
+  explanation.
+- Fixed device-detail interface traffic charts undercounting by orders of
+  magnitude: the panel was re-differentiating already-rated SRQL values,
+  collapsing real megabyte-per-second traffic into kilobyte-scale noise and
+  nulling roughly half the points; the rate window in SRQL is also now
+  partitioned per series key with a guarded rollover modulus.
+- Overhauled anomaly engine reliability and Wasm plugins now republish
+  automatically on every release tag (matching native add-ons), so plugin fixes
+  ship with releases instead of requiring an undocumented manual dispatch.
+
 # ServiceRadar v1.4.0
 
 A ground-up Settings redesign on a declarative navigation catalog, camera credential auto-provisioning, and the v1.3.11 fix batch.
