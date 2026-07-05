@@ -86,6 +86,88 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
+  @doc """
+  Persists a config acknowledgement forwarded by the agent-gateway.
+
+  `attrs` carries `:config_version`, `:acked_at`, and optionally `:section_statuses`
+  (a list of per-section maps from a sectioned ack). Acks without section statuses
+  come from legacy agents (or heartbeat-hello reported versions) and are recorded as
+  whole-version acks: the version and timestamp update, the previously recorded
+  section detail is left untouched.
+  """
+  @spec record_config_ack(String.t(), map()) :: :ok | {:error, term()}
+  def record_config_ack(agent_id, attrs) do
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:gateway_sync)
+
+    ack_attrs =
+      maybe_put_section_statuses(
+        %{
+          acked_config_version: Map.get(attrs, :config_version),
+          config_acked_at: Map.get(attrs, :acked_at) || DateTime.utc_now()
+        },
+        Map.get(attrs, :section_statuses)
+      )
+
+    update_agent_config_state(agent_id, :record_config_ack, ack_attrs, actor)
+  end
+
+  @doc """
+  Records the config version most recently pushed to an agent over the control
+  stream. The first-push timestamp of a version anchors wedge detection (an agent
+  that never acks a pushed version becomes config-unhealthy after the window), so a
+  re-push of the same version does not refresh it.
+  """
+  @spec record_config_push(String.t(), map()) :: :ok | {:error, term()}
+  def record_config_push(agent_id, attrs) do
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:gateway_sync)
+    version = Map.get(attrs, :config_version)
+
+    case Agent.get_by_uid(agent_id, actor: actor) do
+      {:ok, %Agent{pushed_config_version: ^version}} ->
+        # Same version re-pushed (reconnect / dependency-write re-stream): keep the
+        # original push timestamp so the no-ack window keeps counting.
+        :ok
+
+      {:ok, %Agent{} = agent} ->
+        agent
+        |> Ash.Changeset.for_update(:record_config_push, %{
+          pushed_config_version: version,
+          config_pushed_at: Map.get(attrs, :pushed_at) || DateTime.utc_now()
+        })
+        |> Ash.update(actor: actor)
+        |> case do
+          {:ok, _} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp maybe_put_section_statuses(attrs, statuses) when is_list(statuses),
+    do: Map.put(attrs, :config_section_statuses, statuses)
+
+  defp maybe_put_section_statuses(attrs, _statuses), do: attrs
+
+  defp update_agent_config_state(agent_id, action, attrs, actor) do
+    case Agent.get_by_uid(agent_id, actor: actor) do
+      {:ok, %Agent{} = agent} ->
+        agent
+        |> Ash.Changeset.for_update(action, attrs)
+        |> Ash.update(actor: actor)
+        |> case do
+          {:ok, _} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   @spec reconcile_agent_release(String.t()) :: :ok
   def reconcile_agent_release(agent_id) do
     AgentReleaseManager.reconcile_agent(agent_id)

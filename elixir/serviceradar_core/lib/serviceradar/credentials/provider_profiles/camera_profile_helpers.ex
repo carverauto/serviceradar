@@ -15,6 +15,12 @@ defmodule ServiceRadar.Credentials.ProviderProfiles.CameraProfileHelpers do
 
   Cameras resolve credentials at the control plane (config-gen) rather than via
   the agent-side action-mode HTTP inject, so no `inject`/`allow` is attached.
+
+  NOTE (fix-plugin-credential-provisioning-ux, task 5.x): moving camera
+  providers to agent-side live resolution (`resolution_location: :agent`,
+  flag-gated per provider) is deliberately deferred to its own change —
+  it alters the secret exposure surface and must not ride along with the
+  observability/validation work.
   """
   @spec grant_spec(String.t(), atom(), map(), String.t(), String.t(), String.t()) ::
           {map(), map()}

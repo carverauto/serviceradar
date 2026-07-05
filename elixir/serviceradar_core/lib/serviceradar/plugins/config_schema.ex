@@ -48,6 +48,57 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
   def normalize_params(_schema, params) when is_map(params), do: stringify_keys(params)
   def normalize_params(_schema, _params), do: %{}
 
+  @doc """
+  Schema-driven type coercion for the config delivery path (fj#4381).
+
+  Coerces param values that are present in `params` to the types their package
+  `config_schema` declares — notably scalar string → string list for
+  `"type": "array"` properties, the shape that wedged netprobe config apply —
+  while leaving everything else untouched: no schema defaults are injected for
+  absent top-level keys, no top-level keys are added or removed, and `nil`
+  values pass through unchanged (JSON `null` means "unset" to the agent-side
+  decoders; coercing it to `[]` would turn "inherit" into "explicit clear").
+  Values of declared `object` properties are normalized recursively with the
+  same rules as author-time normalization.
+
+  Unlike `normalize_params/2` (author-time form normalization, which injects
+  defaults and drops blank values), this is safe to run on every delivery
+  cycle: params that already match the schema come back equal, so the encoded
+  `config_json` is byte-identical.
+
+  Params are expected to carry string keys (they come from JSONB storage);
+  atom-keyed entries are left untouched. A `nil`, empty, or property-less
+  schema passes params through unchanged — there is nothing to coerce against.
+  """
+  @spec coerce_params(map() | nil, map()) :: map()
+  def coerce_params(schema, params) when is_map(schema) and is_map(params) do
+    properties =
+      schema
+      |> stringify_keys()
+      |> Map.get("properties")
+
+    if is_map(properties) do
+      Enum.reduce(properties, params, fn {key, prop_schema}, acc ->
+        coerce_param(acc, key, prop_schema)
+      end)
+    else
+      params
+    end
+  end
+
+  def coerce_params(_schema, params) when is_map(params), do: params
+  def coerce_params(_schema, _params), do: %{}
+
+  defp coerce_param(params, key, prop_schema) when is_map(prop_schema) do
+    case Map.fetch(params, key) do
+      {:ok, nil} -> params
+      {:ok, value} -> Map.put(params, key, normalize_value(prop_schema, value))
+      :error -> params
+    end
+  end
+
+  defp coerce_param(params, _key, _prop_schema), do: params
+
   @spec validate_params(map(), map()) :: :ok | {:error, [String.t()]}
   def validate_params(schema, params) when is_map(schema) and is_map(params) do
     schema = schema |> stringify_keys() |> assignment_schema()
@@ -96,8 +147,9 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
   defp validation_schema(%{} = schema), do: Map.delete(schema, "$schema")
 
   defp runtime_injected_property?(%{} = property) do
-    Map.get(property, "x-serviceradar-ui-hidden") == true and
-      Map.get(property, "default") in [nil, ""]
+    Map.get(property, "x-serviceradar-credential-materialized") == true or
+      (Map.get(property, "x-serviceradar-ui-hidden") == true and
+         Map.get(property, "default") in [nil, ""])
   end
 
   defp runtime_injected_property?(_property), do: false

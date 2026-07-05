@@ -6,9 +6,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   use ServiceRadarWebNGWeb, :live_view
 
   alias Phoenix.HTML.Form
+  alias ServiceRadar.Credentials.CredentialRuleConsumers
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialRulePreview
   alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Credentials.PluginAssignmentMaterializer
   alias ServiceRadar.Credentials.SshPrivateKeyCredential
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.SRQLInputResolver
@@ -18,8 +20,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   require Ash.Query
 
   @current_path "/settings/networks/credentials"
-  @auth_methods ~w(proxmox_api_token ssh_private_key username_password certificate opaque)a
-  @purposes ~w(inventory_enrichment console_access discovery generic)a
+  @auth_methods ~w(proxmox_api_token ssh_private_key username_password api_key certificate opaque)a
+  @purposes ~w(inventory_enrichment console_access discovery generic camera_inventory camera_stream)a
   @scope_types ~w(agent gateway partition)a
   @tls_policies ~w(verify skip_verify)a
   @ssh_host_key_policies ~w(known_hosts trust_on_first_use skip_verify)a
@@ -42,6 +44,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
        |> assign(:form_mode, nil)
        |> assign(:editing_rule, nil)
        |> assign(:rule_preview, nil)
+       |> assign(:expanded_rule_id, nil)
+       |> assign(:rule_consumers, nil)
        |> assign(:secret_form, nil)
        |> assign(:rule_form, rule_form(default_rule_params()))}
     else
@@ -116,7 +120,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
              other_rules: socket.assigns.rules,
              sample_limit: 5
            ) do
-      {:noreply, assign(socket, :rule_preview, %{rule: rule, preview: preview})}
+      effective =
+        PluginAssignmentMaterializer.dry_run_rule(rule,
+          resolver: credential_preview_resolver(),
+          query_opts: [scope: scope],
+          target_limit: 50
+        )
+
+      {:noreply, assign(socket, :rule_preview, %{rule: rule, preview: preview, effective: effective})}
     else
       nil ->
         {:noreply, put_flash(socket, :error, "Credential rule not found")}
@@ -130,12 +141,40 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     {:noreply, assign(socket, :rule_preview, nil)}
   end
 
+  def handle_event("toggle_consumers", %{"id" => id}, socket) do
+    if to_string(socket.assigns.expanded_rule_id) == to_string(id) do
+      {:noreply,
+       socket
+       |> assign(:expanded_rule_id, nil)
+       |> assign(:rule_consumers, nil)}
+    else
+      case CredentialRuleConsumers.list_for_rule(to_string(id)) do
+        {:ok, consumers} ->
+          {:noreply,
+           socket
+           |> assign(:expanded_rule_id, to_string(id))
+           |> assign(:rule_consumers, consumers)}
+
+        {:error, reason} ->
+          {:noreply, put_flash(socket, :error, "Failed to load consumers: #{format_error(reason)}")}
+      end
+    end
+  end
+
   def handle_event("new_proxmox_secret", _params, socket) do
     {:noreply, assign(socket, :secret_form, secret_form(default_secret_params()))}
   end
 
   def handle_event("new_ssh_secret", _params, socket) do
     {:noreply, assign(socket, :secret_form, secret_form(default_ssh_secret_params()))}
+  end
+
+  def handle_event("new_api_key_secret", _params, socket) do
+    {:noreply, assign(socket, :secret_form, secret_form(default_api_key_secret_params()))}
+  end
+
+  def handle_event("new_username_password_secret", _params, socket) do
+    {:noreply, assign(socket, :secret_form, secret_form(default_username_password_secret_params()))}
   end
 
   def handle_event("close_secret_form", _params, socket) do
@@ -182,7 +221,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             <div>
               <h1 class="text-xl font-semibold">Credential Rules</h1>
               <p class="mt-1 text-sm text-base-content/70">
-                Proxmox inventory enrichment and native PVE console access can share one scoped API-token rule.
+                Scoped rules bind a provider secret to SRQL-matched targets and materialize plugin
+                inputs — Proxmox VE inventory and console, UniFi Protect and Axis camera inventory
+                and streams — without baking hosts or secrets into plugin configs.
                 <a
                   class="link link-primary"
                   href="https://docs.serviceradar.cloud/docs/proxmox#console-access"
@@ -194,12 +235,49 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               </p>
             </div>
             <div class="flex flex-wrap gap-2">
-              <button type="button" class="btn btn-ghost btn-sm" phx-click="new_proxmox_secret">
-                New Proxmox Token
-              </button>
-              <.link navigate={~p"/settings/networks/credentials/new"} class="btn btn-primary btn-sm">
-                New Rule
-              </.link>
+              <div class="dropdown dropdown-end">
+                <div tabindex="0" role="button" class="btn btn-ghost btn-sm">New Secret</div>
+                <ul
+                  tabindex="0"
+                  class="dropdown-content menu bg-base-100 rounded-box z-[1] w-60 p-2 shadow border border-base-200"
+                >
+                  <li>
+                    <button type="button" phx-click="new_proxmox_secret">Proxmox API Token</button>
+                  </li>
+                  <li>
+                    <button type="button" phx-click="new_api_key_secret">API Key</button>
+                  </li>
+                  <li>
+                    <button type="button" phx-click="new_username_password_secret">
+                      Username &amp; Password
+                    </button>
+                  </li>
+                  <li>
+                    <button type="button" phx-click="new_ssh_secret">SSH Private Key</button>
+                  </li>
+                </ul>
+              </div>
+              <div class="dropdown dropdown-end">
+                <div tabindex="0" role="button" class="btn btn-primary btn-sm">New Rule</div>
+                <ul
+                  tabindex="0"
+                  class="dropdown-content menu bg-base-100 rounded-box z-[1] w-60 p-2 shadow border border-base-200"
+                >
+                  <li>
+                    <.link navigate={~p"/settings/networks/credentials/new"}>Proxmox VE</.link>
+                  </li>
+                  <li>
+                    <.link navigate={~p"/settings/networks/credentials/new?provider=unifi-protect"}>
+                      UniFi Protect
+                    </.link>
+                  </li>
+                  <li>
+                    <.link navigate={~p"/settings/networks/credentials/new?provider=axis"}>
+                      Axis (VAPIX)
+                    </.link>
+                  </li>
+                </ul>
+              </div>
             </div>
           </div>
 
@@ -231,75 +309,100 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                       No credential rules found.
                     </td>
                   </tr>
-                  <tr :for={rule <- @rules}>
-                    <td class="font-medium">{rule.name}</td>
-                    <td>{rule.provider}</td>
-                    <td>{format_purposes(rule)}</td>
-                    <td>{format_scope(rule)}</td>
-                    <td>
-                      <span class={[
-                        "badge badge-sm",
-                        if(auto_discovery_enabled?(rule), do: "badge-warning", else: "badge-ghost")
-                      ]}>
-                        {if auto_discovery_enabled?(rule), do: "Auto", else: "SRQL"}
-                      </span>
-                    </td>
-                    <td>{Map.get(@secret_names, rule.secret_id, "Unknown")}</td>
-                    <td>{rule.priority}</td>
-                    <td>
-                      <span class={[
-                        "badge badge-sm",
-                        if(rule.enabled, do: "badge-success", else: "badge-ghost")
-                      ]}>
-                        {if rule.enabled, do: "Enabled", else: "Disabled"}
-                      </span>
-                    </td>
-                    <td>{format_last_test(rule)}</td>
-                    <td>
-                      <div class="flex justify-end gap-2">
-                        <button
-                          type="button"
-                          class="btn btn-ghost btn-xs"
-                          phx-click="test_rule"
-                          phx-value-id={rule.id}
-                        >
-                          Test
-                        </button>
-                        <button
-                          type="button"
-                          class="btn btn-ghost btn-xs"
-                          phx-click="preview_rule"
-                          phx-value-id={rule.id}
-                        >
-                          Preview
-                        </button>
-                        <.link
-                          navigate={~p"/settings/networks/credentials/#{rule.id}/edit"}
-                          class="btn btn-ghost btn-xs"
-                        >
-                          Edit
-                        </.link>
-                        <button
-                          :if={rule.enabled}
-                          type="button"
-                          class="btn btn-ghost btn-xs"
-                          phx-click="disable_rule"
-                          phx-value-id={rule.id}
-                        >
-                          Disable
-                        </button>
-                        <button
-                          :if={!rule.enabled}
-                          type="button"
-                          class="btn btn-ghost btn-xs"
-                          phx-click="enable_rule"
-                          phx-value-id={rule.id}
-                        >
-                          Enable
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+                  <%= for rule <- @rules do %>
+                    <tr>
+                      <td class="font-medium">{rule.name}</td>
+                      <td>{rule.provider}</td>
+                      <td>{format_purposes(rule)}</td>
+                      <td>{format_scope(rule)}</td>
+                      <td>
+                        <span class={[
+                          "badge badge-sm",
+                          if(auto_discovery_enabled?(rule), do: "badge-warning", else: "badge-ghost")
+                        ]}>
+                          {if auto_discovery_enabled?(rule), do: "Auto", else: "SRQL"}
+                        </span>
+                      </td>
+                      <td>{Map.get(@secret_names, rule.secret_id, "Unknown")}</td>
+                      <td>{rule.priority}</td>
+                      <td>
+                        <span class={[
+                          "badge badge-sm",
+                          if(rule.enabled, do: "badge-success", else: "badge-ghost")
+                        ]}>
+                          {if rule.enabled, do: "Enabled", else: "Disabled"}
+                        </span>
+                      </td>
+                      <td>{format_last_test(rule)}</td>
+                      <td>
+                        <div class="flex justify-end gap-2">
+                          <button
+                            :if={testable_rule?(rule)}
+                            type="button"
+                            class="btn btn-ghost btn-xs"
+                            phx-click="test_rule"
+                            phx-value-id={rule.id}
+                          >
+                            Test
+                          </button>
+                          <span
+                            :if={!testable_rule?(rule)}
+                            class="tooltip tooltip-left"
+                            data-tip="Credential test is not yet available for this provider"
+                          >
+                            <button type="button" class="btn btn-ghost btn-xs btn-disabled" disabled>
+                              Test
+                            </button>
+                          </span>
+                          <button
+                            type="button"
+                            class="btn btn-ghost btn-xs"
+                            phx-click="preview_rule"
+                            phx-value-id={rule.id}
+                          >
+                            Preview
+                          </button>
+                          <button
+                            type="button"
+                            class="btn btn-ghost btn-xs"
+                            phx-click="toggle_consumers"
+                            phx-value-id={rule.id}
+                          >
+                            Consumers
+                          </button>
+                          <.link
+                            navigate={~p"/settings/networks/credentials/#{rule.id}/edit"}
+                            class="btn btn-ghost btn-xs"
+                          >
+                            Edit
+                          </.link>
+                          <button
+                            :if={rule.enabled}
+                            type="button"
+                            class="btn btn-ghost btn-xs"
+                            phx-click="disable_rule"
+                            phx-value-id={rule.id}
+                          >
+                            Disable
+                          </button>
+                          <button
+                            :if={!rule.enabled}
+                            type="button"
+                            class="btn btn-ghost btn-xs"
+                            phx-click="enable_rule"
+                            phx-value-id={rule.id}
+                          >
+                            Enable
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    <tr :if={@expanded_rule_id == to_string(rule.id)} class="bg-base-200/40">
+                      <td colspan="10">
+                        <.rule_consumers_panel consumers={@rule_consumers} />
+                      </td>
+                    </tr>
+                  <% end %>
                 </tbody>
               </table>
             </div>
@@ -367,6 +470,37 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             <.input field={@form[:description]} type="textarea" label="Description" />
           </div>
 
+          <div :if={@secret_kind == "api_key"} class="space-y-4">
+            <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-base-content/80">
+              Store a provider API key (for example a UniFi Protect API key). The key is
+              encrypted at rest; credential rules deliver it to matching plugins as a secret
+              reference, never inline.
+            </div>
+            <div class="grid gap-4 md:grid-cols-2">
+              <.input field={@form[:name]} label="Name" required />
+              <.input field={@form[:provider]} label="Provider" required />
+            </div>
+
+            <.input field={@form[:api_key]} type="password" label="API Key" required />
+            <.input field={@form[:description]} type="textarea" label="Description" />
+          </div>
+
+          <div :if={@secret_kind == "username_password"} class="space-y-4">
+            <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-base-content/80">
+              Store a provider username and password (for example an Axis VAPIX or UniFi Protect
+              local account). The password is encrypted at rest; only the username is delivered
+              in plain text to matching plugins.
+            </div>
+            <div class="grid gap-4 md:grid-cols-2">
+              <.input field={@form[:name]} label="Name" required />
+              <.input field={@form[:provider]} label="Provider" required />
+              <.input field={@form[:username]} label="Username" required />
+              <.input field={@form[:password]} type="password" label="Password" required />
+            </div>
+
+            <.input field={@form[:description]} type="textarea" label="Description" />
+          </div>
+
           <div :if={@secret_kind == "ssh_private_key"} class="space-y-4">
             <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-base-content/80">
               Store the PVE host SSH key used by console access rules. The private key is encrypted
@@ -394,6 +528,60 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
         </.form>
       </div>
       <button type="button" class="modal-backdrop" phx-click="close_secret_form">Close</button>
+    </div>
+    """
+  end
+
+  attr :consumers, :map, default: nil
+
+  defp rule_consumers_panel(assigns) do
+    ~H"""
+    <div class="space-y-2 p-2 text-xs">
+      <%= cond do %>
+        <% is_nil(@consumers) -> %>
+          <p class="text-base-content/60">Loading consumers.</p>
+        <% @consumers.total == 0 -> %>
+          <p class="text-base-content/60">
+            No materialized plugin assignments yet — the reconciler has not produced assignments
+            for this rule. Check that the rule is enabled and that its scope, purposes, and
+            target query match connected agents.
+          </p>
+        <% true -> %>
+          <p class="text-base-content/70">
+            Materializes {@consumers.total} assignment(s)
+            ({@consumers.enabled_count} enabled) across {length(@consumers.agent_uids)} agent(s).
+            Last materialized {format_timestamp(@consumers.last_materialized_at)}.
+          </p>
+          <div class="overflow-hidden rounded-lg border border-base-200 bg-base-100">
+            <table class="table table-xs">
+              <thead>
+                <tr>
+                  <th>Agent</th>
+                  <th>Plugin</th>
+                  <th>Purpose</th>
+                  <th>Status</th>
+                  <th>Last Materialized</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={consumer <- @consumers.consumers}>
+                  <td class="font-mono">{consumer.agent_uid}</td>
+                  <td class="font-mono">{consumer.plugin_id}</td>
+                  <td>{consumer.purpose}</td>
+                  <td>
+                    <span class={[
+                      "badge badge-sm",
+                      if(consumer.enabled, do: "badge-success", else: "badge-ghost")
+                    ]}>
+                      {if consumer.enabled, do: "enabled", else: "disabled"}
+                    </span>
+                  </td>
+                  <td>{format_timestamp(consumer.last_materialized_at)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+      <% end %>
     </div>
     """
   end
@@ -506,6 +694,62 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               </table>
             </div>
           </section>
+
+          <section class="space-y-2">
+            <h3 class="text-sm font-semibold">Effective Inputs (dry run)</h3>
+            <%= case Map.get(@rule_preview, :effective) do %>
+              <% {:ok, effective} -> %>
+                <p class="text-xs text-base-content/60">
+                  {effective.targets.total} target(s) resolved from the rule's SRQL query
+                  <span :if={effective.targets.truncated?}>
+                    (showing first {length(effective.targets.sample)})
+                  </span>
+                  — secret references shown as-is; secret material is never resolved or displayed.
+                </p>
+                <div
+                  :for={entry <- effective.purposes}
+                  class="rounded-lg border border-base-200 p-3 space-y-2"
+                >
+                  <div class="flex flex-wrap items-center gap-2 text-xs">
+                    <span class="badge badge-ghost badge-sm">{entry.purpose}</span>
+                    <span class="font-mono">{entry.plugin_id}</span>
+                    <span class="font-mono text-base-content/60">{entry.policy_id}</span>
+                    <span :if={!entry.package_found?} class="badge badge-warning badge-sm">
+                      no approved package
+                    </span>
+                    <span class="text-base-content/60">
+                      every {entry.interval_seconds}s, timeout {entry.timeout_seconds}s
+                    </span>
+                  </div>
+                  <pre class="max-h-64 overflow-auto rounded bg-base-200/60 p-2 text-[11px] font-mono"><%= encode_json(entry.params_template) %></pre>
+                </div>
+                <div
+                  :if={effective.targets.sample != []}
+                  class="overflow-hidden rounded-lg border border-base-200"
+                >
+                  <table class="table table-xs">
+                    <thead>
+                      <tr>
+                        <th>Target</th>
+                        <th>Address</th>
+                        <th>Agent</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr :for={device <- effective.targets.sample}>
+                        <td>{device_label(device)}</td>
+                        <td>{device_address(device)}</td>
+                        <td>{device_agent(device)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              <% {:error, reason} -> %>
+                <p class="text-xs text-error">Dry run failed: {format_error(reason)}</p>
+              <% _ -> %>
+                <p class="text-xs text-base-content/60">Dry run unavailable.</p>
+            <% end %>
+          </section>
         </div>
       </div>
       <button type="button" class="modal-backdrop" phx-click="close_preview">Close</button>
@@ -524,7 +768,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   attr :ssh_host_key_policies, :list, required: true
 
   defp rule_form_modal(assigns) do
-    assigns = assign(assigns, :scope_type_value, form_string(assigns.form, :scope_type))
+    assigns =
+      assigns
+      |> assign(:scope_type_value, form_string(assigns.form, :scope_type))
+      |> assign(:provider_value, form_string(assigns.form, :provider))
 
     ~H"""
     <div class="modal modal-open">
@@ -540,19 +787,37 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
         <.form for={@form} phx-change="change_rule" phx-submit="save_rule" class="space-y-4">
           <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-base-content/80">
-            Select every use this scoped credential should allow. For Proxmox, the same API token
-            can safely drive read-only inventory collection and native PVE console proxy sessions;
-            no separate SSH key is required for PVE consoles. Runtime fields such as <span class="font-mono">credential_broker</span>, <span class="font-mono">credential_rule_id</span>, and
-            <span class="font-mono">console</span>
-            are generated by ServiceRadar when a console session starts.
-            <a
-              class="link link-primary"
-              href="https://docs.serviceradar.cloud/docs/proxmox#console-access"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Configuration guide
-            </a>
+            <span :if={@provider_value == "proxmox"}>
+              Select every use this scoped credential should allow. For Proxmox, the same API token
+              can safely drive read-only inventory collection and native PVE console proxy sessions;
+              no separate SSH key is required for PVE consoles. Runtime fields such as <span class="font-mono">credential_broker</span>, <span class="font-mono">credential_rule_id</span>, and
+              <span class="font-mono">console</span>
+              are generated by ServiceRadar when a console session starts.
+              <a
+                class="link link-primary"
+                href="https://docs.serviceradar.cloud/docs/proxmox#console-access"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Configuration guide
+              </a>
+            </span>
+            <span :if={@provider_value in ["unifi-protect", "axis"]}>
+              Camera rules materialize plugin inputs per matched device: the controller or camera
+              host comes from the SRQL target query, so no host is stored in the plugin config.
+              UniFi Protect accepts <span class="font-mono">api_key</span>
+              or username/password auth; Axis (VAPIX) uses username/password. Choose <span class="font-mono">camera_inventory</span>, <span class="font-mono">camera_stream</span>,
+              or both. Runtime fields such as <span class="font-mono">credential_broker</span>
+              and <span class="font-mono">credential_rule_id</span>
+              are generated when the rule materializes.
+            </span>
+            <span :if={@provider_value not in ["proxmox", "unifi-protect", "axis"]}>
+              Select every use this scoped credential should allow. Enabled rules materialize
+              plugin inputs for agents in scope; runtime fields such as
+              <span class="font-mono">credential_broker</span>
+              and <span class="font-mono">credential_rule_id</span>
+              are generated by ServiceRadar.
+            </span>
           </div>
 
           <div class="grid gap-4 md:grid-cols-2">
@@ -869,6 +1134,49 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     ArgumentError -> {:error, "Required SSH key fields are missing"}
   end
 
+  defp normalize_secret_params(%{"kind" => "api_key"} = params) do
+    name = required_string(params, "name")
+    provider = required_string(params, "provider")
+    api_key = required_string(params, "api_key")
+
+    {:ok,
+     %{
+       name: name,
+       description: blank_to_nil(params["description"]),
+       provider: provider,
+       credential_kind: :api_token,
+       public_fingerprint: secret_fingerprint(api_key),
+       secret_payload: api_key,
+       metadata: %{
+         "auth_method" => "api_key"
+       }
+     }}
+  rescue
+    ArgumentError -> {:error, "Required API key fields are missing"}
+  end
+
+  defp normalize_secret_params(%{"kind" => "username_password"} = params) do
+    name = required_string(params, "name")
+    provider = required_string(params, "provider")
+    username = required_string(params, "username")
+    password = required_string(params, "password")
+
+    {:ok,
+     %{
+       name: name,
+       description: blank_to_nil(params["description"]),
+       provider: provider,
+       credential_kind: :username_password,
+       username: username,
+       secret_payload: password,
+       metadata: %{
+         "auth_method" => "username_password"
+       }
+     }}
+  rescue
+    ArgumentError -> {:error, "Required username/password fields are missing"}
+  end
+
   defp normalize_secret_params(params) do
     with {:ok, tls_policy} <- enum_param(params, "tls_policy", @tls_policies, "TLS policy") do
       name = required_string(params, "name")
@@ -922,6 +1230,46 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     }
   end
 
+  defp default_rule_params(%{"provider" => "unifi-protect"}) do
+    %{
+      "name" => "",
+      "description" => "",
+      "provider" => "unifi-protect",
+      "auth_method" => "api_key",
+      "purpose" => "camera_inventory",
+      "purposes" => ["camera_inventory", "camera_stream"],
+      "target_query" => ~s(in:devices vendor:"Ubiquiti"),
+      "scope_type" => "agent",
+      "scope_value" => "",
+      "secret_id" => "",
+      "priority" => "100",
+      "allowed_ports" => "443, 7447",
+      "tls_policy" => "verify",
+      "ssh_host_key_policy" => "known_hosts",
+      "auto_discovery_enabled" => "false"
+    }
+  end
+
+  defp default_rule_params(%{"provider" => "axis"}) do
+    %{
+      "name" => "",
+      "description" => "",
+      "provider" => "axis",
+      "auth_method" => "username_password",
+      "purpose" => "camera_inventory",
+      "purposes" => ["camera_inventory", "camera_stream"],
+      "target_query" => ~s(in:devices vendor:"Axis"),
+      "scope_type" => "agent",
+      "scope_value" => "",
+      "secret_id" => "",
+      "priority" => "100",
+      "allowed_ports" => "443, 554",
+      "tls_policy" => "verify",
+      "ssh_host_key_policy" => "known_hosts",
+      "auto_discovery_enabled" => "false"
+    }
+  end
+
   defp default_rule_params(_params) do
     %{
       "name" => "",
@@ -952,6 +1300,27 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       "token_id" => "",
       "tls_policy" => "verify",
       "token_secret" => ""
+    }
+  end
+
+  defp default_api_key_secret_params do
+    %{
+      "kind" => "api_key",
+      "name" => "",
+      "description" => "",
+      "provider" => "unifi-protect",
+      "api_key" => ""
+    }
+  end
+
+  defp default_username_password_secret_params do
+    %{
+      "kind" => "username_password",
+      "name" => "",
+      "description" => "",
+      "provider" => "axis",
+      "username" => "",
+      "password" => ""
     }
   end
 
@@ -1000,6 +1369,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   defp secret_form(params), do: to_form(params, as: :credential_secret)
 
   defp secret_form_title("ssh_private_key"), do: "New Console SSH Key"
+  defp secret_form_title("api_key"), do: "New API Key Secret"
+  defp secret_form_title("username_password"), do: "New Username & Password Secret"
   defp secret_form_title(_kind), do: "New Proxmox Token"
 
   defp enum_param(params, key, allowed, label) do
@@ -1155,6 +1526,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp can_manage?(scope), do: RBAC.can?(scope, "settings.credentials.manage")
 
+  # The credential test dispatcher currently only supports Proxmox API-token
+  # rules (`NetworkCredentialRuleTestPlan.ensure_proxmox_api_rule/1`); other
+  # providers need an agent-side test command before the action can be wired.
+  defp testable_rule?(rule) do
+    rule.provider == "proxmox" and rule.auth_method == :proxmox_api_token
+  end
+
   defp format_scope(rule), do: "#{format_atom(rule.scope_type)}: #{rule.scope_value}"
 
   defp format_purposes(rule) do
@@ -1262,6 +1640,19 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
         nil
     end)
   end
+
+  defp encode_json(value) do
+    case Jason.encode(value, pretty: true) do
+      {:ok, json} -> json
+      _ -> inspect(value, pretty: true)
+    end
+  end
+
+  defp format_timestamp(%DateTime{} = timestamp) do
+    Calendar.strftime(timestamp, "%Y-%m-%d %H:%M:%S UTC")
+  end
+
+  defp format_timestamp(_timestamp), do: "never"
 
   defp format_last_test(%{last_test_status: nil}), do: "Not tested"
 

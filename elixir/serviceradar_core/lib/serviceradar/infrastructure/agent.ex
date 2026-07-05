@@ -193,6 +193,8 @@ defmodule ServiceRadar.Infrastructure.Agent do
     :last_update_error
   ]
   @agent_heartbeat_fields [:is_healthy, :capabilities, :config_source, :gateway_id, :host, :ip]
+  @agent_config_ack_fields [:acked_config_version, :config_acked_at, :config_section_statuses]
+  @agent_config_push_fields [:pushed_config_version, :config_pushed_at]
   @agent_gateway_fields [:gateway_id]
   @agent_device_fields [:device_uid]
   @agent_release_status_fields [
@@ -477,6 +479,24 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
+    update :record_config_ack do
+      description "Record a config acknowledgement forwarded by the agent-gateway"
+      accept @agent_config_ack_fields
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :record_config_push do
+      description "Record the config version most recently pushed to the agent"
+      accept @agent_config_push_fields
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :set_config_health do
+      description "Set config-apply health from wedge-detection evaluation"
+      accept [:config_health]
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
     # Legacy compatibility actions (mapped to state machine)
     update :connect do
       description "Mark agent as connected to a gateway (legacy - use establish_connection)"
@@ -688,6 +708,41 @@ defmodule ServiceRadar.Infrastructure.Agent do
       constraints one_of: [:remote, :local, :cached, :unassigned]
 
       description "Source of sysmon config: remote (from backend), local (file override), cached, or unassigned"
+    end
+
+    attribute :acked_config_version, :string do
+      public? true
+      description "Last config version the agent acknowledged (or reported committed)"
+    end
+
+    attribute :config_acked_at, :utc_datetime do
+      public? true
+      description "When the last config acknowledgement was recorded"
+    end
+
+    attribute :config_section_statuses, {:array, :map} do
+      default []
+      public? true
+
+      description "Per-section config apply statuses from the last sectioned ack " <>
+                    "(empty for legacy whole-version acks)"
+    end
+
+    attribute :pushed_config_version, :string do
+      public? true
+      description "Config version most recently pushed to the agent over the control stream"
+    end
+
+    attribute :config_pushed_at, :utc_datetime do
+      public? true
+      description "When the currently-pushed config version was first pushed"
+    end
+
+    attribute :config_health, :atom do
+      default :unknown
+      public? true
+      constraints one_of: [:unknown, :healthy, :unhealthy]
+      description "Config-apply health derived from acks and section statuses (wedge detection)"
     end
 
     attribute :plugin_engine_max_memory_mb, :integer do

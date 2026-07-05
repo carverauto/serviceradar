@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.Manifest
   alias ServiceRadarWebNG.Plugins.Assignments
+  alias ServiceRadarWebNG.Plugins.CredentialCoverage
   alias ServiceRadarWebNG.Plugins.FirstPartyImporter
   alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNG.Plugins.Storage
@@ -56,6 +57,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:first_party_release_tag, selected_first_party_release(release_options, nil))
         |> assign(:first_party_release_selected?, false)
         |> assign(:first_party_repo_url, first_party_repo_url())
+        |> assign(:import_running?, false)
         |> assign(:show_create_modal, false)
         |> assign(:show_details_modal, false)
         |> assign(:create_form, default_create_form())
@@ -64,6 +66,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:review_form, default_review_form())
         |> assign(:assignment_form, default_assignment_form())
         |> assign(:assignments, [])
+        |> assign(:credential_fields, [])
+        |> assign(:credential_coverage, nil)
+        |> assign(:assignment_coverage, %{})
         |> assign(:versions, [])
         |> assign(:agents, list_agents(scope))
         |> assign_capacity(scope)
@@ -129,6 +134,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:review_form, build_review_form(package))
         |> assign(:assignment_form, default_assignment_form())
         |> assign(:assignments, list_plugin_assignments(package.plugin_id, scope))
+        |> assign_credential_context(package)
         |> assign(:versions, list_versions(package.plugin_id, scope))
         |> assign(:upload_errors, [])
         |> assign_package_urls(package, scope)
@@ -255,32 +261,27 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     {:noreply, put_flash(socket, :error, "You don't have permission to stage plugin packages.")}
   end
 
+  def handle_event("import_first_party_catalog", _params, %{assigns: %{import_running?: true}} = socket) do
+    {:noreply, socket}
+  end
+
   def handle_event("import_first_party_catalog", _params, socket) do
     scope = socket.assigns.current_scope
+    repo_url = socket.assigns.first_party_repo_url
+    release_tag = socket.assigns.first_party_release_tag
+    limit = first_party_sync_limit()
 
-    case Packages.sync_first_party_plugins(
-           scope: scope,
-           repo_url: socket.assigns.first_party_repo_url,
-           release_tag: socket.assigns.first_party_release_tag,
-           limit: first_party_sync_limit()
-         ) do
-      {:ok, summary} ->
-        message =
-          "Imported #{summary.imported} first-party plugin package(s) from #{socket.assigns.first_party_release_tag || "the selected release"}" <>
-            if(summary.failed == [], do: ".", else: "; #{length(summary.failed)} failed.")
-
-        {:noreply,
-         socket
-         |> put_flash(:info, message)
-         |> assign(:packages, list_packages(current_filters(socket), scope))
-         |> load_first_party_catalog()}
-
-      {:error, reason} ->
-        {:noreply,
-         socket
-         |> put_flash(:error, "First-party catalog import failed: #{format_error(reason)}")
-         |> load_first_party_catalog()}
-    end
+    {:noreply,
+     socket
+     |> assign(:import_running?, true)
+     |> start_async(:import_first_party_catalog, fn ->
+       Packages.sync_first_party_plugins(
+         scope: scope,
+         repo_url: repo_url,
+         release_tag: release_tag,
+         limit: limit
+       )
+     end)}
   end
 
   def handle_event(
@@ -510,7 +511,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   def handle_event("assignment_change", %{"assignment" => params}, socket) do
-    {:noreply, assign(socket, :assignment_form, Map.merge(socket.assigns.assignment_form, params))}
+    form = Map.merge(socket.assigns.assignment_form, params)
+
+    {:noreply,
+     socket
+     |> assign(:assignment_form, form)
+     |> assign_form_coverage(form["agent_uid"])}
   end
 
   def handle_event("approve_package", %{"review" => _params}, %{assigns: %{can_approve_plugins: false}} = socket) do
@@ -646,6 +652,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         {:noreply,
          socket
          |> assign(:assignments, list_plugin_assignments(socket.assigns.selected_package.plugin_id, scope))
+         |> assign_credential_context(socket.assigns.selected_package)
          |> put_flash(:info, "Assignment removed")}
 
       {:error, error} ->
@@ -776,7 +783,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
          |> assign(:assignments, list_plugin_assignments(socket.assigns.selected_package.plugin_id, scope))
          |> assign(:assignment_form, default_assignment_form())
          |> assign(:show_details_modal, false)
-         |> put_flash(:info, "Assignment created")}
+         |> assignment_saved_flash("Assignment created", attrs.agent_uid)}
 
       {:error, error} ->
         Logger.error("Plugin assignment creation failed: #{inspect(error)}")
@@ -797,7 +804,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
          |> assign(:assignments, list_plugin_assignments(socket.assigns.selected_package.plugin_id, scope))
          |> assign(:assignment_form, default_assignment_form())
          |> assign(:show_details_modal, false)
-         |> put_flash(:info, "Assignment updated")}
+         |> assignment_saved_flash("Assignment updated", assignment.agent_uid)}
 
       {:error, error} ->
         Logger.error("Plugin assignment update failed for #{assignment.id}: #{inspect(error)}")
@@ -814,7 +821,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
          |> assign(:assignments, list_plugin_assignments(socket.assigns.selected_package.plugin_id, scope))
          |> assign(:assignment_form, default_assignment_form())
          |> assign(:show_details_modal, false)
-         |> put_flash(:info, "Assignment upgraded")}
+         |> assignment_saved_flash("Assignment upgraded", attrs.agent_uid)}
 
       {:error, error} ->
         Logger.error("Plugin assignment upgrade failed for #{assignment.id}: #{inspect(error)}")
@@ -897,6 +904,35 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   @impl true
+  def handle_async(:import_first_party_catalog, {:ok, result}, socket) do
+    socket = assign(socket, :import_running?, false)
+
+    case result do
+      {:ok, summary} ->
+        release_label = socket.assigns.first_party_release_tag || "the selected release"
+
+        {:noreply,
+         socket
+         |> put_flash(:info, import_summary_message(summary, release_label))
+         |> assign(:packages, list_packages(current_filters(socket), socket.assigns.current_scope))
+         |> load_first_party_catalog()}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "First-party catalog import failed: #{format_error(reason)}")
+         |> load_first_party_catalog()}
+    end
+  end
+
+  def handle_async(:import_first_party_catalog, {:exit, reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:import_running?, false)
+     |> put_flash(:error, "First-party catalog import failed: #{format_error(reason)}")}
+  end
+
+  @impl true
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
@@ -932,6 +968,14 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
           </div>
         </div>
 
+        <% catalog_rows =
+          combined_catalog_rows(
+            @first_party_catalog,
+            @packages,
+            @first_party_release_tag
+          ) %>
+        <% import_state = catalog_import_state(catalog_rows) %>
+
         <.ui_panel>
           <:header>
             <div>
@@ -964,10 +1008,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 :if={@can_stage_plugins}
                 variant="primary"
                 size="sm"
-                disabled={@first_party_catalog == []}
+                disabled={@import_running? or import_state.importable == 0}
                 phx-click="import_first_party_catalog"
               >
-                <.icon name="hero-arrow-down-tray" class="size-4" /> Import All
+                <span :if={@import_running?} class="loading loading-spinner loading-xs"></span>
+                <.icon :if={not @import_running?} name="hero-arrow-down-tray" class="size-4" />
+                {import_all_label(@import_running?, import_state)}
               </.ui_button>
             </div>
           </:header>
@@ -983,13 +1029,6 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               {@first_party_catalog_status}
             </div>
           <% end %>
-
-          <% catalog_rows =
-            combined_catalog_rows(
-              @first_party_catalog,
-              @packages,
-              @first_party_release_tag
-            ) %>
 
           <%= cond do %>
             <% catalog_rows == [] and is_nil(@first_party_catalog_error) -> %>
@@ -1192,6 +1231,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         assignments={@assignments}
         agents={@agents}
         assignment_form={@assignment_form}
+        assignment_coverage={@assignment_coverage}
+        credential_coverage={@credential_coverage}
         versions={@versions}
         blob_present={@blob_present}
         uploads={@uploads}
@@ -1614,6 +1655,14 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                         <%= if assignment.source == :policy do %>
                           <.ui_badge size="xs" variant="ghost">policy</.ui_badge>
                         <% end %>
+                        <%= if uncovered_assignment?(@assignment_coverage, assignment.id) do %>
+                          <span
+                            class="badge badge-warning badge-xs"
+                            title={coverage_badge_title(@assignment_coverage, assignment.id)}
+                          >
+                            no credential rule coverage
+                          </span>
+                        <% end %>
                       </div>
                       <div class="text-base-content/60">
                         every {assignment.interval_seconds}s, timeout {assignment.timeout_seconds}s
@@ -1724,6 +1773,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                     schema={@package.config_schema}
                     params={assignment_params_map(@assignment_form)}
                     base_name="assignment[params]"
+                    credential_coverage={@credential_coverage}
                   />
                 </div>
 
@@ -2160,6 +2210,35 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   defp catalog_row_updated_at(%{package: nil}), do: nil
   defp catalog_row_updated_at(%{package: package}), do: package.updated_at || package.inserted_at
+
+  # --- import state ---------------------------------------------------------
+
+  defp catalog_import_state(catalog_rows) do
+    importable = Enum.count(catalog_rows, &(is_nil(&1.package) and &1.import_ready))
+    imported = Enum.count(catalog_rows, &(not is_nil(&1.package)))
+
+    %{importable: importable, imported: imported, total: length(catalog_rows)}
+  end
+
+  defp import_all_label(true, _state), do: "Importing…"
+
+  defp import_all_label(false, %{importable: 0, imported: imported}) when imported > 0 do
+    "All #{imported} imported"
+  end
+
+  defp import_all_label(false, %{importable: 0}), do: "Import All"
+  defp import_all_label(false, %{importable: importable}), do: "Import All (#{importable})"
+
+  defp import_summary_message(summary, release_label) do
+    skipped = Map.get(summary, :skipped, 0)
+    failed = length(summary.failed)
+
+    parts =
+      ["#{summary.imported} imported", "#{skipped} skipped (already imported)"] ++
+        if failed > 0, do: ["#{failed} failed"], else: []
+
+    "Import finished for #{release_label}: #{Enum.join(parts, ", ")}."
+  end
 
   defp first_party_repo_url do
     config = Application.get_env(:serviceradar_web_ng, :first_party_plugin_import, [])
@@ -2863,6 +2942,87 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   defp existing_assignment(_assignments, _agent_uid), do: nil
+
+  # -- Credential-rule coverage (x-serviceradar-credential-materialized) -------
+  #
+  # PluginAssignment has no metadata column to persist a coverage flag, so the
+  # warning is derived dynamically on every view: per-assignment badges in the
+  # Assignments list, live status in the assignment form, and a loud flash on
+  # save. It disappears on its own once a matching rule is enabled.
+
+  defp assign_credential_context(socket, package) do
+    fields = CredentialCoverage.materialized_fields(package.config_schema)
+
+    socket
+    |> assign(:credential_fields, fields)
+    |> assign(:credential_coverage, nil)
+    |> assign(
+      :assignment_coverage,
+      assignment_coverage(fields, package.plugin_id, socket.assigns.assignments)
+    )
+  end
+
+  defp assignment_coverage([], _plugin_id, _assignments), do: %{}
+
+  defp assignment_coverage(_fields, plugin_id, assignments) do
+    Map.new(assignments, fn assignment ->
+      case CredentialCoverage.coverage(plugin_id, assignment.agent_uid) do
+        {:ok, coverage} -> {assignment.id, coverage}
+        _ -> {assignment.id, nil}
+      end
+    end)
+  end
+
+  defp assign_form_coverage(socket, agent_uid) do
+    package = socket.assigns.selected_package
+
+    coverage =
+      with true <- socket.assigns.credential_fields != [],
+           %{plugin_id: plugin_id} when is_binary(plugin_id) <- package,
+           trimmed when is_binary(trimmed) and trimmed != "" <- trim_or_nil(agent_uid),
+           {:ok, coverage} <- CredentialCoverage.coverage(plugin_id, trimmed) do
+        coverage
+      else
+        _ -> nil
+      end
+
+    assign(socket, :credential_coverage, coverage)
+  end
+
+  defp assignment_saved_flash(socket, base_message, agent_uid) do
+    case saved_coverage_warning(socket, agent_uid) do
+      nil -> put_flash(socket, :info, base_message)
+      warning -> put_flash(socket, :error, base_message <> ". Warning: " <> warning)
+    end
+  end
+
+  defp saved_coverage_warning(socket, agent_uid) do
+    with true <- socket.assigns.credential_fields != [],
+         %{plugin_id: plugin_id} when is_binary(plugin_id) <- socket.assigns.selected_package,
+         trimmed when is_binary(trimmed) and trimmed != "" <- trim_or_nil(agent_uid),
+         {:ok, coverage} <- CredentialCoverage.coverage(plugin_id, trimmed) do
+      CredentialCoverage.warning_message(coverage, trimmed)
+    else
+      _ -> nil
+    end
+  end
+
+  defp trim_or_nil(value) when is_binary(value), do: String.trim(value)
+  defp trim_or_nil(_value), do: nil
+
+  defp uncovered_assignment?(coverage_map, assignment_id) do
+    match?(%{state: :uncovered}, Map.get(coverage_map || %{}, assignment_id))
+  end
+
+  defp coverage_badge_title(coverage_map, assignment_id) do
+    case Map.get(coverage_map || %{}, assignment_id) do
+      %{provider: provider, purpose: purpose} ->
+        "No enabled #{provider} #{purpose} credential rule covers this agent"
+
+      _ ->
+        nil
+    end
+  end
 
   defp manifest_source_repo_url(manifest) do
     source = Map.get(manifest || %{}, :source) || Map.get(manifest || %{}, "source") || %{}

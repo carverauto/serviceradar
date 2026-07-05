@@ -71,4 +71,64 @@ defmodule ServiceRadar.Plugins.ConfigSchemaTest do
     assert normalized["enabled"] == true
     assert normalized["label"] == "default label"
   end
+
+  describe "coerce_params/2 (delivery-path coercion, fj#4381)" do
+    @netprobe_style_schema %{
+      "type" => "object",
+      "properties" => %{
+        "enabled" => %{"type" => "boolean", "default" => false},
+        "capture_interfaces" => %{
+          "type" => "array",
+          "items" => %{"type" => "string", "minLength" => 1}
+        },
+        "flow_table_max_entries" => %{"type" => "integer", "minimum" => 0, "default" => 0}
+      }
+    }
+
+    test "coerces a scalar string into a single-element list for array properties" do
+      params = %{"enabled" => true, "capture_interfaces" => "ens18"}
+
+      assert %{"enabled" => true, "capture_interfaces" => ["ens18"]} =
+               ConfigSchema.coerce_params(@netprobe_style_schema, params)
+    end
+
+    test "splits comma/newline scalar strings and trims entries like author-time coercion" do
+      params = %{"capture_interfaces" => " ens18 , eth0 \n eth1 "}
+
+      assert %{"capture_interfaces" => ["ens18", "eth0", "eth1"]} =
+               ConfigSchema.coerce_params(@netprobe_style_schema, params)
+    end
+
+    test "casts stringly-typed scalars to their declared types" do
+      params = %{"enabled" => "true", "flow_table_max_entries" => "131072"}
+
+      assert %{"enabled" => true, "flow_table_max_entries" => 131_072} =
+               ConfigSchema.coerce_params(@netprobe_style_schema, params)
+    end
+
+    test "does not inject defaults, drop unknown keys, or touch nil values" do
+      params = %{"capture_interfaces" => nil, "custom_key" => "kept"}
+
+      assert ConfigSchema.coerce_params(@netprobe_style_schema, params) == params
+    end
+
+    test "returns already-valid params unchanged" do
+      params = %{
+        "enabled" => true,
+        "capture_interfaces" => ["ens18", "eth0"],
+        "flow_table_max_entries" => 131_072,
+        "custom_key" => %{"nested" => ["kept"]}
+      }
+
+      assert ConfigSchema.coerce_params(@netprobe_style_schema, params) == params
+    end
+
+    test "passes params through unchanged for nil, empty, or property-less schemas" do
+      params = %{"capture_interfaces" => "ens18"}
+
+      assert ConfigSchema.coerce_params(nil, params) == params
+      assert ConfigSchema.coerce_params(%{}, params) == params
+      assert ConfigSchema.coerce_params(%{"type" => "object"}, params) == params
+    end
+  end
 end

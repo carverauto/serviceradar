@@ -32,33 +32,35 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     cleanup_graph(
       [
-        "dev-1",
-        "dev-2",
-        "dev-3",
-        "dev-router",
-        "dev-switch-a",
-        "dev-switch-b",
-        "dev-ap",
-        "dev-dist",
+        "sr:dev-1",
+        "sr:dev-host77",
+        "sr:dev-host77/192.168.1.77",
+        "sr:dev-2",
+        "sr:dev-3",
+        "sr:dev-router",
+        "sr:dev-switch-a",
+        "sr:dev-switch-b",
+        "sr:dev-ap",
+        "sr:dev-dist",
         "sr:aruba",
         "sr:tonka",
         "sr:zz-mikrotik",
-        "dev-1/eth0",
-        "dev-1/eth2",
-        "dev-1/unknown-local",
-        "dev-2/Gi1/0/1",
-        "dev-2/aa:bb:cc:dd:ee:ff",
-        "dev-2/eth1",
-        "dev-3/eth5",
-        "dev-router/eth0",
-        "dev-switch-a/uplink",
-        "dev-switch-b/uplink",
-        "dev-ap/wifi0",
-        "dev-dist/xe-0/0/1",
+        "sr:dev-1/eth0",
+        "sr:dev-1/eth2",
+        "sr:dev-1/unknown-local",
+        "sr:dev-2/Gi1/0/1",
+        "sr:dev-2/aa:bb:cc:dd:ee:ff",
+        "sr:dev-2/eth1",
+        "sr:dev-3/eth5",
+        "sr:dev-router/eth0",
+        "sr:dev-switch-a/uplink",
+        "sr:dev-switch-b/uplink",
+        "sr:dev-ap/wifi0",
+        "sr:dev-dist/xe-0/0/1",
         "sr:aruba/23",
         "sr:tonka/eth4",
         "sr:zz-mikrotik/ether1"
-      ] ++ synthetic_topology_ids()
+      ] ++ sparse_payload_ids() ++ synthetic_topology_ids()
     )
 
     :ok
@@ -69,7 +71,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     TopologyGraph.upsert_interfaces([
       %{
-        device_id: "dev-1",
+        device_id: "sr:dev-1",
         if_name: "eth0",
         if_index: 10,
         if_descr: "Uplink",
@@ -82,7 +84,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     [result] =
       cypher_rows(
-        ~s/MATCH (d:Device {id:'dev-1'})-[:HAS_INTERFACE]->(i:Interface {id:'dev-1\/eth0'})
+        ~s/MATCH (d:Device {id:'sr:dev-1'})-[:HAS_INTERFACE]->(i:Interface {id:'sr:dev-1\/eth0'})
       RETURN {name: i.name, ifindex: i.ifindex, alias: i.alias, ip_addresses: i.ip_addresses} AS result/
       )
 
@@ -97,8 +99,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     TopologyGraph.upsert_links([
       %{
-        local_device_id: "dev-1",
-        neighbor_device_id: "dev-2",
+        local_device_id: "sr:dev-1",
+        neighbor_device_id: "sr:dev-2",
         local_if_name: "eth0",
         local_if_index: 10,
         neighbor_port_id: "Gi1/0/1",
@@ -111,7 +113,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     [result] =
       cypher_rows(
-        ~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'dev-2\/Gi1\/0\/1'})
+        ~s/MATCH (a:Interface {id:'sr:dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'sr:dev-2\/Gi1\/0\/1'})
       RETURN {source: r.source, tier: r.confidence_tier, score: r.confidence_score} AS result/
       )
 
@@ -125,8 +127,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     TopologyGraph.upsert_links([
       %{
-        local_device_id: "dev-1",
-        neighbor_device_id: "dev-2",
+        local_device_id: "sr:dev-1",
+        neighbor_device_id: "sr:dev-2",
         local_if_index: 21,
         neighbor_chassis_id: "aa:bb:cc:dd:ee:ff",
         protocol: "UniFi-API",
@@ -138,7 +140,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     [result] =
       cypher_rows(
-        ~s/MATCH (a:Interface {id:'dev-1\/ifindex:21'})-[r:CONNECTS_TO]->(b:Interface {id:'dev-2\/aa:bb:cc:dd:ee:ff'})
+        ~s/MATCH (a:Interface {id:'sr:dev-1\/ifindex:21'})-[r:CONNECTS_TO]->(b:Interface {id:'sr:dev-2\/aa:bb:cc:dd:ee:ff'})
       RETURN {source: r.source, tier: r.confidence_tier} AS result/
       )
 
@@ -151,8 +153,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     TopologyGraph.upsert_links([
       %{
-        local_device_id: "dev-1",
-        neighbor_device_id: "dev-2",
+        local_device_id: "sr:dev-1",
+        neighbor_device_id: "sr:dev-2",
         local_if_name: "eth0",
         neighbor_port_id: "eth1",
         protocol: "unknown",
@@ -164,7 +166,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     [result] =
       cypher_rows(
-        ~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'dev-2\/eth1'})
+        ~s/MATCH (a:Interface {id:'sr:dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'sr:dev-2\/eth1'})
       RETURN {count: count(r)} AS result/
       )
 
@@ -176,8 +178,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     TopologyGraph.upsert_links([
       %{
-        local_device_id: "dev-1",
-        neighbor_device_id: "dev-2",
+        local_device_id: "sr:dev-1",
+        neighbor_device_id: "sr:dev-2",
         local_if_name: "eth0",
         local_if_index: nil,
         neighbor_port_id: "eth1",
@@ -190,7 +192,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     [result] =
       cypher_rows(
-        ~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'dev-2\/eth1'})
+        ~s/MATCH (a:Interface {id:'sr:dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'sr:dev-2\/eth1'})
       RETURN {count: count(r)} AS result/
       )
 
@@ -202,8 +204,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     TopologyGraph.upsert_links([
       %{
-        local_device_id: "dev-1",
-        neighbor_device_id: "dev-2",
+        local_device_id: "sr:dev-1",
+        neighbor_device_id: "sr:dev-2",
         local_if_name: "eth0",
         local_if_index: nil,
         neighbor_port_id: "eth1",
@@ -216,7 +218,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     [result] =
       cypher_rows(
-        ~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:INFERRED_TO]->(b:Interface {id:'dev-2\/eth1'})
+        ~s/MATCH (a:Interface {id:'sr:dev-1\/eth0'})-[r:INFERRED_TO]->(b:Interface {id:'sr:dev-2\/eth1'})
       RETURN {count: count(r), source: head(collect(r.source))} AS result/
       )
 
@@ -229,8 +231,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     TopologyGraph.upsert_links([
       %{
-        local_device_id: "dev-1",
-        neighbor_device_id: "dev-2",
+        local_device_id: "sr:dev-1",
+        neighbor_device_id: "sr:dev-2",
         local_if_name: "eth0",
         local_if_index: nil,
         neighbor_port_id: "eth1",
@@ -247,21 +249,21 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     [result] =
       cypher_rows(
-        ~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:INFERRED_TO]->(b:Interface {id:'dev-2\/eth1'})
+        ~s/MATCH (a:Interface {id:'sr:dev-1\/eth0'})-[r:INFERRED_TO]->(b:Interface {id:'sr:dev-2\/eth1'})
       RETURN {count: count(r)} AS result/
       )
 
     assert result["count"] == 0
   end
 
-  test "mapper SNMP ARP/FDB single-identifier payload becomes observation-only and never visible attachment" do
+  test "mapper SNMP ARP/FDB single-identifier payload with unresolved neighbor is dropped before AGE projection" do
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
     normalized =
       MapperResultsIngestor.normalize_topology(%{
         "timestamp" => now,
         "protocol" => "SNMP-L2",
-        "local_device_id" => "dev-router",
+        "local_device_id" => "sr:dev-router",
         "local_device_ip" => "192.168.1.1",
         "local_if_name" => "eth0",
         "local_if_index" => nil,
@@ -278,33 +280,77 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     TopologyGraph.upsert_links([Map.put(normalized, :created_at, now)])
 
-    neighbor_device_id =
-      Map.get(normalized, :neighbor_device_id) || Map.get(normalized, "neighbor_device_id") ||
-        "192.168.1.77"
+    # Pre-fix the projection fabricated a raw-IP pseudo-vertex ('192.168.1.77')
+    # that every consumer filtered out anyway. Post-fix the unresolved neighbor
+    # is dropped before projection: no edge of any relation type, and no
+    # non-`sr:` vertex, may be written to AGE.
+    for relation <- ["CONNECTS_TO", "INFERRED_TO", "ATTACHED_TO", "OBSERVED_TO"] do
+      [result] =
+        cypher_rows(
+          "MATCH (a:Interface {id:'sr:dev-router/eth0'})-[r:#{relation}]->(b:Interface) " <>
+            "RETURN {count: count(r)} AS result"
+        )
 
-    neighbor_interface_id = "#{neighbor_device_id}/192.168.1.77"
+      assert result["count"] == 0,
+             "expected no #{relation} edge for unresolved neighbor, got #{inspect(result)}"
+    end
+
+    [pseudo_vertex] =
+      cypher_rows(
+        "MATCH (i:Interface {id:'192.168.1.77/192.168.1.77'}) RETURN {count: count(i)} AS result"
+      )
+
+    assert pseudo_vertex["count"] == 0
+  end
+
+  test "mapper SNMP ARP/FDB single-identifier payload with resolved sr: neighbor stays observation-only" do
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+
+    normalized =
+      MapperResultsIngestor.normalize_topology(%{
+        "timestamp" => now,
+        "protocol" => "SNMP-L2",
+        "local_device_id" => "sr:dev-router",
+        "local_device_ip" => "192.168.1.1",
+        "local_if_name" => "eth0",
+        "local_if_index" => nil,
+        "neighbor_device_id" => "sr:dev-host77",
+        "neighbor_mgmt_addr" => "192.168.1.77",
+        "neighbor_port_id" => nil,
+        "metadata" => %{
+          "source" => "snmp-arp-fdb",
+          "evidence" => "ipNetToMedia+dot1dTpFdb"
+        }
+      })
+
+    assert normalized.metadata["confidence_reason"] == "single_identifier_inference"
+    assert normalized.metadata["evidence_class"] == "observed-only"
+
+    TopologyGraph.upsert_links([Map.put(normalized, :created_at, now)])
+
+    neighbor_interface_id = "sr:dev-host77/192.168.1.77"
 
     [connects] =
       cypher_rows(
-        "MATCH (a:Interface {id:'dev-router/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'#{neighbor_interface_id}'}) " <>
+        "MATCH (a:Interface {id:'sr:dev-router/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'#{neighbor_interface_id}'}) " <>
           "RETURN {count: count(r)} AS result"
       )
 
     [inferred] =
       cypher_rows(
-        "MATCH (a:Interface {id:'dev-router/eth0'})-[r:INFERRED_TO]->(b:Interface {id:'#{neighbor_interface_id}'}) " <>
+        "MATCH (a:Interface {id:'sr:dev-router/eth0'})-[r:INFERRED_TO]->(b:Interface {id:'#{neighbor_interface_id}'}) " <>
           "RETURN {count: count(r)} AS result"
       )
 
     [attached] =
       cypher_rows(
-        "MATCH (a:Interface {id:'dev-router/eth0'})-[r:ATTACHED_TO]->(b:Interface {id:'#{neighbor_interface_id}'}) " <>
+        "MATCH (a:Interface {id:'sr:dev-router/eth0'})-[r:ATTACHED_TO]->(b:Interface {id:'#{neighbor_interface_id}'}) " <>
           "RETURN {count: count(r), source: head(collect(r.source))} AS result"
       )
 
     [observed] =
       cypher_rows(
-        "MATCH (a:Interface {id:'dev-router/eth0'})-[r:OBSERVED_TO]->(b:Interface {id:'#{neighbor_interface_id}'}) " <>
+        "MATCH (a:Interface {id:'sr:dev-router/eth0'})-[r:OBSERVED_TO]->(b:Interface {id:'#{neighbor_interface_id}'}) " <>
           "RETURN {count: count(r), source: head(collect(r.source))} AS result"
       )
 
@@ -320,8 +366,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     TopologyGraph.upsert_links([
       %{
-        local_device_id: "dev-1",
-        neighbor_device_id: "dev-2",
+        local_device_id: "sr:dev-1",
+        neighbor_device_id: "sr:dev-2",
         local_if_name: "eth0",
         local_if_index: nil,
         neighbor_port_id: "eth1",
@@ -331,8 +377,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
         created_at: now
       },
       %{
-        local_device_id: "dev-1",
-        neighbor_device_id: "dev-3",
+        local_device_id: "sr:dev-1",
+        neighbor_device_id: "sr:dev-3",
         local_if_name: "eth0",
         local_if_index: nil,
         neighbor_port_id: "eth9",
@@ -345,7 +391,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     [result] =
       cypher_rows(
-        ~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:INFERRED_TO]->(b:Interface) WHERE b.device_id IN ['dev-2','dev-3']
+        ~s/MATCH (a:Interface {id:'sr:dev-1\/eth0'})-[r:INFERRED_TO]->(b:Interface) WHERE b.device_id IN ['sr:dev-2','sr:dev-3']
       RETURN {count: count(r)} AS result/
       )
 
@@ -357,8 +403,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     TopologyGraph.upsert_links([
       %{
-        local_device_id: "dev-1",
-        neighbor_device_id: "dev-2",
+        local_device_id: "sr:dev-1",
+        neighbor_device_id: "sr:dev-2",
         local_if_name: "eth0",
         local_if_index: 21,
         neighbor_port_id: "Gi1/0/1",
@@ -368,8 +414,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
         created_at: now
       },
       %{
-        local_device_id: "dev-1",
-        neighbor_device_id: "dev-3",
+        local_device_id: "sr:dev-1",
+        neighbor_device_id: "sr:dev-3",
         local_if_name: "eth0",
         local_if_index: 21,
         neighbor_port_id: "Gi1/0/2",
@@ -379,8 +425,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
         created_at: now
       },
       %{
-        local_device_id: "dev-1",
-        neighbor_device_id: "dev-router",
+        local_device_id: "sr:dev-1",
+        neighbor_device_id: "sr:dev-router",
         local_if_name: "eth0",
         local_if_index: 21,
         neighbor_port_id: "eth0",
@@ -392,12 +438,12 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     ])
 
     [result] =
-      cypher_rows(~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface)
-      WHERE b.device_id IN ['dev-2', 'dev-3']
+      cypher_rows(~s/MATCH (a:Interface {id:'sr:dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface)
+      WHERE b.device_id IN ['sr:dev-2', 'sr:dev-3']
       RETURN {count: count(r), neighbors: collect(distinct b.device_id)} AS result/)
 
     assert result["count"] == 2
-    assert Enum.sort(result["neighbors"]) == ["dev-2", "dev-3"]
+    assert Enum.sort(result["neighbors"]) == ["sr:dev-2", "sr:dev-3"]
   end
 
   test "upsert_links is idempotent and updates confidence metadata in place" do
@@ -406,8 +452,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     TopologyGraph.upsert_links([
       %{
-        local_device_id: "dev-1",
-        neighbor_device_id: "dev-2",
+        local_device_id: "sr:dev-1",
+        neighbor_device_id: "sr:dev-2",
         local_if_name: "eth0",
         local_if_index: 10,
         neighbor_port_id: "eth1",
@@ -420,8 +466,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     TopologyGraph.upsert_links([
       %{
-        local_device_id: "dev-1",
-        neighbor_device_id: "dev-2",
+        local_device_id: "sr:dev-1",
+        neighbor_device_id: "sr:dev-2",
         local_if_name: "eth0",
         local_if_index: 10,
         neighbor_port_id: "eth1",
@@ -434,13 +480,13 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     [count_result] =
       cypher_rows(
-        ~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'dev-2\/eth1'})
+        ~s/MATCH (a:Interface {id:'sr:dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'sr:dev-2\/eth1'})
       RETURN {count: count(r)} AS result/
       )
 
     [edge_result] =
       cypher_rows(
-        ~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'dev-2\/eth1'})
+        ~s/MATCH (a:Interface {id:'sr:dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'sr:dev-2\/eth1'})
       RETURN {tier: r.confidence_tier, score: r.confidence_score, last: r.last_observed_at} AS result/
       )
 
@@ -471,8 +517,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     TopologyGraph.upsert_links([
       %{
-        local_device_id: "dev-1",
-        neighbor_device_id: "dev-2",
+        local_device_id: "sr:dev-1",
+        neighbor_device_id: "sr:dev-2",
         local_if_name: "eth0",
         local_if_index: 10,
         neighbor_port_id: "eth1",
@@ -485,8 +531,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     TopologyGraph.upsert_links([
       %{
-        local_device_id: "dev-1",
-        neighbor_device_id: "dev-3",
+        local_device_id: "sr:dev-1",
+        neighbor_device_id: "sr:dev-3",
         local_if_name: "eth2",
         local_if_index: 12,
         neighbor_port_id: "eth5",
@@ -499,13 +545,13 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     [stale_result] =
       cypher_rows(
-        ~s/MATCH (a:Interface {id:'dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'dev-2\/eth1'})
+        ~s/MATCH (a:Interface {id:'sr:dev-1\/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'sr:dev-2\/eth1'})
       RETURN {count: count(r)} AS result/
       )
 
     [fresh_result] =
       cypher_rows(
-        ~s/MATCH (a:Interface {id:'dev-1\/eth2'})-[r:CONNECTS_TO]->(b:Interface {id:'dev-3\/eth5'})
+        ~s/MATCH (a:Interface {id:'sr:dev-1\/eth2'})-[r:CONNECTS_TO]->(b:Interface {id:'sr:dev-3\/eth5'})
       RETURN {count: count(r)} AS result/
       )
 
@@ -549,19 +595,265 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     )
   end
 
+  # Regression coverage for the 2026-06-25 evidence-pipeline outage: records
+  # that legitimately lack logical-key fields (SNMP-L2 ARP+FDB attachments,
+  # UniFi wireless clients / uplinks, wireguard-derived links) were rejected by
+  # Required validation because Ash's :string defaults cast the ingestor's ""
+  # sentinel back to nil, and one rejected record aborted the whole payload.
+  # These payload shapes mirror what go/pkg/mapper actually emits
+  # (snmp_l2_query.go, ubnt_topology.go, and the core wireguard deriver).
+  test "ingest_topology persists SNMP-L2 ARP+FDB attachment records without a neighbor port id" do
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    purge_topology_rows(["sr:it-fdb-switch"])
+
+    payload = [
+      %{
+        "timestamp" => now,
+        "protocol" => "SNMP-L2",
+        "agent_id" => "agent-it-fdb",
+        "gateway_id" => "agent-it-fdb",
+        "partition" => "default",
+        "local_device_id" => "sr:it-fdb-switch",
+        "local_device_ip" => "192.0.2.10",
+        "local_if_index" => 4,
+        "neighbor_chassis_id" => "aa:bb:cc:dd:fd:11",
+        "neighbor_mgmt_addr" => "192.0.2.77",
+        "metadata" => %{
+          "protocol" => "SNMP-L2",
+          "source" => "snmp-arp-fdb",
+          "evidence" => "ipNetToMedia+dot1dTpFdb",
+          "fdb_port_mapped" => "true",
+          "evidence_class" => "inferred-segment",
+          "relation_family" => "ATTACHED_TO",
+          "confidence_tier" => "medium",
+          "confidence_reason" => "arp_fdb_port_mapping"
+        }
+      }
+    ]
+
+    assert :ok = MapperResultsIngestor.ingest_topology(Jason.encode!(payload), %{})
+
+    rows = topology_rows("sr:it-fdb-switch")
+    assert [row] = rows
+    assert row["protocol"] == "SNMP-L2"
+    assert row["neighbor_chassis_id"] == "aa:bb:cc:dd:fd:11"
+    assert row["neighbor_port_id"] == ""
+  end
+
+  test "ingest_topology persists UniFi wireless client association records" do
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    purge_topology_rows(["sr:it-unifi-ap"])
+
+    payload = [
+      %{
+        "timestamp" => now,
+        "protocol" => "UniFi-API",
+        "agent_id" => "agent-it-unifi",
+        "gateway_id" => "agent-it-unifi",
+        "partition" => "default",
+        "local_device_id" => "sr:it-unifi-ap",
+        "local_device_ip" => "192.0.2.20",
+        "local_if_name" => "wireless",
+        "neighbor_chassis_id" => "aa:bb:cc:dd:fd:22",
+        "neighbor_system_name" => "laptop-01",
+        "neighbor_mgmt_addr" => "192.0.2.88",
+        "metadata" => %{
+          "source" => "unifi-api-wireless-client",
+          "evidence_class" => "endpoint-attachment",
+          "relation_type" => "ATTACHED_TO",
+          "relation_family" => "ATTACHED_TO",
+          "confidence_tier" => "high",
+          "confidence_reason" => "controller_client_association",
+          "client_type" => "wireless",
+          "uplink_device_id" => "unifi-sr:dev-1"
+        }
+      }
+    ]
+
+    assert :ok = MapperResultsIngestor.ingest_topology(Jason.encode!(payload), %{})
+
+    assert [row] = topology_rows("sr:it-unifi-ap")
+    assert row["protocol"] == "UniFi-API"
+    assert row["neighbor_port_id"] == ""
+    assert row["neighbor_system_name"] == "laptop-01"
+  end
+
+  test "ingest_topology persists UniFi uplink records without a neighbor port id" do
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    purge_topology_rows(["sr:it-unifi-switch"])
+
+    payload = [
+      %{
+        "timestamp" => now,
+        "protocol" => "UniFi-API",
+        "agent_id" => "agent-it-unifi",
+        "gateway_id" => "agent-it-unifi",
+        "partition" => "default",
+        "local_device_id" => "sr:it-unifi-switch",
+        "local_device_ip" => "192.0.2.30",
+        "local_if_index" => 24,
+        "local_if_name" => "Port 24",
+        "neighbor_chassis_id" => "aa:bb:cc:dd:fd:33",
+        "neighbor_system_name" => "office-ap",
+        "neighbor_mgmt_addr" => "192.0.2.31",
+        "metadata" => %{
+          "source" => "unifi-api-uplink",
+          "evidence_class" => "direct-physical",
+          "relation_family" => "CONNECTS_TO",
+          "uplink_device_id" => "unifi-sr:dev-2",
+          "uplink_device_name" => "office-switch"
+        }
+      }
+    ]
+
+    assert :ok = MapperResultsIngestor.ingest_topology(Jason.encode!(payload), %{})
+
+    assert [row] = topology_rows("sr:it-unifi-switch")
+    assert row["protocol"] == "UniFi-API"
+    assert row["neighbor_port_id"] == ""
+    assert row["local_if_index"] == 24
+  end
+
+  test "ingest_topology persists wireguard-derived records without a neighbor chassis id" do
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    purge_topology_rows(["sr:it-wg-router-a"])
+
+    payload = [
+      %{
+        "timestamp" => now,
+        "protocol" => "wireguard-derived",
+        "agent_id" => "agent-it-wg",
+        "gateway_id" => "agent-it-wg",
+        "partition" => "default",
+        "local_device_id" => "sr:it-wg-router-a",
+        "local_device_ip" => "203.0.113.1",
+        "local_if_name" => "wg0",
+        "neighbor_device_id" => "sr:it-wg-router-b",
+        "neighbor_port_id" => "wg0",
+        "neighbor_port_descr" => "wireguard",
+        "neighbor_system_name" => "wg-router-b",
+        "neighbor_mgmt_addr" => "203.0.113.2",
+        "metadata" => %{
+          "source" => "wireguard-derived",
+          "evidence_class" => "direct-logical",
+          "relation_family" => "LOGICAL_PEER",
+          "rule" => "exact_wg_interface_name_two_router_endpoints",
+          "tunnel_name" => "wg0",
+          "confidence_tier" => "high",
+          "confidence_score" => 95,
+          "confidence_reason" => "deterministic_wireguard_tunnel_match"
+        }
+      }
+    ]
+
+    assert :ok = MapperResultsIngestor.ingest_topology(Jason.encode!(payload), %{})
+
+    assert [row] = topology_rows("sr:it-wg-router-a")
+    assert row["protocol"] == "wireguard-derived"
+    assert row["neighbor_chassis_id"] == ""
+    assert row["neighbor_port_id"] == "wg0"
+  end
+
+  # Pre-fix, this exact mix froze the whole pipeline: the sparse FDB/wireless
+  # records failed Required validation, handle_bulk_result mapped the partial
+  # success to {:error, _}, and even the fully-valid LLDP record never reached
+  # TopologyGraph.upsert_links/1. Post-fix everything persists and the LLDP
+  # edge landing in AGE proves the graph projection ran for the same payload.
+  test "ingest_topology with mixed sparse and rich records persists all and projects to AGE" do
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    purge_topology_rows(["sr:it-mix-a", "sr:it-mix-sw"])
+
+    payload = [
+      %{
+        "timestamp" => now,
+        "protocol" => "LLDP",
+        "agent_id" => "agent-it-mix",
+        "gateway_id" => "agent-it-mix",
+        "partition" => "default",
+        "local_device_id" => "sr:it-mix-a",
+        "local_device_ip" => "198.51.100.1",
+        "local_if_index" => 10,
+        "local_if_name" => "eth0",
+        "neighbor_device_id" => "sr:it-mix-b",
+        "neighbor_port_id" => "Gi0/1",
+        "neighbor_system_name" => "mix-b",
+        "neighbor_mgmt_addr" => "198.51.100.2",
+        "metadata" => %{"source" => "lldp"}
+      },
+      %{
+        "timestamp" => now,
+        "protocol" => "SNMP-L2",
+        "agent_id" => "agent-it-mix",
+        "gateway_id" => "agent-it-mix",
+        "partition" => "default",
+        "local_device_id" => "sr:it-mix-sw",
+        "local_device_ip" => "198.51.100.3",
+        "local_if_index" => 7,
+        "neighbor_chassis_id" => "aa:bb:cc:dd:fd:44",
+        "neighbor_mgmt_addr" => "198.51.100.99",
+        "metadata" => %{
+          "source" => "snmp-arp-fdb",
+          "evidence" => "ipNetToMedia+dot1dTpFdb",
+          "fdb_port_mapped" => "true",
+          "evidence_class" => "inferred-segment",
+          "relation_family" => "ATTACHED_TO",
+          "confidence_tier" => "medium",
+          "confidence_reason" => "arp_fdb_port_mapping"
+        }
+      },
+      %{
+        "timestamp" => now,
+        "protocol" => "UniFi-API",
+        "agent_id" => "agent-it-mix",
+        "gateway_id" => "agent-it-mix",
+        "partition" => "default",
+        "local_device_id" => "sr:it-mix-a",
+        "local_device_ip" => "198.51.100.1",
+        "local_if_name" => "wireless",
+        "neighbor_chassis_id" => "aa:bb:cc:dd:fd:55",
+        "neighbor_system_name" => "phone-01",
+        "neighbor_mgmt_addr" => "198.51.100.88",
+        "metadata" => %{
+          "source" => "unifi-api-wireless-client",
+          "evidence_class" => "endpoint-attachment",
+          "relation_family" => "ATTACHED_TO",
+          "confidence_tier" => "high",
+          "confidence_reason" => "controller_client_association"
+        }
+      }
+    ]
+
+    assert :ok = MapperResultsIngestor.ingest_topology(Jason.encode!(payload), %{})
+
+    lldp_rows = topology_rows("sr:it-mix-a")
+    assert Enum.any?(lldp_rows, &(&1["protocol"] == "LLDP" and &1["neighbor_port_id"] == "Gi0/1"))
+    assert Enum.any?(lldp_rows, &(&1["protocol"] == "UniFi-API" and &1["neighbor_port_id"] == ""))
+
+    assert [fdb_row] = topology_rows("sr:it-mix-sw")
+    assert fdb_row["neighbor_port_id"] == ""
+
+    [edge] =
+      cypher_rows(
+        ~s/MATCH (a:Interface {id:'sr:it-mix-a\/eth0'})-[r:CONNECTS_TO]->(b:Interface {id:'sr:it-mix-b\/Gi0\/1'})
+      RETURN {count: count(r)} AS result/
+      )
+
+    assert edge["count"] == 1
+  end
+
   test "router drops low-confidence inferred neighbors when only the uplink is corroborated" do
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
-    insert_device_type("dev-router", "Router")
-    insert_device_type("dev-switch-a", "Switch")
-    insert_device_type("dev-switch-b", "Switch")
-    insert_device_type("dev-ap", "Access Point")
-    insert_device_type("dev-dist", "Switch")
+    insert_device_type("sr:dev-router", "Router")
+    insert_device_type("sr:dev-switch-a", "Switch")
+    insert_device_type("sr:dev-switch-b", "Switch")
+    insert_device_type("sr:dev-ap", "Access Point")
+    insert_device_type("sr:dev-dist", "Switch")
 
     TopologyGraph.upsert_links([
       %{
-        local_device_id: "dev-router",
-        neighbor_device_id: "dev-switch-a",
+        local_device_id: "sr:dev-router",
+        neighbor_device_id: "sr:dev-switch-a",
         local_if_name: "eth0",
         local_if_index: 28,
         neighbor_port_id: "uplink",
@@ -571,8 +863,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
         created_at: now
       },
       %{
-        local_device_id: "dev-router",
-        neighbor_device_id: "dev-switch-b",
+        local_device_id: "sr:dev-router",
+        neighbor_device_id: "sr:dev-switch-b",
         local_if_name: "eth0",
         local_if_index: 28,
         neighbor_port_id: "uplink",
@@ -582,8 +874,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
         created_at: now
       },
       %{
-        local_device_id: "dev-router",
-        neighbor_device_id: "dev-ap",
+        local_device_id: "sr:dev-router",
+        neighbor_device_id: "sr:dev-ap",
         local_if_name: "eth0",
         local_if_index: 28,
         neighbor_port_id: "wifi0",
@@ -593,8 +885,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
         created_at: now
       },
       %{
-        local_device_id: "dev-dist",
-        neighbor_device_id: "dev-switch-a",
+        local_device_id: "sr:dev-dist",
+        neighbor_device_id: "sr:dev-switch-a",
         local_if_name: "xe-0/0/1",
         local_if_index: 10,
         neighbor_port_id: "uplink",
@@ -608,8 +900,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     [result] =
       cypher_rows(
         ~s/MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
-      WHERE (a.id = 'dev-router' AND b.id = 'dev-switch-a')
-         OR (a.id = 'dev-switch-a' AND b.id = 'dev-router')
+      WHERE (a.id = 'sr:dev-router' AND b.id = 'sr:dev-switch-a')
+         OR (a.id = 'sr:dev-switch-a' AND b.id = 'sr:dev-router')
       RETURN {count: count(r), relation_type: head(collect(r.relation_type)), confidence_reason: head(collect(r.confidence_reason))} AS result/
       )
 
@@ -617,8 +909,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
     [rejected] =
       cypher_rows(~s/MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
-      WHERE (a.id = 'dev-router' AND b.id = 'dev-switch-b')
-         OR (a.id = 'dev-switch-b' AND b.id = 'dev-router')
+      WHERE (a.id = 'sr:dev-router' AND b.id = 'sr:dev-switch-b')
+         OR (a.id = 'sr:dev-switch-b' AND b.id = 'sr:dev-router')
       RETURN {count: count(r)} AS result/)
 
     assert rejected["count"] == 0
@@ -693,6 +985,54 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
                row["evidence_class"] == "endpoint-attachment" and
                row["confidence_reason"] == "shared_segment_via_uplink"
            end)
+  end
+
+  defp sparse_payload_ids do
+    [
+      "sr:it-fdb-switch",
+      "sr:it-unifi-ap",
+      "sr:it-unifi-switch",
+      "sr:it-wg-router-a",
+      "sr:it-wg-router-b",
+      "sr:it-mix-a",
+      "sr:it-mix-b",
+      "sr:it-mix-sw",
+      "sr:it-fdb-switch/ifindex:4",
+      "sr:it-unifi-ap/wireless",
+      "sr:it-unifi-switch/Port 24",
+      "sr:it-wg-router-a/wg0",
+      "sr:it-wg-router-b/wg0",
+      "sr:it-mix-a/eth0",
+      "sr:it-mix-a/wireless",
+      "sr:it-mix-b/Gi0/1",
+      "sr:it-mix-sw/ifindex:7"
+    ]
+  end
+
+  defp purge_topology_rows(local_device_ids) when is_list(local_device_ids) do
+    SQL.query!(
+      Repo,
+      "DELETE FROM platform.mapper_topology_links WHERE local_device_id = ANY($1)",
+      [local_device_ids]
+    )
+
+    :ok
+  end
+
+  defp topology_rows(local_device_id) do
+    %Postgrex.Result{rows: rows, columns: columns} =
+      SQL.query!(
+        Repo,
+        """
+        SELECT protocol, local_device_id, local_if_index, neighbor_device_id,
+               neighbor_chassis_id, neighbor_port_id, neighbor_system_name
+        FROM platform.mapper_topology_links
+        WHERE local_device_id = $1
+        """,
+        [local_device_id]
+      )
+
+    Enum.map(rows, fn row -> columns |> Enum.zip(row) |> Map.new() end)
   end
 
   defp insert_device_type(uid, type) do

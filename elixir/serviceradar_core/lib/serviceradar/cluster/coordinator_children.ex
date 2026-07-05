@@ -24,6 +24,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
     Enum.reject(
       [
         cluster_health_child(),
+        state_monitor_child(),
         status_handler_child(),
         command_status_handler_child(),
         results_router_child(),
@@ -76,6 +77,16 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
 
   defp cluster_health_child do
     ServiceRadar.ClusterHealth
+  end
+
+  # Infrastructure staleness + config-wedge evaluator. Historically referenced as a
+  # coordinator singleton (EnsureStateMonitor warns when it is absent) but never
+  # actually supervised anywhere; config-apply wedge detection (#4382) depends on it
+  # running, so start it here on the coordinator.
+  defp state_monitor_child do
+    if enabled?("STATE_MONITOR_ENABLED", :state_monitor_enabled, true) do
+      {ServiceRadar.Infrastructure.StateMonitor, []}
+    end
   end
 
   defp status_handler_child do

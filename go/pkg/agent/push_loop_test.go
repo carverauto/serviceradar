@@ -496,7 +496,7 @@ func TestApplyBumblebeeConfigDefersWhenCatalogStoreUnavailable(t *testing.T) {
 		logger: logger.NewTestLogger(),
 	}
 
-	disposition := pl.applyBumblebeeConfig(context.Background(), &proto.BumblebeeConfig{
+	disposition, _ := pl.applyBumblebeeConfig(context.Background(), &proto.BumblebeeConfig{
 		Enabled: true,
 		Catalog: &proto.BumblebeeCatalogAssignment{
 			SnapshotRef: "snapshot-1",
@@ -535,7 +535,7 @@ func TestApplyBumblebeeConfigStagesCatalogAndWritesRuntimeProfile(t *testing.T) 
 		logger: logger.NewTestLogger(),
 	}
 
-	disposition := pl.applyBumblebeeConfig(context.Background(), &proto.BumblebeeConfig{
+	disposition, _ := pl.applyBumblebeeConfig(context.Background(), &proto.BumblebeeConfig{
 		Enabled:           true,
 		AgentId:           "agent-from-control-plane",
 		RootDiscoveryMode: "explicit",
@@ -596,7 +596,7 @@ func TestApplyBumblebeeConfigSkipsDisabledRuntimeProfileForKubernetesAgent(t *te
 		logger: logger.NewTestLogger(),
 	}
 
-	disposition := pl.applyBumblebeeConfig(context.Background(), &proto.BumblebeeConfig{
+	disposition, _ := pl.applyBumblebeeConfig(context.Background(), &proto.BumblebeeConfig{
 		Enabled: false,
 	}, nil)
 	if disposition != addonDeliverySucceeded {

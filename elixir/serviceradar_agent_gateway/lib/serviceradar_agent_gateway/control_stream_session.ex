@@ -10,6 +10,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   alias ServiceRadar.Edge.RemoteAccessFileTransfers
   alias ServiceRadar.Edge.RemoteAccessPubSub
   alias ServiceRadar.ProcessRegistry
+  alias ServiceRadarAgentGateway.ConfigSyncForwarder
 
   require Logger
 
@@ -23,7 +24,9 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
           capabilities: [String.t()],
           commands: %{optional(String.t()) => map()},
           registry_key: term() | nil,
-          gateway_node: String.t()
+          gateway_node: String.t(),
+          last_pushed_config_version: String.t() | nil,
+          last_synced_config_version: String.t() | nil
         }
 
   def start_link(opts) do
@@ -63,7 +66,9 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
        capabilities: [],
        commands: %{},
        registry_key: nil,
-       gateway_node: Atom.to_string(node())
+       gateway_node: Atom.to_string(node()),
+       last_pushed_config_version: nil,
+       last_synced_config_version: nil
      }}
   end
 
@@ -113,7 +118,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
     case send_stream_reply(state.stream, response) do
       {:ok, stream} ->
-        {:reply, :ok, %{state | stream: stream}}
+        {:reply, :ok, forward_config_push(%{state | stream: stream}, config)}
 
       {:error, reason} ->
         {:reply, {:error, reason}, state}
@@ -224,15 +229,20 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
         {:noreply, %{state | commands: commands}}
 
       {:config_ack, ack} ->
-        Logger.debug("Agent config ack: agent_id=#{state.agent_id} version=#{ack.config_version}")
-        {:noreply, state}
+        Logger.debug(
+          "Agent config ack: agent_id=#{state.agent_id} version=#{ack.config_version} " <>
+            "sections=#{length(ack.section_statuses)}"
+        )
+
+        {:noreply, forward_config_ack(state, ack)}
 
       {:console_frame, frame} ->
         broadcast_console_frame(frame, state)
         {:noreply, state}
 
-      {:hello, _hello} ->
-        refresh_control_registration(state)
+      {:hello, hello} ->
+        {:noreply, state} = refresh_control_registration(state)
+        {:noreply, forward_reported_config_version(state, hello)}
 
       nil ->
         {:noreply, state}
@@ -396,6 +406,57 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
       _ = RemoteAccessFileTransfers.handle_agent_frame(frame_payload)
     end
   end
+
+  # Persist the acked version + per-section statuses on core (wedge detection).
+  # Fire-and-forget: a core outage must not stall the agent's control stream.
+  defp forward_config_ack(state, ack) do
+    if registered_agent?(state) do
+      agent_id = state.agent_id
+      {:ok, _pid} = Task.start(fn -> ConfigSyncForwarder.record_config_ack(agent_id, ack) end)
+
+      %{state | last_synced_config_version: ack.config_version}
+    else
+      state
+    end
+  end
+
+  # A heartbeat hello reports the agent's committed config version (set only after a
+  # fully-successful apply) — forward it as a whole-version ack so versions applied
+  # via the poll path (which never stream-acks) do not read as unacknowledged.
+  # Debounced on the version so the 60s heartbeat does not spam core.
+  defp forward_reported_config_version(state, %Monitoring.ControlStreamHello{} = hello) do
+    version = to_string(hello.config_version || "")
+
+    if registered_agent?(state) and version != "" and version != state.last_synced_config_version do
+      agent_id = state.agent_id
+      {:ok, _pid} = Task.start(fn -> ConfigSyncForwarder.record_reported_version(agent_id, version) end)
+
+      %{state | last_synced_config_version: version}
+    else
+      state
+    end
+  end
+
+  defp forward_reported_config_version(state, _hello), do: state
+
+  # Record the pushed config version on core: it anchors the no-ack wedge window
+  # (an agent that never acks a pushed version becomes config-unhealthy). Debounced
+  # on the version; core additionally keeps the FIRST push timestamp of a version.
+  defp forward_config_push(state, %Monitoring.AgentConfigResponse{} = config) do
+    version = to_string(config.config_version || "")
+
+    if registered_agent?(state) and version != "" and not config.not_modified and
+         version != state.last_pushed_config_version do
+      agent_id = state.agent_id
+      {:ok, _pid} = Task.start(fn -> ConfigSyncForwarder.record_config_push(agent_id, version) end)
+
+      %{state | last_pushed_config_version: version}
+    else
+      state
+    end
+  end
+
+  defp forward_config_push(state, _config), do: state
 
   defp registered_agent?(state) do
     is_binary(state.agent_id) and String.trim(state.agent_id) != ""

@@ -177,83 +177,75 @@ func TestApplyAddonConfigJSONMergesNetprobeOnlyFields(t *testing.T) {
 	}
 }
 
-func TestApplyAddonConfigJSONAcceptsLegacyStringCaptureInterfaces(t *testing.T) {
-	merged, err := ApplyAddonConfigJSON(&netprobepb.VisibilityAgentConfig{}, []byte(`{
-		"capture_interfaces": " ens18 "
-	}`))
-	if err != nil {
-		t.Fatalf("ApplyAddonConfigJSON() error = %v", err)
-	}
+func TestApplyAddonConfigJSONCoercesScalarCaptureInterfaces(t *testing.T) {
+	// Compatibility form (fj#4381): a corrupt assignment row delivered
+	// `capture_interfaces` as a scalar string and permanently wedged config
+	// apply. The decoder now treats a non-empty string as a single-element
+	// list, trimming whitespace like the array form does.
+	for _, payload := range []string{
+		`{"enabled": true, "capture_interfaces": "ens18"}`,
+		`{"enabled": true, "capture_interfaces": " ens18 "}`,
+	} {
+		merged, err := ApplyAddonConfigJSON(&netprobepb.VisibilityAgentConfig{
+			CaptureInterfaces: []string{"eth0"},
+		}, []byte(payload))
+		if err != nil {
+			t.Fatalf("ApplyAddonConfigJSON(%s) error = %v", payload, err)
+		}
 
-	if got := merged.GetCaptureInterfaces(); len(got) != 1 || got[0] != "ens18" {
-		t.Fatalf("CaptureInterfaces = %#v, want [ens18]", got)
+		if got := merged.GetCaptureInterfaces(); len(got) != 1 || got[0] != "ens18" {
+			t.Fatalf("CaptureInterfaces = %#v for %s, want [ens18]", got, payload)
+		}
+		if !merged.GetEnabled() {
+			t.Fatalf("Enabled = false for %s, want true", payload)
+		}
 	}
 }
 
-func TestApplyAddonConfigJSONAcceptsLegacyDelimitedCaptureInterfaces(t *testing.T) {
-	merged, err := ApplyAddonConfigJSON(&netprobepb.VisibilityAgentConfig{}, []byte(`{
-		"capture_interfaces": " ens18\n,enp1s0 "
-	}`))
-	if err != nil {
-		t.Fatalf("ApplyAddonConfigJSON() error = %v", err)
-	}
+func TestApplyAddonConfigJSONScalarEmptyCaptureInterfacesClears(t *testing.T) {
+	// An empty (or whitespace-only) scalar string means "explicitly no capture
+	// interfaces", matching the semantics of an explicit empty array.
+	for _, payload := range []string{
+		`{"capture_interfaces": ""}`,
+		`{"capture_interfaces": "   "}`,
+	} {
+		merged, err := ApplyAddonConfigJSON(&netprobepb.VisibilityAgentConfig{
+			CaptureInterfaces: []string{"eth0"},
+		}, []byte(payload))
+		if err != nil {
+			t.Fatalf("ApplyAddonConfigJSON(%s) error = %v", payload, err)
+		}
 
-	if got := merged.GetCaptureInterfaces(); len(got) != 2 || got[0] != "ens18" || got[1] != "enp1s0" {
-		t.Fatalf("CaptureInterfaces = %#v, want [ens18 enp1s0]", got)
+		if got := merged.GetCaptureInterfaces(); len(got) != 0 {
+			t.Fatalf("CaptureInterfaces = %#v for %s, want empty", got, payload)
+		}
 	}
 }
 
-func TestApplyAddonConfigJSONAcceptsLegacyUIFormShape(t *testing.T) {
-	base := &netprobepb.VisibilityAgentConfig{
-		Enabled:                      false,
-		CaptureInterfaces:            []string{"eth0"},
-		DefaultSampleIntervalMs:      250,
-		FlowTableMaxEntries:          262_144,
-		ProcessSnapshotIntervalS:     60,
-		ExternalFlowMatchWindowMs:    30_000,
-		FlowAttributionIpcBatch:      true,
-		EmitRawFlowAttributionEvents: true,
-	}
-
-	merged, err := ApplyAddonConfigJSON(base, []byte(`{
-		"dpi": "",
-		"enabled": "true",
-		"device_bindings": "",
-		"capture_interfaces": "",
-		"flow_table_max_entries": "",
-		"default_sample_interval_ms": "",
-		"flow_attribution_ipc_batch": "false",
-		"process_snapshot_interval_s": "",
-		"external_flow_match_window_ms": "",
-		"emit_raw_flow_attribution_events": "false"
-	}`))
+func TestApplyAddonConfigJSONNullCaptureInterfacesKeepsBase(t *testing.T) {
+	merged, err := ApplyAddonConfigJSON(&netprobepb.VisibilityAgentConfig{
+		CaptureInterfaces: []string{"eth0"},
+	}, []byte(`{"capture_interfaces": null}`))
 	if err != nil {
 		t.Fatalf("ApplyAddonConfigJSON() error = %v", err)
 	}
 
-	if !merged.GetEnabled() {
-		t.Fatal("Enabled = false, want true")
+	if got := merged.GetCaptureInterfaces(); len(got) != 1 || got[0] != "eth0" {
+		t.Fatalf("CaptureInterfaces = %#v, want base [eth0] preserved", got)
 	}
-	if got := merged.GetCaptureInterfaces(); len(got) != 0 {
-		t.Fatalf("CaptureInterfaces = %#v, want empty", got)
-	}
-	if merged.GetFlowAttributionIpcBatch() {
-		t.Fatal("FlowAttributionIpcBatch = true, want false")
-	}
-	if merged.GetEmitRawFlowAttributionEvents() {
-		t.Fatal("EmitRawFlowAttributionEvents = true, want false")
-	}
-	if merged.GetDefaultSampleIntervalMs() != 250 {
-		t.Fatalf("DefaultSampleIntervalMs = %d, want base value 250", merged.GetDefaultSampleIntervalMs())
-	}
-	if merged.GetFlowTableMaxEntries() != 262_144 {
-		t.Fatalf("FlowTableMaxEntries = %d, want base value 262144", merged.GetFlowTableMaxEntries())
-	}
-	if merged.GetProcessSnapshotIntervalS() != 60 {
-		t.Fatalf("ProcessSnapshotIntervalS = %d, want base value 60", merged.GetProcessSnapshotIntervalS())
-	}
-	if merged.GetExternalFlowMatchWindowMs() != 30_000 {
-		t.Fatalf("ExternalFlowMatchWindowMs = %d, want base value 30000", merged.GetExternalFlowMatchWindowMs())
+}
+
+func TestApplyAddonConfigJSONRejectsNonStringCaptureInterfaces(t *testing.T) {
+	// Tolerance is bounded to the documented string form; other type drift is
+	// still a decode error.
+	for _, payload := range []string{
+		`{"capture_interfaces": 42}`,
+		`{"capture_interfaces": {"eth0": true}}`,
+		`{"capture_interfaces": [1, 2]}`,
+	} {
+		if _, err := ApplyAddonConfigJSON(nil, []byte(payload)); err == nil {
+			t.Fatalf("ApplyAddonConfigJSON(%s) error = nil, want unmarshal error", payload)
+		}
 	}
 }
 

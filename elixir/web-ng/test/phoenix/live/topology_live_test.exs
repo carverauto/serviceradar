@@ -113,6 +113,88 @@ defmodule ServiceRadarWebNGWeb.TopologyLiveTest do
     assert html =~ "Topology"
   end
 
+  test "shows the backbone-empty warning with per-class counts and layer call-to-action", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/topology")
+
+    html =
+      render_hook(view, "god_view_stream_stats", %{
+        "node_count" => 60,
+        "edge_count" => 72,
+        "pipeline_stats" => %{
+          "final_edges" => 72,
+          "backbone_edge_count" => 0,
+          "edge_class_backbone" => 0,
+          "edge_class_attachment" => 57,
+          "edge_class_inferred" => 12,
+          "edge_class_hosted" => 3,
+          "edge_class_observed" => 0
+        }
+      })
+
+    assert html =~ "Backbone unavailable"
+    assert html =~ "no backbone topology edges"
+    assert html =~ "bb:0"
+    assert html =~ "att:57"
+    assert html =~ "inf:12"
+    assert html =~ "host:3"
+    assert html =~ "Show attachment layers"
+    refute html =~ "No topology data yet"
+
+    html =
+      view
+      |> element(~s(button[phx-click="enable_attachment_layers"]))
+      |> render_click()
+
+    assert_push_event(view, "god_view:set_topology_layers", %{
+      layers: %{
+        "backbone" => true,
+        "endpoints" => true,
+        "inferred" => true,
+        "mtr_paths" => true
+      }
+    })
+
+    # The degraded state stays visible, but the CTA disappears once the
+    # attachment/inferred layers are already enabled.
+    assert html =~ "Backbone unavailable"
+    refute html =~ "Show attachment layers"
+  end
+
+  test "does not show the backbone-empty warning for a healthy snapshot", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/topology")
+
+    html =
+      render_hook(view, "god_view_stream_stats", %{
+        "node_count" => 60,
+        "edge_count" => 72,
+        "pipeline_stats" => %{
+          "final_edges" => 72,
+          "backbone_edge_count" => 41,
+          "edge_class_backbone" => 41,
+          "edge_class_attachment" => 20,
+          "edge_class_inferred" => 8,
+          "edge_class_hosted" => 3,
+          "edge_class_observed" => 0
+        }
+      })
+
+    refute html =~ "Backbone unavailable"
+    refute html =~ "Show attachment layers"
+  end
+
+  test "does not show the backbone-empty warning when per-class counts are unavailable", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/topology")
+
+    html =
+      render_hook(view, "god_view_stream_stats", %{
+        "node_count" => 60,
+        "edge_count" => 72,
+        "pipeline_stats" => %{"final_edges" => 72, "final_attachment" => 57}
+      })
+
+    refute html =~ "Backbone unavailable"
+  end
+
   test "opens a camera relay from a God-View camera action and renders the viewer panel", %{conn: conn} do
     previous_manager = Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager)
     previous_open_result = Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager_open_result)

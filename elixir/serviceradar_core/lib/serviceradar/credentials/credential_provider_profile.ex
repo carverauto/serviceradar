@@ -93,4 +93,22 @@ defmodule ServiceRadar.Credentials.CredentialProviderProfile do
   end
 
   def profile_for(_provider), do: :error
+
+  @doc """
+  Reverse lookup: logical plugin id → `{profile, purpose}`.
+
+  Lets assignment-time validation derive the credential provider/purpose a
+  plugin's materialized inputs come from, without hardcoding per-plugin
+  knowledge in the UI.
+  """
+  @spec profile_purpose_for_plugin_id(String.t()) :: {:ok, {module(), purpose()}} | :error
+  def profile_purpose_for_plugin_id(plugin_id) when is_binary(plugin_id) do
+    Enum.find_value(@all_profiles, :error, fn profile ->
+      Enum.find_value(profile.purposes(), fn purpose ->
+        if profile.plugin_id(purpose) == plugin_id, do: {:ok, {profile, purpose}}
+      end)
+    end)
+  end
+
+  def profile_purpose_for_plugin_id(_plugin_id), do: :error
 end

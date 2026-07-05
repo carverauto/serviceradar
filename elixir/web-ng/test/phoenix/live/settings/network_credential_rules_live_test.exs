@@ -43,6 +43,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
 
     assert html =~ "Credential Rules"
     assert html =~ "Read the Proxmox setup guide"
+    assert html =~ "UniFi Protect"
     refute html =~ "New Console SSH Key"
     refute html =~ "New Console Rule"
     assert html =~ "No credential rules found"
@@ -295,6 +296,181 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     refute get_secret_by_name!(scope, "Incomplete PVE token")
   end
 
+  test "unifi-protect preset seeds an api_key camera rule form", %{conn: conn} do
+    {:ok, _lv, html} = live(conn, ~p"/settings/networks/credentials/new?provider=unifi-protect")
+
+    assert html =~ ~s(value="unifi-protect")
+    assert html =~ ~r/<option selected[^>]*value="api_key"/
+    assert html =~ ~s(in:devices vendor:&quot;Ubiquiti&quot;)
+    assert checked_purpose?(html, "camera_inventory")
+    assert checked_purpose?(html, "camera_stream")
+    refute checked_purpose?(html, "inventory_enrichment")
+  end
+
+  test "axis preset seeds a username_password camera rule form", %{conn: conn} do
+    {:ok, _lv, html} = live(conn, ~p"/settings/networks/credentials/new?provider=axis")
+
+    assert html =~ ~s(value="axis")
+    assert html =~ ~r/<option selected[^>]*value="username_password"/
+    assert html =~ ~s(in:devices vendor:&quot;Axis&quot;)
+    assert checked_purpose?(html, "camera_inventory")
+    assert checked_purpose?(html, "camera_stream")
+  end
+
+  test "creates a camera credential rule with api_key auth and camera purposes", %{
+    conn: conn,
+    scope: scope
+  } do
+    secret = api_key_secret_fixture(scope)
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new?provider=unifi-protect")
+
+    lv
+    |> form("form",
+      credential_rule: %{
+        "name" => "Protect cameras",
+        "description" => "",
+        "provider" => "unifi-protect",
+        "auth_method" => "api_key",
+        "purposes" => ["camera_inventory", "camera_stream"],
+        "target_query" => ~s(in:devices vendor:"Ubiquiti"),
+        "scope_type" => "agent",
+        "scope_value" => "agent-cam",
+        "secret_id" => secret.id,
+        "priority" => "100",
+        "allowed_ports" => "443, 7447",
+        "tls_policy" => "skip_verify",
+        "ssh_host_key_policy" => "known_hosts",
+        "auto_discovery_enabled" => "false"
+      }
+    )
+    |> render_submit()
+
+    assert_patch(lv, ~p"/settings/networks/credentials")
+    html = render(lv)
+    assert html =~ "Protect cameras"
+    assert html =~ "camera inventory, camera stream"
+
+    rule = get_rule_by_name!(scope, "Protect cameras")
+    assert rule.provider == "unifi-protect"
+    assert rule.auth_method == :api_key
+    assert rule.purpose == :camera_inventory
+    assert rule.target_query == ~s(in:devices vendor:"Ubiquiti")
+    assert rule.tls_policy == :skip_verify
+    assert rule.metadata["purposes"] == ["camera_inventory", "camera_stream"]
+  end
+
+  test "creates an API key secret for the rule's provider", %{conn: conn, scope: scope} do
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
+
+    assert lv
+           |> element("button[phx-click='new_api_key_secret']")
+           |> render_click() =~ "New API Key Secret"
+
+    html =
+      lv
+      |> form("form[phx-submit='save_secret']",
+        credential_secret: %{
+          "kind" => "api_key",
+          "name" => "Protect controller key",
+          "description" => "UDM Pro",
+          "provider" => "unifi-protect",
+          "api_key" => "protect-api-key-value"
+        }
+      )
+      |> render_submit()
+
+    assert html =~ "Credential secret saved"
+    refute html =~ "protect-api-key-value"
+
+    secret = get_secret_by_name!(scope, "Protect controller key")
+    assert secret.provider == "unifi-protect"
+    assert secret.credential_kind == :api_token
+    assert secret.public_fingerprint =~ "sha256:"
+    assert secret.metadata["auth_method"] == "api_key"
+  end
+
+  test "validates API key secret fields without storing partial secrets", %{
+    conn: conn,
+    scope: scope
+  } do
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
+
+    lv
+    |> element("button[phx-click='new_api_key_secret']")
+    |> render_click()
+
+    html =
+      lv
+      |> form("form[phx-submit='save_secret']",
+        credential_secret: %{
+          "kind" => "api_key",
+          "name" => "Incomplete key",
+          "description" => "",
+          "provider" => "unifi-protect",
+          "api_key" => ""
+        }
+      )
+      |> render_submit()
+
+    assert html =~ "Required API key fields are missing"
+    refute get_secret_by_name!(scope, "Incomplete key")
+  end
+
+  test "creates a username/password secret for camera providers", %{conn: conn, scope: scope} do
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
+
+    assert lv
+           |> element("button[phx-click='new_username_password_secret']")
+           |> render_click() =~ "New Username &amp; Password Secret"
+
+    html =
+      lv
+      |> form("form[phx-submit='save_secret']",
+        credential_secret: %{
+          "kind" => "username_password",
+          "name" => "Axis viewer",
+          "description" => "",
+          "provider" => "axis",
+          "username" => "viewer",
+          "password" => "vapix-password-value"
+        }
+      )
+      |> render_submit()
+
+    assert html =~ "Credential secret saved"
+    refute html =~ "vapix-password-value"
+
+    secret = get_secret_by_name!(scope, "Axis viewer")
+    assert secret.provider == "axis"
+    assert secret.credential_kind == :username_password
+    assert secret.username == "viewer"
+    assert secret.metadata["auth_method"] == "username_password"
+  end
+
+  test "camera rules do not offer the proxmox-only credential test", %{conn: conn, scope: scope} do
+    proxmox_secret = credential_secret_fixture(scope)
+    proxmox_rule = credential_rule_fixture(scope, proxmox_secret, %{name: "PVE testable"})
+
+    camera_secret = api_key_secret_fixture(scope)
+
+    camera_rule =
+      credential_rule_fixture(scope, camera_secret, %{
+        name: "Protect cameras",
+        provider: "unifi-protect",
+        auth_method: :api_key,
+        purpose: :camera_inventory,
+        allowed_ports: [443],
+        metadata: %{"purposes" => ["camera_inventory"]}
+      })
+
+    {:ok, lv, html} = live(conn, ~p"/settings/networks/credentials")
+
+    assert has_element?(lv, "button[phx-click='test_rule'][phx-value-id='#{proxmox_rule.id}']")
+    refute has_element?(lv, "button[phx-click='test_rule'][phx-value-id='#{camera_rule.id}']")
+    assert html =~ "Credential test is not yet available for this provider"
+  end
+
   test "edits and disables a credential rule", %{conn: conn, scope: scope} do
     secret = credential_secret_fixture(scope)
     rule = credential_rule_fixture(scope, secret, %{name: "Original rule"})
@@ -441,6 +617,30 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
       |> Ash.create(scope: scope)
 
     secret
+  end
+
+  defp api_key_secret_fixture(scope) do
+    {:ok, secret} =
+      NetworkCredentialSecret
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Protect key #{System.unique_integer([:positive])}",
+          provider: "unifi-protect",
+          credential_kind: :api_token,
+          public_fingerprint: "sha256:test",
+          secret_payload: "protect-api-key",
+          metadata: %{"auth_method" => "api_key"}
+        },
+        scope: scope
+      )
+      |> Ash.create(scope: scope)
+
+    secret
+  end
+
+  defp checked_purpose?(html, purpose) do
+    html =~ ~r/checked[^>]*value="#{purpose}"|value="#{purpose}"[^>]*checked/
   end
 
   defp credential_rule_fixture(scope, secret, attrs) do

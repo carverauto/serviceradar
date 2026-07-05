@@ -78,12 +78,44 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Projection.Payload do
       Utils.default_interface_id(neighbor_device_id, "unknown-neighbor")
   end
 
+  # Only resolved canonical `sr:` identities may become AGE Device vertices.
+  # The historical fallback (neighbor_device_id ← mgmt_addr ← chassis_id ←
+  # system_name) fabricated raw-IP/MAC pseudo-vertices that every downstream
+  # consumer (canonical rebuild, runtime projection, god-view) filters out with
+  # `STARTS WITH 'sr:'` gates — dead weight that only bloated the graph.
+  # Unresolved neighbors are dropped before projection instead; see
+  # drop_reason/1 and the `[:serviceradar, :mapper_topology, :neighbor_dropped]`
+  # counter emitted by the link reducer.
   defp neighbor_device_id(link) do
-    Utils.link_value(link, :neighbor_device_id) ||
-      Utils.link_value(link, :neighbor_mgmt_addr) ||
-      Utils.link_value(link, :neighbor_chassis_id) ||
-      Utils.link_value(link, :neighbor_system_name)
+    with value when is_binary(value) <-
+           Utils.non_blank(Utils.link_value(link, :neighbor_device_id)),
+         true <- String.starts_with?(value, "sr:") do
+      value
+    else
+      _ -> nil
+    end
   end
+
+  @doc """
+  Why `projection_payload/1` returns (or would return) nil for a link.
+
+  Returns `:missing_local_id`, `:neighbor_unresolved` (no resolved neighbor
+  device id), `:neighbor_not_canonical` (a neighbor id that is not a canonical
+  `sr:` identity), or nil when the link projects.
+  """
+  def drop_reason(link) when is_map(link) do
+    local = Utils.non_blank(Utils.link_value(link, :local_device_id))
+    neighbor = Utils.non_blank(Utils.link_value(link, :neighbor_device_id))
+
+    cond do
+      is_nil(local) -> :missing_local_id
+      is_nil(neighbor) -> :neighbor_unresolved
+      not String.starts_with?(neighbor, "sr:") -> :neighbor_not_canonical
+      true -> nil
+    end
+  end
+
+  def drop_reason(_link), do: :missing_local_id
 
   defp confidence_tier(link, metadata) do
     Utils.link_value(link, :confidence_tier) ||

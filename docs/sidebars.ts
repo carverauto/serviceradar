@@ -44,6 +44,7 @@ const sidebars: SidebarsConfig = {
           label: 'Native Add-ons',
           items: [
             {type: 'doc', id: 'native-addons', label: 'Overview'},
+            {type: 'doc', id: 'addon-config-contracts', label: 'Config Contracts'},
             {type: 'doc', id: 'netprobe', label: 'Host Network Visibility'},
             {type: 'doc', id: 'workload-identity', label: 'Workload Identity'},
           ],

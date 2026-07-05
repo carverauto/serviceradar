@@ -39,7 +39,11 @@ defmodule ServiceRadar.Credentials.ProxmoxCredentialRuleReconcileWorker do
       {:ok, agents} ->
         summary = reconcile_agents(agents, actor: actor)
 
-        Logger.info("Reconciled Proxmox credential rules", summary: inspect(summary))
+        Logger.info(
+          "Reconciled Proxmox credential rules: #{format_summary(summary)}",
+          summary: inspect(summary)
+        )
+
         schedule_next()
         :ok
 
@@ -137,7 +141,8 @@ defmodule ServiceRadar.Credentials.ProxmoxCredentialRuleReconcileWorker do
       desired_assignments: 0,
       upserted: 0,
       unchanged: 0,
-      disabled: 0
+      disabled: 0,
+      skips: %{}
     }
   end
 
@@ -149,7 +154,28 @@ defmodule ServiceRadar.Credentials.ProxmoxCredentialRuleReconcileWorker do
         desired_assignments: acc.desired_assignments + Map.get(summary, :desired_assignments, 0),
         upserted: acc.upserted + Map.get(summary, :upserted, 0),
         unchanged: acc.unchanged + Map.get(summary, :unchanged, 0),
-        disabled: acc.disabled + Map.get(summary, :disabled, 0)
+        disabled: acc.disabled + Map.get(summary, :disabled, 0),
+        skips: merge_skips(acc.skips, Map.get(summary, :skips, %{}))
     }
+  end
+
+  defp merge_skips(left, right) when is_map(left) and is_map(right) do
+    Map.merge(left, right, fn _reason, a, b -> a + b end)
+  end
+
+  defp format_summary(summary) do
+    skips =
+      summary
+      |> Map.get(:skips, %{})
+      |> Enum.sort()
+      |> Enum.map_join(",", fn {reason, count} -> "#{reason}=#{count}" end)
+
+    base =
+      "agents=#{summary.agents} failed_agents=#{summary.failed_agents} " <>
+        "skipped_agents=#{summary.skipped_agents} rules_matched=#{summary.rules} " <>
+        "targets_resolved=#{summary.resolved_inputs} desired=#{summary.desired_assignments} " <>
+        "written=#{summary.upserted} unchanged=#{summary.unchanged} disabled=#{summary.disabled}"
+
+    if skips == "", do: base, else: base <> " skips[#{skips}]"
   end
 end

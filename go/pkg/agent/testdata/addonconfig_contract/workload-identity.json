@@ -1,0 +1,1 @@
+{"cluster_name":"demo-cluster","enabled":true,"max_identities":50000,"refresh_interval_s":120,"root":"/","runtime":{"socket":"/run/containerd/containerd.sock","type":"containerd"}}

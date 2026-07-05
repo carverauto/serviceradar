@@ -78,9 +78,18 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyLink do
     # Logical-key columns are NOT NULL with empty/zero defaults so the unique index
     # backing the :logical_key identity can be plain-column (no COALESCE), letting
     # Ash's upsert ON CONFLICT inference target it directly.
+    #
+    # The string columns need `allow_empty?: true, trim?: false`: Ash's :string
+    # type defaults to `allow_empty?: false, trim?: true`, which casts a provided
+    # "" back to nil and then fails the allow_nil? false validation. The ingestor
+    # deliberately writes "" sentinels for logical-key fields that are legitimately
+    # absent (SNMP-L2 ARP+FDB attachments, UniFi wireless clients, and
+    # wireguard-derived links carry no neighbor_port_id), so the sentinel must
+    # survive casting.
     attribute :protocol, :string do
       allow_nil? false
       default ""
+      constraints allow_empty?: true, trim?: false
       public? true
     end
 
@@ -91,6 +100,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyLink do
     attribute :local_device_id, :string do
       allow_nil? false
       default ""
+      constraints allow_empty?: true, trim?: false
       public? true
     end
 
@@ -107,18 +117,21 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyLink do
     attribute :neighbor_device_id, :string do
       allow_nil? false
       default ""
+      constraints allow_empty?: true, trim?: false
       public? true
     end
 
     attribute :neighbor_chassis_id, :string do
       allow_nil? false
       default ""
+      constraints allow_empty?: true, trim?: false
       public? true
     end
 
     attribute :neighbor_port_id, :string do
       allow_nil? false
       default ""
+      constraints allow_empty?: true, trim?: false
       public? true
     end
 

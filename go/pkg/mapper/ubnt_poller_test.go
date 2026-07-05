@@ -1753,3 +1753,118 @@ func TestAddPoEMetadata(t *testing.T) {
 		})
 	}
 }
+
+// TestProcessPortTableRealControllerShapes pins the "port_links:0" diagnosis
+// (fix-topology-evidence-pipeline-resilience, task 3.4).
+//
+// processPortTable can only emit a wired attachment link when a port_table
+// entry carries a `connected_device` / `connectedDevice` peer object
+// (UniFiPortConnectedPeer). Neither UniFi API family sends that field:
+//
+//   - the Integration API v1 device detail (GET {base}/sites/{site}/devices/{id})
+//     exposes `interfaces.ports[]` (idx/state/connector/speedMbps/poe) with no
+//     per-port peer information at all, and
+//   - the legacy controller endpoint (GET /api/s/{site}/stat/device) returns
+//     `port_table[]` entries whose learned client MACs live in `mac_table[]`
+//     ({mac, ip, vlan, age, uptime}) and whose switch peers live in
+//     `lldp_table` — there is no `connected_device` key.
+//
+// So on live controllers port extraction always yields zero links while the
+// wireless-client (/clients uplinkDeviceId) and uplink paths work — matching
+// the demo evidence `port_links:0, wireless_client_links:35, uplink_links:10`.
+//
+// Fixing wired extraction means consuming the legacy `mac_table` (with uplink
+// port filtering) and is owned by the add-unifi-wifi-discovery-parity change;
+// it needs a live `stat/device` capture to confirm the mac_table shape for the
+// deployed controller version before implementation. These fixtures pin the
+// current behavior so the eventual fix flips them deliberately.
+func TestProcessPortTableRealControllerShapes(t *testing.T) {
+	engine := &DiscoveryEngine{logger: logger.NewTestLogger()}
+	job := &DiscoveryJob{ID: "port-table-diagnosis"}
+	device := &UniFiDevice{IPAddress: "192.168.1.87", Name: "USW-Pro-24", MAC: "d0:21:f9:00:00:01"}
+	apiConfig := UniFiAPIConfig{Name: "Test API", BaseURL: "https://example.com/proxy/network/integration/v1"}
+	site := UniFiSite{ID: "site1", Name: "Default"}
+
+	deviceCache := map[string]struct {
+		IP       string
+		Name     string
+		MAC      string
+		DeviceID string
+	}{}
+
+	t.Run("integration API v1 interfaces.ports shape yields zero port links", func(t *testing.T) {
+		raw := []byte(`{
+			"id": "abcd1234",
+			"name": "USW-Pro-24",
+			"macAddress": "d0:21:f9:00:00:01",
+			"ipAddress": "192.168.1.87",
+			"state": "ONLINE",
+			"interfaces": {
+				"ports": [
+					{"idx": 1, "state": "UP", "connector": "RJ45", "maxSpeedMbps": 1000, "speedMbps": 1000},
+					{"idx": 2, "state": "UP", "connector": "RJ45", "maxSpeedMbps": 1000, "speedMbps": 100}
+				],
+				"radios": []
+			}
+		}`)
+
+		var details UniFiDeviceDetails
+		require.NoError(t, json.Unmarshal(raw, &details))
+
+		// The v1 shape has no port_table at all — nothing to extract from.
+		assert.Empty(t, details.normalizedPortTable())
+
+		links := engine.processPortTable(job, device, "device-id-1", &details, deviceCache, apiConfig, site)
+		assert.Empty(t, links)
+	})
+
+	t.Run("legacy stat/device port_table with mac_table yields zero port links", func(t *testing.T) {
+		raw := []byte(`{
+			"mac": "d0:21:f9:00:00:01",
+			"ip": "192.168.1.87",
+			"name": "USW-Pro-24",
+			"port_table": [
+				{
+					"port_idx": 7,
+					"name": "Port 7",
+					"media": "GE",
+					"up": true,
+					"speed": 1000,
+					"mac_table": [
+						{"mac": "aa:bb:cc:dd:ee:50", "ip": "192.168.1.50", "vlan": 1, "age": 12, "uptime": 4711},
+						{"mac": "aa:bb:cc:dd:ee:51", "ip": "192.168.1.51", "vlan": 1, "age": 3, "uptime": 99}
+					]
+				},
+				{
+					"port_idx": 8,
+					"name": "Port 8",
+					"media": "GE",
+					"up": true,
+					"speed": 1000,
+					"lldp_table": [
+						{"chassis_id": "d0:21:f9:00:00:02", "port_id": "26", "system_name": "USWAggregation"}
+					]
+				}
+			]
+		}`)
+
+		var record legacyUniFiDeviceDetailsRecord
+		require.NoError(t, json.Unmarshal(raw, &record))
+		details := record.UniFiDeviceDetails
+
+		// The legacy entries parse, but their peers live in mac_table /
+		// lldp_table, which processPortTable never reads: connected() is empty
+		// for every entry, so no link is emitted.
+		ports := details.normalizedPortTable()
+		require.Len(t, ports, 2)
+
+		for i := range ports {
+			peer := ports[i].connected()
+			assert.Empty(t, peer.mac())
+			assert.Empty(t, peer.ip())
+		}
+
+		links := engine.processPortTable(job, device, "device-id-1", &details, deviceCache, apiConfig, site)
+		assert.Empty(t, links)
+	})
+}

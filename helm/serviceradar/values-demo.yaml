@@ -554,6 +554,10 @@ core:
     # Keep last-known topology visible in demo when external mapper agents are
     # briefly offline or being re-enrolled.
     SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES: "10080"
+    # Mint provisional MAC-keyed sr: identities for FDB/UniFi-client neighbors so
+    # switch<->host attachment edges render (fj #4379 / PR #4398; flag-gated rollout,
+    # demo is the canary — watch device_identifiers growth per the OpenSpec runbook).
+    SERVICERADAR_TOPOLOGY_ENDPOINT_IDENTITY_PROMOTION: "true"
     # City MMDB is large, but demo has headroom and it lets us enrich flows with city/region/lat/tz.
     GEOLITE_CITY_ENABLED: "true"
 

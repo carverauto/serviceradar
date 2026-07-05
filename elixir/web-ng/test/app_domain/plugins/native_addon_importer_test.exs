@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.NativeAddonArtifactMirror
+  alias ServiceRadarWebNG.Plugins.AddonPackages
   alias ServiceRadarWebNG.Plugins.NativeAddonImporter
   alias ServiceRadarWebNG.Plugins.NativeAddonSyncWorker
 
@@ -211,6 +212,45 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert changes.unique.states == [:available, :scheduled, :retryable]
     refute :executing in changes.unique.states
     assert NativeAddonSyncWorker.timeout(%Oban.Job{}) == to_timeout(minute: 10)
+  end
+
+  test "sync_first_party_addons is idempotent: the second run skips already-imported packages", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+
+    assert {:ok, first} =
+             AddonPackages.sync_first_party_addons(
+               repo_url: @repo_url,
+               release_tag: "v1.0.0",
+               limit: 10
+             )
+
+    assert first.imported == 1
+    assert first.skipped == 0
+    assert first.failed == []
+
+    assert {:ok, second} =
+             AddonPackages.sync_first_party_addons(
+               repo_url: @repo_url,
+               release_tag: "v1.0.0",
+               limit: 10
+             )
+
+    assert second.imported == 0
+    assert second.skipped == 1
+    assert second.failed == []
+
+    # Still exactly one package row for the entry — nothing was duplicated.
+    actor = SystemActor.system(:native_addon_sync_test)
+
+    packages =
+      AddonPackage
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(addon_id == "sample-addon" and version == "1.0.0")
+      |> Ash.read!(actor: actor)
+
+    assert length(packages) == 1
   end
 
   test "rejects a tarball signed with a key other than the release key" do

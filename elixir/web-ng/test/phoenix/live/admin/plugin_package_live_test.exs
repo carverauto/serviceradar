@@ -282,6 +282,49 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     assert Storage.blob_exists?(package.wasm_object_key)
   end
 
+  test "Import All reflects state, shows progress, and is idempotent", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
+
+    html =
+      lv
+      |> element("button[phx-click='sync_first_party_catalog']")
+      |> render_click()
+
+    # Importable work is visible before acting.
+    assert html =~ "Import All (1)"
+
+    # The click itself flips the button into an in-progress state while the
+    # async import runs.
+    html =
+      lv
+      |> element("button[phx-click='import_first_party_catalog']")
+      |> render_click()
+
+    assert html =~ "Importing"
+
+    # Completion reports a summary and the action now reflects the imported
+    # state (relabeled + disabled, nothing importable).
+    html = render_async(lv)
+    assert html =~ "1 imported, 0 skipped"
+    assert html =~ "All 1 imported"
+    assert html =~ ~r/<button[^>]*phx-click="import_first_party_catalog"[^>]*disabled/s
+
+    assert [package] =
+             Packages.list(%{"plugin_id" => "live-first-party-plugin"}, actor: system_actor())
+
+    # Forcing the event again (bypassing the disabled button) is idempotent
+    # server-side: the entry is skipped, nothing is re-imported or duplicated.
+    render_click(lv, "import_first_party_catalog", %{})
+    html = render_async(lv)
+
+    assert html =~ "0 imported, 1 skipped (already imported)"
+
+    assert [%{id: same_id}] =
+             Packages.list(%{"plugin_id" => "live-first-party-plugin"}, actor: system_actor())
+
+    assert same_id == package.id
+  end
+
   test "plugin assignment agent selector excludes stale agents", %{conn: conn, actor: actor} do
     gateway = gateway_fixture(%{id: "plugin-agent-gw", component_id: "plugin-agent-component"})
     agent_fixture(gateway, %{uid: "agent-active-plugin", name: "Agent Active Plugin"})

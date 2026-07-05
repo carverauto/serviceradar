@@ -306,6 +306,107 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
     refute_receive {:remote_access_frame, _frame}, 50
   end
 
+  describe "config ack forwarding" do
+    setup do
+      test_pid = self()
+
+      Application.put_env(:serviceradar_agent_gateway, :config_sync_rpc, fn function, args ->
+        send(test_pid, {:config_sync, function, args})
+        :ok
+      end)
+
+      on_exit(fn -> Application.delete_env(:serviceradar_agent_gateway, :config_sync_rpc) end)
+
+      pid = start_supervised!({ControlStreamSession, stream: nil})
+
+      :sys.replace_state(pid, fn state ->
+        %{state | agent_id: "agent-ack", partition_id: "partition-a"}
+      end)
+
+      {:ok, pid: pid}
+    end
+
+    test "sectioned config ack is persisted to core with per-section statuses", %{pid: pid} do
+      ControlStreamSession.handle_message(pid, %Monitoring.ControlStreamRequest{
+        payload:
+          {:config_ack,
+           %Monitoring.ConfigAck{
+             config_version: "v2",
+             timestamp: 1_782_000_000,
+             section_statuses: [
+               %Monitoring.ConfigSectionStatus{
+                 section: "visibility",
+                 disposition: "permanent_failure",
+                 error: "merge netprobe add-on config: parse error",
+                 since: 1_781_900_000
+               }
+             ]
+           }}
+      })
+
+      assert_receive {:config_sync, :record_config_ack, ["agent-ack", attrs]}
+      assert attrs.config_version == "v2"
+
+      assert [%{"section" => "visibility", "disposition" => "permanent_failure"}] =
+               attrs.section_statuses
+    end
+
+    test "legacy config ack (no sections) is persisted as a whole-version ack", %{pid: pid} do
+      ControlStreamSession.handle_message(pid, %Monitoring.ControlStreamRequest{
+        payload: {:config_ack, %Monitoring.ConfigAck{config_version: "v1", timestamp: 123}}
+      })
+
+      assert_receive {:config_sync, :record_config_ack, ["agent-ack", attrs]}
+      assert attrs.config_version == "v1"
+      assert attrs.section_statuses == nil
+    end
+
+    test "heartbeat hello forwards the reported committed version, debounced", %{pid: pid} do
+      hello = %Monitoring.ControlStreamHello{agent_id: "agent-ack", config_version: "v5"}
+
+      ControlStreamSession.handle_message(pid, %Monitoring.ControlStreamRequest{
+        payload: {:hello, hello}
+      })
+
+      assert_receive {:config_sync, :record_config_ack, ["agent-ack", attrs]}
+      assert attrs.config_version == "v5"
+      assert attrs.section_statuses == nil
+
+      # Same version again: debounced (no second RPC).
+      ControlStreamSession.handle_message(pid, %Monitoring.ControlStreamRequest{
+        payload: {:hello, hello}
+      })
+
+      refute_receive {:config_sync, :record_config_ack, _args}, 100
+
+      # A new committed version is forwarded again.
+      ControlStreamSession.handle_message(pid, %Monitoring.ControlStreamRequest{
+        payload: {:hello, %Monitoring.ControlStreamHello{agent_id: "agent-ack", config_version: "v6"}}
+      })
+
+      assert_receive {:config_sync, :record_config_ack, ["agent-ack", attrs]}
+      assert attrs.config_version == "v6"
+    end
+
+    test "hello without a config version forwards nothing", %{pid: pid} do
+      ControlStreamSession.handle_message(pid, %Monitoring.ControlStreamRequest{
+        payload: {:hello, %Monitoring.ControlStreamHello{agent_id: "agent-ack"}}
+      })
+
+      refute_receive {:config_sync, _function, _args}, 100
+    end
+
+    test "an unregistered session does not forward acks" do
+      pid = start_supervised!({ControlStreamSession, stream: nil}, id: :unregistered_session)
+
+      ControlStreamSession.handle_message(pid, %Monitoring.ControlStreamRequest{
+        payload: {:config_ack, %Monitoring.ConfigAck{config_version: "v1", timestamp: 123}}
+      })
+
+      refute_receive {:config_sync, _function, _args}, 100
+    end
+  end
+
   defp ensure_pubsub! do
     {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
 

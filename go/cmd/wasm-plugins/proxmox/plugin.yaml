@@ -1,6 +1,6 @@
 id: proxmox-inventory
 name: Proxmox Inventory
-version: 0.1.1
+version: 0.1.2
 description: Enriches Proxmox PVE hosts and guests using the Proxmox VE REST API
 entrypoint: run_check
 runtime: wasi-preview1

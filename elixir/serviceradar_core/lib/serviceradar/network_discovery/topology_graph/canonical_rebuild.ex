@@ -7,6 +7,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   alias ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.Conflicts
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.HealthConditions
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Queries
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
@@ -17,6 +18,17 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   @canonical_rebuild_lock_key 1_104_202_506
   @default_canonical_rebuild_timeout_ms 60_000
   @projection_name "runtime_topology_links"
+
+  # Starvation guard (fj #4378): when mapper evidence ingest freezes upstream,
+  # every evidence edge eventually ages past the stale cutoff. The upsert then
+  # matches nothing while the stale prune would still happily delete the entire
+  # CANONICAL_TOPOLOGY set — that is evidence starvation, not topology change,
+  # and the prune must be skipped instead. Two persistent health conditions
+  # (deduplicated via HealthConditions) track the outage: transitions log at
+  # error level, steady-state repeats at info, recovery logs the all-clear.
+  @starvation_condition :canonical_rebuild_starved
+  @self_heal_condition :canonical_self_heal
+  @default_canonical_prune_max_fraction 0.5
 
   # Change-detection: the canonical rebuild rewrites every CANONICAL_TOPOLOGY
   # edge with unconditional SETs, and it runs on EVERY mapper topology report
@@ -204,6 +216,54 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   end
 
   @doc false
+  @spec self_heal_condition() :: atom()
+  def self_heal_condition, do: @self_heal_condition
+
+  @doc false
+  @spec starvation_condition() :: atom()
+  def starvation_condition, do: @starvation_condition
+
+  @doc false
+  # Canonical edge count at or below this floor after the upsert counts as
+  # starved when mapper evidence exists. Default 0: only an empty canonical
+  # graph triggers via this term (the evidence-freshness term catches the
+  # first fatal run, when stale edges are still present).
+  @spec canonical_rebuild_min_upsert_floor() :: non_neg_integer()
+  def canonical_rebuild_min_upsert_floor do
+    :serviceradar_core
+    |> Application.get_env(TopologyGraph, [])
+    |> Keyword.get(:canonical_rebuild_min_upsert_floor, 0)
+    |> Utils.non_negative_integer(0)
+  end
+
+  @doc false
+  # Mass-deletion guardrail: refuse a stale prune that would delete more than
+  # this fraction of the pre-rebuild canonical edges in one pass.
+  @spec canonical_prune_max_fraction() :: float()
+  def canonical_prune_max_fraction do
+    :serviceradar_core
+    |> Application.get_env(TopologyGraph, [])
+    |> Keyword.get(:canonical_prune_max_fraction, @default_canonical_prune_max_fraction)
+    |> normalize_fraction(@default_canonical_prune_max_fraction)
+  end
+
+  defp normalize_fraction(value, _default) when is_number(value) and value > 0 and value <= 1,
+    do: value * 1.0
+
+  defp normalize_fraction(_value, default), do: default
+
+  @doc false
+  # Operator override for the mass-deletion guardrail (a deliberate large prune
+  # after a real topology cutover). Leave false in steady state.
+  @spec canonical_prune_guard_override?() :: boolean()
+  def canonical_prune_guard_override? do
+    :serviceradar_core
+    |> Application.get_env(TopologyGraph, [])
+    |> Keyword.get(:canonical_prune_guard_override, false)
+    |> Utils.truthy?()
+  end
+
+  @doc false
   @spec self_heal_needed?(integer(), integer(), integer()) :: boolean()
   def self_heal_needed?(after_prune_edges, mapper_evidence_edges, min_canonical_edges)
       when is_integer(after_prune_edges) and is_integer(mapper_evidence_edges) and
@@ -213,6 +273,196 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
 
   def self_heal_needed?(_after_prune_edges, _mapper_evidence_edges, _min_canonical_edges),
     do: false
+
+  @doc false
+  # Pure starvation decision (extracted so it is unit-testable without a DB).
+  # Starved when mapper evidence exists AND either:
+  #   * the canonical edge count after the upsert is at or below the configured
+  #     floor (steady state after a wipe: upsert matched nothing, graph empty), or
+  #   * the freshest evidence is older than the stale cutoff (first fatal run:
+  #     stale canonical edges are still present, so the count looks healthy, but
+  #     the prune would delete every one of them).
+  # Timestamps are ISO8601 UTC strings compared bytewise — the exact comparison
+  # the upsert/prune cypher already performs on these same values, and binary
+  # `<` is guard-safe. A nil evidence max (no evidence rows carry timestamps)
+  # fails open into normal behavior.
+  @spec starvation_check(integer(), integer(), String.t() | nil, String.t(), non_neg_integer()) ::
+          :starved | :ok
+  def starvation_check(
+        after_upsert_edges,
+        mapper_evidence_edges,
+        evidence_max_last_observed_at,
+        stale_cutoff,
+        min_upsert_floor
+      )
+
+  def starvation_check(after_upsert_edges, mapper_evidence_edges, _evidence_max, _cutoff, floor)
+      when is_integer(after_upsert_edges) and is_integer(mapper_evidence_edges) and
+             is_integer(floor) and
+             mapper_evidence_edges > 0 and after_upsert_edges <= floor do
+    :starved
+  end
+
+  def starvation_check(_after_upsert_edges, mapper_evidence_edges, evidence_max, cutoff, _floor)
+      when is_integer(mapper_evidence_edges) and mapper_evidence_edges > 0 and
+             is_binary(evidence_max) and
+             is_binary(cutoff) and evidence_max < cutoff do
+    :starved
+  end
+
+  def starvation_check(_after_upsert, _mapper_evidence, _evidence_max, _cutoff, _floor), do: :ok
+
+  @doc false
+  # Pure mass-deletion guardrail decision. Refuses when a single prune pass
+  # would delete more than max_fraction of the pre-rebuild canonical edges,
+  # unless the operator override is set. A nil candidate count (count query
+  # failed) fails closed — stale-but-connected beats silently-empty.
+  @spec prune_guard_check(non_neg_integer() | nil, integer(), number(), boolean()) ::
+          :allow | {:refuse, :mass_deletion | :candidate_count_unavailable}
+  def prune_guard_check(prune_candidates, before_edges, max_fraction, override?)
+
+  def prune_guard_check(_candidates, _before_edges, _max_fraction, true), do: :allow
+  def prune_guard_check(0, _before_edges, _max_fraction, false), do: :allow
+
+  def prune_guard_check(candidates, before_edges, max_fraction, false)
+      when is_integer(candidates) and is_integer(before_edges) and is_number(max_fraction) do
+    if candidates > before_edges * max_fraction do
+      {:refuse, :mass_deletion}
+    else
+      :allow
+    end
+  end
+
+  def prune_guard_check(_candidates, _before_edges, _max_fraction, false),
+    do: {:refuse, :candidate_count_unavailable}
+
+  @doc false
+  # Emits the starvation signal: telemetry on every occurrence plus a
+  # deduplicated persistent condition (error log on transition, info with
+  # ongoing_failure flag on repeats).
+  @spec report_starvation(map(), String.t(), String.t() | nil, non_neg_integer(), keyword()) ::
+          :ok
+  def report_starvation(counts, stale_cutoff, evidence_max_last_observed_at, floor, opts \\ [])
+      when is_map(counts) do
+    condition = Keyword.get(opts, :condition, @starvation_condition)
+
+    :telemetry.execute(
+      [:serviceradar, :topology, :canonical_rebuild, :starved],
+      %{
+        before_edges: Map.get(counts, :before_edges, 0),
+        mapper_evidence_edges: Map.get(counts, :mapper_evidence_edges, 0),
+        after_upsert_edges: Map.get(counts, :after_upsert_edges, 0)
+      },
+      %{
+        stale_cutoff: stale_cutoff,
+        evidence_max_last_observed_at: evidence_max_last_observed_at,
+        min_upsert_floor: floor
+      }
+    )
+
+    _ =
+      HealthConditions.report_failure(
+        condition,
+        "Canonical topology rebuild starved: mapper evidence exists but none is fresh enough to upsert; skipping stale prune to protect the canonical graph",
+        before_edges: Map.get(counts, :before_edges, 0),
+        mapper_evidence_edges: Map.get(counts, :mapper_evidence_edges, 0),
+        after_upsert_edges: Map.get(counts, :after_upsert_edges, 0),
+        stale_cutoff: stale_cutoff,
+        evidence_max_last_observed_at: evidence_max_last_observed_at
+      )
+
+    :ok
+  end
+
+  @doc false
+  # Emits the mass-deletion refusal signal (always error level: a refusal is a
+  # rare, actionable event, not a steady state).
+  @spec report_prune_refusal(atom(), non_neg_integer() | nil, map(), String.t(), number()) :: :ok
+  def report_prune_refusal(reason, candidates, counts, stale_cutoff, max_fraction)
+      when is_atom(reason) and is_map(counts) do
+    before_edges = Map.get(counts, :before_edges, 0)
+
+    :telemetry.execute(
+      [:serviceradar, :topology, :canonical_rebuild, :prune_refused],
+      %{
+        prune_candidates: candidates || 0,
+        before_edges: before_edges,
+        mapper_evidence_edges: Map.get(counts, :mapper_evidence_edges, 0),
+        after_upsert_edges: Map.get(counts, :after_upsert_edges, 0)
+      },
+      %{reason: reason, stale_cutoff: stale_cutoff, max_fraction: max_fraction}
+    )
+
+    Logger.error(
+      "Canonical topology stale prune refused (#{reason}): would delete " <>
+        "#{candidates || "unknown"} of #{before_edges} canonical edges in one pass " <>
+        "(max fraction #{max_fraction}); set canonical_prune_guard_override to force"
+    )
+
+    :ok
+  end
+
+  @doc false
+  # Honest self-heal outcome (fj #4378): a recovery upsert that still leaves the
+  # canonical edge count below the threshold while mapper evidence exists is a
+  # FAILURE — emit self_heal_failed telemetry and the deduplicated unhealthy
+  # condition instead of claiming completion. Recovery above the threshold
+  # clears the condition and logs the all-clear.
+  @spec finalize_self_heal_outcome(integer(), integer(), integer(), integer(), keyword()) ::
+          map()
+  def finalize_self_heal_outcome(
+        before_edges,
+        healed_edges,
+        mapper_evidence_edges,
+        min_canonical_edges,
+        opts \\ []
+      )
+      when is_integer(before_edges) and is_integer(healed_edges) and
+             is_integer(mapper_evidence_edges) and
+             is_integer(min_canonical_edges) do
+    condition = Keyword.get(opts, :condition, @self_heal_condition)
+
+    if self_heal_needed?(healed_edges, mapper_evidence_edges, min_canonical_edges) do
+      :telemetry.execute(
+        [:serviceradar, :topology, :canonical_rebuild, :self_heal_failed],
+        %{
+          before_edges: before_edges,
+          after_edges: healed_edges,
+          mapper_evidence_edges: mapper_evidence_edges,
+          min_canonical_edges: min_canonical_edges
+        },
+        %{reason: :canonical_edges_below_threshold}
+      )
+
+      _ =
+        HealthConditions.report_failure(
+          condition,
+          "Canonical topology self-heal FAILED: rebuild still has fewer canonical edges than the threshold while mapper evidence exists",
+          before_edges: before_edges,
+          after_edges: healed_edges,
+          mapper_evidence_edges: mapper_evidence_edges,
+          min_canonical_edges: min_canonical_edges
+        )
+
+      %{
+        status: :failed,
+        reason: :canonical_edges_below_threshold,
+        before: before_edges,
+        after: healed_edges
+      }
+    else
+      _ =
+        HealthConditions.report_recovery(
+          condition,
+          "Canonical topology self-heal recovered canonical edges",
+          before_edges: before_edges,
+          after_edges: healed_edges,
+          min_canonical_edges: min_canonical_edges
+        )
+
+      %{status: :completed, before: before_edges, after: healed_edges}
+    end
+  end
 
   @doc false
   @spec emit_canonical_rebuild_telemetry(:completed | :failed, map(), term() | nil) :: :ok
@@ -231,7 +481,9 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
           status: status,
           stale_cutoff: Map.get(stats, :stale_cutoff),
           prune_result: Map.get(stats, :prune_result),
-          telemetry_refresh: Map.get(stats, :telemetry_refresh)
+          telemetry_refresh: Map.get(stats, :telemetry_refresh),
+          starved: Map.get(stats, :starved, false),
+          evidence_max_last_observed_at: Map.get(stats, :evidence_max_last_observed_at)
         },
         reason
       )
@@ -251,6 +503,29 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
 
   def mapper_evidence_edge_count do
     edge_count_from_query(Queries.mapper_evidence_edge_count_query())
+  end
+
+  @doc false
+  # Max last_observed_at (falling back to observed_at) across mapper evidence,
+  # as an ISO8601 string, or nil when unavailable. Feeds the rebuild stats /
+  # telemetry so evidence freshness vs. the stale cutoff is visible, and the
+  # starvation guard's freshness term.
+  @spec mapper_evidence_max_last_observed_at() :: String.t() | nil
+  def mapper_evidence_max_last_observed_at do
+    case Graph.query(Queries.mapper_evidence_freshness_query()) do
+      {:ok, [row | _]} ->
+        case Utils.map_value(row, :max_last_observed_at) do
+          value when is_binary(value) -> value
+          _ -> nil
+        end
+
+      {:ok, _} ->
+        nil
+
+      {:error, reason} ->
+        Logger.warning("Mapper evidence freshness query failed: #{inspect(reason)}")
+        nil
+    end
   end
 
   defp with_canonical_rebuild_lock(fun) when is_function(fun, 0) do
@@ -277,6 +552,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   defp do_rebuild_canonical_device_links(fingerprint) do
     before_edges = canonical_edge_count()
     mapper_evidence_edges = mapper_evidence_edge_count()
+    evidence_max_last_observed_at = mapper_evidence_max_last_observed_at()
     stale_cutoff = Utils.stale_cutoff_iso8601()
     min_canonical_edges = canonical_rebuild_min_edges()
     upsert_cypher = Queries.canonical_rebuild_upsert_query(stale_cutoff)
@@ -285,7 +561,16 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
       :ok ->
         demotion_result = Conflicts.reconcile_competing_same_port_canonical_edges()
         after_upsert_edges = canonical_edge_count()
-        prune_result = prune_stale_canonical_device_links(stale_cutoff)
+
+        counts = %{
+          before_edges: before_edges,
+          mapper_evidence_edges: mapper_evidence_edges,
+          after_upsert_edges: after_upsert_edges
+        }
+
+        {starved, prune_result} =
+          run_guarded_stale_prune(counts, stale_cutoff, evidence_max_last_observed_at)
+
         after_prune_edges = canonical_edge_count()
         telemetry_result = Telemetry.refresh_canonical_edge_telemetry(stale_cutoff)
 
@@ -308,13 +593,16 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
           telemetry_refresh: telemetry_result,
           runtime_projection_refresh: runtime_projection_refresh,
           stale_cutoff: stale_cutoff,
+          evidence_max_last_observed_at: evidence_max_last_observed_at,
+          starved: starved,
+          prune_result: prune_result,
           self_heal_result: self_heal_result,
           lock_skipped: false
         }
 
         emit_canonical_rebuild_telemetry(:completed, stats)
         Logger.info("canonical_topology_rebuild_stats #{inspect(stats)}")
-        {:ok, Map.put(stats, :prune_result, prune_result)}
+        {:ok, stats}
 
       {:error, reason} ->
         Logger.warning("Canonical topology rebuild failed: #{inspect(reason)}")
@@ -322,6 +610,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
         failure_stats = %{
           before_edges: before_edges,
           mapper_evidence_edges: mapper_evidence_edges,
+          evidence_max_last_observed_at: evidence_max_last_observed_at,
           same_port_demotions: :skipped,
           stale_cutoff: stale_cutoff,
           lock_skipped: false
@@ -329,6 +618,75 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
 
         emit_canonical_rebuild_telemetry(:failed, failure_stats, reason)
         {:error, reason, failure_stats}
+    end
+  end
+
+  # Starvation guard (fj #4378): decide whether the stale prune may run at all.
+  # Starved -> skip the prune entirely and raise the starvation signal (the
+  # canonical edges are retained until fresh evidence arrives or an operator
+  # intervenes). Not starved -> clear any prior starvation condition, then run
+  # the prune behind the mass-deletion guardrail. Returns {starved?, prune_result}.
+  defp run_guarded_stale_prune(counts, stale_cutoff, evidence_max_last_observed_at) do
+    min_upsert_floor = canonical_rebuild_min_upsert_floor()
+
+    case starvation_check(
+           counts.after_upsert_edges,
+           counts.mapper_evidence_edges,
+           evidence_max_last_observed_at,
+           stale_cutoff,
+           min_upsert_floor
+         ) do
+      :starved ->
+        report_starvation(counts, stale_cutoff, evidence_max_last_observed_at, min_upsert_floor)
+        {true, :skipped_starved}
+
+      :ok ->
+        _ =
+          HealthConditions.report_recovery(
+            @starvation_condition,
+            "Canonical topology rebuild starvation cleared; fresh mapper evidence is flowing again",
+            before_edges: counts.before_edges,
+            mapper_evidence_edges: counts.mapper_evidence_edges,
+            after_upsert_edges: counts.after_upsert_edges
+          )
+
+        {false, guarded_prune(counts, stale_cutoff)}
+    end
+  end
+
+  # Defense-in-depth: count what the prune would delete (mirrored WHERE clause)
+  # and refuse a single pass that removes more than the configured fraction of
+  # the pre-rebuild canonical edges, unless the operator override is set.
+  defp guarded_prune(counts, stale_cutoff) do
+    candidates = prune_candidate_count(stale_cutoff)
+    max_fraction = canonical_prune_max_fraction()
+    override? = canonical_prune_guard_override?()
+
+    case prune_guard_check(candidates, counts.before_edges, max_fraction, override?) do
+      :allow ->
+        prune_stale_canonical_device_links(stale_cutoff)
+
+      {:refuse, reason} ->
+        report_prune_refusal(reason, candidates, counts, stale_cutoff, max_fraction)
+        {:refused, reason}
+    end
+  end
+
+  # nil (not 0) on failure so the guardrail fails closed rather than treating an
+  # unknown candidate set as "nothing to delete".
+  defp prune_candidate_count(stale_cutoff) when is_binary(stale_cutoff) do
+    case Graph.query(Queries.canonical_rebuild_prune_candidate_count_query(stale_cutoff)) do
+      {:ok, [row | _]} ->
+        row
+        |> Utils.map_value(:count)
+        |> parse_count()
+
+      {:ok, _} ->
+        0
+
+      {:error, reason} ->
+        Logger.warning("Canonical prune candidate count query failed: #{inspect(reason)}")
+        nil
     end
   end
 
@@ -344,6 +702,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
       same_port_demotions: :skipped,
       telemetry_refresh: :skipped,
       stale_cutoff: Utils.stale_cutoff_iso8601(),
+      evidence_max_last_observed_at: nil,
+      starved: false,
       self_heal_result: %{status: :skipped},
       prune_result: :skipped,
       lock_skipped: true
@@ -386,7 +746,14 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
       case Graph.execute(Queries.canonical_rebuild_upsert_query(stale_cutoff)) do
         :ok ->
           healed_edges = canonical_edge_count()
-          {healed_edges, %{status: :completed, before: after_prune_edges, after: healed_edges}}
+
+          {healed_edges,
+           finalize_self_heal_outcome(
+             after_prune_edges,
+             healed_edges,
+             mapper_evidence_edges,
+             min_canonical_edges
+           )}
 
         {:error, reason} ->
           Logger.warning("Canonical topology self-heal failed", reason: inspect(reason))
@@ -395,6 +762,18 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
            %{status: :failed, before: after_prune_edges, after: after_prune_edges, reason: reason}}
       end
     else
+      # Canonical edges are above the threshold (or there is no evidence to
+      # rebuild from): if a self-heal failure condition was active, this is the
+      # recovery — clear it and log the all-clear. Read-only no-op otherwise.
+      _ =
+        HealthConditions.report_recovery(
+          @self_heal_condition,
+          "Canonical topology recovered: canonical edges are back above the self-heal threshold",
+          after_prune_edges: after_prune_edges,
+          mapper_evidence_edges: mapper_evidence_edges,
+          min_canonical_edges: min_canonical_edges
+        )
+
       {after_prune_edges, %{status: :skipped}}
     end
   end

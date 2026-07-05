@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleetTest do
   """
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadarWebNG.Plugins.AddonFleet
 
   # A row shaped like AddonFleet.row(); only the keys the transforms read are
@@ -19,7 +20,9 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleetTest do
       agent_label: "alpha (agent-1)",
       addon_id: "endpoint-inventory",
       addon_name: "Endpoint Inventory",
+      package_id: "pkg-1",
       assigned_version: "1.0.0",
+      latest_approved_version: "1.0.0",
       content_hash: "sha256:abc",
       package_status: :approved,
       verification_status: "verified",
@@ -33,11 +36,27 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleetTest do
       reported_at: ~U[2026-06-15 00:00:00Z],
       last_scan_at: ~U[2026-06-15 00:00:00Z],
       collector?: true,
+      version_status: {:up_to_date, "1.0.0", true},
+      stale_assignments: [],
       attention: [],
       attention?: false
     }
 
     Map.merge(base, Map.new(overrides))
+  end
+
+  defp package(overrides) do
+    base = %AddonPackage{
+      id: Ecto.UUID.generate(),
+      addon_id: "netprobe",
+      name: "Netprobe",
+      version: "1.0.0",
+      status: :approved,
+      imported_at: ~U[2026-06-01 00:00:00Z],
+      inserted_at: ~U[2026-06-01 00:00:00Z]
+    }
+
+    struct!(base, Map.new(overrides))
   end
 
   describe "filter/2" do
@@ -150,6 +169,111 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleetTest do
 
     test "is empty for no rows" do
       assert AddonFleet.addon_ids([]) == []
+    end
+  end
+
+  describe "version_status/1" do
+    test "assigned and running the same version is up to date; latest flagged explicitly" do
+      assert AddonFleet.version_status(
+               row(
+                 assigned_version: "0.1.20",
+                 running_version: "0.1.20",
+                 latest_approved_version: "0.1.20"
+               )
+             ) == {:up_to_date, "0.1.20", true}
+
+      assert AddonFleet.version_status(
+               row(
+                 assigned_version: "0.1.19",
+                 running_version: "0.1.19",
+                 latest_approved_version: "0.1.20"
+               )
+             ) == {:up_to_date, "0.1.19", false}
+    end
+
+    test "assigned and running different versions is a two-sided drift comparison" do
+      assert AddonFleet.version_status(row(assigned_version: "0.1.20", running_version: "0.1.19")) ==
+               {:drift, "0.1.19", "0.1.20"}
+    end
+
+    test "running with no assignment reports running_unassigned, never a fabricated drift" do
+      assert AddonFleet.version_status(row(assigned?: false, assigned_version: nil, running_version: "0.1.19")) ==
+               {:running_unassigned, "0.1.19"}
+
+      # Observed state without a version string still reads as running/unassigned.
+      assert AddonFleet.version_status(
+               row(
+                 assigned?: false,
+                 assigned_version: nil,
+                 running_version: nil,
+                 running_state: "running"
+               )
+             ) == {:running_unassigned, nil}
+    end
+
+    test "assigned with no observed status reports not_reported" do
+      assert AddonFleet.version_status(row(assigned_version: "0.1.20", running_version: nil, running_state: nil)) ==
+               {:not_reported, "0.1.20"}
+    end
+
+    test "nothing present yields nil (no comparison at all)" do
+      assert AddonFleet.version_status(
+               row(
+                 assigned?: false,
+                 assigned_version: nil,
+                 running_version: nil,
+                 running_state: nil
+               )
+             ) == nil
+    end
+
+    test "assigned with unknown assigned version and observed status says nothing" do
+      assert AddonFleet.version_status(row(assigned_version: nil, running_version: "0.1.19")) ==
+               nil
+    end
+  end
+
+  describe "latest_package/1 and latest_approved_version/1" do
+    test "an older version imported later never becomes latest" do
+      newer = package(version: "0.1.20", imported_at: ~U[2026-06-01 00:00:00Z])
+      older_but_recent = package(version: "0.1.19", imported_at: ~U[2026-07-01 00:00:00Z])
+
+      assert AddonFleet.latest_package([older_but_recent, newer]).version == "0.1.20"
+      assert AddonFleet.latest_approved_version([older_but_recent, newer]) == "0.1.20"
+    end
+
+    test "approved packages are preferred over newer staged ones" do
+      staged_newer = package(version: "0.2.0", status: :staged)
+      approved_older = package(version: "0.1.20", status: :approved)
+
+      assert AddonFleet.latest_package([staged_newer, approved_older]).version == "0.1.20"
+      assert AddonFleet.latest_approved_version([staged_newer, approved_older]) == "0.1.20"
+    end
+
+    test "falls back to all packages when nothing is approved; approved-only lookup is nil" do
+      staged = package(version: "0.2.0", status: :staged)
+
+      assert AddonFleet.latest_package([staged]).version == "0.2.0"
+      assert AddonFleet.latest_approved_version([staged]) == nil
+      assert AddonFleet.latest_package([]) == nil
+      assert AddonFleet.latest_approved_version([]) == nil
+    end
+
+    test "non-semver version strings do not crash and fall back to import recency" do
+      weird_old = package(version: "netprobe-demo", imported_at: ~U[2026-06-01 00:00:00Z])
+      weird_new = package(version: "also-not-semver", imported_at: ~U[2026-07-01 00:00:00Z])
+
+      assert AddonFleet.latest_package([weird_old, weird_new]).version == "also-not-semver"
+    end
+  end
+
+  describe "compare_versions/2" do
+    test "compares semver and tolerates garbage" do
+      assert AddonFleet.compare_versions("0.1.20", "0.1.19") == :gt
+      assert AddonFleet.compare_versions("0.1.19", "0.1.20") == :lt
+      assert AddonFleet.compare_versions("0.1.20", "0.1.20") == :eq
+      assert AddonFleet.compare_versions("not-semver", "0.1.20") == :incomparable
+      assert AddonFleet.compare_versions(nil, "0.1.20") == :incomparable
     end
   end
 

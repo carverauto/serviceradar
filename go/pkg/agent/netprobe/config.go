@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	monitoringpb "github.com/carverauto/serviceradar/proto"
@@ -35,37 +34,70 @@ type ParsedVisibilityConfig struct {
 	BinaryOverridePath string
 }
 
+// stringList decodes a JSON array of strings while additionally tolerating the
+// documented compatibility form of a plain JSON string: a non-empty string
+// (whitespace-trimmed) decodes as a single-element list, and an empty or
+// whitespace-only string decodes as an explicit empty list. Core-side delivery
+// coerces scalar-string drift against the package config schema before
+// shipping (fj#4381); this decoder-side tolerance is defense in depth so
+// schema-compatible drift that still slips through degrades gracefully instead
+// of wedging config apply with a permanent unmarshal failure (the demo
+// flow-attribution outage: `capture_interfaces` persisted as a scalar string
+// failed the `[]string` decode on every cycle and the agent never acked
+// another config version).
+type stringList []string
+
+func (s *stringList) UnmarshalJSON(data []byte) error {
+	token := strings.TrimSpace(string(data))
+	if token == "null" {
+		*s = nil
+		return nil
+	}
+
+	if strings.HasPrefix(token, `"`) {
+		var single string
+		if err := json.Unmarshal(data, &single); err != nil {
+			return err
+		}
+
+		if single = strings.TrimSpace(single); single == "" {
+			*s = stringList{}
+		} else {
+			*s = stringList{single}
+		}
+
+		return nil
+	}
+
+	var values []string
+	if err := json.Unmarshal(data, &values); err != nil {
+		return err
+	}
+
+	*s = stringList(values)
+
+	return nil
+}
+
 type bootstrapConfig struct {
-	Enabled                      bool     `json:"enabled"`
-	CaptureInterfaces            []string `json:"capture_interfaces,omitempty"`
-	FlowTableMaxEntries          uint32   `json:"flow_table_max_entries,omitempty"`
-	ProcessSnapshotIntervalS     uint32   `json:"process_snapshot_interval_s,omitempty"`
-	ExternalFlowMatchWindowMs    uint32   `json:"external_flow_match_window_ms,omitempty"`
-	FlowAttributionIpcBatch      bool     `json:"flow_attribution_ipc_batch"`
-	EmitRawFlowAttributionEvents bool     `json:"emit_raw_flow_attribution_events"`
+	Enabled                      bool       `json:"enabled"`
+	CaptureInterfaces            stringList `json:"capture_interfaces,omitempty"`
+	FlowTableMaxEntries          uint32     `json:"flow_table_max_entries,omitempty"`
+	ProcessSnapshotIntervalS     uint32     `json:"process_snapshot_interval_s,omitempty"`
+	ExternalFlowMatchWindowMs    uint32     `json:"external_flow_match_window_ms,omitempty"`
+	FlowAttributionIpcBatch      bool       `json:"flow_attribution_ipc_batch"`
+	EmitRawFlowAttributionEvents bool       `json:"emit_raw_flow_attribution_events"`
 }
 
 type addonConfig struct {
-	Enabled                      optionalBool         `json:"enabled"`
-	CaptureInterfaces            captureInterfaceList `json:"capture_interfaces"`
-	DefaultSampleIntervalMs      optionalUint32       `json:"default_sample_interval_ms"`
-	FlowTableMaxEntries          optionalUint32       `json:"flow_table_max_entries"`
-	ProcessSnapshotIntervalS     optionalUint32       `json:"process_snapshot_interval_s"`
-	ExternalFlowMatchWindowMs    optionalUint32       `json:"external_flow_match_window_ms"`
-	FlowAttributionIpcBatch      optionalBool         `json:"flow_attribution_ipc_batch"`
-	EmitRawFlowAttributionEvents optionalBool         `json:"emit_raw_flow_attribution_events"`
-}
-
-type captureInterfaceList []string
-
-type optionalBool struct {
-	set   bool
-	value bool
-}
-
-type optionalUint32 struct {
-	set   bool
-	value uint32
+	Enabled                      *bool      `json:"enabled"`
+	CaptureInterfaces            stringList `json:"capture_interfaces"`
+	DefaultSampleIntervalMs      *uint32    `json:"default_sample_interval_ms"`
+	FlowTableMaxEntries          *uint32    `json:"flow_table_max_entries"`
+	ProcessSnapshotIntervalS     *uint32    `json:"process_snapshot_interval_s"`
+	ExternalFlowMatchWindowMs    *uint32    `json:"external_flow_match_window_ms"`
+	FlowAttributionIpcBatch      *bool      `json:"flow_attribution_ipc_batch"`
+	EmitRawFlowAttributionEvents *bool      `json:"emit_raw_flow_attribution_events"`
 }
 
 func defaultVisibilityAgentConfig() *netprobepb.VisibilityAgentConfig {
@@ -117,119 +149,32 @@ func ApplyAddonConfigJSON(
 	}
 
 	merged := cloneVisibilityConfig(cfg)
-	if addon.Enabled.set {
-		merged.Enabled = addon.Enabled.value
+	if addon.Enabled != nil {
+		merged.Enabled = *addon.Enabled
 	}
 	if addon.CaptureInterfaces != nil {
-		merged.CaptureInterfaces = trimStrings([]string(addon.CaptureInterfaces))
+		merged.CaptureInterfaces = trimStrings(addon.CaptureInterfaces)
 	}
-	if addon.DefaultSampleIntervalMs.set {
-		merged.DefaultSampleIntervalMs = addon.DefaultSampleIntervalMs.value
+	if addon.DefaultSampleIntervalMs != nil {
+		merged.DefaultSampleIntervalMs = *addon.DefaultSampleIntervalMs
 	}
-	if addon.FlowTableMaxEntries.set {
-		merged.FlowTableMaxEntries = addon.FlowTableMaxEntries.value
+	if addon.FlowTableMaxEntries != nil {
+		merged.FlowTableMaxEntries = *addon.FlowTableMaxEntries
 	}
-	if addon.ProcessSnapshotIntervalS.set {
-		merged.ProcessSnapshotIntervalS = addon.ProcessSnapshotIntervalS.value
+	if addon.ProcessSnapshotIntervalS != nil {
+		merged.ProcessSnapshotIntervalS = *addon.ProcessSnapshotIntervalS
 	}
-	if addon.ExternalFlowMatchWindowMs.set {
-		merged.ExternalFlowMatchWindowMs = addon.ExternalFlowMatchWindowMs.value
+	if addon.ExternalFlowMatchWindowMs != nil {
+		merged.ExternalFlowMatchWindowMs = *addon.ExternalFlowMatchWindowMs
 	}
-	if addon.FlowAttributionIpcBatch.set {
-		merged.FlowAttributionIpcBatch = addon.FlowAttributionIpcBatch.value
+	if addon.FlowAttributionIpcBatch != nil {
+		merged.FlowAttributionIpcBatch = *addon.FlowAttributionIpcBatch
 	}
-	if addon.EmitRawFlowAttributionEvents.set {
-		merged.EmitRawFlowAttributionEvents = addon.EmitRawFlowAttributionEvents.value
+	if addon.EmitRawFlowAttributionEvents != nil {
+		merged.EmitRawFlowAttributionEvents = *addon.EmitRawFlowAttributionEvents
 	}
 
 	return merged, nil
-}
-
-func (b *optionalBool) UnmarshalJSON(data []byte) error {
-	trimmed := strings.TrimSpace(string(data))
-	if trimmed == "" || trimmed == "null" {
-		*b = optionalBool{}
-		return nil
-	}
-
-	var value bool
-	if err := json.Unmarshal(data, &value); err == nil {
-		*b = optionalBool{set: true, value: value}
-		return nil
-	}
-
-	var raw string
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		*b = optionalBool{}
-		return nil
-	}
-
-	parsed, err := strconv.ParseBool(raw)
-	if err != nil {
-		return err
-	}
-	*b = optionalBool{set: true, value: parsed}
-	return nil
-}
-
-func (u *optionalUint32) UnmarshalJSON(data []byte) error {
-	trimmed := strings.TrimSpace(string(data))
-	if trimmed == "" || trimmed == "null" {
-		*u = optionalUint32{}
-		return nil
-	}
-
-	var value uint32
-	if err := json.Unmarshal(data, &value); err == nil {
-		*u = optionalUint32{set: true, value: value}
-		return nil
-	}
-
-	var raw string
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		*u = optionalUint32{}
-		return nil
-	}
-
-	parsed, err := strconv.ParseUint(raw, 10, 32)
-	if err != nil {
-		return err
-	}
-	*u = optionalUint32{set: true, value: uint32(parsed)}
-	return nil
-}
-
-func (l *captureInterfaceList) UnmarshalJSON(data []byte) error {
-	trimmed := strings.TrimSpace(string(data))
-	if trimmed == "" || trimmed == "null" {
-		*l = nil
-		return nil
-	}
-
-	var values []string
-	if err := json.Unmarshal(data, &values); err == nil {
-		*l = captureInterfaceList(values)
-		return nil
-	}
-
-	var single string
-	if err := json.Unmarshal(data, &single); err != nil {
-		return err
-	}
-
-	values = strings.FieldsFunc(single, func(r rune) bool {
-		return r == ',' || r == '\n' || r == '\r'
-	})
-	*l = captureInterfaceList(values)
-	return nil
 }
 
 func WriteBootstrapConfig(path string, cfg *netprobepb.VisibilityAgentConfig) error {

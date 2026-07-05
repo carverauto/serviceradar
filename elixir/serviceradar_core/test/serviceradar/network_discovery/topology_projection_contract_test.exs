@@ -13,7 +13,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
           "local_device_ip" => "192.168.1.87",
           "local_if_index" => 7,
           "local_if_name" => "sfp+7",
-          "neighbor_device_id" => "dev-b",
+          "neighbor_device_id" => "sr:dev-b",
           "neighbor_port_id" => "sfp+1",
           "neighbor_mgmt_addr" => "192.168.1.138",
           "metadata" => %{"source" => "snmp-lldp"}
@@ -25,7 +25,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
 
     test "SNMP ARP/FDB single-identifier evidence stays observation-only" do
       normalized =
-        MapperResultsIngestor.normalize_topology(%{
+        %{
           "protocol" => "SNMP-L2",
           "local_device_id" => "dev-router",
           "local_device_ip" => "192.168.1.1",
@@ -35,7 +35,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
             "source" => "snmp-arp-fdb",
             "evidence" => "ipNetToMedia+dot1dTpFdb"
           }
-        })
+        }
+        |> MapperResultsIngestor.normalize_topology()
+        # Simulate the post-resolution/promotion shape: the neighbor resolved
+        # to a canonical sr: identity, while the single-identifier confidence
+        # classification derived at normalize time is preserved.
+        |> Map.put(:neighbor_device_id, "sr:host-77")
 
       assert normalized.metadata["confidence_reason"] == "single_identifier_inference"
       assert normalized.metadata["evidence_class"] == "observed-only"
@@ -53,6 +58,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
           "local_device_ip" => "192.168.1.87",
           "local_if_name" => "1/0/24",
           "local_if_index" => 24,
+          "neighbor_device_id" => "sr:host-195",
           "neighbor_mgmt_addr" => "192.168.1.195",
           "metadata" => %{
             "source" => "snmp-arp-fdb",
@@ -82,6 +88,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
           "local_device_ip" => "192.168.1.87",
           "local_if_name" => "1/0/24",
           "local_if_index" => 24,
+          "neighbor_device_id" => "sr:host-195",
           "neighbor_mgmt_addr" => "192.168.1.195",
           "neighbor_port_id" => "1/0/1",
           "metadata" => %{
@@ -104,6 +111,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
         "local_device_ip" => "192.168.1.87",
         "local_if_name" => "0/7",
         "local_if_index" => 7,
+        "neighbor_device_id" => "sr:host-gw",
         "neighbor_mgmt_addr" => "192.168.1.1",
         "metadata" => %{
           "source" => "snmp-l2",
@@ -125,7 +133,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
           "local_device_id" => "farm01",
           "local_device_ip" => "192.168.1.1",
           "local_if_name" => "wgsts1000",
-          "neighbor_device_id" => "tonka01",
+          "neighbor_device_id" => "sr:tonka01",
           "neighbor_mgmt_addr" => "192.168.1.2",
           "neighbor_port_id" => "wgsts1000",
           "metadata" => %{
@@ -149,7 +157,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
           "local_device_id" => "host-a",
           "local_device_ip" => "192.0.2.10",
           "local_if_name" => "vmbr0",
-          "neighbor_device_id" => "guest-a",
+          "neighbor_device_id" => "sr:guest-a",
           "neighbor_mgmt_addr" => "192.168.2.197",
           "metadata" => %{
             "source" => "proxmox-api",
@@ -171,6 +179,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
           "protocol" => "unknown",
           "local_device_id" => "dev-a",
           "local_device_ip" => "192.168.1.10",
+          "neighbor_device_id" => "sr:host-11",
           "neighbor_mgmt_addr" => "192.168.1.11",
           "metadata" => %{}
         })
@@ -186,6 +195,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
           "local_device_id" => "dev-router",
           "local_device_ip" => "192.168.1.1",
           "local_if_name" => "eth0",
+          "neighbor_device_id" => "sr:host-77",
           "neighbor_mgmt_addr" => "192.168.1.77",
           "metadata" => %{
             "source" => "snmp-arp-fdb",
@@ -213,7 +223,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
           "local_device_ip" => "192.168.1.10",
           "local_if_name" => "eth0",
           "local_if_index" => 10,
-          "neighbor_device_id" => "dev-b",
+          "neighbor_device_id" => "sr:dev-b",
           "neighbor_port_id" => "eth1",
           "metadata" => %{"confidence_tier" => "high", "confidence_score" => 95}
         })
@@ -226,7 +236,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
           "local_device_ip" => "192.168.1.10",
           "local_if_name" => "eth0",
           "local_if_index" => 10,
-          "neighbor_device_id" => "dev-b",
+          "neighbor_device_id" => "sr:dev-b",
           "neighbor_port_id" => "eth1",
           "metadata" => %{"confidence_tier" => "medium", "confidence_score" => 80}
         })
@@ -239,7 +249,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
           "local_device_ip" => "192.168.1.10",
           "local_if_name" => "eth0",
           "local_if_index" => 10,
-          "neighbor_device_id" => "dev-b",
+          "neighbor_device_id" => "sr:dev-b",
           "neighbor_port_id" => "eth9",
           "metadata" => %{
             "confidence_tier" => "medium",
@@ -257,7 +267,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
           "local_device_ip" => "192.168.1.10",
           "local_if_name" => "eth0",
           "local_if_index" => 10,
-          "neighbor_device_id" => "dev-b",
+          "neighbor_device_id" => "sr:dev-b",
           "neighbor_port_id" => "eth1",
           "metadata" => %{"confidence_tier" => "medium", "confidence_score" => 78}
         })
@@ -443,7 +453,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
           "local_device_ip" => "192.168.1.87",
           "local_if_index" => 7,
           "local_if_name" => "sfp+7",
-          "neighbor_device_id" => "dev-b",
+          "neighbor_device_id" => "sr:dev-b",
           "neighbor_port_id" => "sfp+1",
           "neighbor_mgmt_addr" => "192.168.1.138"
         })
@@ -455,7 +465,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
           "local_device_ip" => "192.168.1.87",
           "local_if_index" => nil,
           "local_if_name" => "sfp+7",
-          "neighbor_device_id" => "dev-c",
+          "neighbor_device_id" => "sr:dev-c",
           "neighbor_port_id" => "sfp+2",
           "neighbor_mgmt_addr" => "192.168.1.139"
         })
@@ -467,7 +477,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
 
       assert diagnostics.total == 3
       assert diagnostics.accepted["projected_backbone"] == 2
-      assert diagnostics.rejected["missing_ids"] == 1
+      assert diagnostics.rejected["missing_local_id"] == 1
     end
   end
 

@@ -5,6 +5,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   import Ecto.Query
 
+  alias Ash.Error.Changes.InvalidAttribute
   alias Ash.Error.Invalid
   alias Ash.Error.Unknown
   alias ServiceRadar.Actors.SystemActor
@@ -55,7 +56,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         :ok
       else
         case insert_bulk(classified_records, Interface, actor, "interfaces") do
-          :ok ->
+          # Per-record isolation: partial rejections are logged by
+          # handle_bulk_result/3 but must not stop the surviving interface
+          # evidence from reaching the AGE projection.
+          {:ok, _summary} ->
             TopologyGraph.upsert_interfaces(classified_records)
             record_job_runs(updates, status: :success, include_interface_counts: true)
             :ok
@@ -99,9 +103,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         :ok
       else
         case insert_bulk(records_with_wireguard, TopologyLink, actor, "topology") do
-          :ok ->
-            TopologyGraph.upsert_links(records_with_wireguard)
-            maybe_bootstrap_topology_interface_metrics(records_with_wireguard, actor)
+          # Per-record isolation: rejected records are counted into telemetry
+          # and filtered out, but the accepted evidence still reaches the AGE
+          # graph instead of freezing the whole payload.
+          {:ok, %{rejected: rejected}} ->
+            emit_topology_ingest_rejections(rejected)
+            surviving = reject_rejected_topology_records(records_with_wireguard, rejected)
+            TopologyGraph.upsert_links(surviving)
+            maybe_bootstrap_topology_interface_metrics(surviving, actor)
             :ok
 
           {:error, reason} ->
@@ -343,20 +352,28 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp promote_topology_sightings([], _actor), do: :ok
 
   defp promote_topology_sightings(records, actor) do
-    candidates = Enum.filter(records, &topology_sighting_candidate?/1)
+    endpoint_promotion? = endpoint_identity_promotion_enabled?()
 
-    suppressed_count =
-      Enum.count(records, fn record ->
-        topology_sighting_candidate_base?(record) and
-          suppress_topology_sighting_candidate?(record)
-      end)
+    %{endpoint: endpoint_candidates, ip: candidates, suppressed: suppressed_count} =
+      partition_topology_sighting_candidates(records, endpoint_promotion?)
 
-    if candidates != [] or suppressed_count > 0 do
-      Logger.info(
-        "topology_sighting_promotion_stats total=#{length(records)} candidates=#{length(candidates)} suppressed=#{suppressed_count}"
-      )
+    cond do
+      endpoint_promotion? and
+          (candidates != [] or endpoint_candidates != [] or suppressed_count > 0) ->
+        Logger.info(
+          "topology_sighting_promotion_stats total=#{length(records)} candidates=#{length(candidates)} endpoint_candidates=#{length(endpoint_candidates)} suppressed=#{suppressed_count}"
+        )
+
+      candidates != [] or suppressed_count > 0 ->
+        Logger.info(
+          "topology_sighting_promotion_stats total=#{length(records)} candidates=#{length(candidates)} suppressed=#{suppressed_count}"
+        )
+
+      true ->
+        :ok
     end
 
+    Enum.each(endpoint_candidates, &promote_endpoint_topology_sighting(&1, actor))
     Enum.each(candidates, &promote_topology_sighting(&1, actor))
 
     :ok
@@ -364,6 +381,40 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     e ->
       Logger.warning("Topology sighting promotion failed: #{inspect(e)}")
       :ok
+  end
+
+  # Endpoint attachment identity promotion (task: fix-topology-evidence-pipeline-
+  # resilience 3.1). When disabled (default), the legacy candidate/suppression
+  # split is unchanged: FDB neighbors matching the 4-way suppression conjunction
+  # never mint devices. When enabled, MAC-carrying FDB/UniFi-client neighbors are
+  # carved out FIRST and promoted with MAC+partition-keyed provisional `sr:`
+  # identities instead of being suppressed; the remaining records keep the legacy
+  # IP-keyed candidate rules (including suppression for MAC-less records —
+  # identity is never keyed on IP alone here, per the network-agnostic rule).
+  @doc false
+  def partition_topology_sighting_candidates(records, endpoint_promotion_enabled?)
+      when is_list(records) do
+    {endpoint_candidates, remaining} =
+      if endpoint_promotion_enabled? do
+        Enum.split_with(records, &endpoint_identity_candidate?/1)
+      else
+        {[], records}
+      end
+
+    candidates = Enum.filter(remaining, &topology_sighting_candidate?/1)
+
+    suppressed_count =
+      Enum.count(remaining, fn record ->
+        topology_sighting_candidate_base?(record) and
+          suppress_topology_sighting_candidate?(record)
+      end)
+
+    %{endpoint: endpoint_candidates, ip: candidates, suppressed: suppressed_count}
+  end
+
+  defp endpoint_identity_promotion_enabled? do
+    Application.get_env(:serviceradar_core, :topology_endpoint_identity_promotion_enabled, false) ==
+      true
   end
 
   defp topology_sighting_candidate?(record) when is_map(record) do
@@ -395,6 +446,145 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   def suppress_topology_sighting_candidate?(_record), do: false
+
+  # Evidence sources whose neighbors are ordinary hosts observed behind a switch
+  # port / AP association (ARP+FDB correlation and UniFi client tables). These
+  # are the only producers of switch↔host attachment evidence.
+  @endpoint_attachment_sighting_sources ~w(snmp-arp-fdb unifi-api-port-table unifi-api-wireless-client)
+
+  @doc false
+  def endpoint_identity_candidate?(record) when is_map(record) do
+    not present?(record.neighbor_device_id) and
+      present?(record.local_device_id) and
+      metadata_value(record.metadata, "source") in @endpoint_attachment_sighting_sources and
+      normalize_mac(record.neighbor_chassis_id) != nil
+  end
+
+  def endpoint_identity_candidate?(_record), do: false
+
+  @doc false
+  def endpoint_identity_confidence_tier(evidence_class) do
+    case normalize_topology_evidence_class(evidence_class) do
+      "endpoint-attachment" -> "high"
+      "direct-physical" -> "high"
+      "direct-logical" -> "high"
+      "hosted-virtual" -> "medium"
+      "inferred-segment" -> "medium"
+      "observed-only" -> "low"
+      _ -> "low"
+    end
+  end
+
+  defp promote_endpoint_topology_sighting(record, actor) do
+    mac = normalize_mac(record.neighbor_chassis_id)
+    partition = normalize_partition(record.partition)
+    candidate_ip = endpoint_candidate_ip(record)
+    metadata = endpoint_topology_candidate_metadata(record, mac)
+
+    case resolve_or_create_endpoint_topology_device(
+           mac,
+           candidate_ip,
+           partition,
+           record.local_device_id,
+           metadata,
+           actor
+         ) do
+      {:ok, uid} ->
+        touch_topology_candidate(uid, candidate_ip, metadata, actor)
+
+      {:error, reason} ->
+        Logger.debug(
+          "Endpoint topology sighting promotion skipped for mac #{mac}: #{inspect(reason)}"
+        )
+    end
+  end
+
+  defp endpoint_candidate_ip(record) do
+    ip = normalize_alias_ip(record.neighbor_mgmt_addr)
+    if valid_alias_ip?(ip), do: ip
+  end
+
+  # Identity is keyed on the neighbor MAC within the partition: DIRE resolution
+  # consults registered MAC identifiers and the merge-audit canonical mapping
+  # first, then falls back to the deterministic MAC+partition-seeded `sr:` uid
+  # (never the IP when a MAC is present), so repeated sightings of the same
+  # hardware converge on one uid and distinct MACs mint distinct devices.
+  defp resolve_or_create_endpoint_topology_device(
+         mac,
+         candidate_ip,
+         partition,
+         source_device_id,
+         metadata,
+         actor
+       ) do
+    with {:ok, uid} <- resolve_device_uid_via_dire(candidate_ip, partition, [mac], actor) do
+      if device_exists?(uid, actor) do
+        # DIRE resolved the sighting onto an existing device (MAC identifier,
+        # alias, or merge-audit canonical hit) — reuse it, never duplicate.
+        {:ok, uid}
+      else
+        create_endpoint_topology_device(
+          uid,
+          mac,
+          candidate_ip,
+          partition,
+          source_device_id,
+          metadata,
+          actor
+        )
+      end
+    end
+  end
+
+  defp create_endpoint_topology_device(
+         uid,
+         mac,
+         candidate_ip,
+         partition,
+         source_device_id,
+         metadata,
+         actor
+       ) do
+    attrs =
+      maybe_put(
+        %{
+          uid: uid,
+          mac: mac,
+          discovery_sources: ["mapper", "sighting"],
+          metadata:
+            metadata
+            |> Map.put("identity_state", "provisional")
+            |> Map.put("identity_source", "mapper_topology_sighting")
+            |> Map.put("candidate_from_device_id", source_device_id)
+        },
+        :ip,
+        candidate_ip
+      )
+
+    case Device
+         |> Ash.Changeset.for_create(:create, attrs)
+         |> Ash.create(actor: actor) do
+      {:ok, _device} ->
+        register_mapper_mac_identifiers(uid, [mac], candidate_ip, partition, actor)
+        {:ok, uid}
+
+      {:error, %Invalid{errors: errors}} ->
+        recover_existing_device_uid(uid, candidate_ip, errors, actor)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc false
+  def endpoint_topology_candidate_metadata(record, mac) when is_map(record) do
+    evidence_class = metadata_value(record.metadata, "evidence_class")
+
+    record
+    |> topology_candidate_metadata()
+    |> Map.put("topology_last_seen_neighbor_mac", mac)
+    |> Map.put("identity_confidence_tier", endpoint_identity_confidence_tier(evidence_class))
+  end
 
   defp promote_topology_sighting(record, actor) do
     candidate_ip = normalize_alias_ip(record.neighbor_mgmt_addr)
@@ -491,7 +681,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       merged_metadata = Map.merge(Map.new(device.metadata || %{}), metadata)
       merged_sources = merge_topology_discovery_sources(device.discovery_sources)
       attrs = %{metadata: merged_metadata, discovery_sources: merged_sources}
-      attrs = if present?(device.ip), do: attrs, else: Map.put(attrs, :ip, candidate_ip)
+
+      attrs =
+        if present?(device.ip) or is_nil(candidate_ip),
+          do: attrs,
+          else: Map.put(attrs, :ip, candidate_ip)
 
       device
       |> Ash.Changeset.for_update(:update, attrs)
@@ -1295,7 +1489,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp recoverable_device_create_conflict?(%Ash.Error.Changes.InvalidChanges{}), do: true
 
-  defp recoverable_device_create_conflict?(%Ash.Error.Changes.InvalidAttribute{} = error) do
+  defp recoverable_device_create_conflict?(%InvalidAttribute{} = error) do
     error.field == :uid and
       Keyword.get(error.private_vars || [], :constraint_type) == :unique
   end
@@ -3176,14 +3370,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end)
   end
 
-  defp insert_bulk([], _resource, _actor, _label), do: :ok
+  defp insert_bulk([], _resource, _actor, _label), do: {:ok, %{accepted: [], rejected: []}}
 
   defp insert_bulk(records, resource, actor, label) do
     {prepared_records, opts} = prepare_bulk_records(records, resource, actor)
 
     prepared_records
     |> Ash.bulk_create(resource, :create, opts)
-    |> handle_bulk_result(label)
+    |> handle_bulk_result(prepared_records, label)
   end
 
   defp prepare_bulk_records(records, Interface, actor) do
@@ -3294,22 +3488,113 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp nil_to_zero(nil), do: 0
   defp nil_to_zero(value) when is_integer(value), do: value
 
-  defp handle_bulk_result(%Ash.BulkResult{status: :success}, _label), do: :ok
+  # Drop the raw topology records whose prepared (normalized) counterparts were
+  # rejected by the bulk insert, keyed by the logical-key identity. Records for
+  # unattributable errors ({nil, error} pairs) cannot be filtered and stay in
+  # the surviving set, which is safe because the AGE MERGEs are idempotent.
+  defp reject_rejected_topology_records(records, []), do: records
 
-  defp handle_bulk_result(%Ash.BulkResult{status: :partial_success, errors: errors}, label) do
+  defp reject_rejected_topology_records(records, rejected) do
+    rejected_keys =
+      rejected
+      |> Enum.reject(fn {record, _error} -> is_nil(record) end)
+      |> MapSet.new(fn {record, _error} -> topology_link_identity_key(record) end)
+
+    Enum.reject(records, fn record ->
+      key =
+        record
+        |> normalize_topology_link_key()
+        |> topology_link_identity_key()
+
+      MapSet.member?(rejected_keys, key)
+    end)
+  end
+
+  # Public for tests; see handle_bulk_result/3.
+  @doc false
+  def emit_topology_ingest_rejections([]), do: :ok
+
+  def emit_topology_ingest_rejections(rejected) when is_list(rejected) do
+    rejected
+    |> Enum.group_by(&topology_rejection_group/1)
+    |> Enum.each(fn {{reason, protocol, agent_id}, group} ->
+      :telemetry.execute(
+        [:serviceradar, :mapper_topology, :ingest_rejected],
+        %{count: length(group)},
+        %{reason: reason, protocol: protocol, agent_id: agent_id}
+      )
+    end)
+  end
+
+  defp topology_rejection_group({record, error}) do
+    {
+      topology_rejection_reason(error),
+      topology_rejection_field(record, :protocol, "protocol"),
+      topology_rejection_field(record, :agent_id, "agent_id")
+    }
+  end
+
+  defp topology_rejection_field(record, atom_key, string_key) when is_map(record) do
+    case get_record_value(record, atom_key, string_key) do
+      value when is_binary(value) and value != "" -> value
+      _ -> "unknown"
+    end
+  end
+
+  defp topology_rejection_field(_record, _atom_key, _string_key), do: "unknown"
+
+  defp topology_rejection_reason(%Ash.Error.Changes.Required{field: field}),
+    do: "required:#{field}"
+
+  defp topology_rejection_reason(%InvalidAttribute{field: field}),
+    do: "invalid_attribute:#{field}"
+
+  defp topology_rejection_reason(%{errors: [error | _]}), do: topology_rejection_reason(error)
+
+  defp topology_rejection_reason(%struct{}) do
+    struct |> Module.split() |> List.last() |> Macro.underscore()
+  end
+
+  defp topology_rejection_reason(_error), do: "unknown"
+
+  @bulk_rejection_log_samples 3
+
+  # Per-record failure isolation: a partial bulk-create success MUST NOT abort
+  # the pipeline. Return the accepted records plus {record, error} rejection
+  # pairs so callers keep the surviving evidence flowing (e.g. into the AGE
+  # graph) instead of dropping the whole payload; only a total failure returns
+  # {:error, errors}. Public for tests: partial failures cannot be induced
+  # through the JSON ingest path once validation accepts real payload shapes.
+  @doc false
+  def handle_bulk_result(%Ash.BulkResult{status: :success}, prepared_records, _label) do
+    {:ok, %{accepted: prepared_records, rejected: []}}
+  end
+
+  def handle_bulk_result(
+        %Ash.BulkResult{status: :partial_success, errors: errors},
+        prepared_records,
+        label
+      ) do
     if timescaledb_pkey_violations?(errors) do
       Logger.debug(
         "Mapper #{label}: skipped #{length(List.wrap(errors))} duplicate(s) (TimescaleDB constraint)"
       )
 
-      :ok
+      {:ok, %{accepted: prepared_records, rejected: []}}
     else
-      Logger.warning("Mapper #{label} ingestion failed: #{inspect(errors)}")
-      {:error, errors}
+      {accepted, rejected} = split_bulk_rejections(prepared_records, errors)
+
+      Logger.error(
+        "Mapper #{label} ingestion rejected #{length(rejected)} of " <>
+          "#{length(prepared_records)} record(s); continuing with #{length(accepted)}; " <>
+          "sample errors: #{inspect(sample_bulk_error_messages(rejected))}"
+      )
+
+      {:ok, %{accepted: accepted, rejected: rejected}}
     end
   end
 
-  defp handle_bulk_result(%Ash.BulkResult{status: :error, errors: errors}, label) do
+  def handle_bulk_result(%Ash.BulkResult{status: :error, errors: errors}, prepared_records, label) do
     # Check if all errors are TimescaleDB chunk-prefixed constraint violations
     # These occur because TimescaleDB prefixes constraint names with chunk IDs
     # (e.g., "1_2_discovered_interfaces_pkey" instead of "discovered_interfaces_pkey")
@@ -3318,12 +3603,52 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         "Mapper #{label}: skipped #{length(List.wrap(errors))} duplicate(s) (TimescaleDB constraint)"
       )
 
-      :ok
+      {:ok, %{accepted: prepared_records, rejected: []}}
     else
       Logger.warning("Mapper #{label} ingestion failed: #{inspect(errors)}")
       {:error, errors}
     end
   end
+
+  # Ash tags each per-record bulk error with the record's index as the head of
+  # the error path. Partition the prepared batch into accepted records and
+  # {record, error} rejection pairs. Errors that cannot be attributed to an
+  # index become {nil, error} pairs and leave the batch unfiltered for those
+  # records, which is safe because the downstream AGE MERGEs are idempotent.
+  defp split_bulk_rejections(prepared_records, errors) do
+    {indexed, unattributed} =
+      errors
+      |> List.wrap()
+      |> Enum.split_with(&indexed_bulk_error?/1)
+
+    errors_by_index = Map.new(indexed, fn %{path: [index | _]} = error -> {index, error} end)
+
+    {accepted, rejected} =
+      prepared_records
+      |> Enum.with_index()
+      |> Enum.reduce({[], []}, fn {record, index}, {accepted, rejected} ->
+        case errors_by_index do
+          %{^index => error} -> {accepted, [{record, error} | rejected]}
+          _ -> {[record | accepted], rejected}
+        end
+      end)
+
+    unattributed_pairs = Enum.map(unattributed, fn error -> {nil, error} end)
+
+    {Enum.reverse(accepted), Enum.reverse(rejected, unattributed_pairs)}
+  end
+
+  defp indexed_bulk_error?(%{path: [index | _]}) when is_integer(index), do: true
+  defp indexed_bulk_error?(_error), do: false
+
+  defp sample_bulk_error_messages(rejected) do
+    rejected
+    |> Enum.take(@bulk_rejection_log_samples)
+    |> Enum.map(fn {_record, error} -> bulk_error_message(error) end)
+  end
+
+  defp bulk_error_message(error) when is_exception(error), do: Exception.message(error)
+  defp bulk_error_message(error), do: inspect(error)
 
   defp missing_interface_identity?(record) do
     key = interface_identity_key(record)
