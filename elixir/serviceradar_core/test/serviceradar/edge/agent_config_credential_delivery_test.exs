@@ -267,6 +267,77 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
     assert config.config_version == config2.config_version
   end
 
+  test "unchanged-config poll (:not_modified) writes no credential-resolution audit (#4428)",
+       %{admin: admin, system: system, agent_uid: agent_uid, unique_id: unique_id} do
+    {:ok, _agent} = create_connected_agent(admin, agent_uid)
+    package = create_approved_plugin_package!(admin, unique_id)
+    secret = create_proxmox_secret!(admin, unique_id)
+
+    # Fresh (long-TTL) grant so it is reused across polls — isolates the audit
+    # behavior from grant re-mint.
+    {:ok, grant} =
+      %{
+        secret_id: secret.id,
+        grant_type: "proxmox_api_token",
+        consumer_kind: :plugin,
+        consumer_id: "proxmox-inventory-#{unique_id}",
+        purpose: "inventory_enrichment",
+        agent_id: agent_uid,
+        resolution_location: :agent,
+        ttl_seconds: 3_600
+      }
+      |> CredentialBrokerGrant.issue_attrs()
+      |> CredentialBrokerGrant.issue_grant(actor: system)
+
+    {:ok, _assignment} =
+      PluginAssignment
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          agent_uid: agent_uid,
+          plugin_package_id: package.id,
+          source: :policy,
+          source_key: "policy-key-notmod-#{unique_id}",
+          policy_id: "network-credential-rule:rule-notmod-#{unique_id}",
+          enabled: true,
+          params: %{
+            "credential_broker" => CredentialBrokerGrant.to_payload(grant),
+            "api_token_secret_ref" => SecretRefs.network_credential_ref(to_string(secret.id))
+          }
+        },
+        actor: admin
+      )
+      |> Ash.create()
+
+    # First fetch (agent has no version) delivers and audits.
+    assert {:ok, config} = AgentConfigGenerator.get_config_if_changed(agent_uid, "")
+
+    assert config.plugins |> hd() |> Map.fetch!(:params) |> Map.get("api_token") ==
+             @api_token_payload
+
+    after_delivery = audit_count(secret, system)
+    assert after_delivery >= 1
+
+    # Steady-state poll with the current version: :not_modified, and crucially NO
+    # new audit row even though the credential is still resolved to compute the
+    # version hash (fj #4428).
+    assert :not_modified =
+             AgentConfigGenerator.get_config_if_changed(agent_uid, config.config_version)
+
+    assert audit_count(secret, system) == after_delivery
+
+    # A poll whose version no longer matches DOES deliver and audit again.
+    assert {:ok, _config2} =
+             AgentConfigGenerator.get_config_if_changed(agent_uid, "stale-version")
+
+    assert audit_count(secret, system) == after_delivery + 1
+  end
+
+  defp audit_count(secret, system) do
+    {:ok, audits} = CredentialSecretResolutionAudit.list_for_secret(secret.id, actor: system)
+    length(audits)
+  end
+
   defp create_connected_agent(actor, agent_uid) do
     Agent
     |> Ash.Changeset.for_create(

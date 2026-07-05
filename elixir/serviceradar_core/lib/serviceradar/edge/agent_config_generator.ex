@@ -34,6 +34,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.AgentRegistry
+  alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Edge.AgentArtifacts
   alias ServiceRadar.Edge.SNMPProtoMapper
   alias ServiceRadar.Infrastructure.Agent
@@ -57,6 +58,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   # Default intervals
   @default_heartbeat_interval_sec 30
   @default_config_poll_interval_sec 300
+  # Process-scoped accumulator for credential-resolution audits deferred during
+  # config generation. Flushed only when the generated config is actually
+  # delivered to the agent, so `:not_modified` polls don't write an audit row per
+  # credential per poll (fj #4428).
+  @audit_collector_key :agent_config_deferred_credential_audits
   @required_addons_config_key :required_agent_addons
   @default_required_addon_ids ["otel-collector"]
   @controller_secret_schema %{
@@ -140,7 +146,9 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   """
   @spec generate_config(String.t()) :: {:ok, agent_config()} | {:error, term()}
   def generate_config(agent_id) do
-    {:ok, generate_config!(agent_id)}
+    {config, audits} = generate_collecting_audits(agent_id)
+    commit_deferred_audits(audits)
+    {:ok, config}
   rescue
     error ->
       Logger.error("Failed to generate config for agent #{agent_id}: #{inspect(error)}")
@@ -172,12 +180,15 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   @spec get_config_if_changed(String.t(), String.t()) ::
           :not_modified | {:ok, agent_config()} | {:error, term()}
   def get_config_if_changed(agent_id, current_version) do
-    config = generate_config!(agent_id)
+    {config, deferred_audits} = generate_collecting_audits(agent_id)
 
     if config.config_version == current_version do
+      # Nothing delivered this poll — drop the audits collected while resolving
+      # credentials for the version hash (fj #4428).
       Logger.debug("Config not modified for agent #{agent_id}, version: #{current_version}")
       :not_modified
     else
+      commit_deferred_audits(deferred_audits)
       # An empty current_version is a first fetch / not-yet-committed agent (e.g. a config
       # section that deferred its version commit), not an operator config change. It would
       # otherwise log "Config changed ...:  -> v<hash>" on every poll, so keep it at debug
@@ -260,9 +271,9 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   """
   @spec generate_proto_response(String.t()) :: Monitoring.AgentConfigResponse.t()
   def generate_proto_response(agent_id) when is_binary(agent_id) do
-    agent_id
-    |> generate_config!()
-    |> to_proto_response()
+    {config, audits} = generate_collecting_audits(agent_id)
+    commit_deferred_audits(audits)
+    to_proto_response(config)
   end
 
   defp generate_config!(agent_id) do
@@ -944,9 +955,9 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
            [
              grant: grant,
              broker_opts:
-               CredentialBrokerDelivery.broker_resolution_opts(grant,
-                 agent_id: assignment.agent_uid
-               )
+               grant
+               |> CredentialBrokerDelivery.broker_resolution_opts(agent_id: assignment.agent_uid)
+               |> with_audit_sink()
            ]}
       end
     else
@@ -955,6 +966,45 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   defp materialize_credential_broker_grant(params, _assignment), do: {params, []}
+
+  # Adds a deferred-audit sink to broker opts so credential-resolution audits are
+  # collected during generation and only committed on delivery (fj #4428).
+  defp with_audit_sink(broker_opts) when is_list(broker_opts),
+    do: Keyword.put(broker_opts, :audit_sink, &deferred_audit_sink/1)
+
+  # Sink invoked by SecretBroker during resolution. When a collector is active
+  # (config generation), append the audit; otherwise write it immediately so any
+  # resolution outside a delivery path stays audited (defensive).
+  defp deferred_audit_sink(attrs) do
+    case Process.get(@audit_collector_key) do
+      collected when is_list(collected) ->
+        Process.put(@audit_collector_key, [attrs | collected])
+
+      _ ->
+        SecretBroker.write_audit(attrs)
+    end
+
+    :ok
+  end
+
+  # Generates a config with a deferred-audit collector active, returning the
+  # config plus the audits collected during generation (chronological order).
+  # The collector is always restored, even on error.
+  defp generate_collecting_audits(agent_id) do
+    previous = Process.put(@audit_collector_key, [])
+
+    try do
+      config = generate_config!(agent_id)
+      {config, Enum.reverse(Process.get(@audit_collector_key, []))}
+    after
+      case previous do
+        nil -> Process.delete(@audit_collector_key)
+        prev -> Process.put(@audit_collector_key, prev)
+      end
+    end
+  end
+
+  defp commit_deferred_audits(audits), do: Enum.each(audits, &SecretBroker.write_audit/1)
 
   defp materialize_controller_credentials(params, %PluginAssignment{source: source} = assignment)
        when source in [:policy, "policy"] do
@@ -1002,9 +1052,9 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     resolve_opts = [
       grant: grant,
       broker_opts:
-        CredentialBrokerDelivery.broker_resolution_opts(grant,
-          agent_id: assignment.agent_uid
-        )
+        grant
+        |> CredentialBrokerDelivery.broker_resolution_opts(agent_id: assignment.agent_uid)
+        |> with_audit_sink()
     ]
 
     case SecretRefs.resolve_runtime_params(@controller_secret_schema, controller, resolve_opts) do

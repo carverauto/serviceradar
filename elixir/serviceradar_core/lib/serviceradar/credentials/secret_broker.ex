@@ -526,14 +526,43 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   defp maybe_audit(outcome, secret, provider, result, opts) do
     if Keyword.get(opts, :audit?, false) do
       attrs = audit_attrs(outcome, secret, provider, result, opts)
-      audit_actor = SystemActor.system(:credential_secret_broker_audit)
 
-      _audit_result = CredentialSecretResolutionAudit.create_audit(attrs, actor: audit_actor)
-      CredentialEventWriter.write_secret_resolution(attrs)
+      # A caller may pass an `:audit_sink` fun to DEFER the write (e.g. agent
+      # config generation, which resolves credentials on every poll just to
+      # compute the version hash but should only commit an audit when the config
+      # is actually delivered). Without a sink, write immediately.
+      case Keyword.get(opts, :audit_sink) do
+        sink when is_function(sink, 1) -> sink.(attrs)
+        _ -> write_audit(attrs)
+      end
+
       :ok
     else
       :ok
     end
+  rescue
+    exception ->
+      require Logger
+
+      Logger.warning("Failed to write credential secret resolution audit",
+        reason: Exception.message(exception)
+      )
+
+      :ok
+  end
+
+  @doc """
+  Commits a credential-secret-resolution audit row (and observability event)
+  from prepared `attrs`. Public so a deferred-audit sink can flush audits that
+  were collected during resolution but only committed once the material is
+  actually delivered (see `AgentConfigGenerator`). Never raises into the caller.
+  """
+  @spec write_audit(map()) :: :ok
+  def write_audit(attrs) when is_map(attrs) do
+    audit_actor = SystemActor.system(:credential_secret_broker_audit)
+    _audit_result = CredentialSecretResolutionAudit.create_audit(attrs, actor: audit_actor)
+    CredentialEventWriter.write_secret_resolution(attrs)
+    :ok
   rescue
     exception ->
       require Logger
