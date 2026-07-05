@@ -128,6 +128,7 @@ func applyConfigStruct(decoded configJSON, cfg *Config) {
 	cfg.Targets = decoded.Targets
 	cfg.TimeoutMS = decoded.TimeoutMS
 	cfg.MaxResponseBytes = decoded.MaxResponseBytes
+	cfg.MaxGuests = decoded.MaxGuests
 	cfg.IncludeGuests = decoded.IncludeGuests
 	cfg.InsecureSkipVerify = decoded.InsecureSkipVerify
 	cfg.AutoDiscovery = decoded.AutoDiscovery
@@ -144,6 +145,12 @@ func (cfg *Config) applyDefaults() {
 	}
 	if cfg.MaxResponseBytes > maxHTTPResponseBytes {
 		cfg.MaxResponseBytes = maxHTTPResponseBytes
+	}
+	if cfg.MaxGuests <= 0 {
+		cfg.MaxGuests = defaultMaxGuests
+	}
+	if cfg.MaxGuests > maxGuests {
+		cfg.MaxGuests = maxGuests
 	}
 	if cfg.Targets == nil {
 		cfg.Targets = []Target{}

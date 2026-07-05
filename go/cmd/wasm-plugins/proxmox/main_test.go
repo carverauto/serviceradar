@@ -83,10 +83,15 @@ func (f *fakeHTTPClient) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 			Status: http.StatusOK,
 			Body:   []byte(`{"data":[{"name":"cephfs"}]}`),
 		}, nil
-	case strings.HasSuffix(req.URL, "/api2/json/cluster/resources?type=vm"):
+	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/qemu"):
 		return &sdk.HTTPResponse{
 			Status: http.StatusOK,
 			Body:   []byte(`{"data":[{"id":"qemu/100","node":"pve-a","name":"vm-100","type":"qemu","status":"running","vmid":100,"cpu":0.1,"maxcpu":4,"mem":512,"maxmem":2048,"disk":1024,"maxdisk":4096}]}`),
+		}, nil
+	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/lxc"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":[]}`),
 		}, nil
 	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/qemu/100/status/current"):
 		return &sdk.HTTPResponse{
@@ -139,8 +144,13 @@ func TestRunProxmoxCheckBuildsInventory(t *testing.T) {
 	if result.Status != sdk.StatusOK {
 		t.Fatalf("unexpected status: %s summary=%s details=%s", result.Status, result.Summary, result.Details)
 	}
-	if len(client.requests) != 12 {
-		t.Fatalf("expected twelve Proxmox API requests, got %d", len(client.requests))
+	if len(client.requests) != 13 {
+		t.Fatalf("expected thirteen Proxmox API requests, got %d", len(client.requests))
+	}
+	for _, req := range client.requests {
+		if strings.Contains(req.URL, "/api2/json/cluster/resources") {
+			t.Fatalf("guest inventory must not use the cluster-wide resources endpoint, got %s", req.URL)
+		}
 	}
 	if client.requests[0].Headers["Authorization"] != "PVEAPIToken=root@pam!sr=test-token" {
 		t.Fatalf("authorization header was not set")
@@ -198,12 +208,97 @@ func TestRunProxmoxCheckBuildsInventory(t *testing.T) {
 	if got := len(result.DeviceDiscovery[0].Devices); got != 2 {
 		t.Fatalf("expected node and guest discoveries, got %d: %#v", got, result.DeviceDiscovery[0].Devices)
 	}
+	if got := result.DeviceDiscovery[0].Devices[1].IP; got != "192.168.2.50" {
+		t.Fatalf("expected guest discovery IP from guest agent, got %q", got)
+	}
 	var payload map[string]any
 	if err := json.Unmarshal(result.JSON(), &payload); err != nil {
 		t.Fatalf("decode result JSON: %v", err)
 	}
 	if _, ok := payload["metrics"]; ok {
 		t.Fatalf("expected plugin result to omit legacy metrics, got %#v", payload["metrics"])
+	}
+}
+
+func TestFetchGuestsUsesNodeScopedEndpointsAndLXCConfigIPs(t *testing.T) {
+	client := &nodeScopedGuestHTTPClient{}
+	oldHTTP := proxmoxHTTP
+	proxmoxHTTP = client
+	t.Cleanup(func() { proxmoxHTTP = oldHTTP })
+
+	cfg := Config{BaseURL: "https://pve-a.example:8006", APIToken: "PVEAPIToken=root@pam!sr=test-token"}
+	cfg.applyDefaults()
+
+	warnings := map[string]string{}
+	guestResources := fetchGuests(
+		cfg,
+		Target{BaseURL: cfg.BaseURL},
+		cfg.APIToken,
+		[]proxmoxNode{{Node: "pve-a", Status: "online"}},
+		warnings,
+	)
+	guests := enrichGuests(cfg, Target{BaseURL: cfg.BaseURL}, cfg.APIToken, guestResources, warnings)
+
+	if len(guests) != 2 {
+		t.Fatalf("expected qemu and lxc guests, got %#v warnings=%#v", guests, warnings)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("expected no guest warnings, got %#v", warnings)
+	}
+	for _, url := range client.urls {
+		if strings.Contains(url, "/api2/json/cluster/resources") {
+			t.Fatalf("guest inventory must not use the cluster-wide resources endpoint, got %s", url)
+		}
+	}
+
+	var lxc proxmoxGuest
+	for _, guest := range guests {
+		if guestEndpointKind(guest.Type) == "lxc" {
+			lxc = guest
+			break
+		}
+	}
+	if lxc.VMID != 200 {
+		t.Fatalf("expected LXC vmid 200, got %#v", lxc.proxmoxResource)
+	}
+	if got := primaryIP(lxc.Interfaces); got != "192.168.2.73" {
+		t.Fatalf("expected LXC primary IP from config, got %q interfaces=%#v", got, lxc.Interfaces)
+	}
+	if got := primaryMAC(lxc.Interfaces); got != "BC:24:11:53:84:67" {
+		t.Fatalf("expected LXC MAC from config, got %q interfaces=%#v", got, lxc.Interfaces)
+	}
+}
+
+type nodeScopedGuestHTTPClient struct {
+	urls []string
+}
+
+func (c *nodeScopedGuestHTTPClient) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+	c.urls = append(c.urls, req.URL)
+
+	switch {
+	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/qemu"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":[{"vmid":100,"name":"vm-100","status":"stopped","maxcpu":4,"maxmem":2048,"maxdisk":4096}]}`),
+		}, nil
+	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/lxc"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":[{"vmid":200,"name":"ct-200","status":"stopped","maxcpu":2,"maxmem":1024,"maxdisk":2048}]}`),
+		}, nil
+	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/qemu/100/config"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":{"name":"vm-100","net0":"virtio=00:11:22:33:44:55,bridge=vmbr0,ip=192.168.2.50/24"}}`),
+		}, nil
+	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/lxc/200/config"):
+		return &sdk.HTTPResponse{
+			Status: http.StatusOK,
+			Body:   []byte(`{"data":{"hostname":"ct-200","net0":"name=eth0,bridge=vmbr0,hwaddr=bc:24:11:53:84:67,ip=192.168.2.73/24,type=veth"}}`),
+		}, nil
+	default:
+		return &sdk.HTTPResponse{Status: http.StatusNotFound, Body: []byte(`{"message":"not found"}`)}, nil
 	}
 }
 

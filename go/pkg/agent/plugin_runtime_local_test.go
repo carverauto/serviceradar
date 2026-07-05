@@ -130,6 +130,34 @@ func TestPluginHTTPClientHonorsRequestTimeoutOverManagerDefault(t *testing.T) {
 	}
 }
 
+func TestPluginHTTPClientReusesInsecureTransport(t *testing.T) {
+	baseTransport := &http.Transport{}
+	base := &http.Client{Transport: baseTransport, Timeout: 20 * time.Millisecond}
+
+	first := pluginHTTPClient(base, true, 500*time.Millisecond)
+	second := pluginHTTPClient(base, true, 750*time.Millisecond)
+
+	if first == second {
+		t.Fatal("expected per-request client clones, got the same client")
+	}
+	if first.Transport == nil || first.Transport != second.Transport {
+		t.Fatalf("expected insecure transport reuse, got first=%p second=%p", first.Transport, second.Transport)
+	}
+	httpTransport, ok := first.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("expected *http.Transport, got %T", first.Transport)
+	}
+	if httpTransport.TLSClientConfig == nil || !httpTransport.TLSClientConfig.InsecureSkipVerify {
+		t.Fatalf("expected insecure TLS config on cloned transport, got %#v", httpTransport.TLSClientConfig)
+	}
+	if baseTransport.TLSClientConfig != nil && baseTransport.TLSClientConfig.InsecureSkipVerify {
+		t.Fatal("base transport TLS config was made insecure")
+	}
+	if first.Timeout != 500*time.Millisecond || second.Timeout != 750*time.Millisecond {
+		t.Fatalf("expected request-specific timeouts, got first=%s second=%s", first.Timeout, second.Timeout)
+	}
+}
+
 func TestExecuteWithWasmHonorsContextCancellation(t *testing.T) {
 	t.Parallel()
 

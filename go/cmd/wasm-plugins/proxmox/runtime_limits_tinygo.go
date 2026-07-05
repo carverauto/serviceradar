@@ -2,10 +2,4 @@
 
 package main
 
-func applyRuntimeConfigLimits(cfg *Config) {
-	if cfg == nil {
-		return
-	}
-	includeGuests := false
-	cfg.IncludeGuests = &includeGuests
-}
+func applyRuntimeConfigLimits(_ *Config) {}

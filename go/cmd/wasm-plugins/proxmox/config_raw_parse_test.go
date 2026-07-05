@@ -21,6 +21,7 @@ const rawPluginInputsPayload = `{
 		"insecure_skip_verify": true,
 		"timeout_ms": 45000,
 		"max_response_bytes": 262144,
+		"max_guests": 250,
 		"include_guests": false,
 		"auto_discovery_enabled": true
 	},
@@ -70,6 +71,9 @@ func TestConfigFromRawConfigGJSONAppliesPluginInputsTemplate(t *testing.T) {
 	}
 	if cfg.MaxResponseBytes != 262144 {
 		t.Fatalf("expected template max_response_bytes=262144, got %d", cfg.MaxResponseBytes)
+	}
+	if cfg.MaxGuests != 250 {
+		t.Fatalf("expected template max_guests=250, got %d", cfg.MaxGuests)
 	}
 	if cfg.IncludeGuests == nil || *cfg.IncludeGuests {
 		t.Fatalf("expected template include_guests=false to be applied, got %v", cfg.IncludeGuests)
@@ -185,6 +189,7 @@ func TestConfigFromRawConfigGJSONMatchesStdParser(t *testing.T) {
 			"api_token_secret_ref": "credentialref:network-credential-secret:test-secret",
 			"timeout_ms": 1000,
 			"max_response_bytes": 2048,
+			"max_guests": 42,
 			"include_guests": false,
 			"insecure_skip_verify": true,
 			"auto_discovery_enabled": true,
