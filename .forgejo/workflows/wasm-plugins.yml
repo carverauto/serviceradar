@@ -1,6 +1,14 @@
 name: Publish Wasm Plugins
 
 on:
+  # Republish Wasm plugins on every release tag so the published artifacts (and the
+  # versions surfaced in the Plugins Manager) track the code, instead of only on manual
+  # dispatch. Mirrors native-addons.yml, which republishes add-ons on the same `v*` tags —
+  # previously plugin fixes (e.g. the proxmox tinygo parser) silently required a manual
+  # dispatch that nothing documented.
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
