@@ -60,6 +60,25 @@ defmodule ServiceRadarWebNGWeb.TopologyChannelTest do
     assert binary_part(payload, byte_size(payload) - 6, 6) == "ARROW1"
   end
 
+  test "channel snapshot_meta carries per-edge-class counts and backbone_edge_count", %{user: user} do
+    Application.put_env(:serviceradar_web_ng, :god_view_enabled, true)
+
+    assert {:ok, _reply, _socket} =
+             UserSocket
+             |> socket("user-id", %{current_user: user})
+             |> subscribe_and_join(TopologyChannel, @channel, %{})
+
+    assert_push "snapshot_meta", %{pipeline_stats: pipeline_stats}, 2_000
+
+    assert is_integer(Map.get(pipeline_stats, :backbone_edge_count))
+    assert is_integer(Map.get(pipeline_stats, :edge_class_backbone))
+    assert is_integer(Map.get(pipeline_stats, :edge_class_attachment))
+    assert is_integer(Map.get(pipeline_stats, :edge_class_inferred))
+    assert is_integer(Map.get(pipeline_stats, :edge_class_hosted))
+    assert is_integer(Map.get(pipeline_stats, :edge_class_observed))
+    assert Map.get(pipeline_stats, :backbone_edge_count) == Map.get(pipeline_stats, :edge_class_backbone)
+  end
+
   test "channel suppresses duplicate snapshot pushes when revision is unchanged", %{user: user} do
     Application.put_env(:serviceradar_web_ng, :god_view_enabled, true)
 

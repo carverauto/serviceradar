@@ -302,6 +302,130 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert Map.get(snapshot.pipeline_stats, :final_direct) == 0
   end
 
+  test "latest_snapshot/0 exposes zero backbone_edge_count with per-class counts when only attachment/inferred edges exist" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    rows = [
+      %{
+        local_device_id: "sr:router-a",
+        local_device_ip: "192.0.2.40",
+        local_if_name: "eth1",
+        local_if_index: 1,
+        local_if_name_ab: "eth1",
+        local_if_index_ab: 1,
+        local_if_name_ba: "endpoint",
+        local_if_index_ba: 0,
+        neighbor_if_name: "endpoint",
+        neighbor_if_index: 0,
+        neighbor_device_id: "sr:endpoint-b",
+        neighbor_mgmt_addr: "192.0.2.41",
+        neighbor_system_name: "endpoint-b",
+        protocol: "snmp-l2",
+        evidence_class: "direct",
+        confidence_tier: "medium",
+        confidence_reason: "single_identifier_inference",
+        flow_pps: 12,
+        flow_bps: 1_200,
+        capacity_bps: 1_000_000_000,
+        flow_pps_ab: 10,
+        flow_pps_ba: 2,
+        flow_bps_ab: 1_000,
+        flow_bps_ba: 200,
+        telemetry_source: "interface",
+        telemetry_observed_at: "2026-02-26T00:00:00Z",
+        metadata: %{"relation_type" => "ATTACHED_TO", "evidence_class" => "direct"}
+      },
+      %{
+        local_device_id: "sr:flow-a",
+        local_device_ip: "192.0.2.50",
+        local_if_name: "eth5",
+        local_if_index: 5,
+        neighbor_if_name: "eth6",
+        neighbor_if_index: 6,
+        neighbor_device_id: "sr:flow-b",
+        neighbor_mgmt_addr: "192.0.2.51",
+        neighbor_system_name: "flow-b",
+        protocol: "netflow",
+        evidence_class: "inferred",
+        confidence_tier: "low",
+        confidence_reason: "flow_correlation",
+        flow_pps: 4,
+        flow_bps: 400,
+        capacity_bps: 0,
+        flow_pps_ab: 4,
+        flow_pps_ba: 0,
+        flow_bps_ab: 400,
+        flow_bps_ba: 0,
+        telemetry_source: "none",
+        telemetry_observed_at: "2026-02-26T00:00:00Z",
+        metadata: %{"relation_type" => "INFERRED_TO", "evidence_class" => "inferred"}
+      }
+    ]
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+    stats = snapshot.pipeline_stats
+
+    assert Map.get(stats, :backbone_edge_count) == 0
+    assert Map.get(stats, :edge_class_backbone) == 0
+    assert Map.get(stats, :edge_class_attachment) == 1
+    assert Map.get(stats, :edge_class_inferred) == 1
+    assert Map.get(stats, :edge_class_hosted) == 0
+    assert Map.get(stats, :edge_class_observed) == 0
+  end
+
+  test "latest_snapshot/0 reports non-zero backbone_edge_count for direct backbone edges" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    rows = [
+      %{
+        local_device_id: "sr:core-a",
+        local_device_ip: "192.0.2.60",
+        local_if_name: "eth1",
+        local_if_index: 1,
+        neighbor_if_name: "eth2",
+        neighbor_if_index: 2,
+        neighbor_device_id: "sr:core-b",
+        neighbor_mgmt_addr: "192.0.2.61",
+        neighbor_system_name: "core-b",
+        protocol: "lldp",
+        evidence_class: "direct",
+        confidence_tier: "high",
+        flow_pps: 100,
+        flow_bps: 10_000,
+        capacity_bps: 1_000_000_000,
+        flow_pps_ab: 60,
+        flow_pps_ba: 40,
+        flow_bps_ab: 6_000,
+        flow_bps_ba: 4_000,
+        telemetry_source: "interface",
+        telemetry_observed_at: "2026-02-26T00:00:00Z",
+        metadata: %{"relation_type" => "CONNECTS_TO", "evidence_class" => "direct"}
+      }
+    ]
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+    stats = snapshot.pipeline_stats
+
+    assert Map.get(stats, :backbone_edge_count) == 1
+    assert Map.get(stats, :edge_class_backbone) == 1
+    assert Map.get(stats, :edge_class_attachment) == 0
+    assert Map.get(stats, :edge_class_inferred) == 0
+  end
+
   test "latest_snapshot/0 emits pipeline alert telemetry when interface-attributed edges drop to zero" do
     {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
     original_rows = Native.runtime_graph_get_links(graph_ref)

@@ -39,6 +39,35 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
         </div>
 
         <div
+          :if={backbone_warning = backbone_empty_warning(@pipeline_stats)}
+          id="god-view-backbone-empty-warning"
+          class="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center px-3"
+          data-testid="backbone-empty-warning"
+        >
+          <div
+            role="alert"
+            class="pointer-events-auto flex max-w-2xl flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-warning/40 bg-base-100/90 px-4 py-2 shadow-lg backdrop-blur-sm"
+          >
+            <span class="badge badge-warning badge-sm">Backbone unavailable</span>
+            <span class="text-xs text-base-content/70">
+              This snapshot has no backbone topology edges; {backbone_warning.other_edges} attachment/inferred
+              edges are available on the Inferred and Endpoints layers.
+            </span>
+            <span class="font-mono text-[10px] text-base-content/60">
+              bb:{backbone_warning.counts.backbone} att:{backbone_warning.counts.attachment} inf:{backbone_warning.counts.inferred} host:{backbone_warning.counts.hosted} obs:{backbone_warning.counts.observed}
+            </span>
+            <button
+              :if={!(@topology_layers.inferred and @topology_layers.endpoints)}
+              type="button"
+              class="btn btn-warning btn-xs h-7 min-h-7"
+              phx-click="enable_attachment_layers"
+            >
+              Show attachment layers
+            </button>
+          </div>
+        </div>
+
+        <div
           id="god-view-controls"
           phx-hook="GodViewControlsState"
           data-collapsed={to_string(@controls_collapsed)}
@@ -472,5 +501,40 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
       true ->
         nil
     end
+  end
+
+  @doc """
+  Backbone-empty warning state: the served snapshot carries zero
+  backbone-class edges while attachment/inferred/hosted/observed edges
+  exist. Returns `nil` when the snapshot is healthy or per-class counts
+  are not (yet) available in the pipeline stats.
+  """
+  def backbone_empty_warning(pipeline_stats) when is_map(pipeline_stats) do
+    backbone =
+      pipeline_class_count(pipeline_stats, :backbone_edge_count) ||
+        pipeline_class_count(pipeline_stats, :edge_class_backbone)
+
+    counts = %{
+      backbone: backbone,
+      attachment: pipeline_class_count(pipeline_stats, :edge_class_attachment) || 0,
+      inferred: pipeline_class_count(pipeline_stats, :edge_class_inferred) || 0,
+      hosted: pipeline_class_count(pipeline_stats, :edge_class_hosted) || 0,
+      observed: pipeline_class_count(pipeline_stats, :edge_class_observed) || 0
+    }
+
+    other_edges = counts.attachment + counts.inferred + counts.hosted + counts.observed
+
+    if backbone == 0 and other_edges > 0 do
+      %{counts: counts, other_edges: other_edges}
+    else
+      nil
+    end
+  end
+
+  def backbone_empty_warning(_pipeline_stats), do: nil
+
+  defp pipeline_class_count(pipeline_stats, key) do
+    raw = Map.get(pipeline_stats, key) || Map.get(pipeline_stats, Atom.to_string(key))
+    parse_pipeline_stat(raw)
   end
 end
