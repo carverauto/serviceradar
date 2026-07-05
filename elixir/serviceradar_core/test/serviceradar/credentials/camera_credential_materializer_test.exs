@@ -160,6 +160,88 @@ defmodule ServiceRadar.Credentials.CameraCredentialMaterializerTest do
     assert params["bootstrap_path"] == "/custom/bootstrap"
   end
 
+  test "reconcile_camera_inventory_for_agent materializes a unifi-protect api_key rule into plugin-input assignments" do
+    rule =
+      camera_rule(%{
+        auth_method: :api_key,
+        purpose: :camera_inventory,
+        metadata: %{"purposes" => ["camera_inventory", "camera_stream"]}
+      })
+
+    assert {:ok, summary} =
+             PluginAssignmentMaterializer.reconcile_camera_inventory_for_agent("agent-cam",
+               rules: [rule],
+               plugin_package: %{id: "pkg-cam"},
+               reconciler: FakeReconciler,
+               actor: %{id: "operator"},
+               test_pid: self()
+             )
+
+    assert summary.rules == 1
+    assert summary.upserted == 1
+
+    assert_receive {:reconcile, policy, input_defs, _opts}
+    # Exactly one materialization: the axis profile must not consume the
+    # unifi-protect rule even though the purposes overlap.
+    refute_receive {:reconcile, _policy, _input_defs, _opts}
+
+    assert policy.policy_id == "network-credential-rule:cam-rule:camera_inventory"
+
+    assert input_defs == [
+             %{name: "targets", entity: "devices", query: "in:devices hostname:udm-*"}
+           ]
+
+    params = policy.params_template
+    refute Map.has_key?(params, "host")
+    refute Map.has_key?(params, "username")
+    refute Map.has_key?(params, "password_secret_ref")
+
+    assert params["api_key_secret_ref"] ==
+             "credentialref:network-credential-secret:018f3f56-aaaa-7bbb-8ccc-123456789abc"
+
+    broker = params["credential_broker"]
+    assert broker["schema"] == "serviceradar.edge_credential_broker_grant.v1"
+    assert broker["grant_type"] == "unifi_protect_api"
+    assert broker["consumer"]["id"] == "unifi-protect-camera"
+    assert broker["consumer"]["purpose"] == "camera_inventory"
+  end
+
+  test "reconcile_camera_inventory_for_agent routes an axis rule to the axis profile only" do
+    rule =
+      camera_rule(%{
+        provider: "axis",
+        auth_method: :username_password,
+        purpose: :camera_inventory,
+        target_query: "in:devices vendor:axis"
+      })
+
+    assert {:ok, summary} =
+             PluginAssignmentMaterializer.reconcile_camera_inventory_for_agent("agent-cam",
+               rules: [rule],
+               plugin_package: %{id: "pkg-cam"},
+               reconciler: FakeReconciler,
+               actor: %{id: "operator"},
+               username_resolver: fn _secret_id, _actor -> {:ok, "camadmin"} end,
+               test_pid: self()
+             )
+
+    assert summary.rules == 1
+
+    assert_receive {:reconcile, policy, input_defs, _opts}
+    refute_receive {:reconcile, _policy, _input_defs, _opts}
+
+    assert input_defs == [%{name: "targets", entity: "devices", query: "in:devices vendor:axis"}]
+
+    params = policy.params_template
+    refute Map.has_key?(params, "host")
+    assert params["username"] == "camadmin"
+
+    assert params["password_secret_ref"] ==
+             "credentialref:network-credential-secret:018f3f56-aaaa-7bbb-8ccc-123456789abc"
+
+    assert params["credential_broker"]["consumer"]["id"] == "axis-camera"
+  end
+
   test "materialized camera policy output validates against the plugin inputs planner payload" do
     rule = camera_rule(%{})
 

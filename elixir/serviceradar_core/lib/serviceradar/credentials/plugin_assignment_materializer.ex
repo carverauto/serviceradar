@@ -249,7 +249,14 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   defp rules_for_agent_scope(profile, agent_id, purpose, actor, opts) do
     case Keyword.fetch(opts, :rules) do
       {:ok, rules} ->
-        {:ok, Enum.filter(rules, &profile.rule_has_purpose?(&1, purpose))}
+        # Mirror the loaded path, which is provider-scoped via
+        # `list_enabled_for_scope/4`: camera reconciles iterate every camera
+        # profile, so injected rules must not leak across providers.
+        {:ok,
+         Enum.filter(
+           rules,
+           &(rule_matches_provider?(&1, profile) and profile.rule_has_purpose?(&1, purpose))
+         )}
 
       :error ->
         scopes = agent_scopes(agent_id, actor)
@@ -274,6 +281,10 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
           error -> error
         end
     end
+  end
+
+  defp rule_matches_provider?(rule, profile) do
+    RuleAccessors.value_string(rule, [:provider, "provider"]) == profile.provider()
   end
 
   defp selected_rules_for_agent(profile, rules, agent_id, purpose) do
