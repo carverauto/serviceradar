@@ -7,23 +7,23 @@
 - [ ] 1.4 Roll fixed agent + core to demo; verify netprobe config applies, agent resumes config acks, `flow_process_attribution_current` repopulates
 
 ## 2. Sectioned config apply: specify + close the gaps
-- [ ] 2.1 Fix transient early-returns: a transient failure in the add-on-assignment or visibility sections (`push_loop_config.go:195-201,225-231`) no longer skips evaluating the remaining sections in the same cycle
-- [ ] 2.2 Permanent-failure state: persist (config_version, section, error, since) on the agent; re-evaluate only when the section payload hash changes; escalate once at error level (replaces per-cycle info/warn logs)
-- [ ] 2.3 Protocol: extend `ConfigAck` with per-section status (backward compatible: core treats ack-without-sections as legacy whole-version ack)
-- [ ] 2.4 Tests: wedge regressions for both incident shapes (Bumblebee staging permission-denied = transient path; netprobe params parse error = permanent path) proving other sections apply and acks flow
+- [x] 2.1 Fix transient early-returns: a transient failure in the add-on-assignment or visibility sections (`push_loop_config.go:195-201,225-231`) no longer skips evaluating the remaining sections in the same cycle
+- [x] 2.2 Permanent-failure state: persist (config_version, section, error, since) on the agent; re-evaluate only when the section payload hash changes; escalate once at error level (replaces per-cycle info/warn logs)
+- [x] 2.3 Protocol: extend `ConfigAck` with per-section status (backward compatible: core treats ack-without-sections as legacy whole-version ack)
+- [x] 2.4 Tests: wedge regressions for both incident shapes (Bumblebee staging permission-denied = transient path; netprobe params parse error = permanent path) proving other sections apply and acks flow
 
 ## 3. Config wedge detection + surfacing
-- [ ] 3.1 Gateway/core: persist per-agent last-acked config version + per-section status (replace debug-only logging in `control_stream_session.ex:226`)
-- [ ] 3.2 Config-health evaluation: connected agent with no ack within window, or reporting a permanent section failure → config-unhealthy; health events + telemetry on wedge/unwedge
-- [ ] 3.3 Synthesize unhealthy `AddonStatus` for config-apply failures (parity with `addonDeliveryFailureStatuses` for artifact failures) so a config-broken-but-running add-on stops reading as healthy in the fleet view
-- [ ] 3.4 web-ng: agent detail shows last-acked config version, per-section status, failing-section error verbatim with start time; fleet view surfaces config-unhealthy agents
+- [x] 3.1 Gateway/core: persist per-agent last-acked config version + per-section status (replace debug-only logging in `control_stream_session.ex:226`)
+- [x] 3.2 Config-health evaluation: connected agent with no ack within window, or reporting a permanent section failure → config-unhealthy; health events + telemetry on wedge/unwedge
+- [x] 3.3 Synthesize unhealthy `AddonStatus` for config-apply failures (parity with `addonDeliveryFailureStatuses` for artifact failures) so a config-broken-but-running add-on stops reading as healthy in the fleet view
+- [x] 3.4 web-ng: agent detail shows last-acked config version, per-section status, failing-section error verbatim with start time; fleet view surfaces config-unhealthy agents
 - [ ] 3.5 Alert rule/runbook: config-unhealthy agents alarm instead of living in journald only
 
 ## 4. Typed add-on config contracts
-- [ ] 4.1 Enforce `AddonAssignmentParams` schema validation on every params write path (manual assignment, `addon_profile_reconciler.ex`, package seeders); backfill-validate legacy rows persisted before the guards existed; decide behavior for packages with empty `config_schema` (today validation silently skips)
-- [ ] 4.2 Delivery refuses uncoercible params with a visible per-assignment validation error (never ships known-undecodable `config_json`)
-- [ ] 4.3 CI: contract test suite decoding representative core-emitted `config_json` with the real Go decoders for all bundled add-ons (netprobe, otel-collector, anomaly, bumblebee, endpoint-inventory, workload-identity, rdp)
-- [ ] 4.4 Document compatibility-form rules (scalar→list coercion) for add-on authors
+- [x] 4.1 Enforce `AddonAssignmentParams` schema validation on every params write path (manual assignment, `addon_profile_reconciler.ex`, package seeders); backfill-validate legacy rows persisted before the guards existed; decide behavior for packages with empty `config_schema` (today validation silently skips)
+- [x] 4.2 Delivery refuses uncoercible params with a visible per-assignment validation error (never ships known-undecodable `config_json`)
+- [x] 4.3 CI: contract test suite decoding representative core-emitted `config_json` with the real Go decoders for all bundled add-ons (netprobe, otel-collector, anomaly, bumblebee, endpoint-inventory, workload-identity, rdp)
+- [x] 4.4 Document compatibility-form rules (scalar→list coercion) for add-on authors
 
 ## 5. Add-on fleet UI overhaul (`addon_fleet_live` / `addon_fleet.ex`)
 - [x] 5.1 Rework fleet read model presentation: one row per (agent, add-on) with assigned version, running version, health; historical/unassigned versions behind the add-on detail view

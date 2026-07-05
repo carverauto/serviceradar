@@ -14,11 +14,11 @@
 - [x] 2.4 Tests: frozen-evidence scenario (evidence older than cutoff) must not delete existing canonical edges and must raise the starved signal; normal topology-change scenario still prunes
 
 ## 3. Endpoint attachment identity (switch↔host edges)
-- [ ] 3.1 Replace blanket suppression in `suppress_topology_sighting_candidate?` with provisional identity minting for `snmp-arp-fdb` and UniFi client neighbors: `sr:` uid keyed by normalized MAC + partition, `identity_state: provisional`, confidence tier from evidence class; provisional devices are merge-inert (never absorb identifiers from corroborated devices; distinct MACs never merge)
-- [ ] 3.2 Remove the non-`sr:` fallback in `topology_graph/projection/payload.ex` (`neighbor_device_id ← mgmt_addr ← chassis_id ← system_name`); unresolved neighbors are dropped with a counter, never written to AGE
-- [ ] 3.3 Config flag (default off for one release) gating 3.1; enablement runbook: watch `device_identifiers` growth + inventory counts on demo
-- [ ] 3.4 Diagnose UniFi wired `port_links` extraction always returning 0 (`go/pkg/mapper/ubnt_topology.go` `processPortTable`) against a live controller; add fixture-based parity test
-- [ ] 3.5 E2E test: FDB attachment for an un-inventoried host produces a renderable `sr:`↔`sr:` attachment edge surviving canonical rebuild + runtime projection
+- [x] 3.1 Replace blanket suppression in `suppress_topology_sighting_candidate?` with provisional identity minting for `snmp-arp-fdb` and UniFi client neighbors: `sr:` uid keyed by normalized MAC + partition, `identity_state: provisional`, confidence tier from evidence class; provisional devices are merge-inert (never absorb identifiers from corroborated devices; distinct MACs never merge)
+- [x] 3.2 Remove the non-`sr:` fallback in `topology_graph/projection/payload.ex` (`neighbor_device_id ← mgmt_addr ← chassis_id ← system_name`); unresolved neighbors are dropped with a counter, never written to AGE
+- [x] 3.3 Config flag (default off for one release) gating 3.1; enablement runbook: watch `device_identifiers` growth + inventory counts on demo
+- [x] 3.4 Diagnose UniFi wired `port_links` extraction always returning 0 (`go/pkg/mapper/ubnt_topology.go` `processPortTable`) against a live controller; add fixture-based parity test
+- [x] 3.5 E2E test: FDB attachment for an un-inventoried host produces a renderable `sr:`↔`sr:` attachment edge surviving canonical rebuild + runtime projection
 
 ## 4. God-view backbone-empty signal
 - [x] 4.1 Add `backbone_edge_count` (and per-class edge counts) to the god-view snapshot meta (`god_view_stream.ex`)

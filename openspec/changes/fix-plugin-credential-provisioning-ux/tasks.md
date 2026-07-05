@@ -13,15 +13,15 @@
 - [ ] 2.3 Rule "Test" action wired for all providers (page currently shows "Not tested" with no signal)
 
 ## 3. Materialization observability
-- [ ] 3.1 Reconcile logs/telemetry carry counts: rules matched, targets resolved, assignments written, skips with reasons (replace count-free "Reconciled X credential rules")
-- [ ] 3.2 Per-rule materialization status on the rules page: which agents/plugins the rule currently feeds, last materialized at
-- [ ] 3.3 "Effective inputs" preview: rule + SRQL targets → rendered plugin_inputs envelope (debugging surface)
+- [x] 3.1 Reconcile logs/telemetry carry counts: rules matched, targets resolved, assignments written, skips with reasons (replace count-free "Reconciled X credential rules")
+- [x] 3.2 Per-rule materialization status on the rules page: which agents/plugins the rule currently feeds, last materialized at
+- [x] 3.3 "Effective inputs" preview: rule + SRQL targets → rendered plugin_inputs envelope (debugging surface)
 
 ## 4. Assignment-time validation
-- [ ] 4.1 Schema annotation (`x-serviceradar-credential-materialized`) on camera `host` and analogous fields; republish camera plugins
-- [ ] 4.2 `plugin_config_form.ex`: render annotated fields as "provided by credential rules" (not silently hidden/optional); enforce schema `required` arrays where present
-- [ ] 4.3 Assignment save: warn (override-able, persistent) when annotated inputs have no enabled matching rule for the target agent; surface the same warning in plugin health/fleet views
-- [ ] 4.4 Wire the ratified "Auth metadata and credential linkage validation" requirement for camera schemas (auth-required stream without credential reference fails validation)
+- [x] 4.1 Schema annotation (`x-serviceradar-credential-materialized`) on camera `host` and analogous fields; republish camera plugins
+- [x] 4.2 `plugin_config_form.ex`: render annotated fields as "provided by credential rules" (not silently hidden/optional); enforce schema `required` arrays where present
+- [x] 4.3 Assignment save: warn (override-able, persistent) when annotated inputs have no enabled matching rule for the target agent; surface the same warning in plugin health/fleet views
+- [x] 4.4 Wire the ratified "Auth metadata and credential linkage validation" requirement for camera schemas (auth-required stream without credential reference fails validation)
 
 ## 5. Credential push-down unification
 - [ ] 5.1 Spec + implement per-provider `resolution_location` flag defaulting to current behavior; move `unifi-protect`/`axis` profiles to `:agent` live resolution where the plugin runtime supports it
