@@ -90,6 +90,34 @@ func TestDecodeConfigPluginInputsInjectsHostFromItemIP(t *testing.T) {
 	}
 }
 
+func TestDecodeConfigPluginInputsTemplateHostWinsOverItemHost(t *testing.T) {
+	raw := []byte(`{
+		"schema": "serviceradar.plugin_inputs.v1",
+		"template": {
+			"host": "protect-controller.local",
+			"scheme": "https",
+			"timeout_ms": 30000,
+			"api_key": "secret"
+		},
+		"inputs": [
+			{
+				"entity": "devices",
+				"items": [
+					{"uid": "camera-1", "ip": "10.40.1.25", "hostname": "front-door"}
+				]
+			}
+		]
+	}`)
+
+	cfg, err := decodeConfig(raw)
+	if err != nil {
+		t.Fatalf("decodeConfig error: %v", err)
+	}
+	if cfg.Host != "protect-controller.local" {
+		t.Fatalf("expected static controller host to win, got %q", cfg.Host)
+	}
+}
+
 func TestDecodeConfigPluginInputsFallsBackToHostname(t *testing.T) {
 	raw := []byte(`{
 		"schema": "serviceradar.plugin_inputs.v1",

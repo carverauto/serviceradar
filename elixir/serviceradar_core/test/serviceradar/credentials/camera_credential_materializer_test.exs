@@ -112,6 +112,34 @@ defmodule ServiceRadar.Credentials.CameraCredentialMaterializerTest do
     assert broker["consumer"]["purpose"] == "camera_stream"
   end
 
+  test "unifi-protect static controller host is materialized when configured" do
+    rule =
+      camera_rule(%{
+        auth_method: :api_key,
+        purpose: :camera_inventory,
+        metadata: %{"host" => "protect-controller.local"}
+      })
+
+    {policy, _input_defs, _opts} = materialize(rule, UnifiProtectProfile, :camera_inventory)
+
+    params = policy.params_template
+    assert params["host"] == "protect-controller.local"
+
+    assert params["api_key_secret_ref"] ==
+             "credentialref:network-credential-secret:018f3f56-aaaa-7bbb-8ccc-123456789abc"
+  end
+
+  test "unifi-protect controller URL metadata is normalized to host" do
+    rule =
+      camera_rule(%{
+        metadata: %{"controller_host" => "https://protect.example.test/proxy/protect"}
+      })
+
+    {policy, _input_defs, _opts} = materialize(rule, UnifiProtectProfile, :camera_inventory)
+
+    assert policy.params_template["host"] == "protect.example.test"
+  end
+
   test "axis username_password inventory rule uses vapix grant and 554 rtsp port" do
     rule =
       camera_rule(%{

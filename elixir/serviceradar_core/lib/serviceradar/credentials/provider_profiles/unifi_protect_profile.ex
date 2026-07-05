@@ -2,9 +2,11 @@ defmodule ServiceRadar.Credentials.ProviderProfiles.UnifiProtectProfile do
   @moduledoc """
   Provider profile for UniFi Protect camera inventory + stream credential rules.
 
-  The `target_query` resolves to the Protect controller device(s); the plugin
-  enumerates cameras behind `/proxy/protect/api/bootstrap`. Host is injected
-  per-target from SRQL items, so it is intentionally absent from the template.
+  The `target_query` usually resolves to the Protect controller device(s), and
+  the plugin enumerates cameras behind the controller API. For deployments where
+  the query resolves camera/client records instead, rule metadata may carry a
+  static controller host (`host`, `controller_host`, or `static_host`); that
+  explicit host is written into the params template and wins over target rows.
   """
 
   @behaviour ServiceRadar.Credentials.CredentialProviderProfile
@@ -69,6 +71,46 @@ defmodule ServiceRadar.Credentials.ProviderProfiles.UnifiProtectProfile do
       "credential_rule_id" => RuleAccessors.value_string(rule, [:id, "id"])
     }
 
-    {:ok, CameraProfileHelpers.put_credentials(params, rule, ctx)}
+    params =
+      params
+      |> maybe_put_controller_host(rule)
+      |> CameraProfileHelpers.put_credentials(rule, ctx)
+
+    {:ok, params}
   end
+
+  defp maybe_put_controller_host(params, rule) do
+    case controller_host(rule) do
+      nil -> params
+      host -> Map.put(params, "host", host)
+    end
+  end
+
+  defp controller_host(rule) do
+    Enum.find_value(["host", "controller_host", "static_host"], fn key ->
+      rule
+      |> RuleAccessors.metadata_string(key, "")
+      |> normalize_host()
+    end)
+  end
+
+  defp normalize_host(value) when is_binary(value) do
+    value = String.trim(value)
+
+    cond do
+      value == "" ->
+        nil
+
+      String.contains?(value, "://") ->
+        value
+        |> URI.parse()
+        |> Map.get(:host)
+        |> normalize_host()
+
+      true ->
+        value
+    end
+  end
+
+  defp normalize_host(_value), do: nil
 end
