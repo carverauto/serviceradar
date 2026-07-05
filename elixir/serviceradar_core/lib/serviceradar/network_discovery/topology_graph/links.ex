@@ -127,8 +127,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
   defp reduce_topology_link(link, {local_ids, neighbor_index, diagnostics}) do
     case Projection.projection_payload(link) do
       nil ->
+        reason = Projection.drop_reason(link) || :missing_ids
+        emit_neighbor_dropped(link, reason)
         Logger.debug("Skipping topology link missing device identifiers")
-        diagnostics = Projection.increment_diagnostic(diagnostics, :rejected, :missing_ids)
+        diagnostics = Projection.increment_diagnostic(diagnostics, :rejected, reason)
         {local_ids, neighbor_index, diagnostics}
 
       payload ->
@@ -158,6 +160,22 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
         end
     end
   end
+
+  # Accounting for links dropped because their neighbor never resolved to (or
+  # was never promoted to) a canonical `sr:` identity. These links are pure
+  # evidence (they stay persisted in mapper_topology_links) but MUST NOT write
+  # non-`sr:` pseudo-vertices into AGE. Public for tests.
+  @doc false
+  def emit_neighbor_dropped(link, reason)
+      when reason in [:neighbor_unresolved, :neighbor_not_canonical] do
+    :telemetry.execute(
+      [:serviceradar, :mapper_topology, :neighbor_dropped],
+      %{count: 1},
+      %{reason: reason, protocol: Utils.link_value(link, :protocol) || "unknown"}
+    )
+  end
+
+  def emit_neighbor_dropped(_link, _reason), do: :ok
 
   defp add_neighbor_edge(index, local_device_id, neighbor_device_id) do
     update_in(index, [local_device_id], fn

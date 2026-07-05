@@ -63,7 +63,13 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
       distinct_mac_conflict?(device_a, device_b, actor)
   end
 
-  defp distinct_mac_conflict?(device_a, device_b, actor) do
+  @doc """
+  Whether two devices hold registered MAC identities that are entirely
+  disjoint — the network-agnostic signal that they are different hardware.
+  False when either side has no registered MAC (unknown is not distinct).
+  """
+  @spec distinct_mac_conflict?(String.t(), String.t(), term()) :: boolean()
+  def distinct_mac_conflict?(device_a, device_b, actor) do
     macs_a = device_macs(device_a, actor)
     macs_b = device_macs(device_b, actor)
 
