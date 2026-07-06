@@ -101,7 +101,7 @@ func (f *fakeHTTPClient) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/qemu/100/config"):
 		return &sdk.HTTPResponse{
 			Status: http.StatusOK,
-			Body:   []byte(`{"data":{"name":"vm-100","cores":4,"memory":2048,"api_token":"should-not-leak","net0":"virtio=00:11:22:33:44:55,bridge=vmbr0"}}`),
+			Body:   []byte(`{"data":{"name":"vm-100","cores":4,"memory":2048,"agent":"1","api_token":"should-not-leak","net0":"virtio=00:11:22:33:44:55,bridge=vmbr0"}}`),
 		}, nil
 	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/qemu/100/agent/network-get-interfaces"):
 		return &sdk.HTTPResponse{
@@ -132,6 +132,17 @@ func TestRunProxmoxCheckBuildsInventory(t *testing.T) {
 	proxmoxHTTP = client
 	t.Cleanup(func() { proxmoxHTTP = oldHTTP })
 
+	// The plugin streams one result per node instead of a single aggregate, so
+	// capture every submitted batch rather than reading the (summary-only)
+	// return value.
+	var batches []*pluginResult
+	oldSubmit := submitResult
+	submitResult = func(r *pluginResult) error {
+		batches = append(batches, r)
+		return nil
+	}
+	t.Cleanup(func() { submitResult = oldSubmit })
+
 	result, err := runProxmoxCheck(Config{
 		BaseURL:       "https://pve-a.example:8006/",
 		APIToken:      "PVEAPIToken=root@pam!sr=test-token",
@@ -142,7 +153,10 @@ func TestRunProxmoxCheckBuildsInventory(t *testing.T) {
 	}
 
 	if result.Status != sdk.StatusOK {
-		t.Fatalf("unexpected status: %s summary=%s details=%s", result.Status, result.Summary, result.Details)
+		t.Fatalf("unexpected status: %s summary=%s", result.Status, result.Summary)
+	}
+	if !strings.Contains(result.Summary, "1 node(s), 1 guest(s)") {
+		t.Fatalf("expected aggregate counts in summary, got %q", result.Summary)
 	}
 	if len(client.requests) != 13 {
 		t.Fatalf("expected thirteen Proxmox API requests, got %d", len(client.requests))
@@ -155,68 +169,82 @@ func TestRunProxmoxCheckBuildsInventory(t *testing.T) {
 	if client.requests[0].Headers["Authorization"] != "PVEAPIToken=root@pam!sr=test-token" {
 		t.Fatalf("authorization header was not set")
 	}
+	if len(batches) < 2 {
+		t.Fatalf("expected streamed node + guest batches, got %d", len(batches))
+	}
 
-	var details proxmoxDetails
-	if err := json.Unmarshal([]byte(result.Details), &details); err != nil {
-		t.Fatalf("decode details: %v", err)
+	// Locate the node-bearing and guest-bearing batches, and the streamed guest
+	// device discovery.
+	var nodeDetails, guestDetails *proxmoxTarget
+	guestDiscoveryIP := ""
+	for _, b := range batches {
+		var d proxmoxDetails
+		if err := json.Unmarshal([]byte(b.Details), &d); err != nil {
+			t.Fatalf("decode batch details: %v", err)
+		}
+		if len(d.Targets) == 0 {
+			continue
+		}
+		tgt := d.Targets[0]
+		switch {
+		case len(tgt.Guests) > 0:
+			g := tgt
+			guestDetails = &g
+			// Guest batches carry only guest devices in their discovery.
+			for _, disc := range b.DeviceDiscovery {
+				for _, dev := range disc.Devices {
+					if dev.IP != "" {
+						guestDiscoveryIP = dev.IP
+					}
+				}
+			}
+		case len(tgt.Nodes) > 0 && nodeDetails == nil:
+			n := tgt
+			nodeDetails = &n
+		}
 	}
-	if details.Summary.Nodes != 1 || details.Summary.Guests != 1 {
-		t.Fatalf("unexpected details summary: %#v", details.Summary)
+	if nodeDetails == nil || guestDetails == nil {
+		t.Fatalf("expected both a node and a guest batch (node=%v guest=%v)", nodeDetails, guestDetails)
 	}
-	if details.Targets[0].Version == nil || details.Targets[0].Version.Version != "8.2.4" {
-		t.Fatalf("expected version details, got %#v", details.Targets[0].Version)
+
+	// Version + cluster identity must travel with every batch so per-node guest
+	// batches can still mint the v2 identity.
+	if guestDetails.Version == nil || guestDetails.Version.Version != "8.2.4" {
+		t.Fatalf("expected version on guest batch, got %#v", guestDetails.Version)
 	}
-	if len(details.Targets[0].Cluster) != 2 {
-		t.Fatalf("expected cluster status details, got %#v", details.Targets[0].Cluster)
+	if len(guestDetails.Cluster) != 2 {
+		t.Fatalf("expected cluster status on guest batch, got %#v", guestDetails.Cluster)
 	}
-	if details.Targets[0].Nodes[0].IP != "10.10.0.11" {
-		t.Fatalf("expected node details IP from cluster status, got %#v", details.Targets[0].Nodes[0])
+
+	node := nodeDetails.Nodes[0]
+	if node.IP != "10.10.0.11" {
+		t.Fatalf("expected node IP from cluster status, got %#v", node)
 	}
-	if floatValue(details.Targets[0].Nodes[0].RuntimeState, "wait") != 0.01 {
-		t.Fatalf("expected node runtime status, got %#v", details.Targets[0].Nodes[0].RuntimeState)
+	if floatValue(node.RuntimeState, "wait") != 0.01 {
+		t.Fatalf("expected node runtime status, got %#v", node.RuntimeState)
 	}
-	if details.Summary.Storage != 1 || details.Summary.NetworkInterfaces != 1 || details.Summary.Disks != 1 || details.Summary.CephEnabledNodes != 1 {
-		t.Fatalf("expected infrastructure summary counts, got %#v", details.Summary)
+	if len(node.Storage) != 1 || node.Storage[0].Storage != "local-zfs" {
+		t.Fatalf("expected node storage details, got %#v", node.Storage)
 	}
-	if details.ResourceSummary.MaxNodeStorageRatio != 0.5 || details.ResourceSummary.CephWarnNodes != 0 {
-		t.Fatalf("expected infrastructure resource summary, got %#v", details.ResourceSummary)
+	if len(node.Network) != 1 || node.Network[0].Iface != "vmbr0" || node.Network[0].MACAddress != "00:aa:bb:cc:dd:ee" {
+		t.Fatalf("expected node network details, got %#v", node.Network)
 	}
-	if len(details.Targets[0].Nodes[0].Storage) != 1 || details.Targets[0].Nodes[0].Storage[0].Storage != "local-zfs" {
-		t.Fatalf("expected node storage details, got %#v", details.Targets[0].Nodes[0].Storage)
+	if len(node.Disks) != 1 || node.Disks[0].DevPath != "/dev/sda" {
+		t.Fatalf("expected node disk details, got %#v", node.Disks)
 	}
-	if len(details.Targets[0].Nodes[0].Network) != 1 || details.Targets[0].Nodes[0].Network[0].Iface != "vmbr0" {
-		t.Fatalf("expected node network details, got %#v", details.Targets[0].Nodes[0].Network)
+
+	guest := guestDetails.Guests[0]
+	if len(guest.Interfaces) != 1 {
+		t.Fatalf("expected guest interface details, got %#v", guest.Interfaces)
 	}
-	if details.Targets[0].Nodes[0].Network[0].MACAddress != "00:aa:bb:cc:dd:ee" {
-		t.Fatalf("expected node network MAC identity, got %#v", details.Targets[0].Nodes[0].Network[0])
-	}
-	if len(details.Targets[0].Nodes[0].Disks) != 1 || details.Targets[0].Nodes[0].Disks[0].DevPath != "/dev/sda" {
-		t.Fatalf("expected node disk details, got %#v", details.Targets[0].Nodes[0].Disks)
-	}
-	if len(details.Targets[0].Guests[0].Interfaces) != 1 {
-		t.Fatalf("expected guest interface details, got %#v", details.Targets[0].Guests[0].Interfaces)
-	}
-	if got := details.Targets[0].Guests[0].Interfaces[0].IPAddresses; len(got) != 1 || got[0] != "192.168.2.50/24" {
+	if got := guest.Interfaces[0].IPAddresses; len(got) != 1 || got[0] != "192.168.2.50/24" {
 		t.Fatalf("expected guest agent IP address, got %#v", got)
 	}
-	if details.Targets[0].Guests[0].Disk != 6144 || details.Targets[0].Guests[0].MaxDisk != 8192 {
-		t.Fatalf("expected guest agent filesystem usage, got disk=%v maxdisk=%v", details.Targets[0].Guests[0].Disk, details.Targets[0].Guests[0].MaxDisk)
+	if guest.Disk != 6144 || guest.MaxDisk != 8192 {
+		t.Fatalf("expected guest agent filesystem usage, got disk=%v maxdisk=%v", guest.Disk, guest.MaxDisk)
 	}
-	if len(result.DeviceDiscovery) != 1 {
-		t.Fatalf("expected one device discovery envelope, got %#v", result.DeviceDiscovery)
-	}
-	if got := len(result.DeviceDiscovery[0].Devices); got != 2 {
-		t.Fatalf("expected node and guest discoveries, got %d: %#v", got, result.DeviceDiscovery[0].Devices)
-	}
-	if got := result.DeviceDiscovery[0].Devices[1].IP; got != "192.168.2.50" {
-		t.Fatalf("expected guest discovery IP from guest agent, got %q", got)
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(result.JSON(), &payload); err != nil {
-		t.Fatalf("decode result JSON: %v", err)
-	}
-	if _, ok := payload["metrics"]; ok {
-		t.Fatalf("expected plugin result to omit legacy metrics, got %#v", payload["metrics"])
+	if guestDiscoveryIP != "192.168.2.50" {
+		t.Fatalf("expected guest discovery IP from guest agent, got %q", guestDiscoveryIP)
 	}
 }
 
@@ -237,7 +265,7 @@ func TestFetchGuestsUsesNodeScopedEndpointsAndLXCConfigIPs(t *testing.T) {
 		[]proxmoxNode{{Node: "pve-a", Status: "online"}},
 		warnings,
 	)
-	guests := enrichGuests(cfg, Target{BaseURL: cfg.BaseURL}, cfg.APIToken, guestResources, warnings)
+	guests := enrichGuests(cfg, Target{BaseURL: cfg.BaseURL}, cfg.APIToken, guestResources, time.Time{}, warnings)
 
 	if len(guests) != 2 {
 		t.Fatalf("expected qemu and lxc guests, got %#v warnings=%#v", guests, warnings)
@@ -591,7 +619,7 @@ func TestAddNodeDiscoveriesOnlyUsesTargetDeviceIDForMatchingNode(t *testing.T) {
 	}, []proxmoxNode{
 		{Node: "pve-a", Status: "online", IP: "192.0.2.10/24"},
 		{Node: "pve-b", Status: "online", IP: "192.0.2.11/24"},
-	})
+	}, nil)
 
 	if got := discovery.Devices[0].DeviceID; got != "sr:device:pve-a" {
 		t.Fatalf("expected matching node to keep target device ID, got %s", got)
@@ -1034,3 +1062,38 @@ type nopWriteCloser struct {
 }
 
 func (n nopWriteCloser) Close() error { return nil }
+
+func TestInterfacesFromGuestConfigMergesIPConfig(t *testing.T) {
+	// Cloud-init QEMU: netN has the MAC, ipconfigN has the address.
+	config := map[string]string{
+		"net0":      "virtio=AA:BB:CC:DD:EE:FF,bridge=vmbr0",
+		"ipconfig0": "ip=10.0.0.5/24,gw=10.0.0.1",
+	}
+	ifaces := interfacesFromGuestConfig(config)
+	if len(ifaces) != 1 {
+		t.Fatalf("expected 1 interface, got %d: %+v", len(ifaces), ifaces)
+	}
+	if ifaces[0].MACAddress == "" {
+		t.Fatalf("expected MAC from net0, got none")
+	}
+	// primaryIP strips the CIDR prefix — the device IP is the bare address.
+	if ip := primaryIP(ifaces); ip != "10.0.0.5" {
+		t.Fatalf("expected ipconfig0 address 10.0.0.5 merged onto net0, got primaryIP=%q ips=%+v", ip, ifaces[0].IPAddresses)
+	}
+}
+
+func TestGuestAgentEnabled(t *testing.T) {
+	cases := map[string]bool{
+		"1":                          true,
+		"1,fstrim_cloned_disks=1":    true,
+		"enabled=1,type=virtio":      true,
+		"0":                          false,
+		"":                           false,
+		"enabled=0":                  false,
+	}
+	for raw, want := range cases {
+		if got := guestAgentEnabled(map[string]string{"agent": raw}); got != want {
+			t.Fatalf("guestAgentEnabled(%q) = %v, want %v", raw, got, want)
+		}
+	}
+}

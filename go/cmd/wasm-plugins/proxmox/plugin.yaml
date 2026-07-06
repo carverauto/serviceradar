@@ -1,6 +1,6 @@
 id: proxmox-inventory
 name: Proxmox Inventory
-version: 0.1.3
+version: 0.1.4
 description: Enriches Proxmox PVE hosts and guests using the Proxmox VE REST API
 entrypoint: run_check
 runtime: wasi-preview1
@@ -17,7 +17,7 @@ permissions:
   allowed_ports:
     - 8006
 resources:
-  requested_memory_mb: 64
+  requested_memory_mb: 256
   requested_cpu_ms: 10000
   max_open_connections: 2
 signal_schemas:
