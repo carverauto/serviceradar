@@ -155,8 +155,14 @@ defmodule ServiceRadar.Automation.Ansible.RetentionWorker do
     if run_ids == [] do
       {:ok, 0}
     else
+      # PlaybookPlay also has no primary read action, and bulk_destroy reads the
+      # query before deleting — so the query must name the `:read` action
+      # explicitly, otherwise the read phase raises "No primary action of type
+      # :read". (Passing `read_action:` alone is not enough: bulk_destroy raises
+      # while validating the unvalidated query before that option is consulted.)
       _ =
         PlaybookPlay
+        |> Ash.Query.for_read(:read, %{}, actor: actor)
         |> Ash.Query.filter(run_id in ^run_ids)
         |> Ash.bulk_destroy(:destroy, %{}, actor: actor, return_errors?: false)
 
@@ -175,8 +181,13 @@ defmodule ServiceRadar.Automation.Ansible.RetentionWorker do
       # Postgres `references` block on PlaybookRunTarget / PlaybookPlay /
       # ... cascades on PlaybookRun delete. So destroying the run row
       # cleans up the rest.
+      #
+      # PlaybookRun has no primary read action, and bulk_destroy reads the query
+      # before deleting — name the `:read` action explicitly so the read phase
+      # doesn't raise "No primary action of type :read".
       _ =
         PlaybookRun
+        |> Ash.Query.for_read(:read, %{}, actor: actor)
         |> Ash.Query.filter(id in ^run_ids)
         |> Ash.bulk_destroy(:destroy, %{}, actor: actor, return_errors?: false)
 
@@ -185,7 +196,12 @@ defmodule ServiceRadar.Automation.Ansible.RetentionWorker do
   end
 
   defp old_terminal_run_ids(cutoff, actor) do
+    # PlaybookRun deliberately has no primary read action (see playbook_run.ex —
+    # kept so state-transition updates don't attempt atomic upgrades), so a bare
+    # read must name the `:read` action explicitly or Ash raises
+    # "No primary action of type :read".
     PlaybookRun
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
     |> Ash.Query.filter(
       state in ^@terminal_states and not is_nil(ended_at) and ended_at < ^cutoff
     )
