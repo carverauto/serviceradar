@@ -55,7 +55,11 @@ func proxmoxGuestID(guest proxmoxResource) string {
 		return "proxmox:" + strings.ReplaceAll(guest.ID, "/", ":")
 	}
 
-	return fmt.Sprintf("proxmox:%s:%s:%d", normalizeGuestKind(guest.Type), guest.Node, guest.VMID)
+	// Node-independent placeholder uid (matches the enrichment path's
+	// proxmox_guest_device_uid): the vmid is cluster-stable across live
+	// migration, so keying on it — not the current node — keeps the id from
+	// rotating when a guest moves between nodes.
+	return fmt.Sprintf("proxmox:%s:%d", normalizeGuestKind(guest.Type), guest.VMID)
 }
 
 func normalizeGuestKind(value string) string {
