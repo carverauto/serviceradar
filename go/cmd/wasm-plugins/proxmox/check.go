@@ -19,7 +19,11 @@ var submitResult = submitPluginResult
 // regardless of how many guests the cluster has. Partial progress survives a
 // mid-run cancellation because every node's batch is submitted as it completes.
 // It returns a small final status result carrying only aggregate counts.
+// guestFetchDebug is temporary instrumentation: per-node/kind raw guest counts.
+var guestFetchDebug []string
+
 func runProxmoxCheck(cfg Config) (*pluginResult, error) {
+	guestFetchDebug = nil
 	cfg.applyDefaults()
 	applyHTTPClientLimits(cfg)
 
@@ -74,9 +78,7 @@ func runProxmoxCheck(cfg Config) (*pluginResult, error) {
 			// emitted and counted in its own batch, and re-including it here would
 			// double-count nodes and re-emit the node discovery.
 			guests, truncated := fetchNodeGuestsEnriched(cfg, target, token, node.Node, remaining, nodeEnrichDeadline(), warnings)
-			if len(guests) > 0 {
-				emitProxmoxBatch(observedAt, target, version, cluster, nil, guests, warnings, &totals)
-			}
+			emitProxmoxBatch(observedAt, target, version, cluster, nil, guests, warnings, &totals)
 
 			if cfg.MaxGuests > 0 {
 				remaining -= len(guests)
@@ -106,6 +108,9 @@ func runProxmoxCheck(cfg Config) (*pluginResult, error) {
 	if totals.Bottleneck > 0 {
 		status = sdk.StatusWarning
 		summary += fmt.Sprintf(", %d resource bottleneck(s)", totals.Bottleneck)
+	}
+	if len(guestFetchDebug) > 0 {
+		summary += " [dbg " + strings.Join(guestFetchDebug, " ") + "]"
 	}
 
 	result := newPluginResult(status, summary)
@@ -239,11 +244,15 @@ func emitProxmoxBatch(
 		return
 	}
 
-	result := newPluginResult(sdk.StatusOK, fmt.Sprintf(
+	batchSummary := fmt.Sprintf(
 		"Proxmox inventory: %d node(s), %d guest(s)",
 		totals.Nodes,
 		totals.Guests,
-	))
+	)
+	if len(guestFetchDebug) > 0 {
+		batchSummary += " [dbg " + strings.Join(guestFetchDebug, " ") + "]"
+	}
+	result := newPluginResult(sdk.StatusOK, batchSummary)
 	result.ObservedAt = observedAt
 	result.AddLabel("plugin_id", pluginID)
 	result.Details = string(body)

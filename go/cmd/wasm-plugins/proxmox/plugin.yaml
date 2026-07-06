@@ -17,7 +17,7 @@ permissions:
   allowed_ports:
     - 8006
 resources:
-  requested_memory_mb: 64
+  requested_memory_mb: 256
   requested_cpu_ms: 10000
   max_open_connections: 2
 signal_schemas:
