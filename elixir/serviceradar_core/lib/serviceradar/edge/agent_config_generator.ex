@@ -1700,18 +1700,48 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   # (or per-arch artifact) change must re-version so a polling agent stops getting
   # `not_modified` and relaunches the new executable.
   defp stable_addon_assignment(assignment) when is_map(assignment) do
-    assignment
-    |> Map.delete(:download_url)
-    |> Map.delete("download_url")
-    |> Map.delete(:download_token)
-    |> Map.delete("download_token")
+    # Recurse the WHOLE assignment through the volatile strip — addon params
+    # nest per-generation values (artifact download URLs/tokens, re-minted
+    # credential-broker grant timestamps) just like plugin params do. Stripping
+    # only the top-level download fields left the `addons` version-hash
+    # component rotating on every generation (observed live: 14/14 consecutive
+    # generations), which re-pushed the config and restarted running plugins.
+    stable_config_fragment(assignment)
   end
 
   defp stable_addon_assignment(assignment), do: assignment
 
+  # Per-generation volatile fields that must not perturb the config version
+  # hash, stripped at ANY depth. The delivered config still carries fresh
+  # values; agents apply them whenever a real change re-versions the config or
+  # on their startup fetch. `sync`/`visibility`/`endpoint_inventory`/`addons`
+  # embed artifact download URLs+tokens (HMAC-minted fresh each generation)
+  # and grant timestamps — observed live rotating the version hash on EVERY
+  # generation (14/14 and 16/16 consecutive gens across gateway + core), which
+  # re-pushed the config and restarted every running plugin ~1/min, so any
+  # inventory run longer than a minute could never finish.
+  @volatile_version_keys [
+    :compiled_at,
+    "compiled_at",
+    :generated_at,
+    "generated_at",
+    :download_url,
+    "download_url",
+    :download_token,
+    "download_token",
+    :grant_id,
+    "grant_id",
+    :expires_at,
+    "expires_at",
+    :issued_at,
+    "issued_at",
+    :not_before,
+    "not_before"
+  ]
+
   defp stable_config_fragment(%{} = map) do
     map
-    |> Map.drop([:compiled_at, "compiled_at", :generated_at, "generated_at"])
+    |> Map.drop(@volatile_version_keys)
     |> Map.new(fn {key, value} -> {key, stable_config_fragment(value)} end)
   end
 
