@@ -14,5 +14,7 @@ An Armis northbound run in production remained in Oban's `executing` state after
 - Affected code:
   - `elixir/serviceradar_core/config/config.exs`
   - `elixir/serviceradar_core/config/runtime.exs`
+  - `elixir/serviceradar_core/lib/serviceradar/sweep_jobs/oban_support.ex`
   - `elixir/serviceradar_core/lib/serviceradar/integrations/armis_northbound_run_worker.ex`
+  - `elixir/serviceradar_core/test/serviceradar/sweep_jobs/oban_support_test.exs`
   - `elixir/serviceradar_core/test/serviceradar/integrations/armis_northbound_run_worker_test.exs`

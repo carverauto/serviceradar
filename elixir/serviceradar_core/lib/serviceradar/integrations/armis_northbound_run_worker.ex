@@ -119,8 +119,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
 
       integration_source_id
       |> build_job(opts)
-      |> support_module().safe_insert()
-      |> maybe_retry_stale_conflict(integration_source_id, opts)
+      |> support_module().safe_insert(stale_conflict_cutoff_seconds: stale_run_cutoff_seconds())
     else
       {:error, :oban_unavailable}
     end
@@ -174,58 +173,6 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
     do: Keyword.put(opts, :schedule_in, schedule_in)
 
   defp put_run_at(opts, false, _schedule_in), do: opts
-
-  defp maybe_retry_stale_conflict(
-         {:ok, %Oban.Job{conflict?: true, state: "executing"} = conflict_job},
-         integration_source_id,
-         opts
-       ) do
-    cutoff_seconds = stale_run_cutoff_seconds()
-    now = DateTime.utc_now()
-
-    if stale_conflict?(conflict_job, now, cutoff_seconds) do
-      case reap_stale_source_jobs(integration_source_id, now, cutoff_seconds) do
-        {count, _} when is_integer(count) and count > 0 ->
-          Logger.warning("Retrying Armis northbound enqueue after stale Oban conflict",
-            integration_source_id: integration_source_id,
-            stale_oban_job_id: conflict_job.id,
-            stale_run_cutoff_seconds: cutoff_seconds
-          )
-
-          integration_source_id
-          |> build_job(opts)
-          |> support_module().safe_insert()
-
-        _ ->
-          Logger.warning("Armis northbound enqueue hit a stale Oban conflict that was not reaped",
-            integration_source_id: integration_source_id,
-            stale_oban_job_id: conflict_job.id,
-            attempted_at: inspect(conflict_job.attempted_at),
-            stale_run_cutoff_seconds: cutoff_seconds
-          )
-
-          {:error, {:stale_armis_northbound_job_conflict, conflict_job.id}}
-      end
-    else
-      {:ok, conflict_job}
-    end
-  end
-
-  defp maybe_retry_stale_conflict(result, _integration_source_id, _opts), do: result
-
-  defp stale_conflict?(%Oban.Job{attempted_at: %DateTime{} = attempted_at}, now, cutoff_seconds) do
-    DateTime.diff(now, attempted_at, :second) >= cutoff_seconds
-  end
-
-  defp stale_conflict?(
-         %Oban.Job{attempted_at: %NaiveDateTime{} = attempted_at},
-         now,
-         cutoff_seconds
-       ) do
-    NaiveDateTime.diff(DateTime.to_naive(now), attempted_at, :second) >= cutoff_seconds
-  end
-
-  defp stale_conflict?(_job, _now, _cutoff_seconds), do: false
 
   defp reap_stale_source_jobs(integration_source_id) do
     reap_stale_source_jobs(integration_source_id, DateTime.utc_now(), stale_run_cutoff_seconds())

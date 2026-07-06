@@ -54,8 +54,9 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest.SupportStub do
   def available?, do: Process.get(:support_available, false)
   def prefix, do: "platform"
 
-  def safe_insert(job) do
+  def safe_insert(job, opts \\ []) do
     send(Process.get(:test_pid), {:safe_insert, job})
+    send(Process.get(:test_pid), {:safe_insert_opts, opts})
 
     case Process.get(:safe_insert_results) do
       [result | remaining] ->
@@ -152,100 +153,9 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest do
       assert_received {:reap_stale_jobs, ArmisNorthboundRunWorker, "source-123", %DateTime{}, 240}
 
       assert_received {:safe_insert, ^job}
+      assert_received {:safe_insert_opts, [stale_conflict_cutoff_seconds: 240]}
     end)
   after
-    Process.delete(:support_available)
-    Process.delete(:test_pid)
-  end
-
-  test "enqueue_now retries after Oban returns a stale executing conflict" do
-    Process.put(:test_pid, self())
-
-    with_support(fn ->
-      Process.put(:support_available, true)
-
-      Process.put(:safe_insert_results, [
-        {:ok,
-         %Oban.Job{
-           id: 1234,
-           state: "executing",
-           conflict?: true,
-           attempted_at: ~N[2026-04-14 03:20:00]
-         }}
-      ])
-
-      Application.put_env(:serviceradar_core, :armis_northbound_stale_run_cutoff_seconds, 120)
-
-      Application.put_env(:serviceradar_core, :armis_northbound_reap_stale_jobs_fun, fn
-        worker, source_id, now, cutoff_seconds ->
-          calls = Process.get(:reap_stale_calls, 0) + 1
-          Process.put(:reap_stale_calls, calls)
-          send(self(), {:reap_stale_jobs, calls, worker, source_id, now, cutoff_seconds})
-
-          if calls == 1, do: {0, nil}, else: {1, nil}
-      end)
-
-      assert {:ok, %Ecto.Changeset{} = retried_job} =
-               ArmisNorthboundRunWorker.enqueue_now("source-123")
-
-      assert_received {:reap_stale_jobs, 1, ArmisNorthboundRunWorker, "source-123", %DateTime{},
-                       120}
-
-      assert_received {:reap_stale_jobs, 2, ArmisNorthboundRunWorker, "source-123", %DateTime{},
-                       120}
-
-      assert_received {:safe_insert, first_job}
-      assert_received {:safe_insert, ^retried_job}
-
-      assert first_job.changes.args == %{
-               "integration_source_id" => "source-123",
-               "manual" => true
-             }
-
-      assert retried_job.changes.args == %{
-               "integration_source_id" => "source-123",
-               "manual" => true
-             }
-    end)
-  after
-    Process.delete(:reap_stale_calls)
-    Process.delete(:safe_insert_results)
-    Process.delete(:support_available)
-    Process.delete(:test_pid)
-  end
-
-  test "enqueue_now reports a stale executing conflict when it cannot be reaped" do
-    Process.put(:test_pid, self())
-
-    with_support(fn ->
-      Process.put(:support_available, true)
-
-      Process.put(:safe_insert_results, [
-        {:ok,
-         %Oban.Job{
-           id: 5678,
-           state: "executing",
-           conflict?: true,
-           attempted_at: ~N[2026-04-14 03:20:00]
-         }}
-      ])
-
-      Application.put_env(:serviceradar_core, :armis_northbound_stale_run_cutoff_seconds, 120)
-
-      Application.put_env(:serviceradar_core, :armis_northbound_reap_stale_jobs_fun, fn
-        worker, source_id, now, cutoff_seconds ->
-          send(self(), {:reap_stale_jobs, worker, source_id, now, cutoff_seconds})
-          {0, nil}
-      end)
-
-      assert {:error, {:stale_armis_northbound_job_conflict, 5678}} =
-               ArmisNorthboundRunWorker.enqueue_now("source-123")
-
-      assert_received {:safe_insert, _job}
-      assert_received {:reap_stale_jobs, ArmisNorthboundRunWorker, "source-123", %DateTime{}, 120}
-    end)
-  after
-    Process.delete(:safe_insert_results)
     Process.delete(:support_available)
     Process.delete(:test_pid)
   end

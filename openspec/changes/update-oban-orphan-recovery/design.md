@@ -18,7 +18,9 @@ The July 6, 2026 production incident exposed this through `ServiceRadar.Integrat
 - Use `Oban.Plugins.Lifeline` in `serviceradar_core` as the system-wide recovery mechanism.
 - Run Lifeline only from the core Oban coordinator, alongside Cron and database peer leadership.
 - Default `rescue_after` to 240 minutes and expose `OBAN_LIFELINE_RESCUE_AFTER_MS` for production tuning.
-- Keep manual enqueue conflict handling in the Armis path for this incident because it is the observed UI path that falsely reported success before the next background recovery tick.
+- Handle stale `executing` uniqueness conflicts in the shared `ObanSupport.safe_insert/2` path so manual enqueue callers get one common retry/error behavior.
+- Discard the stale blocking row before the synchronous insert retry; the new insert is the replacement work item, while Lifeline remains the background path that rescues non-exhausted orphans back to `available`.
+- Let subsystem workers pass a shorter conflict threshold only when their workflow has a tighter freshness contract than the global Lifeline threshold.
 
 ## Alternatives Considered
 - Expand `ReapStalePeriodicJobsWorker` with more worker allowlists.
@@ -36,6 +38,7 @@ The July 6, 2026 production incident exposed this through `ServiceRadar.Integrat
 
 ## Migration Plan
 1. Enable Lifeline in core Oban configuration.
-2. Deploy with the conservative default threshold.
-3. Monitor Oban plugin telemetry/logs and job history for rescued or discarded jobs.
-4. Replace subsystem-specific stale-job reapers with shared enqueue/recovery helpers in later cleanup changes.
+2. Route manual enqueue paths through shared stale-conflict recovery.
+3. Deploy with the conservative default threshold.
+4. Monitor Oban plugin telemetry/logs and job history for rescued or discarded jobs.
+5. Replace remaining subsystem-specific stale-job reapers with shared recovery helpers in later cleanup changes.
