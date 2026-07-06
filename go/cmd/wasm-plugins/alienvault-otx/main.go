@@ -27,8 +27,12 @@ const (
 	maxPages             = 10000
 	maxRetries           = 5
 	maxBackoffMS         = 30000
+	minAdaptiveLimit     = 250
 	sourceAlienVaultOTX  = "alienvault_otx"
 )
+
+// otxSleep is package-level so tests can avoid real backoff waits.
+var otxSleep = time.Sleep
 
 var (
 	errJSONField = errors.New("json field not found")
@@ -242,7 +246,7 @@ func fetchAndSubmitOTXExportPages(cfg Config, emit otxPageEmitter) (int, error) 
 		pageCfg.Page = currentPage
 		pageCfg.MaxIndicators = cfg.MaxIndicators - indicatorsEmitted
 
-		page, err := fetchSingleOTXExportPageWithRetry(pageCfg)
+		page, err := fetchOTXExportPageAdaptive(pageCfg)
 		if err != nil {
 			return pagesFetched, err
 		}
@@ -316,7 +320,7 @@ func fetchOTXExportPages(cfg Config) (ctiPage, error) {
 		pageCfg.Page = currentPage
 		pageCfg.MaxIndicators = cfg.MaxIndicators - len(aggregate.Indicators)
 
-		page, err := fetchSingleOTXExportPageWithRetry(pageCfg)
+		page, err := fetchOTXExportPageAdaptive(pageCfg)
 		if err != nil {
 			return ctiPage{}, err
 		}
@@ -379,6 +383,56 @@ func fetchSingleOTXExportPage(cfg Config) (ctiPage, error) {
 	return page, nil
 }
 
+// fetchOTXExportPageAdaptive fetches one export page at cfg.Limit and, when the
+// upstream keeps timing out (deep export pages routinely 504 at large limits)
+// or the page exceeds the host body cap, refetches the same offset range as two
+// half-limit pages (recursively, down to minAdaptiveLimit) and merges them so
+// cursor arithmetic stays in cfg.Limit units.
+func fetchOTXExportPageAdaptive(cfg Config) (ctiPage, error) {
+	page, err := fetchSingleOTXExportPageWithRetry(cfg)
+	if err == nil || !shrinkableOTXError(err) || cfg.Limit%2 != 0 || cfg.Limit/2 < minAdaptiveLimit {
+		return page, err
+	}
+
+	halfCfg := cfg
+	halfCfg.Limit = cfg.Limit / 2
+	halfCfg.Page = cfg.Page*2 - 1
+
+	first, err := fetchOTXExportPageAdaptive(halfCfg)
+	if err != nil {
+		return ctiPage{}, err
+	}
+
+	merged := first
+	merged.Cursor.Next = ""
+	if strings.TrimSpace(first.Cursor.Next) == "" {
+		return merged, nil
+	}
+
+	secondCfg := halfCfg
+	secondCfg.Page = halfCfg.Page + 1
+	secondCfg.MaxIndicators = cfg.MaxIndicators - len(first.Indicators)
+
+	second, err := fetchOTXExportPageAdaptive(secondCfg)
+	if err != nil {
+		return ctiPage{}, err
+	}
+
+	mergeCTIPage(&merged, second)
+
+	if strings.TrimSpace(second.Cursor.Next) != "" {
+		nextCfg := cfg
+		nextCfg.Page = cfg.Page + 1
+		nextURL, err := subscribedPulsesURL(nextCfg)
+		if err != nil {
+			return ctiPage{}, errors.New("OTX base URL is invalid")
+		}
+		merged.Cursor.Next = nextURL
+	}
+
+	return merged, nil
+}
+
 func fetchSingleOTXExportPageWithRetry(cfg Config) (ctiPage, error) {
 	attempts := cfg.MaxRetries + 1
 	if attempts < 1 {
@@ -397,14 +451,14 @@ func fetchSingleOTXExportPageWithRetry(cfg Config) (ctiPage, error) {
 			break
 		}
 
-		sleepMS := cfg.BackoffMS * attempt
+		sleepMS := cfg.BackoffMS << (attempt - 1)
 		if sleepMS <= 0 {
 			sleepMS = defaultBackoffMS
 		}
 		if sleepMS > maxBackoffMS {
 			sleepMS = maxBackoffMS
 		}
-		time.Sleep(time.Duration(sleepMS) * time.Millisecond)
+		otxSleep(time.Duration(sleepMS) * time.Millisecond)
 	}
 
 	return ctiPage{}, lastErr
@@ -418,7 +472,27 @@ func retryableOTXError(err error) bool {
 	message := err.Error()
 	return strings.Contains(message, "host error -6") ||
 		strings.Contains(message, "host error -5") ||
+		strings.Contains(message, "HTTP 429") ||
 		strings.Contains(message, "HTTP 500") ||
+		strings.Contains(message, "HTTP 502") ||
+		strings.Contains(message, "HTTP 503") ||
+		strings.Contains(message, "HTTP 504")
+}
+
+// shrinkableOTXError reports failures that a smaller export page is likely to
+// avoid: gateway timeouts on slow deep pages (502/503/504), host-side
+// timeouts/aborted transfers (-6/-5), and host body-cap truncation (-3).
+// Rate limiting (HTTP 429) is deliberately excluded — splitting a page doubles
+// the request count and makes throttling worse.
+func shrinkableOTXError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	message := err.Error()
+	return strings.Contains(message, "host error -3") ||
+		strings.Contains(message, "host error -5") ||
+		strings.Contains(message, "host error -6") ||
 		strings.Contains(message, "HTTP 502") ||
 		strings.Contains(message, "HTTP 503") ||
 		strings.Contains(message, "HTTP 504")

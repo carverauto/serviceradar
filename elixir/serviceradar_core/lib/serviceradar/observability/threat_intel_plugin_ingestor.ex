@@ -270,14 +270,31 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
       |> fetch_value(["assignment_id", :assignment_id])
   end
 
-  defp cursor_params(cursor) when is_map(cursor) do
+  # Once a walk completes, the next walk only needs indicators modified since
+  # shortly before this one finished. Without this stamp every walk re-exports
+  # the full OTX corpus, whose deep pages routinely exceed the provider's
+  # gateway timeouts and wedge the cursor. The overlap absorbs walk duration
+  # and provider clock skew; indicators are upserted, so re-fetching it is
+  # idempotent.
+  @completed_walk_overlap_seconds 2 * 24 * 60 * 60
+
+  @doc false
+  @spec cursor_params(term(), DateTime.t()) :: map()
+  def cursor_params(cursor, now \\ DateTime.utc_now())
+
+  def cursor_params(cursor, %DateTime{} = now) when is_map(cursor) do
     complete? = fetch_value(cursor, ["complete"]) == "true"
     next_page = fetch_value(cursor, ["next_page"])
     next = fetch_value(cursor, ["next"])
 
     cond do
       complete? ->
-        %{"page" => 1, "cursor_complete" => true, "cursor_next" => nil}
+        %{
+          "page" => 1,
+          "cursor_complete" => true,
+          "cursor_next" => nil,
+          "modified_since" => completed_walk_modified_since(now)
+        }
 
       is_binary(next_page) and next_page != "" ->
         maybe_put_cursor_next(
@@ -290,7 +307,14 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
     end
   end
 
-  defp cursor_params(_cursor), do: %{}
+  def cursor_params(_cursor, _now), do: %{}
+
+  defp completed_walk_modified_since(now) do
+    now
+    |> DateTime.add(-@completed_walk_overlap_seconds, :second)
+    |> DateTime.truncate(:second)
+    |> DateTime.to_iso8601()
+  end
 
   defp maybe_put_cursor_next(params, next) when is_binary(next) and next != "" do
     Map.put(params, "cursor_next", next)
