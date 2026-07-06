@@ -73,11 +73,9 @@ func fetchNodeGuests(cfg Config, target Target, token, node, kind string) ([]pro
 	var envelope proxmoxResourcesResponse
 	path := fmt.Sprintf("/api2/json/nodes/%s/%s", url.PathEscape(node), kind)
 	if err := getJSON(cfg, target, token, path, &envelope); err != nil {
-		guestFetchDebug = append(guestFetchDebug, fmt.Sprintf("%s/%s=ERR", node, kind))
 		return nil, fmt.Errorf("fetch node %s guests: %w", kind, err)
 	}
 
-	guestFetchDebug = append(guestFetchDebug, fmt.Sprintf("%s/%s=%d", node, kind, len(envelope.Data)))
 	return normalizeNodeGuestResources(envelope.Data, node, kind), nil
 }
 

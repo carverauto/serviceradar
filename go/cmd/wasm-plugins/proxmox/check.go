@@ -20,9 +20,6 @@ var submitResult = submitPluginResult
 // regardless of how many guests the cluster has. Partial progress survives a
 // mid-run cancellation because every node's batch is submitted as it completes.
 // It returns a small final status result carrying only aggregate counts.
-// guestFetchDebug is temporary instrumentation: per-node/kind raw guest counts.
-var guestFetchDebug []string
-
 // clusterFingerprint identifies a cluster by its sorted member node names so
 // duplicate targets pointing at the same cluster enumerate it only once.
 func clusterFingerprint(nodes []proxmoxNode) string {
@@ -35,7 +32,6 @@ func clusterFingerprint(nodes []proxmoxNode) string {
 }
 
 func runProxmoxCheck(cfg Config) (*pluginResult, error) {
-	guestFetchDebug = nil
 	cfg.applyDefaults()
 	applyHTTPClientLimits(cfg)
 
@@ -102,7 +98,9 @@ func runProxmoxCheck(cfg Config) (*pluginResult, error) {
 			// emitted and counted in its own batch, and re-including it here would
 			// double-count nodes and re-emit the node discovery.
 			guests, truncated := fetchNodeGuestsEnriched(cfg, target, token, node.Node, remaining, nodeEnrichDeadline(), warnings)
-			emitProxmoxBatch(observedAt, target, version, cluster, nil, guests, warnings, &totals)
+			if len(guests) > 0 {
+				emitProxmoxBatch(observedAt, target, version, cluster, nil, guests, warnings, &totals)
+			}
 
 			if cfg.MaxGuests > 0 {
 				remaining -= len(guests)
@@ -132,9 +130,6 @@ func runProxmoxCheck(cfg Config) (*pluginResult, error) {
 	if totals.Bottleneck > 0 {
 		status = sdk.StatusWarning
 		summary += fmt.Sprintf(", %d resource bottleneck(s)", totals.Bottleneck)
-	}
-	if len(guestFetchDebug) > 0 {
-		summary += " [dbg " + strings.Join(guestFetchDebug, " ") + "]"
 	}
 
 	result := newPluginResult(status, summary)
@@ -281,9 +276,6 @@ func emitProxmoxBatch(
 		totals.Nodes,
 		totals.Guests,
 	)
-	if len(guestFetchDebug) > 0 {
-		batchSummary += " [dbg " + strings.Join(guestFetchDebug, " ") + "]"
-	}
 	result := newPluginResult(sdk.StatusOK, batchSummary)
 	result.ObservedAt = observedAt
 	result.AddLabel("plugin_id", pluginID)
