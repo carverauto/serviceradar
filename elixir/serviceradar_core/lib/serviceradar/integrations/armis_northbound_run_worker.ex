@@ -118,12 +118,17 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
       reap_stale_source_jobs(integration_source_id)
 
       integration_source_id
-      |> args_for(Keyword.get(opts, :manual?, false))
-      |> new(schedule_opts(opts))
-      |> support_module().safe_insert()
+      |> build_job(opts)
+      |> support_module().safe_insert(stale_conflict_cutoff_seconds: stale_run_cutoff_seconds())
     else
       {:error, :oban_unavailable}
     end
+  end
+
+  defp build_job(integration_source_id, opts) do
+    integration_source_id
+    |> args_for(Keyword.get(opts, :manual?, false))
+    |> new(schedule_opts(opts))
   end
 
   defp args_for(integration_source_id, manual?) do
@@ -170,10 +175,13 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
   defp put_run_at(opts, false, _schedule_in), do: opts
 
   defp reap_stale_source_jobs(integration_source_id) do
-    cutoff_seconds = stale_run_cutoff_seconds()
-    now = DateTime.utc_now()
+    reap_stale_source_jobs(integration_source_id, DateTime.utc_now(), stale_run_cutoff_seconds())
+  end
 
-    case reap_stale_jobs_fun().(__MODULE__, integration_source_id, now, cutoff_seconds) do
+  defp reap_stale_source_jobs(integration_source_id, now, cutoff_seconds) do
+    result = reap_stale_jobs_fun().(__MODULE__, integration_source_id, now, cutoff_seconds)
+
+    case result do
       {count, _} when is_integer(count) and count > 0 ->
         Logger.warning("Reaped stale Armis northbound jobs before enqueue",
           integration_source_id: integration_source_id,
@@ -185,7 +193,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
         :ok
     end
 
-    :ok
+    result
   rescue
     error ->
       Logger.warning("Failed to reap stale Armis northbound jobs before enqueue",
@@ -193,7 +201,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
         error: Exception.message(error)
       )
 
-      :ok
+      {0, nil}
   end
 
   defp default_reap_stale_source_jobs(worker, integration_source_id, now, cutoff_seconds),
