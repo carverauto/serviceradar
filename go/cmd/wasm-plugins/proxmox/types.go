@@ -11,6 +11,10 @@ const (
 	discoverySource             = "proxmox"
 	defaultTimeoutMS            = 30000
 	maxTimeoutMS                = 300000
+	// guestProbeTimeoutMS caps the best-effort qemu-agent / lxc runtime probes so
+	// an unresponsive guest agent fails fast instead of consuming the full request
+	// timeout per guest (which starved later nodes of enumeration time).
+	guestProbeTimeoutMS = 3000
 	defaultHTTPMaxResponseBytes = 1024 * 1024
 	maxHTTPResponseBytes        = sdk.MaxHTTPResponseBytes
 	defaultMaxGuests            = 1000

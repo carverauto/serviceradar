@@ -265,7 +265,7 @@ func TestFetchGuestsUsesNodeScopedEndpointsAndLXCConfigIPs(t *testing.T) {
 		[]proxmoxNode{{Node: "pve-a", Status: "online"}},
 		warnings,
 	)
-	guests := enrichGuests(cfg, Target{BaseURL: cfg.BaseURL}, cfg.APIToken, guestResources, warnings)
+	guests := enrichGuests(cfg, Target{BaseURL: cfg.BaseURL}, cfg.APIToken, guestResources, time.Time{}, warnings)
 
 	if len(guests) != 2 {
 		t.Fatalf("expected qemu and lxc guests, got %#v warnings=%#v", guests, warnings)

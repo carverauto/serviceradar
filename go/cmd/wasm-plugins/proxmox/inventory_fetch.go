@@ -5,59 +5,8 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 )
-
-func fetchTargetInventory(cfg Config, target Target) (proxmoxInventory, error) {
-	token := normalizeProxmoxAPIToken(firstNonEmpty(target.APIToken, cfg.APIToken))
-	if token == "" {
-		return proxmoxInventory{}, errMissingToken
-	}
-
-	inventory := proxmoxInventory{Warnings: map[string]string{}}
-
-	version, err := fetchVersion(cfg, target, token)
-	if err != nil {
-		inventory.Warnings["version"] = sanitizeError(err)
-	} else {
-		inventory.Version = &version
-	}
-
-	// Identity contract: the enrichment ingestor derives the versioned
-	// integration identity ("proxmox:v2:<cluster>:<kind>:<vmid>" /
-	// "proxmox:v2:<cluster>:node:<node>") from the cluster-status entry of
-	// type "cluster" (name), node names, and guest type+vmid. Keep those
-	// fields populated, and keep the "cluster_status" warning on failure:
-	// the ingestor uses it to distinguish "standalone node" (node-scoped
-	// identity) from "cluster membership unknown" (no v2 identity minted).
-	cluster, err := fetchClusterStatus(cfg, target, token)
-	if err != nil {
-		inventory.Warnings["cluster_status"] = sanitizeError(err)
-	} else {
-		inventory.Cluster = cluster
-	}
-
-	nodes, err := fetchNodes(cfg, target, token)
-	if err != nil {
-		return proxmoxInventory{}, err
-	}
-	inventory.Nodes = annotateNodesWithClusterStatus(
-		enrichNodes(cfg, target, token, nodes, inventory.Warnings),
-		inventory.Cluster,
-	)
-
-	if !cfg.includeGuests() {
-		inventory.Summary = summarizeInventory(inventory.Nodes, nil)
-		inventory.Warnings = nilIfEmpty(inventory.Warnings)
-		return inventory, nil
-	}
-
-	guests := fetchGuests(cfg, target, token, inventory.Nodes, inventory.Warnings)
-	inventory.Guests = enrichGuests(cfg, target, token, guests, inventory.Warnings)
-	inventory.Summary = summarizeInventory(inventory.Nodes, inventory.Guests)
-	inventory.Warnings = nilIfEmpty(inventory.Warnings)
-
-	return inventory, nil
-}
 
 func fetchVersion(cfg Config, target Target, token string) (proxmoxVersion, error) {
 	var envelope proxmoxVersionResponse
@@ -333,9 +282,21 @@ func fetchNodeCephStatus(cfg Config, target Target, token, node string) (proxmox
 	return envelope.Data, nil
 }
 
-func enrichGuests(cfg Config, target Target, token string, guests []proxmoxResource, warnings map[string]string) []proxmoxGuest {
+func enrichGuests(cfg Config, target Target, token string, guests []proxmoxResource, deadline time.Time, warnings map[string]string) []proxmoxGuest {
 	out := make([]proxmoxGuest, 0, len(guests))
-	for _, resource := range guests {
+	for i, resource := range guests {
+		// Per-node time budget: once exhausted, emit the remaining guests as
+		// bare devices (still discovered, just without runtime interface/disk
+		// detail) instead of letting one slow node run out the poll window.
+		if !deadline.IsZero() && time.Now().After(deadline) {
+			for _, remaining := range guests[i:] {
+				out = append(out, proxmoxGuest{proxmoxResource: remaining})
+			}
+			warnings[fmt.Sprintf("node:%s:enrich_budget", resource.Node)] =
+				fmt.Sprintf("per-node enrichment budget exhausted; %d guest(s) emitted without runtime detail", len(guests)-i)
+			break
+		}
+
 		guest := proxmoxGuest{proxmoxResource: resource}
 		kind := guestEndpointKind(resource.Type)
 		if kind == "" || resource.Node == "" || resource.VMID <= 0 {
@@ -367,15 +328,26 @@ func enrichGuests(cfg Config, target Target, token string, guests []proxmoxResou
 		// Only probe the qemu-guest-agent when it is actually enabled.
 		hasConfigIP := primaryIP(guest.Interfaces) != ""
 
+		// Best-effort runtime probes get a short deadline. An installed-but-
+		// unresponsive guest agent otherwise blocks each call for the full
+		// request timeout, and a handful of those per node pushed enumeration
+		// past the config-delivery window (so later nodes never got scanned).
+		// The address/disk these probes recover is a bonus — config IPs are
+		// already handled above — so failing fast is the right trade.
+		probeCfg := cfg
+		if probeCfg.TimeoutMS <= 0 || probeCfg.TimeoutMS > guestProbeTimeoutMS {
+			probeCfg.TimeoutMS = guestProbeTimeoutMS
+		}
+
 		if kind == "qemu" && agentEnabled && !hasConfigIP && strings.EqualFold(resource.Status, "running") {
-			agentInterfaces, err := fetchGuestAgentNetworkInterfaces(cfg, target, token, resource.Node, resource.VMID)
+			agentInterfaces, err := fetchGuestAgentNetworkInterfaces(probeCfg, target, token, resource.Node, resource.VMID)
 			if err != nil {
 				warnings[fmt.Sprintf("guest:%s:%d:agent_network", kind, resource.VMID)] = sanitizeError(err)
 			} else {
 				guest.Interfaces = mergeGuestInterfaces(guest.Interfaces, interfacesFromGuestAgent(agentInterfaces))
 			}
 
-			filesystems, err := fetchGuestAgentFilesystems(cfg, target, token, resource.Node, resource.VMID)
+			filesystems, err := fetchGuestAgentFilesystems(probeCfg, target, token, resource.Node, resource.VMID)
 			if err != nil {
 				warnings[fmt.Sprintf("guest:%s:%d:agent_filesystems", kind, resource.VMID)] = sanitizeError(err)
 			} else {
@@ -388,7 +360,7 @@ func enrichGuests(cfg Config, target Target, token string, guests []proxmoxResou
 		}
 
 		if kind == "lxc" && !hasConfigIP && strings.EqualFold(resource.Status, "running") {
-			lxcInterfaces, err := fetchLXCInterfaces(cfg, target, token, resource.Node, resource.VMID)
+			lxcInterfaces, err := fetchLXCInterfaces(probeCfg, target, token, resource.Node, resource.VMID)
 			if err != nil {
 				warnings[fmt.Sprintf("guest:%s:%d:interfaces", kind, resource.VMID)] = sanitizeError(err)
 			} else {
