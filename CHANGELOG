@@ -1,3 +1,43 @@
+# ServiceRadar v1.4.4
+
+OAuth2 API access repaired end to end, a DB-backed credential-rules surface, richer Device Details, high-resolution sysmon with metric continuity across device merges, proxmox identity consolidation, and assorted plugin and worker hardening.
+
+## Whats New
+
+**1.4.4**
+- Fixed OAuth2 client-credentials API access, which never worked end to end:
+  `/oauth/token` rejected valid credentials because the `:authenticate` action
+  was a plain policy ANDed with the owner-only read policy and ran with no
+  actor, so every request was filtered to empty (`invalid_client`); it is now a
+  bypass. The token controller now passes its system actor, and the `/api/*`
+  bearer resolver accepts the `api` token type (not just browser `access`
+  tokens) that the OAuth flow issues, so API clients can list devices and query
+  SRQL. Adds regression coverage for the previously untested path.
+- The credential-rules settings page is now the single DB-backed surface for
+  managing integration credentials: `api_key` auth, camera inventory/stream
+  purposes and a controller/static-host field, plus first-class provisioning
+  and selection of AWX API tokens — all stored encrypted and resolved through
+  the credential broker, never from k8s secrets.
+- Device Details lists every discovery source a merged device came from (agent,
+  proxmox, awx, sweep, sighting, hypervisor enrichment, …) instead of a single
+  canonical view, links a guest to its parent hypervisor, and no longer drops
+  the Guests tab on a contended refresh.
+- Sysmon metrics honor a high-resolution `sample_interval` (down to a few
+  seconds, per-profile, no silent clamp), the CPU/memory/disk charts size their
+  buckets to the selected time range with a 1h/6h/24h/7d selector, and a merged
+  device shows its full metric history by reading across all of the identities
+  it was previously keyed by.
+- The proxmox plugin emits a canonical cluster-scoped identity and every
+  configured NIC MAC from discovery, so the two ingestion paths reconcile into
+  one device and a host/guest merges with its agent-discovered row on a shared
+  MAC — without loosening any DIRE merge rule (locally-administered/overlay MACs
+  are excluded to avoid collapsing distinct hardware).
+- The AlienVault-OTX plugin survives gateway timeouts (adaptive page-splitting
+  and backoff on 5xx) and stops re-walking the full pulse corpus every cycle.
+- Fixed an `ansible` `RetentionWorker` crash (`No primary action of type :read`
+  for `PlaybookRun`) that fired on every install, including those with ansible
+  disabled.
+
 # ServiceRadar v1.4.3
 
 Proxmox inventory reliability (streaming, bounded memory, IP-gated devices), an end to config-delivery churn that restarted agent plugins every minute, an operational AWX playbook-run pipeline, and camera relay browser playback fixes.
