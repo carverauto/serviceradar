@@ -1731,7 +1731,17 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp stable_assignment_params(assignment) do
     case Map.get(assignment, :params) || Map.get(assignment, "params") do
       params when is_map(params) ->
-        stable_params = strip_credential_broker_payload(params)
+        # Strip BOTH the rotating grant AND the per-generation `generated_at`/
+        # `compiled_at` timestamps. Unlike every other config fragment, plugin
+        # assignment params were not run through `stable_config_fragment`, so a
+        # fresh `generated_at` stamped on every generation perturbed the version
+        # hash — a polling agent saw a "new" config every cycle and relaunched
+        # the plugin perpetually (a proxmox/AWX/camera inventory run longer than
+        # the poll interval could never finish).
+        stable_params =
+          params
+          |> strip_credential_broker_payload()
+          |> stable_config_fragment()
 
         assignment
         |> Map.replace(:params, stable_params)

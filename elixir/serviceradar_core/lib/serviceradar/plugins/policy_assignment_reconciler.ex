@@ -214,32 +214,39 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
       params_equivalent?(existing.params, spec.params)
   end
 
-  # Credential-broker grants are re-minted on every reconcile with a fresh
-  # grant_id / expires_at / issued_at, so a naive `existing.params == spec.params`
-  # is never true for any credentialed assignment — the row is rewritten every
-  # reconcile cycle, which re-delivers the plugin config and RESTARTS the plugin
-  # on the agent (a proxmox/AWX/camera inventory run that takes longer than the
-  # reconcile interval never finishes). Compare params with those volatile,
-  # per-mint fields stripped so only a real change (secret, purpose, targets,
-  # schedule, …) rewrites the assignment. The stable grant fields (secret_id,
-  # grant_type, purpose) still participate, and the delivery layer re-mints a
-  # fresh grant at config-generation time regardless of what is stored here.
-  @volatile_grant_keys ~w(grant_id expires_at issued_at not_before issued_at_unix expires_at_unix)
+  # Every reconcile regenerates the assignment params with fresh, per-generation
+  # values: a `generated_at` timestamp and a re-minted credential-broker grant
+  # (grant_id / expires_at / issued_at). A naive `existing.params == spec.params`
+  # is therefore never true for a credentialed assignment, so the row is
+  # rewritten every reconcile cycle (~60s), which re-delivers the plugin config
+  # and RESTARTS the plugin on the agent — a proxmox/AWX/camera inventory run
+  # that takes longer than the reconcile interval could never finish (observed:
+  # only the first node batch emitting, then `module closed with context
+  # canceled`, forever).
+  #
+  # Compare params with those volatile, per-generation fields stripped (at any
+  # depth) so only a real change (secret, purpose, targets, schedule, package)
+  # rewrites the assignment. The stable fields (secret_id, grant_type, purpose,
+  # base_url, allow-lists, inputs) still participate, and the config-generation
+  # layer re-stamps a fresh generated_at / grant at delivery time regardless of
+  # what is stored here.
+  @volatile_param_keys ~w(
+    generated_at grant_id expires_at issued_at not_before
+    issued_at_unix expires_at_unix
+  )
 
-  defp params_equivalent?(a, b), do: strip_volatile_grants(a) == strip_volatile_grants(b)
+  defp params_equivalent?(a, b), do: strip_volatile_params(a) == strip_volatile_params(b)
 
-  defp strip_volatile_grants(%{} = map) do
-    Map.new(map, fn
-      {"credential_broker" = key, %{} = grant} ->
-        {key, Map.drop(strip_volatile_grants(grant), @volatile_grant_keys)}
-
-      {key, value} ->
-        {key, strip_volatile_grants(value)}
-    end)
+  defp strip_volatile_params(%{} = map) do
+    map
+    |> Map.drop(@volatile_param_keys)
+    |> Map.new(fn {key, value} -> {key, strip_volatile_params(value)} end)
   end
 
-  defp strip_volatile_grants(list) when is_list(list), do: Enum.map(list, &strip_volatile_grants/1)
-  defp strip_volatile_grants(other), do: other
+  defp strip_volatile_params(list) when is_list(list),
+    do: Enum.map(list, &strip_volatile_params/1)
+
+  defp strip_volatile_params(other), do: other
 
   defmodule AshStore do
     @moduledoc false
