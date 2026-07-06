@@ -115,6 +115,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
     |> assign(:flow_ip_request_ref, nil)
     |> assign(:device_metrics_request_ref, nil)
     |> assign(:metrics_loading, false)
+    |> assign(:sysmon_time_range, "last_24h")
+    |> assign(:sysmon_identity, nil)
     |> assign(:flow_active_facets, %{})
     |> assign(:flow_active_topn, nil)
     |> assign(:flow_zoom_range, nil)

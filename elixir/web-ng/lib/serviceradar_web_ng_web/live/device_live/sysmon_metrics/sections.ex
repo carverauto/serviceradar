@@ -186,10 +186,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
   end
 
   defp metric_query_opts(opts) do
+    time_range = Keyword.get(opts, :time_range, "last_24h")
+
     [
-      time_range: Keyword.get(opts, :time_range, "last_24h"),
-      bucket: Keyword.get(opts, :bucket, "5m")
+      time_range: time_range,
+      bucket: resolve_bucket(opts, time_range)
     ]
+  end
+
+  # An explicit :bucket wins (the anomaly-detail zoom pins it); otherwise size
+  # the bucket from the selected range so short windows render fine points.
+  defp resolve_bucket(opts, time_range) do
+    Keyword.get(opts, :bucket) || Query.bucket_for_time_range(time_range)
   end
 
   defp window_label(opts) do
@@ -197,12 +205,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections do
   end
 
   defp default_window_label(opts) do
-    time_range =
-      opts
-      |> Keyword.get(:time_range, "last_24h")
+    time_range = Keyword.get(opts, :time_range, "last_24h")
+
+    label =
+      time_range
       |> to_string()
       |> String.replace("_", " ")
 
-    "#{time_range} · #{Keyword.get(opts, :bucket, "5m")} buckets"
+    "#{label} · #{resolve_bucket(opts, time_range)} buckets"
   end
 end
