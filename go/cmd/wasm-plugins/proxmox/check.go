@@ -201,6 +201,14 @@ func emitProxmoxBatch(
 	warnings map[string]string,
 	totals *checkSummary,
 ) {
+	// Each batch must carry its OWN observation timestamp. service_status rows
+	// are keyed by (timestamp, gateway_id, service_name); when every streamed
+	// batch of one run shared the run-start observedAt, batch 1 (nodes)
+	// inserted and every subsequent guest batch violated the primary key and
+	// was dropped in results processing — so guest devices never ingested and
+	// the card was stuck at the first batch's "N node(s), 0 guest(s)".
+	observedAt = time.Now().UTC().Format(time.RFC3339Nano)
+
 	discovery := sdk.NewDeviceDiscovery(discoverySource)
 	discovery.ObservedAt = observedAt
 	addNodeDiscoveries(discovery, target, nodes)
