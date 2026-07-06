@@ -229,8 +229,11 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
     # Validate the client_id is a valid UUID
     case Ecto.UUID.cast(client_id) do
       {:ok, uuid} ->
-        # Authenticate using the OAuthClient resource
-        case OAuthClient.authenticate(uuid, client_secret) do
+        # Authenticate using the OAuthClient resource.
+        # Pass the system actor so the read is authorized (the `:authenticate`
+        # bypass runs with a nil actor otherwise); previously `actor` was only
+        # used below for record_use, so valid credentials were rejected.
+        case OAuthClient.authenticate(uuid, client_secret, actor: actor) do
           {:ok, client} ->
             # Validate and filter requested scopes
             requested_scopes = parse_scopes(params["scope"])

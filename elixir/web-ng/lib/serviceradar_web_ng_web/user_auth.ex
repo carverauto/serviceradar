@@ -331,7 +331,13 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   end
 
   defp authenticate_with_token(conn, token, :bearer) do
-    case Guardian.verify_token(token, token_type: "access") do
+    # OAuth2 client-credentials tokens are minted by `Guardian.create_api_token/2`
+    # with `typ: "api"`, whereas browser sessions use `typ: "access"`. Verify
+    # without pinning a token_type so both are accepted here — Guardian's
+    # `@default_allowed_token_types` is `~w(access api)`, which still rejects
+    # refresh tokens. Pinning `token_type: "access"` rejected every
+    # OAuth-issued bearer token with `authentication_required`.
+    case Guardian.verify_token(token) do
       {:ok, user, _claims} ->
         assign(conn, :current_scope, create_scope(user, identity_claims: %{}))
 

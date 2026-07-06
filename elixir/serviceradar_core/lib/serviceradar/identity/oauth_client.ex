@@ -191,15 +191,22 @@ defmodule ServiceRadar.Identity.OAuthClient do
     # System actors can perform all operations (schema isolation via search_path)
     system_bypass()
 
+    # `:authenticate` is the pre-authentication step of the OAuth2 token
+    # endpoint: there is no actor yet — the client_secret IS the credential,
+    # verified by bcrypt in the action's own after_action. It MUST be a bypass,
+    # not a plain policy: as a plain policy it was ANDed with the
+    # `action_type(:read)` policy below (which requires `user_id == actor.id`),
+    # so with a nil actor EVERY token request was filtered to empty and the
+    # endpoint returned `invalid_client` for valid credentials. Placed before
+    # the read policy so it short-circuits.
+    bypass action(:authenticate) do
+      authorize_if always()
+    end
+
     # Users can read their own clients
     policy action_type(:read) do
       authorize_if expr(user_id == ^actor(:id))
       authorize_if is_admin()
-    end
-
-    # Authenticate action is public (no actor required)
-    policy action(:authenticate) do
-      authorize_if always()
     end
 
     # Users can create clients for themselves
