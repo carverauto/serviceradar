@@ -59,6 +59,18 @@ defmodule ServiceRadarWebNGWeb.Plugs.SecurityHeaders do
     register_before_send(conn, &apply_headers(&1, opts))
   end
 
+  # Websocket upgrades (`WebSockAdapter.upgrade/4`, e.g. the camera relay
+  # browser stream) run before_send callbacks with the conn already handed to
+  # the transport (`state: :upgraded`). Response headers can no longer be
+  # written at that point — `put_resp_header/3` raises
+  # `Plug.Conn.AlreadySentError`, turning every websocket upgrade in a
+  # pipeline with this plug into a 500. Skip: an upgraded (or already-sent)
+  # response has no browser document left to protect.
+  defp apply_headers(%Plug.Conn{state: state} = conn, _opts)
+       when state in [:sent, :upgraded] do
+    conn
+  end
+
   defp apply_headers(conn, opts) do
     conn
     |> put_hsts(opts)
