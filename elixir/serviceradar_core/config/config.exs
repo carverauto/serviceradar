@@ -48,6 +48,7 @@ config :serviceradar_core, Oban,
   ],
   plugins: [
     Oban.Plugins.Pruner,
+    {Oban.Plugins.Lifeline, rescue_after: to_timeout(minute: 240)},
     {Oban.Plugins.Cron,
      crontab: [
        {System.get_env("TRACE_SUMMARIES_REFRESH_CRON") || "*/2 * * * *",

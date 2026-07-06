@@ -54,9 +54,18 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest.SupportStub do
   def available?, do: Process.get(:support_available, false)
   def prefix, do: "platform"
 
-  def safe_insert(job) do
+  def safe_insert(job, opts \\ []) do
     send(Process.get(:test_pid), {:safe_insert, job})
-    {:ok, job}
+    send(Process.get(:test_pid), {:safe_insert_opts, opts})
+
+    case Process.get(:safe_insert_results) do
+      [result | remaining] ->
+        Process.put(:safe_insert_results, remaining)
+        result
+
+      _ ->
+        {:ok, job}
+    end
   end
 end
 
@@ -69,8 +78,10 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest do
   alias ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest.SourceLookup
 
   test "enqueue_now returns oban_unavailable when Oban is not running" do
-    assert {:error, :oban_unavailable} =
-             ArmisNorthboundRunWorker.enqueue_now(Ecto.UUID.generate())
+    with_support(fn ->
+      assert {:error, :oban_unavailable} =
+               ArmisNorthboundRunWorker.enqueue_now(Ecto.UUID.generate())
+    end)
   end
 
   test "enqueue_recurring inserts a non-manual scheduled job when Oban is available" do
@@ -142,6 +153,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest do
       assert_received {:reap_stale_jobs, ArmisNorthboundRunWorker, "source-123", %DateTime{}, 240}
 
       assert_received {:safe_insert, ^job}
+      assert_received {:safe_insert_opts, [stale_conflict_cutoff_seconds: 240]}
     end)
   after
     Process.delete(:support_available)

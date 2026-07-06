@@ -143,6 +143,15 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
         tags: [:collector_type],
         description: "Current count of non-revoked collector packages in this deployment, tagged by collector type"
       ),
+      last_value("serviceradar.managed_devices",
+        description: "Hosted-runtime contract gauge for current managed device count"
+      ),
+      last_value("serviceradar.collectors.total",
+        description: "Hosted-runtime contract gauge for current collector package count"
+      ),
+      last_value("serviceradar.leaf_nodes.total",
+        description: "Hosted-runtime contract gauge for current NATS leaf node count"
+      ),
 
       # VM Metrics
       last_value("vm.memory.total", unit: {:byte, :kilobyte}),
@@ -214,13 +223,22 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
   Emits plan-relevant usage metrics based on runtime-local inventory data.
   """
   def measure_tenant_usage do
+    managed_device_count = TenantUsage.managed_device_count()
+
     :telemetry.execute(
       [:serviceradar, :tenant_usage, :managed_devices],
-      %{count: TenantUsage.managed_device_count()},
+      %{count: managed_device_count},
+      %{}
+    )
+
+    :telemetry.execute(
+      [:serviceradar],
+      %{managed_devices: managed_device_count},
       %{}
     )
 
     collector_counts = TenantUsage.collector_counts_by_type()
+    collector_total = collector_counts |> Map.values() |> Enum.sum()
 
     Enum.each(TenantUsage.collector_usage_types(), fn collector_type ->
       :telemetry.execute(
@@ -229,5 +247,17 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
         %{collector_type: collector_type}
       )
     end)
+
+    :telemetry.execute(
+      [:serviceradar, :collectors],
+      %{total: collector_total},
+      %{}
+    )
+
+    :telemetry.execute(
+      [:serviceradar, :leaf_nodes],
+      %{total: TenantUsage.leaf_node_count()},
+      %{}
+    )
   end
 end

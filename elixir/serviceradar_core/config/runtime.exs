@@ -1340,6 +1340,11 @@ if config_env() == :prod do
       []
     end
 
+  oban_lifeline_rescue_after_ms =
+    "OBAN_LIFELINE_RESCUE_AFTER_MS"
+    |> System.get_env(Integer.to_string(to_timeout(minute: 240)))
+    |> String.to_integer()
+
   config :serviceradar_core, CapacityForecastingWorker,
     enabled: capacity_forecasting_enabled,
     horizon_seconds: capacity_forecasting_horizon_seconds,
@@ -1381,6 +1386,7 @@ if config_env() == :prod do
     ],
     plugins: [
       Oban.Plugins.Pruner,
+      {Oban.Plugins.Lifeline, rescue_after: oban_lifeline_rescue_after_ms},
       {Oban.Plugins.Cron,
        crontab:
          [

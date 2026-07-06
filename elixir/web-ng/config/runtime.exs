@@ -153,6 +153,26 @@ god_view_enabled =
 
 runtime_capabilities_env = System.get_env("SERVICERADAR_RUNTIME_CAPABILITIES")
 
+hosted_runtime_enabled? = fn env_name ->
+  case System.get_env(env_name) do
+    nil ->
+      nil
+
+    value ->
+      case String.downcase(String.trim(value)) do
+        "true" -> true
+        "1" -> true
+        "yes" -> true
+        "on" -> true
+        "false" -> false
+        "0" -> false
+        "no" -> false
+        "off" -> false
+        _ -> nil
+      end
+  end
+end
+
 normalize_runtime_capability = fn
   capability when is_binary(capability) ->
     case String.downcase(String.trim(capability)) do
@@ -169,7 +189,32 @@ end
 runtime_capabilities =
   case runtime_capabilities_env do
     nil ->
-      [configured?: false, enabled: []]
+      hosted_runtime_capabilities =
+        []
+        |> then(fn capabilities ->
+          if hosted_runtime_enabled?.("SERVICERADAR_COLLECTORS_ENABLED") == true do
+            [:collectors_enabled | capabilities]
+          else
+            capabilities
+          end
+        end)
+        |> then(fn capabilities ->
+          if hosted_runtime_enabled?.("SERVICERADAR_LEAF_NODES_ENABLED") == true do
+            [:leaf_nodes_enabled | capabilities]
+          else
+            capabilities
+          end
+        end)
+        |> then(fn capabilities ->
+          case System.get_env("SERVICERADAR_MAX_DEVICES") do
+            nil -> capabilities
+            "" -> capabilities
+            _ -> [:device_limit_enforcement_enabled | capabilities]
+          end
+        end)
+        |> Enum.uniq()
+
+      [configured?: hosted_runtime_capabilities != [], enabled: hosted_runtime_capabilities]
 
     raw ->
       enabled =
@@ -630,7 +675,7 @@ config :serviceradar_web_ng, :god_view_enabled, god_view_enabled
 
 config :serviceradar_web_ng,
        :managed_device_limit,
-       to_int.(System.get_env("SERVICERADAR_MANAGED_DEVICE_LIMIT"))
+       to_int.(System.get_env("SERVICERADAR_MANAGED_DEVICE_LIMIT") || System.get_env("SERVICERADAR_MAX_DEVICES"))
 
 # "Send your telemetry" onboarding surface (/settings/agents/telemetry-onboarding):
 # the deployment's externally reachable OTLP endpoints. gRPC is host:port
