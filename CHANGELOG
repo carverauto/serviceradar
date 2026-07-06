@@ -1,3 +1,46 @@
+# ServiceRadar v1.4.3
+
+Proxmox inventory reliability (streaming, bounded memory, IP-gated devices), an end to config-delivery churn that restarted agent plugins every minute, an operational AWX playbook-run pipeline, and camera relay browser playback fixes.
+
+## Whats New
+
+**1.4.3**
+- Proxmox inventory is reliable on real clusters: the plugin streams guests
+  per node with bounded memory (256MB cap respected instead of OOMing the
+  WASM runtime), emits per-batch observed-at timestamps so partial results
+  age correctly, only emits guests as devices when they carry an IP address,
+  and de-duplicates hosts across clusters without fusing distinct nodes.
+- Config delivery no longer restarts every agent plugin ~once a minute:
+  credential-broker grant re-mints are normalized before comparing assignment
+  params (a re-minted grant id/timestamp no longer rewrites the assignment
+  row every reconcile), config push is version-aware like the poll path,
+  volatile per-generation fields are stripped from the version hash (including
+  nested ones), the retired download_token_epoch input is gone, and OCSF
+  event ids are coerced consistently. Long-running inventory work (Proxmox,
+  AWX, camera) can now actually finish instead of being relaunched mid-run.
+- The AWX playbook-run pipeline works end to end: the agent routes `awx.*`
+  command verbs (ping, list templates/inventories, launch/fetch/cancel job,
+  fetch events for jobs) to the awx WASM plugin's run_check entrypoint through
+  the existing action-mode plugin machinery — the credential broker grant
+  stays host-side and the API token is injected at the host HTTP boundary,
+  never entering the WASM module. AWX-synced devices are launchable, the
+  dispatch capability gate that blocked launches is gone, the ansible Oban
+  queues are configured in the deployed core-elx release, and the run
+  watchdog no longer fails every tick on a missing primary read action.
+- Git playbook repositories now sync: the first GitCatalogSyncWorker job is
+  seeded on repository create/update with a lifecycle backstop sweep (a newly
+  registered repository previously sat at `pending` forever), and Ansible
+  settings list failures are logged instead of silently rendering as empty
+  lists.
+- Camera relay browser playback is fixed: the SecurityHeaders before_send
+  hook no longer raises on websocket upgrades (every stream connect returned
+  500, leaving players stuck at "Relay: Opening" with zero viewers), and a
+  relay source's stored gateway is treated as a routing hint rather than a
+  hard filter so relays survive gateway pod churn.
+- Hosted runtime plan hooks land for managed deployments, and stale Armis
+  northbound Oban conflicts are cleaned up so the northbound sync no longer
+  wedges on orphaned jobs.
+
 # ServiceRadar v1.4.2
 
 Proxmox and UniFi plugin fixes, network-agnostic identity hardening for multi-cluster Proxmox, provider-aware credential-rule UX, and a deployable AWX/AAP inventory-sync integration.
