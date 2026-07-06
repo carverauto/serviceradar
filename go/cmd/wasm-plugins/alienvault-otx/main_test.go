@@ -3,8 +3,10 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
 )
@@ -509,4 +511,294 @@ func requiredField(schema map[string]any, field string) bool {
 
 func stringPtr(value string) *string {
 	return &value
+}
+
+type fakeOTXHTTPClient struct {
+	requests []sdk.HTTPRequest
+	handler  func(req sdk.HTTPRequest) (*sdk.HTTPResponse, error)
+}
+
+func (f *fakeOTXHTTPClient) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+	f.requests = append(f.requests, req)
+	return f.handler(req)
+}
+
+func swapOTXHTTP(t *testing.T, fake httpClient) {
+	t.Helper()
+	prev := otxHTTP
+	otxHTTP = fake
+	t.Cleanup(func() { otxHTTP = prev })
+}
+
+func swapOTXSleep(t *testing.T) *[]time.Duration {
+	t.Helper()
+	prev := otxSleep
+	sleeps := &[]time.Duration{}
+	otxSleep = func(d time.Duration) { *sleeps = append(*sleeps, d) }
+	t.Cleanup(func() { otxSleep = prev })
+	return sleeps
+}
+
+func exportPageBody(next string, indicators ...string) []byte {
+	b := jsonBuilder{}
+	b.WriteString(`{"count":123456,"next":`)
+	if next == "" {
+		b.WriteString(`null`)
+	} else {
+		writeJSONString(&b, next)
+	}
+	b.WriteString(`,"results":[`)
+	for i, indicator := range indicators {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(`{"id":` + strconv.Itoa(i+1) + `,"indicator":"` + indicator + `","type":"IPv4","created":"2026-07-01T00:00:00"}`)
+	}
+	b.WriteString(`]}`)
+	return []byte(b.String())
+}
+
+func adaptiveTestConfig() Config {
+	return Config{
+		BaseURL:       defaultBaseURL,
+		APIKey:        "test-key",
+		Types:         defaultTypes,
+		Limit:         1000,
+		Page:          23,
+		TimeoutMS:     1000,
+		MaxIndicators: 5000,
+		MaxPages:      10,
+		MaxRetries:    0,
+		BackoffMS:     1,
+	}
+}
+
+func exportNextURL(limit, page int) string {
+	return defaultBaseURL + "/api/v1/indicators/export?limit=" + strconv.Itoa(limit) +
+		"&page=" + strconv.Itoa(page) + "&types=IPv4%2CIPv6%2CCIDR"
+}
+
+func TestFetchSingleOTXExportPageWithRetryRetries429WithExponentialBackoff(t *testing.T) {
+	fake := &fakeOTXHTTPClient{}
+	fake.handler = func(_ sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+		if len(fake.requests) < 3 {
+			return &sdk.HTTPResponse{Status: 429, Body: []byte("rate limited")}, nil
+		}
+		return &sdk.HTTPResponse{Status: 200, Body: exportPageBody("", "192.0.2.1")}, nil
+	}
+	swapOTXHTTP(t, fake)
+	sleeps := swapOTXSleep(t)
+
+	cfg := adaptiveTestConfig()
+	cfg.MaxRetries = 3
+	cfg.BackoffMS = 1000
+
+	page, err := fetchSingleOTXExportPageWithRetry(cfg)
+	if err != nil {
+		t.Fatalf("fetch returned error: %v", err)
+	}
+	if len(fake.requests) != 3 {
+		t.Fatalf("requests = %d, want 3", len(fake.requests))
+	}
+	if len(page.Indicators) != 1 {
+		t.Fatalf("indicators = %d, want 1", len(page.Indicators))
+	}
+	if want := []time.Duration{time.Second, 2 * time.Second}; len(*sleeps) != len(want) ||
+		(*sleeps)[0] != want[0] || (*sleeps)[1] != want[1] {
+		t.Fatalf("sleeps = %v, want %v", *sleeps, want)
+	}
+}
+
+func TestFetchOTXExportPageAdaptiveSplitsDeepPageTimeouts(t *testing.T) {
+	gateway504 := []byte("<html><head><title>504 Gateway Time-out</title></head></html>")
+
+	fake := &fakeOTXHTTPClient{}
+	fake.handler = func(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+		switch {
+		case strings.Contains(req.URL, "limit=1000&page=23"):
+			return &sdk.HTTPResponse{Status: 504, Body: gateway504}, nil
+		case strings.Contains(req.URL, "limit=500&page=45"):
+			return &sdk.HTTPResponse{
+				Status: 200,
+				Body:   exportPageBody(exportNextURL(500, 46), "192.0.2.1", "192.0.2.2"),
+			}, nil
+		case strings.Contains(req.URL, "limit=500&page=46"):
+			return &sdk.HTTPResponse{
+				Status: 200,
+				Body:   exportPageBody(exportNextURL(500, 47), "192.0.2.3", "192.0.2.4"),
+			}, nil
+		default:
+			t.Fatalf("unexpected request URL %q", req.URL)
+			return nil, nil
+		}
+	}
+	swapOTXHTTP(t, fake)
+	swapOTXSleep(t)
+
+	page, err := fetchOTXExportPageAdaptive(adaptiveTestConfig())
+	if err != nil {
+		t.Fatalf("adaptive fetch returned error: %v", err)
+	}
+	if len(fake.requests) != 3 {
+		t.Fatalf("requests = %d, want 3", len(fake.requests))
+	}
+	if len(page.Indicators) != 4 {
+		t.Fatalf("indicators = %d, want 4", len(page.Indicators))
+	}
+	if page.Counts.Objects != 4 {
+		t.Fatalf("objects = %d, want 4", page.Counts.Objects)
+	}
+	if !strings.Contains(page.Cursor.Next, "limit=1000&page=24") {
+		t.Fatalf("cursor next = %q, want original-limit page 24", page.Cursor.Next)
+	}
+}
+
+func TestFetchOTXExportPageAdaptiveCompletesWhenFirstHalfEndsExport(t *testing.T) {
+	fake := &fakeOTXHTTPClient{}
+	fake.handler = func(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+		if strings.Contains(req.URL, "limit=1000&page=23") {
+			return &sdk.HTTPResponse{Status: 504, Body: []byte("504 Gateway Time-out")}, nil
+		}
+		return &sdk.HTTPResponse{Status: 200, Body: exportPageBody("", "192.0.2.1")}, nil
+	}
+	swapOTXHTTP(t, fake)
+	swapOTXSleep(t)
+
+	page, err := fetchOTXExportPageAdaptive(adaptiveTestConfig())
+	if err != nil {
+		t.Fatalf("adaptive fetch returned error: %v", err)
+	}
+	if len(fake.requests) != 2 {
+		t.Fatalf("requests = %d, want 2 (no second half after exhausted export)", len(fake.requests))
+	}
+	if page.Cursor.Next != "" {
+		t.Fatalf("cursor next = %q, want empty", page.Cursor.Next)
+	}
+	if len(page.Indicators) != 1 {
+		t.Fatalf("indicators = %d, want 1", len(page.Indicators))
+	}
+}
+
+func TestFetchOTXExportPageAdaptiveBoundedRecursion(t *testing.T) {
+	fake := &fakeOTXHTTPClient{}
+	fake.handler = func(_ sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+		return &sdk.HTTPResponse{Status: 504, Body: []byte("504 Gateway Time-out")}, nil
+	}
+	swapOTXHTTP(t, fake)
+	swapOTXSleep(t)
+
+	_, err := fetchOTXExportPageAdaptive(adaptiveTestConfig())
+	if err == nil {
+		t.Fatal("expected error when every page size times out")
+	}
+	if !strings.Contains(err.Error(), "HTTP 504") {
+		t.Fatalf("error = %v, want HTTP 504", err)
+	}
+
+	wantURLs := []string{
+		"limit=1000&page=23",
+		"limit=500&page=45",
+		"limit=250&page=89",
+	}
+	if len(fake.requests) != len(wantURLs) {
+		t.Fatalf("requests = %d, want %d", len(fake.requests), len(wantURLs))
+	}
+	for i, fragment := range wantURLs {
+		if !strings.Contains(fake.requests[i].URL, fragment) {
+			t.Fatalf("request %d URL = %q, want fragment %q", i, fake.requests[i].URL, fragment)
+		}
+	}
+}
+
+func TestFetchOTXExportPageAdaptiveSplitsOnBodyCapWithoutRetrying(t *testing.T) {
+	fake := &fakeOTXHTTPClient{}
+	fake.handler = func(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+		if strings.Contains(req.URL, "limit=1000&page=23") {
+			return nil, sdk.HostError{Code: -3, Op: "http_request"}
+		}
+		if strings.Contains(req.URL, "limit=500&page=45") {
+			return &sdk.HTTPResponse{
+				Status: 200,
+				Body:   exportPageBody(exportNextURL(500, 46), "192.0.2.1"),
+			}, nil
+		}
+		return &sdk.HTTPResponse{Status: 200, Body: exportPageBody("", "192.0.2.2")}, nil
+	}
+	swapOTXHTTP(t, fake)
+	sleeps := swapOTXSleep(t)
+
+	cfg := adaptiveTestConfig()
+	cfg.MaxRetries = 3
+
+	page, err := fetchOTXExportPageAdaptive(cfg)
+	if err != nil {
+		t.Fatalf("adaptive fetch returned error: %v", err)
+	}
+	if len(fake.requests) != 3 {
+		t.Fatalf("requests = %d, want 3 (too-large must not be retried at the same size)", len(fake.requests))
+	}
+	if len(*sleeps) != 0 {
+		t.Fatalf("sleeps = %v, want none", *sleeps)
+	}
+	if len(page.Indicators) != 2 {
+		t.Fatalf("indicators = %d, want 2", len(page.Indicators))
+	}
+}
+
+func TestFetchAndSubmitOTXExportPagesAdvancesCursorAcrossAdaptivePages(t *testing.T) {
+	fake := &fakeOTXHTTPClient{}
+	fake.handler = func(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+		switch {
+		case strings.Contains(req.URL, "limit=1000&page=23"):
+			return &sdk.HTTPResponse{Status: 504, Body: []byte("504 Gateway Time-out")}, nil
+		case strings.Contains(req.URL, "limit=500&page=45"):
+			return &sdk.HTTPResponse{
+				Status: 200,
+				Body:   exportPageBody(exportNextURL(500, 46), "192.0.2.1", "192.0.2.2"),
+			}, nil
+		case strings.Contains(req.URL, "limit=500&page=46"):
+			return &sdk.HTTPResponse{
+				Status: 200,
+				Body:   exportPageBody(exportNextURL(500, 47), "192.0.2.3", "192.0.2.4"),
+			}, nil
+		case strings.Contains(req.URL, "limit=1000&page=24"):
+			return &sdk.HTTPResponse{Status: 200, Body: exportPageBody("", "192.0.2.9")}, nil
+		default:
+			t.Fatalf("unexpected request URL %q", req.URL)
+			return nil, nil
+		}
+	}
+	swapOTXHTTP(t, fake)
+	swapOTXSleep(t)
+
+	cfg := adaptiveTestConfig()
+	cfg.MaxPages = 5
+
+	var emitted []ctiPage
+	pages, err := fetchAndSubmitOTXExportPages(cfg, func(page ctiPage) error {
+		emitted = append(emitted, page)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk returned error: %v", err)
+	}
+	if pages != 2 || len(emitted) != 2 {
+		t.Fatalf("pages = %d emitted = %d, want 2 and 2", pages, len(emitted))
+	}
+
+	first := emitted[0]
+	if first.Cursor.Complete != "false" || first.Cursor.NextPage != "24" {
+		t.Fatalf("first cursor = %+v, want complete=false next_page=24", first.Cursor)
+	}
+	if first.Cursor.Limit != "1000" || first.Cursor.LastPage != "23" {
+		t.Fatalf("first cursor = %+v, want limit=1000 last_page=23", first.Cursor)
+	}
+	if first.Counts.Indicators != 4 {
+		t.Fatalf("first indicators = %d, want 4", first.Counts.Indicators)
+	}
+
+	second := emitted[1]
+	if second.Cursor.Complete != "true" || second.Cursor.PagesFetched != "2" {
+		t.Fatalf("second cursor = %+v, want complete=true pages_fetched=2", second.Cursor)
+	}
 }

@@ -98,6 +98,39 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestorTest do
              )
   end
 
+  describe "cursor_params/2" do
+    test "advances the page cursor for an in-progress walk" do
+      cursor = %{
+        "complete" => "false",
+        "next_page" => "24",
+        "next" => "https://otx.alienvault.com/api/v1/indicators/export?limit=1000&page=24"
+      }
+
+      assert %{
+               "page" => 24,
+               "cursor_complete" => false,
+               "cursor_next" =>
+                 "https://otx.alienvault.com/api/v1/indicators/export?limit=1000&page=24"
+             } == ThreatIntelPluginIngestor.cursor_params(cursor)
+    end
+
+    test "stamps an incremental modified_since cursor when a walk completes" do
+      now = ~U[2026-07-06 19:00:00Z]
+
+      assert %{
+               "page" => 1,
+               "cursor_complete" => true,
+               "cursor_next" => nil,
+               "modified_since" => "2026-07-04T19:00:00Z"
+             } == ThreatIntelPluginIngestor.cursor_params(%{"complete" => "true"}, now)
+    end
+
+    test "returns no params when the cursor is empty or not a map" do
+      assert ThreatIntelPluginIngestor.cursor_params(%{}) == %{}
+      assert ThreatIntelPluginIngestor.cursor_params(nil) == %{}
+    end
+  end
+
   test "normalizes STIX indicator objects from plugin CTI pages" do
     observed_at = ~U[2026-04-27 12:00:00Z]
 

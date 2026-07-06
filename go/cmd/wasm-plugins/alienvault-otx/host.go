@@ -6,7 +6,12 @@ import (
 	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
 )
 
-var otxHTTP = &sdk.HTTPClient{MaxResponseBytes: sdk.MaxHTTPResponseBytes}
+// otxHTTP is package-level so tests can swap it for a fake.
+var otxHTTP httpClient = &sdk.HTTPClient{MaxResponseBytes: sdk.MaxHTTPResponseBytes}
+
+type httpClient interface {
+	Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error)
+}
 
 func doOTXHostHTTPRequest(apiURL, apiKey string, timeoutMS int) (*sdk.HTTPResponse, error) {
 	return otxHTTP.Do(sdk.HTTPRequest{
