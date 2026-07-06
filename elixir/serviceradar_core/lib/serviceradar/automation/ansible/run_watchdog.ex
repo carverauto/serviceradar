@@ -115,7 +115,13 @@ defmodule ServiceRadar.Automation.Ansible.RunWatchdog do
     # keyword-style access that always yielded nil, so every watchdog tick read
     # with no actor, was denied by policy, and logged "could not list
     # non-terminal runs" forever.
+    #
+    # The read must also name the :read action explicitly: PlaybookRun has no
+    # primary read action, so a bare filter pipeline raised
+    # Ash.Error.Invalid.NoPrimaryAction on every tick and the watchdog never
+    # swept anything.
     PlaybookRun
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
     |> Ash.Query.filter(state in [:pending, :launching, :running])
     |> Ash.read(actor: actor)
   end

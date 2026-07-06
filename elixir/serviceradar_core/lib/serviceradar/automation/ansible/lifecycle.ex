@@ -12,6 +12,8 @@ defmodule ServiceRadar.Automation.Ansible.Lifecycle do
   alias ServiceRadar.Automation.Ansible.AwxInventorySyncReconciler
   alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.Automation.Ansible.ControllerHealthWorker
+  alias ServiceRadar.Automation.Ansible.GitCatalogSyncWorker
+  alias ServiceRadar.Automation.Ansible.PlaybookRepository
   alias ServiceRadar.Automation.Ansible.RetentionWorker
   alias ServiceRadar.Automation.Ansible.RunPulseWorker
   alias ServiceRadar.Automation.Ansible.RunWatchdog
@@ -114,7 +116,43 @@ defmodule ServiceRadar.Automation.Ansible.Lifecycle do
         )
     end
 
+    # Playbook repositories are independent of controllers: git catalog sync
+    # must run even when no AWX/AAP controller is registered. This is also the
+    # backstop that seeds the FIRST GitCatalogSyncWorker job for repositories
+    # created before the create/update hook existed (the worker only
+    # self-reschedules from perform/1, so without a seed job a repository
+    # stayed `pending` forever).
+    ensure_repository_syncs(actor, opts)
+
     :ok
+  end
+
+  defp ensure_repository_syncs(actor, opts) do
+    case load_repositories(actor, opts) do
+      {:ok, repositories} ->
+        Enum.each(repositories, fn repository ->
+          if repository_id = string_value(repository, :id) do
+            ensure_scheduled(git_catalog_sync_worker(opts), [repository_id])
+          end
+        end)
+
+      {:error, reason} ->
+        Logger.debug("AWX lifecycle seed skipped repository syncs; repositories unavailable",
+          reason: inspect(reason)
+        )
+    end
+  end
+
+  defp load_repositories(actor, opts) do
+    case Keyword.fetch(opts, :repositories) do
+      {:ok, repositories} ->
+        {:ok, repositories}
+
+      :error ->
+        PlaybookRepository
+        |> Ash.Query.for_read(:read, %{}, actor: actor)
+        |> Ash.read(actor: actor)
+    end
   end
 
   defp load_controllers(actor, opts) do
@@ -140,6 +178,9 @@ defmodule ServiceRadar.Automation.Ansible.Lifecycle do
     do: Keyword.get(opts, :per_controller_workers, @per_controller_workers)
 
   defp global_workers(opts), do: Keyword.get(opts, :global_workers, @global_workers)
+
+  defp git_catalog_sync_worker(opts),
+    do: Keyword.get(opts, :git_catalog_sync_worker, GitCatalogSyncWorker)
 
   defp inventory_reconciler(opts),
     do: Keyword.get(opts, :inventory_reconciler, AwxInventorySyncReconciler)

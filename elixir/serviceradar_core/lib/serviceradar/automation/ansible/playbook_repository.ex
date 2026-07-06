@@ -15,6 +15,7 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRepository do
     extensions: [AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Automation.Ansible.Changes.ScheduleGitCatalogSync
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @manage_check {ActorHasPermission, permission: "ansible.repositories.manage"}
@@ -93,6 +94,10 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRepository do
         :credential_secret_id,
         :metadata
       ]
+
+      # Seed the first sync job — the worker only re-schedules itself from
+      # perform/1, so without this a new repository never syncs.
+      change ScheduleGitCatalogSync
     end
 
     update :update do
@@ -105,6 +110,8 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRepository do
         :credential_secret_id,
         :metadata
       ]
+
+      change ScheduleGitCatalogSync
     end
 
     update :record_sync do
