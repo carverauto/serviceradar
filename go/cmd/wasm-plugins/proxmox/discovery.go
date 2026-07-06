@@ -7,7 +7,7 @@ import (
 	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
 )
 
-func addNodeDiscoveries(discovery *sdk.DeviceDiscovery, target Target, nodes []proxmoxNode, cluster []proxmoxClusterNode) {
+func addNodeDiscoveries(discovery *sdk.DeviceDiscovery, target Target, nodes []proxmoxNode, cluster []proxmoxClusterNode, warnings map[string]string) {
 	// The /nodes API frequently omits a node's IP; cluster status carries it.
 	clusterIPs := make(map[string]string, len(cluster))
 	for _, member := range cluster {
@@ -38,10 +38,24 @@ func addNodeDiscoveries(discovery *sdk.DeviceDiscovery, target Target, nodes []p
 			continue
 		}
 
+		// Emit the same cluster-scoped integration identity + host NIC MAC(s)
+		// the enrichment path derives, so the two proxmox ingestion paths
+		// reconcile into one device, and so the node merges with the agent's
+		// own device row for the same physical host via a shared NIC MAC.
+		scope := clusterScopeName(cluster, warnings, node.Node)
+		integrationID := proxmoxNodeIntegrationID(node.Node, scope)
+		macs := nodeManagementMACs(node)
+		metadata := proxmoxDeviceMetadata(
+			integrationID,
+			proxmoxNodeLegacyIDs(node.Node, target.Hostname, integrationID),
+			macs,
+		)
+
 		discovery.AddDevice(sdk.DiscoveredDevice{
 			DeviceID:    deviceID,
 			Hostname:    hostname,
 			IP:          ip,
+			MAC:         firstNonEmpty(macs...),
 			VendorName:  "Proxmox",
 			Model:       "PVE",
 			Type:        "hypervisor",
@@ -52,6 +66,7 @@ func addNodeDiscoveries(discovery *sdk.DeviceDiscovery, target Target, nodes []p
 				"provider": "proxmox",
 				"role":     "pve",
 			},
+			Metadata: metadata,
 		})
 	}
 }
@@ -85,7 +100,7 @@ func sameHostOrNode(candidate, node string) bool {
 	return candidate == node || strings.Split(candidate, ".")[0] == node
 }
 
-func addGuestDiscoveries(discovery *sdk.DeviceDiscovery, guests []proxmoxGuest) {
+func addGuestDiscoveries(discovery *sdk.DeviceDiscovery, guests []proxmoxGuest, cluster []proxmoxClusterNode, warnings map[string]string) {
 	for _, guest := range guests {
 		kind := normalizeGuestKind(guest.Type)
 		available := strings.EqualFold(guest.Status, "running")
@@ -99,6 +114,20 @@ func addGuestDiscoveries(discovery *sdk.DeviceDiscovery, guests []proxmoxGuest) 
 		if primaryIP(guest.Interfaces) == "" {
 			continue
 		}
+
+		// Emit the cluster-scoped, vmid-keyed integration identity + every
+		// configured NIC MAC so this row (a) reconciles with the enrichment
+		// path's row for the same guest and (b) merges with the guest's own
+		// agent device row on a shared MAC — instead of fragmenting into a
+		// name-keyed duplicate that rotates on rename/NIC change.
+		scope := clusterScopeName(cluster, warnings, guest.Node)
+		integrationID := proxmoxGuestIntegrationID(guest.proxmoxResource, scope)
+		macs := configuredGuestMACs(guest.Interfaces)
+		metadata := proxmoxDeviceMetadata(
+			integrationID,
+			proxmoxGuestLegacyIDs(guest.proxmoxResource, integrationID, macs),
+			macs,
+		)
 
 		discovery.AddDevice(sdk.DiscoveredDevice{
 			DeviceID:    proxmoxGuestID(guest.proxmoxResource),
@@ -115,6 +144,7 @@ func addGuestDiscoveries(discovery *sdk.DeviceDiscovery, guests []proxmoxGuest) 
 				"provider": "proxmox",
 				"role":     kind,
 			},
+			Metadata: metadata,
 		})
 	}
 }

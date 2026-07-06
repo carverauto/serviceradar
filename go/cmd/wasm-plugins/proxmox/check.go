@@ -230,8 +230,8 @@ func emitProxmoxBatch(
 
 	discovery := sdk.NewDeviceDiscovery(discoverySource)
 	discovery.ObservedAt = observedAt
-	addNodeDiscoveries(discovery, target, nodes, cluster)
-	addGuestDiscoveries(discovery, guests)
+	addNodeDiscoveries(discovery, target, nodes, cluster, warnings)
+	addGuestDiscoveries(discovery, guests, cluster, warnings)
 
 	resources := summarizeInventory(nodes, guests)
 	summary := checkSummary{

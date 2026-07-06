@@ -619,7 +619,7 @@ func TestAddNodeDiscoveriesOnlyUsesTargetDeviceIDForMatchingNode(t *testing.T) {
 	}, []proxmoxNode{
 		{Node: "pve-a", Status: "online", IP: "192.0.2.10/24"},
 		{Node: "pve-b", Status: "online", IP: "192.0.2.11/24"},
-	}, nil)
+	}, nil, nil)
 
 	if got := discovery.Devices[0].DeviceID; got != "sr:device:pve-a" {
 		t.Fatalf("expected matching node to keep target device ID, got %s", got)

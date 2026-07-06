@@ -185,4 +185,72 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
     refute DeviceDiscoveryIngestor.supports?(%{"events" => [%{"kind" => "camera"}]}, %{})
     refute DeviceDiscoveryIngestor.supports?("not a payload", %{})
   end
+
+  describe "proxmox canonical identity metadata passthrough" do
+    alias ServiceRadar.Inventory.IdentityReconciler
+    alias ServiceRadar.Inventory.Sync.Normalize
+
+    # Locks in the cross-language contract the proxmox wasm plugin's discovery
+    # envelope now relies on: a device carrying the canonical v2 integration_id,
+    # every configured NIC MAC, and lookup-only legacy bridges must flow through
+    # into resolvable strong identifiers, so a renamed / multi-NIC proxmox guest
+    # reconciles onto ONE device instead of a name-keyed duplicate.
+    test "carries v2 integration_id, all MACs, and legacy bridges into strong identifiers" do
+      parent = self()
+
+      payload = %{
+        "status" => "OK",
+        "device_discovery" => [
+          %{
+            "schema" => "serviceradar.device_discovery.v1",
+            "source" => "proxmox",
+            "devices" => [
+              %{
+                "device_id" => "proxmox:qemu:100",
+                "hostname" => "web01",
+                "ip" => "192.168.2.15",
+                "mac" => "BC:24:11:76:DF:7E",
+                "type" => "vm",
+                "metadata" => %{
+                  "integration_id" => "proxmox:v2:lab:vm:100",
+                  "mac_addresses" => ["BC:24:11:76:DF:7E", "BC:24:11:AA:BB:CC"],
+                  "legacy_integration_ids" => [
+                    "proxmox:guest:pve-a:qemu:100",
+                    "proxmox:vm:100",
+                    "proxmox:vm:qemu/100"
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+
+      assert :ok =
+               DeviceDiscoveryIngestor.ingest(payload, %{partition: "default"},
+                 actor: :actor,
+                 device_sync: fn updates, _context ->
+                   send(parent, {:device_sync, updates})
+                   :ok
+                 end
+               )
+
+      assert_receive {:device_sync, [update]}
+
+      # The plugin's canonical id wins over the ingestor's name-based fallback.
+      assert update["metadata"]["integration_id"] == "proxmox:v2:lab:vm:100"
+      assert update["metadata"]["mac_addresses"] == ["BC:24:11:76:DF:7E", "BC:24:11:AA:BB:CC"]
+      assert "proxmox:vm:100" in update["metadata"]["legacy_integration_ids"]
+
+      ids =
+        update
+        |> Normalize.normalize_update()
+        |> IdentityReconciler.extract_strong_identifiers()
+
+      assert ids.integration_id == "proxmox:v2:lab:vm:100"
+      assert Enum.sort(ids.macs) == Enum.sort(["BC241176DF7E", "BC2411AABBCC"])
+      assert "proxmox:vm:100" in ids.legacy_integration_ids
+      assert "proxmox:guest:pve-a:qemu:100" in ids.legacy_integration_ids
+    end
+  end
 end
