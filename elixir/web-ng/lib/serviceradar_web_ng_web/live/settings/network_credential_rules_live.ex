@@ -174,6 +174,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     {:noreply, assign(socket, :secret_form, secret_form(default_api_key_secret_params()))}
   end
 
+  def handle_event("new_awx_secret", _params, socket) do
+    {:noreply, assign(socket, :secret_form, secret_form(default_awx_secret_params()))}
+  end
+
   def handle_event("new_username_password_secret", _params, socket) do
     {:noreply, assign(socket, :secret_form, secret_form(default_username_password_secret_params()))}
   end
@@ -255,6 +259,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                   </li>
                   <li>
                     <button type="button" phx-click="new_api_key_secret">API Key</button>
+                  </li>
+                  <li>
+                    <button type="button" phx-click="new_awx_secret">AWX API Token</button>
                   </li>
                   <li>
                     <button type="button" phx-click="new_username_password_secret">
@@ -492,6 +499,22 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             </div>
 
             <.input field={@form[:api_key]} type="password" label="API Key" required />
+            <.input field={@form[:description]} type="textarea" label="Description" />
+          </div>
+
+          <div :if={@secret_kind == "awx_api_token"} class="space-y-4">
+            <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-base-content/80">
+              Store an AWX/AAP OAuth2 bearer token under the <span class="font-mono">awx</span>
+              provider. The token is encrypted at rest; the credential broker injects it as an
+              <span class="font-mono">Authorization: Bearer</span>
+              header when an Ansible controller dispatches — no token is baked into config.
+              Reference this secret from <span class="font-mono">Settings → Ansible → Controllers</span>.
+            </div>
+            <div class="grid gap-4 md:grid-cols-2">
+              <.input field={@form[:name]} label="Name" required />
+            </div>
+
+            <.input field={@form[:api_token]} type="password" label="AWX API Token" required />
             <.input field={@form[:description]} type="textarea" label="Description" />
           </div>
 
@@ -1256,6 +1279,28 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     ArgumentError -> {:error, "Required API key fields are missing"}
   end
 
+  defp normalize_secret_params(%{"kind" => "awx_api_token"} = params) do
+    name = required_string(params, "name")
+    token = required_string(params, "api_token")
+
+    {:ok,
+     %{
+       name: name,
+       description: blank_to_nil(params["description"]),
+       provider: "awx",
+       credential_kind: :api_token,
+       public_fingerprint: secret_fingerprint(token),
+       secret_payload: token,
+       last_rotated_at: DateTime.utc_now(),
+       metadata: %{
+         "auth_method" => "bearer_token",
+         "source" => "credential_rules_form"
+       }
+     }}
+  rescue
+    ArgumentError -> {:error, "Required AWX token fields are missing"}
+  end
+
   defp normalize_secret_params(%{"kind" => "username_password"} = params) do
     name = required_string(params, "name")
     provider = required_string(params, "provider")
@@ -1418,6 +1463,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     }
   end
 
+  defp default_awx_secret_params do
+    %{
+      "kind" => "awx_api_token",
+      "name" => "",
+      "description" => "",
+      "provider" => "awx",
+      "api_token" => ""
+    }
+  end
+
   defp default_username_password_secret_params do
     %{
       "kind" => "username_password",
@@ -1505,6 +1560,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp secret_form_title("ssh_private_key"), do: "New Console SSH Key"
   defp secret_form_title("api_key"), do: "New API Key Secret"
+  defp secret_form_title("awx_api_token"), do: "New AWX API Token"
   defp secret_form_title("username_password"), do: "New Username & Password Secret"
   defp secret_form_title(_kind), do: "New Proxmox Token"
 

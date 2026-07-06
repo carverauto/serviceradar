@@ -58,35 +58,43 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLiveTest do
     refute inspect(secret) =~ raw_token
   end
 
-  test "guides raw tokens away from the existing secret UUID field", %{conn: conn} do
-    controller_name = "AWX Invalid UUID #{System.unique_integer([:positive])}"
-    raw_token_like_value = "awx-token-in-wrong-field"
+  test "links a DB-backed AWX secret selected from the credential dropdown", %{
+    conn: conn,
+    scope: scope
+  } do
+    controller_name = "AWX From Secret #{System.unique_integer([:positive])}"
+    secret = awx_secret_fixture(scope)
 
     {:ok, lv, _html} = live(conn, ~p"/settings/ansible")
 
-    lv
-    |> element("button", "+ Add controller")
-    |> render_click()
-
-    html =
+    form_html =
       lv
-      |> form("#ansible-controller-form", %{
-        "controller" => %{
-          "name" => controller_name,
-          "agent_id" => "k8s-agent",
-          "description" => "",
-          "base_url" => "http://awx-service.awx.svc.cluster.local",
-          "awx_api_token" => "",
-          "credential_secret_id" => raw_token_like_value,
-          "inventory_sync_interval_seconds" => "300",
-          "catalog_sync_interval_seconds" => "600",
-          "run_pulse_interval_ms" => "2000"
-        }
-      })
-      |> render_submit()
+      |> element("button", "+ Add controller")
+      |> render_click()
 
-    assert html =~ "Existing credential secret ID must be a UUID"
-    refute html =~ raw_token_like_value
+    # The DB-backed AWX secret is offered by name in a dropdown; no UUID typing.
+    assert form_html =~ secret.name
+    assert form_html =~ ~s(name="controller[credential_secret_id]")
+    assert form_html =~ "Existing credential secret"
+
+    lv
+    |> form("#ansible-controller-form", %{
+      "controller" => %{
+        "name" => controller_name,
+        "agent_id" => "k8s-agent",
+        "description" => "",
+        "base_url" => "http://awx-service.awx.svc.cluster.local",
+        "awx_api_token" => "",
+        "credential_secret_id" => secret.id,
+        "inventory_sync_interval_seconds" => "300",
+        "catalog_sync_interval_seconds" => "600",
+        "run_pulse_interval_ms" => "2000"
+      }
+    })
+    |> render_submit()
+
+    controller = controller_by_name!(controller_name)
+    assert to_string(controller.credential_secret_id) == to_string(secret.id)
   end
 
   defp register_and_log_in_admin_user(%{conn: conn}) do
@@ -100,5 +108,25 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLiveTest do
     Controller
     |> Ash.read!(action: :read, actor: system_actor())
     |> Enum.find(&(&1.name == name))
+  end
+
+  defp awx_secret_fixture(_scope) do
+    {:ok, secret} =
+      NetworkCredentialSecret
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "AWX token #{System.unique_integer([:positive])}",
+          provider: "awx",
+          credential_kind: :api_token,
+          public_fingerprint: "sha256:test",
+          secret_payload: "awx-bearer-token",
+          metadata: %{"auth_method" => "bearer_token", "source" => "credential_rules_form"}
+        },
+        actor: system_actor()
+      )
+      |> Ash.create(actor: system_actor())
+
+    secret
   end
 end

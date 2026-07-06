@@ -495,6 +495,66 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     refute get_secret_by_name!(scope, "Incomplete key")
   end
 
+  test "creates an AWX bearer-token secret from the credential-rules page", %{
+    conn: conn,
+    scope: scope
+  } do
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
+
+    assert lv
+           |> element("button[phx-click='new_awx_secret']")
+           |> render_click() =~ "New AWX API Token"
+
+    html =
+      lv
+      |> form("form[phx-submit='save_secret']",
+        credential_secret: %{
+          "kind" => "awx_api_token",
+          "name" => "Prod AWX token",
+          "description" => "AAP controller",
+          "api_token" => "awx-oauth2-bearer-token"
+        }
+      )
+      |> render_submit()
+
+    assert html =~ "Credential secret saved"
+    refute html =~ "awx-oauth2-bearer-token"
+
+    secret = get_secret_by_name!(scope, "Prod AWX token")
+    assert secret.provider == "awx"
+    assert secret.credential_kind == :api_token
+    assert secret.public_fingerprint =~ "sha256:"
+    assert secret.metadata["auth_method"] == "bearer_token"
+    assert secret.metadata["source"] == "credential_rules_form"
+    assert %Ash.NotLoaded{} = secret.secret_payload
+  end
+
+  test "validates AWX token secret fields without storing partial secrets", %{
+    conn: conn,
+    scope: scope
+  } do
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
+
+    lv
+    |> element("button[phx-click='new_awx_secret']")
+    |> render_click()
+
+    html =
+      lv
+      |> form("form[phx-submit='save_secret']",
+        credential_secret: %{
+          "kind" => "awx_api_token",
+          "name" => "Incomplete AWX token",
+          "description" => "",
+          "api_token" => ""
+        }
+      )
+      |> render_submit()
+
+    assert html =~ "Required AWX token fields are missing"
+    refute get_secret_by_name!(scope, "Incomplete AWX token")
+  end
+
   test "creates a username/password secret for camera providers", %{conn: conn, scope: scope} do
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
 
