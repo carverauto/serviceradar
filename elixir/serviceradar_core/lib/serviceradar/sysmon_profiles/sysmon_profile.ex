@@ -66,6 +66,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.SysmonProfiles.Changes.ValidateSrqlQuery
+  alias ServiceRadar.SysmonProfiles.Validations.ValidateSampleInterval
 
   postgres do
     table "sysmon_profiles"
@@ -95,6 +96,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
         :priority
       ]
 
+      validate ValidateSampleInterval
       change ValidateSrqlQuery
     end
 
@@ -118,6 +120,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
       ]
 
       require_atomic? false
+      validate ValidateSampleInterval
       change ValidateSrqlQuery
     end
 

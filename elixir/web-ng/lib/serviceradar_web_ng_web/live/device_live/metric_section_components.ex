@@ -8,9 +8,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
   attr(:sections, :list, default: [])
   attr(:device_uid, :string, required: true)
   attr(:chart_focus, :any, default: nil)
+  attr(:time_range, :string, default: "last_24h")
 
   def metric_sections_content(assigns) do
     ~H"""
+    <div :if={@sections != []} class="flex items-center justify-end gap-2">
+      <span class="text-[11px] uppercase tracking-wide text-base-content/50">Window</span>
+      <div class="join">
+        <button
+          :for={{label, value} <- sysmon_range_options()}
+          type="button"
+          phx-click="sysmon_set_range"
+          phx-value-range={value}
+          class={[
+            "btn btn-xs join-item",
+            @time_range == value && "btn-active btn-primary"
+          ]}
+        >
+          {label}
+        </button>
+      </div>
+    </div>
+
     <%= for section <- @sections do %>
       <div class="rounded-xl border border-base-200 bg-base-100">
         <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
@@ -74,6 +93,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
       </div>
     <% end %>
     """
+  end
+
+  defp sysmon_range_options do
+    [{"1h", "last_1h"}, {"6h", "last_6h"}, {"24h", "last_24h"}, {"7d", "last_7d"}]
   end
 
   defp format_pct(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 1)

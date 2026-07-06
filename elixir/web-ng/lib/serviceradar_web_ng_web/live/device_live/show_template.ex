@@ -238,6 +238,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               <.metric_sections_content
                 sections={@metric_sections_to_render}
                 device_uid={@device_uid}
+                time_range={@sysmon_time_range}
               />
 
               <.process_metrics_section
