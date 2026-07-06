@@ -67,7 +67,13 @@ defmodule ServiceRadarCoreElx.MixProject do
       {:bundlex, github: "membraneframework/bundlex", tag: "v1.5.4", override: true},
       {:elixir_uuid, "~> 1.2", override: true},
       {:protobuf, "~> 0.16.0", override: true},
-      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      # credo must NOT carry an :only restriction here: membrane_opus_format
+      # 0.3.1 (transitive via the vendored boombox) ships credo as a hard,
+      # all-envs dependency (upstream packaging bug), and Mix fails prod
+      # deps.get with an :only divergence when our entry is dev/test-only —
+      # which broke the core_elx release build. runtime: false keeps credo
+      # out of the assembled release either way.
+      {:credo, "~> 1.7", runtime: false},
       {:ash_credo, "~> 0.7", only: [:dev, :test], runtime: false},
       {:boundary, "~> 0.10.4", runtime: false},
       {:ex_dna, "~> 1.3", only: [:dev, :test], runtime: false},
