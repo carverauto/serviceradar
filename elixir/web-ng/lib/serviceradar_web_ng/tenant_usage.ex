@@ -41,6 +41,18 @@ defmodule ServiceRadarWebNG.TenantUsage do
     _ -> %{}
   end
 
+  @spec leaf_node_count() :: non_neg_integer()
+  def leaf_node_count do
+    from(l in "nats_leaf_servers",
+      where: field(l, :status) in ["provisioned", "connected", "disconnected"],
+      select: count()
+    )
+    |> Repo.one()
+    |> normalize_count()
+  rescue
+    _ -> 0
+  end
+
   defp normalize_collector_type(collector_type) when is_atom(collector_type), do: Atom.to_string(collector_type)
 
   defp normalize_collector_type(collector_type) when is_binary(collector_type), do: collector_type

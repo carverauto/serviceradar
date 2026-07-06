@@ -40,4 +40,43 @@ defmodule ServiceRadarWebNG.TenantUsageTest do
 
     assert TenantUsage.managed_device_count() == baseline + 1
   end
+
+  test "leaf node count tracks provisioned runtime leaf servers" do
+    baseline = TenantUsage.leaf_node_count()
+    unique = System.unique_integer([:positive])
+    ready_site_id = Ecto.UUID.dump!(Ecto.UUID.generate())
+    pending_site_id = Ecto.UUID.dump!(Ecto.UUID.generate())
+
+    Repo.insert_all("edge_sites", [
+      %{
+        id: ready_site_id,
+        name: "Ready Leaf #{unique}",
+        slug: "ready-leaf-#{unique}",
+        status: "active"
+      },
+      %{
+        id: pending_site_id,
+        name: "Pending Leaf #{unique}",
+        slug: "pending-leaf-#{unique}",
+        status: "pending"
+      }
+    ])
+
+    Repo.insert_all("nats_leaf_servers", [
+      %{
+        edge_site_id: ready_site_id,
+        status: "connected",
+        upstream_url: "tls://nats.example.test:7422",
+        local_listen: "0.0.0.0:4222"
+      },
+      %{
+        edge_site_id: pending_site_id,
+        status: "pending",
+        upstream_url: "tls://nats.example.test:7422",
+        local_listen: "0.0.0.0:4222"
+      }
+    ])
+
+    assert TenantUsage.leaf_node_count() == baseline + 1
+  end
 end
