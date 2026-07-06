@@ -46,6 +46,11 @@ defmodule ServiceRadar.Automation.Ansible.LifecycleTest do
     def ensure_scheduled, do: Recorder.record(:global)
   end
 
+  defmodule GitSyncWorker do
+    @moduledoc false
+    def ensure_scheduled(repository_id), do: Recorder.record({:git_sync, repository_id})
+  end
+
   defmodule InventoryReconciler do
     @moduledoc false
 
@@ -100,6 +105,7 @@ defmodule ServiceRadar.Automation.Ansible.LifecycleTest do
     assert :ok =
              Lifecycle.seed_all(
                controllers: [%{id: "ctrl-a"}, %{id: "ctrl-b"}],
+               repositories: [],
                per_controller_workers: [HealthWorker],
                global_workers: [GlobalWorker],
                inventory_reconciler: InventoryReconciler
@@ -111,5 +117,42 @@ defmodule ServiceRadar.Automation.Ansible.LifecycleTest do
              :global,
              :reconcile_all
            ]
+  end
+
+  test "seed_all seeds the git catalog sync for every playbook repository" do
+    # The GitCatalogSyncWorker only re-schedules itself from perform/1; this
+    # backstop is what seeds job #1 for repositories that predate the
+    # create/update hook (without it a repository stayed `pending` forever).
+    assert :ok =
+             Lifecycle.seed_all(
+               controllers: [%{id: "ctrl-a"}],
+               repositories: [%{id: "repo-a"}, %{"id" => "repo-b"}],
+               per_controller_workers: [HealthWorker],
+               global_workers: [GlobalWorker],
+               inventory_reconciler: InventoryReconciler,
+               git_catalog_sync_worker: GitSyncWorker
+             )
+
+    assert Recorder.events() == [
+             {:health, "ctrl-a"},
+             :global,
+             :reconcile_all,
+             {:git_sync, "repo-a"},
+             {:git_sync, "repo-b"}
+           ]
+  end
+
+  test "seed_all seeds repository syncs even with no controllers registered" do
+    assert :ok =
+             Lifecycle.seed_all(
+               controllers: [],
+               repositories: [%{id: "repo-a"}],
+               per_controller_workers: [HealthWorker],
+               global_workers: [GlobalWorker],
+               inventory_reconciler: InventoryReconciler,
+               git_catalog_sync_worker: GitSyncWorker
+             )
+
+    assert Recorder.events() == [:global, :reconcile_all, {:git_sync, "repo-a"}]
   end
 end

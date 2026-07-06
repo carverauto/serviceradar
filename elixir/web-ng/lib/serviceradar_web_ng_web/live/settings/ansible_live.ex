@@ -1375,15 +1375,23 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   defp list_controllers do
     case Ash.read(Controller, action: :read, actor: actor()) do
       {:ok, rows} -> rows
-      _ -> []
+      {:error, error} -> log_list_failure("controllers", error)
     end
   end
 
   defp list_repositories do
     case Ash.read(PlaybookRepository, action: :read, actor: actor()) do
       {:ok, rows} -> rows
-      _ -> []
+      {:error, error} -> log_list_failure("repositories", error)
     end
+  end
+
+  # A failed read used to collapse silently into an empty list, making a
+  # read/policy error indistinguishable from "nothing registered yet" in the
+  # UI. Keep the empty-list fallback (the page must still render) but say why.
+  defp log_list_failure(what, error) do
+    Logger.warning("Ansible settings: failed to list #{what}", error: inspect(error))
+    []
   end
 
   defp create_repository(socket, params) do
@@ -1473,7 +1481,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
     case Ash.read(query, actor: actor()) do
       {:ok, rows} -> rows
-      _ -> []
+      {:error, error} -> log_list_failure("schedules", error)
     end
   end
 

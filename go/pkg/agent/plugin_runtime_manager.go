@@ -937,3 +937,81 @@ func (m *PluginManager) RunAction(ctx context.Context, assignmentID string, invo
 	m.recordExecution(err == nil)
 	return result, err
 }
+
+// RunPluginVerb executes the run_check-style entrypoint of the runner
+// assignment matching pluginID on demand, passing configJSON straight through
+// as the plugin config. Credential broker grants ride outside the config so
+// material is injected at the host HTTP boundary and never enters the Wasm
+// module. Used for command verbs (e.g. awx.*) that address a plugin by plugin
+// id rather than by assignment id.
+func (m *PluginManager) RunPluginVerb(
+	ctx context.Context,
+	pluginID string,
+	configJSON json.RawMessage,
+	credentialGrants []credentialBrokerGrant,
+	timeout time.Duration,
+) ([]byte, error) {
+	if m == nil {
+		return nil, errPluginAssignmentNotFound
+	}
+
+	assignment, ok := m.lookupRunnerAssignmentByPluginID(pluginID)
+	if !ok {
+		return nil, fmt.Errorf("%w for plugin %q", errPluginAssignmentNotFound, strings.TrimSpace(pluginID))
+	}
+
+	if timeout <= 0 {
+		timeout = assignment.Timeout
+	}
+	if timeout <= 0 {
+		timeout = pluginDefaultTimeout
+	}
+
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	if !m.acquireSlot() {
+		m.recordExecution(false)
+		return nil, errPluginAdmissionDenied
+	}
+	defer m.releaseSlot()
+
+	wasm, err := m.loadWasm(runCtx, assignment)
+	if err != nil {
+		m.recordExecution(false)
+		return nil, err
+	}
+
+	result, err := m.executeActionWithWasm(runCtx, assignment, wasm, configJSON, credentialGrants)
+	m.recordExecution(err == nil)
+	return result, err
+}
+
+// lookupRunnerAssignmentByPluginID finds the runner assignment for an exact
+// plugin id. Exactness matters: the awx wasm is also assigned as
+// "awx-inventory-sync" with a different entrypoint, and command verbs must
+// never run through that assignment.
+func (m *PluginManager) lookupRunnerAssignmentByPluginID(pluginID string) (*pluginAssignment, bool) {
+	if m == nil {
+		return nil, false
+	}
+
+	pluginID = strings.TrimSpace(pluginID)
+	if pluginID == "" {
+		return nil, false
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, runner := range m.runners {
+		if runner == nil || runner.assignment == nil {
+			continue
+		}
+		if runner.assignment.PluginID == pluginID {
+			return runner.assignment, true
+		}
+	}
+
+	return nil, false
+}

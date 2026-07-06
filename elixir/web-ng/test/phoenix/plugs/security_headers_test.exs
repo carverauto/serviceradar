@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.SecurityHeadersTest do
 
   alias ServiceRadarWebNGWeb.Plugs.SecurityHeaders
 
+  @moduletag :db_free
+
   setup do
     previous = Application.get_env(:serviceradar_web_ng, SecurityHeaders, [])
 
@@ -117,6 +119,35 @@ defmodule ServiceRadarWebNGWeb.Plugs.SecurityHeadersTest do
       assert [report_only] = get_resp_header(conn, "content-security-policy-report-only")
       assert report_only =~ "report-uri /runtime-uri"
       refute report_only =~ "/plug-opt-uri"
+    end
+  end
+
+  describe "websocket upgrades" do
+    # WebSockAdapter.upgrade/4 (e.g. the camera relay browser stream) runs
+    # before_send callbacks with the conn already handed to the transport
+    # (state: :upgraded). put_resp_header/3 raises Plug.Conn.AlreadySentError
+    # on such a conn, which 500'd every websocket upgrade behind this plug
+    # and broke camera relay browser playback.
+    test "before_send skips an upgraded conn instead of raising" do
+      conn = run_plug(https_conn(), [])
+      [callback | _] = conn.private[:before_send]
+
+      upgraded = %{conn | state: :upgraded}
+
+      assert %Plug.Conn{} = result = callback.(upgraded)
+      assert result.resp_headers == upgraded.resp_headers
+      assert get_resp_header(result, "permissions-policy") == []
+      assert get_resp_header(result, "strict-transport-security") == []
+    end
+
+    test "before_send skips an already-sent conn" do
+      conn = run_plug(http_conn(), [])
+      [callback | _] = conn.private[:before_send]
+
+      sent = %{conn | state: :sent}
+
+      assert %Plug.Conn{} = result = callback.(sent)
+      assert get_resp_header(result, "permissions-policy") == []
     end
   end
 

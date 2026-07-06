@@ -72,6 +72,48 @@ func TestPluginManagerRunActionWithFixtureWasm(t *testing.T) {
 	}
 }
 
+func TestPluginManagerRunPluginVerbWithFixtureWasm(t *testing.T) {
+	manager := newActionFixtureManager(t, actionFixtureObjectKey, &proto.PluginAssignmentConfig{
+		AssignmentId:  actionFixtureAssignmentID,
+		PluginId:      "awx",
+		PackageId:     "fixture-package",
+		Name:          "Hello Wasm Verb",
+		Entrypoint:    "run_check",
+		Runtime:       "wasi-preview1",
+		Enabled:       true,
+		TimeoutSec:    5,
+		WasmObjectKey: actionFixtureObjectKey,
+		Capabilities:  []string{"get_config", "log", "submit_result"},
+	})
+	defer manager.Stop()
+
+	configJSON := json.RawMessage(`{
+		"verb": "awx.ping",
+		"base_url": "https://awx.example.com",
+		"api_token": "resolved-by-credential-broker"
+	}`)
+
+	result, err := manager.RunPluginVerb(t.Context(), "awx", configJSON, nil, 10*time.Second)
+	if err != nil {
+		t.Fatalf("RunPluginVerb returned error: %v", err)
+	}
+
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(result, &decoded); err != nil {
+		t.Fatalf("decode verb result: %v\npayload: %s", err, result)
+	}
+
+	if got := decoded["status"]; got != "OK" {
+		t.Fatalf("status = %v, want OK; payload: %s", got, result)
+	}
+	if got := decoded["summary"]; got != "hello from wasm (config received)" {
+		t.Fatalf("summary = %v, want config passthrough confirmation; payload: %s", got, result)
+	}
+	if queued := manager.DrainResults(1); len(queued) != 0 {
+		t.Fatalf("verb result should not be queued as scheduled output, got %d queued result(s)", len(queued))
+	}
+}
+
 func TestPluginManagerRunActionWithSampleNorthboundWasm(t *testing.T) {
 	manager := newActionFixtureManager(t, sampleNorthboundFixtureObjectKey, &proto.PluginAssignmentConfig{
 		AssignmentId:  sampleNorthboundFixtureAssignmentID,

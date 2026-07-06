@@ -92,7 +92,9 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
       refute inspect(payload) =~ "Bearer "
       refute Map.has_key?(payload, "api_token")
 
-      assert opts[:required_capability] == "http"
+      # The dispatch capability gate was dropped (agents don't advertise an
+      # "http" capability; the gate only blocked dispatch) — see 28090014c.
+      assert opts[:required_capability] == nil
       assert opts[:source] == :automation
       assert opts[:context]["controller_id"] == "ctrl-uuid-1"
       assert opts[:context]["verb"] == "awx.ping"

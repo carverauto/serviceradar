@@ -111,9 +111,19 @@ defmodule ServiceRadar.Automation.Ansible.RunWatchdog do
   defp run_started_at(_), do: nil
 
   defp load_non_terminal_runs(actor) do
+    # `actor` is the SystemActor struct itself — `actor[:actor]` was a leftover
+    # keyword-style access that always yielded nil, so every watchdog tick read
+    # with no actor, was denied by policy, and logged "could not list
+    # non-terminal runs" forever.
+    #
+    # The read must also name the :read action explicitly: PlaybookRun has no
+    # primary read action, so a bare filter pipeline raised
+    # Ash.Error.Invalid.NoPrimaryAction on every tick and the watchdog never
+    # swept anything.
     PlaybookRun
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
     |> Ash.Query.filter(state in [:pending, :launching, :running])
-    |> Ash.read(actor: actor[:actor])
+    |> Ash.read(actor: actor)
   end
 
   defp mark_unreachable(run, now, actor) do
