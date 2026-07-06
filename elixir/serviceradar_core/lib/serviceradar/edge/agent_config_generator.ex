@@ -1623,8 +1623,16 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       endpoint_inventory: stable_config_fragment(endpoint_inventory_config),
       plugins: sorted_plugins,
       plugin_engine_limits: plugin_engine_limits,
-      addons: sorted_addons,
-      download_token_epoch: download_token_epoch(plugin_assignments, addon_assignments)
+      addons: sorted_addons
+      # NOTE: download_token_epoch is intentionally NOT folded into the version
+      # hash. Doing so re-versioned the whole config every ~half-TTL (~7 min),
+      # which relaunched every agent's running plugins on a timer — a proxmox/AWX/
+      # camera inventory run longer than that window could never finish. The
+      # artifact download token is still minted fresh on every generation and
+      # delivered in the config; an agent applies a fresh token whenever a real
+      # change re-versions the config (a new content_hash — which is when a
+      # download is actually needed) and on its startup config fetch. Cached-wasm
+      # plugins therefore no longer re-version for a token rotation they never use.
     }
 
     "v" <> Compiler.content_hash(version_payload)

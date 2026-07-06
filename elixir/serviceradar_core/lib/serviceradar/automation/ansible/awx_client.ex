@@ -26,7 +26,14 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   @grant_type "awx_oauth2_token"
   @default_grant_ttl_seconds 300
   @default_command_ttl_seconds 60
-  @default_capability "http"
+  # AWX verbs run inside the awx WASM plugin, which reaches AWX through the
+  # plugin runtime's `http_request` host function — not a raw agent session
+  # capability. The command is dispatched to the controller's explicitly-bound
+  # agent (which carries the awx plugin assignment), so gating on a session
+  # capability the agent never advertises (agents advertise check types like
+  # icmp/snmp, not plugin host functions) would reject every launch. nil skips
+  # the session-capability gate; delivery still targets that specific agent.
+  @default_capability nil
 
   @typedoc "A `(job_id, since_id)` pair for `fetch_events_for_jobs/3`."
   @type job_event_pair :: %{required(:job_id) => integer(), required(:since_id) => integer()}

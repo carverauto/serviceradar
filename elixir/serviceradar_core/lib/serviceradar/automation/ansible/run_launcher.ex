@@ -262,11 +262,41 @@ defmodule ServiceRadar.Automation.Ansible.RunLauncher do
   end
 
   defp ansible_inventory_ref(device) when is_map(device) do
-    Map.get(device, :ansible_inventory_ref) ||
-      Map.get(device, "ansible_inventory_ref") ||
-      get_in(Map.get(device, :metadata) || %{}, ["ansible_inventory_ref"]) ||
-      get_in(Map.get(device, "metadata") || %{}, ["ansible_inventory_ref"]) ||
-      %{}
+    explicit =
+      Map.get(device, :ansible_inventory_ref) ||
+        Map.get(device, "ansible_inventory_ref") ||
+        get_in(Map.get(device, :metadata) || %{}, ["ansible_inventory_ref"]) ||
+        get_in(Map.get(device, "metadata") || %{}, ["ansible_inventory_ref"])
+
+    explicit || awx_inventory_ref(device) || %{}
+  end
+
+  # Derive the ansible inventory ref straight from the AWX inventory-sync
+  # metadata (`metadata.awx.*`) that the awx-inventory-sync plugin writes onto
+  # every synced host. This is what makes a device the operator sees "ansible
+  # managed" (and launchable) without a separate ingestion step: any device that
+  # is a member of an AWX inventory is runnable against its controller.
+  defp awx_inventory_ref(device) do
+    metadata = Map.get(device, :metadata) || Map.get(device, "metadata") || %{}
+
+    case Map.get(metadata, "awx") || Map.get(metadata, :awx) do
+      %{} = awx ->
+        host_id = Map.get(awx, "host_id") || Map.get(awx, :host_id)
+
+        if is_nil(host_id) do
+          nil
+        else
+          %{
+            "managed" => true,
+            "controller_id" => Map.get(awx, "controller_id") || Map.get(awx, :controller_id),
+            "host_id" => host_id,
+            "host_name" => Map.get(awx, "host_name") || Map.get(awx, :host_name)
+          }
+        end
+
+      _ ->
+        nil
+    end
   end
 
   defp host_name_string(nil), do: nil
