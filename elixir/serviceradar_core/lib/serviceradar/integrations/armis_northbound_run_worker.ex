@@ -118,12 +118,18 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
       reap_stale_source_jobs(integration_source_id)
 
       integration_source_id
-      |> args_for(Keyword.get(opts, :manual?, false))
-      |> new(schedule_opts(opts))
+      |> build_job(opts)
       |> support_module().safe_insert()
+      |> maybe_retry_stale_conflict(integration_source_id, opts)
     else
       {:error, :oban_unavailable}
     end
+  end
+
+  defp build_job(integration_source_id, opts) do
+    integration_source_id
+    |> args_for(Keyword.get(opts, :manual?, false))
+    |> new(schedule_opts(opts))
   end
 
   defp args_for(integration_source_id, manual?) do
@@ -169,11 +175,66 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
 
   defp put_run_at(opts, false, _schedule_in), do: opts
 
-  defp reap_stale_source_jobs(integration_source_id) do
+  defp maybe_retry_stale_conflict(
+         {:ok, %Oban.Job{conflict?: true, state: "executing"} = conflict_job},
+         integration_source_id,
+         opts
+       ) do
     cutoff_seconds = stale_run_cutoff_seconds()
     now = DateTime.utc_now()
 
-    case reap_stale_jobs_fun().(__MODULE__, integration_source_id, now, cutoff_seconds) do
+    if stale_conflict?(conflict_job, now, cutoff_seconds) do
+      case reap_stale_source_jobs(integration_source_id, now, cutoff_seconds) do
+        {count, _} when is_integer(count) and count > 0 ->
+          Logger.warning("Retrying Armis northbound enqueue after stale Oban conflict",
+            integration_source_id: integration_source_id,
+            stale_oban_job_id: conflict_job.id,
+            stale_run_cutoff_seconds: cutoff_seconds
+          )
+
+          integration_source_id
+          |> build_job(opts)
+          |> support_module().safe_insert()
+
+        _ ->
+          Logger.warning("Armis northbound enqueue hit a stale Oban conflict that was not reaped",
+            integration_source_id: integration_source_id,
+            stale_oban_job_id: conflict_job.id,
+            attempted_at: inspect(conflict_job.attempted_at),
+            stale_run_cutoff_seconds: cutoff_seconds
+          )
+
+          {:error, {:stale_armis_northbound_job_conflict, conflict_job.id}}
+      end
+    else
+      {:ok, conflict_job}
+    end
+  end
+
+  defp maybe_retry_stale_conflict(result, _integration_source_id, _opts), do: result
+
+  defp stale_conflict?(%Oban.Job{attempted_at: %DateTime{} = attempted_at}, now, cutoff_seconds) do
+    DateTime.diff(now, attempted_at, :second) >= cutoff_seconds
+  end
+
+  defp stale_conflict?(
+         %Oban.Job{attempted_at: %NaiveDateTime{} = attempted_at},
+         now,
+         cutoff_seconds
+       ) do
+    NaiveDateTime.diff(DateTime.to_naive(now), attempted_at, :second) >= cutoff_seconds
+  end
+
+  defp stale_conflict?(_job, _now, _cutoff_seconds), do: false
+
+  defp reap_stale_source_jobs(integration_source_id) do
+    reap_stale_source_jobs(integration_source_id, DateTime.utc_now(), stale_run_cutoff_seconds())
+  end
+
+  defp reap_stale_source_jobs(integration_source_id, now, cutoff_seconds) do
+    result = reap_stale_jobs_fun().(__MODULE__, integration_source_id, now, cutoff_seconds)
+
+    case result do
       {count, _} when is_integer(count) and count > 0 ->
         Logger.warning("Reaped stale Armis northbound jobs before enqueue",
           integration_source_id: integration_source_id,
@@ -185,7 +246,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
         :ok
     end
 
-    :ok
+    result
   rescue
     error ->
       Logger.warning("Failed to reap stale Armis northbound jobs before enqueue",
@@ -193,7 +254,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
         error: Exception.message(error)
       )
 
-      :ok
+      {0, nil}
   end
 
   defp default_reap_stale_source_jobs(worker, integration_source_id, now, cutoff_seconds),
