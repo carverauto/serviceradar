@@ -90,6 +90,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
        |> assign(:current_path, "/settings/ansible")
        |> assign(:tabs, @tabs)
        |> assign(:active_tab, :controllers)
+       |> assign(:awx_credential_secrets, list_awx_secrets())
        |> assign(:show_controller_form, false)
        |> assign(:editing_controller_id, nil)
        |> assign(:controller_form, to_form(default_controller_form(), as: :controller))
@@ -353,6 +354,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             show_form={@show_controller_form}
             form={@controller_form}
             editing_id={@editing_controller_id}
+            awx_secrets={@awx_credential_secrets}
           />
         </section>
 
@@ -390,6 +392,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   attr(:show_form, :boolean, required: true)
   attr(:form, :any, required: true)
   attr(:editing_id, :string, default: nil)
+  attr(:awx_secrets, :any, default: [])
 
   defp controllers_panel(assigns) do
     ~H"""
@@ -411,7 +414,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       <p class="mt-2">Click <strong>Add controller</strong> to register your first.</p>
     </div>
 
-    <.controller_form :if={@show_form} form={@form} editing_id={@editing_id} />
+    <.controller_form
+      :if={@show_form}
+      form={@form}
+      editing_id={@editing_id}
+      awx_secrets={@awx_secrets}
+    />
 
     <div
       :if={@controller_count > 0}
@@ -475,8 +483,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
   attr(:form, :any, required: true)
   attr(:editing_id, :string, default: nil)
+  attr(:awx_secrets, :any, default: [])
 
   defp controller_form(assigns) do
+    assigns = assign(assigns, :selected_secret_id, controller_form_secret_id(assigns.form))
+
     ~H"""
     <div class="rounded-lg border border-base-300 bg-base-200/60 p-4">
       <h2 class="text-lg font-medium mb-3">
@@ -560,18 +571,33 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
           <div class="form-control md:col-span-2">
             <label class="label">
-              <span class="label-text">Existing credential secret ID</span>
+              <span class="label-text">Existing credential secret</span>
               <span class="label-text-alt text-xs text-base-content/60">
-                Optional UUID from Settings → Credentials.
+                Provision AWX tokens in Settings → Credentials → New Secret → AWX API Token.
               </span>
             </label>
-            <input
-              type="text"
+            <select
               name="controller[credential_secret_id]"
-              value={Phoenix.HTML.Form.input_value(@form, :credential_secret_id)}
-              class="input input-bordered input-sm font-mono"
-              placeholder="018f3f56-1111-7222-8333-..."
-            />
+              class="select select-bordered select-sm"
+            >
+              <option value="" selected={@selected_secret_id in [nil, ""]}>
+                — none / paste a token above —
+              </option>
+              <option
+                :for={secret <- @awx_secrets}
+                value={secret.id}
+                selected={to_string(secret.id) == @selected_secret_id}
+              >
+                {secret.name}
+              </option>
+              <option
+                :if={@selected_secret_id not in ["" | Enum.map(@awx_secrets, &to_string(&1.id))]}
+                value={@selected_secret_id}
+                selected={true}
+              >
+                {@selected_secret_id} (current)
+              </option>
+            </select>
           </div>
 
           <div class="form-control">
@@ -1217,6 +1243,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
          socket
          |> put_flash(:info, "Controller \"#{ctrl.name}\" created.")
          |> assign(:show_controller_form, false)
+         |> assign(:awx_credential_secrets, list_awx_secrets())
          |> stream_insert(:controllers, ctrl)
          |> update(:controller_count, &(&1 + 1))}
 
@@ -1240,6 +1267,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
        socket
        |> put_flash(:info, "Controller \"#{updated.name}\" updated.")
        |> assign(:show_controller_form, false)
+       |> assign(:awx_credential_secrets, list_awx_secrets())
        |> stream_insert(:controllers, updated)}
     else
       {:error, error} ->
@@ -1376,6 +1404,25 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     case Ash.read(Controller, action: :read, actor: actor()) do
       {:ok, rows} -> rows
       {:error, error} -> log_list_failure("controllers", error)
+    end
+  end
+
+  # DB-backed AWX bearer tokens, provisioned from Settings → Credentials
+  # (New Secret → AWX API Token). The controller form references one of these
+  # by name; no token is baked into config and nothing is RPC-seeded.
+  defp list_awx_secrets do
+    case NetworkCredentialSecret.list_by_provider(@awx_credential_provider, actor: actor()) do
+      {:ok, rows} -> Enum.sort_by(rows, & &1.name)
+      {:error, error} -> log_list_failure("awx credential secrets", error)
+    end
+  end
+
+  defp controller_form_secret_id(form) do
+    form
+    |> Phoenix.HTML.Form.input_value(:credential_secret_id)
+    |> case do
+      nil -> ""
+      value -> to_string(value)
     end
   end
 
