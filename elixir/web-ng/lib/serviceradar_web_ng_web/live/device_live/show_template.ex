@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
   import ServiceRadarWebNGWeb.DeviceLive.DevicePropertiesComponents
   import ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents
   import ServiceRadarWebNGWeb.DeviceLive.DeviceTabsComponents
+  import ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents
   import ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents
   import ServiceRadarWebNGWeb.DeviceLive.FlowComponents
   import ServiceRadarWebNGWeb.DeviceLive.HealthcheckComponents
@@ -167,6 +168,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
           <div :if={@active_tab == "details"}>
             <div class="grid grid-cols-1 gap-4">
               <.ocsf_info_section :if={is_map(@device_row)} device_row={@device_row} />
+
+              <.discovery_sources_section :if={is_map(@device_row)} device_row={@device_row} />
 
               <.metadata_summary_section :if={is_map(@device_row)} device_row={@device_row} />
 

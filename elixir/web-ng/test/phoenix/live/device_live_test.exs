@@ -27,6 +27,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNG.TestSupport.CameraRelaySessionManagerStub
+  alias ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents
   alias ServiceRadarWebNGWeb.DeviceLive.Show
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics
   alias ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents
@@ -1190,6 +1191,85 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     refute html =~ "_alias_last_seen_at"
     refute html =~ "debug_unifi_payload"
     refute html =~ "raw-integration-id"
+  end
+
+  test "device details lists every discovery source a merged device was seen through", %{
+    conn: conn
+  } do
+    uid = "test-device-multi-source-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 1,
+        hostname: "multi-source-host",
+        ip: "192.168.7.42",
+        agent_id: "agent-multi-src",
+        discovery_sources: ["agent", "awx", "sweep", "hypervisor_enrichment"],
+        metadata: %{
+          "integration_type" => "hypervisor",
+          "query_label" => "prod-inventory",
+          "sync_service_id" => "awx-prod",
+          "source_device_id" => "77",
+          "provider" => "proxmox",
+          "scan_available_count" => 3,
+          "scan_availability_percent" => "100"
+        },
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
+    html = render_until(view, "Discovery Sources", 10_000)
+
+    # Every merged discovery source is enumerated, not just one canonical source.
+    assert html =~ "Discovery Sources"
+    assert html =~ "Agent"
+    assert html =~ "AWX / Ansible"
+    assert html =~ "Sweep"
+    assert html =~ "Hypervisor Enrichment"
+
+    # Each source carries its own curated metadata.
+    assert html =~ "agent-multi-src"
+    assert html =~ "prod-inventory"
+    assert html =~ "awx-prod"
+    assert html =~ "proxmox"
+  end
+
+  test "discovery sources section renders a card per source with source metadata" do
+    html =
+      render_component(
+        &DiscoverySourcesComponents.discovery_sources_section/1,
+        device_row: %{
+          "agent_id" => "agent-abc",
+          "discovery_sources" => ["agent", "armis", "netbox"],
+          "metadata" => %{
+            "armis_device_id" => "42",
+            "armis_risk_level" => "High",
+            "netbox_device_id" => "nb-9"
+          }
+        }
+      )
+
+    assert html =~ "Discovery Sources"
+    assert html =~ "Agent"
+    assert html =~ "Armis"
+    assert html =~ "NetBox"
+    assert html =~ "agent-abc"
+    assert html =~ "High"
+    assert html =~ "nb-9"
+  end
+
+  test "discovery sources section is empty when no sources are present" do
+    html =
+      render_component(
+        &DiscoverySourcesComponents.discovery_sources_section/1,
+        device_row: %{"metadata" => %{}}
+      )
+
+    refute html =~ "Discovery Sources"
   end
 
   test "metadata summary renders Proxmox only for device-level candidate evidence" do
@@ -2357,6 +2437,129 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Open PVE shell"
     assert html =~ "target_kind=pve_host"
     assert html =~ "console_mode=proxmox_termproxy"
+  end
+
+  test "guest device links back to its parent hypervisor node", %{conn: conn, scope: scope} do
+    unique = System.unique_integer([:positive])
+    host_uid = "test-device-pve-node-#{unique}"
+    guest_uid = "test-device-pve-guest-#{unique}"
+    observed_at = DateTime.utc_now()
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: host_uid,
+        type_id: 0,
+        hostname: "pve-node-#{unique}",
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      },
+      %{
+        uid: guest_uid,
+        type_id: 1,
+        hostname: "guest-vm-#{unique}",
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, host} =
+      VirtualizationHost
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          provider: "proxmox",
+          provider_ref: "proxmox:node:pve-node-#{unique}",
+          device_uid: host_uid,
+          name: "pve-node-#{unique}",
+          status: "online",
+          observed_at: observed_at
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, _guest} =
+      VirtualizationGuest
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          provider: "proxmox",
+          provider_ref: "proxmox:node:pve-node-#{unique}:vm:#{unique}",
+          host_id: host.id,
+          device_uid: guest_uid,
+          name: "guest-vm-#{unique}",
+          guest_type: "vm",
+          vmid: unique,
+          status: "running",
+          observed_at: observed_at
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, view, _html} = live(conn, ~p"/devices/#{guest_uid}")
+    html = render_until(view, "Hypervisor", 10_000)
+
+    assert html =~ "Hypervisor"
+    assert html =~ "pve-node-#{unique}"
+    assert html =~ ~p"/devices/#{host_uid}"
+    assert html =~ "Open node"
+  end
+
+  test "PVE node Guests tab reliably renders the node's guests", %{conn: conn, scope: scope} do
+    unique = System.unique_integer([:positive])
+    host_uid = "test-device-pve-guests-tab-#{unique}"
+    observed_at = DateTime.utc_now()
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: host_uid,
+        type_id: 0,
+        hostname: "pve-guests-tab-#{unique}",
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, host} =
+      VirtualizationHost
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          provider: "proxmox",
+          provider_ref: "proxmox:node:pve-guests-tab-#{unique}",
+          device_uid: host_uid,
+          name: "pve-guests-tab-#{unique}",
+          status: "online",
+          observed_at: observed_at
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, _guest} =
+      VirtualizationGuest
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          provider: "proxmox",
+          provider_ref: "proxmox:vm:#{unique}",
+          host_id: host.id,
+          name: "guest-node-#{unique}",
+          guest_type: "vm",
+          vmid: unique,
+          status: "running",
+          observed_at: observed_at
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, view, _html} = live(conn, ~p"/devices/#{host_uid}?tab=guests")
+    html = render_until(view, "guest-node-#{unique}", 10_000)
+
+    assert html =~ "Guests"
+    assert html =~ "guest-node-#{unique}"
+    assert html =~ "running"
   end
 
   test "renders provider-neutral virtualization inventory on device details", %{

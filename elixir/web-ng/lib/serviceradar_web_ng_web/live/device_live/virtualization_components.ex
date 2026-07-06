@@ -89,6 +89,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
   def virtualization_section(assigns) do
     summary = assigns.summary
     host = Map.get(summary, :host)
+    parent_host = Map.get(summary, :parent_host)
     cluster = Map.get(summary, :cluster)
     guest = Map.get(summary, :guest)
     datastores = Map.get(summary, :datastores, [])
@@ -107,6 +108,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
     assigns =
       assigns
       |> assign(:host, host)
+      |> assign(:parent_host, parent_host)
+      |> assign(:parent_host_uid, parent_host_uid(parent_host))
+      |> assign(:parent_host_label, parent_host_label(parent_host, guest))
       |> assign(:cluster, cluster)
       |> assign(:guest, guest)
       |> assign(:datastores, datastores)
@@ -202,6 +206,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
             value={virtualization_guest_disk_value(@guest)}
             subvalue={virtualization_guest_disk_subvalue(@guest)}
           />
+        </div>
+
+        <div
+          :if={@guest && @parent_host_label}
+          class="rounded-lg border border-base-200 bg-base-200/30 px-3 py-2"
+        >
+          <div class="flex items-center justify-between gap-3">
+            <div class="min-w-0 flex items-center gap-2">
+              <.icon name="hero-server-stack" class="size-4 text-info" />
+              <span class="text-xs text-base-content/60">Hypervisor</span>
+              <span class="truncate text-sm font-medium">{@parent_host_label}</span>
+            </div>
+            <.link
+              :if={@parent_host_uid}
+              navigate={~p"/devices/#{@parent_host_uid}"}
+              class="btn btn-ghost btn-xs"
+            >
+              Open node
+            </.link>
+          </div>
         </div>
 
         <div :if={@ceph} class="rounded-lg border border-base-200 bg-base-200/30 px-3 py-2">
@@ -340,6 +364,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
   defp observed_at_for_virtualization(%{observed_at: observed_at}, _guest), do: observed_at
   defp observed_at_for_virtualization(_host, %{observed_at: observed_at}), do: observed_at
   defp observed_at_for_virtualization(_host, _guest), do: nil
+
+  # device_uid to link the guest back to its parent hypervisor node device.
+  defp parent_host_uid(%{device_uid: uid}) when is_binary(uid) and uid != "", do: uid
+  defp parent_host_uid(_parent_host), do: nil
+
+  # Human label for the parent hypervisor: prefer the host's node name, then its
+  # device_uid, then the node name embedded in the guest's provider_ref.
+  defp parent_host_label(%{name: name}, _guest) when is_binary(name) and name != "", do: name
+  defp parent_host_label(%{device_uid: uid}, _guest) when is_binary(uid) and uid != "", do: uid
+
+  defp parent_host_label(_parent_host, %{provider_ref: ref}) when is_binary(ref) do
+    case String.split(ref, ":") do
+      [_provider, "node", node | _] when node != "" -> node
+      _ -> nil
+    end
+  end
+
+  defp parent_host_label(_parent_host, _guest), do: nil
 
   defp percent_of(_used, total) when total in [nil, 0], do: nil
   defp percent_of(used, total) when is_number(used) and is_number(total), do: used / total * 100.0

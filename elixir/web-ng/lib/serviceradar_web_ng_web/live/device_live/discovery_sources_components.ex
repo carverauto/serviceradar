@@ -1,0 +1,342 @@
+defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
+  @moduledoc """
+  Renders the full list of discovery integrations/sources a (DIRE-merged) device
+  was seen through.
+
+  A merged device carries an authoritative `discovery_sources` array (e.g.
+  `["agent", "awx", "sweep", "hypervisor_enrichment"]`) plus a single flat,
+  merged `metadata` map whose keys are source-scoped by prefix. This section
+  enumerates every source rather than surfacing a single canonical one, and
+  attaches the curated metadata attributable to each source so operators can see
+  every integration a device came from at a glance. It is strictly read-only —
+  it re-presents data already loaded on the device row.
+  """
+
+  use ServiceRadarWebNGWeb, :html
+
+  attr(:device_row, :map, required: true)
+
+  def discovery_sources_section(assigns) do
+    metadata = row_metadata(assigns.device_row)
+    cards = source_cards(assigns.device_row, metadata)
+
+    assigns =
+      assigns
+      |> assign(:source_cards, cards)
+      |> assign(:has_sources, cards != [])
+
+    ~H"""
+    <div :if={@has_sources} class="rounded-xl border border-base-200 bg-base-100">
+      <div class="px-4 py-3 border-b border-base-200 flex items-center gap-2">
+        <.icon name="hero-arrow-path-rounded-square" class="size-4 text-secondary" />
+        <span class="text-sm font-semibold">Discovery Sources</span>
+        <span class="rounded-full bg-secondary/10 px-2 py-0.5 text-[11px] font-semibold text-secondary">
+          {length(@source_cards)}
+        </span>
+      </div>
+
+      <div class="p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+        <div
+          :for={card <- @source_cards}
+          class="min-w-0 rounded-lg border border-base-200 bg-base-200/20 p-3"
+        >
+          <div class="mb-2 flex items-center gap-2">
+            <.icon name={card.icon} class="size-4 text-base-content/60" />
+            <span class="text-sm font-semibold">{card.label}</span>
+          </div>
+
+          <div :if={card.items != []} class="space-y-1 text-sm">
+            <div :for={item <- card.items} class="flex items-start justify-between gap-3">
+              <span class="shrink-0 text-xs text-base-content/50">{item.label}</span>
+              <span class={[
+                "min-w-0 text-right text-sm font-medium text-base-content break-words",
+                item.mono && "font-mono text-xs"
+              ]}>
+                {item.value}
+              </span>
+            </div>
+          </div>
+
+          <p :if={card.items == []} class="text-xs text-base-content/50">
+            Discovered through this source.
+          </p>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  # ---------------------------------------------------------------------------
+  # Source enumeration
+  # ---------------------------------------------------------------------------
+
+  defp source_cards(row, metadata) do
+    row
+    |> discovery_sources()
+    |> Enum.map(&source_card(&1, metadata, row))
+  end
+
+  # Read the authoritative discovery_sources array (string or atom keyed), fall
+  # back to the metadata "source"/"integration_type" hints when the array is
+  # absent so single-source devices still render a card.
+  defp discovery_sources(row) when is_map(row) do
+    row
+    |> Map.get("discovery_sources", Map.get(row, :discovery_sources))
+    |> normalize_source_list()
+    |> case do
+      [] -> fallback_sources(row)
+      sources -> sources
+    end
+  end
+
+  defp discovery_sources(_row), do: []
+
+  defp normalize_source_list(list) when is_list(list) do
+    list
+    |> Enum.map(&normalize_source/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  # Some transports hand back a Postgres text-array literal (e.g. "{agent,awx}")
+  # rather than a decoded list; accept both so the section renders either way.
+  defp normalize_source_list(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.trim_leading("{")
+    |> String.trim_trailing("}")
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.trim(&1, "\""))
+    |> normalize_source_list()
+  end
+
+  defp normalize_source_list(_), do: []
+
+  defp normalize_source(value) when is_binary(value), do: value |> String.trim() |> String.downcase()
+
+  defp normalize_source(value) when is_atom(value) and not is_nil(value),
+    do: value |> Atom.to_string() |> String.downcase()
+
+  defp normalize_source(_value), do: ""
+
+  defp fallback_sources(row) do
+    metadata = row_metadata(row)
+
+    [metadata_lookup(metadata, "source"), metadata_lookup(metadata, "integration_type")]
+    |> Enum.map(&normalize_source/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp source_card(source, metadata, row) do
+    {label, icon} = source_label_icon(source)
+
+    %{
+      key: source,
+      label: label,
+      icon: icon,
+      items: source_items(source, metadata, row)
+    }
+  end
+
+  # ---------------------------------------------------------------------------
+  # Per-source labels / icons
+  # ---------------------------------------------------------------------------
+
+  defp source_label_icon("agent"), do: {"Agent", "hero-cpu-chip"}
+  defp source_label_icon("awx"), do: {"AWX / Ansible", "hero-command-line"}
+  defp source_label_icon("ansible"), do: {"AWX / Ansible", "hero-command-line"}
+  defp source_label_icon("armis"), do: {"Armis", "hero-shield-check"}
+  defp source_label_icon("netbox"), do: {"NetBox", "hero-server-stack"}
+  defp source_label_icon("unifi"), do: {"UniFi", "hero-wifi"}
+  defp source_label_icon("mikrotik"), do: {"MikroTik", "hero-cpu-chip"}
+  defp source_label_icon("proxmox"), do: {"Proxmox", "hero-cube-transparent"}
+  defp source_label_icon("proxmox-api"), do: {"Proxmox", "hero-cube-transparent"}
+  defp source_label_icon("proxmox_candidate"), do: {"Proxmox", "hero-cube-transparent"}
+  defp source_label_icon("hypervisor_enrichment"), do: {"Hypervisor Enrichment", "hero-server-stack"}
+  defp source_label_icon("hypervisor"), do: {"Hypervisor Enrichment", "hero-server-stack"}
+  defp source_label_icon("vmware"), do: {"VMware", "hero-server-stack"}
+  defp source_label_icon("esxi"), do: {"VMware ESXi", "hero-server-stack"}
+  defp source_label_icon("vsphere"), do: {"VMware vSphere", "hero-server-stack"}
+  defp source_label_icon("hyperv"), do: {"Hyper-V", "hero-server-stack"}
+  defp source_label_icon("kvm"), do: {"KVM", "hero-server-stack"}
+  defp source_label_icon("mapper"), do: {"Network Mapper", "hero-map"}
+  defp source_label_icon("network_discovery"), do: {"Network Discovery", "hero-map"}
+  defp source_label_icon("sighting"), do: {"Sighting", "hero-eye"}
+  defp source_label_icon("sweep"), do: {"Sweep", "hero-signal"}
+  defp source_label_icon("camera_plugin"), do: {"Camera", "hero-video-camera"}
+  defp source_label_icon("camera"), do: {"Camera", "hero-video-camera"}
+  defp source_label_icon("snmp"), do: {"SNMP", "hero-radio"}
+  defp source_label_icon("unknown"), do: {"Unknown", "hero-question-mark-circle"}
+  defp source_label_icon(source), do: {humanize(source), "hero-arrow-path-rounded-square"}
+
+  # ---------------------------------------------------------------------------
+  # Per-source curated metadata
+  # ---------------------------------------------------------------------------
+
+  defp source_items("agent", metadata, row) do
+    build_items([
+      {"Agent ID", row_value(row, "agent_id"), mono: true},
+      {"Gateway", row_value(row, "gateway_id"), mono: true},
+      {"Plugin source", metadata_lookup(metadata, "plugin_discovery_source")}
+    ])
+  end
+
+  defp source_items(source, metadata, _row) when source in ["awx", "ansible"] do
+    build_items([
+      {"Query label", metadata_lookup(metadata, "query_label")},
+      {"Sync service", metadata_lookup(metadata, "sync_service_id"), mono: true},
+      {"Source device ID", metadata_first(metadata, ["source_device_id", "integration_id"]), mono: true}
+    ])
+  end
+
+  defp source_items("armis", metadata, _row) do
+    build_items([
+      {"Device ID", metadata_first(metadata, ["armis_device_id", "source_device_id", "integration_id"]), mono: true},
+      {"Category", metadata_first(metadata, ["armis_category", "category"])},
+      {"Risk level", metadata_lookup(metadata, "armis_risk_level")}
+    ])
+  end
+
+  defp source_items("netbox", metadata, _row) do
+    build_items([
+      {"Device ID", metadata_lookup(metadata, "netbox_device_id"), mono: true},
+      {"Role", metadata_first(metadata, ["device_role", "role", "device_role_name"])},
+      {"Status", metadata_first(metadata, ["status", "device_status"])}
+    ])
+  end
+
+  defp source_items("unifi", metadata, _row) do
+    build_items([
+      {"Controller", metadata_lookup(metadata, "controller_name")},
+      {"Role", metadata_lookup(metadata, "device_role")}
+    ])
+  end
+
+  defp source_items("mikrotik", metadata, _row) do
+    build_items([
+      {"API names", metadata_lookup(metadata, "mikrotik_api_names")}
+    ])
+  end
+
+  defp source_items(source, metadata, _row) when source in ["proxmox", "proxmox-api", "proxmox_candidate"] do
+    build_items([
+      {"Service", metadata_lookup(metadata, "proxmox_candidate_service")},
+      {"Node", metadata_first(metadata, ["proxmox_node", "node", "proxmox_candidate_title"])}
+    ])
+  end
+
+  defp source_items(source, metadata, _row) when source in ["hypervisor_enrichment", "hypervisor"] do
+    build_items([
+      {"Provider", metadata_first(metadata, ["provider", "hypervisor_provider"])},
+      {"Node", metadata_first(metadata, ["proxmox_node", "node"])},
+      {"Integration", metadata_lookup(metadata, "integration_type")}
+    ])
+  end
+
+  defp source_items(source, metadata, _row) when source in ["mapper", "network_discovery"] do
+    build_items([
+      {"Mapper job", metadata_lookup(metadata, "mapper_job_name")},
+      {"Discovery ID", metadata_lookup(metadata, "discovery_id"), mono: true}
+    ])
+  end
+
+  defp source_items("sighting", metadata, _row) do
+    build_items([
+      {"Discovery time", metadata_lookup(metadata, "discovery_time"), mono: true}
+    ])
+  end
+
+  defp source_items("sweep", metadata, _row) do
+    build_items([
+      {"Available", metadata_lookup(metadata, "scan_available_count")},
+      {"Availability", metadata_lookup(metadata, "scan_availability_percent")}
+    ])
+  end
+
+  defp source_items(source, metadata, _row) when source in ["camera_plugin", "camera"] do
+    build_items([
+      {"Manufacturer", metadata_lookup(metadata, "manufacturer")},
+      {"Model", metadata_lookup(metadata, "model")}
+    ])
+  end
+
+  # Generic fallback: surface the integration hints when present.
+  defp source_items(_source, metadata, _row) do
+    build_items([
+      {"Integration", metadata_lookup(metadata, "integration_type")},
+      {"Sync service", metadata_lookup(metadata, "sync_service_id"), mono: true}
+    ])
+  end
+
+  # ---------------------------------------------------------------------------
+  # Helpers
+  # ---------------------------------------------------------------------------
+
+  defp build_items(specs) do
+    specs
+    |> Enum.map(&normalize_item/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp normalize_item({label, value}), do: normalize_item({label, value, []})
+
+  defp normalize_item({label, value, opts}) do
+    case format_value(value) do
+      nil -> nil
+      formatted -> %{label: label, value: formatted, mono: Keyword.get(opts, :mono, false)}
+    end
+  end
+
+  defp format_value(nil), do: nil
+  defp format_value(""), do: nil
+  defp format_value(value) when is_binary(value), do: if(String.trim(value) == "", do: nil, else: value)
+  defp format_value(value) when is_boolean(value), do: if(value, do: "Yes", else: "No")
+  defp format_value(value) when is_integer(value) or is_float(value), do: to_string(value)
+  defp format_value(value) when is_atom(value), do: to_string(value)
+  defp format_value(_value), do: nil
+
+  defp humanize(source) when is_binary(source) do
+    source
+    |> String.split(~r/[_\-\s]+/, trim: true)
+    |> Enum.map_join(" ", &String.capitalize/1)
+    |> case do
+      "" -> "Source"
+      value -> value
+    end
+  end
+
+  defp humanize(_source), do: "Source"
+
+  defp row_value(row, key) when is_map(row) and is_binary(key) do
+    Map.get(row, key, Map.get(row, String.to_atom(key)))
+  end
+
+  defp row_value(_row, _key), do: nil
+
+  defp row_metadata(row) when is_map(row) do
+    case Map.get(row, "metadata") || Map.get(row, :metadata) do
+      map when is_map(map) -> map
+      _ -> %{}
+    end
+  end
+
+  defp row_metadata(_row), do: %{}
+
+  defp metadata_lookup(metadata, key) when is_map(metadata) and is_binary(key) do
+    Map.get(metadata, key, Map.get(metadata, String.to_atom(key)))
+  end
+
+  defp metadata_lookup(_metadata, _key), do: nil
+
+  defp metadata_first(metadata, keys) when is_map(metadata) and is_list(keys) do
+    Enum.find_value(keys, fn key ->
+      case metadata_lookup(metadata, key) do
+        value when value in [nil, ""] -> nil
+        value -> value
+      end
+    end)
+  end
+
+  defp metadata_first(_metadata, _keys), do: nil
+end

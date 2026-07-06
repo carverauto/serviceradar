@@ -347,6 +347,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     refresh? = Map.get(socket.assigns, :device_load_mode, :full) == :refresh
 
+    supplemental_assigns = preserve_virtualization_guests(socket, supplemental_assigns, refresh?)
+
     socket =
       socket
       |> assign(supplemental_assigns)
@@ -363,6 +365,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       supplemental_assigns,
       refresh?
     )
+  end
+
+  # A PVE node's Guests tab must not flicker off when a same-device refresh
+  # transiently fails to reload the virtualization inventory.
+  # load_virtualization_summary/2 rescues errors to nil, and a contended guest
+  # read can return an empty list — either flips has_virtualization_guests false
+  # and unmounts the tab (resolve_active_tab downgrades "guests" -> "details").
+  # On a refresh, keep the previously rendered non-empty summary when the
+  # incoming batch would otherwise hide the tab. Full loads / device switches
+  # (refresh? == false) still swap wholesale so a genuinely guest-less host or a
+  # different device never keeps stale guests.
+  defp preserve_virtualization_guests(socket, supplemental_assigns, true = _refresh?) do
+    incoming_has_guests? = Map.get(supplemental_assigns, :has_virtualization_guests, false)
+    current_has_guests? = Map.get(socket.assigns, :has_virtualization_guests, false)
+    current_summary = Map.get(socket.assigns, :virtualization_summary)
+
+    if current_has_guests? and not incoming_has_guests? and is_map(current_summary) do
+      supplemental_assigns
+      |> Map.put(:has_virtualization_guests, true)
+      |> Map.put(:virtualization_summary, current_summary)
+    else
+      supplemental_assigns
+    end
+  end
+
+  defp preserve_virtualization_guests(_socket, supplemental_assigns, false = _refresh?) do
+    supplemental_assigns
   end
 
   defp pop_details_meta(assigns) do

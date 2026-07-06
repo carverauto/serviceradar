@@ -38,6 +38,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationData do
         %{
           kind: :guest,
           host: nil,
+          # Resolve the guest's parent hypervisor node so the details page can
+          # link back to the host device (proxmox guests know their node).
+          parent_host: load_virtualization_host_by_id(scope, guest.host_id),
           cluster: nil,
           guest: guest,
           datastores: [],
@@ -71,6 +74,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationData do
     |> virtualization_query(scope)
     |> Ash.Query.filter(device_uid == ^device_uid)
     |> Ash.Query.sort(observed_at: :desc)
+    |> Ash.Query.limit(1)
+    |> ash_read_first(scope)
+  end
+
+  defp load_virtualization_host_by_id(_scope, nil), do: nil
+
+  defp load_virtualization_host_by_id(scope, host_id) do
+    VirtualizationHost
+    |> virtualization_query(scope)
+    |> Ash.Query.filter(id == ^host_id)
     |> Ash.Query.limit(1)
     |> ash_read_first(scope)
   end
