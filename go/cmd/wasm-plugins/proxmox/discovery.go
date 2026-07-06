@@ -7,7 +7,15 @@ import (
 	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
 )
 
-func addNodeDiscoveries(discovery *sdk.DeviceDiscovery, target Target, nodes []proxmoxNode) {
+func addNodeDiscoveries(discovery *sdk.DeviceDiscovery, target Target, nodes []proxmoxNode, cluster []proxmoxClusterNode) {
+	// The /nodes API frequently omits a node's IP; cluster status carries it.
+	clusterIPs := make(map[string]string, len(cluster))
+	for _, member := range cluster {
+		if ip := stripIPPrefix(member.IP); ip != "" && member.Name != "" {
+			clusterIPs[strings.ToLower(member.Name)] = ip
+		}
+	}
+
 	for _, node := range nodes {
 		available := strings.EqualFold(node.Status, "online")
 		hostname := firstNonEmpty(node.Node, target.Hostname)
@@ -16,10 +24,24 @@ func addNodeDiscoveries(discovery *sdk.DeviceDiscovery, target Target, nodes []p
 			deviceID = firstNonEmpty(target.DeviceID, deviceID)
 		}
 
+		ip := stripIPPrefix(node.IP)
+		if ip == "" {
+			ip = clusterIPs[strings.ToLower(node.Node)]
+		}
+
+		// Never create an address-less device: a row without an IP can't be
+		// reconciled by DIRE with the same host discovered elsewhere, so it
+		// lands as a useless duplicate. The node still appears in the
+		// enrichment details; it just isn't emitted as a device until an IP
+		// is known.
+		if ip == "" {
+			continue
+		}
+
 		discovery.AddDevice(sdk.DiscoveredDevice{
 			DeviceID:    deviceID,
 			Hostname:    hostname,
-			IP:          stripIPPrefix(node.IP),
+			IP:          ip,
 			VendorName:  "Proxmox",
 			Model:       "PVE",
 			Type:        "hypervisor",
@@ -67,6 +89,16 @@ func addGuestDiscoveries(discovery *sdk.DeviceDiscovery, guests []proxmoxGuest) 
 	for _, guest := range guests {
 		kind := normalizeGuestKind(guest.Type)
 		available := strings.EqualFold(guest.Status, "running")
+
+		// Do not create devices for guests with no usable IP (typically
+		// stopped guests with no static/cloud-init address): an address-less
+		// row can't be DIRE-merged and pollutes the inventory. The guest is
+		// still fully present in the enrichment details and will be emitted
+		// once it runs (guest agent / LXC interfaces) or gains a configured
+		// address.
+		if primaryIP(guest.Interfaces) == "" {
+			continue
+		}
 
 		discovery.AddDevice(sdk.DiscoveredDevice{
 			DeviceID:    proxmoxGuestID(guest.proxmoxResource),

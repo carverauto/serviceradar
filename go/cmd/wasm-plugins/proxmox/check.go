@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -22,6 +23,17 @@ var submitResult = submitPluginResult
 // guestFetchDebug is temporary instrumentation: per-node/kind raw guest counts.
 var guestFetchDebug []string
 
+// clusterFingerprint identifies a cluster by its sorted member node names so
+// duplicate targets pointing at the same cluster enumerate it only once.
+func clusterFingerprint(nodes []proxmoxNode) string {
+	names := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		names = append(names, strings.ToLower(strings.TrimSpace(node.Node)))
+	}
+	sort.Strings(names)
+	return strings.Join(names, ",")
+}
+
 func runProxmoxCheck(cfg Config) (*pluginResult, error) {
 	guestFetchDebug = nil
 	cfg.applyDefaults()
@@ -37,6 +49,12 @@ func runProxmoxCheck(cfg Config) (*pluginResult, error) {
 
 	var totals checkSummary
 	targetErrors := map[string]string{}
+	// A credential rule commonly materializes one target per discovered PVE
+	// host, so several targets can point at the SAME cluster. Enumerating it
+	// once per target multiplied every node/guest count and re-emitted every
+	// discovery N times. Fingerprint the cluster by its member node names and
+	// enumerate each cluster once per run.
+	seenClusters := map[string]bool{}
 
 	for _, target := range targets {
 		token := normalizeProxmoxAPIToken(firstNonEmpty(target.APIToken, cfg.APIToken))
@@ -49,6 +67,12 @@ func runProxmoxCheck(cfg Config) (*pluginResult, error) {
 		if nodes == nil {
 			targetErrors[target.safeName()] = firstNonEmpty(warnings["nodes"], "fetch nodes failed")
 			continue
+		}
+
+		if fp := clusterFingerprint(nodes); seenClusters[fp] {
+			continue
+		} else {
+			seenClusters[fp] = true
 		}
 		totals.Targets++
 
@@ -211,7 +235,7 @@ func emitProxmoxBatch(
 
 	discovery := sdk.NewDeviceDiscovery(discoverySource)
 	discovery.ObservedAt = observedAt
-	addNodeDiscoveries(discovery, target, nodes)
+	addNodeDiscoveries(discovery, target, nodes, cluster)
 	addGuestDiscoveries(discovery, guests)
 
 	resources := summarizeInventory(nodes, guests)
