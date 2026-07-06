@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
+	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/mtr"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc/metadata"
@@ -438,6 +439,284 @@ func TestRunProxmoxCredentialTest_DeniesExpiredGrant(t *testing.T) {
 	})
 	if !errors.Is(err, errCredentialBrokerGrantExpired) {
 		t.Fatalf("expected grant expired error, got %v", err)
+	}
+}
+
+func newTestPluginManager(t *testing.T) *PluginManager {
+	t.Helper()
+
+	manager := NewPluginManager(t.Context(), PluginManagerConfig{
+		Logger:        logger.NewTestLogger(),
+		CacheDir:      t.TempDir(),
+		LocalStoreDir: t.TempDir(),
+	})
+	t.Cleanup(manager.Stop)
+
+	return manager
+}
+
+func registerTestPluginRunner(t *testing.T, manager *PluginManager, cfg *proto.PluginAssignmentConfig) {
+	t.Helper()
+
+	assignment := newPluginAssignment(cfg, logger.NewTestLogger())
+	runner := newPluginRunner(manager, assignment)
+	close(runner.done)
+
+	manager.mu.Lock()
+	manager.runners[cfg.AssignmentId] = runner
+	manager.mu.Unlock()
+}
+
+func waitForCommandResult(t *testing.T, stream *fakeControlStreamClient, commandID string) *proto.CommandResult {
+	t.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		stream.mu.Lock()
+		for _, req := range stream.sent {
+			if result := req.GetCommandResult(); result != nil && result.GetCommandId() == commandID {
+				stream.mu.Unlock()
+				return result
+			}
+		}
+		stream.mu.Unlock()
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("timed out waiting for command result %q", commandID)
+	return nil
+}
+
+const testAWXCommandPayload = `{
+	"schema": "serviceradar.awx_command.v1",
+	"verb": "awx.ping",
+	"args": {},
+	"base_url": "https://awx.example.com",
+	"controller_id": "ctrl-1",
+	"controller_name": "lab-awx",
+	"insecure_skip_verify": false,
+	"credential_broker": {
+		"schema": "serviceradar.edge_credential_broker_grant.v1",
+		"grant_id": "grant-1",
+		"grant_type": "awx_oauth2_token",
+		"credential_secret_ref": "credentialref:network-credential-secret:awx-1",
+		"inject": {"type": "http_header", "name": "Authorization", "scheme": "Bearer"},
+		"allow": {"hosts": ["awx.example.com"], "methods": ["GET"], "paths": ["/api/v2/"]}
+	}
+}`
+
+func TestHandleCommandRoutesAWXVerbsToAWXPlugin(t *testing.T) {
+	t.Parallel()
+
+	stream := &fakeControlStreamClient{}
+	sender := newControlStreamSender(stream)
+	loop := &PushLoop{
+		logger: logger.NewTestLogger(),
+		server: &Server{pluginManager: newTestPluginManager(t)},
+	}
+
+	loop.handleCommand(t.Context(), &proto.CommandRequest{
+		CommandId:   "cmd-awx-route",
+		CommandType: "awx.ping",
+		PayloadJson: []byte(testAWXCommandPayload),
+	}, sender)
+
+	result := waitForCommandResult(t, stream, "cmd-awx-route")
+	if result.GetSuccess() {
+		t.Fatalf("expected failure without an awx assignment, got %v", result)
+	}
+	if got, want := result.GetMessage(), errAWXPluginNotAssigned.Error(); got != want {
+		t.Fatalf("message = %q, want %q (awx.* must route to the awx plugin, not 'unsupported command')", got, want)
+	}
+}
+
+func TestHandleAWXCommandRequiresCredentialBrokerGrant(t *testing.T) {
+	t.Parallel()
+
+	stream := &fakeControlStreamClient{}
+	sender := newControlStreamSender(stream)
+	loop := &PushLoop{logger: logger.NewTestLogger(), server: &Server{}}
+
+	loop.handleAWXCommand(t.Context(), &proto.CommandRequest{
+		CommandId:   "cmd-awx-no-grant",
+		CommandType: "awx.launch_job",
+		PayloadJson: []byte(`{"schema":"serviceradar.awx_command.v1","verb":"awx.launch_job","base_url":"https://awx.example.com"}`),
+	}, sender)
+
+	result := waitForCommandResult(t, stream, "cmd-awx-no-grant")
+	if result.GetSuccess() {
+		t.Fatalf("expected failure without a credential broker grant, got %v", result)
+	}
+	if got, want := result.GetMessage(), errMissingAWXCredentialBrokerGrant.Error(); got != want {
+		t.Fatalf("message = %q, want %q", got, want)
+	}
+}
+
+func TestBuildAWXPluginConfigShapesRunCheckConfig(t *testing.T) {
+	t.Parallel()
+
+	payload := awxCommandPayload{
+		Verb:               "awx.launch_job",
+		Args:               map[string]any{"template_id": float64(42), "host_limit": "web01,web02"},
+		BaseURL:            "https://awx.example.com",
+		InsecureSkipVerify: true,
+	}
+
+	configJSON, err := buildAWXPluginConfig(&proto.CommandRequest{CommandType: "awx.launch_job"}, payload)
+	if err != nil {
+		t.Fatalf("buildAWXPluginConfig() error = %v", err)
+	}
+
+	config := map[string]any{}
+	if err := json.Unmarshal(configJSON, &config); err != nil {
+		t.Fatalf("decode config: %v", err)
+	}
+
+	if got := config["verb"]; got != "awx.launch_job" {
+		t.Fatalf("verb = %v, want awx.launch_job", got)
+	}
+	if got := config["base_url"]; got != "https://awx.example.com" {
+		t.Fatalf("base_url = %v", got)
+	}
+	if got := config["api_token"]; got != awxBrokeredAPITokenPlaceholder {
+		t.Fatalf("api_token = %v, want host-injection placeholder (material must never enter the wasm config)", got)
+	}
+	if got := config["insecure_skip_verify"]; got != true {
+		t.Fatalf("insecure_skip_verify = %v, want true", got)
+	}
+	args, ok := config["args"].(map[string]any)
+	if !ok {
+		t.Fatalf("args = %#v, want map", config["args"])
+	}
+	if got := args["template_id"]; got != float64(42) {
+		t.Fatalf("args.template_id = %v, want 42", got)
+	}
+	if got := args["host_limit"]; got != "web01,web02" {
+		t.Fatalf("args.host_limit = %v", got)
+	}
+}
+
+func TestBuildAWXPluginConfigFallsBackToCommandType(t *testing.T) {
+	t.Parallel()
+
+	configJSON, err := buildAWXPluginConfig(
+		&proto.CommandRequest{CommandType: "awx.fetch_job"},
+		awxCommandPayload{BaseURL: "https://awx.example.com"},
+	)
+	if err != nil {
+		t.Fatalf("buildAWXPluginConfig() error = %v", err)
+	}
+
+	config := map[string]any{}
+	if err := json.Unmarshal(configJSON, &config); err != nil {
+		t.Fatalf("decode config: %v", err)
+	}
+	if got := config["verb"]; got != "awx.fetch_job" {
+		t.Fatalf("verb = %v, want command type fallback awx.fetch_job", got)
+	}
+}
+
+func TestParseAWXPluginResultUnwrapsDetailsPayload(t *testing.T) {
+	t.Parallel()
+
+	resultBytes := []byte(`{
+		"status": "OK",
+		"summary": "launched job template 42",
+		"details": "{\"verb\":\"awx.launch_job\",\"ok\":true,\"template_id\":42,\"job\":{\"id\":7}}",
+		"labels": {"verb": "awx.launch_job"}
+	}`)
+
+	success, message, payload := parseAWXPluginResult(resultBytes)
+	if !success {
+		t.Fatalf("success = false, want true")
+	}
+	if message != "launched job template 42" {
+		t.Fatalf("message = %q", message)
+	}
+	if got := payload["ok"]; got != true {
+		t.Fatalf("payload.ok = %v, want true", got)
+	}
+	job, ok := payload["job"].(map[string]any)
+	if !ok {
+		t.Fatalf("payload.job = %#v, want map", payload["job"])
+	}
+	if got := job["id"]; got != float64(7) {
+		t.Fatalf("payload.job.id = %v, want 7", got)
+	}
+}
+
+func TestParseAWXPluginResultMapsCriticalToFailure(t *testing.T) {
+	t.Parallel()
+
+	resultBytes := []byte(`{
+		"status": "CRITICAL",
+		"summary": "awx.ping: connect timeout",
+		"details": "{\"verb\":\"awx.ping\",\"ok\":false,\"error\":\"connect timeout\"}"
+	}`)
+
+	success, message, payload := parseAWXPluginResult(resultBytes)
+	if success {
+		t.Fatal("success = true, want false for CRITICAL plugin status")
+	}
+	if message != "awx.ping: connect timeout" {
+		t.Fatalf("message = %q", message)
+	}
+	if got := payload["ok"]; got != false {
+		t.Fatalf("payload.ok = %v, want false", got)
+	}
+	if got := payload["error"]; got != "connect timeout" {
+		t.Fatalf("payload.error = %v", got)
+	}
+}
+
+func TestParseAWXPluginResultKeepsNonJSONDetails(t *testing.T) {
+	t.Parallel()
+
+	success, message, payload := parseAWXPluginResult(
+		[]byte(`{"status":"UNKNOWN","summary":"AWX configuration invalid: base_url is required","details":"not json"}`),
+	)
+	if success {
+		t.Fatal("success = true, want false for UNKNOWN plugin status")
+	}
+	if message != "AWX configuration invalid: base_url is required" {
+		t.Fatalf("message = %q", message)
+	}
+	if got := payload["details"]; got != "not json" {
+		t.Fatalf("payload.details = %v", got)
+	}
+}
+
+func TestRunPluginVerbRequiresExactPluginIDMatch(t *testing.T) {
+	t.Parallel()
+
+	manager := newTestPluginManager(t)
+
+	// The inventory-sync assignment shares the awx wasm but exposes a
+	// different entrypoint; it must never satisfy an "awx" lookup.
+	registerTestPluginRunner(t, manager, &proto.PluginAssignmentConfig{
+		AssignmentId: "assign-awx-sync",
+		PluginId:     "awx-inventory-sync",
+		Entrypoint:   "inventory_sync",
+		Enabled:      true,
+	})
+
+	if _, err := manager.RunPluginVerb(t.Context(), "awx", []byte(`{}`), nil, time.Second); !errors.Is(err, errPluginAssignmentNotFound) {
+		t.Fatalf("expected errPluginAssignmentNotFound without an exact awx assignment, got %v", err)
+	}
+
+	registerTestPluginRunner(t, manager, &proto.PluginAssignmentConfig{
+		AssignmentId: "assign-awx",
+		PluginId:     "awx",
+		Entrypoint:   "run_check",
+		Enabled:      true,
+	})
+
+	_, err := manager.RunPluginVerb(t.Context(), "awx", []byte(`{}`), nil, time.Second)
+	if errors.Is(err, errPluginAssignmentNotFound) {
+		t.Fatalf("expected exact awx assignment to be found, got %v", err)
+	}
+	if !errors.Is(err, errPluginWasmUnavailable) {
+		t.Fatalf("expected wasm-unavailable from the found assignment, got %v", err)
 	}
 }
 

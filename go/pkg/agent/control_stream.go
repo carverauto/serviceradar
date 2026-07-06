@@ -66,11 +66,32 @@ const (
 	commandTypeAddonRunCommand             = coreaddon.CommandTypeAddonRunCommand
 	commandTypeEndpointInventoryCacheQuery = "endpoint_inventory.cache_query"
 	commandTypeEndpointInventoryForceFresh = "endpoint_inventory.force_fresh_scan"
+	// commandTypeAWXPrefix matches every AWX REST verb AwxClient dispatches
+	// (awx.ping, awx.list_templates, awx.launch_job, ...). The verb set is
+	// open-ended, so routing is by prefix rather than one case per verb.
+	commandTypeAWXPrefix = "awx."
+)
+
+const (
+	// awxPluginID is the plugin id core assigns the on-demand AWX bridge
+	// under. The same wasm also ships as "awx-inventory-sync" with a
+	// different entrypoint; command verbs must only run through the
+	// run_check assignment, so the lookup is an exact id match.
+	awxPluginID = "awx"
+
+	// awxBrokeredAPITokenPlaceholder satisfies the awx plugin's non-empty
+	// api_token validation without handing credential material to the Wasm
+	// module. The real token is resolved from the command's credential
+	// broker grant and injected as an Authorization header at the host HTTP
+	// boundary (applyCredentialBrokerInjection overwrites the placeholder
+	// header before the request leaves the agent).
+	awxBrokeredAPITokenPlaceholder = "resolved-by-credential-broker"
 )
 
 const defaultOnDemandMtrDeadline = 45 * time.Second
 const defaultMaxConcurrentOnDemandMtr = 2
 const defaultAddonCommandTimeout = 300 * time.Second
+const defaultAWXCommandTimeout = 60 * time.Second
 
 var errControlStreamClosed = errors.New("control stream closed")
 
@@ -84,6 +105,8 @@ var (
 	errMissingProxmoxBaseURL               = errors.New("missing proxmox base_url")
 	errInvalidProxmoxBaseURL               = errors.New("invalid proxmox base_url")
 	errInvalidProxmoxBaseURLScheme         = errors.New("invalid proxmox base_url scheme")
+	errAWXPluginNotAssigned                = errors.New("awx plugin not assigned to this agent")
+	errMissingAWXCredentialBrokerGrant     = errors.New("missing awx credential broker grant")
 )
 
 type mapperRunPayload struct {
@@ -141,6 +164,21 @@ type addonRunCommandPayload struct {
 	Schema            string            `json:"schema,omitempty"`
 	Metadata          map[string]string `json:"metadata,omitempty"`
 	Payload           json.RawMessage   `json:"-"`
+}
+
+// awxCommandPayload is the serviceradar.awx_command.v1 payload Elixir's
+// AwxClient dispatches for every awx.* verb. The verb/args/base_url fields
+// become the awx plugin's run_check config; the credential broker grant
+// stays host-side so the API token never enters the Wasm module.
+type awxCommandPayload struct {
+	Schema             string                 `json:"schema,omitempty"`
+	Verb               string                 `json:"verb"`
+	Args               map[string]any         `json:"args,omitempty"`
+	BaseURL            string                 `json:"base_url"`
+	ControllerID       string                 `json:"controller_id,omitempty"`
+	ControllerName     string                 `json:"controller_name,omitempty"`
+	InsecureSkipVerify bool                   `json:"insecure_skip_verify,omitempty"`
+	CredentialBroker   *credentialBrokerGrant `json:"credential_broker,omitempty"`
 }
 
 type credentialBrokerACL = coreaddon.CredentialBrokerACL
@@ -524,6 +562,10 @@ func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest,
 		case commandTypeEndpointInventoryForceFresh:
 			p.handleEndpointInventoryForceFreshScan(ctx, cmd, sender)
 		default:
+			if strings.HasPrefix(cmd.CommandType, commandTypeAWXPrefix) {
+				p.handleAWXCommand(ctx, cmd, sender)
+				return
+			}
 			_ = sender.Send(commandResult(cmd, false, "unsupported command", nil))
 		}
 	}()
@@ -764,6 +806,125 @@ func resultStatus(success bool) string {
 		return commandStatusSucceeded
 	}
 	return commandStatusFailed
+}
+
+// handleAWXCommand routes awx.* command verbs to the locally assigned awx
+// plugin's run_check entrypoint. The serviceradar.awx_command.v1 payload is
+// translated into the plugin's config (verb/args/base_url), and the command's
+// credential broker grant rides host-side through the same action-mode
+// machinery plugin.run_action uses, so the API token is injected at the host
+// HTTP boundary and never enters the Wasm module.
+func (p *PushLoop) handleAWXCommand(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {
+	payload := awxCommandPayload{}
+	if len(cmd.PayloadJson) > 0 {
+		if err := json.Unmarshal(cmd.PayloadJson, &payload); err != nil {
+			_ = sender.Send(commandResult(cmd, false, "invalid awx command payload", nil))
+			return
+		}
+	}
+
+	if payload.CredentialBroker == nil ||
+		strings.TrimSpace(payload.CredentialBroker.CredentialSecretRef) == "" {
+		_ = sender.Send(commandResult(cmd, false, errMissingAWXCredentialBrokerGrant.Error(), nil))
+		return
+	}
+
+	p.server.mu.RLock()
+	pluginManager := p.server.pluginManager
+	p.server.mu.RUnlock()
+
+	if pluginManager == nil {
+		_ = sender.Send(commandResult(cmd, false, "plugin manager unavailable", nil))
+		return
+	}
+
+	timeout := commandRemainingTimeout(cmd, defaultAWXCommandTimeout)
+	if timeout <= 0 {
+		_ = sender.Send(commandResult(cmd, false, "command expired", nil))
+		return
+	}
+
+	configJSON, err := buildAWXPluginConfig(cmd, payload)
+	if err != nil {
+		_ = sender.Send(commandResult(cmd, false, "failed to build awx plugin config", nil))
+		return
+	}
+
+	_ = sender.Send(commandProgress(cmd, 10, "starting awx verb"))
+
+	grants := []credentialBrokerGrant{*payload.CredentialBroker}
+	resultBytes, err := pluginManager.RunPluginVerb(ctx, awxPluginID, configJSON, grants, timeout)
+	if err != nil {
+		message := err.Error()
+		if errors.Is(err, errPluginAssignmentNotFound) {
+			message = errAWXPluginNotAssigned.Error()
+		}
+		_ = sender.Send(commandResult(cmd, false, message, nil))
+		return
+	}
+
+	success, message, resultPayload := parseAWXPluginResult(resultBytes)
+	_ = sender.Send(commandResult(cmd, success, message, resultPayload))
+}
+
+// buildAWXPluginConfig translates a serviceradar.awx_command.v1 payload into
+// the config shape the awx plugin's run_check entrypoint loads via
+// get_config: top-level verb, args, base_url, insecure_skip_verify and a
+// placeholder api_token (see awxBrokeredAPITokenPlaceholder).
+func buildAWXPluginConfig(cmd *proto.CommandRequest, payload awxCommandPayload) ([]byte, error) {
+	verb := strings.TrimSpace(payload.Verb)
+	if verb == "" {
+		verb = strings.TrimSpace(cmd.CommandType)
+	}
+
+	config := map[string]any{
+		"verb":      verb,
+		"base_url":  payload.BaseURL,
+		"api_token": awxBrokeredAPITokenPlaceholder,
+	}
+	if len(payload.Args) > 0 {
+		config["args"] = payload.Args
+	}
+	if payload.InsecureSkipVerify {
+		config["insecure_skip_verify"] = true
+	}
+
+	return json.Marshal(config)
+}
+
+// parseAWXPluginResult unpacks the sdk result envelope the awx plugin
+// submitted. Success mirrors the plugin's status, and the details JSON — the
+// typed per-verb payload core's AnsibleEventIngestor parses (ok/job/jobs/...)
+// — becomes the command result payload.
+func parseAWXPluginResult(resultBytes []byte) (success bool, message string, payload map[string]any) {
+	envelope := struct {
+		Status  string `json:"status"`
+		Summary string `json:"summary"`
+		Details string `json:"details"`
+	}{}
+	if err := json.Unmarshal(resultBytes, &envelope); err != nil {
+		return false, "invalid awx plugin result", map[string]any{
+			"raw_result_base64": base64.StdEncoding.EncodeToString(resultBytes),
+		}
+	}
+
+	success = strings.EqualFold(strings.TrimSpace(envelope.Status), "OK")
+
+	message = strings.TrimSpace(envelope.Summary)
+	if message == "" {
+		message = "awx command completed"
+	}
+
+	if details := strings.TrimSpace(envelope.Details); details != "" {
+		decoded := map[string]any{}
+		if err := json.Unmarshal([]byte(details), &decoded); err == nil {
+			payload = decoded
+		} else {
+			payload = map[string]any{"details": envelope.Details}
+		}
+	}
+
+	return success, message, payload
 }
 
 func (p *PushLoop) handleMapperRun(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {
