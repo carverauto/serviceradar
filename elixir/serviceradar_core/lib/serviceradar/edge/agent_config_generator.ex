@@ -1600,6 +1600,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
          plugin_engine_limits,
          addon_assignments
        ) do
+    require Logger
     # Sort checks by ID for deterministic ordering
     sorted_checks = Enum.sort_by(check_configs, & &1.check_id)
 
