@@ -51,10 +51,9 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
     end
   rescue
     err ->
-      Logger.error("AWX EventIngestor handler crashed",
-        command_type: Map.get(data, :command_type),
-        error: inspect(err),
-        stacktrace: Exception.format_stacktrace(__STACKTRACE__)
+      Logger.error(
+        "AWX EventIngestor handler crashed: #{inspect(err)} @ #{Exception.format_stacktrace(__STACKTRACE__) |> String.split("\n") |> Enum.take(3) |> Enum.join(" | ")}",
+        command_type: Map.get(data, :command_type)
       )
 
       :ok
@@ -71,7 +70,11 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
 
   defp handle_job_entry(%{"job_id" => awx_job_id, "ok" => true} = job, actions)
        when is_integer(awx_job_id) do
-    events = Map.get(job, "events", [])
+    # The awx plugin returns `"events": null` (not []) for a job with no new
+    # events since the watermark; a nil here crashed the whole handler on the
+    # FIRST idle job, so events for the jobs after it were never ingested and
+    # runs never advanced past :launching.
+    events = Map.get(job, "events") || []
     max_counter = Map.get(job, "max_counter", 0)
 
     case actions.get_run_by_awx_job_id(awx_job_id) do
@@ -118,8 +121,22 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
   defp maybe_transition_to_running(run, _events, _actions), do: run
 
   defp apply_events(run, events, actions) do
-    Enum.reduce(events, run, fn event, acc -> apply_event(acc, event, actions) end)
+    Enum.reduce(events, run, fn event, acc ->
+      apply_event(acc, normalize_event(event), actions)
+    end)
   end
+
+  # A real AWX job_event carries the API object type in "type" (always
+  # "job_event") and the actual ansible event name in "event"
+  # ("playbook_on_play_start", "runner_on_ok", "playbook_on_stats", ...).
+  # The apply_event/3 clauses match on "type", which never matches live AWX
+  # data — every event fell through the catch-all, so plays/tasks were never
+  # persisted and runs never reached a terminal state. Remap the event name
+  # into "type" before dispatch.
+  defp normalize_event(%{"event" => name} = event) when is_binary(name) and name != "",
+    do: Map.put(event, "type", name)
+
+  defp normalize_event(event), do: event
 
   # `playbook_on_play_start` — upsert a play row.
   defp apply_event(run, %{"type" => "playbook_on_play_start"} = event, actions) do
@@ -172,7 +189,7 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
                is_handler: type == "playbook_on_handler_task_start",
                path: get_in(event, ["event_data", "task_path"]),
                line_number: get_in(event, ["event_data", "task_line_number"]),
-               tags: List.wrap(get_in(event, ["event_data", "task_args", "tags"])),
+               tags: List.wrap(event_task_tags(event)),
                started_at: event_created(event),
                metadata: %{}
              }) do
@@ -599,9 +616,27 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
   # types. The accessors normalize this so the apply_event clauses don't
   # have to know.
 
+  # The gateway's control-stream session broadcasts the decoded agent result
+  # under `:payload` (see ControlStreamSession.broadcast_result/3); the
+  # `result_payload` name only exists as the agent_commands DB column. Reading
+  # only :result_payload meant every ansible command result ingested as %{} —
+  # catalog syncs completed without upserting a single template and run pulses
+  # never advanced. Accept both shapes.
   defp result_payload(%{result_payload: rp}) when is_map(rp), do: rp
   defp result_payload(%{"result_payload" => rp}) when is_map(rp), do: rp
+  defp result_payload(%{payload: rp}) when is_map(rp), do: rp
+  defp result_payload(%{"payload" => rp}) when is_map(rp), do: rp
   defp result_payload(_), do: %{}
+
+  # AWX serializes `event_data.task_args` as a STRING (often ""), not a map —
+  # get_in(event, [..., "task_args", "tags"]) raised FunctionClauseError in
+  # Access.get/3 on every real task event, killing the whole batch handler.
+  defp event_task_tags(event) do
+    case get_in(event, ["event_data", "task_args"]) do
+      %{} = args -> Map.get(args, "tags")
+      _ -> nil
+    end
+  end
 
   defp play_uuid(event),
     do: get_in(event, ["event_data", "play_uuid"]) || Map.get(event, "play_uuid") || ""

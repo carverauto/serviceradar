@@ -148,6 +148,11 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRun do
     end
 
     update :record_launching do
+      # transition_state/1 is not atomically expressible and the resource has
+      # no primary read for atomic upgrade — without this, EVERY run state
+      # transition raised "must be performed atomically" at runtime and runs
+      # were stuck at :pending forever.
+      require_atomic? false
       description "Launch dispatched to AWX; awx_job_id captured"
       accept [:awx_job_id]
       change set_attribute(:started_at, &DateTime.utc_now/0)
@@ -155,17 +160,32 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRun do
     end
 
     update :record_running do
+      # transition_state/1 is not atomically expressible and the resource has
+      # no primary read for atomic upgrade — without this, EVERY run state
+      # transition raised "must be performed atomically" at runtime and runs
+      # were stuck at :pending forever.
+      require_atomic? false
       description "First job event arrived — run is actively executing on AWX"
       change transition_state(:running)
     end
 
     update :record_succeeded do
+      # transition_state/1 is not atomically expressible and the resource has
+      # no primary read for atomic upgrade — without this, EVERY run state
+      # transition raised "must be performed atomically" at runtime and runs
+      # were stuck at :pending forever.
+      require_atomic? false
       accept [:summary]
       change set_attribute(:ended_at, &DateTime.utc_now/0)
       change transition_state(:succeeded)
     end
 
     update :record_partial do
+      # transition_state/1 is not atomically expressible and the resource has
+      # no primary read for atomic upgrade — without this, EVERY run state
+      # transition raised "must be performed atomically" at runtime and runs
+      # were stuck at :pending forever.
+      require_atomic? false
       description "Multi-target run with mixed outcomes"
       accept [:summary]
       change set_attribute(:ended_at, &DateTime.utc_now/0)
@@ -173,12 +193,22 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRun do
     end
 
     update :record_failed do
+      # transition_state/1 is not atomically expressible and the resource has
+      # no primary read for atomic upgrade — without this, EVERY run state
+      # transition raised "must be performed atomically" at runtime and runs
+      # were stuck at :pending forever.
+      require_atomic? false
       accept [:summary, :diagnostics]
       change set_attribute(:ended_at, &DateTime.utc_now/0)
       change transition_state(:failed)
     end
 
     update :record_unreachable do
+      # transition_state/1 is not atomically expressible and the resource has
+      # no primary read for atomic upgrade — without this, EVERY run state
+      # transition raised "must be performed atomically" at runtime and runs
+      # were stuck at :pending forever.
+      require_atomic? false
       description "Watchdog or AWX-side failure — run did not reach a normal terminal state"
       accept [:diagnostics]
       change set_attribute(:ended_at, &DateTime.utc_now/0)
@@ -186,6 +216,11 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRun do
     end
 
     update :record_canceled do
+      # transition_state/1 is not atomically expressible and the resource has
+      # no primary read for atomic upgrade — without this, EVERY run state
+      # transition raised "must be performed atomically" at runtime and runs
+      # were stuck at :pending forever.
+      require_atomic? false
       accept [:summary]
       change set_attribute(:ended_at, &DateTime.utc_now/0)
       change transition_state(:canceled)

@@ -70,6 +70,9 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRunTarget do
     end
 
     update :record_outcome do
+      # Not atomically expressible (no primary read for atomic upgrade) — the
+      # runtime otherwise raises MustBeAtomic and the stats handler crashes.
+      require_atomic? false
       description "Apply per-host stats from AWX `playbook_on_stats` event"
 
       accept [

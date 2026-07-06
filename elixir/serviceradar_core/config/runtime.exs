@@ -1369,7 +1369,15 @@ if config_env() == :prod do
       sweeps: String.to_integer(System.get_env("OBAN_QUEUE_SWEEPS") || "20"),
       edge: String.to_integer(System.get_env("OBAN_QUEUE_EDGE") || "10"),
       integrations: String.to_integer(System.get_env("OBAN_QUEUE_INTEGRATIONS") || "5"),
-      nats_accounts: String.to_integer(System.get_env("OBAN_QUEUE_NATS_ACCOUNTS") || "3")
+      nats_accounts: String.to_integer(System.get_env("OBAN_QUEUE_NATS_ACCOUNTS") || "3"),
+      # Ansible automation queues: catalog sync (AWX job templates + git
+      # playbook repositories), run pulse/health/watchdog, and retention. The
+      # workers declared these queues but they were never configured here, so
+      # every ansible job (including git repository syncs) sat `available`
+      # forever and catalog/pulse/retention never executed.
+      ansible_catalog: String.to_integer(System.get_env("OBAN_QUEUE_ANSIBLE_CATALOG") || "4"),
+      ansible_pulse: String.to_integer(System.get_env("OBAN_QUEUE_ANSIBLE_PULSE") || "4"),
+      ansible_retention: String.to_integer(System.get_env("OBAN_QUEUE_ANSIBLE_RETENTION") || "1")
     ],
     plugins: [
       Oban.Plugins.Pruner,
