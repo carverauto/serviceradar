@@ -90,6 +90,8 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     bootstrap_app_role!(app_user, app_password)
     ensure_database_search_path!(app_user, app_database(), search_path())
     set_session_search_path!(search_path())
+    ensure_managed_database_ownership!(app_user)
+    ensure_ag_catalog_privileges!(app_user)
 
     run_bootstrap_or_migrations!(app_user)
 
@@ -97,7 +99,7 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     # Ash Framework uses this table to track migrations via Repo config.
     sync_ash_schema_migrations!()
 
-    ensure_platform_ownership!(app_user)
+    ensure_managed_database_ownership!(app_user)
     ensure_ag_catalog_privileges!(app_user)
   end
 
@@ -496,7 +498,8 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   end
 
   # Execute a function with a temporary admin (superuser) database connection.
-  # Used for operations that require elevated privileges (e.g., granting on schemas owned by postgres).
+  # Used for operations that require elevated privileges, such as repairing ownership
+  # of objects created by postgres in older releases.
   defp with_admin_connection(fun) do
     case execute_with_admin_credentials(fun) do
       {:ok, value} ->
@@ -504,14 +507,14 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
 
       {:retry, reason} ->
         Logger.error(
-          "[StartupMigrations] Failed to connect as admin for AGE privileges: #{inspect(reason)}"
+          "[StartupMigrations] Failed to connect as admin for privileged database maintenance: #{inspect(reason)}"
         )
 
         raise RuntimeError, "Failed to connect as admin: #{inspect(reason)}"
 
       {:error, reason} ->
         Logger.error(
-          "[StartupMigrations] Failed to connect as admin for AGE privileges: #{inspect(reason)}"
+          "[StartupMigrations] Failed to connect as admin for privileged database maintenance: #{inspect(reason)}"
         )
 
         raise RuntimeError, "Failed to connect as admin: #{inspect(reason)}"
@@ -525,88 +528,181 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     end
   end
 
-  defp ensure_platform_ownership!(app_user) do
-    if repo_enabled?() do
-      ServiceRadar.Repo.query!("ALTER SCHEMA platform OWNER TO #{quote_ident(app_user)}")
+  defp ensure_managed_database_ownership!(app_user) do
+    if repo_enabled?() and managed_database_ownership_repair_needed?(app_user) do
+      Logger.info("[StartupMigrations] Repairing ServiceRadar database object ownership")
 
-      objects =
-        ServiceRadar.Repo.query!(
-          "SELECT c.oid, c.relname, c.relkind\n" <>
-            "FROM pg_class c\n" <>
-            "JOIN pg_namespace n ON n.oid = c.relnamespace\n" <>
-            "WHERE n.nspname = 'platform'\n" <>
-            "AND c.relkind IN ('r', 'S', 'v', 'm')"
-        ).rows
-
-      Enum.each(objects, &update_object_ownership(&1, app_user))
+      with_admin_connection(fn conn ->
+        ensure_schema_owner!(conn, "platform", app_user)
+        ensure_platform_relation_ownership!(conn, app_user)
+        ensure_managed_function_ownership!(conn, app_user)
+      end)
     end
   end
 
-  defp update_object_ownership([oid, name, kind], app_user) do
-    case ownership_statement(oid, name, kind, app_user) do
-      nil -> :ok
-      statement -> execute_ownership_update(statement, name)
+  defp managed_database_ownership_repair_needed?(app_user) do
+    case ServiceRadar.Repo.query!(managed_database_ownership_repair_needed_sql(), [app_user]) do
+      %{rows: [[true]]} -> true
+      _ -> false
     end
-  end
-
-  defp ownership_statement(_oid, name, "r", app_user) do
-    "ALTER TABLE #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
-  end
-
-  defp ownership_statement(oid, name, "S", app_user) do
-    if sequence_owned_by_table?(oid),
-      do: nil,
-      else:
-        "ALTER SEQUENCE #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
-  end
-
-  defp ownership_statement(_oid, name, "v", app_user) do
-    # TimescaleDB continuous aggregates are exposed as relkind 'v' but must be altered as
-    # materialized views (ALTER VIEW isn't supported).
-    if continuous_aggregate_view?(name) do
-      "ALTER MATERIALIZED VIEW #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
-    else
-      "ALTER VIEW #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
-    end
-  end
-
-  defp ownership_statement(_oid, name, "m", app_user) do
-    "ALTER MATERIALIZED VIEW #{quote_ident("platform")}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
-  end
-
-  defp ownership_statement(_oid, _name, _kind, _app_user), do: nil
-
-  defp execute_ownership_update(statement, name) do
-    ServiceRadar.Repo.query!(statement)
   rescue
     error ->
       Logger.warning(
-        "[StartupMigrations] Skipping ownership update for #{name}: #{Exception.message(error)}"
+        "[StartupMigrations] Failed to inspect database ownership before migrations: #{Exception.message(error)}"
       )
+
+      false
   end
 
-  defp continuous_aggregate_view?(name) when is_binary(name) do
-    if repo_enabled?() do
-      try do
-        %{rows: rows} =
-          ServiceRadar.Repo.query!(
-            "SELECT 1 FROM timescaledb_information.continuous_aggregates\n" <>
-              "WHERE view_schema = 'platform' AND view_name = $1\n" <>
-              "LIMIT 1",
-            [name]
-          )
+  @doc false
+  def managed_database_ownership_repair_needed_sql do
+    """
+    SELECT EXISTS (
+      SELECT 1
+      FROM pg_namespace n
+      JOIN pg_roles r ON r.rolname = $1
+      WHERE n.nspname = 'platform'
+        AND n.nspowner <> r.oid
 
-        rows != []
-      rescue
-        _ -> false
-      end
-    else
-      false
+      UNION ALL
+
+      SELECT 1
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      JOIN pg_roles r ON r.rolname = $1
+      LEFT JOIN pg_depend d
+        ON d.classid = 'pg_class'::regclass
+       AND d.objid = c.oid
+       AND d.deptype = 'e'
+      WHERE n.nspname = 'platform'
+        AND c.relkind IN ('r', 'p', 'S', 'v', 'm', 'f')
+        AND d.objid IS NULL
+        AND c.relowner <> r.oid
+        AND (
+          c.relkind <> 'S'
+          OR NOT EXISTS (
+            SELECT 1
+            FROM pg_depend owned
+            JOIN pg_class owner_rel ON owner_rel.oid = owned.refobjid
+            WHERE owned.objid = c.oid
+              AND owned.deptype = 'a'
+              AND owner_rel.relkind = 'r'
+          )
+        )
+
+      UNION ALL
+
+      SELECT 1
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid = p.pronamespace
+      JOIN pg_roles r ON r.rolname = $1
+      LEFT JOIN pg_depend d
+        ON d.classid = 'pg_proc'::regclass
+       AND d.objid = p.oid
+       AND d.deptype = 'e'
+      WHERE n.nspname IN ('platform', 'public')
+        AND d.objid IS NULL
+        AND p.proowner <> r.oid
+    )
+    """
+  end
+
+  defp ensure_schema_owner!(conn, schema, app_user) do
+    if admin_schema_exists?(conn, schema) do
+      Postgrex.query!(
+        conn,
+        "ALTER SCHEMA #{quote_ident(schema)} OWNER TO #{quote_ident(app_user)}",
+        []
+      )
     end
   end
 
-  defp sequence_owned_by_table?(sequence_oid) do
-    case ServiceRadar.Repo.query!(
+  defp admin_schema_exists?(conn, schema) do
+    case Postgrex.query!(conn, "SELECT 1 FROM pg_namespace WHERE nspname = $1", [schema]) do
+      %{rows: []} -> false
+      _ -> true
+    end
+  end
+
+  defp ensure_platform_relation_ownership!(conn, app_user) do
+    %{rows: rows} =
+      Postgrex.query!(
+        conn,
+        """
+        SELECT c.oid, n.nspname, c.relname, c.relkind
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        JOIN pg_roles r ON r.rolname = $1
+        LEFT JOIN pg_depend d
+          ON d.classid = 'pg_class'::regclass
+         AND d.objid = c.oid
+         AND d.deptype = 'e'
+        WHERE n.nspname = 'platform'
+          AND c.relkind IN ('r', 'p', 'S', 'v', 'm', 'f')
+          AND d.objid IS NULL
+          AND c.relowner <> r.oid
+          AND (
+            c.relkind <> 'S'
+            OR NOT EXISTS (
+              SELECT 1
+              FROM pg_depend owned
+              JOIN pg_class owner_rel ON owner_rel.oid = owned.refobjid
+              WHERE owned.objid = c.oid
+                AND owned.deptype = 'a'
+                AND owner_rel.relkind = 'r'
+            )
+          )
+        ORDER BY c.relkind, c.relname
+        """,
+        [app_user]
+      )
+
+    Enum.each(rows, fn [oid, schema, name, kind] ->
+      case relation_ownership_statement(conn, oid, schema, name, kind, app_user) do
+        nil ->
+          :ok
+
+        statement ->
+          Postgrex.query!(conn, statement, [])
+      end
+    end)
+  end
+
+  defp relation_ownership_statement(_conn, _oid, schema, name, kind, app_user)
+       when kind in ["r", "p"] do
+    "ALTER TABLE #{quote_ident(schema)}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
+  end
+
+  defp relation_ownership_statement(conn, oid, schema, name, "S", app_user) do
+    if admin_sequence_owned_by_table?(conn, oid),
+      do: nil,
+      else:
+        "ALTER SEQUENCE #{quote_ident(schema)}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
+  end
+
+  defp relation_ownership_statement(conn, _oid, schema, name, "v", app_user) do
+    # TimescaleDB continuous aggregates are exposed as relkind 'v' but must be altered as
+    # materialized views (ALTER VIEW is not supported).
+    if admin_continuous_aggregate_view?(conn, schema, name) do
+      "ALTER MATERIALIZED VIEW #{quote_ident(schema)}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
+    else
+      "ALTER VIEW #{quote_ident(schema)}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
+    end
+  end
+
+  defp relation_ownership_statement(_conn, _oid, schema, name, "m", app_user) do
+    "ALTER MATERIALIZED VIEW #{quote_ident(schema)}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
+  end
+
+  defp relation_ownership_statement(_conn, _oid, schema, name, "f", app_user) do
+    "ALTER FOREIGN TABLE #{quote_ident(schema)}.#{quote_ident(name)} OWNER TO #{quote_ident(app_user)}"
+  end
+
+  defp relation_ownership_statement(_conn, _oid, _schema, _name, _kind, _app_user), do: nil
+
+  defp admin_sequence_owned_by_table?(conn, sequence_oid) do
+    case Postgrex.query!(
+           conn,
            "SELECT 1\n" <>
              "FROM pg_depend d\n" <>
              "JOIN pg_class c ON c.oid = d.refobjid\n" <>
@@ -619,6 +715,54 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
       %{rows: []} -> false
       _ -> true
     end
+  end
+
+  defp admin_continuous_aggregate_view?(conn, schema, name)
+       when is_binary(schema) and is_binary(name) do
+    case Postgrex.query!(
+           conn,
+           "SELECT 1 FROM timescaledb_information.continuous_aggregates\n" <>
+             "WHERE view_schema = $1 AND view_name = $2\n" <>
+             "LIMIT 1",
+           [schema, name]
+         ) do
+      %{rows: []} -> false
+      _ -> true
+    end
+  rescue
+    _ -> false
+  end
+
+  defp ensure_managed_function_ownership!(conn, app_user) do
+    %{rows: rows} =
+      Postgrex.query!(
+        conn,
+        """
+        SELECT n.nspname, p.proname, pg_get_function_identity_arguments(p.oid) AS args
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        JOIN pg_roles r ON r.rolname = $1
+        LEFT JOIN pg_depend d
+          ON d.classid = 'pg_proc'::regclass
+         AND d.objid = p.oid
+         AND d.deptype = 'e'
+        WHERE n.nspname IN ('platform', 'public')
+          AND d.objid IS NULL
+          AND p.proowner <> r.oid
+        ORDER BY n.nspname, p.proname, pg_get_function_identity_arguments(p.oid)
+        """,
+        [app_user]
+      )
+
+    Enum.each(rows, fn [schema, name, args] ->
+      Postgrex.query!(conn, function_ownership_statement(schema, name, args, app_user), [])
+    end)
+  end
+
+  @doc false
+  def function_ownership_statement(schema, name, args, app_user)
+      when is_binary(schema) and is_binary(name) and is_binary(args) and is_binary(app_user) do
+    "ALTER FUNCTION #{quote_ident(schema)}.#{quote_ident(name)}(#{args}) OWNER TO #{quote_ident(app_user)}"
   end
 
   defp role_exists?(role_name) do
