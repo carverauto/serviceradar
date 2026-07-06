@@ -1600,6 +1600,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
          plugin_engine_limits,
          addon_assignments
        ) do
+    require Logger
     # Sort checks by ID for deterministic ordering
     sorted_checks = Enum.sort_by(check_configs, & &1.check_id)
 
@@ -1623,8 +1624,16 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       endpoint_inventory: stable_config_fragment(endpoint_inventory_config),
       plugins: sorted_plugins,
       plugin_engine_limits: plugin_engine_limits,
-      addons: sorted_addons,
-      download_token_epoch: download_token_epoch(plugin_assignments, addon_assignments)
+      addons: sorted_addons
+      # NOTE: download_token_epoch is intentionally NOT folded into the version
+      # hash. Doing so re-versioned the whole config every ~half-TTL (~7 min),
+      # which relaunched every agent's running plugins on a timer — a proxmox/AWX/
+      # camera inventory run longer than that window could never finish. The
+      # artifact download token is still minted fresh on every generation and
+      # delivered in the config; an agent applies a fresh token whenever a real
+      # change re-versions the config (a new content_hash — which is when a
+      # download is actually needed) and on its startup config fetch. Cached-wasm
+      # plugins therefore no longer re-version for a token rotation they never use.
     }
 
     "v" <> Compiler.content_hash(version_payload)
@@ -1691,18 +1700,48 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   # (or per-arch artifact) change must re-version so a polling agent stops getting
   # `not_modified` and relaunches the new executable.
   defp stable_addon_assignment(assignment) when is_map(assignment) do
-    assignment
-    |> Map.delete(:download_url)
-    |> Map.delete("download_url")
-    |> Map.delete(:download_token)
-    |> Map.delete("download_token")
+    # Recurse the WHOLE assignment through the volatile strip — addon params
+    # nest per-generation values (artifact download URLs/tokens, re-minted
+    # credential-broker grant timestamps) just like plugin params do. Stripping
+    # only the top-level download fields left the `addons` version-hash
+    # component rotating on every generation (observed live: 14/14 consecutive
+    # generations), which re-pushed the config and restarted running plugins.
+    stable_config_fragment(assignment)
   end
 
   defp stable_addon_assignment(assignment), do: assignment
 
+  # Per-generation volatile fields that must not perturb the config version
+  # hash, stripped at ANY depth. The delivered config still carries fresh
+  # values; agents apply them whenever a real change re-versions the config or
+  # on their startup fetch. `sync`/`visibility`/`endpoint_inventory`/`addons`
+  # embed artifact download URLs+tokens (HMAC-minted fresh each generation)
+  # and grant timestamps — observed live rotating the version hash on EVERY
+  # generation (14/14 and 16/16 consecutive gens across gateway + core), which
+  # re-pushed the config and restarted every running plugin ~1/min, so any
+  # inventory run longer than a minute could never finish.
+  @volatile_version_keys [
+    :compiled_at,
+    "compiled_at",
+    :generated_at,
+    "generated_at",
+    :download_url,
+    "download_url",
+    :download_token,
+    "download_token",
+    :grant_id,
+    "grant_id",
+    :expires_at,
+    "expires_at",
+    :issued_at,
+    "issued_at",
+    :not_before,
+    "not_before"
+  ]
+
   defp stable_config_fragment(%{} = map) do
     map
-    |> Map.drop([:compiled_at, "compiled_at", :generated_at, "generated_at"])
+    |> Map.drop(@volatile_version_keys)
     |> Map.new(fn {key, value} -> {key, stable_config_fragment(value)} end)
   end
 
@@ -1731,7 +1770,17 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp stable_assignment_params(assignment) do
     case Map.get(assignment, :params) || Map.get(assignment, "params") do
       params when is_map(params) ->
-        stable_params = strip_credential_broker_payload(params)
+        # Strip BOTH the rotating grant AND the per-generation `generated_at`/
+        # `compiled_at` timestamps. Unlike every other config fragment, plugin
+        # assignment params were not run through `stable_config_fragment`, so a
+        # fresh `generated_at` stamped on every generation perturbed the version
+        # hash — a polling agent saw a "new" config every cycle and relaunched
+        # the plugin perpetually (a proxmox/AWX/camera inventory run longer than
+        # the poll interval could never finish).
+        stable_params =
+          params
+          |> strip_credential_broker_payload()
+          |> stable_config_fragment()
 
         assignment
         |> Map.replace(:params, stable_params)

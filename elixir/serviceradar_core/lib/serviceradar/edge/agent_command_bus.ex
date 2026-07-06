@@ -432,12 +432,29 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   def push_config(agent_id) when is_binary(agent_id) do
     with {:ok, pid, _metadata} <- lookup_control_session(agent_id) do
-      response = AgentConfigGenerator.generate_proto_response(agent_id)
+      # Only re-deliver when the config VERSION actually changed. A dependency
+      # write (e.g. a credential-broker grant re-mint that rewrites the assignment
+      # row but is stripped from the version hash) must not restart the agent's
+      # running plugins — an inventory run longer than the write cadence could
+      # never finish. Reuse the same version-aware path the poll uses.
+      case AgentConfigGenerator.get_config_if_changed(
+             agent_id,
+             agent_known_config_version(agent_id)
+           ) do
+        :not_modified ->
+          :ok
 
-      case call_control_session(agent_id, pid, {:push_config, response}) do
-        :ok -> :ok
-        {:error, reason} -> {:error, reason}
-        other -> {:error, other}
+        {:ok, config} ->
+          response = AgentConfigGenerator.to_proto_response(config)
+
+          case call_control_session(agent_id, pid, {:push_config, response}) do
+            :ok -> :ok
+            {:error, reason} -> {:error, reason}
+            other -> {:error, other}
+          end
+
+        {:error, reason} ->
+          {:error, reason}
       end
     end
   rescue
@@ -446,6 +463,17 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   end
 
   def push_config(_agent_id), do: {:error, :invalid_agent_id}
+
+  # The agent's last acknowledged config version — what it is actually running.
+  # Used to decide whether a dependency-triggered push would change anything.
+  defp agent_known_config_version(agent_id) do
+    case ServiceRadar.Infrastructure.Agent.get_by_uid(agent_id,
+           actor: SystemActor.system(:agent_command_bus)
+         ) do
+      {:ok, agent} -> Map.get(agent, :acked_config_version) || ""
+      _ -> ""
+    end
+  end
 
   def send_console_frame(agent_id, frame, opts \\ [])
 

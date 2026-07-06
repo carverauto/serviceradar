@@ -211,8 +211,42 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
       existing.source == :policy and
       existing.source_key == spec.assignment_key and
       existing.policy_id == spec.metadata["policy_id"] and
-      existing.params == spec.params
+      params_equivalent?(existing.params, spec.params)
   end
+
+  # Every reconcile regenerates the assignment params with fresh, per-generation
+  # values: a `generated_at` timestamp and a re-minted credential-broker grant
+  # (grant_id / expires_at / issued_at). A naive `existing.params == spec.params`
+  # is therefore never true for a credentialed assignment, so the row is
+  # rewritten every reconcile cycle (~60s), which re-delivers the plugin config
+  # and RESTARTS the plugin on the agent — a proxmox/AWX/camera inventory run
+  # that takes longer than the reconcile interval could never finish (observed:
+  # only the first node batch emitting, then `module closed with context
+  # canceled`, forever).
+  #
+  # Compare params with those volatile, per-generation fields stripped (at any
+  # depth) so only a real change (secret, purpose, targets, schedule, package)
+  # rewrites the assignment. The stable fields (secret_id, grant_type, purpose,
+  # base_url, allow-lists, inputs) still participate, and the config-generation
+  # layer re-stamps a fresh generated_at / grant at delivery time regardless of
+  # what is stored here.
+  @volatile_param_keys ~w(
+    generated_at grant_id expires_at issued_at not_before
+    issued_at_unix expires_at_unix
+  )
+
+  defp params_equivalent?(a, b), do: strip_volatile_params(a) == strip_volatile_params(b)
+
+  defp strip_volatile_params(%{} = map) do
+    map
+    |> Map.drop(@volatile_param_keys)
+    |> Map.new(fn {key, value} -> {key, strip_volatile_params(value)} end)
+  end
+
+  defp strip_volatile_params(list) when is_list(list),
+    do: Enum.map(list, &strip_volatile_params/1)
+
+  defp strip_volatile_params(other), do: other
 
   defmodule AshStore do
     @moduledoc false

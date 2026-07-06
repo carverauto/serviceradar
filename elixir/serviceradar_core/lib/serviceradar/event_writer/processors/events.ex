@@ -114,7 +114,7 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
         severity = parse_string(json["severity"]) || severity_name(severity_id)
 
         %{
-          id: Ecto.UUID.dump!(id),
+          id: coerce_event_id(id),
           time: FieldParser.parse_timestamp(json["time"]),
           class_uid: class_uid,
           category_uid: category_uid,
@@ -170,6 +170,26 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
          type_uid: type_uid,
          activity_id: activity_id
        }}
+    end
+  end
+
+  # An OCSF event `id` is stored in a `uuid` column, but not every producer emits
+  # a UUID — e.g. a plugin that emits `"plugin-<nanos>-<n>"`. `Ecto.UUID.dump!/1`
+  # RAISES on such a value, and because `process_batch/1` rescues and fails the
+  # ENTIRE batch, one malformed id dead-letters every event batched with it
+  # (including valid device-discovery events). Coerce a non-UUID id into a stable
+  # v5-style UUID derived from the id string so the event is preserved and
+  # de-duplication stays deterministic, instead of losing the whole batch.
+  defp coerce_event_id(id) do
+    case Ecto.UUID.dump(id) do
+      {:ok, dumped} ->
+        dumped
+
+      :error ->
+        <<u0::48, _::4, u1::12, _::2, u2::62, _rest::bitstring>> =
+          :crypto.hash(:sha256, to_string(id))
+
+        <<u0::48, 5::4, u1::12, 2::2, u2::62>>
     end
   end
 
