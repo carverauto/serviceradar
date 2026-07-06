@@ -1067,9 +1067,25 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   def resolve_control_gateway_node(agent_id, preferred_gateway_node \\ nil)
 
   def resolve_control_gateway_node(agent_id, preferred_gateway_node) when is_binary(agent_id) do
+    # The preferred node is a HINT (where the source was last relayed), not a
+    # hard requirement: if the agent's control session has since moved to a
+    # different gateway node (agent reconnect, gateway pod roll), return the
+    # CURRENT node so callers (e.g. RelaySessionManager) can re-pin and update
+    # the stored assignment. Treating the hint as a strict filter made every
+    # relay open fail {:agent_offline, ...} forever once the stored
+    # assigned_gateway_id went stale.
     case lookup_control_session(agent_id, preferred_gateway_node) do
-      {:ok, _pid, metadata} -> {:ok, gateway_node_from_metadata(metadata)}
-      {:error, reason} -> {:error, reason}
+      {:ok, _pid, metadata} ->
+        {:ok, gateway_node_from_metadata(metadata)}
+
+      {:error, {:agent_offline, _}} when not is_nil(preferred_gateway_node) ->
+        case lookup_control_session(agent_id, nil) do
+          {:ok, _pid, metadata} -> {:ok, gateway_node_from_metadata(metadata)}
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
