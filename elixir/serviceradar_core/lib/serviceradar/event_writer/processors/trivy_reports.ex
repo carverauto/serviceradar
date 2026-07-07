@@ -6,6 +6,34 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   - Persist all Trivy payloads into `logs` as raw observability records.
   - Auto-promote higher-priority findings into `ocsf_events`.
   - Auto-create alerts for critical promoted events.
+
+  ## Routine "scan completed" status events are suppressed by default
+
+  Every processed report used to also emit a `"Trivy scan completed: ..."` OCSF
+  `scan_activity` event (Informational severity, always `Success`) into
+  `ocsf_events`. Because trivy-operator produces a report for *every* workload and
+  re-scans them all on any change (e.g. after a roll), these routine status
+  heartbeats flooded the observability stream — during the v1.4.6 roll they were
+  ~88% of all `ocsf_events` (801 in 3 minutes) — while carrying no actionable
+  signal.
+
+  To keep the observability stream signal-rich, the per-report scan-completed
+  `scan_activity` event is **not** written to `ocsf_events` by default. The real
+  signal is unaffected:
+
+  - Actionable findings (new/changed vulnerabilities, exposed secrets, failed
+    config-audits) at high severity or above are still promoted into `ocsf_events`
+    as `finding` events (see `promote_to_event?/1`).
+  - The full report and every individual finding are still persisted to
+    `trivy_reports` / `trivy_findings`, and the raw payload to `logs`, regardless
+    of this flag.
+
+  Operators who want the scan-completed heartbeat back in the OCSF event stream
+  can re-enable it via application env:
+
+      config :serviceradar_core, :trivy_scan_activity_events, true
+
+  The flag defaults to `false`.
   """
 
   @behaviour ServiceRadar.EventWriter.Processor
@@ -75,6 +103,20 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   @spec promote_to_alert?(non_neg_integer()) :: boolean()
   def promote_to_alert?(severity_id), do: severity_id >= OCSF.severity_critical()
 
+  @doc false
+  # Whether routine Trivy "scan completed" (OCSF `scan_activity`) status events
+  # should be mirrored into `ocsf_events`. Off by default: trivy-operator emits a
+  # report for EVERY workload on every re-scan, so these Informational,
+  # always-`Success` heartbeats flood `ocsf_events` while carrying no actionable
+  # signal. The real signal (promoted `finding` events plus the persisted
+  # `trivy_reports` / `trivy_findings` rows) is unaffected by this flag. See the
+  # moduledoc for the `:trivy_scan_activity_events` override. Exposed (not `defp`)
+  # so tests can assert the gate directly.
+  @spec emit_scan_activity_events?() :: boolean()
+  def emit_scan_activity_events? do
+    Application.get_env(:serviceradar_core, :trivy_scan_activity_events, false) == true
+  end
+
   @impl true
   def process_batch(messages) do
     entries =
@@ -95,8 +137,15 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
 
       finding_count = upsert_finding_rows(finding_rows)
 
+      scan_activity_rows =
+        if emit_scan_activity_events?() do
+          Enum.map(entries, & &1.scan_activity_row)
+        else
+          []
+        end
+
       promoted_rows =
-        Enum.map(entries, & &1.scan_activity_row) ++
+        scan_activity_rows ++
           (entries
            |> Enum.filter(fn entry -> promote_to_event?(entry.severity_id) end)
            |> Enum.map(& &1.event_row))
