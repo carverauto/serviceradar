@@ -2,6 +2,17 @@ const CONTROL_PREFIXES = ["in:", "limit:", "sort:", "time:", "status:", "type:",
 const CLAUSE_CONTROLS = new Set(["where"])
 const OPERATORS = [":contains", ":equals", ">=", "<=", "!=", ":", ">", "<"]
 
+// Mirrors `is_valid_jsonb_key` in rust/srql (query/devices/filters/jsonb.rs):
+// non-empty, at most 64 bytes, and only ASCII [A-Za-z0-9_-]. Those characters
+// are all single-byte, so the JS string length equals the Rust byte length.
+const JSONB_KEY_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
+
+// Field prefixes the engine routes to arbitrary JSONB sub-key filters (see the
+// `field.starts_with("metadata.")` / `"tags."` arms in
+// rust/srql/src/query/devices/filters.rs). The whole `<prefix>.<key>` string is
+// the field token; the value follows the `:`.
+const DYNAMIC_KEY_PREFIXES = ["metadata", "tags"]
+
 export function tokenize(query = "", cursor = query.length) {
   const text = String(query || "")
   const cursorIndex = clamp(cursor, 0, text.length)
@@ -324,4 +335,24 @@ function fieldBackedControl(control) {
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, Number.isFinite(value) ? value : max))
+}
+
+// True when `key` is a valid JSONB sub-key, mirroring the engine's
+// `is_valid_jsonb_key`. Used to decide whether a `<prefix>.<key>` field is a
+// real dynamic-key filter or a typo.
+export function isValidJsonbKey(key = "") {
+  return JSONB_KEY_PATTERN.test(String(key))
+}
+
+// True when `field` is a dynamic JSONB-key filter the engine accepts but the
+// static catalog can't enumerate, e.g. `metadata.gateway_id` or `tags.owner`.
+// Editors must treat these as valid fields (no "unknown field" flag). Only the
+// first `.` splits prefix from key, so nested paths like `metadata.a.b` fail the
+// key check and stay flagged — matching the engine, which rejects them too.
+export function isDynamicKeyField(field = "") {
+  const text = String(field)
+  const dot = text.indexOf(".")
+  if (dot <= 0) return false
+
+  return DYNAMIC_KEY_PREFIXES.includes(text.slice(0, dot)) && isValidJsonbKey(text.slice(dot + 1))
 }
