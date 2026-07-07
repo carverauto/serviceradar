@@ -17,7 +17,7 @@ on:
         type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.inputs.tag || github.ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref || github.run_id }}
   cancel-in-progress: true
 
 permissions:
@@ -132,7 +132,7 @@ jobs:
 
       - name: Publish Wasm plugin OCI artifacts
         env:
-          EXTRA_TAG: ${{ github.event.inputs.tag }}
+          EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
           OPENBAO_ADDR: http://openbao-active.openbao-system.svc.cluster.local:8200
           OPENBAO_K8S_ROLE: forgejo-signing-runner
           OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/(tags/v.*|heads/(staging|main|master))$'
@@ -163,7 +163,7 @@ jobs:
 
       - name: Generate import index
         env:
-          EXTRA_TAG: ${{ github.event.inputs.tag }}
+          EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
         run: |
           set -euo pipefail
           tag="${EXTRA_TAG:-sha-${GITHUB_SHA}}"
@@ -173,7 +173,7 @@ jobs:
 
       - name: Upload import index release asset
         env:
-          EXTRA_TAG: ${{ github.event.inputs.tag }}
+          EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
         run: |
           set -euo pipefail
           if [[ -z "${FORGEJO_TOKEN:-}" ]]; then
@@ -194,12 +194,25 @@ jobs:
           fi
 
           api_base="${FORGEJO_URL}/api/v1/repos/${FORGEJO_REPOSITORY}"
-          release_json="$(curl -sS -H "Accept: application/json" -H "Authorization: token ${FORGEJO_TOKEN}" \
-            "${api_base}/releases/tags/${release_tag}" || true)"
+          fetch_release() {
+            curl -sS -H "Accept: application/json" -H "Authorization: token ${FORGEJO_TOKEN}" \
+              "${api_base}/releases/tags/${release_tag}" || true
+          }
+
+          release_json="$(fetch_release)"
           release_id="$(echo "${release_json}" | jq -r 'select(type == "object") | .id // empty')"
 
           if [[ -z "${release_id}" ]]; then
-            release_json="$(
+            # Create the release as a DRAFT. On a `v*` tag this workflow runs concurrently
+            # with release.yml (and native-addons.yml) and often reaches this step before
+            # release.yml has created the release. When immutable releases are enforced,
+            # assets can only be attached to a draft — a published release rejects the
+            # index upload with HTTP 403. So we own the draft here; release.yml's
+            # publish_packages then updates this same release in place (it only overwrites
+            # same-named assets, so our index survives) and its Finalize step publishes it.
+            # Tolerate a concurrent creator (another workflow racing on the same tag) by
+            # re-fetching instead of hard-failing on a duplicate-tag POST.
+            create_json="$(
               jq -n \
                 --arg tag_name "${release_tag}" \
                 --arg target_commitish "${target_commitish}" \
@@ -210,17 +223,24 @@ jobs:
                   target_commitish: $target_commitish,
                   name: $name,
                   body: $body,
-                  draft: false,
+                  draft: true,
                   prerelease: true
                 }' |
-                curl -sSf -X POST \
+                curl -sS -X POST \
                   -H "Accept: application/json" \
                   -H "Content-Type: application/json" \
                   -H "Authorization: token ${FORGEJO_TOKEN}" \
                   -d @- \
-                  "${api_base}/releases"
+                  "${api_base}/releases" || true
             )"
-            release_id="$(echo "${release_json}" | jq -r '.id // empty')"
+            release_id="$(echo "${create_json}" | jq -r 'select(type == "object") | .id // empty')"
+            if [[ -n "${release_id}" ]]; then
+              release_json="${create_json}"
+            else
+              # A concurrent workflow won the create race (or a transient error): re-resolve.
+              release_json="$(fetch_release)"
+              release_id="$(echo "${release_json}" | jq -r 'select(type == "object") | .id // empty')"
+            fi
           fi
 
           if [[ -z "${release_id}" ]]; then
@@ -241,4 +261,15 @@ jobs:
             -H "Authorization: token ${FORGEJO_TOKEN}" \
             -F "attachment=@${index_path}" \
             "${api_base}/releases/${release_id}/assets?name=serviceradar-wasm-plugin-index.json" >/dev/null
+
+          # Verify the asset is actually present after upload (relocated from release.yml,
+          # which can no longer assert this because the index now uploads out-of-band).
+          refreshed_release_json="$(curl -sSf -H "Accept: application/json" -H "Authorization: token ${FORGEJO_TOKEN}" \
+            "${api_base}/releases/${release_id}")"
+          uploaded_asset_id="$(echo "${refreshed_release_json}" | jq -r '.assets[]? | select(.name == "serviceradar-wasm-plugin-index.json") | .id' | head -n1)"
+          if [[ -z "${uploaded_asset_id}" ]]; then
+            echo "Wasm plugin import index asset was not present after upload for ${release_tag}" >&2
+            exit 1
+          fi
+
           echo "Uploaded serviceradar-wasm-plugin-index.json to ${release_tag}"
