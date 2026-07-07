@@ -86,6 +86,11 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(SecurityHeaders)
   end
 
+  # Interactive API docs UIs (SwaggerUI / ReDoc). These are internal developer
+  # tools, not public pages, so they require an authenticated user session.
+  # `require_authenticated_user` redirects unauthenticated browsers to log in.
+  # The SwaggerUI mounted on this pipeline is configured as an RBAC-backed API
+  # console — see the `/api/v2/swaggerui` route below.
   pipeline :api_docs_ui do
     plug(:accepts, ["html"])
     plug(:fetch_session)
@@ -97,6 +102,21 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(GatewayAuth)
     plug(:fetch_current_scope_for_user)
     plug(:set_ash_actor)
+    plug(:require_authenticated_user)
+  end
+
+  # OpenAPI spec (JSON) for the `/api/v2` JSON:API. Authenticated: the spec is an
+  # internal developer artifact, not a public document. `fetch_current_scope_for_user`
+  # accepts either a browser session cookie (used by the in-app SwaggerUI console)
+  # or an `Authorization: Bearer` token, and `require_authenticated_user_api`
+  # returns a 401 JSON body (rather than an HTML redirect) for anonymous callers.
+  pipeline :api_docs_spec do
+    plug(:accepts, ["json"])
+    plug(SecurityHeaders)
+    plug(:fetch_session)
+    plug(GatewayAuth)
+    plug(:fetch_current_scope_for_user)
+    plug(:require_authenticated_user_api)
   end
 
   pipeline :api_auth do
@@ -519,18 +539,48 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/addon-packages/:id/blob/download", AddonPackageController, :download_blob)
   end
 
+  # OpenAPI spec — authenticated (session cookie OR bearer). Defined before the
+  # JSON:API data forward below so `/api/v2/open_api` resolves here.
+  scope "/api/v2", ServiceRadarWebNGWeb.Api do
+    pipe_through(:api_docs_spec)
+
+    get("/open_api", OpenApiV2Controller, :show)
+  end
+
+  # Interactive docs UIs — authenticated internal tools.
+  #
+  # SwaggerUI is an RBAC-backed API console: because the user is already logged
+  # in to web-ng, "Try it out" runs AS THE LOGGED-IN USER with zero token
+  # wrangling. `with_credentials: true` makes SwaggerUI send the request with
+  # same-origin credentials (the session cookie), and the plug's built-in
+  # request interceptor attaches the `x-csrf-token` header for same-origin
+  # requests. So calls to `/api/*` and `/api/v2/*` authenticate via the user's
+  # session and are authorized by each resource's Ash policies (RBAC). The spec
+  # served at `/api/v2/open_api` drops the global bearer-auth requirement, so the
+  # "Authorize / paste JWT" step is not required (it remains an optional fallback
+  # via `persist_authorization`).
   scope "/api/v2" do
     pipe_through(:api_docs_ui)
 
     forward("/swaggerui", OpenApiSpex.Plug.SwaggerUI,
       path: "/api/v2/open_api",
-      default_model_expand_depth: 4
+      default_model_expand_depth: 4,
+      with_credentials: true,
+      persist_authorization: true
     )
 
     forward("/redoc", Redoc.Plug.RedocUI, spec_url: "/api/v2/open_api")
   end
 
-  # Ash JSON:API v2 endpoints
+  # Ash JSON:API v2 DATA endpoints (`/api/v2/<resource>`).
+  #
+  # The pipeline sets the Ash actor (from a session cookie or bearer token) but
+  # does NOT require authentication at the router layer: access is gated by each
+  # resource's Ash policies. Every JSON:API-exposed resource uses
+  # `authorizers: [Ash.Policy.Authorizer]` with read policies that require a
+  # viewer role or an explicit permission, and Ash forbids by default, so a nil
+  # (unauthenticated) actor reads nothing. The OpenAPI spec is NOT served here —
+  # it is gated separately above (`/api/v2/open_api`).
   scope "/api/v2" do
     pipe_through(:ash_json_api)
 

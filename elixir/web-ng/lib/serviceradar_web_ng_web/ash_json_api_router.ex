@@ -35,8 +35,16 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiRouter do
 
   ## Authentication
 
-  All endpoints require authentication. The actor is extracted from the
-  connection and passed to Ash for policy enforcement.
+  Access is authorized by each resource's Ash policies. The actor is extracted
+  from the connection (session cookie or bearer token) and passed to Ash for
+  policy enforcement; a nil actor reads nothing.
+
+  ## OpenAPI spec
+
+  The OpenAPI document is NOT served by this router. It is served — behind
+  authentication — by `ServiceRadarWebNGWeb.Api.OpenApiV2Controller` at
+  `/api/v2/open_api`, so the interactive SwaggerUI console and the spec itself
+  are gated to logged-in users.
   """
 
   use AshJsonApi.Router,
@@ -44,8 +52,5 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiRouter do
       ServiceRadar.Inventory,
       ServiceRadar.Infrastructure,
       ServiceRadar.Monitoring
-    ],
-    open_api: "/open_api",
-    open_api_title: "ServiceRadar API",
-    open_api_version: "2.0.0"
+    ]
 end

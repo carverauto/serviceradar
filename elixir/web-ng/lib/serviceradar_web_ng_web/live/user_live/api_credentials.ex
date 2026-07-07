@@ -576,7 +576,10 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
   def handle_event("confirm_revoke", %{"id" => id}, socket) do
     user = socket.assigns.current_scope.user
 
-    case OAuthClient.get_by_id(id) do
+    # Pass the current-scope user as the Ash actor: OAuthClient's read policy
+    # (`user_id == ^actor(:id)` OR `is_admin()`) filters a nil-actor read to
+    # empty, which would surface a spurious "Client not found".
+    case OAuthClient.get_by_id(id, actor: user) do
       {:ok, client} ->
         case OAuthClient.revoke(client, %{}, actor: user) do
           {:ok, _} ->
@@ -599,7 +602,11 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
   def handle_event("delete_client", %{"id" => id}, socket) do
     user = socket.assigns.current_scope.user
 
-    case OAuthClient.get_by_id(id) do
+    # Pass the current-scope user as the Ash actor so the owner read policy
+    # authorizes the lookup. The `:by_id` action has no enabled/revoked filter,
+    # so revoked clients remain findable (and therefore deletable) once the
+    # actor is present.
+    case OAuthClient.get_by_id(id, actor: user) do
       {:ok, client} ->
         case OAuthClient.destroy(client, actor: user) do
           :ok ->
