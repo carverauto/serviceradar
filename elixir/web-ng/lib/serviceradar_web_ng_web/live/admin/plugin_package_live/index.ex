@@ -1730,7 +1730,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                           >
                             <select
                               name="assignment_upgrade[target_package_id]"
-                              class="select select-bordered select-xs"
+                              class="select select-bordered select-xs w-auto min-w-[4.75rem] shrink-0"
                             >
                               <%= for target <- approved_targets do %>
                                 <option value={target.id}>{target.version}</option>
