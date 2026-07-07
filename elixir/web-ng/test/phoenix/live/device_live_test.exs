@@ -1231,20 +1231,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Sweep"
     assert html =~ "Hypervisor Enrichment"
 
-    # Each source carries its own curated metadata.
+    # The compact chip section is a summary, not a stack of cards; the old
+    # generic filler subtitle must be gone.
+    refute html =~ "Discovered through this source."
+
+    # Each source's curated metadata is surfaced on the chip's hover tooltip.
     assert html =~ "agent-multi-src"
     assert html =~ "prod-inventory"
     assert html =~ "awx-prod"
     assert html =~ "proxmox"
   end
 
-  test "discovery sources section renders a card per source with source metadata" do
+  test "discovery sources section renders a compact chip per source with curated metadata on hover" do
     html =
       render_component(
         &DiscoverySourcesComponents.discovery_sources_section/1,
         device_row: %{
           "agent_id" => "agent-abc",
-          "discovery_sources" => ["agent", "armis", "netbox"],
+          # `sweep` carries no scoped metadata here, so it renders as a plain
+          # chip (no tooltip / filler), while the others get a hover summary.
+          "discovery_sources" => ["agent", "armis", "netbox", "sweep"],
           "metadata" => %{
             "armis_device_id" => "42",
             "armis_risk_level" => "High",
@@ -1254,9 +1260,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       )
 
     assert html =~ "Discovery Sources"
+
+    # Every source still appears as a chip.
     assert html =~ "Agent"
     assert html =~ "Armis"
     assert html =~ "NetBox"
+    assert html =~ "Sweep"
+
+    # Compact chip markup replaced the big per-source cards + generic filler.
+    assert html =~ "rounded-full"
+    refute html =~ "Discovered through this source."
+
+    # Sources with metadata expose it via a hover tooltip (data-tip), not a card.
+    assert html =~ "data-tip"
     assert html =~ "agent-abc"
     assert html =~ "High"
     assert html =~ "nb-9"
