@@ -16,6 +16,7 @@
       "fields": [
         { "label": "Provider", "path": "log_provider" },
         { "label": "Condition", "path": "unmapped.condition_key" },
+        { "label": "Level", "path": "unmapped.level" },
         { "label": "Severity", "path": "severity", "tone": "severity" }
       ]
     },

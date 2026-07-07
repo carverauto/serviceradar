@@ -122,6 +122,10 @@ type PluginManager struct {
 	results chan PluginResult
 	signals chan PluginSignalTelemetry
 
+	// conditions de-duplicates per-cycle plugin condition events (e.g. Proxmox
+	// resource pressure/bottleneck) so only level transitions are forwarded.
+	conditions *pluginConditionDebouncer
+
 	stateMu  sync.Mutex
 	states   map[string]*assignmentState
 	stateNow func() time.Time

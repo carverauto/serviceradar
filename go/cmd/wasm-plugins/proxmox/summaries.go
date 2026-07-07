@@ -336,36 +336,90 @@ func emitResourceEvents(result *pluginResult, details proxmoxDetails) {
 	}
 }
 
-func emitIOWaitEvent(result *pluginResult, key string, value float64) {
-	switch {
-	case value >= 0.40:
-		result.EmitEvent(
-			sdk.SeverityCritical,
-			fmt.Sprintf("Proxmox node I/O wait bottleneck %.0f%%", value*100),
-			"proxmox:node_io_wait:"+key,
-		)
-	case value >= 0.20:
-		result.EmitEvent(
-			sdk.SeverityWarning,
-			fmt.Sprintf("Proxmox node I/O wait pressure %.0f%%", value*100),
-			"proxmox:node_io_wait:"+key,
-		)
+// Pressure bands. A ratio at/above the critical threshold is "critical", at/above
+// the warning threshold is "warning", otherwise "ok". These mirror the bands the
+// summary/telemetry already use so events and metrics agree.
+const (
+	ratioWarnThreshold  = 0.80
+	ratioCritThreshold  = 0.90
+	ioWaitWarnThreshold = 0.20
+	ioWaitCritThreshold = 0.40
+)
+
+// pressureLevel is the discrete band a resource ratio occupies. Downstream
+// de-duplication keys on (condition_key, level), so classifying — rather than
+// re-reporting the exact percentage every cycle — is what lets the host suppress
+// per-tick repeats while still alerting on a level transition.
+type pressureLevel int
+
+const (
+	levelOK pressureLevel = iota
+	levelWarning
+	levelCritical
+)
+
+func (l pressureLevel) String() string {
+	switch l {
+	case levelCritical:
+		return "critical"
+	case levelWarning:
+		return "warning"
+	default:
+		return "ok"
 	}
 }
 
-func emitRatioEvent(result *pluginResult, kind, key string, value float64) {
+// classifyPressureLevel buckets a ratio into ok/warning/critical using the
+// warn/crit thresholds. This is a pure threshold classification: hysteresis
+// (which needs the PRIOR level) is applied host-side, where cross-cycle state
+// lives. A WASM plugin is re-instantiated every check cycle and cannot remember
+// a prior level itself, so it reports the current level plus the raw ratio and
+// thresholds and lets the long-lived host decide whether the level transitioned.
+func classifyPressureLevel(value, warn, crit float64) pressureLevel {
 	switch {
-	case value >= 0.90:
-		result.EmitEvent(
+	case value >= crit:
+		return levelCritical
+	case value >= warn:
+		return levelWarning
+	default:
+		return levelOK
+	}
+}
+
+func emitIOWaitEvent(result *pluginResult, key string, value float64) {
+	emitPressureEvent(result, "proxmox:node_io_wait:"+key, "node I/O wait", value, ioWaitWarnThreshold, ioWaitCritThreshold)
+}
+
+func emitRatioEvent(result *pluginResult, kind, key string, value float64) {
+	emitPressureEvent(result, "proxmox:"+kind+":"+key, strings.ReplaceAll(kind, "_", " "), value, ratioWarnThreshold, ratioCritThreshold)
+}
+
+// emitPressureEvent emits a single condition event for the resource's current
+// LEVEL rather than one event per percentage tick. The precise ratio and the
+// warn/crit thresholds ride along in `unmapped` so the host de-duplicator can
+// apply hysteresis at the band boundaries. Nothing is emitted while the resource
+// is OK — a recovery is represented by the absence of further events for the
+// condition key (the host ages the condition out).
+func emitPressureEvent(result *pluginResult, conditionKey, label string, value, warn, crit float64) {
+	level := classifyPressureLevel(value, warn, crit)
+	extra := map[string]any{"ratio": value, "warn": warn, "crit": crit}
+
+	switch level {
+	case levelCritical:
+		result.EmitConditionEvent(
 			sdk.SeverityCritical,
-			fmt.Sprintf("Proxmox %s bottleneck %.0f%%", strings.ReplaceAll(kind, "_", " "), value*100),
-			"proxmox:"+kind+":"+key,
+			fmt.Sprintf("Proxmox %s bottleneck (critical)", label),
+			conditionKey,
+			level.String(),
+			extra,
 		)
-	case value >= 0.80:
-		result.EmitEvent(
+	case levelWarning:
+		result.EmitConditionEvent(
 			sdk.SeverityWarning,
-			fmt.Sprintf("Proxmox %s pressure %.0f%%", strings.ReplaceAll(kind, "_", " "), value*100),
-			"proxmox:"+kind+":"+key,
+			fmt.Sprintf("Proxmox %s pressure (warning)", label),
+			conditionKey,
+			level.String(),
+			extra,
 		)
 	}
 }
@@ -377,16 +431,20 @@ func emitCephHealthEvent(result *pluginResult, key string, ceph *proxmoxCeph) {
 
 	switch cephHealthClass(ceph.Health) {
 	case "critical":
-		result.EmitEvent(
+		result.EmitConditionEvent(
 			sdk.SeverityCritical,
 			"Proxmox Ceph health critical: "+ceph.Health,
 			"proxmox:ceph_health:"+key,
+			levelCritical.String(),
+			nil,
 		)
 	case "warning":
-		result.EmitEvent(
+		result.EmitConditionEvent(
 			sdk.SeverityWarning,
 			"Proxmox Ceph health warning: "+ceph.Health,
 			"proxmox:ceph_health:"+key,
+			levelWarning.String(),
+			nil,
 		)
 	}
 }
@@ -398,10 +456,12 @@ func emitDiskHealthEvent(result *pluginResult, key string, disk proxmoxDisk) {
 	}
 
 	diskID := firstNonEmpty(disk.DevPath, disk.ByID, disk.Model, "disk")
-	result.EmitEvent(
+	result.EmitConditionEvent(
 		sdk.SeverityWarning,
 		"Proxmox disk health warning: "+diskID+" "+health,
 		"proxmox:disk_health:"+key+":"+diskID,
+		levelWarning.String(),
+		nil,
 	)
 }
 

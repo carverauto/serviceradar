@@ -97,6 +97,14 @@ func (e *pluginExecution) hostEmitTelemetry(_ context.Context, mod api.Module, p
 		return pluginErrInvalid
 	}
 
+	// Collapse per-cycle condition events (Proxmox pressure/bottleneck and
+	// similar) down to level transitions. A suppressed batch is accepted but not
+	// forwarded — the plugin re-emits the same condition next cycle regardless.
+	signal.Batch = e.manager.conditions.filter(signal.AssignmentID, signal.Batch)
+	if signal.Batch == nil || len(signal.Batch.Records) == 0 {
+		return pluginErrOK
+	}
+
 	e.manager.enqueueSignal(signal)
 	return pluginErrOK
 }
