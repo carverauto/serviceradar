@@ -1,3 +1,36 @@
+# ServiceRadar v1.4.6
+
+Observability signal-to-noise, API docs turned into an RBAC-backed console, and a batch of Device Details, NetFlow, and plugin fixes found while exercising the product end to end.
+
+## Whats New
+
+**1.4.6**
+- Observability event-stream cleanup: fixed the Fatal/severity log drill-down
+  timeout (force custom query plans plus online-safe composite indexes on
+  `logs` for severity and source); stopped the "credential secret resolution
+  success" event flood that was ~56% of all events (routine successes are no
+  longer mirrored into `ocsf_events`; failures still are); Proxmox pressure
+  alerts now fire on level transitions with hysteresis instead of one event per
+  percentage tick; and events now link to their affected device/guest.
+- API and SRQL: the OpenAPI spec is published into the repo, and the `/api/v2`
+  docs are gated behind auth and turned into an RBAC-backed session-auth Swagger
+  console (Try-it-out runs as the logged-in user, no manual token); fixed the
+  OAuth API-key delete ("Client not found"); the SRQL editor now autocompletes
+  fields, operators, and known values; and device metadata rows link out to a
+  "find similar devices" SRQL search.
+- Device Details: a new Ansible panel to launch playbooks and view run history,
+  and the Discovery Sources section is now compact chips instead of filler
+  cards.
+- NetFlow: the flow-path popup is no longer clipped, and local-CIDR map anchors
+  are applied so private/local IPs stop islanding on the map.
+- Edge and plugins: fixed the config-health flap (a stale pushed-version false
+  positive that oscillated agents between healthy and wedged); fixed the
+  awx-inventory-sync import signature (a JSON-canonicalization mismatch); fixed
+  the alienvault-otx OOM crash (v0.3.1 with a larger WASM heap); and dropped
+  noisy datasvc `KVService/Put` traces and routine credential-broker logs.
+- UI: the topbar profile and SRQL dropdowns are no longer hidden behind
+  dashboard content.
+
 # ServiceRadar v1.4.5
 
 The JSON/SRQL API works end to end with an integration test suite, the built-in Swagger UI is reachable from a new profile menu, browser camera-relay playback is fixed, and plugin resilience (OTX, dusk), observability, settings, and Device Details all get hardening.
