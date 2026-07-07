@@ -682,9 +682,9 @@ cnpg:
   storageClass: ""
   storageSize: 100Gi
   # WAL retention safety cap (max_slot_wal_keep_size). Blank = auto-derive ~30% of
-  # storageSize (min 10Gi) so a stuck/lagging replication slot can never fill the
+  # storageSize (min 10GB) so a stuck/lagging replication slot can never fill the
   # volume and crash the primary (the 2026-06-17 outage). Set an explicit size
-  # (e.g. "250GB") when the real volume is larger than the declared storageSize.
+  # using PostgreSQL units (e.g. "250GB"), not Kubernetes resource units.
   maxSlotWalKeepSize: ""
   # Optional full CNPG image reference. When blank, image.registry is used with
   # the default ServiceRadar CNPG tag.

@@ -38,14 +38,15 @@
 {{- /* WAL safety cap: never leave max_slot_wal_keep_size unbounded (-1) — a stuck or
        lagging replication slot would otherwise retain WAL until the data volume fills
        and the primary crashes (the 2026-06-17 demo CNPG outage). Default to ~30% of the
-       declared storage (min 10Gi); override with cnpg.maxSlotWalKeepSize, or set it
-       directly in cnpg.postgresqlParameters. */ -}}
+       declared storage (min 10GB); override with cnpg.maxSlotWalKeepSize, or set it
+       directly in cnpg.postgresqlParameters. PostgreSQL accepts GB/TB units here, not
+       Kubernetes-style Gi/Ti resource units. */ -}}
 {{- $walCap := default "" $cnpg.maxSlotWalKeepSize -}}
 {{- if eq $walCap "" -}}
   {{- $storeNum := int (regexReplaceAll "[^0-9]" (default "100Gi" $cnpg.storageSize) "") -}}
   {{- $derived := div (mul $storeNum 30) 100 -}}
   {{- if lt $derived 10 -}}{{- $derived = 10 -}}{{- end -}}
-  {{- $walCap = printf "%dGi" $derived -}}
+  {{- $walCap = printf "%dGB" $derived -}}
 {{- end -}}
 {{- $appSecretName := default "serviceradar-db-credentials" $cnpg.credentialsSecret -}}
 {{- $superSecretName := default "cnpg-superuser" $cnpg.superuserSecret -}}
