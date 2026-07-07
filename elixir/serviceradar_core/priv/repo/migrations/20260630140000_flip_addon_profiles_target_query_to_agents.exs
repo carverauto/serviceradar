@@ -33,6 +33,13 @@ defmodule ServiceRadar.Repo.Migrations.FlipAddonProfilesTargetQueryToAgents do
   use Ecto.Migration
 
   def up do
+    # serviceradar:allow-startup-maintenance - bounded, schema-critical one-time backfill.
+    # platform.addon_profiles is a small control-plane table (seeded add-on profiles, not a
+    # hypertable), so this single UPDATE rewrites only the few profiles still on the bare
+    # `in:devices` default in the first-boot Job with no large-table lock/timeout risk. It is
+    # required for correctness (a bare `in:devices` target starves add-on reconciliation of
+    # eligible agents) and idempotent: the WHERE clause matches only the exact bare default,
+    # so a re-run or a fresh-seeded deployment (already `in:agents`) is a no-op.
     execute("""
     UPDATE platform.addon_profiles
     SET target_query = 'in:agents',

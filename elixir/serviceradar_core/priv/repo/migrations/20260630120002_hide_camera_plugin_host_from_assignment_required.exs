@@ -25,6 +25,13 @@ defmodule ServiceRadar.Repo.Migrations.HideCameraPluginHostFromAssignmentRequire
   use Ecto.Migration
 
   def up do
+    # serviceradar:allow-startup-maintenance - bounded, schema-critical one-time backfill.
+    # platform.plugin_packages is a small control-plane table (one row per installed plugin
+    # package, not a hypertable), so this single UPDATE touches only the handful of imported
+    # camera-plugin rows in the first-boot Job with no large-table lock/timeout risk. It is
+    # required for correctness (assignment validation reads config_schema off this DB row, so
+    # already-imported packages stay broken until rewritten) and idempotent: the WHERE clause
+    # no longer matches once `host` has been removed from `required`, so a re-run is a no-op.
     execute("""
     UPDATE platform.plugin_packages
     SET config_schema = jsonb_set(
