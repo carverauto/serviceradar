@@ -188,12 +188,7 @@ defmodule ServiceRadarWebNG.SRQL do
         db_timeout_ms = timeout_ms + @db_timeout_margin_ms
 
         with {:ok, _} <-
-               SQL.query(
-                 Repo,
-                 "SELECT set_config('statement_timeout', $1, true)",
-                 [statement_timeout],
-                 timeout: db_timeout_ms
-               ),
+               SQL.query(Repo, session_setup_sql(), [statement_timeout], timeout: db_timeout_ms),
              {:ok, result} <- SQL.query(Repo, sql, params, timeout: db_timeout_ms) do
           result
         else
@@ -206,6 +201,38 @@ defmodule ServiceRadarWebNG.SRQL do
         {:error, reason} -> {:error, reason}
       end
     end
+  end
+
+  # Transaction-local session settings applied immediately before every SRQL
+  # query. Both use `set_config(name, value, is_local = true)`, the `SET LOCAL`
+  # form: they are scoped to the enclosing SRQL transaction (see `run_sql/2`) and
+  # never leak to unrelated queries sharing the pooled connection.
+  #
+  #   * `statement_timeout` bounds runaway ad-hoc queries.
+  #
+  #   * `plan_cache_mode = force_custom_plan` defeats PostgreSQL's generic-plan
+  #     trap. Postgrex executes SRQL as *named prepared statements*, so after ~5
+  #     executions the cached statement flips to a generic plan. A generic plan
+  #     cannot estimate the selectivity of parameterized `= ANY($n)` / `IN`-style
+  #     filters (it substitutes a fixed default), so it scans a timestamp-ordered
+  #     index and filters instead of using the selective index — which
+  #     statement-times-out on sparse predicates over multi-million-row
+  #     hypertables. The observed failure was the Observability log severity
+  #     drill-down over `logs` (`lower(severity_text) = ANY($n)` finding ~2k
+  #     fatal rows inside a 24h window of ~5.5M). Forcing a custom plan makes the
+  #     planner re-estimate per execution using the actual bound parameters and
+  #     pick the selective index (`idx_logs_severity_lower_effective_ts`).
+  #
+  # Applied to *all* SRQL executions, not only queries containing `= ANY(`: SRQL
+  # is ad-hoc, high-variance analytics where per-execution custom planning is the
+  # correct default. The planning cost is negligible next to the data volumes
+  # scanned, whereas a mis-estimated generic plan degrades to a full scan. A
+  # shape-sniffing heuristic would be fragile (it would miss other
+  # selectivity-sensitive predicates) for no measurable benefit.
+  @doc false
+  def session_setup_sql do
+    "SELECT set_config('statement_timeout', $1, true), " <>
+      "set_config('plan_cache_mode', 'force_custom_plan', true)"
   end
 
   defp srql_query_timeout_ms do
