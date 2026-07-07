@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView do
   import ServiceRadarWebNGWeb.DeviceLive.IndexView.Stats, only: [device_stats_cards: 1]
   import ServiceRadarWebNGWeb.NorthboundActionComponents, only: [northbound_action_modal: 1]
 
+  alias ServiceRadarWebNGWeb.DeviceLive.AwxApplicability
   alias ServiceRadarWebNGWeb.DeviceLive.IndexView.BulkActions
   alias ServiceRadarWebNGWeb.DeviceLive.IndexView.Filters
   alias ServiceRadarWebNGWeb.DeviceLive.IndexView.Header
@@ -123,6 +124,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView do
         actions={launchable_northbound_actions(@northbound_device_actions)}
         action={@northbound_launch_action}
         error={@northbound_action_error}
+        applicability={northbound_applicability_summary(@northbound_awx_applicability)}
+        ansible_vars={@northbound_ansible_vars}
+        ansible_var_values={@northbound_ansible_var_values}
+        raw_extra_vars_open={@northbound_raw_extra_vars_open}
+        raw_extra_vars={@northbound_raw_extra_vars}
+        toggle_raw_event="toggle_northbound_raw_extra_vars"
         close_event="close_northbound_action_modal"
         change_event="northbound_action_change"
         submit_event="launch_northbound_action"
@@ -139,4 +146,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView do
 
   defp launchable_northbound_actions(actions) when is_list(actions), do: actions
   defp launchable_northbound_actions(_actions), do: []
+
+  defp northbound_applicability_summary(%AwxApplicability{} = applicability) do
+    %{
+      applicable_count: AwxApplicability.applicable_count(applicability),
+      total_count: applicability.total,
+      non_applicable: applicability.non_applicable
+    }
+  end
+
+  defp northbound_applicability_summary(_), do: nil
 end

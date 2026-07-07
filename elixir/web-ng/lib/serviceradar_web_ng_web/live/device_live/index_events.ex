@@ -52,6 +52,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents do
   @northbound_events ~w(
     run_task_for_selection
     close_northbound_action_modal
+    toggle_northbound_raw_extra_vars
     northbound_action_change
     launch_northbound_action
   )

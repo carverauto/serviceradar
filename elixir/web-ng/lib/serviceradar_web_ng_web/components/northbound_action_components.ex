@@ -3,8 +3,14 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
   use Phoenix.Component
 
   import ServiceRadarWebNGWeb.CoreComponents
+  # Reuse the device-detail Ansible panel's typed variable input so the bulk
+  # "Run Task" modal renders an identical variable form.
+  import ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents, only: [var_input: 1]
 
   alias ServiceRadarWebNG.Northbound.ActionForm
+
+  # How many non-applicable device names to name before collapsing to "+N more".
+  @non_applicable_display_limit 10
 
   attr(:id, :string, required: true)
   attr(:title, :string, required: true)
@@ -16,6 +22,18 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
   attr(:close_event, :string, required: true)
   attr(:change_event, :string, required: true)
   attr(:submit_event, :string, required: true)
+  # Bulk-selection AWX applicability summary: %{applicable_count, total_count,
+  # non_applicable: [%{uid, label}]}. nil when the modal is not device-bulk
+  # (e.g. the device-detail interface actions), which renders no gating block.
+  attr(:applicability, :map, default: nil)
+  # Ansible typed-variable form. `ansible_vars` is a list (possibly empty) for
+  # an Ansible task and nil for non-ansible actions (which fall back to the
+  # descriptor's JSON-schema fields).
+  attr(:ansible_vars, :list, default: nil)
+  attr(:ansible_var_values, :map, default: %{})
+  attr(:raw_extra_vars_open, :boolean, default: false)
+  attr(:raw_extra_vars, :string, default: "")
+  attr(:toggle_raw_event, :string, default: nil)
 
   def northbound_action_modal(assigns) do
     action = assigns.action || List.first(assigns.actions)
@@ -47,6 +65,70 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
           <div class="min-w-0 flex-1">
             <h3 class="text-lg font-semibold text-base-content">{@title}</h3>
             <p class="text-sm text-base-content/60">{@subtitle}</p>
+          </div>
+        </div>
+
+        <div :if={applicability_present?(@applicability)} class="mt-4 space-y-3">
+          <div
+            role="status"
+            class={[
+              "flex items-start gap-3 rounded-lg border px-4 py-3 text-sm",
+              if(applicability_blocked?(@applicability),
+                do: "border-warning/30 bg-warning/10",
+                else: "border-info/20 bg-info/10"
+              )
+            ]}
+          >
+            <.icon
+              name={
+                if applicability_blocked?(@applicability),
+                  do: "hero-exclamation-triangle",
+                  else: "hero-check-circle"
+              }
+              class={[
+                "mt-0.5 size-5 shrink-0",
+                if(applicability_blocked?(@applicability), do: "text-warning", else: "text-info")
+              ]}
+            />
+            <div class="min-w-0">
+              <p class="font-medium text-base-content">{applicable_summary_text(@applicability)}</p>
+              <p
+                :if={applicability_blocked?(@applicability)}
+                class="mt-1 text-xs text-base-content/70"
+              >
+                Only AWX-managed devices can run Ansible tasks. Select at least one device that is in an AWX inventory.
+              </p>
+            </div>
+          </div>
+
+          <div
+            :if={non_applicable_any?(@applicability)}
+            role="alert"
+            class="rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm"
+          >
+            <div class="flex items-start gap-3">
+              <.icon name="hero-exclamation-triangle" class="mt-0.5 size-5 shrink-0 text-warning" />
+              <div class="min-w-0">
+                <p class="font-medium text-base-content">
+                  Not in an AWX inventory (will be skipped):
+                </p>
+                <div class="mt-2 flex flex-wrap gap-1.5">
+                  <span
+                    :for={entry <- non_applicable_visible(@applicability)}
+                    class="badge badge-warning badge-outline badge-sm max-w-full truncate"
+                    title={entry.uid}
+                  >
+                    {entry.label}
+                  </span>
+                  <span
+                    :if={non_applicable_more(@applicability) > 0}
+                    class="badge badge-ghost badge-sm"
+                  >
+                    +{non_applicable_more(@applicability)} more
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -94,27 +176,76 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
             </p>
           </div>
 
-          <div :if={@properties != []} class="grid gap-4">
-            <%= for {name, schema} <- @properties do %>
-              <.northbound_action_field
-                form={@form}
-                name={name}
-                schema={schema}
-                required={MapSet.member?(@required, name)}
+          <%= if ansible_action?(@ansible_vars) do %>
+            <div :if={@ansible_vars != []} class="space-y-3">
+              <h4 class="text-sm font-medium">Variables</h4>
+              <.var_input
+                :for={var <- @ansible_vars}
+                var={var}
+                value={Map.get(@ansible_var_values, var.name)}
+                name={"action[vars][#{var.name}]"}
               />
-            <% end %>
-          </div>
+            </div>
 
-          <div
-            :if={@properties == []}
-            class="rounded-lg border border-base-200 p-4 text-sm text-base-content/60"
-          >
-            This task does not require additional input.
-          </div>
+            <div
+              :if={@ansible_vars == []}
+              class="rounded-lg border border-base-200 p-4 text-sm text-base-content/60"
+            >
+              This task requires no variables.
+            </div>
+
+            <div class="rounded-lg border border-base-200">
+              <button
+                type="button"
+                phx-click={@toggle_raw_event}
+                class="flex w-full items-center justify-between px-3 py-2 text-sm text-base-content/70 hover:text-base-content"
+              >
+                <span class="flex items-center gap-2 font-medium">
+                  <.icon name="hero-code-bracket" class="size-4" /> Advanced: raw extra_vars JSON
+                </span>
+                <.icon
+                  name={if @raw_extra_vars_open, do: "hero-chevron-up", else: "hero-chevron-down"}
+                  class="size-4"
+                />
+              </button>
+              <div :if={@raw_extra_vars_open} class="border-t border-base-200 p-3">
+                <p class="mb-2 text-xs text-base-content/60">
+                  Optional. Merged over the fields above (raw keys win). Leave blank to use the form values.
+                </p>
+                <textarea
+                  name="action[raw_extra_vars]"
+                  class="textarea textarea-bordered min-h-24 w-full font-mono text-xs"
+                  placeholder="{}"
+                >{@raw_extra_vars}</textarea>
+              </div>
+            </div>
+          <% else %>
+            <div :if={@properties != []} class="grid gap-4">
+              <%= for {name, schema} <- @properties do %>
+                <.northbound_action_field
+                  form={@form}
+                  name={name}
+                  schema={schema}
+                  required={MapSet.member?(@required, name)}
+                />
+              <% end %>
+            </div>
+
+            <div
+              :if={@properties == []}
+              class="rounded-lg border border-base-200 p-4 text-sm text-base-content/60"
+            >
+              This task does not require additional input.
+            </div>
+          <% end %>
 
           <div class="modal-action">
             <button type="button" class="btn btn-ghost" phx-click={@close_event}>Cancel</button>
-            <button type="submit" class="btn btn-primary" disabled={is_nil(@action)}>
+            <button
+              type="submit"
+              class="btn btn-primary"
+              disabled={launch_disabled?(@action, @applicability)}
+            >
               <.icon name="hero-play" class="size-4" /> Create Invocation
             </button>
           </div>
@@ -308,6 +439,39 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
       />
     </div>
     """
+  end
+
+  ## Applicability + ansible-form helpers --------------------------------------
+
+  defp ansible_action?(ansible_vars), do: is_list(ansible_vars)
+
+  defp launch_disabled?(action, applicability) do
+    is_nil(action) or applicability_blocked?(applicability)
+  end
+
+  defp applicability_present?(applicability), do: is_map(applicability)
+
+  defp applicability_blocked?(applicability) do
+    is_map(applicability) and Map.get(applicability, :applicable_count, 0) == 0
+  end
+
+  defp applicable_summary_text(applicability) do
+    applicable = Map.get(applicability, :applicable_count, 0)
+    total = Map.get(applicability, :total_count, 0)
+
+    "#{applicable} of #{total} selected device(s) are AWX-managed and will run this task."
+  end
+
+  defp non_applicable_list(applicability), do: Map.get(applicability, :non_applicable, [])
+
+  defp non_applicable_any?(applicability), do: non_applicable_list(applicability) != []
+
+  defp non_applicable_visible(applicability) do
+    applicability |> non_applicable_list() |> Enum.take(@non_applicable_display_limit)
+  end
+
+  defp non_applicable_more(applicability) do
+    max(length(non_applicable_list(applicability)) - @non_applicable_display_limit, 0)
   end
 
   defp action_state_badge_class(:succeeded), do: "badge badge-success badge-sm"
