@@ -304,9 +304,21 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
   defp parameters([]), do: nil
 
   defp parameters(params) do
-    Enum.map(params, fn
-      :id -> %{"$ref" => "#/components/parameters/IdPathParam"}
-    end)
+    Enum.map(params, &parameter/1)
+  end
+
+  # `:id` reuses the shared component parameter; any other path parameter
+  # (e.g. `:gateway_id`, `:component_id`) is emitted inline with its atom name
+  # so multi-parameter routes render a valid OpenAPI document.
+  defp parameter(:id), do: %{"$ref" => "#/components/parameters/IdPathParam"}
+
+  defp parameter(name) when is_atom(name) do
+    %{
+      "name" => Atom.to_string(name),
+      "in" => "path",
+      "required" => true,
+      "schema" => %{"type" => "string"}
+    }
   end
 
   defp request_body(nil), do: nil
