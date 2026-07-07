@@ -1,3 +1,29 @@
+# ServiceRadar v1.4.7
+
+Bootstrap and supply-chain hardening — a fresh-install-bricking schema-baseline bug (now caught by CI), a leaner event stream, and the AWX/ansible device workflow finished end to end.
+
+## Whats New
+
+**1.4.7**
+- Bootstrap safety: fixed a schema baseline that was missing 77 pre-watermark
+  tables and would brick a brand-new production install; the baseline is now
+  regenerated from a full migration replay, and a previously-silent CI gate
+  enforces the baseline invariant on every PR so this class of drift can no
+  longer ship undetected. The startup-safety-flagged maintenance migrations are
+  marked bounded/idempotent.
+- AWX / ansible: a new `awx_managed:true` SRQL filter to find ansible-capable
+  devices; the Device Details panel now lists the launchable playbooks bound to
+  a device's controller (a missing primary read action had silently emptied
+  four ansible surfaces); and the bulk "Run Task" modal only targets
+  AWX-managed devices, names any unsupported ones, and renders a typed variable
+  form derived from each playbook's survey/declared variables instead of a raw
+  JSON blob.
+- Observability: routine Trivy "scan completed" reports no longer flood the
+  event stream (actionable findings still surface).
+- CI / API: the wasm plugins now re-sign and publish automatically on a release
+  tag (no manual step); the admin OpenAPI document renders again; and the SRQL
+  editor no longer flags valid `metadata.<key>` filters as unknown.
+
 # ServiceRadar v1.4.6
 
 Observability signal-to-noise, API docs turned into an RBAC-backed console, and a batch of Device Details, NetFlow, and plugin fixes found while exercising the product end to end.
