@@ -1338,8 +1338,7 @@ CREATE TABLE platform.timeseries_metrics (
     if_index integer,
     metadata jsonb,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    series_key text NOT NULL,
-    counter_width integer
+    series_key text NOT NULL
 );
 
 
@@ -2608,7 +2607,6 @@ CREATE TABLE platform.auth_settings (
     claim_mappings jsonb DEFAULT '{"sub": "sub", "name": "name", "email": "email"}'::jsonb,
     is_enabled boolean DEFAULT false,
     allow_password_fallback boolean DEFAULT true,
-    sso_auto_provision boolean DEFAULT false NOT NULL,
     inserted_at timestamp without time zone DEFAULT now() NOT NULL,
     updated_at timestamp without time zone DEFAULT now() NOT NULL
 );
@@ -4399,8 +4397,7 @@ CREATE TABLE platform.ng_users (
     status text DEFAULT 'active'::text NOT NULL,
     last_login_at timestamp(0) without time zone,
     last_auth_method text,
-    role_profile_id uuid,
-    local_login_enabled boolean DEFAULT false NOT NULL
+    role_profile_id uuid
 );
 
 
