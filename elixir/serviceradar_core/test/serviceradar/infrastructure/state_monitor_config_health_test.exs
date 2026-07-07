@@ -2,9 +2,10 @@ defmodule ServiceRadar.Infrastructure.StateMonitorConfigHealthTest do
   @moduledoc """
   Pure unit tests for config-wedge detection (`StateMonitor.config_wedge_reason/2`):
 
-  - rule 1 (ack drift): a pushed config version left unacknowledged past the window
-    marks the agent config-wedged; a quiet fleet (pushed == acked, or nothing pushed)
-    never does.
+  - rule 1 (ack drift): a still-OUTSTANDING pushed config version left unacknowledged
+    past the window marks the agent config-wedged; a quiet fleet (pushed == acked, or
+    nothing pushed) never does, and neither does an agent that acked *after* the push
+    (it skipped past a stale push snapshot by converging on a newer version via poll).
   - rule 2 (permanent section): a permanently failing section from the last
     sectioned ack marks the agent config-wedged regardless of ack recency.
   - acks without section statuses (legacy agents) are whole-version acks: they never
@@ -34,6 +35,8 @@ defmodule ServiceRadar.Infrastructure.StateMonitorConfigHealthTest do
 
   defp before_threshold, do: DateTime.add(@threshold, -60, :second)
   defp after_threshold, do: DateTime.add(@threshold, 60, :second)
+  # Older than `before_threshold/0` — used for an ack that precedes a later push.
+  defp well_before_threshold, do: DateTime.add(@threshold, -120, :second)
 
   describe "no-ack window (rule 1)" do
     test "no config data at all is not wedged" do
@@ -64,12 +67,14 @@ defmodule ServiceRadar.Infrastructure.StateMonitorConfigHealthTest do
     end
 
     test "pushed version unacked past the window is wedged with last-acked context" do
+      # Agent committed v1, then v2 was pushed (later) and never acked: the last ack
+      # predates the push, so the push is still outstanding.
       wedged =
         agent(
           pushed_config_version: "v2",
           config_pushed_at: before_threshold(),
           acked_config_version: "v1",
-          config_acked_at: before_threshold()
+          config_acked_at: well_before_threshold()
         )
 
       assert {:config_ack_timeout, metadata} =
@@ -91,6 +96,36 @@ defmodule ServiceRadar.Infrastructure.StateMonitorConfigHealthTest do
                StateMonitor.config_wedge_reason(never_acked, @threshold)
 
       assert metadata.acked_config_version == nil
+    end
+
+    test "an ack at or after the push is not wedged (agent skipped past a stale push)" do
+      # A proactive-push snapshot (v2, aged out) the agent skipped past by converging
+      # on a newer version (v3) via the poll path. `pushed != acked` forever, but the
+      # ack is newer than the push, so the pushed version is obsolete — not wedged.
+      # Reproduces the live demo false-positive (agent runs exactly what core
+      # generates, yet `pushed_config_version` froze on an older control-stream push).
+      skipped_push =
+        agent(
+          config_health: :unhealthy,
+          pushed_config_version: "v2",
+          config_pushed_at: before_threshold(),
+          acked_config_version: "v3",
+          config_acked_at: after_threshold()
+        )
+
+      assert StateMonitor.config_wedge_reason(skipped_push, @threshold) == nil
+    end
+
+    test "an ack exactly at the push timestamp is treated as not outstanding" do
+      boundary =
+        agent(
+          pushed_config_version: "v2",
+          config_pushed_at: before_threshold(),
+          acked_config_version: "v3",
+          config_acked_at: before_threshold()
+        )
+
+      assert StateMonitor.config_wedge_reason(boundary, @threshold) == nil
     end
   end
 
