@@ -39,17 +39,36 @@ func (r *pluginResult) AddLabel(key, value string) {
 	r.Labels[key] = value
 }
 
-func (r *pluginResult) EmitEvent(severity sdk.Severity, summary, key string) {
+// EmitConditionEvent emits an OCSF condition event that carries its discrete
+// LEVEL (ok/warning/critical) in `unmapped` alongside the condition key. This
+// plugin is re-instantiated every check cycle and keeps no state across cycles,
+// so it cannot itself suppress a condition that simply stays in the same level.
+// Emitting the level (plus the numeric ratio/thresholds in `extra`) lets the
+// long-lived host de-duplicate on (condition_key, level) and apply hysteresis,
+// collapsing per-cycle repeats into a single event per level transition.
+func (r *pluginResult) EmitConditionEvent(
+	severity sdk.Severity,
+	summary, conditionKey, level string,
+	extra map[string]any,
+) {
 	if r == nil || strings.TrimSpace(summary) == "" {
 		return
 	}
 
 	event := sdk.NewOCSFEventLogActivity(summary, severity)
-	if key != "" {
+	if conditionKey != "" || level != "" || len(extra) > 0 {
 		if event.Unmapped == nil {
 			event.Unmapped = map[string]any{}
 		}
-		event.Unmapped["condition_key"] = key
+		if conditionKey != "" {
+			event.Unmapped["condition_key"] = conditionKey
+		}
+		if level != "" {
+			event.Unmapped["level"] = level
+		}
+		for k, v := range extra {
+			event.Unmapped[k] = v
+		}
 	}
 	r.TelemetryEvents = append(r.TelemetryEvents, event)
 }

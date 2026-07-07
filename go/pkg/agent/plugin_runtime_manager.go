@@ -113,6 +113,7 @@ func NewPluginManager(ctx context.Context, cfg PluginManagerConfig) *PluginManag
 		streams:            make(map[string]*pluginAssignment),
 		results:            make(chan PluginResult, 1024),
 		signals:            make(chan PluginSignalTelemetry, 1024),
+		conditions:         newPluginConditionDebouncer(time.Now),
 		states:             make(map[string]*assignmentState),
 		stateNow:           time.Now,
 	}
