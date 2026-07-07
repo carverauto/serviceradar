@@ -239,37 +239,183 @@ describe("OperationsTrafficMap flow detail links", () => {
 })
 
 describe("OperationsTrafficMap anchor details positioning", () => {
-  function positioningContext({parentRect, popupHeight, popupWidth = 288}) {
+  function positioningContext({popupHeight, popupWidth = 288}) {
     const anchorDetails = {className: "", innerHTML: "", style: {}, offsetHeight: popupHeight, offsetWidth: popupWidth}
 
-    return {
-      el: {parentElement: {getBoundingClientRect: () => parentRect}},
-      anchorDetails,
+    return {anchorDetails}
+  }
+
+  function withViewport({innerWidth, innerHeight}, run) {
+    vi.stubGlobal("window", {innerWidth, innerHeight})
+    try {
+      run()
+    } finally {
+      vi.unstubAllGlobals()
     }
   }
 
-  it("caps a tall popup to the visible band and top-justifies it so the header stays on-screen", () => {
-    const parentRect = {left: 0, top: 0, right: 800, bottom: 500, width: 800, height: 500}
-    // Popup taller than the 12px-margin band (500 - 24 = 476) anchored near the bottom.
-    const ctx = positioningContext({parentRect, popupHeight: 640})
+  it("caps a tall popup to the viewport height and clamps its top into view", () => {
+    withViewport({innerWidth: 1200, innerHeight: 500}, () => {
+      // Popup taller than the 12px-margin viewport band (500 - 24 = 476), clicked near the bottom.
+      const ctx = positioningContext({popupHeight: 640})
 
-    OperationsTrafficMap._positionAnchorDetails.call(ctx, {left: 120, top: 470, width: 8, height: 8}, {offsetY: 3})
+      OperationsTrafficMap._positionAnchorDetails.call(ctx, {left: 300, top: 470, width: 8, height: 8}, {offsetY: 3})
 
-    // Height is capped to the available band so the body scrolls instead of clipping.
-    expect(ctx.anchorDetails.style.maxHeight).toEqual("476px")
-    // Top is clamped to the margin so the header (and everything below it) stays visible.
-    expect(ctx.anchorDetails.style.top).toEqual("12px")
+      // Height is capped to the viewport band so the body scrolls instead of clipping.
+      expect(ctx.anchorDetails.style.maxHeight).toEqual("476px")
+      // Top is clamped so the whole capped popup (476px) stays fully within the viewport.
+      expect(ctx.anchorDetails.style.top).toEqual("12px")
+    })
   })
 
-  it("anchors a short popup near the click without forcing it off the top", () => {
-    const parentRect = {left: 0, top: 0, right: 800, bottom: 500, width: 800, height: 500}
-    const ctx = positioningContext({parentRect, popupHeight: 120})
+  it("anchors a short popup near the click and keeps it inside the viewport", () => {
+    withViewport({innerWidth: 1200, innerHeight: 500}, () => {
+      const ctx = positioningContext({popupHeight: 120})
 
-    OperationsTrafficMap._positionAnchorDetails.call(ctx, {left: 120, top: 80, width: 8, height: 8}, {offsetY: 12})
+      OperationsTrafficMap._positionAnchorDetails.call(ctx, {left: 300, top: 80, width: 8, height: 8}, {offsetY: 12})
 
-    // Short popup fits, so it opens at the anchor and stays within the band.
-    expect(ctx.anchorDetails.style.top).toEqual("92px")
-    const top = Number.parseInt(ctx.anchorDetails.style.top, 10)
-    expect(top + 120).toBeLessThanOrEqual(488)
+      // Short popup fits, so it opens at the anchor (viewport-relative) without scroll.
+      expect(ctx.anchorDetails.style.top).toEqual("92px")
+      const top = Number.parseInt(ctx.anchorDetails.style.top, 10)
+      expect(top + 120).toBeLessThanOrEqual(500 - 12)
+    })
+  })
+
+  it("clamps a click near the right edge back inside the viewport", () => {
+    withViewport({innerWidth: 400, innerHeight: 500}, () => {
+      const ctx = positioningContext({popupHeight: 120, popupWidth: 300})
+
+      OperationsTrafficMap._positionAnchorDetails.call(ctx, {left: 380, top: 100, width: 8, height: 8}, {offsetX: 12})
+
+      // maxLeft = 400 - 12(margin) - 300(popup) = 88, so the popup is pulled left to fit.
+      expect(ctx.anchorDetails.style.left).toEqual("88px")
+      const left = Number.parseInt(ctx.anchorDetails.style.left, 10)
+      expect(left + 300).toBeLessThanOrEqual(400 - 12)
+    })
+  })
+})
+
+describe("OperationsTrafficMap body-level overlay", () => {
+  it("appends the popup to document.body, not the map shell", () => {
+    const shellAppendChild = vi.fn()
+    const bodyAppendChild = vi.fn()
+    const created = {addEventListener: vi.fn(), style: {}, className: "", innerHTML: ""}
+
+    vi.stubGlobal("document", {
+      body: {appendChild: bodyAppendChild},
+      createElement: vi.fn(() => created),
+    })
+
+    try {
+      const ctx = {
+        el: {parentElement: {appendChild: shellAppendChild}},
+        anchorDetails: null,
+        _onAnchorDetailsClick: vi.fn(),
+        _renderAnchorDetails: OperationsTrafficMap._renderAnchorDetails,
+      }
+
+      const result = ctx._renderAnchorDetails("sr-ops-anchor-details", "<strong>Flow path</strong>", "<span>row</span>")
+
+      expect(result).toBe(created)
+      // Reparented to the document root, escaping the map shell overflow clip.
+      expect(bodyAppendChild).toHaveBeenCalledWith(created)
+      expect(shellAppendChild).not.toHaveBeenCalled()
+      // A dismissable close affordance is rendered and wired once at creation.
+      expect(created.innerHTML).toContain("sr-ops-anchor-details-close")
+      expect(created.addEventListener).toHaveBeenCalledWith("click", ctx._onAnchorDetailsClick)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+})
+
+describe("OperationsTrafficMap overlay lifecycle", () => {
+  it("dismisses the overlay when its close button is clicked", () => {
+    const remove = vi.fn()
+    const ctx = {
+      anchorDetails: {remove},
+      svgOverlay: null,
+      _onAnchorDetailsClick: OperationsTrafficMap._onAnchorDetailsClick,
+      _hideAnchorDetails: OperationsTrafficMap._hideAnchorDetails,
+    }
+
+    OperationsTrafficMap._onAnchorDetailsClick.call(
+      ctx,
+      clickEvent({matches: new Set([".sr-ops-anchor-details-close"])}),
+    )
+
+    expect(remove).toHaveBeenCalled()
+    expect(ctx.anchorDetails).toBeNull()
+  })
+
+  it("keeps the overlay open for non-close clicks inside it (drill-down links)", () => {
+    const remove = vi.fn()
+    const ctx = {
+      anchorDetails: {remove},
+      _onAnchorDetailsClick: OperationsTrafficMap._onAnchorDetailsClick,
+      _hideAnchorDetails: OperationsTrafficMap._hideAnchorDetails,
+    }
+
+    OperationsTrafficMap._onAnchorDetailsClick.call(ctx, clickEvent())
+
+    expect(remove).not.toHaveBeenCalled()
+    expect(ctx.anchorDetails).toEqual({remove})
+  })
+
+  it("dismisses the overlay on an outside click", () => {
+    const remove = vi.fn()
+    const ctx = {
+      anchorDetails: {remove},
+      svgOverlay: null,
+      _hideAnchorDetails: OperationsTrafficMap._hideAnchorDetails,
+    }
+
+    OperationsTrafficMap._onDocumentClick.call(ctx, clickEvent())
+
+    expect(remove).toHaveBeenCalled()
+    expect(ctx.anchorDetails).toBeNull()
+  })
+
+  it("keeps the overlay open for a click inside it", () => {
+    const remove = vi.fn()
+    const ctx = {
+      anchorDetails: {remove},
+      _hideAnchorDetails: OperationsTrafficMap._hideAnchorDetails,
+    }
+
+    OperationsTrafficMap._onDocumentClick.call(
+      ctx,
+      clickEvent({matches: new Set([".sr-ops-anchor-details"])}),
+    )
+
+    expect(remove).not.toHaveBeenCalled()
+    expect(ctx.anchorDetails).toEqual({remove})
+  })
+
+  it("dismisses the overlay when Escape is pressed", () => {
+    const remove = vi.fn()
+    const ctx = {
+      anchorDetails: {remove},
+      svgOverlay: null,
+      _hideAnchorDetails: OperationsTrafficMap._hideAnchorDetails,
+    }
+
+    OperationsTrafficMap._onDocumentKeyDown.call(ctx, {key: "Escape"})
+
+    expect(remove).toHaveBeenCalled()
+    expect(ctx.anchorDetails).toBeNull()
+  })
+
+  it("ignores non-Escape keys", () => {
+    const remove = vi.fn()
+    const ctx = {
+      anchorDetails: {remove},
+      _hideAnchorDetails: OperationsTrafficMap._hideAnchorDetails,
+    }
+
+    OperationsTrafficMap._onDocumentKeyDown.call(ctx, {key: "a"})
+
+    expect(remove).not.toHaveBeenCalled()
+    expect(ctx.anchorDetails).toEqual({remove})
   })
 })

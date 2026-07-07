@@ -1660,8 +1660,12 @@ body {
 }
 
 .sr-ops-anchor-details {
-  position: absolute;
-  z-index: 9;
+  /* Root-level (document.body) overlay: fixed to the viewport so it escapes the
+     map shell's overflow clip and renders over the dashboard + stat-card row.
+     z-index 60 matches the topbar-dropdown stacking so it wins over every
+     dashboard widget while staying below true app modals (daisyUI z-index 999). */
+  position: fixed;
+  z-index: 60;
   display: flex;
   flex-direction: column;
   min-width: 12rem;
@@ -1681,12 +1685,41 @@ body {
   width: 18rem;
 }
 
-/* Pinned header stays put while the body scrolls, so a tall popup capped to the
-   visible map bounds still exposes every field and the trailing "Drill down"
-   links. */
+/* Pinned header (title + close) stays put while the body scrolls, so a popup
+   taller than the viewport still exposes every field and the trailing "Drill
+   down" links. */
 .sr-ops-anchor-details-header {
   flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
   padding: 0.72rem 0.78rem 0;
+}
+
+.sr-ops-anchor-details-close {
+  flex: 0 0 auto;
+  margin: -0.2rem -0.2rem 0 0;
+  width: 1.35rem;
+  height: 1.35rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0.35rem;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 1.05rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.sr-ops-anchor-details-close:hover,
+.sr-ops-anchor-details-close:focus-visible {
+  background: rgba(148, 163, 184, 0.18);
+  color: #e2e8f0;
+  outline: none;
 }
 
 .sr-ops-anchor-details-body {
@@ -3969,6 +4002,16 @@ body {
 
 [data-theme="light"] .sr-ops-anchor-details {
   border-color: rgba(20, 184, 166, 0.42);
+}
+
+[data-theme="light"] .sr-ops-anchor-details-close {
+  color: #64748b;
+}
+
+[data-theme="light"] .sr-ops-anchor-details-close:hover,
+[data-theme="light"] .sr-ops-anchor-details-close:focus-visible {
+  background: rgba(15, 23, 42, 0.08);
+  color: #0f172a;
 }
 
 [data-theme="light"] .sr-ops-anchor-details strong,

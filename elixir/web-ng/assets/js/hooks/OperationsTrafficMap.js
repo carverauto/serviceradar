@@ -824,6 +824,11 @@ export default {
     this._onMapShellClick = this._onMapShellClick.bind(this)
     this._onSvgOverlayClick = this._onSvgOverlayClick.bind(this)
     this._onClusterLabelClick = this._onClusterLabelClick.bind(this)
+    this._onAnchorDetailsClick = this._onAnchorDetailsClick.bind(this)
+    this._onDocumentClick = this._onDocumentClick.bind(this)
+    this._onDocumentKeyDown = this._onDocumentKeyDown.bind(this)
+    this._onDocumentScroll = this._onDocumentScroll.bind(this)
+    this._onWindowResize = this._onWindowResize.bind(this)
     this._zoomIn = this._zoomIn.bind(this)
     this._zoomOut = this._zoomOut.bind(this)
     this._resetViewBox = this._resetViewBox.bind(this)
@@ -836,6 +841,14 @@ export default {
     window.addEventListener("pointermove", this._onMapPointerMove)
     window.addEventListener("pointerup", this._onMapPointerUp)
     window.addEventListener("pointercancel", this._onMapPointerUp)
+    // The flow-path popup lives at document.body (a root-level overlay), so it
+    // escapes the map shell's overflow clip. Dismiss it from anywhere on the
+    // page: click outside, Escape, or when the page scrolls/resizes out from
+    // under a viewport-anchored popup.
+    document.addEventListener("click", this._onDocumentClick)
+    document.addEventListener("keydown", this._onDocumentKeyDown)
+    document.addEventListener("scroll", this._onDocumentScroll, {capture: true, passive: true})
+    window.addEventListener("resize", this._onWindowResize)
     this._ensureWorldMapBackground()
     this._ensureSvgOverlay()
     this.el.parentElement?.addEventListener("click", this._onMapShellClick)
@@ -858,6 +871,10 @@ export default {
     window.removeEventListener("pointermove", this._onMapPointerMove)
     window.removeEventListener("pointerup", this._onMapPointerUp)
     window.removeEventListener("pointercancel", this._onMapPointerUp)
+    document.removeEventListener("click", this._onDocumentClick)
+    document.removeEventListener("keydown", this._onDocumentKeyDown)
+    document.removeEventListener("scroll", this._onDocumentScroll, {capture: true})
+    window.removeEventListener("resize", this._onWindowResize)
     this.el.parentElement?.removeEventListener("click", this._onMapShellClick)
     this.svgOverlay?.removeEventListener("click", this._onSvgOverlayClick)
     this.svgOverlay?.removeEventListener("wheel", this._onMapWheel)
@@ -885,6 +902,44 @@ export default {
     if (activeElement && this.svgOverlay?.contains?.(activeElement)) {
       activeElement.blur?.()
     }
+  },
+
+  // The popup's own click handler: only the close (×) affordance dismisses;
+  // every other click inside the overlay (drill-down links, text selection)
+  // is left alone.
+  _onAnchorDetailsClick(event) {
+    if (!event.target?.closest?.(".sr-ops-anchor-details-close")) return
+    event.preventDefault()
+    event.stopPropagation()
+    this._hideAnchorDetails()
+  },
+
+  // Outside-click dismissal for the body-level overlay. Interactive map clicks
+  // that (re)open a popup stop propagation before this fires, so this only
+  // catches clicks that land off the popup (stat cards, page chrome, etc.).
+  _onDocumentClick(event) {
+    if (!this.anchorDetails) return
+    if (event.target?.closest?.(".sr-ops-anchor-details")) return
+    this._hideAnchorDetails()
+  },
+
+  _onDocumentKeyDown(event) {
+    if (!this.anchorDetails) return
+    if (event.key !== "Escape" && event.key !== "Esc") return
+    this._hideAnchorDetails()
+  },
+
+  // Fixed-position popups do not travel with a scrolling page, so dismiss on
+  // any scroll except the popup body's own internal scroll.
+  _onDocumentScroll(event) {
+    if (!this.anchorDetails) return
+    const target = event.target
+    if (target && typeof target.closest === "function" && target.closest(".sr-ops-anchor-details")) return
+    this._hideAnchorDetails()
+  },
+
+  _onWindowResize() {
+    this._hideAnchorDetails()
   },
 
   _onMapWheel(event) {
@@ -969,6 +1024,9 @@ export default {
 
       this.dragState.dragged = true
       this.el.parentElement?.classList.add("is-netflow-panning")
+      // A viewport-anchored popup would drift out of sync with the panning map,
+      // so dismiss it once a real pan begins.
+      this._hideAnchorDetails()
     }
 
     const deltaX = -(deltaClientX / rect.width) * this.dragState.startBox.width
@@ -1151,6 +1209,10 @@ export default {
   _scaleCurrentViewBox(factor, event = null) {
     if (this.mapView !== "netflow") return
 
+    // Zooming (wheel or the +/- controls) moves every anchor, so drop a stale
+    // viewport-anchored popup rather than leave it pointing at the wrong place.
+    this._hideAnchorDetails()
+
     const focalPoint = event ? this._pointForClientEvent(event) : null
     const next = scaledViewBox(this.currentViewBox || this.autoViewBox, factor, focalPoint)
     if (!next) return
@@ -1234,16 +1296,19 @@ export default {
     this._showClusterDetails(event.currentTarget)
   },
 
-  // Renders the popup with a pinned header + scrollable body so a tall body
-  // never clips its trailing content. Positioning is applied separately by
+  // Renders the popup as a root-level (document.body) overlay so it escapes the
+  // map shell's overflow clip and stacks over the dashboard/stat-card row. A
+  // pinned header + scrollable body keep a tall body from clipping its trailing
+  // "Drill down" links. Positioning is applied separately by
   // _positionAnchorDetails once the DOM has been measured.
   _renderAnchorDetails(className, headerHtml, bodyHtml) {
-    const parent = this.el.parentElement
-    if (!parent) return null
-
     if (!this.anchorDetails) {
+      if (typeof document === "undefined" || !document.body) return null
       this.anchorDetails = document.createElement("div")
-      parent.appendChild(this.anchorDetails)
+      // Wired once: the element is reused across popups (only innerHTML swaps),
+      // so the close-button handler survives every re-render.
+      this.anchorDetails.addEventListener("click", this._onAnchorDetailsClick)
+      document.body.appendChild(this.anchorDetails)
     }
 
     this.anchorDetails.className = className
@@ -1252,50 +1317,49 @@ export default {
     this.anchorDetails.style.maxHeight = ""
     this.anchorDetails.style.maxWidth = ""
     this.anchorDetails.innerHTML = `
-      <div class="sr-ops-anchor-details-header">${headerHtml}</div>
+      <div class="sr-ops-anchor-details-header">
+        ${headerHtml}
+        <button type="button" class="sr-ops-anchor-details-close" aria-label="Close details">×</button>
+      </div>
       <div class="sr-ops-anchor-details-body">${bodyHtml}</div>
     `
 
     return this.anchorDetails
   },
 
-  // Caps the popup to the map container's visible band (the shell clips its
-  // overflow) and clamps its position so the top stays visible and the whole
-  // popup fits on-screen. A body taller than the band scrolls instead of being
-  // cut off, keeping the "Drill down" links reachable in the widget and
-  // full-screen alike.
+  // Positions the body-level overlay with viewport-relative (position: fixed)
+  // coordinates. It may overlap the stat cards / extend past the map card, but
+  // is clamped fully inside the viewport (minus a small margin). The height
+  // budget is the full viewport: only a popup taller than the screen caps its
+  // height and scrolls its body, so in the common case it renders with no
+  // scroll at all.
   _positionAnchorDetails(nodeRect, {offsetX = 12, offsetY = 12} = {}) {
-    const parent = this.el.parentElement
-    if (!parent || !this.anchorDetails) return
+    if (!this.anchorDetails) return
 
-    const parentRect = parent.getBoundingClientRect()
     const margin = 12
-    const viewportHeight = (typeof window !== "undefined" && window.innerHeight) || parentRect.height
-    const viewportWidth = (typeof window !== "undefined" && window.innerWidth) || parentRect.width
+    const viewportWidth = (typeof window !== "undefined" && window.innerWidth) || 0
+    const viewportHeight = (typeof window !== "undefined" && window.innerHeight) || 0
+    if (viewportWidth <= 0 || viewportHeight <= 0) return
 
-    const visibleTop = Math.max(parentRect.top, margin)
-    const visibleBottom = Math.min(parentRect.bottom, viewportHeight - margin)
-    const visibleLeft = Math.max(parentRect.left, margin)
-    const visibleRight = Math.min(parentRect.right, viewportWidth - margin)
-    const availableHeight = Math.max(96, visibleBottom - visibleTop)
-    const availableWidth = Math.max(160, visibleRight - visibleLeft)
+    const availableWidth = Math.max(160, viewportWidth - margin * 2)
+    const availableHeight = Math.max(96, viewportHeight - margin * 2)
 
-    this.anchorDetails.style.maxHeight = `${Math.round(availableHeight)}px`
     this.anchorDetails.style.maxWidth = `${Math.round(availableWidth)}px`
+    this.anchorDetails.style.maxHeight = `${Math.round(availableHeight)}px`
 
-    const popupHeight = Math.min(this.anchorDetails.offsetHeight || 0, availableHeight)
     const popupWidth = Math.min(this.anchorDetails.offsetWidth || 0, availableWidth)
+    const popupHeight = Math.min(this.anchorDetails.offsetHeight || 0, availableHeight)
 
-    const minTop = visibleTop - parentRect.top
-    const maxTop = Math.max(minTop, visibleBottom - parentRect.top - popupHeight)
-    const desiredTop = nodeRect.top - parentRect.top + offsetY
+    const minLeft = margin
+    const maxLeft = Math.max(minLeft, viewportWidth - margin - popupWidth)
+    const desiredLeft = nodeRect.left + offsetX
 
-    const minLeft = visibleLeft - parentRect.left
-    const maxLeft = Math.max(minLeft, visibleRight - parentRect.left - popupWidth)
-    const desiredLeft = nodeRect.left - parentRect.left + offsetX
+    const minTop = margin
+    const maxTop = Math.max(minTop, viewportHeight - margin - popupHeight)
+    const desiredTop = nodeRect.top + offsetY
 
-    this.anchorDetails.style.top = `${Math.round(clamp(desiredTop, minTop, maxTop))}px`
     this.anchorDetails.style.left = `${Math.round(clamp(desiredLeft, minLeft, maxLeft))}px`
+    this.anchorDetails.style.top = `${Math.round(clamp(desiredTop, minTop, maxTop))}px`
   },
 
   _showClusterDetails(labelNode) {
