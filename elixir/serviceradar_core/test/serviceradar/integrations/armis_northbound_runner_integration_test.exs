@@ -10,6 +10,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
   alias ServiceRadar.Integrations.IntegrationUpdateRun
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
+  alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.TestSupport
 
@@ -41,7 +42,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
     assert Enum.map(candidates, & &1.is_available) == [true, false]
   end
 
-  test "load_candidates includes Armis-discovered devices with metadata identity only", %{
+  test "load_candidates includes Armis-discovered devices after sync registers typed identity", %{
     actor: actor
   } do
     source = create_source!(actor, "armis-metadata-only")
@@ -65,6 +66,84 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
     assert Enum.map(candidates, & &1.armis_device_id) == ["armis-metadata-only-1"]
     assert Enum.map(candidates, & &1.sync_service_id) == [nil]
     assert Enum.map(candidates, & &1.is_available) == [false]
+  end
+
+  test "load_candidates skips typed Armis identifiers when device metadata disagrees", %{
+    actor: actor
+  } do
+    source = create_source!(actor, "armis-stale-metadata")
+
+    ingest_armis_update(actor, source.id, "192.0.2.14", "armis-current", true)
+
+    {:ok, device} = Device.get_by_ip("192.0.2.14", false, actor: actor)
+    device = single_result(device)
+
+    update_device_metadata!(actor, device, %{
+      "armis_device_id" => "armis-stale",
+      "integration_id" => "armis-stale",
+      "integration_type" => "armis",
+      "sync_service_id" => source.id
+    })
+
+    assert {:ok, []} = ArmisNorthboundRunner.load_candidates(source)
+  end
+
+  test "load_candidates ignores generic Armis integration identifiers without typed identity", %{
+    actor: actor
+  } do
+    source = create_source!(actor, "armis-generic-only")
+    armis_id = "armis-generic-only-#{System.unique_integer([:positive])}"
+
+    device =
+      create_device!(actor, %{
+        uid: "sr:" <> Ecto.UUID.generate(),
+        hostname: "generic-only-armis",
+        ip: "192.0.2.15",
+        is_available: false,
+        discovery_sources: ["armis"],
+        metadata: %{
+          "integration_type" => "armis",
+          "integration_id" => armis_id,
+          "sync_service_id" => source.id
+        }
+      })
+
+    register_identifier!(actor, device.uid, :integration_id, armis_id, %{
+      "integration_type" => "armis",
+      "sync_service_id" => source.id
+    })
+
+    assert {:ok, []} = ArmisNorthboundRunner.load_candidates(source)
+  end
+
+  test "load_candidates skips split typed and generic Armis identifier mappings", %{
+    actor: actor
+  } do
+    source = create_source!(actor, "armis-split-generic")
+    armis_id = "armis-split-#{System.unique_integer([:positive])}"
+
+    ingest_armis_update(actor, source.id, "192.0.2.16", armis_id, true)
+
+    generic_device =
+      create_device!(actor, %{
+        uid: "sr:" <> Ecto.UUID.generate(),
+        hostname: "split-generic-armis",
+        ip: "192.0.2.17",
+        is_available: false,
+        discovery_sources: ["armis"],
+        metadata: %{
+          "integration_type" => "armis",
+          "integration_id" => armis_id,
+          "sync_service_id" => source.id
+        }
+      })
+
+    register_identifier!(actor, generic_device.uid, :integration_id, armis_id, %{
+      "integration_type" => "armis",
+      "sync_service_id" => source.id
+    })
+
+    assert {:ok, []} = ArmisNorthboundRunner.load_candidates(source)
   end
 
   test "load_candidates can use a selected per-agent availability source", %{actor: actor} do
@@ -160,6 +239,35 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
     Agent
     |> Ash.Changeset.for_create(:register_connected, %{uid: uid, name: uid}, actor: actor)
     |> Ash.create!(actor: actor)
+  end
+
+  defp create_device!(actor, attrs) do
+    Device
+    |> Ash.Changeset.for_create(:create, attrs, actor: actor)
+    |> Ash.create!(actor: actor)
+  end
+
+  defp register_identifier!(actor, device_uid, type, value, metadata) do
+    DeviceIdentifier
+    |> Ash.Changeset.for_create(
+      :register,
+      %{
+        device_id: device_uid,
+        identifier_type: type,
+        identifier_value: value,
+        partition: "default",
+        confidence: :strong,
+        metadata: metadata
+      },
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
+  end
+
+  defp update_device_metadata!(actor, device, metadata) do
+    device
+    |> Ash.Changeset.for_update(:update, %{metadata: metadata}, actor: actor)
+    |> Ash.update!(actor: actor)
   end
 
   defp ingest_armis_update(actor, sync_service_id, ip, armis_device_id, is_available) do

@@ -29,21 +29,17 @@ defmodule ServiceRadar.Inventory.Sync.Lookups do
 
       mac_values = if include_mac?, do: IdentityReconciler.mac_lookup_values(ids), else: []
 
-      armis_values =
-        Ids.get_identifier_values(:armis_device_id, ids)
+      id_types =
+        Ids.identifier_priority()
+        |> Enum.reject(&(&1 == :mac))
+        |> Enum.reject(&(&1 == :agent_id and not include_agent?))
 
-      integration_values =
-        Ids.get_identifier_values(:integration_id, ids)
-
-      []
-      |> maybe_add_id_if(include_agent?, :agent_id, ids.agent_id, partition)
-      |> then(fn acc ->
-        Enum.reduce(armis_values, acc, &maybe_add_id(&2, :armis_device_id, &1, partition))
+      id_types
+      |> Enum.reduce([], fn id_type, acc ->
+        id_type
+        |> Ids.get_identifier_values(ids)
+        |> Enum.reduce(acc, &maybe_add_id(&2, id_type, &1, partition))
       end)
-      |> then(fn acc ->
-        Enum.reduce(integration_values, acc, &maybe_add_id(&2, :integration_id, &1, partition))
-      end)
-      |> maybe_add_id(:netbox_device_id, ids.netbox_id, partition)
       |> then(fn acc ->
         Enum.reduce(mac_values, acc, &maybe_add_id(&2, :mac, &1, partition))
       end)
@@ -54,10 +50,6 @@ defmodule ServiceRadar.Inventory.Sync.Lookups do
   defp maybe_add_id(acc, _type, nil, _partition), do: acc
   defp maybe_add_id(acc, _type, "", _partition), do: acc
   defp maybe_add_id(acc, type, value, partition), do: [{type, value, partition} | acc]
-  defp maybe_add_id_if(acc, false, _type, _value, _partition), do: acc
-
-  defp maybe_add_id_if(acc, true, type, value, partition),
-    do: maybe_add_id(acc, type, value, partition)
 
   # Bulk lookup device identifiers.
   # DB connection's search_path determines the schema
