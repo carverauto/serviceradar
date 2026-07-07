@@ -1255,14 +1255,34 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   defp narrow_string_scope(base, :absent), do: base
 
+  # Wildcard-aware narrowing of a manifest scope (`base`) by an operator/assignment
+  # override. Security-sensitive: the result must never exceed what BOTH the
+  # manifest and the override allow.
+  #
+  #   * `base == []`          -> `[]`       (manifest allows nothing)
+  #   * `"*"` in override     -> `base`     (override allows anything => keep manifest scope)
+  #   * `"*"` in base         -> `override` (manifest allows anything => narrow to approved set)
+  #   * otherwise             -> `base ∩ override`
+  #
+  # Order matters: `base == []` is checked first so an empty manifest scope always
+  # denies, and the `"*"`-in-override case is checked before `"*"`-in-base so a
+  # wildcard-vs-wildcard narrow resolves to the manifest scope (`base`).
   defp narrow_string_scope(base, {:present, override}) do
     override = normalize_string_list(override)
 
-    if base == [] do
-      []
-    else
-      allowed = MapSet.new(override)
-      Enum.filter(base, &MapSet.member?(allowed, &1))
+    cond do
+      base == [] ->
+        []
+
+      "*" in override ->
+        base
+
+      "*" in base ->
+        override
+
+      true ->
+        allowed = MapSet.new(override)
+        Enum.filter(base, &MapSet.member?(allowed, &1))
     end
   end
 
