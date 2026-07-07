@@ -1,9 +1,9 @@
 defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext.LocalAnchorTest do
   use ExUnit.Case, async: true
 
-  @moduletag :db_free
-
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext.LocalAnchor
+
+  @moduletag :db_free
 
   # Mirrors the real demo anchors: a k3s /24 (Carver) and an internal /16
   # (Minnetonka), both scoped to the "default" partition.

@@ -131,8 +131,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext do
   than islanding the endpoint.
   """
   def flow_partition(flow) when is_map(flow) do
-    (Map.get(flow, "partition") || Map.get(flow, :partition))
-    |> case do
+    case Map.get(flow, "partition") || Map.get(flow, :partition) do
       value when is_binary(value) ->
         case String.trim(value) do
           "" -> nil
