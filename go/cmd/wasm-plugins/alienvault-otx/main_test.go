@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"strconv"
 	"strings"
@@ -539,6 +540,31 @@ func swapOTXSleep(t *testing.T) *[]time.Duration {
 	return sleeps
 }
 
+// swapOTXRand forces deterministic (zero) backoff jitter so exact sleep
+// durations can be asserted.
+func swapOTXRand(t *testing.T) {
+	t.Helper()
+	prev := otxRandN
+	otxRandN = func(int) int { return 0 }
+	t.Cleanup(func() { otxRandN = prev })
+}
+
+// swapOTXRandFunc installs a custom jitter source.
+func swapOTXRandFunc(t *testing.T, fn func(int) int) {
+	t.Helper()
+	prev := otxRandN
+	otxRandN = fn
+	t.Cleanup(func() { otxRandN = prev })
+}
+
+// swapOTXNow pins the throttle/backoff clock.
+func swapOTXNow(t *testing.T, fixed time.Time) {
+	t.Helper()
+	prev := otxNow
+	otxNow = func() time.Time { return fixed.UTC() }
+	t.Cleanup(func() { otxNow = prev })
+}
+
 func exportPageBody(next string, indicators ...string) []byte {
 	b := jsonBuilder{}
 	b.WriteString(`{"count":123456,"next":`)
@@ -588,6 +614,7 @@ func TestFetchSingleOTXExportPageWithRetryRetries429WithExponentialBackoff(t *te
 	}
 	swapOTXHTTP(t, fake)
 	sleeps := swapOTXSleep(t)
+	swapOTXRand(t)
 
 	cfg := adaptiveTestConfig()
 	cfg.MaxRetries = 3
@@ -800,5 +827,299 @@ func TestFetchAndSubmitOTXExportPagesAdvancesCursorAcrossAdaptivePages(t *testin
 	second := emitted[1]
 	if second.Cursor.Complete != "true" || second.Cursor.PagesFetched != "2" {
 		t.Fatalf("second cursor = %+v, want complete=true pages_fetched=2", second.Cursor)
+	}
+}
+
+func TestThrottleSkipsFreshPullWithinDailyWindow(t *testing.T) {
+	now := time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC)
+
+	cfg := Config{
+		CursorComplete:    true,
+		LastPullAt:        now.Add(-2 * time.Hour).Format(time.RFC3339),
+		MinPullIntervalMS: defaultMinPullIntervalMS,
+	}
+
+	skip, summary := throttleSkip(cfg, now)
+	if !skip {
+		t.Fatalf("expected throttle skip within window")
+	}
+	if !strings.Contains(summary, "OTX daily pull skipped") {
+		t.Fatalf("summary = %q, want skip message", summary)
+	}
+	if !strings.Contains(summary, "last pull ") || !strings.Contains(summary, "next due ") {
+		t.Fatalf("summary = %q, want last pull / next due stamps", summary)
+	}
+	// next due should be last pull + 24h.
+	if !strings.Contains(summary, "2026-07-07T10:00:00Z") {
+		t.Fatalf("summary = %q, want next-due 24h after last pull", summary)
+	}
+}
+
+func TestThrottleDoesNotSkipWhenNotDueOrResuming(t *testing.T) {
+	now := time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC)
+	recent := now.Add(-2 * time.Hour).Format(time.RFC3339)
+
+	cases := []struct {
+		name string
+		cfg  Config
+	}{
+		{
+			name: "stale last pull outside window",
+			cfg: Config{
+				CursorComplete:    true,
+				LastPullAt:        now.Add(-25 * time.Hour).Format(time.RFC3339),
+				MinPullIntervalMS: defaultMinPullIntervalMS,
+			},
+		},
+		{
+			name: "partial walk must resume",
+			cfg: Config{
+				CursorComplete:    false,
+				LastPullAt:        recent,
+				MinPullIntervalMS: defaultMinPullIntervalMS,
+			},
+		},
+		{
+			name: "throttle disabled",
+			cfg: Config{
+				CursorComplete:    true,
+				LastPullAt:        recent,
+				MinPullIntervalMS: 0,
+			},
+		},
+		{
+			name: "no persisted last pull",
+			cfg: Config{
+				CursorComplete:    true,
+				LastPullAt:        "",
+				MinPullIntervalMS: defaultMinPullIntervalMS,
+			},
+		},
+		{
+			name: "unparseable last pull",
+			cfg: Config{
+				CursorComplete:    true,
+				LastPullAt:        "not-a-timestamp",
+				MinPullIntervalMS: defaultMinPullIntervalMS,
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if skip, _ := throttleSkip(tc.cfg, now); skip {
+				t.Fatalf("expected no throttle skip for %q", tc.name)
+			}
+		})
+	}
+}
+
+func TestFetchSingleOTXExportPageWithRetrySucceedsAfterTransientFailures(t *testing.T) {
+	fake := &fakeOTXHTTPClient{}
+	fake.handler = func(_ sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+		switch len(fake.requests) {
+		case 1:
+			// host-side timeout (host error -6).
+			return nil, sdk.HostError{Code: -6, Op: "http_request"}
+		case 2:
+			// gateway timeout.
+			return &sdk.HTTPResponse{Status: 504, Body: []byte("504 Gateway Time-out")}, nil
+		default:
+			return &sdk.HTTPResponse{Status: 200, Body: exportPageBody("", "192.0.2.1")}, nil
+		}
+	}
+	swapOTXHTTP(t, fake)
+	sleeps := swapOTXSleep(t)
+	swapOTXRand(t)
+
+	cfg := adaptiveTestConfig()
+	cfg.MaxRetries = 5
+	cfg.BackoffMS = 2000
+
+	page, err := fetchSingleOTXExportPageWithRetry(cfg)
+	if err != nil {
+		t.Fatalf("fetch returned error after transient failures: %v", err)
+	}
+	if len(fake.requests) != 3 {
+		t.Fatalf("requests = %d, want 3", len(fake.requests))
+	}
+	if len(page.Indicators) != 1 {
+		t.Fatalf("indicators = %d, want 1", len(page.Indicators))
+	}
+	if want := []time.Duration{2 * time.Second, 4 * time.Second}; len(*sleeps) != len(want) ||
+		(*sleeps)[0] != want[0] || (*sleeps)[1] != want[1] {
+		t.Fatalf("sleeps = %v, want %v (base 2s, factor 2)", *sleeps, want)
+	}
+}
+
+func TestFetchSingleOTXExportPageWithRetryFailsFastOnAuthError(t *testing.T) {
+	fake := &fakeOTXHTTPClient{}
+	fake.handler = func(_ sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+		return &sdk.HTTPResponse{Status: 403, Body: []byte(`{"detail":"Authentication required"}`)}, nil
+	}
+	swapOTXHTTP(t, fake)
+	sleeps := swapOTXSleep(t)
+	swapOTXRand(t)
+
+	cfg := adaptiveTestConfig()
+	cfg.MaxRetries = 5
+
+	if _, err := fetchSingleOTXExportPageWithRetry(cfg); err == nil {
+		t.Fatal("expected auth error")
+	}
+	if len(fake.requests) != 1 {
+		t.Fatalf("requests = %d, want 1 (auth errors must not be retried)", len(fake.requests))
+	}
+	if len(*sleeps) != 0 {
+		t.Fatalf("sleeps = %v, want none", *sleeps)
+	}
+}
+
+func TestBackoffDelayIsBoundedExponentialWithJitter(t *testing.T) {
+	swapOTXRand(t) // no jitter: exponential ceiling.
+
+	if got := backoffDelayMS(2000, 1); got != 2000 {
+		t.Fatalf("attempt 1 delay = %d, want 2000", got)
+	}
+	if got := backoffDelayMS(2000, 2); got != 4000 {
+		t.Fatalf("attempt 2 delay = %d, want 4000", got)
+	}
+	if got := backoffDelayMS(2000, 3); got != 8000 {
+		t.Fatalf("attempt 3 delay = %d, want 8000", got)
+	}
+	// Deep attempts saturate at the cap.
+	if got := backoffDelayMS(2000, 10); got != maxBackoffMS {
+		t.Fatalf("attempt 10 delay = %d, want cap %d", got, maxBackoffMS)
+	}
+
+	// Equal jitter keeps the delay within [ceil/2, ceil].
+	swapOTXRandFunc(t, func(n int) int { return n - 1 })
+	if got := backoffDelayMS(2000, 3); got < 4000 || got > 8000 {
+		t.Fatalf("jittered attempt 3 delay = %d, want within [4000,8000]", got)
+	}
+}
+
+func TestFetchAndSubmitStampsLastPullAtOnCompletionAndCountsAttempts(t *testing.T) {
+	now := time.Date(2026, 7, 6, 15, 30, 0, 0, time.UTC)
+	swapOTXNow(t, now)
+
+	fake := &fakeOTXHTTPClient{}
+	fake.handler = func(_ sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+		return &sdk.HTTPResponse{Status: 200, Body: exportPageBody("", "192.0.2.1")}, nil
+	}
+	swapOTXHTTP(t, fake)
+	swapOTXSleep(t)
+	swapOTXRand(t)
+
+	otxAttempts = 0
+	cfg := adaptiveTestConfig()
+
+	var emitted []ctiPage
+	pages, err := fetchAndSubmitOTXExportPages(cfg, func(page ctiPage) error {
+		emitted = append(emitted, page)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk returned error: %v", err)
+	}
+	if pages != 1 || len(emitted) != 1 {
+		t.Fatalf("pages = %d emitted = %d, want 1 and 1", pages, len(emitted))
+	}
+
+	final := emitted[0]
+	if final.Cursor.Complete != "true" {
+		t.Fatalf("cursor complete = %q, want true", final.Cursor.Complete)
+	}
+	if final.Cursor.LastPullAt != now.Format(time.RFC3339) {
+		t.Fatalf("last_pull_at = %q, want %q", final.Cursor.LastPullAt, now.Format(time.RFC3339))
+	}
+
+	// The stamped cursor must survive JSON round-trip so core can persist it.
+	details := ctiPageDetailsJSON(final)
+	if !strings.Contains(details, `"last_pull_at":"`+now.Format(time.RFC3339)+`"`) {
+		t.Fatalf("details missing last_pull_at: %s", details)
+	}
+
+	if otxAttempts != 1 {
+		t.Fatalf("otxAttempts = %d, want 1", otxAttempts)
+	}
+}
+
+func TestDailyPullFailureSummaryIsActionable(t *testing.T) {
+	summary := dailyPullFailureSummary(6, 45*time.Second, errors.New("OTX request returned HTTP 504"))
+
+	for _, want := range []string{
+		"OTX daily pull failed after 6 attempts",
+		"over 45000ms",
+		"HTTP 504",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("summary = %q, want substring %q", summary, want)
+		}
+	}
+}
+
+func TestAllRetriesExhaustedSurfacesCriticalAlert(t *testing.T) {
+	// Every page size times out: the walk fails and the run must render a
+	// CRITICAL alert result rather than failing silently.
+	fake := &fakeOTXHTTPClient{}
+	fake.handler = func(_ sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+		return &sdk.HTTPResponse{Status: 504, Body: []byte("504 Gateway Time-out")}, nil
+	}
+	swapOTXHTTP(t, fake)
+	swapOTXSleep(t)
+	swapOTXRand(t)
+
+	otxAttempts = 0
+	cfg := adaptiveTestConfig()
+
+	_, err := fetchAndSubmitOTXExportPages(cfg, func(ctiPage) error { return nil })
+	if err == nil {
+		t.Fatal("expected walk error when every attempt times out")
+	}
+	if otxAttempts == 0 {
+		t.Fatal("otxAttempts = 0, want retries counted")
+	}
+
+	summary := dailyPullFailureSummary(otxAttempts, 10*time.Second, err)
+	result := pluginResultJSON(string(sdk.StatusCritical), summary, "")
+
+	var decoded map[string]any
+	if jsonErr := json.Unmarshal([]byte(result), &decoded); jsonErr != nil {
+		t.Fatalf("alert result did not decode: %v\n%s", jsonErr, result)
+	}
+	if decoded["status"] != string(sdk.StatusCritical) {
+		t.Fatalf("status = %v, want CRITICAL", decoded["status"])
+	}
+	if summary, _ := decoded["summary"].(string); !strings.Contains(summary, "OTX daily pull failed after") {
+		t.Fatalf("summary = %v, want actionable failure message", decoded["summary"])
+	}
+}
+
+func TestApplyDefaultsClampsMinPullInterval(t *testing.T) {
+	// Absent field keeps the daily default.
+	cfg := defaultConfig()
+	cfg.MinPullIntervalMS = 0 // simulate operator opt-out
+	cfg.applyDefaults()
+	if cfg.MinPullIntervalMS != 0 {
+		t.Fatalf("explicit 0 (disabled) = %d, want 0", cfg.MinPullIntervalMS)
+	}
+
+	over := Config{MinPullIntervalMS: maxMinPullIntervalMS + 1000}
+	over.applyDefaults()
+	if over.MinPullIntervalMS != maxMinPullIntervalMS {
+		t.Fatalf("over-max = %d, want clamp %d", over.MinPullIntervalMS, maxMinPullIntervalMS)
+	}
+
+	negative := Config{MinPullIntervalMS: -5}
+	negative.applyDefaults()
+	if negative.MinPullIntervalMS != defaultMinPullIntervalMS {
+		t.Fatalf("negative = %d, want default %d", negative.MinPullIntervalMS, defaultMinPullIntervalMS)
+	}
+
+	fresh := defaultConfig()
+	fresh.applyDefaults()
+	if fresh.MinPullIntervalMS != defaultMinPullIntervalMS {
+		t.Fatalf("default = %d, want %d", fresh.MinPullIntervalMS, defaultMinPullIntervalMS)
 	}
 }

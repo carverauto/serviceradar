@@ -289,12 +289,18 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
 
     cond do
       complete? ->
-        %{
-          "page" => 1,
-          "cursor_complete" => true,
-          "cursor_next" => nil,
-          "modified_since" => completed_walk_modified_since(now)
-        }
+        # Persist the plugin-stamped last successful-pull time so the edge plugin
+        # can self-throttle to at most one pull per day. Round-tripping it here
+        # reuses the same cursor->assignment-params mechanism as modified_since.
+        maybe_put_last_pull_at(
+          %{
+            "page" => 1,
+            "cursor_complete" => true,
+            "cursor_next" => nil,
+            "modified_since" => completed_walk_modified_since(now)
+          },
+          fetch_value(cursor, ["last_pull_at"])
+        )
 
       is_binary(next_page) and next_page != "" ->
         maybe_put_cursor_next(
@@ -321,6 +327,13 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
   end
 
   defp maybe_put_cursor_next(params, _next), do: params
+
+  defp maybe_put_last_pull_at(params, last_pull_at)
+       when is_binary(last_pull_at) and last_pull_at != "" do
+    Map.put(params, "last_pull_at", last_pull_at)
+  end
+
+  defp maybe_put_last_pull_at(params, _last_pull_at), do: params
 
   defp fetch_assignment(assignment_id, actor) do
     PluginAssignment

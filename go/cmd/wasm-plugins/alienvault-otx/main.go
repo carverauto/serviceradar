@@ -12,27 +12,58 @@ import (
 )
 
 const (
-	defaultBaseURL       = "https://otx.alienvault.com"
-	defaultLimit         = 1000
-	defaultPage          = 1
-	defaultTimeoutMS     = 120000
-	defaultMaxIndicators = 50000
-	defaultMaxPages      = 500
-	defaultMaxRetries    = 3
-	defaultBackoffMS     = 1000
-	defaultTypes         = "IPv4,IPv6,CIDR"
-	maxLimit             = 1000
-	maxTimeoutMS         = 600000
-	maxIndicators        = 500000
-	maxPages             = 10000
-	maxRetries           = 5
-	maxBackoffMS         = 30000
-	minAdaptiveLimit     = 250
-	sourceAlienVaultOTX  = "alienvault_otx"
+	defaultBaseURL           = "https://otx.alienvault.com"
+	defaultLimit             = 1000
+	defaultPage              = 1
+	defaultTimeoutMS         = 120000
+	defaultMaxIndicators     = 50000
+	defaultMaxPages          = 500
+	defaultMaxRetries        = 5
+	defaultBackoffMS         = 2000
+	defaultMinPullIntervalMS = 86_400_000 // ~24h: OTX threat-intel is pulled at most once per day.
+	defaultTypes             = "IPv4,IPv6,CIDR"
+	maxLimit                 = 1000
+	maxTimeoutMS             = 600000
+	maxIndicators            = 500000
+	maxPages                 = 10000
+	maxRetries               = 7
+	maxBackoffMS             = 30000
+	maxMinPullIntervalMS     = 7 * 86_400_000 // clamp the throttle window at 7 days.
+	minAdaptiveLimit         = 250
+	sourceAlienVaultOTX      = "alienvault_otx"
 )
 
 // otxSleep is package-level so tests can avoid real backoff waits.
 var otxSleep = time.Sleep
+
+// otxNow is package-level so tests can control the throttle/backoff clock. It
+// returns UTC so persisted last_pull_at stamps are timezone-stable.
+var otxNow = func() time.Time { return time.Now().UTC() }
+
+// otxRandN returns a pseudo-random int in [0, n). It seeds the retry backoff
+// jitter and is package-level so tests can force deterministic (0) jitter. A
+// tiny LCG keeps the TinyGo binary small and avoids pulling in math/rand.
+var otxRandN = defaultRandN
+
+// otxAttempts counts every upstream HTTP attempt made during a single pull so
+// the daily-failure alert can report how hard the plugin tried. WASM plugin
+// runs are single-threaded, so a package counter reset per pull is safe.
+var otxAttempts int
+
+var otxRandState uint64 = 0x9e3779b97f4a7c15
+
+func defaultRandN(n int) int {
+	if n <= 0 {
+		return 0
+	}
+	// xorshift64* seeded from the wall clock so retries across a fleet don't
+	// re-synchronize onto the same backoff schedule.
+	otxRandState ^= uint64(otxNow().UnixNano())
+	otxRandState ^= otxRandState << 13
+	otxRandState ^= otxRandState >> 7
+	otxRandState ^= otxRandState << 17
+	return int(otxRandState % uint64(n))
+}
 
 var (
 	errJSONField = errors.New("json field not found")
@@ -52,6 +83,18 @@ type Config struct {
 	MaxPages        int    `json:"max_pages"`
 	MaxRetries      int    `json:"max_retries"`
 	BackoffMS       int    `json:"backoff_ms"`
+	// MinPullIntervalMS is the self-throttle window: a fresh OTX pull happens at
+	// most once per this interval even if the agent runs the check more often.
+	MinPullIntervalMS int `json:"min_pull_interval_ms"`
+	// LastPullAt is the RFC3339 timestamp of the last successful (completed)
+	// pull. Core round-trips it back into the plugin config via the emitted
+	// cursor (see ThreatIntelPluginIngestor.cursor_params/2), the same way
+	// modified_since is persisted.
+	LastPullAt string `json:"last_pull_at"`
+	// CursorComplete mirrors the persisted cursor_complete flag. It is true only
+	// after a walk finished, which is when the daily throttle applies; a partial
+	// walk (cursor_complete=false, page>1) must always resume immediately.
+	CursorComplete bool `json:"cursor_complete"`
 }
 
 type subscribedPulsesResponse struct {
@@ -124,6 +167,9 @@ type ctiCursor struct {
 	LastPage      string `json:"last_page,omitempty"`
 	NextPage      string `json:"next_page,omitempty"`
 	Complete      string `json:"complete,omitempty"`
+	// LastPullAt is stamped on the completion cursor so core can persist the
+	// last successful-pull time and the plugin can self-throttle to daily.
+	LastPullAt string `json:"last_pull_at,omitempty"`
 }
 
 type ctiCounts struct {
@@ -194,11 +240,29 @@ func runOTXCheckAndSubmit() error {
 		return submitPluginResult(string(sdk.StatusUnknown), "OTX API key is not configured", "")
 	}
 
+	// Requirement 1: pull at most once per ~24h. When the previous walk
+	// completed and its stamp is still inside the throttle window, return a fast
+	// healthy no-op instead of hammering OTX. A partial walk (cursor_complete
+	// false) is never throttled so pagination always finishes.
+	startedAt := otxNow()
+	if skip, summary := throttleSkip(cfg, startedAt); skip {
+		return submitPluginResult(string(sdk.StatusOK), summary, "")
+	}
+
+	otxAttempts = 0
 	pages, err := fetchAndSubmitOTXExportPages(cfg, func(page ctiPage) error {
 		return submitPluginResult(string(sdk.StatusOK), otxPageSummary(page), ctiPageDetailsJSON(page))
 	})
 	if err != nil {
-		return submitPluginResult(string(sdk.StatusCritical), sanitizeError(err), "")
+		// Requirement 3: the daily pull was totally rejected after exhausting
+		// bounded retries. Emit an actionable CRITICAL result (CRITICAL maps to
+		// service-unavailable in core, which raises an alert) instead of failing
+		// silently.
+		return submitPluginResult(
+			string(sdk.StatusCritical),
+			dailyPullFailureSummary(otxAttempts, otxNow().Sub(startedAt), err),
+			"",
+		)
 	}
 
 	if pages == 0 {
@@ -206,6 +270,61 @@ func runOTXCheckAndSubmit() error {
 	}
 
 	return nil
+}
+
+// throttleSkip reports whether the daily pull should be skipped, and the
+// healthy no-op summary to emit when it is. The pull is skipped only when the
+// previous walk completed (CursorComplete) and its last_pull_at stamp is still
+// within MinPullIntervalMS of now. A stale/absent stamp, a disabled window, or
+// an in-progress walk all fall through to a real pull.
+func throttleSkip(cfg Config, now time.Time) (bool, string) {
+	if !cfg.CursorComplete || cfg.MinPullIntervalMS <= 0 {
+		return false, ""
+	}
+
+	last, ok := parseTimestamp(cfg.LastPullAt)
+	if !ok {
+		return false, ""
+	}
+
+	window := time.Duration(cfg.MinPullIntervalMS) * time.Millisecond
+	nextDue := last.Add(window)
+	if !now.Before(nextDue) {
+		return false, ""
+	}
+
+	summary := "OTX daily pull skipped: last pull " + last.UTC().Format(time.RFC3339) +
+		", next due " + nextDue.UTC().Format(time.RFC3339)
+	return true, summary
+}
+
+// dailyPullFailureSummary renders the actionable alert message emitted when the
+// daily pull is rejected after every retry.
+func dailyPullFailureSummary(attempts int, elapsed time.Duration, err error) string {
+	if attempts < 0 {
+		attempts = 0
+	}
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	elapsedMS := elapsed.Milliseconds()
+	return "OTX daily pull failed after " + strconv.Itoa(attempts) + " attempts over " +
+		strconv.FormatInt(elapsedMS, 10) + "ms: " + sanitizeError(err)
+}
+
+// parseTimestamp accepts the RFC3339 / RFC3339Nano stamps core round-trips into
+// last_pull_at and returns them in UTC.
+func parseTimestamp(value string) (time.Time, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, false
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05"} {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return parsed.UTC(), true
+		}
+	}
+	return time.Time{}, false
 }
 
 func runOTXCheck() (string, string, string) {
@@ -269,6 +388,9 @@ func fetchAndSubmitOTXExportPages(cfg Config, emit otxPageEmitter) (int, error) 
 		switch {
 		case next == "":
 			page.Cursor.Complete = "true"
+			// Stamp the successful-pull time so core persists it and the next
+			// run can self-throttle to at most one pull per day.
+			page.Cursor.LastPullAt = otxNow().Format(time.RFC3339)
 		case pagesFetched >= cfg.MaxPages:
 			page.Cursor.Complete = "false"
 			page.Cursor.Next = next
@@ -451,17 +573,40 @@ func fetchSingleOTXExportPageWithRetry(cfg Config) (ctiPage, error) {
 			break
 		}
 
-		sleepMS := cfg.BackoffMS << (attempt - 1)
-		if sleepMS <= 0 {
-			sleepMS = defaultBackoffMS
-		}
-		if sleepMS > maxBackoffMS {
-			sleepMS = maxBackoffMS
-		}
-		otxSleep(time.Duration(sleepMS) * time.Millisecond)
+		otxSleep(time.Duration(backoffDelayMS(cfg.BackoffMS, attempt)) * time.Millisecond)
 	}
 
 	return ctiPage{}, lastErr
+}
+
+// backoffDelayMS computes the bounded exponential backoff for the given attempt
+// (1-based): base*2^(attempt-1), capped at maxBackoffMS, with equal jitter that
+// subtracts up to half the delay so a fleet of agents does not retry in
+// lockstep. The exponential remains the ceiling, so behaviour is unchanged when
+// jitter is 0 (tests force this for deterministic assertions).
+func backoffDelayMS(baseMS, attempt int) int {
+	if baseMS <= 0 {
+		baseMS = defaultBackoffMS
+	}
+	if attempt < 1 {
+		attempt = 1
+	}
+
+	sleepMS := baseMS
+	for i := 1; i < attempt && sleepMS < maxBackoffMS; i++ {
+		sleepMS <<= 1
+	}
+	if sleepMS <= 0 || sleepMS > maxBackoffMS {
+		sleepMS = maxBackoffMS
+	}
+
+	if half := sleepMS / 2; half > 0 {
+		sleepMS -= otxRandN(half)
+	}
+	if sleepMS < 1 {
+		sleepMS = 1
+	}
+	return sleepMS
 }
 
 func retryableOTXError(err error) bool {
@@ -604,15 +749,16 @@ func httpFailureSummary(resp *sdk.HTTPResponse) string {
 
 func defaultConfig() Config {
 	return Config{
-		BaseURL:       defaultBaseURL,
-		Types:         defaultTypes,
-		Limit:         defaultLimit,
-		Page:          defaultPage,
-		TimeoutMS:     defaultTimeoutMS,
-		MaxIndicators: defaultMaxIndicators,
-		MaxPages:      defaultMaxPages,
-		MaxRetries:    defaultMaxRetries,
-		BackoffMS:     defaultBackoffMS,
+		BaseURL:           defaultBaseURL,
+		Types:             defaultTypes,
+		Limit:             defaultLimit,
+		Page:              defaultPage,
+		TimeoutMS:         defaultTimeoutMS,
+		MaxIndicators:     defaultMaxIndicators,
+		MaxPages:          defaultMaxPages,
+		MaxRetries:        defaultMaxRetries,
+		BackoffMS:         defaultBackoffMS,
+		MinPullIntervalMS: defaultMinPullIntervalMS,
 	}
 }
 
@@ -658,6 +804,12 @@ func (c *Config) applyDefaults() {
 	}
 	if c.BackoffMS > maxBackoffMS {
 		c.BackoffMS = maxBackoffMS
+	}
+	if c.MinPullIntervalMS < 0 {
+		c.MinPullIntervalMS = defaultMinPullIntervalMS
+	}
+	if c.MinPullIntervalMS > maxMinPullIntervalMS {
+		c.MinPullIntervalMS = maxMinPullIntervalMS
 	}
 	if strings.TrimSpace(c.Types) == "" {
 		c.Types = defaultTypes
@@ -1586,6 +1738,7 @@ func writeCursorJSON(b *jsonBuilder, cursor ctiCursor) {
 		{"last_page", cursor.LastPage},
 		{"next_page", cursor.NextPage},
 		{"complete", cursor.Complete},
+		{"last_pull_at", cursor.LastPullAt},
 	} {
 		value := entry.value
 		if value == "" {
