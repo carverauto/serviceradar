@@ -8,8 +8,25 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReportsIntegrationTest do
 
   @moduletag :integration
 
+  @scan_activity_flag :trivy_scan_activity_events
+
   setup_all do
     TestSupport.start_core!()
+    :ok
+  end
+
+  setup do
+    original = Application.get_env(:serviceradar_core, @scan_activity_flag)
+
+    on_exit(fn ->
+      case original do
+        nil -> Application.delete_env(:serviceradar_core, @scan_activity_flag)
+        value -> Application.put_env(:serviceradar_core, @scan_activity_flag, value)
+      end
+    end)
+
+    # Default: routine scan-completed status events are suppressed.
+    Application.delete_env(:serviceradar_core, @scan_activity_flag)
     :ok
   end
 
@@ -116,6 +133,142 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReportsIntegrationTest do
     assert Ecto.UUID.cast(log_uuid) != :error
     assert raw_finding["vulnerabilityID"] == "CVE-2026-27142"
     assert raw_finding["fixedVersion"] == "1.24.12"
+  end
+
+  test "a routine scan-completed report writes no ocsf event by default, findings still persist" do
+    event_uuid = Ash.UUID.generate()
+    event_uuid_bin = Ecto.UUID.dump!(event_uuid)
+    # The base fixture is a MEDIUM-only report: it is not promoted to a finding
+    # event, and the scan-completed status event is suppressed by default.
+    message = trivy_message(event_uuid, "1.24.8")
+
+    with_stateful_rule_loading_disabled(fn ->
+      assert {:ok, 1} = TrivyReports.process_batch([message])
+    end)
+
+    # No OCSF event of any kind for this routine scan.
+    assert trivy_event_count(event_uuid) == 0
+
+    # But the finding is still fully persisted — the actionable signal is preserved.
+    assert %{rows: [[finding_count]]} =
+             SQL.query!(
+               Repo,
+               "SELECT COUNT(*) FROM platform.trivy_findings WHERE event_uuid = $1::uuid",
+               [event_uuid_bin]
+             )
+
+    assert finding_count == 1
+  end
+
+  test "a report with an actionable finding still emits its finding event by default" do
+    event_uuid = Ash.UUID.generate()
+    message = trivy_high_message(event_uuid)
+
+    with_stateful_rule_loading_disabled(fn ->
+      assert {:ok, 1} = TrivyReports.process_batch([message])
+    end)
+
+    # The actionable HIGH finding is still promoted into ocsf_events...
+    assert trivy_event_count(event_uuid, "trivy_priority_auto") == 1
+    # ...while the routine scan-completed status event stays suppressed.
+    assert trivy_event_count(event_uuid, "trivy_scan_activity") == 0
+  end
+
+  test "enabling :trivy_scan_activity_events re-emits the scan-completed status event" do
+    Application.put_env(:serviceradar_core, @scan_activity_flag, true)
+    event_uuid = Ash.UUID.generate()
+    message = trivy_message(event_uuid, "1.24.8")
+
+    with_stateful_rule_loading_disabled(fn ->
+      assert {:ok, 1} = TrivyReports.process_batch([message])
+    end)
+
+    assert trivy_event_count(event_uuid, "trivy_scan_activity") == 1
+  end
+
+  defp trivy_event_count(event_id) do
+    %{rows: [[count]]} =
+      SQL.query!(
+        Repo,
+        "SELECT COUNT(*) FROM platform.ocsf_events WHERE metadata->>'event_id' = $1",
+        [event_id]
+      )
+
+    count
+  end
+
+  defp trivy_event_count(event_id, promotion) do
+    %{rows: [[count]]} =
+      SQL.query!(
+        Repo,
+        """
+        SELECT COUNT(*)
+        FROM platform.ocsf_events
+        WHERE metadata->>'event_id' = $1
+          AND metadata->'service_radar'->>'promotion' = $2
+        """,
+        [event_id, promotion]
+      )
+
+    count
+  end
+
+  defp trivy_high_message(event_uuid) do
+    %{
+      data:
+        Jason.encode!(%{
+          "event_id" => event_uuid,
+          "report_kind" => "VulnerabilityReport",
+          "cluster_id" => "demo",
+          "namespace" => "sealed-secrets",
+          "name" => "replicaset-sealed-secrets-54d6d7dc89-controller",
+          "uid" => "84e7db6e-633d-4bc4-9bf1-165b02a8a251",
+          "resource_version" => "133476401",
+          "observed_at" => "2026-06-10T21:01:33.593717Z",
+          "owner_ref" => %{
+            "kind" => "ReplicaSet",
+            "name" => "sealed-secrets-54d6d7dc89",
+            "uid" => "303d4c99-6b82-4d72-b5af-81fa5f8cead2"
+          },
+          "correlation" => %{
+            "resource_kind" => "ReplicaSet",
+            "resource_name" => "sealed-secrets-54d6d7dc89",
+            "resource_namespace" => "sealed-secrets",
+            "pod_ip" => "10.42.1.25",
+            "host_ip" => "10.0.2.11",
+            "device_uid" => "sr:trivy-node-1",
+            "node_name" => "agent-k8s-cp3-worker1"
+          },
+          "summary" => %{
+            "criticalCount" => 0,
+            "highCount" => 1,
+            "mediumCount" => 0,
+            "lowCount" => 0
+          },
+          "report" => %{
+            "report" => %{
+              "artifact" => %{
+                "repository" => "bitnami/sealed-secrets-controller",
+                "tag" => "0.32.2",
+                "digest" => "sha256:abc123"
+              },
+              "scanner" => %{"name" => "Trivy", "version" => "0.69.1"},
+              "summary" => %{"highCount" => 1},
+              "vulnerabilities" => [
+                %{
+                  "fixedVersion" => "1.24.12",
+                  "installedVersion" => "v1.24.6",
+                  "severity" => "HIGH",
+                  "title" => "example high severity vulnerability",
+                  "vulnerabilityID" => "CVE-2026-99999",
+                  "pkgName" => "stdlib"
+                }
+              ]
+            }
+          }
+        }),
+      metadata: %{subject: "trivy.report.vulnerability", received_at: DateTime.utc_now()}
+    }
   end
 
   defp with_stateful_rule_loading_disabled(fun) do
