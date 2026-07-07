@@ -431,6 +431,45 @@ mod tests {
     }
 
     #[test]
+    fn source_eq_filter_compares_raw_column() {
+        // The `idx_logs_source_effective_ts` composite index
+        // (migration 20260707120000) is on the RAW `source` column, so the
+        // Observability > Logs source filter MUST keep compiling to a raw
+        // `source = $n` predicate (NOT `lower(source)`). Guard that here.
+        let plan = data_plan(vec![scalar_filter("source", FilterOp::Eq, "internal")]);
+
+        let (sql, params) = to_sql_and_params(&plan).expect("sql should generate");
+
+        assert!(sql.contains("\"logs\".\"source\" = $3"), "{sql}");
+        assert!(!sql.contains("lower(\"logs\".\"source\")"), "{sql}");
+        assert!(
+            matches!(&params[2], BindParam::Text(value) if value == "internal"),
+            "params: {params:?}"
+        );
+    }
+
+    #[test]
+    fn source_in_filter_generates_any_clause() {
+        // Multi-source drill-downs compile to `source = ANY($n)` on the raw
+        // column, which the `(source, effective_ts DESC)` index also serves.
+        let plan = data_plan(vec![Filter {
+            field: "source".into(),
+            op: FilterOp::In,
+            value: FilterValue::List(vec!["internal".into(), "otel".into()]),
+        }]);
+
+        let (sql, params) = to_sql_and_params(&plan).expect("sql should generate");
+
+        assert!(sql.contains("\"logs\".\"source\" = ANY($3)"), "{sql}");
+        assert!(!sql.contains("lower(\"logs\".\"source\")"), "{sql}");
+        assert!(
+            matches!(&params[2], BindParam::TextArray(values)
+                if values == &vec!["internal".to_string(), "otel".to_string()]),
+            "params: {params:?}"
+        );
+    }
+
+    #[test]
     fn severity_eq_filter_is_case_insensitive() {
         let plan = data_plan(vec![scalar_filter("severity_text", FilterOp::Eq, "SEVERE")]);
 
