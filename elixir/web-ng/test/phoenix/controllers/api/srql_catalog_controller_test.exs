@@ -33,6 +33,22 @@ defmodule ServiceRadarWebNGWeb.Api.SrqlCatalogControllerTest do
       assert response["version"] == String.trim(Catalog.etag(), ~s("))
     end
 
+    test "exposes canonical log severity fields so Monaco stops flagging them", %{conn: conn} do
+      conn = get(conn, ~p"/api/srql/catalog")
+      response = json_response(conn, 200)
+
+      log_fields = response["entities"]["logs"]["fields"]
+
+      # Monaco flags any field token not present in the flattened field set for
+      # the entity; the schema exposes both columns but the curated catalog
+      # previously omitted them, producing a red squiggle under `severity_text`.
+      assert "severity_text" in log_fields["filter"]
+      assert "severity_number" in log_fields["filter"]
+      # `severity_number` is the canonical numeric OTel severity, so it must also
+      # advertise as numeric for range/comparison completions.
+      assert "severity_number" in log_fields["numeric"]
+    end
+
     test "returns 304 for a matching If-None-Match", %{conn: conn} do
       etag = Catalog.etag()
 
