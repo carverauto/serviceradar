@@ -18,7 +18,8 @@ defmodule ServiceRadar.Automation.Ansible.Playbook do
     domain: ServiceRadar.Automation.Ansible,
     data_layer: AshPostgres.DataLayer,
     extensions: [AshPaperTrail.Resource],
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    primary_read_warning?: false
 
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
@@ -179,7 +180,12 @@ defmodule ServiceRadar.Automation.Ansible.Playbook do
     import ServiceRadar.Policies
 
     system_bypass()
-    action_with_permission([:read, :launchable, :by_id, :by_repository, :by_controller], @view_check)
+
+    action_with_permission(
+      [:read, :launchable, :by_id, :by_repository, :by_controller],
+      @view_check
+    )
+
     action_type_with_permission([:create, :update, :destroy], @manage_check)
   end
 
