@@ -1234,11 +1234,74 @@ export default {
     this._showClusterDetails(event.currentTarget)
   },
 
+  // Renders the popup with a pinned header + scrollable body so a tall body
+  // never clips its trailing content. Positioning is applied separately by
+  // _positionAnchorDetails once the DOM has been measured.
+  _renderAnchorDetails(className, headerHtml, bodyHtml) {
+    const parent = this.el.parentElement
+    if (!parent) return null
+
+    if (!this.anchorDetails) {
+      this.anchorDetails = document.createElement("div")
+      parent.appendChild(this.anchorDetails)
+    }
+
+    this.anchorDetails.className = className
+    // Clear any cap left over from a previous popup so the natural size is
+    // measured before it is re-clamped to the current viewport.
+    this.anchorDetails.style.maxHeight = ""
+    this.anchorDetails.style.maxWidth = ""
+    this.anchorDetails.innerHTML = `
+      <div class="sr-ops-anchor-details-header">${headerHtml}</div>
+      <div class="sr-ops-anchor-details-body">${bodyHtml}</div>
+    `
+
+    return this.anchorDetails
+  },
+
+  // Caps the popup to the map container's visible band (the shell clips its
+  // overflow) and clamps its position so the top stays visible and the whole
+  // popup fits on-screen. A body taller than the band scrolls instead of being
+  // cut off, keeping the "Drill down" links reachable in the widget and
+  // full-screen alike.
+  _positionAnchorDetails(nodeRect, {offsetX = 12, offsetY = 12} = {}) {
+    const parent = this.el.parentElement
+    if (!parent || !this.anchorDetails) return
+
+    const parentRect = parent.getBoundingClientRect()
+    const margin = 12
+    const viewportHeight = (typeof window !== "undefined" && window.innerHeight) || parentRect.height
+    const viewportWidth = (typeof window !== "undefined" && window.innerWidth) || parentRect.width
+
+    const visibleTop = Math.max(parentRect.top, margin)
+    const visibleBottom = Math.min(parentRect.bottom, viewportHeight - margin)
+    const visibleLeft = Math.max(parentRect.left, margin)
+    const visibleRight = Math.min(parentRect.right, viewportWidth - margin)
+    const availableHeight = Math.max(96, visibleBottom - visibleTop)
+    const availableWidth = Math.max(160, visibleRight - visibleLeft)
+
+    this.anchorDetails.style.maxHeight = `${Math.round(availableHeight)}px`
+    this.anchorDetails.style.maxWidth = `${Math.round(availableWidth)}px`
+
+    const popupHeight = Math.min(this.anchorDetails.offsetHeight || 0, availableHeight)
+    const popupWidth = Math.min(this.anchorDetails.offsetWidth || 0, availableWidth)
+
+    const minTop = visibleTop - parentRect.top
+    const maxTop = Math.max(minTop, visibleBottom - parentRect.top - popupHeight)
+    const desiredTop = nodeRect.top - parentRect.top + offsetY
+
+    const minLeft = visibleLeft - parentRect.left
+    const maxLeft = Math.max(minLeft, visibleRight - parentRect.left - popupWidth)
+    const desiredLeft = nodeRect.left - parentRect.left + offsetX
+
+    this.anchorDetails.style.top = `${Math.round(clamp(desiredTop, minTop, maxTop))}px`
+    this.anchorDetails.style.left = `${Math.round(clamp(desiredLeft, minLeft, maxLeft))}px`
+  },
+
   _showClusterDetails(labelNode) {
     const parent = this.el.parentElement
     if (!parent) return
 
-    const parentRect = parent.getBoundingClientRect()
     const nodeRect = labelNode.getBoundingClientRect()
     const labels = String(labelNode.dataset.networkLabels || "")
       .split("|")
@@ -1247,29 +1310,23 @@ export default {
     const flowCount = Number(labelNode.dataset.flowCount || 0)
     const flowsHtml = endpointFlowsHtml(labelNode.dataset.flows)
 
-    if (!this.anchorDetails) {
-      this.anchorDetails = document.createElement("div")
-      parent.appendChild(this.anchorDetails)
-    }
-    this.anchorDetails.className = "sr-ops-anchor-details"
-
-    this.anchorDetails.innerHTML = `
-      <strong>${labels.length.toLocaleString()} networks</strong>
+    const header = `<strong>${labels.length.toLocaleString()} networks</strong>`
+    const body = `
       ${labels.slice(0, 6).map((label) => `<span><em>Network</em><b>${escapeHtml(label)}</b></span>`).join("")}
       ${labels.length > 6 ? `<span><em>More</em><b>${(labels.length - 6).toLocaleString()}</b></span>` : ""}
       <span><em>Observed conversations</em><b>${flowCount.toLocaleString()}</b></span>
       <span><em>Traffic</em><b>${formatBytes(totalBytes)}</b></span>
       ${flowsHtml}
     `
-    this.anchorDetails.style.left = `${Math.min(parentRect.width - 240, Math.max(12, nodeRect.left - parentRect.left + 12))}px`
-    this.anchorDetails.style.top = `${Math.min(parentRect.height - 150, Math.max(12, nodeRect.top - parentRect.top + 12))}px`
+
+    if (!this._renderAnchorDetails("sr-ops-anchor-details", header, body)) return
+    this._positionAnchorDetails(nodeRect)
   },
 
   _showAnchorDetails(node) {
     const parent = this.el.parentElement
     if (!parent) return
 
-    const parentRect = parent.getBoundingClientRect()
     const nodeRect = node.getBoundingClientRect()
     const totalBytes = Number(node.dataset.totalBytes || 0)
     const flowCount = Number(node.dataset.flowCount || 0)
@@ -1281,14 +1338,8 @@ export default {
     const coords = [node.dataset.latitude, node.dataset.longitude].filter(Boolean).join(", ")
     const flowsHtml = endpointFlowsHtml(node.dataset.flows)
 
-    if (!this.anchorDetails) {
-      this.anchorDetails = document.createElement("div")
-      parent.appendChild(this.anchorDetails)
-    }
-    this.anchorDetails.className = "sr-ops-anchor-details"
-
-    this.anchorDetails.innerHTML = `
-      <strong>${escapeHtml(label)}</strong>
+    const header = `<strong>${escapeHtml(label)}</strong>`
+    const body = `
       <span><em>Type</em><b>${kind === "external" ? "Geo endpoint" : "Network"}</b></span>
       ${endpointCountry ? `<span><em>Country</em><b>${escapeHtml(endpointCountry)}</b></span>` : ""}
       ${endpointIp ? `<span><em>Address</em><b>${escapeHtml(endpointIp)}</b></span>` : ""}
@@ -1298,17 +1349,15 @@ export default {
       ${coords ? `<span><em>Coordinates</em><b>${escapeHtml(coords)}</b></span>` : ""}
       ${flowsHtml}
     `
-    const detailsWidth = Math.max(220, this.anchorDetails.offsetWidth || 0)
-    const detailsHeight = Math.max(112, this.anchorDetails.offsetHeight || 0)
-    this.anchorDetails.style.left = `${Math.min(parentRect.width - detailsWidth - 12, Math.max(12, nodeRect.left - parentRect.left + 12))}px`
-    this.anchorDetails.style.top = `${Math.min(parentRect.height - detailsHeight - 12, Math.max(12, nodeRect.top - parentRect.top + 12))}px`
+
+    if (!this._renderAnchorDetails("sr-ops-anchor-details", header, body)) return
+    this._positionAnchorDetails(nodeRect)
   },
 
   _showFlowDetails(flowNode) {
     const parent = this.el.parentElement
     if (!parent) return
 
-    const parentRect = parent.getBoundingClientRect()
     const nodeRect = flowNode.getBoundingClientRect()
     const source = flowNode.dataset.sourceLabel || "Unknown source"
     const target = flowNode.dataset.targetLabel || "Unknown target"
@@ -1342,14 +1391,8 @@ export default {
     const attributedHref = attributedFlowCount > 0 ? attributedFlowsUrlForPair(sourceIp, targetIp) : null
     const actionsHtml = flowActionsHtml(flowHref, attributedHref)
 
-    if (!this.anchorDetails) {
-      this.anchorDetails = document.createElement("div")
-      parent.appendChild(this.anchorDetails)
-    }
-    this.anchorDetails.className = "sr-ops-anchor-details is-flow-details"
-
-    this.anchorDetails.innerHTML = `
-      <strong>Flow path</strong>
+    const header = `<strong>Flow path</strong>`
+    const body = `
       <span class="is-endpoint-row"><em>Source</em><b>${escapeHtml(source)}</b></span>
       <span class="is-endpoint-row"><em>Destination</em><b>${escapeHtml(target)}</b></span>
       <span><em>Observed conversations</em><b>${flowCount.toLocaleString()}</b></span>
@@ -1368,8 +1411,9 @@ export default {
       ${threatMatched ? `<span class="is-threat-row"><em>Matched side</em><b>${threatSideLabel(sourceThreatMatched, targetThreatMatched)}</b></span>` : ""}
       ${actionsHtml}
     `
-    this.anchorDetails.style.left = `${Math.min(parentRect.width - 300, Math.max(12, nodeRect.left - parentRect.left + nodeRect.width * 0.45))}px`
-    this.anchorDetails.style.top = `${Math.min(parentRect.height - 218, Math.max(12, nodeRect.top - parentRect.top + nodeRect.height * 0.35))}px`
+
+    if (!this._renderAnchorDetails("sr-ops-anchor-details is-flow-details", header, body)) return
+    this._positionAnchorDetails(nodeRect, {offsetX: nodeRect.width * 0.45, offsetY: nodeRect.height * 0.35})
   },
 
   _renderSvgOverlay() {

@@ -1662,8 +1662,8 @@ body {
 .sr-ops-anchor-details {
   position: absolute;
   z-index: 9;
-  display: grid;
-  gap: 0.3rem;
+  display: flex;
+  flex-direction: column;
   min-width: 12rem;
   max-width: 15rem;
   border: 1px solid rgba(45, 212, 191, 0.46);
@@ -1671,13 +1671,43 @@ body {
   background: rgba(2, 8, 23, 0.94);
   box-shadow: 0 18px 38px rgba(2, 8, 23, 0.32);
   color: #e2e8f0;
-  padding: 0.72rem 0.78rem;
+  padding: 0;
+  overflow: hidden;
   pointer-events: auto;
 }
 
 .sr-ops-anchor-details.is-flow-details {
   max-width: 18rem;
   width: 18rem;
+}
+
+/* Pinned header stays put while the body scrolls, so a tall popup capped to the
+   visible map bounds still exposes every field and the trailing "Drill down"
+   links. */
+.sr-ops-anchor-details-header {
+  flex: 0 0 auto;
+  padding: 0.72rem 0.78rem 0;
+}
+
+.sr-ops-anchor-details-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.3rem 0.78rem 0.72rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(71, 85, 105, 0.7) transparent;
+}
+
+.sr-ops-anchor-details-body::-webkit-scrollbar {
+  width: 0.5rem;
+}
+
+.sr-ops-anchor-details-body::-webkit-scrollbar-thumb {
+  background: rgba(71, 85, 105, 0.7);
+  border-radius: 0.5rem;
 }
 
 .sr-ops-anchor-details strong {

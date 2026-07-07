@@ -197,10 +197,10 @@ describe("OperationsTrafficMap netflow details dismissal", () => {
 
 describe("OperationsTrafficMap flow detail links", () => {
   it("renders drilldown links for clicked attributed NetFlow paths", () => {
-    const anchorDetails = {className: "", innerHTML: "", style: {}}
+    const anchorDetails = {className: "", innerHTML: "", style: {}, offsetWidth: 288, offsetHeight: 320}
     const parent = {
       appendChild: vi.fn(),
-      getBoundingClientRect: vi.fn(() => ({width: 800, height: 500, left: 0, top: 0})),
+      getBoundingClientRect: vi.fn(() => ({width: 800, height: 500, left: 0, top: 0, right: 800, bottom: 500})),
     }
     const flowNode = {
       getBoundingClientRect: vi.fn(() => ({width: 20, height: 20, left: 120, top: 80})),
@@ -222,6 +222,8 @@ describe("OperationsTrafficMap flow detail links", () => {
     const ctx = {
       el: {parentElement: parent},
       anchorDetails,
+      _renderAnchorDetails: OperationsTrafficMap._renderAnchorDetails,
+      _positionAnchorDetails: OperationsTrafficMap._positionAnchorDetails,
     }
 
     OperationsTrafficMap._showFlowDetails.call(ctx, flowNode)
@@ -230,5 +232,44 @@ describe("OperationsTrafficMap flow detail links", () => {
     expect(ctx.anchorDetails.innerHTML).toContain("tab=netflows")
     expect(ctx.anchorDetails.innerHTML).toContain("Attributed flows")
     expect(ctx.anchorDetails.innerHTML).toContain("/observability/flows/attributed")
+    // Pinned header + scrollable body keep the trailing drill-down reachable.
+    expect(ctx.anchorDetails.innerHTML).toContain("sr-ops-anchor-details-header")
+    expect(ctx.anchorDetails.innerHTML).toContain("sr-ops-anchor-details-body")
+  })
+})
+
+describe("OperationsTrafficMap anchor details positioning", () => {
+  function positioningContext({parentRect, popupHeight, popupWidth = 288}) {
+    const anchorDetails = {className: "", innerHTML: "", style: {}, offsetHeight: popupHeight, offsetWidth: popupWidth}
+
+    return {
+      el: {parentElement: {getBoundingClientRect: () => parentRect}},
+      anchorDetails,
+    }
+  }
+
+  it("caps a tall popup to the visible band and top-justifies it so the header stays on-screen", () => {
+    const parentRect = {left: 0, top: 0, right: 800, bottom: 500, width: 800, height: 500}
+    // Popup taller than the 12px-margin band (500 - 24 = 476) anchored near the bottom.
+    const ctx = positioningContext({parentRect, popupHeight: 640})
+
+    OperationsTrafficMap._positionAnchorDetails.call(ctx, {left: 120, top: 470, width: 8, height: 8}, {offsetY: 3})
+
+    // Height is capped to the available band so the body scrolls instead of clipping.
+    expect(ctx.anchorDetails.style.maxHeight).toEqual("476px")
+    // Top is clamped to the margin so the header (and everything below it) stays visible.
+    expect(ctx.anchorDetails.style.top).toEqual("12px")
+  })
+
+  it("anchors a short popup near the click without forcing it off the top", () => {
+    const parentRect = {left: 0, top: 0, right: 800, bottom: 500, width: 800, height: 500}
+    const ctx = positioningContext({parentRect, popupHeight: 120})
+
+    OperationsTrafficMap._positionAnchorDetails.call(ctx, {left: 120, top: 80, width: 8, height: 8}, {offsetY: 12})
+
+    // Short popup fits, so it opens at the anchor and stays within the band.
+    expect(ctx.anchorDetails.style.top).toEqual("92px")
+    const top = Number.parseInt(ctx.anchorDetails.style.top, 10)
+    expect(top + 120).toBeLessThanOrEqual(488)
   })
 })
