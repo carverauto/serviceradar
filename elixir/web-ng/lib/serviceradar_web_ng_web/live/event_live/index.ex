@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
   alias Phoenix.LiveView.JS
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
   alias ServiceRadar.Infrastructure.HealthPubSub
+  alias ServiceRadarWebNGWeb.Observability.EventDeviceReference
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
   alias ServiceRadarWebNGWeb.Stats
   alias ServiceRadarWebNGWeb.Stats.Query, as: StatsQuery
@@ -408,6 +409,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
                 <div class="flex items-center gap-2 min-w-0">
                   <span class="truncate">{event_source(event)}</span>
                   <.finding_badge :if={finding_label(event)} label={finding_label(event)} />
+                  <.device_link event={event} />
                 </div>
               </td>
               <td class="text-xs truncate max-w-[32rem]" title={event_message(event)}>
@@ -448,6 +450,24 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
 
     ~H"""
     <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
+    """
+  end
+
+  attr :event, :map, required: true
+
+  defp device_link(assigns) do
+    ref = EventDeviceReference.extract(assigns.event)
+    assigns = assign(assigns, :ref, ref)
+
+    ~H"""
+    <span
+      :if={@ref}
+      phx-click={JS.navigate(~p"/devices/#{@ref.uid}")}
+      class="badge badge-primary badge-xs gap-1 whitespace-nowrap cursor-pointer"
+      title={"View affected device #{@ref.uid}"}
+    >
+      device →
+    </span>
     """
   end
 

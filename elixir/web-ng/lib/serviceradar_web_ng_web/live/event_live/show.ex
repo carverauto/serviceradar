@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadarWebNG.Observability.SignalDisplay
   alias ServiceRadarWebNGWeb.AnomalySeriesKey
+  alias ServiceRadarWebNGWeb.Observability.EventDeviceReference
 
   require Ash.Query
 
@@ -19,6 +20,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
      |> assign(:event_id, nil)
      |> assign(:event, nil)
      |> assign(:signal_display, nil)
+     |> assign(:device_ref, nil)
      |> assign(:related, %{log_id: nil, alert: nil})
      |> assign(:error, nil)
      |> assign(:srql, %{enabled: false})}
@@ -52,12 +54,14 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
     related = build_related(event, socket.assigns.current_scope)
     signal_display = build_signal_display(event)
+    device_ref = build_device_ref(event, socket.assigns.current_scope)
 
     {:noreply,
      socket
      |> assign(:event_id, event_id)
      |> assign(:event, event)
      |> assign(:signal_display, signal_display)
+     |> assign(:device_ref, device_ref)
      |> assign(:related, related)
      |> assign(:error, error)}
   end
@@ -85,6 +89,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
         <div :if={is_map(@event)} class="space-y-4">
           <.event_summary event={@event} />
+          <.affected_device :if={is_map(@device_ref)} device_ref={@device_ref} />
           <.signal_display_panel :if={is_list(@signal_display)} widgets={@signal_display} />
           <.anomaly_detection_summary :if={anomaly_finding?(@event)} event={@event} />
           <.capacity_forecast_summary :if={capacity_forecast_event?(@event)} event={@event} />
@@ -128,6 +133,44 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     </div>
     """
   end
+
+  attr(:device_ref, :map, required: true)
+
+  defp affected_device(assigns) do
+    assigns = assign(assigns, :label, device_ref_label(assigns.device_ref))
+
+    ~H"""
+    <div class="rounded-xl border border-primary/30 bg-primary/5 p-6">
+      <div class="flex flex-wrap items-center justify-between gap-4">
+        <div class="min-w-0">
+          <span class="text-xs text-primary uppercase tracking-wider block mb-1">
+            Affected Device
+          </span>
+          <div class="text-sm font-medium truncate">{@label}</div>
+          <div :if={@device_ref.guest} class="mt-0.5 text-xs font-mono text-base-content/60">
+            Guest {@device_ref.guest}
+          </div>
+          <div class="mt-0.5 text-xs font-mono text-base-content/40 break-all">
+            {@device_ref.uid}
+          </div>
+        </div>
+        <.ui_button navigate={~p"/devices/#{@device_ref.uid}"} variant="primary" size="sm">
+          View device →
+        </.ui_button>
+      </div>
+    </div>
+    """
+  end
+
+  defp device_ref_label(%{hostname: hostname}) when is_binary(hostname) and hostname != "", do: hostname
+
+  defp device_ref_label(%{guest: guest}) when is_binary(guest) and guest != "", do: "Proxmox guest #{guest}"
+
+  defp device_ref_label(%{uid: uid}), do: uid
+
+  defp build_device_ref(event, scope) when is_map(event), do: EventDeviceReference.resolve(event, scope)
+
+  defp build_device_ref(_event, _scope), do: nil
 
   attr(:event, :map, required: true)
 
