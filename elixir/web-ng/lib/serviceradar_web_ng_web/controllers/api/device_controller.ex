@@ -167,12 +167,15 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
 
     Device
     |> Ash.Query.sort(last_seen_time: :desc)
-    |> Ash.Query.limit(opts.limit)
-    |> Ash.Query.offset(opts.offset)
     |> maybe_filter_type_id(opts.type_id)
     |> maybe_filter_first_seen_after(opts.first_seen_after)
     |> maybe_filter_last_seen_after(opts.last_seen_after)
-    |> Ash.read!(scope: scope)
+    # The Device :read action requires keyset pagination, so Ash.read! returns an
+    # Ash.Page.* struct (not a list) and query-level limit is ignored. Use the
+    # page option for exact offset paging and unwrap .results — the list the
+    # callers (Enum.map/length) expect.
+    |> Ash.read!(scope: scope, page: [limit: opts.limit, offset: opts.offset])
+    |> Map.fetch!(:results)
   end
 
   defp maybe_filter_type_id(query, nil), do: query
@@ -242,13 +245,15 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
 
     Device
     |> Ash.Query.sort(last_seen_time: :desc)
-    |> Ash.Query.limit(opts.limit)
-    |> Ash.Query.offset(opts.offset)
     |> maybe_filter_search(opts.search)
     |> maybe_filter_status(opts.status)
     |> maybe_filter_gateway_id(opts.gateway_id)
     |> maybe_filter_device_type(opts.device_type)
-    |> Ash.read!(scope: scope)
+    # See list_devices_for_export: the Device :read action requires keyset
+    # pagination, so use the page option for exact offset paging and unwrap
+    # .results so index/2's Enum.map + build_pagination receive a list.
+    |> Ash.read!(scope: scope, page: [limit: opts.limit, offset: opts.offset])
+    |> Map.fetch!(:results)
   end
 
   defp get_scope(conn) do
