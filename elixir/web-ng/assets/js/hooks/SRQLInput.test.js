@@ -132,6 +132,39 @@ describe("SRQLInput hook", () => {
     }
   })
 
+  test("does not flag metadata.<key> dynamic filters as unknown", () => {
+    const query = 'in:devices metadata.gateway_id:"gateway-platform"'
+    const state = tokenize(query, query.length)
+    const hook = hookFor(state)
+    const metadataField = state.tokens.find(token => token.kind === "field" && token.text === "metadata.gateway_id")
+
+    expect(metadataField).toBeTruthy()
+    expect(hook.isUnknown(metadataField)).toBe(false)
+  })
+
+  test("does not flag tags.<key> dynamic filters as unknown", () => {
+    const query = "in:devices tags.owner:platform"
+    const state = tokenize(query, query.length)
+    const hook = hookFor(state)
+    const tagsField = state.tokens.find(token => token.kind === "field" && token.text === "tags.owner")
+
+    expect(tagsField).toBeTruthy()
+    expect(hook.isUnknown(tagsField)).toBe(false)
+  })
+
+  test("still flags malformed metadata keys and genuinely unknown fields", () => {
+    const query = "in:devices metadata.bad!:x totally_bogus:y"
+    const state = tokenize(query, query.length)
+    const hook = hookFor(state)
+    const malformedMetadata = state.tokens.find(token => token.kind === "field" && token.text === "metadata.bad!")
+    const bogusField = state.tokens.find(token => token.kind === "field" && token.text === "totally_bogus")
+
+    expect(malformedMetadata).toBeTruthy()
+    expect(hook.isUnknown(malformedMetadata)).toBe(true)
+    expect(bogusField).toBeTruthy()
+    expect(hook.isUnknown(bogusField)).toBe(true)
+  })
+
   test("surfaces entity fields for a bare filter after in:devices", () => {
     const query = "in:devices dis"
     const state = tokenize(query, query.length)

@@ -1,6 +1,6 @@
 import {describe, expect, test} from "vitest"
 
-import {tokenize} from "./tokenizer.js"
+import {isDynamicKeyField, isValidJsonbKey, tokenize} from "./tokenizer.js"
 
 describe("SRQL tokenizer", () => {
   test("empty input starts at the control slot", () => {
@@ -91,5 +91,42 @@ describe("SRQL tokenizer", () => {
     expect(result.tokens).toContainEqual({start: 29, end: 38, kind: "field", text: "last_seen"})
     expect(result.tokens).toContainEqual({start: 38, end: 39, kind: "op", text: ":"})
     expect(result.tokens).toContainEqual({start: 39, end: 43, kind: "value", text: "desc"})
+  })
+
+  test("metadata.<key> is a single field token, value follows the colon", () => {
+    const query = 'in:devices metadata.gateway_id:"gateway-platform" include_inactive:true'
+    const result = tokenize(query, query.length)
+
+    expect(result.tokens).toContainEqual({start: 11, end: 30, kind: "field", text: "metadata.gateway_id"})
+    expect(result.tokens).toContainEqual({start: 30, end: 31, kind: "op", text: ":"})
+    expect(result.tokens).toContainEqual({start: 31, end: 49, kind: "value", text: '"gateway-platform"'})
+  })
+})
+
+describe("JSONB key validation", () => {
+  test("isValidJsonbKey mirrors the engine rule", () => {
+    expect(isValidJsonbKey("gateway_id")).toBe(true)
+    expect(isValidJsonbKey("Owner-1")).toBe(true)
+    expect(isValidJsonbKey("a".repeat(64))).toBe(true)
+
+    expect(isValidJsonbKey("")).toBe(false)
+    expect(isValidJsonbKey("a".repeat(65))).toBe(false)
+    expect(isValidJsonbKey("bad key")).toBe(false)
+    expect(isValidJsonbKey("bad!")).toBe(false)
+    expect(isValidJsonbKey("nested.key")).toBe(false)
+  })
+
+  test("isDynamicKeyField accepts metadata./tags. with valid keys", () => {
+    expect(isDynamicKeyField("metadata.gateway_id")).toBe(true)
+    expect(isDynamicKeyField("tags.owner")).toBe(true)
+  })
+
+  test("isDynamicKeyField rejects malformed keys and unsupported prefixes", () => {
+    expect(isDynamicKeyField("metadata.")).toBe(false)
+    expect(isDynamicKeyField("metadata.bad key")).toBe(false)
+    expect(isDynamicKeyField("metadata.a.b")).toBe(false)
+    expect(isDynamicKeyField("labels.team")).toBe(false)
+    expect(isDynamicKeyField("hostname")).toBe(false)
+    expect(isDynamicKeyField(".gateway_id")).toBe(false)
   })
 })

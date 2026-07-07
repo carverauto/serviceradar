@@ -1,4 +1,4 @@
-import {tokenize} from "../lib/srql/tokenizer.js"
+import {isDynamicKeyField, tokenize} from "../lib/srql/tokenizer.js"
 
 const BOOLEAN_VALUES = ["true", "false"]
 const SORT_DIRECTIONS = ["asc", "desc"]
@@ -418,6 +418,9 @@ export default {
 
   isUnknown(token) {
     if (token.kind === "entity") return !this.catalog.entities?.[token.text]
+    // `metadata.<key>` / `tags.<key>` are dynamic JSONB-key filters the engine
+    // accepts but the catalog can't enumerate — never flag them as unknown.
+    if (token.kind === "field" && isDynamicKeyField(token.text)) return false
     if (token.kind === "field" && isSortFieldContext(this.state.tokens, token.start)) {
       return Boolean(this.state.entity) && !this.sortableFieldsForEntity(this.state.entity).includes(token.text)
     }
