@@ -105,6 +105,8 @@ func nextConditionLevel(prev conditionLevel, ratio, warn, crit, margin float64) 
 		default:
 			return conditionLevelOK
 		}
+	case conditionLevelOK:
+		fallthrough
 	default: // ok / unknown
 		switch {
 		case ratio >= critEnter:

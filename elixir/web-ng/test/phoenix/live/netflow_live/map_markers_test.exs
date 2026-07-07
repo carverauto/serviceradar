@@ -1,9 +1,9 @@
 defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext.MapMarkersTest do
   use ExUnit.Case, async: true
 
-  @moduletag :db_free
-
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext.MapMarkers
+
+  @moduletag :db_free
 
   # Real-world shape from the bug report: private local source, public dest.
   @flow %{"src_endpoint_ip" => "10.0.2.12", "dst_endpoint_ip" => "8.8.8.8"}
