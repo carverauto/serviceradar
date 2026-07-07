@@ -20,6 +20,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.SourceIdentityDrift
   alias ServiceRadar.Monitoring
   alias ServiceRadar.Monitoring.OcsfEvent
   alias ServiceRadar.Repo
@@ -112,6 +113,14 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     finish_run = Keyword.get(opts, :finish_run, &default_finish_run/5)
     record_event = Keyword.get(opts, :record_event, &default_record_event/2)
     load_candidates_fun = Keyword.get(opts, :load_candidates, &load_candidates/2)
+
+    load_identity_conflicts_fun =
+      Keyword.get(
+        opts,
+        :load_identity_conflicts,
+        default_identity_conflict_loader(opts)
+      )
+
     execute_batches_fun = Keyword.get(opts, :execute_batches, &execute_batches/3)
 
     case start_run.(source, actor, opts) do
@@ -125,6 +134,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
           finish_run,
           record_event,
           load_candidates_fun,
+          load_identity_conflicts_fun,
           execute_batches_fun
         )
 
@@ -142,6 +152,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
          finish_run,
          record_event,
          load_candidates_fun,
+         load_identity_conflicts_fun,
          execute_batches_fun
        ) do
     Logger.info("Starting Armis northbound run",
@@ -151,13 +162,17 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
 
     case load_candidates_fun.(source, opts) do
       {:ok, candidates} ->
+        identity_conflicts = load_identity_conflicts_fun.(source, opts)
+        identity_conflict_count = SourceIdentityDrift.conflict_count(identity_conflicts)
         collapsed = collapse_candidates(candidates)
-        device_count = length(collapsed)
+        device_count = length(collapsed) + identity_conflict_count
 
         Logger.info("Loaded Armis northbound candidates",
           integration_source_id: inspect(Map.get(source, :id)),
           run_id: inspect(Map.get(run, :id)),
-          device_count: device_count
+          device_count: device_count,
+          outbound_device_count: length(collapsed),
+          identity_conflict_count: identity_conflict_count
         )
 
         case update_source.(source, :northbound_start, %{device_count: device_count}, actor) do
@@ -171,6 +186,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
               finish_run,
               update_source,
               record_event,
+              identity_conflicts,
               execute_batches_fun
             )
 
@@ -219,24 +235,31 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
          finish_run,
          update_source,
          record_event,
+         identity_conflicts,
          execute_batches_fun
        ) do
     case execute_batches_fun.(source, collapsed, opts) do
       {:ok, result} ->
+        result = attach_identity_conflicts(result, identity_conflicts)
         finalize_success(source, run, result, actor, finish_run, update_source, record_event)
 
       {:error, result} when is_map(result) ->
+        result = attach_identity_conflicts(result, identity_conflicts)
         finalize_error(source, run, result, actor, finish_run, update_source, record_event)
 
       {:error, reason} ->
-        result = %{
-          device_count: length(collapsed),
-          updated_count: 0,
-          skipped_count: 0,
-          error_count: max(length(collapsed), 1),
-          batch_count: 0,
-          errors: [%{reason: reason}]
-        }
+        result =
+          attach_identity_conflicts(
+            %{
+              device_count: length(collapsed),
+              updated_count: 0,
+              skipped_count: 0,
+              error_count: max(length(collapsed), 1),
+              batch_count: 0,
+              errors: [%{reason: reason}]
+            },
+            identity_conflicts
+          )
 
         finalize_error(source, run, result, actor, finish_run, update_source, record_event)
     end
@@ -272,6 +295,31 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
       batch_count: 0,
       errors: [%{reason: reason}]
     }
+  end
+
+  defp load_identity_conflicts(source, opts) do
+    SourceIdentityDrift.armis_northbound_conflict_report(source, opts)
+  end
+
+  defp default_identity_conflict_loader(opts) do
+    if Keyword.has_key?(opts, :load_candidates) do
+      fn _source, _opts -> SourceIdentityDrift.empty_conflict_report() end
+    else
+      &load_identity_conflicts/2
+    end
+  end
+
+  defp attach_identity_conflicts(result, identity_conflicts) do
+    conflict_count = SourceIdentityDrift.conflict_count(identity_conflicts)
+
+    if conflict_count == 0 do
+      result
+    else
+      result
+      |> Map.update(:device_count, conflict_count, &(&1 + conflict_count))
+      |> Map.update(:skipped_count, conflict_count, &(&1 + conflict_count))
+      |> Map.put(:identity_conflicts, identity_conflicts)
+    end
   end
 
   @spec execute_batches(IntegrationSource.t() | map(), [collapsed_candidate()], keyword()) ::
@@ -762,6 +810,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
       source
       |> availability_source_run_metadata()
       |> Map.merge(%{batch_count: result.batch_count, errors: serialize_errors(result.errors)})
+      |> maybe_put_identity_conflicts(result)
 
     with {:ok, finished_run} <-
            finish_run.(
@@ -788,6 +837,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
       source
       |> availability_source_run_metadata()
       |> Map.merge(%{batch_count: result.batch_count, errors: serialize_errors(result.errors)})
+      |> maybe_put_identity_conflicts(result)
 
     error_message = summarize_errors(result.errors)
 
@@ -932,24 +982,25 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     activity_id = OCSF.activity_log_update()
 
     metadata =
-      maybe_put_string(
-        %{
-          "integration_source_id" => Map.get(source, :id),
-          "integration_source_name" => Map.get(source, :name),
-          "integration_type" => "armis",
-          "run_id" => Map.get(run, :id),
-          "run_type" => "armis_northbound",
-          "device_count" => result.device_count,
-          "updated_count" => result.updated_count,
-          "skipped_count" => result.skipped_count,
-          "error_count" => result.error_count,
-          "batch_count" => result.batch_count,
-          "custom_field" => custom_field(source),
-          "availability_source_agent_id" => availability_source_agent_id(source) || "canonical"
-        },
+      %{
+        "integration_source_id" => Map.get(source, :id),
+        "integration_source_name" => Map.get(source, :name),
+        "integration_type" => "armis",
+        "run_id" => Map.get(run, :id),
+        "run_type" => "armis_northbound",
+        "device_count" => result.device_count,
+        "updated_count" => result.updated_count,
+        "skipped_count" => result.skipped_count,
+        "error_count" => result.error_count,
+        "batch_count" => result.batch_count,
+        "custom_field" => custom_field(source),
+        "availability_source_agent_id" => availability_source_agent_id(source) || "canonical"
+      }
+      |> maybe_put_string(
         "error_message",
         Map.get(result, :error_message)
       )
+      |> maybe_put_event_identity_conflicts(result)
 
     %{
       class_uid: OCSF.class_event_log_activity(),
@@ -1036,6 +1087,32 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
 
   defp maybe_put_string(map, _key, value) when value in [nil, ""], do: map
   defp maybe_put_string(map, key, value), do: Map.put(map, key, value)
+
+  defp maybe_put_identity_conflicts(metadata, result) do
+    case Map.get(result, :identity_conflicts) do
+      %{"total_count" => count} = report when is_integer(count) and count > 0 ->
+        Map.put(metadata, "identity_conflicts", report)
+
+      %{total_count: count} = report when is_integer(count) and count > 0 ->
+        Map.put(metadata, "identity_conflicts", report)
+
+      _ ->
+        metadata
+    end
+  end
+
+  defp maybe_put_event_identity_conflicts(metadata, result) do
+    case Map.get(result, :identity_conflicts) do
+      %{"total_count" => count} = report when is_integer(count) and count > 0 ->
+        Map.put(metadata, "identity_conflicts", report)
+
+      %{total_count: count} = report when is_integer(count) and count > 0 ->
+        Map.put(metadata, "identity_conflicts", report)
+
+      _ ->
+        metadata
+    end
+  end
 
   defp default_start_run(source, actor, opts) do
     oban_job_id = Keyword.get(opts, :oban_job_id)

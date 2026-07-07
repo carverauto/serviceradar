@@ -53,4 +53,44 @@ defmodule ServiceRadar.Inventory.ArmisIdentityMetadataTest do
              record.identifier_type == :integration_id
            end)
   end
+
+  test "generic integration IDs are scoped by sync source and keep raw value lookup-only" do
+    update =
+      Normalize.normalize_update(%{
+        "hostname" => "generic-source-device",
+        "source" => "integration",
+        "metadata" => %{
+          "integration_type" => "test-integration",
+          "integration_id" => "shared-device-42"
+        },
+        "sync_meta" => %{
+          "sync_service_id" => "source-a"
+        }
+      })
+
+    ids = Ids.extract_strong_identifiers(update)
+
+    assert ids.integration_id == "test-integration:source:source-a:shared-device-42"
+    assert ids.legacy_integration_ids == ["shared-device-42"]
+
+    assert {:integration_id, "test-integration:source:source-a:shared-device-42", "default"} in Lookups.extract_all_identifiers(
+             [update]
+           )
+
+    assert {:integration_id, "shared-device-42", "default"} in Lookups.extract_all_identifiers([
+             update
+           ])
+
+    records = IdentifierRecords.build_identifier_records([{update, "sr:test-device"}])
+
+    assert Enum.any?(records, fn record ->
+             record.identifier_type == :integration_id and
+               record.identifier_value == "test-integration:source:source-a:shared-device-42"
+           end)
+
+    refute Enum.any?(records, fn record ->
+             record.identifier_type == :integration_id and
+               record.identifier_value == "shared-device-42"
+           end)
+  end
 end
