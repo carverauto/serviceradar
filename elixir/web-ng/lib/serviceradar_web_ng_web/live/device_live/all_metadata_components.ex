@@ -143,7 +143,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AllMetadataComponents do
                   <span
                     :if={not entry.nested}
                     class="block whitespace-pre-wrap break-words text-sm text-base-content/90"
-                  >{entry.value}</span>
+                  >
+                    {entry.value}
+                  </span>
                 </dd>
               </div>
             </dl>
@@ -201,8 +203,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AllMetadataComponents do
   end
 
   defp ordered_group_specs do
-    (Enum.map(@prefix_groups, fn {_prefix, spec} -> spec end) ++ [@other_group])
-    |> Enum.uniq()
+    Enum.uniq(Enum.map(@prefix_groups, fn {_prefix, spec} -> spec end) ++ [@other_group])
   end
 
   defp build_entry(key, value) do

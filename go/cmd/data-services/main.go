@@ -41,6 +41,7 @@ var defaultConfig []byte
 // noise and are excluded from datasvc tracing. proto.KVService/Put fires on
 // every KV write and would otherwise dominate span volume. Add further methods
 // here (e.g. "/proto.KVService/Get") if they become equally noisy.
+//nolint:gochecknoglobals // a small, immutable allowlist; a package-level slice is the clearest form
 var untracedMethods = []string{
 	"/proto.KVService/Put",
 }
