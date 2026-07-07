@@ -26,6 +26,20 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   @first_party_catalog_page_size 10
   @official_release_tag_regex ~r/^v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$/
 
+  # Capabilities that grant network egress or raw request access from a Wasm
+  # plugin. These MUST be explicitly carried into a package's approved
+  # capabilities before the host will allow the plugin to use them (the host's
+  # first guard is `hasCapability/1`). They are surfaced distinctly in the review
+  # UI so an operator does not silently drop one when hand-typing the approved
+  # list — omitting a requested sensitive capability denies it.
+  @sensitive_capabilities ~w(
+    http_request
+    websocket_connect
+    websocket_send
+    websocket_recv
+    websocket_close
+  )
+
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
@@ -1406,12 +1420,30 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               <div class="text-sm font-semibold">Requested Capabilities</div>
               <div class="mt-2 flex flex-wrap gap-2">
                 <%= for cap <- requested_capabilities(@package) do %>
-                  <.ui_badge size="xs" variant="ghost">{cap}</.ui_badge>
+                  <.ui_badge
+                    size="xs"
+                    variant={if sensitive_capability?(cap), do: "warning", else: "ghost"}
+                    title={
+                      if sensitive_capability?(cap),
+                        do: "Sensitive: grants network egress. Must be explicitly approved.",
+                        else: nil
+                    }
+                  >
+                    {cap}<span :if={sensitive_capability?(cap)} aria-hidden="true">&nbsp;⚠</span>
+                  </.ui_badge>
                 <% end %>
                 <%= if requested_capabilities(@package) == [] do %>
                   <span class="text-xs text-base-content/50">None</span>
                 <% end %>
               </div>
+              <p
+                :if={sensitive_requested_capabilities(@package) != []}
+                class="mt-2 text-xs text-warning"
+              >
+                Sensitive (network-egress) capabilities are highlighted. They are only granted if
+                they appear in the approved capabilities below — leave the field blank to accept all
+                requested capabilities, or list every capability the plugin needs.
+              </p>
             </div>
 
             <div class="rounded-xl border border-base-200 p-4">
@@ -1870,6 +1902,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 class="input input-bordered w-full"
                 placeholder="Leave blank to accept requested capabilities"
               />
+              <p class="mt-1 text-xs text-base-content/60">
+                Blank grants every requested capability (including sensitive ones). If you list
+                capabilities explicitly, include each sensitive capability the plugin needs (for
+                example <code class="font-mono">http_request</code>) — anything omitted is denied.
+              </p>
             </div>
             <div>
               <label class="label">
@@ -2865,6 +2902,18 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp requested_capabilities(package) do
     Map.get(package.manifest || %{}, "capabilities") ||
       Map.get(package.manifest || %{}, :capabilities) || []
+  end
+
+  defp sensitive_capability?(capability) when is_binary(capability) do
+    capability in @sensitive_capabilities
+  end
+
+  defp sensitive_capability?(_capability), do: false
+
+  defp sensitive_requested_capabilities(package) do
+    package
+    |> requested_capabilities()
+    |> Enum.filter(&sensitive_capability?/1)
   end
 
   defp requested_permissions(package) do
