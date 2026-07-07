@@ -273,8 +273,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AllMetadataComponents do
   defp searchable_query_value(true), do: "true"
   defp searchable_query_value(false), do: "false"
 
-  defp searchable_query_value(value) when is_integer(value) or is_float(value),
-    do: to_string(value)
+  defp searchable_query_value(value) when is_integer(value) or is_float(value), do: to_string(value)
 
   defp searchable_query_value(value) when is_atom(value), do: to_string(value)
 
