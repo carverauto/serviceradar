@@ -273,6 +273,52 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
     assert device_a != device_b
   end
 
+  test "source-scoped integration ID resolves through pre-existing raw bridge", %{
+    actor: actor
+  } do
+    raw_integration_id = "legacy-raw-#{System.unique_integer([:positive])}"
+    source_id = "upgrade-source-#{System.unique_integer([:positive])}"
+
+    {:ok, existing} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: "sr:" <> Ecto.UUID.generate(),
+        hostname: "legacy-raw-owner-#{System.unique_integer([:positive])}",
+        ip: unique_ip()
+      })
+      |> Ash.create(actor: actor)
+
+    {:ok, _identifier} =
+      DeviceIdentifier
+      |> Ash.Changeset.for_create(:register, %{
+        device_id: existing.uid,
+        identifier_type: :integration_id,
+        identifier_value: raw_integration_id,
+        partition: "default",
+        confidence: :strong,
+        metadata: %{"integration_type" => "test-integration"}
+      })
+      |> Ash.create(actor: actor)
+
+    update = %{
+      "ip" => unique_ip(),
+      "hostname" => "legacy-raw-resync",
+      "source" => "integration-test",
+      "metadata" => %{
+        "integration_type" => "test-integration",
+        "integration_id" => raw_integration_id
+      },
+      "sync_meta" => %{"sync_service_id" => source_id}
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+    scoped = "test-integration:source:#{source_id}:#{raw_integration_id}"
+
+    assert device_for_integration_id(raw_integration_id, actor) == existing.uid
+    assert device_for_integration_id(scoped, actor) == existing.uid
+  end
+
   test "pre-set merged-away sr: ID resolves to canonical survivor", %{actor: actor} do
     {:ok, from_device} =
       Device

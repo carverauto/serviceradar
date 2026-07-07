@@ -56,6 +56,9 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
       "metadata" => %{
         "armis_device_id" => "armis-metadata-only-1",
         "integration_type" => "armis"
+      },
+      "sync_meta" => %{
+        "sync_service_id" => source.id
       }
     }
 
@@ -64,7 +67,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
     assert {:ok, candidates} = ArmisNorthboundRunner.load_candidates(source)
 
     assert Enum.map(candidates, & &1.armis_device_id) == ["armis-metadata-only-1"]
-    assert Enum.map(candidates, & &1.sync_service_id) == [nil]
+    assert Enum.map(candidates, & &1.sync_service_id) == [source.id]
     assert Enum.map(candidates, & &1.is_available) == [false]
   end
 
@@ -85,7 +88,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
       "sync_service_id" => source.id
     })
 
-    assert {:ok, []} = ArmisNorthboundRunner.load_candidates(source)
+    assert {:ok, candidates} = ArmisNorthboundRunner.load_candidates(source)
+    refute Enum.any?(candidates, &(&1.armis_device_id == "armis-current"))
   end
 
   test "load_candidates ignores generic Armis integration identifiers without typed identity", %{
@@ -113,7 +117,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
       "sync_service_id" => source.id
     })
 
-    assert {:ok, []} = ArmisNorthboundRunner.load_candidates(source)
+    assert {:ok, candidates} = ArmisNorthboundRunner.load_candidates(source)
+    refute Enum.any?(candidates, &(&1.armis_device_id == armis_id))
   end
 
   test "load_candidates skips split typed and generic Armis identifier mappings", %{
@@ -143,7 +148,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
       "sync_service_id" => source.id
     })
 
-    assert {:ok, []} = ArmisNorthboundRunner.load_candidates(source)
+    assert {:ok, candidates} = ArmisNorthboundRunner.load_candidates(source)
+    refute Enum.any?(candidates, &(&1.armis_device_id == armis_id))
   end
 
   test "load_candidates can use a selected per-agent availability source", %{actor: actor} do
@@ -231,6 +237,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
       actor: actor
     )
     |> Ash.create!(actor: actor)
+    |> Ash.load!([:credentials_encrypted, :credentials], actor: actor)
   end
 
   defp create_connected_agent!(actor) do

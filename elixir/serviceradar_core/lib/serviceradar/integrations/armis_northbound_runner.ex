@@ -1000,7 +1000,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
         "error_message",
         Map.get(result, :error_message)
       )
-      |> maybe_put_event_identity_conflicts(result)
+      |> maybe_put_identity_conflicts(result)
 
     %{
       class_uid: OCSF.class_event_log_activity(),
@@ -1089,19 +1089,6 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   defp maybe_put_string(map, key, value), do: Map.put(map, key, value)
 
   defp maybe_put_identity_conflicts(metadata, result) do
-    case Map.get(result, :identity_conflicts) do
-      %{"total_count" => count} = report when is_integer(count) and count > 0 ->
-        Map.put(metadata, "identity_conflicts", report)
-
-      %{total_count: count} = report when is_integer(count) and count > 0 ->
-        Map.put(metadata, "identity_conflicts", report)
-
-      _ ->
-        metadata
-    end
-  end
-
-  defp maybe_put_event_identity_conflicts(metadata, result) do
     case Map.get(result, :identity_conflicts) do
       %{"total_count" => count} = report when is_integer(count) and count > 0 ->
         Map.put(metadata, "identity_conflicts", report)
