@@ -140,12 +140,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AllMetadataComponents do
                     :if={entry.nested}
                     class="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-base-300/40 p-2 font-mono text-[11px] leading-relaxed text-base-content/80"
                   >{entry.value}</pre>
-                  <span
-                    :if={not entry.nested}
-                    class="block whitespace-pre-wrap break-words text-sm text-base-content/90"
-                  >
-                    {entry.value}
-                  </span>
+                  <div :if={not entry.nested} class="flex min-w-0 items-start gap-2">
+                    <span class="block min-w-0 flex-1 whitespace-pre-wrap break-words text-sm text-base-content/90">
+                      {entry.value}
+                    </span>
+                    <.link
+                      :if={entry.search_path}
+                      navigate={entry.search_path}
+                      data-metadata-find
+                      class="btn btn-ghost btn-xs shrink-0 gap-1 text-base-content/40 hover:text-primary"
+                      title={"Find other devices where #{entry.label} = #{entry.value}"}
+                      aria-label={"Find other devices where #{entry.key} equals #{entry.value}"}
+                    >
+                      <.icon name="hero-magnifying-glass-circle" class="size-4" />
+                      <span class="hidden text-[11px] font-medium sm:inline">Find similar</span>
+                    </.link>
+                  </div>
                 </dd>
               </div>
             </dl>
@@ -218,8 +228,74 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AllMetadataComponents do
       group_title: title,
       nested: nested,
       value: display,
-      search: String.downcase("#{key} #{label} #{display}")
+      search: String.downcase("#{key} #{label} #{display}"),
+      search_path: build_search_path(key, nested, value)
     }
+  end
+
+  # ---------------------------------------------------------------------------
+  # "Find similar devices" SRQL deep-link
+  # ---------------------------------------------------------------------------
+  #
+  # Builds a `/devices?q=...` link that runs an SRQL query returning every other
+  # device carrying the same `metadata.<key> = <value>`. The Rust SRQL engine
+  # already exposes `metadata.<key>:value` on the devices entity, translating it
+  # to a parameterized `metadata->>'<key>' = $n` JSONB predicate with the key
+  # whitelisted (`[A-Za-z0-9_-]`, ≤64 bytes) and the value bound — so this stays
+  # injection-safe. We mirror that whitelist here and only surface the link for
+  # searchable scalars: nested (map/list) values and non-whitelisted keys get no
+  # button (they cannot form a valid `metadata.<key>` predicate).
+
+  defp build_search_path(_key, true, _value), do: nil
+
+  defp build_search_path(key, false, value) do
+    with true <- valid_metadata_key?(key),
+         query_value when is_binary(query_value) <- searchable_query_value(value) do
+      metadata_search_path(key, query_value)
+    else
+      _ -> nil
+    end
+  end
+
+  # Mirrors `is_valid_jsonb_key/1` in rust/srql: non-empty, ≤64 bytes, and only
+  # ASCII alphanumerics, underscores, or hyphens. Keys outside this set are
+  # rejected by the engine, so we never render a link that would 400.
+  defp valid_metadata_key?(key) when is_binary(key) do
+    key != "" and byte_size(key) <= 64 and Regex.match?(~r/\A[A-Za-z0-9_-]+\z/, key)
+  end
+
+  defp valid_metadata_key?(_key), do: false
+
+  # The text form of a scalar value as Postgres' `->>` operator would return it,
+  # so the equality search matches. Empty/blank strings and nil are not
+  # searchable and yield no link.
+  defp searchable_query_value(nil), do: nil
+  defp searchable_query_value(true), do: "true"
+  defp searchable_query_value(false), do: "false"
+
+  defp searchable_query_value(value) when is_integer(value) or is_float(value),
+    do: to_string(value)
+
+  defp searchable_query_value(value) when is_atom(value), do: to_string(value)
+
+  defp searchable_query_value(value) when is_binary(value) do
+    if String.trim(value) == "", do: nil, else: value
+  end
+
+  defp searchable_query_value(_value), do: nil
+
+  defp metadata_search_path(key, value) do
+    query = ~s|in:devices metadata.#{key}:"#{escape_srql_string_value(value)}"|
+    "/devices?q=" <> URI.encode(query)
+  end
+
+  # Escape backslashes and double-quotes so the value stays inside its quoted
+  # SRQL token (matches the escaping used by the devices breakdown deep-links).
+  defp escape_srql_string_value(value) do
+    value
+    |> to_string()
+    |> String.replace("\\", "\\\\")
+    |> String.replace("\"", "\\\"")
   end
 
   defp classify(key) do

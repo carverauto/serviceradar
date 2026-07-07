@@ -577,3 +577,44 @@ fn devices_stats_group_by_unsupported_field_returns_error() {
         "error should mention unsupported field, got: {err}"
     );
 }
+
+// This is the exact query the Device Details "find similar devices" links emit:
+// an equality filter on an arbitrary metadata sub-key. It must translate to a
+// parameterized `metadata->>'<key>' = $n` predicate with the value bound (never
+// concatenated), so it is safe to feed operator-supplied metadata values in.
+#[test]
+fn devices_supports_metadata_equality_filter() {
+    let query = r#"in:devices metadata.proxmox_node:"pve-01""#;
+    let plan = plan_for(query);
+
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("should build metadata SQL");
+    let lower = sql.to_lowercase();
+
+    assert!(
+        lower.contains("metadata->>'proxmox_node' = $"),
+        "expected parameterized metadata equality predicate, got: {sql}"
+    );
+    assert!(
+        params
+            .iter()
+            .any(|p| matches!(p, BindParam::Text(v) if v == "pve-01")),
+        "expected metadata value bound as a parameter, got: {params:?}"
+    );
+}
+
+// The metadata KEY is interpolated into the SQL fragment (Postgres has no bind
+// placeholder for a JSONB key), so it must be whitelisted. A key carrying a SQL
+// metacharacter (here a single quote that would otherwise close the `->>'...'`
+// string) has to be rejected outright rather than reaching the database.
+#[test]
+fn devices_rejects_unsafe_metadata_key() {
+    let plan = plan_for(r#"in:devices metadata.node'or'1:x"#);
+
+    let result = devices::to_sql_and_params(&plan);
+    assert!(result.is_err(), "unsafe metadata key must be rejected");
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("invalid metadata key"),
+        "error should flag the invalid metadata key, got: {err}"
+    );
+}

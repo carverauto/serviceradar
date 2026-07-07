@@ -86,4 +86,51 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AllMetadataComponentsTest do
       refute html =~ ~s(phx-hook="AllMetadataCard")
     end
   end
+
+  test "each searchable scalar row exposes a 'find similar devices' SRQL deep-link" do
+    device_row = %{"metadata" => %{"proxmox_node" => "pve-01"}}
+
+    html = render_component(&AllMetadataComponents.all_metadata_section/1, device_row: device_row)
+
+    # The find-similar affordance is present on the row.
+    assert html =~ "data-metadata-find"
+    assert html =~ "Find similar"
+
+    # It navigates to the Devices page with an SRQL query filtering on the exact
+    # `metadata.<key>:"<value>"` predicate the Rust engine already supports.
+    expected_q = URI.encode(~s|in:devices metadata.proxmox_node:"pve-01"|)
+    assert html =~ "/devices?q=" <> expected_q
+  end
+
+  test "the deep-link quotes and escapes values so injection attempts stay inside the token" do
+    device_row = %{"metadata" => %{"site_tag" => ~s(New York" OR 1=1)}}
+
+    html = render_component(&AllMetadataComponents.all_metadata_section/1, device_row: device_row)
+
+    # Backslash/quote escaping mirrors the devices breakdown deep-links; the
+    # embedded double-quote is escaped (\") rather than closing the SRQL token.
+    # The engine binds the value as a parameter, so this can never break out of
+    # the JSONB predicate — the link merely carries it safely.
+    expected_q = URI.encode(~s|in:devices metadata.site_tag:"New York\\" OR 1=1"|)
+    assert html =~ "/devices?q=" <> expected_q
+  end
+
+  test "no find-link is rendered for nested, blank, or non-whitelisted-key values" do
+    device_row = %{
+      "metadata" => %{
+        # nested map/list values cannot form a scalar metadata predicate
+        "nested_map" => %{"a" => 1},
+        "armis_tags" => ["printer", "iot"],
+        # blank/whitespace-only scalars are not searchable
+        "blank_val" => "   ",
+        # keys outside the engine's [A-Za-z0-9_-] whitelist are rejected
+        "weird.key" => "value"
+      }
+    }
+
+    html = render_component(&AllMetadataComponents.all_metadata_section/1, device_row: device_row)
+
+    refute html =~ "data-metadata-find"
+    refute html =~ "Find similar"
+  end
 end
