@@ -72,6 +72,13 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:fetch_current_scope_for_user)
     plug(:set_ash_actor)
     plug(:require_authenticated_user)
+    # Every route on this pipeline is a binary/stream endpoint that upgrades to a
+    # websocket. `fetch_current_scope_for_user` performs a sliding-session
+    # refresh that dirties the session; without this, the session-cookie
+    # `before_send` fires during `Plug.Conn.upgrade_adapter/3` and raises
+    # `Plug.Conn.AlreadySentError` (plug 1.20 rejects cookie writes at state
+    # `:upgraded`), 500-ing the upgrade so the stream never connects.
+    plug(ServiceRadarWebNGWeb.Plugs.IgnoreSessionWrites)
   end
 
   pipeline :api do
