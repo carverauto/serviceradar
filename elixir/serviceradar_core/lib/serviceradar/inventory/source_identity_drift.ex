@@ -157,6 +157,7 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
 
     ids =
       Ids.extract_strong_identifiers(%{
+        device_id: Map.get(record, :device_id) || Map.get(record, :uid),
         ip: ip,
         mac: Map.get(record, :mac),
         metadata: metadata,
@@ -838,7 +839,6 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
 
   defp stringify(nil), do: nil
   defp stringify(value) when is_atom(value), do: Atom.to_string(value)
-  defp stringify(value), do: to_string(value)
 
   defp string_value(map, key) when is_map(map) do
     Map.get(map, key) || Map.get(map, Atom.to_string(key))
