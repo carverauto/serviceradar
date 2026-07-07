@@ -118,15 +118,52 @@ jobs:
           #   (cd elixir/web-ng && mix serviceradar.openapi.dump)
           mix serviceradar.openapi.dump --check
 
-      - name: Check database bootstrap baseline
-        env:
-          BASELINE_DATABASE_URL: ${{ secrets.SERVICERADAR_BASELINE_DATABASE_URL }}
-          REPLAY_DATABASE_URL: ${{ secrets.SERVICERADAR_REPLAY_DATABASE_URL }}
+      - name: Check baseline metadata and migration startup safety
         run: |
           scripts/db/check-baseline-metadata.sh
           scripts/db/check-migration-startup-safety.sh
-          if [ -n "${BASELINE_DATABASE_URL:-}" ] && [ -n "${REPLAY_DATABASE_URL:-}" ]; then
-            scripts/db/compare-platform-baseline.sh
-          else
-            echo "Skipping baseline schema diff; SERVICERADAR_BASELINE_DATABASE_URL and SERVICERADAR_REPLAY_DATABASE_URL are not configured"
+
+      - name: Install PostgreSQL 18 client
+        run: |
+          set -euo pipefail
+          # compare-platform-baseline.sh needs pg_dump/psql whose major matches
+          # the CNPG server (PG18); Ubuntu ships 16, so pull the PGDG client.
+          if command -v pg_dump >/dev/null 2>&1 && pg_dump --version | grep -qE ' (18|19)\.'; then
+            echo "Using pre-installed $(pg_dump --version)"
+            exit 0
           fi
+          sudo install -d /usr/share/postgresql-common/pgdg
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            | sudo gpg --dearmor -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg
+          . /etc/os-release
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg] http://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client-18
+          pg_dump --version
+
+      - name: Verify baseline equals migration replay
+        env:
+          # Reuses the already-configured SRQL fixture secrets. SRQL_TEST_ADMIN_URL
+          # is a superuser DSN to the srql-fixtures CloudNativePG cluster, which is
+          # a TimescaleDB + Apache AGE Postgres 18 (a stock postgres image cannot
+          # replay these migrations, and the operand image cannot be preloaded via
+          # a `services:` block). The gate creates two disposable scratch DBs on
+          # that cluster, loads the committed baseline into one and replays the
+          # migrations into the other, then diffs them.
+          BASELINE_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
+          SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
+        run: |
+          set -euo pipefail
+          # Fail closed: never silently skip. A missing secret is a
+          # misconfiguration, not a reason to let baseline drift through.
+          if [ -z "${BASELINE_ADMIN_URL:-}" ] || [ -z "${SRQL_TEST_DATABASE_CA_CERT:-}" ]; then
+            echo "::error::Baseline gate cannot run: repository secrets SRQL_TEST_ADMIN_URL and SRQL_TEST_DATABASE_CA_CERT are required. They already back the srql-fixtures integration DB (a Timescale+AGE CNPG cluster). Configure them in Forgejo repo settings." >&2
+            exit 1
+          fi
+          ca_file="${RUNNER_TEMP:-/tmp}/baseline-ca.crt"
+          printf '%s' "${SRQL_TEST_DATABASE_CA_CERT}" > "${ca_file}"
+          export PGSSLROOTCERT="${ca_file}"
+          export CNPG_CA_FILE="${ca_file}"
+          export SERVICERADAR_TEST_DATABASE_CA_CERT_FILE="${ca_file}"
+          scripts/db/verify-baseline.sh
