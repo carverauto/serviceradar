@@ -78,6 +78,7 @@ defmodule ServiceRadar.Automation.Ansible.Playbook do
     define :get_by_id, action: :by_id, args: [:id]
     define :list_by_repository, action: :by_repository, args: [:repository_id]
     define :list_by_controller, action: :by_controller, args: [:controller_id]
+    define :list_launchable, action: :launchable
     define :upsert_git, action: :upsert_git
     define :upsert_awx, action: :upsert_awx
     define :destroy_playbook, action: :destroy
@@ -87,7 +88,26 @@ defmodule ServiceRadar.Automation.Ansible.Playbook do
     defaults [:destroy]
 
     read :read do
+      primary? true
       prepare build(select: @public_read_fields)
+    end
+
+    # Canonical "launchable playbooks" read — the single source of truth for
+    # every launch surface (device-details Ansible panel, ad-hoc /ansible/launch
+    # page, northbound action sync). A playbook is launchable once it is bound to
+    # an AWX Job Template (`awx_job_template_id`). Pass `controller_id` to scope
+    # the list to a single AWX controller (e.g. the controller a device belongs
+    # to); omit it (nil) to list launchable playbooks across all controllers.
+    read :launchable do
+      description "AWX-launchable playbooks, optionally scoped to one controller"
+      argument :controller_id, :uuid, allow_nil?: true
+
+      filter expr(
+               not is_nil(awx_job_template_id) and
+                 (is_nil(^arg(:controller_id)) or controller_id == ^arg(:controller_id))
+             )
+
+      prepare build(select: @public_read_fields, sort: [name: :asc], limit: 200)
     end
 
     read :by_id do
@@ -159,7 +179,7 @@ defmodule ServiceRadar.Automation.Ansible.Playbook do
     import ServiceRadar.Policies
 
     system_bypass()
-    action_with_permission([:read, :by_id, :by_repository, :by_controller], @view_check)
+    action_with_permission([:read, :launchable, :by_id, :by_repository, :by_controller], @view_check)
     action_type_with_permission([:create, :update, :destroy], @manage_check)
   end
 

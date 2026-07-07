@@ -29,12 +29,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceStateData
 
-  require Ash.Query
   require Logger
 
   @actor_name :device_ansible_panel
   @runs_limit 50
-  @playbooks_limit 200
 
   ## Defaults ------------------------------------------------------------------
 
@@ -172,14 +170,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
 
   defp load_runs(_), do: []
 
+  # Launchable playbooks bound to this device's AWX controller. Reuses the
+  # canonical `Playbook.list_launchable/2` read (single source of truth shared
+  # with the ad-hoc launch page and northbound sync) scoped to the controller,
+  # rather than a hand-rolled query that silently returned [] when the resource
+  # had no primary read action.
   defp load_playbooks(controller_id) when is_binary(controller_id) do
-    query =
-      Playbook
-      |> Ash.Query.filter(controller_id == ^controller_id and not is_nil(awx_job_template_id))
-      |> Ash.Query.sort(name: :asc)
-      |> Ash.Query.limit(@playbooks_limit)
-
-    case Ash.read(query, actor: actor()) do
+    case Playbook.list_launchable(%{controller_id: controller_id}, actor: actor()) do
       {:ok, rows} -> rows
       _ -> []
     end

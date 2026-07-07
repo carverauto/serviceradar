@@ -35,7 +35,6 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadarWebNG.RBAC
 
-  require Ash.Query
   require Logger
 
   @impl true
@@ -483,13 +482,10 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
   defp launchable_playbooks do
     actor = SystemActor.system(:ansible_launch_live)
 
-    query =
-      Playbook
-      |> Ash.Query.filter(not is_nil(awx_job_template_id))
-      |> Ash.Query.sort(name: :asc)
-      |> Ash.Query.limit(200)
-
-    case Ash.read(query, actor: actor) do
+    # Canonical launchable-playbooks read (single source of truth shared with the
+    # device-details Ansible panel). No controller scope here: the ad-hoc page
+    # lists launchable playbooks across all controllers.
+    case Playbook.list_launchable(%{}, actor: actor) do
       {:ok, rows} -> rows
       _ -> []
     end
