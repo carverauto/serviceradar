@@ -174,7 +174,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal do
                     <%= if map_markers != [] do %>
                       Tip: click markers for details.
                     <% else %>
-                      No GeoIP coordinates available for this flow yet (showing default map).
+                      No GeoIP coordinates or local-CIDR anchor for this flow yet (showing default map).
                     <% end %>
                   </div>
                 <% else %>

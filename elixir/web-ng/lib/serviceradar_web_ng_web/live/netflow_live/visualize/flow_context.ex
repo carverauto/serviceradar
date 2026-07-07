@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext do
   alias ServiceRadar.Observability.NetflowPortAnomalyFlag
   alias ServiceRadar.Observability.NetflowPortScanFlag
   alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
+  alias ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext.LocalAnchor
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext.MapMarkers
 
   require Ash.Query
@@ -60,12 +61,25 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext do
         lookup_device_uid_by_ip_or_mac(srql_module, scope, dst_ip, dst_mac)
       end)
 
+    # Load operator-defined local-CIDR anchors once, then resolve each endpoint
+    # by inet containment. GeoIP has no coordinates for private/local endpoints,
+    # so this is what stops them islanding on the flow-details map.
+    partition = flow_partition(flow)
+
+    anchors =
+      safe_flow_context_value(:local_anchors, fn -> LocalAnchor.load_anchors(scope) end) || []
+
+    src_anchor = LocalAnchor.resolve(anchors, src_ip, partition)
+    dst_anchor = LocalAnchor.resolve(anchors, dst_ip, partition)
+
     %{
       mapbox: safe_flow_context_value(:mapbox, fn -> read_mapbox(user) end),
       src_rdns: safe_flow_context_value(:src_rdns, fn -> read_rdns(user, src_ip) end),
       dst_rdns: safe_flow_context_value(:dst_rdns, fn -> read_rdns(user, dst_ip) end),
       src_geo: safe_flow_context_value(:src_geo, fn -> read_geo(user, src_ip) end),
       dst_geo: safe_flow_context_value(:dst_geo, fn -> read_geo(user, dst_ip) end),
+      src_anchor: src_anchor,
+      dst_anchor: dst_anchor,
       src_ipinfo: safe_flow_context_value(:src_ipinfo, fn -> read_ipinfo(user, src_ip) end),
       dst_ipinfo: safe_flow_context_value(:dst_ipinfo, fn -> read_ipinfo(user, dst_ip) end),
       src_threat: safe_flow_context_value(:src_threat, fn -> read_threat(user, src_ip) end),
@@ -108,6 +122,29 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext do
   end
 
   def normalize_ip(_), do: nil
+
+  @doc """
+  Best-effort read of a flow's partition (matches the anchor partition scope).
+
+  SRQL flow rows may or may not project `partition`; when absent this returns
+  `nil`, and the anchor resolver then matches regardless of partition rather
+  than islanding the endpoint.
+  """
+  def flow_partition(flow) when is_map(flow) do
+    (Map.get(flow, "partition") || Map.get(flow, :partition))
+    |> case do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          trimmed -> trimmed
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  def flow_partition(_flow), do: nil
 
   def normalize_mac(nil), do: nil
   def normalize_mac(""), do: nil
