@@ -186,6 +186,73 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
     refute html =~ ~r/data-group-id="sys_cluster"[^>]*data-active-group/
   end
 
+  test "a status card with a :navigate destination renders a link; a plain card does not" do
+    assigns = %{
+      stats: [
+        %{title: "API keys", value: 3, navigate: "/settings/api-credentials"},
+        %{title: "Uptime", value: 42}
+      ]
+    }
+
+    html =
+      rendered_to_string(~H"""
+      <Shell.settings_shell
+        current_path="/settings/profile"
+        current_scope={%Scope{permissions: MapSet.new([])}}
+        active_view={nil}
+        active_category={nil}
+        breadcrumbs={[]}
+        nav_tree={%{categories: [], groups: []}}
+        palette={[]}
+        stats={@stats}
+      >
+        <p>profile body</p>
+      </Shell.settings_shell>
+      """)
+
+    # The card carrying a `:navigate` destination is wrapped in a link to the
+    # managing page, with a hover affordance (the arrow icon), and still shows
+    # its title + value.
+    assert html =~ ~s(href="/settings/api-credentials")
+
+    assert html =~
+             ~s(class="stat py-2 group cursor-pointer transition-colors hover:bg-base-200")
+
+    assert html =~ "API keys"
+    assert html =~ "hero-arrow-up-right"
+
+    # The plain card (no destination) renders as a non-interactive `div.stat`
+    # (its class ends exactly at `stat py-2`, so it is not the linked variant).
+    assert html =~ ~s(class="stat py-2">)
+    assert html =~ "Uptime"
+
+    # Precise structural check: the linked card is an <a>, the plain card a <div>.
+    {:ok, doc} = Floki.parse_fragment(html)
+    linked = Floki.find(doc, ~s(a.stat[href="/settings/api-credentials"]))
+    assert linked != []
+    assert Floki.text(linked) =~ "API keys"
+
+    plain =
+      doc
+      |> Floki.find(".stats .stat")
+      |> Enum.filter(fn el -> Floki.text([el]) =~ "Uptime" end)
+
+    assert plain != []
+    assert Enum.all?(plain, fn {tag, _attrs, _children} -> tag == "div" end)
+  end
+
+  test "the profile (users) status cards carry per-resource navigate destinations" do
+    # `for_view/1`'s metric resolvers fail soft to nil without a DB, but each
+    # card's `:title`/`:navigate` are literals, so this stays DB-free.
+    cards = StatusCards.for_view(Catalog.view(:profile))
+    nav_by_title = Map.new(cards, fn card -> {card.title, Map.get(card, :navigate)} end)
+
+    assert nav_by_title["Total users"] == "/settings/auth/users"
+    assert nav_by_title["Active (30d)"] == "/settings/auth/users"
+    assert nav_by_title["Admins"] == "/settings/auth/users"
+    assert nav_by_title["API keys"] == "/settings/api-credentials"
+  end
+
   test "status strip is suppressed on a has_own_stats page (Cluster Status)" do
     # Cluster Status renders its own Oban metrics, so `for_view/1` returns
     # :suppressed and the shared strip must not render.
