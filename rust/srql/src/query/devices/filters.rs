@@ -38,6 +38,21 @@ use diesel::dsl::{not, sql};
 use diesel::prelude::*;
 use diesel::sql_types::{Array, Bool, Text};
 
+/// SQL predicate that identifies AWX / ansible-capable devices.
+///
+/// Mirrors `ServiceRadarWebNGWeb`'s `AnsiblePanelRuntime.awx_managed?/1`: the
+/// authoritative signal is the AWX inventory reference the backend materializes
+/// onto `metadata.awx` (`host_id` / `controller_id`), with a fallback to the
+/// `awx` / `ansible` discovery source so older rows still surface. The
+/// expression is fully parenthesized and NULL-safe (each branch yields a plain
+/// boolean, never NULL), so wrapping it in `NOT (...)` produces the exact
+/// complement. It binds no user input — every literal is hard-coded — so it
+/// contributes zero placeholders to the query.
+pub(in crate::query::devices) const AWX_MANAGED_PREDICATE: &str =
+    "(metadata -> 'awx' ->> 'host_id' IS NOT NULL \
+     OR metadata -> 'awx' ->> 'controller_id' IS NOT NULL \
+     OR COALESCE(discovery_sources, ARRAY[]::text[]) && ARRAY['awx', 'ansible']::text[])";
+
 pub(super) fn apply_filter<'a>(
     mut query: DeviceQuery<'a>,
     filter: &Filter,
@@ -208,6 +223,26 @@ pub(super) fn apply_filter<'a>(
                 query.filter(not(expr))
             } else {
                 query.filter(expr)
+            };
+        }
+        // Derived boolean: is this device part of an AWX inventory / ansible-capable?
+        // Not backed by a single column; translated to the AWX_MANAGED_PREDICATE.
+        "awx_managed" => {
+            let managed = parse_bool(filter.value.as_scalar()?)?;
+            let want_managed = match filter.op {
+                FilterOp::Eq => managed,
+                FilterOp::NotEq => !managed,
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "awx_managed only supports equality".into(),
+                    ));
+                }
+            };
+            let expr = sql::<Bool>(AWX_MANAGED_PREDICATE);
+            query = if want_managed {
+                query.filter(expr)
+            } else {
+                query.filter(not(expr))
             };
         }
         // JSONB path queries for os object

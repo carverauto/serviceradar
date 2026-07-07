@@ -132,6 +132,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "type",
         "vendor_name",
         "discovery_sources",
+        "awx_managed",
         "tags",
         "include_inactive",
         "include_deleted"
@@ -142,6 +143,11 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "is_managed",
         "is_compliant",
         "is_trusted",
+        # Derived predicate: device is in an AWX inventory / ansible-capable
+        # (backed by `metadata.awx.host_id`/`controller_id`, falling back to the
+        # `awx`/`ansible` discovery source). More discoverable than
+        # `discovery_sources:(awx)` and semantically "manageable by AWX".
+        "awx_managed",
         "include_inactive",
         "include_deleted"
       ],
@@ -165,7 +171,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
           "passive-netprobe",
           "camera_plugin",
           "manual"
-        ]
+        ],
+        # Derived boolean filter (see boolean_fields): editors offer the two
+        # truth values after `awx_managed:` so the completion is self-documenting.
+        "awx_managed" => ["true", "false"]
       },
       # Fields that support GROUP BY in stats queries (stats:count() as count by <field>)
       stats_fields: [

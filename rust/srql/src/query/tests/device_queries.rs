@@ -111,6 +111,70 @@ fn devices_discovery_sources_negation_builds_negative_array_filter() {
 }
 
 #[test]
+fn devices_awx_managed_true_builds_metadata_predicate() {
+    let query = "in:devices awx_managed:true";
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::Devices));
+    assert!(plan
+        .filters
+        .iter()
+        .any(|filter| filter.field == "awx_managed" && matches!(filter.op, FilterOp::Eq)));
+
+    // to_sql_and_params reconciles diesel bind count against collected params, so
+    // a successful build proves the derived predicate contributes zero binds.
+    let (sql, _params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+    assert!(
+        sql.contains("metadata -> 'awx' ->> 'host_id' IS NOT NULL")
+            && sql.contains("metadata -> 'awx' ->> 'controller_id' IS NOT NULL")
+            && sql.contains(
+                "COALESCE(discovery_sources, ARRAY[]::text[]) && ARRAY['awx', 'ansible']"
+            ),
+        "expected awx_managed metadata predicate, got: {sql}"
+    );
+    assert!(
+        !sql.contains("NOT (metadata -> 'awx'"),
+        "awx_managed:true should not negate the predicate, got: {sql}"
+    );
+}
+
+#[test]
+fn devices_awx_managed_false_negates_predicate() {
+    let query = "in:devices awx_managed:false";
+    let plan = plan_for(query);
+
+    let (sql, _params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+    assert!(
+        sql.contains("NOT (") && sql.contains("metadata -> 'awx' ->> 'host_id' IS NOT NULL"),
+        "expected awx_managed:false to negate the metadata predicate, got: {sql}"
+    );
+}
+
+#[test]
+fn devices_awx_managed_negation_operator_matches_false() {
+    // `!awx_managed:true` should be equivalent to `awx_managed:false`.
+    let plan = plan_for("in:devices !awx_managed:true");
+    let (sql, _params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+    assert!(
+        sql.contains("NOT (") && sql.contains("metadata -> 'awx' ->> 'host_id' IS NOT NULL"),
+        "expected !awx_managed:true to negate the metadata predicate, got: {sql}"
+    );
+}
+
+#[test]
+fn devices_stats_awx_managed_uses_metadata_predicate() {
+    let query = "in:devices awx_managed:true stats:count() as total by type limit:10";
+    let plan = plan_for(query);
+
+    let (sql, _params) = devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("metadata -> 'awx' ->> 'host_id' is not null"),
+        "expected grouped stats awx_managed predicate, got: {sql}"
+    );
+}
+
+#[test]
 fn devices_stats_discovery_sources_uses_overlap() {
     let query =
         "in:devices discovery_sources:(sweep,armis) stats:count() as total by type limit:10";
