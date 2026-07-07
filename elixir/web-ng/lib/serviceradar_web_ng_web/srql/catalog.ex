@@ -708,6 +708,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "gateway_id",
         "agent_id",
         "severity",
+        "severity_text",
+        "severity_number",
         "source",
         "message",
         "event_name",
@@ -717,6 +719,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "ingest_agent_id",
         "ingest_partition"
       ],
+      numeric_fields: ["severity_number"],
       downsample: false
     },
     %{

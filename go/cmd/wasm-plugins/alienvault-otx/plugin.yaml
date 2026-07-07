@@ -1,10 +1,15 @@
 id: alienvault-otx-threat-intel
 name: AlienVault OTX Threat Intel
-version: 0.2.0
+version: 0.3.0
 description: Collects AlienVault OTX export pages and emits normalized threat-intel indicators
 entrypoint: run_check
 runtime: wasi-preview1
 outputs: serviceradar.plugin_result.v1
+# Cadence: OTX threat-intel does not need frequent pulls. Assign this plugin a
+# daily check interval (~86400s). The plugin also self-throttles: a completed
+# pull is repeated at most once per `min_pull_interval_ms` (default ~24h), so a
+# tighter agent interval returns a fast healthy no-op instead of hammering OTX.
+recommended_interval_seconds: 86400
 capabilities:
   - get_config
   - log

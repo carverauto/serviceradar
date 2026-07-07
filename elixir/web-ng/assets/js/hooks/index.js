@@ -1,3 +1,4 @@
+import AllMetadataCard from "./AllMetadataCard"
 import BulkEditTagsToggle from "./BulkEditTagsToggle"
 import CameraRelayStatusStream from "./CameraRelayStatusStream"
 import CommandPalette from "./CommandPalette"
@@ -41,6 +42,7 @@ import FlowDonut from "./charts/FlowDonut"
 import BandwidthGauge from "./charts/BandwidthGauge"
 
 export default {
+  AllMetadataCard,
   BulkEditTagsToggle,
   CameraRelayStatusStream,
   CommandPalette,

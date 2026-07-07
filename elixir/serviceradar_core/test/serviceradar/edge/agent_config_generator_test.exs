@@ -718,6 +718,243 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
                max_open_connections: 2
              }
     end
+
+    test "wildcard-aware domain narrowing scopes manifest domains against the approved set", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      {:ok, _agent} = create_connected_agent(actor, agent_uid)
+
+      # Wildcard manifest narrowed by a specific approved set collapses to the
+      # approved set. This is the dusk-checker regression: a manifest of `["*"]`
+      # narrowed by an approved `["localhost", "127.0.0.1"]` must yield the
+      # approved set, NOT `[]` (which denied the plugin all egress).
+      assert effective_allowed_domains(
+               actor,
+               agent_uid,
+               unique_id,
+               ["*"],
+               ["localhost", "127.0.0.1"]
+             ) == ["localhost", "127.0.0.1"]
+
+      # Specific manifest with a wildcard approval keeps the manifest scope: the
+      # approval allows anything, but the effective scope never broadens past the
+      # manifest.
+      assert effective_allowed_domains(
+               actor,
+               agent_uid,
+               unique_id,
+               ["a.example.com", "b.example.com"],
+               ["*"]
+             ) == ["a.example.com", "b.example.com"]
+
+      # Wildcard on both sides stays a wildcard.
+      assert effective_allowed_domains(actor, agent_uid, unique_id, ["*"], ["*"]) == ["*"]
+
+      # Specific vs specific is the intersection, preserving manifest order.
+      assert effective_allowed_domains(
+               actor,
+               agent_uid,
+               unique_id,
+               ["a.example.com", "b.example.com"],
+               ["b.example.com", "c.example.com"]
+             ) == ["b.example.com"]
+
+      # An empty manifest scope always denies, even against a specific approval.
+      assert effective_allowed_domains(actor, agent_uid, unique_id, [], ["a.example.com"]) == []
+    end
+
+    test "granting a capability bumps the config version hash so agents redeliver", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      {:ok, _agent} = create_connected_agent(actor, agent_uid)
+      plugin_id = "plugin-capver-#{unique_id}"
+      name = "Plugin CapVer #{unique_id}"
+
+      manifest =
+        plugin_id
+        |> plugin_manifest(name)
+        |> Map.put("capabilities", ["log", "submit_result", "http_request"])
+        |> Map.put("permissions", %{"allowed_domains" => ["localhost"], "allowed_ports" => [8080]})
+
+      {:ok, _plugin} =
+        Plugin
+        |> Ash.Changeset.for_create(:create, %{plugin_id: plugin_id, name: name}, actor: actor)
+        |> Ash.create()
+
+      {:ok, package} =
+        PluginPackage
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            plugin_id: plugin_id,
+            name: name,
+            version: "1.0.0",
+            entrypoint: "run_check",
+            outputs: "serviceradar.plugin_result.v1",
+            manifest: manifest,
+            config_schema: %{},
+            display_contract: %{},
+            content_hash: "sha256:#{plugin_id}",
+            signature: %{},
+            source_type: :upload
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, package} =
+        package
+        |> Ash.Changeset.for_update(
+          :update,
+          %{wasm_object_key: "plugins/#{plugin_id}/plugin.wasm"},
+          actor: actor
+        )
+        |> Ash.update()
+
+      # Approve WITHOUT http_request.
+      {:ok, package} =
+        package
+        |> Ash.Changeset.for_update(
+          :approve,
+          %{approved_by: "test", approved_capabilities: ["log", "submit_result"]},
+          actor: actor
+        )
+        |> Ash.update()
+
+      {:ok, _assignment} =
+        PluginAssignment
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            agent_uid: agent_uid,
+            plugin_package_id: package.id,
+            enabled: true,
+            interval_seconds: 60,
+            timeout_seconds: 10,
+            params: %{}
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, config_without} = AgentConfigGenerator.generate_config(agent_uid)
+      refute "http_request" in hd(config_without.plugins).capabilities
+
+      # Idempotent: an unchanged config generates the same version hash (guards
+      # against volatile-field churn making the != assertion below trivially pass).
+      {:ok, config_without_again} = AgentConfigGenerator.generate_config(agent_uid)
+      assert config_without_again.config_version == config_without.config_version
+
+      # Grant http_request on the SAME package + assignment (revoke -> restage ->
+      # approve keeps the assignment_id stable, so the ONLY change is the capability).
+      {:ok, package} =
+        package |> Ash.Changeset.for_update(:revoke, %{}, actor: actor) |> Ash.update()
+
+      {:ok, package} =
+        package |> Ash.Changeset.for_update(:restage, %{}, actor: actor) |> Ash.update()
+
+      {:ok, _package} =
+        package
+        |> Ash.Changeset.for_update(
+          :approve,
+          %{approved_by: "test", approved_capabilities: ["log", "submit_result", "http_request"]},
+          actor: actor
+        )
+        |> Ash.update()
+
+      {:ok, config_with} = AgentConfigGenerator.generate_config(agent_uid)
+      assert "http_request" in hd(config_with.plugins).capabilities
+
+      # The capability grant MUST change the version hash so the gateway serves a
+      # new config and the agent relaunches the plugin with the new capability.
+      refute config_with.config_version == config_without.config_version
+    end
+  end
+
+  # Creates a plugin package whose manifest declares `allowed_domains == manifest_domains`,
+  # approves it with `approved_permissions.allowed_domains == approved_domains`, assigns it
+  # to the agent (no assignment-level override), and returns the effective
+  # `allowed_domains` the config generator computes. Exercises `narrow_string_scope/2`
+  # end-to-end through the manifest -> approved-permissions narrowing.
+  defp effective_allowed_domains(actor, agent_uid, unique_id, manifest_domains, approved_domains) do
+    plugin_id = "plugin-scope-#{unique_id}-#{System.unique_integer([:positive])}"
+    name = "Plugin Scope #{plugin_id}"
+
+    manifest =
+      plugin_id
+      |> plugin_manifest(name)
+      |> Map.put("permissions", %{"allowed_domains" => manifest_domains})
+
+    {:ok, _plugin} =
+      Plugin
+      |> Ash.Changeset.for_create(:create, %{plugin_id: plugin_id, name: name}, actor: actor)
+      |> Ash.create()
+
+    {:ok, package} =
+      PluginPackage
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          plugin_id: plugin_id,
+          name: name,
+          version: "1.0.0",
+          entrypoint: "run_check",
+          outputs: "serviceradar.plugin_result.v1",
+          manifest: manifest,
+          config_schema: %{},
+          display_contract: %{},
+          content_hash: "sha256:#{plugin_id}",
+          signature: %{},
+          source_type: :upload
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, package} =
+      package
+      |> Ash.Changeset.for_update(
+        :update,
+        %{wasm_object_key: "plugins/#{plugin_id}/plugin.wasm"},
+        actor: actor
+      )
+      |> Ash.update()
+
+    {:ok, package} =
+      package
+      |> Ash.Changeset.for_update(
+        :approve,
+        %{approved_by: "test", approved_permissions: %{allowed_domains: approved_domains}},
+        actor: actor
+      )
+      |> Ash.update()
+
+    {:ok, _assignment} =
+      PluginAssignment
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          agent_uid: agent_uid,
+          plugin_package_id: package.id,
+          enabled: true,
+          interval_seconds: 60,
+          timeout_seconds: 10,
+          params: %{}
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+
+    config.plugins
+    |> Enum.find(&(&1.plugin_id == plugin_id))
+    |> Map.fetch!(:permissions)
+    |> Map.fetch!(:allowed_domains)
   end
 
   defp plugin_manifest(plugin_id, name) do

@@ -14,6 +14,9 @@ type httpClient interface {
 }
 
 func doOTXHostHTTPRequest(apiURL, apiKey string, timeoutMS int) (*sdk.HTTPResponse, error) {
+	// Count every upstream attempt (including adaptive page splits and retries)
+	// so a totally-rejected daily pull can report how hard it tried.
+	otxAttempts++
 	return otxHTTP.Do(sdk.HTTPRequest{
 		Method: http.MethodGet,
 		URL:    apiURL,

@@ -136,6 +136,7 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
       message: "Credential secret resolution #{outcome}",
       correlation_uid: "network_credential_secret:#{secret_id}",
       log_name: "credential.secret_resolution",
+      log_level: routine_log_level(severity_id),
       metadata: metadata,
       observables:
         observables([
@@ -179,6 +180,7 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
       message: "Credential broker grant #{grant_id} #{human_action(action)}",
       correlation_uid: "credential_broker_grant:#{grant_id}",
       log_name: "credential.broker_grant.lifecycle",
+      log_level: routine_log_level(severity_id),
       metadata: metadata,
       observables:
         observables([
@@ -219,7 +221,7 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
       actor: %{user: %{uid: "system", name: "ServiceRadar Credential Broker"}},
       log_name: Keyword.fetch!(opts, :log_name),
       log_provider: "serviceradar.core",
-      log_level: log_level(severity_id),
+      log_level: Keyword.get(opts, :log_level) || log_level(severity_id),
       unmapped: Keyword.get(opts, :metadata, %{}),
       raw_data: Jason.encode!(Keyword.get(opts, :metadata, %{}))
     }
@@ -281,6 +283,20 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
       severity_id >= OCSF.severity_high() -> "error"
       severity_id >= OCSF.severity_medium() -> "warning"
       true -> "info"
+    end
+  end
+
+  # Routine, successful credential activity (secret resolution success/cache
+  # hit, normal grant issuance/lifecycle) is high-frequency and pure noise at
+  # info level, so log it at debug. The OCSF severity stays informational (the
+  # correct classification) while only the emitted log level is lowered.
+  # Failures, denials, revocations, and expiries carry a higher severity, so
+  # they keep their severity-derived level (info/warning+) and stay visible.
+  defp routine_log_level(severity_id) do
+    if severity_id <= OCSF.severity_informational() do
+      "debug"
+    else
+      log_level(severity_id)
     end
   end
 

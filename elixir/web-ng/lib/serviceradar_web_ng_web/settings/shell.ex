@@ -379,20 +379,44 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
   # Renders whatever card list the shell is handed. Suppressed entirely when the
   # active page renders its own metrics (`:suppressed`) or there are no cards.
   # Each card value degrades to an em dash when nil.
+  #
+  # A card that carries a `:navigate` destination renders as a link to the page
+  # that manages the underlying resource (with a hover affordance); cards without
+  # one render as a plain, non-interactive metric.
   attr(:stats, :any, default: [])
 
   defp status_strip(assigns) do
     ~H"""
     <div :if={is_list(@stats) and @stats != []} class="px-3 pt-3 md:px-4">
       <div class="stats stats-vertical sm:stats-horizontal w-full overflow-x-auto border border-base-200 bg-base-100 shadow-sm">
-        <div :for={card <- @stats} class="stat py-2">
-          <div class="stat-title text-xs">{card.title}</div>
-          <div class="stat-value text-lg">{stat_display(card.value)}</div>
-        </div>
+        <%= for card <- @stats do %>
+          <.link
+            :if={card_nav(card)}
+            navigate={card_nav(card)}
+            class="stat py-2 group cursor-pointer transition-colors hover:bg-base-200"
+          >
+            <div class="stat-title text-xs flex items-center gap-1">
+              {card.title}
+              <.icon
+                name="hero-arrow-up-right"
+                class="size-3 opacity-0 transition-opacity group-hover:opacity-60"
+              />
+            </div>
+            <div class="stat-value text-lg">{stat_display(card.value)}</div>
+          </.link>
+          <div :if={!card_nav(card)} class="stat py-2">
+            <div class="stat-title text-xs">{card.title}</div>
+            <div class="stat-value text-lg">{stat_display(card.value)}</div>
+          </div>
+        <% end %>
       </div>
     </div>
     """
   end
+
+  # Optional per-card link destination. `nil` (the default) renders a plain card.
+  defp card_nav(card) when is_map(card), do: Map.get(card, :navigate)
+  defp card_nav(_), do: nil
 
   # --- Ctrl+K command palette (<dialog> + JS hook) ---------------------------
   attr(:palette, :list, default: [])

@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
   use ServiceRadarWebNGWeb, :html
 
   import ServiceRadarWebNGWeb.DeviceLive.AgentComponents
+  import ServiceRadarWebNGWeb.DeviceLive.AllMetadataComponents
   import ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents
   import ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents
   import ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents
@@ -172,6 +173,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               <.discovery_sources_section :if={is_map(@device_row)} device_row={@device_row} />
 
               <.metadata_summary_section :if={is_map(@device_row)} device_row={@device_row} />
+
+              <.all_metadata_section :if={is_map(@device_row)} device_row={@device_row} />
 
               <.network_visibility_section :if={is_map(@device_row)} device_row={@device_row} />
 

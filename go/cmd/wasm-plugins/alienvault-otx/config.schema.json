@@ -56,17 +56,24 @@
     },
     "max_retries": {
       "type": "integer",
-      "description": "Retry attempts for transient OTX page fetch failures",
+      "description": "Retry attempts for transient OTX page fetch failures (timeouts, HTTP 5xx incl 504, connection errors). Auth/4xx errors fail fast. attempts = max_retries + 1.",
       "minimum": 0,
-      "maximum": 5,
-      "default": 3
+      "maximum": 7,
+      "default": 5
     },
     "backoff_ms": {
       "type": "integer",
-      "description": "Base retry backoff in milliseconds",
+      "description": "Base retry backoff in milliseconds; bounded exponential (factor 2) with equal jitter, capped at 30000ms",
       "minimum": 100,
       "maximum": 30000,
-      "default": 1000
+      "default": 2000
+    },
+    "min_pull_interval_ms": {
+      "type": "integer",
+      "description": "Self-throttle window: a fresh OTX pull runs at most once per this interval (default ~24h) even if the agent runs the check more often. Set 0 to disable throttling. Partial (paged) walks always resume regardless of this window.",
+      "minimum": 0,
+      "maximum": 604800000,
+      "default": 86400000
     }
   },
   "required": ["api_key_secret_ref"]

@@ -66,8 +66,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.SecurityHeaders do
   # `Plug.Conn.AlreadySentError`, turning every websocket upgrade in a
   # pipeline with this plug into a 500. Skip: an upgraded (or already-sent)
   # response has no browser document left to protect.
-  defp apply_headers(%Plug.Conn{state: state} = conn, _opts)
-       when state in [:sent, :upgraded] do
+  defp apply_headers(%Plug.Conn{state: state} = conn, _opts) when state in [:sent, :upgraded] do
     conn
   end
 

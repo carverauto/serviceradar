@@ -125,6 +125,32 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestorTest do
              } == ThreatIntelPluginIngestor.cursor_params(%{"complete" => "true"}, now)
     end
 
+    test "round-trips the plugin-stamped last_pull_at when a walk completes" do
+      now = ~U[2026-07-06 19:00:00Z]
+
+      assert %{
+               "page" => 1,
+               "cursor_complete" => true,
+               "cursor_next" => nil,
+               "modified_since" => "2026-07-04T19:00:00Z",
+               "last_pull_at" => "2026-07-06T18:59:00Z"
+             } ==
+               ThreatIntelPluginIngestor.cursor_params(
+                 %{"complete" => "true", "last_pull_at" => "2026-07-06T18:59:00Z"},
+                 now
+               )
+    end
+
+    test "does not persist last_pull_at while a walk is still in progress" do
+      cursor = %{
+        "complete" => "false",
+        "next_page" => "24",
+        "last_pull_at" => "2026-07-06T18:59:00Z"
+      }
+
+      refute Map.has_key?(ThreatIntelPluginIngestor.cursor_params(cursor), "last_pull_at")
+    end
+
     test "returns no params when the cursor is empty or not a map" do
       assert ThreatIntelPluginIngestor.cursor_params(%{}) == %{}
       assert ThreatIntelPluginIngestor.cursor_params(nil) == %{}

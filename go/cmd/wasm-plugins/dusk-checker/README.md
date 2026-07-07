@@ -51,8 +51,13 @@ Example params JSON:
 
 ### Default Permissions
 
-- **Allowed domains**: `*` (all domains)
-- **Allowed ports**: Port from node_address (e.g., 8080)
+- **Allowed domains**: `localhost`, `127.0.0.1` (the local RUES node on the same VM)
+- **Allowed ports**: `8080` (the RUES http/ws port)
+
+Pointing the plugin at a remote Dusk node (a non-loopback host or a different
+port such as a `wss://host:9000` endpoint) requires an operator to widen these
+scopes when approving the package (`approved_permissions`) or on the assignment
+(`permissions_override`). The manifest ships minimal for the default local case.
 
 ## Result Format
 

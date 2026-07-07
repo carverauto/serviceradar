@@ -24,6 +24,7 @@ import (
 	"os"
 
 	ggrpc "google.golang.org/grpc"
+	grpcstats "google.golang.org/grpc/stats"
 
 	"github.com/carverauto/serviceradar/go/pkg/config"
 	cfgbootstrap "github.com/carverauto/serviceradar/go/pkg/config/bootstrap"
@@ -35,6 +36,32 @@ import (
 
 //go:embed config.json
 var defaultConfig []byte
+
+// untracedMethods lists high-frequency gRPC methods whose OTel spans are pure
+// noise and are excluded from datasvc tracing. proto.KVService/Put fires on
+// every KV write and would otherwise dominate span volume. Add further methods
+// here (e.g. "/proto.KVService/Get") if they become equally noisy.
+//nolint:gochecknoglobals // a small, immutable allowlist; a package-level slice is the clearest form
+var untracedMethods = []string{
+	"/proto.KVService/Put",
+}
+
+// datasvcTelemetryFilter reports whether an RPC should emit a span. It drops the
+// methods listed in untracedMethods while tracing everything else. Health and
+// reflection chatter is already filtered by the shared gRPC server.
+func datasvcTelemetryFilter(info *grpcstats.RPCTagInfo) bool {
+	if info == nil {
+		return true
+	}
+
+	for _, method := range untracedMethods {
+		if info.FullMethodName == method {
+			return false
+		}
+	}
+
+	return true
+}
 
 func main() {
 	configPath := flag.String("config", "/etc/serviceradar/datasvc.json", "Path to config file")
@@ -139,8 +166,11 @@ func main() {
 		// Telemetry enabled so web-ng -> core-elx -> datasvc traces compose
 		// end-to-end. Span volume rides the parent sampling decision
 		// (health/reflection chatter is already filtered by the lifecycle
-		// infra filter); a TelemetryFilter can scope this further later.
+		// infra filter). The TelemetryFilter below additionally drops
+		// high-frequency KV write spans (proto.KVService/Put) that are pure
+		// noise.
 		DisableTelemetry: false,
+		TelemetryFilter:  datasvcTelemetryFilter,
 		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{
 			func(srv *ggrpc.Server) error {
 				proto.RegisterKVServiceServer(srv, server)
