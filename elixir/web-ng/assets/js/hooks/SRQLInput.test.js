@@ -38,6 +38,20 @@ const catalog = {
       },
       label: "Events",
     },
+    devices: {
+      default_sort: {field: "last_seen", direction: "desc"},
+      fields: {
+        array: ["discovery_sources", "tags"],
+        boolean: ["is_active"],
+        filter: ["hostname", "ip", "discovery_sources", "tags", "is_active"],
+        numeric: [],
+        series: [],
+        stats: [],
+        value: [],
+      },
+      enums: {discovery_sources: ["agent", "awx", "armis"]},
+      label: "Devices",
+    },
   },
   operators: [":"],
 }
@@ -116,5 +130,52 @@ describe("SRQLInput hook", () => {
     for (const token of state.tokens) {
       expect(hook.isUnknown(token), `${token.kind}:${token.text}`).toBe(false)
     }
+  })
+
+  test("surfaces entity fields for a bare filter after in:devices", () => {
+    const query = "in:devices dis"
+    const state = tokenize(query, query.length)
+    const hook = hookFor(state)
+
+    expect(hook.buildCandidates(state)).toContainEqual({
+      value: "discovery_sources",
+      label: "discovery_sources",
+      detail: "Field",
+      slot: "field",
+      array: true,
+    })
+  })
+
+  test("marks array fields so the accept scaffolds parenthesized set syntax", () => {
+    const query = "in:devices "
+    const state = tokenize(query, query.length)
+    const hook = hookFor(state)
+    const candidate = hook.fieldSlotCandidates(state).find(item => item.value === "discovery_sources")
+
+    expect(candidate).toMatchObject({value: "discovery_sources", array: true})
+    // Plain fields stay unscaffolded.
+    expect(hook.fieldSlotCandidates(state).find(item => item.value === "hostname").array).toBeUndefined()
+  })
+
+  test("suggests known discovery_sources values", () => {
+    const query = "in:devices discovery_sources:awx"
+    const state = tokenize(query, query.length)
+    const hook = hookFor(state)
+
+    expect(hook.valueCandidates(state)).toContainEqual({
+      value: "awx",
+      label: "awx",
+      detail: "Value",
+      slot: "value",
+    })
+  })
+
+  test("matches enum values inside a parenthesized set, ignoring the paren", () => {
+    const query = "in:devices discovery_sources:(aw"
+    const state = tokenize(query, query.length)
+    const hook = hookFor(state)
+
+    const values = hook.buildCandidates(state).map(candidate => candidate.value)
+    expect(values).toContain("awx")
   })
 })

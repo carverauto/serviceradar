@@ -147,6 +147,26 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       ],
       # Fields backed by array columns - builder will always use list syntax for these
       array_fields: ["discovery_sources", "tags"],
+      # Low-cardinality fields with a stable, curated value set. Editors offer
+      # these as completions so users discover the correct spelling/syntax (e.g.
+      # `discovery_sources:(awx)`) instead of guessing `%awx%`. Static by design:
+      # never run `SELECT DISTINCT` per keystroke.
+      known_values: %{
+        "discovery_sources" => [
+          "agent",
+          "sweep",
+          "armis",
+          "proxmox",
+          "mapper",
+          "sighting",
+          "hypervisor_enrichment",
+          "sysmon",
+          "awx",
+          "passive-netprobe",
+          "camera_plugin",
+          "manual"
+        ]
+      },
       # Fields that support GROUP BY in stats queries (stats:count() as count by <field>)
       stats_fields: [
         "type",
@@ -720,6 +740,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "ingest_partition"
       ],
       numeric_fields: ["severity_number"],
+      # Canonical normalized OTel severity texts (see log_promotion_parser.ex).
+      known_values: %{
+        "severity_text" => ["FATAL", "ERROR", "WARN", "INFO", "DEBUG"]
+      },
       downsample: false
     },
     %{
@@ -1462,12 +1486,26 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
        },
        "default_time" => Map.get(entity, :default_time, ""),
        "downsample" => Map.get(entity, :downsample, false),
+       # Curated, low-cardinality value sets keyed by field name. Empty map when
+       # the entity declares no `known_values`. Editors offer these after
+       # `field:` / inside `field:(` so users discover valid values.
+       "enums" => entity |> Map.get(:known_values, %{}) |> normalize_enums(),
        "fields" => fields,
        "label" => Map.get(entity, :label, entity.id),
        "route" => Map.get(entity, :route),
        "route_params" => Map.get(entity, :route_params, %{})
      }}
   end
+
+  # Preserve the declared value order (severity reads FATAL..DEBUG, not
+  # alphabetized) while guaranteeing string keys/values for JSON encoding.
+  defp normalize_enums(%{} = known_values) do
+    Map.new(known_values, fn {field, values} ->
+      {to_string(field), Enum.map(values, &to_string/1)}
+    end)
+  end
+
+  defp normalize_enums(_), do: %{}
 
   defp control_tokens do
     Enum.sort(@completion_control_tokens)

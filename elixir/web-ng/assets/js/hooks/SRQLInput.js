@@ -153,7 +153,7 @@ export default {
   },
 
   buildCandidates(state) {
-    const raw = this.activeText(state).toLowerCase()
+    const raw = this.candidateFilterText(state).toLowerCase()
     let candidates = []
 
     if (state.slot === "entity") {
@@ -164,18 +164,23 @@ export default {
         slot: "entity",
       }))
     } else if (state.slot === "field") {
-      candidates = this.fieldCandidates(state).map(({value, detail}) => ({value, label: value, detail, slot: "field"}))
+      candidates = this.fieldSlotCandidates(state)
     } else if (state.slot === "op") {
       candidates = (this.catalog.operators || []).map(value => ({value, label: value, detail: "Operator", slot: "op"}))
     } else if (state.slot === "value") {
       candidates = this.valueCandidates(state)
     } else if (state.slot === "control") {
-      candidates = unique(["in:", ...(this.catalog.control_tokens || [])]).map(value => ({
+      const controls = unique(["in:", ...(this.catalog.control_tokens || [])]).map(value => ({
         value,
         label: value,
         detail: "Control",
         slot: "control",
       }))
+
+      // A bare `field:value` filter is valid here, so once an entity is chosen
+      // surface its fields alongside the control tokens (this is what lets users
+      // discover fields like `discovery_sources` after `in:devices`).
+      candidates = state.entity ? [...this.fieldSlotCandidates(state), ...controls] : controls
     }
 
     if (!raw || this.forceAllCandidates) return candidates
@@ -187,6 +192,14 @@ export default {
     if (state.activeToken) return state.activeToken.text
     if (!state.activeRange) return ""
     return this.input.value.slice(state.activeRange.start, state.activeRange.end)
+  },
+
+  // When filtering value candidates, ignore set/list punctuation so that the
+  // partial value in `discovery_sources:(aw` matches `awx`.
+  candidateFilterText(state) {
+    const text = this.activeText(state)
+    if (state.slot !== "value") return text
+    return text.slice(valuePrefixOffset(text))
   },
 
   fieldsForEntity(entityId) {
@@ -218,8 +231,26 @@ export default {
     return this.fieldsForEntity(state.entity).map(value => ({value, detail: "Field"}))
   },
 
+  fieldSlotCandidates(state) {
+    const arrays = new Set(this.arrayFields(state.entity))
+
+    return this.fieldCandidates(state).map(({value, detail}) => {
+      const base = {value, label: value, detail, slot: "field"}
+      // Only filter fields (not sort fields) get the parenthesized-set scaffold.
+      return detail === "Field" && arrays.has(value) ? {...base, array: true} : base
+    })
+  },
+
   valueCandidates(state) {
     const field = nearestField(state.tokens, state.activeRange?.start ?? 0)
+
+    if (field) {
+      const enumValues = this.enumValues(state.entity, field.text)
+      if (enumValues.length > 0) {
+        return enumValues.map(value => ({value, label: value, detail: "Value", slot: "value"}))
+      }
+    }
+
     if (field && this.booleanFields(state.entity).includes(field.text)) {
       return BOOLEAN_VALUES.map(value => ({value, label: value, detail: "Boolean", slot: "value"}))
     }
@@ -244,6 +275,20 @@ export default {
 
     const entity = this.catalog.entities?.[entityId]
     return entity?.fields?.boolean || []
+  },
+
+  arrayFields(entityId) {
+    if (!entityId) {
+      return unique(Object.values(this.catalog.entities || {}).flatMap(entity => entity?.fields?.array || []))
+    }
+
+    return this.catalog.entities?.[entityId]?.fields?.array || []
+  },
+
+  enumValues(entityId, field) {
+    if (!entityId || !field) return []
+
+    return this.catalog.entities?.[entityId]?.enums?.[field] || []
   },
 
   renderOverlay() {
@@ -327,8 +372,18 @@ export default {
 
   hintValues(token) {
     if (token.kind === "entity") return Object.keys(this.catalog.entities || {})
-    if (token.kind === "field") return this.fieldsForEntity(this.state.entity)
+    if (token.kind === "field") {
+      const enumValues = this.enumValues(this.state.entity, token.text)
+      if (enumValues.length > 0) return enumValues
+      return this.fieldsForEntity(this.state.entity)
+    }
     if (token.kind === "op") return this.catalog.operators || []
+    if (token.kind === "value") {
+      const field = nearestField(this.state.tokens, token.start)
+      const enumValues = field ? this.enumValues(this.state.entity, field.text) : []
+      if (enumValues.length > 0) return enumValues
+      return []
+    }
     if (token.kind === "control") {
       if (token.text === "in:") return Object.keys(this.catalog.entities || {})
       if (token.text === "where") return this.fieldsForEntity(this.state.entity)
@@ -397,6 +452,13 @@ export default {
   },
 
   replacementRange(candidate, range) {
+    if (candidate.slot === "value") {
+      // Preserve any leading `(` / `,` when replacing the partial value inside a set.
+      const tokenText = this.input.value.slice(range.start, range.end)
+      const offset = valuePrefixOffset(tokenText)
+      return offset > 0 ? {start: range.start + offset, end: range.end} : range
+    }
+
     if (candidate.slot !== "field") return range
 
     const next = this.state.tokens.find(token => token.start === range.end && token.kind === "op" && token.text === ":")
@@ -458,6 +520,8 @@ function isSubsequence(needle, haystack) {
 
 function completionText(candidate) {
   if (candidate.slot === "entity") return `${candidate.value} `
+  // Array columns need parenthesized set syntax, e.g. discovery_sources:(awx).
+  if (candidate.slot === "field" && candidate.array) return `${candidate.value}:(`
   if (candidate.slot === "field" && !candidate.value.endsWith(":")) return `${candidate.value}:`
   if (candidate.slot === "control" && candidate.value === "where") return "where "
   return candidate.value
@@ -472,6 +536,17 @@ function textWidth(text, style) {
 
 function nearestField(tokens, position) {
   return [...tokens].reverse().find(token => token.kind === "field" && token.end <= position)
+}
+
+// Offset to the start of the value currently being typed within a token,
+// skipping leading set punctuation (`(`, `[`, `,`).
+function valuePrefixOffset(text) {
+  let offset = 0
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]
+    if (char === "(" || char === "[" || char === ",") offset = index + 1
+  }
+  return offset
 }
 
 function directValueControl(tokens, position) {
