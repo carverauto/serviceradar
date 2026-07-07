@@ -109,6 +109,15 @@ jobs:
           run_quality serviceradar_srql elixir/serviceradar_srql
           run_quality web-ng elixir/web-ng --phoenix
 
+      - name: Check committed OpenAPI spec is up to date
+        working-directory: elixir/web-ng
+        run: |
+          # The developer portal fetches this committed artifact from the repo
+          # instead of the live demo site, so it must match the live spec served
+          # at /api/v2/open_api. Regenerate + commit with:
+          #   (cd elixir/web-ng && mix serviceradar.openapi.dump)
+          mix serviceradar.openapi.dump --check
+
       - name: Check database bootstrap baseline
         env:
           BASELINE_DATABASE_URL: ${{ secrets.SERVICERADAR_BASELINE_DATABASE_URL }}
