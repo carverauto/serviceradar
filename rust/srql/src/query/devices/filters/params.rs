@@ -81,6 +81,11 @@ pub(in crate::query::devices) fn collect_filter_params(
             let _ = parse_bool(filter.value.as_scalar()?)?;
             Ok(())
         }
+        // Derived predicate over metadata/discovery_sources literals: binds nothing.
+        "awx_managed" => {
+            let _ = parse_bool(filter.value.as_scalar()?)?;
+            Ok(())
+        }
         "discovery_sources" => {
             let values = match &filter.value {
                 FilterValue::Scalar(v) => vec![v.to_string()],

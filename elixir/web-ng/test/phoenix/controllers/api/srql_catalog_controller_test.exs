@@ -59,6 +59,13 @@ defmodule ServiceRadarWebNGWeb.Api.SrqlCatalogControllerTest do
       assert "awx" in device_enums["discovery_sources"]
       assert "armis" in device_enums["discovery_sources"]
 
+      # Derived AWX/ansible-capable predicate is a first-class boolean filter and
+      # advertises its two truth values so the editor can complete `awx_managed:`.
+      device_fields = response["entities"]["devices"]["fields"]
+      assert "awx_managed" in device_fields["filter"]
+      assert "awx_managed" in device_fields["boolean"]
+      assert device_enums["awx_managed"] == ["true", "false"]
+
       log_enums = response["entities"]["logs"]["enums"]
       assert "ERROR" in log_enums["severity_text"]
       # Declared severity order is preserved (not alphabetized).

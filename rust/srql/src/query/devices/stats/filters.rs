@@ -46,6 +46,7 @@ pub(super) fn build_grouped_stats_filter_clause(
             return Ok(None);
         }
         "deleted" => build_deleted_clause(filter)?,
+        "awx_managed" => build_awx_managed_clause(filter)?,
         "discovery_sources" => build_discovery_sources_clause(filter, &mut binds)?,
         field if field.starts_with("metadata.") => {
             let key = field.strip_prefix("metadata.").unwrap();
@@ -130,6 +131,25 @@ fn build_deleted_clause(filter: &Filter) -> Result<String> {
             "deleted filter only supports equality".into(),
         )),
     }
+}
+
+fn build_awx_managed_clause(filter: &Filter) -> Result<String> {
+    let managed = super::super::filters::parse_bool(filter.value.as_scalar()?)?;
+    let want_managed = match filter.op {
+        FilterOp::Eq => managed,
+        FilterOp::NotEq => !managed,
+        _ => {
+            return Err(ServiceError::InvalidRequest(
+                "awx_managed filter only supports equality".into(),
+            ));
+        }
+    };
+    let predicate = super::super::filters::AWX_MANAGED_PREDICATE;
+    Ok(if want_managed {
+        predicate.to_string()
+    } else {
+        format!("NOT {predicate}")
+    })
 }
 
 fn build_discovery_sources_clause(
