@@ -3,9 +3,9 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
   Regression coverage for the active-IP unique-index conflict recovery path
   in `SyncIngestor.bulk_upsert_devices/1`.
 
-  Without uid remapping, identifier rows would reference the abandoned
-  `sr:NEW…` uid and trip the `device_identifiers_device_id_fkey` FK constraint
-  during `bulk_upsert_identifiers/1`.
+  Source-authoritative integration identifiers must not be rebound to whichever
+  unrelated device currently owns an IP. The conflict retry should preserve the
+  source identity and drop the contested IP from the incoming strong device.
   """
 
   use ExUnit.Case, async: false
@@ -31,11 +31,11 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
     {:ok, actor: actor}
   end
 
-  test "remaps identifiers to canonical uid when active-IP conflict triggers retry", %{
+  test "preserves generic integration identity when active-IP conflict triggers retry", %{
     actor: actor
   } do
     ip = unique_test_ip()
-    armis_id = "armis-#{System.unique_integer([:positive])}"
+    integration_id = "integration-#{System.unique_integer([:positive])}"
 
     {:ok, existing} =
       Device
@@ -49,8 +49,11 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
     update = %{
       "ip" => ip,
       "hostname" => "incoming",
-      "source" => "agent",
-      "metadata" => %{"armis_device_id" => armis_id}
+      "source" => "integration-test",
+      "metadata" => %{
+        "integration_type" => "test-integration",
+        "integration_id" => integration_id
+      }
     }
 
     assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
@@ -67,12 +70,16 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
 
     {:ok, identifiers} =
       DeviceIdentifier
-      |> Ash.Query.filter(identifier_type == :armis_device_id and identifier_value == ^armis_id)
+      |> Ash.Query.filter(
+        identifier_type == :integration_id and identifier_value == ^integration_id
+      )
       |> Ash.read(actor: actor)
 
-    identifiers = List.wrap(identifiers)
-    assert Enum.any?(identifiers, fn ident -> ident.device_id == canonical_uid end)
-    refute Enum.any?(identifiers, fn ident -> ident.device_id != canonical_uid end)
+    assert [%DeviceIdentifier{device_id: integration_device_uid}] = List.wrap(identifiers)
+    assert integration_device_uid != canonical_uid
+
+    {:ok, integration_device} = Device.get_by_uid(integration_device_uid, false, actor: actor)
+    assert integration_device.ip == nil
   end
 
   defp unique_test_ip do

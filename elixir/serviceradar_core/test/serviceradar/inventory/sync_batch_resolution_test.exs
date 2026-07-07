@@ -19,6 +19,7 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.SourceIdentityConflict
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
@@ -184,6 +185,138 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
     {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(device_a, false, actor: actor)
     {:ok, device_b_row} = Device.get_by_uid(device_b, false, actor: actor)
     refute device_b_row.ip == ip
+
+    assert {:ok, conflicts} =
+             SourceIdentityConflict
+             |> Ash.Query.filter(
+               conflict_category == "active_ip_conflict" and device_uid == ^device_b and
+                 current_ip == ^ip
+             )
+             |> Ash.read(actor: actor)
+
+    assert [%SourceIdentityConflict{} | _] = conflicts
+  end
+
+  test "same Armis source ID can move IP without changing canonical device", %{actor: actor} do
+    armis_id = "armis-dhcp-#{System.unique_integer([:positive])}"
+    source_id = "armis-source-#{System.unique_integer([:positive])}"
+    ip_a = unique_ip()
+    ip_b = unique_ip()
+
+    update = fn ip ->
+      %{
+        "ip" => ip,
+        "hostname" => "armis-dhcp-host",
+        "source" => "armis",
+        "metadata" => %{
+          "integration_type" => "armis",
+          "armis_device_id" => armis_id,
+          "integration_id" => armis_id
+        },
+        "sync_meta" => %{"sync_service_id" => source_id}
+      }
+    end
+
+    assert :ok = SyncIngestor.ingest_updates([update.(ip_a)], actor: actor)
+    canonical = device_for_armis_id(armis_id, actor)
+    assert is_binary(canonical)
+
+    assert :ok = SyncIngestor.ingest_updates([update.(ip_b)], actor: actor)
+
+    assert device_for_armis_id(armis_id, actor) == canonical
+
+    assert {:ok, %Device{uid: ^canonical, ip: ^ip_b}} =
+             Device.get_by_uid(canonical, false, actor: actor)
+
+    assert 1 ==
+             Repo.one(
+               from(di in DeviceIdentifier,
+                 where:
+                   di.identifier_type == :armis_device_id and
+                     di.identifier_value == ^armis_id,
+                 select: count(di.id)
+               )
+             )
+  end
+
+  test "generic integration ID values are source-scoped across integration sources", %{
+    actor: actor
+  } do
+    shared_integration_id = "shared-generic-#{System.unique_integer([:positive])}"
+    source_a = "source-a-#{System.unique_integer([:positive])}"
+    source_b = "source-b-#{System.unique_integer([:positive])}"
+
+    update = fn source_id, ip ->
+      %{
+        "ip" => ip,
+        "hostname" => "generic-#{source_id}",
+        "source" => "integration-test",
+        "metadata" => %{
+          "integration_type" => "test-integration",
+          "integration_id" => shared_integration_id
+        },
+        "sync_meta" => %{"sync_service_id" => source_id}
+      }
+    end
+
+    assert :ok = SyncIngestor.ingest_updates([update.(source_a, unique_ip())], actor: actor)
+    assert :ok = SyncIngestor.ingest_updates([update.(source_b, unique_ip())], actor: actor)
+
+    scoped_a = "test-integration:source:#{source_a}:#{shared_integration_id}"
+    scoped_b = "test-integration:source:#{source_b}:#{shared_integration_id}"
+
+    device_a = device_for_integration_id(scoped_a, actor)
+    device_b = device_for_integration_id(scoped_b, actor)
+
+    assert is_binary(device_a)
+    assert is_binary(device_b)
+    assert device_a != device_b
+  end
+
+  test "source-scoped integration ID resolves through pre-existing raw bridge", %{
+    actor: actor
+  } do
+    raw_integration_id = "legacy-raw-#{System.unique_integer([:positive])}"
+    source_id = "upgrade-source-#{System.unique_integer([:positive])}"
+
+    {:ok, existing} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: "sr:" <> Ecto.UUID.generate(),
+        hostname: "legacy-raw-owner-#{System.unique_integer([:positive])}",
+        ip: unique_ip()
+      })
+      |> Ash.create(actor: actor)
+
+    {:ok, _identifier} =
+      DeviceIdentifier
+      |> Ash.Changeset.for_create(:register, %{
+        device_id: existing.uid,
+        identifier_type: :integration_id,
+        identifier_value: raw_integration_id,
+        partition: "default",
+        confidence: :strong,
+        metadata: %{"integration_type" => "test-integration"}
+      })
+      |> Ash.create(actor: actor)
+
+    update = %{
+      "ip" => unique_ip(),
+      "hostname" => "legacy-raw-resync",
+      "source" => "integration-test",
+      "metadata" => %{
+        "integration_type" => "test-integration",
+        "integration_id" => raw_integration_id
+      },
+      "sync_meta" => %{"sync_service_id" => source_id}
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+    scoped = "test-integration:source:#{source_id}:#{raw_integration_id}"
+
+    assert device_for_integration_id(raw_integration_id, actor) == existing.uid
+    assert device_for_integration_id(scoped, actor) == existing.uid
   end
 
   test "pre-set merged-away sr: ID resolves to canonical survivor", %{actor: actor} do

@@ -52,6 +52,7 @@ defmodule ServiceRadar.Inventory do
     resource ServiceRadar.Inventory.VisibilityProfile
     resource ServiceRadar.Inventory.DeviceGroup
     resource ServiceRadar.Inventory.DeviceIdentifier
+    resource ServiceRadar.Inventory.SourceIdentityConflict
     resource ServiceRadar.Inventory.MergeAudit
     resource ServiceRadar.Inventory.DeviceCleanupSettings
     resource ServiceRadar.Inventory.VirtualizationCluster

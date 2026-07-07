@@ -7,6 +7,7 @@ defmodule ServiceRadar.Inventory.Sync.IdentifierRecords do
 
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.CardinalityCaps
+  alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Sync.SourcePolicy
   alias ServiceRadar.Repo
@@ -22,36 +23,22 @@ defmodule ServiceRadar.Inventory.Sync.IdentifierRecords do
       include_agent? = SourcePolicy.include_agent_identifier?(update, ids)
       include_mac? = SourcePolicy.include_mac_identifier?(update)
 
-      []
-      |> maybe_add_identifier_record_if(
-        include_agent?,
-        update,
-        device_id,
-        :agent_id,
-        ids.agent_id,
-        partition
-      )
-      |> maybe_add_identifier_record(
-        update,
-        device_id,
-        :armis_device_id,
-        ids.armis_id,
-        partition
-      )
-      |> maybe_add_identifier_record(
-        update,
-        device_id,
-        :integration_id,
-        ids.integration_id,
-        partition
-      )
-      |> maybe_add_identifier_record(
-        update,
-        device_id,
-        :netbox_device_id,
-        ids.netbox_id,
-        partition
-      )
+      id_types =
+        Ids.identifier_priority()
+        |> Enum.reject(&(&1 == :mac))
+        |> Enum.reject(&(&1 == :agent_id and not include_agent?))
+
+      id_types
+      |> Enum.reduce([], fn id_type, acc ->
+        maybe_add_identifier_record(
+          acc,
+          update,
+          device_id,
+          id_type,
+          Ids.get_identifier_value(ids, id_type),
+          partition
+        )
+      end)
       |> add_mac_identifier_records(include_mac?, update, device_id, ids, partition)
     end)
     |> Enum.uniq_by(fn r -> {r.identifier_type, r.identifier_value, r.partition} end)
@@ -105,13 +92,6 @@ defmodule ServiceRadar.Inventory.Sync.IdentifierRecords do
       }
       | acc
     ]
-  end
-
-  defp maybe_add_identifier_record_if(acc, false, _update, _device_id, _type, _value, _partition),
-    do: acc
-
-  defp maybe_add_identifier_record_if(acc, true, update, device_id, type, value, partition) do
-    maybe_add_identifier_record(acc, update, device_id, type, value, partition)
   end
 
   # Bulk upsert identifiers

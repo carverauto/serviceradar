@@ -707,6 +707,111 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     assert raw_data =~ "\"updated_count\":2"
   end
 
+  test "run_for_source exposes identity conflict skips in run metadata and event data" do
+    source = %{
+      id: "source-1",
+      northbound_enabled: true,
+      endpoint: "https://armis.example",
+      custom_fields: ["availability"],
+      credentials: %{api_key: "key", api_secret: "secret"}
+    }
+
+    actor = %{role: :system}
+    parent = self()
+
+    start_run = fn _source, _actor, _opts -> {:ok, %{id: "run-conflicts"}} end
+
+    update_source = fn _src, action, attrs, _actor ->
+      send(parent, {:update_source, action, attrs})
+      {:ok, %{action: action, attrs: attrs}}
+    end
+
+    finish_run = fn _run, action, attrs, _actor, _opts ->
+      send(parent, {:finish_run, action, attrs})
+      {:ok, %{action: action, attrs: attrs}}
+    end
+
+    record_event = fn attrs, _actor ->
+      send(parent, {:record_event, attrs})
+      {:ok, %{id: "event-conflicts", attrs: attrs}}
+    end
+
+    load_candidates = fn _src, _opts ->
+      {:ok,
+       [
+         %{
+           armis_device_id: "armis-ok",
+           is_available: true,
+           device_id: "d-ok",
+           sync_service_id: "source-1",
+           metadata: %{}
+         }
+       ]}
+    end
+
+    load_identity_conflicts = fn _src, _opts ->
+      %{
+        "total_count" => 2,
+        "categories" => %{"metadata_identifier_disagreement" => 2},
+        "examples" => [
+          %{
+            "category" => "metadata_identifier_disagreement",
+            "device_uid" => "sr:bad-1",
+            "source_identifier_value" => "armis-stale"
+          }
+        ]
+      }
+    end
+
+    execute_batches = fn _src, _collapsed, _opts ->
+      {:ok,
+       %{
+         device_count: 1,
+         updated_count: 1,
+         skipped_count: 0,
+         error_count: 0,
+         batch_count: 1,
+         errors: []
+       }}
+    end
+
+    assert {:ok, %{result: result}} =
+             ArmisNorthboundRunner.run_for_source(source,
+               actor: actor,
+               start_run: start_run,
+               update_source: update_source,
+               finish_run: finish_run,
+               record_event: record_event,
+               load_candidates: load_candidates,
+               load_identity_conflicts: load_identity_conflicts,
+               execute_batches: execute_batches
+             )
+
+    assert result.device_count == 3
+    assert result.updated_count == 1
+    assert result.skipped_count == 2
+
+    assert_received {:update_source, :northbound_start, %{device_count: 3}}
+
+    assert_received {:finish_run, :finish_success,
+                     %{
+                       device_count: 3,
+                       updated_count: 1,
+                       skipped_count: 2,
+                       metadata: %{
+                         "identity_conflicts" => %{
+                           "total_count" => 2,
+                           "categories" => %{"metadata_identifier_disagreement" => 2}
+                         }
+                       }
+                     }}
+
+    assert_received {:record_event, %{raw_data: raw_data}}
+
+    assert raw_data =~ ~s("identity_conflicts")
+    assert raw_data =~ ~s("metadata_identifier_disagreement")
+  end
+
   test "run_for_source records partial failures when some batches already succeeded" do
     source = %{
       id: "source-1",

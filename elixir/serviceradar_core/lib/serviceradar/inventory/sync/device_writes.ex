@@ -7,6 +7,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   import Ecto.Query
 
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.SourceIdentityDrift
   alias ServiceRadar.Inventory.Sync.DeviceRecords
   alias ServiceRadar.Inventory.Sync.SourcePolicy
   alias ServiceRadar.Repo
@@ -135,6 +136,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
               "SyncIngestor: dropping conflicting IP #{ip} from strong-identified " <>
                 "device #{record.uid} (held by #{existing_uid})"
             )
+
+            _ = SourceIdentityDrift.record_active_ip_conflict(record, existing_uid, ip)
 
             {Map.put(record, :ip, nil), remap}
           else

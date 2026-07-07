@@ -50,6 +50,8 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
     partition = String.trim(update[:partition] || "default")
     raw_mac = update[:mac]
     macs = extract_mac_values(update, metadata)
+    integration_id = get_integration_id(metadata)
+    legacy_integration_ids = get_legacy_integration_ids(metadata, integration_id)
 
     emit_rejected_mac_telemetry(raw_mac, macs, update)
 
@@ -58,12 +60,12 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
       # producers (ex: mapper results) may emit it at the top-level.
       agent_id: get_trimmed(metadata, "agent_id") || get_agent_id_from_update(update),
       armis_id: get_armis_id(metadata),
-      integration_id: get_integration_id(metadata),
+      integration_id: integration_id,
       netbox_id: get_trimmed(metadata, "netbox_device_id"),
       mac: List.first(macs),
       macs: macs,
       legacy_mac: legacy_mac_blob(raw_mac),
-      legacy_integration_ids: get_legacy_integration_ids(metadata),
+      legacy_integration_ids: legacy_integration_ids,
       ip: String.trim(update[:ip] || ""),
       partition: partition
     }
@@ -140,33 +142,79 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
 
   # Lookup-only bridge values for prior integration_id format generations
   # (e.g. proxmox name-keyed / MAC-keyed ids). Never registered as identifiers.
-  defp get_legacy_integration_ids(metadata) when is_map(metadata) do
-    case metadata["legacy_integration_ids"] do
-      list when is_list(list) ->
-        list
-        |> Enum.filter(&is_binary/1)
-        |> Enum.map(&String.trim/1)
-        |> Enum.reject(&(&1 == ""))
-        |> Enum.uniq()
+  defp get_legacy_integration_ids(metadata, canonical_integration_id) when is_map(metadata) do
+    explicit =
+      case metadata["legacy_integration_ids"] do
+        list when is_list(list) ->
+          list
+          |> Enum.filter(&is_binary/1)
+          |> Enum.map(&String.trim/1)
+          |> Enum.reject(&(&1 == ""))
+          |> Enum.uniq()
 
-      _ ->
-        []
+        _ ->
+          []
+      end
+
+    Enum.uniq(explicit ++ raw_integration_bridge(metadata, canonical_integration_id))
+  end
+
+  defp get_legacy_integration_ids(_metadata, _canonical_integration_id), do: []
+
+  defp raw_integration_bridge(metadata, canonical_integration_id) do
+    raw = get_trimmed(metadata, "integration_id")
+
+    if canonical_integration_id in [nil, raw] or raw in [nil, ""] do
+      []
+    else
+      [raw]
     end
   end
 
-  defp get_legacy_integration_ids(_metadata), do: []
+  defp get_integration_id(metadata) when is_map(metadata) do
+    raw = get_trimmed(metadata, "integration_id")
 
-  defp get_integration_id(metadata) do
     case metadata["integration_type"] do
       "armis" ->
         nil
 
       "netbox" ->
-        get_trimmed(metadata, "integration_id")
+        raw
 
       _ ->
-        get_trimmed(metadata, "integration_id")
+        source_scoped_integration_id(metadata, raw)
     end
+  end
+
+  defp get_integration_id(_metadata), do: nil
+
+  defp source_scoped_integration_id(_metadata, nil), do: nil
+
+  defp source_scoped_integration_id(metadata, raw) do
+    integration_type = get_trimmed(metadata, "integration_type") || "integration"
+    source_id = get_trimmed(metadata, "sync_service_id")
+
+    cond do
+      source_id in [nil, ""] ->
+        raw
+
+      source_scoped?(raw, integration_type, source_id) ->
+        raw
+
+      self_scoped?(raw, integration_type) ->
+        raw
+
+      true ->
+        "#{integration_type}:source:#{source_id}:#{raw}"
+    end
+  end
+
+  defp source_scoped?(value, integration_type, source_id) do
+    String.starts_with?(value, "#{integration_type}:source:#{source_id}:")
+  end
+
+  defp self_scoped?(value, integration_type) do
+    String.starts_with?(value, "#{integration_type}:")
   end
 
   defp get_armis_id(metadata) when is_map(metadata), do: get_trimmed(metadata, "armis_device_id")
