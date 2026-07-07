@@ -1,6 +1,34 @@
 defmodule ServiceRadar.Credentials.CredentialEventWriter do
   @moduledoc """
   Emits redacted OCSF events for credential lifecycle and broker activity.
+
+  ## Routine resolution-success events are suppressed by default
+
+  Every credential secret resolution used to emit a `"Credential secret
+  resolution success"` OCSF event into `ocsf_events`. Because the control plane
+  resolves credentials on every agent-config poll, these routine successes were
+  by far the single largest contributor to the observability event stream
+  (~56% of all `ocsf_events` on the reference deployment) while carrying no
+  actionable signal (severity Informational).
+
+  To keep the observability stream signal-rich, routine resolution *successes*
+  (outcome `:success` / `:cache_hit`) are **not** written to `ocsf_events` by
+  default. Security-relevant outcomes — failures, denials, errors, and
+  unavailability — are always written unchanged, since they are actionable audit
+  signals.
+
+  No audit coverage is lost: the full per-resolution audit trail (including
+  successes) is still persisted separately by
+  `ServiceRadar.Credentials.SecretBroker.write_audit/1` into the dedicated
+  `credential_secret_resolution_audits` table (with AshPaperTrail versioning).
+  This module only governs the noisy OCSF *event* mirror.
+
+  Operators who want a complete success audit trail in the OCSF event stream can
+  re-enable success emission via application env:
+
+      config :serviceradar_core, :credential_resolution_audit_success_events, true
+
+  The flag defaults to `false`.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -24,11 +52,34 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
     |> record_event()
   end
 
-  @doc "Write a credential resolution audit event."
+  @doc """
+  Write a credential resolution audit event to `ocsf_events`.
+
+  Routine resolution successes (outcome `:success` / `:cache_hit`) are skipped by
+  default to keep the observability stream signal-rich; non-success outcomes are
+  always emitted. See the moduledoc for the
+  `:credential_resolution_audit_success_events` override. Returns `:ok` in all
+  cases (including the suppressed path).
+  """
   def write_secret_resolution(audit_attrs) when is_map(audit_attrs) do
-    audit_attrs
-    |> secret_resolution_event_attrs()
-    |> record_event()
+    outcome = normalize_atom(value(audit_attrs, :outcome), :failed)
+
+    if emit_resolution_event?(outcome) do
+      audit_attrs
+      |> secret_resolution_event_attrs()
+      |> record_event()
+    else
+      :ok
+    end
+  end
+
+  @doc false
+  # Whether a resolution `outcome` should be mirrored into `ocsf_events`.
+  # Non-success outcomes (failure/denied/error/unavailable/...) are always
+  # emitted; routine successes are emitted only when the operator opts in via
+  # `:credential_resolution_audit_success_events`. Exposed for testing.
+  def emit_resolution_event?(outcome) do
+    not routine_resolution_success?(outcome) or success_events_enabled?()
   end
 
   @doc "Write a broker grant lifecycle event."
@@ -260,6 +311,17 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
 
   defp severity_for_grant_action(:expire), do: OCSF.severity_low()
   defp severity_for_grant_action(_action), do: OCSF.severity_informational()
+
+  # Routine successes: resolved from an internal secret or a warm cache. These
+  # match the success set of `status_for_outcome/1` and are the high-frequency,
+  # non-actionable outcomes suppressed from `ocsf_events` by default.
+  defp routine_resolution_success?(outcome) when outcome in [:success, :cache_hit], do: true
+  defp routine_resolution_success?(_outcome), do: false
+
+  defp success_events_enabled? do
+    Application.get_env(:serviceradar_core, :credential_resolution_audit_success_events, false) ==
+      true
+  end
 
   defp severity_for_resolution_outcome(:success), do: OCSF.severity_informational()
   defp severity_for_resolution_outcome(:cache_hit), do: OCSF.severity_informational()
