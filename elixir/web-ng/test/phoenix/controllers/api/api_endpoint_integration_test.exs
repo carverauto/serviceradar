@@ -113,8 +113,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
   describe "POST /oauth/token (client_credentials)" do
     test "success returns a Bearer access token", %{client: client, secret: secret} do
       conn =
-        build_conn()
-        |> post(~p"/oauth/token", %{
+        post(build_conn(), ~p"/oauth/token", %{
           "grant_type" => "client_credentials",
           "client_id" => client.id,
           "client_secret" => secret
@@ -142,8 +141,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
 
     test "wrong secret returns 401 invalid_client", %{client: client} do
       conn =
-        build_conn()
-        |> post(~p"/oauth/token", %{
+        post(build_conn(), ~p"/oauth/token", %{
           "grant_type" => "client_credentials",
           "client_id" => client.id,
           "client_secret" => "sr_totally-wrong-secret"
@@ -154,8 +152,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
 
     test "malformed client_id returns 401 invalid_client" do
       conn =
-        build_conn()
-        |> post(~p"/oauth/token", %{
+        post(build_conn(), ~p"/oauth/token", %{
           "grant_type" => "client_credentials",
           "client_id" => "not-a-uuid",
           "client_secret" => "sr_whatever"
@@ -165,20 +162,13 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
     end
 
     test "missing grant_type returns 400 invalid_request", %{client: client, secret: secret} do
-      conn =
-        build_conn()
-        |> post(~p"/oauth/token", %{
-          "client_id" => client.id,
-          "client_secret" => secret
-        })
+      conn = post(build_conn(), ~p"/oauth/token", %{"client_id" => client.id, "client_secret" => secret})
 
       assert json_response(conn, 400)["error"] == "invalid_request"
     end
 
     test "unsupported grant_type returns 400" do
-      conn =
-        build_conn()
-        |> post(~p"/oauth/token", %{"grant_type" => "authorization_code"})
+      conn = post(build_conn(), ~p"/oauth/token", %{"grant_type" => "authorization_code"})
 
       assert json_response(conn, 400)["error"] == "unsupported_grant_type"
     end
