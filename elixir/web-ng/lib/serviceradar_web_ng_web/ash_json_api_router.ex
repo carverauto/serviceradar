@@ -47,10 +47,18 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiRouter do
   are gated to logged-in users.
   """
 
+  # `open_api_title`/`open_api_version` are pure spec metadata for `spec/0` — they
+  # do NOT serve a route (only the `open_api:` option, deliberately absent here to
+  # keep the endpoint gated, would). They must match `Api.OpenApiV2Controller` so
+  # the committed artifact at `priv/static/openapi.json` (rendered from `spec/0` by
+  # `mix serviceradar.openapi.dump` and consumed by the developer portal) stays in
+  # sync with what `/api/v2/open_api` serves.
   use AshJsonApi.Router,
     domains: [
       ServiceRadar.Inventory,
       ServiceRadar.Infrastructure,
       ServiceRadar.Monitoring
-    ]
+    ],
+    open_api_title: "ServiceRadar API",
+    open_api_version: "2.0.0"
 end
