@@ -49,6 +49,26 @@ defmodule ServiceRadarWebNGWeb.Api.SrqlCatalogControllerTest do
       assert "severity_number" in log_fields["numeric"]
     end
 
+    test "exposes curated known values so editors can suggest enum syntax", %{conn: conn} do
+      conn = get(conn, ~p"/api/srql/catalog")
+      response = json_response(conn, 200)
+
+      device_enums = response["entities"]["devices"]["enums"]
+      # The headline case: users kept guessing `discovery_sources:%awx%`; the
+      # editor must be able to offer the real values behind `discovery_sources`.
+      assert "awx" in device_enums["discovery_sources"]
+      assert "armis" in device_enums["discovery_sources"]
+
+      log_enums = response["entities"]["logs"]["enums"]
+      assert "ERROR" in log_enums["severity_text"]
+      # Declared severity order is preserved (not alphabetized).
+      assert log_enums["severity_text"] == ["FATAL", "ERROR", "WARN", "INFO", "DEBUG"]
+
+      # Entities without curated values still advertise an (empty) enum map so
+      # clients can rely on the key existing.
+      assert response["entities"]["agents"]["enums"] == %{}
+    end
+
     test "returns 304 for a matching If-None-Match", %{conn: conn} do
       etag = Catalog.etag()
 

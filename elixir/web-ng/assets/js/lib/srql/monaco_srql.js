@@ -1,14 +1,60 @@
+import {tokenize} from "./tokenizer.js"
+
 const SRQL_LANGUAGE_ID = "serviceradar-srql"
 const SRQL_MARKER_OWNER = "serviceradar-srql"
+const CATALOG_URL = "/api/srql/catalog"
+const BOOLEAN_VALUES = ["true", "false"]
+const SORT_DIRECTIONS = ["asc", "desc"]
+const TIME_VALUES = ["last_1h", "last_24h", "last_7d", "last_30d"]
+const CONTROL_DESCRIPTIONS = {
+  "by:": "Group or aggregate results by a field.",
+  "group:": "Group results by a field.",
+  "in:": "Choose the SRQL entity to query.",
+  "limit:": "Limit the number of returned rows.",
+  "site:": "Filter results to a site.",
+  "sort:": "Sort results by a field (append :asc or :desc).",
+  "status:": "Filter results by status.",
+  "tag:": "Filter results by tag.",
+  "time:": "Choose a relative time window.",
+  "type:": "Filter results by type.",
+  where: "Start a field filter clause.",
+}
 let monacoPromise = null
 
 function globalState() {
   window.__serviceradarSrqlEditor = window.__serviceradarSrqlEditor || {
     completions: [],
+    catalog: null,
     languageRegistered: false,
   }
 
   return window.__serviceradarSrqlEditor
+}
+
+// Share the structured catalog cache with the SRQLInput hook so both editors
+// issue a single conditional GET and stay in sync.
+function catalogCache() {
+  window.__srqlCatalog ||= {etag: null, data: null}
+  return window.__srqlCatalog
+}
+
+function loadSrqlCatalog() {
+  const cache = catalogCache()
+  if (cache.data) return Promise.resolve(cache.data)
+
+  cache.inflight ||= fetch(CATALOG_URL, {headers: cache.etag ? {"If-None-Match": cache.etag} : {}})
+    .then(response => {
+      if (response.status === 304 && cache.data) return cache.data
+      if (!response.ok) throw new Error(`SRQL catalog request failed with ${response.status}`)
+
+      cache.etag = response.headers.get("etag")
+      return response.json().then(data => (cache.data = data))
+    })
+    .finally(() => {
+      cache.inflight = null
+    })
+
+  return cache.inflight
 }
 
 export function setSrqlCompletions(completions = []) {
@@ -18,6 +64,14 @@ export function setSrqlCompletions(completions = []) {
 export function ensureSrqlLanguage(monaco, completions = []) {
   const state = globalState()
   state.completions = completions
+
+  // Kick off (or reuse) the catalog fetch so the completion provider can be
+  // entity-aware. Until it resolves the provider falls back to the flat list.
+  loadSrqlCatalog()
+    .then(catalog => {
+      state.catalog = catalog
+    })
+    .catch(() => {})
 
   if (state.languageRegistered) return
   state.languageRegistered = true
@@ -47,7 +101,9 @@ export function ensureSrqlLanguage(monaco, completions = []) {
     ],
   })
   monaco.languages.registerCompletionItemProvider(SRQL_LANGUAGE_ID, {
-    triggerCharacters: [":", " ", ".", "$", "_"],
+    // Space/`:`/`(`/`,` cover the boundaries where a fresh token starts; the
+    // identifier characters keep suggestions live while typing a token.
+    triggerCharacters: [":", " ", "(", ",", ".", "$", "_"],
     provideCompletionItems(model, position) {
       const word = model.getWordUntilPosition(position)
       const linePrefix = model.getValueInRange({
@@ -62,29 +118,220 @@ export function ensureSrqlLanguage(monaco, completions = []) {
         startColumn: word.startColumn,
         endColumn: word.endColumn,
       }
-      const afterInPrefix = /\bin:$/.test(linePrefix)
-      const suggestions = (globalState().completions || []).map(label => {
-        const isEntity = label.startsWith("in:")
-        const isControl = label.endsWith(":") || isEntity
-        const insertText = afterInPrefix && isEntity ? label.slice(3) : label
-
-        return {
-          label: insertText,
-          insertText,
-          detail: isEntity ? "entity" : isControl ? "operator" : "field",
-          kind: isEntity
-            ? monaco.languages.CompletionItemKind.Module
-            : isControl
-              ? monaco.languages.CompletionItemKind.Keyword
-              : monaco.languages.CompletionItemKind.Field,
-          sortText: `${isEntity ? "0" : isControl ? "1" : "2"}-${label}`,
-          range,
-        }
+      const state = globalState()
+      const items = srqlCompletionItems({
+        catalog: state.catalog,
+        completions: state.completions,
+        linePrefix,
       })
 
-      return {suggestions}
+      return {suggestions: items.map(item => toMonacoSuggestion(monaco, item, range))}
     },
   })
+}
+
+// Pure, catalog-aware suggestion builder. Returns editor-agnostic descriptors
+// so it can be unit tested without a Monaco instance.
+export function srqlCompletionItems({catalog, completions = [], linePrefix = ""} = {}) {
+  const state = tokenize(linePrefix, linePrefix.length)
+
+  if (!catalog || !catalog.entities) return legacyItems(completions, state)
+
+  switch (state.slot) {
+    case "entity":
+      return entityItems(catalog, {bare: true})
+    case "field":
+      return fieldItems(catalog, state)
+    case "op":
+      return operatorItems(catalog, state)
+    case "value":
+      return valueItems(catalog, state)
+    default:
+      return controlItems(catalog, state)
+  }
+}
+
+function entityItems(catalog, {bare = false} = {}) {
+  return Object.entries(catalog.entities).map(([id, entity]) => ({
+    label: bare ? id : `in:${id}`,
+    insert: bare ? `${id} ` : `in:${id} `,
+    kind: "entity",
+    detail: entity.label || "entity",
+    documentation: `Query ${entity.label || id}.`,
+    retrigger: true,
+  }))
+}
+
+function controlItems(catalog, state) {
+  const controls = (catalog.control_tokens || []).map(token => ({
+    label: token,
+    insert: token === "where" ? "where " : token,
+    kind: "control",
+    detail: "control",
+    documentation: CONTROL_DESCRIPTIONS[token] || "SRQL control token.",
+    retrigger: token.endsWith(":"),
+  }))
+
+  // A bare `field:value` filter is valid at the control position, so once an
+  // entity is chosen lead with its fields; otherwise lead with `in:<entity>`.
+  const lead = state?.entity && catalog.entities[state.entity] ? fieldItems(catalog, state) : entityItems(catalog)
+
+  return [...lead, ...controls]
+}
+
+function fieldItems(catalog, state) {
+  const entity = catalog.entities[state.entity]
+  const arrayFields = new Set(entity?.fields?.array || [])
+  const enums = entity?.enums || {}
+
+  return entityFields(entity).map(field => {
+    const isArray = arrayFields.has(field)
+
+    return {
+      label: field,
+      // Array columns want parenthesized set syntax (e.g. discovery_sources:(awx));
+      // the snippet auto-closes the paren and drops the cursor inside it.
+      insert: isArray ? `${field}:($0)` : `${field}:`,
+      snippet: isArray,
+      kind: "field",
+      detail: fieldType(entity, field),
+      documentation: fieldDoc(state.entity, field, isArray, enums[field]),
+      retrigger: true,
+    }
+  })
+}
+
+function operatorItems(catalog, state) {
+  const operators = (catalog.operators || []).map(op => ({
+    label: op,
+    insert: op,
+    kind: "operator",
+    detail: "operator",
+  }))
+
+  // Right after `field:` the user usually wants a value, not another operator.
+  // Lead with the field's known/boolean values when it has any.
+  return [...valueItems(catalog, state), ...operators]
+}
+
+function valueItems(catalog, state) {
+  const entity = catalog.entities[state.entity]
+  const position = state.activeRange?.start ?? 0
+  const field = nearestField(state.tokens, position)
+
+  if (field && entity?.enums?.[field.text]) {
+    return entity.enums[field.text].map(value => ({
+      label: value,
+      insert: value,
+      kind: "enum",
+      detail: `${field.text} value`,
+      documentation: `Known value for ${field.text}.`,
+    }))
+  }
+
+  if (field && (entity?.fields?.boolean || []).includes(field.text)) {
+    return BOOLEAN_VALUES.map(value => ({label: value, insert: value, kind: "value", detail: "boolean"}))
+  }
+
+  if (isSortDirectionContext(state.tokens, position)) {
+    return SORT_DIRECTIONS.map(value => ({label: value, insert: value, kind: "value", detail: "sort direction"}))
+  }
+
+  if (directValueControl(state.tokens, position)?.text === "time:") {
+    return TIME_VALUES.map(value => ({label: value, insert: value, kind: "value", detail: "time range"}))
+  }
+
+  return []
+}
+
+function legacyItems(completions, state) {
+  const afterIn = state.slot === "entity"
+
+  return (completions || []).map(label => {
+    const isEntity = label.startsWith("in:")
+    const isControl = label.endsWith(":") || isEntity
+    const insert = afterIn && isEntity ? label.slice(3) : label
+
+    return {
+      label: insert,
+      insert,
+      kind: isEntity ? "entity" : isControl ? "control" : "field",
+      detail: isEntity ? "entity" : isControl ? "control" : "field",
+    }
+  })
+}
+
+function entityFields(entity) {
+  if (!entity?.fields) return []
+
+  return [...new Set(Object.values(entity.fields).flat().filter(Boolean))].sort()
+}
+
+function fieldType(entity, field) {
+  const fields = entity?.fields || {}
+  if ((fields.array || []).includes(field)) return "array"
+  if ((fields.boolean || []).includes(field)) return "boolean"
+  if ((fields.numeric || []).includes(field)) return "numeric"
+  if (entity?.enums?.[field]) return "enum"
+  return "field"
+}
+
+function fieldDoc(entityId, field, isArray, enumValues) {
+  const scope = entityId ? `${entityId} results` : "results"
+  if (isArray) return `Array field on ${scope}; use set syntax, e.g. ${field}:(value).`
+  if (enumValues?.length) return `Filter ${scope}. Known values: ${enumValues.slice(0, 8).join(", ")}.`
+  return `Filter ${scope} by ${field}.`
+}
+
+function nearestField(tokens, position) {
+  return [...tokens].reverse().find(token => token.kind === "field" && token.end <= position) || null
+}
+
+function previousToken(tokens, position) {
+  return [...tokens].reverse().find(token => token.end <= position) || null
+}
+
+function directValueControl(tokens, position) {
+  const previous = previousToken(tokens, position)
+  return previous?.kind === "control" ? previous : null
+}
+
+function isSortDirectionContext(tokens, position) {
+  const previous = previousToken(tokens, position)
+  const field = previous?.kind === "op" ? previousToken(tokens, previous.start) : null
+  const control = field?.kind === "field" ? previousToken(tokens, field.start) : null
+
+  return previous?.text === ":" && control?.text === "sort:"
+}
+
+function toMonacoSuggestion(monaco, item, range) {
+  const kinds = monaco.languages.CompletionItemKind
+  const kindMap = {
+    entity: kinds.Module,
+    control: kinds.Keyword,
+    field: kinds.Field,
+    operator: kinds.Operator,
+    value: kinds.Value,
+    enum: kinds.EnumMember,
+  }
+  // Priority ordering that reads well in every slot: fields/values lead over
+  // controls and operators.
+  const group = {entity: "0", field: "1", enum: "2", value: "3", control: "4", operator: "5"}
+
+  const suggestion = {
+    label: item.label,
+    insertText: item.insert,
+    detail: item.detail,
+    documentation: item.documentation,
+    kind: kindMap[item.kind] || kinds.Text,
+    sortText: `${group[item.kind] || "5"}-${item.label}`,
+    range,
+  }
+
+  if (item.snippet) suggestion.insertTextRules = monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
+  if (item.retrigger) suggestion.command = {id: "editor.action.triggerSuggest", title: "Suggest"}
+
+  return suggestion
 }
 
 export function applySrqlMarkers(monaco, editor, error) {
