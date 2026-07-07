@@ -21,6 +21,11 @@ permissions:
   allowed_ports:
     - 443
 resources:
-  requested_memory_mb: 64
+  # Raised 64->128: the deployed crashing 0.3.0 carries the same bounded
+  # fetchOTXExportPageAdaptive code as staging (the crash stack names that fn,
+  # which only exists in 0.2.0+), so the OOM is 64MB being genuinely tight for
+  # the demo OTX corpus (a 4MB JSON page parses into many x that in indicator
+  # structs, held across depth-2 adaptive recursion). Give real headroom.
+  requested_memory_mb: 128
   requested_cpu_ms: 15000
   max_open_connections: 2
