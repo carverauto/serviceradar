@@ -5,11 +5,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
 
   A merged device carries an authoritative `discovery_sources` array (e.g.
   `["agent", "awx", "sweep", "hypervisor_enrichment"]`) plus a single flat,
-  merged `metadata` map whose keys are source-scoped by prefix. This section
-  enumerates every source rather than surfacing a single canonical one, and
-  attaches the curated metadata attributable to each source so operators can see
-  every integration a device came from at a glance. It is strictly read-only —
-  it re-presents data already loaded on the device row.
+  merged `metadata` map whose keys are source-scoped by prefix. This section is a
+  concise, information-dense summary of *which integrations discovered this
+  device* — every source is rendered as a compact chip rather than a full card.
+  Sources that carry meaningful scoped metadata surface a short curated summary
+  on hover (a `data-tip` tooltip) so operators can drill in without duplicating
+  the full "All Metadata" card below it. It is strictly read-only — it
+  re-presents data already loaded on the device row.
   """
 
   use ServiceRadarWebNGWeb, :html
@@ -18,12 +20,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
 
   def discovery_sources_section(assigns) do
     metadata = row_metadata(assigns.device_row)
-    cards = source_cards(assigns.device_row, metadata)
+    chips = source_chips(assigns.device_row, metadata)
 
     assigns =
       assigns
-      |> assign(:source_cards, cards)
-      |> assign(:has_sources, cards != [])
+      |> assign(:source_chips, chips)
+      |> assign(:has_sources, chips != [])
 
     ~H"""
     <div :if={@has_sources} class="rounded-xl border border-base-200 bg-base-100">
@@ -31,36 +33,37 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
         <.icon name="hero-arrow-path-rounded-square" class="size-4 text-secondary" />
         <span class="text-sm font-semibold">Discovery Sources</span>
         <span class="rounded-full bg-secondary/10 px-2 py-0.5 text-[11px] font-semibold text-secondary">
-          {length(@source_cards)}
+          {length(@source_chips)}
         </span>
       </div>
 
-      <div class="p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-        <div
-          :for={card <- @source_cards}
-          class="min-w-0 rounded-lg border border-base-200 bg-base-200/20 p-3"
+      <div class="flex flex-wrap gap-2 p-4">
+        <span
+          :for={chip <- @source_chips}
+          class={[
+            "inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium",
+            chip.tip &&
+              "tooltip tooltip-bottom cursor-help border-secondary/30 bg-secondary/5 text-base-content/80 hover:border-secondary/50",
+            !chip.tip && "border-base-200 bg-base-200/40 text-base-content/70"
+          ]}
+          data-tip={chip.tip}
         >
-          <div class="mb-2 flex items-center gap-2">
-            <.icon name={card.icon} class="size-4 text-base-content/60" />
-            <span class="text-sm font-semibold">{card.label}</span>
-          </div>
-
-          <div :if={card.items != []} class="space-y-1 text-sm">
-            <div :for={item <- card.items} class="flex items-start justify-between gap-3">
-              <span class="shrink-0 text-xs text-base-content/50">{item.label}</span>
-              <span class={[
-                "min-w-0 text-right text-sm font-medium text-base-content break-words",
-                item.mono && "font-mono text-xs"
-              ]}>
-                {item.value}
-              </span>
-            </div>
-          </div>
-
-          <p :if={card.items == []} class="text-xs text-base-content/50">
-            Discovered through this source.
-          </p>
-        </div>
+          <.icon
+            name={chip.icon}
+            class={[
+              "size-3.5 shrink-0",
+              chip.tip && "text-secondary/80",
+              !chip.tip && "text-base-content/50"
+            ]}
+          />
+          <span class="truncate">{chip.label}</span>
+          <span
+            :if={chip.item_count > 0}
+            class="rounded-full bg-secondary/15 px-1.5 text-[10px] font-semibold leading-4 text-secondary"
+          >
+            {chip.item_count}
+          </span>
+        </span>
       </div>
     </div>
     """
@@ -70,10 +73,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
   # Source enumeration
   # ---------------------------------------------------------------------------
 
-  defp source_cards(row, metadata) do
+  defp source_chips(row, metadata) do
     row
     |> discovery_sources()
-    |> Enum.map(&source_card(&1, metadata, row))
+    |> Enum.map(&source_chip(&1, metadata, row))
   end
 
   # Read the authoritative discovery_sources array (string or atom keyed), fall
@@ -128,15 +131,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
     |> Enum.uniq()
   end
 
-  defp source_card(source, metadata, row) do
+  defp source_chip(source, metadata, row) do
     {label, icon} = source_label_icon(source)
+    items = source_items(source, metadata, row)
 
     %{
       key: source,
       label: label,
       icon: icon,
-      items: source_items(source, metadata, row)
+      item_count: length(items),
+      tip: chip_tip(items)
     }
+  end
+
+  # Concise "Label: value · Label: value" summary surfaced on hover for sources
+  # that carry curated scoped metadata. `nil` for sources with none, which keeps
+  # the chip a plain (non-tooltip) badge rather than spending space on filler.
+  defp chip_tip([]), do: nil
+
+  defp chip_tip(items) do
+    Enum.map_join(items, " · ", fn %{label: label, value: value} -> "#{label}: #{value}" end)
   end
 
   # ---------------------------------------------------------------------------
