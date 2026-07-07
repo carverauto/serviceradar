@@ -1,3 +1,43 @@
+# ServiceRadar v1.4.5
+
+The JSON/SRQL API works end to end with an integration test suite, the built-in Swagger UI is reachable from a new profile menu, browser camera-relay playback is fixed, and plugin resilience (OTX, dusk), observability, settings, and Device Details all get hardening.
+
+## Whats New
+
+**1.4.5**
+- Fixed the JSON/SRQL API's remaining latent 500s and added an end-to-end
+  integration test suite covering `/oauth/token`, `/api/devices`
+  (list/show/OCSF export), `/api/query` (SRQL), and `/api/srql/catalog`: the
+  device-list endpoint no longer 500s on its required-keyset paginated read, and
+  the SRQL query endpoint returns clean 4xx errors instead of crashing on a
+  non-string failure reason.
+- The topbar profile icon is now a dropdown (Profile / API docs / Log out) that
+  opens the built-in Swagger UI, and the profile status cards are clickable
+  (API keys jumps to API Credentials, the user counts to user management).
+- Device Details gains a collapsible "All Metadata" card that surfaces a
+  device's complete metadata map (armis/netbox/proxmox/… keys), grouped and
+  searchable, so nothing an integration reports about a device is hidden.
+- Fixed browser camera-relay playback: the stream websocket upgrade returned 500
+  (`Plug.Conn.AlreadySentError`) because the sliding-session refresh attempted a
+  cookie write during the upgrade — a latent bug that also affected the
+  proxmox-console, remote-access, and field-survey stream endpoints.
+- The AlienVault-OTX plugin now pulls at most once per day with bounded
+  exponential backoff so a day's pull survives OTX's gateway timeouts, and it
+  raises a CRITICAL alert if the pull is rejected entirely.
+- The dusk-checker plugin is scoped to localhost:8080 instead of all domains,
+  and a real wildcard permission-narrowing bug is fixed — narrowing a `["*"]`
+  manifest scope by a specific approved set wrongly produced an empty,
+  deny-all egress list.
+- The Observability log-level drill-down (e.g. the Fatal card) no longer times
+  out on the logs hypertable — a composite `(lower(severity_text),
+  effective-timestamp)` index backs the query — and `severity_text` /
+  `severity_number` are now in the SRQL catalog, clearing the false Monaco error.
+- Settings navigation keeps its expanded sections across the periodic page
+  refresh instead of collapsing every few seconds.
+- Hardened source-authoritative integration identity, dropped high-frequency
+  `KVService/Put` trace noise from datasvc, and demoted routine
+  credential-broker logs from info to debug.
+
 # ServiceRadar v1.4.4
 
 OAuth2 API access repaired end to end, a DB-backed credential-rules surface, richer Device Details, high-resolution sysmon with metric continuity across device merges, proxmox identity consolidation, and assorted plugin and worker hardening.
