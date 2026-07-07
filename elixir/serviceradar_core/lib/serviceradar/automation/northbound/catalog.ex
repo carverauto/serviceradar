@@ -25,7 +25,8 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
           input_schema: map(),
           safety_classification: String.t(),
           requires_confirmation: boolean(),
-          timeout_seconds: pos_integer()
+          timeout_seconds: pos_integer(),
+          metadata: map()
         }
 
   @spec eligible_device_actions(term()) :: [action_summary()]
@@ -81,7 +82,11 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
       input_schema: descriptor.input_schema || %{},
       safety_classification: to_string(descriptor.safety_classification),
       requires_confirmation: descriptor.requires_confirmation,
-      timeout_seconds: descriptor.timeout_seconds
+      timeout_seconds: descriptor.timeout_seconds,
+      # Provider-specific descriptor metadata. For AWX/Ansible descriptors this
+      # carries "playbook_id"/"source_type", which the Run Task modal uses to
+      # render a typed variable form (VariableSchema.from_playbook/1).
+      metadata: descriptor.metadata || %{}
     }
   end
 end

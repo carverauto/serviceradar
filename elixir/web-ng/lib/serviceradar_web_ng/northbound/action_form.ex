@@ -158,6 +158,15 @@ defmodule ServiceRadarWebNG.Northbound.ActionForm do
 
   def format_launch_error(:action_not_found, _target_label), do: "Select a launchable task."
   def format_launch_error(:targets_required, target_label), do: "Select at least one #{target_label}."
+
+  def format_launch_error(:no_applicable_devices, _target_label) do
+    "None of the selected devices are in an AWX inventory, so there is nothing to run this task against."
+  end
+
+  def format_launch_error({:invalid_extra_vars_json, message}, _target_label) do
+    "Advanced extra_vars must be a valid JSON object: #{message}"
+  end
+
   def format_launch_error(:descriptor_not_found, _target_label), do: "The selected task no longer exists."
   def format_launch_error(:descriptor_disabled, _target_label), do: "The selected task is disabled."
 

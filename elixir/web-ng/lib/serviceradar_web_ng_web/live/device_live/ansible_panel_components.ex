@@ -242,22 +242,30 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
 
   ## Variable inputs -----------------------------------------------------------
 
+  @doc """
+  Typed input for a single `%Var{}`. Shared with the bulk Devices "Run Task"
+  modal so both ansible surfaces render identical variable forms.
+
+  `name` overrides the HTML field name so a caller can namespace the inputs
+  (e.g. `action[vars][hostname]`); it defaults to the bare variable name.
+  """
   attr :var, :any, required: true
   attr :value, :any, default: nil
+  attr :name, :string, default: nil
 
-  defp var_input(%{var: %Var{type: :textarea}} = assigns) do
+  def var_input(%{var: %Var{type: :textarea}} = assigns) do
     ~H"""
     <div class="form-control">
       <label class="label">
         <span class="label-text">{@var.label}</span>
         <span :if={@var.required} class="label-text-alt text-xs text-error">required</span>
       </label>
-      <textarea name={@var.name} rows="3" class="textarea textarea-bordered text-sm">{@value}</textarea>
+      <textarea name={field_name(@var, @name)} rows="3" class="textarea textarea-bordered text-sm">{@value}</textarea>
     </div>
     """
   end
 
-  defp var_input(%{var: %Var{type: :password}} = assigns) do
+  def var_input(%{var: %Var{type: :password}} = assigns) do
     ~H"""
     <div class="form-control">
       <label class="label">
@@ -266,7 +274,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
       </label>
       <input
         type="password"
-        name={@var.name}
+        name={field_name(@var, @name)}
         value={@value}
         class="input input-bordered input-sm font-mono"
         autocomplete="off"
@@ -275,7 +283,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
     """
   end
 
-  defp var_input(%{var: %Var{type: :integer}} = assigns) do
+  def var_input(%{var: %Var{type: :integer}} = assigns) do
     ~H"""
     <div class="form-control">
       <label class="label">
@@ -284,7 +292,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
       </label>
       <input
         type="number"
-        name={@var.name}
+        name={field_name(@var, @name)}
         value={@value}
         min={@var.min}
         max={@var.max}
@@ -295,13 +303,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
     """
   end
 
-  defp var_input(%{var: %Var{type: :float}} = assigns) do
+  def var_input(%{var: %Var{type: :float}} = assigns) do
     ~H"""
     <div class="form-control">
       <label class="label"><span class="label-text">{@var.label}</span></label>
       <input
         type="number"
-        name={@var.name}
+        name={field_name(@var, @name)}
         value={@value}
         step="any"
         class="input input-bordered input-sm"
@@ -310,11 +318,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
     """
   end
 
-  defp var_input(%{var: %Var{type: :select}} = assigns) do
+  def var_input(%{var: %Var{type: :select}} = assigns) do
     ~H"""
     <div class="form-control">
       <label class="label"><span class="label-text">{@var.label}</span></label>
-      <select name={@var.name} class="select select-bordered select-sm">
+      <select name={field_name(@var, @name)} class="select select-bordered select-sm">
         <option value="" selected={is_nil(@value) or @value == ""}>—</option>
         <option :for={choice <- @var.choices} value={choice} selected={@value == choice}>
           {choice}
@@ -324,7 +332,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
     """
   end
 
-  defp var_input(%{var: %Var{type: :multiselect}} = assigns) do
+  def var_input(%{var: %Var{type: :multiselect}} = assigns) do
     selected = if is_list(assigns.value), do: assigns.value, else: []
     assigns = assign(assigns, :selected_choices, selected)
 
@@ -338,7 +346,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
         <label :for={choice <- @var.choices} class="flex items-center gap-2 text-sm">
           <input
             type="checkbox"
-            name={"#{@var.name}[]"}
+            name={"#{field_name(@var, @name)}[]"}
             value={choice}
             checked={choice in @selected_choices}
             class="checkbox checkbox-sm"
@@ -350,7 +358,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
     """
   end
 
-  defp var_input(assigns) do
+  def var_input(assigns) do
     ~H"""
     <div class="form-control">
       <label class="label">
@@ -359,7 +367,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
       </label>
       <input
         type="text"
-        name={@var.name}
+        name={field_name(@var, @name)}
         value={@value}
         class="input input-bordered input-sm"
         placeholder={@var.default && to_string(@var.default)}
@@ -369,6 +377,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
   end
 
   ## Helpers -------------------------------------------------------------------
+
+  defp field_name(%Var{name: name}, nil), do: name
+  defp field_name(_var, name) when is_binary(name), do: name
 
   defp launch_disabled_reason(true, _controller_id), do: nil
   defp launch_disabled_reason(false, nil), do: "This device isn't bound to an AWX controller."

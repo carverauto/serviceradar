@@ -379,6 +379,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         hostname: "run-task-launch-host",
         ip: "192.0.2.55",
         is_available: true,
+        # AWX-managed: metadata.awx.host_id makes the device ansible-capable.
+        metadata: %{"awx" => %{"host_id" => 4242, "controller_id" => "ctrl-test"}},
+        discovery_sources: ["awx"],
         first_seen_time: ~U[2100-01-01 00:00:00Z],
         last_seen_time: ~U[2100-01-01 00:00:00Z]
       }
@@ -398,6 +401,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
     assert html =~ "Disable Switch Port"
     assert html =~ "Change ticket or operator reason"
+    assert html =~ "1 of 1 selected device(s) are AWX-managed"
 
     view
     |> form("#northbound_action_modal-form", %{
@@ -415,6 +419,118 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert attrs.input_values == %{"reason" => "maintenance window"}
     assert attrs.metadata["ui_surface"] == "devices"
     assert opts[:actor].email
+  end
+
+  test "run task only targets AWX-managed devices in a mixed selection", %{conn: conn} do
+    action = northbound_action(:device)
+    with_northbound_stubs(device_actions: [action])
+
+    suffix = System.unique_integer([:positive])
+    awx_uid = "test-run-task-awx-#{suffix}"
+    plain_uid = "test-run-task-plain-#{suffix}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: awx_uid,
+        type_id: 0,
+        hostname: "awx-host",
+        ip: "192.0.2.60",
+        is_available: true,
+        metadata: %{"awx" => %{"host_id" => 77, "controller_id" => "ctrl-test"}},
+        discovery_sources: ["awx"],
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      },
+      %{
+        uid: plain_uid,
+        type_id: 0,
+        hostname: "plain-host",
+        ip: "192.0.2.61",
+        is_available: true,
+        metadata: %{},
+        discovery_sources: ["snmp"],
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, view, _html} = live(conn, ~p"/devices?limit=10")
+    assert_receive {:northbound_device_actions, _scope}, 1_000
+
+    for uid <- [awx_uid, plain_uid] do
+      view
+      |> element("input[phx-click='toggle_device_select'][phx-value-uid='#{uid}']")
+      |> render_click()
+    end
+
+    html =
+      view
+      |> element("button[phx-click='run_task_for_selection']")
+      |> render_click()
+
+    # The modal calls out the non-applicable device and only counts the AWX one.
+    assert html =~ "1 of 2 selected device(s) are AWX-managed"
+    assert html =~ "Not in an AWX inventory (will be skipped):"
+    assert html =~ "plain-host"
+
+    view
+    |> form("#northbound_action_modal-form", %{
+      "action" => %{
+        "action_id" => action.id,
+        "input" => %{"reason" => "mixed selection"}
+      }
+    })
+    |> render_submit()
+
+    assert_receive {:northbound_create_and_dispatch, attrs, _opts}, 1_000
+
+    # Only the AWX-managed device is dispatched; the plain device is skipped.
+    assert attrs.targets == [%{kind: "device", device_uid: awx_uid}]
+  end
+
+  test "run task launch is blocked when no selected device is AWX-managed", %{conn: conn} do
+    action = northbound_action(:device)
+    with_northbound_stubs(device_actions: [action])
+
+    uid = "test-run-task-none-awx-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "no-awx-host",
+        ip: "192.0.2.62",
+        is_available: true,
+        metadata: %{},
+        discovery_sources: ["snmp"],
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, view, _html} = live(conn, ~p"/devices?limit=10")
+    assert_receive {:northbound_device_actions, _scope}, 1_000
+
+    view
+    |> element("input[phx-click='toggle_device_select'][phx-value-uid='#{uid}']")
+    |> render_click()
+
+    html =
+      view
+      |> element("button[phx-click='run_task_for_selection']")
+      |> render_click()
+
+    assert html =~ "0 of 1 selected device(s) are AWX-managed"
+    assert html =~ "Only AWX-managed devices can run Ansible tasks"
+
+    # Submitting anyway does not dispatch an invocation.
+    view
+    |> form("#northbound_action_modal-form", %{
+      "action" => %{"action_id" => action.id, "input" => %{"reason" => "should not run"}}
+    })
+    |> render_submit()
+
+    refute_receive {:northbound_create_and_dispatch, _attrs, _opts}, 300
   end
 
   test "northbound action modal renders schema-driven input controls" do
