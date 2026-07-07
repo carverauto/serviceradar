@@ -532,6 +532,16 @@ body {
 }
 
 .sr-ops-topbar {
+  /* Sticky + explicit z-index lifts the topbar's stacking context above the
+     dashboard content below it. Without a real z-index the backdrop-filter
+     alone only creates a z-index:auto stacking context, so dashboard widgets
+     (map/charts via transform/filter/z-index, which come later in the DOM)
+     paint over the topbar — hiding the profile dropdown and the topbar SRQL
+     completions dropdown. Stays below daisyUI modals/drawers/dropdowns (z 999)
+     and native <dialog> top-layer, so overlays still cover the topbar. */
+  position: sticky;
+  top: 0;
+  z-index: 50;
   height: 3.25rem;
   display: flex;
   align-items: center;
@@ -647,6 +657,11 @@ body {
 }
 
 .sr-ops-content {
+  /* isolation: isolate collapses every dashboard widget's z-index into a
+     single stacking context at this level, so no widget (map libs, charts,
+     camera cards, or a stray high z-index) can out-stack the topbar above.
+     Guarantees the topbar dropdowns win regardless of widget z-index values. */
+  isolation: isolate;
   flex: 1;
   padding: 0.5rem 0.65rem;
 }
