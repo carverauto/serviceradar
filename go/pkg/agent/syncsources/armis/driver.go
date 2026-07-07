@@ -61,8 +61,17 @@ func (d *Driver) Sync(ctx context.Context, run syncsources.RunContext) (int, err
 	}
 
 	size := pageSize(run.Source)
+	assetConfig := newAssetEnrichmentConfig(run.Source)
 	totalUpdates := 0
 	tokenRefreshes := 0
+
+	var assetToken string
+	if len(assetConfig.fields) > 0 {
+		assetToken, err = apiClient.v3AccessToken(ctx, run.Source, assetConfig)
+		if err != nil {
+			return 0, err
+		}
+	}
 
 	run.Logger.Info().
 		Str("source", run.SourceKey).
@@ -70,6 +79,7 @@ func (d *Driver) Sync(ctx context.Context, run syncsources.RunContext) (int, err
 		Str("sync_service_id", run.Source.SyncServiceID).
 		Int("query_count", len(queries)).
 		Int("page_size", size).
+		Int("armis_asset_field_count", len(assetConfig.fields)).
 		Msg("Starting Armis sync")
 
 	for queryIndex, query := range queries {
@@ -110,6 +120,16 @@ func (d *Driver) Sync(ctx context.Context, run syncsources.RunContext) (int, err
 			}
 
 			filtered := filterDevices(resp.Data.Results, run.Source.NetworkBlacklist)
+			if len(assetConfig.fields) > 0 {
+				filtered, err = apiClient.enrichAssetFields(ctx, assetToken, assetConfig, filtered)
+				if err != nil {
+					if totalUpdates > 0 {
+						return totalUpdates, fmt.Errorf("partial armis sync after streaming %d devices: %w", totalUpdates, err)
+					}
+
+					return totalUpdates, err
+				}
+			}
 			logDeviceShape(run, queryLabel, from, filtered)
 
 			updates := make([]map[string]interface{}, 0, len(filtered))

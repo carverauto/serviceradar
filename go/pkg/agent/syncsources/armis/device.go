@@ -17,6 +17,7 @@
 package armis
 
 import (
+	"bytes"
 	"encoding/json"
 	"net"
 	"sort"
@@ -25,37 +26,99 @@ import (
 )
 
 type device struct {
-	ID                int                      `json:"id"`
-	DeviceID          int                      `json:"device_id"`
-	IPAddress         string                   `json:"ipAddress"`
-	IPv4Addresses     []string                 `json:"ipv4_addresses"`
-	IPv6Addresses     []string                 `json:"ipv6_addresses"`
-	MacAddress        string                   `json:"macAddress"`
-	MacAddresses      []string                 `json:"mac_addresses"`
-	Name              string                   `json:"name"`
-	Names             stringList               `json:"names"`
-	Display           string                   `json:"display"`
-	Type              string                   `json:"type"`
-	Category          string                   `json:"category"`
-	Manufacturer      string                   `json:"manufacturer"`
-	Brand             string                   `json:"brand"`
-	Model             string                   `json:"model"`
-	OperatingSystem   string                   `json:"operatingSystem"`
-	OSName            string                   `json:"os_name"`
-	OSVersion         string                   `json:"os_version"`
-	FirstSeen         time.Time                `json:"firstSeen"`
-	FirstSeenSnake    time.Time                `json:"first_seen"`
-	LastSeen          time.Time                `json:"lastSeen"`
-	LastSeenSnake     time.Time                `json:"last_seen"`
-	RiskLevel         int                      `json:"riskLevel"`
-	RiskLevelSnake    int                      `json:"risk_level"`
-	Boundaries        interface{}              `json:"boundaries"`
-	Tags              []string                 `json:"tags"`
-	NetworkInterfaces []map[string]interface{} `json:"network_interfaces"`
-	PurdueLevel       *float64                 `json:"purdue_level"`
-	SerialNumbers     []string                 `json:"serial_numbers"`
-	Site              map[string]interface{}   `json:"site"`
-	Visibility        string                   `json:"visibility"`
+	ID                int                        `json:"id"`
+	DeviceID          int                        `json:"device_id"`
+	IPAddress         string                     `json:"ipAddress"`
+	IPv4Addresses     []string                   `json:"ipv4_addresses"`
+	IPv6Addresses     []string                   `json:"ipv6_addresses"`
+	MacAddress        string                     `json:"macAddress"`
+	MacAddresses      []string                   `json:"mac_addresses"`
+	Name              string                     `json:"name"`
+	Names             stringList                 `json:"names"`
+	Display           string                     `json:"display"`
+	Type              string                     `json:"type"`
+	Category          string                     `json:"category"`
+	Manufacturer      string                     `json:"manufacturer"`
+	Brand             string                     `json:"brand"`
+	Model             string                     `json:"model"`
+	OperatingSystem   string                     `json:"operatingSystem"`
+	OSName            string                     `json:"os_name"`
+	OSVersion         string                     `json:"os_version"`
+	FirstSeen         time.Time                  `json:"firstSeen"`
+	FirstSeenSnake    time.Time                  `json:"first_seen"`
+	LastSeen          time.Time                  `json:"lastSeen"`
+	LastSeenSnake     time.Time                  `json:"last_seen"`
+	RiskLevel         int                        `json:"riskLevel"`
+	RiskLevelSnake    int                        `json:"risk_level"`
+	Boundaries        interface{}                `json:"boundaries"`
+	Tags              []string                   `json:"tags"`
+	NetworkInterfaces []map[string]interface{}   `json:"network_interfaces"`
+	PurdueLevel       *float64                   `json:"purdue_level"`
+	SerialNumbers     []string                   `json:"serial_numbers"`
+	Site              map[string]interface{}     `json:"site"`
+	Visibility        string                     `json:"visibility"`
+	RawFields         map[string]json.RawMessage `json:"-"`
+}
+
+func (d *device) UnmarshalJSON(data []byte) error {
+	type deviceAlias device
+
+	var decoded deviceAlias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+
+	*d = device(decoded)
+
+	var rawFields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &rawFields); err == nil {
+		d.RawFields = rawFields
+	}
+
+	if len(d.NetworkInterfaces) == 0 {
+		for _, key := range []string{"networkInterfaces", "interfaces", "networkInterface"} {
+			if raw := d.rawField(key); len(raw) > 0 {
+				_ = json.Unmarshal(raw, &d.NetworkInterfaces)
+				if len(d.NetworkInterfaces) > 0 {
+					break
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func (d device) rawField(key string) json.RawMessage {
+	if len(d.RawFields) == 0 {
+		return nil
+	}
+
+	if raw, ok := d.RawFields[key]; ok {
+		return raw
+	}
+
+	normalized := normalizeMetadataFieldName(key)
+	for rawKey, raw := range d.RawFields {
+		if normalizeMetadataFieldName(rawKey) == normalized {
+			return raw
+		}
+	}
+
+	return nil
+}
+
+func (d *device) setRawField(key string, raw json.RawMessage) {
+	key = strings.TrimSpace(key)
+	if key == "" || len(bytes.TrimSpace(raw)) == 0 {
+		return
+	}
+
+	if d.RawFields == nil {
+		d.RawFields = make(map[string]json.RawMessage)
+	}
+
+	d.RawFields[key] = append(json.RawMessage(nil), raw...)
 }
 
 type stringList []string

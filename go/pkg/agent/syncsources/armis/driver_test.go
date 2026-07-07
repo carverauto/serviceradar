@@ -70,6 +70,18 @@ func (e *emitRecorder) pageCount() int {
 	return len(e.pages)
 }
 
+func (e *emitRecorder) updates() []map[string]any {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	var updates []map[string]any
+	for _, page := range e.pages {
+		updates = append(updates, page...)
+	}
+
+	return updates
+}
+
 func testRunContext(source models.SourceConfig, emit syncsources.EmitFunc) syncsources.RunContext {
 	return syncsources.RunContext{
 		RunID:     "run-123",
@@ -385,6 +397,143 @@ func TestSyncEmitsLargePagedDatasetPerPage(t *testing.T) {
 	}
 }
 
+func TestSyncEnrichesConfiguredArmisAssetFields(t *testing.T) {
+	var (
+		v1SearchCalls int
+		v3SearchCalls int
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case accessTokenPath:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{"access_token":"v1-token"},"success":true}`))
+		case v3OAuthTokenPath:
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode v3 token payload: %v", err)
+			}
+			if payload["client_id"] != "client@example.invalid" {
+				t.Fatalf("client_id = %v", payload["client_id"])
+			}
+			if payload["vendor_id"] != "vendor-1" {
+				t.Fatalf("vendor_id = %v", payload["vendor_id"])
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"v3-token"}`))
+		case searchPath:
+			v1SearchCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"data":{
+					"count":1,
+					"next":0,
+					"prev":null,
+					"results":[
+						{"id":101,"ipAddress":"10.0.4.40","name":"fsfo027c.global.example.com"}
+					],
+					"total":1
+				},
+				"success":true
+			}`))
+		case v3AssetSearchPath:
+			v3SearchCalls++
+			if got := r.Header.Get("Authorization"); got != "Bearer v3-token" {
+				t.Fatalf("v3 authorization = %q", got)
+			}
+
+			var payload struct {
+				AssetType string   `json:"asset_type"`
+				Fields    []string `json:"fields"`
+				Filter    struct {
+					FilterCriteria string `json:"filter_criteria"`
+					AssetIDSource  string `json:"asset_id_source"`
+					AssetIDs       []int  `json:"asset_ids"`
+				} `json:"filter"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode v3 asset payload: %v", err)
+			}
+			if payload.AssetType != "DEVICE" {
+				t.Fatalf("asset_type = %q", payload.AssetType)
+			}
+			if payload.Filter.FilterCriteria != "ASSET_ID" || payload.Filter.AssetIDSource != "ASSET_ID" {
+				t.Fatalf("unexpected filter: %#v", payload.Filter)
+			}
+			if len(payload.Filter.AssetIDs) != 1 || payload.Filter.AssetIDs[0] != 101 {
+				t.Fatalf("asset_ids = %#v", payload.Filter.AssetIDs)
+			}
+			if !stringSliceContains(payload.Fields, "accessSwitch") || !stringSliceContains(payload.Fields, "VLAN") {
+				t.Fatalf("fields = %#v, want accessSwitch and VLAN", payload.Fields)
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"items": [
+					{
+						"asset_id": 101,
+						"fields": {
+							"accessSwitch": "nsfocs-idfer1-asw001:2/20",
+							"VLAN": 3006
+						}
+					}
+				],
+				"next": null
+			}`))
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	recorder := &emitRecorder{}
+	run := testRunContext(models.SourceConfig{
+		Type:     SourceType,
+		Endpoint: server.URL,
+		Credentials: map[string]string{
+			"secret_key":    "secret",
+			"client_id":     "client@example.invalid",
+			"client_secret": "client-secret",
+			"vendor_id":     "vendor-1",
+		},
+		Settings: map[string]any{
+			"asset_fields": []any{"accessSwitch", "VLAN"},
+			"v3_endpoint":  server.URL,
+		},
+		Queries: []models.QueryConfig{{Label: "test", Query: testDeviceQuery}},
+	}, recorder.emit)
+
+	count, err := NewDriver().Sync(context.Background(), run)
+	if err != nil {
+		t.Fatalf("Sync returned error: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("count = %d, want 1", count)
+	}
+	if v1SearchCalls != 1 {
+		t.Fatalf("v1 search calls = %d, want 1", v1SearchCalls)
+	}
+	if v3SearchCalls != 1 {
+		t.Fatalf("v3 search calls = %d, want 1", v3SearchCalls)
+	}
+
+	updates := recorder.updates()
+	if len(updates) != 1 {
+		t.Fatalf("updates = %d, want 1", len(updates))
+	}
+	metadata, ok := updates[0]["metadata"].(map[string]string)
+	if !ok {
+		t.Fatalf("metadata has type %T, want map[string]string", updates[0]["metadata"])
+	}
+	if got := metadata["armis_access_switch"]; got != "nsfocs-idfer1-asw001:2/20" {
+		t.Fatalf("metadata[armis_access_switch] = %q", got)
+	}
+	if got := metadata["armis_vlan"]; got != "3006" {
+		t.Fatalf("metadata[armis_vlan] = %q", got)
+	}
+}
+
 func TestSyncReleaseGateEmitsMultipleQueriesAndRefreshesToken(t *testing.T) {
 	if os.Getenv("SERVICERADAR_LARGE_INGESTION_TEST") != "1" {
 		t.Skip("set SERVICERADAR_LARGE_INGESTION_TEST=1 to run the 50k Armis release-gate test")
@@ -614,4 +763,14 @@ func testEnvInt(name string, fallback int) int {
 
 func ceilDiv(left, right int) int {
 	return (left + right - 1) / right
+}
+
+func stringSliceContains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+
+	return false
 }
