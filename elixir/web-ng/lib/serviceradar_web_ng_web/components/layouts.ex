@@ -400,14 +400,38 @@ defmodule ServiceRadarWebNGWeb.Layouts do
             >
               <.icon name="hero-bell-alert" class="size-5" />
             </.link>
-            <.link
-              href={~p"/settings/profile"}
-              class="sr-ops-avatar"
-              aria-label="Open profile"
-              title={profile_title(@current_scope)}
-            >
-              <.icon name="hero-user-circle" class="size-6" />
-            </.link>
+            <div class="dropdown dropdown-end">
+              <div
+                tabindex="0"
+                role="button"
+                class="sr-ops-avatar"
+                aria-label="Open profile menu"
+                aria-haspopup="true"
+                title={profile_title(@current_scope)}
+              >
+                <.icon name="hero-user-circle" class="size-6" />
+              </div>
+              <ul
+                tabindex="0"
+                class="dropdown-content menu bg-base-200 rounded-box z-[60] mt-2 w-52 p-2 shadow-lg"
+              >
+                <li>
+                  <.link navigate={~p"/settings/profile"} class="text-sm">
+                    <.icon name="hero-user-circle" class="size-4" /> Profile
+                  </.link>
+                </li>
+                <li>
+                  <a href="/api/v2/swaggerui" target="_blank" rel="noopener" class="text-sm">
+                    <.icon name="hero-code-bracket" class="size-4" /> API docs
+                  </a>
+                </li>
+                <li>
+                  <.link href={~p"/users/log-out"} method="delete" class="text-sm">
+                    <.icon name="hero-arrow-right-on-rectangle" class="size-4" /> Log out
+                  </.link>
+                </li>
+              </ul>
+            </div>
           </div>
         </header>
 

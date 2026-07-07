@@ -55,6 +55,36 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       refute html =~ "Save Password"
     end
 
+    test "topbar exposes a Profile / API docs / Logout dropdown", %{conn: conn} do
+      {:ok, _lv, html} =
+        conn
+        |> log_in_user(user_fixture(%{role: :operator}))
+        |> live(~p"/settings/profile")
+
+      # The topbar avatar is now a daisyUI dropdown (dropdown-end) with three
+      # actions: Profile (LiveView nav), API docs (Swagger UI, new tab), Logout
+      # (reusing the existing delete session route).
+      assert html =~ "dropdown dropdown-end"
+      assert html =~ ~s(href="/api/v2/swaggerui")
+      assert html =~ ~s(target="_blank")
+      assert html =~ "API docs"
+      assert html =~ ~s(href="/settings/profile")
+      assert html =~ ~s(href="/users/log-out")
+      assert html =~ ~s(data-method="delete")
+    end
+
+    test "the users status strip links the API-keys card to API Credentials", %{conn: conn} do
+      {:ok, _lv, html} =
+        conn
+        |> log_in_user(user_fixture(%{role: :operator}))
+        |> live(~p"/settings/profile")
+
+      assert html =~ "API keys"
+      assert html =~ ~s(href="/settings/api-credentials")
+      # The user-population cards link to Users management.
+      assert html =~ ~s(href="/settings/auth/users")
+    end
+
     test "redirects if user is not logged in", %{conn: conn} do
       assert {:error, redirect} = live(conn, ~p"/settings/profile")
 

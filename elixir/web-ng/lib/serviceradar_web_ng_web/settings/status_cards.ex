@@ -35,7 +35,15 @@ defmodule ServiceRadarWebNGWeb.Settings.StatusCards do
   # Counts are computed unscoped (`authorize?: false`): the status strip is an
   # operator-facing summary and each resolver is wrapped fail-soft below, so a
   # missing/unauthorized/unavailable source only dashes its own card.
-  @type card :: %{title: String.t(), value: term() | nil}
+  #
+  # A card MAY carry an optional `:navigate` destination (an internal LiveView
+  # route). When present, the shell renders that card as a link to the page that
+  # manages the underlying resource; cards without it render as plain metrics.
+  @type card :: %{
+          required(:title) => String.t(),
+          required(:value) => term() | nil,
+          optional(:navigate) => String.t()
+        }
 
   @doc """
   The contextual status cards for a view, or `:suppressed` when the page renders
@@ -65,12 +73,16 @@ defmodule ServiceRadarWebNGWeb.Settings.StatusCards do
     ]
   end
 
+  # The users/access strip. Each count links to the page that manages that
+  # resource: the user-population cards open Users management, the API-key card
+  # opens API Credentials. (Access to the linked page is still enforced by that
+  # page's own policy; the link is only an affordance.)
   defp cards(:users) do
     [
-      %{title: "Total users", value: total_users()},
-      %{title: "Active (30d)", value: active_users_30d()},
-      %{title: "Admins", value: admin_users()},
-      %{title: "API keys", value: api_credentials_count()}
+      %{title: "Total users", value: total_users(), navigate: "/settings/auth/users"},
+      %{title: "Active (30d)", value: active_users_30d(), navigate: "/settings/auth/users"},
+      %{title: "Admins", value: admin_users(), navigate: "/settings/auth/users"},
+      %{title: "API keys", value: api_credentials_count(), navigate: "/settings/api-credentials"}
     ]
   end
 
