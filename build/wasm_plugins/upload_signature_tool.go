@@ -262,7 +262,24 @@ func buildVerificationPayload(manifestBytes []byte, contentHash string) ([]byte,
 		"content_hash": normalizeHash(contentHash),
 		"manifest":     manifest,
 	}
-	return json.Marshal(payload)
+
+	// The ServiceRadar first-party importer verifies this payload with Elixir's
+	// Jason encoder, which emits minimal RFC 8259 escaping. encoding/json's
+	// default HTML escaping rewrites the bytes '<', '>' and '&' to their
+	// \u00XX escapes, so a manifest containing any of those bytes signs to a
+	// payload the Elixir verifier can never reproduce, failing ed25519
+	// verification with invalid_signature. Disable HTML escaping so the signer
+	// and the Elixir verifier agree byte-for-byte.
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(payload); err != nil {
+		return nil, err
+	}
+
+	// json.Encoder.Encode always appends a trailing newline; the signed payload
+	// must not include it (json.Marshal / Jason.encode! do not emit one).
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
 }
 
 func parseManifest(manifestBytes []byte) (map[string]any, error) {

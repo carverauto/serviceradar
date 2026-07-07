@@ -86,6 +86,30 @@ func TestBuildVerificationPayloadCanonicalizesManifest(t *testing.T) {
 	}
 }
 
+// TestBuildVerificationPayloadDoesNotHTMLEscape guards the byte-for-byte
+// canonicalization contract with the Elixir first-party importer
+// (ServiceRadarWebNG.Plugins.UploadSignature). Elixir's Jason encoder emits the
+// bytes '<', '>' and '&' literally, while encoding/json HTML-escapes them by
+// default. That divergence once broke awx-inventory-sync, whose description
+// contains "agent -> gateway -> DIRE": the signer emitted the HTML escape for
+// '>' where the Elixir verifier reproduced a literal '>', so ed25519
+// verification failed with invalid_signature even though the manifest matched.
+// The literal '<', '>' and '&' in want below assert HTML escaping stays off; if
+// it regressed, the payload would contain the \u00XX escapes instead and this
+// equality check would fail.
+func TestBuildVerificationPayloadDoesNotHTMLEscape(t *testing.T) {
+	manifest := []byte("id: demo-plugin\nname: Demo\ndescription: agent -> gateway & <core>\n")
+	payload, err := buildVerificationPayload(manifest, "ABC123")
+	if err != nil {
+		t.Fatalf("buildVerificationPayload() error = %v", err)
+	}
+
+	want := `{"content_hash":"abc123","manifest":{"description":"agent -> gateway & <core>","id":"demo-plugin","name":"Demo"}}`
+	if string(payload) != want {
+		t.Fatalf("payload = %s, want %s", payload, want)
+	}
+}
+
 func writeBundleForTest(path string, manifest, wasm []byte) (err error) {
 	file, err := os.Create(path)
 	if err != nil {
