@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
   import ServiceRadarWebNGWeb.DeviceLive.AgentComponents
   import ServiceRadarWebNGWeb.DeviceLive.AllMetadataComponents
   import ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents
+  import ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents
   import ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents
   import ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents
   import ServiceRadarWebNGWeb.DeviceLive.CameraComponents
@@ -179,6 +180,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               <.network_visibility_section :if={is_map(@device_row)} device_row={@device_row} />
 
               <.agents_section :if={is_map(@device_row)} device_row={@device_row} />
+
+              <.ansible_runs_section
+                :if={is_map(@device_row) and @device_awx_managed}
+                device_uid={@device_uid}
+                device_awx_managed={@device_awx_managed}
+                can_view_ansible_runs={@can_view_ansible_runs}
+                can_run_ansible={@can_run_ansible}
+                device_deleted={@device_deleted}
+                ansible_controller_id={@ansible_controller_id}
+                runs={@ansible_runs}
+                playbooks={@ansible_playbooks}
+                launch_open={@ansible_launch_open}
+                selected_playbook_id={@ansible_selected_playbook_id}
+                vars={@ansible_vars}
+                var_values={@ansible_var_values}
+                launch_notice={@ansible_launch_notice}
+              />
 
               <.camera_streams_section
                 :if={
