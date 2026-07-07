@@ -52,7 +52,7 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
   rescue
     err ->
       Logger.error(
-        "AWX EventIngestor handler crashed: #{inspect(err)} @ #{Exception.format_stacktrace(__STACKTRACE__) |> String.split("\n") |> Enum.take(3) |> Enum.join(" | ")}",
+        "AWX EventIngestor handler crashed: #{inspect(err)} @ #{__STACKTRACE__ |> Exception.format_stacktrace() |> String.split("\n") |> Enum.take(3) |> Enum.join(" | ")}",
         command_type: Map.get(data, :command_type)
       )
 
