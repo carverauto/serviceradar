@@ -163,6 +163,65 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchemaTest do
 
       assert [%Var{type: :password, private: true}] = VariableSchema.from_playbook(playbook)
     end
+
+    test "git declared_vars (plain vars:) render pre-filled, optional, type-inferred inputs" do
+      playbook = %{
+        source_type: :git,
+        vars_prompt: [],
+        declared_vars: %{
+          "app_version" => "1.4.0",
+          "replicas" => 3,
+          "ratio" => 0.5,
+          "drain" => true
+        }
+      }
+
+      vars = VariableSchema.from_playbook(playbook)
+      # sorted by name: app_version, drain, ratio, replicas
+      assert Enum.map(vars, & &1.name) == ["app_version", "drain", "ratio", "replicas"]
+
+      by_name = Map.new(vars, &{&1.name, &1})
+      assert %Var{type: :text, default: "1.4.0", required: false} = by_name["app_version"]
+      assert %Var{type: :integer, default: 3, required: false} = by_name["replicas"]
+      assert %Var{type: :float, default: 0.5} = by_name["ratio"]
+      # booleans fall back to text (the pre-filled default carries the value)
+      assert %Var{type: :text, default: true} = by_name["drain"]
+    end
+
+    test "declared_vars render even when vars_prompt is absent" do
+      playbook = %{source_type: :git, declared_vars: %{"region" => "us-east-1"}}
+
+      assert [%Var{name: "region", type: :text, default: "us-east-1", required: false}] =
+               VariableSchema.from_playbook(playbook)
+    end
+
+    test "vars_prompt wins on a name collision with declared_vars" do
+      playbook = %{
+        source_type: :git,
+        vars_prompt: [%{"name" => "token", "prompt" => "API token", "private" => "yes"}],
+        declared_vars: %{"token" => "static-default", "region" => "eu-west-1"}
+      }
+
+      vars = VariableSchema.from_playbook(playbook)
+      # token appears exactly once, as the vars_prompt (password) definition.
+      assert length(vars) == 2
+
+      token_vars = Enum.filter(vars, &(&1.name == "token"))
+      assert [%Var{type: :password, private: true, label: "API token"}] = token_vars
+
+      assert %Var{name: "region", type: :text, default: "eu-west-1"} =
+               Enum.find(vars, &(&1.name == "region"))
+    end
+
+    test "AWX survey_spec is unaffected by declared_vars handling" do
+      playbook = %{
+        source_type: :awx,
+        declared_vars: %{"ignored" => "value"},
+        survey_spec: %{"spec" => [%{"variable" => "x", "type" => "text"}]}
+      }
+
+      assert [%Var{name: "x", type: :text}] = VariableSchema.from_playbook(playbook)
+    end
   end
 
   describe "extra_vars_from_form/2" do

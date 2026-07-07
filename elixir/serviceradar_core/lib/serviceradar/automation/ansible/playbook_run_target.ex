@@ -31,6 +31,7 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRunTarget do
     define :get_by_id, action: :by_id, args: [:id]
     define :get_by_run_host, action: :by_run_host, args: [:run_id, :awx_host_name]
     define :list_for_run, action: :for_run, args: [:run_id]
+    define :list_for_device, action: :for_device, args: [:device_uid]
     define :create_target, action: :create
     define :record_outcome, action: :record_outcome
   end
@@ -49,6 +50,13 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRunTarget do
     read :for_run do
       argument :run_id, :uuid, allow_nil?: false
       filter expr(run_id == ^arg(:run_id))
+    end
+
+    read :for_device do
+      description "Newest-first run targets for one device — drives the device-detail Ansible panel"
+      argument :device_uid, :string, allow_nil?: false
+      filter expr(device_uid == ^arg(:device_uid))
+      prepare build(sort: [inserted_at: :desc], limit: 50, load: [run: [:playbook]])
     end
 
     read :by_run_host do
@@ -92,7 +100,7 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRunTarget do
     import ServiceRadar.Policies
 
     system_bypass()
-    action_with_permission([:read, :by_id, :for_run], @view_check)
+    action_with_permission([:read, :by_id, :for_run, :for_device], @view_check)
     # Mutations are system-only (driven by RunPulseWorker).
   end
 

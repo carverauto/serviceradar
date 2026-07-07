@@ -55,15 +55,65 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchema do
   @doc """
   Normalize a Playbook into a list of `%Var{}`. Returns `[]` when no
   variables are declared.
+
+  Git-sourced playbooks surface their `vars_prompt` entries first,
+  followed by any top-level `declared_vars` (the plain `vars:` block the
+  git catalog sync extracts) that are not already covered by a
+  `vars_prompt` of the same name. Declared vars are pre-filled with their
+  defaults, optional, and get their input type inferred from the default
+  value. `vars_prompt` wins on a name collision so an interactive prompt
+  is never shadowed by the static default.
   """
   @spec from_playbook(map()) :: [Var.t()]
   def from_playbook(%{source_type: :awx, survey_spec: spec}) when is_map(spec),
     do: from_awx_survey(spec)
 
-  def from_playbook(%{source_type: :git, vars_prompt: prompts}) when is_list(prompts),
-    do: from_vars_prompt(prompts)
+  def from_playbook(%{source_type: :git} = playbook) do
+    prompts = playbook |> Map.get(:vars_prompt, []) |> List.wrap()
+    declared = Map.get(playbook, :declared_vars, %{})
+    from_git_sources(prompts, declared)
+  end
 
   def from_playbook(_), do: []
+
+  @doc false
+  @spec from_git_sources([map()], map()) :: [Var.t()]
+  def from_git_sources(prompts, declared) do
+    prompt_vars = from_vars_prompt(List.wrap(prompts))
+    taken_names = MapSet.new(prompt_vars, & &1.name)
+    prompt_vars ++ declared_vars(declared, taken_names)
+  end
+
+  defp declared_vars(declared, taken_names) when is_map(declared) do
+    declared
+    |> Enum.map(fn {name, default} -> {to_string(name), default} end)
+    |> Enum.reject(fn {name, _default} -> name == "" or MapSet.member?(taken_names, name) end)
+    |> Enum.sort_by(fn {name, _default} -> name end)
+    |> Enum.map(&declared_var/1)
+  end
+
+  defp declared_vars(_declared, _taken_names), do: []
+
+  defp declared_var({name, default}) do
+    %Var{
+      name: name,
+      label: name,
+      type: declared_type(default),
+      default: default,
+      required: false,
+      private: false,
+      choices: [],
+      min: nil,
+      max: nil,
+      help: nil
+    }
+  end
+
+  # Booleans and strings both render as text inputs (the pre-filled default
+  # carries the value); only numeric defaults get numeric inputs.
+  defp declared_type(value) when is_integer(value), do: :integer
+  defp declared_type(value) when is_float(value), do: :float
+  defp declared_type(_value), do: :text
 
   @doc false
   @spec from_awx_survey(map()) :: [Var.t()]

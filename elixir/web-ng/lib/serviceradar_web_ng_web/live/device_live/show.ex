@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadar.Automation.Ansible.PubSub, as: AnsiblePubSub
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Observability.MtrPubSub
   alias ServiceRadarWebNG.RBAC
@@ -9,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Categories, as: CategoriesPlugin
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
   alias ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData
+  alias ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.CameraData
   alias ServiceRadarWebNGWeb.DeviceLive.CameraRelayRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceActionRuntime
@@ -53,14 +55,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       DevicePubSub.subscribe()
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:commands")
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, MtrPubSub.topic())
+      AnsiblePubSub.subscribe_runs()
     end
 
-    {:ok,
-     DeviceMountAssigns.assign_defaults(socket,
-       default_limit: @default_limit,
-       flows_limit: @flows_limit,
-       logs_limit: @logs_limit
-     )}
+    socket =
+      DeviceMountAssigns.assign_defaults(socket,
+        default_limit: @default_limit,
+        flows_limit: @flows_limit,
+        logs_limit: @logs_limit
+      )
+
+    {:ok, AnsiblePanelRuntime.assign_defaults(socket)}
   end
 
   @impl true
@@ -202,6 +207,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def handle_info({:refresh_camera_relay_session, relay_session_id}, socket) do
     {:noreply, CameraRelayRuntime.refresh_session(socket, relay_session_id)}
+  end
+
+  def handle_info({:ansible_run_updated, _run}, socket) do
+    {:noreply, AnsiblePanelRuntime.refresh_runs(socket)}
   end
 
   def handle_info(msg, socket) do
@@ -812,6 +821,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:last_camera_relay_session, last_camera_relay_session)
     |> assign(:device_snmp_credential, socket.assigns.device_snmp_credential)
     |> assign(:srql, base_srql)
+    |> AnsiblePanelRuntime.assign_device_ansible(device_row, uid, scope, refresh?)
     |> assign(:device_details_request_ref, request_ref)
     |> assign(:details_loading, true)
     |> maybe_begin_metrics_refresh(include_metrics?, uid, srql_module, device_row, scope)
@@ -1070,6 +1080,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def handle_event("close_camera_relay", _params, socket) do
     {:noreply, DeviceActionRuntime.close_camera_relay(socket)}
+  end
+
+  def handle_event("ansible_launch_open", _params, socket) do
+    {:noreply, AnsiblePanelRuntime.open_launch(socket)}
+  end
+
+  def handle_event("ansible_launch_close", _params, socket) do
+    {:noreply, AnsiblePanelRuntime.close_launch(socket)}
+  end
+
+  def handle_event("ansible_launch_change", params, socket) do
+    {:noreply, AnsiblePanelRuntime.change_launch(socket, params)}
+  end
+
+  def handle_event("ansible_launch", params, socket) do
+    {:noreply, AnsiblePanelRuntime.launch(socket, params)}
   end
 
   def handle_event("validate_device", %{"device" => params}, socket) do
