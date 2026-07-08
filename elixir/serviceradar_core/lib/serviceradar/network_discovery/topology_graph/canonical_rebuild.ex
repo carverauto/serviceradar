@@ -177,9 +177,28 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   end
 
   defp run_canonical_rebuild(fingerprint) do
-    case with_canonical_rebuild_lock(fn -> do_rebuild_canonical_device_links(fingerprint) end) do
-      {:ok, {:ok, stats}} ->
-        {:ok, stats}
+    case with_canonical_rebuild_lock(fn -> do_rebuild_canonical_device_links() end) do
+      {:ok, {:ok, structural_stats}} ->
+        # The telemetry + projection refresh run AFTER the advisory-lock
+        # transaction commits, at top level. Both call paths reach here without
+        # an enclosing transaction (the hourly TopologyStateCleanupWorker and the
+        # per-report mapper ingest in MapperResultsIngestor), so this is a real
+        # top-level checkout, not a nested savepoint.
+        #
+        # They are idempotent, eventually-consistent materializations of the
+        # just-rebuilt CANONICAL_TOPOLOGY, so they do not need the structural
+        # rebuild's advisory lock. Keeping them inside that single lock
+        # transaction made one pooled connection hold, in series, the upsert +
+        # reconcile + guarded prune + a full metrics scan + N cypher telemetry
+        # batches + the projection delete/insert. On a churn-bloated AGE graph the
+        # cumulative hold exceeded the 60s pool checkout budget (the recurring
+        # Postgrex "checked out for longer than 60000ms" disconnect), and a
+        # statement_timeout cancel in the telemetry step aborted the whole
+        # transaction — cascading into runtime_projection_refresh :failed. Running
+        # them after the lock bounds the lock connection to the structural rebuild
+        # and isolates the two materializations from each other so one slow/canceled
+        # step no longer crashes the pool or fails its sibling.
+        finalize_canonical_rebuild(structural_stats, fingerprint)
 
       {:ok, {:error, reason, stats}} ->
         {:error, reason, stats}
@@ -549,7 +568,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
     )
   end
 
-  defp do_rebuild_canonical_device_links(fingerprint) do
+  # Structural canonical rebuild — runs INSIDE the advisory-lock transaction.
+  # Everything here mutates CANONICAL_TOPOLOGY structure (upsert + reconcile +
+  # guarded prune + self-heal) and must be serialized by the lock. The two
+  # downstream materializations (telemetry refresh + projection refresh) are
+  # deliberately NOT run here; they run in finalize_canonical_rebuild/2 after the
+  # lock transaction commits so they don't extend the lock connection's checkout
+  # past the pool budget. Returns {:ok, structural_stats} (telemetry_refresh /
+  # runtime_projection_refresh are merged in later) or {:error, reason, stats}.
+  defp do_rebuild_canonical_device_links do
     before_edges = canonical_edge_count()
     mapper_evidence_edges = mapper_evidence_edge_count()
     evidence_max_last_observed_at = mapper_evidence_max_last_observed_at()
@@ -572,7 +599,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
           run_guarded_stale_prune(counts, stale_cutoff, evidence_max_last_observed_at)
 
         after_prune_edges = canonical_edge_count()
-        telemetry_result = Telemetry.refresh_canonical_edge_telemetry(stale_cutoff)
 
         {after_prune_edges, self_heal_result} =
           maybe_self_heal_zero_canonical(
@@ -582,16 +608,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
             min_canonical_edges
           )
 
-        runtime_projection_refresh = refresh_runtime_topology_projection(fingerprint)
-
-        stats = %{
+        structural_stats = %{
           before_edges: before_edges,
           mapper_evidence_edges: mapper_evidence_edges,
           after_upsert_edges: after_upsert_edges,
           after_prune_edges: after_prune_edges,
           same_port_demotions: demotion_result,
-          telemetry_refresh: telemetry_result,
-          runtime_projection_refresh: runtime_projection_refresh,
           stale_cutoff: stale_cutoff,
           evidence_max_last_observed_at: evidence_max_last_observed_at,
           starved: starved,
@@ -600,9 +622,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
           lock_skipped: false
         }
 
-        emit_canonical_rebuild_telemetry(:completed, stats)
-        Logger.info("canonical_topology_rebuild_stats #{inspect(stats)}")
-        {:ok, stats}
+        {:ok, structural_stats}
 
       {:error, reason} ->
         Logger.warning("Canonical topology rebuild failed: #{inspect(reason)}")
@@ -619,6 +639,31 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
         emit_canonical_rebuild_telemetry(:failed, failure_stats, reason)
         {:error, reason, failure_stats}
     end
+  end
+
+  # Runs AFTER the advisory-lock transaction commits (see run_canonical_rebuild/1).
+  # Refreshes the canonical-edge flow telemetry and then the SQL runtime-topology
+  # projection, each on its own pooled connection rather than the (now released)
+  # lock connection. Telemetry runs before the projection because the projection
+  # query reads the flow_pps/flow_bps the telemetry step writes onto the canonical
+  # edges. Both degrade gracefully: a failure is captured in the stats map (as it
+  # was before) and never fails the sibling step or the overall rebuild — the
+  # cleanup worker treats the {:ok, stats} as completed-with-degradation and
+  # retries the failed materialization next cycle.
+  defp finalize_canonical_rebuild(structural_stats, fingerprint) when is_map(structural_stats) do
+    stale_cutoff = Map.fetch!(structural_stats, :stale_cutoff)
+
+    telemetry_result = Telemetry.refresh_canonical_edge_telemetry(stale_cutoff)
+    runtime_projection_refresh = refresh_runtime_topology_projection(fingerprint)
+
+    stats =
+      structural_stats
+      |> Map.put(:telemetry_refresh, telemetry_result)
+      |> Map.put(:runtime_projection_refresh, runtime_projection_refresh)
+
+    emit_canonical_rebuild_telemetry(:completed, stats)
+    Logger.info("canonical_topology_rebuild_stats #{inspect(stats)}")
+    {:ok, stats}
   end
 
   # Starvation guard (fj #4378): decide whether the stale prune may run at all.
