@@ -19,8 +19,28 @@ defmodule ServiceRadar.Repo.Migrations.TuneChurnTableAutovacuumFillfactor do
     # ~5M dead tuples accumulate before a vacuum, producing the bursty autovac + WAL
     # spikes seen on demo. Tighten to 0.02 (~0.5M) so vacuums run smaller and more often.
     execute(
-      "ALTER TABLE platform.flow_process_attribution_current SET (autovacuum_vacuum_scale_factor = 0.02, autovacuum_analyze_scale_factor = 0.02)",
-      "ALTER TABLE platform.flow_process_attribution_current RESET (autovacuum_vacuum_scale_factor, autovacuum_analyze_scale_factor)"
+      """
+      DO $$
+      BEGIN
+        IF to_regclass('platform.flow_process_attribution_current') IS NOT NULL THEN
+          ALTER TABLE platform.flow_process_attribution_current SET (
+            autovacuum_vacuum_scale_factor = 0.02,
+            autovacuum_analyze_scale_factor = 0.02
+          );
+        END IF;
+      END $$;
+      """,
+      """
+      DO $$
+      BEGIN
+        IF to_regclass('platform.flow_process_attribution_current') IS NOT NULL THEN
+          ALTER TABLE platform.flow_process_attribution_current RESET (
+            autovacuum_vacuum_scale_factor,
+            autovacuum_analyze_scale_factor
+          );
+        END IF;
+      END $$;
+      """
     )
 
     # gateways: a single-row table updated ~557k×/window (last_seen/updated_at heartbeats).
@@ -29,8 +49,22 @@ defmodule ServiceRadar.Repo.Migrations.TuneChurnTableAutovacuumFillfactor do
     # Heap-Only Tuple update (no index maintenance, in-page dead-tuple pruning) instead of
     # spilling versions across pages.
     execute(
-      "ALTER TABLE platform.gateways SET (fillfactor = 70)",
-      "ALTER TABLE platform.gateways RESET (fillfactor)"
+      """
+      DO $$
+      BEGIN
+        IF to_regclass('platform.gateways') IS NOT NULL THEN
+          ALTER TABLE platform.gateways SET (fillfactor = 70);
+        END IF;
+      END $$;
+      """,
+      """
+      DO $$
+      BEGIN
+        IF to_regclass('platform.gateways') IS NOT NULL THEN
+          ALTER TABLE platform.gateways RESET (fillfactor);
+        END IF;
+      END $$;
+      """
     )
   end
 end

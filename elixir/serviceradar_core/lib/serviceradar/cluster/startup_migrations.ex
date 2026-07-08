@@ -964,7 +964,11 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   end
 
   defp run_schema_file!(schema_file) do
-    statements = ServiceRadar.Postgres.SchemaSql.load_statements(schema_file)
+    statements =
+      ServiceRadar.Postgres.SchemaSql.load_statements(schema_file,
+        normalize_timescaledb_schema?: true,
+        timescaledb_search_path: search_path()
+      )
 
     Logger.info(
       "[StartupMigrations] Applying schema baseline from #{schema_file} (#{length(statements)} statements)"

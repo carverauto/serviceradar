@@ -15,10 +15,38 @@ defmodule ServiceRadar.Repo.Migrations.AddTopologyRebuildInputHash do
   """
   use Ecto.Migration
 
-  def change do
-    alter table(:runtime_topology_projection_meta, prefix: "platform") do
-      add :input_hash, :text
-      add :input_hashed_at, :utc_datetime_usec
+  def up do
+    create_if_not_exists table(:runtime_topology_projection_meta,
+                           primary_key: false,
+                           prefix: "platform"
+                         ) do
+      add :projection_name, :text, null: false, primary_key: true
+      add :refreshed_at, :utc_datetime_usec, null: false
+      add :row_count, :integer, null: false, default: 0
+
+      timestamps(type: :utc_datetime_usec)
     end
+
+    execute(
+      "ALTER TABLE platform.runtime_topology_projection_meta ADD COLUMN IF NOT EXISTS input_hash text",
+      "ALTER TABLE platform.runtime_topology_projection_meta DROP COLUMN IF EXISTS input_hash"
+    )
+
+    execute(
+      "ALTER TABLE platform.runtime_topology_projection_meta ADD COLUMN IF NOT EXISTS input_hashed_at timestamp(6) without time zone",
+      "ALTER TABLE platform.runtime_topology_projection_meta DROP COLUMN IF EXISTS input_hashed_at"
+    )
+  end
+
+  def down do
+    execute(
+      "ALTER TABLE platform.runtime_topology_projection_meta DROP COLUMN IF EXISTS input_hashed_at",
+      "ALTER TABLE platform.runtime_topology_projection_meta ADD COLUMN IF NOT EXISTS input_hashed_at timestamp(6) without time zone"
+    )
+
+    execute(
+      "ALTER TABLE platform.runtime_topology_projection_meta DROP COLUMN IF EXISTS input_hash",
+      "ALTER TABLE platform.runtime_topology_projection_meta ADD COLUMN IF NOT EXISTS input_hash text"
+    )
   end
 end

@@ -1,11 +1,12 @@
 defmodule ServiceRadar.Postgres.SchemaSql do
   @moduledoc false
 
-  @spec load_statements(Path.t()) :: [String.t()]
-  def load_statements(path) do
+  @spec load_statements(Path.t(), keyword()) :: [String.t()]
+  def load_statements(path, opts \\ []) do
     path
     |> File.read!()
     |> split()
+    |> maybe_normalize_timescaledb_schema(opts)
   end
 
   @spec split(String.t()) :: [String.t()]
@@ -138,5 +139,34 @@ defmodule ServiceRadar.Postgres.SchemaSql do
       [tag] -> tag
       _ -> nil
     end
+  end
+
+  defp maybe_normalize_timescaledb_schema(statements, opts) do
+    if Keyword.get(opts, :normalize_timescaledb_schema?, false) do
+      search_path = Keyword.get(opts, :timescaledb_search_path, "platform, public, ag_catalog")
+
+      Enum.map(statements, fn statement ->
+        statement
+        |> normalize_extension_owned_references()
+        |> String.replace(
+          "SELECT pg_catalog.set_config('search_path', '', false)",
+          "SELECT pg_catalog.set_config('search_path', '#{search_path}', false)"
+        )
+      end)
+    else
+      statements
+    end
+  end
+
+  defp normalize_extension_owned_references(statement) do
+    statement
+    |> String.replace("platform.time_bucket(", "time_bucket(")
+    |> String.replace("platform.geometry(", "geometry(")
+    |> String.replace("platform.geography(", "geography(")
+    |> String.replace("::platform.geography", "::geography")
+    |> String.replace("platform.st_setsrid(", "st_setsrid(")
+    |> String.replace("platform.st_makepoint(", "st_makepoint(")
+    |> String.replace("platform.vector(", "vector(")
+    |> String.replace(" platform.vector_cosine_ops", " vector_cosine_ops")
   end
 end
