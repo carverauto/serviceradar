@@ -117,6 +117,43 @@ func TestGenerateAgentFlowCollectorCreds_ScopedToAgentSubject(t *testing.T) {
 	}
 }
 
+func TestGeneratePlatformAccount_AllowsPluginObjectStoreSubjects(t *testing.T) {
+	operator, result, err := accounts.BootstrapOperator("platform-bootstrap-test", "", true)
+	if err != nil {
+		t.Fatalf("BootstrapOperator: %v", err)
+	}
+	if operator == nil || result == nil {
+		t.Fatal("BootstrapOperator returned nil")
+	}
+
+	account, credsContent, err := generatePlatformAccount(
+		result.OperatorSeed,
+		"platform-bootstrap-test",
+		defaultPlatformAccount,
+		result.SystemAccountPublicKey,
+		defaultPlatformUser,
+	)
+	if err != nil {
+		t.Fatalf("generatePlatformAccount: %v", err)
+	}
+	if account == nil {
+		t.Fatal("generatePlatformAccount returned nil account")
+	}
+
+	claims := decodeUserClaims(t, credsContent)
+	for _, required := range []string{
+		"$O.serviceradar_plugins.>",
+		"$JS.FC.OBJ_serviceradar_plugins.>",
+	} {
+		if !containsString(claims.Pub.Allow, required) {
+			t.Errorf("platform publish allow missing %q: %v", required, claims.Pub.Allow)
+		}
+	}
+	if !containsString(claims.Sub.Allow, "$O.serviceradar_plugins.>") {
+		t.Errorf("platform subscribe allow missing object-store read subject: %v", claims.Sub.Allow)
+	}
+}
+
 func TestGenerateAgentFlowCollectorCreds_RejectsUnsafeAgentID(t *testing.T) {
 	seed := bootstrapTestAccount(t)
 

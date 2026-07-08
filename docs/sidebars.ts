@@ -25,6 +25,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'docker-setup', label: 'Docker Compose'},
         {type: 'doc', id: 'helm-configuration', label: 'Kubernetes (Helm)'},
         {type: 'doc', id: 'kubernetes-ingestion', label: 'Kubernetes Ingestion'},
+        {type: 'doc', id: 'service-ports', label: 'Kubernetes Ingress'},
         {type: 'doc', id: 'service-port-map', label: 'Service Port Map'},
         {type: 'doc', id: 'tls-security', label: 'TLS & mTLS'},
         {type: 'doc', id: 'auth-configuration', label: 'Authentication'},

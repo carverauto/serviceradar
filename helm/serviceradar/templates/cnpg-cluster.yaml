@@ -83,6 +83,7 @@
 {{- if and (not $clientCASecret) $cnpg.requireClientCert }}
   {{- $clientCASecret = "serviceradar-cnpg-client-ca" }}
 {{- end }}
+{{- $cnpgAffinity := default (dict) $cnpg.affinity -}}
 ---
 apiVersion: v1
 kind: Secret
@@ -121,6 +122,30 @@ spec:
   {{- if .Values.image.registryPullSecret }}
   imagePullSecrets:
     - name: {{ .Values.image.registryPullSecret | quote }}
+  {{- end }}
+  {{- if $cnpgAffinity }}
+  affinity:
+    {{- if hasKey $cnpgAffinity "enablePodAntiAffinity" }}
+    enablePodAntiAffinity: {{ $cnpgAffinity.enablePodAntiAffinity }}
+    {{- end }}
+    {{- with $cnpgAffinity.topologyKey }}
+    topologyKey: {{ . | quote }}
+    {{- end }}
+    {{- with $cnpgAffinity.podAntiAffinityType }}
+    podAntiAffinityType: {{ . | quote }}
+    {{- end }}
+    {{- with $cnpgAffinity.nodeSelector }}
+    nodeSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with $cnpgAffinity.nodeAffinity }}
+    nodeAffinity:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with $cnpgAffinity.tolerations }}
+    tolerations:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
   {{- end }}
   storage:
     size: {{ default "100Gi" $cnpg.storageSize }}

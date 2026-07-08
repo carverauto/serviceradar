@@ -34,6 +34,9 @@
 {{- $cnpgOperatorEnabled := default false $cnpgOperator.enabled -}}
 {{- $cnpgOperatorNamespace := default "cnpg-system" $cnpgOperator.namespace -}}
 {{- $cnpgOperatorPort := default 8000 $cnpgOperator.port -}}
+{{- $cnpgInstanceManager := default (dict) $ingress.cnpgInstanceManager -}}
+{{- $cnpgInstanceManagerEnabled := default true $cnpgInstanceManager.enabled -}}
+{{- $cnpgInstanceManagerPort := default 8000 $cnpgInstanceManager.port -}}
 {{- $hasIngressNamespaces := gt (len $ingressAllowedNamespaces) 0 -}}
 {{- $hasIngressCIDRs := gt (len $ingressAllowedCIDRs) 0 -}}
 {{- $hasIngressPorts := gt (len $ingressAllowedPorts) 0 -}}
@@ -526,6 +529,31 @@ spec:
       ports:
         - protocol: TCP
           port: {{ $cnpgOperatorPort }}
+{{- end }}
+{{- if and $cnpgEnabled $cnpgInstanceManagerEnabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-cnpg-instance-manager-peer
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: {{ $cnpgClusterName | quote }}
+      cnpg.io/podRole: instance
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: {{ $cnpgClusterName | quote }}
+              cnpg.io/podRole: instance
+      ports:
+        - protocol: TCP
+          port: {{ $cnpgInstanceManagerPort }}
 {{- end }}
 {{- if and $cnpgEnabled $monitoringIngressEnabled }}
 ---

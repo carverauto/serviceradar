@@ -681,10 +681,18 @@ cnpg:
   instances: 3
   storageClass: ""
   storageSize: 100Gi
+  # Optional CNPG instance placement controls. Use these for dedicated database
+  # nodes with labels/taints such as cnpg.io/dedicated=true.
+  affinity:
+    podAntiAffinityType: preferred
+    nodeSelector: {}
+    nodeAffinity: {}
+    tolerations: []
   # WAL retention safety cap (max_slot_wal_keep_size). Blank = auto-derive ~30% of
   # storageSize (min 10GB) so a stuck/lagging replication slot can never fill the
   # volume and crash the primary (the 2026-06-17 outage). Set an explicit size
-  # using PostgreSQL units (e.g. "250GB"), not Kubernetes resource units.
+  # using PostgreSQL units (e.g. "250GB"), not Kubernetes resource units. Use
+  # an explicit size when the real volume is larger than the declared storageSize.
   maxSlotWalKeepSize: ""
   # Optional full CNPG image reference. When blank, image.registry is used with
   # the default ServiceRadar CNPG tag.
@@ -1754,8 +1762,14 @@ networkPolicy:
       # CloudNativePG operators call each instance manager on port 8000 to
       # extract cluster status. Keep this pod-scoped so operator access does
       # not broaden application ingress.
-      enabled: false
+      enabled: true
       namespace: cnpg-system
+      port: 8000
+    cnpgInstanceManager:
+      # CNPG instances call peer instance managers on port 8000 for health,
+      # failsafe, and coordination checks. This must stay open between pods in
+      # the same CNPG cluster when any ingress NetworkPolicy selects them.
+      enabled: true
       port: 8000
   egress:
     allowDNS: true

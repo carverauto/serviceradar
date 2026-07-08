@@ -7,7 +7,7 @@ title: Kubernetes External Ingestion
 
 ServiceRadar can receive telemetry from routers, switches, firewalls, and other systems outside the Kubernetes cluster. Keep those external paths explicit: expose only the collector ports you use, restrict them to known management networks or exporter IPs, and leave service-to-service ports internal.
 
-Use this guide with the [Helm configuration](./helm-configuration.md), [service port map](./service-port-map.md), [syslog guide](./syslog.md), [NetFlow guide](./netflow.md), and [SNMP guide](./snmp.md).
+Use this guide with the [Helm configuration](./helm-configuration.md), [Kubernetes ingress services](./service-ports.md), [service port map](./service-port-map.md), [syslog guide](./syslog.md), [NetFlow guide](./netflow.md), and [SNMP guide](./snmp.md).
 
 ## Address Model
 

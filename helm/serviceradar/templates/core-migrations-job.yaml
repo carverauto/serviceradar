@@ -31,7 +31,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
     spec:
-      restartPolicy: OnFailure
+      restartPolicy: Never
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       {{- include "serviceradar.elixirReleasePodSecurityContext" . | nindent 6 }}
       containers:
@@ -112,12 +112,12 @@ spec:
         - name: CNPG_USERNAME
           valueFrom:
             secretKeyRef:
-              name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
+              name: {{ default "cnpg-superuser" $cnpg.superuserSecret | quote }}
               key: username
         - name: CNPG_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
+              name: {{ default "cnpg-superuser" $cnpg.superuserSecret | quote }}
               key: password
         - name: CNPG_ADMIN_USERNAME
           valueFrom:

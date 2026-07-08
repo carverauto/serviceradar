@@ -358,6 +358,65 @@ func TestGenerateUserCredentials_AllowsSystemClaimsUpdateForSystemService(t *tes
 	}
 }
 
+func TestGenerateUserCredentials_AllowsObjectStoreSubjectsForService(t *testing.T) {
+	accountSeed := createTestAccount(t)
+
+	customPerms := &UserPermissions{
+		PublishAllow: []string{
+			"$O.serviceradar_plugins.>",
+			"$JS.FC.OBJ_serviceradar_plugins.>",
+		},
+		SubscribeAllow: []string{
+			"$O.serviceradar_plugins.>",
+			"_INBOX.>",
+		},
+		AllowResponses: true,
+		MaxResponses:   1000,
+	}
+
+	creds, err := GenerateUserCredentials(
+		"platform",
+		accountSeed,
+		"platform-services",
+		CredentialTypeService,
+		customPerms,
+		0,
+	)
+	if err != nil {
+		t.Fatalf("GenerateUserCredentials() unexpected error: %v", err)
+	}
+
+	if creds == nil {
+		t.Fatal("GenerateUserCredentials() returned nil credentials")
+	}
+	if creds.CredsFileContent == "" {
+		t.Fatal("GenerateUserCredentials() returned empty creds content")
+	}
+}
+
+func TestGenerateUserCredentials_RejectsSystemSubjectsForNonSystemService(t *testing.T) {
+	accountSeed := createTestAccount(t)
+
+	customPerms := &UserPermissions{
+		PublishAllow: []string{"$SYS.REQ.ACCOUNT.*.CLAIMS.UPDATE"},
+	}
+
+	_, err := GenerateUserCredentials(
+		"platform",
+		accountSeed,
+		"platform-services",
+		CredentialTypeService,
+		customPerms,
+		0,
+	)
+	if err == nil {
+		t.Fatal("GenerateUserCredentials() expected error for non-system $SYS publish, got nil")
+	}
+	if !strings.Contains(err.Error(), ErrSubjectOutOfScope.Error()) {
+		t.Fatalf("expected ErrSubjectOutOfScope, got %v", err)
+	}
+}
+
 func TestGenerateUserCredentials_InvalidAccountSeed(t *testing.T) {
 	_, err := GenerateUserCredentials(
 		"test-ns",

@@ -40,7 +40,21 @@ natsCreds:
   autoGenerate: true
 
 cnpg:
-  storageClass: local-path-big
+  # Temporary while only two dedicated CNPG workers exist. Argo CD currently
+  # ignores live changes to /spec/instances for this Cluster, so changing this
+  # value documents the desired demo shape but does not downscale the live
+  # cluster by itself.
+  instances: 2
+  storageClass: local-path-cnpg
+  affinity:
+    podAntiAffinityType: preferred
+    nodeSelector:
+      cnpg.io/dedicated: "true"
+    tolerations:
+      - key: cnpg.io/dedicated
+        operator: Equal
+        value: "true"
+        effect: NoSchedule
   # The demo's local-path volume is a 1TB disk (scsi3), larger than the declared
   # storageSize, so the chart's ~30%-of-storageSize default is too small here.
   # The live cnpg PVCs were grown to 500Gi (post 2026-06-17 disk outage); the
@@ -236,6 +250,8 @@ networkPolicy:
       # the falcosidekick receiver deployed with the demo ServiceRadar stack.
       - falco
     cnpgOperator:
+      enabled: true
+    cnpgInstanceManager:
       enabled: true
     monitoring:
       enabled: true

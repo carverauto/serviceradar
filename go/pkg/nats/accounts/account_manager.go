@@ -410,8 +410,11 @@ func allowedSystemSubject(
 		switch {
 		case subject == "$JS.API.>",
 			subject == "$JS.ACK.>",
+			subject == "$JS.FC.>",
+			strings.HasPrefix(subject, "$O."),
 			strings.HasPrefix(subject, "$JS.API."),
-			strings.HasPrefix(subject, "$JS.ACK."):
+			strings.HasPrefix(subject, "$JS.ACK."),
+			strings.HasPrefix(subject, "$JS.FC."):
 			return true
 		}
 		// Explicit deny entries for $SYS.> are allowed so callers can
