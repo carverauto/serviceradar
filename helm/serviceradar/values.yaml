@@ -697,11 +697,6 @@ cnpg:
   # Optional full CNPG image reference. When blank, image.registry is used with
   # the default ServiceRadar CNPG tag.
   imageName: ""
-  # Extra environment variables passed to CNPG instance pods. Hosted Linode
-  # tenants use this to make botocore request checksums opt-in for S3-compatible
-  # object storage.
-  env: []
-  envFrom: []
   sharedPreloadLibraries:
     - timescaledb
     - age
@@ -763,9 +758,11 @@ cnpg:
         sessionTokenKey: ""
       wal:
         compression: gzip
+        encryption: AES256
         maxParallel: 8
       data:
         compression: gzip
+        encryption: AES256
     scheduledBackup:
       enabled: true
       name: ""

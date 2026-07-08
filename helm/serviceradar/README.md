@@ -113,7 +113,6 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `global.storage.encryptedStorageClassName` | StorageClass used by durable database/object-store PVCs when no service-specific class is set | `encrypted` |
 | `global.storage.allowInsecureStorage` | Allow durable PVCs to inherit the cluster default or use a known non-encrypted class. Lab/demo only. | `false` |
 | `cnpg.storageClass` | StorageClass for CNPG database volumes. Defaults to `global.storage.encryptedStorageClassName` when empty. | `""` |
-| `cnpg.env` | Extra environment variables passed to CNPG instance pods, useful for S3-compatible backup client settings | `[]` |
 | `cnpg.backup.enabled` | Render CNPG native Barman object-store backup and scheduled base-backup resources | `false` |
 | `cnpg.backup.barmanObjectStore.destinationPath` | Object-store destination path for CNPG WAL archives and base backups | `""` |
 | `cnpg.backup.barmanObjectStore.s3Credentials.secretName` | Kubernetes Secret containing object-store access keys referenced by CNPG | `""` |

@@ -82,11 +82,6 @@ networkPolicy:
 cnpg:
   instances: 3
   storageSize: 100Gi
-  env:
-    - name: AWS_REQUEST_CHECKSUM_CALCULATION
-      value: when_required
-    - name: AWS_RESPONSE_CHECKSUM_VALIDATION
-      value: when_required
   backup:
     enabled: true
     retentionPolicy: "30d"
@@ -101,9 +96,11 @@ cnpg:
         secretAccessKeyKey: ACCESS_SECRET_KEY
       wal:
         compression: gzip
+        encryption: AES256
         maxParallel: 8
       data:
         compression: gzip
+        encryption: AES256
     scheduledBackup:
       enabled: true
       name: cnpg-base-backup
