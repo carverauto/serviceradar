@@ -157,7 +157,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceStateData do
     cond do
       is_binary(hostname) and hostname != "" -> hostname
       is_binary(ip) and ip != "" -> ip
-      true -> "Device"
+      # Fall back to the device uid so the breadcrumb / header reads the device's
+      # identity instead of the literal "Device" when hostname and IP are absent.
+      true -> row_device_uid(row) || "Device"
     end
   end
 

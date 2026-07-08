@@ -15,7 +15,11 @@ defmodule ServiceRadar.Automation.Ansible.Controller do
     domain: ServiceRadar.Automation.Ansible,
     data_layer: AshPostgres.DataLayer,
     extensions: [AshPaperTrail.Resource],
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    # The primary `:read` carries a `prepare build(select: ...)`, which trips
+    # Ash's "primary read has preparations" warning (an error under
+    # --warnings-as-errors). Both are intentional — same pattern as #4495.
+    primary_read_warning?: false
 
   alias ServiceRadar.Automation.Ansible.Changes.SeedControllerLifecycle
   alias ServiceRadar.Policies.Checks.ActorHasPermission
@@ -75,6 +79,9 @@ defmodule ServiceRadar.Automation.Ansible.Controller do
     end
 
     read :read do
+      # Primary read so this resource loads via its inbound relationships (e.g.
+      # `PlaybookRun.controller` / `Playbook.controller`). See PlaybookRun.
+      primary? true
       prepare build(select: @public_read_fields)
     end
 

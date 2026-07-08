@@ -15,7 +15,11 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRun do
     domain: ServiceRadar.Automation.Ansible,
     data_layer: AshPostgres.DataLayer,
     extensions: [AshStateMachine, AshPaperTrail.Resource],
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    # The primary `:read` carries a `prepare build(select: ...)`, which trips
+    # Ash's "primary read has preparations" warning (an error under
+    # --warnings-as-errors). Both are intentional — same pattern as #4495.
+    primary_read_warning?: false
 
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
@@ -100,6 +104,11 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRun do
 
   actions do
     read :read do
+      # Primary read — the device Ansible panel's `for_device` load chain
+      # resolves the `run` relationship through this; Ash requires a primary read
+      # to load a resource via a relationship. Missing it crash-looped the
+      # device-details run history the first time a device had a run.
+      primary? true
       prepare build(select: @public_read_fields)
     end
 
