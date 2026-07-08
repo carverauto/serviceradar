@@ -76,7 +76,7 @@ spec:
         app.kubernetes.io/component: cnpg-client-ca
     spec:
       serviceAccountName: serviceradar-cnpg-client-ca
-      restartPolicy: OnFailure
+      restartPolicy: Never
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: cnpg-client-ca
