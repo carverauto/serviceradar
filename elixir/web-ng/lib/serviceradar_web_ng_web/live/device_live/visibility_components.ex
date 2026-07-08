@@ -430,6 +430,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
 
   defp metadata_summary_groups(row) do
     metadata = row_metadata(row)
+    sources = metadata_discovery_source_set(row)
 
     Enum.reject(
       [
@@ -503,84 +504,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
           metadata_item("Confidence", metadata_lookup(metadata, "classification_confidence")),
           metadata_item("Reason", metadata_lookup(metadata, "classification_reason"))
         ]),
-        metadata_group("Armis", "hero-shield-check", [
-          metadata_item(
-            "Device ID",
-            metadata_first_value(metadata, [
-              "armis_device_id",
-              "source_device_id",
-              "integration_id"
-            ]),
-            mono: true,
-            external_href: metadata_lookup(metadata, "armis_device_url")
-          ),
-          metadata_item(
-            "Type",
-            metadata_first_value(metadata, ["armis_type", "device_type", "type"])
-          ),
-          metadata_item(
-            "Category",
-            metadata_first_value(metadata, ["armis_category", "category"])
-          ),
-          metadata_item(
-            "Boundaries",
-            metadata_first_value(metadata, ["armis_boundary_names", "boundary_names"])
-          ),
-          metadata_item("Risk level", metadata_lookup(metadata, "armis_risk_level")),
-          metadata_item(
-            "Risk score",
-            metadata_first_value(metadata, ["armis_risk_score", "risk_score"])
-          ),
-          metadata_item(
-            "Tags",
-            metadata_first_value(metadata, ["armis_tags", "source_tags", "tags"])
-          ),
-          metadata_item(
-            "Visibility",
-            metadata_first_value(metadata, ["armis_visibility", "visibility"])
-          ),
-          metadata_item(
-            "Purdue level",
-            metadata_first_value(metadata, ["armis_purdue_level", "purdue_level"])
-          ),
-          metadata_item(
-            "Serial numbers",
-            metadata_first_value(metadata, [
-              "armis_serial_numbers",
-              "serial_numbers",
-              "serial_number"
-            ])
-          )
-        ]),
-        metadata_group("NetBox", "hero-server-stack", [
-          metadata_item("Device ID", metadata_lookup(metadata, "netbox_device_id"), mono: true),
-          metadata_item(
-            "Site",
-            summarize_json_metadata(metadata_first_value(metadata, ["site", "site_name", "site_slug"]))
-          ),
-          metadata_item(
-            "Tenant",
-            summarize_json_metadata(metadata_first_value(metadata, ["tenant", "tenant_name", "account"]))
-          ),
-          metadata_item(
-            "Role",
-            metadata_first_value(metadata, ["device_role", "role", "device_role_name"])
-          ),
-          metadata_item("Status", metadata_first_value(metadata, ["status", "device_status"])),
-          metadata_item(
-            "Platform",
-            metadata_first_value(metadata, ["platform", "platform_name"])
-          ),
-          metadata_item(
-            "Rack",
-            summarize_json_metadata(metadata_first_value(metadata, ["rack", "rack_name"]))
-          ),
-          metadata_item(
-            "Location",
-            summarize_json_metadata(metadata_first_value(metadata, ["location", "location_name"]))
-          ),
-          metadata_item("Tags", metadata_first_value(metadata, ["netbox_tags", "tags"]))
-        ]),
+        armis_metadata_group(metadata, sources),
+        netbox_metadata_group(metadata, sources),
+        device_descriptor_group(metadata),
         metadata_group("Inventory", "hero-identification", [
           metadata_item("Manufacturer", metadata_lookup(metadata, "manufacturer")),
           metadata_item("Model", metadata_lookup(metadata, "model")),
@@ -631,6 +557,187 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
       metadata_present?(metadata_lookup(metadata, "proxmox_candidate_evidence")) or
       metadata_source_evidence?(metadata, ["proxmox_candidate", "proxmox_api"])
   end
+
+  # ---------------------------------------------------------------------------
+  # Integration-provenance gating
+  #
+  # Armis/NetBox cards must only render for devices that genuinely came from
+  # those systems. Provenance is proven by a source-specific metadata key
+  # (e.g. `armis_device_id`, `netbox_device_id`), an `integration_type` match,
+  # or membership in the device's authoritative `discovery_sources` array — NOT
+  # by generic look-alike fields (`source_device_id`, `device_role`, `status`,
+  # `device_type`) that every discovery source populates. Those generic fields
+  # are surfaced under the neutral "Device" group instead, so the label always
+  # matches reality.
+  # ---------------------------------------------------------------------------
+
+  defp armis_metadata_group(metadata, sources) when is_map(metadata) do
+    if integration_provenance?(metadata, sources, "armis", ["armis_device_id", "armis_id"]) do
+      metadata_group("Armis", "hero-shield-check", [
+        metadata_item(
+          "Device ID",
+          metadata_first_value(metadata, ["armis_device_id", "armis_id"]),
+          mono: true,
+          external_href: metadata_lookup(metadata, "armis_device_url")
+        ),
+        metadata_item(
+          "Type",
+          metadata_first_value(metadata, ["armis_type", "device_type", "type"])
+        ),
+        metadata_item(
+          "Category",
+          metadata_first_value(metadata, ["armis_category", "category"])
+        ),
+        metadata_item(
+          "Boundaries",
+          metadata_first_value(metadata, ["armis_boundary_names", "boundary_names"])
+        ),
+        metadata_item("Risk level", metadata_lookup(metadata, "armis_risk_level")),
+        metadata_item(
+          "Risk score",
+          metadata_first_value(metadata, ["armis_risk_score", "risk_score"])
+        ),
+        metadata_item(
+          "Tags",
+          metadata_first_value(metadata, ["armis_tags", "source_tags", "tags"])
+        ),
+        metadata_item(
+          "Visibility",
+          metadata_first_value(metadata, ["armis_visibility", "visibility"])
+        ),
+        metadata_item(
+          "Purdue level",
+          metadata_first_value(metadata, ["armis_purdue_level", "purdue_level"])
+        ),
+        metadata_item(
+          "Serial numbers",
+          metadata_first_value(metadata, [
+            "armis_serial_numbers",
+            "serial_numbers",
+            "serial_number"
+          ])
+        )
+      ])
+    else
+      metadata_group("Armis", "hero-shield-check", [])
+    end
+  end
+
+  defp armis_metadata_group(_metadata, _sources), do: metadata_group("Armis", "hero-shield-check", [])
+
+  defp netbox_metadata_group(metadata, sources) when is_map(metadata) do
+    netbox_keys = ["netbox_device_id", "netbox_id", "netbox_role", "netbox_device_type", "netbox_tags"]
+
+    if integration_provenance?(metadata, sources, "netbox", netbox_keys) do
+      metadata_group("NetBox", "hero-server-stack", [
+        metadata_item(
+          "Device ID",
+          metadata_first_value(metadata, ["netbox_device_id", "netbox_id"]),
+          mono: true
+        ),
+        metadata_item(
+          "Site",
+          summarize_json_metadata(metadata_first_value(metadata, ["site", "site_name", "site_slug"]))
+        ),
+        metadata_item(
+          "Tenant",
+          summarize_json_metadata(metadata_first_value(metadata, ["tenant", "tenant_name", "account"]))
+        ),
+        metadata_item(
+          "Role",
+          metadata_first_value(metadata, ["netbox_role", "device_role", "role", "device_role_name"])
+        ),
+        metadata_item("Status", metadata_first_value(metadata, ["status", "device_status"])),
+        metadata_item(
+          "Platform",
+          metadata_first_value(metadata, ["platform", "platform_name"])
+        ),
+        metadata_item(
+          "Rack",
+          summarize_json_metadata(metadata_first_value(metadata, ["rack", "rack_name"]))
+        ),
+        metadata_item(
+          "Location",
+          summarize_json_metadata(metadata_first_value(metadata, ["location", "location_name"]))
+        ),
+        metadata_item("Tags", metadata_first_value(metadata, ["netbox_tags", "tags"]))
+      ])
+    else
+      metadata_group("NetBox", "hero-server-stack", [])
+    end
+  end
+
+  defp netbox_metadata_group(_metadata, _sources), do: metadata_group("NetBox", "hero-server-stack", [])
+
+  # Neutral home for generic device descriptors that any discovery source may
+  # populate. These are NOT integration provenance, so they never imply Armis /
+  # NetBox / etc. — they simply describe the device.
+  defp device_descriptor_group(metadata) when is_map(metadata) do
+    metadata_group("Device", "hero-computer-desktop", [
+      metadata_item(
+        "Role",
+        metadata_first_value(metadata, ["device_role", "role", "device_role_name"])
+      ),
+      metadata_item("Type", metadata_first_value(metadata, ["device_type", "type"])),
+      metadata_item("Status", metadata_first_value(metadata, ["status", "device_status"]))
+    ])
+  end
+
+  defp device_descriptor_group(_metadata), do: metadata_group("Device", "hero-computer-desktop", [])
+
+  defp integration_provenance?(metadata, sources, name, specific_keys) when is_map(metadata) and is_list(specific_keys) do
+    MapSet.member?(sources, name) or
+      integration_type_matches?(metadata, name) or
+      Enum.any?(specific_keys, fn key -> metadata_present?(metadata_lookup(metadata, key)) end)
+  end
+
+  defp integration_provenance?(_metadata, _sources, _name, _specific_keys), do: false
+
+  defp integration_type_matches?(metadata, name) when is_map(metadata) do
+    case metadata_lookup(metadata, "integration_type") do
+      value when is_binary(value) -> String.downcase(value) == name
+      _ -> false
+    end
+  end
+
+  defp integration_type_matches?(_metadata, _name), do: false
+
+  # Build the authoritative set of discovery sources for this device from the
+  # top-level `discovery_sources` array (DIRE-merged). Accepts a decoded list,
+  # atom values, or a raw Postgres text-array literal ("{armis,sweep}").
+  defp metadata_discovery_source_set(row) when is_map(row) do
+    row
+    |> Map.get("discovery_sources", Map.get(row, :discovery_sources))
+    |> normalize_discovery_sources()
+    |> MapSet.new()
+  end
+
+  defp metadata_discovery_source_set(_row), do: MapSet.new()
+
+  defp normalize_discovery_sources(list) when is_list(list) do
+    list
+    |> Enum.map(&normalize_discovery_source/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp normalize_discovery_sources(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.trim_leading("{")
+    |> String.trim_trailing("}")
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.trim(&1, "\""))
+    |> normalize_discovery_sources()
+  end
+
+  defp normalize_discovery_sources(_value), do: []
+
+  defp normalize_discovery_source(value) when is_binary(value), do: value |> String.trim() |> String.downcase()
+
+  defp normalize_discovery_source(value) when is_atom(value) and not is_nil(value),
+    do: value |> Atom.to_string() |> String.downcase()
+
+  defp normalize_discovery_source(_value), do: ""
 
   defp metadata_source_evidence?(metadata, source_keys) when is_map(metadata) and is_list(source_keys) do
     metadata
