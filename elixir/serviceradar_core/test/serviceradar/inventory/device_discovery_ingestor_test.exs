@@ -253,4 +253,141 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
       assert "proxmox:guest:pve-a:qemu:100" in ids.legacy_integration_ids
     end
   end
+
+  describe "AWX ansible_host IP recovery" do
+    alias ServiceRadar.Inventory.IdentityReconciler
+    alias ServiceRadar.Inventory.Sync.Normalize
+
+    defp ingest_awx_host(device) do
+      parent = self()
+
+      payload = %{
+        "status" => "OK",
+        "device_discovery" => [
+          %{
+            "schema" => "serviceradar.device_discovery.v1",
+            "source" => "awx",
+            "devices" => [device]
+          }
+        ]
+      }
+
+      assert :ok =
+               DeviceDiscoveryIngestor.ingest(payload, %{partition: "default"},
+                 actor: :actor,
+                 device_sync: fn updates, _context ->
+                   send(parent, {:device_sync, updates})
+                   :ok
+                 end
+               )
+
+      assert_receive {:device_sync, [update]}
+      update
+    end
+
+    # The AWX inventory-sync plugin captures the raw host `variables` as a
+    # stringified JSON object under `metadata.awx.variables` but (under TinyGo)
+    # can leave `ip` empty. This nested blob mirrors the live demo shape that
+    # trips the plugin's minimal JSON decoder; the ingestor must recover the IP.
+    @awx_variables_json ~s({"ansible_host": "192.168.2.235", ) <>
+                          ~s("proxmox_agent_interfaces": [{"name": "eth0", ) <>
+                          ~s("ip_addresses": ["192.168.2.235/24"]}], "ansible_user": "root"})
+
+    test "recovers the canonical IP from ansible_host in stringified variables" do
+      update =
+        ingest_awx_host(%{
+          "device_id" => "awx:ctrl-1:host:42",
+          "hostname" => "alma-test",
+          "type" => "host",
+          "role" => "ansible_host",
+          "metadata" => %{
+            "awx" => %{
+              "controller_id" => "ctrl-1",
+              "host_id" => 42,
+              "host_name" => "alma-test",
+              "variables" => @awx_variables_json
+            }
+          }
+        })
+
+      # The decoded ansible_host becomes the device's canonical IP...
+      assert update["ip"] == "192.168.2.235"
+
+      # ...and flows into the SAME strong-identifier/reconciliation path other
+      # sources use, so DIRE resolves the AWX device against same-IP hosts.
+      ids =
+        update
+        |> Normalize.normalize_update()
+        |> IdentityReconciler.extract_strong_identifiers()
+
+      assert ids.ip == "192.168.2.235"
+      assert ids.integration_id == "awx:ctrl-1:host:42"
+    end
+
+    test "recovers ansible_host from the legacy ansible_ssh_host key" do
+      update =
+        ingest_awx_host(%{
+          "device_id" => "awx:ctrl-1:host:43",
+          "hostname" => "ns01",
+          "metadata" => %{
+            "awx" => %{"variables" => ~s({"ansible_ssh_host": "192.168.2.44"})}
+          }
+        })
+
+      assert update["ip"] == "192.168.2.44"
+    end
+
+    test "does not fabricate an IP for a host with no ansible_host" do
+      update =
+        ingest_awx_host(%{
+          "device_id" => "awx:ctrl-1:host:99",
+          "hostname" => "localhost",
+          "metadata" => %{
+            "awx" => %{"variables" => ~s({"ansible_connection": "local"})}
+          }
+        })
+
+      assert is_nil(update["ip"])
+    end
+
+    test "does not treat a non-IP ansible_host as an IP" do
+      update =
+        ingest_awx_host(%{
+          "device_id" => "awx:ctrl-1:host:100",
+          "hostname" => "freebsd-01",
+          "metadata" => %{
+            "awx" => %{"variables" => ~s({"ansible_host": "freebsd-01.lab.example.com"})}
+          }
+        })
+
+      assert is_nil(update["ip"])
+    end
+
+    test "prefers an explicit device ip over the ansible_host fallback" do
+      update =
+        ingest_awx_host(%{
+          "device_id" => "awx:ctrl-1:host:101",
+          "hostname" => "dusk01",
+          "ip" => "10.9.9.9",
+          "metadata" => %{
+            "awx" => %{"variables" => @awx_variables_json}
+          }
+        })
+
+      assert update["ip"] == "10.9.9.9"
+    end
+
+    test "tolerates a malformed variables blob without crashing" do
+      update =
+        ingest_awx_host(%{
+          "device_id" => "awx:ctrl-1:host:102",
+          "hostname" => "broken-01",
+          "metadata" => %{
+            "awx" => %{"variables" => "not-json: [oops"}
+          }
+        })
+
+      assert is_nil(update["ip"])
+    end
+  end
 end

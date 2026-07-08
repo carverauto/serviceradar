@@ -125,7 +125,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
 
     update = %{
       "device_id" => string_value(device, ["device_id", "deviceId", "uid"]),
-      "ip" => string_value(device, ["ip", "ip_address", "ipAddress"]),
+      "ip" => device_ip(device),
       "mac" => string_value(device, ["mac", "mac_address", "macAddress"]),
       "hostname" => string_value(device, ["hostname", "name", "host"]),
       "partition" => partition_value(status),
@@ -149,6 +149,63 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
     present?(update["device_id"]) or present?(update["ip"]) or present?(update["mac"]) or
       present?(get_in(update, ["metadata", "integration_id"]))
   end
+
+  # Resolve the device's canonical IP. Most plugins set `ip` directly. The AWX
+  # inventory-sync plugin runs under TinyGo/WASM, whose minimal `encoding/json`
+  # can fail to decode a host's nested `variables` blob (e.g. proxmox agent
+  # interfaces); it always captures the raw stringified JSON under
+  # `metadata.awx.variables` but may then emit an empty `ip`. When the direct
+  # `ip` is blank we recover it here with the full Jason decoder so AWX devices
+  # carry a canonical IP and reconcile with the same host seen by
+  # sweep/agent/proxmox. `ansible_host` is the intended field; a host without a
+  # valid-IP `ansible_host` stays IP-less — we never fabricate an address.
+  defp device_ip(device) do
+    case string_value(device, ["ip", "ip_address", "ipAddress"]) do
+      ip when is_binary(ip) -> ip
+      _ -> awx_ansible_host_ip(device)
+    end
+  end
+
+  defp awx_ansible_host_ip(device) do
+    with awx when is_map(awx) <- awx_metadata(device),
+         raw when is_binary(raw) <- string_value(awx, ["variables"]),
+         host when is_binary(host) <- ansible_host_from_variables(raw),
+         true <- valid_ip?(host) do
+      host
+    else
+      _ -> nil
+    end
+  end
+
+  defp awx_metadata(device) do
+    case map_value(device, ["metadata"]) do
+      metadata when is_map(metadata) -> map_value(metadata, ["awx"])
+      _ -> nil
+    end
+  end
+
+  # AWX returns a host's `variables` as a stringified JSON object (the proxmox
+  # dynamic inventory emits JSON). Decode it and read `ansible_host` (or the
+  # legacy `ansible_ssh_host`). A non-object blob or a decode failure yields nil.
+  defp ansible_host_from_variables(raw) do
+    trimmed = String.trim(raw)
+
+    with "{" <> _ <- trimmed,
+         {:ok, decoded} when is_map(decoded) <- Jason.decode(trimmed) do
+      string_value(decoded, ["ansible_host", "ansible_ssh_host"])
+    else
+      _ -> nil
+    end
+  end
+
+  defp valid_ip?(value) when is_binary(value) do
+    case value |> String.trim() |> String.to_charlist() |> :inet.parse_address() do
+      {:ok, _address} -> true
+      _ -> false
+    end
+  end
+
+  defp valid_ip?(_value), do: false
 
   defp device_metadata(device, envelope, payload) do
     location = map_value(device, ["location"])
