@@ -74,7 +74,7 @@ spec:
         app.kubernetes.io/component: runtime-cert-generator
     spec:
       serviceAccountName: serviceradar-runtime-cert-generator
-      restartPolicy: OnFailure
+      restartPolicy: Never
       {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:

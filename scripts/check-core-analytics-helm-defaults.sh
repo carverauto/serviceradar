@@ -87,7 +87,7 @@ check_default_render() {
 
   assert_env "${rendered}" "EVENT_WRITER_ENABLED" "true"
   assert_env_absent "${rendered}" "ANOMALY_ANALYSIS_CONSUMER_ENABLED"
-  assert_env "${rendered}" "SERVICERADAR_ANOMALY_METRIC_CLASS_OVERRIDES_JSON" '{\"cpu\":{},\"disk\":{},\"interface\":{},\"memory\":{},\"red\":{}}'
+  assert_env "${rendered}" "SERVICERADAR_ANOMALY_METRIC_CLASS_OVERRIDES_JSON" '{\"cpu\":{\"drift_mode\":\"deseasonalized_only\"},\"disk\":{\"drift_mode\":false},\"icmp\":{\"drift_mode\":false},\"interface\":{\"drift_mode\":\"deseasonalized_only\"},\"memory\":{\"drift_mode\":\"deseasonalized_only\"},\"other\":{\"drift_mode\":false},\"red\":{}}'
   assert_env "${rendered}" "SERVICERADAR_CAPACITY_FORECASTING_ENABLED" "true"
   assert_env "${rendered}" "SERVICERADAR_CAPACITY_FORECASTING_MIN_POINTS" "72"
   assert_env "${rendered}" "SERVICERADAR_CAPACITY_FORECAST_CONFIG_METRIC_CLASS_OVERRIDES_JSON" '{\"cpu\":{},\"disk\":{},\"flow\":{},\"interface\":{},\"memory\":{}}'

@@ -66,6 +66,16 @@ def hook_weight(doc):
     return int(unquote(weight.group("weight")))
 
 
+def restart_policy(doc):
+    match = re.search(
+        r"^\s+restartPolicy:\s*(?P<policy>[^\n]+)",
+        doc,
+        re.MULTILINE,
+    )
+
+    return unquote(match.group("policy")) if match else ""
+
+
 found = {}
 
 for doc in re.split(r"^---\s*$", text, flags=re.MULTILINE):
@@ -83,7 +93,10 @@ for doc in re.split(r"^---\s*$", text, flags=re.MULTILINE):
         continue
 
     try:
-        found[key] = hook_weight(doc)
+        found[key] = {
+            "hook_weight": hook_weight(doc),
+            "restart_policy": restart_policy(doc),
+        }
     except ValueError as error:
         print(f"{key[0]}/{key[1]}: {error}", file=sys.stderr)
         sys.exit(1)
@@ -95,14 +108,20 @@ if missing:
     sys.exit(1)
 
 for key, expected in targets.items():
-    actual = found[key]
+    actual = found[key]["hook_weight"]
     if actual != expected:
         print(f"{key[0]}/{key[1]} hook weight: expected {expected}, got {actual}", file=sys.stderr)
         sys.exit(1)
+    if found[key]["restart_policy"] != "Never":
+        print(
+            f"{key[0]}/{key[1]} restartPolicy: expected Never, got {found[key]['restart_policy']}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
-secret_weight = found[("Job", "serviceradar-secret-generator")]
-nats_weight = found[("Job", "serviceradar-nats-creds-generator")]
-migration_weight = found[("Job", "serviceradar-core-migrations")]
+secret_weight = found[("Job", "serviceradar-secret-generator")]["hook_weight"]
+nats_weight = found[("Job", "serviceradar-nats-creds-generator")]["hook_weight"]
+migration_weight = found[("Job", "serviceradar-core-migrations")]["hook_weight"]
 
 if secret_weight >= migration_weight:
     print("serviceradar-secret-generator must run before core migrations", file=sys.stderr)

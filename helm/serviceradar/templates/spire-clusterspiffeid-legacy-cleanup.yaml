@@ -39,7 +39,7 @@ spec:
         app.kubernetes.io/component: spiffe-legacy-cleanup
     spec:
       serviceAccountName: spire-server
-      restartPolicy: OnFailure
+      restartPolicy: Never
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: spiffe-legacy-cleanup

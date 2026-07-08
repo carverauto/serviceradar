@@ -16,7 +16,7 @@ spec:
       labels:
         app: serviceradar-checker-templates-kv-bootstrap
     spec:
-      restartPolicy: OnFailure
+      restartPolicy: Never
       serviceAccountName: {{ .Values.spire.coreServiceAccount | default "serviceradar-core" }}
       containers:
         - name: kv-bootstrap
