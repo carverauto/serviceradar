@@ -8,6 +8,14 @@
 {{- $backup := default (dict) $cnpg.backup -}}
 {{- $barman := default (dict) $backup.barmanObjectStore -}}
 {{- $s3Credentials := default (dict) $barman.s3Credentials -}}
+{{- $barmanWal := deepCopy (default (dict) $barman.wal) -}}
+{{- if not $barmanWal.encryption -}}
+{{- $_ := unset $barmanWal "encryption" -}}
+{{- end -}}
+{{- $barmanData := deepCopy (default (dict) $barman.data) -}}
+{{- if not $barmanData.encryption -}}
+{{- $_ := unset $barmanData "encryption" -}}
+{{- end -}}
 {{- $scheduledBackup := default (dict) $backup.scheduledBackup -}}
 {{- $backupEnabled := false -}}
 {{- if hasKey $backup "enabled" -}}
@@ -119,6 +127,14 @@ metadata:
 spec:
   imageName: {{ include "serviceradar.cnpgImageName" (dict "Values" .Values "cnpg" $cnpg) }}
   instances: {{ default 3 $cnpg.instances }}
+  {{- with $cnpg.env }}
+  env:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with $cnpg.envFrom }}
+  envFrom:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   {{- if .Values.image.registryPullSecret }}
   imagePullSecrets:
     - name: {{ .Values.image.registryPullSecret | quote }}
@@ -224,11 +240,11 @@ spec:
           name: {{ required "cnpg.backup.barmanObjectStore.s3Credentials.secretName is required when cnpg.backup.enabled=true" $s3Credentials.secretName | quote }}
           key: {{ . | quote }}
         {{- end }}
-      {{- with $barman.wal }}
+      {{- with $barmanWal }}
       wal:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with $barman.data }}
+      {{- with $barmanData }}
       data:
         {{- toYaml . | nindent 8 }}
       {{- end }}

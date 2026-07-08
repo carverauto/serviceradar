@@ -96,11 +96,9 @@ cnpg:
         secretAccessKeyKey: ACCESS_SECRET_KEY
       wal:
         compression: gzip
-        encryption: AES256
         maxParallel: 8
       data:
         compression: gzip
-        encryption: AES256
     scheduledBackup:
       enabled: true
       name: cnpg-base-backup

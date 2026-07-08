@@ -1,9 +1,15 @@
+{{- $rperfChecker := default (dict) .Values.rperfChecker -}}
+{{- $rperfCheckerEnabled := true -}}
+{{- if hasKey $rperfChecker "enabled" -}}
+{{- $rperfCheckerEnabled = $rperfChecker.enabled -}}
+{{- end -}}
+{{- if $rperfCheckerEnabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: serviceradar-rperf-client
 spec:
-  replicas: 1
+  replicas: {{ default 1 $rperfChecker.replicaCount }}
   selector:
     matchLabels:
       app: serviceradar-rperf-client
@@ -125,3 +131,4 @@ spec:
   - name: grpc
     port: 50081
     targetPort: grpc
+{{- end }}
