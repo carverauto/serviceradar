@@ -123,6 +123,14 @@ spec:
   imagePullSecrets:
     - name: {{ .Values.image.registryPullSecret | quote }}
   {{- end }}
+  {{- with $cnpg.env }}
+  env:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with $cnpg.envFrom }}
+  envFrom:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   {{- if $cnpgAffinity }}
   affinity:
     {{- if hasKey $cnpgAffinity "enablePodAntiAffinity" }}
