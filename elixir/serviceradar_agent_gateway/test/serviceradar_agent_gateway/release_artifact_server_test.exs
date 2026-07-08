@@ -28,6 +28,27 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServerTest do
     assert conn.resp_body =~ "release artifact access denied"
   end
 
+  test "returns a retryable 409 when the artifact is not ready yet" do
+    conn =
+      :get
+      |> conn("/artifacts/releases/download")
+      |> put_req_header("x-serviceradar-release-target-id", "target-123")
+      |> put_req_header("x-serviceradar-release-command-id", "command-123")
+      |> ReleaseArtifactServer.call(
+        ReleaseArtifactServer.init(
+          resolve_identity: fn _conn ->
+            {:ok, %{component_id: "agent-123", component_type: :agent}}
+          end,
+          resolve_download: fn _target_id, _command_id, _caller_agent_id ->
+            {:error, :artifact_not_ready}
+          end
+        )
+      )
+
+    assert conn.status == 409
+    assert conn.resp_body =~ "release artifact is not ready yet"
+  end
+
   test "streams mirrored artifact data on successful authorization" do
     conn =
       :get

@@ -38,6 +38,7 @@ defmodule ServiceRadar.Edge.AgentReleaseRollout do
     define :resume, action: :resume
     define :cancel, action: :cancel
     define :complete, action: :complete
+    define :reactivate, action: :reactivate
     define :touch_dispatch, action: :touch_dispatch
   end
 
@@ -88,6 +89,15 @@ defmodule ServiceRadar.Edge.AgentReleaseRollout do
       change set_attribute(:completed_at, &DateTime.utc_now/0)
     end
 
+    # Re-open a completed rollout so a manually retried failed target can be
+    # dispatched again and the rollout can re-complete.
+    update :reactivate do
+      accept []
+      change set_attribute(:status, :active)
+      change set_attribute(:completed_at, nil)
+      change set_attribute(:canceled_at, nil)
+    end
+
     update :touch_dispatch do
       accept []
       change set_attribute(:last_dispatch_at, &DateTime.utc_now/0)
@@ -99,7 +109,7 @@ defmodule ServiceRadar.Edge.AgentReleaseRollout do
 
     system_bypass()
     read_operator_plus()
-    operator_action([:create, :pause, :resume, :cancel, :complete, :touch_dispatch])
+    operator_action([:create, :pause, :resume, :cancel, :complete, :reactivate, :touch_dispatch])
   end
 
   attributes do

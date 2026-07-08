@@ -68,6 +68,18 @@ const (
 	releaseCompatibleAgentMin                 = "min"
 	releaseCompatibleAgentMax                 = "max"
 	releaseHelperReadyReasonMaxBytes          = 256
+
+	// Bounded in-band retry for transient release artifact download failures.
+	releaseDownloadMaxAttempts = 4
+)
+
+// Backoff durations for transient release artifact download retries. Declared as
+// vars (not consts) so tests can shrink them; production values are fixed.
+//
+//nolint:gochecknoglobals // tunable for tests
+var (
+	releaseDownloadInitialBackoff = 1 * time.Second
+	releaseDownloadMaxBackoff     = 15 * time.Second
 )
 
 var (
@@ -928,13 +940,64 @@ func writeReleaseMetadata(tempDir string, payload releaseUpdatePayload, entrypoi
 	return nil
 }
 
+// downloadReleaseArtifact fetches the release artifact, retrying transient
+// failures with exponential backoff. A single gateway/agent racing a rollout can
+// briefly get a not-ready artifact (HTTP 409/424), a not-yet-replicated object
+// (404), a 5xx, or a network blip. Those are transient and clearly recoverable
+// (peers downloading the identical artifact a moment later succeed), so retrying
+// in-band lets the agent recover instead of reporting a terminal failure. Hard
+// rejections (bad signature/platform handled earlier, or a genuine 4xx here) are
+// not retried.
 func downloadReleaseArtifact(ctx context.Context, payload releaseUpdatePayload, cfg releaseStageConfig) ([]byte, error) {
-	req, err := buildReleaseArtifactRequest(ctx, payload, cfg)
+	httpClient, err := releaseHTTPClient(payload, cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	httpClient, err := releaseHTTPClient(payload, cfg)
+	backoff := releaseDownloadInitialBackoff
+	var lastErr error
+
+	for attempt := 1; attempt <= releaseDownloadMaxAttempts; attempt++ {
+		data, attemptErr := downloadReleaseArtifactAttempt(ctx, payload, cfg, httpClient)
+		if attemptErr == nil {
+			return data, nil
+		}
+
+		lastErr = attemptErr
+		if !isRetryableReleaseDownloadError(attemptErr) || attempt == releaseDownloadMaxAttempts {
+			return nil, attemptErr
+		}
+
+		if cfg.Logger != nil {
+			cfg.Logger.Warn().
+				Err(attemptErr).
+				Int("attempt", attempt).
+				Int("max_attempts", releaseDownloadMaxAttempts).
+				Dur("backoff", backoff).
+				Msg("Transient release artifact download failure; retrying")
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(backoff):
+		}
+
+		if backoff *= 2; backoff > releaseDownloadMaxBackoff {
+			backoff = releaseDownloadMaxBackoff
+		}
+	}
+
+	return nil, lastErr
+}
+
+func downloadReleaseArtifactAttempt(
+	ctx context.Context,
+	payload releaseUpdatePayload,
+	cfg releaseStageConfig,
+	httpClient *http.Client,
+) ([]byte, error) {
+	req, err := buildReleaseArtifactRequest(ctx, payload, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -948,7 +1011,9 @@ func downloadReleaseArtifact(ctx context.Context, payload releaseUpdatePayload, 
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%w: status %d", errDownloadFailed, resp.StatusCode)
+		// Preserve the "download failed: status <code>" message shape while
+		// carrying the status code for transient-vs-terminal classification.
+		return nil, &gatewayArtifactStatusError{sentinel: errDownloadFailed, statusCode: resp.StatusCode}
 	}
 
 	limited := io.LimitReader(resp.Body, releaseArtifactMaxBytes+1)
@@ -960,6 +1025,44 @@ func downloadReleaseArtifact(ctx context.Context, payload releaseUpdatePayload, 
 		return nil, fmt.Errorf("%w: %d bytes", errDownloadTooLarge, releaseArtifactMaxBytes)
 	}
 	return data, nil
+}
+
+// isRetryableReleaseDownloadError classifies a release artifact download failure
+// as transient (worth retrying) versus terminal. Not-ready/not-staged artifacts
+// (409/424/404), rate limits (429), and 5xx are transient; so are non-HTTP
+// transport errors (dial/timeout/reset/EOF). A genuine 4xx client rejection
+// (400/401/403 auth denial) and an over-size artifact are terminal.
+func isRetryableReleaseDownloadError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if errors.Is(err, errDownloadTooLarge) {
+		return false
+	}
+
+	var statusErr *gatewayArtifactStatusError
+	if errors.As(err, &statusErr) {
+		return isRetryableReleaseDownloadStatus(statusErr.StatusCode())
+	}
+
+	// Non-HTTP transport error: treat as transient and retry.
+	return true
+}
+
+func isRetryableReleaseDownloadStatus(status int) bool {
+	switch status {
+	case http.StatusRequestTimeout, // 408
+		http.StatusConflict,         // 409 (artifact not ready yet)
+		http.StatusLocked,           // 423
+		http.StatusFailedDependency, // 424 (artifact not mirrored yet)
+		http.StatusTooEarly,         // 425
+		http.StatusTooManyRequests,  // 429
+		http.StatusNotFound:         // 404 (object not staged/replicated yet)
+		return true
+	default:
+		return status >= 500
+	}
 }
 
 func buildReleaseArtifactRequest(ctx context.Context, payload releaseUpdatePayload, cfg releaseStageConfig) (*http.Request, error) {

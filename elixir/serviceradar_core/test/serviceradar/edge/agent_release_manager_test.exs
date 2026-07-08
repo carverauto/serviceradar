@@ -9,6 +9,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
   alias ServiceRadar.Edge.AgentReleaseManager
   alias ServiceRadar.Edge.AgentReleaseRollout
   alias ServiceRadar.Edge.AgentReleaseTarget
+  alias ServiceRadar.Edge.ReleaseArtifactDelivery
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
@@ -834,6 +835,198 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
 
     rollout = AgentReleaseRollout.get_by_id!(rollout.id, actor: actor)
     assert rollout.status == :completed
+  end
+
+  test "retry_target re-dispatches a failed target and reactivates the rollout", %{
+    actor: actor,
+    agent_id: agent_id,
+    release: release
+  } do
+    {_pid, _metadata} = start_control_session(agent_id, self())
+
+    {:ok, rollout} =
+      AgentReleaseManager.create_rollout(%{
+        release_id: release.id,
+        agent_ids: [agent_id],
+        batch_size: 1
+      })
+
+    assert_receive {:send_command, first_command, _context}, 1_000
+
+    target = read_release_target(actor, agent_id, rollout.id)
+
+    # Terminal (non-transient) failure so the target stays failed and the rollout completes.
+    :ok =
+      AgentReleaseManager.handle_command_result(%{
+        command_type: "agent.update_release",
+        command_id: first_command.command_id,
+        success: false,
+        message: "release manifest signature verification failed",
+        payload: %{
+          "status" => "failed",
+          "reason" => "release manifest signature verification failed"
+        }
+      })
+
+    target = AgentReleaseTarget.get_by_id!(target.id, actor: actor)
+    assert target.status == :failed
+
+    rollout = AgentReleaseRollout.get_by_id!(rollout.id, actor: actor)
+    assert rollout.status == :completed
+
+    assert {:ok, retried_target} = AgentReleaseManager.retry_target(target.id, actor: actor)
+    assert retried_target.agent_id == agent_id
+
+    assert_receive {:send_command, retry_command, _context}, 1_000
+    refute retry_command.command_id == first_command.command_id
+
+    target = AgentReleaseTarget.get_by_id!(target.id, actor: actor)
+    assert target.status == :dispatched
+    assert target.command_id == retry_command.command_id
+    assert target.last_error == nil
+
+    rollout = AgentReleaseRollout.get_by_id!(rollout.id, actor: actor)
+    assert rollout.status == :active
+  end
+
+  test "retry_target rejects targets that are not in a failed state", %{
+    actor: actor,
+    agent_id: agent_id,
+    release: release
+  } do
+    {_pid, _metadata} = start_control_session(agent_id, self())
+
+    {:ok, rollout} =
+      AgentReleaseManager.create_rollout(%{
+        release_id: release.id,
+        agent_ids: [agent_id],
+        batch_size: 1
+      })
+
+    target = read_release_target(actor, agent_id, rollout.id)
+    assert target.status == :dispatched
+
+    assert {:error, :target_not_retryable} =
+             AgentReleaseManager.retry_target(target.id, actor: actor)
+  end
+
+  test "handle_command_result auto-retries a transient download failure then fails after the budget",
+       %{actor: actor, agent_id: agent_id, release: release} do
+    {_pid, _metadata} = start_control_session(agent_id, self())
+
+    {:ok, rollout} =
+      AgentReleaseManager.create_rollout(%{
+        release_id: release.id,
+        agent_ids: [agent_id],
+        batch_size: 1
+      })
+
+    assert_receive {:send_command, first_command, _context}, 1_000
+    target = read_release_target(actor, agent_id, rollout.id)
+    assert target.command_id == first_command.command_id
+
+    # Each transient 403 auto-retries with a fresh command until the retry budget (3) is spent.
+    last_command_id =
+      Enum.reduce(1..3, first_command.command_id, fn expected_count, command_id ->
+        :ok = fail_release_command(command_id, "download failed: status 403")
+
+        assert_receive {:send_command, retry_command, _context}, 1_000
+        refute retry_command.command_id == command_id
+
+        retried_target = AgentReleaseTarget.get_by_id!(target.id, actor: actor)
+        assert retried_target.status == :dispatched
+        assert retried_target.metadata["auto_retry_count"] == expected_count
+
+        retry_command.command_id
+      end)
+
+    # Budget exhausted: the next transient failure is terminal.
+    :ok = fail_release_command(last_command_id, "download failed: status 403")
+    refute_receive {:send_command, _command, _context}, 250
+
+    target = AgentReleaseTarget.get_by_id!(target.id, actor: actor)
+    assert target.status == :failed
+    assert target.last_error =~ "status 403"
+  end
+
+  test "handle_command_result keeps a non-transient download failure terminal", %{
+    actor: actor,
+    agent_id: agent_id,
+    release: release
+  } do
+    {_pid, _metadata} = start_control_session(agent_id, self())
+
+    {:ok, rollout} =
+      AgentReleaseManager.create_rollout(%{
+        release_id: release.id,
+        agent_ids: [agent_id],
+        batch_size: 1
+      })
+
+    assert_receive {:send_command, command, _context}, 1_000
+    target = read_release_target(actor, agent_id, rollout.id)
+
+    :ok = fail_release_command(command.command_id, "release artifact platform does not match")
+
+    refute_receive {:send_command, _command, _context}, 250
+
+    target = AgentReleaseTarget.get_by_id!(target.id, actor: actor)
+    assert target.status == :failed
+    assert target.last_error == "release artifact platform does not match"
+  end
+
+  test "resolve_download classifies not-ready/lookup failures as retryable, not a terminal 403",
+       %{actor: actor, agent_id: agent_id, release: release} do
+    {_pid, _metadata} = start_control_session(agent_id, self())
+
+    {:ok, rollout} =
+      AgentReleaseManager.create_rollout(%{
+        release_id: release.id,
+        agent_ids: [agent_id],
+        batch_size: 1
+      })
+
+    assert_receive {:send_command, _command, _context}, 1_000
+    target = read_release_target(actor, agent_id, rollout.id)
+
+    assert {:ok, download} =
+             ReleaseArtifactDelivery.resolve_download(target.id, target.command_id, agent_id)
+
+    assert download.agent_id == agent_id
+    assert is_binary(download.object_key)
+
+    # A genuine authorization denial (wrong caller) stays a terminal 403.
+    assert {:error, :unauthorized} =
+             ReleaseArtifactDelivery.resolve_download(
+               target.id,
+               target.command_id,
+               "agent-someone-else"
+             )
+
+    # A target that is not visible (read race / not staged) is retryable, not a 403.
+    assert {:error, :artifact_not_ready} =
+             ReleaseArtifactDelivery.resolve_download(
+               Ecto.UUID.generate(),
+               target.command_id,
+               agent_id
+             )
+  end
+
+  defp read_release_target(actor, agent_id, rollout_id) do
+    AgentReleaseTarget
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(expr(agent_id == ^agent_id and rollout_id == ^rollout_id))
+    |> Ash.read_one!(actor: actor)
+  end
+
+  defp fail_release_command(command_id, reason) do
+    AgentReleaseManager.handle_command_result(%{
+      command_type: "agent.update_release",
+      command_id: command_id,
+      success: false,
+      message: reason,
+      payload: %{"status" => "failed", "reason" => reason}
+    })
   end
 
   defp register_agent(actor, agent_id) do

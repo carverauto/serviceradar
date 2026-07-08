@@ -25,6 +25,25 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
   @release_ack_timeout_seconds 60
   @inflight_statuses [:dispatched, :downloading, :verifying, :staged, :restarting]
   @terminal_statuses [:healthy, :failed, :rolled_back, :canceled]
+  @retryable_target_statuses [:failed, :rolled_back]
+  @max_auto_release_retries 3
+  # HTTP statuses the gateway serves for a not-ready/transient artifact state and
+  # transient network markers. A download failure whose reason matches is auto-
+  # retried; anything else (bad signature, platform mismatch) is terminal.
+  @transient_release_status_codes ~w(403 404 408 409 423 424 425 429 500 502 503 504)
+  @transient_release_markers [
+    "timeout",
+    "timed out",
+    "connection refused",
+    "connection reset",
+    "reset by peer",
+    "no route to host",
+    "temporarily unavailable",
+    "i/o timeout",
+    "broken pipe",
+    "network is unreachable",
+    "eof"
+  ]
   @known_progress_statuses %{
     "downloading" => :downloading,
     "verifying" => :verifying,
@@ -70,6 +89,36 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
          {:ok, updated_rollout} <- AgentReleaseRollout.cancel(rollout, actor: actor) do
       cancel_pending_targets(updated_rollout.id, actor)
       {:ok, updated_rollout}
+    end
+  end
+
+  @doc """
+  Re-dispatches a release to a single FAILED (or rolled-back) rollout target.
+
+  Resets the target back to pending (clearing the stale command/error), reactivates
+  the parent rollout when it had already completed, and lets the rollout dispatch a
+  fresh command and download token. Idempotent per attempt and RBAC-gated via the
+  operator actor carried in `opts`.
+  """
+  @spec retry_target(String.t(), keyword()) :: {:ok, AgentReleaseTarget.t()} | {:error, term()}
+  def retry_target(target_id, opts \\ []) when is_binary(target_id) do
+    actor = actor_opts(opts, :agent_release_manager_retry)
+
+    case AgentReleaseTarget.get_by_id(target_id, actor: actor) do
+      {:ok, %AgentReleaseTarget{} = target} -> do_retry_target(target, actor)
+      {:ok, nil} -> {:error, :target_not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp do_retry_target(target, actor) do
+    with :ok <- ensure_retryable_target(target),
+         {:ok, %AgentReleaseRollout{} = rollout} <-
+           AgentReleaseRollout.get_by_id(target.rollout_id, actor: actor),
+         {:ok, %AgentReleaseRollout{} = rollout} <- prepare_rollout_for_retry(rollout, actor),
+         {:ok, reset_target} <- reset_target_for_retry(target, actor) do
+      maybe_dispatch_rollout(rollout.id, actor: actor)
+      {:ok, reset_target}
     end
   end
 
@@ -425,6 +474,23 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
       {:error, :agent_offline} ->
         mark_target_waiting_for_control_stream(target, actor, :agent_offline)
 
+      # The artifact mirror is not ready to serve yet. Keep the target pending so
+      # dispatch retries once the mirror settles rather than terminally failing an
+      # agent for a transient not-ready condition.
+      {:error, :artifact_not_mirrored} ->
+        _ =
+          mark_target_status(
+            target,
+            :pending,
+            %{
+              last_status_message: "waiting for release artifact mirror",
+              last_error: normalize_reason(:artifact_not_mirrored)
+            },
+            actor
+          )
+
+        :pending
+
       {:error, reason} ->
         mark_target_status(
           target,
@@ -509,12 +575,146 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
     payload = Map.get(data, :payload) || %{}
     message = Map.get(data, :message)
 
-    {status, attrs} =
-      payload
-      |> release_result_status(Map.get(data, :success))
-      |> release_result_update_attrs(target, message)
+    case release_result_status(payload, Map.get(data, :success)) do
+      {:failed, reason} ->
+        handle_failed_release_result(target, reason, message, actor)
 
-    _ = mark_target_status(target, status, attrs, actor)
+      result ->
+        {status, attrs} = release_result_update_attrs(result, target, message)
+        _ = mark_target_status(target, status, attrs, actor)
+        :ok
+    end
+  end
+
+  # A transient download failure (e.g. a not-ready 403/404/409/424, a 5xx, or a
+  # network blip) that an agent reports after exhausting its own in-band retries
+  # is auto-retried a bounded number of times: reset the target to pending so the
+  # rollout re-dispatches a fresh command/token. Hard failures (bad signature,
+  # incompatible platform) stay terminal.
+  defp handle_failed_release_result(target, reason, message, actor) do
+    retry_count = auto_retry_count(target)
+    max_retries = max_auto_release_retries()
+
+    if transient_release_failure?(reason) and retry_count < max_retries do
+      next_count = retry_count + 1
+
+      _ =
+        mark_target_status(
+          target,
+          :pending,
+          %{
+            command_id: nil,
+            progress_percent: 0,
+            last_status_message:
+              "release download failed transiently; auto-retrying (#{next_count}/#{max_retries})",
+            last_error: normalize_reason(reason),
+            metadata: put_auto_retry_count(target, next_count)
+          },
+          actor
+        )
+
+      :ok
+    else
+      {status, attrs} = release_result_update_attrs({:failed, reason}, target, message)
+      _ = mark_target_status(target, status, attrs, actor)
+      :ok
+    end
+  end
+
+  defp ensure_retryable_target(%AgentReleaseTarget{status: status})
+       when status in @retryable_target_statuses, do: :ok
+
+  defp ensure_retryable_target(%AgentReleaseTarget{}), do: {:error, :target_not_retryable}
+
+  # An active rollout can dispatch immediately; a completed rollout is reactivated
+  # so the retried target dispatches and the rollout can re-complete; a paused
+  # rollout keeps the reset target pending until it resumes; a canceled rollout
+  # will not revive a single target.
+  defp prepare_rollout_for_retry(%AgentReleaseRollout{status: :active} = rollout, _actor),
+    do: {:ok, rollout}
+
+  defp prepare_rollout_for_retry(%AgentReleaseRollout{status: :paused} = rollout, _actor),
+    do: {:ok, rollout}
+
+  defp prepare_rollout_for_retry(%AgentReleaseRollout{status: :completed} = rollout, actor),
+    do: AgentReleaseRollout.reactivate(rollout, actor: actor)
+
+  defp prepare_rollout_for_retry(%AgentReleaseRollout{status: :canceled}, _actor),
+    do: {:error, :rollout_canceled}
+
+  defp reset_target_for_retry(target, actor) do
+    attrs = %{
+      status: :pending,
+      command_id: nil,
+      progress_percent: 0,
+      last_error: nil,
+      last_status_message: "manual retry requested",
+      dispatched_at: nil,
+      completed_at: nil,
+      metadata: Map.put(target.metadata || %{}, "auto_retry_count", 0)
+    }
+
+    case AgentReleaseTarget.set_status(target, attrs, actor: actor) do
+      {:ok, updated_target} ->
+        sync_agent_release_state(
+          updated_target.agent_id,
+          updated_target.desired_version,
+          :pending,
+          nil,
+          actor
+        )
+
+        broadcast_target_status_change(updated_target)
+        {:ok, updated_target}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp auto_retry_count(%AgentReleaseTarget{metadata: metadata}) when is_map(metadata) do
+    case Map.get(metadata, "auto_retry_count") do
+      count when is_integer(count) and count >= 0 ->
+        count
+
+      count when is_binary(count) ->
+        case Integer.parse(count) do
+          {parsed, _} when parsed >= 0 -> parsed
+          _ -> 0
+        end
+
+      _ ->
+        0
+    end
+  end
+
+  defp auto_retry_count(_target), do: 0
+
+  defp put_auto_retry_count(%AgentReleaseTarget{metadata: metadata}, count) when is_map(metadata),
+    do: Map.put(metadata, "auto_retry_count", count)
+
+  defp put_auto_retry_count(_target, count), do: %{"auto_retry_count" => count}
+
+  defp max_auto_release_retries do
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:max_auto_release_retries, @max_auto_release_retries)
+  end
+
+  defp transient_release_failure?(reason) do
+    normalized = reason |> normalize_reason() |> String.downcase()
+
+    cond do
+      String.contains?(normalized, "status") and transient_status_reason?(normalized) -> true
+      Enum.any?(@transient_release_markers, &String.contains?(normalized, &1)) -> true
+      true -> false
+    end
+  end
+
+  defp transient_status_reason?(normalized) do
+    Enum.any?(@transient_release_status_codes, fn code ->
+      String.contains?(normalized, "status #{code}")
+    end)
   end
 
   defp release_result_update_attrs({:staged, staged_version}, target, message) do

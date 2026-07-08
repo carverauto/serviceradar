@@ -865,3 +865,112 @@ func digestHex(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
+
+func shrinkReleaseDownloadBackoff(t *testing.T) {
+	t.Helper()
+
+	origInit := releaseDownloadInitialBackoff
+	origMax := releaseDownloadMaxBackoff
+	releaseDownloadInitialBackoff = time.Millisecond
+	releaseDownloadMaxBackoff = 2 * time.Millisecond
+	t.Cleanup(func() {
+		releaseDownloadInitialBackoff = origInit
+		releaseDownloadMaxBackoff = origMax
+	})
+}
+
+func releaseDownloadTestPayload(t *testing.T, url string, data []byte) releaseUpdatePayload {
+	t.Helper()
+
+	return releaseUpdatePayload{
+		Artifact: releaseArtifactPayload{
+			URL:    url,
+			SHA256: digestHex(data),
+			OS:     runtime.GOOS,
+			Arch:   runtime.GOARCH,
+		},
+	}
+}
+
+func TestDownloadReleaseArtifactRetriesTransientStatusThenSucceeds(t *testing.T) {
+	shrinkReleaseDownloadBackoff(t)
+
+	data := []byte("retryable-artifact")
+	var attempts int
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts < 3 {
+			// 409 mirrors the gateway's "artifact not ready yet" response.
+			http.Error(w, "not ready", http.StatusConflict)
+			return
+		}
+		http.ServeContent(w, r, "artifact", time.Unix(0, 0), bytes.NewReader(data))
+	}))
+	defer server.Close()
+
+	got, err := downloadReleaseArtifact(
+		context.Background(),
+		releaseDownloadTestPayload(t, server.URL, data),
+		releaseStageConfig{HTTPClient: server.Client()},
+	)
+	if err != nil {
+		t.Fatalf("downloadReleaseArtifact() error = %v", err)
+	}
+	if !bytes.Equal(got, data) {
+		t.Fatalf("downloadReleaseArtifact() = %q, want %q", got, data)
+	}
+	if attempts != 3 {
+		t.Fatalf("attempts = %d, want 3", attempts)
+	}
+}
+
+func TestDownloadReleaseArtifactDoesNotRetryTerminalStatus(t *testing.T) {
+	shrinkReleaseDownloadBackoff(t)
+
+	var attempts int
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		http.Error(w, "forbidden", http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	data := []byte("terminal")
+	_, err := downloadReleaseArtifact(
+		context.Background(),
+		releaseDownloadTestPayload(t, server.URL, data),
+		releaseStageConfig{HTTPClient: server.Client()},
+	)
+	if err == nil {
+		t.Fatal("expected terminal 403 download to fail")
+	}
+	if !errors.Is(err, errDownloadFailed) {
+		t.Fatalf("error = %v, want errDownloadFailed", err)
+	}
+	if attempts != 1 {
+		t.Fatalf("attempts = %d, want 1 (terminal status must not retry)", attempts)
+	}
+}
+
+func TestDownloadReleaseArtifactExhaustsRetriesThenFails(t *testing.T) {
+	shrinkReleaseDownloadBackoff(t)
+
+	var attempts int
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		http.Error(w, "not ready", http.StatusConflict)
+	}))
+	defer server.Close()
+
+	data := []byte("never-ready")
+	_, err := downloadReleaseArtifact(
+		context.Background(),
+		releaseDownloadTestPayload(t, server.URL, data),
+		releaseStageConfig{HTTPClient: server.Client()},
+	)
+	if err == nil {
+		t.Fatal("expected exhausted retries to fail")
+	}
+	if attempts != releaseDownloadMaxAttempts {
+		t.Fatalf("attempts = %d, want %d", attempts, releaseDownloadMaxAttempts)
+	}
+}
