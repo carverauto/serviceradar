@@ -1,3 +1,29 @@
+# ServiceRadar v1.4.8
+
+A fix batch found while exercising the AWX/ansible workflow: the Device Details crash-loop, AWX device IPs, agent-release retry, a stuck topology worker, and honest device provenance.
+
+## Whats New
+
+**1.4.8**
+- Ansible: fixed a Device Details crash-loop — the playbook run/target/play/task
+  resource family was missing primary read actions, so any device that had a
+  playbook run crashed its page on load; the whole family now has them.
+  AWX-discovered devices also get their IP from the host's `ansible_host`, so
+  they show an IP and reconcile with the same host seen by sweep/agent/proxmox.
+- Agent releases: a failed agent deployment can now be retried per-agent from
+  the rollout UI, transient download failures auto-retry with backoff, and the
+  gateway serves a retryable 409 instead of a terminal 403 when an artifact
+  isn't staged on a replica yet.
+- Reliability: the canonical-topology rebuild no longer holds a pooled
+  connection across its whole pipeline (the two downstream materializations
+  moved out of the advisory-lock transaction), fixing a recurring 60-second
+  connection timeout.
+- UI / trust: the device Metadata card no longer fabricates Armis/NetBox
+  provenance for devices those systems never saw; the NetFlow flow-path popup
+  renders as an overlay over the dashboard instead of being clipped inside the
+  map card; and the plugin-assignment version dropdown shows the selected
+  version legibly.
+
 # ServiceRadar v1.4.7
 
 Bootstrap and supply-chain hardening — a fresh-install-bricking schema-baseline bug (now caught by CI), a leaner event stream, and the AWX/ansible device workflow finished end to end.
