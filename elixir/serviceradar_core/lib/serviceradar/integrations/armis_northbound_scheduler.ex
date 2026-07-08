@@ -5,9 +5,12 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundScheduler do
   """
 
   use ServiceRadar.ObanEnsureScheduled,
-    workers: [ServiceRadar.Integrations.ArmisNorthboundScheduleWorker],
+    workers: [
+      ServiceRadar.Integrations.ArmisNorthboundScheduleWorker,
+      ServiceRadar.Integrations.ArmisNorthboundConflictAuditWorker
+    ],
     label: "Armis northbound scheduler",
     tick: :schedule,
     named_start?: true,
-    include_worker?: false
+    include_worker?: true
 end

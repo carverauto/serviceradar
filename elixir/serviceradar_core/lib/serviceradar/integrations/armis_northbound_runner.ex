@@ -298,7 +298,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   end
 
   defp load_identity_conflicts(source, opts) do
-    SourceIdentityDrift.armis_northbound_conflict_report(source, opts)
+    SourceIdentityDrift.source_conflict_report(source, opts)
   end
 
   defp default_identity_conflict_loader(opts) do
