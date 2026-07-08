@@ -32,7 +32,11 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookContent do
   actions do
     defaults [:destroy]
 
-    read :read
+    read :read do
+      # Primary read so this resource loads via its inbound relationships /
+      # default read (task-result stdout/stderr content). See PlaybookRun.
+      primary? true
+    end
 
     read :by_id do
       argument :id, :uuid, allow_nil?: false

@@ -39,7 +39,11 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRunTarget do
   actions do
     defaults [:destroy]
 
-    read :read
+    read :read do
+      # Primary read so this resource loads via its inbound relationships /
+      # default read (the run hierarchy the UI traverses). See PlaybookRun.
+      primary? true
+    end
 
     read :by_id do
       argument :id, :uuid, allow_nil?: false
