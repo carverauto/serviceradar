@@ -53,9 +53,30 @@ defmodule ServiceRadar.Edge.ReleaseArtifactDelivery do
          agent_id: target.agent_id
        }}
     else
-      false -> {:error, :unauthorized}
-      {:error, :artifact_not_mirrored} -> {:error, :artifact_not_mirrored}
-      {:error, _reason} -> {:error, :unauthorized}
+      # Only a genuine authorization denial (bad caller, stale command id, or a
+      # target whose rollout was canceled/failed) is a terminal 403. Everything
+      # else the resolve pipeline can hit here is a not-ready/transient condition
+      # (the artifact mirror or its backing object is not visible yet on the
+      # core/datasvc replica that served this request, the agent's platform
+      # metadata has not hydrated so no artifact matches yet, or a transient read
+      # failed). Those MUST be retryable, not a terminal 403 that permanently
+      # fails the agent while its peers succeed a moment later.
+      false ->
+        {:error, :unauthorized}
+
+      # A target/agent row that is not visible yet (read race) is not-ready, not a
+      # denial.
+      {:ok, nil} ->
+        {:error, :artifact_not_ready}
+
+      {:error, :artifact_not_mirrored} ->
+        {:error, :artifact_not_ready}
+
+      {:error, {:no_matching_release_artifact, _os, _arch}} ->
+        {:error, :artifact_not_ready}
+
+      {:error, _reason} ->
+        {:error, :artifact_not_ready}
     end
   end
 

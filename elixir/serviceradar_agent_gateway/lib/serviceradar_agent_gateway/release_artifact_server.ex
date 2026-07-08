@@ -60,6 +60,12 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
       {:error, :unauthorized} ->
         send_json_error(conn, 403, "release artifact access denied")
 
+      # Retryable: the mirror/artifact is not ready to serve on this replica yet
+      # (transient/not-staged). 409 lets the agent back off and retry instead of
+      # treating it as a terminal failure.
+      {:error, :artifact_not_ready} ->
+        send_json_error(conn, 409, "release artifact is not ready yet")
+
       {:error, :artifact_not_mirrored} ->
         send_json_error(conn, 424, "release artifact is not mirrored into internal storage")
 

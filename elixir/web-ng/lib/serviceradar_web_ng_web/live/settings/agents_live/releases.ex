@@ -266,6 +266,23 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     {:noreply, mutate_rollout(socket, rollout_id, :cancel)}
   end
 
+  def handle_event("retry_target", %{"target_id" => target_id}, socket) do
+    scope = socket.assigns.current_scope
+
+    socket =
+      case AgentReleaseManager.retry_target(target_id, scope: scope) do
+        {:ok, target} ->
+          socket
+          |> put_flash(:info, "Retrying release deployment for #{target.agent_id}")
+          |> load_page_data()
+
+        {:error, reason} ->
+          put_flash(socket, :error, "Retry failed: #{retry_error_message(reason)}")
+      end
+
+    {:noreply, socket}
+  end
+
   @impl true
   def handle_info({:command_ack, data}, socket), do: {:noreply, maybe_refresh_for_release_command(socket, data)}
 
@@ -319,6 +336,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
         put_flash(socket, :error, "Rollout update failed: #{format_error(reason)}")
     end
   end
+
+  defp retryable_target_status?(status), do: status in @failed_target_statuses
+
+  defp retry_error_message(:target_not_retryable), do: "only failed or rolled-back agents can be retried"
+
+  defp retry_error_message(:rollout_canceled), do: "the rollout was canceled"
+  defp retry_error_message(:target_not_found), do: "the rollout target no longer exists"
+  defp retry_error_message(reason), do: format_error(reason)
 
   defp load_page_data(socket, params \\ %{}) do
     scope = socket.assigns.current_scope
@@ -1449,6 +1474,23 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                         <span :if={target.last_error in [nil, ""]} class="text-base-content/40">
                           —
                         </span>
+                        <div
+                          :if={
+                            retryable_target_status?(target.status) and
+                              not platform_mismatch_error?(target.last_error)
+                          }
+                          class="mt-2"
+                        >
+                          <button
+                            id={"retry-target-#{target.id}"}
+                            type="button"
+                            phx-click="retry_target"
+                            phx-value-target_id={target.id}
+                            class="btn btn-xs btn-outline btn-primary"
+                          >
+                            <.icon name="hero-arrow-path" class="size-3" /> Retry
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   <% end %>
