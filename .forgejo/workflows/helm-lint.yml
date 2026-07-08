@@ -25,6 +25,7 @@ on:
       - '.forgejo/workflows/helm-lint.yml'
       - 'scripts/run-helm.sh'
       - 'scripts/check-core-analytics-helm-defaults.sh'
+      - 'scripts/check-tenant-chart-hook-order.sh'
   pull_request:
     branches: [ staging ]
     paths:
@@ -32,6 +33,7 @@ on:
       - '.forgejo/workflows/helm-lint.yml'
       - 'scripts/run-helm.sh'
       - 'scripts/check-core-analytics-helm-defaults.sh'
+      - 'scripts/check-tenant-chart-hook-order.sh'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
@@ -61,3 +63,6 @@ jobs:
 
       - name: Verify CNPG WAL cap defaults
         run: HELM_BIN=./scripts/run-helm.sh ./scripts/check-cnpg-wal-cap-helm-defaults.sh
+
+      - name: Verify tenant bootstrap hook order
+        run: HELM_BIN=./scripts/run-helm.sh ./scripts/check-tenant-chart-hook-order.sh
