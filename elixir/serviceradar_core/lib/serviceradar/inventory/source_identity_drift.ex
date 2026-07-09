@@ -31,10 +31,23 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
     "source_linkage_conflict"
   ]
 
+  # Conflict categories that actually withhold a device from the northbound
+  # outbound set — the armis_identity_consistent_predicate excludes exactly
+  # these. Only these count toward a run's skipped_count so it stays disjoint
+  # from the devices actually sent: a device sharing its typed id with another
+  # device (typed_id_on_multiple_devices) or with mixed source linkage
+  # (source_linkage_conflict) can still be sent, and active_ip_conflict is a
+  # sync-side signal, so none of those should inflate the skip count.
+  @withholding_conflict_categories [
+    "metadata_identifier_disagreement",
+    "multiple_typed_ids_per_device",
+    "split_typed_generic_identifier"
+  ]
+
   # Compile-time constant (no user input) scoping the cached open-conflict read
-  # to one source: conflicts with no source linkage OR this source's id ($1).
-  @source_conflict_scope "status = 'open' AND source_type = 'armis' AND " <>
-                           "(COALESCE(source_id, '') = '' OR source_id = $1)"
+  # to this source's id ($1). Blank/unlinked-source conflicts are intentionally
+  # NOT attributed to a specific source's run (that inflated every source).
+  @source_conflict_scope "status = 'open' AND source_type = 'armis' AND source_id = $1"
 
   @doc """
   Run the repeatable Armis source-identity drift audit.
@@ -77,6 +90,7 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
 
     %{
       "total_count" => categories |> Map.values() |> Enum.sum(),
+      "skipped_count" => withholding_conflict_total(categories),
       "categories" => categories,
       "examples" => open_conflict_examples(source_id, limit)
     }
@@ -202,10 +216,14 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
   end
 
   @doc """
-  Persist and emit telemetry for an active-IP recovery that refused to rebind a
-  strong source identity to an unrelated IP owner.
+  Build the active-IP source-identity conflict for a record whose strong
+  identity refused to rebind to an unrelated IP owner, and emit telemetry.
+
+  Returns the conflict map (or `nil` for a non-map record). Callers persist it —
+  collect many and pass them to `record_conflicts/1` in one write instead of
+  issuing a separate insert per IP collision.
   """
-  def record_active_ip_conflict(record, existing_device_uid, ip) when is_map(record) do
+  def build_active_ip_conflict(record, existing_device_uid, ip) when is_map(record) do
     metadata = Map.get(record, :metadata) || %{}
 
     ids =
@@ -257,10 +275,20 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
       }
     )
 
-    record_conflicts([conflict])
+    conflict
   end
 
-  def record_active_ip_conflict(_record, _existing_device_uid, _ip), do: :ok
+  def build_active_ip_conflict(_record, _existing_device_uid, _ip), do: nil
+
+  @doc """
+  Persist and emit telemetry for a single active-IP recovery conflict.
+  """
+  def record_active_ip_conflict(record, existing_device_uid, ip) do
+    case build_active_ip_conflict(record, existing_device_uid, ip) do
+      nil -> :ok
+      conflict -> record_conflicts([conflict])
+    end
+  end
 
   @doc """
   Summarize conflict maps for run metadata and reports.
@@ -290,12 +318,23 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
   end
 
   def empty_conflict_report do
-    %{"total_count" => 0, "categories" => %{}, "examples" => []}
+    %{"total_count" => 0, "skipped_count" => 0, "categories" => %{}, "examples" => []}
   end
 
   def conflict_count(%{"total_count" => count}) when is_integer(count), do: count
   def conflict_count(%{total_count: count}) when is_integer(count), do: count
   def conflict_count(_), do: 0
+
+  @doc """
+  Count of conflicts that withhold a device from the northbound outbound set.
+
+  Used to keep a run's skipped_count/device_count disjoint from the devices
+  actually sent. Falls back to the total conflict count for reports that do not
+  carry a `skipped_count` (e.g. injected/legacy reports).
+  """
+  def withheld_conflict_count(%{"skipped_count" => count}) when is_integer(count), do: count
+  def withheld_conflict_count(%{skipped_count: count}) when is_integer(count), do: count
+  def withheld_conflict_count(report), do: conflict_count(report)
 
   defp multiple_typed_ids_per_device do
     """
@@ -314,7 +353,7 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
      AND di.identifier_type = 'armis_device_id'
      AND NULLIF(di.identifier_value, '') IS NOT NULL
     WHERE d.deleted_at IS NULL
-    GROUP BY d.uid, d.ip, d.mac, d.hostname, d.metadata
+    GROUP BY d.uid
     HAVING count(DISTINCT di.identifier_value) > 1
     """
     |> query_maps()
@@ -512,7 +551,7 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
      AND di.identifier_type = 'armis_device_id'
      AND NULLIF(di.identifier_value, '') IS NOT NULL
     WHERE d.deleted_at IS NULL
-    GROUP BY d.uid, d.ip, d.mac, d.hostname, d.metadata
+    GROUP BY d.uid
     HAVING cardinality(array_remove(array_agg(DISTINCT NULLIF(di.metadata->>'sync_service_id', '')), NULL)) > 1
        OR (
          NULLIF(d.metadata->>'sync_service_id', '') IS NOT NULL
@@ -775,6 +814,12 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
         updated_at: now
       }
     end
+  end
+
+  defp withholding_conflict_total(categories) do
+    Enum.reduce(@withholding_conflict_categories, 0, fn category, acc ->
+      acc + Map.get(categories, category, 0)
+    end)
   end
 
   defp open_conflict_category_counts(source_id) do

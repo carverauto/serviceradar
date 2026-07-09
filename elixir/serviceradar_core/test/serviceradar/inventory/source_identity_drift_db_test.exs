@@ -95,6 +95,60 @@ defmodule ServiceRadar.Inventory.SourceIdentityDriftDbTest do
     assert conflict_status(device_uid, "active_ip_conflict") == "open"
   end
 
+  test "source_conflict_report is scoped to the source; blank-source conflicts do not leak" do
+    source_a = unique("src-a")
+    other_source = unique("src-b")
+
+    :ok =
+      SourceIdentityDrift.record_conflicts([
+        conflict(source_a, "metadata_identifier_disagreement", unique("armis-a")),
+        # A conflict with no source linkage must not be attributed to any source.
+        conflict(nil, "metadata_identifier_disagreement", unique("armis-blank"))
+      ])
+
+    report_a = SourceIdentityDrift.source_conflict_report(%{id: source_a})
+    assert report_a["total_count"] >= 1
+
+    # A fresh unrelated source sees neither source_a's nor the blank-source rows.
+    report_other = SourceIdentityDrift.source_conflict_report(%{id: other_source})
+    assert report_other["total_count"] == 0
+  end
+
+  test "source_conflict_report counts non-withholding categories in total but not skipped" do
+    source_id = unique("src-mix")
+
+    :ok =
+      SourceIdentityDrift.record_conflicts([
+        conflict(source_id, "metadata_identifier_disagreement", unique("armis-withhold")),
+        conflict(source_id, "typed_id_on_multiple_devices", unique("armis-shared"))
+      ])
+
+    report = SourceIdentityDrift.source_conflict_report(%{id: source_id})
+
+    assert report["total_count"] == 2
+    # Only the withholding category counts toward skipped; the shared-id one can
+    # still be sent, so it must not inflate the skip count.
+    assert report["skipped_count"] == 1
+    assert report["categories"]["typed_id_on_multiple_devices"] == 1
+    assert report["categories"]["metadata_identifier_disagreement"] == 1
+    assert SourceIdentityDrift.withheld_conflict_count(report) == 1
+  end
+
+  defp conflict(source_id, category, identifier_value) do
+    %{
+      source_type: "armis",
+      source_id: source_id,
+      source_identifier_type: "armis_device_id",
+      source_identifier_value: identifier_value,
+      device_uid: "sr:" <> Ecto.UUID.generate(),
+      conflict_category: category,
+      conflicting_identifiers: %{},
+      proposed_action: "manual_review",
+      confidence: "ambiguous",
+      metadata: %{}
+    }
+  end
+
   defp create_disagreeing_device!(actor, source_id, typed_id, stale_id) do
     device =
       create_device!(actor, %{

@@ -163,7 +163,10 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     case load_candidates_fun.(source, opts) do
       {:ok, candidates} ->
         identity_conflicts = load_identity_conflicts_fun.(source, opts)
-        identity_conflict_count = SourceIdentityDrift.conflict_count(identity_conflicts)
+        # Fold only withholding conflicts into device/skip counts so they stay
+        # disjoint from the devices actually sent; the full report (total_count,
+        # categories, examples) is still surfaced in run metadata/events.
+        identity_conflict_count = SourceIdentityDrift.withheld_conflict_count(identity_conflicts)
         collapsed = collapse_candidates(candidates)
         device_count = length(collapsed) + identity_conflict_count
 
@@ -172,7 +175,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
           run_id: inspect(Map.get(run, :id)),
           device_count: device_count,
           outbound_device_count: length(collapsed),
-          identity_conflict_count: identity_conflict_count
+          identity_conflict_count: identity_conflict_count,
+          identity_conflict_total: SourceIdentityDrift.conflict_count(identity_conflicts)
         )
 
         case update_source.(source, :northbound_start, %{device_count: device_count}, actor) do
@@ -310,14 +314,17 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   end
 
   defp attach_identity_conflicts(result, identity_conflicts) do
-    conflict_count = SourceIdentityDrift.conflict_count(identity_conflicts)
+    total_count = SourceIdentityDrift.conflict_count(identity_conflicts)
+    withheld_count = SourceIdentityDrift.withheld_conflict_count(identity_conflicts)
 
-    if conflict_count == 0 do
+    if total_count == 0 do
       result
     else
+      # Fold only withholding conflicts into the counts (disjoint from the sent
+      # candidates), but always attach the full report for operator visibility.
       result
-      |> Map.update(:device_count, conflict_count, &(&1 + conflict_count))
-      |> Map.update(:skipped_count, conflict_count, &(&1 + conflict_count))
+      |> Map.update(:device_count, withheld_count, &(&1 + withheld_count))
+      |> Map.update(:skipped_count, withheld_count, &(&1 + withheld_count))
       |> Map.put(:identity_conflicts, identity_conflicts)
     end
   end
