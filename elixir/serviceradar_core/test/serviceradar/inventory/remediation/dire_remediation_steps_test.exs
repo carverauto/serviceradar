@@ -66,6 +66,11 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationStepsTest do
              DireRemediation.run(steps: ["nope"], mode: :dry_run)
   end
 
+  test "all cannot be mixed with another step" do
+    assert {:error, {:mixed_all_steps, ["all", "armis-unmerge"]}} =
+             DireRemediation.run(steps: ["all", "armis-unmerge"], mode: :dry_run)
+  end
+
   test "armis-unmerge is dormant: excluded from the default order in every config state" do
     # The disposition step only runs when an operator explicitly requests
     # `steps: ["armis-unmerge"]` (covered by the DB-backed step test); a default

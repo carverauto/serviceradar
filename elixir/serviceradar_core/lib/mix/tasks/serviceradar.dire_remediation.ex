@@ -24,6 +24,7 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     * `--step <name>` — run a single step (repeatable). One of:
       `blob-purge`, `test-debris`, `stale-agent-devices`, `agent-links`,
       `proxmox-dups`, `armis-unmerge`, `armis-dups`, `all` (default `all`).
+      `all` cannot be combined with another step.
       `armis-unmerge` is explicit-only: dry-run is available for live scoping,
       while execute is disabled until the runtime signoff gate is enabled.
       `armis-dups` is disabled unless separately enabled by runtime config.
@@ -64,6 +65,9 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
       execute (repeatable; must be paired with at least one live device UID).
       Known faker-backed sources remain ineligible inside the remediation step.
 
+  Every `--armis-unmerge-*` option requires an explicit
+  `--step armis-unmerge` selection.
+
   `armis-unmerge --execute` is rejected unless live scoping has been reviewed
   and the release runtime configuration deliberately sets:
 
@@ -103,6 +107,13 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
 
   @max_armis_unmerge_candidate_limit 5_000
   @max_armis_unmerge_plan_sample_limit 5_000
+
+  @armis_unmerge_switches [
+    :armis_unmerge_candidate_limit,
+    :armis_unmerge_plan_sample_limit,
+    :armis_unmerge_live_device,
+    :armis_unmerge_live_source
+  ]
 
   @report_step_order [
     "blob-purge",
@@ -156,6 +167,9 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
       )
     end
 
+    validate_step_selection!(opts)
+    validate_armis_unmerge_selection!(opts)
+
     engine_opts = build_engine_opts(opts)
     mode = Keyword.fetch!(engine_opts, :mode)
     app_starter.()
@@ -178,6 +192,9 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
           "Unknown step(s): #{Enum.join(unknown, ", ")}. " <>
             "Valid dry-run steps: #{Enum.join(DireRemediation.available_steps(:dry_run), ", ")}, all"
         )
+
+      {:error, {:mixed_all_steps, _steps}} ->
+        Mix.raise("--step all cannot be combined with another --step value")
 
       {:error, {:execute_disabled, ["armis-unmerge"]}} ->
         Mix.raise(
@@ -243,6 +260,23 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     case Keyword.get_values(opts, key) do
       [] -> default
       values -> values
+    end
+  end
+
+  defp validate_step_selection!(opts) do
+    steps = Keyword.get_values(opts, :step)
+
+    if "all" in steps and Enum.any?(steps, &(&1 != "all")) do
+      Mix.raise("--step all cannot be combined with another --step value")
+    end
+  end
+
+  defp validate_armis_unmerge_selection!(opts) do
+    armis_opts? = Enum.any?(@armis_unmerge_switches, &Keyword.has_key?(opts, &1))
+    armis_step? = "armis-unmerge" in Keyword.get_values(opts, :step)
+
+    if armis_opts? and not armis_step? do
+      Mix.raise("Armis unmerge options require an explicit --step armis-unmerge selection")
     end
   end
 
@@ -349,7 +383,13 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
 
   defp print_report(shell, report) do
     {details, counts} =
-      Map.split(report, [:plans, :merge_plan, :sample_extractions, :split_plan])
+      Map.split(report, [
+        :plans,
+        :merge_plan,
+        :sample_extractions,
+        :split_plan,
+        :execution_split_plan
+      ])
 
     counts
     |> Enum.sort_by(fn {key, _} -> to_string(key) end)

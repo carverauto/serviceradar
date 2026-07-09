@@ -242,6 +242,9 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
     unknown = steps -- @step_order
 
     cond do
+      "all" in steps and Enum.any?(steps, &(&1 != "all")) ->
+        {:error, {:mixed_all_steps, steps}}
+
       steps == [] or "all" in steps ->
         {:ok, runnable}
 

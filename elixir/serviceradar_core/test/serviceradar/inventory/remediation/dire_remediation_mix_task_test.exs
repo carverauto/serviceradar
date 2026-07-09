@@ -24,7 +24,10 @@ defmodule Mix.Tasks.Serviceradar.DireRemediationTest do
            "armis-unmerge" => %{
              candidate_devices: 2,
              planned_splits: 1,
-             split_plan: [%{device_uid: "sr:scoped", new_device_count: 1}]
+             split_plan: [%{device_uid: "sr:scoped", new_device_count: 1}],
+             execution_split_plan: [
+               %{device_uid: "sr:eligible", source_id: "source-reviewed"}
+             ]
            }
          },
          manifest_path: nil
@@ -56,6 +59,8 @@ defmodule Mix.Tasks.Serviceradar.DireRemediationTest do
     assert output =~ "== armis-unmerge =="
     assert output =~ "candidate_devices: 2"
     assert output =~ "device_uid=sr:scoped"
+    assert output =~ "execution_split_plan:"
+    assert output =~ "device_uid=sr:eligible"
   end
 
   test "paired live allowlists are forwarded as an explicit live scope" do
@@ -96,7 +101,7 @@ defmodule Mix.Tasks.Serviceradar.DireRemediationTest do
 
     assert_raise Mix.Error, ~r/--armis-unmerge-candidate-limit must be between 1 and 5000/, fn ->
       DireRemediationTask.run_with(
-        ["--armis-unmerge-candidate-limit", "0"],
+        ["--step", "armis-unmerge", "--armis-unmerge-candidate-limit", "0"],
         runner,
         app_starter
       )
@@ -106,7 +111,12 @@ defmodule Mix.Tasks.Serviceradar.DireRemediationTest do
                  ~r/--armis-unmerge-plan-sample-limit must be between 0 and 5000/,
                  fn ->
                    DireRemediationTask.run_with(
-                     ["--armis-unmerge-plan-sample-limit", "5001"],
+                     [
+                       "--step",
+                       "armis-unmerge",
+                       "--armis-unmerge-plan-sample-limit",
+                       "5001"
+                     ],
                      runner,
                      app_starter
                    )
@@ -119,7 +129,7 @@ defmodule Mix.Tasks.Serviceradar.DireRemediationTest do
 
     assert_raise Mix.Error, ~r/requires at least one --armis-unmerge-live-source/, fn ->
       DireRemediationTask.run_with(
-        ["--armis-unmerge-live-device", "sr:one"],
+        ["--step", "armis-unmerge", "--armis-unmerge-live-device", "sr:one"],
         runner,
         app_starter
       )
@@ -127,7 +137,43 @@ defmodule Mix.Tasks.Serviceradar.DireRemediationTest do
 
     assert_raise Mix.Error, ~r/requires at least one --armis-unmerge-live-device/, fn ->
       DireRemediationTask.run_with(
-        ["--armis-unmerge-live-source", "source-one"],
+        ["--step", "armis-unmerge", "--armis-unmerge-live-source", "source-one"],
+        runner,
+        app_starter
+      )
+    end
+  end
+
+  test "armis-unmerge options require an explicit armis-unmerge step before app start" do
+    app_starter = fn -> flunk("app must not start for an invalid Armis selection") end
+    runner = fn _opts -> flunk("remediation must not run for an invalid Armis selection") end
+
+    argument_sets = [
+      ["--armis-unmerge-candidate-limit", "10"],
+      ["--step", "blob-purge", "--armis-unmerge-plan-sample-limit", "5"],
+      [
+        "--execute",
+        "--armis-unmerge-live-device",
+        "sr:one",
+        "--armis-unmerge-live-source",
+        "source-one"
+      ]
+    ]
+
+    Enum.each(argument_sets, fn args ->
+      assert_raise Mix.Error, ~r/require an explicit --step armis-unmerge/, fn ->
+        DireRemediationTask.run_with(args, runner, app_starter)
+      end
+    end)
+  end
+
+  test "all cannot be mixed with another step before app start" do
+    app_starter = fn -> flunk("app must not start for a mixed all selection") end
+    runner = fn _opts -> flunk("remediation must not run for a mixed all selection") end
+
+    assert_raise Mix.Error, ~r/--step all cannot be combined/, fn ->
+      DireRemediationTask.run_with(
+        ["--step", "all", "--step", "armis-unmerge"],
         runner,
         app_starter
       )
