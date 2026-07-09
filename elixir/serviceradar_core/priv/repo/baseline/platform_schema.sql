@@ -2769,7 +2769,7 @@ CREATE TABLE platform.anomaly_episodes (
     CONSTRAINT anomaly_episodes_clear_time_check CHECK ((((status = 'open'::text) AND (cleared_at IS NULL)) OR ((status <> 'open'::text) AND (cleared_at IS NOT NULL)))),
     CONSTRAINT anomaly_episodes_counts_check CHECK (((occurrence_count >= 1) AND (reopen_count >= 0))),
     CONSTRAINT anomaly_episodes_if_index_check CHECK (((if_index IS NULL) OR (if_index > 0))),
-    CONSTRAINT anomaly_episodes_severity_check CHECK (((severity_id >= 0) AND (severity_id <= 5)) AND ((peak_severity_id >= 0) AND (peak_severity_id <= 5)) AND (peak_severity_id >= severity_id)),
+    CONSTRAINT anomaly_episodes_severity_check CHECK (severity_id BETWEEN 0 AND 5 AND peak_severity_id BETWEEN 0 AND 5 AND peak_severity_id >= severity_id),
     CONSTRAINT anomaly_episodes_status_check CHECK ((status = ANY (ARRAY['open'::text, 'cleared'::text, 'stale_closed'::text])))
 );
 
