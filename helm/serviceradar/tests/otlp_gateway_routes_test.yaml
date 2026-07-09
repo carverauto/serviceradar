@@ -104,6 +104,23 @@ tests:
           path: spec.rules[0].backendRefs[0].port
           value: 4317
 
+  - it: suppresses external-dns annotations when hosted DNS is control-plane managed
+    set:
+      logCollector.otlp.service.http.enabled: true
+      logCollector.otlp.gateway.enabled: true
+      logCollector.otlp.gateway.dns.enabled: false
+      logCollector.otlp.gateway.httpHostname: otlp-demo.serviceradar.cloud
+      logCollector.otlp.gateway.grpcHostname: otlp-demo.grpc.serviceradar.cloud
+    asserts:
+      - hasDocuments:
+          count: 2
+      - notExists:
+          path: metadata.annotations
+        documentIndex: 0
+      - notExists:
+          path: metadata.annotations
+        documentIndex: 1
+
   - it: honors gateway name, namespace and sectionName overrides
     set:
       logCollector.otlp.service.http.enabled: true

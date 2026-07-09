@@ -1233,6 +1233,11 @@ logCollector:
       enabled: false
       gatewayName: "serviceradar-shared-gateway"
       gatewayNamespace: "serviceradar-system"
+      # Emit external-dns annotations on the OTLP Gateway routes. Disable this
+      # when DNS is managed outside the tenant cluster, such as hosted
+      # ServiceRadar control-plane provisioning.
+      dns:
+        enabled: true
       # Hostname for OTLP/HTTP behind the gateway's HTTPS listener.
       # WILDCARD CONSTRAINT: a listener hostname like *.serviceradar.cloud
       # matches exactly ONE label — use otlp-demo.serviceradar.cloud, NOT

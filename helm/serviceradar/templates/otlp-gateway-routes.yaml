@@ -29,6 +29,11 @@ otlp.demo.serviceradar.cloud.
 {{- $logCollectorOtlp := (default (dict) .Values.logCollector).otlp | default dict -}}
 {{- $otlpService := default (dict) $logCollectorOtlp.service -}}
 {{- $otlpGateway := default (dict) $logCollectorOtlp.gateway -}}
+{{- $otlpGatewayDns := default (dict) $otlpGateway.dns -}}
+{{- $otlpGatewayDnsEnabled := true -}}
+{{- if hasKey $otlpGatewayDns "enabled" -}}
+{{- $otlpGatewayDnsEnabled = $otlpGatewayDns.enabled -}}
+{{- end -}}
 {{- if and $otlpService.enabled $otlpGateway.enabled }}
 {{- $gatewayName := default "serviceradar-shared-gateway" $otlpGateway.gatewayName -}}
 {{- $gatewayNamespace := default "serviceradar-system" $otlpGateway.gatewayNamespace -}}
@@ -38,8 +43,9 @@ otlp.demo.serviceradar.cloud.
 {{- fail "logCollector.otlp.gateway.httpHostname requires logCollector.otlp.service.http.enabled=true (the HTTPRoute backend is the serviceradar-otlp Service OTLP/HTTP port)" }}
 {{- end }}
 # OTLP/HTTP ingest via the shared gateway. TLS terminates at the gateway;
-# external-dns (gateway-httproute source) publishes the hostname against the
-# gateway address.
+# when logCollector.otlp.gateway.dns.enabled=true, external-dns
+# (gateway-httproute source) publishes the hostname against the gateway
+# address. Hosted deployments should keep DNS managed by the control plane.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -48,8 +54,10 @@ metadata:
     app.kubernetes.io/part-of: serviceradar
     app.kubernetes.io/name: serviceradar-otlp
     app.kubernetes.io/component: otlp-ingest
+  {{- if $otlpGatewayDnsEnabled }}
   annotations:
     external-dns.alpha.kubernetes.io/hostname: {{ $otlpGateway.httpHostname | quote }}
+  {{- end }}
 spec:
   parentRefs:
     - group: gateway.networking.k8s.io
@@ -78,9 +86,10 @@ spec:
 # routes on SNI without terminating TLS, so the collector's private-CA
 # certificate reaches the sender unmodified. NOTE: no current external-dns
 # deployment watches gateway-tlsroute sources, so the DNS record for this
-# hostname must be created out-of-band (or add --source=gateway-tlsroute to
-# the external-dns instance owning the domain); the annotations below follow
-# the existing TLSRoute convention so it lights up if/when that source is on.
+# hostname must be created out-of-band/control-plane-side when
+# logCollector.otlp.gateway.dns.enabled=false. When the toggle is true, the
+# annotations below follow the existing TLSRoute convention so it lights up
+# if/when that source is on.
 apiVersion: gateway.networking.k8s.io/v1alpha3
 kind: TLSRoute
 metadata:
@@ -89,9 +98,11 @@ metadata:
     app.kubernetes.io/part-of: serviceradar
     app.kubernetes.io/name: serviceradar-otlp
     app.kubernetes.io/component: otlp-ingest
+  {{- if $otlpGatewayDnsEnabled }}
   annotations:
     external-dns.alpha.kubernetes.io/hostname: {{ $otlpGateway.grpcHostname | quote }}
     external-dns.alpha.kubernetes.io/cloudflare-proxied: "false"
+  {{- end }}
 spec:
   parentRefs:
     - group: gateway.networking.k8s.io

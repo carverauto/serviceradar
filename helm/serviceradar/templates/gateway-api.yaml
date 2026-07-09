@@ -8,6 +8,10 @@
 {{- $serviceName := default "serviceradar-web-ng" $service.name -}}
 {{- $servicePort := default 4000 $service.port -}}
 {{- $dns := default (dict) $gatewayApi.dns -}}
+{{- $dnsEnabled := true -}}
+{{- if hasKey $dns "enabled" -}}
+{{- $dnsEnabled = $dns.enabled -}}
+{{- end -}}
 {{- $dnsHostname := default $host $dns.hostname -}}
 {{- $envoyProxy := default (dict) $gatewayApi.envoyProxy -}}
 {{- $envoyService := default (dict) $envoyProxy.service -}}
@@ -326,7 +330,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: serviceradar
     app.kubernetes.io/component: edge-gateway
-  {{- if default true $dns.enabled }}
+  {{- if $dnsEnabled }}
   annotations:
     external-dns.alpha.kubernetes.io/hostname: {{ $dnsHostname | quote }}
   {{- end }}
