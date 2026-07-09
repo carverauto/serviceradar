@@ -87,6 +87,18 @@ type diagnosticTelemetryClient struct {
 	diagnostics chan coreaddon.StreamDiagnostic
 }
 
+type cancelingLogWriter struct {
+	buffer *bytes.Buffer
+	cancel context.CancelFunc
+}
+
+func (w *cancelingLogWriter) Write(data []byte) (int, error) {
+	written, err := w.buffer.Write(data)
+	w.cancel()
+
+	return written, err
+}
+
 func (c *diagnosticTelemetryClient) StreamTelemetry(context.Context) (<-chan *coreaddon.TelemetryBatch, error) {
 	batches := make(chan *coreaddon.TelemetryBatch)
 	close(batches)
@@ -182,14 +194,17 @@ func TestRunnerDrainTelemetryLogsStreamLossDiagnostic(t *testing.T) {
 		diagnostics: make(chan coreaddon.StreamDiagnostic, 1),
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
 	cfg := applyDefaults(Config{
 		RuntimeDir:            t.TempDir(),
 		RestartBackoffInitial: time.Millisecond,
 		RestartBackoffMax:     time.Millisecond,
-		Logger:                zerolog.New(&logs),
+		Logger: zerolog.New(&cancelingLogWriter{
+			buffer: &logs,
+			cancel: cancel,
+		}),
 	})
 	r := newRunner(Spec{ID: "telemetry-addon"}, cfg)
 
