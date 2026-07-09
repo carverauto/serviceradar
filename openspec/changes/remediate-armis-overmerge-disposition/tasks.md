@@ -34,9 +34,9 @@
   mega-devices and the ghost-tombstoned population; assert `blob-purge` has run
   (zero non-atomic `mac` rows) or normalize in Elixir via `Mac.normalize_mac_list`.
 - [x] 3.2 Add pure `Decisions` functions: group a device's universal MACs into
-  target classes, pick the survivor class, mint each target UID via
+  target classes, retain the survivor UID, mint each additional target UID via
   `Ids.generate_deterministic_device_id/1`, and classify unsplittable
-  (MAC-less / local-only) devices as skipped-with-reason.
+  (MAC-less / local-only / mixed-partition) devices as skipped-with-reason.
 
 ## 4. `armis-unmerge` remediation step
 

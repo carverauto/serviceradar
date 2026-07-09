@@ -30,7 +30,8 @@ whole design:
 ## Goals
 
 - Reconstruct per-hardware devices from a mega-device's distinct universal-MAC
-  groups, minting the same deterministic UID a veto-gated ingest would produce
+  groups, retaining the existing survivor UID and minting each additional
+  split UID exactly as a veto-gated ingest would
   (`Ids.generate_deterministic_device_id/1`).
 - Rescue the ~389k orphaned sole-copy `mac` rows onto their reconstructed
   devices via the audited, TTL-resetting `DeviceIdentifier :reassign_device`
@@ -78,14 +79,18 @@ hundreds). Detection runs only after `blob-purge` has atomized blob-hidden MACs;
 the step asserts zero non-atomic `mac` rows remain (or normalizes in Elixir via
 `Mac.normalize_mac_list`).
 
-### Target UID = the UID the veto would have minted
+### New split UIDs match the veto-derived UID
 
-Per group, `Ids.generate_deterministic_device_id/1` over a reconstructed
+The survivor class retains the existing device UID so references and the sole
+`armis_device_id` owner remain stable. For every additional class,
+`Ids.generate_deterministic_device_id/1` over reconstructed
 `{armis_id, class MAC, partition}` yields a distinct, reproducible `sr:` UID —
 the same one a fresh veto-gated ingest of that hardware resolves to by strong
-`:mac` match. This makes the step idempotent (re-runs converge) and keeps later
-observations routed to the same reconstructed owner. It does not automatically
-rejoin MAC classes that belong to one multi-NIC host.
+`:mac` match. If the existing UID already equals one class's deterministic UID,
+that class is forced to remain on the survivor so the plan never emits a
+self-target. This makes re-runs converge and keeps later observations routed to
+the same reconstructed owner. It does not automatically rejoin MAC classes that
+belong to one multi-NIC host.
 
 ### `armis_device_id` disposition — survivor keeps it, other classes are MAC-only
 

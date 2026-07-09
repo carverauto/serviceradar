@@ -18,8 +18,9 @@ inverse of prevention.
   allowlisted for live-device execution
 - **WHEN** the disposition runs in execute mode
 - **THEN** it SHALL materialize one device per distinct universal-MAC group
-  (adopting a live device, restoring a tombstoned one, or creating a fresh one)
-  with the deterministic UID a veto-gated ingest of that hardware would produce
+  by retaining the existing UID for the survivor group and adopting, restoring,
+  or creating each additional group at the deterministic UID a veto-gated
+  ingest of that hardware would produce
 - **AND** it SHALL move each group's `mac` identifier rows to its reconstructed
   device through an audited reassignment (never a silent last-writer-wins repoint)
 - **AND** it SHALL write one merge audit row with reason `unmerge` per split to
