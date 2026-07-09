@@ -1,0 +1,70 @@
+suite: collector Gateway API network policies
+templates:
+  - templates/network-policy.yaml
+tests:
+  - it: admits Gateway API envoy pods to internal collector services
+    set:
+      networkPolicy.enabled: true
+      gatewayApi.envoyGatewayNamespace: custom-egress
+      gatewayApi.flowCollector.enabled: true
+      gatewayApi.trapd.enabled: true
+      gatewayApi.bmpCollector.enabled: true
+      flowCollector.enabled: true
+      bmpCollector.enabled: true
+    asserts:
+      - equal:
+          path: spec.podSelector.matchLabels.app
+          value: serviceradar-flow-collector
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-flow-collector-gateway
+      - equal:
+          path: spec.ingress[0].from[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: custom-egress
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-flow-collector-gateway
+      - contains:
+          path: spec.ingress[0].ports
+          content:
+            protocol: UDP
+            port: 2055
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-flow-collector-gateway
+      - contains:
+          path: spec.ingress[0].ports
+          content:
+            protocol: UDP
+            port: 6343
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-flow-collector-gateway
+      - equal:
+          path: spec.podSelector.matchLabels.app
+          value: serviceradar-trapd
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-trapd-gateway
+      - contains:
+          path: spec.ingress[0].ports
+          content:
+            protocol: UDP
+            port: 162
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-trapd-gateway
+      - equal:
+          path: spec.podSelector.matchLabels.app
+          value: serviceradar-bmp-collector
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-bmp-collector-gateway
+      - contains:
+          path: spec.ingress[0].ports
+          content:
+            protocol: TCP
+            port: 11019
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-bmp-collector-gateway
