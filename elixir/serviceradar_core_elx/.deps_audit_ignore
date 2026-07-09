@@ -1,32 +1,7 @@
-# GHSA-rhv4-8758-jx7v / Decimal unbounded exponent DoS
-#
-# serviceradar_core_elx currently receives Decimal through shared Ash, Ecto,
-# Postgrex, and schema tooling dependencies that constrain Decimal to the 2.x
-# line. The first advisory-listed patched release is Decimal 3.0.0, so this
-# cannot be resolved in this Mix project without a broader dependency
-# compatibility upgrade across the Elixir workspace.
-#
-# Keep this waiver local to this quality gate until the shared Ash/Ecto
-# dependency graph accepts Decimal 3.x or the dependency is otherwise removed
-# from this release.
-GHSA-rhv4-8758-jx7v
-
-# Req is held on 0.5.x by the vendored Boombox/HLS dependency chain
-# (membrane_http_adaptive_stream_plugin -> ex_hls requires req ~> 0.5.10).
-# core_elx does not expose the multipart form upload path covered by
-# GHSA-px9f-whj3-246m or an untrusted archive auto-decode path covered by
-# GHSA-655f-mp8p-96gv. Remove these once Boombox/HLS can accept req 0.6.x.
-GHSA-px9f-whj3-246m
-GHSA-655f-mp8p-96gv
-
-# Ash is currently constrained by the core_elx Ash extension set. The affected
-# private-action argument path is not exposed through core_elx runtime APIs;
-# keep this explicit waiver until the Ash family can move to the patched line.
-GHSA-f4hc-ppw9-4hhw
-
 # EEF-CVE-2026-43966 / cowlib HTTP response splitting and
 # GHSA-g2wm-735q-3f56 / cowlib cookie encoder advisory have no patched release
-# as of cowlib 2.18.0. Keep this waiver until cowlib publishes a patched
-# release or the dependency is replaced.
+# as of cowlib 2.18.0. core_elx does not call the affected structured-header or
+# cookie encoders; its Gun 2.4.1 transport also rejects CR/LF request headers.
+# Remove both waivers as soon as cowlib publishes a patched Hex release.
 EEF-CVE-2026-43966
 GHSA-g2wm-735q-3f56
