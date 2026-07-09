@@ -36,7 +36,7 @@ dump_schema() {
   #     `\\` matches one `\`. (The previous `\\\\` matched *two* backslashes,
   #     never stripped these lines, and produced a permanent false-positive
   #     diff — masking real drift once the comparison was ever enabled.)
-  pg_dump "${url}" --schema-only --no-owner --no-privileges |
+  pg_dump -w "${url}" --schema-only --no-owner --no-privileges |
     sed -E \
       -e '/^-- Dumped from database version /d' \
       -e '/^-- Dumped by pg_dump version /d' \
