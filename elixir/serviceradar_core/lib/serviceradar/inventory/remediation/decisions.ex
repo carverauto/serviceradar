@@ -11,6 +11,8 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
   (audited) writes.
   """
 
+  alias ServiceRadar.Inventory.Identity.Ids
+  alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.IdentityReconciler
 
   @valid_mac_pattern ~r/^[0-9A-F]{12}$/
@@ -306,4 +308,133 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
     do: dt |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_unix(:microsecond)
 
   defp datetime_rank(_), do: 0
+
+  # ---------------------------------------------------------------------------
+  # Armis over-merge un-merge (armis-unmerge step)
+  # ---------------------------------------------------------------------------
+
+  @doc """
+  Plan the split of one Armis-collapsed device from its universal MAC identifier
+  rows.
+
+  The ingest-time collapse wrote no reversible merge_audit, so the target
+  grouping is reconstructed from current state: one target per distinct
+  universal MAC (co-occurrence provenance is lost, so genuine multi-NIC hosts
+  are conservatively over-split; the standing distinct-MAC veto re-consolidates
+  them on next ingest). The **survivor** class keeps the existing device and its
+  `armis_device_id`; every other class gets a fresh device with the deterministic
+  UID a veto-gated ingest would mint and is MAC-only.
+
+    * `device` — `%{uid, mac, armis_device_id, partition, tombstoned?}`
+    * `mac_rows` — `[%{id, value, last_seen}]`, universal atomic MAC identifier rows
+
+  Returns `{:skip, :no_universal_mac | :single_universal_mac}` or
+  `{:split, plan}` where `plan` carries the survivor and the per-class splits.
+
+  A live device with a single universal MAC is a normal device, not an
+  over-merge, and is skipped. A **tombstoned** ghost with even one universal MAC
+  still yields a plan: its survivor action is `:restore`, giving the orphaned
+  sole-copy MAC a live home again (the reassign-before-delete rescue).
+  """
+  @spec plan_armis_unmerge(map(), [map()]) :: {:skip, atom()} | {:split, map()}
+  def plan_armis_unmerge(device, mac_rows) when is_map(device) and is_list(mac_rows) do
+    classes = mac_classes(mac_rows)
+
+    cond do
+      map_size(classes) == 0 -> {:skip, :no_universal_mac}
+      map_size(classes) == 1 and !device[:tombstoned?] -> {:skip, :single_universal_mac}
+      true -> {:split, build_armis_split_plan(device, classes)}
+    end
+  end
+
+  # Group the universal MAC identifier rows by their (already atomic, uppercase)
+  # value — one class per distinct hardware MAC.
+  defp mac_classes(mac_rows) do
+    Enum.reduce(mac_rows, %{}, fn row, acc ->
+      case row.value |> Mac.universal_macs() |> MapSet.to_list() do
+        [value] -> Map.update(acc, value, [row], &[row | &1])
+        _ -> acc
+      end
+    end)
+  end
+
+  defp build_armis_split_plan(device, classes) do
+    partition = normalize_partition(device)
+    survivor_mac = pick_survivor_mac(device, classes)
+
+    splits =
+      classes
+      |> Map.delete(survivor_mac)
+      |> Enum.map(fn {mac, rows} ->
+        %{
+          mac: mac,
+          new_uid: armis_split_uid(device, mac, partition),
+          row_ids: rows |> Enum.map(& &1.id) |> Enum.sort()
+        }
+      end)
+      |> Enum.sort_by(& &1.mac)
+
+    %{
+      device_uid: device.uid,
+      armis_device_id: device[:armis_device_id],
+      partition: partition,
+      tombstoned?: !!device[:tombstoned?],
+      survivor: %{
+        mac: survivor_mac,
+        action: if(device[:tombstoned?], do: :restore, else: :adopt),
+        uid: device.uid,
+        # Survivor-class rows stay in place, so they get no :reassign_device
+        # last_seen bump — the step must :touch them instead, or a restored
+        # ghost's sole-copy MAC (guard lifted by :restore nulling
+        # deleted_reason, last_seen still pinned to the cleanup date) would be
+        # GC-eligible immediately after disposition.
+        row_ids: classes |> Map.fetch!(survivor_mac) |> Enum.map(& &1.id) |> Enum.sort()
+      },
+      splits: splits
+    }
+  end
+
+  # Survivor = the class carrying the device's own genuine MAC when it is a
+  # universal MAC present in the set; otherwise the most-recently-seen class,
+  # tie-broken by lexicographically-smallest value so the choice is deterministic
+  # and re-runs are idempotent.
+  defp pick_survivor_mac(device, classes) do
+    device_mac =
+      device[:mac]
+      |> Mac.universal_macs()
+      |> MapSet.to_list()
+      |> Enum.find(&Map.has_key?(classes, &1))
+
+    device_mac || most_recent_class(classes)
+  end
+
+  defp most_recent_class(classes) do
+    classes
+    |> Enum.map(fn {mac, rows} ->
+      last_seen = rows |> Enum.map(&datetime_rank(&1[:last_seen])) |> Enum.max(fn -> 0 end)
+      {mac, last_seen}
+    end)
+    |> Enum.sort_by(fn {mac, last_seen} -> {-last_seen, mac} end)
+    |> List.first()
+    |> elem(0)
+  end
+
+  # The UID a veto-gated ingest of this hardware would mint: deterministic over
+  # {armis_id, class MAC, partition}. Distinct per class (same armis id, different
+  # MAC) and reproducible, so a later real ingest of that MAC re-resolves to the
+  # same reconstructed device by its strong :mac match.
+  defp armis_split_uid(device, mac, partition) do
+    Ids.generate_deterministic_device_id(%{
+      armis_id: device[:armis_device_id],
+      mac: mac,
+      partition: partition
+    })
+  end
+
+  defp normalize_partition(device) do
+    case device[:partition] do
+      value when is_binary(value) and value != "" -> value
+      _ -> "default"
+    end
+  end
 end

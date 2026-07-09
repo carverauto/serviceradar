@@ -39,6 +39,7 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Remediation.AgentLinks
   alias ServiceRadar.Inventory.Remediation.ArmisDups
+  alias ServiceRadar.Inventory.Remediation.ArmisUnmerge
   alias ServiceRadar.Inventory.Remediation.BlobPurge
   alias ServiceRadar.Inventory.Remediation.Manifest
   alias ServiceRadar.Inventory.Remediation.ProxmoxDups
@@ -53,12 +54,20 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
   # splits apart. Re-enable only via config (`enable_armis_dups: true`).
   @armis_dups_step "armis-dups"
 
+  # The armis-overmerge DISPOSITION (inverse of armis-dups): reconstruct
+  # per-hardware devices from a mega-device's distinct universal MACs and rescue
+  # the orphaned sole-copy MAC rows. Omitted from the default order so it only
+  # runs when an operator explicitly requests `steps: ["armis-unmerge"]` (after
+  # the live scoping that excludes the faker fleet); it is otherwise dormant.
+  @armis_unmerge_step "armis-unmerge"
+
   @step_order [
     "blob-purge",
     "test-debris",
     "stale-agent-devices",
     "agent-links",
     "proxmox-dups",
+    @armis_unmerge_step,
     @armis_dups_step
   ]
 
@@ -72,11 +81,15 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
   def steps, do: default_steps()
 
   # Default run order with armis-dups gated off unless config opts back in.
+  # armis-unmerge is always excluded from the default order — it is
+  # explicit-request-only (dormant) until live scoping confirms the population.
   defp default_steps do
+    base = @step_order -- [@armis_unmerge_step]
+
     if armis_dups_enabled?() do
-      @step_order
+      base
     else
-      @step_order -- [@armis_dups_step]
+      base -- [@armis_dups_step]
     end
   end
 
@@ -177,6 +190,9 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
 
   defp run_step("proxmox-dups", mode, opts, manifest, actor),
     do: ProxmoxDups.run(mode, opts, manifest, actor)
+
+  defp run_step("armis-unmerge", mode, opts, manifest, actor),
+    do: ArmisUnmerge.run(mode, opts, manifest, actor)
 
   defp run_step("armis-dups", mode, opts, manifest, actor),
     do: ArmisDups.run(mode, opts, manifest, actor)

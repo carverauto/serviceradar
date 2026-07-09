@@ -103,6 +103,36 @@ defmodule ServiceRadar.Inventory.Identity.Mac do
   end
 
   @doc """
+  The set of universally-administered (globally-unique, hardware-anchor) MACs
+  from a raw MAC field or a list of them.
+
+  Comma/semicolon/whitespace blobs are normalized to atomic 12-hex MACs first
+  (`normalize_mac_list/1`), then locally-administered MACs (virtual/Docker/overlay
+  NICs — not hardware anchors) are dropped. This is the exact hardware-identity
+  unit the ingest-time distinct-MAC veto (`BatchResolver`) resolves on; reuse it
+  for detection/grouping so an un-merge cannot drift from prevention.
+  """
+  @spec universal_macs([String.t()] | String.t() | nil) :: MapSet.t()
+  def universal_macs(values) when is_list(values) do
+    values
+    |> Enum.flat_map(&normalize_mac_list/1)
+    |> Enum.reject(&locally_administered_mac?/1)
+    |> MapSet.new()
+  end
+
+  def universal_macs(value) when is_binary(value), do: universal_macs([value])
+  def universal_macs(_), do: MapSet.new()
+
+  @doc """
+  True when two universal-MAC sets are both non-empty and disjoint — the
+  distinct-hardware condition the ingest-time veto fires on.
+  """
+  @spec distinct_hardware?(MapSet.t(), MapSet.t()) :: boolean()
+  def distinct_hardware?(%MapSet{} = a, %MapSet{} = b) do
+    MapSet.size(a) > 0 and MapSet.size(b) > 0 and MapSet.disjoint?(a, b)
+  end
+
+  @doc """
   Return the appropriate confidence level for a MAC address.
   Locally-administered MACs get :medium, globally-unique MACs get :strong.
   """

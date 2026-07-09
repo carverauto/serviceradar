@@ -279,4 +279,119 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
       assert MapSet.new(Enum.map(component, & &1.uid)) == MapSet.new(["sr:a", "sr:b", "sr:c"])
     end
   end
+
+  describe "plan_armis_unmerge/2 (armis-unmerge step)" do
+    # Universal MACs: 2nd hex char without the 0x02 bit. Local: with it.
+    @mac_a "001AA0B94040"
+    @mac_b "001422F42A2A"
+    @mac_c "0050B6AABB01"
+    @local_mac "02EA1432D278"
+
+    defp mega_device(overrides \\ %{}) do
+      Map.merge(
+        %{
+          uid: "sr:mega",
+          mac: nil,
+          armis_device_id: "armis-777",
+          partition: "default",
+          tombstoned?: false
+        },
+        overrides
+      )
+    end
+
+    defp row(id, value, last_seen \\ nil), do: %{id: id, value: value, last_seen: last_seen}
+
+    test "no universal MAC -> skip (MAC-less / local-only collapses are unsplittable)" do
+      assert {:skip, :no_universal_mac} = Decisions.plan_armis_unmerge(mega_device(), [])
+
+      assert {:skip, :no_universal_mac} =
+               Decisions.plan_armis_unmerge(mega_device(), [row("i1", @local_mac)])
+    end
+
+    test "a live device with one universal MAC is a normal device, not an over-merge" do
+      assert {:skip, :single_universal_mac} =
+               Decisions.plan_armis_unmerge(mega_device(), [row("i1", @mac_a)])
+    end
+
+    test "a tombstoned ghost with one universal MAC still plans a restore (sole-copy rescue)" do
+      assert {:split, plan} =
+               Decisions.plan_armis_unmerge(mega_device(%{tombstoned?: true}), [
+                 row("i1", @mac_a)
+               ])
+
+      assert plan.survivor.action == :restore
+      assert plan.survivor.mac == @mac_a
+      assert plan.survivor.row_ids == ["i1"]
+      assert plan.splits == []
+    end
+
+    test "live mega-device splits per distinct universal MAC; device.mac class survives" do
+      rows = [row("i1", @mac_a), row("i2", @mac_b), row("i3", @mac_c)]
+
+      assert {:split, plan} = Decisions.plan_armis_unmerge(mega_device(%{mac: @mac_b}), rows)
+
+      assert plan.survivor.action == :adopt
+      assert plan.survivor.mac == @mac_b
+      assert plan.survivor.row_ids == ["i2"]
+
+      assert Enum.map(plan.splits, & &1.mac) == Enum.sort([@mac_a, @mac_c])
+      assert Enum.all?(plan.splits, &String.starts_with?(&1.new_uid, "sr:"))
+      # One class per MAC, each carrying exactly its own row.
+      assert plan.splits |> Enum.map(& &1.row_ids) |> List.flatten() |> Enum.sort() == [
+               "i1",
+               "i3"
+             ]
+    end
+
+    test "target UIDs are deterministic per {armis_id, mac, partition} and distinct per class" do
+      rows = [row("i1", @mac_a), row("i2", @mac_b)]
+
+      {:split, plan1} = Decisions.plan_armis_unmerge(mega_device(%{mac: @mac_a}), rows)
+      {:split, plan2} = Decisions.plan_armis_unmerge(mega_device(%{mac: @mac_a}), rows)
+
+      assert Enum.map(plan1.splits, & &1.new_uid) == Enum.map(plan2.splits, & &1.new_uid)
+
+      uids = Enum.map(plan1.splits, & &1.new_uid) ++ [plan1.device_uid]
+      assert length(Enum.uniq(uids)) == length(uids)
+
+      # A different armis id yields different target uids.
+      {:split, plan3} =
+        Decisions.plan_armis_unmerge(
+          mega_device(%{mac: @mac_a, armis_device_id: "armis-888"}),
+          rows
+        )
+
+      refute Enum.map(plan3.splits, & &1.new_uid) == Enum.map(plan1.splits, & &1.new_uid)
+    end
+
+    test "without a device MAC anchor the most-recently-seen class survives, ties lexicographic" do
+      newer = DateTime.utc_now()
+      older = DateTime.add(newer, -3600, :second)
+
+      {:split, plan} =
+        Decisions.plan_armis_unmerge(mega_device(), [
+          row("i1", @mac_a, older),
+          row("i2", @mac_b, newer)
+        ])
+
+      assert plan.survivor.mac == @mac_b
+
+      # Equal last_seen -> lexicographically smallest value, deterministic re-runs.
+      {:split, tie_plan} =
+        Decisions.plan_armis_unmerge(mega_device(), [
+          row("i1", @mac_a, newer),
+          row("i2", @mac_b, newer)
+        ])
+
+      assert tie_plan.survivor.mac == Enum.min([@mac_a, @mac_b])
+    end
+
+    test "non-atomic (blob) rows are ignored by the planner — blob-purge runs first" do
+      rows = [row("i1", "#{@mac_a},#{@mac_b}"), row("i2", @mac_c)]
+
+      # The blob row maps to two universal MACs and is dropped, leaving one class.
+      assert {:skip, :single_universal_mac} = Decisions.plan_armis_unmerge(mega_device(), rows)
+    end
+  end
 end

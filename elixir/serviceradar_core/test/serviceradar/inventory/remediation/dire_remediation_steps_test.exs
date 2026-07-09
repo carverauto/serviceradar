@@ -56,4 +56,18 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationStepsTest do
     assert {:error, {:unknown_steps, ["nope"]}} =
              DireRemediation.run(steps: ["nope"], mode: :dry_run)
   end
+
+  test "armis-unmerge is dormant: excluded from the default order in every config state" do
+    # The disposition step only runs when an operator explicitly requests
+    # `steps: ["armis-unmerge"]` (covered by the DB-backed step test); a default
+    # `all` run never includes it — even when armis-dups is opted back in.
+    Application.delete_env(:serviceradar_core, DireRemediation)
+    refute "armis-unmerge" in DireRemediation.steps()
+
+    set_enable_armis_dups(true)
+    refute "armis-unmerge" in DireRemediation.steps()
+
+    set_enable_armis_dups(false)
+    refute "armis-unmerge" in DireRemediation.steps()
+  end
 end

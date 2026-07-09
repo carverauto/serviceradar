@@ -17,48 +17,48 @@
 
 ## 2. Shared grouping primitive
 
-- [ ] 2.1 Extract `universal_macs/1` and the disjoint-set predicate from
+- [x] 2.1 Extract `universal_macs/1` and the disjoint-set predicate from
   `BatchResolver` into a public `ServiceRadar.Inventory.Identity.Mac` helper.
-- [ ] 2.2 Point `BatchResolver` at the extracted helper; unit-test parity so the
+- [x] 2.2 Point `BatchResolver` at the extracted helper; unit-test parity so the
   veto and the un-merge detector cannot drift.
 
 ## 3. Detection + pure decision rules
 
-- [ ] 3.1 Add detection (keyset-paginated, mirroring `blob_purge`) for
+- [x] 3.1 Add detection (bounded per-run `armis_unmerge_candidate_limit`, default 5000; idempotent re-runs converge on the remainder — a split device drops out of candidacy) for
   mega-devices and the ghost-tombstoned population; assert `blob-purge` has run
   (zero non-atomic `mac` rows) or normalize in Elixir via `Mac.normalize_mac_list`.
-- [ ] 3.2 Add pure `Decisions` functions: group a device's universal MACs into
+- [x] 3.2 Add pure `Decisions` functions: group a device's universal MACs into
   target classes, pick the survivor class, mint each target UID via
   `Ids.generate_deterministic_device_id/1`, and classify unsplittable
   (MAC-less / local-only) devices as skipped-with-reason.
 
 ## 4. `armis-unmerge` remediation step
 
-- [ ] 4.1 Implement `Remediation.ArmisUnmerge.run(mode, opts, manifest, actor)`
+- [x] 4.1 Implement `Remediation.ArmisUnmerge.run(mode, opts, manifest, actor)`
   following `agent_links.ex`: per target group materialize a device
   (adopt-live / `recreate_device` restore-tombstone / create-fresh), move the
   group's `mac` rows via `DeviceIdentifier :reassign_device` (audited, TTL-reset,
   `verified` preserved), place `armis_device_id` per 1.2, and write one
   `merge_audit` `reason: "unmerge"` per split. Dry-run plan vs execute apply.
-- [ ] 4.2 `Manifest.record` every device restore/create and identifier reassign
+- [x] 4.2 `Manifest.record` every device restore/create and identifier reassign
   (ids only), matching the existing rollback format.
-- [ ] 4.3 Register the step in `DireRemediation` (`@step_order`, `run_step`
+- [x] 4.3 Register the step in `DireRemediation` (`@step_order`, `run_step`
   dispatch) after `agent-links`; ship it dry-run-runnable but excluded from the
   default execute order until 1.x is signed off.
 
 ## 5. Tests
 
-- [ ] 5.1 `Decisions` unit tests: universal-MAC grouping, survivor selection,
+- [x] 5.1 `Decisions` unit tests: universal-MAC grouping, survivor selection,
   deterministic target UID, unsplittable classification (no DB).
-- [ ] 5.2 DB test (srql-fixtures scratch): seed a live mega-device (one
+- [x] 5.2 DB test (srql-fixtures scratch): seed a live mega-device (one
   `armis_device_id`, N distinct universal MACs) + a ghost-tombstoned device with
   sole-copy `mac` rows; dry-run asserts the plan; execute asserts per-group
   devices materialized, `mac` rows reassigned + `last_seen` bumped, `unmerge`
   audits written, manifest lines present; re-run is idempotent.
-- [ ] 5.3 Regression: after execute, no device has two live devices sharing one
+- [x] 5.3 Regression: after execute, no device has two live devices sharing one
   typed `armis_device_id` (no new `typed_id_on_multiple_devices`); the Armis
   northbound candidate query still loads the survivor.
-- [ ] 5.4 Local-only / MAC-less Armis device is reported skipped-with-reason, not
+- [x] 5.4 Local-only / MAC-less Armis device is reported skipped-with-reason, not
   split.
 
 ## 6. Guard removal (separate follow-up change, after live execute verified)

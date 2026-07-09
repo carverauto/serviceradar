@@ -196,20 +196,12 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   end
 
   # Atomic, universally-administered (hardware-anchor) MACs from a list of raw
-  # identifier values. Legacy comma-blob rows are normalized to atomic MACs
-  # FIRST (`Mac.normalize_mac_list/1`) so the incoming and canonical sides are
-  # always compared on the same atomic basis — otherwise a raw blob on one side
-  # reads as disjoint from its own atomic MAC on the other and the veto
-  # over-splits the same hardware. Then locally-administered MACs
-  # (virtual/Docker/overlay NICs) are dropped: they are not hardware anchors and
-  # must never drive a device split. Shared by both the incoming and canonical
-  # sides so the symmetry the veto depends on is structural, not conventional.
-  defp universal_macs(values) do
-    values
-    |> Enum.flat_map(&Mac.normalize_mac_list/1)
-    |> Enum.reject(&Mac.locally_administered_mac?/1)
-    |> MapSet.new()
-  end
+  # identifier values. The hardware-identity unit is defined once in
+  # `Identity.Mac.universal_macs/1` (blob rows normalized to atomic MACs first so
+  # the incoming and canonical sides compare on the same atomic basis, then
+  # locally-administered NICs dropped) and reused by the un-merge remediation so
+  # detection provably cannot drift from this veto.
+  defp universal_macs(values), do: Mac.universal_macs(values)
 
   # Behavioral distinct-hardware veto. Fires ONLY when (a) the matched canonical
   # already holds >=1 universally-administered MAC, AND (b) the incoming record
@@ -218,9 +210,7 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   # locally-administered) -> not disjoint or one side empty -> no veto.
   defp distinct_mac_veto?(canonical_macs, device_id, incoming_macs) do
     existing = Map.get(canonical_macs, device_id, MapSet.new())
-
-    MapSet.size(existing) > 0 and MapSet.size(incoming_macs) > 0 and
-      MapSet.disjoint?(existing, incoming_macs)
+    Mac.distinct_hardware?(existing, incoming_macs)
   end
 
   defp emit_distinct_mac_veto(id_type, value, device_id, incoming_macs, canonical_macs) do
