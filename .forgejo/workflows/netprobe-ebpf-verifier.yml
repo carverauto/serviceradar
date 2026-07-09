@@ -80,9 +80,21 @@ jobs:
         run: ./scripts/install-bazelisk.sh
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
-        with:
-          toolchain: stable
+        run: |
+          set -euo pipefail
+
+          export PATH="${HOME}/.cargo/bin:${PATH}"
+          echo "${HOME}/.cargo/bin" >> "${GITHUB_PATH}"
+
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --default-toolchain stable
+          fi
+
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+          cargo --version
 
       - name: Verify eBPF object
         run: scripts/ci/netprobe-ebpf-verify.sh
@@ -104,9 +116,21 @@ jobs:
         run: ./scripts/ci/ensure-forgejo-tools.sh bazel-build
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
-        with:
-          toolchain: stable
+        run: |
+          set -euo pipefail
+
+          export PATH="${HOME}/.cargo/bin:${PATH}"
+          echo "${HOME}/.cargo/bin" >> "${GITHUB_PATH}"
+
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --default-toolchain stable
+          fi
+
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+          cargo --version
 
       - name: Verify unavailable state
         run: scripts/ci/netprobe-kernel-too-old.sh
