@@ -92,12 +92,106 @@ run mix xref graph --format stats --label compile-connected
 if [[ "${skip_credo}" != "true" ]]; then
   run mix credo --strict
 fi
-run mix hex.audit
 
 deps_audit_args=()
 if [[ -f ".deps_audit_ignore" ]]; then
   deps_audit_args+=(--ignore-file .deps_audit_ignore)
 fi
+
+run_hex_audit() {
+  echo
+  echo "==> mix hex.audit"
+
+  local output
+  local status
+
+  set +e
+  output="$(mix hex.audit 2>&1)"
+  status=$?
+  set -e
+
+  printf '%s\n' "${output}"
+
+  if [[ "${status}" -eq 0 ]]; then
+    return 0
+  fi
+
+  if [[ ! -f ".deps_audit_ignore" ]]; then
+    return "${status}"
+  fi
+
+  printf '%s\n' "${output}" | awk -v ignore_file=".deps_audit_ignore" '
+    BEGIN {
+      while ((getline line < ignore_file) > 0) {
+        sub(/#.*/, "", line)
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+
+        if (line != "") {
+          ignored[line] = 1
+        }
+      }
+    }
+
+    /^Retired:/ {
+      flush_advisory()
+      section = "retired"
+      next
+    }
+
+    /^Advisories:/ {
+      flush_advisory()
+      section = "advisory"
+      next
+    }
+
+    section == "retired" && /^  [^[:space:]]+ [^[:space:]]+ - / {
+      package = $1
+
+      if (!((package in ignored) || (("package:" package) in ignored) || (("retired:" package) in ignored))) {
+        print "::error::unignored hex retired package: " package > "/dev/stderr"
+        failed = 1
+      }
+
+      next
+    }
+
+    section == "advisory" && /^  [^[:space:]]+ [^[:space:]]+ - / {
+      flush_advisory()
+      advisory = $0
+      next
+    }
+
+    section == "advisory" && advisory != "" {
+      advisory = advisory "\n" $0
+      next
+    }
+
+    END {
+      flush_advisory()
+      exit failed
+    }
+
+    function flush_advisory(  token, lines) {
+      if (advisory == "") {
+        return
+      }
+
+      for (token in ignored) {
+        if (index(advisory, token) > 0) {
+          advisory = ""
+          return
+        }
+      }
+
+      split(advisory, lines, "\n")
+      print "::error::unignored hex advisory: " lines[1] > "/dev/stderr"
+      failed = 1
+      advisory = ""
+    }
+  '
+}
+
+run_hex_audit
 
 if mix help deps.audit >/dev/null 2>&1; then
   run mix deps.audit "${deps_audit_args[@]}"

@@ -11,7 +11,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
       period: :infinity,
       fields: [:worker, :args],
       keys: [:integration_source_id],
-      states: [:available, :scheduled, :executing, :retryable]
+      states: :incomplete
     ]
 
   alias ServiceRadar.Actors.SystemActor

@@ -61,9 +61,21 @@ jobs:
           elixir-version: '1.19.4'
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
-        with:
-          toolchain: stable
+        run: |
+          set -euo pipefail
+
+          export PATH="${HOME}/.cargo/bin:${PATH}"
+          echo "${HOME}/.cargo/bin" >> "${GITHUB_PATH}"
+
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --default-toolchain stable
+          fi
+
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+          cargo --version
 
       - name: Cache Elixir dependencies and build
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
@@ -127,19 +139,49 @@ jobs:
         run: |
           set -euo pipefail
           # compare-platform-baseline.sh needs pg_dump/psql whose major matches
-          # the CNPG server (PG18); Ubuntu ships 16, so pull the PGDG client.
+          # the CNPG server (PG18); Ubuntu ships 16, so pull the PGDG client
+          # into a local tool directory. Forgejo runners do not have passwordless
+          # sudo, so avoid mutating system apt sources or packages.
           if command -v pg_dump >/dev/null 2>&1 && pg_dump --version | grep -qE ' (18|19)\.'; then
             echo "Using pre-installed $(pg_dump --version)"
             exit 0
           fi
-          sudo install -d /usr/share/postgresql-common/pgdg
+
+          pg_root="${RUNNER_TEMP:-/tmp}/postgresql-client-18"
+          pg_apt="${pg_root}/apt"
+          pg_extract="${pg_root}/root"
+          install -d "${pg_apt}/lists/partial" "${pg_apt}/archives/partial" "${pg_extract}"
+
           curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-            | sudo gpg --dearmor -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg
+            | gpg --dearmor -o "${pg_apt}/apt.postgresql.org.gpg"
+
           . /etc/os-release
-          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg] http://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
-            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends postgresql-client-18
+          pg_sources="${pg_apt}/pgdg.list"
+          echo "deb [signed-by=${pg_apt}/apt.postgresql.org.gpg] http://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" >"${pg_sources}"
+
+          apt_opts=(
+            -o "Dir::Etc::sourcelist=${pg_sources}"
+            -o "Dir::Etc::sourceparts=-"
+            -o "Dir::State::lists=${pg_apt}/lists"
+            -o "Dir::Cache::archives=${pg_apt}/archives"
+            -o "Dir::State::status=/var/lib/dpkg/status"
+          )
+
+          apt-get "${apt_opts[@]}" update
+          (
+            cd "${pg_apt}/archives"
+            apt-get "${apt_opts[@]}" download postgresql-client-18 postgresql-client-common libpq5
+          )
+          for deb in "${pg_apt}"/archives/*.deb; do
+            dpkg-deb -x "${deb}" "${pg_extract}"
+          done
+
+          pg_bin="${pg_extract}/usr/lib/postgresql/18/bin"
+          pg_lib="${pg_extract}/usr/lib/x86_64-linux-gnu"
+          echo "${pg_bin}" >>"${GITHUB_PATH}"
+          echo "LD_LIBRARY_PATH=${pg_lib}:${LD_LIBRARY_PATH:-}" >>"${GITHUB_ENV}"
+          export PATH="${pg_bin}:${PATH}"
+          export LD_LIBRARY_PATH="${pg_lib}:${LD_LIBRARY_PATH:-}"
           pg_dump --version
 
       - name: Verify baseline equals migration replay

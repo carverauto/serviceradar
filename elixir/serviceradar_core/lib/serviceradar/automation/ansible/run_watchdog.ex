@@ -18,7 +18,7 @@ defmodule ServiceRadar.Automation.Ansible.RunWatchdog do
   use Oban.Worker,
     queue: :ansible_pulse,
     max_attempts: 1,
-    unique: [period: :infinity, states: [:available, :scheduled]]
+    unique: [period: :infinity, states: :incomplete]
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.PlaybookRun

@@ -26,6 +26,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
@@ -34,6 +35,12 @@ import (
 var (
 	errDesktopRDPHelperTransportRequired = errors.New("desktop rdp helper transport is required")
 	errDesktopRDPHelperClosed            = errors.New("desktop rdp helper closed")
+)
+
+const (
+	// Linux can briefly return ETXTBSY when executing a helper that was just written or atomically replaced.
+	desktopRDPHelperStartAttempts       = 5
+	desktopRDPHelperStartRetryBaseDelay = 10 * time.Millisecond
 )
 
 type desktopRDPHelperTransport interface {
@@ -442,6 +449,32 @@ type desktopRDPHelperProcessTransport struct {
 }
 
 func startDesktopRDPHelperProcess(ctx context.Context, helperPath string) (desktopRDPHelperTransport, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	var lastErr error
+
+	for attempt := 0; attempt < desktopRDPHelperStartAttempts; attempt++ {
+		transport, err := startDesktopRDPHelperProcessOnce(ctx, helperPath)
+		if err == nil {
+			return transport, nil
+		}
+		if !errors.Is(err, syscall.ETXTBSY) {
+			return nil, err
+		}
+
+		lastErr = err
+		delay := time.Duration(attempt+1) * desktopRDPHelperStartRetryBaseDelay
+		if err := waitDesktopRDPHelperStartRetry(ctx, delay); err != nil {
+			return nil, err
+		}
+	}
+
+	return nil, lastErr
+}
+
+func startDesktopRDPHelperProcessOnce(ctx context.Context, helperPath string) (desktopRDPHelperTransport, error) {
 	cmd := exec.CommandContext(ctx, helperPath)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -467,6 +500,18 @@ func startDesktopRDPHelperProcess(ctx context.Context, helperPath string) (deskt
 		stdout: stdout,
 		waitCh: waitCh,
 	}, nil
+}
+
+func waitDesktopRDPHelperStartRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (t *desktopRDPHelperProcessTransport) SendFrame(frame desktopRDPHelperFrame) error {

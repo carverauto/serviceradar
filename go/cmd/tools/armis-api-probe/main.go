@@ -52,6 +52,9 @@ const (
 var (
 	errRequiredEnvMissing = errors.New("missing required env")
 	errHTTPStatus         = errors.New("unexpected HTTP status")
+	errInvalidLimits      = errors.New("invalid pagination limits")
+	errV1TokenMissing     = errors.New("v1 token response missing data.access_token")
+	errV3TokenMissing     = errors.New("v3 token response missing access_token")
 )
 
 type config struct {
@@ -317,7 +320,7 @@ func loadConfig(args []string) (*config, error) {
 	}
 
 	if cfg.pageSize <= 0 || cfg.maxPages <= 0 || cfg.maxAssets < 0 {
-		return nil, errors.New("page-size and max-pages must be positive; max-assets must be non-negative")
+		return nil, errInvalidLimits
 	}
 	if cfg.endpoint == "" {
 		return nil, fmt.Errorf("%w: ARMIS_ENDPOINT or --endpoint", errRequiredEnvMissing)
@@ -389,7 +392,7 @@ func fetchV1Token(ctx context.Context, cfg *config) (string, error) {
 		return "", err
 	}
 	if strings.TrimSpace(parsed.Data.AccessToken) == "" {
-		return "", errors.New("v1 token response missing data.access_token")
+		return "", errV1TokenMissing
 	}
 
 	return parsed.Data.AccessToken, nil
@@ -498,7 +501,7 @@ func fetchV3Token(ctx context.Context, cfg *config) (string, error) {
 		return "", err
 	}
 	if strings.TrimSpace(parsed.AccessToken) == "" {
-		return "", errors.New("v3 token response missing access_token")
+		return "", errV3TokenMissing
 	}
 
 	return parsed.AccessToken, nil

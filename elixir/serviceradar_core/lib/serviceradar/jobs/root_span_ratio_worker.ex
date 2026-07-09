@@ -30,7 +30,7 @@ defmodule ServiceRadar.Jobs.RootSpanRatioWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
+    unique: [period: :infinity, states: :incomplete]
 
   alias Ecto.Adapters.SQL
 

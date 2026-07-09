@@ -10,7 +10,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportDeliveryWorker do
       fields: [:args, :worker],
       keys: [:delivery_id],
       period: :infinity,
-      states: [:available, :scheduled, :executing, :retryable]
+      states: :incomplete
     ]
 
   import Swoosh.Email

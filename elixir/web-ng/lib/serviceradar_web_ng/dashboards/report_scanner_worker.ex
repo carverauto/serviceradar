@@ -9,7 +9,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportScannerWorker do
   use Oban.Worker,
     queue: :web_maintenance,
     max_attempts: 3,
-    unique: [period: 55, states: [:available, :scheduled, :executing, :retryable]]
+    unique: [period: 55, states: :incomplete]
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Dashboards.DashboardReportDelivery

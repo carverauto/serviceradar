@@ -10,7 +10,7 @@ defmodule ServiceRadar.Jobs.PruneStaleAgentsWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    unique: [period: 3_600, states: [:available, :scheduled, :executing, :retryable]]
+    unique: [period: 3_600, states: :incomplete]
 
   import Ash.Expr
 

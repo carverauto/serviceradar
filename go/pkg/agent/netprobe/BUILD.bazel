@@ -35,10 +35,12 @@ go_test(
     ],
     embed = [":netprobe"],
     deps = [
+        "//go/pkg/agent/sidecar",
         "//go/pkg/devicealias",
         "//go/pkg/models",
         "//proto",
         "//proto/agent/netprobe/v1:netprobepb",
         "//proto/discovery",
+        "@com_github_rs_zerolog//:zerolog",
     ],
 )

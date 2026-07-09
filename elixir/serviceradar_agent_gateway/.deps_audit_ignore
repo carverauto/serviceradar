@@ -11,6 +11,14 @@
 # from this release.
 GHSA-rhv4-8758-jx7v
 
-# GHSA-g2wm-735q-3f56 / cowlib cookie encoder advisory has no patched release as of cowlib 2.16.1.
-# Keep this waiver until cowlib publishes a patched release or the dependency is replaced.
+# EEF-CVE-2026-43966 / cowlib HTTP response splitting and
+# GHSA-g2wm-735q-3f56 / cowlib cookie encoder advisory have no patched release
+# as of cowlib 2.18.0. Keep this waiver until cowlib publishes a patched
+# release or the dependency is replaced.
+EEF-CVE-2026-43966
 GHSA-g2wm-735q-3f56
+
+# jetstream 0.0.9 was retired after its APIs were folded into gnat. This
+# project still uses Jetstream.PullConsumer and Jetstream.API modules directly;
+# keep this waiver until that migration is complete.
+retired:jetstream

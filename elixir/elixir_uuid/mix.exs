@@ -31,7 +31,6 @@ defmodule UUID.Mixfile do
   defp deps do
     [
       {:ex_doc, "~> 0.16", only: :dev},
-      {:earmark, "~> 1.2", only: :dev},
       {:benchfella, "~> 0.3", only: :dev},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:boundary, "~> 0.10.4", runtime: false},

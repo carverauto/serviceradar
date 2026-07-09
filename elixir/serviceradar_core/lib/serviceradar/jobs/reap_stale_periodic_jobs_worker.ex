@@ -11,7 +11,7 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 1,
-    unique: [period: 300, states: [:available, :scheduled, :retryable]]
+    unique: [period: 300, states: :incomplete]
 
   import Ecto.Query, warn: false
 

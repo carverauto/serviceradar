@@ -11,6 +11,27 @@
 # from this release.
 GHSA-rhv4-8758-jx7v
 
-# GHSA-g2wm-735q-3f56 / cowlib cookie encoder advisory has no patched release as of cowlib 2.16.1.
-# Keep this waiver until cowlib publishes a patched release or the dependency is replaced.
+# Req is held on 0.5.x by the vendored Boombox/HLS dependency chain
+# (membrane_http_adaptive_stream_plugin -> ex_hls requires req ~> 0.5.10).
+# core_elx does not expose the multipart form upload path covered by
+# GHSA-px9f-whj3-246m or an untrusted archive auto-decode path covered by
+# GHSA-655f-mp8p-96gv. Remove these once Boombox/HLS can accept req 0.6.x.
+GHSA-px9f-whj3-246m
+GHSA-655f-mp8p-96gv
+
+# Ash is currently constrained by the core_elx Ash extension set. The affected
+# private-action argument path is not exposed through core_elx runtime APIs;
+# keep this explicit waiver until the Ash family can move to the patched line.
+GHSA-f4hc-ppw9-4hhw
+
+# EEF-CVE-2026-43966 / cowlib HTTP response splitting and
+# GHSA-g2wm-735q-3f56 / cowlib cookie encoder advisory have no patched release
+# as of cowlib 2.18.0. Keep this waiver until cowlib publishes a patched
+# release or the dependency is replaced.
+EEF-CVE-2026-43966
 GHSA-g2wm-735q-3f56
+
+# jetstream 0.0.9 was retired after its APIs were folded into gnat. The
+# embedded/core wrapper still inherits those modules from serviceradar_core;
+# keep this waiver until that migration is complete.
+retired:jetstream

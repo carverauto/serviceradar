@@ -33,7 +33,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
     max_attempts: 3,
     unique: [
       period: :infinity,
-      states: [:available, :scheduled, :executing, :retryable],
+      states: :incomplete,
       keys: [:trigger]
     ]
 

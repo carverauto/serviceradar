@@ -8,6 +8,8 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
 
   use GenServer
 
+  alias ServiceRadarAgentGateway.MediaSessionHelpers
+
   require Logger
 
   @default_lease_seconds 30
@@ -238,8 +240,9 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
 
     %{
       desktop_session_id: desktop_session_id,
-      media_session_id: if(media_session_id == "", do: random_id("desktop-media"), else: media_session_id),
-      media_ingest_id: if(media_ingest_id == "", do: random_id("media"), else: media_ingest_id),
+      media_session_id:
+        if(media_session_id == "", do: MediaSessionHelpers.random_id("desktop-media"), else: media_session_id),
+      media_ingest_id: if(media_ingest_id == "", do: MediaSessionHelpers.random_id("media"), else: media_ingest_id),
       agent_id: required_string!(attrs, :agent_id),
       gateway_id: required_string!(attrs, :gateway_id),
       partition_id: required_string!(attrs, :partition_id),
@@ -346,34 +349,20 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
 
   defp agent_limit_exceeded?(state, session) do
     limit = max_sessions_per_agent()
-    limit != :infinity and session_count_for_agent(state, session.agent_id) >= limit
+    MediaSessionHelpers.agent_limit_exceeded?(state.sessions, session.agent_id, limit)
   end
 
   defp gateway_limit_exceeded?(state) do
     limit = max_sessions_per_gateway()
-    limit != :infinity and map_size(state.sessions) >= limit
-  end
-
-  defp session_count_for_agent(state, agent_id) do
-    Enum.count(state.sessions, fn {_desktop_session_id, session} ->
-      Map.get(session, :agent_id) == agent_id
-    end)
+    MediaSessionHelpers.gateway_limit_exceeded?(state.sessions, limit)
   end
 
   defp max_sessions_per_agent do
-    configured_limit(:desktop_media_max_sessions_per_agent, @default_max_sessions_per_agent)
+    MediaSessionHelpers.configured_limit(:desktop_media_max_sessions_per_agent, @default_max_sessions_per_agent)
   end
 
   defp max_sessions_per_gateway do
-    configured_limit(:desktop_media_max_sessions_per_gateway, @default_max_sessions_per_gateway)
-  end
-
-  defp configured_limit(key, default) do
-    case Application.get_env(:serviceradar_agent_gateway, key, default) do
-      :infinity -> :infinity
-      value when is_integer(value) and value > 0 -> value
-      _other -> default
-    end
+    MediaSessionHelpers.configured_limit(:desktop_media_max_sessions_per_gateway, @default_max_sessions_per_gateway)
   end
 
   defp configured_uint(config_key, default, attrs) do
@@ -450,15 +439,6 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
 
   defp now_unix, do: System.os_time(:second)
   defp lease_expiry_unix, do: now_unix() + @default_lease_seconds
-
-  defp random_id(prefix) do
-    suffix =
-      8
-      |> :crypto.strong_rand_bytes()
-      |> Base.encode16(case: :lower)
-
-    "#{prefix}-#{suffix}"
-  end
 
   defp required_string!(attrs, key) do
     case optional_string(attrs, key) do

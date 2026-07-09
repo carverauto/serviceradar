@@ -7,7 +7,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundScheduleWorker do
   use Oban.Worker,
     queue: :integrations,
     max_attempts: 3,
-    unique: [period: :infinity, states: [:available, :scheduled, :retryable]]
+    unique: [period: :infinity, states: :incomplete]
 
   import Ecto.Query
 

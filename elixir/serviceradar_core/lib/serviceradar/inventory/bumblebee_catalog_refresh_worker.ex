@@ -6,7 +6,7 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    unique: [period: :infinity, states: [:available, :scheduled, :retryable]]
+    unique: [period: :infinity, states: :incomplete]
 
   import Ecto.Query, only: [from: 2]
 
