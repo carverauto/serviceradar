@@ -90,6 +90,8 @@ u = urlparse(os.environ["BASELINE_ADMIN_URL"])
 qs = parse_qs(u.query)
 sslmode = (qs.get("sslmode") or ["require"])[0] or "require"
 qs["sslmode"] = [sslmode]
+for key in ("sslrootcert", "sslcert", "sslkey"):
+    qs.pop(key, None)
 host = u.hostname or ""
 admin_db = (u.path or "/").lstrip("/") or "postgres"
 
