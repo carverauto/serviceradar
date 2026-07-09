@@ -812,6 +812,99 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     assert raw_data =~ ~s("metadata_identifier_disagreement")
   end
 
+  test "run_for_source folds only withholding conflicts into counts but surfaces the full report" do
+    source = %{
+      id: "source-1",
+      northbound_enabled: true,
+      endpoint: "https://armis.example",
+      custom_fields: ["availability"],
+      credentials: %{api_key: "key", api_secret: "secret"}
+    }
+
+    actor = %{role: :system}
+    parent = self()
+
+    start_run = fn _source, _actor, _opts -> {:ok, %{id: "run-disjoint"}} end
+
+    update_source = fn _src, action, attrs, _actor ->
+      send(parent, {:update_source, action, attrs})
+      {:ok, %{action: action, attrs: attrs}}
+    end
+
+    finish_run = fn _run, action, attrs, _actor, _opts ->
+      send(parent, {:finish_run, action, attrs})
+      {:ok, %{action: action, attrs: attrs}}
+    end
+
+    record_event = fn attrs, _actor -> {:ok, %{id: "event-disjoint", attrs: attrs}} end
+
+    load_candidates = fn _src, _opts ->
+      {:ok,
+       [
+         %{
+           armis_device_id: "armis-ok",
+           is_available: true,
+           device_id: "d-ok",
+           sync_service_id: "source-1",
+           metadata: %{}
+         }
+       ]}
+    end
+
+    # 5 open conflicts, but only 2 are withholding categories; the other 3
+    # (typed_id_on_multiple_devices) can still be sent and must not be counted
+    # as skipped.
+    load_identity_conflicts = fn _src, _opts ->
+      %{
+        "total_count" => 5,
+        "skipped_count" => 2,
+        "categories" => %{
+          "metadata_identifier_disagreement" => 2,
+          "typed_id_on_multiple_devices" => 3
+        },
+        "examples" => []
+      }
+    end
+
+    execute_batches = fn _src, _collapsed, _opts ->
+      {:ok,
+       %{
+         device_count: 1,
+         updated_count: 1,
+         skipped_count: 0,
+         error_count: 0,
+         batch_count: 1,
+         errors: []
+       }}
+    end
+
+    assert {:ok, %{result: result}} =
+             ArmisNorthboundRunner.run_for_source(source,
+               actor: actor,
+               start_run: start_run,
+               update_source: update_source,
+               finish_run: finish_run,
+               record_event: record_event,
+               load_candidates: load_candidates,
+               load_identity_conflicts: load_identity_conflicts,
+               execute_batches: execute_batches
+             )
+
+    # 1 sent + 2 withholding, NOT 1 + 5.
+    assert result.device_count == 3
+    assert result.skipped_count == 2
+
+    assert_received {:update_source, :northbound_start, %{device_count: 3}}
+
+    # The full report (total_count 5) is still surfaced for operator visibility.
+    assert_received {:finish_run, :finish_success,
+                     %{
+                       device_count: 3,
+                       skipped_count: 2,
+                       metadata: %{"identity_conflicts" => %{"total_count" => 5}}
+                     }}
+  end
+
   test "run_for_source records partial failures when some batches already succeeded" do
     source = %{
       id: "source-1",

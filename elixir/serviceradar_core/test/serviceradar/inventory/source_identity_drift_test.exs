@@ -46,4 +46,27 @@ defmodule ServiceRadar.Inventory.SourceIdentityDriftTest do
     assert length(report["examples"]) == 2
     assert SourceIdentityDrift.conflict_count(report) == 3
   end
+
+  test "withheld_conflict_count reads skipped_count, falling back to total_count" do
+    assert SourceIdentityDrift.withheld_conflict_count(%{
+             "total_count" => 5,
+             "skipped_count" => 2
+           }) ==
+             2
+
+    assert SourceIdentityDrift.withheld_conflict_count(%{total_count: 5, skipped_count: 3}) == 3
+
+    # Injected/legacy reports without a skipped_count fall back to the total.
+    assert SourceIdentityDrift.withheld_conflict_count(%{"total_count" => 4}) == 4
+    assert SourceIdentityDrift.withheld_conflict_count(%{}) == 0
+  end
+
+  test "empty_conflict_report carries a zero skipped_count" do
+    assert SourceIdentityDrift.empty_conflict_report() == %{
+             "total_count" => 0,
+             "skipped_count" => 0,
+             "categories" => %{},
+             "examples" => []
+           }
+  end
 end

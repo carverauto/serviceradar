@@ -114,38 +114,48 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
         query |> Repo.all() |> Map.new()
       end
 
-    Enum.map_reduce(records, %{}, fn record, remap ->
-      ip = Map.get(record, :ip)
+    {remapped_records, {remap, conflicts}} =
+      Enum.map_reduce(records, {%{}, []}, fn record, {remap, conflicts} ->
+        ip = Map.get(record, :ip)
 
-      case Map.get(existing_by_ip, ip) do
-        nil ->
-          {record, remap}
+        case Map.get(existing_by_ip, ip) do
+          nil ->
+            {record, {remap, conflicts}}
 
-        existing_uid when existing_uid == record.uid ->
-          {record, remap}
+          existing_uid when existing_uid == record.uid ->
+            {record, {remap, conflicts}}
 
-        existing_uid ->
-          if MapSet.member?(strong_uids, record.uid) do
-            # The record's identity comes from strong identifiers — it must
-            # NOT be remapped onto whichever device happens to hold the IP
-            # (that adoption collapsed distinct integration devices and stole
-            # agent identities). Drop the conflicting IP instead; alias
-            # processing records the sighting and reconciliation converges
-            # the devices when real evidence supports it.
-            Logger.info(
-              "SyncIngestor: dropping conflicting IP #{ip} from strong-identified " <>
-                "device #{record.uid} (held by #{existing_uid})"
-            )
+          existing_uid ->
+            if MapSet.member?(strong_uids, record.uid) do
+              # The record's identity comes from strong identifiers — it must
+              # NOT be remapped onto whichever device happens to hold the IP
+              # (that adoption collapsed distinct integration devices and stole
+              # agent identities). Drop the conflicting IP instead; alias
+              # processing records the sighting and reconciliation converges
+              # the devices when real evidence supports it.
+              Logger.info(
+                "SyncIngestor: dropping conflicting IP #{ip} from strong-identified " <>
+                  "device #{record.uid} (held by #{existing_uid})"
+              )
 
-            _ = SourceIdentityDrift.record_active_ip_conflict(record, existing_uid, ip)
+              conflict = SourceIdentityDrift.build_active_ip_conflict(record, existing_uid, ip)
 
-            {Map.put(record, :ip, nil), remap}
-          else
-            {Map.put(record, :uid, existing_uid), Map.put(remap, record.uid, existing_uid)}
-          end
-      end
-    end)
+              {Map.put(record, :ip, nil), {remap, prepend_conflict(conflicts, conflict)}}
+            else
+              {Map.put(record, :uid, existing_uid),
+               {Map.put(remap, record.uid, existing_uid), conflicts}}
+            end
+        end
+      end)
+
+    # One batched diagnostic write instead of an insert per IP collision.
+    _ = SourceIdentityDrift.record_conflicts(Enum.reverse(conflicts))
+
+    {remapped_records, remap}
   end
+
+  defp prepend_conflict(conflicts, nil), do: conflicts
+  defp prepend_conflict(conflicts, conflict), do: [conflict | conflicts]
 
   def maybe_refresh_inventory_rollups(:ok, total_count) when total_count > 0 do
     if inventory_rollup_bulk_refresh_required?(total_count) do
