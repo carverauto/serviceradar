@@ -14,12 +14,12 @@ Do not expose internal service ports directly. Public traffic should terminate a
 | Purpose | Public Port | Protocol | Kubernetes Backend | Cloud Resource Shape | Notes |
 |---|---:|---|---|---|---|
 | Web UI, API, LiveView, and browser streams | 443, optional 80 redirect | HTTPS | `serviceradar-web-ng:4000` | Shared or dedicated Gateway listener, DNS record, TLS certificate | Route `/`, `/api`, `/api/query`, websocket paths, and stream paths to web-ng. |
-| Edge agent gateway | 50052 | mTLS gRPC | `serviceradar-agent-gateway` | Deployment-reachable L4 service or Gateway listener | Edge agents connect outbound to this endpoint for config, control, and telemetry. |
-| Agent artifact/download path | 50053 | TCP | `serviceradar-agent-gateway` | Same L4 service as agent gateway when possible | Used by the gateway artifact path. Keep it paired with the agent gateway identity and firewall policy. |
+| Edge agent gateway | 50052 | mTLS gRPC | `serviceradar-agent-gateway` | Gateway TCP listener or deployment-reachable L4 service | Edge agents connect outbound to this endpoint for config, control, and telemetry. Hosted Standard routes this through the same Gateway data-plane Service as web traffic. |
+| Agent artifact/download path | 50053 | TCP | `serviceradar-agent-gateway` | Same Gateway or L4 service as agent gateway when possible | Used by the gateway artifact path. Keep it paired with the agent gateway identity and firewall policy. |
 | OTLP HTTP ingest | 443 | HTTPS | `serviceradar-otlp:4318` | Shared or dedicated Gateway route, DNS record, TLS certificate | Recommended external path for OTLP/HTTP because the Gateway can present a public certificate and forward plaintext in-cluster. |
 | OTLP gRPC ingest | 50052 | TLS passthrough | `serviceradar-otlp:4317` | Shared or dedicated TLS Gateway listener with SNI routing | With passthrough, senders see the ServiceRadar collector certificate and must trust the ServiceRadar root CA or explicitly skip verification. |
 
-The web and OTLP HTTP routes are good candidates for a shared public Gateway with per-deployment hostnames. OTLP gRPC can also share a Gateway listener if the cloud/Gateway implementation supports TLS passthrough and SNI routing. The agent gateway is typically provisioned as its own deployment-reachable L4 endpoint unless the platform has a deliberate multiplexing design for agent traffic.
+The web, edge-agent TCP, and OTLP HTTP routes are good candidates for a shared public Gateway with per-deployment hostnames or listener ports. OTLP gRPC can also share a Gateway listener if the cloud/Gateway implementation supports TLS passthrough and SNI routing.
 
 ## Optional Telemetry Collectors
 

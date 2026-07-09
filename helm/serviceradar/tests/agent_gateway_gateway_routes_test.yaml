@@ -1,0 +1,117 @@
+suite: agent gateway Gateway API routes
+templates:
+  - templates/gateway-api.yaml
+tests:
+  - it: renders managed TCP listeners and routes for agent gateway ports
+    set:
+      gatewayApi.enabled: true
+      gatewayApi.host: acme.serviceradar.cloud
+      gatewayApi.agentGateway.enabled: true
+      agentGateway.service.type: ClusterIP
+    asserts:
+      - hasDocuments:
+          count: 7
+      - isKind:
+          of: Gateway
+        documentIndex: 1
+      - contains:
+          path: spec.listeners
+          content:
+            name: agent-grpc
+            port: 50052
+            protocol: TCP
+            allowedRoutes:
+              namespaces:
+                from: Same
+        documentIndex: 1
+      - contains:
+          path: spec.listeners
+          content:
+            name: agent-artifacts
+            port: 50053
+            protocol: TCP
+            allowedRoutes:
+              namespaces:
+                from: Same
+        documentIndex: 1
+      - isKind:
+          of: TCPRoute
+        documentIndex: 5
+      - isAPIVersion:
+          of: gateway.networking.k8s.io/v1alpha2
+        documentIndex: 5
+      - equal:
+          path: metadata.name
+          value: serviceradar-agent-grpc
+        documentIndex: 5
+      - contains:
+          path: spec.parentRefs
+          content:
+            name: serviceradar-edge-gateway
+            namespace: default
+            sectionName: agent-grpc
+        documentIndex: 5
+      - equal:
+          path: spec.rules[0].backendRefs[0].name
+          value: serviceradar-agent-gateway
+        documentIndex: 5
+      - equal:
+          path: spec.rules[0].backendRefs[0].port
+          value: 50052
+        documentIndex: 5
+      - isKind:
+          of: TCPRoute
+        documentIndex: 6
+      - equal:
+          path: metadata.name
+          value: serviceradar-agent-artifacts
+        documentIndex: 6
+      - contains:
+          path: spec.parentRefs
+          content:
+            name: serviceradar-edge-gateway
+            namespace: default
+            sectionName: agent-artifacts
+        documentIndex: 6
+      - equal:
+          path: spec.rules[0].backendRefs[0].name
+          value: serviceradar-agent-gateway
+        documentIndex: 6
+      - equal:
+          path: spec.rules[0].backendRefs[0].port
+          value: 50053
+        documentIndex: 6
+
+  - it: can omit the artifact listener and route
+    set:
+      gatewayApi.enabled: true
+      gatewayApi.host: acme.serviceradar.cloud
+      gatewayApi.agentGateway.enabled: true
+      gatewayApi.agentGateway.artifacts.enabled: false
+      agentGateway.service.type: ClusterIP
+    asserts:
+      - hasDocuments:
+          count: 6
+      - isKind:
+          of: TCPRoute
+        documentIndex: 5
+      - equal:
+          path: metadata.name
+          value: serviceradar-agent-grpc
+        documentIndex: 5
+
+  - it: requires attach-mode parent refs when enabled
+    set:
+      gatewayApi.enabled: true
+      gatewayApi.mode: attach
+      gatewayApi.host: acme.serviceradar.cloud
+      gatewayApi.parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: shared-gateway
+          namespace: shared
+          sectionName: https
+      gatewayApi.agentGateway.enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "gatewayApi.agentGateway.grpc.parentRefs is required when gatewayApi.agentGateway.enabled=true and gatewayApi.mode=attach"

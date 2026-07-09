@@ -1603,6 +1603,28 @@ gatewayApi:
     service:
       name: serviceradar-log-collector
       port: 514
+  agentGateway:
+    # Route edge-agent TCP traffic through the managed/attached Gateway API
+    # gateway instead of allocating a separate agent-gateway LoadBalancer.
+    enabled: false
+    # Namespace where the gateway's envoy proxy pods run. Used only by the
+    # NetworkPolicy template when networkPolicy.enabled=true.
+    envoyGatewayNamespace: envoy-gateway-system
+    service:
+      name: serviceradar-agent-gateway
+    grpc:
+      listenerName: agent-grpc
+      port: 50052
+      servicePort: 50052
+      routeName: ""
+      parentRefs: []
+    artifacts:
+      enabled: true
+      listenerName: agent-artifacts
+      port: 50053
+      servicePort: 50053
+      routeName: ""
+      parentRefs: []
   backendTrafficPolicy:
     enabled: false
     requestTimeout: ""

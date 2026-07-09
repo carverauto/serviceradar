@@ -7,6 +7,7 @@
 {{- $webNg := default (dict) .Values.webNg -}}
 {{- $webNgPublicUrl := default "" $webNg.publicUrl -}}
 {{- $gatewayService := default (dict) $gateway.service -}}
+{{- $gatewayServiceType := default "ClusterIP" $gatewayService.type -}}
 {{- $gatewayArtifactPublicUrl := "" -}}
 {{- if $gateway.publicHostname -}}
 {{- $gatewayArtifactPublicUrl = printf "https://%s:%v" $gateway.publicHostname (default 50053 $gatewayService.artifactPort) -}}
@@ -300,11 +301,13 @@ metadata:
 spec:
   selector:
     app: serviceradar-agent-gateway
-  type: {{ default "ClusterIP" $gateway.service.type }}
+  type: {{ $gatewayServiceType }}
+  {{- if ne $gatewayServiceType "ClusterIP" }}
   {{- with $gateway.service.externalTrafficPolicy }}
   externalTrafficPolicy: {{ . }}
   {{- end }}
-  {{- if and (eq (default "ClusterIP" $gateway.service.type) "LoadBalancer") $gateway.service.loadBalancerIP }}
+  {{- end }}
+  {{- if and (eq $gatewayServiceType "LoadBalancer") $gateway.service.loadBalancerIP }}
   loadBalancerIP: {{ $gateway.service.loadBalancerIP | quote }}
   {{- end }}
   ports:

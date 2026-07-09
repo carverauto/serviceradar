@@ -85,6 +85,8 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `ingress.tls.secretName` | TLS secret name | `""` |
 | `gatewayApi.syslog.enabled` | Render a Gateway API UDPRoute for syslog ingestion through a Gateway listener | `false` |
 | `gatewayApi.syslog.parentRefs` | Parent Gateway listener refs for the syslog UDPRoute when `gatewayApi.mode=attach` | `[]` |
+| `gatewayApi.agentGateway.enabled` | Render Gateway API TCPRoute resources for edge-agent gRPC and artifact traffic so the agent gateway can share the Gateway data-plane Service | `false` |
+| `gatewayApi.agentGateway.envoyGatewayNamespace` | Envoy Gateway data-plane namespace admitted by the Gateway-mode agent-gateway NetworkPolicy | `envoy-gateway-system` |
 | `networkPolicy.enabled` | Render Kubernetes/Calico network policies | `false` |
 | `networkPolicy.podSelectorMatchAll` | Apply Kubernetes NetworkPolicy to all pods in the namespace | `false` |
 | `networkPolicy.ingress.allowSameNamespace` | Allow ingress from pods in the release namespace when NetworkPolicy is enabled | `true` |
