@@ -12,6 +12,10 @@ inverse of prevention.
 #### Scenario: Mega-device with distinct universal MACs is split
 - **GIVEN** a non-deleted Armis-keyed device owns two or more mutually-distinct
   universally-administered atomic MAC identifiers
+- **AND** the operator has enabled the runtime execution gate after live-scoping
+  signoff
+- **AND** the device UID and its non-faker sync source ID are both explicitly
+  allowlisted for live-device execution
 - **WHEN** the disposition runs in execute mode
 - **THEN** it SHALL materialize one device per distinct universal-MAC group
   (adopting a live device, restoring a tombstoned one, or creating a fresh one)
@@ -20,6 +24,59 @@ inverse of prevention.
   device through an audited reassignment (never a silent last-writer-wins repoint)
 - **AND** it SHALL write one merge audit row with reason `unmerge` per split to
   arm the per-pair re-collapse cooldown
+
+### Requirement: Armis Disposition Execution Is Fail-Closed
+The `armis-unmerge` step SHALL remain excluded from the default remediation run.
+An operator SHALL be able to explicitly invoke a bounded dry-run while execute
+mode is disabled. Execute mode SHALL be rejected before a manifest is opened or
+any mutation occurs unless release runtime configuration enables the live-scoping
+signoff gate. Live-device execution SHALL additionally require explicit,
+nonempty device-UID and sync-source-ID allowlists, and a candidate backed by a
+known faker source SHALL remain ineligible even when its hostname is not
+faker-shaped.
+
+#### Scenario: Dry-run remains available before signoff
+- **GIVEN** the runtime execution gate is disabled
+- **WHEN** an operator explicitly requests an `armis-unmerge` dry-run
+- **THEN** the system SHALL return the bounded candidate and split-plan report
+- **AND** it SHALL NOT mutate devices or identifiers
+
+#### Scenario: Execute is rejected before signoff
+- **GIVEN** the runtime execution gate is disabled
+- **WHEN** an operator explicitly requests `armis-unmerge` in execute mode
+- **THEN** the orchestrator SHALL reject the request before opening a rollback
+  manifest or invoking the mutating step
+
+#### Scenario: Live scope requires device and source allowlists
+- **GIVEN** the runtime execution gate is enabled
+- **WHEN** live-device execution is requested with only a device UID allowlist
+  or only a sync source ID allowlist
+- **THEN** the command SHALL reject the incomplete live scope
+- **AND** no live device SHALL be mutated
+
+#### Scenario: Faker source remains ineligible
+- **GIVEN** an allowlisted live device resolves to a sync source whose endpoint
+  is the ServiceRadar faker
+- **WHEN** the disposition evaluates execution eligibility
+- **THEN** it SHALL exclude that device regardless of its hostname
+
+### Requirement: Armis Disposition Reports Are Bounded And Actionable
+The operator CLI SHALL expose validated per-run candidate and plan-sample
+limits. It SHALL print the report for every explicitly selected step, including
+steps omitted from the default run. If an execute report contains a nonzero
+failure count or reports execution as blocked, the CLI SHALL print the complete
+report and rollback-manifest location and then terminate unsuccessfully.
+
+#### Scenario: Explicit dormant-step report is printed
+- **WHEN** an operator selects only `armis-unmerge` in dry-run mode
+- **THEN** the CLI SHALL print the `armis-unmerge` counts and sampled split plans
+- **AND** the candidate and plan-sample limits SHALL be within validated bounds
+
+#### Scenario: Partial execute failure is not reported as success
+- **GIVEN** one or more planned splits fail during execute mode
+- **WHEN** the step returns its report
+- **THEN** the CLI SHALL print the report and rollback-manifest location
+- **AND** it SHALL terminate unsuccessfully with the nonzero failure counters
 
 #### Scenario: Disposition does not depend on merge audit history
 - **GIVEN** an Armis over-merge that was produced at ingest resolution time and

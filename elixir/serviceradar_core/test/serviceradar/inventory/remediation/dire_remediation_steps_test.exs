@@ -25,7 +25,16 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationStepsTest do
   end
 
   defp set_enable_armis_dups(value) do
-    Application.put_env(:serviceradar_core, DireRemediation, enable_armis_dups: value)
+    put_remediation_config(:enable_armis_dups, value)
+  end
+
+  defp set_enable_armis_unmerge_execute(value) do
+    put_remediation_config(:enable_armis_unmerge_execute, value)
+  end
+
+  defp put_remediation_config(key, value) do
+    config = Application.get_env(:serviceradar_core, DireRemediation, [])
+    Application.put_env(:serviceradar_core, DireRemediation, Keyword.put(config, key, value))
   end
 
   test "armis-dups is excluded from the default step order" do
@@ -69,5 +78,50 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationStepsTest do
 
     set_enable_armis_dups(false)
     refute "armis-unmerge" in DireRemediation.steps()
+  end
+
+  test "armis-unmerge dry-run is available while execute remains gated" do
+    set_enable_armis_unmerge_execute(false)
+
+    assert "armis-unmerge" in DireRemediation.available_steps(:dry_run)
+    refute "armis-unmerge" in DireRemediation.available_steps(:execute)
+
+    manifest_path =
+      Path.join(
+        System.tmp_dir!(),
+        "blocked_armis_unmerge_#{System.unique_integer([:positive])}.ndjson"
+      )
+
+    refute File.exists?(manifest_path)
+
+    assert {:error, {:execute_disabled, ["armis-unmerge"]}} =
+             DireRemediation.run(
+               steps: ["armis-unmerge"],
+               mode: :execute,
+               manifest_path: manifest_path,
+               armis_unmerge_execute_enabled: true
+             )
+
+    refute File.exists?(manifest_path)
+  end
+
+  test "runtime signoff enables only an explicit armis-unmerge execute request" do
+    set_enable_armis_unmerge_execute(true)
+
+    assert "armis-unmerge" in DireRemediation.available_steps(:execute)
+    refute "armis-unmerge" in DireRemediation.steps()
+  end
+
+  test "failure reports identify positive counters and execution blocks" do
+    reports = %{
+      "agent-links" => %{errors: 2, planned: 10},
+      "armis-unmerge" => %{execution_blocked: true, split_failures: 0},
+      "proxmox-dups" => %{merge_failures: 0}
+    }
+
+    assert DireRemediation.report_failures(reports) == %{
+             "agent-links" => %{errors: 2},
+             "armis-unmerge" => %{execution_blocked: true}
+           }
   end
 end

@@ -61,6 +61,12 @@ the disposition runs. This change designs and builds that disposition.
   Armis-keyed device owning ≥2 distinct universal atomic MACs) and the
   ghost-tombstoned population, with counts, MAC-count distribution, and a
   proposed per-device split plan.
+- **Fail-closed execution controls**: keep the step out of the default run,
+  allow bounded explicit dry-runs for scoping, and reject execute before any
+  mutation until release runtime configuration records operator signoff. Live
+  devices require paired device-UID and sync-source-ID allowlists, with
+  faker-backed sources always excluded. The CLI prints explicitly selected
+  reports and exits unsuccessfully on any nonzero execute failure count.
 - **Remove the two GC guards** once disposition completes, restoring normal TTL
   GC and retention for the previously-frozen rows.
 - **Explicit non-goals** persisted in the spec: MAC-less and local-MAC-only

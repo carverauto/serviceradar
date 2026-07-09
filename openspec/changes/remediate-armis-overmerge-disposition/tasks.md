@@ -9,6 +9,12 @@
   fleet (multi-MAC by design is not over-merge) and cross-check a second
   over-merge signal (distinct `integration_id`) before trusting the live-device
   count.
+  - 2026-07-09 observation (not signoff): 36,676 ghost-cleanup tombstones owned
+    zero MAC identifier rows. The 14,862 live candidates all resolved to one
+    sync source whose endpoint is `http://serviceradar-faker:8080`; 14,860 had
+    `FAKER-*` hostnames and the other two were also sourced by that faker
+    integration. A MAC-count distribution and non-faker target population still
+    need to be established, so this task remains open.
 - [ ] 1.2 Decide the `armis_device_id` disposition (survivor-keeps-it vs.
   drop-from-all-split) with the operator/Armis-domain owner.
 - [ ] 1.3 Determine whether any co-occurrence provenance survives (mapper/source
@@ -43,8 +49,15 @@
 - [x] 4.2 `Manifest.record` every device restore/create and identifier reassign
   (ids only), matching the existing rollback format.
 - [x] 4.3 Register the step in `DireRemediation` (`@step_order`, `run_step`
-  dispatch) after `agent-links`; ship it dry-run-runnable but excluded from the
-  default execute order until 1.x is signed off.
+  dispatch) after `agent-links`; ship it explicit dry-run-runnable, excluded from
+  the default order, and reject execute before any mutation unless a runtime
+  signoff gate is enabled. Live-device execution additionally requires paired,
+  nonempty device-UID and sync-source-ID allowlists and rejects faker-backed
+  sources.
+- [x] 4.4 Expose validated candidate/plan-sample bounds and paired live
+  allowlists in the Mix task, print reports for explicitly selected dormant
+  steps, and return a failing command status after printing any nonzero execute
+  failure counts.
 
 ## 5. Tests
 
@@ -60,6 +73,9 @@
   northbound candidate query still loads the survivor.
 - [x] 5.4 Local-only / MAC-less Armis device is reported skipped-with-reason, not
   split.
+- [x] 5.5 Add pure orchestrator and Mix-task tests for the execute gate,
+  candidate/sample bounds, paired live allowlists, explicit-step reporting, and
+  nonzero failure propagation.
 
 ## 6. Guard removal (separate follow-up change, after live execute verified)
 

@@ -149,8 +149,11 @@ first ships the step.
 1. Extract `universal_macs`/veto grouping to public `Identity.Mac`; unit-test
    parity with `BatchResolver`.
 2. Build `Decisions` grouping/target rules (pure) + the `ArmisUnmerge` step;
-   register in the orchestrator. Ship dormant (dry-run default; not in the
-   default execute order until confirmed).
+   register in the orchestrator. Ship dormant: explicit bounded dry-run remains
+   available, the step is never in the default order, and execute is rejected
+   before mutation until runtime signoff configuration is enabled. Live-device
+   execution also requires paired device/source allowlists and rejects
+   faker-backed sources.
 3. DB-test on an `srql-fixtures` scratch DB: seed live + ghost-tombstoned
    mega-devices, run dry-run (assert plan), run execute (assert per-group devices
    materialized, `mac` rows reassigned + TTL reset, `unmerge` audits, manifest),
