@@ -15,13 +15,25 @@ Use `workflow_dispatch` to re-run or dry-run the pipeline with alternative optio
 
 ## Local release helper
 
-The `scripts/cut-release.sh` helper automates routine git tasks before tagging a release:
+The `scripts/cut-release.sh` helper automates the local release commit and tag, while keeping tag publication ordered behind the staging merge:
 
 ```
 ./scripts/cut-release.sh --version 1.0.53-pre14 --push
 ```
 
-The script validates that `CHANGELOG` already contains a section for the version, updates `VERSION`, commits the change, and creates an annotated tag (`v1.0.53-pre14` by default). Pass `--dry-run` to preview the actions or `--skip-changelog-check` when drafting notes. Run it from the repository root on a clean working tree.
+The script validates that `CHANGELOG` already contains a section for the version and that the release tag does not already exist locally or on `origin`, then updates `VERSION` and the Helm release metadata, commits the change, and creates an annotated tag (`v1.0.53-pre14` by default). Pass `--dry-run` to preview the actions or `--skip-changelog-check` when drafting notes. Run it from the repository root on a clean, non-`staging` release branch.
+
+`--push` publishes only the current branch, using an explicit `refs/heads` refspec. It intentionally leaves the tag local because the release workflow rejects a tag whose commit is not yet reachable from `origin/staging`. Open and merge the release branch pull request before publishing the tag.
+
+After the pull request is merged, refresh the remote staging ref and verify that the annotated tag resolves to a commit reachable from staging. Only publish the tag when the ancestry command exits successfully:
+
+```bash
+git fetch origin refs/heads/staging:refs/remotes/origin/staging
+git merge-base --is-ancestor 'v1.0.53-pre14^{commit}' refs/remotes/origin/staging
+git push origin refs/tags/v1.0.53-pre14:refs/tags/v1.0.53-pre14
+```
+
+With `--no-push` (the default), the helper leaves both refs local and prints the explicit release-branch push, post-merge ancestry check, and tag-push commands. Do not combine the branch and tag into one push, and do not publish the tag before the release commit reaches staging.
 
 ## Prerequisites
 

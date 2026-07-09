@@ -1,3 +1,30 @@
+# ServiceRadar v1.4.10
+
+Netprobe flow-attribution recovery, safer eBPF targeting, and agent
+configuration-delivery hardening.
+
+## Whats New
+
+**1.4.10**
+- NetFlow attribution: active netprobe profiles now default their runtime switch
+  on and expose schema-backed settings in the add-on profile UI without losing
+  complex JSON configuration. Explicitly disabled profiles remain disabled.
+- Agent reliability: configuration responses are serialized across poll,
+  control-stream, and enrollment paths; delayed older responses are rejected;
+  and visibility bootstrap and attach state apply before systemd
+  netprobe activation. Bootstrap or attach failures retry while netprobe stays
+  blocked, without preventing unrelated add-ons from reconciling.
+- Fleet operations: add-on reconciliation now loads package requirements and
+  records platform, base-agent-version, and capability skip reasons. Netprobe
+  is assigned only to Linux host agents that advertise network-visibility
+  support; LXC and other container deployments no longer enter add-on failure
+  loops.
+- Release and demo reliability: restored schema-baseline and integration-test
+  quality gates, fixed SRQL JSON wildcard parsing, preserved Armis attachment
+  metadata, made `demo/prod-release` the sole Argo image source, and prevented
+  release tags from publishing before their commit reaches staging. Unresolved
+  live drift remains operator-synced.
+
 # ServiceRadar v1.4.9
 
 Hosted-tenant chart release for the ServiceRadar control-plane E2E path.

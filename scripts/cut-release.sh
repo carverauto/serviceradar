@@ -9,7 +9,8 @@ Options:
   --version <version>   Release version to publish (required).
                         Use X.Y.Z for releases, X.Y.Z-preN for pre-releases.
   --tag-prefix <prefix> Prefix to prepend to the Git tag (default: v).
-  --push                Push the branch and tag to origin when finished.
+  --push                Push the current release branch to origin when finished.
+                        The tag remains local until the branch is merged to staging.
   --no-push             Do not push any refs (default).
   --dry-run             Print the actions without modifying the repository.
   --prerelease          Mark as pre-release (auto-detected if version contains
@@ -22,14 +23,17 @@ Options:
   -h, --help            Show this message.
 
 Examples:
-  # Standard release (requires CHANGELOG entry)
+  # Standard release (requires CHANGELOG entry; pushes the branch only)
   scripts/cut-release.sh --version 1.0.71 --push
 
-  # Pre-release for testing (no CHANGELOG required, marked as prerelease)
+  # Pre-release for testing (no CHANGELOG required; pushes the branch only)
   scripts/cut-release.sh --version 1.0.71-pre1 --push
 
-  # Hotfix release (skips staging e2e tests)
+  # Hotfix release (skips staging e2e tests; pushes the branch only)
   scripts/cut-release.sh --version 1.0.71 --hotfix --push
+
+After the release branch is merged to staging, run the printed ancestry check
+and explicit tag-push command. Never publish the tag before that merge.
 
 The script expects the working tree to be clean aside from VERSION, CHANGELOG,
 scripts/cut-release.sh, helm/serviceradar/Chart.yaml, and the demo ArgoCD source
@@ -132,11 +136,60 @@ cd "$repo_root"
 
 tag="${tag_prefix}${version}"
 demo_argocd_source_file="helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml"
+current_branch=$(git symbolic-ref --quiet --short HEAD || true)
+
+if git show-ref --verify --quiet "refs/tags/$tag"; then
+    echo "Refusing to cut release: local tag $tag already exists." >&2
+    exit 1
+fi
+
+if [[ "$dry_run" == "true" ]]; then
+    echo "[dry-run] Would verify that origin does not already contain tag $tag"
+else
+    set +e
+    remote_tag_output=$(git ls-remote --exit-code --tags origin "refs/tags/$tag" 2>&1)
+    remote_tag_status=$?
+    set -e
+
+    case "$remote_tag_status" in
+        0)
+            echo "Refusing to cut release: origin already contains tag $tag." >&2
+            exit 1
+            ;;
+        2)
+            ;;
+        *)
+            echo "Unable to verify whether origin contains tag $tag:" >&2
+            echo "$remote_tag_output" >&2
+            exit "$remote_tag_status"
+            ;;
+    esac
+fi
+
+if [[ "$dry_run" == "false" || "$push" == "true" ]]; then
+    if [[ -z "$current_branch" ]]; then
+        echo "Cannot cut a release from a detached HEAD. Check out a release branch first." >&2
+        exit 1
+    fi
+    if [[ "$current_branch" == "staging" ]]; then
+        echo "Refusing to cut a release directly on staging. Create and check out a release branch first." >&2
+        exit 1
+    fi
+fi
+
+print_post_merge_tag_instructions() {
+    echo ""
+    echo "After the release branch is merged into staging, publish the tag with:"
+    echo "  git fetch origin refs/heads/staging:refs/remotes/origin/staging"
+    echo "  git merge-base --is-ancestor '${tag}^{commit}' refs/remotes/origin/staging"
+    echo "  git push origin refs/tags/$tag:refs/tags/$tag"
+    echo "The ancestry check must exit 0. Do not push the tag if it fails."
+}
 
 # The in-place edits below use GNU sed syntax (the `-i` form and the
 # `/match/{n;s/.../;}` block). BSD/macOS sed rejects both, so prefer gsed when
 # present (brew install gnu-sed) and fall back to sed on Linux/CI.
-SED=sed
+SED="sed"
 if command -v gsed >/dev/null 2>&1; then
     SED=gsed
 fi
@@ -239,31 +292,26 @@ else
 fi
 
 if [[ "$push" == "true" ]]; then
-    current_branch=$(git symbolic-ref --quiet --short HEAD || true)
-    if [[ -z "$current_branch" ]]; then
-        echo "Cannot push release refs from a detached HEAD. Check out a branch first." >&2
-        exit 1
-    fi
-
     if [[ "$dry_run" == "true" ]]; then
-        echo "[dry-run] Would push branch to origin with:"
+        echo "[dry-run] Would push the release branch only with:"
         echo "[dry-run]   git push origin $current_branch:refs/heads/$current_branch"
-        echo "[dry-run] Would push tag $tag to origin with:"
-        echo "[dry-run]   git push origin refs/tags/$tag:refs/tags/$tag"
+        echo "[dry-run] The tag would remain local until the release branch is merged to staging."
     else
         git push origin "$current_branch:refs/heads/$current_branch"
-        git push origin "refs/tags/$tag:refs/tags/$tag"
+        echo "Release branch pushed. Open and merge its pull request before publishing the tag."
     fi
 else
-    echo "Branch and tag are ready. Push manually with:"
-    current_branch=$(git symbolic-ref --quiet --short HEAD || true)
-    if [[ -n "$current_branch" ]]; then
+    echo "Branch and tag are ready locally. Push the release branch with:"
+    if [[ -n "$current_branch" && "$current_branch" != "staging" ]]; then
         echo "  git push origin $current_branch:refs/heads/$current_branch"
     else
-        echo "  # checkout a branch, then push it with an explicit refs/heads refspec"
+        release_branch="release/$tag"
+        echo "  git switch -c $release_branch"
+        echo "  git push origin $release_branch:refs/heads/$release_branch"
     fi
-    echo "  git push origin refs/tags/$tag:refs/tags/$tag"
 fi
+
+print_post_merge_tag_instructions
 
 if [[ "$prerelease" == "true" ]]; then
     printf 'Pre-release preparation complete for %s\n' "$tag"

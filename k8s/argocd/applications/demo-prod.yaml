@@ -3,14 +3,6 @@ kind: Application
 metadata:
   name: serviceradar-demo-prod
   namespace: argocd
-  annotations:
-    argocd-image-updater.argoproj.io/git-branch: demo/prod-release
-    argocd-image-updater.argoproj.io/image-list: webng=registry.carverauto.dev/serviceradar/serviceradar-web-ng
-    argocd-image-updater.argoproj.io/webng.allow-tags: regexp:^v[0-9]+\.[0-9]+\.[0-9]+$
-    argocd-image-updater.argoproj.io/webng.helm.image-tag: global.imageTag
-    argocd-image-updater.argoproj.io/webng.pull-secret: pullsecret:demo/registry-carverauto-dev-cred
-    argocd-image-updater.argoproj.io/webng.update-strategy: semver
-    argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/serviceradar-image-updater-forgejo-repo
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -28,9 +20,6 @@ spec:
       # migrating data first!
       valueFiles:
         - values-demo.yaml
-      parameters:
-        - name: global.imageTag
-          value: v1.2.44
 
   destination:
     server: https://kubernetes.default.svc
@@ -47,10 +36,9 @@ spec:
         - /spec/instances
         - /spec/storage/size
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-      allowEmpty: false
+    # The release workflow advances demo/prod-release after artifacts verify.
+    # Keep sync operator-triggered until the CNPG, generated-secret, and
+    # deployment drift in demo has been explicitly reviewed.
     syncOptions:
       - CreateNamespace=true
       - SkipDryRunOnMissingResource=true
