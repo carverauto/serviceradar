@@ -19,7 +19,7 @@ if [[ ! -r "${INVENTORY}" ]]; then
 fi
 
 if [[ $# -eq 0 ]]; then
-  echo "usage: $0 <tag> [<tag> ...]" >&2
+  echo "usage: $0 <canonical-tag> [<matching-tag> ...]" >&2
   exit 2
 fi
 
@@ -46,20 +46,58 @@ if [[ ${#repositories[@]} -eq 0 ]]; then
   exit 2
 fi
 
-missing=0
+canonical_tag="$1"
+shift
+
+needs_publish=0
 for repository in "${repositories[@]}"; do
-  for tag in "$@"; do
-    if [[ -z "${tag}" ]]; then
+  canonical_ref="docker://${repository}:${canonical_tag}"
+  if ! canonical_output="$(skopeo inspect --format '{{.Digest}}' "${canonical_ref}" 2>&1)"; then
+    if grep -Eqi 'manifest unknown|name unknown|not found' <<<"${canonical_output}"; then
+      echo "missing ${repository}:${canonical_tag}" >&2
+      needs_publish=1
       continue
     fi
+
+    echo "failed to inspect ${repository}:${canonical_tag}: ${canonical_output}" >&2
+    exit 2
+  fi
+
+  canonical_digest="$(tail -n1 <<<"${canonical_output}")"
+  if [[ ! "${canonical_digest}" =~ ^sha256:[[:xdigit:]]{64}$ ]]; then
+    echo "invalid digest returned for ${repository}:${canonical_tag}: ${canonical_output}" >&2
+    exit 2
+  fi
+  echo "found ${repository}:${canonical_tag} at ${canonical_digest}"
+
+  for tag in "$@"; do
+    [[ -n "${tag}" ]] || continue
+
     ref="docker://${repository}:${tag}"
-    if skopeo inspect --raw "${ref}" >/dev/null 2>&1; then
-      echo "found ${repository}:${tag}"
-    else
-      echo "missing ${repository}:${tag}" >&2
-      missing=1
+    if ! output="$(skopeo inspect --format '{{.Digest}}' "${ref}" 2>&1)"; then
+      if grep -Eqi 'manifest unknown|name unknown|not found' <<<"${output}"; then
+        echo "missing ${repository}:${tag}" >&2
+        needs_publish=1
+        continue
+      fi
+
+      echo "failed to inspect ${repository}:${tag}: ${output}" >&2
+      exit 2
     fi
+
+    digest="$(tail -n1 <<<"${output}")"
+    if [[ ! "${digest}" =~ ^sha256:[[:xdigit:]]{64}$ ]]; then
+      echo "invalid digest returned for ${repository}:${tag}: ${output}" >&2
+      exit 2
+    fi
+    if [[ "${digest}" != "${canonical_digest}" ]]; then
+      echo "mismatched ${repository}:${tag}: ${digest} (expected ${canonical_digest})" >&2
+      needs_publish=1
+      continue
+    fi
+
+    echo "matched ${repository}:${tag} at ${digest}"
   done
 done
 
-exit "${missing}"
+exit "${needs_publish}"

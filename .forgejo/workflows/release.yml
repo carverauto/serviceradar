@@ -392,10 +392,19 @@ jobs:
           fi
 
           skip_push=false
-          if [[ -n "${RELEASE_TAG}" ]] && \
-             "${tag_check_script}" "${release_sha_tag}" "${RELEASE_TAG}" latest; then
-            echo "All release image tags already exist; skipping image push and continuing to signing/verification."
-            skip_push=true
+          if [[ -n "${RELEASE_TAG}" ]]; then
+            if "${tag_check_script}" "${release_sha_tag}" "${RELEASE_TAG}" latest; then
+              echo "All release image tags match the immutable release digest; skipping image push and continuing to signing/verification."
+              skip_push=true
+            else
+              tag_check_status=$?
+              if [[ "${tag_check_status}" -ne 1 ]]; then
+                echo "Release image tag preflight failed with status ${tag_check_status}; refusing to publish through an unhealthy registry path." >&2
+                exit "${tag_check_status}"
+              fi
+
+              echo "Release image tags are missing or mismatched; running the idempotent publish graph."
+            fi
           fi
 
           if [[ "${skip_push}" != "true" ]]; then
