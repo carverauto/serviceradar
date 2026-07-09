@@ -34,7 +34,7 @@ func buildUpdate(run syncsources.RunContext, item device, queryLabel string) map
 		return nil
 	}
 
-	metadata := buildMetadata(item, queryLabel)
+	metadata := buildMetadata(item, queryLabel, metadataFieldsForSource(run.Source))
 	update := map[string]interface{}{
 		"agent_id":   run.AgentID,
 		"gateway_id": run.GatewayID,
@@ -55,7 +55,7 @@ func formatSecondTimestamp(t time.Time) string {
 	return t.UTC().Truncate(time.Second).Format(time.RFC3339)
 }
 
-func buildMetadata(item device, queryLabel string) map[string]string {
+func buildMetadata(item device, queryLabel string, rawMetadataFields []string) map[string]string {
 	metadata := map[string]string{
 		"integration_type": SourceType,
 	}
@@ -132,6 +132,7 @@ func buildMetadata(item device, queryLabel string) map[string]string {
 	if encoded := compactJSONValue(item.NetworkInterfaces); encoded != "" {
 		metadata["network_interfaces"] = encoded
 	}
+	addArmisRawMetadata(metadata, item, rawMetadataFields)
 
 	return metadata
 }

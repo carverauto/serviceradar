@@ -13,6 +13,19 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
 
   @default_heartbeat_interval_sec 30
   @default_config_poll_interval_sec 300
+  @armis_sync_setting_keys [
+    "api_version",
+    "armis_api_version",
+    "asset_fields",
+    "armis_asset_fields",
+    "attachment_fields",
+    "extra_metadata_fields",
+    "armis_extra_metadata_fields",
+    "v3_endpoint",
+    "armis_v3_endpoint",
+    "v3_scopes",
+    "armis_v3_scopes"
+  ]
 
   @spec get_config_if_changed(String.t(), String.t()) ::
           :not_modified | {:ok, map()} | {:error, term()}
@@ -114,6 +127,7 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
       "endpoint" => source.endpoint,
       "prefix" => prefix,
       "credentials" => credentials,
+      "settings" => source_settings_payload(source.settings, source.source_type),
       "queries" => normalize_queries(source.queries),
       "discovery_interval" => format_duration(source.discovery_interval_seconds),
       "agent_id" => source.agent_id,
@@ -134,6 +148,16 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
   end
 
   defp first_custom_field(_), do: nil
+
+  defp source_settings_payload(settings, :armis) when is_map(settings) do
+    settings
+    |> stringify_setting_keys()
+    |> Map.take(@armis_sync_setting_keys)
+    |> normalize_setting_values()
+    |> compact_map()
+  end
+
+  defp source_settings_payload(_, _), do: %{}
 
   defp normalize_credentials(credentials, :armis) when is_map(credentials) do
     credentials
@@ -198,6 +222,31 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
       _ -> []
     end
   end
+
+  defp stringify_setting_keys(settings) do
+    Map.new(settings, fn {key, value} -> {to_string(key), value} end)
+  end
+
+  defp normalize_setting_values(settings) do
+    Map.new(settings, fn {key, value} -> {key, normalize_setting_value(value)} end)
+  end
+
+  defp normalize_setting_value(values) when is_list(values) do
+    values
+    |> Enum.map(&normalize_setting_value/1)
+    |> Enum.reject(&(&1 in [nil, ""]))
+  end
+
+  defp normalize_setting_value(%{} = map) do
+    map
+    |> stringify_setting_keys()
+    |> normalize_setting_values()
+    |> compact_map()
+  end
+
+  defp normalize_setting_value(value) when is_atom(value), do: Atom.to_string(value)
+  defp normalize_setting_value(value) when is_binary(value), do: String.trim(value)
+  defp normalize_setting_value(value), do: value
 
   defp first_present(credentials, keys) do
     Enum.find_value(keys, fn key ->

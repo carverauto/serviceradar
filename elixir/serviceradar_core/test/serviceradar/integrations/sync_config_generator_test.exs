@@ -133,6 +133,45 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
     refute Map.has_key?(source_config, "sweep_interval")
   end
 
+  test "armis sync config emits non-secret source settings for asset metadata" do
+    suffix = System.unique_integer([:positive])
+    agent = create_agent!("agent-armis-settings-#{suffix}")
+
+    source =
+      create_source!(
+        agent.uid,
+        "source-armis-settings-#{suffix}",
+        %{secret_key: "secret", client_id: "client", client_secret: "client-secret"},
+        %{
+          settings: %{
+            "asset_fields" => ["accessSwitch", "VLAN"],
+            "extra_metadata_fields" => ["customAccessPort"],
+            "v3_endpoint" => "https://api.armis.example",
+            "batch_size" => 500,
+            "secret_like_value" => "do-not-emit"
+          }
+        }
+      )
+
+    assert {:ok, payload} = SyncConfigGenerator.get_config_if_changed(agent.uid, "")
+
+    source_config =
+      payload.config_json
+      |> Jason.decode!()
+      |> get_in(["sources", source.name])
+
+    assert source_config["settings"] == %{
+             "asset_fields" => ["accessSwitch", "VLAN"],
+             "extra_metadata_fields" => ["customAccessPort"],
+             "v3_endpoint" => "https://api.armis.example"
+           }
+
+    assert source_config["batch_size"] == 500
+    refute Map.has_key?(source_config["settings"], "secret_like_value")
+    refute Map.has_key?(source_config["settings"], "batch_size")
+    assert source_config["credentials"]["client_secret"] == "client-secret"
+  end
+
   test "armis sync config emits configured queries with normalized string keys" do
     suffix = System.unique_integer([:positive])
     agent = create_agent!("agent-armis-queries-#{suffix}")
