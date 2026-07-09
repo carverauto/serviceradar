@@ -405,6 +405,10 @@ var errConfigSectionNoAgentServer = errors.New("agent server not available")
 // the identical config version cannot resolve.
 var errBumblebeeCatalogMissing = errors.New("bumblebee config enabled without a catalog assignment")
 
+// errNetprobeVisibilityConfigMissing is recorded as a permanent failure when a
+// systemd-managed netprobe assignment has no visibility configuration to apply.
+var errNetprobeVisibilityConfigMissing = errors.New("netprobe assignment requires visibility config")
+
 // logBumblebeeCatalogFailure logs a TRANSIENT Bumblebee catalog staging failure with its
 // assignment context. Permanent staging failures are not logged here: they are recorded
 // as persistent per-section state and escalated once by recordConfigSectionFailure.
@@ -723,7 +727,7 @@ func (p *PushLoop) applyVisibilityConfig(
 		if addon := netprobeSystemdAssignment(addons); addon != nil {
 			return addonDeliveryPermanentFailure, &addonConfigApplyError{
 				addonID: addon.GetAddonId(),
-				err:     errors.New("netprobe assignment requires visibility config"),
+				err:     errNetprobeVisibilityConfigMissing,
 			}
 		}
 

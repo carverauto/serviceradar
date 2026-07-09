@@ -22,6 +22,8 @@ import (
 	"testing"
 )
 
+var errDeploymentProbeFileNotFound = errors.New("deployment probe file not found")
+
 func TestDetectDeploymentTypeWithProbe(t *testing.T) {
 	t.Parallel()
 
@@ -118,7 +120,7 @@ func TestDetectDeploymentTypeWithProbe(t *testing.T) {
 				readFile: func(path string) ([]byte, error) {
 					content, ok := tt.files[path]
 					if !ok {
-						return nil, errors.New("not found")
+						return nil, errDeploymentProbeFileNotFound
 					}
 					return []byte(content), nil
 				},

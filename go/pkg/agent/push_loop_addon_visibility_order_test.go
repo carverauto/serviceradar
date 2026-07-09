@@ -34,6 +34,13 @@ import (
 	"github.com/rs/zerolog"
 )
 
+const (
+	testNetprobeAddonID = "netprobe"
+	testPowerDNSAddonID = "powerdns"
+)
+
+var errTransientSupervisorFailure = errors.New("transient supervisor failure")
+
 type recordingAddonManager struct {
 	applied     []agentaddon.Spec
 	beforeApply func()
@@ -116,7 +123,7 @@ type failOnceAddonManager struct {
 
 func (m *failOnceAddonManager) Apply(_ context.Context, _ []agentaddon.Spec) error {
 	if m.calls.Add(1) == 1 {
-		return errors.New("transient supervisor failure")
+		return errTransientSupervisorFailure
 	}
 
 	return nil
@@ -135,7 +142,7 @@ func TestApplyAddonAssignmentsSkipsAllNativeAddonsForKubernetesAgent(t *testing.
 	setHostNetworkVisibilitySupportForTest(pl, true)
 
 	disposition, err := pl.applyAddonAssignments(context.Background(), []*proto.AddonAssignmentConfig{{
-		AddonId:     "powerdns",
+		AddonId:     testPowerDNSAddonID,
 		Enabled:     true,
 		Delivery:    "os_package",
 		Supervision: addonSupervisionAgentSidecar,
@@ -185,7 +192,7 @@ func TestApplyAddonAssignmentsUnsupportedHostRemovesNetprobeAndReconcilesOtherAd
 
 	disposition, err := pl.applyAddonAssignments(context.Background(), []*proto.AddonAssignmentConfig{
 		{
-			AddonId:     "powerdns",
+			AddonId:     testPowerDNSAddonID,
 			Enabled:     true,
 			Delivery:    "os_package",
 			Supervision: addonSupervisionAgentSidecar,
@@ -195,7 +202,7 @@ func TestApplyAddonAssignmentsUnsupportedHostRemovesNetprobeAndReconcilesOtherAd
 	if disposition != addonDeliverySucceeded || err != nil {
 		t.Fatalf("applyAddonAssignments() = %v (%v), want success", disposition, err)
 	}
-	if len(addons.applied) != 1 || addons.applied[0].ID != "powerdns" {
+	if len(addons.applied) != 1 || addons.applied[0].ID != testPowerDNSAddonID {
 		t.Fatalf("applied add-ons = %#v, want only powerdns", addons.applied)
 	}
 	if len(uninstalled) != 1 || uninstalled[0] != "serviceradar-netprobe.service" {
@@ -265,7 +272,7 @@ func TestApplyConfigResponseAppliesLocalAddonsWithVisibilityConfig(t *testing.T)
 	if !visibilityAppliedBeforeAddons {
 		t.Fatal("expected visibility bootstrap/lifecycle apply before native add-on reconciliation")
 	}
-	if got := addons.applied[0].ID; got != "powerdns" {
+	if got := addons.applied[0].ID; got != testPowerDNSAddonID {
 		t.Fatalf("applied add-on ID = %q, want powerdns", got)
 	}
 	if got := addons.applied[0].BinaryPath; got != "/usr/local/lib/serviceradar/bin/serviceradar-powerdns-addon" {
@@ -342,26 +349,26 @@ func TestApplyAddonAssignmentsBlocksSystemdActivationAndAppliesSidecars(t *testi
 		context.Background(),
 		[]*proto.AddonAssignmentConfig{
 			{
-				AddonId:     "netprobe",
+				AddonId:     testNetprobeAddonID,
 				Enabled:     true,
 				Delivery:    "os_package",
 				Supervision: "systemd_service",
 			},
 			{
-				AddonId:     "powerdns",
+				AddonId:     testPowerDNSAddonID,
 				Enabled:     true,
 				Delivery:    "os_package",
 				Supervision: "agent_sidecar",
 				BinaryPath:  "/usr/local/lib/serviceradar/bin/serviceradar-powerdns-addon",
 			},
 		},
-		map[string]bool{"netprobe": true},
+		map[string]bool{testNetprobeAddonID: true},
 	)
 
 	if disposition != addonDeliverySucceeded || err != nil {
 		t.Fatalf("applyAddonAssignmentsWithActivationBlocks() = %v (%v), want succeeded", disposition, err)
 	}
-	if len(addOns.applied) != 1 || addOns.applied[0].ID != "powerdns" {
+	if len(addOns.applied) != 1 || addOns.applied[0].ID != testPowerDNSAddonID {
 		t.Fatalf("applied add-ons = %#v, want only powerdns", addOns.applied)
 	}
 }
@@ -376,13 +383,13 @@ func TestApplyConfigResponseBlocksNetprobeWhenVisibilityConfigIsMissing(t *testi
 		ConfigVersion: testNewConfigVersion,
 		Addons: []*proto.AddonAssignmentConfig{
 			{
-				AddonId:     "netprobe",
+				AddonId:     testNetprobeAddonID,
 				Enabled:     true,
 				Delivery:    "os_package",
 				Supervision: "systemd_service",
 			},
 			{
-				AddonId:     "powerdns",
+				AddonId:     testPowerDNSAddonID,
 				Enabled:     true,
 				Delivery:    "os_package",
 				Supervision: "agent_sidecar",
@@ -394,11 +401,11 @@ func TestApplyConfigResponseBlocksNetprobeWhenVisibilityConfigIsMissing(t *testi
 	if !ok {
 		t.Fatal("applyConfigResponse() = false, want permanent visibility failure acknowledged")
 	}
-	if len(addOns.applied) != 1 || addOns.applied[0].ID != "powerdns" {
+	if len(addOns.applied) != 1 || addOns.applied[0].ID != testPowerDNSAddonID {
 		t.Fatalf("applied add-ons = %#v, want only powerdns", addOns.applied)
 	}
 	failure, exists := pl.configSectionFailureSnapshot()[configSectionVisibility]
-	if !exists || failure.addonID != "netprobe" || failure.disposition != addonDeliveryPermanentFailure {
+	if !exists || failure.addonID != testNetprobeAddonID || failure.disposition != addonDeliveryPermanentFailure {
 		t.Fatalf("visibility failure = %#v, want permanent netprobe failure", failure)
 	}
 	if _, exists := pl.configSectionFailureSnapshot()[configSectionAddons]; exists {
@@ -427,7 +434,7 @@ func TestApplyConfigResponseSerializesVisibilityAndAddonActivation(t *testing.T)
 				Enabled: true,
 			},
 			Addons: []*proto.AddonAssignmentConfig{{
-				AddonId:     "powerdns",
+				AddonId:     testPowerDNSAddonID,
 				Enabled:     true,
 				Delivery:    "os_package",
 				Supervision: "agent_sidecar",
@@ -602,7 +609,7 @@ func TestApplyConfigResponseRetriesFromLaterRequestAfterTransientFailure(t *test
 		ConfigVersion:   testNewConfigVersion,
 		ConfigTimestamp: 300,
 		Addons: []*proto.AddonAssignmentConfig{{
-			AddonId:     "powerdns",
+			AddonId:     testPowerDNSAddonID,
 			Enabled:     true,
 			Delivery:    "os_package",
 			Supervision: "agent_sidecar",
