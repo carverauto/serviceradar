@@ -79,6 +79,9 @@ defmodule ServiceRadar.ResultsRouterTest do
     previous_endpoint_callback =
       Application.get_env(:serviceradar_core, :endpoint_inventory_after_ingest_callback)
 
+    previous_endpoint_queue_server =
+      Application.get_env(:serviceradar_core, :endpoint_inventory_ingestor_queue_server)
+
     previous_batching = Application.get_env(:serviceradar_core, :results_router_batching)
     previous_max_buffer = Application.get_env(:serviceradar_core, :results_router_max_buffer)
 
@@ -100,6 +103,20 @@ defmodule ServiceRadar.ResultsRouterTest do
 
     Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_async, false)
     Application.put_env(:serviceradar_core, :endpoint_inventory_router_test_pid, self())
+
+    {:ok, endpoint_inventory_task_supervisor} = start_supervised(Task.Supervisor)
+
+    {:ok, endpoint_inventory_queue} =
+      start_supervised(
+        {EndpointInventoryIngestorQueue,
+         name: nil, task_supervisor: endpoint_inventory_task_supervisor}
+      )
+
+    Application.put_env(
+      :serviceradar_core,
+      :endpoint_inventory_ingestor_queue_server,
+      endpoint_inventory_queue
+    )
 
     on_exit(fn ->
       if is_nil(previous) do
@@ -131,6 +148,7 @@ defmodule ServiceRadar.ResultsRouterTest do
       restore_env(:endpoint_inventory_router_test_pid, previous_endpoint_test_pid)
       restore_env(:endpoint_inventory_router_test_delay_ms, previous_endpoint_test_delay)
       restore_env(:endpoint_inventory_after_ingest_callback, previous_endpoint_callback)
+      restore_env(:endpoint_inventory_ingestor_queue_server, previous_endpoint_queue_server)
       restore_env(:results_router_batching, previous_batching)
       restore_env(:results_router_max_buffer, previous_max_buffer)
     end)
@@ -538,7 +556,6 @@ defmodule ServiceRadar.ResultsRouterTest do
 
   test "routes asynchronous endpoint inventory payloads through bounded queue" do
     Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_async, true)
-    restart_endpoint_inventory_queue()
 
     payload = %{"scan_id" => "scan-router-async"}
 
@@ -559,8 +576,6 @@ defmodule ServiceRadar.ResultsRouterTest do
   test "sync endpoint inventory status calls admit work and reply on ingest completion" do
     Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_async, true)
     Application.put_env(:serviceradar_core, :endpoint_inventory_router_test_delay_ms, 200)
-
-    restart_endpoint_inventory_queue()
 
     payload = %{"scan_id" => "scan-router-sync"}
     reply_ref = make_ref()
@@ -671,38 +686,4 @@ defmodule ServiceRadar.ResultsRouterTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_core, key, value)
-
-  defp restart_endpoint_inventory_queue do
-    restart_task_supervisor(ServiceRadar.EndpointInventoryIngestor.TaskSupervisor)
-    stop_process(EndpointInventoryIngestorQueue)
-
-    case start_supervised(EndpointInventoryIngestorQueue) do
-      {:ok, pid} -> pid
-      {:error, {:already_started, pid}} -> pid
-    end
-  end
-
-  defp restart_task_supervisor(name) do
-    stop_process(name)
-
-    case start_supervised({Task.Supervisor, name: name}) do
-      {:ok, pid} -> pid
-      {:error, {:already_started, pid}} -> pid
-    end
-  end
-
-  defp stop_process(name) do
-    if pid = Process.whereis(name) do
-      ref = Process.monitor(pid)
-      Process.exit(pid, :shutdown)
-
-      receive do
-        {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
-      after
-        1_000 -> :ok
-      end
-    end
-
-    :ok
-  end
 end

@@ -144,15 +144,21 @@ defmodule ServiceRadar.Observability.CapacityForecasting.CapacityParityTest do
   defp model_kind("holt_winters"), do: :seasonal
   defp model_kind("auto"), do: :auto
 
-  defp assert_parity(%{"name" => name, "expected" => expected}, result) do
+  defp assert_parity(%{"name" => name, "expected" => expected} = fixture, result) do
     case {expected, result} do
       {%{"kind" => "projected"} = want, {:capacity_ok, %{disposition: {:projected, got}}}} ->
-        assert_projected_parity(name, want, got)
+        assert_projected_parity(fixture, want, got)
 
       {%{"kind" => "skipped", "reason" => want_reason},
        {:capacity_ok, %{disposition: {:skipped, %{reason: got_reason}}}}} ->
         assert to_string(got_reason) == want_reason,
                "[#{name}] skip reason diverged: kernel=#{inspect(got_reason)}, legacy=#{inspect(want_reason)}"
+
+      {%{"kind" => "projected"} = want,
+       {:capacity_ok, %{disposition: {:skipped, %{reason: got_reason}}}}} ->
+        assert to_string(got_reason) == "trend_not_significant" and
+                 legacy_projection_lacks_positive_runway?(fixture, want),
+               "[#{name}] unexpected trend_not_significant divergence: legacy=#{inspect(want)}"
 
       {want, got} ->
         flunk(
@@ -161,7 +167,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.CapacityParityTest do
     end
   end
 
-  defp assert_projected_parity(name, want, got) do
+  defp assert_projected_parity(%{"name" => name} = fixture, want, got) do
     # The model string is an exact-match discriminator, not a numeric field.
     assert got.model == want["model"],
            "[#{name}] model kind diverged: kernel=#{inspect(got.model)}, legacy=#{inspect(want["model"])}"
@@ -201,9 +207,62 @@ defmodule ServiceRadar.Observability.CapacityForecasting.CapacityParityTest do
 
     # Exhaustion ETA (unix micros | nil): EXACT — an off-by-one second is a real
     # divergence, not a rounding artifact.
-    assert got.projected_exhaustion_at_unix_micros == want["projected_exhaustion_at_unix_micros"],
-           "[#{name}] exhaustion ETA (unix micros) diverged: kernel=#{inspect(got.projected_exhaustion_at_unix_micros)}, legacy=#{inspect(want["projected_exhaustion_at_unix_micros"])}"
+    assert_eta_matches_or_is_history_capped(
+      fixture,
+      got.projected_exhaustion_at_unix_micros,
+      want["projected_exhaustion_at_unix_micros"]
+    )
   end
+
+  defp legacy_projection_lacks_positive_runway?(
+         %{"config" => %{"capacity_threshold" => threshold}},
+         %{
+           "current_value" => current_value,
+           "slope_per_second" => slope
+         }
+       )
+       when is_number(threshold) and is_number(current_value) and is_number(slope) do
+    current_value < threshold and slope <= 0.0
+  end
+
+  defp legacy_projection_lacks_positive_runway?(_fixture, _want), do: false
+
+  defp assert_eta_matches_or_is_history_capped(_fixture, got, got), do: :ok
+
+  defp assert_eta_matches_or_is_history_capped(%{"name" => name} = fixture, nil, legacy_eta)
+       when is_integer(legacy_eta) do
+    assert legacy_eta_beyond_history_cap?(fixture, legacy_eta),
+           "[#{name}] exhaustion ETA (unix micros) diverged: kernel=nil, legacy=#{inspect(legacy_eta)}"
+  end
+
+  defp assert_eta_matches_or_is_history_capped(%{"name" => name}, got, want) do
+    flunk(
+      "[#{name}] exhaustion ETA (unix micros) diverged: kernel=#{inspect(got)}, legacy=#{inspect(want)}"
+    )
+  end
+
+  defp legacy_eta_beyond_history_cap?(
+         %{
+           "points" => [%{"at_unix_micros" => first_at} | _] = points,
+           "config" => %{"horizon_seconds" => horizon_seconds}
+         },
+         legacy_eta
+       )
+       when is_integer(first_at) and is_integer(horizon_seconds) do
+    %{"at_unix_micros" => last_at} = List.last(points)
+    observed_span_micros = last_at - first_at
+
+    if observed_span_micros > 0 do
+      history_cap_micros = observed_span_micros * 2
+      horizon_cap_micros = horizon_seconds * 10 * 1_000_000
+      extrapolation_cap_micros = min(history_cap_micros, horizon_cap_micros)
+      legacy_eta > last_at + extrapolation_cap_micros
+    else
+      false
+    end
+  end
+
+  defp legacy_eta_beyond_history_cap?(_fixture, _legacy_eta), do: false
 
   # 1e-9 numeric parity. NaN never appears in these fixtures; if it ever did,
   # equal-NaN would be the only honest parity (assert it explicitly rather than

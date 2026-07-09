@@ -3,14 +3,15 @@ defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerTest do
 
   alias ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker
   alias ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker
+  alias ServiceRadar.SweepJobs.ObanSupport
 
   describe "ensure_scheduled/0" do
-    test "provider worker returns oban_unavailable when Oban is not running" do
-      assert {:error, :oban_unavailable} = NetflowProviderDatasetRefreshWorker.ensure_scheduled()
+    test "provider worker reports unavailable or schedules against the running Oban instance" do
+      assert_expected_schedule_result(NetflowProviderDatasetRefreshWorker.ensure_scheduled())
     end
 
-    test "oui worker returns oban_unavailable when Oban is not running" do
-      assert {:error, :oban_unavailable} = NetflowOuiDatasetRefreshWorker.ensure_scheduled()
+    test "oui worker reports unavailable or schedules against the running Oban instance" do
+      assert_expected_schedule_result(NetflowOuiDatasetRefreshWorker.ensure_scheduled())
     end
   end
 
@@ -47,6 +48,15 @@ defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerTest do
       end)
 
       assert :ok = NetflowOuiDatasetRefreshWorker.perform(%Oban.Job{args: %{}})
+    end
+  end
+
+  defp assert_expected_schedule_result(result) do
+    if ObanSupport.available?() do
+      assert match?({:ok, :already_scheduled}, result) or
+               match?({:ok, %Oban.Job{}}, result)
+    else
+      assert {:error, :oban_unavailable} = result
     end
   end
 end
