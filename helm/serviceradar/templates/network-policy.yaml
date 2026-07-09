@@ -10,7 +10,10 @@
 {{- $ingressErlangDistSelector := default (dict "matchLabels" (dict "app.kubernetes.io/part-of" "serviceradar")) $ingressErlangDist.podSelector -}}
 {{- $ingressErlangDistPorts := default (list (dict "protocol" "TCP" "port" 4369) (dict "protocol" "TCP" "port" 9100 "endPort" 9155)) $ingressErlangDist.ports -}}
 {{- $agentGatewayExternal := default (dict) $ingress.agentGatewayExternal -}}
-{{- $agentGatewayExternalEnabled := default true $agentGatewayExternal.enabled -}}
+{{- $agentGatewayExternalEnabled := true -}}
+{{- if hasKey $agentGatewayExternal "enabled" -}}
+  {{- $agentGatewayExternalEnabled = $agentGatewayExternal.enabled -}}
+{{- end -}}
 {{- $agentGatewayExternalCIDRs := default (list "0.0.0.0/0") $agentGatewayExternal.allowedCIDRs -}}
 {{- $flowCollectorExternal := default (dict) $ingress.flowCollectorExternal -}}
 {{- $flowCollectorExternalEnabled := default true $flowCollectorExternal.enabled -}}
@@ -48,10 +51,21 @@
 {{- $hasTrapdExternalCIDRs := gt (len $trapdExternalCIDRs) 0 -}}
 {{- $hasBmpCollectorExternalCIDRs := gt (len $bmpCollectorExternalCIDRs) 0 -}}
 {{- $agentGateway := default (dict) .Values.agentGateway -}}
-{{- $agentGatewayEnabled := default true $agentGateway.enabled -}}
+{{- $agentGatewayEnabled := true -}}
+{{- if hasKey $agentGateway "enabled" -}}
+  {{- $agentGatewayEnabled = $agentGateway.enabled -}}
+{{- end -}}
 {{- $agentGatewayService := default (dict) $agentGateway.service -}}
 {{- $agentGatewayGrpcPort := default 50052 $agentGatewayService.port -}}
 {{- $agentGatewayArtifactPort := default 50053 $agentGatewayService.artifactPort -}}
+{{- $gatewayApi := default (dict) .Values.gatewayApi -}}
+{{- $gatewayApiAgentGateway := default (dict) $gatewayApi.agentGateway -}}
+{{- $gatewayApiAgentGatewayEnabled := false -}}
+{{- if hasKey $gatewayApiAgentGateway "enabled" -}}
+  {{- $gatewayApiAgentGatewayEnabled = $gatewayApiAgentGateway.enabled -}}
+{{- end -}}
+{{- $gatewayApiAgentGatewayEnvoyNamespace := default "envoy-gateway-system" $gatewayApiAgentGateway.envoyGatewayNamespace -}}
+{{- $gatewayApiAgentGatewayPorts := list (dict "protocol" "TCP" "port" $agentGatewayGrpcPort) (dict "protocol" "TCP" "port" $agentGatewayArtifactPort) -}}
 {{- $flowCollector := default (dict) .Values.flowCollector -}}
 {{- $flowCollectorEnabled := default false $flowCollector.enabled -}}
 {{- $flowCollectorService := default (dict) $flowCollector.service -}}
@@ -318,6 +332,31 @@ spec:
         - protocol: TCP
           port: {{ $agentGatewayArtifactPort }}
 {{- end }}
+{{- end }}
+{{- if and $agentGatewayEnabled $gatewayApiAgentGatewayEnabled }}
+---
+# Gateway-mode edge-agent ingress: external agents reach the Gateway API data
+# plane first, whose envoy proxy pods forward to agent-gateway. Admit that
+# namespace instead of relying on the direct LoadBalancer CIDR policy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-agent-gateway-gateway
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-agent-gateway
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $gatewayApiAgentGatewayEnvoyNamespace | quote }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $gatewayApiAgentGatewayPorts | trim | nindent 8 }}
 {{- end }}
 {{- if and $flowCollectorEnabled $flowCollectorExternalEnabled $hasFlowCollectorExternalCIDRs $hasFlowCollectorExternalPorts (ne $flowCollectorServiceType "ClusterIP") }}
 ---

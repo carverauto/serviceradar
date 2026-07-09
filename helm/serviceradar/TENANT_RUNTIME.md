@@ -28,9 +28,13 @@ must be HA-complete on its own.
 
 ## Exposure Model
 
-The hosted baseline uses managed Gateway API for browser and syslog ingress.
+The hosted baseline uses managed Gateway API for browser, edge-agent TCP, and
+syslog ingress. Standard hosted deployments route the edge-agent gRPC and
+artifact ports through the same managed Gateway data-plane Service as web
+traffic, so they do not allocate a separate agent-gateway LoadBalancer.
 NetFlow, sFlow, SNMP traps, and BMP use dedicated chart-managed LoadBalancer
-services. OTLP is routed through Gateway API by default.
+services when the selected hosted tier enables those collectors. OTLP is routed
+through Gateway API by default.
 
 External telemetry NetworkPolicy CIDR lists are intentionally empty in the
 baseline. The hosted control plane's network-security sync writes tenant

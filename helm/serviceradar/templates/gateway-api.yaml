@@ -29,6 +29,29 @@
 {{- $syslogServiceName := default "serviceradar-log-collector" $syslogService.name -}}
 {{- $syslogServicePort := default 514 $syslogService.port -}}
 {{- $syslogParentRefs := default (list) $syslog.parentRefs -}}
+{{- $agentGateway := default (dict) $gatewayApi.agentGateway -}}
+{{- $agentGatewayEnabled := false -}}
+{{- if hasKey $agentGateway "enabled" -}}
+{{- $agentGatewayEnabled = $agentGateway.enabled -}}
+{{- end -}}
+{{- $agentGatewayService := default (dict) $agentGateway.service -}}
+{{- $agentGatewayServiceName := default "serviceradar-agent-gateway" $agentGatewayService.name -}}
+{{- $agentGatewayGrpc := default (dict) $agentGateway.grpc -}}
+{{- $agentGatewayGrpcListenerName := default "agent-grpc" $agentGatewayGrpc.listenerName -}}
+{{- $agentGatewayGrpcPort := default 50052 $agentGatewayGrpc.port -}}
+{{- $agentGatewayGrpcServicePort := default $agentGatewayGrpcPort $agentGatewayGrpc.servicePort -}}
+{{- $agentGatewayGrpcRouteName := default (printf "%s-agent-grpc" (include "serviceradar.fullname" .)) $agentGatewayGrpc.routeName -}}
+{{- $agentGatewayGrpcParentRefs := default (list) $agentGatewayGrpc.parentRefs -}}
+{{- $agentGatewayArtifacts := default (dict) $agentGateway.artifacts -}}
+{{- $agentGatewayArtifactsEnabled := true -}}
+{{- if hasKey $agentGatewayArtifacts "enabled" -}}
+{{- $agentGatewayArtifactsEnabled = $agentGatewayArtifacts.enabled -}}
+{{- end -}}
+{{- $agentGatewayArtifactsListenerName := default "agent-artifacts" $agentGatewayArtifacts.listenerName -}}
+{{- $agentGatewayArtifactsPort := default 50053 $agentGatewayArtifacts.port -}}
+{{- $agentGatewayArtifactsServicePort := default $agentGatewayArtifactsPort $agentGatewayArtifacts.servicePort -}}
+{{- $agentGatewayArtifactsRouteName := default (printf "%s-agent-artifacts" (include "serviceradar.fullname" .)) $agentGatewayArtifacts.routeName -}}
+{{- $agentGatewayArtifactsParentRefs := default (list) $agentGatewayArtifacts.parentRefs -}}
 {{- $parentRefs := default (list) $gatewayApi.parentRefs -}}
 {{- $redirectParentRefs := default (list) $gatewayApi.redirectParentRefs -}}
 {{- $btp := default (dict) $gatewayApi.backendTrafficPolicy -}}
@@ -53,6 +76,12 @@
 {{- end }}
 {{- if and $attachMode $syslogEnabled (eq (len $syslogParentRefs) 0) }}
 {{- fail "gatewayApi.syslog.parentRefs is required when gatewayApi.syslog.enabled=true and gatewayApi.mode=attach" }}
+{{- end }}
+{{- if and $attachMode $agentGatewayEnabled (eq (len $agentGatewayGrpcParentRefs) 0) }}
+{{- fail "gatewayApi.agentGateway.grpc.parentRefs is required when gatewayApi.agentGateway.enabled=true and gatewayApi.mode=attach" }}
+{{- end }}
+{{- if and $attachMode $agentGatewayEnabled $agentGatewayArtifactsEnabled (eq (len $agentGatewayArtifactsParentRefs) 0) }}
+{{- fail "gatewayApi.agentGateway.artifacts.parentRefs is required when gatewayApi.agentGateway.artifacts.enabled=true and gatewayApi.mode=attach" }}
 {{- end }}
 {{- if and $managedMode $tlsEnabled $tls.clusterIssuer }}
 ---
@@ -162,6 +191,22 @@ spec:
       allowedRoutes:
         namespaces:
           from: Same
+    {{- end }}
+    {{- if $agentGatewayEnabled }}
+    - name: {{ $agentGatewayGrpcListenerName }}
+      port: {{ $agentGatewayGrpcPort }}
+      protocol: TCP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- if $agentGatewayArtifactsEnabled }}
+    - name: {{ $agentGatewayArtifactsListenerName }}
+      port: {{ $agentGatewayArtifactsPort }}
+      protocol: TCP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
     {{- end }}
 {{- end }}
 ---
@@ -305,6 +350,58 @@ spec:
           name: {{ $syslogServiceName | quote }}
           port: {{ $syslogServicePort }}
           weight: 1
+{{- end }}
+{{- if $agentGatewayEnabled }}
+---
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TCPRoute
+metadata:
+  name: {{ $agentGatewayGrpcRouteName }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  parentRefs:
+    {{- if $managedMode }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: {{ $agentGatewayGrpcListenerName }}
+    {{- else }}
+{{ toYaml $agentGatewayGrpcParentRefs | nindent 4 }}
+    {{- end }}
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: {{ $agentGatewayServiceName | quote }}
+          port: {{ $agentGatewayGrpcServicePort }}
+          weight: 1
+{{- if $agentGatewayArtifactsEnabled }}
+---
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TCPRoute
+metadata:
+  name: {{ $agentGatewayArtifactsRouteName }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  parentRefs:
+    {{- if $managedMode }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: {{ $agentGatewayArtifactsListenerName }}
+    {{- else }}
+{{ toYaml $agentGatewayArtifactsParentRefs | nindent 4 }}
+    {{- end }}
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: {{ $agentGatewayServiceName | quote }}
+          port: {{ $agentGatewayArtifactsServicePort }}
+          weight: 1
+{{- end }}
 {{- end }}
 {{- if and $httpEnabled $httpRedirectToHttps }}
 ---
