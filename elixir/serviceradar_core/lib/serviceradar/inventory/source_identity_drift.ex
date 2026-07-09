@@ -19,6 +19,23 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
   @default_example_limit 10
   @default_repair_limit 5_000
 
+  # Categories produced by the periodic drift audit (audit_and_persist/1).
+  # `active_ip_conflict` is intentionally excluded — those rows are written by
+  # the sync ingestion path (record_active_ip_conflict/3), not the audit, so the
+  # audit must never auto-clear them during reconciliation.
+  @audit_conflict_categories [
+    "multiple_typed_ids_per_device",
+    "typed_id_on_multiple_devices",
+    "metadata_identifier_disagreement",
+    "split_typed_generic_identifier",
+    "source_linkage_conflict"
+  ]
+
+  # Compile-time constant (no user input) scoping the cached open-conflict read
+  # to one source: conflicts with no source linkage OR this source's id ($1).
+  @source_conflict_scope "status = 'open' AND source_type = 'armis' AND " <>
+                           "(COALESCE(source_id, '') = '' OR source_id = $1)"
+
   @doc """
   Run the repeatable Armis source-identity drift audit.
   """
@@ -44,22 +61,58 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
   end
 
   @doc """
-  Return and optionally persist the northbound conflict report for a source.
+  Read the persisted open-conflict report for a source (northbound hot path).
+
+  This does NOT recompute the drift audit; it reads counts and a bounded set of
+  examples straight from `platform.source_identity_conflicts` using the
+  status/source indexes. The audit itself runs on a lower cadence in
+  `ArmisNorthboundConflictAuditWorker` via `audit_and_persist/1`, so the
+  per-source northbound run no longer pays for five global aggregations plus a
+  full conflict re-upsert on every push.
   """
-  def armis_northbound_conflict_report(source, opts \\ []) do
+  def source_conflict_report(source, opts \\ []) do
     source_id = source_id(source)
-    audit = audit_armis(source_id: source_id)
-    conflicts = audit.conflicts
+    limit = Keyword.get(opts, :identity_conflict_example_limit) || @default_example_limit
+    categories = open_conflict_category_counts(source_id)
 
-    if Keyword.get(opts, :record_identity_conflicts, true) do
-      _ = record_conflicts(conflicts)
-    end
-
-    format_conflict_report(conflicts, Keyword.get(opts, :identity_conflict_example_limit))
+    %{
+      "total_count" => categories |> Map.values() |> Enum.sum(),
+      "categories" => categories,
+      "examples" => open_conflict_examples(source_id, limit)
+    }
   rescue
     e ->
-      Logger.warning("SourceIdentityDrift: failed to build Armis conflict report: #{inspect(e)}")
+      Logger.warning("SourceIdentityDrift: failed to read source conflict report: #{inspect(e)}")
       empty_conflict_report()
+  end
+
+  @doc """
+  Recompute the global Armis drift audit, persist it, and reconcile.
+
+  This is intentionally global (never source-scoped): reconciliation clears
+  previously-open audit-category conflicts that the current pass no longer
+  detects, which is only sound when the audit covered every source. A
+  source-scoped audit would leave other sources' still-valid conflicts undetected
+  and wrongly clear them. Detected conflicts are upserted (idempotent on the open
+  partial index); stale ones are marked `cleared` so the cached counts read by
+  the northbound runner self-correct. Sync-written `active_ip_conflict` rows are
+  never touched. Runs on a lower cadence off the per-source run hot path.
+  """
+  def audit_and_persist do
+    started_at = DateTime.utc_now()
+    audit = audit_armis()
+    _ = record_conflicts(audit.conflicts)
+    cleared_count = clear_stale_audit_conflicts(started_at)
+
+    %{
+      audited_count: length(audit.conflicts),
+      cleared_count: cleared_count,
+      summary: audit.summary
+    }
+  rescue
+    e ->
+      Logger.warning("SourceIdentityDrift: audit_and_persist failed: #{inspect(e)}")
+      {:error, e}
   end
 
   @doc """
@@ -723,6 +776,52 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
       }
     end
   end
+
+  defp open_conflict_category_counts(source_id) do
+    ("SELECT conflict_category, count(*)::bigint AS count " <>
+       "FROM platform.source_identity_conflicts " <>
+       "WHERE #{@source_conflict_scope} GROUP BY conflict_category")
+    |> query_maps([source_id])
+    |> Enum.reduce(%{}, fn row, acc ->
+      case normalize_string(row["conflict_category"]) do
+        nil -> acc
+        category -> Map.put(acc, category, to_integer(row["count"]))
+      end
+    end)
+  end
+
+  defp open_conflict_examples(source_id, limit) do
+    ("SELECT conflict_category, device_uid, source_id, source_identifier_type, " <>
+       "source_identifier_value, current_ip, current_mac, proposed_action, confidence " <>
+       "FROM platform.source_identity_conflicts " <>
+       "WHERE #{@source_conflict_scope} ORDER BY last_detected_at DESC LIMIT $2")
+    |> query_maps([source_id, limit])
+    |> Enum.map(&conflict_example/1)
+  end
+
+  defp clear_stale_audit_conflicts(started_at) do
+    %{num_rows: cleared} =
+      Repo.query!(
+        "UPDATE platform.source_identity_conflicts " <>
+          "SET status = 'cleared', updated_at = timezone('utc', now()) " <>
+          "WHERE status = 'open' AND source_type = 'armis' " <>
+          "AND conflict_category = ANY($1) AND last_detected_at < $2",
+        [@audit_conflict_categories, started_at]
+      )
+
+    cleared
+  end
+
+  defp to_integer(value) when is_integer(value), do: value
+
+  defp to_integer(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, _} -> int
+      :error -> 0
+    end
+  end
+
+  defp to_integer(_), do: 0
 
   defp query_maps(sql, params \\ []) do
     %{columns: columns, rows: rows} = Repo.query!(sql, params)
