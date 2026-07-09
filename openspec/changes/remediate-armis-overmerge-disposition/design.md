@@ -50,8 +50,9 @@ whole design:
   (`source_device_id` is not a one-to-one Armis object key).
 - Re-enabling or relying on the `armis-dups` collapse step.
 - Perfect multi-NIC host reconstruction where co-occurrence provenance is lost
-  (see Open Questions; the safe default over-splits and is reconciled by the
-  standing veto on next ingest).
+  (see Open Questions). Per-MAC ownership is stable, so a later ingest routes
+  observations back to their reconstructed owners but does not prove
+  co-residency or reunite the split classes.
 
 ## Decisions
 
@@ -82,8 +83,9 @@ the step asserts zero non-atomic `mac` rows remain (or normalizes in Elixir via
 Per group, `Ids.generate_deterministic_device_id/1` over a reconstructed
 `{armis_id, class MAC, partition}` yields a distinct, reproducible `sr:` UID —
 the same one a fresh veto-gated ingest of that hardware resolves to by strong
-`:mac` match. This makes the step idempotent (re-runs converge) and self-healing
-with live ingest.
+`:mac` match. This makes the step idempotent (re-runs converge) and keeps later
+observations routed to the same reconstructed owner. It does not automatically
+rejoin MAC classes that belong to one multi-NIC host.
 
 ### `armis_device_id` disposition — survivor keeps it, other classes are MAC-only
 
@@ -113,11 +115,11 @@ first ships the step.
   universal-MAC sets ⇒ different devices, but not which MACs co-reside on one
   host, and the collapse flattened per-record provenance (interfaces were
   reassigned too). The safe default is one device per distinct universal MAC,
-  which over-splits real multi-NIC hosts. Mitigation: this is self-correcting —
-  a subsequent real ingest carrying multiple NICs on one record shares a
-  universal MAC with a reconstructed device and re-consolidates via the standing
-  veto/`:mac` match; and the step can consume any surviving co-occurrence signal
-  if one is found (Open Questions).
+  which over-splits real multi-NIC hosts. That split is persistent: later ingest
+  routes each MAC back to its stable reconstructed owner but does not prove the
+  MACs share a host or reunite them. Live-device execution must therefore stay
+  disabled unless independent co-residency evidence validates the grouping or
+  the operator explicitly accepts per-MAC over-splitting (Open Questions).
 - **Cap/GC erosion undercounts.** `CardinalityCaps` (mac cap 64) and prior GC
   mean a mega-device shows at most ~64 MAC rows even if it collapsed hundreds of
   hosts; some hardware classes may already have no surviving universal MAC and
@@ -171,8 +173,8 @@ first ships the step.
 - **Multi-NIC co-residency anchor.** Is there ANY surviving per-source-record
   provenance (mapper/source payload history, OCSF device history,
   `endpoint_inventory`, interface metadata) to group co-occurring universal MACs,
-  or does Phase 2 accept per-distinct-MAC over-splitting (reconciled by the veto
-  on next ingest)? Needs a look at live data.
+  or does Phase 2 accept persistent per-distinct-MAC over-splitting? A later
+  ingest does not automatically reunite the classes. Needs a look at live data.
 - **`armis_device_id` disposition.** Survivor-keeps-it (recommended) vs.
   drop-from-all-split-devices (armis tracks the subnet aggregate). Depends on
   what an `armis_device_id` semantically represents for this deployment — an
