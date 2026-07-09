@@ -399,9 +399,19 @@ jobs:
           fi
 
           if [[ "${skip_push}" != "true" ]]; then
-            if ! bazel run --config=remote_push --stamp //:push "${extra_args[@]}"; then
-              if [[ "${ALLOW_LOCAL_FALLBACK:-false}" == "true" ]]; then
-                echo "Remote bazel run failed; retrying locally without remote executor/cache" >&2
+            run_remote_publish() {
+              bazel run --config=remote_push --stamp //:push "${extra_args[@]}"
+            }
+
+            if ! run_remote_publish; then
+              echo "Remote bazel run failed; retrying once with the completed action cache." >&2
+              bazel shutdown || true
+              sleep 5
+
+              if run_remote_publish; then
+                echo "Remote bazel publish retry succeeded."
+              elif [[ "${ALLOW_LOCAL_FALLBACK:-false}" == "true" ]]; then
+                echo "Remote bazel retry failed; retrying locally without remote executor/cache" >&2
                 bazel run \
                   --remote_executor= \
                   --remote_cache= \
@@ -412,7 +422,7 @@ jobs:
                   //:push \
                   "${extra_args[@]}"
               else
-                echo "Remote bazel run failed; local fallback disabled." >&2
+                echo "Remote bazel retry failed; local fallback disabled." >&2
                 exit 1
               fi
             fi
