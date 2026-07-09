@@ -60,6 +60,8 @@ var defaultAttachmentMetadataFields = []string{
 	"DHCP Lease Type",
 	"vlan",
 	"VLAN",
+	"vlans",
+	"VLANs",
 	"vlanId",
 	"vlan_id",
 	"VLAN ID",

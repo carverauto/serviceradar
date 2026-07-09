@@ -464,8 +464,8 @@ func TestSyncEnrichesConfiguredArmisAssetFields(t *testing.T) {
 			if len(payload.Filter.AssetIDs) != 1 || payload.Filter.AssetIDs[0] != 101 {
 				t.Fatalf("asset_ids = %#v", payload.Filter.AssetIDs)
 			}
-			if !stringSliceContains(payload.Fields, "accessSwitch") || !stringSliceContains(payload.Fields, "VLAN") {
-				t.Fatalf("fields = %#v, want accessSwitch and VLAN", payload.Fields)
+			if !stringSliceContains(payload.Fields, "accessSwitch") || !stringSliceContains(payload.Fields, "vlans") {
+				t.Fatalf("fields = %#v, want accessSwitch and vlans", payload.Fields)
 			}
 
 			w.Header().Set("Content-Type", "application/json")
@@ -475,7 +475,7 @@ func TestSyncEnrichesConfiguredArmisAssetFields(t *testing.T) {
 						"asset_id": 101,
 						"fields": {
 							"accessSwitch": "nsfocs-idfer1-asw001:2/20",
-							"VLAN": 3006
+							"vlans": [3006]
 						}
 					}
 				],
@@ -498,7 +498,7 @@ func TestSyncEnrichesConfiguredArmisAssetFields(t *testing.T) {
 			"vendor_id":     "vendor-1",
 		},
 		Settings: map[string]any{
-			"asset_fields": []any{"accessSwitch", "VLAN"},
+			"asset_fields": []any{"accessSwitch", "vlans"},
 			"v3_endpoint":  server.URL,
 		},
 		Queries: []models.QueryConfig{{Label: "test", Query: testDeviceQuery}},
@@ -529,8 +529,8 @@ func TestSyncEnrichesConfiguredArmisAssetFields(t *testing.T) {
 	if got := metadata["armis_access_switch"]; got != "nsfocs-idfer1-asw001:2/20" {
 		t.Fatalf("metadata[armis_access_switch] = %q", got)
 	}
-	if got := metadata["armis_vlan"]; got != "3006" {
-		t.Fatalf("metadata[armis_vlan] = %q", got)
+	if got := metadata["armis_vlans"]; got != "[3006]" {
+		t.Fatalf("metadata[armis_vlans] = %q", got)
 	}
 }
 

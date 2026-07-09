@@ -8,9 +8,9 @@ The Armis sync integration SHALL preserve selected attachment evidence fields fr
 - **THEN** the update metadata SHALL include the value under a stable key such as `armis_access_switch`
 
 #### Scenario: Armis VLAN and connection metadata are preserved
-- **GIVEN** an Armis payload includes VLAN, connection type, and DHCP lease type fields
+- **GIVEN** an Armis payload includes VLAN or VLAN array fields, connection type, and DHCP lease type fields
 - **WHEN** the payload is mapped into a ServiceRadar device update
-- **THEN** the update metadata SHALL include normalized `armis_vlan`, `armis_connection_type`, and `armis_dhcp_lease_type` values when present
+- **THEN** the update metadata SHALL include normalized keys such as `armis_vlan`, `armis_vlans`, `armis_connection_type`, and `armis_dhcp_lease_type` when present
 
 #### Scenario: Configured Armis asset fields enrich v1 sync results
 - **GIVEN** an Armis source is configured with `asset_fields`

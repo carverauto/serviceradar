@@ -5,5 +5,7 @@
 - [x] 1.4 Capture selected raw Armis fields during device JSON decode.
 - [x] 1.5 Map Armis attachment fields to stable metadata keys.
 - [x] 1.6 Enrich configured Armis v3 asset fields by asset ID.
-- [x] 1.7 Add regression tests for config generation and Armis metadata mapping.
-- [x] 1.8 Run OpenSpec validation, formatting, and focused tests.
+- [x] 1.7 Add local Armis API probe tooling for sampling v1 AQL results and validating v3 OAuth/asset-field behavior without a ServiceRadar deployment.
+- [x] 1.8 Add Armis V3 OAuth credential fields to the integration source UI.
+- [x] 1.9 Add regression tests for config generation and Armis metadata mapping.
+- [x] 1.10 Run OpenSpec validation, formatting, and focused tests.

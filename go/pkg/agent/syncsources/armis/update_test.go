@@ -210,6 +210,7 @@ func TestBuildUpdatePreservesArmisAttachmentMetadataFromRawFields(t *testing.T) 
 		"Connection Type": "Wired",
 		"DHCP Lease Type": "Dynamic",
 		"VLAN": 3006,
+		"vlans": [3006],
 		"networkInterfaces": [
 			{"name": "Ethernet", "mac": "7C:57:58:18:18:EC"}
 		]
@@ -228,6 +229,7 @@ func TestBuildUpdatePreservesArmisAttachmentMetadataFromRawFields(t *testing.T) 
 		"armis_connection_type": "Wired",
 		"armis_dhcp_lease_type": "Dynamic",
 		"armis_vlan":            "3006",
+		"armis_vlans":           "[3006]",
 	} {
 		if got := metadata[key]; got != want {
 			t.Fatalf("metadata[%q] = %q, want %q", key, got, want)

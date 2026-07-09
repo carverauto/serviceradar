@@ -34,7 +34,10 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
         "discovery_interval_seconds" => "3600"
       },
       "cred_api_key" => "armis-api-key",
-      "cred_api_secret" => "armis-secret"
+      "cred_api_secret" => "armis-secret",
+      "cred_v3_client_id" => "armis-client@example.test",
+      "cred_v3_client_secret" => "armis-client-secret",
+      "cred_v3_vendor_id" => "armis-vendor"
     })
     |> render_submit()
 
@@ -42,7 +45,10 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
 
     assert source.credentials == %{
              "api_key" => "armis-api-key",
-             "api_secret" => "armis-secret"
+             "api_secret" => "armis-secret",
+             "client_id" => "armis-client@example.test",
+             "client_secret" => "armis-client-secret",
+             "vendor_id" => "armis-vendor"
            }
   end
 
@@ -61,6 +67,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
     {:ok, lv, html} = live(conn, ~p"/settings/networks/integrations/#{source.id}/edit")
 
     assert has_element?(lv, "input[name='cred_api_key'][value='key']")
+    assert has_element?(lv, "input[name='cred_v3_client_id']")
+    assert has_element?(lv, "input[name='cred_v3_vendor_id']")
     refute has_element?(lv, "input[name='form[gateway_id]']")
     refute has_element?(lv, "input[name='form[poll_interval_seconds]']")
     refute has_element?(lv, "input[name='form[sweep_interval_seconds]']")
@@ -76,7 +84,10 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
         "discovery_interval_seconds" => "3600"
       },
       "cred_api_key" => "updated-api-key",
-      "cred_api_secret" => "updated-secret"
+      "cred_api_secret" => "updated-secret",
+      "cred_v3_client_id" => "updated-client@example.test",
+      "cred_v3_client_secret" => "updated-client-secret",
+      "cred_v3_vendor_id" => "updated-vendor"
     })
     |> render_submit()
 
@@ -84,7 +95,10 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
 
     assert updated_source.credentials == %{
              "api_key" => "updated-api-key",
-             "api_secret" => "updated-secret"
+             "api_secret" => "updated-secret",
+             "client_id" => "updated-client@example.test",
+             "client_secret" => "updated-client-secret",
+             "vendor_id" => "updated-vendor"
            }
   end
 
@@ -98,7 +112,13 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
       create_armis_source!(scope, %{
         name: "Armis Credential Preserve #{System.unique_integer([:positive])}",
         agent_id: agent.uid,
-        credentials: %{api_key: "existing-api-key", api_secret: "existing-secret"}
+        credentials: %{
+          api_key: "existing-api-key",
+          api_secret: "existing-secret",
+          client_id: "existing-client@example.test",
+          client_secret: "existing-client-secret",
+          vendor_id: "existing-vendor"
+        }
       })
 
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/integrations/#{source.id}/edit")
@@ -112,7 +132,10 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
         "discovery_interval_seconds" => "3600"
       },
       "cred_api_key" => "updated-api-key",
-      "cred_api_secret" => ""
+      "cred_api_secret" => "",
+      "cred_v3_client_id" => "updated-client@example.test",
+      "cred_v3_client_secret" => "",
+      "cred_v3_vendor_id" => "updated-vendor"
     })
     |> render_submit()
 
@@ -120,7 +143,10 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
 
     assert updated_source.credentials == %{
              "api_key" => "updated-api-key",
-             "api_secret" => "existing-secret"
+             "api_secret" => "existing-secret",
+             "client_id" => "updated-client@example.test",
+             "client_secret" => "existing-client-secret",
+             "vendor_id" => "updated-vendor"
            }
   end
 

@@ -2094,6 +2094,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     |> Map.take([
       "cred_api_key",
       "cred_api_secret",
+      "cred_v3_client_id",
+      "cred_v3_client_secret",
+      "cred_v3_vendor_id",
       "cred_snmp_version",
       "cred_community",
       "cred_netbox_url",
@@ -2108,11 +2111,14 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     existing_credentials = stringify_credentials(existing_credentials)
 
     cond do
-      # Armis: api_key + api_secret
-      has_cred_field?(params, "cred_api_key") or has_cred_field?(params, "cred_api_secret") ->
+      # Armis: v1 api_key + api_secret, plus v3 OAuth client credentials.
+      armis_credential_fields_present?(params) ->
         creds = existing_credentials
         creds = maybe_add_cred(creds, "api_key", params["cred_api_key"])
         creds = maybe_add_cred(creds, "api_secret", params["cred_api_secret"])
+        creds = maybe_add_cred(creds, "client_id", params["cred_v3_client_id"])
+        creds = maybe_add_cred(creds, "client_secret", params["cred_v3_client_secret"])
+        creds = maybe_add_cred(creds, "vendor_id", params["cred_v3_vendor_id"])
 
         if map_size(creds) > 0 do
           Map.put(params, "credentials", creds)
@@ -2149,6 +2155,19 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       true ->
         parse_json_field(params, "credentials_json", "credentials")
     end
+  end
+
+  defp armis_credential_fields_present?(params) do
+    Enum.any?(
+      [
+        "cred_api_key",
+        "cred_api_secret",
+        "cred_v3_client_id",
+        "cred_v3_client_secret",
+        "cred_v3_vendor_id"
+      ],
+      &has_cred_field?(params, &1)
+    )
   end
 
   defp has_cred_field?(params, key) do
@@ -2283,9 +2302,15 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     assigns =
       assigns
       |> assign(:api_key_value, credential_value(assigns.credentials, "api_key"))
+      |> assign(:v3_client_id_value, credential_value(assigns.credentials, ["client_id", "v3_client_id"]))
+      |> assign(:v3_vendor_id_value, credential_value(assigns.credentials, ["vendor_id", "v3_vendor_id"]))
       |> assign(
         :api_secret_present?,
         credential_present?(assigns.credentials, ["api_secret", "secret_key"])
+      )
+      |> assign(
+        :v3_client_secret_present?,
+        credential_present?(assigns.credentials, ["client_secret", "v3_client_secret"])
       )
 
     ~H"""
@@ -2337,6 +2362,66 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                 </span>
               </label>
             <% end %>
+          </div>
+          <div class="divider my-2">V3 OAuth</div>
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text">Client ID</span>
+            </label>
+            <input
+              type="text"
+              name="cred_v3_client_id"
+              value={@v3_client_id_value}
+              class="input input-bordered w-full font-mono text-sm"
+              placeholder="Enter the Armis V3 client ID"
+              autocomplete="off"
+            />
+          </div>
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text">Client Secret</span>
+            </label>
+            <input
+              type="password"
+              name="cred_v3_client_secret"
+              class="input input-bordered w-full font-mono text-sm"
+              placeholder={
+                cond do
+                  @mode == :edit and @v3_client_secret_present? ->
+                    "Saved secret; leave empty to keep existing"
+
+                  @mode == :edit ->
+                    "Enter the Armis V3 client secret"
+
+                  true ->
+                    "Enter the Armis V3 client secret"
+                end
+              }
+              autocomplete="off"
+            />
+            <%= if @mode == :edit do %>
+              <label class="label">
+                <span class="label-text-alt text-base-content/60">
+                  V3 client secret:
+                  <span class={["badge badge-xs", @v3_client_secret_present? && "badge-success"]}>
+                    {if @v3_client_secret_present?, do: "saved", else: "not saved"}
+                  </span>
+                </span>
+              </label>
+            <% end %>
+          </div>
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text">Vendor ID</span>
+            </label>
+            <input
+              type="text"
+              name="cred_v3_vendor_id"
+              value={@v3_vendor_id_value}
+              class="input input-bordered w-full font-mono text-sm"
+              placeholder="Enter the Armis V3 vendor ID"
+              autocomplete="off"
+            />
           </div>
           <label class="label">
             <span class="label-text-alt text-base-content/60">
@@ -2527,6 +2612,10 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   defp source_credentials(%{credentials: credentials}) when is_map(credentials), do: credentials
   defp source_credentials(_), do: %{}
 
+  defp credential_value(credentials, keys) when is_map(credentials) and is_list(keys) do
+    Enum.find_value(keys, &credential_value(credentials, &1))
+  end
+
   defp credential_value(credentials, key) when is_map(credentials) do
     value = Map.get(credentials, key) || Map.get(credentials, credential_atom_key(key))
 
@@ -2542,6 +2631,12 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   defp credential_atom_key("api_key"), do: :api_key
   defp credential_atom_key("api_secret"), do: :api_secret
   defp credential_atom_key("secret_key"), do: :secret_key
+  defp credential_atom_key("client_id"), do: :client_id
+  defp credential_atom_key("v3_client_id"), do: :v3_client_id
+  defp credential_atom_key("client_secret"), do: :client_secret
+  defp credential_atom_key("v3_client_secret"), do: :v3_client_secret
+  defp credential_atom_key("vendor_id"), do: :vendor_id
+  defp credential_atom_key("v3_vendor_id"), do: :v3_vendor_id
   defp credential_atom_key(_), do: nil
 
   defp credential_display_value(credentials, key) do
