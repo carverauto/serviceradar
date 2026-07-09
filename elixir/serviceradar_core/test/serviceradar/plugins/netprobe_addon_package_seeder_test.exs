@@ -75,6 +75,7 @@ defmodule ServiceRadar.Plugins.NetprobeAddonPackageSeederTest do
     assert package.capabilities == ["host-network-visibility"]
     assert package.approved_capabilities == ["host-network-visibility"]
     assert package.requires["run_as"] == "serviceradar"
+    assert package.requires["agent_capabilities"] == ["host-network-visibility"]
 
     assert package.requires["os_capabilities"] == [
              "CAP_NET_RAW",
@@ -95,6 +96,8 @@ defmodule ServiceRadar.Plugins.NetprobeAddonPackageSeederTest do
         %{
           uid: agent_uid,
           name: "Netprobe Test Agent #{unique_id}",
+          version: "1.4.8",
+          capabilities: ["host-network-visibility"],
           host: "127.0.0.1",
           port: 50_051,
           metadata: %{"os" => "linux", "arch" => "amd64"}
@@ -161,6 +164,7 @@ defmodule ServiceRadar.Plugins.NetprobeAddonPackageSeederTest do
     assert package.source_oci_ref == nil
     assert package.source_oci_digest == nil
     assert package.capabilities == ["host-network-visibility"]
+    assert package.requires["agent_capabilities"] == ["host-network-visibility"]
     assert package.config_schema["title"] == "Host Network Visibility (netprobe) Configuration"
   end
 

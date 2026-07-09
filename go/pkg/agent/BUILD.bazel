@@ -194,6 +194,7 @@ go_test(
         "push_loop_addon_telemetry_test.go",
         "push_loop_addon_visibility_order_test.go",
         "push_loop_attributed_flow_test.go",
+        "push_loop_deployment_test.go",
         "push_loop_flow_attribution_test.go",
         "push_loop_netprobe_attach_test.go",
         "push_loop_snmp_test.go",

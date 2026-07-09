@@ -238,7 +238,8 @@ defmodule ServiceRadar.Plugins.AddonPackage do
       allow_nil? false
       public? true
       default %{}
-      description "Manifest requirements: base_agent floor, platforms, os_capabilities, run_as"
+
+      description "Manifest requirements: base_agent floor, platforms, agent_capabilities, os_capabilities, run_as"
     end
 
     attribute :resources, :map do

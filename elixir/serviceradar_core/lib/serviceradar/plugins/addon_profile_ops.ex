@@ -13,7 +13,8 @@ defmodule ServiceRadar.Plugins.AddonProfileOps do
   def preview_by_id(id, opts \\ []) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:addon_profile_preview))
 
-    with {:ok, %AddonProfile{} = profile} <- AddonProfile.get_by_id(id, actor: actor) do
+    with {:ok, %AddonProfile{} = profile} <- AddonProfile.get_by_id(id, actor: actor),
+         {:ok, profile} <- Ash.load(profile, :addon_package, actor: actor) do
       AddonProfileReconciler.preview(profile, opts)
     end
   end
@@ -22,7 +23,8 @@ defmodule ServiceRadar.Plugins.AddonProfileOps do
   def reconcile_by_id(id, opts \\ []) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:addon_profile_reconcile_now))
 
-    with {:ok, %AddonProfile{} = profile} <- AddonProfile.get_by_id(id, actor: actor) do
+    with {:ok, %AddonProfile{} = profile} <- AddonProfile.get_by_id(id, actor: actor),
+         {:ok, profile} <- Ash.load(profile, :addon_package, actor: actor) do
       case AddonProfileReconciler.reconcile(profile, opts) do
         {:ok, result} ->
           persisted_result = Map.put(result, :status, "succeeded")

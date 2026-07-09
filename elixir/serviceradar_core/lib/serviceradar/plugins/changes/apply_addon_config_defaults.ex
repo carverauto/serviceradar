@@ -31,6 +31,7 @@ defmodule ServiceRadar.Plugins.Changes.ApplyAddonConfigDefaults do
           Ash.Changeset.get_attribute(changeset, :params) ||
             Map.get(changeset.data, :params) || %{}
 
+        params = inherit_active_netprobe_profile_default(changeset, params)
         normalized = ConfigSchema.normalize_params(schema, params)
         Ash.Changeset.change_attribute(changeset, :params, normalized)
 
@@ -67,6 +68,32 @@ defmodule ServiceRadar.Plugins.Changes.ApplyAddonConfigDefaults do
     |> case do
       {:ok, %AddonPackage{config_schema: schema}} -> schema || %{}
       _ -> %{}
+    end
+  end
+
+  # Netprobe profile creation is the operator's host-visibility opt-in. An active profile
+  # with no explicit runtime switch must not normalize to the schema's disabled default;
+  # explicit false remains available for install-but-idle workflows.
+  defp inherit_active_netprobe_profile_default(changeset, params) when is_map(params) do
+    addon_id = changeset_attribute(changeset, :addon_id)
+    enabled = changeset_attribute(changeset, :enabled)
+
+    profile? = changeset.resource == ServiceRadar.Plugins.AddonProfile
+    enabled_present? = Map.has_key?(params, "enabled") or Map.has_key?(params, :enabled)
+
+    if profile? and addon_id == "netprobe" and enabled != false and not enabled_present? do
+      Map.put(params, "enabled", true)
+    else
+      params
+    end
+  end
+
+  defp inherit_active_netprobe_profile_default(_changeset, params), do: params
+
+  defp changeset_attribute(changeset, attribute) do
+    case Ash.Changeset.get_attribute(changeset, attribute) do
+      nil -> Map.get(changeset.data, attribute)
+      value -> value
     end
   end
 end

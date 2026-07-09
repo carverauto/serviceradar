@@ -18,6 +18,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -31,13 +32,18 @@ import (
 	"github.com/rs/zerolog"
 )
 
-var errNoExternalNetprobe = errors.New("no external netprobe in test")
+var (
+	errNoExternalNetprobe = errors.New("no external netprobe in test")
+	errStartAttachTest    = errors.New("start attach failed in test")
+)
 
 type recordingSidecarLifecycleManager struct {
-	statuses []sidecar.Status
-	started  bool
-	attach   bool
-	stopped  bool
+	statuses         []sidecar.Status
+	started          bool
+	attach           bool
+	stopped          bool
+	startAttachErr   error
+	startAttachCalls int
 }
 
 func (m *recordingSidecarLifecycleManager) Status() []sidecar.Status {
@@ -45,6 +51,11 @@ func (m *recordingSidecarLifecycleManager) Status() []sidecar.Status {
 }
 
 func (m *recordingSidecarLifecycleManager) StartAttach(context.Context) error {
+	m.startAttachCalls++
+	if m.startAttachErr != nil {
+		return m.startAttachErr
+	}
+
 	m.started = true
 	m.attach = true
 	return nil
@@ -98,7 +109,7 @@ func TestNetprobeSystemdAssignmentPresent(t *testing.T) {
 	}
 }
 
-func TestApplyVisibilityConfigSkipsKubernetesAgent(t *testing.T) {
+func TestApplyVisibilityConfigClearsNetprobeOnUnsupportedHost(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "sidecars", "netprobe.json")
 	manager := &recordingSidecarLifecycleManager{
@@ -111,24 +122,83 @@ func TestApplyVisibilityConfigSkipsKubernetesAgent(t *testing.T) {
 	}
 	netprobeSidecar := agentnetprobe.NewSidecar(agentnetprobe.SidecarConfig{Logger: zerolog.Nop()})
 	pl := NewPushLoop(&Server{
-		config: &ServerConfig{
-			AgentID: kubernetesAgentID,
-		},
 		netprobeSidecar: netprobeSidecar,
 		sidecarManager:  manager,
 		sidecarStatus:   manager,
 	}, nil, 30*time.Second, logger.NewTestLogger())
+	setHostNetworkVisibilitySupportForTest(pl, false)
 
 	if disposition, err := pl.applyVisibilityConfig(context.Background(), &proto.VisibilityConfig{Enabled: true}, []*proto.AddonAssignmentConfig{
 		{AddonId: "netprobe", Enabled: true, Supervision: "systemd_service"},
 	}); disposition != addonDeliverySucceeded || err != nil {
-		t.Fatalf("applyVisibilityConfig() = %v (%v), want succeeded for Kubernetes agent", disposition, err)
+		t.Fatalf("applyVisibilityConfig() = %v (%v), want succeeded for unsupported host", disposition, err)
 	}
 	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
 		t.Fatalf("expected no netprobe bootstrap config to be written, stat err=%v", err)
 	}
 	if !manager.stopped {
-		t.Fatal("expected Kubernetes visibility apply to stop existing netprobe manager state")
+		t.Fatal("expected unsupported visibility apply to stop existing netprobe manager state")
+	}
+}
+
+func TestApplyVisibilityConfigStartAttachFailureIsTransient(t *testing.T) {
+	dir := t.TempDir()
+	manager := &recordingSidecarLifecycleManager{
+		statuses: []sidecar.Status{{
+			Name:       agentnetprobe.DefaultSidecarName,
+			ConfigPath: filepath.Join(dir, "netprobe.json"),
+		}},
+		startAttachErr: errStartAttachTest,
+	}
+	netprobeSidecar := agentnetprobe.NewSidecar(agentnetprobe.SidecarConfig{Logger: zerolog.Nop()})
+	pl := NewPushLoop(&Server{
+		netprobeSidecar: netprobeSidecar,
+		sidecarManager:  manager,
+		sidecarStatus:   manager,
+	}, nil, 30*time.Second, logger.NewTestLogger())
+	setHostNetworkVisibilitySupportForTest(pl, true)
+
+	disposition, err := pl.applyVisibilityConfig(
+		context.Background(),
+		&proto.VisibilityConfig{Enabled: true},
+		[]*proto.AddonAssignmentConfig{{
+			AddonId:     agentnetprobe.DefaultSidecarName,
+			Enabled:     true,
+			Supervision: addonSupervisionSystemdService,
+		}},
+	)
+
+	if disposition != addonDeliveryTransientFailure || !errors.Is(err, errStartAttachTest) {
+		t.Fatalf("applyVisibilityConfig() = %v (%v), want transient attach failure", disposition, err)
+	}
+	if manager.startAttachCalls != 1 {
+		t.Fatalf("StartAttach calls = %d, want 1", manager.startAttachCalls)
+	}
+	if started, attach := manager.Mode(); started || attach {
+		t.Fatalf("Mode after failed StartAttach = (%v,%v), want (false,false)", started, attach)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "netprobe.json")); err != nil {
+		t.Fatalf("bootstrap config should be ready before attach starts: %v", err)
+	}
+
+	manager.startAttachErr = nil
+	disposition, err = pl.applyVisibilityConfig(
+		context.Background(),
+		&proto.VisibilityConfig{Enabled: true},
+		[]*proto.AddonAssignmentConfig{{
+			AddonId:     agentnetprobe.DefaultSidecarName,
+			Enabled:     true,
+			Supervision: addonSupervisionSystemdService,
+		}},
+	)
+	if disposition != addonDeliverySucceeded || err != nil {
+		t.Fatalf("applyVisibilityConfig() retry = %v (%v), want success", disposition, err)
+	}
+	if manager.startAttachCalls != 2 {
+		t.Fatalf("StartAttach calls after retry = %d, want 2", manager.startAttachCalls)
+	}
+	if started, attach := manager.Mode(); !started || !attach {
+		t.Fatalf("Mode after successful retry = (%v,%v), want (true,true)", started, attach)
 	}
 }
 
@@ -158,6 +228,7 @@ func TestApplyVisibilityConfigRoutesNetprobeBySupervision(t *testing.T) {
 		sidecarStatus:   manager,
 	}
 	pl := NewPushLoop(srv, nil, 30*time.Second, logger.NewTestLogger())
+	setHostNetworkVisibilitySupportForTest(pl, true)
 
 	// A cancellable context bounds the sidecar's async apply-on-connect push; cancelling it
 	// on teardown stops the in-flight push goroutine rather than leaving it polling.
@@ -172,6 +243,17 @@ func TestApplyVisibilityConfigRoutesNetprobeBySupervision(t *testing.T) {
 	}
 	if started, attach := manager.Mode(); !started || !attach {
 		t.Fatalf("Mode after systemd-managed apply = (%v,%v), want (true,true)", started, attach)
+	}
+	bootstrapBytes, err := os.ReadFile(filepath.Join(dir, "cfg", "netprobe.json"))
+	if err != nil {
+		t.Fatalf("read netprobe bootstrap: %v", err)
+	}
+	var bootstrap map[string]any
+	if err := json.Unmarshal(bootstrapBytes, &bootstrap); err != nil {
+		t.Fatalf("decode netprobe bootstrap: %v", err)
+	}
+	if enabled, ok := bootstrap["enabled"].(bool); !ok || !enabled {
+		t.Fatalf("bootstrap enabled = %#v, want true", bootstrap["enabled"])
 	}
 
 	// Assignment removed -> stop the attach loop; the agent no longer falls back to

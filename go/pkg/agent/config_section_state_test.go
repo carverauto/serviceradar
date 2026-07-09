@@ -149,6 +149,7 @@ func TestApplyConfigResponseNetprobeParseErrorCommitsAndReportsSection(t *testin
 		sidecarManager:  manager,
 		sidecarStatus:   manager,
 	}, nil, 30*time.Second, logger.NewTestLogger())
+	setHostNetworkVisibilitySupportForTest(pl, true)
 	pl.setConfigVersion(testOldConfigVersion)
 
 	// A corrupt row that still exceeds the decoder's bounded compatibility:
@@ -227,6 +228,7 @@ func TestApplyConfigResponsePermanentFailureNotReattemptedForIdenticalPayload(t 
 		sidecarManager:  manager,
 		sidecarStatus:   manager,
 	}, nil, 30*time.Second, logger.NewTestLogger())
+	setHostNetworkVisibilitySupportForTest(pl, true)
 
 	badNetprobe := &proto.AddonAssignmentConfig{
 		AddonId:     agentnetprobe.DefaultSidecarName,

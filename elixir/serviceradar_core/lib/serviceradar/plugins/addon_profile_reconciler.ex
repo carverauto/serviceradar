@@ -3,8 +3,8 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
   Reconciles add-on profile target queries into profile-owned assignments.
 
   The reconciler executes a profile's SRQL query, extracts target agent IDs from
-  the result rows, and materializes deterministic `AddonAssignment` rows with
-  `source: :profile`.
+  the result rows, loads authoritative agent compatibility metadata, and
+  materializes deterministic `AddonAssignment` rows with `source: :profile`.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -93,6 +93,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
 
     with {:ok, normalized} <- normalize_profile(profile),
          {:ok, targets} <- extract_targets(resolved_inputs, normalized.max_targets),
+         {:ok, targets} <- attach_agent_compatibility(targets, opts, actor),
          {:ok, eligibility} <- evaluate_target_eligibility(normalized, targets.targets),
          {:ok, manual_assignments} <-
            store.list_manual_assignments(normalized.addon_id, eligibility.agent_uids, actor) do
@@ -312,6 +313,41 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
      }}
   end
 
+  defp attach_agent_compatibility(targets, opts, actor) do
+    loader = Keyword.get(opts, :agent_loader, __MODULE__.AshAgentLoader)
+
+    case loader.load(targets.agent_uids, actor) do
+      {:ok, agents} when is_list(agents) ->
+        agents_by_uid =
+          Enum.reduce(agents, %{}, fn agent, acc ->
+            case ValueUtils.string_value(agent, [:uid, "uid", :agent_uid, "agent_uid"]) do
+              nil -> acc
+              uid -> Map.put(acc, uid, agent)
+            end
+          end)
+
+        enriched_targets =
+          Enum.map(targets.targets, fn target ->
+            Map.put(target, :compatibility_row, Map.get(agents_by_uid, target.agent_uid))
+          end)
+
+        unresolved_count = Enum.count(enriched_targets, &is_nil(&1.compatibility_row))
+
+        {:ok,
+         %{
+           targets
+           | targets: enriched_targets,
+             skipped_without_agent: targets.skipped_without_agent + unresolved_count
+         }}
+
+      {:error, reason} ->
+        {:error, ["failed to load target agent compatibility: #{inspect(reason)}"]}
+
+      other ->
+        {:error, ["invalid target agent compatibility result: #{inspect(other)}"]}
+    end
+  end
+
   defp agent_uid_for_row("agents", row) do
     ValueUtils.string_value(row, [:agent_uid, "agent_uid", :agent_id, "agent_id", :uid, "uid"])
   end
@@ -358,6 +394,9 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
   end
 
   defp target_skip(profile, target) do
+    compatibility_row = target.compatibility_row
+    missing_agent_capabilities = missing_required_agent_capabilities(profile, compatibility_row)
+
     cond do
       profile.enabled == false ->
         {"disabled_package_config", "profile is disabled"}
@@ -365,18 +404,19 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
       package_revoked_or_unapproved?(profile) ->
         {"revoked_or_unapproved_package", "add-on package is not approved"}
 
-      unsupported_platform?(profile, target.row) ->
+      is_nil(compatibility_row) ->
+        {"no_enrolled_agent", "referenced agent is not enrolled"}
+
+      unsupported_platform?(profile, compatibility_row) ->
         {"unsupported_platform", "target platform has no package artifact"}
 
-      incompatible_base_agent_version?(profile, target.row) ->
+      incompatible_base_agent_version?(profile, compatibility_row) ->
         {"incompatible_base_agent_version",
          "target base agent version does not satisfy package requirement"}
 
-      missing_required_capability?(profile, target.row) ->
-        {"missing_required_capability", "target is missing a package-required capability"}
-
-      disconnected_control_stream?(target.row) ->
-        {"disconnected_control_stream", "target agent control stream is offline"}
+      missing_agent_capabilities != [] ->
+        {"missing_required_capability",
+         "target is missing package-required agent capabilities: #{Enum.join(missing_agent_capabilities, ", ")}"}
 
       true ->
         nil
@@ -401,35 +441,53 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
 
   defp unsupported_platform?(profile, row) do
     artifacts = package_artifacts(profile)
+    supported_os = package_platforms(profile)
+    target_os = target_os(row)
+    target_platform = target_platform(row)
 
-    if map_size(artifacts) == 0 do
-      false
-    else
-      case target_platform(row) do
-        nil ->
-          false
+    cond do
+      supported_os != [] and (is_nil(target_os) or target_os not in supported_os) ->
+        true
 
-        platform ->
-          not Map.has_key?(artifacts, platform)
-      end
+      map_size(artifacts) > 0 and
+          (is_nil(target_platform) or not Map.has_key?(artifacts, target_platform)) ->
+        true
+
+      true ->
+        false
     end
   end
 
+  defp package_platforms(profile) do
+    profile
+    |> package_requires()
+    |> ValueUtils.list_value([:platforms, "platforms"])
+    |> List.wrap()
+    |> Enum.map(&normalize_platform_component/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp target_os(row) do
+    row
+    |> nested_string([
+      [:os],
+      ["os"],
+      [:platform_os],
+      ["platform_os"],
+      [:metadata, :os],
+      [:metadata, "os"],
+      ["metadata", :os],
+      ["metadata", "os"]
+    ])
+    |> normalize_platform_component()
+  end
+
   defp target_platform(row) do
-    os =
-      nested_string(row, [
-        [:os],
-        ["os"],
-        [:platform_os],
-        ["platform_os"],
-        [:metadata, :os],
-        [:metadata, "os"],
-        ["metadata", :os],
-        ["metadata", "os"]
-      ])
+    os = target_os(row)
 
     arch =
-      nested_string(row, [
+      row
+      |> nested_string([
         [:arch],
         ["arch"],
         [:platform_arch],
@@ -439,9 +497,22 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
         ["metadata", :arch],
         ["metadata", "arch"]
       ])
+      |> normalize_platform_component()
 
     if os && arch, do: "#{os}/#{arch}"
   end
+
+  defp normalize_platform_component(value) when is_binary(value) do
+    case value |> String.trim() |> String.downcase() do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_platform_component(value) when is_atom(value),
+    do: value |> Atom.to_string() |> normalize_platform_component()
+
+  defp normalize_platform_component(_value), do: nil
 
   defp incompatible_base_agent_version?(profile, row) do
     case base_agent_requirement(profile) do
@@ -513,95 +584,37 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
     end
   end
 
-  defp missing_required_capability?(profile, row) do
-    required = required_capabilities(profile)
+  defp missing_required_agent_capabilities(profile, row) do
+    actual = row |> target_agent_capabilities() |> MapSet.new()
 
-    if required == [] do
-      false
-    else
-      actual =
-        row
-        |> target_capabilities()
-        |> MapSet.new()
-
-      Enum.any?(required, &(not MapSet.member?(actual, &1)))
-    end
+    profile
+    |> required_agent_capabilities()
+    |> Enum.reject(&MapSet.member?(actual, &1))
   end
 
-  defp required_capabilities(profile) do
+  defp required_agent_capabilities(profile) do
     requires = package_requires(profile)
 
-    direct =
-      ValueUtils.list_value(requires, [
-        :capabilities,
-        "capabilities",
-        :required_capabilities,
-        "required_capabilities",
-        :os_capabilities,
-        "os_capabilities"
-      ]) || []
+    direct = ValueUtils.list_value(requires, [:agent_capabilities, "agent_capabilities"]) || []
 
     Enum.map(direct, &to_string/1)
   end
 
-  defp target_capabilities(row) do
-    lists =
-      [
-        nested_list(row, [
-          [:capabilities],
-          ["capabilities"],
-          [:metadata, :capabilities],
-          [:metadata, "capabilities"],
-          ["metadata", :capabilities],
-          ["metadata", "capabilities"]
-        ]),
-        nested_list(row, [
-          [:os_capabilities],
-          ["os_capabilities"],
-          [:metadata, :os_capabilities],
-          [:metadata, "os_capabilities"],
-          ["metadata", :os_capabilities],
-          ["metadata", "os_capabilities"]
-        ])
-      ]
-
-    lists
-    |> Enum.reject(&is_nil/1)
-    |> List.flatten()
+  defp target_agent_capabilities(row) when is_map(row) do
+    row
+    |> nested_list([
+      [:capabilities],
+      ["capabilities"],
+      [:metadata, :capabilities],
+      [:metadata, "capabilities"],
+      ["metadata", :capabilities],
+      ["metadata", "capabilities"]
+    ])
+    |> List.wrap()
     |> Enum.map(&to_string/1)
   end
 
-  defp disconnected_control_stream?(row) do
-    explicit =
-      ValueUtils.raw_value(row, [
-        :control_stream_online,
-        "control_stream_online",
-        :agent_control_stream_online,
-        "agent_control_stream_online"
-      ])
-
-    status =
-      nested_string(row, [
-        [:control_stream_status],
-        ["control_stream_status"],
-        [:agent_control_stream_status],
-        ["agent_control_stream_status"],
-        [:status],
-        ["status"],
-        [:metadata, :control_stream_status],
-        [:metadata, "control_stream_status"],
-        ["metadata", :control_stream_status],
-        ["metadata", "control_stream_status"]
-      ])
-
-    cond do
-      explicit == false -> true
-      explicit == true -> false
-      is_nil(status) -> false
-      String.downcase(status) in ["offline", "disconnected", "missing", "unknown"] -> true
-      true -> false
-    end
-  end
+  defp target_agent_capabilities(_row), do: []
 
   defp package_artifacts(profile) do
     profile
@@ -813,6 +826,23 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
     |> :erlang.term_to_binary()
     |> then(&:crypto.hash(:sha256, &1))
     |> Base.encode16(case: :lower)
+  end
+
+  defmodule AshAgentLoader do
+    @moduledoc false
+
+    alias ServiceRadar.Infrastructure.Agent
+
+    require Ash.Query
+
+    def load([], _actor), do: {:ok, []}
+
+    def load(agent_uids, actor) do
+      Agent
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(uid in ^agent_uids)
+      |> Ash.read(actor: actor)
+    end
   end
 
   defmodule AshStore do

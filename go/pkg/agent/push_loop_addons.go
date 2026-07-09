@@ -28,6 +28,7 @@ import (
 	"time"
 
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
+	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -247,13 +248,99 @@ func (p *PushLoop) applyAddonAssignments(
 	ctx context.Context,
 	assignments []*proto.AddonAssignmentConfig,
 ) (addonDeliveryDisposition, error) {
+	return p.applyAddonAssignmentsWithActivationBlocks(ctx, assignments, nil)
+}
+
+// applyAddonAssignmentsWithActivationBlocks preserves blocked systemd add-ons as desired
+// without starting or restarting them. The visibility section uses this when netprobe's
+// startup config failed, allowing unrelated add-ons to reconcile against the same response
+// while netprobe remains on its last-known-good runtime.
+func (p *PushLoop) applyAddonAssignmentsWithActivationBlocks(
+	ctx context.Context,
+	assignments []*proto.AddonAssignmentConfig,
+	activationBlocks map[string]bool,
+) (addonDeliveryDisposition, error) {
+	return p.applyEffectiveAddonAssignmentsWithActivationBlocks(
+		ctx,
+		p.effectiveAddonAssignments(assignments),
+		activationBlocks,
+	)
+}
+
+// effectiveAddonAssignments resolves the operator-managed local override once so every
+// consumer of a gateway response (notably visibility and native add-on reconciliation)
+// makes lifecycle decisions from the same assignment set.
+func (p *PushLoop) effectiveAddonAssignments(
+	assignments []*proto.AddonAssignmentConfig,
+) []*proto.AddonAssignmentConfig {
+	if p == nil {
+		return assignments
+	}
+	effective := assignments
+	if p.server == nil {
+		return p.filterUnsupportedHostVisibilityAssignments(effective)
+	}
+
+	p.server.mu.RLock()
+	configDir := p.server.configDir
+	p.server.mu.RUnlock()
+	if configDir != "" {
+		overridePath := addonLocalOverridePath(configDir)
+		merged, err := applyLocalAddonOverrides(assignments, overridePath)
+		if err != nil {
+			p.logger.Warn().
+				Err(err).
+				Str("path", overridePath).
+				Msg("Ignoring malformed local add-on override file")
+		} else {
+			effective = merged
+		}
+	}
+
+	return p.filterUnsupportedHostVisibilityAssignments(effective)
+}
+
+// filterUnsupportedHostVisibilityAssignments removes every netprobe assignment when the
+// current host cannot safely provide eBPF host-network visibility. Filtering happens after
+// local overrides are merged so neither a stale control-plane response nor an operator-local
+// override can bypass the runtime capability boundary.
+func (p *PushLoop) filterUnsupportedHostVisibilityAssignments(
+	assignments []*proto.AddonAssignmentConfig,
+) []*proto.AddonAssignmentConfig {
+	if p.hostSupportsNetworkVisibility() {
+		return assignments
+	}
+
+	filtered := make([]*proto.AddonAssignmentConfig, 0, len(assignments))
+	for _, assignment := range assignments {
+		if assignment != nil && strings.EqualFold(
+			strings.TrimSpace(assignment.GetAddonId()),
+			agentnetprobe.DefaultSidecarName,
+		) {
+			continue
+		}
+		filtered = append(filtered, assignment)
+	}
+
+	return filtered
+}
+
+// applyEffectiveAddonAssignmentsWithActivationBlocks reconciles an already-resolved
+// assignment set. applyConfigResponse uses this after visibility has consumed the same
+// effective assignments, preventing a local netprobe override from bypassing bootstrap
+// ordering or activation blocking.
+func (p *PushLoop) applyEffectiveAddonAssignmentsWithActivationBlocks(
+	ctx context.Context,
+	assignments []*proto.AddonAssignmentConfig,
+	activationBlocks map[string]bool,
+) (addonDeliveryDisposition, error) {
+	assignments = p.filterUnsupportedHostVisibilityAssignments(assignments)
 	if p.server == nil {
 		return addonDeliverySucceeded, nil
 	}
 
 	p.server.mu.RLock()
 	manager := p.server.addonManager
-	configDir := p.server.configDir
 	serverConfig := p.server.config
 	p.server.mu.RUnlock()
 	if manager == nil {
@@ -280,22 +367,6 @@ func (p *PushLoop) applyAddonAssignments(
 	// restart can still uninstall the units of an add-on that is later disabled/removed
 	// (the in-memory map is otherwise empty after a restart).
 	p.systemdRehydrateOnce.Do(p.rehydrateSystemdAddons)
-
-	// Merge an operator-managed local override (break-glass / dev) over the pushed
-	// assignments before reconciling. A malformed file is ignored so a bad local edit
-	// cannot break pushed delivery. Skip when no config dir is known (avoid reading a
-	// relative path from the process working directory).
-	if configDir != "" {
-		overridePath := addonLocalOverridePath(configDir)
-		if merged, err := applyLocalAddonOverrides(assignments, overridePath); err != nil {
-			p.logger.Warn().
-				Err(err).
-				Str("path", overridePath).
-				Msg("Ignoring malformed local add-on override file")
-		} else {
-			assignments = merged
-		}
-	}
 
 	specs := make([]agentaddon.Spec, 0, len(assignments))
 	desiredSystemd := make(map[string]bool)
@@ -345,6 +416,12 @@ func (p *PushLoop) applyAddonAssignments(
 			// Mark desired regardless of this round's outcome so a transient delivery
 			// failure does not cause a running unit to be uninstalled by reconciliation.
 			desiredSystemd[a.GetAddonId()] = true
+			if activationBlocks[a.GetAddonId()] {
+				p.logger.Debug().
+					Str("addon", a.GetAddonId()).
+					Msg("Systemd add-on activation blocked until startup config applies")
+				continue
+			}
 			if p.applySystemdAddon(ctx, a, delivery, supervision, now) == addonDeliveryTransientFailure {
 				blockAck = true
 			}
@@ -826,7 +903,11 @@ func (p *PushLoop) reconcileSystemdAddons(ctx context.Context, desired map[strin
 	p.systemdAddonsMu.Unlock()
 
 	for id, units := range toRemove {
-		if err := uninstallAddonSystemdUnitsViaUpdater(ctx, units); err != nil {
+		uninstall := p.uninstallSystemdAddonUnits
+		if uninstall == nil {
+			uninstall = uninstallAddonSystemdUnitsViaUpdater
+		}
+		if err := uninstall(ctx, units); err != nil {
 			p.logger.Error().Err(err).Str("addon", id).Msg("Failed to uninstall systemd add-on units")
 			continue
 		}

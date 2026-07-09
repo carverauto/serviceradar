@@ -96,6 +96,8 @@ func (p *PushLoop) configPollLoop(ctx context.Context) {
 
 // fetchAndApplyConfig fetches config from gateway and applies it.
 func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
+	sequence := p.nextConfigSequence()
+
 	p.server.mu.RLock()
 	agentID := p.server.config.AgentID
 	p.server.mu.RUnlock()
@@ -110,12 +112,59 @@ func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
 		return
 	}
 
-	p.applyConfigResponse(ctx, configResp, "poll")
+	p.applyConfigResponseWithSequence(ctx, configResp, "poll", sequence)
 }
 
 func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.AgentConfigResponse, source string) bool {
+	return p.applyConfigResponseWithSequence(
+		ctx,
+		configResp,
+		source,
+		p.nextConfigSequence(),
+	)
+}
+
+func (p *PushLoop) nextConfigSequence() uint64 {
+	return p.configSequence.Add(1)
+}
+
+func (p *PushLoop) applyConfigResponseWithSequence(
+	ctx context.Context,
+	configResp *proto.AgentConfigResponse,
+	source string,
+	sequence uint64,
+) bool {
 	if configResp == nil {
 		return true
+	}
+
+	// A config response is one transaction: in particular, resolving effective add-on
+	// assignments, writing visibility bootstrap state, and activating native add-ons must
+	// never interleave with another poll/control response. Otherwise response B can replace
+	// the bootstrap while response A is still activating its netprobe unit.
+	p.configApplyMu.Lock()
+	defer p.configApplyMu.Unlock()
+
+	// Config versions are content hashes and the response timestamp is generated from the
+	// control plane's wall clock, so neither can order concurrent poll and control-stream
+	// compilations. Instead, callers allocate an agent-local sequence before starting a poll
+	// request or immediately on receiving a control response. Once a higher sequence begins an
+	// apply transaction, a delayed lower sequence cannot replace it. A later retry receives a new
+	// sequence and remains eligible.
+	if sequence < p.latestConfigSequence {
+		p.logger.Warn().
+			Uint64("config_sequence", sequence).
+			Uint64("latest_config_sequence", p.latestConfigSequence).
+			Int64("config_timestamp", configResp.GetConfigTimestamp()).
+			Str("version", configResp.GetConfigVersion()).
+			Str("source", source).
+			Msg("Ignoring stale config response")
+
+		// A control-stream caller must not ACK a version that was not applied.
+		return false
+	}
+	if sequence > p.latestConfigSequence {
+		p.latestConfigSequence = sequence
 	}
 
 	// If config hasn't changed, nothing to do
@@ -204,16 +253,47 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 		p.syncRuntime.ApplyConfig(configResp.ConfigJson)
 	}
 
-	// Apply native add-on assignments before visibility so independent telemetry add-ons
-	// can start even when a netprobe visibility apply is deferred. This also lets
-	// systemd-managed netprobe assignments install before visibility enters attach mode.
+	// Resolve local overrides before either consumer runs. In particular, a local
+	// netprobe override must participate in visibility bootstrap/attach gating before
+	// native add-on reconciliation is allowed to activate its systemd unit.
+	effectiveAddons := p.effectiveAddonAssignments(configResp.GetAddons())
+
+	// The visibility payload includes the add-on assignments because the netprobe
+	// assignment's config_json is merged into the visibility config (the incident shape:
+	// a type-invalid capture_interfaces wedged the whole apply pre-#4301). Apply visibility
+	// before native add-ons so a systemd-managed netprobe always starts or restarts against
+	// the bootstrap config from this response, rather than the previous response.
+	visibilityHashParts := append(
+		[][]byte{marshalConfigSectionMessage(configResp.VisibilityConfig)},
+		marshalAddonAssignmentsForHash(effectiveAddons)...,
+	)
+	visibilityDisposition := p.applyConfigSection(configSectionVisibility, version, hashConfigSectionPayload(visibilityHashParts...), func() (addonDeliveryDisposition, error) {
+		return p.applyVisibilityConfig(ctx, configResp.VisibilityConfig, effectiveAddons)
+	})
+	if visibilityDisposition == addonDeliveryTransientFailure {
+		p.logger.Warn().
+			Str("version", version).
+			Str("source", source).
+			Msg("Deferring config version update because visibility config did not apply")
+		deferred = true
+	}
+
+	// Apply native add-on assignments after visibility has written any startup-sensitive
+	// bootstrap config. Independent telemetry add-ons still start even when visibility is
+	// deferred because section failures do not short-circuit the rest of this apply cycle.
 	// A transient assignment failure defers the version like every other section — it no
-	// longer early-returns, so the sysmon/SNMP/plugin/visibility/check sections below still
+	// longer early-returns, so the sysmon/SNMP/plugin/check sections below still
 	// apply in the same cycle. The payload hash is empty on purpose: assignments carry
 	// their own per-add-on failure state + backoff and must always reconcile
 	// systemd/ephemeral desired state.
+	activationBlocks := make(map[string]bool)
+	if visibilityDisposition != addonDeliverySucceeded {
+		if netprobe := netprobeSystemdAssignment(effectiveAddons); netprobe != nil {
+			activationBlocks[netprobe.GetAddonId()] = true
+		}
+	}
 	if p.applyConfigSection(configSectionAddons, version, "", func() (addonDeliveryDisposition, error) {
-		return p.applyAddonAssignments(ctx, configResp.GetAddons())
+		return p.applyEffectiveAddonAssignmentsWithActivationBlocks(ctx, effectiveAddons, activationBlocks)
 	}) == addonDeliveryTransientFailure {
 		p.logger.Warn().
 			Str("version", version).
@@ -242,23 +322,6 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 		if pluginConfig != nil {
 			p.applyPluginConfig(pluginConfig)
 		}
-	}
-
-	// The visibility payload includes the add-on assignments because the netprobe
-	// assignment's config_json is merged into the visibility config (the incident shape:
-	// a type-invalid capture_interfaces wedged the whole apply pre-#4301).
-	visibilityHashParts := append(
-		[][]byte{marshalConfigSectionMessage(configResp.VisibilityConfig)},
-		marshalAddonAssignmentsForHash(configResp.GetAddons())...,
-	)
-	if p.applyConfigSection(configSectionVisibility, version, hashConfigSectionPayload(visibilityHashParts...), func() (addonDeliveryDisposition, error) {
-		return p.applyVisibilityConfig(ctx, configResp.VisibilityConfig, configResp.GetAddons())
-	}) == addonDeliveryTransientFailure {
-		p.logger.Warn().
-			Str("version", version).
-			Str("source", source).
-			Msg("Deferring config version update because visibility config did not apply")
-		deferred = true
 	}
 
 	if firstAttempt {
@@ -637,32 +700,41 @@ func (p *PushLoop) applyVisibilityConfig(
 	cfg *proto.VisibilityConfig,
 	addons []*proto.AddonAssignmentConfig,
 ) (addonDeliveryDisposition, error) {
-	if cfg == nil || p.server == nil {
+	if p.server == nil {
 		return addonDeliverySucceeded, nil
 	}
-
-	p.server.mu.RLock()
-	serverConfig := p.server.config
-	netprobeSidecar := p.server.netprobeSidecar
-	sidecarManager := p.server.sidecarManager
-	sidecarStatus := p.server.sidecarStatus
-	p.server.mu.RUnlock()
-	agentID := ""
-	if serverConfig != nil {
-		agentID = serverConfig.AgentID
-	}
-	if strings.EqualFold(strings.TrimSpace(agentID), kubernetesAgentID) {
+	addons = p.filterUnsupportedHostVisibilityAssignments(addons)
+	if !p.hostSupportsNetworkVisibility() {
+		p.server.mu.RLock()
+		netprobeSidecar := p.server.netprobeSidecar
+		sidecarManager := p.server.sidecarManager
+		p.server.mu.RUnlock()
 		if sidecarManager != nil {
-			p.stopNetprobeManager(ctx, sidecarManager, "Kubernetes agent visibility disabled")
+			p.stopNetprobeManager(ctx, sidecarManager, "host network visibility unsupported")
 		}
 		if netprobeSidecar != nil {
 			netprobeSidecar.SetDesiredConfig(ctx, nil)
 		}
-		p.logger.Info().
-			Str("agent_id", agentID).
-			Msg("Skipping netprobe visibility config for Kubernetes agent")
+		p.logger.Info().Msg("Host network visibility unsupported; netprobe attach state cleared")
+
 		return addonDeliverySucceeded, nil
 	}
+	if cfg == nil {
+		if addon := netprobeSystemdAssignment(addons); addon != nil {
+			return addonDeliveryPermanentFailure, &addonConfigApplyError{
+				addonID: addon.GetAddonId(),
+				err:     errors.New("netprobe assignment requires visibility config"),
+			}
+		}
+
+		return addonDeliverySucceeded, nil
+	}
+
+	p.server.mu.RLock()
+	netprobeSidecar := p.server.netprobeSidecar
+	sidecarManager := p.server.sidecarManager
+	sidecarStatus := p.server.sidecarStatus
+	p.server.mu.RUnlock()
 	if netprobeSidecar == nil || sidecarManager == nil {
 		return addonDeliverySucceeded, nil
 	}
@@ -693,15 +765,15 @@ func (p *PushLoop) applyVisibilityConfig(
 			netprobeConfigPath(sidecarStatus),
 			parsed.NetprobeConfig,
 		); err != nil {
-			// The bootstrap path and contents are fixed for this version, so a resend writes
-			// the same bytes to the same path and fails the same way: permanent (record, do
-			// not defer). A real underlying fault is picked up on the next config change.
-			return addonDeliveryPermanentFailure, &addonConfigApplyError{
+			// Bootstrap I/O failures are environmental (mount/permission/disk state) and may
+			// clear without a payload change. Defer and retry while activation remains blocked
+			// so netprobe never restarts against stale startup config.
+			return addonDeliveryTransientFailure, &addonConfigApplyError{
 				addonID: netprobeAddon.GetAddonId(),
 				err:     fmt.Errorf("write netprobe bootstrap config: %w", err),
 			}
 		}
-		return p.applyVisibilityConfigSystemd(ctx, netprobeSidecar, sidecarManager, parsed.NetprobeConfig), nil
+		return p.applyVisibilityConfigSystemd(ctx, netprobeSidecar, sidecarManager, parsed.NetprobeConfig)
 	}
 
 	p.stopNetprobeManager(ctx, sidecarManager, "netprobe add-on assignment absent")
@@ -714,18 +786,23 @@ func (p *PushLoop) applyVisibilityConfig(
 // applyVisibilityConfigSystemd handles netprobe delivered as a systemd-service add-on: systemd
 // owns the process, so the agent attaches (connects for health + event ingest, never launching)
 // and hands the config to the sidecar, which (re)applies it over IPC on every (re)connect. It
-// never blocks on / fails for a not-yet-running netprobe — the unit is installed later in this
-// same config apply (applyAddonAssignments), and the full config is delivered once netprobe
-// connects (the bootstrap file only carries basic startup fields, not device bindings).
+// accepts a not-yet-running netprobe: the unit is installed later in this same config apply
+// and the full config is delivered once it connects. Starting the attach lifecycle itself must
+// succeed first; otherwise the visibility section defers and systemd activation remains blocked.
 func (p *PushLoop) applyVisibilityConfigSystemd(
 	ctx context.Context,
 	netprobeSidecar *agentnetprobe.Sidecar,
 	sidecarManager sidecarLifecycleManager,
 	cfg *netprobepb.VisibilityAgentConfig,
-) addonDeliveryDisposition {
+) (addonDeliveryDisposition, error) {
 	if started, _ := sidecarManager.Mode(); !started {
 		if err := sidecarManager.StartAttach(ctx); err != nil && !errors.Is(err, agentnetprobe.ErrAttachManagerStarted) {
 			p.logger.Error().Err(err).Msg("Failed to start netprobe attach manager")
+
+			return addonDeliveryTransientFailure, &addonConfigApplyError{
+				addonID: agentnetprobe.DefaultSidecarName,
+				err:     fmt.Errorf("start netprobe attach manager: %w", err),
+			}
 		}
 	}
 
@@ -735,7 +812,7 @@ func (p *PushLoop) applyVisibilityConfigSystemd(
 		Int("device_bindings", len(cfg.GetDeviceBindings())).
 		Msg("Netprobe is systemd-managed; attached and handed desired visibility config")
 
-	return addonDeliverySucceeded
+	return addonDeliverySucceeded, nil
 }
 
 // stopNetprobeManager stops the sidecar manager (best-effort, bounded) so it can be restarted

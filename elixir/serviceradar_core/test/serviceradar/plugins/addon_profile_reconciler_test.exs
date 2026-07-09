@@ -37,6 +37,22 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     end
   end
 
+  defmodule ResolverOfflineAgent do
+    @moduledoc false
+
+    def resolve(_input_defs, _opts) do
+      {:ok,
+       [
+         %{
+           name: "targets",
+           entity: "agents",
+           query: "in:agents uid:agent-offline",
+           rows: [%{"uid" => "agent-offline"}]
+         }
+       ]}
+    end
+  end
+
   defmodule ResolverEligibility do
     @moduledoc false
     def resolve(_input_defs, _opts) do
@@ -47,32 +63,53 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
            entity: "devices",
            query: "in:devices",
            rows: [
-             agent_row("device-good", "agent-good"),
-             agent_row("device-manual", "agent-manual"),
+             device_row("device-good", "agent-good"),
+             device_row("device-manual", "agent-manual"),
              %{"uid" => "device-without-agent", "hostname" => "ns-missing-agent"},
-             agent_row("device-arm", "agent-arm", %{"arch" => "arm64"}),
-             agent_row("device-old", "agent-old", %{"agent_version" => "1.1.9"}),
-             agent_row("device-missing-cap", "agent-missing-cap", %{"capabilities" => []}),
-             agent_row("device-offline", "agent-offline", %{"control_stream_status" => "offline"})
+             device_row("device-arm", "agent-arm"),
+             device_row("device-old", "agent-old"),
+             device_row("device-missing-cap", "agent-missing-cap"),
+             device_row("device-offline", "agent-offline")
            ]
          }
        ]}
     end
 
-    defp agent_row(device_uid, agent_uid, overrides \\ %{}) do
-      Map.merge(
-        %{
-          "uid" => device_uid,
-          "hostname" => device_uid,
-          "agent_id" => agent_uid,
-          "os" => "linux",
-          "arch" => "amd64",
-          "agent_version" => "1.2.3",
-          "capabilities" => ["endpoint-inventory"],
-          "control_stream_status" => "connected"
-        },
-        overrides
-      )
+    # Mirrors the SRQL DeviceRow projection: device OS is an OCSF object and
+    # agent runtime compatibility fields are not denormalized onto the row.
+    defp device_row(device_uid, agent_uid) do
+      %{
+        "uid" => device_uid,
+        "type_id" => 1,
+        "hostname" => device_uid,
+        "agent_id" => agent_uid,
+        "os" => %{"name" => "Linux"},
+        "metadata" => %{}
+      }
+    end
+  end
+
+  defmodule ResolverMissingAgent do
+    @moduledoc false
+
+    def resolve(_input_defs, _opts) do
+      {:ok,
+       [
+         %{
+           name: "targets",
+           entity: "devices",
+           query: "in:devices",
+           rows: [
+             %{
+               "uid" => "device-orphaned-agent-link",
+               "type_id" => 1,
+               "agent_id" => "agent-not-enrolled",
+               "os" => %{"name" => "Linux"},
+               "metadata" => %{}
+             }
+           ]
+         }
+       ]}
     end
   end
 
@@ -110,14 +147,50 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
              %{
                "uid" => "device-good",
                "agent_id" => "agent-good",
-               "os" => "linux",
-               "arch" => "amd64",
-               "agent_version" => "1.2.3",
-               "capabilities" => ["endpoint-inventory"]
+               "type_id" => 1,
+               "os" => %{"name" => "Linux"},
+               "metadata" => %{}
              }
            ]
          }
        ]}
+    end
+  end
+
+  defmodule AgentLoader do
+    @moduledoc false
+
+    def load(agent_uids, _actor) do
+      agents =
+        agent_uids
+        |> Enum.map(&Map.get(agent_profiles(), &1))
+        |> Enum.reject(&is_nil/1)
+
+      {:ok, agents}
+    end
+
+    defp agent_profiles do
+      %{
+        "agent-a" => agent("agent-a"),
+        "agent-b" => agent("agent-b"),
+        "agent-c" => agent("agent-c"),
+        "agent-good" => agent("agent-good"),
+        "agent-manual" => agent("agent-manual"),
+        "agent-arm" => agent("agent-arm", metadata: %{"os" => "linux", "arch" => "arm64"}),
+        "agent-old" => agent("agent-old", version: "1.1.9"),
+        "agent-missing-cap" => agent("agent-missing-cap", capabilities: []),
+        "agent-offline" => agent("agent-offline", status: :disconnected)
+      }
+    end
+
+    defp agent(uid, overrides \\ []) do
+      %{
+        uid: uid,
+        version: Keyword.get(overrides, :version, "1.2.3"),
+        capabilities: Keyword.get(overrides, :capabilities, ["endpoint-inventory"]),
+        status: Keyword.get(overrides, :status, :connected),
+        metadata: Keyword.get(overrides, :metadata, %{"os" => "linux", "arch" => "amd64"})
+      }
     end
   end
 
@@ -236,6 +309,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     assert {:ok, first} =
              AddonProfileReconciler.reconcile(profile,
                resolver: ResolverV1,
+               agent_loader: AgentLoader,
                store: MemoryStore,
                reconciled_at: ~U[2026-06-09 17:00:00Z]
              )
@@ -252,6 +326,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     assert {:ok, second} =
              AddonProfileReconciler.reconcile(profile,
                resolver: ResolverV1,
+               agent_loader: AgentLoader,
                store: MemoryStore,
                reconciled_at: ~U[2026-06-09 17:00:00Z]
              )
@@ -263,6 +338,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     assert {:ok, third} =
              AddonProfileReconciler.reconcile(%{profile | target_query: "in:agents name:agent-*"},
                resolver: ResolverV2,
+               agent_loader: AgentLoader,
                store: MemoryStore,
                reconciled_at: ~U[2026-06-09 17:01:00Z]
              )
@@ -281,6 +357,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     assert {:ok, preview} =
              AddonProfileReconciler.preview(profile,
                resolver: ResolverEligibility,
+               agent_loader: AgentLoader,
                store: MemoryStore
              )
 
@@ -288,13 +365,12 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     assert preview.summary.resolved_devices == 6
     assert preview.summary.resolved_agents == 0
     assert preview.summary.target_agents == 6
-    assert preview.summary.eligible_agents == 1
-    assert preview.summary.desired_assignments == 1
+    assert preview.summary.eligible_agents == 2
+    assert preview.summary.desired_assignments == 2
     assert preview.summary.skipped_without_agent == 1
     assert preview.summary.skipped_manual_overrides == 1
 
     assert preview.summary.skip_counts == %{
-             "disconnected_control_stream" => 1,
              "incompatible_base_agent_version" => 1,
              "manual_override" => 1,
              "missing_required_capability" => 1,
@@ -302,8 +378,13 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
              "unsupported_platform" => 1
            }
 
-    assert [%{agent_uid: "agent-good"}] = preview.sample_assignments
-    assert [%{agent_uid: "agent-good"} | _] = preview.summary.target_samples
+    # A transiently disconnected agent remains desired; config delivery resumes
+    # when it reconnects without uninstall/reinstall assignment churn.
+    assert [%{agent_uid: "agent-good"}, %{agent_uid: "agent-offline"}] =
+             preview.sample_assignments
+
+    assert [%{agent_uid: "agent-good", row: %{"os" => %{"name" => "Linux"}}} | _] =
+             preview.summary.target_samples
 
     skipped_reasons = Enum.map(preview.summary.skipped_targets, & &1.reason)
 
@@ -312,9 +393,46 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
              "unsupported_platform",
              "incompatible_base_agent_version",
              "missing_required_capability",
-             "disconnected_control_stream",
              "manual_override"
            ]
+  end
+
+  test "device target with a stale agent reference is skipped explicitly" do
+    assert {:ok, preview} =
+             AddonProfileReconciler.preview(endpoint_inventory_profile(),
+               resolver: ResolverMissingAgent,
+               agent_loader: AgentLoader,
+               store: MemoryStore
+             )
+
+    assert preview.summary.target_agents == 1
+    assert preview.summary.desired_assignments == 0
+    assert preview.summary.skipped_without_agent == 1
+    assert preview.summary.skip_counts == %{"no_enrolled_agent" => 1}
+    assert [skipped] = preview.summary.skipped_targets
+    assert skipped.agent_uid == "agent-not-enrolled"
+    assert skipped.detail == "referenced agent is not enrolled"
+  end
+
+  test "transient disconnect keeps an existing assignment desired" do
+    profile = Map.put(endpoint_inventory_profile(), :target_query, "in:agents uid:agent-offline")
+
+    opts = [
+      resolver: ResolverOfflineAgent,
+      agent_loader: AgentLoader,
+      store: MemoryStore,
+      reconciled_at: ~U[2026-07-09 15:00:00Z]
+    ]
+
+    assert {:ok, first} = AddonProfileReconciler.reconcile(profile, opts)
+    assert first.desired_assignments == 1
+    assert first.upserted == 1
+    assert first.disabled == 0
+
+    assert {:ok, second} = AddonProfileReconciler.reconcile(profile, opts)
+    assert second.desired_assignments == 1
+    assert second.unchanged == 1
+    assert second.disabled == 0
   end
 
   test "blank profile target query defaults to all agents" do
@@ -323,6 +441,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     assert {:ok, result} =
              AddonProfileReconciler.reconcile(profile,
                resolver: ResolverDefaultQuery,
+               agent_loader: AgentLoader,
                store: MemoryStore,
                reconciled_at: ~U[2026-06-09 18:00:00Z]
              )
@@ -367,6 +486,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     assert {:ok, first} =
              AddonProfileReconciler.reconcile(profile,
                resolver: ResolverV2,
+               agent_loader: AgentLoader,
                store: MemoryStore,
                reconciled_at: ~U[2026-06-09 17:00:00Z]
              )
@@ -390,6 +510,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
              AddonProfileReconciler.reconcile(
                %{profile | params: Map.put(profile.params, "window_size", 300)},
                resolver: ResolverV2,
+               agent_loader: AgentLoader,
                store: MemoryStore,
                reconciled_at: ~U[2026-06-09 17:01:00Z]
              )
@@ -410,6 +531,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     assert {:ok, disabled_preview} =
              AddonProfileReconciler.preview(disabled_profile,
                resolver: ResolverDefaultQuery,
+               agent_loader: AgentLoader,
                store: MemoryStore
              )
 
@@ -421,11 +543,68 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     assert {:ok, revoked_preview} =
              AddonProfileReconciler.preview(revoked_profile,
                resolver: ResolverDefaultQuery,
+               agent_loader: AgentLoader,
                store: MemoryStore
              )
 
     assert revoked_preview.summary.desired_assignments == 0
     assert revoked_preview.summary.skip_counts == %{"revoked_or_unapproved_package" => 1}
+  end
+
+  test "agent capability requirements are distinct from Linux file capabilities" do
+    profile =
+      endpoint_inventory_profile()
+      |> put_in([:addon_package, :artifacts], %{})
+      |> put_in([:addon_package, :requires], %{
+        "platforms" => ["linux"],
+        "os_capabilities" => ["CAP_BPF"]
+      })
+
+    assert {:ok, preview} =
+             AddonProfileReconciler.preview(profile,
+               resolver: ResolverDefaultQuery,
+               agent_loader: AgentLoader,
+               store: MemoryStore
+             )
+
+    assert preview.summary.desired_assignments == 1
+    assert preview.summary.skip_counts == %{}
+  end
+
+  test "missing package-required agent capability is skipped with a diagnostic" do
+    profile =
+      put_in(endpoint_inventory_profile(), [:addon_package, :requires, "agent_capabilities"], [
+        "host-network-visibility"
+      ])
+
+    assert {:ok, preview} =
+             AddonProfileReconciler.preview(profile,
+               resolver: ResolverDefaultQuery,
+               agent_loader: AgentLoader,
+               store: MemoryStore
+             )
+
+    assert preview.summary.desired_assignments == 0
+    assert preview.summary.skip_counts == %{"missing_required_capability" => 1}
+    assert [skipped] = preview.summary.skipped_targets
+    assert skipped.detail =~ "host-network-visibility"
+  end
+
+  test "package platform requirements apply even without artifact metadata" do
+    profile =
+      endpoint_inventory_profile()
+      |> put_in([:addon_package, :artifacts], %{})
+      |> put_in([:addon_package, :requires], %{"platforms" => ["windows"]})
+
+    assert {:ok, preview} =
+             AddonProfileReconciler.preview(profile,
+               resolver: ResolverDefaultQuery,
+               agent_loader: AgentLoader,
+               store: MemoryStore
+             )
+
+    assert preview.summary.desired_assignments == 0
+    assert preview.summary.skip_counts == %{"unsupported_platform" => 1}
   end
 
   defp endpoint_inventory_profile do
@@ -444,7 +623,8 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
         artifacts: %{"linux/amd64" => %{}},
         requires: %{
           "base_agent" => ">=1.2.0",
-          "os_capabilities" => ["endpoint-inventory"]
+          "agent_capabilities" => ["endpoint-inventory"],
+          "os_capabilities" => []
         }
       }
     }

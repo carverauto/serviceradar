@@ -55,7 +55,10 @@ func newDeliveryTestPushLoop(t *testing.T) *PushLoop {
 		}),
 	}
 
-	return NewPushLoop(server, nil, 30*time.Second, logger.NewTestLogger())
+	pl := NewPushLoop(server, nil, 30*time.Second, logger.NewTestLogger())
+	setHostNetworkVisibilitySupportForTest(pl, true)
+
+	return pl
 }
 
 // statusServer returns an httptest server that always responds with the given HTTP status.

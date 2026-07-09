@@ -941,7 +941,8 @@ func TestApplyConfigResponseDefersVersionWhenAddonDeliveryFails(t *testing.T) {
 				RuntimeDir: filepath.Join(t.TempDir(), "addons"),
 			}),
 		},
-		logger: logger.NewTestLogger(),
+		logger:                         logger.NewTestLogger(),
+		hostNetworkVisibilitySupported: func() bool { return true },
 	}
 	pl.setConfigVersion(testOldConfigVersion)
 
