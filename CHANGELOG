@@ -1,3 +1,17 @@
+# ServiceRadar v1.4.9
+
+Hosted-tenant chart release for the ServiceRadar control-plane E2E path.
+
+## Whats New
+
+**1.4.9**
+- Hosted tenant runtime: published the tenant chart hook-ordering fix that
+  creates `serviceradar-secrets` before the core migration hook runs. The
+  control-plane live Standard LKE E2E was re-run against the fixed local chart:
+  cluster provisioning, first CNPG backup verification, chart bootstrap,
+  health/DNS readiness, one Standard NodeBalancer, invoice preview, and
+  deprovision zero-orphan cleanup all passed.
+
 # ServiceRadar v1.4.8
 
 A fix batch found while exercising the AWX/ansible workflow: the Device Details crash-loop, AWX device IPs, agent-release retry, a stuck topology worker, and honest device provenance.

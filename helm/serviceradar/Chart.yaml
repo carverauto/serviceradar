@@ -3,4 +3,4 @@ name: serviceradar
 description: Helm chart for deploying the ServiceRadar 
 type: application
 version: 1.4.9
-appVersion: "1.4.8"
+appVersion: "1.4.9"
