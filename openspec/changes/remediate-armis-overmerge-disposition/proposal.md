@@ -1,0 +1,88 @@
+# Change: Remediate the Armis over-merge — disposition of ghosted mega-devices
+
+## Why
+
+The Armis over-merge is the largest remaining piece of unfinished device-identity
+remediation. An Armis "device" (`armis_device_id`) aggregates a whole scanned
+subnet, so before the ingest-time distinct-MAC veto existed, `BatchResolver`
+resolved every strong-identified update carrying a shared `armis_device_id` to
+the **same** canonical device UID at ingest. Distinct hardware (distinct
+universally-administered MACs) was written under one UID, producing ~173
+"mega-devices" that each carry a whole subnet's worth of MAC identifiers.
+
+Two of the three phases are already done:
+
+- **Prevention (done).** `BatchResolver.distinct_mac_veto?/3` now returns a new
+  deterministic UID when two records' universal-MAC sets are non-empty and
+  disjoint, so new ingest never re-collapses distinct hardware.
+- **Ghost cleanup + holding pattern (done, live/manual).** A live operation
+  tombstoned the affected devices with `deleted_reason =
+  'armis_source_device_id_ghost_cleanup'`, leaving ~389k **sole-copy** `mac`
+  identifier rows (their only copy points at a tombstoned ghost). Both
+  maintenance workers were guarded to hold this data stable:
+  `DeviceIdentifierGcWorker` never GCs a `mac` row whose parent device carries
+  that `deleted_reason` (`device_identifier_gc_worker.ex:170-182`), and
+  `DeviceCleanupWorker` never hard-deletes those tombstones
+  (`device_cleanup_worker.ex:151`). Both guards are explicitly labelled
+  "Remove once disposition completes."
+
+The **disposition itself is unbuilt**. Nothing reconstructs the correct
+per-hardware devices or reassigns the ~389k orphaned `mac` rows to them, and the
+`armis-dups` remediation step goes the *wrong* direction (it collapses onto one
+canonical) and is disabled by default (`dire_remediation.ex:19-35`). Because the
+collapse happened at ingest-resolve time — not via `merge_devices` — there is
+**no `merge_audit` to reverse** (most collapses left no audit row; where rows
+exist they never recorded the moved MAC identifiers), so the existing
+`IdentityReconciler.unmerge_device/2` cannot be used. This is exactly the reason
+`agent_links.ex` reconstructs the worker-chimera split from ground truth instead
+of calling `unmerge_device`.
+
+The guards are a holding pattern, not a fix: the orphaned hardware identity is
+frozen but never restored, and the guards must stay in place indefinitely until
+the disposition runs. This change designs and builds that disposition.
+
+## What Changes
+
+- **New `armis-unmerge` remediation step** in the existing operator-invoked,
+  dry-run-default, idempotent, manifest-audited `mix serviceradar.dire_remediation`
+  framework. It reconstructs per-hardware target devices from a mega-device's
+  distinct universal-MAC groups and moves each group's `mac` identifier rows via
+  the audited, TTL-resetting `DeviceIdentifier :reassign_device` action — which
+  is simultaneously the "reassign-before-delete" rescue for the sole-copy rows.
+  It follows the `agent_links.ex` blueprint (materialize target via
+  `recreate_device`, per-split `merge_audit` `reason: "unmerge"` to arm the
+  re-collapse cooldown, dry-run plan vs execute apply, `Manifest.record` every
+  mutation).
+- **Extract the veto's MAC grouping primitives** (`universal_macs/1`,
+  `distinct_mac_veto?/3` logic) from the private `BatchResolver` into a public
+  `Identity.Mac` helper so detection/grouping provably cannot drift from the
+  ingest-time veto.
+- **Detection + operator dry-run report**: identify mega-devices (an
+  Armis-keyed device owning ≥2 distinct universal atomic MACs) and the
+  ghost-tombstoned population, with counts, MAC-count distribution, and a
+  proposed per-device split plan.
+- **Remove the two GC guards** once disposition completes, restoring normal TTL
+  GC and retention for the previously-frozen rows.
+- **Explicit non-goals** persisted in the spec: MAC-less and local-MAC-only
+  Armis collapses are not splittable by MAC and stay out of scope; the step
+  never uses `armis_device_id` alone or `source_device_id` as a merge/split key.
+
+## Impact
+
+- Affected specs: `device-identity-reconciliation`
+- Affected code:
+  - `ServiceRadar.Inventory.Remediation.DireRemediation` (`@step_order`,
+    `default_steps`, `run_step` dispatch), `Remediation.Decisions` (pure
+    grouping/target rules), new `Remediation.ArmisUnmerge` step
+  - `ServiceRadar.Inventory.Identity.BatchResolver` /
+    `ServiceRadar.Inventory.Identity.Mac` (extract `universal_macs` to public)
+  - `ServiceRadar.Inventory.DeviceIdentifierGcWorker` and
+    `ServiceRadar.Inventory.DeviceCleanupWorker` (remove the ghost-cleanup
+    guards after disposition)
+- Affected data: `platform.ocsf_devices` (reconstruct/restore per-hardware
+  devices; release ghost tombstones), `platform.device_identifiers` (reassign
+  ~389k sole-copy `mac` rows — audited, TTL-reset), `platform.merge_audit`
+  (one `unmerge` row per split)
+- Depends on: `blob-purge` (step 1) having run so blob-hidden MACs are atomic
+  before detection. Complements the completed
+  `refactor-device-identity-reconciliation`.
