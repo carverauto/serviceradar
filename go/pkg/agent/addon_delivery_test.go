@@ -32,6 +32,11 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+const (
+	testOldConfigVersion = "old-version"
+	testNewConfigVersion = "new-version"
+)
+
 // Static test errors (err113: tests must not construct dynamic errors inline).
 var (
 	errTestPermanentDelivery = errors.New("boom")
@@ -88,18 +93,18 @@ func sidecar404Assignment(addonID, downloadURL string) *proto.AddonAssignmentCon
 func TestApplyConfigResponseAcksVersionWhenAddonDownload404s(t *testing.T) {
 	srv, hits := statusServer(t, http.StatusNotFound)
 	pl := newDeliveryTestPushLoop(t)
-	pl.setConfigVersion("old-version")
+	pl.setConfigVersion(testOldConfigVersion)
 
 	ok := pl.applyConfigResponse(context.Background(), &proto.AgentConfigResponse{
-		ConfigVersion: "new-version",
+		ConfigVersion: testNewConfigVersion,
 		Addons:        []*proto.AddonAssignmentConfig{sidecar404Assignment("netprobe", srv.URL)},
 	}, "poll")
 
 	if !ok {
 		t.Fatal("applyConfigResponse() = false, want true: a permanent 404 must not block the ack")
 	}
-	if got := pl.getConfigVersion(); got != "new-version" {
-		t.Fatalf("config version = %q, want new-version (the ack must proceed)", got)
+	if got := pl.getConfigVersion(); got != testNewConfigVersion {
+		t.Fatalf("config version = %q, want %s (the ack must proceed)", got, testNewConfigVersion)
 	}
 	if atomic.LoadInt64(hits) == 0 {
 		t.Fatal("expected the gateway artifact endpoint to be hit at least once")
@@ -266,19 +271,19 @@ func TestAddonDeliverySuccessClearsRecordedFailure(t *testing.T) {
 func TestApplyConfigResponseDefersAndDoesNotBackoffOnTransient5xx(t *testing.T) {
 	srv, hits := statusServer(t, http.StatusBadGateway)
 	pl := newDeliveryTestPushLoop(t)
-	pl.setConfigVersion("old-version")
+	pl.setConfigVersion(testOldConfigVersion)
 	assignment := sidecar404Assignment("netprobe", srv.URL)
 
 	ok := pl.applyConfigResponse(context.Background(), &proto.AgentConfigResponse{
-		ConfigVersion: "new-version",
+		ConfigVersion: testNewConfigVersion,
 		Addons:        []*proto.AddonAssignmentConfig{assignment},
 	}, "poll")
 
 	if ok {
 		t.Fatal("applyConfigResponse() = true, want false: a transient 5xx must defer the ack")
 	}
-	if got := pl.getConfigVersion(); got != "old-version" {
-		t.Fatalf("config version = %q, want old-version (deferred)", got)
+	if got := pl.getConfigVersion(); got != testOldConfigVersion {
+		t.Fatalf("config version = %q, want %s (deferred)", got, testOldConfigVersion)
 	}
 	// A transient failure is not recorded as a permanent failure...
 	if failures := pl.addonDeliveryFailureSnapshot(); len(failures) != 0 {

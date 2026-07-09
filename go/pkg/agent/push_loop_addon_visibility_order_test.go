@@ -114,18 +114,18 @@ func TestApplyConfigResponseAppliesLocalAddonsWithVisibilityConfig(t *testing.T)
 		sidecarManager:  sidecarManager,
 		sidecarStatus:   sidecarManager,
 	}, nil, 30*time.Second, logger.NewTestLogger())
-	pl.setConfigVersion("old-version")
+	pl.setConfigVersion(testOldConfigVersion)
 
 	ok := pl.applyConfigResponse(context.Background(), &proto.AgentConfigResponse{
-		ConfigVersion:    "new-version",
+		ConfigVersion:    testNewConfigVersion,
 		VisibilityConfig: &proto.VisibilityConfig{Enabled: true},
 	}, "poll")
 
 	if !ok {
 		t.Fatal("applyConfigResponse() = false, want true")
 	}
-	if got := pl.getConfigVersion(); got != "new-version" {
-		t.Fatalf("config version = %q, want new-version", got)
+	if got := pl.getConfigVersion(); got != testNewConfigVersion {
+		t.Fatalf("config version = %q, want %s", got, testNewConfigVersion)
 	}
 	if len(addons.applied) != 1 {
 		t.Fatalf("applied add-on specs = %d, want 1", len(addons.applied))

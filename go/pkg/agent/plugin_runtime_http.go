@@ -52,6 +52,10 @@ type httpResponsePayload struct {
 	BodyEncoding string            `json:"body_encoding,omitempty"`
 }
 
+// The insecure transport cache preserves connection reuse for the explicit
+// plugin-level insecure TLS opt-in while keeping base client transports immutable.
+//
+//nolint:gochecknoglobals
 var (
 	pluginHTTPInsecureTransportMu    sync.Mutex
 	pluginHTTPInsecureTransportCache = map[*http.Transport]*http.Transport{}
