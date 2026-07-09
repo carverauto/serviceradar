@@ -1,8 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-INVENTORY="${REPO_ROOT}/docker/images/image_inventory.bzl"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ -n "${SERVICERADAR_REPO_ROOT:-}" ]]; then
+  REPO_ROOT="$(cd "${SERVICERADAR_REPO_ROOT}" && pwd)"
+elif REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+  :
+else
+  REPO_ROOT="$(cd "${script_dir}/.." && pwd)"
+fi
+
+INVENTORY="${SERVICERADAR_IMAGE_INVENTORY:-${REPO_ROOT}/docker/images/image_inventory.bzl}"
+
+if [[ ! -r "${INVENTORY}" ]]; then
+  echo "image inventory is not readable: ${INVENTORY}" >&2
+  exit 2
+fi
 
 if [[ $# -eq 0 ]]; then
   echo "usage: $0 <tag> [<tag> ...]" >&2
