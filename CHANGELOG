@@ -24,6 +24,11 @@ configuration-delivery hardening.
   metadata, made `demo/prod-release` the sole Argo image source, and prevented
   release tags from publishing before their commit reaches staging. Unresolved
   live drift remains operator-synced.
+- Device identity safety: ships the Armis over-merge disposition dormant and
+  dry-run-first. Execute remains runtime-gated, processes ghost records by
+  default, requires exact device/source allowlists for live records, rejects
+  faker-backed data, and applies each candidate transactionally. Multi-NIC
+  splits are not assumed to self-heal and still require operator signoff.
 
 # ServiceRadar v1.4.9
 
