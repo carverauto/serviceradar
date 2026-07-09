@@ -6,6 +6,7 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
 
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Remediation.Decisions
 
   describe "valid_mac_value?/1 and purgeable_mac_value?/1 (blob detection)" do
@@ -294,7 +295,8 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
           mac: nil,
           armis_device_id: "armis-777",
           partition: "default",
-          tombstoned?: false
+          tombstoned?: false,
+          live_overmerge_verified?: true
         },
         overrides
       )
@@ -312,6 +314,19 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
     test "a live device with one universal MAC is a normal device, not an over-merge" do
       assert {:skip, :single_universal_mac} =
                Decisions.plan_armis_unmerge(mega_device(), [row("i1", @mac_a)])
+    end
+
+    test "live splitting requires an Armis identity and an independent over-merge signal" do
+      rows = [row("i1", @mac_a), row("i2", @mac_b)]
+
+      assert {:skip, :missing_armis_device_id} =
+               Decisions.plan_armis_unmerge(mega_device(%{armis_device_id: nil}), rows)
+
+      assert {:skip, :missing_live_overmerge_signal} =
+               Decisions.plan_armis_unmerge(
+                 mega_device(%{live_overmerge_verified?: false}),
+                 rows
+               )
     end
 
     test "a tombstoned ghost with one universal MAC still plans a restore (sole-copy rescue)" do
@@ -365,6 +380,28 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
       refute Enum.map(plan3.splits, & &1.new_uid) == Enum.map(plan1.splits, & &1.new_uid)
     end
 
+    test "the deterministic original-UID class survives even when device.mac changed" do
+      existing_uid =
+        Ids.generate_deterministic_device_id(%{
+          armis_id: "armis-777",
+          mac: @mac_a,
+          partition: "default"
+        })
+
+      rows = [row("original", @mac_a), row("display", @mac_b), row("other", @mac_c)]
+
+      assert {:split, plan} =
+               Decisions.plan_armis_unmerge(
+                 mega_device(%{uid: existing_uid, mac: @mac_b}),
+                 rows
+               )
+
+      assert plan.survivor.mac == @mac_a
+      assert plan.survivor.row_ids == ["original"]
+      refute Enum.any?(plan.splits, &(&1.new_uid == existing_uid))
+      assert Enum.sort(Enum.map(plan.splits, & &1.mac)) == Enum.sort([@mac_b, @mac_c])
+    end
+
     test "without a device MAC anchor the most-recently-seen class survives, ties lexicographic" do
       newer = DateTime.utc_now()
       older = DateTime.add(newer, -3600, :second)
@@ -392,6 +429,16 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
 
       # The blob row maps to two universal MACs and is dropped, leaving one class.
       assert {:skip, :single_universal_mac} = Decisions.plan_armis_unmerge(mega_device(), rows)
+    end
+
+    test "mixed identifier partitions are blocked rather than cross-wired" do
+      rows = [
+        "i1" |> row(@mac_a) |> Map.put(:partition, "default"),
+        "i2" |> row(@mac_b) |> Map.put(:partition, "tenant-b")
+      ]
+
+      assert {:skip, :multiple_partitions} =
+               Decisions.plan_armis_unmerge(mega_device(), rows)
     end
   end
 end

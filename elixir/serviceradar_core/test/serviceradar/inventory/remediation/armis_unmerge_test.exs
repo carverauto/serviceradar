@@ -17,9 +17,13 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Integrations.ArmisNorthboundRunner
+  alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.Ids
+  alias ServiceRadar.Inventory.Remediation.ArmisUnmerge
   alias ServiceRadar.Inventory.Remediation.DireRemediation
+  alias ServiceRadar.Inventory.Remediation.Manifest
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
@@ -35,6 +39,17 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
   end
 
   setup do
+    config_key = DireRemediation
+    previous_config = Application.get_env(:serviceradar_core, config_key, [])
+
+    Application.put_env(
+      :serviceradar_core,
+      config_key,
+      Keyword.put(previous_config, :enable_armis_unmerge_execute, true)
+    )
+
+    on_exit(fn -> Application.put_env(:serviceradar_core, config_key, previous_config) end)
+
     {:ok, actor: SystemActor.system(:armis_unmerge_test)}
   end
 
@@ -44,11 +59,14 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     survivor_mac = universal_mac()
     other_macs = [universal_mac(), universal_mac()]
     local = local_mac()
+    source = create_source!(actor)
 
-    mega = seed_armis_device!(actor, armis_id, survivor_mac)
+    mega = seed_armis_device!(actor, armis_id, survivor_mac, source.id)
     register_mac!(actor, mega.uid, survivor_mac)
     Enum.each(other_macs, &register_mac!(actor, mega.uid, &1))
     register_mac!(actor, mega.uid, local)
+    register_identifier!(actor, mega.uid, :integration_id, unique("integration"))
+    register_identifier!(actor, mega.uid, :integration_id, unique("integration"))
 
     ghost_mac = universal_mac()
     ghost = seed_armis_device!(actor, unique("armis-ghost"), ghost_mac)
@@ -57,8 +75,14 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     backdate_identifier!(ghost_mac, days: 100)
 
     # -- dry run: plan only, no writes --------------------------------------
+    live_opts = [
+      armis_unmerge_include_live: true,
+      armis_unmerge_live_device_uids: [mega.uid],
+      armis_unmerge_live_source_ids: [source.id]
+    ]
+
     assert {:ok, %{reports: %{"armis-unmerge" => dry}}} =
-             DireRemediation.run(steps: ["armis-unmerge"], mode: :dry_run)
+             DireRemediation.run([steps: ["armis-unmerge"], mode: :dry_run] ++ live_opts)
 
     mega_plan = Enum.find(dry.split_plan, &(&1.device_uid == mega.uid))
     assert mega_plan, "expected the seeded mega-device in the dry-run plan"
@@ -88,9 +112,12 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
 
     assert {:ok, %{reports: %{"armis-unmerge" => report}}} =
              DireRemediation.run(
-               steps: ["armis-unmerge"],
-               mode: :execute,
-               manifest_path: manifest_path
+               [
+                 steps: ["armis-unmerge"],
+                 mode: :execute,
+                 manifest_path: manifest_path,
+                 armis_unmerge_execute_enabled: true
+               ] ++ live_opts
              )
 
     assert report.split_failures == 0
@@ -136,13 +163,19 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     assert Enum.any?(manifest_lines, &(&1 =~ "touch_identifier"))
 
     # Northbound: the survivor is still the (single) candidate for its armis id.
-    candidates = Repo.all(ArmisNorthboundRunner.candidates_query(%{id: unique("nb-src")}))
+    candidates = Repo.all(ArmisNorthboundRunner.candidates_query(%{id: source.id}))
     survivor_candidates = Enum.filter(candidates, &(&1.armis_device_id == armis_id))
     assert survivor_candidates |> Enum.map(& &1.device_id) |> Enum.uniq() == [mega.uid]
 
     # -- idempotent re-run ---------------------------------------------------
     assert {:ok, %{reports: %{"armis-unmerge" => rerun}}} =
-             DireRemediation.run(steps: ["armis-unmerge"], mode: :execute)
+             DireRemediation.run(
+               [
+                 steps: ["armis-unmerge"],
+                 mode: :execute,
+                 armis_unmerge_execute_enabled: true
+               ] ++ live_opts
+             )
 
     refute Enum.any?(
              rerun.split_plan,
@@ -167,23 +200,273 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     assert Enum.all?(locals, &(owner_of_mac(&1) == device.uid))
   end
 
+  test "direct execute is fail-closed when the runtime gate is absent", %{actor: actor} do
+    source = create_source!(actor)
+    armis_id = unique("armis-gated")
+    survivor_mac = universal_mac()
+    split_mac = universal_mac()
+    device = seed_verified_live_candidate!(actor, source.id, armis_id, survivor_mac, split_mac)
+
+    config_key = DireRemediation
+    config = Application.get_env(:serviceradar_core, config_key, [])
+
+    Application.put_env(
+      :serviceradar_core,
+      config_key,
+      Keyword.put(config, :enable_armis_unmerge_execute, false)
+    )
+
+    report =
+      ArmisUnmerge.run(
+        :execute,
+        [armis_unmerge_execute_enabled: true],
+        nil,
+        actor
+      )
+
+    Application.put_env(:serviceradar_core, config_key, config)
+
+    assert report.execution_blocked
+    assert report.execution_blocked_reason == "armis_unmerge_execute_disabled"
+    assert report.applied_splits == 0
+    assert owner_of_mac(split_mac) == device.uid
+  end
+
+  test "execute scopes allowlisted live candidates before the batch limit", %{actor: actor} do
+    source = create_source!(actor)
+
+    excluded =
+      seed_verified_live_candidate!(
+        actor,
+        source.id,
+        unique("armis-excluded"),
+        universal_mac(),
+        universal_mac()
+      )
+
+    excluded_extra_mac = universal_mac()
+    register_mac!(actor, excluded.uid, excluded_extra_mac)
+
+    allowed_split_mac = universal_mac()
+
+    allowed =
+      seed_verified_live_candidate!(
+        actor,
+        source.id,
+        unique("armis-allowed"),
+        universal_mac(),
+        allowed_split_mac
+      )
+
+    opts = [
+      armis_unmerge_execute_enabled: true,
+      armis_unmerge_include_live: true,
+      armis_unmerge_live_device_uids: [allowed.uid],
+      armis_unmerge_live_source_ids: [source.id],
+      armis_unmerge_candidate_limit: 1
+    ]
+
+    dry = ArmisUnmerge.run(:dry_run, opts, nil, actor)
+    assert Enum.map(dry.execution_split_plan, & &1.device_uid) == [allowed.uid]
+
+    report = ArmisUnmerge.run(:execute, opts, nil, actor)
+
+    assert report.applied_splits == 1
+    assert owner_of_mac(allowed_split_mac) != allowed.uid
+    assert owner_of_mac(excluded_extra_mac) == excluded.uid
+  end
+
+  test "invalid blob MAC rows are reported and block execution", %{actor: actor} do
+    source = create_source!(actor)
+    split_mac = universal_mac()
+
+    device =
+      seed_verified_live_candidate!(
+        actor,
+        source.id,
+        unique("armis-blob-blocked"),
+        universal_mac(),
+        split_mac
+      )
+
+    register_mac!(actor, device.uid, "001AA0B94040,001422F42A2A")
+
+    report =
+      ArmisUnmerge.run(
+        :execute,
+        [
+          armis_unmerge_execute_enabled: true,
+          armis_unmerge_include_live: true,
+          armis_unmerge_live_device_uids: [device.uid],
+          armis_unmerge_live_source_ids: [source.id]
+        ],
+        nil,
+        actor
+      )
+
+    assert report.execution_blocked
+    assert report.execution_blocked_reason == "blob_purge_precondition_failed"
+    assert report.preconditions.invalid_mac_rows == 1
+    assert owner_of_mac(split_mac) == device.uid
+  end
+
+  test "deterministic survivor selection also normalizes device display MACs", %{actor: actor} do
+    source = create_source!(actor)
+    armis_id = unique("armis-original-uid")
+    original_mac = universal_mac()
+    drifted_mac = universal_mac()
+
+    original_uid =
+      Ids.generate_deterministic_device_id(%{
+        armis_id: armis_id,
+        mac: original_mac,
+        partition: "default"
+      })
+
+    device = seed_armis_device!(actor, armis_id, drifted_mac, source.id, original_uid)
+    register_mac!(actor, device.uid, original_mac)
+    register_mac!(actor, device.uid, drifted_mac)
+    register_identifier!(actor, device.uid, :integration_id, unique("integration"))
+    register_identifier!(actor, device.uid, :integration_id, unique("integration"))
+
+    report =
+      ArmisUnmerge.run(
+        :execute,
+        [
+          armis_unmerge_execute_enabled: true,
+          armis_unmerge_include_live: true,
+          armis_unmerge_live_device_uids: [device.uid],
+          armis_unmerge_live_source_ids: [source.id]
+        ],
+        nil,
+        actor
+      )
+
+    assert report.split_failures == 0
+    assert owner_of_mac(original_mac) == device.uid
+    split_uid = owner_of_mac(drifted_mac)
+    assert split_uid != device.uid
+    assert device_mac(device.uid) == original_mac
+    assert device_mac(split_uid) == drifted_mac
+  end
+
+  test "live execution requires source and device allowlists and rejects faker sources", %{
+    actor: actor
+  } do
+    source = create_source!(actor, endpoint: "http://serviceradar-faker:8080")
+    armis_id = unique("armis-faker")
+    survivor_mac = universal_mac()
+    split_mac = universal_mac()
+    device = seed_verified_live_candidate!(actor, source.id, armis_id, survivor_mac, split_mac)
+
+    opts =
+      [
+        armis_unmerge_execute_enabled: true,
+        armis_unmerge_include_live: true,
+        armis_unmerge_live_device_uids: [device.uid],
+        armis_unmerge_live_source_ids: [source.id]
+      ]
+
+    dry = ArmisUnmerge.run(:dry_run, opts, nil, actor)
+    faker_plan = Enum.find(dry.detected_split_plan, &(&1.device_uid == device.uid))
+    assert faker_plan.execution_exclusion_reason == "faker_source_forbidden"
+
+    report =
+      ArmisUnmerge.run(
+        :execute,
+        opts,
+        nil,
+        actor
+      )
+
+    refute report.execution_blocked
+    assert report.applied_splits == 0
+    assert owner_of_mac(split_mac) == device.uid
+  end
+
+  test "an audit failure rolls back device creation and every identifier mutation", %{
+    actor: actor
+  } do
+    source = create_source!(actor)
+    armis_id = unique("armis-rollback")
+    survivor_mac = universal_mac()
+    split_mac = universal_mac()
+    device = seed_verified_live_candidate!(actor, source.id, armis_id, survivor_mac, split_mac)
+
+    split_uid =
+      Ids.generate_deterministic_device_id(%{
+        armis_id: armis_id,
+        mac: split_mac,
+        partition: "default"
+      })
+
+    {trigger_name, function_name} = install_audit_failure_trigger!(armis_id)
+
+    on_exit(fn -> remove_audit_failure_trigger!(trigger_name, function_name) end)
+
+    manifest_path =
+      Path.join(
+        System.tmp_dir!(),
+        "armis_unmerge_rollback_#{System.unique_integer([:positive])}.ndjson"
+      )
+
+    manifest = Manifest.open(manifest_path, %{test: "rollback"})
+
+    on_exit(fn ->
+      Manifest.close(manifest)
+      File.rm(manifest_path)
+    end)
+
+    report =
+      ArmisUnmerge.run(
+        :execute,
+        [
+          armis_unmerge_execute_enabled: true,
+          armis_unmerge_include_live: true,
+          armis_unmerge_live_device_uids: [device.uid],
+          armis_unmerge_live_source_ids: [source.id]
+        ],
+        manifest,
+        actor
+      )
+
+    Manifest.close(manifest)
+
+    assert report.split_failures >= 1
+    assert owner_of_mac(survivor_mac) == device.uid
+    assert owner_of_mac(split_mac) == device.uid
+    refute device_exists?(split_uid)
+    assert unmerge_audit_count(device.uid) == 0
+
+    manifest_lines = manifest_path |> File.read!() |> String.split("\n", trim: true)
+    assert length(manifest_lines) == 1
+    refute Enum.any?(manifest_lines, &(&1 =~ "reassign_identifier"))
+  end
+
   # -- seeding helpers -------------------------------------------------------
 
-  defp seed_armis_device!(actor, armis_id, mac) do
+  defp seed_armis_device!(actor, armis_id, mac, source_id \\ nil, uid \\ nil) do
+    metadata =
+      maybe_put(
+        %{
+          "integration_type" => "armis",
+          "armis_device_id" => armis_id,
+          "integration_id" => armis_id
+        },
+        "sync_service_id",
+        source_id && to_string(source_id)
+      )
+
     device =
       Device
       |> Ash.Changeset.for_create(
         :create,
         %{
-          uid: "sr:" <> Ecto.UUID.generate(),
+          uid: uid || "sr:" <> Ecto.UUID.generate(),
           hostname: unique("unmerge-host"),
           mac: mac,
           discovery_sources: ["armis"],
-          metadata: %{
-            "integration_type" => "armis",
-            "armis_device_id" => armis_id,
-            "integration_id" => armis_id
-          }
+          metadata: metadata
         },
         actor: actor
       )
@@ -207,16 +490,51 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
   end
 
   defp register_mac!(actor, device_uid, mac) do
+    register_identifier!(actor, device_uid, :mac, mac)
+  end
+
+  defp register_identifier!(actor, device_uid, type, value) do
     DeviceIdentifier
     |> Ash.Changeset.for_create(
       :register,
       %{
         device_id: device_uid,
-        identifier_type: :mac,
-        identifier_value: mac,
+        identifier_type: type,
+        identifier_value: value,
         partition: "default",
         confidence: :strong
       },
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
+  end
+
+  defp seed_verified_live_candidate!(actor, source_id, armis_id, survivor_mac, split_mac) do
+    device = seed_armis_device!(actor, armis_id, survivor_mac, source_id)
+    register_mac!(actor, device.uid, survivor_mac)
+    register_mac!(actor, device.uid, split_mac)
+    register_identifier!(actor, device.uid, :integration_id, unique("integration"))
+    register_identifier!(actor, device.uid, :integration_id, unique("integration"))
+    device
+  end
+
+  defp create_source!(actor, overrides \\ []) do
+    attrs =
+      Map.merge(
+        %{
+          name: unique("armis-unmerge-source"),
+          source_type: :armis,
+          endpoint: "https://armis.example.invalid/#{System.unique_integer([:positive])}"
+        },
+        Map.new(overrides)
+      )
+
+    IntegrationSource
+    |> Ash.Changeset.new()
+    |> Ash.Changeset.set_argument(:credentials, %{token: "secret"})
+    |> Ash.Changeset.for_create(
+      :create,
+      attrs,
       actor: actor
     )
     |> Ash.create!(actor: actor)
@@ -289,12 +607,58 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
   defp unmerge_audit_count(from_uid) do
     %{rows: [[count]]} =
       Repo.query!(
-        "SELECT count(*) FROM platform.merge_audit WHERE from_device_id = $1 AND reason = 'unmerge'",
+        "SELECT count(*) FROM platform.merge_audit WHERE to_device_id = $1 AND reason = 'unmerge'",
         [from_uid]
       )
 
     count
   end
+
+  defp device_exists?(uid) do
+    %{rows: [[exists]]} =
+      Repo.query!("SELECT EXISTS(SELECT 1 FROM platform.ocsf_devices WHERE uid = $1)", [uid])
+
+    exists
+  end
+
+  defp device_mac(uid) do
+    %{rows: [[mac]]} =
+      Repo.query!("SELECT mac FROM platform.ocsf_devices WHERE uid = $1", [uid])
+
+    mac
+  end
+
+  defp install_audit_failure_trigger!(armis_id) do
+    suffix = System.unique_integer([:positive])
+    function_name = "fail_armis_unmerge_audit_#{suffix}"
+    trigger_name = "fail_armis_unmerge_audit_trigger_#{suffix}"
+
+    Repo.query!("""
+    CREATE FUNCTION platform.#{function_name}() RETURNS trigger AS $$
+    BEGIN
+      IF NEW.reason = 'unmerge' AND NEW.details->>'armis_device_id' = #{sql_literal(armis_id)} THEN
+        RAISE EXCEPTION 'forced armis-unmerge audit failure';
+      END IF;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER #{trigger_name}
+    BEFORE INSERT ON platform.merge_audit
+    FOR EACH ROW EXECUTE FUNCTION platform.#{function_name}()
+    """)
+
+    {trigger_name, function_name}
+  end
+
+  defp remove_audit_failure_trigger!(trigger_name, function_name) do
+    Repo.query!("DROP TRIGGER IF EXISTS #{trigger_name} ON platform.merge_audit")
+    Repo.query!("DROP FUNCTION IF EXISTS platform.#{function_name}()")
+  end
+
+  defp sql_literal(value), do: "'#{String.replace(value, "'", "''")}'"
 
   # Universal MAC: 2nd hex char "0" (0x02 bit clear). Local: "02" prefix.
   defp universal_mac do
@@ -308,6 +672,9 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     |> String.slice(0, 12)
     |> String.upcase()
   end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp unique(prefix), do: "#{prefix}-#{System.unique_integer([:positive])}"
 end

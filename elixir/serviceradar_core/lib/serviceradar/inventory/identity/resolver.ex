@@ -105,7 +105,10 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
     query_opts = if actor, do: [actor: actor], else: []
 
     MergeAudit
-    |> Ash.Query.filter(from_device_id == ^device_id)
+    # `unmerge` rows are symmetric cooldown/audit evidence, not canonical
+    # redirects. Following one after the former survivor is later tombstoned
+    # can otherwise redirect it to an arbitrary split/restored device.
+    |> Ash.Query.filter(from_device_id == ^device_id and (is_nil(reason) or reason != "unmerge"))
     |> Ash.Query.sort(created_at: :desc)
     |> Ash.Query.limit(1)
     |> Ash.read(query_opts)

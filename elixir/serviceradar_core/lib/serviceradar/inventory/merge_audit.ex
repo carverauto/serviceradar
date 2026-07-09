@@ -63,7 +63,13 @@ defmodule ServiceRadar.Inventory.MergeAudit do
     read :merged_to do
       description "Get the canonical device a device was merged into"
       argument :from_device_id, :string, allow_nil?: false
-      filter expr(from_device_id == ^arg(:from_device_id))
+
+      filter expr(
+               from_device_id == ^arg(:from_device_id) and
+                 (is_nil(reason) or reason != "unmerge")
+             )
+
+      prepare fn query, _context -> Ash.Query.sort(query, created_at: :desc) end
     end
 
     read :recent do
