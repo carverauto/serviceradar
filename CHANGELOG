@@ -24,6 +24,14 @@ configuration-delivery hardening.
   metadata, made `demo/prod-release` the sole Argo image source, and prevented
   release tags from publishing before their commit reaches staging. Unresolved
   live drift remains operator-synced.
+- Release publishing: image preflight now verifies that the release and
+  `latest` tags match the immutable commit-tag digest, fails closed on registry
+  errors, and retries an interrupted remote Bazel publish once before using the
+  explicitly enabled local fallback.
+- Dependency safety: retired the standalone Jetstream package in favor of
+  Gnat's maintained JetStream API and upgraded the core runtime's Ash, Decimal,
+  Ecto, Req, and related dependencies. Only two cowlib advisories without a
+  fixed upstream release remain narrowly waived.
 - Device identity safety: ships the Armis over-merge disposition dormant and
   dry-run-first. Execute remains runtime-gated, processes ghost records by
   default, requires exact device/source allowlists for live records, rejects
