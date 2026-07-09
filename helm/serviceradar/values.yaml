@@ -1362,6 +1362,16 @@ flowCollector:
         port: 6343
         targetPort: 6343
         protocol: UDP
+      ipfix:
+        enabled: false
+        port: 4739
+        targetPort: 4739
+        protocol: UDP
+      metrics:
+        enabled: true
+        port: 50046
+        targetPort: 50046
+        protocol: TCP
   resources:
     requests:
       memory: "256Mi"
@@ -1554,6 +1564,9 @@ gatewayApi:
   enabled: false
   mode: managed
   host: ""
+  # Default namespace for Gateway API envoy data-plane pods. Per-route blocks can
+  # override this when an attached Gateway lives in a different namespace.
+  envoyGatewayNamespace: envoy-gateway-system
   dns:
     enabled: true
     hostname: ""
@@ -1603,6 +1616,58 @@ gatewayApi:
     service:
       name: serviceradar-log-collector
       port: 514
+  flowCollector:
+    # Route NetFlow/sFlow/IPFIX UDP traffic through the managed/attached Gateway
+    # instead of allocating a dedicated flow-collector LoadBalancer.
+    enabled: false
+    envoyGatewayNamespace: ""
+    service:
+      name: serviceradar-flow-collector
+    netflow:
+      enabled: true
+      listenerName: netflow
+      port: 2055
+      servicePort: 2055
+      routeName: ""
+      parentRefs: []
+    sflow:
+      enabled: true
+      listenerName: sflow
+      port: 6343
+      servicePort: 6343
+      routeName: ""
+      parentRefs: []
+    ipfix:
+      enabled: false
+      listenerName: ipfix
+      port: 4739
+      servicePort: 4739
+      routeName: ""
+      parentRefs: []
+  trapd:
+    # Route SNMP trap UDP traffic through Gateway API instead of allocating a
+    # dedicated trapd LoadBalancer.
+    enabled: false
+    envoyGatewayNamespace: ""
+    listenerName: snmp-traps
+    port: 162
+    servicePort: 162
+    routeName: ""
+    parentRefs: []
+    service:
+      name: serviceradar-trapd
+  bmpCollector:
+    # Route BMP TCP traffic through Gateway API instead of allocating a dedicated
+    # bmp-collector LoadBalancer.
+    enabled: false
+    envoyGatewayNamespace: ""
+    listenerName: bmp
+    port: 11019
+    servicePort: 11019
+    routeName: ""
+    parentRefs: []
+    service:
+      name: serviceradar-bmp-collector
   agentGateway:
     # Route edge-agent TCP traffic through the managed/attached Gateway API
     # gateway instead of allocating a separate agent-gateway LoadBalancer.

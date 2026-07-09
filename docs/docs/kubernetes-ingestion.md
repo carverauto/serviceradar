@@ -15,18 +15,18 @@ There are two supported Kubernetes exposure patterns:
 
 | Pattern | Use For | Notes |
 |---|---|---|
-| Shared Gateway API listener | Syslog UDP 514 when a shared Envoy Gateway already owns the trusted ingress address | Avoids allocating a separate collector address. The chart renders a `UDPRoute` to `serviceradar-log-collector`. |
-| Dedicated collector service | NetFlow, sFlow, SNMP traps, BMP, and environments without a shared UDP Gateway | Uses an internal `LoadBalancer`, private `NodePort`, or equivalent routed service on the collector. Keep firewall and NetworkPolicy allow lists tight. |
+| Shared Gateway API listener | Syslog UDP 514, edge-agent TCP, and deployments that deliberately consolidate flow, SNMP trap, or BMP ingress behind a Gateway-owned address | Avoids allocating a separate collector address. The chart renders `UDPRoute`/`TCPRoute` objects to the internal collector Services and NetworkPolicies that admit only the Gateway data-plane namespace. |
+| Dedicated collector service | Environments without a shared UDP/TCP Gateway or sites that need collector-specific addresses | Uses an internal `LoadBalancer`, private `NodePort`, or equivalent routed service on the collector. Keep firewall and NetworkPolicy allow lists tight. |
 
 Use a private deployment address map like this in your site runbook:
 
 | Telemetry | Destination | Kubernetes Backend |
 |---|---|---|
-| Syslog | `<SYSLOG_GATEWAY_ADDRESS>:514/UDP` | Shared Gateway listener `syslog-udp` to `serviceradar-log-collector:514` |
-| NetFlow | `<FLOW_COLLECTOR_ADDRESS>:2055/UDP` | `serviceradar-flow-collector` |
-| sFlow | `<FLOW_COLLECTOR_ADDRESS>:6343/UDP` | `serviceradar-flow-collector` |
-| SNMP traps | `<TRAP_COLLECTOR_ADDRESS>:162/UDP` | `serviceradar-trapd` |
-| BMP | `<BMP_COLLECTOR_ADDRESS>:11019/TCP` | `serviceradar-bmp-collector` |
+| Syslog | `<GATEWAY_OR_SYSLOG_ADDRESS>:514/UDP` | Shared Gateway listener `syslog-udp` to `serviceradar-log-collector:514`, or a dedicated syslog service |
+| NetFlow | `<GATEWAY_OR_FLOW_ADDRESS>:2055/UDP` | Gateway listener `netflow` or `serviceradar-flow-collector` service |
+| sFlow | `<GATEWAY_OR_FLOW_ADDRESS>:6343/UDP` | Gateway listener `sflow` or `serviceradar-flow-collector` service |
+| SNMP traps | `<GATEWAY_OR_TRAP_ADDRESS>:162/UDP` | Gateway listener `snmp-traps` or `serviceradar-trapd` service |
+| BMP | `<GATEWAY_OR_BMP_ADDRESS>:11019/TCP` | Gateway listener `bmp` or `serviceradar-bmp-collector` service |
 
 Keep the actual addresses in private operations material. "External" means traffic originates outside the Kubernetes pod network; it does not mean the port should be reachable from the internet.
 
@@ -104,7 +104,25 @@ flowCollector:
         protocol: UDP
 ```
 
-Do not move flow traffic to a shared UDP Gateway unless you have validated exporter affinity and template state behavior for that Gateway implementation.
+Flow traffic can also ride Gateway API when the Gateway implementation preserves enough connection affinity for exporter/template state and the cloud edge can enforce the same trusted-source restrictions:
+
+```yaml
+gatewayApi:
+  enabled: true
+  flowCollector:
+    enabled: true
+    netflow:
+      enabled: true
+    sflow:
+      enabled: true
+
+flowCollector:
+  enabled: true
+  service:
+    type: ClusterIP
+```
+
+Keep the dedicated service pattern when exporter affinity, UDP listener support, or source restriction behavior is uncertain.
 
 ## SNMP Traps And BMP
 
@@ -121,6 +139,26 @@ bmpCollector:
   service:
     type: LoadBalancer
     loadBalancerIP: "<BMP_COLLECTOR_ADDRESS>"
+```
+
+These collectors can also use Gateway API and remain internal Services:
+
+```yaml
+gatewayApi:
+  enabled: true
+  trapd:
+    enabled: true
+  bmpCollector:
+    enabled: true
+
+trapd:
+  externalService:
+    enabled: false
+
+bmpCollector:
+  enabled: true
+  service:
+    type: ClusterIP
 ```
 
 SNMP polling is different: agents and gateways initiate outbound UDP 161 requests to devices, so it usually does not require an inbound public service. SNMP traps are inbound UDP 162 and do require a reachable collector address.
