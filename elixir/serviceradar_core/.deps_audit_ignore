@@ -17,8 +17,3 @@ GHSA-rhv4-8758-jx7v
 # release or the dependency is replaced.
 EEF-CVE-2026-43966
 GHSA-g2wm-735q-3f56
-
-# jetstream 0.0.9 was retired after its APIs were folded into gnat. Core still
-# uses Jetstream.PullConsumer and Jetstream.API modules directly; keep this
-# waiver until that migration is complete.
-retired:jetstream

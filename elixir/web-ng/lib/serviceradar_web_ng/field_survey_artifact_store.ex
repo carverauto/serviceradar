@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNG.FieldSurveyArtifactStore do
   NATS Object Store backend for FieldSurvey scan artifacts.
   """
 
-  alias Jetstream.API.Object
+  alias Gnat.Jetstream.API.Object
 
   require Logger
 
@@ -90,7 +90,7 @@ defmodule ServiceRadarWebNG.FieldSurveyArtifactStore do
   defp ensure_bucket(conn) do
     stream_name = "OBJ_#{bucket_name()}"
 
-    case Jetstream.API.Stream.info(conn, stream_name) do
+    case Gnat.Jetstream.API.Stream.info(conn, stream_name) do
       {:ok, _} ->
         {:ok, :exists}
 

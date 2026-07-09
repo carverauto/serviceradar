@@ -7,8 +7,8 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   filesystem storage.
   """
 
-  alias Jetstream.API.Object
-  alias Jetstream.API.Stream
+  alias Gnat.Jetstream.API.Object
+  alias Gnat.Jetstream.API.Stream
   alias ServiceRadar.Dashboards.DashboardPackage
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadarWebNG.Web.EndpointConfig

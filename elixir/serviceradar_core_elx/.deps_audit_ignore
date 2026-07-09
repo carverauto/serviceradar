@@ -30,8 +30,3 @@ GHSA-f4hc-ppw9-4hhw
 # release or the dependency is replaced.
 EEF-CVE-2026-43966
 GHSA-g2wm-735q-3f56
-
-# jetstream 0.0.9 was retired after its APIs were folded into gnat. The
-# embedded/core wrapper still inherits those modules from serviceradar_core;
-# keep this waiver until that migration is complete.
-retired:jetstream

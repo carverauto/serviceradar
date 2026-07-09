@@ -6,7 +6,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
   (EventWriter, log promotion, and future consumers) use one consistent path.
   """
 
-  alias Jetstream.API.Util
+  alias Gnat.Jetstream.API.Util
 
   require Logger
 
