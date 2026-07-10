@@ -32,7 +32,8 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
   def observer_agent_source?(update) do
     source = String.downcase(update.source || "")
 
-    mapper_like_source?(update) or source in ["snmp", "snmp-metrics", "snmp_metrics"]
+    mapper_like_source?(update) or
+      source in ["armis", "snmp", "snmp-metrics", "snmp_metrics"]
   end
 
   defp mapper_primary_mac?(metadata) when is_map(metadata) do

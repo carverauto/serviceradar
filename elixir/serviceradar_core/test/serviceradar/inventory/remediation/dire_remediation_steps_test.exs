@@ -25,7 +25,16 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationStepsTest do
   end
 
   defp set_enable_armis_dups(value) do
-    Application.put_env(:serviceradar_core, DireRemediation, enable_armis_dups: value)
+    put_remediation_config(:enable_armis_dups, value)
+  end
+
+  defp set_enable_armis_unmerge_execute(value) do
+    put_remediation_config(:enable_armis_unmerge_execute, value)
+  end
+
+  defp put_remediation_config(key, value) do
+    config = Application.get_env(:serviceradar_core, DireRemediation, [])
+    Application.put_env(:serviceradar_core, DireRemediation, Keyword.put(config, key, value))
   end
 
   test "armis-dups is excluded from the default step order" do
@@ -55,5 +64,69 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationStepsTest do
   test "unknown steps are still rejected" do
     assert {:error, {:unknown_steps, ["nope"]}} =
              DireRemediation.run(steps: ["nope"], mode: :dry_run)
+  end
+
+  test "all cannot be mixed with another step" do
+    assert {:error, {:mixed_all_steps, ["all", "armis-unmerge"]}} =
+             DireRemediation.run(steps: ["all", "armis-unmerge"], mode: :dry_run)
+  end
+
+  test "armis-unmerge is dormant: excluded from the default order in every config state" do
+    # The disposition step only runs when an operator explicitly requests
+    # `steps: ["armis-unmerge"]` (covered by the DB-backed step test); a default
+    # `all` run never includes it — even when armis-dups is opted back in.
+    Application.delete_env(:serviceradar_core, DireRemediation)
+    refute "armis-unmerge" in DireRemediation.steps()
+
+    set_enable_armis_dups(true)
+    refute "armis-unmerge" in DireRemediation.steps()
+
+    set_enable_armis_dups(false)
+    refute "armis-unmerge" in DireRemediation.steps()
+  end
+
+  test "armis-unmerge dry-run is available while execute remains gated" do
+    set_enable_armis_unmerge_execute(false)
+
+    assert "armis-unmerge" in DireRemediation.available_steps(:dry_run)
+    refute "armis-unmerge" in DireRemediation.available_steps(:execute)
+
+    manifest_path =
+      Path.join(
+        System.tmp_dir!(),
+        "blocked_armis_unmerge_#{System.unique_integer([:positive])}.ndjson"
+      )
+
+    refute File.exists?(manifest_path)
+
+    assert {:error, {:execute_disabled, ["armis-unmerge"]}} =
+             DireRemediation.run(
+               steps: ["armis-unmerge"],
+               mode: :execute,
+               manifest_path: manifest_path,
+               armis_unmerge_execute_enabled: true
+             )
+
+    refute File.exists?(manifest_path)
+  end
+
+  test "runtime signoff enables only an explicit armis-unmerge execute request" do
+    set_enable_armis_unmerge_execute(true)
+
+    assert "armis-unmerge" in DireRemediation.available_steps(:execute)
+    refute "armis-unmerge" in DireRemediation.steps()
+  end
+
+  test "failure reports identify positive counters and execution blocks" do
+    reports = %{
+      "agent-links" => %{errors: 2, planned: 10},
+      "armis-unmerge" => %{execution_blocked: true, split_failures: 0},
+      "proxmox-dups" => %{merge_failures: 0}
+    }
+
+    assert DireRemediation.report_failures(reports) == %{
+             "agent-links" => %{errors: 2},
+             "armis-unmerge" => %{execution_blocked: true}
+           }
   end
 end

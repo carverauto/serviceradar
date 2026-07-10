@@ -77,5 +77,42 @@ defmodule ServiceRadar.Inventory.SyncIngestorAgentIdTest do
 
       assert {:ok, []} = Ash.read(query, actor: actor)
     end
+
+    test "Armis source registers target identity but not the polling agent", %{actor: actor} do
+      agent_id = "armis-poller-#{System.unique_integer([:positive])}"
+      armis_id = "armis-target-#{System.unique_integer([:positive])}"
+      ip = "10.52.#{:rand.uniform(200)}.#{:rand.uniform(200)}"
+
+      update = %{
+        "ip" => ip,
+        "hostname" => "armis-target-test",
+        "source" => "armis",
+        "agent_id" => agent_id,
+        "metadata" => %{
+          "integration_type" => "armis",
+          "armis_device_id" => armis_id,
+          "integration_id" => armis_id
+        }
+      }
+
+      assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+      agent_query =
+        Ash.Query.for_read(DeviceIdentifier, :lookup, %{
+          identifier_type: :agent_id,
+          identifier_value: agent_id,
+          partition: "default"
+        })
+
+      armis_query =
+        Ash.Query.for_read(DeviceIdentifier, :lookup, %{
+          identifier_type: :armis_device_id,
+          identifier_value: armis_id,
+          partition: "default"
+        })
+
+      assert {:ok, []} = Ash.read(agent_query, actor: actor)
+      assert {:ok, [_identifier]} = Ash.read(armis_query, actor: actor)
+    end
   end
 end

@@ -50,7 +50,20 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerUnmergeTest do
     # Verify device_b is gone
     assert {:error, _} = Device.get_by_uid(device_b.uid, false, actor: actor)
 
-    # Unmerge
+    {:ok, unrelated_split} = create_device(actor, "unrelated-split", "10.0.10.3")
+
+    assert {:ok, _} =
+             MergeAudit.record(
+               %{
+                 from_device_id: device_b.uid,
+                 to_device_id: unrelated_split.uid,
+                 reason: "unmerge",
+                 source: "test"
+               },
+               actor: actor
+             )
+
+    # The newer unmerge audit is cooldown evidence, not the merge to reverse.
     assert :ok = IdentityReconciler.unmerge_device(device_b.uid, actor: actor)
 
     # Verify device_b is restored

@@ -22,8 +22,12 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
 
     * `--execute` — apply changes (default: dry run)
     * `--step <name>` — run a single step (repeatable). One of:
-      `blob-purge`, `test-debris`, `agent-links`, `proxmox-dups`,
-      `armis-dups`, `all` (default `all`)
+      `blob-purge`, `test-debris`, `stale-agent-devices`, `agent-links`,
+      `proxmox-dups`, `armis-unmerge`, `armis-dups`, `all` (default `all`).
+      `all` cannot be combined with another step.
+      `armis-unmerge` is explicit-only: dry-run is available for live scoping,
+      while execute is disabled until the runtime signoff gate is enabled.
+      `armis-dups` is disabled unless separately enabled by runtime config.
     * `--manifest <path>` — rollback manifest path (execute mode)
     * `--batch-size <n>` — blob purge delete/extract batch size (default 50000)
     * `--debris-date <yyyy-mm-dd>` — test debris creation date (default 2026-04-25)
@@ -50,7 +54,28 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     * `--skip-hostname <hostname>` — hostname denylist for proxmox-dups
       (repeatable; defaults: localhost, unknown)
     * `--armis-plan-sample-limit <n>` — number of planned Armis merges printed
-      in dry-run/execute reports (default 50)
+      by the legacy `armis-dups` step (default 50)
+    * `--armis-unmerge-candidate-limit <n>` — maximum Armis unmerge candidates
+      inspected in one run (1..5000; default: dry-run 5000, execute 25)
+    * `--armis-unmerge-plan-sample-limit <n>` — maximum Armis unmerge split
+      plans printed in the report (0..5000; default 50)
+    * `--armis-unmerge-live-device <uid>` — permit one live device UID during
+      execute (repeatable; must be paired with at least one live source ID)
+    * `--armis-unmerge-live-source <id>` — permit one live sync source ID during
+      execute (repeatable; must be paired with at least one live device UID).
+      Known faker-backed sources remain ineligible inside the remediation step.
+
+  Every `--armis-unmerge-*` option requires an explicit
+  `--step armis-unmerge` selection.
+
+  `armis-unmerge --execute` is rejected unless live scoping has been reviewed
+  and the release runtime configuration deliberately sets:
+
+      config :serviceradar_core, ServiceRadar.Inventory.Remediation.DireRemediation,
+        enable_armis_unmerge_execute: true
+
+  The gate does not add the step to `all`; execute still requires an explicit
+  `--step armis-unmerge`.
 
   ## Examples
 
@@ -60,6 +85,17 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
       # Dry-run just the blob purge
       mix serviceradar.dire_remediation --step blob-purge
 
+      # Bounded Armis live-scoping dry-run; safe while execute is gated off
+      mix serviceradar.dire_remediation --step armis-unmerge \\
+          --armis-unmerge-candidate-limit 500 \\
+          --armis-unmerge-plan-sample-limit 25
+
+      # After signoff/config enablement, execute only an explicitly reviewed
+      # live device/source intersection (ghost disposition remains the default)
+      mix serviceradar.dire_remediation --step armis-unmerge --execute \\
+          --armis-unmerge-live-device sr:reviewed-device \\
+          --armis-unmerge-live-source reviewed-sync-source
+
       # Execute the test-debris cleanup with a manifest path
       mix serviceradar.dire_remediation --step test-debris --execute \\
           --manifest /var/tmp/dire_remediation.ndjson
@@ -68,6 +104,26 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
   use Mix.Task
 
   alias ServiceRadar.Inventory.Remediation.DireRemediation
+
+  @max_armis_unmerge_candidate_limit 5_000
+  @max_armis_unmerge_plan_sample_limit 5_000
+
+  @armis_unmerge_switches [
+    :armis_unmerge_candidate_limit,
+    :armis_unmerge_plan_sample_limit,
+    :armis_unmerge_live_device,
+    :armis_unmerge_live_source
+  ]
+
+  @report_step_order [
+    "blob-purge",
+    "test-debris",
+    "stale-agent-devices",
+    "agent-links",
+    "proxmox-dups",
+    "armis-unmerge",
+    "armis-dups"
+  ]
 
   @switches [
     execute: :boolean,
@@ -87,11 +143,21 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     ip_literal: :string,
     proxmox_source: :string,
     skip_hostname: :keep,
-    armis_plan_sample_limit: :integer
+    armis_plan_sample_limit: :integer,
+    armis_unmerge_candidate_limit: :integer,
+    armis_unmerge_plan_sample_limit: :integer,
+    armis_unmerge_live_device: :keep,
+    armis_unmerge_live_source: :keep
   ]
 
   @impl true
   def run(args) do
+    run_with(args, &DireRemediation.run/1, fn -> Mix.Task.run("app.start") end)
+  end
+
+  @doc false
+  def run_with(args, remediation_runner, app_starter)
+      when is_function(remediation_runner, 1) and is_function(app_starter, 0) do
     {opts, rest, invalid} = OptionParser.parse(args, strict: @switches)
 
     if rest != [] or invalid != [] do
@@ -101,20 +167,44 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
       )
     end
 
-    Mix.Task.run("app.start")
+    validate_step_selection!(opts)
+    validate_armis_unmerge_selection!(opts)
 
     engine_opts = build_engine_opts(opts)
     mode = Keyword.fetch!(engine_opts, :mode)
+    app_starter.()
 
-    case DireRemediation.run(engine_opts) do
+    case remediation_runner.(engine_opts) do
       {:ok, %{reports: reports, manifest_path: manifest_path}} ->
         print_reports(mode, reports, manifest_path)
+
+      {:error,
+       {:step_failures, %{reports: reports, manifest_path: manifest_path, failures: failures}}} ->
+        print_reports(mode, reports, manifest_path)
+
+        Mix.raise(
+          "Remediation completed with failures: #{format_failures(failures)}. " <>
+            "Review the report and rollback manifest before retrying."
+        )
 
       {:error, {:unknown_steps, unknown}} ->
         Mix.raise(
           "Unknown step(s): #{Enum.join(unknown, ", ")}. " <>
-            "Valid steps: #{Enum.join(DireRemediation.steps(), ", ")}, all"
+            "Valid dry-run steps: #{Enum.join(DireRemediation.available_steps(:dry_run), ", ")}, all"
         )
+
+      {:error, {:mixed_all_steps, _steps}} ->
+        Mix.raise("--step all cannot be combined with another --step value")
+
+      {:error, {:execute_disabled, ["armis-unmerge"]}} ->
+        Mix.raise(
+          "armis-unmerge execute mode is disabled pending live-scoping signoff. " <>
+            "Run without --execute to review the bounded plan; only then enable " <>
+            ":enable_armis_unmerge_execute in the DireRemediation runtime config."
+        )
+
+      {:error, {:disabled_steps, disabled}} ->
+        Mix.raise("Disabled step(s): #{Enum.join(disabled, ", ")}")
 
       {:error, error} ->
         Mix.raise("Remediation failed: #{inspect(error)}")
@@ -145,12 +235,48 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     |> put_if(:proxmox_source, opts[:proxmox_source])
     |> put_if_nonempty(:hostname_denylist, Keyword.get_values(opts, :skip_hostname))
     |> put_if(:armis_plan_sample_limit, opts[:armis_plan_sample_limit])
+    |> put_if(
+      :armis_unmerge_candidate_limit,
+      validate_range(
+        opts[:armis_unmerge_candidate_limit],
+        "--armis-unmerge-candidate-limit",
+        1,
+        @max_armis_unmerge_candidate_limit
+      )
+    )
+    |> put_if(
+      :armis_unmerge_plan_sample_limit,
+      validate_range(
+        opts[:armis_unmerge_plan_sample_limit],
+        "--armis-unmerge-plan-sample-limit",
+        0,
+        @max_armis_unmerge_plan_sample_limit
+      )
+    )
+    |> put_armis_unmerge_live_scope(opts)
   end
 
   defp values_or(opts, key, default) do
     case Keyword.get_values(opts, key) do
       [] -> default
       values -> values
+    end
+  end
+
+  defp validate_step_selection!(opts) do
+    steps = Keyword.get_values(opts, :step)
+
+    if "all" in steps and Enum.any?(steps, &(&1 != "all")) do
+      Mix.raise("--step all cannot be combined with another --step value")
+    end
+  end
+
+  defp validate_armis_unmerge_selection!(opts) do
+    armis_opts? = Enum.any?(@armis_unmerge_switches, &Keyword.has_key?(opts, &1))
+    armis_step? = "armis-unmerge" in Keyword.get_values(opts, :step)
+
+    if armis_opts? and not armis_step? do
+      Mix.raise("Armis unmerge options require an explicit --step armis-unmerge selection")
     end
   end
 
@@ -189,6 +315,54 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     end
   end
 
+  defp validate_range(nil, _flag, _minimum, _maximum), do: nil
+
+  defp validate_range(value, _flag, minimum, maximum)
+       when is_integer(value) and value >= minimum and value <= maximum,
+       do: value
+
+  defp validate_range(value, flag, minimum, maximum) do
+    Mix.raise("#{flag} must be between #{minimum} and #{maximum}, got: #{inspect(value)}")
+  end
+
+  defp put_armis_unmerge_live_scope(engine_opts, opts) do
+    device_uids = validate_nonempty_values(opts, :armis_unmerge_live_device)
+    source_ids = validate_nonempty_values(opts, :armis_unmerge_live_source)
+
+    case {device_uids, source_ids} do
+      {[], []} ->
+        engine_opts
+
+      {[], _sources} ->
+        Mix.raise(
+          "--armis-unmerge-live-source requires at least one " <>
+            "--armis-unmerge-live-device"
+        )
+
+      {_devices, []} ->
+        Mix.raise(
+          "--armis-unmerge-live-device requires at least one " <>
+            "--armis-unmerge-live-source"
+        )
+
+      {devices, sources} ->
+        engine_opts
+        |> Keyword.put(:armis_unmerge_include_live, true)
+        |> Keyword.put(:armis_unmerge_live_device_uids, devices)
+        |> Keyword.put(:armis_unmerge_live_source_ids, sources)
+    end
+  end
+
+  defp validate_nonempty_values(opts, key) do
+    values = opts |> Keyword.get_values(key) |> Enum.map(&String.trim/1)
+
+    if Enum.any?(values, &(&1 == "")) do
+      Mix.raise("--#{key |> to_string() |> String.replace("_", "-")} cannot be empty")
+    end
+
+    Enum.uniq(values)
+  end
+
   defp print_reports(mode, reports, manifest_path) do
     shell = Mix.shell()
 
@@ -198,22 +372,25 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
       shell.info("EXECUTED. Rollback manifest: #{manifest_path}")
     end
 
-    Enum.each(DireRemediation.steps(), fn step ->
-      case Map.fetch(reports, step) do
-        {:ok, report} ->
-          shell.info("")
-          shell.info("== #{step} ==")
-          print_report(shell, report)
-
-        :error ->
-          :ok
-      end
+    reports
+    |> Enum.sort_by(fn {step, _report} -> report_order(step) end)
+    |> Enum.each(fn {step, report} ->
+      shell.info("")
+      shell.info("== #{step} ==")
+      print_report(shell, report)
     end)
   end
 
   defp print_report(shell, report) do
     {details, counts} =
-      Map.split(report, [:plans, :merge_plan, :sample_extractions])
+      Map.split(report, [
+        :plans,
+        :merge_plan,
+        :sample_extractions,
+        :split_plan,
+        :execution_split_plan,
+        :skipped_device_sample
+      ])
 
     counts
     |> Enum.sort_by(fn {key, _} -> to_string(key) end)
@@ -239,4 +416,24 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
   end
 
   defp format_value(value), do: to_string(value)
+
+  defp report_order(step) do
+    case Enum.find_index(@report_step_order, &(&1 == step)) do
+      nil -> {1, step}
+      index -> {0, index}
+    end
+  end
+
+  defp format_failures(failures) do
+    failures
+    |> Enum.sort_by(fn {step, _counts} -> report_order(step) end)
+    |> Enum.map_join("; ", fn {step, counts} ->
+      formatted_counts =
+        counts
+        |> Enum.sort_by(fn {key, _value} -> to_string(key) end)
+        |> Enum.map_join(", ", fn {key, value} -> "#{key}=#{value}" end)
+
+      "#{step}: #{formatted_counts}"
+    end)
+  end
 end

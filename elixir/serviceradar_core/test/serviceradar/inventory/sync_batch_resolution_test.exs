@@ -486,6 +486,118 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
            "distinct-MAC record was over-merged onto the armis canonical"
   end
 
+  test "Armis poller agent_id is observer provenance and cannot bypass the MAC veto", %{
+    actor: actor
+  } do
+    armis_id = "armis-poller-veto-#{System.unique_integer([:positive])}"
+    poller_agent_id = "armis-poller-#{System.unique_integer([:positive])}"
+    mac_a = universal_mac()
+    mac_b = universal_mac()
+
+    update = fn hostname, ip, mac, source_device_id ->
+      %{
+        "agent_id" => poller_agent_id,
+        "gateway_id" => "armis-gateway",
+        "partition" => "default",
+        "device_id" => "default:#{ip}",
+        "ip" => ip,
+        "hostname" => hostname,
+        "source" => "armis",
+        "mac" => mac,
+        "metadata" => %{
+          "integration_type" => "armis",
+          "armis_device_id" => armis_id,
+          "integration_id" => armis_id,
+          "source_device_id" => source_device_id
+        }
+      }
+    end
+
+    update_a = update.("poller-host-a", unique_ip(), mac_a, "source-a")
+    update_b = update.("poller-host-b", unique_ip(), mac_b, "source-b")
+
+    assert :ok = SyncIngestor.ingest_updates([update_a], actor: actor)
+    assert :ok = SyncIngestor.ingest_updates([update_b], actor: actor)
+
+    device_a = device_for_mac(mac_a, actor)
+    device_b = device_for_mac(mac_b, actor)
+
+    assert is_binary(device_a)
+    assert is_binary(device_b)
+    assert device_a != device_b
+
+    refute Repo.exists?(
+             from(identifier in DeviceIdentifier,
+               where:
+                 identifier.identifier_type == :agent_id and
+                   identifier.identifier_value == ^poller_agent_id
+             )
+           )
+  end
+
+  test "Armis poller provenance never resolves a device onto the poller's own host", %{
+    actor: actor
+  } do
+    poller_agent_id = "armis-legitimate-poller-#{System.unique_integer([:positive])}"
+
+    {:ok, poller_host} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: "sr:" <> Ecto.UUID.generate(),
+        hostname: "armis-poller-host"
+      })
+      |> Ash.create(actor: actor)
+
+    {:ok, _identifier} =
+      DeviceIdentifier
+      |> Ash.Changeset.for_create(:register, %{
+        device_id: poller_host.uid,
+        identifier_type: :agent_id,
+        identifier_value: poller_agent_id,
+        partition: "default",
+        confidence: :strong
+      })
+      |> Ash.create(actor: actor)
+
+    mac = universal_mac()
+    armis_id = "armis-poller-host-#{System.unique_integer([:positive])}"
+    ip = unique_ip()
+
+    update = %{
+      "agent_id" => poller_agent_id,
+      "gateway_id" => "armis-gateway",
+      "partition" => "default",
+      "device_id" => "default:#{ip}",
+      "ip" => ip,
+      "hostname" => "armis-discovered-endpoint",
+      "source" => "armis",
+      "mac" => mac,
+      "metadata" => %{
+        "integration_type" => "armis",
+        "armis_device_id" => armis_id,
+        "integration_id" => armis_id,
+        "source_device_id" => "source-endpoint"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+    endpoint_uid = device_for_mac(mac, actor)
+    assert is_binary(endpoint_uid)
+    assert endpoint_uid != poller_host.uid
+    assert device_for_armis_id(armis_id, actor) == endpoint_uid
+
+    assert poller_host.uid ==
+             Repo.one(
+               from(identifier in DeviceIdentifier,
+                 where:
+                   identifier.identifier_type == :agent_id and
+                     identifier.identifier_value == ^poller_agent_id,
+                 select: identifier.device_id
+               )
+             )
+  end
+
   test "shared armis_device_id re-observing the SAME MAC stays the same device", %{actor: actor} do
     armis_id = "armis-same-#{System.unique_integer([:positive])}"
     mac = universal_mac()
