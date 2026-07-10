@@ -187,6 +187,15 @@ if not postflight < signing < asset_verification < finalization < advance:
         "release digest and asset verification must pass before publication and demo advancement"
     )
 
+dry_run_guard = "if: ${{ steps.release.outputs.dry_run != 'true' }}"
+forgejo_release_steps = {
+    "asset verification": workflow[asset_verification:finalization],
+    "release finalization": workflow[finalization:advance],
+}
+for step_name, step_body in forgejo_release_steps.items():
+    if dry_run_guard not in step_body:
+        raise SystemExit(f"dry-run does not skip Forgejo {step_name}")
+
 ancestry_lines = [line for line in cut_release.splitlines() if "git merge-base --is-ancestor" in line]
 if len(ancestry_lines) != 1:
     raise SystemExit("cut-release must print exactly one post-merge ancestry command")

@@ -557,6 +557,7 @@ jobs:
 
       # (Wasm plugin import index is uploaded by wasm-plugins.yml — see the note above.)
       - name: Verify uploaded release assets via Forgejo API
+        if: ${{ steps.release.outputs.dry_run != 'true' }}
         id: release_assets
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
@@ -627,6 +628,7 @@ jobs:
           printf 'release_id=%s\n' "${release_id}" >> "${GITHUB_OUTPUT}"
 
       - name: Finalize Forgejo release
+        if: ${{ steps.release.outputs.dry_run != 'true' }}
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           RELEASE_ID: ${{ steps.release_assets.outputs.release_id }}
