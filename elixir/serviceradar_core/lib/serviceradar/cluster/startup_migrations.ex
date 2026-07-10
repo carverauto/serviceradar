@@ -18,6 +18,12 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   @baseline_metadata_file "metadata.json"
   @max_migration_repair_attempts 500
   @managed_public_function "public.age_device_neighborhood(text,boolean,boolean)"
+  @cnpg_pooler_auth_function "public.user_search(text)"
+  @cnpg_pooler_auth_language "sql"
+  @cnpg_pooler_auth_result "TABLE(usename name, passwd text)"
+  @cnpg_pooler_auth_body "SELECT usename, passwd FROM pg_catalog.pg_shadow WHERE usename=$1;"
+  @cnpg_pooler_auth_legacy_body "SELECT usename, passwd FROM pg_shadow WHERE usename=$1;"
+  @cnpg_pooler_role "cnpg_pooler_pgbouncer"
 
   def child_spec(_opts) do
     %{
@@ -534,6 +540,7 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
       Logger.info("[StartupMigrations] Repairing ServiceRadar database object ownership")
 
       with_admin_connection(fn conn ->
+        restore_cnpg_pooler_auth_function_ownership!(conn, app_user)
         ensure_schema_owner!(conn, "platform", app_user)
         ensure_platform_relation_ownership!(conn, app_user)
         ensure_managed_function_ownership!(conn, app_user)
@@ -607,9 +614,182 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
         )
         AND d.objid IS NULL
         AND p.proowner <> r.oid
+
+      UNION ALL
+
+      SELECT 1
+      FROM pg_proc p
+      JOIN pg_roles r ON r.rolname = $1
+      WHERE p.oid = to_regprocedure('#{@cnpg_pooler_auth_function}')
+        AND p.proowner = r.oid
     )
     """
   end
+
+  defp restore_cnpg_pooler_auth_function_ownership!(conn, app_user) do
+    # v1.4.10 briefly claimed every non-extension function in public. Verify and
+    # recreate CNPG's pooler lookup before returning it to a privileged owner.
+    %{rows: rows} =
+      Postgrex.query!(conn, cnpg_pooler_auth_function_recovery_query_sql(), [app_user])
+
+    Enum.each(rows, fn [admin_user, language, result, security_definer, body] ->
+      if admin_user == app_user do
+        raise RuntimeError,
+              "CNPG pooler auth ownership recovery requires database admin credentials"
+      end
+
+      if !cnpg_pooler_auth_function_canonical?(language, result, security_definer, body) do
+        raise RuntimeError,
+              "CNPG pooler auth function is not canonical; refusing admin ownership promotion"
+      end
+
+      case Postgrex.transaction(conn, fn transaction ->
+             Postgrex.query!(
+               transaction,
+               "SELECT 1 FROM pg_catalog.pg_shadow LIMIT 0",
+               []
+             )
+
+             ensure_cnpg_pooler_role!(transaction)
+
+             Postgrex.query!(
+               transaction,
+               cnpg_pooler_auth_function_recreate_statement(),
+               []
+             )
+
+             normalize_cnpg_pooler_auth_function_acl!(transaction)
+
+             Postgrex.query!(
+               transaction,
+               cnpg_pooler_auth_function_owner_statement(admin_user),
+               []
+             )
+
+             :ok
+           end) do
+        {:ok, :ok} ->
+          :ok
+
+        {:error, reason} ->
+          raise RuntimeError,
+                "CNPG pooler auth ownership recovery failed: #{inspect(reason)}"
+      end
+    end)
+  end
+
+  @doc false
+  def cnpg_pooler_auth_function_recovery_query_sql do
+    """
+    SELECT current_user::text,
+           l.lanname,
+           pg_get_function_result(p.oid),
+           p.prosecdef,
+           btrim(p.prosrc)
+    FROM pg_proc p
+    JOIN pg_roles r ON r.rolname = $1
+    JOIN pg_language l ON l.oid = p.prolang
+    WHERE p.oid = to_regprocedure('#{@cnpg_pooler_auth_function}')
+      AND p.proowner = r.oid
+    """
+  end
+
+  @doc false
+  def cnpg_pooler_auth_function_canonical?(language, result, security_definer, body) do
+    normalized_body = normalize_sql_body(body)
+
+    language == @cnpg_pooler_auth_language and
+      result == @cnpg_pooler_auth_result and
+      security_definer == true and
+      normalized_body in [
+        normalize_sql_body(@cnpg_pooler_auth_body),
+        normalize_sql_body(@cnpg_pooler_auth_legacy_body)
+      ]
+  end
+
+  @doc false
+  def cnpg_pooler_auth_function_recreate_statement do
+    """
+    CREATE OR REPLACE FUNCTION public.user_search(uname text)
+    RETURNS TABLE(usename name, passwd text)
+    LANGUAGE sql
+    SECURITY DEFINER
+    SET search_path = pg_catalog
+    AS $function$
+    #{@cnpg_pooler_auth_body}
+    $function$
+    """
+  end
+
+  @doc false
+  def cnpg_pooler_auth_function_owner_statement(admin_user) when is_binary(admin_user) do
+    function_ownership_statement("public", "user_search", "text", admin_user)
+  end
+
+  @doc false
+  def cnpg_pooler_auth_function_grantees_query_sql do
+    """
+    SELECT DISTINCT grantee_role.rolname
+    FROM pg_proc p
+    CROSS JOIN LATERAL aclexplode(
+      COALESCE(p.proacl, acldefault('f', p.proowner))
+    ) AS acl
+    JOIN pg_roles grantee_role ON grantee_role.oid = acl.grantee
+    WHERE p.oid = to_regprocedure('#{@cnpg_pooler_auth_function}')
+      AND acl.grantee <> p.proowner
+    ORDER BY grantee_role.rolname
+    """
+  end
+
+  @doc false
+  def cnpg_pooler_auth_function_revoke_statement(role) when is_binary(role) do
+    "REVOKE ALL PRIVILEGES ON FUNCTION \"public\".\"user_search\"(text) FROM #{quote_ident(role)}"
+  end
+
+  @doc false
+  def cnpg_pooler_auth_function_grant_statement do
+    "GRANT EXECUTE ON FUNCTION \"public\".\"user_search\"(text) TO #{quote_ident(@cnpg_pooler_role)}"
+  end
+
+  defp ensure_cnpg_pooler_role!(conn) do
+    case Postgrex.query!(
+           conn,
+           "SELECT rolcanlogin FROM pg_roles WHERE rolname = $1",
+           [@cnpg_pooler_role]
+         ) do
+      %{rows: [[true]]} ->
+        :ok
+
+      _ ->
+        raise RuntimeError,
+              "CNPG pooler auth ownership recovery requires the canonical pooler role"
+    end
+  end
+
+  defp normalize_cnpg_pooler_auth_function_acl!(conn) do
+    Postgrex.query!(
+      conn,
+      ~s{REVOKE ALL PRIVILEGES ON FUNCTION "public"."user_search"(text) FROM PUBLIC},
+      []
+    )
+
+    %{rows: grantee_rows} =
+      Postgrex.query!(conn, cnpg_pooler_auth_function_grantees_query_sql(), [])
+
+    Enum.each(grantee_rows, fn [role] ->
+      Postgrex.query!(conn, cnpg_pooler_auth_function_revoke_statement(role), [])
+    end)
+
+    Postgrex.query!(conn, cnpg_pooler_auth_function_grant_statement(), [])
+  end
+
+  defp normalize_sql_body(body) when is_binary(body) do
+    body
+    |> String.trim()
+    |> String.replace(~r/\s+/, " ")
+  end
+
+  defp normalize_sql_body(_body), do: nil
 
   defp ensure_schema_owner!(conn, schema, app_user) do
     if admin_schema_exists?(conn, schema) do
