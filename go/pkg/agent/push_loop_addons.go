@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -48,7 +49,8 @@ func addonCapabilities(statuses []agentaddon.Status) []string {
 // Add-on delivery/supervision identifiers carried in AddonAssignmentConfig.
 // These mirror the control-plane Ash enums.
 const (
-	addonDeliveryPushedArtifact = "pushed_artifact"
+	addonDeliveryPushedArtifact  = "pushed_artifact"
+	defaultNetprobeIPCSocketPath = "/run/serviceradar/netprobe/ipc.sock"
 
 	addonSupervisionAgentSidecar    = "agent_sidecar"
 	addonSupervisionConfigToggle    = "config_toggle"
@@ -632,8 +634,37 @@ func (p *PushLoop) applySystemdAddon(
 	delivery, supervision string,
 	now time.Time,
 ) addonDeliveryDisposition {
+	return p.applySystemdAddonAtRoot(
+		ctx,
+		a,
+		delivery,
+		supervision,
+		now,
+		"",
+		p.systemdAddonRuntimeReady,
+		p.deliverAddonArtifact,
+		installStagedAddonSystemdUnitsViaUpdater,
+	)
+}
+
+type systemdAddonRuntimeReadyFn func(context.Context, *proto.AddonAssignmentConfig, string) bool
+type deliverAddonArtifactFn func(context.Context, *proto.AddonAssignmentConfig, string, time.Time) (string, addonDeliveryDisposition, error)
+
+// applySystemdAddonAtRoot is the testable core of applySystemdAddon. Production always
+// supplies the fixed runtime root and privileged updater; focused tests use a temporary
+// staging root and recorder functions to verify the unchanged-vs-reconcile decision.
+func (p *PushLoop) applySystemdAddonAtRoot(
+	ctx context.Context,
+	a *proto.AddonAssignmentConfig,
+	delivery, supervision string,
+	now time.Time,
+	runtimeRoot string,
+	runtimeReady systemdAddonRuntimeReadyFn,
+	deliver deliverAddonArtifactFn,
+	install installUnitsFn,
+) addonDeliveryDisposition {
 	if delivery == addonDeliveryPushedArtifact && a.GetArtifactObjectKey() != "" &&
-		p.systemdAddonAssignmentCurrent(a, "") && p.systemdAddonPrimaryUnitActive(ctx, a, supervision) {
+		p.systemdAddonAssignmentCurrent(a, runtimeRoot) && runtimeReady(ctx, a, supervision) {
 		p.logger.Debug().
 			Str("addon", a.GetAddonId()).
 			Str("version", a.GetVersion()).
@@ -643,17 +674,17 @@ func (p *PushLoop) applySystemdAddon(
 		return addonDeliverySucceeded
 	}
 
-	root := resolveAddonArtifactRoot("")
+	root := resolveAddonArtifactRoot(runtimeRoot)
 	priorTarget, _ := readAddonCurrentTarget(filepath.Join(root, a.GetAddonId()))
 
-	if _, disposition, err := p.deliverAddonArtifact(ctx, a, delivery, now); err != nil {
+	if _, disposition, err := deliver(ctx, a, delivery, now); err != nil {
 		p.logSidecarDeliveryFailure(a, err, disposition,
 			"Systemd add-on delivery failed; leaving current state unchanged")
 
 		return disposition
 	}
 
-	if err := applyStagedAddonRuntimeConfig("", a); err != nil {
+	if err := applyStagedAddonRuntimeConfig(runtimeRoot, a); err != nil {
 		if rbErr := rollbackAddonCurrent(root, a.GetAddonId(), priorTarget); rbErr != nil {
 			p.logger.Error().Err(rbErr).Str("addon", a.GetAddonId()).Msg("Rollback failed after systemd add-on config write failure")
 		}
@@ -669,7 +700,7 @@ func (p *PushLoop) applySystemdAddon(
 		return disposition
 	}
 
-	if !p.reconcileStagedSystemdUnits(ctx, a, supervision, "", priorTarget, installStagedAddonSystemdUnitsViaUpdater) {
+	if !p.reconcileStagedSystemdUnits(ctx, a, supervision, runtimeRoot, priorTarget, install) {
 		// Unit discovery/install failure: treat as transient (the agent-updater may be
 		// momentarily unavailable) so the ack defers and the install is retried promptly.
 		return addonDeliveryTransientFailure
@@ -714,14 +745,14 @@ func (p *PushLoop) systemdAddonAssignmentCurrent(a *proto.AddonAssignmentConfig,
 		)
 }
 
-// systemdAddonPrimaryUnitActive reports whether the add-on's primary (enable) systemd unit
-// is actually present and active on the host. The staged-artifact/activation-metadata
-// checks in systemdAddonAssignmentCurrent only prove the bundle is on disk; they do not
-// catch a unit file that was never installed or was removed/stopped out-of-band (e.g. the
-// netprobe sidecar unit going missing, which silently freezes process-listener snapshots).
-// Gating the unchanged-skip on this lets the next delivery/poll re-install + re-enable a
-// vanished or stopped unit instead of treating the add-on as healthy forever.
-func (p *PushLoop) systemdAddonPrimaryUnitActive(ctx context.Context, a *proto.AddonAssignmentConfig, supervision string) bool {
+// systemdAddonRuntimeReady reports whether the add-on's primary unit is active and any
+// required runtime endpoint is present. The staged-artifact/activation-metadata checks in
+// systemdAddonAssignmentCurrent only prove the bundle is on disk. In particular, legacy
+// agent units can remove netprobe's shared runtime tree during an agent self-update while
+// systemd still reports netprobe active. Requiring the IPC socket makes the new agent's
+// next poll reinstall and restart netprobe through the old updater, healing each legacy-unit
+// restart until a package upgrade permanently installs the agent service drop-in.
+func (p *PushLoop) systemdAddonRuntimeReady(ctx context.Context, a *proto.AddonAssignmentConfig, supervision string) bool {
 	units := p.systemdAddonUnits(a.GetAddonId())
 	if len(units) == 0 {
 		return false
@@ -732,16 +763,50 @@ func (p *PushLoop) systemdAddonPrimaryUnitActive(ctx context.Context, a *proto.A
 		return false
 	}
 
-	if systemdUnitActive(ctx, enable) {
+	active := systemdUnitActive(ctx, enable)
+	socketPath := ""
+	if a.GetAddonId() == agentnetprobe.DefaultSidecarName && supervision == addonSupervisionSystemdService {
+		socketPath = p.netprobeIPCSocketPath()
+	}
+	if systemdAddonRuntimeEndpointReady(active, a.GetAddonId(), supervision, socketPath) {
 		return true
 	}
 
-	p.logger.Warn().
+	event := p.logger.Warn().
 		Str("addon", a.GetAddonId()).
-		Str("unit", enable).
-		Msg("Add-on systemd unit is missing or inactive; reconciling (reinstall + enable)")
+		Str("unit", enable)
+	if active && socketPath != "" {
+		event.Str("socket", socketPath).
+			Msg("Add-on systemd unit is active but its IPC socket is missing; reconciling (reinstall + restart)")
+	} else {
+		event.Msg("Add-on systemd unit is missing or inactive; reconciling (reinstall + enable)")
+	}
 
 	return false
+}
+
+func (p *PushLoop) netprobeIPCSocketPath() string {
+	if p != nil && p.server != nil && p.server.sidecarStatus != nil {
+		for _, status := range p.server.sidecarStatus.Status() {
+			if status.Name == agentnetprobe.DefaultSidecarName && strings.TrimSpace(status.SocketPath) != "" {
+				return strings.TrimSpace(status.SocketPath)
+			}
+		}
+	}
+
+	return defaultNetprobeIPCSocketPath
+}
+
+func systemdAddonRuntimeEndpointReady(active bool, addonID, supervision, socketPath string) bool {
+	if !active {
+		return false
+	}
+	if addonID != agentnetprobe.DefaultSidecarName || supervision != addonSupervisionSystemdService {
+		return true
+	}
+
+	info, err := os.Stat(socketPath)
+	return err == nil && info.Mode()&os.ModeSocket != 0
 }
 
 // systemdUnitActive reports whether a systemd unit is currently active. is-active is a

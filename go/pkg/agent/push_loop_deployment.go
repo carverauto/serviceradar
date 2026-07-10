@@ -23,6 +23,7 @@ import (
 )
 
 const (
+	linuxOS                  = "linux"
 	deploymentTypeBareMetal  = "bare-metal"
 	deploymentTypeContainer  = "container"
 	deploymentTypeDocker     = "docker"
@@ -175,7 +176,7 @@ func procEnvironValue(content []byte, key string) string {
 }
 
 func supportsHostNetworkVisibility(goos, deploymentType string) bool {
-	return goos == "linux" && deploymentType == deploymentTypeBareMetal
+	return goos == linuxOS && deploymentType == deploymentTypeBareMetal
 }
 
 func runtimeSupportsHostNetworkVisibility() bool {

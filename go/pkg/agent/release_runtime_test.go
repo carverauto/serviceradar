@@ -1,10 +1,12 @@
 package agent
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -59,6 +61,107 @@ func TestActivateAndCompleteReleaseActivation(t *testing.T) {
 	}
 	if report.Payload["status"] != "healthy" {
 		t.Fatalf("expected healthy status, got %#v", report.Payload)
+	}
+}
+
+func TestActivateStagedReleaseRunsHostMigrationBeforeSwitch(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	seedTarget := filepath.Join(releaseVersionsDirName, releaseSeedVersionDir)
+	for _, dir := range []string{
+		filepath.Join(runtimeRoot, seedTarget),
+		filepath.Join(runtimeRoot, releaseVersionsDirName, "1.2.3"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) error = %v", dir, err)
+		}
+	}
+	currentPath := filepath.Join(runtimeRoot, releaseCurrentLinkName)
+	if err := os.Symlink(seedTarget, currentPath); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	migrationErr := fmt.Errorf("daemon-reload failed: %w", os.ErrInvalid)
+	err := activateStagedRelease(ReleaseActivationConfig{
+		RuntimeRoot:      runtimeRoot,
+		Version:          "1.2.3",
+		CommandID:        "cb128844-d63b-4720-a22d-647e784e5ff8",
+		CommandType:      commandTypeAgentUpdate,
+		RollbackDeadline: time.Minute,
+	}, func(gotRuntimeRoot string) error {
+		if gotRuntimeRoot != runtimeRoot {
+			t.Fatalf("migration runtime root = %q, want %q", gotRuntimeRoot, runtimeRoot)
+		}
+		currentTarget, readErr := os.Readlink(currentPath)
+		if readErr != nil {
+			t.Fatalf("Readlink() during migration error = %v", readErr)
+		}
+		if currentTarget != seedTarget {
+			t.Fatalf("current target during migration = %q, want %q", currentTarget, seedTarget)
+		}
+		return migrationErr
+	})
+	if !errors.Is(err, migrationErr) {
+		t.Fatalf("activateStagedRelease() error = %v, want migration error", err)
+	}
+
+	currentTarget, err := os.Readlink(currentPath)
+	if err != nil {
+		t.Fatalf("Readlink() after failed migration error = %v", err)
+	}
+	if currentTarget != seedTarget {
+		t.Fatalf("current target after failed migration = %q, want %q", currentTarget, seedTarget)
+	}
+	if _, err := os.Stat(filepath.Join(runtimeRoot, releaseActivationState)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("activation state exists after failed migration: %v", err)
+	}
+}
+
+func TestInstallAgentSharedRuntimeDropIn(t *testing.T) {
+	unitDir := t.TempDir()
+	var systemctlCalls [][]string
+
+	err := installAgentSharedRuntimeDropIn(
+		context.Background(),
+		unitDir,
+		func(_ context.Context, args ...string) error {
+			systemctlCalls = append(systemctlCalls, append([]string(nil), args...))
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("installAgentSharedRuntimeDropIn() error = %v", err)
+	}
+
+	dropInPath := filepath.Join(unitDir, agentServiceUnitName+".d", agentSharedRuntimeDropInName)
+	data, err := os.ReadFile(dropInPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", dropInPath, err)
+	}
+	if got := string(data); got != agentSharedRuntimeDropInContents {
+		t.Fatalf("drop-in contents = %q, want %q", got, agentSharedRuntimeDropInContents)
+	}
+	info, err := os.Stat(dropInPath)
+	if err != nil {
+		t.Fatalf("Stat(%q) error = %v", dropInPath, err)
+	}
+	if got, want := info.Mode().Perm(), os.FileMode(systemdUnitFileMode); got != want {
+		t.Fatalf("drop-in mode = %o, want %o", got, want)
+	}
+	if want := [][]string{{"daemon-reload"}}; !reflect.DeepEqual(systemctlCalls, want) {
+		t.Fatalf("systemctl calls = %#v, want %#v", systemctlCalls, want)
+	}
+}
+
+func TestPackagedAgentSharedRuntimeDropInMatchesUpdaterMigration(t *testing.T) {
+	path := filepath.Join(
+		"..", "..", "..", "build", "packaging", "agent", "systemd", agentSharedRuntimeDropInName,
+	)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read packaged agent runtime drop-in: %v", err)
+	}
+	if got := string(data); got != agentSharedRuntimeDropInContents {
+		t.Fatalf("packaged drop-in diverges from updater migration:\n%s", got)
 	}
 }
 
