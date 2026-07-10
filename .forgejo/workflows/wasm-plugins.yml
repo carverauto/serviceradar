@@ -28,7 +28,7 @@ jobs:
   publish:
     runs-on: serviceradar-signing
     container:
-      image: registry.carverauto.dev/serviceradar/forgejo-ci@sha256:4da98b050cbbbc66e6c823977a80a7b67db51a610e48c28fc2e066c1bb164a79
+      image: registry.carverauto.dev/serviceradar/forgejo-ci
       options: --user 1000:1000 --group-add 2375 --volume /var/run/secrets/kubernetes.io/serviceaccount/token:/var/run/secrets/kubernetes.io/serviceaccount/token:ro
     enable-openid-connect: true
     environment: release
