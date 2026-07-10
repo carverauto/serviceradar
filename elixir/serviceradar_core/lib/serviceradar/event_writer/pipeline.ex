@@ -23,7 +23,6 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   use Broadway
 
   alias Broadway.Message
-  alias OpenTelemetry.Tracer
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.EventWriter.Processors.Events
@@ -154,45 +153,22 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   end
 
   defp with_current_tracer_span(name, start_opts, fun) do
-    :otel_tracer.with_span(current_tracer(), name, Map.new(start_opts), fn _span_ctx ->
-      try do
-        fun.()
-      rescue
-        exception ->
-          Tracer.record_exception(exception, __STACKTRACE__)
-          Otel.set_error(Exception.message(exception))
-          reraise exception, __STACKTRACE__
-      catch
-        kind, reason ->
-          Otel.set_error(Exception.format_banner(kind, reason))
-          :erlang.raise(kind, reason, __STACKTRACE__)
-      end
-    end)
+    Otel.span_with_tracer(current_tracer(), name, start_opts, fun)
   end
 
   # Application tracers survive SDK restarts in persistent_term. Key the hot-path
   # cache by provider PID so a restarted provider is queried exactly once per worker.
   defp current_tracer do
-    provider = Process.whereis(:otel_tracer_provider_global)
+    provider = Otel.provider_identity()
 
     case Process.get(@tracer_cache_key) do
       {^provider, tracer} ->
         tracer
 
       _stale_or_missing ->
-        tracer = fetch_current_tracer(provider)
+        tracer = Otel.tracer_for_application(__MODULE__, provider)
         Process.put(@tracer_cache_key, {provider, tracer})
         tracer
-    end
-  end
-
-  defp fetch_current_tracer(_provider) do
-    case :opentelemetry.get_application(__MODULE__) do
-      {name, version, schema_url} ->
-        :otel_tracer_provider.get_tracer(name, version, schema_url)
-
-      _unknown_application ->
-        :otel_tracer_provider.get_tracer(__MODULE__, :undefined, :undefined)
     end
   end
 
