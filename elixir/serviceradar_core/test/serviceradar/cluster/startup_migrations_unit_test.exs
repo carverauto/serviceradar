@@ -21,11 +21,26 @@ defmodule ServiceRadar.Cluster.StartupMigrationsUnitTest do
     sql = StartupMigrations.managed_database_ownership_repair_needed_sql()
 
     assert sql =~ "n.nspname = 'platform'"
-    assert sql =~ "n.nspname IN ('platform', 'public')"
+
+    assert sql =~
+             "p.oid = to_regprocedure('public.age_device_neighborhood(text,boolean,boolean)')"
+
+    refute sql =~ "n.nspname IN ('platform', 'public')"
     assert sql =~ "c.relkind IN ('r', 'p', 'S', 'v', 'm', 'f')"
     assert sql =~ "d.deptype = 'e'"
     assert sql =~ "owner_rel.relkind = 'r'"
     assert sql =~ "p.proowner <> r.oid"
+  end
+
+  test "function ownership repair excludes unrelated public functions" do
+    sql = StartupMigrations.managed_function_ownership_query_sql()
+
+    assert sql =~ "n.nspname = 'platform'"
+
+    assert sql =~
+             "p.oid = to_regprocedure('public.age_device_neighborhood(text,boolean,boolean)')"
+
+    refute sql =~ "n.nspname IN ('platform', 'public')"
   end
 
   test "function ownership statement quotes identifiers and preserves identity args" do

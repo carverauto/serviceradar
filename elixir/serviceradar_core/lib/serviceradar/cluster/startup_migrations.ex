@@ -17,6 +17,7 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   @baseline_dir "priv/repo/baseline"
   @baseline_metadata_file "metadata.json"
   @max_migration_repair_attempts 500
+  @managed_public_function "public.age_device_neighborhood(text,boolean,boolean)"
 
   def child_spec(_opts) do
     %{
@@ -600,7 +601,10 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
         ON d.classid = 'pg_proc'::regclass
        AND d.objid = p.oid
        AND d.deptype = 'e'
-      WHERE n.nspname IN ('platform', 'public')
+      WHERE (
+          n.nspname = 'platform'
+          OR p.oid = to_regprocedure('#{@managed_public_function}')
+        )
         AND d.objid IS NULL
         AND p.proowner <> r.oid
     )
@@ -737,26 +741,34 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     %{rows: rows} =
       Postgrex.query!(
         conn,
-        """
-        SELECT n.nspname, p.proname, pg_get_function_identity_arguments(p.oid) AS args
-        FROM pg_proc p
-        JOIN pg_namespace n ON n.oid = p.pronamespace
-        JOIN pg_roles r ON r.rolname = $1
-        LEFT JOIN pg_depend d
-          ON d.classid = 'pg_proc'::regclass
-         AND d.objid = p.oid
-         AND d.deptype = 'e'
-        WHERE n.nspname IN ('platform', 'public')
-          AND d.objid IS NULL
-          AND p.proowner <> r.oid
-        ORDER BY n.nspname, p.proname, pg_get_function_identity_arguments(p.oid)
-        """,
+        managed_function_ownership_query_sql(),
         [app_user]
       )
 
     Enum.each(rows, fn [schema, name, args] ->
       Postgrex.query!(conn, function_ownership_statement(schema, name, args, app_user), [])
     end)
+  end
+
+  @doc false
+  def managed_function_ownership_query_sql do
+    """
+    SELECT n.nspname, p.proname, pg_get_function_identity_arguments(p.oid) AS args
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    JOIN pg_roles r ON r.rolname = $1
+    LEFT JOIN pg_depend d
+      ON d.classid = 'pg_proc'::regclass
+     AND d.objid = p.oid
+     AND d.deptype = 'e'
+    WHERE (
+        n.nspname = 'platform'
+        OR p.oid = to_regprocedure('#{@managed_public_function}')
+      )
+      AND d.objid IS NULL
+      AND p.proowner <> r.oid
+    ORDER BY n.nspname, p.proname, pg_get_function_identity_arguments(p.oid)
+    """
   end
 
   @doc false

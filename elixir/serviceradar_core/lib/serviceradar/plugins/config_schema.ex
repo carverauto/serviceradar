@@ -9,7 +9,7 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
   @allowed_root_keys ~w($schema type title description properties required additionalProperties)
   @allowed_property_keys ~w(
     type title description default enum minimum maximum minLength maxLength pattern format items
-    properties required additionalProperties secretRef
+    minItems maxItems uniqueItems properties required additionalProperties secretRef
   )
   @allowed_types ~w(string integer number boolean array object)
 
@@ -240,6 +240,7 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
     |> validate_enum(schema, path)
     |> validate_string_constraints(schema, path)
     |> validate_number_constraints(schema, path)
+    |> validate_array_constraints(schema, path)
     |> validate_format(schema, path)
     |> validate_items(schema, path)
     |> validate_secret_ref(schema, path)
@@ -270,6 +271,38 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
       |> validate_number(schema, "maximum", path)
     else
       errors
+    end
+  end
+
+  defp validate_array_constraints(errors, schema, path) do
+    if Map.get(schema, "type") == "array" do
+      errors
+      |> validate_integer(schema, "minItems", path)
+      |> validate_integer(schema, "maxItems", path)
+      |> validate_unique_items(schema, path)
+      |> validate_array_bounds(schema, path)
+    else
+      errors
+    end
+  end
+
+  defp validate_unique_items(errors, schema, path) do
+    case Map.get(schema, "uniqueItems") do
+      nil -> errors
+      value when is_boolean(value) -> errors
+      _ -> ["#{path}.uniqueItems must be a boolean" | errors]
+    end
+  end
+
+  defp validate_array_bounds(errors, schema, path) do
+    case {Map.get(schema, "minItems"), Map.get(schema, "maxItems")} do
+      {minimum, maximum}
+      when is_integer(minimum) and minimum >= 0 and is_integer(maximum) and maximum >= 0 and
+             minimum > maximum ->
+        ["#{path}.minItems must be less than or equal to maxItems" | errors]
+
+      _ ->
+        errors
     end
   end
 
