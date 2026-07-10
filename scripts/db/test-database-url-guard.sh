@@ -36,13 +36,16 @@ PY
 serviceradar_assert_test_database_url() {
   local url="$1"
   local database_name
+  local database_name_lower
 
   if ! database_name="$(serviceradar_database_name_from_url "${url}")"; then
     echo "refusing destructive database operation: URL has an empty or malformed database name" >&2
     return 1
   fi
 
-  if [[ "${database_name,,}" =~ (^|_)test(_|$) ]]; then
+  database_name_lower="$(printf '%s' "${database_name}" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+
+  if [[ "${database_name_lower}" =~ (^|_)test(_|$) ]]; then
     return 0
   fi
 

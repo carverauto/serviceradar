@@ -43,6 +43,7 @@ expect_pass "test"
 expect_pass "test_core"
 expect_pass "core_test"
 expect_pass "core_test_db"
+expect_pass "SR_CORE_TEST_2000000000_12_1"
 
 expect_fail "postgres://user:secret@database.example/serviceradar"
 expect_fail "postgres://user:secret@database.example/contest"
