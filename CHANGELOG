@@ -41,6 +41,10 @@ configuration-delivery hardening.
   fail closed instead of falling back to stale legacy plaintext. Concurrent
   same-device inserts that lose the active-IP uniqueness race retry once after
   the winning row becomes visible, while persistent conflicts still surface.
+  Health timelines use a database sequence instead of second-resolution
+  timestamps for current-state ordering, and stateful alert evaluation now
+  uses bounded admission with synchronous backpressure when the queue is full
+  or unavailable instead of dropping an evaluation.
 - Device identity safety: ships the Armis over-merge disposition dormant and
   dry-run-first. Execute remains runtime-gated, processes ghost records by
   default, requires exact device/source allowlists for live records, rejects
