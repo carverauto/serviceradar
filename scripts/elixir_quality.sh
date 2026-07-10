@@ -75,19 +75,29 @@ run() {
 pushd "${project}" >/dev/null
 
 run mix deps.get
-run mix deps.compile
 
-if grep -q "{:serviceradar_srql" mix.exs; then
-  run mix deps.compile serviceradar_srql --force
+mix_env="${MIX_ENV:-dev}"
+mix_build_path="${MIX_BUILD_PATH:-_build/${mix_env}}"
+srql_build_path="${mix_build_path}/lib/serviceradar_srql"
+core_build_path="${mix_build_path}/lib/serviceradar_core"
+mix_dependencies="$(mix deps)"
+
+# Restored BEAM caches can retain a priv symlink whose uncached NIF target is
+# missing. Repair SRQL before compiling anything that may load core modules.
+if grep -q '^\* serviceradar_srql ' <<<"${mix_dependencies}" &&
+  { [[ -d "${srql_build_path}" ]] || [[ -d "${core_build_path}" ]]; } &&
+  [[ ! -f "${srql_build_path}/priv/native/srql_nif.so" ]]; then
+  run mix deps.compile serviceradar_srql --force --include-children
 fi
 
-# A restored _build caches core BEAM files, but its priv symlink targets uncached
-# source files.
-if grep -q "{:serviceradar_core" mix.exs &&
-  { [[ ! -f "../serviceradar_core/priv/native/anomaly_disposition_nif.so" ]] ||
-    [[ ! -f "../serviceradar_core/priv/native/zen_nif.so" ]]; }; then
+if grep -q '^\* serviceradar_core ' <<<"${mix_dependencies}" &&
+  [[ -d "${core_build_path}" ]] &&
+  { [[ ! -f "${core_build_path}/priv/native/anomaly_disposition_nif.so" ]] ||
+    [[ ! -f "${core_build_path}/priv/native/zen_nif.so" ]]; }; then
   run mix deps.compile serviceradar_core --force
 fi
+
+run mix deps.compile
 
 run mix format --check-formatted
 
