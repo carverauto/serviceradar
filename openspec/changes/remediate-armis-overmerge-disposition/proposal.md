@@ -17,29 +17,34 @@ Two of the three phases are already done:
   disjoint, so new ingest never re-collapses distinct hardware.
 - **Ghost cleanup + holding pattern (done, live/manual).** A live operation
   tombstoned the affected devices with `deleted_reason =
-  'armis_source_device_id_ghost_cleanup'`, leaving ~389k **sole-copy** `mac`
-  identifier rows (their only copy points at a tombstoned ghost). Both
-  maintenance workers were guarded to hold this data stable:
+  'armis_source_device_id_ghost_cleanup'`. The original operation was documented
+  as leaving ~389k **sole-copy** `mac` identifier rows on those ghosts. A
+  2026-07-09 observation instead found 36,676 protected ghost tombstones owning
+  zero `mac` identifier rows, so ~389k remains historical planning context, not
+  a current inventory claim. Both maintenance workers were guarded to hold any
+  such data stable:
   `DeviceIdentifierGcWorker` never GCs a `mac` row whose parent device carries
   that `deleted_reason` (`device_identifier_gc_worker.ex:170-182`), and
   `DeviceCleanupWorker` never hard-deletes those tombstones
   (`device_cleanup_worker.ex:151`). Both guards are explicitly labelled
   "Remove once disposition completes."
 
-The **disposition itself is unbuilt**. Nothing reconstructs the correct
-per-hardware devices or reassigns the ~389k orphaned `mac` rows to them, and the
-`armis-dups` remediation step goes the *wrong* direction (it collapses onto one
-canonical) and is disabled by default (`dire_remediation.ex:19-35`). Because the
-collapse happened at ingest-resolve time — not via `merge_devices` — there is
+Before this change, the **disposition itself was unbuilt**. Nothing reconstructed
+the correct per-hardware devices or reassigned any orphaned `mac` rows found by
+live scoping, and the `armis-dups` remediation step went the *wrong* direction
+(it collapses onto one canonical) and was disabled by default
+(`dire_remediation.ex:19-35`). Because the collapse happened at ingest-resolve
+time — not via `merge_devices` — there is
 **no `merge_audit` to reverse** (most collapses left no audit row; where rows
 exist they never recorded the moved MAC identifiers), so the existing
 `IdentityReconciler.unmerge_device/2` cannot be used. This is exactly the reason
 `agent_links.ex` reconstructs the worker-chimera split from ground truth instead
 of calling `unmerge_device`.
 
-The guards are a holding pattern, not a fix: the orphaned hardware identity is
-frozen but never restored, and the guards must stay in place indefinitely until
-the disposition runs. This change designs and builds that disposition.
+The guards are a holding pattern, not a fix: they protect the tombstone
+population but cannot reconstruct hardware identity, and they must stay in place
+until disposition verification completes. This change designs and builds that
+disposition.
 
 ## What Changes
 
@@ -90,8 +95,9 @@ the disposition runs. This change designs and builds that disposition.
     separately gated guard-removal follow-up
 - Affected data: `platform.ocsf_devices` (reconstruct/restore per-hardware
   devices while protected ghost tombstones remain guarded),
-  `platform.device_identifiers` (reassign
-  ~389k sole-copy `mac` rows — audited, TTL-reset), `platform.merge_audit`
+  `platform.device_identifiers` (reassign any scoped sole-copy `mac` rows —
+  audited, TTL-reset; the 2026-07-09 observation found zero on 36,676 protected
+  ghosts), `platform.merge_audit`
   (one `unmerge` row per split)
 - Depends on: `blob-purge` (step 1) having run so blob-hidden MACs are atomic
   before detection. Complements the completed

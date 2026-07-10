@@ -7,11 +7,12 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
   MAC (TTL reset), writes `unmerge` audits + a rollback manifest, and re-runs
   idempotently.
 
-  These tests run under the auto-commit sandbox (no per-test rollback), so every
-  assertion is scoped to this test's own unique identifiers.
+  Most tests run in a rollback-only database sandbox. The six tests that need
+  independent database connections are explicitly unboxed and clean every row
+  they commit.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   import Ecto.Query
 
@@ -52,9 +53,10 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     :ok
   end
 
-  setup do
+  setup context do
     config_key = DireRemediation
     previous_config = Application.get_env(:serviceradar_core, config_key, [])
+    agent_uid = unique("armis-unmerge-agent")
 
     Application.put_env(
       :serviceradar_core,
@@ -63,6 +65,12 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     )
 
     on_exit(fn -> Application.put_env(:serviceradar_core, config_key, previous_config) end)
+
+    seed_connected_agent!(agent_uid)
+
+    if context[:sandbox] == :unboxed do
+      on_exit(fn -> cleanup_unboxed_agent!(agent_uid) end)
+    end
 
     {:ok, actor: SystemActor.system(:armis_unmerge_test)}
   end
@@ -702,6 +710,7 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     assert owner_of_mac(split_mac) == device.uid
   end
 
+  @tag sandbox: :unboxed
   test "the owner barrier serializes a concurrent foreign identifier insert", %{actor: actor} do
     source = create_source!(actor)
     armis_id = unique("armis-concurrent-owner")
@@ -717,6 +726,11 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
         partition: "default"
       })
 
+    register_unboxed_cleanup!([source.id], [device.uid, foreign.uid, split_uid])
+
+    manifest_path = temporary_manifest_path("concurrent_owner")
+    manifest = Manifest.open(manifest_path, %{test: "concurrent_owner"})
+
     writer =
       hold_raw_mac_insert_async(
         foreign.uid,
@@ -726,35 +740,39 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
 
     writer_pid = writer.pid
 
-    on_exit(fn -> send(writer.pid, :commit) end)
-    assert_receive {:identifier_insert_held, ^writer_pid}, 5_000
+    try do
+      assert_receive {:identifier_insert_held, ^writer_pid}, 5_000
 
-    manifest_path = temporary_manifest_path("concurrent_owner")
-    manifest = Manifest.open(manifest_path, %{test: "concurrent_owner"})
+      runner =
+        Task.async(fn ->
+          ArmisUnmerge.run(:execute, execute_opts(device, source), manifest, actor)
+        end)
 
-    on_exit(fn ->
+      try do
+        assert wait_for_manifest_entry(manifest_path, "candidate_preflight")
+        assert wait_for_pending_owner_barrier()
+        send(writer.pid, :commit)
+        assert {:ok, :committed} = Task.await(writer, 5_000)
+
+        report = Task.await(runner, 15_000)
+
+        assert report.applied_splits == 0
+        assert report.split_failures == 1
+        assert owner_of_mac(split_mac) == device.uid
+        refute device_exists?(split_uid)
+      after
+        release_and_await_task(writer)
+        await_task_termination(runner, 15_000)
+      end
+    after
+      release_and_await_task(writer)
       Manifest.close(manifest)
       File.rm(manifest_path)
-    end)
-
-    runner =
-      Task.async(fn ->
-        ArmisUnmerge.run(:execute, execute_opts(device, source), manifest, actor)
-      end)
-
-    assert wait_for_manifest_entry(manifest_path, "candidate_preflight")
-    assert wait_for_pending_owner_barrier()
-    send(writer.pid, :commit)
-    assert {:ok, :committed} = Task.await(writer, 5_000)
-
-    report = Task.await(runner, 15_000)
-
-    assert report.applied_splits == 0
-    assert report.split_failures == 1
-    assert owner_of_mac(split_mac) == device.uid
-    refute device_exists?(split_uid)
+      cleanup_unboxed!([source.id], [device.uid, foreign.uid, split_uid])
+    end
   end
 
+  @tag sandbox: :unboxed
   test "owner-barrier lock timeout returns a structured failure and manifest path", %{
     actor: actor
   } do
@@ -770,42 +788,45 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
         split_mac
       )
 
+    register_unboxed_cleanup!([source.id], [device.uid])
+
     locker = hold_owner_table_lock_async()
     manifest_path = temporary_manifest_path("lock_timeout")
 
-    on_exit(fn ->
+    try do
+      assert_receive {:owner_table_lock_held, locker_pid}, 5_000
+      assert locker_pid == locker.pid
+
+      assert {:error, {:step_failures, result}} =
+               DireRemediation.run(
+                 mode: :execute,
+                 steps: ["armis-unmerge"],
+                 manifest_path: manifest_path,
+                 actor: actor,
+                 armis_unmerge_include_live: true,
+                 armis_unmerge_live_device_uids: [device.uid],
+                 armis_unmerge_live_source_ids: [source.id]
+               )
+
+      report = result.reports["armis-unmerge"]
+      assert result.manifest_path == Path.expand(manifest_path)
+      assert result.failures["armis-unmerge"].split_failures == 1
+      assert report.applied_splits == 0
+      assert report.split_failures == 1
+      assert owner_of_mac(split_mac) == device.uid
+
+      manifest_lines = manifest_path |> File.read!() |> String.split("\n", trim: true)
+      assert Enum.any?(manifest_lines, &(&1 =~ "candidate_preflight"))
+      refute Enum.any?(manifest_lines, &(&1 =~ ~s("phase":"prepared")))
+      refute Enum.any?(manifest_lines, &(&1 =~ "candidate_committed"))
+
       send(locker.pid, :commit)
+      assert {:ok, :committed} = Task.await(locker, 5_000)
+    after
+      release_and_await_task(locker)
       File.rm(manifest_path)
-    end)
-
-    assert_receive {:owner_table_lock_held, locker_pid}, 5_000
-    assert locker_pid == locker.pid
-
-    assert {:error, {:step_failures, result}} =
-             DireRemediation.run(
-               mode: :execute,
-               steps: ["armis-unmerge"],
-               manifest_path: manifest_path,
-               actor: actor,
-               armis_unmerge_include_live: true,
-               armis_unmerge_live_device_uids: [device.uid],
-               armis_unmerge_live_source_ids: [source.id]
-             )
-
-    report = result.reports["armis-unmerge"]
-    assert result.manifest_path == Path.expand(manifest_path)
-    assert result.failures["armis-unmerge"].split_failures == 1
-    assert report.applied_splits == 0
-    assert report.split_failures == 1
-    assert owner_of_mac(split_mac) == device.uid
-
-    manifest_lines = manifest_path |> File.read!() |> String.split("\n", trim: true)
-    assert Enum.any?(manifest_lines, &(&1 =~ "candidate_preflight"))
-    refute Enum.any?(manifest_lines, &(&1 =~ ~s("phase":"prepared")))
-    refute Enum.any?(manifest_lines, &(&1 =~ "candidate_committed"))
-
-    send(locker.pid, :commit)
-    assert {:ok, :committed} = Task.await(locker, 5_000)
+      cleanup_unboxed!([source.id], [device.uid])
+    end
   end
 
   test "an existing deterministic split target is never adopted or overwritten", %{actor: actor} do
@@ -926,6 +947,7 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     assert owner_of_mac(split_mac) == device.uid
   end
 
+  @tag sandbox: :unboxed
   test "source state drift after planning rejects the candidate before mutation", %{actor: actor} do
     source = create_source!(actor)
     armis_id = unique("armis-stale-plan")
@@ -941,37 +963,46 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
         partition: "default"
       })
 
+    register_unboxed_cleanup!([source.id], [device.uid, split_uid])
+
     manifest_path = temporary_manifest_path("stale_plan")
     manifest = Manifest.open(manifest_path, %{test: "stale_plan"})
     writer = hold_source_device_update_async(device.uid, drifted_mac)
     writer_pid = writer.pid
 
-    on_exit(fn ->
-      send(writer.pid, :commit)
+    try do
+      assert_receive {:source_update_held, ^writer_pid}, 5_000
+
+      runner =
+        Task.async(fn ->
+          ArmisUnmerge.run(:execute, execute_opts(device, source), manifest, actor)
+        end)
+
+      try do
+        assert wait_for_manifest_entry(manifest_path, "candidate_preflight")
+        send(writer.pid, :commit)
+        assert {:ok, :committed} = Task.await(writer, 5_000)
+
+        report = Task.await(runner, 15_000)
+
+        assert report.applied_splits == 0
+        assert report.split_failures == 1
+        assert owner_of_mac(split_mac) == device.uid
+        assert device_mac(device.uid) == drifted_mac
+        refute device_exists?(split_uid)
+      after
+        release_and_await_task(writer)
+        await_task_termination(runner, 15_000)
+      end
+    after
+      release_and_await_task(writer)
       Manifest.close(manifest)
       File.rm(manifest_path)
-    end)
-
-    assert_receive {:source_update_held, ^writer_pid}, 5_000
-
-    runner =
-      Task.async(fn ->
-        ArmisUnmerge.run(:execute, execute_opts(device, source), manifest, actor)
-      end)
-
-    assert wait_for_manifest_entry(manifest_path, "candidate_preflight")
-    send(writer.pid, :commit)
-    assert {:ok, :committed} = Task.await(writer, 5_000)
-
-    report = Task.await(runner, 15_000)
-
-    assert report.applied_splits == 0
-    assert report.split_failures == 1
-    assert owner_of_mac(split_mac) == device.uid
-    assert device_mac(device.uid) == drifted_mac
-    refute device_exists?(split_uid)
+      cleanup_unboxed!([source.id], [device.uid, split_uid])
+    end
   end
 
+  @tag sandbox: :unboxed
   test "source identifier drift after planning rejects the candidate before mutation", %{
     actor: actor
   } do
@@ -987,37 +1018,61 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
         partition: "default"
       })
 
+    register_unboxed_cleanup!([source.id], [device.uid, split_uid])
+
     writer = hold_source_identifier_insert_async(device.uid, unique("agent-drift"))
     writer_pid = writer.pid
-    on_exit(fn -> send(writer.pid, :commit) end)
-    assert_receive {:source_identifier_insert_held, ^writer_pid}, 5_000
 
-    report = run_concurrent_execute(device, source, writer)
+    try do
+      assert_receive {:source_identifier_insert_held, ^writer_pid}, 5_000
 
-    assert report.applied_splits == 0
-    assert report.split_failures == 1
-    assert owner_of_mac(split_mac) == device.uid
-    refute device_exists?(split_uid)
+      report = run_concurrent_execute(device, source, writer)
+
+      assert report.applied_splits == 0
+      assert report.split_failures == 1
+      assert owner_of_mac(split_mac) == device.uid
+      refute device_exists?(split_uid)
+    after
+      release_and_await_task(writer)
+      cleanup_unboxed!([source.id], [device.uid, split_uid])
+    end
   end
 
+  @tag sandbox: :unboxed
   test "last_seen-only churn remains outside the ownership snapshot", %{actor: actor} do
     source = create_source!(actor)
     armis_id = unique("armis-timestamp-churn")
+    survivor_mac = universal_mac()
     split_mac = universal_mac()
-    device = seed_verified_live_candidate!(actor, source.id, armis_id, universal_mac(), split_mac)
+    device = seed_verified_live_candidate!(actor, source.id, armis_id, survivor_mac, split_mac)
+
+    split_uid =
+      Ids.generate_deterministic_device_id(%{
+        armis_id: armis_id,
+        mac: split_mac,
+        partition: "default"
+      })
+
+    register_unboxed_cleanup!([source.id], [device.uid, split_uid])
 
     writer = hold_identifier_timestamp_update_async(device.uid, split_mac)
     writer_pid = writer.pid
-    on_exit(fn -> send(writer.pid, :commit) end)
-    assert_receive {:identifier_timestamp_update_held, ^writer_pid}, 5_000
 
-    report = run_concurrent_execute(device, source, writer)
+    try do
+      assert_receive {:identifier_timestamp_update_held, ^writer_pid}, 5_000
 
-    assert report.applied_splits == 1
-    assert report.split_failures == 0
-    assert owner_of_mac(split_mac) != device.uid
+      report = run_concurrent_execute(device, source, writer)
+
+      assert report.applied_splits == 1
+      assert report.split_failures == 0
+      assert owner_of_mac(split_mac) == split_uid
+    after
+      release_and_await_task(writer)
+      cleanup_unboxed!([source.id], [device.uid, split_uid])
+    end
   end
 
+  @tag sandbox: :unboxed
   test "prepared-manifest failure rolls back the candidate and halts execution", %{actor: actor} do
     source = create_source!(actor)
     armis_id = unique("armis-manifest-prepare")
@@ -1032,38 +1087,46 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
         partition: "default"
       })
 
+    register_unboxed_cleanup!([source.id], [device.uid, split_uid])
+
     manifest_path = temporary_manifest_path("prepare_failure")
     manifest = Manifest.open(manifest_path, %{test: "prepare_failure"})
     writer = hold_source_device_update_async(device.uid, nil)
     writer_pid = writer.pid
 
-    on_exit(fn ->
-      send(writer.pid, :commit)
+    try do
+      assert_receive {:source_update_held, ^writer_pid}, 5_000
+
+      runner =
+        Task.async(fn ->
+          ArmisUnmerge.run(:execute, execute_opts(device, source), manifest, actor)
+        end)
+
+      try do
+        assert wait_for_manifest_entry(manifest_path, "candidate_preflight")
+        Manifest.close(manifest)
+        send(writer.pid, :commit)
+        assert {:ok, :committed} = Task.await(writer, 5_000)
+
+        report = Task.await(runner, 15_000)
+
+        assert report.applied_splits == 0
+        assert report.split_failures == 1
+        assert report.manifest_failures == 1
+        assert owner_of_mac(survivor_mac) == device.uid
+        assert owner_of_mac(split_mac) == device.uid
+        refute device_exists?(split_uid)
+        assert unmerge_audit_count(device.uid) == 0
+      after
+        release_and_await_task(writer)
+        await_task_termination(runner, 15_000)
+      end
+    after
+      release_and_await_task(writer)
       Manifest.close(manifest)
       File.rm(manifest_path)
-    end)
-
-    assert_receive {:source_update_held, ^writer_pid}, 5_000
-
-    runner =
-      Task.async(fn ->
-        ArmisUnmerge.run(:execute, execute_opts(device, source), manifest, actor)
-      end)
-
-    assert wait_for_manifest_entry(manifest_path, "candidate_preflight")
-    Manifest.close(manifest)
-    send(writer.pid, :commit)
-    assert {:ok, :committed} = Task.await(writer, 5_000)
-
-    report = Task.await(runner, 15_000)
-
-    assert report.applied_splits == 0
-    assert report.split_failures == 1
-    assert report.manifest_failures == 1
-    assert owner_of_mac(survivor_mac) == device.uid
-    assert owner_of_mac(split_mac) == device.uid
-    refute device_exists?(split_uid)
-    assert unmerge_audit_count(device.uid) == 0
+      cleanup_unboxed!([source.id], [device.uid, split_uid])
+    end
   end
 
   test "committed-marker failure preserves committed mutations and reports failure", %{
@@ -1097,6 +1160,23 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
   end
 
   # -- seeding helpers -------------------------------------------------------
+
+  defp seed_connected_agent!(agent_uid) do
+    Repo.query!(
+      """
+      INSERT INTO platform.ocsf_agents
+        (uid, name, status, is_healthy, first_seen_time, last_seen_time, created_time)
+      VALUES
+        ($1, $1, 'connected', true, timezone('utc', now()),
+         timezone('utc', now()), timezone('utc', now()))
+      """,
+      [agent_uid]
+    )
+  end
+
+  defp cleanup_unboxed_agent!(agent_uid) do
+    Repo.query!("DELETE FROM platform.ocsf_agents WHERE uid = $1", [agent_uid])
+  end
 
   defp seed_armis_device!(actor, armis_id, mac, source_id \\ nil, uid \\ nil) do
     metadata =
@@ -1391,26 +1471,77 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     manifest_path = temporary_manifest_path("concurrent_source")
     manifest = Manifest.open(manifest_path, %{test: "concurrent_source"})
 
-    try do
-      runner =
-        Task.async(fn ->
-          ArmisUnmerge.run(
-            :execute,
-            execute_opts(device, source),
-            manifest,
-            SystemActor.system(:concurrent_execute)
-          )
-        end)
+    runner =
+      Task.async(fn ->
+        ArmisUnmerge.run(
+          :execute,
+          execute_opts(device, source),
+          manifest,
+          SystemActor.system(:concurrent_execute)
+        )
+      end)
 
+    try do
       assert wait_for_manifest_entry(manifest_path, "candidate_preflight")
       assert wait_for_pending_owner_barrier()
       send(writer.pid, :commit)
       assert {:ok, :committed} = Task.await(writer, 5_000)
       Task.await(runner, 15_000)
     after
+      release_and_await_task(writer)
+      await_task_termination(runner, 15_000)
       Manifest.close(manifest)
       File.rm(manifest_path)
     end
+  end
+
+  defp release_and_await_task(task, timeout \\ 5_000) do
+    if Process.alive?(task.pid) do
+      send(task.pid, :commit)
+      await_task_termination(task, timeout)
+    end
+
+    :ok
+  end
+
+  defp await_task_termination(task, timeout) do
+    if Process.alive?(task.pid) do
+      case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
+        {:ok, _result} -> :ok
+        {:exit, _reason} -> :ok
+        nil -> :ok
+      end
+    end
+
+    :ok
+  end
+
+  defp register_unboxed_cleanup!(source_ids, device_uids) do
+    on_exit(fn -> cleanup_unboxed!(source_ids, device_uids) end)
+  end
+
+  defp cleanup_unboxed!(source_ids, device_uids) do
+    device_uids = Enum.uniq(device_uids)
+
+    Repo.query!(
+      "DELETE FROM platform.merge_audit " <>
+        "WHERE from_device_id = ANY($1::text[]) OR to_device_id = ANY($1::text[])",
+      [device_uids]
+    )
+
+    Repo.query!(
+      "DELETE FROM platform.device_identifiers WHERE device_id = ANY($1::text[])",
+      [device_uids]
+    )
+
+    Repo.query!("DELETE FROM platform.ocsf_devices WHERE uid = ANY($1::text[])", [device_uids])
+
+    Repo.query!(
+      "DELETE FROM platform.integration_sources WHERE id::text = ANY($1::text[])",
+      [Enum.map(source_ids, &to_string/1)]
+    )
+
+    :ok
   end
 
   defp wait_for_manifest_entry(path, marker, attempts \\ 200)

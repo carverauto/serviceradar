@@ -23,9 +23,12 @@ whole design:
   a public `Identity.Mac` helper) or detection drifts from prevention.
 
 - **The ghost cleanup already froze the data.** Affected devices are tombstoned
-  (`deleted_reason = 'armis_source_device_id_ghost_cleanup'`) and their ~389k
-  sole-copy `mac` rows are guarded from GC/retention. Disposition operates on
-  that frozen population and, on completion, removes the guards.
+  (`deleted_reason = 'armis_source_device_id_ghost_cleanup'`). The original
+  operation estimated ~389k sole-copy `mac` rows, but a 2026-07-09 observation
+  found 36,676 protected ghost tombstones owning zero MAC rows. The guards still
+  freeze the tombstone population and any rows found by subsequent scoping;
+  disposition operates on that measured population and a later change removes
+  the guards only after verification.
 
 ## Goals
 
@@ -35,9 +38,12 @@ whole design:
   equals the canonical Armis-only ingest hash, but does not claim UID parity for
   enriched historical updates whose lost co-occurrence included other strong
   seeds.
-- Rescue the ~389k orphaned sole-copy `mac` rows onto their reconstructed
+- Rescue any scoped orphaned sole-copy `mac` rows onto their reconstructed
   devices via the audited, TTL-resetting `DeviceIdentifier :reassign_device`
-  before the TTL GC could ever reach them (reassign-before-delete).
+  before the TTL GC could ever reach them (reassign-before-delete). The
+  2026-07-09 observation found none on the protected ghost population, so
+  execution remains conditional on current scoping rather than the historical
+  estimate.
 - Ship dormant, dry-run by default, idempotent, fully manifest-audited, and
   provably the inverse of the ingest-time veto.
 - Remove the two `armis_source_device_id_ghost_cleanup` GC guards once
@@ -124,15 +130,14 @@ does not automatically rejoin MAC classes that belong to one multi-NIC host.
 
 To avoid creating a **new** `typed_id_on_multiple_devices` conflict (which the
 Armis northbound runner now skips on), the `armis_device_id` identifier must land
-on **exactly one** reconstructed device. Recommended default (mirroring
+on **exactly one** reconstructed device. The approved disposition (mirroring
 `armis_dups`' protected-owner ranking): the survivor class is the one carrying
 the device's genuine/agent-bound MAC (or, absent one, the lexically-lowest
-normalized universal MAC); it keeps the `armis_device_id`. The other reconstructed classes
-are MAC-only hardware devices with no Armis identity. **This is the primary
-decision needing operator confirmation** (see Open Questions) — the alternative
-(drop `armis_device_id` from all split devices, keeping it only on the
-tombstoned subnet-aggregate ghost) is also defensible if Armis genuinely tracks
-the subnet, not the host.
+normalized universal MAC); it keeps the `armis_device_id`. The other
+reconstructed classes are MAC-only hardware devices with no Armis identity.
+**This is the approved and implemented disposition.** The rejected alternative
+was to drop `armis_device_id` from all reconstructed devices and keep it only on
+a tombstoned subnet-aggregate ghost.
 
 ### Ordering and guard removal
 
@@ -197,7 +202,8 @@ first ships the step.
    materialized, `mac` rows reassigned + TTL reset, `unmerge` audits, manifest),
    re-run (idempotent), verify no new `typed_id_on_multiple_devices`.
 4. Live dry-run against the target deployment; review counts + MAC-count
-   distribution + the `armis_device_id` disposition decision with the operator.
+   distribution with the operator. The survivor-keeps-it `armis_device_id`
+   disposition is already approved and implemented.
 5. Batched execute in controlled windows; monitor identifier growth, cardinality
    anomalies, and northbound conflict counts.
 6. After verification (zero sole-copy `mac` rows on ghost tombstones), a separate
@@ -211,15 +217,13 @@ first ships the step.
   `endpoint_inventory`, interface metadata) to group co-occurring universal MACs,
   or does Phase 2 accept persistent per-distinct-MAC over-splitting? A later
   ingest does not automatically reunite the classes. Needs a look at live data.
-- **`armis_device_id` disposition.** Survivor-keeps-it (recommended) vs.
-  drop-from-all-split-devices (armis tracks the subnet aggregate). Depends on
-  what an `armis_device_id` semantically represents for this deployment — an
-  operator/Armis-domain decision, confirmable against the export.
 - **Ghost-tombstoned vs. live mega-device population.** The ghost cleanup
   tombstoned a `source_device_id`-keyed ghost subset; live mega-devices
   (`deleted_at IS NULL`) with ≥2 universal MACs may also exist un-cleaned. A live
   count of each population determines whether detection targets live rows,
-  ghost tombstones, or both, and how much of the ~389k is reachable.
+  ghost tombstones, or both. The 2026-07-09 observation found 36,676 protected
+  ghost tombstones owning zero MAC rows; the historical ~389k estimate must not
+  be used as current inventory.
 - **Threshold + batch sizing.** The MAC-count distribution (live) sets the split
   threshold and per-run batch caps so a large execute cannot wedge the
   maintenance queue.

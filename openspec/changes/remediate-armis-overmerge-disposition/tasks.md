@@ -15,8 +15,10 @@
     `FAKER-*` hostnames and the other two were also sourced by that faker
     integration. A MAC-count distribution and non-faker target population still
     need to be established, so this task remains open.
-- [ ] 1.2 Decide the `armis_device_id` disposition (survivor-keeps-it vs.
-  drop-from-all-split) with the operator/Armis-domain owner.
+- [x] 1.2 Approve and implement the `armis_device_id` disposition: the retained
+  survivor keeps the sole typed Armis identifier and reconstructed split
+  devices remain MAC-only. Tests assert a single typed owner and continued
+  northbound resolution through the survivor.
 - [ ] 1.3 Determine whether any co-occurrence provenance survives (mapper/source
   payload history, OCSF device history, interface metadata) to group multi-NIC
   hosts; otherwise confirm per-distinct-MAC over-split is acceptable.
