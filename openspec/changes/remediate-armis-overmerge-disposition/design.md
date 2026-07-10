@@ -77,10 +77,12 @@ excluded. A short `SHARE ROW EXCLUSIVE` barrier on both owner tables prevents
 ordinary ingest DML from racing absence checks. Canonical owners use the
 existing B-tree and legacy/display normalized tokens use concurrent GIN indexes;
 lock acquisition is capped at 5 seconds and candidate statements at 30 seconds.
-A synced manifest preflight precedes the transaction; exact prepared actions,
-including generated merge-audit IDs, are synced before database commit and a
-synced committed marker follows it. Manifest files are created exclusively and
-never overwrite prior rollback evidence.
+Lock/query timeout exceptions roll back the candidate and become inspectable,
+nonzero report failures rather than escaping the run. A synced manifest
+preflight precedes the transaction; exact prepared actions, including generated
+merge-audit IDs, are appended as one batch and synced once per candidate before
+database commit, and a synced committed marker follows it. Manifest files are
+created exclusively and never overwrite prior rollback evidence.
 
 ### Detection = one Armis-keyed device with ≥2 distinct universal atomic MACs
 
@@ -94,9 +96,14 @@ evidence. The universal filter is uppercase atomic 12-hex `mac` rows whose
 2nd hex char ∉ {2,3,6,7,A,B,E,F}. `≥2` is the floor, not a scalpel — the report
 surfaces the full MAC-count distribution so an operator sets an informed
 threshold (genuine multi-NIC hosts also clear `≥2`; mega-devices show dozens to
-hundreds). Detection runs only after `blob-purge` has atomized blob-hidden MACs;
-the step asserts zero non-atomic `mac` rows remain (or normalizes in Elixir via
-`Mac.normalize_mac_list`).
+hundreds). Every universal MAC row must carry the same canonical, nonblank
+partition; nil/blank rows report `missing_partition`, mixed values report
+`multiple_partitions`, and no default partition is synthesized. Detection runs
+only after `blob-purge` has atomized blob-hidden MACs; the step asserts zero
+non-atomic `mac` rows remain (or normalizes in Elixir via
+`Mac.normalize_mac_list`). A display MAC blob that resolves to more than one
+planned class reports `ambiguous_display_mac`; it cannot select a survivor from
+unordered set iteration.
 
 ### New split UIDs are stable remediation identifiers
 

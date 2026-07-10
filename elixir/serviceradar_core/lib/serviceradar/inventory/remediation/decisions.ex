@@ -330,8 +330,8 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
   typed MAC; the UID does not claim parity with enriched update shapes that
   carry additional strong seeds.
 
-    * `device` — `%{uid, mac, armis_device_id, partition, tombstoned?, live_overmerge_verified?}`
-    * `mac_rows` — `[%{id, value, last_seen}]`, universal atomic MAC identifier rows
+    * `device` — `%{uid, mac, armis_device_id, tombstoned?, live_overmerge_verified?}`
+    * `mac_rows` — `[%{id, value, partition}]`, universal atomic MAC identifier rows
 
   Returns `{:skip, :no_universal_mac | :single_universal_mac}` or
   `{:split, plan}` where `plan` carries the survivor and the per-class splits.
@@ -340,18 +340,27 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
   over-merge, and is skipped. A **tombstoned** ghost with even one universal MAC
   still yields a plan: its survivor action is `:restore`, giving the orphaned
   sole-copy MAC a live home again (the reassign-before-delete rescue).
+  Every universal row must carry the same canonical nonblank partition; no
+  default partition is synthesized by the planner.
   """
   @spec plan_armis_unmerge(map(), [map()]) :: {:skip, atom()} | {:split, map()}
   def plan_armis_unmerge(device, mac_rows) when is_map(device) and is_list(mac_rows) do
     classes = mac_classes(mac_rows)
-    partitions = universal_mac_partitions(mac_rows)
+    {missing_partition?, partitions} = universal_mac_partitions(mac_rows)
+    display_classes = display_mac_classes(device, classes)
 
     cond do
       map_size(classes) == 0 ->
         {:skip, :no_universal_mac}
 
-      length(partitions) > 1 ->
+      missing_partition? ->
+        {:skip, :missing_partition}
+
+      length(partitions) != 1 ->
         {:skip, :multiple_partitions}
+
+      length(display_classes) > 1 ->
+        {:skip, :ambiguous_display_mac}
 
       length(device[:typed_armis_rows] || []) != 1 ->
         {:skip, :ambiguous_typed_armis_identity}
@@ -376,8 +385,16 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
         {:skip, :single_universal_mac}
 
       true ->
-        {:split, build_armis_split_plan(device, classes)}
+        {:split, build_armis_split_plan(device, classes, hd(partitions))}
     end
+  end
+
+  defp display_mac_classes(device, classes) do
+    device[:mac]
+    |> Mac.universal_macs()
+    |> MapSet.to_list()
+    |> Enum.filter(&Map.has_key?(classes, &1))
+    |> Enum.sort()
   end
 
   # Group the universal MAC identifier rows by their (already atomic, uppercase)
@@ -392,16 +409,23 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
   end
 
   defp universal_mac_partitions(mac_rows) do
-    mac_rows
-    |> Enum.filter(fn row -> MapSet.size(Mac.universal_macs(row.value)) == 1 end)
-    |> Enum.map(& &1[:partition])
-    |> Enum.filter(&(is_binary(&1) and &1 != ""))
-    |> Enum.uniq()
+    values =
+      mac_rows
+      |> Enum.filter(fn row -> MapSet.size(Mac.universal_macs(row.value)) == 1 end)
+      |> Enum.map(fn row ->
+        case row[:partition] do
+          partition when is_binary(partition) ->
+            if String.trim(partition) == partition and partition != "", do: partition
+
+          _ ->
+            nil
+        end
+      end)
+
+    {Enum.any?(values, &is_nil/1), values |> Enum.reject(&is_nil/1) |> Enum.uniq()}
   end
 
-  defp build_armis_split_plan(device, classes) do
-    partition = normalize_partition(device)
-
+  defp build_armis_split_plan(device, classes, partition) do
     target_uids =
       Map.new(classes, fn {mac, _rows} -> {mac, armis_split_uid(device, mac, partition)} end)
 
@@ -465,10 +489,9 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
       |> List.first()
 
     device_mac =
-      device[:mac]
-      |> Mac.universal_macs()
-      |> MapSet.to_list()
-      |> Enum.find(&Map.has_key?(classes, &1))
+      device
+      |> display_mac_classes(classes)
+      |> List.first()
 
     deterministic_uid_mac || device_mac || deterministic_fallback_class(classes)
   end
@@ -493,12 +516,5 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
       mac: mac,
       partition: partition
     })
-  end
-
-  defp normalize_partition(device) do
-    case device[:partition] do
-      value when is_binary(value) and value != "" -> value
-      _ -> "default"
-    end
   end
 end

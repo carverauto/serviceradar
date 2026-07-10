@@ -308,7 +308,8 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
       )
     end
 
-    defp row(id, value, last_seen \\ nil), do: %{id: id, value: value, last_seen: last_seen}
+    defp row(id, value, last_seen \\ nil),
+      do: %{id: id, value: value, last_seen: last_seen, partition: "default"}
 
     test "no universal MAC -> skip (MAC-less / local-only collapses are unsplittable)" do
       assert {:skip, :no_universal_mac} = Decisions.plan_armis_unmerge(mega_device(), [])
@@ -396,6 +397,16 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
                "i1",
                "i3"
              ]
+    end
+
+    test "a multi-value display MAC matching multiple planned classes is ambiguous" do
+      rows = [row("i1", @mac_a), row("i2", @mac_b), row("i3", @mac_c)]
+
+      assert {:skip, :ambiguous_display_mac} =
+               Decisions.plan_armis_unmerge(
+                 mega_device(%{mac: "#{@mac_b},#{@mac_a}"}),
+                 rows
+               )
     end
 
     test "target UIDs are deterministic per {armis_id, mac, partition} and distinct per class" do
@@ -498,6 +509,18 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
 
       assert {:skip, :multiple_partitions} =
                Decisions.plan_armis_unmerge(mega_device(), rows)
+    end
+
+    test "every universal MAC row requires one canonical nonblank partition" do
+      base_rows = [row("i1", @mac_a), row("i2", @mac_b)]
+
+      for invalid <- [nil, "", "   ", " default "] do
+        rows =
+          List.replace_at(base_rows, 1, base_rows |> Enum.at(1) |> Map.put(:partition, invalid))
+
+        assert {:skip, :missing_partition} =
+                 Decisions.plan_armis_unmerge(mega_device(), rows)
+      end
     end
   end
 end

@@ -276,7 +276,6 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
           tombstoned or (length(integration_ids) >= 2 and source_type == "armis"),
         integration_ids: integration_ids,
         universal_mac_count: universal_mac_count,
-        partition: dominant_partition(mac_rows),
         tombstoned?: tombstoned,
         identifier_snapshot:
           Enum.map(identifier_rows, &Map.take(&1, [:id, :type, :value, :partition])),
@@ -508,7 +507,7 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
       splits,
       {0, 0, 0, 0, 0},
       fn {device, plan}, {applied, failed, reassigns, created, manifest_failures} ->
-        case apply_split(device, plan, manifest, actor) do
+        case apply_split_safely(device, plan, manifest, actor) do
           {:ok, %{reassigned: r, created: c}} ->
             {:cont, {applied + 1, failed, reassigns + r, created + c, manifest_failures}}
 
@@ -547,6 +546,35 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
         end
       end
     )
+  end
+
+  defp apply_split_safely(device, plan, manifest, actor) do
+    apply_split(device, plan, manifest, actor)
+  rescue
+    error in [Postgrex.Error, DBConnection.ConnectionError] ->
+      if database_timeout_exception?(error) do
+        reason = database_timeout_reason(error)
+
+        Logger.warning("ArmisUnmerge: database timeout for #{device.uid}: #{inspect(reason)}")
+
+        {:error, {:database_timeout, reason}}
+      else
+        reraise error, __STACKTRACE__
+      end
+  catch
+    :exit, {:timeout, _detail} = reason ->
+      Logger.warning(
+        "ArmisUnmerge: database operation for #{device.uid} exited on timeout: #{inspect(reason)}"
+      )
+
+      {:error, {:database_timeout, %{kind: :exit, reason: inspect(reason)}}}
+
+    kind, reason ->
+      Logger.error(
+        "ArmisUnmerge: unexpected #{kind} while applying #{device.uid}: #{inspect(reason)}"
+      )
+
+      :erlang.raise(kind, reason, __STACKTRACE__)
   end
 
   defp lock_and_revalidate_candidate(device, plan) do
@@ -1218,14 +1246,18 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
   end
 
   defp record_manifest_entries(manifest, entries, candidate_token, phase) do
-    Enum.reduce_while(entries, :ok, fn entry, :ok ->
-      extra = Map.merge(entry.extra, %{candidate_token: candidate_token, phase: phase})
+    entries =
+      Enum.map(entries, fn entry ->
+        %{
+          entry
+          | extra: Map.merge(entry.extra, %{candidate_token: candidate_token, phase: phase})
+        }
+      end)
 
-      case Manifest.record(manifest, @step, entry.action, entry.table, entry.ids, extra) do
-        :ok -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, {:manifest_prepare_failed, reason}}}
-      end
-    end)
+    case Manifest.record_batch(manifest, @step, entries) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:manifest_prepare_failed, reason}}
+    end
   end
 
   defp record_candidate_committed(manifest, candidate_token, source_uid) do
@@ -1271,17 +1303,6 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
 
   # -- helpers --------------------------------------------------------------
 
-  defp dominant_partition([]), do: "default"
-
-  defp dominant_partition(mac_rows) do
-    mac_rows
-    |> Enum.map(& &1.partition)
-    |> Enum.reject(&(&1 in [nil, ""]))
-    |> Enum.frequencies()
-    |> Enum.max_by(fn {_partition, count} -> count end, fn -> {"default", 0} end)
-    |> elem(0)
-  end
-
   defp canonical_mac_row?(%{value: value}) when is_binary(value),
     do: Regex.match?(@canonical_mac_pattern, value)
 
@@ -1310,6 +1331,27 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
     do: Enum.any?(errors, &manifest_prepare_failure?/1)
 
   defp manifest_prepare_failure?(_error), do: false
+
+  defp database_timeout_exception?(%Postgrex.Error{postgres: postgres}) when is_map(postgres) do
+    postgres[:code] in [:lock_not_available, :query_canceled] or
+      postgres[:pg_code] in ["55P03", "57014"]
+  end
+
+  defp database_timeout_exception?(%DBConnection.ConnectionError{} = error) do
+    Regex.match?(~r/\b(?:timeout|timed out)\b/i, Exception.message(error))
+  end
+
+  defp database_timeout_reason(%Postgrex.Error{postgres: postgres} = error) do
+    %{
+      kind: :postgres,
+      code: postgres[:code] || postgres[:pg_code],
+      message: Exception.message(error)
+    }
+  end
+
+  defp database_timeout_reason(%DBConnection.ConnectionError{} = error) do
+    %{kind: :connection, message: Exception.message(error)}
+  end
 
   defp sum_by(list, fun), do: list |> Enum.map(fun) |> Enum.sum()
 

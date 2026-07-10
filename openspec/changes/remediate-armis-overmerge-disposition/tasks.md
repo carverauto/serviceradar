@@ -38,9 +38,12 @@
 - [x] 3.2 Add pure `Decisions` functions: group a device's universal MACs into
   target classes, retain the survivor UID, mint each additional stable
   remediation UID from `{armis_id, MAC, partition}`, and classify unsplittable
-  (MAC-less / local-only / mixed-partition) devices as skipped-with-reason. UID
-  parity is asserted only for canonical Armis-only updates; convergence for
-  enriched shapes relies on reassigned typed MAC ownership.
+  (MAC-less / local-only / missing-partition / mixed-partition) devices as
+  skipped-with-reason. Require one canonical nonblank partition on every
+  universal MAC row and never synthesize `default`. UID parity is asserted only
+  for canonical Armis-only updates; convergence for enriched shapes relies on
+  reassigned typed MAC ownership. Reject display blobs matching multiple planned
+  classes as `ambiguous_display_mac`.
 
 ## 4. `armis-unmerge` remediation step
 
@@ -51,10 +54,11 @@
   :reassign_device` (audited, TTL-reset, `verified` preserved), place
   `armis_device_id` per 1.2, and write one
   `merge_audit` `reason: "unmerge"` per split. Dry-run plan vs execute apply.
-- [x] 4.2 Sync a write-ahead candidate preflight before mutation, sync exact
-  prepared restore/create/reassign/audit entries before database commit, and
-  sync a committed marker afterward; propagate every manifest failure and
-  create manifests exclusively so rollback evidence is never overwritten.
+- [x] 4.2 Sync a write-ahead candidate preflight before mutation, batch-append
+  exact prepared restore/create/reassign/audit entries with one sync per
+  candidate before database commit, and sync a committed marker afterward;
+  propagate every manifest failure and create manifests exclusively so rollback
+  evidence is never overwritten.
 - [x] 4.3 Register the step in `DireRemediation` (`@step_order`, `run_step`
   dispatch) after `agent-links`; ship it explicit dry-run-runnable, excluded from
   the default order, and reject execute before any mutation unless a runtime
@@ -67,17 +71,22 @@
   steps, and return a failing command status after printing any nonzero execute
   failure counts. Keep dry-run discovery at 5,000 by default but bound execute
   to 25 candidates, indexed normalized-owner lookups, and fail-closed owner-table
-  lock/statement timeouts.
+  lock/statement timeouts. Convert database timeout exceptions into inspectable
+  per-candidate failures without bypassing the report or manifest path.
 
 ## 5. Tests
 
 - [x] 5.1 `Decisions` unit tests: universal-MAC grouping, survivor selection,
-  deterministic target UID, unsplittable classification (no DB).
+  deterministic target UID, and missing/blank/mixed partition unsplittable
+  classification plus multi-class display ambiguity (no DB).
 - [x] 5.2 DB test (srql-fixtures scratch): seed a live mega-device (one
   `armis_device_id`, N distinct universal MACs) + a ghost-tombstoned device with
   sole-copy `mac` rows; dry-run asserts the plan; execute asserts per-group
   devices materialized, `mac` rows reassigned + `last_seen` bumped, `unmerge`
   audits written, manifest lines present; re-run is idempotent.
+- [x] 5.2a DB regressions: missing/blank/mixed partitions and multi-class display
+  MACs are reported without mutation; forced owner-barrier lock timeout returns
+  a structured nonzero report with its manifest path.
 - [x] 5.3 Regression: after execute, no device has two live devices sharing one
   typed `armis_device_id` (no new `typed_id_on_multiple_devices`); the Armis
   northbound candidate query still loads the survivor.

@@ -68,8 +68,10 @@ the disposition runs. This change designs and builds that disposition.
   devices require paired device-UID and sync-source-ID allowlists, with
   faker-backed sources always excluded. The CLI prints explicitly selected
   reports and exits unsuccessfully on any nonzero execute failure count.
-- **Remove the two GC guards** once disposition completes, restoring normal TTL
-  GC and retention for the previously-frozen rows.
+- **Keep the two GC guards in place** while this dormant executor is shipped.
+  Remove them only in a separately reviewed follow-up after live execution and a
+  verification query prove that no sole-copy MAC rows remain on the protected
+  tombstones.
 - **Explicit non-goals** persisted in the spec: MAC-less and local-MAC-only
   Armis collapses are not splittable by MAC and stay out of scope; the step
   never uses `armis_device_id` alone or `source_device_id` as a merge/split key.
@@ -84,10 +86,11 @@ the disposition runs. This change designs and builds that disposition.
   - `ServiceRadar.Inventory.Identity.BatchResolver` /
     `ServiceRadar.Inventory.Identity.Mac` (extract `universal_macs` to public)
   - `ServiceRadar.Inventory.DeviceIdentifierGcWorker` and
-    `ServiceRadar.Inventory.DeviceCleanupWorker` (remove the ghost-cleanup
-    guards after disposition)
+    `ServiceRadar.Inventory.DeviceCleanupWorker` remain unchanged until the
+    separately gated guard-removal follow-up
 - Affected data: `platform.ocsf_devices` (reconstruct/restore per-hardware
-  devices; release ghost tombstones), `platform.device_identifiers` (reassign
+  devices while protected ghost tombstones remain guarded),
+  `platform.device_identifiers` (reassign
   ~389k sole-copy `mac` rows — audited, TTL-reset), `platform.merge_audit`
   (one `unmerge` row per split)
 - Depends on: `blob-purge` (step 1) having run so blob-hidden MACs are atomic

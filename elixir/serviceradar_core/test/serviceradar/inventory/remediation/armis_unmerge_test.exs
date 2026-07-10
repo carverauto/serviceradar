@@ -44,6 +44,7 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
       do: {:error, {:manifest_sync_failed, :injected_committed_marker_failure}}
 
     def write(device, entry), do: FileWriter.write(device, entry)
+    def write_batch(device, entries), do: FileWriter.write_batch(device, entries)
   end
 
   setup_all do
@@ -495,13 +496,91 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
         split_mac
       )
 
-    insert_raw_mac!(device.uid, String.downcase(universal_mac()))
+    lowercase_mac = "00aa" <> String.slice(universal_mac(), 4, 8)
+    insert_raw_mac!(device.uid, lowercase_mac)
 
     report = ArmisUnmerge.run(:execute, execute_opts(device, source), nil, actor)
 
     assert report.execution_blocked
     assert report.execution_blocked_reason == "blob_purge_precondition_failed"
     assert report.preconditions.invalid_mac_rows >= 1
+    assert owner_of_mac(split_mac) == device.uid
+  end
+
+  test "nil, blank, and mixed MAC partitions are reported and never split", %{actor: actor} do
+    source = create_source!(actor)
+
+    candidates =
+      for {label, partition} <- [{"nil", nil}, {"blank", "   "}, {"mixed", "tenant-b"}] do
+        split_mac = universal_mac()
+
+        device =
+          seed_verified_live_candidate!(
+            actor,
+            source.id,
+            unique("armis-partition-#{label}"),
+            universal_mac(),
+            split_mac
+          )
+
+        Repo.query!(
+          "UPDATE platform.device_identifiers SET partition = $3 " <>
+            "WHERE device_id = $1 AND identifier_type = 'mac' AND identifier_value = $2",
+          [device.uid, split_mac, partition]
+        )
+
+        {device, split_mac}
+      end
+
+    report =
+      run_execute_with_manifest(
+        [
+          armis_unmerge_execute_enabled: true,
+          armis_unmerge_include_live: true,
+          armis_unmerge_live_device_uids:
+            Enum.map(candidates, fn {device, _mac} -> device.uid end),
+          armis_unmerge_live_source_ids: [source.id]
+        ],
+        actor
+      )
+
+    assert report.skipped["missing_partition"] >= 2
+    assert report.skipped["multiple_partitions"] >= 1
+
+    candidate_uids = MapSet.new(candidates, fn {device, _mac} -> device.uid end)
+    refute Enum.any?(report.execution_split_plan, &MapSet.member?(candidate_uids, &1.device_uid))
+
+    for {device, split_mac} <- candidates do
+      assert owner_of_mac(split_mac) == device.uid
+    end
+  end
+
+  test "a display MAC matching multiple planned classes is reported and never split", %{
+    actor: actor
+  } do
+    source = create_source!(actor)
+    survivor_mac = universal_mac()
+    split_mac = universal_mac()
+
+    device =
+      seed_verified_live_candidate!(
+        actor,
+        source.id,
+        unique("armis-ambiguous-display"),
+        survivor_mac,
+        split_mac
+      )
+
+    Repo.query!("UPDATE platform.ocsf_devices SET mac = $2 WHERE uid = $1", [
+      device.uid,
+      "#{split_mac},#{survivor_mac}"
+    ])
+
+    report = run_execute_with_manifest(execute_opts(device, source), actor)
+
+    assert report.skipped["ambiguous_display_mac"] >= 1
+    refute Enum.any?(report.execution_split_plan, &(&1.device_uid == device.uid))
+    assert owner_of_mac(survivor_mac) == device.uid
     assert owner_of_mac(split_mac) == device.uid
   end
 
@@ -674,6 +753,59 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     assert report.split_failures == 1
     assert owner_of_mac(split_mac) == device.uid
     refute device_exists?(split_uid)
+  end
+
+  test "owner-barrier lock timeout returns a structured failure and manifest path", %{
+    actor: actor
+  } do
+    source = create_source!(actor)
+    split_mac = universal_mac()
+
+    device =
+      seed_verified_live_candidate!(
+        actor,
+        source.id,
+        unique("armis-lock-timeout"),
+        universal_mac(),
+        split_mac
+      )
+
+    locker = hold_owner_table_lock_async()
+    manifest_path = temporary_manifest_path("lock_timeout")
+
+    on_exit(fn ->
+      send(locker.pid, :commit)
+      File.rm(manifest_path)
+    end)
+
+    assert_receive {:owner_table_lock_held, locker_pid}, 5_000
+    assert locker_pid == locker.pid
+
+    assert {:error, {:step_failures, result}} =
+             DireRemediation.run(
+               mode: :execute,
+               steps: ["armis-unmerge"],
+               manifest_path: manifest_path,
+               actor: actor,
+               armis_unmerge_include_live: true,
+               armis_unmerge_live_device_uids: [device.uid],
+               armis_unmerge_live_source_ids: [source.id]
+             )
+
+    report = result.reports["armis-unmerge"]
+    assert result.manifest_path == Path.expand(manifest_path)
+    assert result.failures["armis-unmerge"].split_failures == 1
+    assert report.applied_splits == 0
+    assert report.split_failures == 1
+    assert owner_of_mac(split_mac) == device.uid
+
+    manifest_lines = manifest_path |> File.read!() |> String.split("\n", trim: true)
+    assert Enum.any?(manifest_lines, &(&1 =~ "candidate_preflight"))
+    refute Enum.any?(manifest_lines, &(&1 =~ ~s("phase":"prepared")))
+    refute Enum.any?(manifest_lines, &(&1 =~ "candidate_committed"))
+
+    send(locker.pid, :commit)
+    assert {:ok, :committed} = Task.await(locker, 5_000)
   end
 
   test "an existing deterministic split target is never adopted or overwritten", %{actor: actor} do
@@ -1155,6 +1287,25 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
         after
           10_000 ->
             raise "timed out waiting to commit source-device update"
+        end
+
+        :committed
+      end)
+    end)
+  end
+
+  defp hold_owner_table_lock_async do
+    parent = self()
+
+    Task.async(fn ->
+      Repo.transaction(fn ->
+        Repo.query!("LOCK TABLE platform.device_identifiers IN ROW EXCLUSIVE MODE")
+        send(parent, {:owner_table_lock_held, self()})
+
+        receive do
+          :commit -> :ok
+        after
+          15_000 -> raise "timed out waiting to release owner-table lock"
         end
 
         :committed

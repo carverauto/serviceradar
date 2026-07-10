@@ -40,8 +40,11 @@ the exact source device and identifier snapshot, require exactly one typed
 `armis_device_id` consistent with optional metadata, revalidate canonical Armis
 source metadata and the independent integration-ID evidence, reject any global
 normalized/display MAC or typed Armis alternate owner, and require every split
-target UID to be absent. Execute SHALL require a writable, synced write-ahead
-manifest with distinguishable preflight, prepared, and committed records.
+target UID to be absent. Every planned universal MAC row SHALL have one
+canonical nonblank partition and all such rows SHALL agree; execute SHALL NOT
+synthesize a default partition. Execute SHALL require a writable, synced
+write-ahead manifest with distinguishable preflight, prepared, and committed
+records.
 The exact ownership snapshot SHALL contain `{id,type,value,partition}`; volatile
 timestamps and unrelated identifier metadata SHALL NOT invalidate a plan, while
 the semantic `sync_service_id` and `integration_type` provenance keys SHALL be
@@ -100,12 +103,15 @@ recomputed under lock.
 - **AND** the indexed canonical, legacy-token, and display-token checks SHALL see
   every owner committed before the barrier
 - **AND** lock or statement timeout SHALL fail the candidate without mutation
+- **AND** a timeout exception SHALL become an inspectable nonzero step failure,
+  preserving the rollback-manifest location instead of escaping the run
 
 #### Scenario: Manifest is durable before database commit
 - **GIVEN** an eligible execute candidate
 - **WHEN** the disposition applies it
 - **THEN** it SHALL sync a write-ahead preflight before mutation
-- **AND** it SHALL sync the exact prepared action entries before database commit
+- **AND** it SHALL append the exact prepared action entries as one batch and sync
+  once per candidate before database commit
 - **AND** prepared entries SHALL include every generated `merge_audit.event_id`
 - **AND** it SHALL sync a committed marker after commit
 - **AND** any manifest failure SHALL stop execution and produce a nonzero failure
@@ -193,6 +199,21 @@ guess, or use `armis_device_id` or `source_device_id` alone as a split key.
 - **WHEN** the disposition runs
 - **THEN** it SHALL report the device as skipped with an unsplittable reason
 - **AND** it SHALL NOT create or repoint any device or identifier for it
+
+#### Scenario: Missing or mixed MAC partitions are skipped with a reason
+- **GIVEN** an otherwise eligible Armis candidate whose universal MAC rows
+  include a nil, blank, or noncanonical partition
+- **OR** those rows contain more than one partition
+- **WHEN** the disposition plans or executes the candidate
+- **THEN** it SHALL report `missing_partition` or `multiple_partitions`
+- **AND** it SHALL NOT create or repoint any device or identifier for it
+
+#### Scenario: A multi-class display MAC is ambiguous
+- **GIVEN** an otherwise eligible Armis candidate whose display MAC normalizes
+  to more than one planned universal-MAC class
+- **WHEN** the disposition chooses the survivor
+- **THEN** it SHALL report `ambiguous_display_mac`
+- **AND** it SHALL NOT choose from unordered set iteration or mutate the candidate
 
 ### Requirement: Ghost-Cleanup GC Guards Removed Only After Disposition Completes
 The system SHALL keep the maintenance guards that protect Armis over-merge ghost
