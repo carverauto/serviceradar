@@ -25,4 +25,22 @@ defmodule ServiceRadar.SweepJobs.StampAuditContextTest do
              "request_id" => "request-1"
            }
   end
+
+  test "restores a stale banner summary input from the paper trail diff" do
+    banner_summary = %{"probe_count" => 12, "banner_match_count" => 5}
+
+    changeset =
+      Version
+      |> Ash.Changeset.new()
+      |> Ash.Changeset.change_attribute(:changes, %{
+        banner_grab_summary: %{from: %{}, to: banner_summary}
+      })
+      |> Map.put(:atomics, version_action_inputs: %{banner_grab_summary: %{}})
+
+    changed = StampAuditContext.change(changeset, [], %{})
+
+    assert Ash.Changeset.get_attribute(changed, :version_action_inputs) == %{
+             banner_grab_summary: banner_summary
+           }
+  end
 end

@@ -88,21 +88,57 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution.Changes.StampAuditContext d
       |> maybe_put("actor_id", actor_id)
       |> maybe_put("request_id", request_id)
 
-    if map_size(audit_inputs) == 0 do
+    current_inputs = pending_attribute(changeset, :version_action_inputs) || %{}
+
+    inputs =
+      current_inputs
+      |> restore_banner_grab_summary(changeset)
+      |> Map.merge(audit_inputs)
+
+    if inputs == current_inputs do
       changeset
     else
-      inputs = pending_attribute(changeset, :version_action_inputs) || %{}
-
       Ash.Changeset.change_attribute(
         changeset,
         :version_action_inputs,
-        Map.merge(inputs, audit_inputs)
+        inputs
       )
     end
   end
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp restore_banner_grab_summary(inputs, changeset) do
+    current_summary =
+      map_value(inputs, :banner_grab_summary) || map_value(inputs, "banner_grab_summary")
+
+    if current_summary in [nil, %{}] do
+      case changed_to(changeset, :banner_grab_summary) do
+        %{} = summary when map_size(summary) > 0 ->
+          put_existing_key(inputs, :banner_grab_summary, "banner_grab_summary", summary)
+
+        _ ->
+          inputs
+      end
+    else
+      inputs
+    end
+  end
+
+  defp changed_to(changeset, attribute) do
+    changes = pending_attribute(changeset, :changes) || %{}
+    change = map_value(changes, attribute) || map_value(changes, Atom.to_string(attribute))
+    map_value(change, :to) || map_value(change, "to")
+  end
+
+  defp put_existing_key(map, atom_key, string_key, value) do
+    if Map.has_key?(map, atom_key) do
+      Map.put(map, atom_key, value)
+    else
+      Map.put(map, string_key, value)
+    end
+  end
 
   defp pending_attribute(changeset, attribute) do
     Keyword.get_lazy(changeset.atomics, attribute, fn ->
