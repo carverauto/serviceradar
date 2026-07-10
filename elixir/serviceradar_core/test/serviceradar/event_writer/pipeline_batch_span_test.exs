@@ -24,13 +24,13 @@ defmodule ServiceRadar.EventWriter.PipelineBatchSpanTest do
 
     :opentelemetry.set_text_map_propagator(:otel_propagator_trace_context)
 
+    # Ensure the application-scoped tracer cache contains the pre-restart
+    # provider. The SDK does not invalidate this cache when it restarts.
+    _stale_tracer = :opentelemetry.get_application_tracer(Pipeline)
+
     # Restart the SDK with a synchronous pid exporter so finished spans are
     # delivered to the test process as {:span, span_record} messages.
-    Application.stop(:opentelemetry)
-    Application.put_env(:opentelemetry, :traces_exporter, :none)
-    Application.put_env(:opentelemetry, :processors, [{:otel_simple_processor, %{}}])
-    {:ok, _} = Application.ensure_all_started(:opentelemetry)
-    :otel_simple_processor.set_exporter(:otel_exporter_pid, self())
+    restart_otel_with_pid_exporter(self())
 
     on_exit(fn ->
       Application.stop(:opentelemetry)
@@ -171,5 +171,31 @@ defmodule ServiceRadar.EventWriter.PipelineBatchSpanTest do
       assert_receive {:span, span(name: "event_writer.process_batch", links: links)}, 1_000
       assert :otel_links.list(links) == []
     end
+
+    test "refreshes the batch tracer when the OpenTelemetry SDK restarts" do
+      assert :first =
+               Pipeline.with_batch_span("events.poller.status", [message_without_headers()], fn ->
+                 :first
+               end)
+
+      assert_receive {:span, span(name: "event_writer.process_batch")}, 1_000
+
+      restart_otel_with_pid_exporter(self())
+
+      assert :second =
+               Pipeline.with_batch_span("events.poller.status", [message_without_headers()], fn ->
+                 :second
+               end)
+
+      assert_receive {:span, span(name: "event_writer.process_batch")}, 1_000
+    end
+  end
+
+  defp restart_otel_with_pid_exporter(owner) do
+    Application.stop(:opentelemetry)
+    Application.put_env(:opentelemetry, :traces_exporter, :none)
+    Application.put_env(:opentelemetry, :processors, [{:otel_simple_processor, %{}}])
+    {:ok, _} = Application.ensure_all_started(:opentelemetry)
+    :otel_simple_processor.set_exporter(:otel_exporter_pid, owner)
   end
 end
