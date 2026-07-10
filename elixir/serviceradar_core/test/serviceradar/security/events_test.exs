@@ -1,31 +1,48 @@
 defmodule ServiceRadar.Security.EventsTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
+  alias ServiceRadar.Repo
   alias ServiceRadar.Security.Events
   alias ServiceRadar.Security.SecurityEvent
 
   setup do
-    # Drain anything in flight from earlier tests so we start clean.
+    # Keep the application-owned recorder inside this test's sandbox lifetime.
     _ = Events.flush()
+    on_exit(fn -> Events.flush() end)
     :ok
   end
 
   describe "record/1" do
-    test "accepts a minimal event and returns :ok immediately" do
-      assert :ok = Events.record(%{kind: :rate_limit_denied})
+    test "returns immediately and flush is a persistence barrier" do
+      correlation_id = "security-events-flush-#{System.unique_integer([:positive])}"
+
+      assert :ok =
+               Events.record(%{
+                 kind: :rate_limit_denied,
+                 correlation_id: correlation_id
+               })
+
+      assert :ok = Events.flush()
+
+      assert %{rows: [[1]]} =
+               Repo.query!(
+                 "SELECT count(*) FROM platform.security_events WHERE correlation_id = $1",
+                 [correlation_id]
+               )
     end
 
     test "is non-blocking even when the recorder is busy" do
-      # Fire a burst — the cast queue should accept them quickly.
       for _ <- 1..50 do
         assert :ok = Events.record(%{kind: :rate_limit_denied, ip: "203.0.113.1"})
       end
+
+      assert :ok = Events.flush()
     end
   end
 
   describe "overflow" do
     @tag :capture_log
-    test "drops events once the bounded queue is full and increments telemetry" do
+    test "counts the in-flight batch against capacity and flush waits for it" do
       ref = make_ref()
       parent = self()
 
@@ -40,24 +57,88 @@ defmodule ServiceRadar.Security.EventsTest do
 
       on_exit(fn -> :telemetry.detach({__MODULE__, ref}) end)
 
-      # Block the recorder by holding flush via a synchronous call from
-      # a separate process — the cast queue then fills up. Easier: send
-      # more events than max_queue between flushes.
-      max = Events.__default_max_queue__()
+      task_supervisor = start_supervised!(Task.Supervisor)
 
-      # Pause the recorder by suspending it briefly so the queue fills.
-      :sys.suspend(Events)
+      persist_fun = fn batch ->
+        send(parent, {:persist_started, self(), batch})
 
-      try do
-        for _ <- 1..(max + 5) do
-          Events.record(%{kind: :rate_limit_denied})
+        receive do
+          :finish_persistence -> :ok
         end
-      after
-        :sys.resume(Events)
       end
 
-      # At least 1 drop event should have been recorded.
+      recorder =
+        start_supervised!(
+          {Events,
+           name: nil,
+           max_queue: 3,
+           flush_interval: :infinity,
+           persist_fun: persist_fun,
+           task_supervisor: task_supervisor}
+        )
+
+      assert :ok = Events.record(%{kind: :rate_limit_denied}, recorder)
+      assert :ok = Events.record(%{kind: :rate_limit_denied}, recorder)
+      send(recorder, :flush)
+
+      assert_receive {:persist_started, persistence_pid, batch}, 500
+      assert length(batch) == 2
+
+      assert :ok = Events.record(%{kind: :rate_limit_denied}, recorder)
+      assert :ok = Events.record(%{kind: :rate_limit_denied}, recorder)
       assert_receive {^ref, %{count: 1}}, 500
+
+      flush_task = Task.async(fn -> Events.flush(recorder) end)
+      assert Task.yield(flush_task, 50) == nil
+      refute_receive {:persist_started, _pid, _batch}, 50
+
+      send(persistence_pid, :finish_persistence)
+
+      assert_receive {:persist_started, persistence_pid, batch}, 500
+      assert length(batch) == 1
+      assert Task.yield(flush_task, 50) == nil
+
+      send(persistence_pid, :finish_persistence)
+      assert Task.await(flush_task, 500) == :ok
+    end
+
+    @tag :capture_log
+    test "reports an abnormally terminated persistence batch as dropped" do
+      ref = make_ref()
+      parent = self()
+
+      :telemetry.attach(
+        {__MODULE__, ref},
+        [:serviceradar, :security, :events, :dropped],
+        fn _event, measurements, metadata, _config ->
+          send(parent, {ref, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach({__MODULE__, ref}) end)
+
+      task_supervisor = start_supervised!(Task.Supervisor)
+
+      recorder =
+        start_supervised!(
+          {Events,
+           name: nil,
+           max_queue: 2,
+           flush_interval: :infinity,
+           persist_fun: fn _batch -> exit(:persistence_failed) end,
+           task_supervisor: task_supervisor}
+        )
+
+      assert :ok = Events.record(%{kind: :rate_limit_denied}, recorder)
+      assert :ok = Events.record(%{kind: :rate_limit_denied}, recorder)
+      assert :ok = Events.flush(recorder)
+
+      assert_receive {
+        ^ref,
+        %{count: 2},
+        %{reason: :persistence_failed, source: :persistence_task}
+      }
     end
   end
 

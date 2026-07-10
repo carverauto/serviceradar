@@ -141,7 +141,9 @@ defmodule ServiceRadar.Application do
         # register {:rate_limiter, node()} on init.
         ServiceRadar.Security.RateLimiter,
 
-        # Non-blocking SecurityEvent recorder (per-node bounded queue).
+        # Non-blocking SecurityEvent recorder (per-node bounded queue with one
+        # supervised persistence batch in flight).
+        security_events_task_supervisor_child(),
         ServiceRadar.Security.Events,
 
         # Service heartbeat (self-reporting for Elixir services)
@@ -304,6 +306,10 @@ defmodule ServiceRadar.Application do
     if repo_enabled?() do
       ServiceRadar.Observability.StatefulAlertEvaluationQueue
     end
+  end
+
+  defp security_events_task_supervisor_child do
+    {Task.Supervisor, name: ServiceRadar.Security.Events.TaskSupervisor}
   end
 
   defp anomaly_disposition_reporter_child do
