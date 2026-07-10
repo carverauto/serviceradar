@@ -25,7 +25,9 @@ configuration-delivery hardening.
   quality gates, rollback-isolated database tests, per-run Forgejo integration
   databases, and fail-closed protection against destructive test runs on
   non-test databases. Restored build caches now repair missing transitive NIF
-  artifacts before compilation. This release also fixes SRQL JSON wildcard
+  artifacts before compilation. Sandboxed Wasm builds now isolate mutable Go
+  and TinyGo state per action so interrupted module or WASI extraction cannot
+  poison later release builds. This release also fixes SRQL JSON wildcard
   parsing, preserves Armis attachment metadata, makes `demo/prod-release` the
   sole Argo image source, and prevents release tags from publishing before
   their commit reaches staging. Unresolved live drift remains operator-synced.
@@ -39,8 +41,9 @@ configuration-delivery hardening.
   signing pool before the demo release branch can advance.
 - Dependency safety: retired the standalone Jetstream package in favor of
   Gnat's maintained JetStream API and upgraded the core runtime's Ash, Decimal,
-  Ecto, Req, and related dependencies. Only two cowlib advisories without a
-  fixed upstream release remain narrowly waived.
+  Ecto, Req, and related dependencies. The Proxmox Wasm plugins also refresh
+  GJSON and Go cryptography, networking, and system dependencies. Only two
+  cowlib advisories without a fixed upstream release remain narrowly waived.
 - Data correctness: integration credential references are authoritative and
   fail closed instead of falling back to stale legacy plaintext. Concurrent
   same-device inserts that lose the active-IP uniqueness race retry once after
