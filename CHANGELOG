@@ -59,7 +59,10 @@ configuration-delivery hardening.
   dry-run-first. Execute remains runtime-gated, processes ghost records by
   default, requires exact device/source allowlists for live records, rejects
   faker-backed data, and applies each candidate transactionally. Multi-NIC
-  splits are not assumed to self-heal and still require operator signoff.
+  splits are not assumed to self-heal and still require operator signoff. Dry
+  runs count MAC-less and local-only records outside the bounded candidate
+  budget and report a deterministic bounded sample, so unreachable residue is
+  visible before signoff.
 
 # ServiceRadar v1.4.9
 
