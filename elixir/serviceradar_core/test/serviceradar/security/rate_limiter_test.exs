@@ -256,8 +256,7 @@ defmodule ServiceRadar.Security.RateLimiterTest do
 
   defp wait_for_registry_entry(key, pid, attempts \\ 40)
 
-  defp wait_for_registry_entry(key, _pid, 0),
-    do: ServiceRadar.ProcessRegistry.lookup(key)
+  defp wait_for_registry_entry(key, _pid, 0), do: ServiceRadar.ProcessRegistry.lookup(key)
 
   defp wait_for_registry_entry(key, pid, attempts) do
     case ServiceRadar.ProcessRegistry.lookup(key) do
