@@ -72,6 +72,16 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
     custom_indexes do
       index [:entity_type, :entity_id, :recorded_at]
       index [:entity_type, :new_state, :recorded_at]
+
+      index [:event_sequence],
+        unique: true,
+        name: "health_events_event_sequence_uidx"
+
+      index [:entity_type, :entity_id, :event_sequence],
+        name: "health_events_entity_id_sequence_idx"
+
+      index [:entity_type, :new_state, :event_sequence],
+        name: "health_events_state_sequence_idx"
     end
   end
 
@@ -117,7 +127,7 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
       end
 
       argument :entity_id, :string, allow_nil?: false
-      argument :since, :utc_datetime
+      argument :since, :utc_datetime_usec
       argument :limit, :integer, default: 100
 
       filter expr(
@@ -127,7 +137,7 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
 
       filter expr(is_nil(^arg(:since)) or recorded_at >= ^arg(:since))
 
-      prepare build(sort: [recorded_at: :desc], limit: arg(:limit))
+      prepare build(sort: [event_sequence: :desc], limit: arg(:limit))
     end
 
     read :current_status do
@@ -145,7 +155,7 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
                  entity_id == ^arg(:entity_id)
              )
 
-      prepare build(sort: [recorded_at: :desc], limit: 1)
+      prepare build(sort: [event_sequence: :desc], limit: 1)
     end
 
     read :recent do
@@ -158,7 +168,7 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
       filter expr(is_nil(^arg(:entity_type)) or entity_type == ^arg(:entity_type))
       filter expr(is_nil(^arg(:state)) or new_state == ^arg(:state))
 
-      prepare build(sort: [recorded_at: :desc], limit: arg(:limit))
+      prepare build(sort: [event_sequence: :desc], limit: arg(:limit))
     end
 
     read :by_state do
@@ -172,7 +182,7 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
       filter expr(new_state == ^arg(:state))
       filter expr(is_nil(^arg(:entity_type)) or entity_type == ^arg(:entity_type))
 
-      prepare build(sort: [recorded_at: :desc])
+      prepare build(sort: [event_sequence: :desc])
     end
   end
 
@@ -229,7 +239,15 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
       description "Seconds spent in the previous state"
     end
 
-    attribute :recorded_at, :utc_datetime do
+    attribute :event_sequence, :integer do
+      allow_nil? false
+      generated? true
+      writable? false
+      public? true
+      description "Database-assigned ordering key for health events"
+    end
+
+    attribute :recorded_at, :utc_datetime_usec do
       allow_nil? false
       public? true
       description "When this event was recorded"
@@ -303,7 +321,7 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
       entity_type == ^entity_type and
         entity_id == ^entity_id
     )
-    |> Ash.Query.sort(recorded_at: :desc)
+    |> Ash.Query.sort(event_sequence: :desc)
     |> Ash.Query.limit(1)
     |> Ash.read_one(actor: actor)
   end

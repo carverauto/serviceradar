@@ -12,6 +12,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
   alias ServiceRadar.Monitoring.AlertGenerator
   alias ServiceRadar.Observability.EventRule
   alias ServiceRadar.Observability.StatefulAlertEngine
+  alias ServiceRadar.Observability.StatefulAlertEvaluationQueue
 
   require Ash.Query
   require Logger
@@ -522,25 +523,46 @@ defmodule ServiceRadar.Observability.LogPromotion do
   defp maybe_evaluate_stateful_rules([]), do: :ok
 
   defp maybe_evaluate_stateful_rules(events) do
-    case Task.start(fn -> evaluate_stateful_rules(events) end) do
-      {:ok, _pid} ->
+    case alert_evaluation_queue().enqueue_events(events) do
+      :ok ->
         :ok
 
+      {:error, :stateful_alert_evaluation_queue_full} ->
+        evaluate_stateful_rules_with_backpressure(events, :stateful_alert_evaluation_queue_full)
+
+      {:error, :stateful_alert_evaluation_queue_unavailable} ->
+        evaluate_stateful_rules_with_backpressure(
+          events,
+          :stateful_alert_evaluation_queue_unavailable
+        )
+
       {:error, reason} ->
-        Logger.warning("Stateful alert evaluation task failed to start: #{inspect(reason)}")
+        Logger.warning("Stateful alert evaluation enqueue failed", reason: inspect(reason))
         :ok
     end
   end
 
-  defp evaluate_stateful_rules(events) do
+  defp evaluate_stateful_rules_with_backpressure(events, queue_reason) do
+    Logger.warning("Stateful alert evaluation queue rejected events; evaluating synchronously",
+      reason: inspect(queue_reason)
+    )
+
     case StatefulAlertEngine.evaluate_events(events) do
       :ok ->
         :ok
 
       {:error, reason} ->
-        Logger.warning("Stateful alert evaluation failed: #{inspect(reason)}")
+        Logger.warning("Synchronous stateful alert evaluation failed", reason: inspect(reason))
         :ok
     end
+  end
+
+  defp alert_evaluation_queue do
+    Application.get_env(
+      :serviceradar_core,
+      :stateful_alert_evaluation_queue,
+      StatefulAlertEvaluationQueue
+    )
   end
 
   defp build_metadata(log, rule, subject) do

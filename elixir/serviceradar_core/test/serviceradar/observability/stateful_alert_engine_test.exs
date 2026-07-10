@@ -18,7 +18,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   alias ServiceRadar.Observability.StatefulAlertEngine
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Observability.StatefulAlertRuleHistory
-  alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
@@ -1598,29 +1597,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   defp restore_env(key, value), do: Application.put_env(:serviceradar_core, key, value)
 
   defp reset_engine do
-    # The engine is sharded; terminate every shard so in-memory ETS state does
-    # not leak between tests. Shard 0 keeps the legacy `:stateful_alert_engine`
-    # registry key; the rest use `{:stateful_alert_engine, shard}`.
-    shard_count = StatefulAlertEngine.shard_count()
-
-    keys =
-      [:stateful_alert_engine] ++
-        for shard <- 1..(shard_count - 1)//1, do: {:stateful_alert_engine, shard}
-
-    terminated? =
-      Enum.reduce(keys, false, fn key, acc ->
-        case ProcessRegistry.lookup(key) do
-          [{pid, _}] ->
-            _ = ProcessRegistry.terminate_child(pid)
-            true
-
-          _ ->
-            acc
-        end
-      end)
-
-    if terminated?, do: Process.sleep(25)
-    :ok
+    TestSupport.drain_stateful_alert_engines()
   end
 
   defp eventually(fun, predicate, attempts \\ 40)

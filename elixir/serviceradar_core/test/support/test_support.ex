@@ -7,8 +7,11 @@ defmodule ServiceRadar.TestSupport do
   """
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias ServiceRadar.ProcessRegistry
 
   @sandbox_teardown_margin_ms 60_000
+  @stateful_engine_drain_timeout_ms 5_000
+  @stateful_engine_registry_poll_ms 10
 
   @doc "Starts core without implicitly taking database ownership."
   def start_core!(opts \\ []) do
@@ -71,12 +74,107 @@ defmodule ServiceRadar.TestSupport do
   end
 
   defp stop_repo_owner(owner) do
+    drain_stateful_alert_engines()
+
     if Process.alive?(owner) do
       Sandbox.stop_owner(owner)
     end
   after
     # start_owner!/2 leaves the pool pointing at the stopped shared owner.
     Sandbox.mode(ServiceRadar.Repo, :manual)
+  end
+
+  @doc false
+  def drain_stateful_alert_engines do
+    if Process.whereis(ProcessRegistry.registry_name()) do
+      deadline =
+        System.monotonic_time(:millisecond) + @stateful_engine_drain_timeout_ms
+
+      do_drain_stateful_alert_engines(deadline)
+    else
+      :ok
+    end
+  end
+
+  defp do_drain_stateful_alert_engines(deadline) do
+    case stateful_alert_engine_entries() do
+      [] ->
+        :ok
+
+      entries ->
+        entries
+        |> Enum.map(fn {_key, pid, _metadata} -> pid end)
+        |> Enum.filter(&Process.alive?/1)
+        |> Enum.uniq()
+        |> Enum.each(&terminate_stateful_alert_engine(&1, deadline))
+
+        await_empty_stateful_alert_registry(deadline)
+    end
+  end
+
+  defp await_empty_stateful_alert_registry(deadline) do
+    case stateful_alert_engine_entries() do
+      [] ->
+        :ok
+
+      entries ->
+        if remaining_timeout(deadline) == 0 do
+          raise "stateful alert engine registry did not drain: #{inspect(entries)}"
+        end
+
+        case Enum.find(entries, fn {_key, pid, _metadata} -> Process.alive?(pid) end) do
+          {_key, _pid, _metadata} ->
+            do_drain_stateful_alert_engines(deadline)
+
+          nil ->
+            receive do
+            after
+              min(@stateful_engine_registry_poll_ms, remaining_timeout(deadline)) -> :ok
+            end
+
+            await_empty_stateful_alert_registry(deadline)
+        end
+    end
+  end
+
+  defp stateful_alert_engine_entries do
+    Enum.filter(ProcessRegistry.select_all(), fn
+      {:stateful_alert_engine, _pid, _metadata} -> true
+      {{:stateful_alert_engine, _shard}, _pid, _metadata} -> true
+      _other -> false
+    end)
+  end
+
+  defp terminate_stateful_alert_engine(pid, deadline) do
+    monitor_ref = Process.monitor(pid)
+
+    try do
+      case ProcessRegistry.terminate_child(pid) do
+        :ok ->
+          :ok
+
+        {:error, :not_found} ->
+          if Process.alive?(pid) do
+            raise "stateful alert engine is alive but missing from its supervisor: #{inspect(pid)}"
+          end
+
+        {:error, reason} ->
+          raise "failed to terminate stateful alert engine: #{inspect(reason)}"
+      end
+
+      receive do
+        {:DOWN, ^monitor_ref, :process, ^pid, _reason} -> :ok
+      after
+        remaining_timeout(deadline) ->
+          raise "stateful alert engine did not terminate: #{inspect(pid)}"
+      end
+    after
+      Process.demonitor(monitor_ref, [:flush])
+    end
+  end
+
+  defp remaining_timeout(deadline) do
+    max(deadline - System.monotonic_time(:millisecond), 0)
   end
 
   defp sandbox_owner_opts(context) do
