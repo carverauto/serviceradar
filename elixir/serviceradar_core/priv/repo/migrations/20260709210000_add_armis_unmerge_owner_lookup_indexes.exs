@@ -50,20 +50,10 @@ defmodule ServiceRadar.Repo.Migrations.AddArmisUnmergeOwnerLookupIndexes do
   end
 
   defp ensure_valid_concurrent_index(index_name, create_statement) do
-    case concurrent_index_state(index_name) do
-      :missing ->
-        execute(create_statement)
-
-      :valid ->
-        :ok
-
-      :invalid ->
-        execute("DROP INDEX CONCURRENTLY IF EXISTS platform.#{index_name}")
-        execute(create_statement)
-
-      {:unexpected_relation, relation_kind} ->
-        raise "expected platform.#{index_name} to be an index, got relkind #{relation_kind}"
-    end
+    index_name
+    |> concurrent_index_state()
+    |> repair_commands(index_name, create_statement)
+    |> Enum.each(&execute/1)
   end
 
   defp concurrent_index_state(index_name) do
@@ -80,11 +70,28 @@ defmodule ServiceRadar.Repo.Migrations.AddArmisUnmergeOwnerLookupIndexes do
         [index_name]
       )
 
+    classify_index_rows(rows)
+  end
+
+  @doc false
+  def classify_index_rows(rows) do
     case rows do
       [] -> :missing
       [["i", true]] -> :valid
       [["i", false]] -> :invalid
       [[relation_kind, _valid]] -> {:unexpected_relation, relation_kind}
     end
+  end
+
+  @doc false
+  def repair_commands(:missing, _index_name, create_statement), do: [create_statement]
+  def repair_commands(:valid, _index_name, _create_statement), do: []
+
+  def repair_commands(:invalid, index_name, create_statement) do
+    ["DROP INDEX CONCURRENTLY IF EXISTS platform.#{index_name}", create_statement]
+  end
+
+  def repair_commands({:unexpected_relation, relation_kind}, index_name, _create_statement) do
+    raise "expected platform.#{index_name} to be an index, got relkind #{relation_kind}"
   end
 end

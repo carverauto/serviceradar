@@ -66,11 +66,11 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
 
     on_exit(fn -> Application.put_env(:serviceradar_core, config_key, previous_config) end)
 
-    seed_connected_agent!(agent_uid)
-
     if context[:sandbox] == :unboxed do
       on_exit(fn -> cleanup_unboxed_agent!(agent_uid) end)
     end
+
+    seed_connected_agent!(agent_uid)
 
     {:ok, actor: SystemActor.system(:armis_unmerge_test)}
   end
@@ -713,11 +713,13 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
   @tag sandbox: :unboxed
   test "the owner barrier serializes a concurrent foreign identifier insert", %{actor: actor} do
     source = create_source!(actor)
+    register_unboxed_cleanup!([source.id], [])
+
     armis_id = unique("armis-concurrent-owner")
     survivor_mac = universal_mac()
     split_mac = universal_mac()
-    device = seed_verified_live_candidate!(actor, source.id, armis_id, survivor_mac, split_mac)
-    foreign = create_device!(actor, nil)
+    device_uid = test_device_uid()
+    foreign_uid = test_device_uid()
 
     split_uid =
       Ids.generate_deterministic_device_id(%{
@@ -726,7 +728,19 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
         partition: "default"
       })
 
-    register_unboxed_cleanup!([source.id], [device.uid, foreign.uid, split_uid])
+    register_unboxed_cleanup!([], [device_uid, foreign_uid, split_uid])
+
+    device =
+      seed_verified_live_candidate!(
+        actor,
+        source.id,
+        armis_id,
+        survivor_mac,
+        split_mac,
+        device_uid
+      )
+
+    foreign = create_device!(actor, nil, foreign_uid)
 
     manifest_path = temporary_manifest_path("concurrent_owner")
     manifest = Manifest.open(manifest_path, %{test: "concurrent_owner"})
@@ -777,7 +791,11 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     actor: actor
   } do
     source = create_source!(actor)
+    register_unboxed_cleanup!([source.id], [])
+
     split_mac = universal_mac()
+    device_uid = test_device_uid()
+    register_unboxed_cleanup!([], [device_uid])
 
     device =
       seed_verified_live_candidate!(
@@ -785,10 +803,9 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
         source.id,
         unique("armis-lock-timeout"),
         universal_mac(),
-        split_mac
+        split_mac,
+        device_uid
       )
-
-    register_unboxed_cleanup!([source.id], [device.uid])
 
     locker = hold_owner_table_lock_async()
     manifest_path = temporary_manifest_path("lock_timeout")
@@ -950,11 +967,13 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
   @tag sandbox: :unboxed
   test "source state drift after planning rejects the candidate before mutation", %{actor: actor} do
     source = create_source!(actor)
+    register_unboxed_cleanup!([source.id], [])
+
     armis_id = unique("armis-stale-plan")
     survivor_mac = universal_mac()
     split_mac = universal_mac()
     drifted_mac = universal_mac()
-    device = seed_verified_live_candidate!(actor, source.id, armis_id, survivor_mac, split_mac)
+    device_uid = test_device_uid()
 
     split_uid =
       Ids.generate_deterministic_device_id(%{
@@ -963,7 +982,17 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
         partition: "default"
       })
 
-    register_unboxed_cleanup!([source.id], [device.uid, split_uid])
+    register_unboxed_cleanup!([], [device_uid, split_uid])
+
+    device =
+      seed_verified_live_candidate!(
+        actor,
+        source.id,
+        armis_id,
+        survivor_mac,
+        split_mac,
+        device_uid
+      )
 
     manifest_path = temporary_manifest_path("stale_plan")
     manifest = Manifest.open(manifest_path, %{test: "stale_plan"})
@@ -1007,9 +1036,11 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     actor: actor
   } do
     source = create_source!(actor)
+    register_unboxed_cleanup!([source.id], [])
+
     armis_id = unique("armis-identifier-drift")
     split_mac = universal_mac()
-    device = seed_verified_live_candidate!(actor, source.id, armis_id, universal_mac(), split_mac)
+    device_uid = test_device_uid()
 
     split_uid =
       Ids.generate_deterministic_device_id(%{
@@ -1018,7 +1049,17 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
         partition: "default"
       })
 
-    register_unboxed_cleanup!([source.id], [device.uid, split_uid])
+    register_unboxed_cleanup!([], [device_uid, split_uid])
+
+    device =
+      seed_verified_live_candidate!(
+        actor,
+        source.id,
+        armis_id,
+        universal_mac(),
+        split_mac,
+        device_uid
+      )
 
     writer = hold_source_identifier_insert_async(device.uid, unique("agent-drift"))
     writer_pid = writer.pid
@@ -1041,10 +1082,12 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
   @tag sandbox: :unboxed
   test "last_seen-only churn remains outside the ownership snapshot", %{actor: actor} do
     source = create_source!(actor)
+    register_unboxed_cleanup!([source.id], [])
+
     armis_id = unique("armis-timestamp-churn")
     survivor_mac = universal_mac()
     split_mac = universal_mac()
-    device = seed_verified_live_candidate!(actor, source.id, armis_id, survivor_mac, split_mac)
+    device_uid = test_device_uid()
 
     split_uid =
       Ids.generate_deterministic_device_id(%{
@@ -1053,7 +1096,17 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
         partition: "default"
       })
 
-    register_unboxed_cleanup!([source.id], [device.uid, split_uid])
+    register_unboxed_cleanup!([], [device_uid, split_uid])
+
+    device =
+      seed_verified_live_candidate!(
+        actor,
+        source.id,
+        armis_id,
+        survivor_mac,
+        split_mac,
+        device_uid
+      )
 
     writer = hold_identifier_timestamp_update_async(device.uid, split_mac)
     writer_pid = writer.pid
@@ -1075,10 +1128,12 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
   @tag sandbox: :unboxed
   test "prepared-manifest failure rolls back the candidate and halts execution", %{actor: actor} do
     source = create_source!(actor)
+    register_unboxed_cleanup!([source.id], [])
+
     armis_id = unique("armis-manifest-prepare")
     survivor_mac = universal_mac()
     split_mac = universal_mac()
-    device = seed_verified_live_candidate!(actor, source.id, armis_id, survivor_mac, split_mac)
+    device_uid = test_device_uid()
 
     split_uid =
       Ids.generate_deterministic_device_id(%{
@@ -1087,7 +1142,17 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
         partition: "default"
       })
 
-    register_unboxed_cleanup!([source.id], [device.uid, split_uid])
+    register_unboxed_cleanup!([], [device_uid, split_uid])
+
+    device =
+      seed_verified_live_candidate!(
+        actor,
+        source.id,
+        armis_id,
+        survivor_mac,
+        split_mac,
+        device_uid
+      )
 
     manifest_path = temporary_manifest_path("prepare_failure")
     manifest = Manifest.open(manifest_path, %{test: "prepare_failure"})
@@ -1269,8 +1334,15 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     |> Ash.create!(actor: actor)
   end
 
-  defp seed_verified_live_candidate!(actor, source_id, armis_id, survivor_mac, split_mac) do
-    device = seed_armis_device!(actor, armis_id, survivor_mac, source_id)
+  defp seed_verified_live_candidate!(
+         actor,
+         source_id,
+         armis_id,
+         survivor_mac,
+         split_mac,
+         uid \\ nil
+       ) do
+    device = seed_armis_device!(actor, armis_id, survivor_mac, source_id, uid)
     register_mac!(actor, device.uid, survivor_mac)
     register_mac!(actor, device.uid, split_mac)
     evidence_metadata = source_identifier_metadata(source_id)
@@ -1744,4 +1816,5 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp unique(prefix), do: "#{prefix}-#{System.unique_integer([:positive])}"
+  defp test_device_uid, do: "sr:" <> Ecto.UUID.generate()
 end

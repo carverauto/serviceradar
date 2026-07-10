@@ -26,9 +26,9 @@ whole design:
   (`deleted_reason = 'armis_source_device_id_ghost_cleanup'`). The original
   operation estimated ~389k sole-copy `mac` rows, but a 2026-07-09 observation
   found 36,676 protected ghost tombstones owning zero MAC rows. The guards still
-  freeze the tombstone population and any rows found by subsequent scoping;
-  disposition operates on that measured population and a later change removes
-  the guards only after verification.
+  freeze the tombstone population and any rows found by subsequent scoping. The
+  disposition operates only on scoped tombstones that currently own a universal
+  MAC; a later change removes the guards only after verification.
 
 ## Goals
 
@@ -130,14 +130,13 @@ does not automatically rejoin MAC classes that belong to one multi-NIC host.
 
 To avoid creating a **new** `typed_id_on_multiple_devices` conflict (which the
 Armis northbound runner now skips on), the `armis_device_id` identifier must land
-on **exactly one** reconstructed device. The approved disposition (mirroring
-`armis_dups`' protected-owner ranking): the survivor class is the one carrying
-the device's genuine/agent-bound MAC (or, absent one, the lexically-lowest
-normalized universal MAC); it keeps the `armis_device_id`. The other
-reconstructed classes are MAC-only hardware devices with no Armis identity.
-**This is the approved and implemented disposition.** The rejected alternative
-was to drop `armis_device_id` from all reconstructed devices and keep it only on
-a tombstoned subnet-aggregate ghost.
+on **exactly one** reconstructed device. The approved implementation first keeps
+the class whose remediation-derived UID already equals the source UID, then an
+unambiguous display-MAC class, and finally the lexically-lowest normalized
+universal MAC. That survivor keeps the `armis_device_id`; the other reconstructed
+classes are MAC-only hardware devices with no Armis identity. The rejected
+alternative was to drop `armis_device_id` from all reconstructed devices and
+keep it only on a tombstoned subnet-aggregate ghost.
 
 ### Ordering and guard removal
 
@@ -168,15 +167,14 @@ first ships the step.
   ServiceRadar demo faker generates 33–500 MACs per device **intentionally**
   ("Armis tracks every MAC ever seen"), so on faker-heavy data distinct universal
   MAC count is NOT a reliable over-merge signal — a naive detector would
-  false-positive and split legitimate faker devices. Mitigations: (a) the primary,
-  surgical target is the **ghost-tombstoned orphan population** (the sole-copy
-  `mac` rows on `armis_source_device_id_ghost_cleanup` tombstones), reassigned to
-  their true live owners — this is well-defined and faker-independent; (b) any
-  **live** mega-device splitting must be validated against the real target
-  deployment, not the demo faker, and must exclude the faker fleet (by name/source)
-  and cross-check a second over-merge signal (e.g. distinct `integration_id` per
-  the June-2026 live forensics) before splitting. Live-device splitting is
-  therefore gated behind the live scoping in Task 1.
+  false-positive and split legitimate faker devices. Mitigations: (a) any
+  ghost-tombstoned orphan that current scoping finds with sole-copy `mac` rows is
+  well-defined and faker-independent, although the 2026-07-09 observation found
+  none; (b) any **live** mega-device splitting must be validated against the real
+  target deployment, not the demo faker, and must exclude the faker fleet (by
+  name/source) and cross-check a second over-merge signal (e.g. distinct
+  `integration_id` per the June-2026 live forensics) before splitting.
+  Live-device splitting is therefore gated behind the live scoping in Task 1.
 - **Operator noise / partial completion.** Execute defaults to a bounded 25
   candidates per run (dry-run remains 5,000); larger explicit batches still use
   indexed owner checks and fail-closed lock/statement timeouts. Reconstructed MAC-only devices with
