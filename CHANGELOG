@@ -13,7 +13,9 @@ configuration-delivery hardening.
   control-stream, and enrollment paths; delayed older responses are rejected;
   and visibility bootstrap and attach state apply before systemd
   netprobe activation. Bootstrap or attach failures retry while netprobe stays
-  blocked, without preventing unrelated add-ons from reconciling.
+  blocked, without preventing unrelated add-ons from reconciling. Core outages,
+  credential failures, and unexpected config responses now retain the agent's
+  acknowledged last-good configuration instead of delivering an empty config.
 - Fleet operations: add-on reconciliation now loads package requirements and
   records platform, base-agent-version, and capability skip reasons. Netprobe
   is assigned only to Linux host agents that advertise network-visibility
@@ -35,6 +37,10 @@ configuration-delivery hardening.
   Gnat's maintained JetStream API and upgraded the core runtime's Ash, Decimal,
   Ecto, Req, and related dependencies. Only two cowlib advisories without a
   fixed upstream release remain narrowly waived.
+- Data correctness: integration credential references are authoritative and
+  fail closed instead of falling back to stale legacy plaintext. Concurrent
+  same-device inserts that lose the active-IP uniqueness race retry once after
+  the winning row becomes visible, while persistent conflicts still surface.
 - Device identity safety: ships the Armis over-merge disposition dormant and
   dry-run-first. Execute remains runtime-gated, processes ghost records by
   default, requires exact device/source allowlists for live records, rejects

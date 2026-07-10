@@ -241,6 +241,6 @@ export SERVICERADAR_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS="${SERVICERADAR_TEST_DATA
 export SERVICERADAR_CORE_RUN_MIGRATIONS=false
 
 cd "${REPO_ROOT}/elixir/serviceradar_core"
-MIX_ENV=test mix deps.get
-MIX_ENV=test mix ash.migrate
-MIX_ENV=test mix test --include integration --no-start --max-cases 1
+env MIX_ENV=test mix deps.get
+env MIX_ENV=test mix ash.migrate
+env MIX_ENV=test mix test --include integration --no-start --max-cases 1
