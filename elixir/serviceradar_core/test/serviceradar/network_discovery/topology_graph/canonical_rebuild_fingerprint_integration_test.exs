@@ -9,9 +9,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuildFingerprin
   @moduletag :integration
   @moduletag sandbox: :unboxed
 
-  @graph "platform_graph"
   @fixture_ids ["sr:fingerprint-interface-a", "sr:fingerprint-interface-b"]
-  @labels ["CONNECTS_TO", "LOGICAL_PEER", "INFERRED_TO", "ATTACHED_TO", "OBSERVED_TO"]
 
   setup_all do
     TestSupport.start_core!()
@@ -19,8 +17,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuildFingerprin
   end
 
   test "durable fingerprint changes when endpoint Interface properties change" do
-    preexisting_labels = existing_labels(["Interface" | @labels])
-    on_exit(fn -> cleanup_fixture(preexisting_labels) end)
+    on_exit(&cleanup_fixture/0)
 
     assert :ok = Graph.execute(fixture_cypher())
     initial = fingerprint!()
@@ -63,26 +60,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuildFingerprin
     """
   end
 
-  defp existing_labels(labels) do
-    assert {:ok, %Postgrex.Result{rows: rows}} =
-             Repo.query(
-               "SELECT tablename FROM pg_tables WHERE schemaname = $1 AND tablename = ANY($2)",
-               [@graph, labels]
-             )
-
-    MapSet.new(rows, &hd/1)
-  end
-
-  defp cleanup_fixture(preexisting_labels) do
+  defp cleanup_fixture do
     quoted_ids = Enum.map_join(@fixture_ids, ", ", &("'" <> Graph.escape(&1) <> "'"))
     assert :ok = Graph.execute("MATCH (n) WHERE n.id IN [#{quoted_ids}] DETACH DELETE n")
-
-    @labels
-    |> Kernel.++(["Interface"])
-    |> Enum.reject(&MapSet.member?(preexisting_labels, &1))
-    |> Enum.each(fn label ->
-      assert {:ok, _result} =
-               Repo.query("SELECT ag_catalog.drop_label($1, $2, false)", [@graph, label])
-    end)
   end
 end

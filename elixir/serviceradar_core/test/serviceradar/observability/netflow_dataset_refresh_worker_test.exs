@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerTest do
-  use ExUnit.Case, async: true
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker
   alias ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker

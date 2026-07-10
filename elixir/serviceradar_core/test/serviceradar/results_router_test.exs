@@ -5,7 +5,7 @@ defmodule ServiceRadar.ResultsRouterTest do
   DB connection's search_path determines the schema.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Inventory.EndpointInventoryIngestorQueue
   alias ServiceRadar.ResultsRouter
@@ -42,10 +42,7 @@ defmodule ServiceRadar.ResultsRouterTest do
         send(pid, {:endpoint_inventory_ingest, payload, opts})
       end
 
-      case Application.get_env(:serviceradar_core, :endpoint_inventory_router_test_delay_ms, 0) do
-        delay_ms when is_integer(delay_ms) and delay_ms > 0 -> Process.sleep(delay_ms)
-        _delay_ms -> :ok
-      end
+      await_test_release(payload)
 
       if pid = Application.get_env(:serviceradar_core, :endpoint_inventory_router_test_pid) do
         send(pid, {:endpoint_inventory_ingest_finished, payload})
@@ -57,6 +54,23 @@ defmodule ServiceRadar.ResultsRouterTest do
          scan_id: payload["scan_id"],
          directives: %{"endpoint_inventory" => %{"reconcile_floor" => true}}
        }}
+    end
+
+    defp await_test_release(payload) do
+      case Application.get_env(:serviceradar_core, :endpoint_inventory_router_test_barrier) do
+        barrier_ref when is_reference(barrier_ref) ->
+          test_pid =
+            Application.fetch_env!(:serviceradar_core, :endpoint_inventory_router_test_pid)
+
+          send(test_pid, {:endpoint_inventory_ingest_blocked, payload, self(), barrier_ref})
+
+          receive do
+            {:release_endpoint_inventory_ingest, ^barrier_ref} -> :ok
+          end
+
+        _no_barrier ->
+          :ok
+      end
     end
   end
 
@@ -73,8 +87,8 @@ defmodule ServiceRadar.ResultsRouterTest do
     previous_endpoint_test_pid =
       Application.get_env(:serviceradar_core, :endpoint_inventory_router_test_pid)
 
-    previous_endpoint_test_delay =
-      Application.get_env(:serviceradar_core, :endpoint_inventory_router_test_delay_ms)
+    previous_endpoint_test_barrier =
+      Application.get_env(:serviceradar_core, :endpoint_inventory_router_test_barrier)
 
     previous_endpoint_callback =
       Application.get_env(:serviceradar_core, :endpoint_inventory_after_ingest_callback)
@@ -146,7 +160,7 @@ defmodule ServiceRadar.ResultsRouterTest do
       restore_env(:endpoint_inventory_ingestor, previous_endpoint)
       restore_env(:endpoint_inventory_ingestor_async, previous_endpoint_async)
       restore_env(:endpoint_inventory_router_test_pid, previous_endpoint_test_pid)
-      restore_env(:endpoint_inventory_router_test_delay_ms, previous_endpoint_test_delay)
+      restore_env(:endpoint_inventory_router_test_barrier, previous_endpoint_test_barrier)
       restore_env(:endpoint_inventory_after_ingest_callback, previous_endpoint_callback)
       restore_env(:endpoint_inventory_ingestor_queue_server, previous_endpoint_queue_server)
       restore_env(:results_router_batching, previous_batching)
@@ -575,7 +589,13 @@ defmodule ServiceRadar.ResultsRouterTest do
 
   test "sync endpoint inventory status calls admit work and reply on ingest completion" do
     Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_async, true)
-    Application.put_env(:serviceradar_core, :endpoint_inventory_router_test_delay_ms, 200)
+    barrier_ref = make_ref()
+
+    Application.put_env(
+      :serviceradar_core,
+      :endpoint_inventory_router_test_barrier,
+      barrier_ref
+    )
 
     payload = %{"scan_id" => "scan-router-sync"}
     reply_ref = make_ref()
@@ -598,8 +618,15 @@ defmodule ServiceRadar.ResultsRouterTest do
     expected_payload = Map.put(payload, "agent_id", "agent-router-sync")
     assert_receive {:endpoint_inventory_ingest, ^expected_payload, opts}, 500
     assert Keyword.keyword?(opts)
-    refute_receive {:endpoint_inventory_ingest_finished, ^expected_payload}, 50
-    refute_receive {^reply_ref, _reply}, 50
+
+    assert_receive {:endpoint_inventory_ingest_blocked, ^expected_payload, task_pid,
+                    ^barrier_ref},
+                   500
+
+    task_monitor = Process.monitor(task_pid)
+    refute_received {:endpoint_inventory_ingest_finished, ^expected_payload}
+    refute_received {^reply_ref, _reply}
+    send(task_pid, {:release_endpoint_inventory_ingest, barrier_ref})
 
     assert_receive {:endpoint_inventory_ingest_finished, ^expected_payload}, 500
 
@@ -611,6 +638,8 @@ defmodule ServiceRadar.ResultsRouterTest do
                        directives: %{"endpoint_inventory" => %{"reconcile_floor" => true}}
                      }}},
                    500
+
+    assert_receive {:DOWN, ^task_monitor, :process, ^task_pid, :normal}, 500
   end
 
   describe "async batching" do
