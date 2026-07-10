@@ -3,6 +3,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
 
   alias ServiceRadar.Inventory.EndpointInventoryIngestorQueue
 
+  @missing_queue_name ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest.MissingQueue
+
   defmodule TestIngestor do
     @moduledoc false
 
@@ -64,6 +66,9 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
     previous_ingest_timeout =
       Application.get_env(:serviceradar_core, :endpoint_inventory_ingestor_timeout_ms)
 
+    previous_queue_server =
+      Application.get_env(:serviceradar_core, :endpoint_inventory_ingestor_queue_server)
+
     Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor, TestIngestor)
     Application.put_env(:serviceradar_core, :endpoint_inventory_queue_test_pid, self())
     Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_max_concurrency, 1)
@@ -75,8 +80,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
       10
     )
 
-    restart_task_supervisor(ServiceRadar.EndpointInventoryIngestor.TaskSupervisor)
-    restart_queue()
+    {:ok, endpoint_inventory_task_supervisor} = start_supervised(Task.Supervisor)
+    start_endpoint_inventory_queue(endpoint_inventory_task_supervisor)
     flush_mailbox()
 
     on_exit(fn ->
@@ -93,9 +98,10 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
       )
 
       restore_env(:endpoint_inventory_ingestor_timeout_ms, previous_ingest_timeout)
+      restore_env(:endpoint_inventory_ingestor_queue_server, previous_queue_server)
     end)
 
-    :ok
+    {:ok, endpoint_inventory_task_supervisor: endpoint_inventory_task_supervisor}
   end
 
   test "enqueues async reports and processes them outside the caller" do
@@ -149,9 +155,12 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
     assert result.directives["endpoint_inventory"]["accepted"] == true
   end
 
-  test "completion reply callers get an admission ack before queued acknowledgement directives" do
+  test "completion reply callers get an admission ack before queued acknowledgement directives",
+       %{
+         endpoint_inventory_task_supervisor: task_supervisor
+       } do
     Application.put_env(:serviceradar_core, :endpoint_inventory_queue_test_delay_ms, 200)
-    restart_queue()
+    restart_queue(task_supervisor)
     flush_mailbox()
 
     payload = %{"agent_id" => "agent-queue-reply", "scan_id" => "scan-queue-reply"}
@@ -207,10 +216,12 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
     refute_receive {:endpoint_inventory_ingest_finished, ^slow}, 100
   end
 
-  test "bounded admission rejects when pending and inflight jobs fill capacity" do
+  test "bounded admission rejects when pending and inflight jobs fill capacity", %{
+    endpoint_inventory_task_supervisor: task_supervisor
+  } do
     Application.put_env(:serviceradar_core, :endpoint_inventory_queue_test_delay_ms, 200)
     Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_queue_max_pending, 2)
-    restart_queue()
+    restart_queue(task_supervisor)
     flush_mailbox()
 
     first = %{"agent_id" => "agent-queue-a", "scan_id" => "scan-queue-a"}
@@ -228,7 +239,9 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
     assert_receive {:endpoint_inventory_ingest_started, ^second, _opts}, 1_000
   end
 
-  test "per-agent admission rejects a noisy agent without filling global capacity" do
+  test "per-agent admission rejects a noisy agent without filling global capacity", %{
+    endpoint_inventory_task_supervisor: task_supervisor
+  } do
     Application.put_env(:serviceradar_core, :endpoint_inventory_queue_test_delay_ms, 200)
     Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_queue_max_pending, 10)
 
@@ -238,7 +251,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
       2
     )
 
-    restart_queue()
+    restart_queue(task_supervisor)
     flush_mailbox()
 
     first = %{"agent_id" => "agent-noisy", "scan_id" => "scan-noisy-a"}
@@ -257,7 +270,9 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
     assert :ok = EndpointInventoryIngestorQueue.enqueue(other_agent)
   end
 
-  test "fair dequeue prefers an agent without an in-flight ingest when a slot opens" do
+  test "fair dequeue prefers an agent without an in-flight ingest when a slot opens", %{
+    endpoint_inventory_task_supervisor: task_supervisor
+  } do
     Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_max_concurrency, 2)
     Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_queue_max_pending, 10)
     Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_timeout_ms, 2_000)
@@ -275,7 +290,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
       "scan-fair-b1" => 300
     })
 
-    restart_queue()
+    restart_queue(task_supervisor)
     flush_mailbox()
 
     first = %{"agent_id" => "agent-fair-a", "scan_id" => "scan-fair-a1"}
@@ -297,18 +312,11 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
   end
 
   test "returns unavailable when queue is not running instead of ingesting inline" do
-    queue_pid = Process.whereis(EndpointInventoryIngestorQueue)
-
-    if is_pid(queue_pid) do
-      Process.unregister(EndpointInventoryIngestorQueue)
-    end
-
-    on_exit(fn ->
-      if is_pid(queue_pid) and Process.alive?(queue_pid) and
-           is_nil(Process.whereis(EndpointInventoryIngestorQueue)) do
-        Process.register(queue_pid, EndpointInventoryIngestorQueue)
-      end
-    end)
+    Application.put_env(
+      :serviceradar_core,
+      :endpoint_inventory_ingestor_queue_server,
+      @missing_queue_name
+    )
 
     payload = %{"agent_id" => "agent-queue-down", "scan_id" => "scan-queue-down"}
 
@@ -321,44 +329,24 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_core, key, value)
 
-  defp restart_task_supervisor(name) do
-    stop_process(name)
-
-    case start_supervised({Task.Supervisor, name: name}) do
-      {:ok, pid} -> pid
-      {:error, {:already_started, pid}} -> pid
-    end
+  defp restart_queue(task_supervisor) do
+    :ok = stop_supervised(EndpointInventoryIngestorQueue)
+    start_endpoint_inventory_queue(task_supervisor)
   end
 
-  defp restart_queue do
-    stop_supervised_child(EndpointInventoryIngestorQueue)
+  defp start_endpoint_inventory_queue(task_supervisor) do
+    {:ok, queue_pid} =
+      start_supervised(
+        {EndpointInventoryIngestorQueue, name: nil, task_supervisor: task_supervisor}
+      )
 
-    case start_supervised(EndpointInventoryIngestorQueue) do
-      {:ok, pid} -> pid
-      {:error, {:already_started, pid}} -> pid
-    end
-  end
+    Application.put_env(
+      :serviceradar_core,
+      :endpoint_inventory_ingestor_queue_server,
+      queue_pid
+    )
 
-  defp stop_supervised_child(child_id) do
-    case stop_supervised(child_id) do
-      :ok -> :ok
-      {:error, :not_found} -> stop_process(child_id)
-    end
-  end
-
-  defp stop_process(name) do
-    if pid = Process.whereis(name) do
-      ref = Process.monitor(pid)
-      Process.exit(pid, :shutdown)
-
-      receive do
-        {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
-      after
-        1_000 -> :ok
-      end
-    end
-
-    :ok
+    queue_pid
   end
 
   defp flush_mailbox do

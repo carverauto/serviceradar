@@ -1,5 +1,5 @@
 defmodule ServiceRadar.EventWriter.Processors.TrivyReportsTest do
-  use ExUnit.Case, async: true
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.TrivyReports

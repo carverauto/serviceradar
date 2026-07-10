@@ -41,12 +41,15 @@ var (
 	errV3TokenRequestFailed      = errors.New("armis v3 token request failed")
 	errV3TokenMissingAccessToken = errors.New("armis v3 token response missing access_token")
 	errV3AssetSearchFailed       = errors.New("armis v3 asset search failed")
+	errV3CredentialsMissing      = errors.New("armis v3 asset enrichment requires credentials")
 )
 
-var defaultV3Scopes = []string{
-	"PERMISSION.DEVICE.READ",
-	"PERMISSION.PII.DEVICE",
-	"FULL_VISIBILITY",
+func defaultV3Scopes() []string {
+	return []string{
+		"PERMISSION.DEVICE.READ",
+		"PERMISSION.PII.DEVICE",
+		"FULL_VISIBILITY",
+	}
 }
 
 type assetEnrichmentConfig struct {
@@ -91,7 +94,7 @@ func newAssetEnrichmentConfig(source models.SourceConfig) assetEnrichmentConfig 
 
 	scopes := stringListSetting(source.Settings, "v3_scopes", "armis_v3_scopes")
 	if len(scopes) == 0 {
-		scopes = defaultV3Scopes
+		scopes = defaultV3Scopes()
 	}
 
 	return assetEnrichmentConfig{
@@ -109,7 +112,7 @@ func (c *client) v3AccessToken(ctx context.Context, source models.SourceConfig, 
 
 	missing := missingV3CredentialNames(clientID, clientSecret, vendorID)
 	if len(missing) > 0 {
-		return "", fmt.Errorf("armis v3 asset enrichment requires credentials: %s", strings.Join(missing, ", "))
+		return "", fmt.Errorf("%w: %s", errV3CredentialsMissing, strings.Join(missing, ", "))
 	}
 
 	endpoint, err := resolveURLForBase(cfg.endpoint, v3OAuthTokenPath)

@@ -6,7 +6,7 @@ defmodule ServiceRadar.ObjectStore.RetentionWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
+    unique: [period: :infinity, states: :incomplete]
 
   alias ServiceRadar.ObjectStore.NativeAddonArtifactRetention
   alias ServiceRadar.ObjectStore.ReleaseArtifactRetention

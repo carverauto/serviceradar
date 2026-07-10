@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Identity.AssignFirstUserRoleTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.User
@@ -8,6 +8,7 @@ defmodule ServiceRadar.Identity.AssignFirstUserRoleTest do
   alias ServiceRadar.TestSupport
 
   @moduletag :integration
+  @moduletag sandbox: :unboxed
 
   setup_all do
     TestSupport.start_core!()
@@ -16,6 +17,11 @@ defmodule ServiceRadar.Identity.AssignFirstUserRoleTest do
 
   setup do
     Repo.query!("TRUNCATE TABLE platform.ng_users CASCADE")
+
+    on_exit(fn ->
+      Repo.query!("TRUNCATE TABLE platform.ng_users CASCADE")
+    end)
+
     {:ok, actor: SystemActor.system(:assign_first_user_role_test)}
   end
 

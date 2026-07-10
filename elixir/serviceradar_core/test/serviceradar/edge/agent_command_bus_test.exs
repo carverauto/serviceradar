@@ -3,7 +3,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
   Integration tests for command bus dispatch, status updates, and push-config delivery.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentCommands.PubSub, as: AgentCommandPubSub
@@ -726,6 +726,8 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
          }}
       )
 
+      # Status rows are written before bulk target upserts.
+      _ = :sys.get_state(StatusHandler)
       _command = wait_for_status(command.id, :running, actor)
 
       assert {:ok, %{rows: [["object"]]}} =
@@ -771,6 +773,8 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
          }}
       )
 
+      # Wait for the whole callback before the sandbox owner is released.
+      _ = :sys.get_state(StatusHandler)
       _command = wait_for_status(command.id, :completed, actor)
     end
 
@@ -868,6 +872,11 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       name = ProcessRegistry.via({:agent_control, agent_id}, %{partition_id: "default"})
       {:ok, pid} = CrashingControlSession.start(name: name)
 
+      on_exit(fn ->
+        if Process.alive?(pid), do: Process.exit(pid, :kill)
+      end)
+
+      assert wait_for_control_session(agent_id, pid)
       assert {:error, {:control_session_exit, _reason}} = AgentCommandBus.push_config(agent_id)
       refute Process.alive?(pid)
     end
@@ -1092,7 +1101,25 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       end
     end)
 
+    assert wait_for_control_session(agent_id, pid)
+
     {pid, metadata}
+  end
+
+  defp wait_for_control_session(agent_id, pid, attempts \\ 40)
+
+  defp wait_for_control_session(_agent_id, _pid, 0), do: false
+
+  defp wait_for_control_session(agent_id, pid, attempts) do
+    if Enum.any?(AgentCommandBus.lookup_control_session_entries(agent_id), fn
+         {^pid, _metadata} -> true
+         _entry -> false
+       end) do
+      true
+    else
+      Process.sleep(25)
+      wait_for_control_session(agent_id, pid, attempts - 1)
+    end
   end
 
   defp create_mtr_command(actor, agent_id, target, opts) do

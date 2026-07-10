@@ -1,5 +1,5 @@
 defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry

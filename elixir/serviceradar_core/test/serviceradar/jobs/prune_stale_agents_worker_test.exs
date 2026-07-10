@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Jobs.PruneStaleAgentsWorkerTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent

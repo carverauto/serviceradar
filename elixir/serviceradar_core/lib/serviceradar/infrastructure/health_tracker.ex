@@ -325,7 +325,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
           entity_type == ^entity_type and
             entity_id == ^entity_id
         )
-        |> Ash.Query.sort(recorded_at: :desc)
+        |> Ash.Query.sort(event_sequence: :desc)
         |> Ash.Query.limit(1)
         |> Ash.read_one(actor: actor)
 
@@ -363,7 +363,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
             entity_id == ^entity_id and
             recorded_at >= ^since
         )
-        |> Ash.Query.sort(recorded_at: :desc)
+        |> Ash.Query.sort(event_sequence: :desc)
         |> Ash.Query.limit(limit)
         |> Ash.read(actor: actor)
 
@@ -389,7 +389,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
         # Get the most recent event for each entity
         # This is a simplified approach - for production, use a materialized view
         case HealthEvent
-             |> Ash.Query.sort(recorded_at: :desc)
+             |> Ash.Query.sort(event_sequence: :desc)
              |> Ash.read(actor: actor) do
           {:ok, events} ->
             {:ok, build_summary(events)}
@@ -439,7 +439,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
 
         query =
           HealthEvent
-          |> Ash.Query.sort(recorded_at: :desc)
+          |> Ash.Query.sort(event_sequence: :desc)
           |> Ash.Query.limit(limit)
 
         query =

@@ -3,7 +3,7 @@ defmodule ServiceRadar.Observability.MtrGraphIntegrationTest do
   Integration tests for MTR graph projection into Apache AGE.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Observability.MtrGraph
@@ -13,7 +13,7 @@ defmodule ServiceRadar.Observability.MtrGraphIntegrationTest do
   @moduletag :integration
 
   @test_node_ids [
-    "mtr:10.0.0.1",
+    "mtr:198.18.254.1",
     "mtr:203.0.113.1",
     "mtr:8.8.8.8",
     "mtr:192.0.2.10",
@@ -22,7 +22,10 @@ defmodule ServiceRadar.Observability.MtrGraphIntegrationTest do
 
   setup_all do
     TestSupport.start_core!()
+    :ok
+  end
 
+  setup do
     if age_available?() do
       case ensure_graph(graph_name()) do
         :ok ->
@@ -33,13 +36,6 @@ defmodule ServiceRadar.Observability.MtrGraphIntegrationTest do
       end
     else
       {:ok, skip: "Apache AGE is not available"}
-    end
-  end
-
-  setup context do
-    case context[:skip] do
-      nil -> :ok
-      reason -> {:skip, reason}
     end
   end
 
@@ -55,7 +51,7 @@ defmodule ServiceRadar.Observability.MtrGraphIntegrationTest do
           "hops" => [
             %{
               "hop_number" => 1,
-              "addr" => "10.0.0.1",
+              "addr" => "198.18.254.1",
               "hostname" => "gw.local",
               "asn" => %{"asn" => 64_512, "org" => "Test-AS"},
               "avg_us" => 480,
@@ -90,7 +86,7 @@ defmodule ServiceRadar.Observability.MtrGraphIntegrationTest do
     # Verify edge from hop 1 -> hop 2
     [edge_1_2] =
       cypher_rows(
-        "MATCH (a:MtrHop {id:'mtr:10.0.0.1'})-[r:MTR_PATH]->(b:MtrHop {id:'mtr:203.0.113.1'}) " <>
+        "MATCH (a:MtrHop {id:'mtr:198.18.254.1'})-[r:MTR_PATH]->(b:MtrHop {id:'mtr:203.0.113.1'}) " <>
           "RETURN {count: count(r), avg_us: head(collect(r.avg_us)), loss_pct: head(collect(r.loss_pct))} AS result"
       )
 
@@ -112,11 +108,11 @@ defmodule ServiceRadar.Observability.MtrGraphIntegrationTest do
     # Verify node properties
     [node] =
       cypher_rows(
-        "MATCH (n:MtrHop {id:'mtr:10.0.0.1'}) " <>
+        "MATCH (n:MtrHop {id:'mtr:198.18.254.1'}) " <>
           "RETURN {addr: n.addr, hostname: n.hostname} AS result"
       )
 
-    assert node["addr"] == "10.0.0.1"
+    assert node["addr"] == "198.18.254.1"
     assert node["hostname"] == "gw.local"
   end
 
@@ -125,7 +121,12 @@ defmodule ServiceRadar.Observability.MtrGraphIntegrationTest do
       %{
         "trace" => %{
           "hops" => [
-            %{"hop_number" => 1, "addr" => "10.0.0.1", "avg_us" => 480, "loss_pct" => 0.0},
+            %{
+              "hop_number" => 1,
+              "addr" => "198.18.254.1",
+              "avg_us" => 480,
+              "loss_pct" => 0.0
+            },
             %{"hop_number" => 2, "addr" => "203.0.113.1", "avg_us" => 12_000, "loss_pct" => 5.0}
           ]
         }
@@ -141,7 +142,7 @@ defmodule ServiceRadar.Observability.MtrGraphIntegrationTest do
     # Should still be exactly 1 edge
     [result] =
       cypher_rows(
-        "MATCH (a:MtrHop {id:'mtr:10.0.0.1'})-[r:MTR_PATH]->(b:MtrHop {id:'mtr:203.0.113.1'}) " <>
+        "MATCH (a:MtrHop {id:'mtr:198.18.254.1'})-[r:MTR_PATH]->(b:MtrHop {id:'mtr:203.0.113.1'}) " <>
           "RETURN {count: count(r)} AS result"
       )
 
@@ -179,7 +180,7 @@ defmodule ServiceRadar.Observability.MtrGraphIntegrationTest do
       %{
         "trace" => %{
           "hops" => [
-            %{"hop_number" => 1, "addr" => "10.0.0.1", "avg_us" => 480},
+            %{"hop_number" => 1, "addr" => "198.18.254.1", "avg_us" => 480},
             %{"hop_number" => 2, "addr" => nil, "avg_us" => 0},
             %{"hop_number" => 3, "addr" => "", "avg_us" => 0},
             %{"hop_number" => 4, "addr" => "8.8.8.8", "avg_us" => 15_000}
@@ -193,7 +194,7 @@ defmodule ServiceRadar.Observability.MtrGraphIntegrationTest do
     # Only responding hops create edges: hop1 -> hop4 (skipping nil/empty)
     [result] =
       cypher_rows(
-        "MATCH (a:MtrHop {id:'mtr:10.0.0.1'})-[r:MTR_PATH]->(b:MtrHop {id:'mtr:8.8.8.8'}) " <>
+        "MATCH (a:MtrHop {id:'mtr:198.18.254.1'})-[r:MTR_PATH]->(b:MtrHop {id:'mtr:8.8.8.8'}) " <>
           "RETURN {count: count(r)} AS result"
       )
 

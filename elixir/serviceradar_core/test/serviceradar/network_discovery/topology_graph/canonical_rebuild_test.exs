@@ -134,7 +134,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuildTest do
       sql = Queries.rebuild_input_fingerprint_query()
 
       refute sql =~ "->>"
-      assert sql =~ "properties->'\"protocol\"'"
+      assert sql =~ "edge.properties->'\"protocol\"'"
     end
 
     test "preserves the {count}:{md5} output shape for the unchanged binary compare" do
@@ -150,13 +150,28 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuildTest do
       # last_observed_at refreshes on essentially every mapper report, so it (and
       # observed_at) MUST be bucketed to the hour (left(.., 13)) or the fingerprint
       # churns and the skip-guard never fires. Matches the upsert content_hash.
-      assert sql =~ "left(coalesce((properties->'\"last_observed_at\"')::text, ''), 13)"
-      assert sql =~ "left(coalesce((properties->'\"observed_at\"')::text, ''), 13)"
+      assert sql =~ "left(coalesce((edge.properties->'\"last_observed_at\"')::text, ''), 13)"
+      assert sql =~ "left(coalesce((edge.properties->'\"observed_at\"')::text, ''), 13)"
 
       # Non-timestamp fields stay exact (no bucketing) so a property change is
       # caught immediately.
-      assert sql =~ "coalesce((properties->'\"protocol\"')::text, '')"
-      refute sql =~ "left(coalesce((properties->'\"protocol\"')"
+      assert sql =~ "coalesce((edge.properties->'\"protocol\"')::text, '')"
+      refute sql =~ "left(coalesce((edge.properties->'\"protocol\"')"
+    end
+
+    test "fingerprints mutable properties from both endpoint Interface vertices" do
+      sql = Queries.rebuild_input_fingerprint_query()
+
+      assert sql =~
+               "LEFT JOIN platform_graph.\"Interface\" start_interface ON start_interface.id = edge.start_id"
+
+      assert sql =~
+               "LEFT JOIN platform_graph.\"Interface\" end_interface ON end_interface.id = edge.end_id"
+
+      for endpoint <- ["start_interface", "end_interface"], field <- ["name", "ifindex"] do
+        assert sql =~ "#{endpoint}.properties->'\"#{field}\"'",
+               "fingerprint SQL is missing #{endpoint}.#{field}"
+      end
     end
   end
 
@@ -173,7 +188,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuildTest do
       sql = Queries.rebuild_input_fingerprint_query()
 
       for field <- Queries.content_hash_property_fields() do
-        assert sql =~ "properties->'\"#{field}\"'",
+        assert sql =~ "edge.properties->'\"#{field}\"'",
                "fingerprint SQL is missing content_hash field #{field}"
       end
     end

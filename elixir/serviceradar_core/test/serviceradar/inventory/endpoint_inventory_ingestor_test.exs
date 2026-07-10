@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   import Ecto.Query
 

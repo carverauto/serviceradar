@@ -73,12 +73,10 @@ fn parse_single_stats_agg(expr: &str) -> Option<StatsAggregation> {
 
     // Pattern: func() as alias or func(field) as alias
     // Split on " as " to get function part and alias
-    let (func_part, alias) = if let Some(idx) = expr.find(" as ") {
+    let (func_part, alias) = {
+        let idx = expr.find(" as ")?;
         let (f, a) = expr.split_at(idx);
         (f.trim(), a[4..].trim()) // Skip " as "
-    } else {
-        // No alias, use the function name as alias
-        return None; // Require alias for structured parsing
     };
 
     if alias.is_empty() {

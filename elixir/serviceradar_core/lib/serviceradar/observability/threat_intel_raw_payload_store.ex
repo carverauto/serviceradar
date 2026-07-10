@@ -3,7 +3,7 @@ defmodule ServiceRadar.Observability.ThreatIntelRawPayloadStore do
   NATS Object Store backend for raw threat-intel provider payload snapshots.
   """
 
-  alias Jetstream.API.Object
+  alias Gnat.Jetstream.API.Object
 
   @default_bucket "serviceradar_threat_intel"
 
@@ -75,7 +75,7 @@ defmodule ServiceRadar.Observability.ThreatIntelRawPayloadStore do
   defp ensure_bucket(conn) do
     stream_name = "OBJ_#{bucket_name()}"
 
-    case Jetstream.API.Stream.info(conn, stream_name) do
+    case Gnat.Jetstream.API.Stream.info(conn, stream_name) do
       {:ok, _} ->
         {:ok, :exists}
 

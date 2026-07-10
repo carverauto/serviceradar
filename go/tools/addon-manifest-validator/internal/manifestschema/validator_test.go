@@ -47,6 +47,34 @@ func TestValidManifestPasses(t *testing.T) {
 	}
 }
 
+func TestAgentCapabilitiesRequirementValidates(t *testing.T) {
+	manifest := `
+id: netprobe
+name: Host Network Visibility
+version: 0.2.23
+kind: native
+delivery: pushed-artifact
+supervision: systemd-service
+capabilities: [host-network-visibility]
+requires:
+  base_agent: ">=1.2.0"
+  platforms: [linux]
+  agent_capabilities: [host-network-visibility]
+  os_capabilities: [CAP_NET_RAW, CAP_BPF]
+exec: {binary: serviceradar-netprobe, install_path: /opt/serviceradar}
+config_schema: config.schema.json
+`
+
+	res, err := manifestschema.ValidateYAML([]byte(manifest))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !res.OK() {
+		t.Fatalf("expected agent_capabilities requirement to pass, got %d errors: %v", len(res.Errors), res.Errors)
+	}
+}
+
 func TestInvalidManifestFailsClosed(t *testing.T) {
 	res, err := manifestschema.ValidateYAML(readFixture(t, "invalid_bad_delivery.yaml"))
 	if err != nil {

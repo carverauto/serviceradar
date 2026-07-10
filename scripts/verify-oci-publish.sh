@@ -1,8 +1,62 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=scripts/cosign_common.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cosign_common.sh"
 trap cosign_cleanup_temp_files EXIT
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+INVENTORY="${SERVICERADAR_IMAGE_INVENTORY:-${REPO_ROOT}/docker/images/image_inventory.bzl}"
+REGISTRY_HOST="${OCI_REGISTRY:-registry.carverauto.dev}"
+OCI_PROJECT="${OCI_PROJECT:-serviceradar}"
+OCI_REPOSITORY_BASE="${REGISTRY_HOST}/${OCI_PROJECT}"
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "error: python3 is required" >&2
+  exit 1
+fi
+
+if [[ ! -r "${INVENTORY}" ]]; then
+  echo "error: image inventory is not readable: ${INVENTORY}" >&2
+  exit 1
+fi
+
+image_specs_output="$(
+  python3 - "${INVENTORY}" "${OCI_REPOSITORY_BASE}" <<'PY'
+import ast
+import re
+import sys
+from pathlib import Path
+
+inventory_path = Path(sys.argv[1])
+repository_base = sys.argv[2]
+text = inventory_path.read_text()
+match = re.search(r"PUBLISHABLE_IMAGES\s*=\s*(\[[\s\S]*?\])\n\n", text)
+if not match:
+    raise SystemExit(f"unable to parse image inventory: {inventory_path}")
+
+entries = ast.literal_eval(match.group(1))
+for entry in entries:
+    image_name = entry["repository"].rsplit("/", 1)[-1]
+    kind = "index" if entry.get("push_image") else "single"
+    print(f"{repository_base}/{image_name}|{kind}")
+PY
+)" || {
+  echo "error: failed to parse publishable image repositories from ${INVENTORY}" >&2
+  exit 1
+}
+
+if [[ -z "${image_specs_output}" ]]; then
+  echo "error: no publishable image repositories found in ${INVENTORY}" >&2
+  exit 1
+fi
+
+mapfile -t IMAGE_SPECS <<<"${image_specs_output}"
+
+if [[ "${1:-}" == "--list-image-specs" ]]; then
+  printf '%s\n' "${IMAGE_SPECS[@]}"
+  exit 0
+fi
 
 if ! command -v skopeo >/dev/null 2>&1; then
   echo "error: skopeo is required" >&2
@@ -29,24 +83,6 @@ if [[ "$#" -eq 0 ]]; then
 else
   TAGS=("$@")
 fi
-
-REGISTRY_HOST="${OCI_REGISTRY:-registry.carverauto.dev}"
-OCI_PROJECT="${OCI_PROJECT:-serviceradar}"
-OCI_REPOSITORY_BASE="${REGISTRY_HOST}/${OCI_PROJECT}"
-
-declare -a IMAGE_SPECS=(
-  "${OCI_REPOSITORY_BASE}/serviceradar-web-ng|single"
-  "${OCI_REPOSITORY_BASE}/serviceradar-core-elx|single"
-  "${OCI_REPOSITORY_BASE}/serviceradar-agent-gateway|single"
-  "${OCI_REPOSITORY_BASE}/serviceradar-agent|single"
-  "${OCI_REPOSITORY_BASE}/serviceradar-log-collector|index"
-  "${OCI_REPOSITORY_BASE}/serviceradar-trapd|index"
-  "${OCI_REPOSITORY_BASE}/serviceradar-flow-collector|index"
-  "${OCI_REPOSITORY_BASE}/arancini|index"
-  "${OCI_REPOSITORY_BASE}/serviceradar-rperf-client|index"
-  "${OCI_REPOSITORY_BASE}/serviceradar-faker|index"
-  "${OCI_REPOSITORY_BASE}/serviceradar-tools|single"
-)
 
 fail() {
   echo "error: $*" >&2
@@ -95,8 +131,7 @@ resolve_digest() {
 check_image_shape() {
   local tag="$1"
   local ref="$2"
-  local kind="$2"
-  kind="$3"
+  local kind="$3"
   local raw
   raw="$(skopeo inspect --raw "docker://${ref}:${tag}")"
   local media_type
@@ -186,7 +221,7 @@ check_signature_accessory() {
   digest="$(resolve_digest "${ref}:${tag}")"
   [[ -n "${digest}" && "${digest}" != "null" ]] || fail "${ref}:${tag} digest lookup failed"
 
-  local repo_path="${ref#${REGISTRY_HOST}/}"
+  local repo_path="${ref#"${REGISTRY_HOST}"/}"
   local auth user pass token
   auth="$(resolve_registry_auth)"
   IFS='|' read -r user pass <<<"${auth}"
@@ -259,7 +294,7 @@ check_legacy_signature_tag() {
 
   local signature_repo="${signature_ref%:*}"
   local signature_tag="${signature_ref##*:}"
-  local signature_repo_path="${signature_repo#${REGISTRY_HOST}/}"
+  local signature_repo_path="${signature_repo#"${REGISTRY_HOST}"/}"
   local auth user pass token
   auth="$(resolve_registry_auth)"
   IFS='|' read -r user pass <<<"${auth}"

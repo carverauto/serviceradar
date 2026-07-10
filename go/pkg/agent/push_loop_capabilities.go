@@ -185,6 +185,7 @@ func sidecarStatusesForStatus(provider sidecarStatusProvider) []*proto.SidecarSt
 type agentCapabilityOptions struct {
 	enhancedBPF                             bool
 	desktopRDP                              bool
+	hostNetworkVisibilitySupported          bool
 	hostNetworkVisibilityFingerprintEnabled bool
 	sweepBannerGrabAvailable                bool
 	bumblebee                               bool
@@ -285,6 +286,7 @@ func getAgentCapabilitiesForSidecarsWithRDPPath(
 	return agentCapabilities(agentCapabilityOptions{
 		enhancedBPF:                             remoteaccess.PlatformEnhancedRecordingAvailable(),
 		desktopRDP:                              remoteAccessRDPCapabilityEnabledAtPath(cfg, rdpAdapterPath),
+		hostNetworkVisibilitySupported:          supportsHostNetworkVisibility(runtime.GOOS, detectDeploymentType()),
 		hostNetworkVisibilityFingerprintEnabled: hasHealthyNetprobeSidecar(sidecars),
 		sweepBannerGrabAvailable:                sweepBannerGrabAvailable,
 		bumblebee:                               cfg != nil && cfg.Bumblebee != nil && cfg.Bumblebee.Enabled,
@@ -308,12 +310,16 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		remoteaccess.CapabilityRemoteAccessFile,
 		remoteaccess.CapabilityRemoteAccessSFTP,
 		remoteaccess.CapabilityRemoteAccessRecording,
-		capabilityHostNetworkVisibility,
+	}
+	if options.hostNetworkVisibilitySupported {
+		capabilities = append(capabilities, capabilityHostNetworkVisibility)
+	}
+	capabilities = append(capabilities,
 		capabilityHostNetworkVisibilityDPIUnavailable,
 		capabilityHostNetworkVisibilityFlowUnavailable,
 		capabilityHostNetworkVisibilitySnapshotUnavailable,
 		capabilitySweepBannerGrab,
-	}
+	)
 
 	if options.hostNetworkVisibilityFingerprintEnabled {
 		capabilities = append(capabilities, capabilityHostNetworkVisibilityFingerprintEnabled)

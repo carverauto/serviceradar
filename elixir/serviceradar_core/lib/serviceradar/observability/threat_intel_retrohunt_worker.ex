@@ -13,7 +13,7 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
     unique: [
       period: 900,
       fields: [:worker, :args],
-      states: [:available, :scheduled, :executing]
+      states: :incomplete
     ]
 
   alias Ecto.Adapters.SQL

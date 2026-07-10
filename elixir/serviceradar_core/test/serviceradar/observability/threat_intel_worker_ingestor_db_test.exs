@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Observability.ThreatIntelWorkerIngestorDBTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
@@ -410,6 +410,7 @@ defmodule ServiceRadar.Observability.ThreatIntelWorkerIngestorDBTest do
         id,
         agent_uid,
         plugin_package_id,
+        plugin_id,
         source,
         enabled,
         interval_seconds,
@@ -424,18 +425,19 @@ defmodule ServiceRadar.Observability.ThreatIntelWorkerIngestorDBTest do
         ($1::text)::uuid,
         'edge-1',
         ($2::text)::uuid,
+        $3,
         'manual',
         true,
         21600,
         7200,
-        ($3::text)::jsonb,
+        ($4::text)::jsonb,
         '{}'::jsonb,
         '{}'::jsonb,
-        $4,
-        $4
+        $5,
+        $5
       )
       """,
-      [assignment_id, package_id, Jason.encode!(params), now]
+      [assignment_id, package_id, @cursor_plugin_id, Jason.encode!(params), now]
     )
 
     assignment_id

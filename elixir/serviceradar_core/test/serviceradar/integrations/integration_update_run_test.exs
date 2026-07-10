@@ -1,8 +1,9 @@
 defmodule ServiceRadar.Integrations.IntegrationUpdateRunTest do
   @moduledoc false
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.IntegrationUpdateRun
   alias ServiceRadar.TestSupport
@@ -123,7 +124,7 @@ defmodule ServiceRadar.Integrations.IntegrationUpdateRunTest do
 
   test "reads recent runs by source in descending order", %{actor: actor} do
     source = create_source!(actor, unique_name("run-read-source"))
-    older = start_run!(source.id, actor, %{metadata: %{sequence: 1}})
+    older = source.id |> start_run!(actor, %{metadata: %{sequence: 1}}) |> finish_run!(actor)
     :timer.sleep(5)
     newer = start_run!(source.id, actor, %{metadata: %{sequence: 2}})
 
@@ -137,7 +138,7 @@ defmodule ServiceRadar.Integrations.IntegrationUpdateRunTest do
 
   test "reads latest run by source", %{actor: actor} do
     source = create_source!(actor, unique_name("run-latest-source"))
-    _older = start_run!(source.id, actor, %{metadata: %{sequence: 1}})
+    _older = source.id |> start_run!(actor, %{metadata: %{sequence: 1}}) |> finish_run!(actor)
     :timer.sleep(5)
     newer = start_run!(source.id, actor, %{metadata: %{sequence: 2}})
 
@@ -151,13 +152,22 @@ defmodule ServiceRadar.Integrations.IntegrationUpdateRunTest do
 
   defp create_source!(actor, name) do
     endpoint = "https://example.invalid/#{System.unique_integer([:positive])}"
+    agent_id = "integration-update-run-agent-#{System.unique_integer([:positive])}"
+
+    Agent
+    |> Ash.Changeset.for_create(
+      :register_connected,
+      %{uid: agent_id, name: agent_id},
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
 
     IntegrationSource
     |> Ash.Changeset.new()
     |> Ash.Changeset.set_argument(:credentials, %{token: "secret"})
     |> Ash.Changeset.for_create(
       :create,
-      %{name: name, source_type: :armis, endpoint: endpoint},
+      %{name: name, source_type: :armis, endpoint: endpoint, agent_id: agent_id},
       actor: actor
     )
     |> Ash.create!(actor: actor)
@@ -173,6 +183,12 @@ defmodule ServiceRadar.Integrations.IntegrationUpdateRunTest do
     IntegrationUpdateRun
     |> Ash.Changeset.for_create(:start_run, Map.merge(defaults, attrs), actor: actor)
     |> Ash.create!(actor: actor)
+  end
+
+  defp finish_run!(run, actor) do
+    run
+    |> Ash.Changeset.for_update(:finish_success, %{}, actor: actor)
+    |> Ash.update!(actor: actor)
   end
 
   defp unique_name(prefix), do: "#{prefix}-#{System.unique_integer([:positive])}"

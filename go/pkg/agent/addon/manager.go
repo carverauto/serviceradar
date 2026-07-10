@@ -515,7 +515,7 @@ func (r *runner) runOnce(ctx context.Context) error {
 	// Enforce the manifest resource limits on the add-on subprocess (cgroup v2 on
 	// Linux). Best-effort: a failure to enforce logs, is surfaced through status,
 	// and launches without limits rather than blocking the add-on.
-	if cleanup, cgroupPath, err := applyResourceLimits(cmd, r.id, r.spec.Resources, r.cfg.AddonCgroupRoot, r.cfg.Logger); err != nil {
+	if cleanup, cgroupPath, err := applyResourceLimits(cmd, r.id, spec.Resources, r.cfg.AddonCgroupRoot, r.cfg.Logger); err != nil {
 		r.cfg.Logger.Warn().Err(err).Str("addon", r.id).
 			Msg("addon resource limits not enforced; launching without limits")
 		r.setResourceLimits("", fmt.Sprintf("resource limits not enforced: %v", err))

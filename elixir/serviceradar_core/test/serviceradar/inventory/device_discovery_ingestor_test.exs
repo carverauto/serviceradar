@@ -321,7 +321,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
         |> IdentityReconciler.extract_strong_identifiers()
 
       assert ids.ip == "192.168.2.235"
-      assert ids.integration_id == "awx:ctrl-1:host:42"
+      assert ids.integration_id == "awx:host:alma-test"
     end
 
     test "recovers ansible_host from the legacy ansible_ssh_host key" do

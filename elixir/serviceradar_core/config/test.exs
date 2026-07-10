@@ -276,6 +276,8 @@ config :serviceradar_core,
   event_batcher_enabled: false,
   health_check_runner_enabled: false,
   health_check_registrar_enabled: false,
+  stateful_alert_evaluation_queue:
+    ServiceRadar.TestSupport.SynchronousStatefulAlertEvaluationQueue,
   service_heartbeat_enabled: false,
   spiffe_cert_monitor_enabled: false,
   status_handler_enabled: false,

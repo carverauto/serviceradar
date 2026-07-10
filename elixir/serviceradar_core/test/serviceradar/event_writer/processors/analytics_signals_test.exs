@@ -1,5 +1,5 @@
 defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
-  use ExUnit.Case, async: true
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.EventWriter.DeviceCorrelation
   alias ServiceRadar.EventWriter.DeviceCorrelationCache

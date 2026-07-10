@@ -6,7 +6,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
   Tests run against the schema determined by PostgreSQL search_path.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentGatewaySync
@@ -27,8 +27,16 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
   @release_private_key "kRqU4UnTUPjychwJGH4ZdsuijaxuGUNFPezyY+iSnBY="
 
   setup_all do
+    previous_public_key =
+      Application.fetch_env(:serviceradar_core, :agent_release_public_key)
+
     ServiceRadar.TestSupport.start_core!()
     Application.put_env(:serviceradar_core, :agent_release_public_key, @release_public_key)
+
+    on_exit(fn ->
+      restore_env_snapshot(:agent_release_public_key, previous_public_key)
+    end)
+
     :ok
   end
 
@@ -922,4 +930,9 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
     |> :crypto.sign(:none, payload, [private_key, :ed25519])
     |> Base.encode64()
   end
+
+  defp restore_env_snapshot(key, {:ok, value}),
+    do: Application.put_env(:serviceradar_core, key, value)
+
+  defp restore_env_snapshot(key, :error), do: Application.delete_env(:serviceradar_core, key)
 end

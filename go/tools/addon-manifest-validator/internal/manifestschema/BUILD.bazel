@@ -6,7 +6,7 @@ go_library(
     embedsrcs = ["native-addon-manifest.schema.json"],
     importpath = "github.com/carverauto/serviceradar/go/tools/addon-manifest-validator/internal/manifestschema",
     visibility = ["//go/tools/addon-manifest-validator:__subpackages__"],
-    deps = ["@in_gopkg_yaml_v3//:go_default_library"],
+    deps = ["@in_gopkg_yaml_v3//:yaml_v3"],
 )
 
 go_test(

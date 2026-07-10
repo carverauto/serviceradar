@@ -158,6 +158,44 @@ defmodule ServiceRadar.Security.RateLimiterTest do
                _ -> false
              end)
     end
+
+    test "the limiter restores a lost ProcessRegistry registration" do
+      key = {RateLimiter.__registry_type__(), node()}
+      limiter_pid = Process.whereis(RateLimiter)
+
+      on_exit(fn ->
+        if pid = Process.whereis(RateLimiter) do
+          :ok = :sys.resume(pid)
+          send(pid, :ensure_registry_registration)
+          _ = :sys.get_state(pid)
+        end
+      end)
+
+      send(RateLimiter, :ensure_registry_registration)
+      _ = :sys.get_state(RateLimiter)
+      assert [{^limiter_pid, _metadata}] = wait_for_registry_entry(key, limiter_pid)
+
+      # Horde unregisters the caller's entry; suspend the owner so its timer
+      # cannot recreate the entry before the test observes the loss.
+      :ok = :sys.suspend(limiter_pid)
+
+      try do
+        :sys.replace_state(limiter_pid, fn state ->
+          :ok = ServiceRadar.ProcessRegistry.unregister(key)
+          state
+        end)
+
+        assert [] = ServiceRadar.ProcessRegistry.lookup(key)
+        send(limiter_pid, :ensure_registry_registration)
+      after
+        :ok = :sys.resume(limiter_pid)
+      end
+
+      _ = :sys.get_state(RateLimiter)
+
+      assert [{^limiter_pid, %{type: :rate_limiter}}] =
+               wait_for_registry_entry(key, limiter_pid)
+    end
   end
 
   describe "peer broadcast (single-node simulation)" do
@@ -213,6 +251,21 @@ defmodule ServiceRadar.Security.RateLimiterTest do
 
       [{_, attempts}] = :ets.lookup(RateLimiter.__table__(), {bucket, key})
       assert Enum.sort(attempts) == Enum.sort([seeded_ts, other_ts1, other_ts2])
+    end
+  end
+
+  defp wait_for_registry_entry(key, pid, attempts \\ 40)
+
+  defp wait_for_registry_entry(key, _pid, 0), do: ServiceRadar.ProcessRegistry.lookup(key)
+
+  defp wait_for_registry_entry(key, pid, attempts) do
+    case ServiceRadar.ProcessRegistry.lookup(key) do
+      [{^pid, _metadata}] = entries ->
+        entries
+
+      _entries ->
+        Process.sleep(25)
+        wait_for_registry_entry(key, pid, attempts - 1)
     end
   end
 end

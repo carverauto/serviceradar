@@ -1,5 +1,5 @@
 defmodule ServiceRadar.EventWriter.DeviceCorrelationTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.DeviceCorrelation

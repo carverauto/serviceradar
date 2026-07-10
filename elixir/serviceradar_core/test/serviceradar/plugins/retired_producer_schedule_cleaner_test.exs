@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Plugins.RetiredProducerScheduleCleanerTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.ProducerSchedule

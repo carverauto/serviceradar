@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.Edge.AgentConfigGenerator
@@ -87,7 +87,7 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
     compiled_group = Enum.find(entry.config["groups"], &(&1["sweep_group_id"] == group.id))
     assert is_map(compiled_group)
     assert compiled_group["sweep_group_id"] == group.id
-    assert device_ip in compiled_group["targets"]
+    assert device_ip in device_target_networks(compiled_group)
     assert "10.0.2.0/24" in compiled_group["targets"]
     assert compiled_group["ports"] == profile.ports
     assert compiled_group["modes"] == profile.sweep_modes
@@ -172,5 +172,9 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
 
     [compiled_group] = entry.config["groups"]
     refute "tcp" in compiled_group["modes"]
+  end
+
+  defp device_target_networks(compiled_group) do
+    Enum.map(compiled_group["device_targets"] || [], & &1["network"])
   end
 end

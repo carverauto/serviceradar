@@ -41,6 +41,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   alias ServiceRadarAgentGateway.AgentRegistryProxy
   alias ServiceRadarAgentGateway.ComponentIdentityResolver
   alias ServiceRadarAgentGateway.Config
+  alias ServiceRadarAgentGateway.ConfigResponse
   alias ServiceRadarAgentGateway.ControlStreamSession
   alias ServiceRadarAgentGateway.StatusProcessor
 
@@ -1199,51 +1200,18 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     |> to_string()
   end
 
-  defp handle_config_response({:error, :core_unavailable}, agent_id, config_version) do
-    Logger.warning("Core unavailable for config request: agent_id=#{agent_id}, version=#{config_version}")
+  defp handle_config_response(core_result, agent_id, config_version) do
+    ConfigResponse.from_core_result(core_result, agent_id, config_version, fn config ->
+      summary = config_payload_summary(config)
 
-    unavailable_config_response(config_version)
+      Logger.info(
+        "Sending config to agent: agent_id=#{agent_id}, version=#{config.config_version}, checks=#{length(config.checks)}, " <>
+          "config_json_bytes=#{summary.config_json_bytes}, mapper_jobs=#{summary.mapper_jobs}, plugins=#{summary.plugins}"
+      )
+
+      AgentConfigGenerator.to_proto_response(config)
+    end)
   end
-
-  defp handle_config_response({:ok, :not_modified}, agent_id, config_version) do
-    Logger.debug("Agent config not modified: agent_id=#{agent_id}, version=#{config_version}")
-
-    %Monitoring.AgentConfigResponse{
-      not_modified: true,
-      config_version: config_version
-    }
-  end
-
-  defp handle_config_response({:ok, {:ok, config}}, agent_id, _config_version) do
-    summary = config_payload_summary(config)
-
-    Logger.info(
-      "Sending config to agent: agent_id=#{agent_id}, version=#{config.config_version}, checks=#{length(config.checks)}, " <>
-        "config_json_bytes=#{summary.config_json_bytes}, mapper_jobs=#{summary.mapper_jobs}, plugins=#{summary.plugins}"
-    )
-
-    AgentConfigGenerator.to_proto_response(config)
-  end
-
-  defp handle_config_response({:ok, {:error, reason}}, agent_id, _config_version) do
-    Logger.warning("Failed to generate config for agent #{agent_id}: #{inspect(reason)}, returning empty config")
-
-    empty_config_response("v0-error")
-  end
-
-  defp handle_config_response({:ok, other}, agent_id, _config_version) do
-    Logger.warning("Unexpected config response for agent #{agent_id}: #{inspect(other)}")
-    empty_config_response("v0-error")
-  end
-
-  defp unavailable_config_response(config_version) when config_version != "" do
-    %Monitoring.AgentConfigResponse{
-      not_modified: true,
-      config_version: config_version
-    }
-  end
-
-  defp unavailable_config_response(_config_version), do: empty_config_response("v0-unavailable")
 
   defp config_payload_summary(config) do
     config_json = Map.get(config, :config_json) || ""
@@ -1274,17 +1242,6 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp plugin_assignment_count(%{"assignments" => assignments}) when is_list(assignments), do: length(assignments)
 
   defp plugin_assignment_count(_plugins), do: 0
-
-  defp empty_config_response(version) do
-    %Monitoring.AgentConfigResponse{
-      not_modified: false,
-      config_version: version,
-      config_timestamp: System.os_time(:second),
-      heartbeat_interval_sec: @default_heartbeat_interval_sec,
-      config_poll_interval_sec: 300,
-      checks: []
-    }
-  end
 
   defp initial_stream_status_state do
     %{

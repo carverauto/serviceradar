@@ -40,7 +40,7 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   use GenStage
 
-  alias Jetstream.API.Consumer, as: JetstreamConsumerApi
+  alias Gnat.Jetstream.API.Consumer, as: JetstreamConsumerApi
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.JetStreamAck
   alias ServiceRadar.EventWriter.Telemetry, as: EventWriterTelemetry

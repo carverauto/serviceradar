@@ -9,7 +9,7 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporter do
 
   use GenServer
 
-  alias Jetstream.API.Consumer
+  alias Gnat.Jetstream.API.Consumer
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.Telemetry, as: EventWriterTelemetry
   alias ServiceRadar.NATS.Connection

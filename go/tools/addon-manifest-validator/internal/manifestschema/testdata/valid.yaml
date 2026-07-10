@@ -15,6 +15,7 @@ capabilities:
 requires:
   base_agent: ">=1.2.0"
   platforms: [linux]
+  agent_capabilities: [host-network-visibility]
   os_capabilities: []
   run_as: serviceradar
 

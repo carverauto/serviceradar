@@ -5,6 +5,11 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
 
   alias ServiceRadar.Integrations.ArmisNorthboundRunner
 
+  setup_all do
+    {:ok, _apps} = Application.ensure_all_started(:req)
+    :ok
+  end
+
   test "northbound_ready? rejects disabled or incomplete sources" do
     assert {:error, :northbound_disabled} =
              ArmisNorthboundRunner.northbound_ready?(%{northbound_enabled: false})
@@ -1351,8 +1356,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
   defp handle_fake_armis_socket(socket, parent) do
     with {:ok, header_bytes} <- recv_until(socket, "\r\n\r\n"),
          {header_part, initial_body} <- split_http_header_and_body(header_bytes),
-         {headers, content_length} <- parse_http_headers(header_part),
-         {:ok, body_bytes} <- recv_exact_body(socket, content_length, initial_body),
+         {headers, body_mode} <- parse_http_headers(header_part),
+         {:ok, body_bytes} <- recv_http_body(socket, body_mode, initial_body),
          {:ok, body} <- Jason.decode(body_bytes) do
       path =
         header_part
@@ -1380,7 +1385,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     if String.contains?(acc, marker) do
       {:ok, acc}
     else
-      case :gen_tcp.recv(socket, 0, 1_000) do
+      case :gen_tcp.recv(socket, 0, 5_000) do
         {:ok, bytes} -> recv_until(socket, marker, acc <> bytes)
         {:error, reason} -> {:error, reason}
       end
@@ -1400,9 +1405,64 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
         {:ok, binary_part(initial_body, 0, length)}
 
       true ->
-        case :gen_tcp.recv(socket, length - existing, 1_000) do
+        case :gen_tcp.recv(socket, length - existing, 5_000) do
           {:ok, bytes} -> {:ok, initial_body <> bytes}
           {:error, reason} -> {:error, reason}
+        end
+    end
+  end
+
+  defp recv_http_body(socket, {:content_length, content_length}, initial_body),
+    do: recv_exact_body(socket, content_length, initial_body)
+
+  defp recv_http_body(socket, :chunked, initial_body), do: recv_chunked_body(socket, initial_body)
+
+  defp recv_chunked_body(socket, bytes) do
+    case decode_chunked_body(bytes) do
+      {:ok, body} ->
+        {:ok, body}
+
+      :more ->
+        case :gen_tcp.recv(socket, 0, 5_000) do
+          {:ok, more} -> recv_chunked_body(socket, bytes <> more)
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp decode_chunked_body(bytes, decoded \\ "") do
+    case :binary.match(bytes, "\r\n") do
+      :nomatch ->
+        :more
+
+      {header_size, 2} ->
+        header = binary_part(bytes, 0, header_size)
+        rest = binary_part(bytes, header_size + 2, byte_size(bytes) - header_size - 2)
+
+        case Integer.parse(header, 16) do
+          {chunk_size, ""} ->
+            cond do
+              chunk_size == 0 ->
+                {:ok, decoded}
+
+              byte_size(rest) < chunk_size + 2 ->
+                :more
+
+              binary_part(rest, chunk_size, 2) != "\r\n" ->
+                {:error, :invalid_chunk_terminator}
+
+              true ->
+                chunk = binary_part(rest, 0, chunk_size)
+                remaining_size = byte_size(rest) - chunk_size - 2
+                remaining = binary_part(rest, chunk_size + 2, remaining_size)
+                decode_chunked_body(remaining, decoded <> chunk)
+            end
+
+          _ ->
+            {:error, :invalid_chunk_size}
         end
     end
   end
@@ -1416,12 +1476,23 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
         {String.downcase(key), String.trim(value)}
       end)
 
-    content_length =
-      headers
-      |> Map.get("content-length", "0")
-      |> String.to_integer()
+    body_mode =
+      case Map.fetch(headers, "content-length") do
+        {:ok, content_length} ->
+          {:content_length, String.to_integer(content_length)}
 
-    {headers, content_length}
+        :error ->
+          if headers
+             |> Map.get("transfer-encoding", "")
+             |> String.downcase()
+             |> String.contains?("chunked") do
+            :chunked
+          else
+            {:content_length, 0}
+          end
+      end
+
+    {headers, body_mode}
   end
 
   defp send_json_response(socket, body, status \\ 200) do

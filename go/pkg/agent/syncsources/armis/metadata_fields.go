@@ -25,51 +25,54 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/models"
 )
 
-var defaultAttachmentMetadataFields = []string{
-	"accessSwitch",
-	"access_switch",
-	"Access Switch",
-	"accessSwitchName",
-	"access_switch_name",
-	"accessSwitchPort",
-	"access_switch_port",
-	"accessSwitchInterface",
-	"access_switch_interface",
-	"connectedSwitch",
-	"connected_switch",
-	"connectedSwitchPort",
-	"connected_switch_port",
-	"connectedSwitchInterface",
-	"connected_switch_interface",
-	"switch",
-	"switchName",
-	"switch_name",
-	"switchPort",
-	"switch_port",
-	"portName",
-	"port_name",
-	"neighborDevice",
-	"neighbor_device",
-	"neighborPort",
-	"neighbor_port",
-	"connectionType",
-	"connection_type",
-	"Connection Type",
-	"dhcpLeaseType",
-	"dhcp_lease_type",
-	"DHCP Lease Type",
-	"vlan",
-	"VLAN",
-	"vlans",
-	"VLANs",
-	"vlanId",
-	"vlan_id",
-	"VLAN ID",
+func defaultAttachmentMetadataFields() []string {
+	return []string{
+		"accessSwitch",
+		"access_switch",
+		"Access Switch",
+		"accessSwitchName",
+		"access_switch_name",
+		"accessSwitchPort",
+		"access_switch_port",
+		"accessSwitchInterface",
+		"access_switch_interface",
+		"connectedSwitch",
+		"connected_switch",
+		"connectedSwitchPort",
+		"connected_switch_port",
+		"connectedSwitchInterface",
+		"connected_switch_interface",
+		"switch",
+		"switchName",
+		"switch_name",
+		"switchPort",
+		"switch_port",
+		"portName",
+		"port_name",
+		"neighborDevice",
+		"neighbor_device",
+		"neighborPort",
+		"neighbor_port",
+		"connectionType",
+		"connection_type",
+		"Connection Type",
+		"dhcpLeaseType",
+		"dhcp_lease_type",
+		"DHCP Lease Type",
+		"vlan",
+		"VLAN",
+		"vlans",
+		"VLANs",
+		"vlanId",
+		"vlan_id",
+		"VLAN ID",
+	}
 }
 
 func metadataFieldsForSource(source models.SourceConfig) []string {
-	fields := make([]string, 0, len(defaultAttachmentMetadataFields))
-	fields = append(fields, defaultAttachmentMetadataFields...)
+	defaultFields := defaultAttachmentMetadataFields()
+	fields := make([]string, 0, len(defaultFields))
+	fields = append(fields, defaultFields...)
 	fields = append(fields, stringListSetting(source.Settings, "extra_metadata_fields", "armis_extra_metadata_fields")...)
 	fields = append(fields, stringListSetting(source.Settings, "attachment_fields")...)
 	fields = append(fields, configuredAssetFields(source)...)

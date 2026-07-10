@@ -8,7 +8,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
   source identity and drop the contested IP from the incoming strong device.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page

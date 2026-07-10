@@ -25,7 +25,7 @@ defmodule ServiceRadar.Automation.Ansible.RetentionWorker do
   use Oban.Worker,
     queue: :ansible_retention,
     max_attempts: 1,
-    unique: [period: :infinity, states: [:available, :scheduled]]
+    unique: [period: :infinity, states: :incomplete]
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.PlaybookPlay

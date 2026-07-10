@@ -5,7 +5,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
   whose `artifacts` map `AgentConfigGenerator` reads. Run against the srql-fixtures
   scratch DB (see the srql-fixtures-db-tests skill).
   """
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.NativeAddonImporter, as: Importer

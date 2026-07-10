@@ -10,7 +10,7 @@ defmodule ServiceRadar.Automation.Northbound.PollWorker do
       period: 60,
       fields: [:worker, :args],
       keys: [:target_id],
-      states: [:available, :scheduled, :executing, :retryable]
+      states: :incomplete
     ]
 
   alias ServiceRadar.Actors.SystemActor

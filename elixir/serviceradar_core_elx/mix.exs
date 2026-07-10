@@ -36,6 +36,14 @@ defmodule ServiceRadarCoreElx.MixProject do
     [
       # ServiceRadar Core - shared domains, repo, cluster, registry
       {:serviceradar_core, path: "../serviceradar_core"},
+      # Ratio 4.0.1 still advertises Decimal 2.x even though its Decimal integration
+      # remains API-compatible. Force the patched Decimal line and the Numbers release
+      # that officially supports it so Ash/Ecto can resolve their secured versions.
+      {:decimal, "~> 3.1", override: true},
+      {:numbers, "~> 5.2.5", override: true},
+      # ex_hls through 0.2.5 advertises Req 0.5.x but only calls the compatible
+      # Req.get!/1 API. Force the release containing the decompression limits.
+      {:req, "~> 0.6.1", override: true},
 
       # Distributed cluster
       {:libcluster, "~> 3.4"},

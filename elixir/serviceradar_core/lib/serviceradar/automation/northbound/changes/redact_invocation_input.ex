@@ -20,7 +20,7 @@ defmodule ServiceRadar.Automation.Northbound.Changes.RedactInvocationInput do
   end
 
   defp redaction_payload(changeset) do
-    input_values = Ash.Changeset.get_attribute(changeset, :input_values) || %{}
+    input_values = pending_attribute(changeset, :input_values) || %{}
     redaction = ActionRedaction.for_storage(input_values)
 
     %{
@@ -46,5 +46,11 @@ defmodule ServiceRadar.Automation.Northbound.Changes.RedactInvocationInput do
 
   defp put_redaction_metadata(_metadata, prefix, redaction) do
     put_redaction_metadata(%{}, prefix, redaction)
+  end
+
+  defp pending_attribute(changeset, attribute) do
+    Keyword.get_lazy(changeset.atomics, attribute, fn ->
+      Ash.Changeset.get_attribute(changeset, attribute)
+    end)
   end
 end

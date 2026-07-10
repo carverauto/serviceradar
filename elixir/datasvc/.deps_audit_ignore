@@ -1,3 +1,6 @@
-# GHSA-g2wm-735q-3f56 / cowlib cookie encoder advisory has no patched release as of cowlib 2.16.1.
-# Keep this waiver until cowlib publishes a patched release or the dependency is replaced.
+# EEF-CVE-2026-43966 / cowlib HTTP response splitting and
+# GHSA-g2wm-735q-3f56 / cowlib cookie encoder advisory have no patched release
+# as of cowlib 2.18.0. Keep this waiver until cowlib publishes a patched
+# release or the dependency is replaced.
+EEF-CVE-2026-43966
 GHSA-g2wm-735q-3f56

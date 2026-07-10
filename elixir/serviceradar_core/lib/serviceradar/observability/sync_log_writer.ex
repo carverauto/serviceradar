@@ -159,6 +159,9 @@ defmodule ServiceRadar.Observability.SyncLogWriter do
       body: body,
       service_name: "serviceradar.core",
       scope_name: "sync_ingestor",
+      ingest_identity: "",
+      ingest_agent_id: "",
+      ingest_partition: "",
       attributes:
         source
         |> build_attributes(stage, result, device_count, error_message)

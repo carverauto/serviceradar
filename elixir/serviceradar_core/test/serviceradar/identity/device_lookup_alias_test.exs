@@ -3,7 +3,7 @@ defmodule ServiceRadar.Identity.DeviceLookupAliasTest do
   Integration coverage for IP alias resolution in DeviceLookup.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAliasState

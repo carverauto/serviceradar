@@ -580,12 +580,11 @@ core:
 datasvc:
   replicaCount: 3
   jetstreamReplicas: 3
-  # Keep KV small, but size object storage for retained agent releases, native
-  # add-on tarballs across supported OS/arch pairs, plugin blobs, and roughly 2x
-  # import/rollback headroom above the active working set.
+  # Match the live demo JetStream account budget. Keep this in Git so Argo does
+  # not restore the chart's larger production-oriented object-store reservation.
   bucketMaxBytes: 536870912
   objectMaxBytes: 536870912
-  objectStoreBytes: 17179869184
+  objectStoreBytes: 2147483648
   data:
     # datasvc is safe to run stateless in demo because KV/object state lives in NATS.
     enabled: false

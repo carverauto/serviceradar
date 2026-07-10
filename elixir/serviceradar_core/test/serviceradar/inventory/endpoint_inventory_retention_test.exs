@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Inventory.EndpointInventoryRetentionTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   import Ecto.Query
 
@@ -212,16 +212,37 @@ defmodule ServiceRadar.Inventory.EndpointInventoryRetentionTest do
 
   defp insert_package!(scan_ref, agent_id, name, current?) do
     now = DateTime.utc_now()
+    endpoint_package_ref = Ecto.UUID.dump!(Ecto.UUID.generate())
+    purl = "pkg:deb/#{name}"
+
+    Repo.insert_all(
+      "endpoint_packages",
+      [
+        %{
+          id: endpoint_package_ref,
+          coordinate_key: "purl:#{purl}",
+          purl_canonical: purl,
+          package_manager: "dpkg",
+          name: name,
+          source_scope: "host",
+          metadata: %{},
+          inserted_at: now,
+          updated_at: now
+        }
+      ],
+      prefix: "platform"
+    )
 
     Repo.insert_all(
       "endpoint_inventory_packages",
       [
         %{
           scan_ref: scan_ref,
+          endpoint_package_ref: endpoint_package_ref,
           agent_id: agent_id,
           name: name,
           package_manager: "dpkg",
-          purl_canonical: "pkg:deb/#{name}",
+          purl_canonical: purl,
           current: current?,
           inserted_at: now,
           updated_at: now

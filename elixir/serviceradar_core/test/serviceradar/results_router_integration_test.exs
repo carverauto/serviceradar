@@ -3,7 +3,7 @@ defmodule ServiceRadar.ResultsRouterIntegrationTest do
   Integration coverage for sync status ingestion through DIRE into inventory.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
@@ -23,7 +23,12 @@ defmodule ServiceRadar.ResultsRouterIntegrationTest do
   setup do
     previous_async = Application.get_env(:serviceradar_core, :sync_ingestor_async)
     previous_batching = Application.get_env(:serviceradar_core, :results_router_batching)
+
+    previous_batch_concurrency =
+      Application.get_env(:serviceradar_core, :sync_ingestor_batch_concurrency)
+
     Application.put_env(:serviceradar_core, :sync_ingestor_async, false)
+    Application.put_env(:serviceradar_core, :sync_ingestor_batch_concurrency, 1)
 
     # Drives handle_cast/2 directly with a bare %{} state asserting synchronous
     # ingestion; disable async batching for the per-item path.
@@ -40,6 +45,16 @@ defmodule ServiceRadar.ResultsRouterIntegrationTest do
         Application.delete_env(:serviceradar_core, :results_router_batching)
       else
         Application.put_env(:serviceradar_core, :results_router_batching, previous_batching)
+      end
+
+      if is_nil(previous_batch_concurrency) do
+        Application.delete_env(:serviceradar_core, :sync_ingestor_batch_concurrency)
+      else
+        Application.put_env(
+          :serviceradar_core,
+          :sync_ingestor_batch_concurrency,
+          previous_batch_concurrency
+        )
       end
     end)
 

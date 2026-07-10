@@ -27,7 +27,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     unique: [
       period: :infinity,
       keys: [:feed],
-      states: [:available, :scheduled, :executing, :retryable]
+      states: :incomplete
     ]
 
   alias ServiceRadar.Actors.SystemActor

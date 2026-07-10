@@ -97,17 +97,23 @@ defmodule ServiceRadar.Events.AuditWriter do
   """
   @spec write_async(opts()) :: :ok
   def write_async(opts) do
-    Task.start(fn ->
-      case write(opts) do
-        :ok ->
-          :ok
-
-        {:error, reason} ->
-          Logger.warning("Async audit log publish failed: #{inspect(reason)}")
-      end
-    end)
+    if Application.get_env(:serviceradar_core, :audit_writer_async?, true) do
+      Task.start(fn -> write_async_result(opts) end)
+    else
+      write_async_result(opts)
+    end
 
     :ok
+  end
+
+  defp write_async_result(opts) do
+    case write(opts) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Async audit log publish failed: #{inspect(reason)}")
+    end
   end
 
   @doc """

@@ -1,5 +1,5 @@
 defmodule ServiceRadar.AgentTrackerTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.AgentTracker
   alias ServiceRadar.TestSupport

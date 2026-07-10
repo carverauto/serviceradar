@@ -11,6 +11,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
 
   alias ServiceRadar.Camera.RelayHealthEventRouter
   alias ServiceRadar.Telemetry
+  alias ServiceRadarAgentGateway.MediaSessionHelpers
 
   require Logger
 
@@ -281,7 +282,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
 
     %{
       relay_session_id: relay_session_id,
-      media_ingest_id: if(media_ingest_id == "", do: random_id("media"), else: media_ingest_id),
+      media_ingest_id: if(media_ingest_id == "", do: MediaSessionHelpers.random_id("media"), else: media_ingest_id),
       ingress_pid: Map.get(attrs, :ingress_pid),
       core_node: Map.get(attrs, :core_node),
       agent_id: required_string!(attrs, :agent_id),
@@ -346,43 +347,20 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
 
   defp agent_limit_exceeded?(state, session) do
     limit = max_sessions_per_agent()
-    limit != :infinity and session_count_for_agent(state, session.agent_id) >= limit
+    MediaSessionHelpers.agent_limit_exceeded?(state.sessions, session.agent_id, limit)
   end
 
   defp gateway_limit_exceeded?(state) do
     limit = max_sessions_per_gateway()
-    limit != :infinity and map_size(state.sessions) >= limit
-  end
-
-  defp session_count_for_agent(state, agent_id) do
-    Enum.count(state.sessions, fn {_relay_session_id, session} ->
-      Map.get(session, :agent_id) == agent_id
-    end)
+    MediaSessionHelpers.gateway_limit_exceeded?(state.sessions, limit)
   end
 
   defp max_sessions_per_agent do
-    configured_limit(:camera_relay_max_sessions_per_agent, @default_max_sessions_per_agent)
+    MediaSessionHelpers.configured_limit(:camera_relay_max_sessions_per_agent, @default_max_sessions_per_agent)
   end
 
   defp max_sessions_per_gateway do
-    configured_limit(:camera_relay_max_sessions_per_gateway, @default_max_sessions_per_gateway)
-  end
-
-  defp configured_limit(key, default) do
-    case Application.get_env(:serviceradar_agent_gateway, key, default) do
-      :infinity -> :infinity
-      value when is_integer(value) and value > 0 -> value
-      _ -> default
-    end
-  end
-
-  defp random_id(prefix) do
-    suffix =
-      8
-      |> :crypto.strong_rand_bytes()
-      |> Base.encode16(case: :lower)
-
-    "#{prefix}-#{suffix}"
+    MediaSessionHelpers.configured_limit(:camera_relay_max_sessions_per_gateway, @default_max_sessions_per_gateway)
   end
 
   defp required_string!(attrs, key) do

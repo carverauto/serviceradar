@@ -18,7 +18,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundConflictAuditWorker do
   use Oban.Worker,
     queue: :integrations,
     max_attempts: 3,
-    unique: [period: :infinity, states: [:available, :scheduled, :retryable]]
+    unique: [period: :infinity, states: :incomplete]
 
   alias ServiceRadar.Inventory.SourceIdentityDrift
   alias ServiceRadar.SweepJobs.ObanSupport

@@ -19,7 +19,7 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
   This test suite validates that the architecture enforces these boundaries.
   """
 
-  use ExUnit.Case, async: true
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.ProcessRegistry
 

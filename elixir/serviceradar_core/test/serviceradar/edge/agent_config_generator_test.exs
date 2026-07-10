@@ -5,7 +5,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
   Tests config generation from database, version hashing, and not_modified behavior.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.AgentConfig.ConfigInstance
   alias ServiceRadar.Edge.AgentConfigGenerator
@@ -1852,6 +1852,38 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert config.addons == []
     end
 
+    test "assignment is omitted when the agent no longer advertises a package-required capability",
+         %{
+           actor: actor,
+           agent_uid: agent_uid,
+           unique_id: unique_id
+         } do
+      {:ok, _agent} =
+        create_connected_agent(actor, agent_uid, %{"os" => "linux", "arch" => "amd64"}, %{
+          version: "1.2.0",
+          capabilities: []
+        })
+
+      {:ok, package} =
+        create_approved_addon_package(actor, unique_id,
+          capabilities: ["sample"],
+          approved_capabilities: ["sample"],
+          delivery: :compiled_in,
+          supervision: :config_toggle,
+          requires: %{
+            "base_agent" => ">=1.2.0",
+            "platforms" => ["linux"],
+            "agent_capabilities" => ["host-network-visibility"]
+          }
+        )
+
+      {:ok, _assignment} = assign_addon(actor, agent_uid, package)
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+
+      assert config.addons == []
+    end
+
     test "assignment is emitted when package platform and base-agent floor are satisfied", %{
       actor: actor,
       agent_uid: agent_uid,
@@ -1939,6 +1971,39 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert proto_addon.config_json == ""
     end
 
+    test "required add-on is omitted when the agent lacks a package-required capability", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      addon_id = "required-capability-addon-#{unique_id}"
+      Application.put_env(:serviceradar_core, :required_agent_addons, [addon_id])
+
+      {:ok, _agent} =
+        create_connected_agent(actor, agent_uid, %{"os" => "linux", "arch" => "amd64"}, %{
+          version: "1.2.0",
+          capabilities: []
+        })
+
+      {:ok, _package} =
+        create_approved_addon_package(actor, unique_id,
+          addon_id: addon_id,
+          capabilities: ["sample"],
+          approved_capabilities: ["sample"],
+          delivery: :compiled_in,
+          supervision: :config_toggle,
+          requires: %{
+            "base_agent" => ">=1.2.0",
+            "platforms" => ["linux"],
+            "agent_capabilities" => ["native-addon-management"]
+          }
+        )
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+
+      assert config.addons == []
+    end
+
     test "explicit otel collector assignment suppresses the required default duplicate", %{
       actor: actor,
       agent_uid: agent_uid,
@@ -2014,7 +2079,9 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
     test "netprobe systemd-service assignment compiles to a systemd_service addon the agent attaches to",
          %{actor: actor, agent_uid: agent_uid, unique_id: unique_id} do
       {:ok, _agent} =
-        create_connected_agent(actor, agent_uid, %{"os" => "linux", "arch" => "amd64"})
+        create_connected_agent(actor, agent_uid, %{"os" => "linux", "arch" => "amd64"}, %{
+          capabilities: ["host-network-visibility"]
+        })
 
       object_key = "native-addons/netprobe/0.1.0/linux/amd64/#{String.duplicate("a", 64)}.tar.gz"
       sha = String.duplicate("b", 64)
@@ -2027,7 +2094,10 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
           approved_capabilities: ["host-network-visibility"],
           delivery: :pushed_artifact,
           supervision: :systemd_service,
-          requires: %{"os_capabilities" => ["cap_net_raw", "cap_bpf", "cap_perfmon"]},
+          requires: %{
+            "agent_capabilities" => ["host-network-visibility"],
+            "os_capabilities" => ["cap_net_raw", "cap_bpf", "cap_perfmon"]
+          },
           artifacts: %{
             "linux/amd64" => %{
               "object_key" => object_key,

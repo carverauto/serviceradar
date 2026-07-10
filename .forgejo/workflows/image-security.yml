@@ -128,8 +128,22 @@ jobs:
         run: |
           set -euo pipefail
           api_url="${FORGEJO_URL}/api/v1/repos/${FORGEJO_REPOSITORY}/releases/tags/${RELEASE_TAG}"
+          releases_url="${FORGEJO_URL}/api/v1/repos/${FORGEJO_REPOSITORY}/releases?draft=true&limit=100"
+          release_exists() {
+            if curl -fsS --connect-timeout 5 --max-time 10 \
+              -H "Accept: application/json" \
+              -H "Authorization: token ${FORGEJO_TOKEN}" \
+              "${api_url}" >/dev/null 2>&1; then
+              return 0
+            fi
+            curl -fsS --connect-timeout 5 --max-time 10 \
+              -H "Accept: application/json" \
+              -H "Authorization: token ${FORGEJO_TOKEN}" \
+              "${releases_url}" 2>/dev/null \
+              | jq -e --arg tag "${RELEASE_TAG}" 'any(.[]; .tag_name == $tag)' >/dev/null
+          }
           for _ in $(seq 1 360); do
-            if curl -fsS -H "Accept: application/json" -H "Authorization: token ${FORGEJO_TOKEN}" "${api_url}" >/dev/null; then
+            if release_exists; then
               exit 0
             fi
             sleep 10

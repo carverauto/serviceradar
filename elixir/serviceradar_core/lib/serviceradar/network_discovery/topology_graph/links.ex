@@ -11,7 +11,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
 
   require Logger
 
-  # Skip re-applying a mapper report whose structural link set is unchanged from
+  # Skip re-applying a mapper report whose projected link content is unchanged from
   # the last applied report for the same device scope. The per-link backbone/
   # auxiliary MERGEs (and the canonical rebuild they trigger) rewrite Device/
   # Interface vertices and edges on every report regardless of change; gating the
@@ -93,7 +93,11 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
 
   # Scope the fingerprint by the set of reporting (local) devices so concurrent
   # reports from different agents don't thrash a single shared entry. The
-  # fingerprint itself is the sorted structural identity of every projected link.
+  # fingerprint itself includes every projected input except the observation
+  # timestamp. This deliberately favors a complete fail-safe identity over a
+  # curated field list that could drift when projection gains another mutable
+  # vertex, interface, or edge property. Observation timestamps are excluded so
+  # unchanged heartbeat reports still use the periodic re-apply window.
   defp report_structural_fingerprint(links) do
     payloads =
       links
@@ -108,10 +112,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
 
     identity =
       payloads
-      |> Enum.map(fn p ->
-        {p.local_device_id, p.neighbor_device_id, p.local_interface_id, p.neighbor_interface_id,
-         p.protocol}
-      end)
+      |> Enum.map(&Map.delete(&1, :observed_at))
       |> Enum.sort()
 
     {:erlang.phash2(scope), :erlang.phash2(identity)}

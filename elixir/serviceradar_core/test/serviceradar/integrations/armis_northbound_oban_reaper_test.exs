@@ -5,7 +5,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundObanReaperTest.SupportStub do
 end
 
 defmodule ServiceRadar.Integrations.ArmisNorthboundObanReaperTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Integrations.ArmisNorthboundObanReaper
   alias ServiceRadar.Integrations.ArmisNorthboundRunWorker
@@ -20,25 +20,25 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundObanReaperTest do
   end
 
   test "reaps stale executing jobs for the requested Armis source" do
-    now = ~N[2026-04-14 03:30:00]
+    now = ~U[2026-04-14 03:30:00.000000Z]
     worker = inspect(ArmisNorthboundRunWorker)
 
     stale_job =
       insert_oban_job(worker,
         args: %{"integration_source_id" => "source-1", "manual" => false},
-        attempted_at: ~N[2026-04-14 03:20:00]
+        attempted_at: ~U[2026-04-14 03:20:00.000000Z]
       )
 
     fresh_job =
       insert_oban_job(worker,
         args: %{"integration_source_id" => "source-1", "manual" => false},
-        attempted_at: ~N[2026-04-14 03:29:30]
+        attempted_at: ~U[2026-04-14 03:29:30.000000Z]
       )
 
     other_source_job =
       insert_oban_job(worker,
         args: %{"integration_source_id" => "source-2", "manual" => false},
-        attempted_at: ~N[2026-04-14 03:20:00]
+        attempted_at: ~U[2026-04-14 03:20:00.000000Z]
       )
 
     assert {1, nil} =
@@ -64,8 +64,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundObanReaperTest do
       args: Keyword.fetch!(attrs, :args),
       attempt: 1,
       max_attempts: 3,
-      inserted_at: ~N[2026-04-14 03:00:00],
-      scheduled_at: ~N[2026-04-14 03:00:00],
+      inserted_at: ~U[2026-04-14 03:00:00.000000Z],
+      scheduled_at: ~U[2026-04-14 03:00:00.000000Z],
       attempted_at: Keyword.fetch!(attrs, :attempted_at)
     )
     |> Repo.insert!(prefix: "platform")

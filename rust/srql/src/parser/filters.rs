@@ -119,5 +119,11 @@ fn supports_implicit_like(field: &str) -> bool {
             | "uid"
             | "vendor"
             | "version"
+            | "os.name"
+            | "os.version"
+            | "os.type"
+            | "hw_info.serial_number"
+            | "hw_info.cpu_type"
+            | "hw_info.cpu_architecture"
     )
 }

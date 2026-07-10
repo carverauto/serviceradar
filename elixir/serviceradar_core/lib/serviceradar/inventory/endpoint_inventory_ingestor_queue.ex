@@ -10,6 +10,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
 
   use GenServer
 
+  alias ServiceRadar.EndpointInventoryIngestor.TaskSupervisor
   alias ServiceRadar.Inventory.EndpointInventoryIngestor
 
   require Logger
@@ -29,14 +30,18 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
               inflight: %{},
               max_concurrency: 4,
               max_pending: 256,
-              max_pending_per_agent: 32
+              max_pending_per_agent: 32,
+              task_supervisor: TaskSupervisor
   end
 
   @type enqueue_result :: :ok | {:error, term()}
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+    case Keyword.get(opts, :name, __MODULE__) do
+      nil -> GenServer.start_link(__MODULE__, opts)
+      name -> GenServer.start_link(__MODULE__, opts, name: name)
+    end
   end
 
   @spec enqueue(map(), keyword()) :: enqueue_result()
@@ -68,7 +73,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
     state = %State{
       max_concurrency: Keyword.get(opts, :max_concurrency, max_concurrency()),
       max_pending: Keyword.get(opts, :max_pending, max_pending()),
-      max_pending_per_agent: Keyword.get(opts, :max_pending_per_agent, max_pending_per_agent())
+      max_pending_per_agent: Keyword.get(opts, :max_pending_per_agent, max_pending_per_agent()),
+      task_supervisor: Keyword.get(opts, :task_supervisor, task_supervisor())
     }
 
     {:ok, state}
@@ -175,7 +181,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
   end
 
   defp call_queue(message, timeout) do
-    GenServer.call(__MODULE__, message, timeout)
+    GenServer.call(queue_server(), message, timeout)
   catch
     :exit, {:timeout, _call} -> {:error, :endpoint_inventory_ingest_queue_timeout}
     :exit, {:noproc, _call} -> {:error, :endpoint_inventory_ingest_queue_unavailable}
@@ -220,7 +226,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
       send(parent, {:endpoint_inventory_ingest_finished, job.id, result})
     end
 
-    case start_task(task_fun) do
+    case start_task(task_fun, state.task_supervisor) do
       {:ok, pid, monitor_ref} ->
         timeout_ref = start_timeout_timer(job)
 
@@ -282,17 +288,19 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
     end
   end
 
-  defp start_task(task_fun) do
-    start_task_with_supervisor(task_fun)
+  defp start_task(task_fun, nil), do: start_task_fallback(task_fun)
+
+  defp start_task(task_fun, supervisor) do
+    start_task_with_supervisor(task_fun, supervisor)
   catch
     :exit, {:noproc, _details} -> start_task_fallback(task_fun)
     :exit, {:normal, _details} -> start_task_fallback(task_fun)
     :exit, reason -> {:error, reason}
   end
 
-  defp start_task_with_supervisor(task_fun) do
+  defp start_task_with_supervisor(task_fun, supervisor) do
     case Task.Supervisor.start_child(
-           ServiceRadar.EndpointInventoryIngestor.TaskSupervisor,
+           supervisor,
            task_fun
          ) do
       {:ok, pid} -> {:ok, pid, Process.monitor(pid)}
@@ -396,6 +404,18 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
       :serviceradar_core,
       :endpoint_inventory_ingestor,
       EndpointInventoryIngestor
+    )
+  end
+
+  defp queue_server do
+    Application.get_env(:serviceradar_core, :endpoint_inventory_ingestor_queue_server, __MODULE__)
+  end
+
+  defp task_supervisor do
+    Application.get_env(
+      :serviceradar_core,
+      :endpoint_inventory_ingestor_task_supervisor,
+      TaskSupervisor
     )
   end
 

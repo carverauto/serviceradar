@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Plugins.AddonStatusIngestorTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Plugins.AddonStatus

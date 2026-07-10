@@ -6,7 +6,7 @@ defmodule ServiceRadar.Events.AuditWriterTest do
   determined by PostgreSQL search_path.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Events.AuditWriter
   alias ServiceRadar.TestSupport

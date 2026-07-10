@@ -10,7 +10,7 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
   agents are not relaunched every generation.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.CredentialBrokerGrant

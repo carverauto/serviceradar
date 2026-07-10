@@ -223,6 +223,7 @@ defmodule ServiceRadar.Observability.Log do
     attribute :ingest_identity, :string do
       allow_nil? false
       default ""
+      constraints allow_empty?: true
       public? true
 
       description "Publisher identity that ingested the log (Sr-Ingest-Identity header, '' when absent)"
@@ -231,6 +232,7 @@ defmodule ServiceRadar.Observability.Log do
     attribute :ingest_agent_id, :string do
       allow_nil? false
       default ""
+      constraints allow_empty?: true
       public? true
       description "Agent that ingested the log (Sr-Agent-Id header, '' when absent)"
     end
@@ -238,6 +240,7 @@ defmodule ServiceRadar.Observability.Log do
     attribute :ingest_partition, :string do
       allow_nil? false
       default ""
+      constraints allow_empty?: true
       public? true
       description "Partition/site of the ingesting agent (Sr-Partition header, '' when absent)"
     end

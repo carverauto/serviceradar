@@ -3,9 +3,11 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "armis",
     srcs = [
+        "asset_enrichment.go",
         "client.go",
         "device.go",
         "driver.go",
+        "metadata_fields.go",
         "update.go",
     ],
     importpath = "github.com/carverauto/serviceradar/go/pkg/agent/syncsources/armis",

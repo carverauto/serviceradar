@@ -6,9 +6,12 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
   by PostgreSQL search_path. Tests run against the single schema.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Credentials.CredentialSecretProvider
   alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.SyncConfigGenerator
@@ -89,7 +92,7 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
       create_source!(
         agent.uid,
         "source-armis-broker-#{suffix}",
-        nil,
+        %{api_key: "legacy-key", api_secret: "legacy-secret"},
         %{credential_secret_id: secret.id}
       )
 
@@ -103,6 +106,147 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
     assert credentials["api_key"] == "broker-key"
     assert credentials["api_secret"] == "broker-secret"
     assert credentials["secret_key"] == "broker-secret"
+  end
+
+  test "armis sync config rejects external references instead of falling back to plaintext" do
+    suffix = System.unique_integer([:positive])
+    agent = create_agent!("agent-armis-external-broker-#{suffix}")
+    provider = create_stub_provider!(suffix)
+
+    {:ok, secret} =
+      NetworkCredentialSecret.create_secret(
+        %{
+          name: "armis-external-broker-secret-#{suffix}",
+          provider: "stub",
+          credential_kind: :opaque,
+          source_type: :external_reference,
+          secret_provider_id: provider.id,
+          external_secret_ref: "stub/armis/#{suffix}",
+          resolution_location: :control_plane,
+          metadata: %{
+            "stub_secret_value" =>
+              Jason.encode!(%{
+                "api_key" => "external-key",
+                "api_secret" => "external-secret"
+              })
+          }
+        },
+        actor: SystemActor.system(:sync_config_generator_test)
+      )
+
+    source =
+      create_source!(
+        agent.uid,
+        "source-armis-external-broker-#{suffix}",
+        %{api_key: "legacy-key", api_secret: "legacy-secret"},
+        %{credential_secret_id: secret.id}
+      )
+
+    assert {:error,
+            {:credential_resolution_failed, source_id, :external_secret_requires_broker_grant}} =
+             SyncConfigGenerator.build_payload(agent.uid)
+
+    assert source_id == to_string(source.id)
+
+    assert {:error, {:database_error, %RuntimeError{message: message}}} =
+             AgentConfigGenerator.generate_config(agent.uid)
+
+    assert message =~ "failed to load integration config"
+    assert message =~ to_string(source.id)
+  end
+
+  test "broker credentials must decode to a nonempty JSON object" do
+    suffix = System.unique_integer([:positive])
+
+    for {label, secret_payload} <- [malformed: "not-json", list: "[]", empty_object: "{}"] do
+      agent = create_agent!("agent-armis-invalid-#{label}-#{suffix}")
+
+      {:ok, secret} =
+        NetworkCredentialSecret.create_secret(
+          %{
+            name: "armis-invalid-#{label}-#{suffix}",
+            provider: "armis",
+            credential_kind: :opaque,
+            secret_payload: secret_payload
+          },
+          actor: SystemActor.system(:sync_config_generator_test)
+        )
+
+      source =
+        create_source!(
+          agent.uid,
+          "source-armis-invalid-#{label}-#{suffix}",
+          %{api_key: "legacy-key"},
+          %{credential_secret_id: secret.id}
+        )
+
+      assert {:error, {:credential_resolution_failed, source_id, :invalid_credentials_payload}} =
+               SyncConfigGenerator.build_payload(agent.uid)
+
+      assert source_id == to_string(source.id)
+    end
+  end
+
+  test "missing encrypted broker payload fails closed" do
+    suffix = System.unique_integer([:positive])
+    agent = create_agent!("agent-armis-missing-broker-#{suffix}")
+
+    {:ok, secret} =
+      NetworkCredentialSecret.create_secret(
+        %{
+          name: "armis-missing-broker-secret-#{suffix}",
+          provider: "armis",
+          credential_kind: :opaque
+        },
+        actor: SystemActor.system(:sync_config_generator_test)
+      )
+
+    source =
+      create_source!(
+        agent.uid,
+        "source-armis-missing-broker-#{suffix}",
+        %{api_key: "legacy-key"},
+        %{credential_secret_id: secret.id}
+      )
+
+    assert {:error, {:credential_resolution_failed, source_id, :missing_internal_secret_payload}} =
+             SyncConfigGenerator.build_payload(agent.uid)
+
+    assert source_id == to_string(source.id)
+  end
+
+  test "broker audit uses discovery scope and the requesting agent" do
+    suffix = System.unique_integer([:positive])
+    agent = create_agent!("agent-armis-audit-#{suffix}")
+
+    {:ok, secret} =
+      NetworkCredentialSecret.create_secret(
+        %{
+          name: "armis-audit-secret-#{suffix}",
+          provider: "armis",
+          credential_kind: :opaque,
+          secret_payload: Jason.encode!(%{"api_key" => "broker-key"})
+        },
+        actor: SystemActor.system(:sync_config_generator_test)
+      )
+
+    source =
+      create_source!(agent.uid, "source-armis-audit-#{suffix}", nil, %{
+        credential_secret_id: secret.id
+      })
+
+    test_pid = self()
+    audit_sink = fn attrs -> send(test_pid, {:credential_audit, attrs}) end
+
+    assert {:ok, _payload} =
+             SyncConfigGenerator.build_payload(agent.uid, audit_sink: audit_sink)
+
+    assert_receive {:credential_audit, audit}
+    assert audit.consumer_kind == :discovery
+    assert audit.consumer_id == "integration_source:#{source.id}"
+    assert audit.agent_id == agent.uid
+    assert audit.target_id == to_string(source.id)
+    assert audit.outcome == :success
   end
 
   test "armis sync config emits discovery cadence without poll or sweep cadence" do
@@ -258,6 +402,23 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
       {:ok, source} -> source
       {:error, reason} -> raise "failed to create integration source: #{inspect(reason)}"
     end
+  end
+
+  defp create_stub_provider!(suffix) do
+    actor = SystemActor.system(:sync_config_generator_test)
+
+    {:ok, provider} =
+      CredentialSecretProvider.create_provider(
+        %{
+          name: "sync-config-stub-provider-#{suffix}",
+          provider_type: :stub,
+          resolution_locations: [:control_plane]
+        },
+        actor: actor
+      )
+
+    {:ok, provider} = CredentialSecretProvider.enable(provider, actor: actor)
+    provider
   end
 
   defp system_actor do

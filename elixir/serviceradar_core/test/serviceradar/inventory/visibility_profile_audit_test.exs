@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Inventory.VisibilityProfileAuditTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Inventory.VisibilityProfile
   alias ServiceRadar.Repo
@@ -40,6 +40,7 @@ defmodule ServiceRadar.Inventory.VisibilityProfileAuditTest do
           name: name,
           partition_id: "audit-partition",
           target_query: "in:devices type:0",
+          capture_interfaces: ["eth0"],
           enabled: true
         },
         actor: actor

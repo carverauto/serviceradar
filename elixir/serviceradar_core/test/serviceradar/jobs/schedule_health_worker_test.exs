@@ -5,7 +5,7 @@ defmodule ServiceRadar.Jobs.ScheduleHealthWorkerTest do
   2026-02-06.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page

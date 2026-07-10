@@ -6,10 +6,12 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.IntegrationSource
 
   require Ash.Query
+  require Logger
 
   @default_heartbeat_interval_sec 30
   @default_config_poll_interval_sec 300
@@ -53,13 +55,14 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
     end
   end
 
-  @spec build_payload(String.t()) :: {:ok, map()} | {:error, term()}
-  def build_payload(agent_id) do
-    with {:ok, sources} <- load_sources(agent_id) do
+  @spec build_payload(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def build_payload(agent_id, opts \\ []) do
+    with {:ok, sources} <- load_sources(agent_id),
+         {:ok, sources_payload} <- build_sources_payload(sources, agent_id, opts) do
       {:ok,
        %{
          "agent_id" => agent_id,
-         "sources" => build_sources_payload(sources)
+         "sources" => sources_payload
        }}
     end
   end
@@ -109,36 +112,101 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
     end
   end
 
-  defp build_sources_payload(sources) do
-    Enum.reduce(sources, %{}, fn source, acc ->
-      source_key = source.name || to_string(source.id)
-      Map.put(acc, source_key, source_payload(source))
+  defp build_sources_payload(sources, agent_id, opts) do
+    Enum.reduce_while(sources, {:ok, %{}}, fn source, {:ok, acc} ->
+      case source_payload(source, agent_id, opts) do
+        {:ok, payload} ->
+          source_key = source.name || to_string(source.id)
+          {:cont, {:ok, Map.put(acc, source_key, payload)}}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+      end
     end)
   end
 
-  defp source_payload(source) do
-    credentials = normalize_credentials(source.credentials || %{}, source.source_type)
-    credentials = put_optional(credentials, "page_size", source.page_size)
-    source_type = source.source_type && Atom.to_string(source.source_type)
-    prefix = if source_type, do: "#{source_type}/"
+  defp source_payload(source, agent_id, opts) do
+    with {:ok, raw_credentials} <- resolve_credentials(source, agent_id, opts) do
+      credentials = normalize_credentials(raw_credentials, source.source_type)
+      credentials = put_optional(credentials, "page_size", source.page_size)
+      source_type = source.source_type && Atom.to_string(source.source_type)
+      prefix = if source_type, do: "#{source_type}/"
 
-    compact_map(%{
-      "type" => source_type,
-      "endpoint" => source.endpoint,
-      "prefix" => prefix,
-      "credentials" => credentials,
-      "settings" => source_settings_payload(source.settings, source.source_type),
-      "queries" => normalize_queries(source.queries),
-      "discovery_interval" => format_duration(source.discovery_interval_seconds),
-      "agent_id" => source.agent_id,
-      "partition" => source.partition,
-      "network_blacklist" => source.network_blacklist,
-      "custom_field" => first_custom_field(source.custom_fields),
-      "batch_size" => get_setting(source.settings, "batch_size"),
-      "insecure_skip_verify" => get_setting(source.settings, "insecure_skip_verify"),
-      "sync_service_id" => to_string(source.id)
-    })
+      {:ok,
+       compact_map(%{
+         "type" => source_type,
+         "endpoint" => source.endpoint,
+         "prefix" => prefix,
+         "credentials" => credentials,
+         "settings" => source_settings_payload(source.settings, source.source_type),
+         "queries" => normalize_queries(source.queries),
+         "discovery_interval" => format_duration(source.discovery_interval_seconds),
+         "agent_id" => source.agent_id,
+         "partition" => source.partition,
+         "network_blacklist" => source.network_blacklist,
+         "custom_field" => first_custom_field(source.custom_fields),
+         "batch_size" => get_setting(source.settings, "batch_size"),
+         "insecure_skip_verify" => get_setting(source.settings, "insecure_skip_verify"),
+         "sync_service_id" => to_string(source.id)
+       })}
+    end
   end
+
+  defp resolve_credentials(%{credential_secret_id: secret_id} = source, agent_id, opts)
+       when is_binary(secret_id) and secret_id != "" do
+    actor = SystemActor.system(:sync_config_generator_credential_broker)
+
+    broker_opts =
+      maybe_put_audit_sink(
+        [
+          actor: actor,
+          audit?: true,
+          allow_external_resolution?: false,
+          consumer_kind: :discovery,
+          consumer_id: "integration_source:#{source.id}",
+          purpose: "integration_source_credentials",
+          target_kind: "integration_source",
+          target_id: to_string(source.id),
+          agent_id: agent_id,
+          resolution_location: :control_plane
+        ],
+        opts
+      )
+
+    with {:ok, %{value: payload}} <-
+           SecretBroker.resolve_network_credential_secret(secret_id, broker_opts),
+         {:ok, credentials} <- decode_broker_credentials(payload) do
+      {:ok, credentials}
+    else
+      {:error, reason} ->
+        Logger.warning(
+          "SyncConfigGenerator: failed to resolve broker credential #{secret_id} - #{inspect(reason)}"
+        )
+
+        {:error, {:credential_resolution_failed, to_string(source.id), reason}}
+    end
+  end
+
+  defp resolve_credentials(source, _agent_id, _opts), do: {:ok, source.credentials || %{}}
+
+  defp maybe_put_audit_sink(broker_opts, opts) do
+    case Keyword.get(opts, :audit_sink) do
+      sink when is_function(sink, 1) -> Keyword.put(broker_opts, :audit_sink, sink)
+      _ -> broker_opts
+    end
+  end
+
+  defp decode_broker_credentials(payload) when is_binary(payload) do
+    case Jason.decode(String.trim(payload)) do
+      {:ok, credentials} when is_map(credentials) and map_size(credentials) > 0 ->
+        {:ok, credentials}
+
+      _ ->
+        {:error, :invalid_credentials_payload}
+    end
+  end
+
+  defp decode_broker_credentials(_payload), do: {:error, :invalid_credentials_payload}
 
   defp first_custom_field(fields) when is_list(fields) do
     case fields do

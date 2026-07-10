@@ -1194,7 +1194,7 @@ func TestHandleConsoleFrameClosesTCPSessionAfterWriteQuotaError(t *testing.T) {
 func TestAgentCapabilitiesAdvertiseRemoteAccessAndGateBPF(t *testing.T) {
 	t.Parallel()
 
-	base := agentCapabilities(agentCapabilityOptions{})
+	base := agentCapabilities(agentCapabilityOptions{hostNetworkVisibilitySupported: true})
 	for _, capability := range []string{
 		remoteaccess.CapabilityRemoteAccess,
 		remoteaccess.CapabilityRemoteAccessSSH,

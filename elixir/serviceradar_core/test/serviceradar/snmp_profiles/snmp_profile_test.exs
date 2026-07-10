@@ -7,7 +7,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
   determined by PostgreSQL search_path.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias Ash.Resource.Info, as: ResourceInfo
   alias ServiceRadar.Actors.SystemActor

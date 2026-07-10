@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   @moduletag :integration
   @moduletag timeout: 180_000

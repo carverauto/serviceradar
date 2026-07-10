@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Observability.ZenRuleSeederTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.ZenRule
@@ -33,11 +33,11 @@ defmodule ServiceRadar.Observability.ZenRuleSeederTest do
     Repo.query!(
       """
       UPDATE platform.zen_rules
-      SET compiled_jdm = $1::jsonb,
+      SET compiled_jdm = ($1::text)::jsonb,
           jdm_definition = NULL
       WHERE id = $2::uuid
       """,
-      [Jason.encode!(stale_compiled), rule.id]
+      [Jason.encode!(stale_compiled), Ecto.UUID.dump!(rule.id)]
     )
 
     assert body_expression(fetch_snmp_rule!(actor).compiled_jdm) == @legacy_snmp_body_expression

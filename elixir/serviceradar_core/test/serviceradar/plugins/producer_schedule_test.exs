@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Plugins.ProducerScheduleTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Plugins.AddonAssignment

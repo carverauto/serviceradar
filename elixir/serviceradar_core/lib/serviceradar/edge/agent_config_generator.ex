@@ -278,7 +278,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   defp generate_config!(agent_id) do
     checks = load_agent_checks!(agent_id)
-    sync_payload = load_sync_payload(agent_id)
+    sync_payload = load_sync_payload!(agent_id)
     sweep_config = load_sweep_config(agent_id)
     mapper_config = load_mapper_config(agent_id)
     sysmon_config = load_sysmon_config(agent_id)
@@ -654,6 +654,9 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
          profile,
          artifact
        ) do
+    missing_agent_capabilities =
+      missing_required_agent_capabilities(package, profile.capabilities)
+
     cond do
       not agent_platform_allowed?(package, profile.os) ->
         Logger.warning(
@@ -665,6 +668,13 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       not agent_version_allowed?(package, profile.version) ->
         Logger.warning(
           "Skipping addon assignment #{assignment.id}: package #{package.id} requires base agent #{inspect(addon_base_agent_requirement(package))}, got #{inspect(profile.version)}"
+        )
+
+        false
+
+      missing_agent_capabilities != [] ->
+        Logger.warning(
+          "Skipping addon assignment #{assignment.id}: package #{package.id} requires agent capabilities #{inspect(missing_agent_capabilities)}"
         )
 
         false
@@ -684,6 +694,9 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp deliverable_addon_assignment?(_assignment, _profile, _artifact), do: false
 
   defp deliverable_required_addon_package?(%AddonPackage{} = package, profile, artifact) do
+    missing_agent_capabilities =
+      missing_required_agent_capabilities(package, profile.capabilities)
+
     cond do
       not agent_platform_allowed?(package, profile.os) ->
         Logger.warning(
@@ -695,6 +708,13 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       not agent_version_allowed?(package, profile.version) ->
         Logger.warning(
           "Skipping required add-on #{package.addon_id}: package #{package.id} requires base agent #{inspect(addon_base_agent_requirement(package))}, got #{inspect(profile.version)}"
+        )
+
+        false
+
+      missing_agent_capabilities != [] ->
+        Logger.warning(
+          "Skipping required add-on #{package.addon_id}: package #{package.id} requires agent capabilities #{inspect(missing_agent_capabilities)}"
         )
 
         false
@@ -713,21 +733,22 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   # Resolves the target agent's add-on compatibility profile from registry
   # metadata. Platform comes from metadata because Go agents report runtime
-  # OS/arch there; version comes from the first-class agent version field.
+  # OS/arch there; version and capabilities come from first-class agent fields.
   defp resolve_agent_addon_profile(agent_id, actor) do
     case Agent.get_by_uid(agent_id, actor: actor) do
       {:ok, %{metadata: meta} = agent} when is_map(meta) ->
         %{
           os: map_string(meta, "os", nil),
           arch: map_string(meta, "arch", nil),
-          version: agent.version
+          version: agent.version,
+          capabilities: normalize_string_list(agent.capabilities)
         }
 
       _ ->
-        %{os: nil, arch: nil, version: nil}
+        %{os: nil, arch: nil, version: nil, capabilities: []}
     end
   rescue
-    _ -> %{os: nil, arch: nil, version: nil}
+    _ -> %{os: nil, arch: nil, version: nil, capabilities: []}
   end
 
   # Selects the per-architecture artifact matching the agent's os/arch from the
@@ -792,6 +813,22 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   defp addon_base_agent_requirement(_package), do: nil
+
+  defp missing_required_agent_capabilities(%AddonPackage{} = package, agent_capabilities) do
+    actual = agent_capabilities |> normalize_string_list() |> MapSet.new()
+
+    package
+    |> required_agent_capabilities()
+    |> Enum.reject(&MapSet.member?(actual, &1))
+  end
+
+  defp required_agent_capabilities(%AddonPackage{requires: requires}) when is_map(requires) do
+    requires
+    |> fetch_map_value(:agent_capabilities, [])
+    |> normalize_string_list()
+  end
+
+  defp required_agent_capabilities(_package), do: []
 
   defp version_requirement_satisfied?(agent_version, requirement)
        when is_binary(agent_version) and is_binary(requirement) do
@@ -2159,17 +2196,13 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     )
   end
 
-  defp load_sync_payload(agent_id) do
-    case SyncConfigGenerator.build_payload(agent_id) do
+  defp load_sync_payload!(agent_id) do
+    case SyncConfigGenerator.build_payload(agent_id, audit_sink: &deferred_audit_sink/1) do
       {:ok, payload} ->
         payload
 
       {:error, reason} ->
-        Logger.warning(
-          "Failed to load integration config for agent #{agent_id}: #{inspect(reason)}"
-        )
-
-        %{"agent_id" => agent_id, "sources" => %{}}
+        raise "failed to load integration config for agent #{agent_id}: #{inspect(reason)}"
     end
   end
 

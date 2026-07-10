@@ -3,9 +3,9 @@ defmodule ServiceRadar.Observability.LogPromotionConsumer do
   Subscribes to processed log subjects and promotes matching logs to events.
   """
 
-  use Jetstream.PullConsumer
+  use Gnat.Jetstream.PullConsumer
 
-  alias Jetstream.API.Consumer
+  alias Gnat.Jetstream.API.Consumer
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.NATS.JetstreamConsumer
   alias ServiceRadar.Observability.LogPromotion
@@ -24,7 +24,7 @@ defmodule ServiceRadar.Observability.LogPromotionConsumer do
   @default_connect_retries 120
 
   def start_link(opts \\ []) do
-    Jetstream.PullConsumer.start_link(__MODULE__, opts, name: __MODULE__)
+    Gnat.Jetstream.PullConsumer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
   @spec enabled?() :: boolean()

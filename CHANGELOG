@@ -1,3 +1,66 @@
+# ServiceRadar v1.4.10
+
+Netprobe flow-attribution recovery, safer eBPF targeting, and agent
+configuration-delivery hardening.
+
+## Whats New
+
+**1.4.10**
+- NetFlow attribution: active netprobe profiles now default their runtime switch
+  on and expose schema-backed settings in the add-on profile UI without losing
+  complex JSON configuration. Explicitly disabled profiles remain disabled.
+- Agent reliability: configuration responses are serialized across poll,
+  control-stream, and enrollment paths; delayed older responses are rejected;
+  and visibility bootstrap and attach state apply before systemd
+  netprobe activation. Bootstrap or attach failures retry while netprobe stays
+  blocked, without preventing unrelated add-ons from reconciling. Core outages,
+  credential failures, and unexpected config responses now retain the agent's
+  acknowledged last-good configuration instead of delivering an empty config.
+- Fleet operations: add-on reconciliation now loads package requirements and
+  records platform, base-agent-version, and capability skip reasons. Netprobe
+  is assigned only to Linux host agents that advertise network-visibility
+  support; LXC and other container deployments no longer enter add-on failure
+  loops.
+- Release and demo reliability: restored schema-baseline and integration-test
+  quality gates, rollback-isolated database tests, per-run Forgejo integration
+  databases, and fail-closed protection against destructive test runs on
+  non-test databases. Restored build caches now repair missing transitive NIF
+  artifacts before compilation. This release also fixes SRQL JSON wildcard
+  parsing, preserves Armis attachment metadata, makes `demo/prod-release` the
+  sole Argo image source, and prevents release tags from publishing before
+  their commit reaches staging. Unresolved live drift remains operator-synced.
+- Release publishing: image preflight now verifies that the release and
+  `latest` tags match the immutable commit-tag digest, fails closed on registry
+  errors, and retries an interrupted remote Bazel publish once before using the
+  explicitly enabled local fallback. Post-publish checks cover all 16 image
+  repositories and their signatures. Forgejo keeps the release draft until
+  package and managed-agent assets, native add-on and Wasm import catalogs, and
+  source and image security bundles all verify; finalization then runs off the
+  signing pool before the demo release branch can advance.
+- Dependency safety: retired the standalone Jetstream package in favor of
+  Gnat's maintained JetStream API and upgraded the core runtime's Ash, Decimal,
+  Ecto, Req, and related dependencies. Only two cowlib advisories without a
+  fixed upstream release remain narrowly waived.
+- Data correctness: integration credential references are authoritative and
+  fail closed instead of falling back to stale legacy plaintext. Concurrent
+  same-device inserts that lose the active-IP uniqueness race retry once after
+  the winning row becomes visible, while persistent conflicts still surface.
+  Health timelines use a database sequence instead of second-resolution
+  timestamps for current-state ordering; the one-time ordering migration now
+  fails closed under bounded lock and statement deadlines. Stateful alert
+  evaluation uses bounded admission with synchronous backpressure when the
+  queue is full or unavailable instead of dropping an evaluation. Security
+  event persistence also uses one supervised writer, counts in-flight work
+  against capacity, and exposes a real flush barrier instead of detached
+  database writers. Cluster-wide rate limiting now restores its Horde
+  registration after node identity or registry membership changes instead of
+  remaining in local-only enforcement.
+- Device identity safety: ships the Armis over-merge disposition dormant and
+  dry-run-first. Execute remains runtime-gated, processes ghost records by
+  default, requires exact device/source allowlists for live records, rejects
+  faker-backed data, and applies each candidate transactionally. Multi-NIC
+  splits are not assumed to self-heal and still require operator signoff.
+
 # ServiceRadar v1.4.9
 
 Hosted-tenant chart release for the ServiceRadar control-plane E2E path.

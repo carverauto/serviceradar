@@ -1,8 +1,9 @@
 defmodule ServiceRadar.Integrations.IntegrationSourceNorthboundTest do
   @moduledoc false
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.TestSupport
 
@@ -103,16 +104,27 @@ defmodule ServiceRadar.Integrations.IntegrationSourceNorthboundTest do
 
   defp create_source!(actor, attrs) do
     endpoint = "https://example.invalid/#{System.unique_integer([:positive])}"
+    agent_id = "northbound-source-agent-#{System.unique_integer([:positive])}"
+
+    Agent
+    |> Ash.Changeset.for_create(
+      :register_connected,
+      %{uid: agent_id, name: agent_id},
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
 
     defaults = %{
       name: unique_name("armis-source"),
       source_type: :armis,
-      endpoint: endpoint
+      endpoint: endpoint,
+      agent_id: agent_id
     }
 
     IntegrationSource
-    |> Ash.Changeset.for_create(:create, Map.merge(defaults, Map.new(attrs)), actor: actor)
+    |> Ash.Changeset.new()
     |> Ash.Changeset.set_argument(:credentials, %{token: "secret"})
+    |> Ash.Changeset.for_create(:create, Map.merge(defaults, Map.new(attrs)), actor: actor)
     |> Ash.create(actor: actor)
     |> case do
       {:ok, source} -> source

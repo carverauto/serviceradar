@@ -26,6 +26,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
@@ -132,7 +133,16 @@ type PushLoop struct {
 	configSectionMu       sync.Mutex
 	configSectionFailures map[string]configSectionFailure // persistent config-section apply failure, by section name (drives skip + escalate-once + per-section ack)
 
-	addonReconcileMu sync.Mutex // serializes applyAddonAssignments across the poll/control-stream/enroll goroutines
+	hostNetworkVisibilitySupported func() bool
+	uninstallSystemdAddonUnits     func(context.Context, []string) error
+
+	// configApplyMu serializes complete config-response transactions across the independent
+	// poll/control-stream/enroll goroutines. The lock order is configApplyMu then
+	// addonReconcileMu; direct add-on reconciles never acquire configApplyMu.
+	configSequence       atomic.Uint64 // allocated before a poll request or on control receipt
+	configApplyMu        sync.Mutex
+	latestConfigSequence uint64 // highest request/receipt sequence whose apply began; guarded by configApplyMu
+	addonReconcileMu     sync.Mutex
 
 	systemdAddonsMu        sync.Mutex
 	systemdRehydrateOnce   sync.Once
@@ -213,25 +223,27 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 	}
 
 	pushLoop := &PushLoop{
-		server:                    server,
-		gateway:                   gateway,
-		interval:                  interval,
-		logger:                    log,
-		done:                      make(chan struct{}),
-		stopCh:                    make(chan struct{}),
-		configPollInterval:        defaultConfigPollInterval,
-		icmpChecks:                make(map[string]*icmpCheckConfig),
-		icmpLastRun:               make(map[string]time.Time),
-		statusDebounce:            debounce,
-		statusHeartbeat:           heartbeat,
-		syncRuntime:               NewSyncRuntime(server, gateway, log),
-		mtrState:                  newMtrCheckerState(),
-		mtrOnDemandSem:            make(chan struct{}, defaultMaxConcurrentOnDemandMtr),
-		mtrBulkJobSem:             make(chan struct{}, 1),
-		endpointInventoryFreshSem: make(chan struct{}, 1),
-		cameraRelayManager:        cameraRelayManager,
-		remoteConsoleManager:      remoteConsoleManager,
-		readSystemdUnitStatus:     readSystemdUnitStatusDefault,
+		server:                         server,
+		gateway:                        gateway,
+		interval:                       interval,
+		logger:                         log,
+		done:                           make(chan struct{}),
+		stopCh:                         make(chan struct{}),
+		configPollInterval:             defaultConfigPollInterval,
+		icmpChecks:                     make(map[string]*icmpCheckConfig),
+		icmpLastRun:                    make(map[string]time.Time),
+		statusDebounce:                 debounce,
+		statusHeartbeat:                heartbeat,
+		syncRuntime:                    NewSyncRuntime(server, gateway, log),
+		mtrState:                       newMtrCheckerState(),
+		mtrOnDemandSem:                 make(chan struct{}, defaultMaxConcurrentOnDemandMtr),
+		mtrBulkJobSem:                  make(chan struct{}, 1),
+		endpointInventoryFreshSem:      make(chan struct{}, 1),
+		cameraRelayManager:             cameraRelayManager,
+		remoteConsoleManager:           remoteConsoleManager,
+		readSystemdUnitStatus:          readSystemdUnitStatusDefault,
+		hostNetworkVisibilitySupported: runtimeSupportsHostNetworkVisibility,
+		uninstallSystemdAddonUnits:     uninstallAddonSystemdUnitsViaUpdater,
 	}
 	remoteConsoleManager.desktopAdapter = desktopRDPHelperAdapter{HelperPathResolver: pushLoop.remoteAccessRDPAdapterPath}
 

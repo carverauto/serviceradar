@@ -97,3 +97,17 @@ SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex
 SQL.Query: SQL injection,lib/serviceradar_web_ng/topology/god_view_stream.ex:4545,7C81AB4
 SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:218,A63EBB
 SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/log_live/index.ex:7429,F7A721
+
+# Refreshed by `mix sobelow --mark-skip-all` after current dependency/tooling
+# updates changed line hashes for existing low-confidence findings.
+Traversal.FileModule: Directory Traversal in `File.read!`,lib/serviceradar_web_ng_web/live/admin/dashboard_package_live/index.ex:986,18C6798
+DOS.StringToAtom: Unsafe `String.to_atom`,lib/serviceradar_web_ng_web/live/device_live/discovery_sources_components.ex:326,199F9A5
+
+# browser_raw_auth is a GET-only websocket-upgrade pipeline. It does not mutate
+# state, and router-origin checks plus authentication protect browser clients.
+Config.CSRF: Missing CSRF Protections,lib/serviceradar_web_ng_web/router.ex:65,1DB48A5
+
+# api_docs_spec serves authenticated OpenAPI JSON only; callers must already be
+# authorized through session or bearer authentication and no form action mutates state.
+Config.CSRF: Missing CSRF Protections,lib/serviceradar_web_ng_web/router.ex:113,3A3971B
+DOS.StringToAtom: Unsafe `String.to_atom`,lib/serviceradar_web_ng_web/live/device_live/discovery_sources_components.ex:341,7DB415F
