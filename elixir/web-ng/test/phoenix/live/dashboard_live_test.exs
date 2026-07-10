@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
   alias ServiceRadar.Inventory.VirtualizationHost
   alias ServiceRadar.Inventory.VirtualizationStorageSystem
   alias ServiceRadarWebNG.Repo
+  alias ServiceRadarWebNG.TestSupport.CameraRelaySessionManagerStub
   alias ServiceRadarWebNGWeb.DashboardLive.Data
 
   setup :register_and_log_in_user
@@ -44,6 +45,78 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     assert has_element?(view, "a.sr-ops-metric-card[href='/services']", "Service Health")
     assert has_element?(view, "a[data-testid='threat-intel-summary'][href='/settings/networks/threat-intel']")
     assert has_element?(view, "a[data-testid='alerts-feed-empty'][href='/alerts']")
+  end
+
+  test "dashboard data hydrates while camera previews are still opening", %{conn: conn} do
+    test_pid = self()
+    camera_source_id = Ecto.UUID.generate()
+    stream_profile_id = Ecto.UUID.generate()
+
+    alert =
+      alert_fixture(%{
+        title: "Dashboard hydration relay probe",
+        severity: :warning,
+        description: "Verifies relay control does not gate dashboard hydration"
+      })
+
+    previous_loader =
+      Application.get_env(:serviceradar_web_ng, :camera_relay_candidate_loader)
+
+    previous_manager =
+      Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager)
+
+    previous_open_result =
+      Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager_open_result)
+
+    on_exit(fn ->
+      restore_env(:camera_relay_candidate_loader, previous_loader)
+      restore_env(:camera_relay_session_manager, previous_manager)
+      restore_env(:camera_relay_session_manager_open_result, previous_open_result)
+    end)
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :camera_relay_candidate_loader,
+      fn _scope, _limit ->
+        [
+          %{
+            camera_source_id: camera_source_id,
+            stream_profile_id: stream_profile_id,
+            label: "Hydration camera",
+            detail: "Primary stream",
+            session: nil,
+            error: nil
+          }
+        ]
+      end
+    )
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :camera_relay_session_manager,
+      CameraRelaySessionManagerStub
+    )
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :camera_relay_session_manager_open_result,
+      fn ^camera_source_id, ^stream_profile_id, _opts ->
+        send(test_pid, {:camera_preview_open_started, self()})
+
+        receive do
+          :finish_camera_preview ->
+            {:ok, %{id: Ecto.UUID.generate(), status: :opening}}
+        end
+      end
+    )
+
+    {:ok, view, _html} = live(conn, ~p"/dashboard")
+
+    assert_receive {:camera_preview_open_started, preview_task}, 10_000
+    assert has_element?(view, "[data-testid='alerts-feed'] a[href='/alerts/#{alert.id}']")
+
+    send(preview_task, :finish_camera_preview)
+    _html = render_async(view, 5_000)
   end
 
   test "dashboard KPI metadata includes drill-downs for conditionally hidden cards" do
@@ -291,4 +364,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
       verification_status: "verified"
     }
   end
+
+  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
+  defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
 end
