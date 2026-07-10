@@ -37,8 +37,27 @@ permissions:
   contents: read
 
 jobs:
+  verifier_config:
+    name: Resolve verifier configuration
+    runs-on: ubuntu24
+    outputs:
+      enabled: ${{ steps.config.outputs.enabled }}
+    steps:
+      - name: Resolve verifier availability
+        id: config
+        env:
+          VERIFIER_ENABLED: ${{ vars.NETPROBE_EBPF_VERIFIER_ENABLED }}
+        run: |
+          if [[ "${VERIFIER_ENABLED:-}" == "true" ]]; then
+            echo "enabled=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "enabled=false" >> "${GITHUB_OUTPUT}"
+            echo "Dedicated netprobe kernel verification is not enabled."
+          fi
+
   verify-ebpf:
-    if: ${{ vars.NETPROBE_EBPF_VERIFIER_ENABLED == 'true' }}
+    needs: verifier_config
+    if: ${{ needs.verifier_config.outputs.enabled == 'true' }}
     name: Verify eBPF programs on Linux ${{ matrix.kernel }}
     runs-on: ${{ matrix.runner }}
     env:
@@ -100,7 +119,8 @@ jobs:
         run: scripts/ci/netprobe-ebpf-verify.sh
 
   kernel-too-old:
-    if: ${{ vars.NETPROBE_EBPF_VERIFIER_ENABLED == 'true' }}
+    needs: verifier_config
+    if: ${{ needs.verifier_config.outputs.enabled == 'true' }}
     name: Verify eBPF refusal on Linux 5.4
     runs-on: netprobe-kernel-5.4
     env:
