@@ -28,12 +28,11 @@ if [ -z "${parser}" ]; then
   exit 1
 fi
 
-sql="$("${parser}" - "${db_url}" <<'PY'
-import sys
-from urllib.parse import urlparse
+database_name="$(serviceradar_database_name_from_url "${db_url}")"
 
-parsed = urlparse(sys.argv[1])
-dbname = (parsed.path or "/")[1:]
+sql="$("${parser}" - "${database_name}" <<'PY'
+import sys
+dbname = sys.argv[1]
 
 if not dbname:
     raise SystemExit("test database URL must include a database name")

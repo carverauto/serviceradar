@@ -324,6 +324,8 @@ jobs:
           export SERVICERADAR_TEST_DATABASE_CA_CERT_FILE="${ca_file}"
           export SRQL_TEST_DATABASE_CA_CERT_FILE="${ca_file}"
 
+          ./scripts/sweep-stale-core-test-dbs.sh "${SRQL_TEST_ADMIN_URL}" 86400
+
           if [[ ! "${GITHUB_RUN_ID:-}" =~ ^[0-9]+$ ]] ||
             [[ ! "${GITHUB_RUN_ATTEMPT:-}" =~ ^[0-9]+$ ]]; then
             echo "GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT must be numeric." >&2
@@ -333,7 +335,13 @@ jobs:
           # Rust owns the shared fixture behind an advisory lock. Give the Core
           # reset/migration suite its own database so concurrent PRs cannot drop
           # another run's fixture.
-          database_name="sr_core_test_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          created_epoch="$(date +%s)"
+          if [[ ! "${created_epoch}" =~ ^[0-9]{10,11}$ ]]; then
+            echo "current epoch must be 10 or 11 digits" >&2
+            exit 1
+          fi
+
+          database_name="sr_core_test_${created_epoch}_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
           if [ "${#database_name}" -gt 63 ]; then
             echo "isolated integration database name exceeds PostgreSQL's 63-byte limit" >&2
             exit 1

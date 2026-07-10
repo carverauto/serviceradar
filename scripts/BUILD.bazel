@@ -44,6 +44,7 @@ sh_test(
         "drop-test-db.sh",
         "reset-srql-fixture-test-db.sh",
         "reset-test-db.sh",
+        "sweep-stale-core-test-dbs.sh",
         "test-integration.sh",
     ],
 )
