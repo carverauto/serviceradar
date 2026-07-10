@@ -35,6 +35,7 @@ defmodule ServiceRadar.Security.RateLimiter do
   @table :serviceradar_security_rate_limiter
   @registry_type :rate_limiter
   @cleanup_interval to_timeout(minute: 5)
+  @registration_interval to_timeout(second: 30)
   @snapshot_timeout to_timeout(second: 2)
 
   @type bucket :: atom() | binary()
@@ -130,33 +131,20 @@ defmodule ServiceRadar.Security.RateLimiter do
     register_in_horde()
     :ok = :net_kernel.monitor_nodes(true)
     schedule_cleanup()
+    registration_timer = schedule_registration()
     request_snapshot_from_peer()
-    {:ok, %{}}
+    {:ok, %{registration_timer: registration_timer}}
   end
 
   defp register_in_horde do
     if process_registry_available?() do
-      register_with_process_registry()
+      case register_with_process_registry() do
+        :registered -> remove_stale_self_registrations()
+        :error -> :ok
+      end
     else
       Logger.debug("RateLimiter: ProcessRegistry unavailable; using local-only enforcement")
       :ok
-    end
-  end
-
-  defp register_with_process_registry do
-    case ServiceRadar.ProcessRegistry.register({@registry_type, node()}, %{type: @registry_type}) do
-      {:ok, _pid} ->
-        :ok
-
-      {:error, {:already_registered, _pid}} ->
-        :ok
-
-      other ->
-        Logger.warning(
-          "RateLimiter: ProcessRegistry.register failed: #{inspect(other)}; falling back to local-only enforcement"
-        )
-
-        :ok
     end
   rescue
     ArgumentError ->
@@ -165,6 +153,30 @@ defmodule ServiceRadar.Security.RateLimiter do
       )
 
       :ok
+  catch
+    :exit, reason ->
+      Logger.warning(
+        "RateLimiter: ProcessRegistry unavailable during registration: #{inspect(reason)}; using local-only enforcement"
+      )
+
+      :ok
+  end
+
+  defp register_with_process_registry do
+    case ServiceRadar.ProcessRegistry.register({@registry_type, node()}, %{type: @registry_type}) do
+      {:ok, _pid} ->
+        :registered
+
+      {:error, {:already_registered, pid}} when pid == self() ->
+        :registered
+
+      other ->
+        Logger.warning(
+          "RateLimiter: ProcessRegistry.register failed: #{inspect(other)}; falling back to local-only enforcement"
+        )
+
+        :error
+    end
   end
 
   @impl true
@@ -236,8 +248,14 @@ defmodule ServiceRadar.Security.RateLimiter do
     {:noreply, state}
   end
 
+  def handle_info(:ensure_registry_registration, state) do
+    register_in_horde()
+    {:noreply, reschedule_registration(state)}
+  end
+
   def handle_info({:nodeup, node}, state) do
     Logger.debug("RateLimiter: nodeup #{inspect(node)}; requesting snapshot")
+    register_in_horde()
     request_snapshot_from_peer()
     {:noreply, state}
   end
@@ -291,6 +309,7 @@ defmodule ServiceRadar.Security.RateLimiter do
       |> ServiceRadar.ProcessRegistry.select_by_type()
       |> Enum.map(fn {_key, pid, _meta} -> pid end)
       |> Enum.reject(&(&1 == self_pid))
+      |> Enum.uniq()
     else
       []
     end
@@ -300,6 +319,36 @@ defmodule ServiceRadar.Security.RateLimiter do
 
   defp process_registry_available? do
     Process.whereis(ServiceRadar.ProcessRegistry.registry_name()) != nil
+  end
+
+  defp remove_stale_self_registrations do
+    self_pid = self()
+    current_key = {@registry_type, node()}
+
+    @registry_type
+    |> ServiceRadar.ProcessRegistry.select_by_type()
+    |> Enum.each(fn
+      {^current_key, _pid, _metadata} ->
+        :ok
+
+      {key, ^self_pid, _metadata} ->
+        ServiceRadar.ProcessRegistry.unregister(key)
+
+      _other ->
+        :ok
+    end)
+  end
+
+  defp schedule_registration do
+    Process.send_after(self(), :ensure_registry_registration, @registration_interval)
+  end
+
+  defp reschedule_registration(state) do
+    if timer = state[:registration_timer] do
+      Process.cancel_timer(timer)
+    end
+
+    Map.put(state, :registration_timer, schedule_registration())
   end
 
   defp broadcast(message) do

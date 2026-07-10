@@ -158,6 +158,31 @@ defmodule ServiceRadar.Security.RateLimiterTest do
                _ -> false
              end)
     end
+
+    test "the limiter restores a lost ProcessRegistry registration" do
+      key = {RateLimiter.__registry_type__(), node()}
+      limiter_pid = Process.whereis(RateLimiter)
+
+      on_exit(fn ->
+        if Process.whereis(RateLimiter) do
+          send(RateLimiter, :ensure_registry_registration)
+          _ = :sys.get_state(RateLimiter)
+        end
+      end)
+
+      send(RateLimiter, :ensure_registry_registration)
+      _ = :sys.get_state(RateLimiter)
+      assert [{^limiter_pid, _metadata}] = ServiceRadar.ProcessRegistry.lookup(key)
+
+      assert :ok = ServiceRadar.ProcessRegistry.unregister(key)
+      assert [] = ServiceRadar.ProcessRegistry.lookup(key)
+
+      send(RateLimiter, :ensure_registry_registration)
+      _ = :sys.get_state(RateLimiter)
+
+      assert [{^limiter_pid, %{type: :rate_limiter}}] =
+               ServiceRadar.ProcessRegistry.lookup(key)
+    end
   end
 
   describe "peer broadcast (single-node simulation)" do
