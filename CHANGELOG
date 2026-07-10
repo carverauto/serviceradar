@@ -33,8 +33,10 @@ configuration-delivery hardening.
   `latest` tags match the immutable commit-tag digest, fails closed on registry
   errors, and retries an interrupted remote Bazel publish once before using the
   explicitly enabled local fallback. Post-publish checks cover all 16 image
-  repositories and their signatures, and required package assets must verify
-  on the draft before Forgejo makes the release public.
+  repositories and their signatures. Forgejo keeps the release draft until
+  package and managed-agent assets, native add-on and Wasm import catalogs, and
+  source and image security bundles all verify; finalization then runs off the
+  signing pool before the demo release branch can advance.
 - Dependency safety: retired the standalone Jetstream package in favor of
   Gnat's maintained JetStream API and upgraded the core runtime's Ash, Decimal,
   Ecto, Req, and related dependencies. Only two cowlib advisories without a
@@ -44,9 +46,13 @@ configuration-delivery hardening.
   same-device inserts that lose the active-IP uniqueness race retry once after
   the winning row becomes visible, while persistent conflicts still surface.
   Health timelines use a database sequence instead of second-resolution
-  timestamps for current-state ordering, and stateful alert evaluation now
-  uses bounded admission with synchronous backpressure when the queue is full
-  or unavailable instead of dropping an evaluation.
+  timestamps for current-state ordering; the one-time ordering migration now
+  fails closed under bounded lock and statement deadlines. Stateful alert
+  evaluation uses bounded admission with synchronous backpressure when the
+  queue is full or unavailable instead of dropping an evaluation. Security
+  event persistence also uses one supervised writer, counts in-flight work
+  against capacity, and exposes a real flush barrier instead of detached
+  database writers.
 - Device identity safety: ships the Armis over-merge disposition dormant and
   dry-run-first. Execute remains runtime-gated, processes ghost records by
   default, requires exact device/source allowlists for live records, rejects
