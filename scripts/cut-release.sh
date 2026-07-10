@@ -181,9 +181,8 @@ print_post_merge_tag_instructions() {
     echo ""
     echo "After the release branch is merged into staging, publish the tag with:"
     echo "  git fetch origin refs/heads/staging:refs/remotes/origin/staging"
-    echo "  git merge-base --is-ancestor '${tag}^{commit}' refs/remotes/origin/staging"
-    echo "  git push origin refs/tags/$tag:refs/tags/$tag"
-    echo "The ancestry check must exit 0. Do not push the tag if it fails."
+    echo "  git merge-base --is-ancestor '${tag}^{commit}' refs/remotes/origin/staging && git push origin refs/tags/$tag:refs/tags/$tag"
+    echo "The tag push is chained to the ancestry check and will not run if it fails."
 }
 
 # The in-place edits below use GNU sed syntax (the `-i` form and the

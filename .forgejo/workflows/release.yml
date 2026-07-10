@@ -21,7 +21,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to publish (defaults to the event tag or VERSION file)."
+        description: "Release tag to publish (defaults to the event tag or v-prefixed VERSION)."
         required: false
         type: string
       dry_run:
@@ -110,6 +110,7 @@ jobs:
           fetch-depth: 0
 
       - name: Enforce release source
+        id: source
         env:
           INPUT_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
           RELEASE_BASE_REF: origin/staging
@@ -145,6 +146,11 @@ jobs:
             echo "Release commit ${release_commit} is not reachable from ${RELEASE_BASE_REF}" >&2
             exit 1
           fi
+
+          {
+            echo "tag=${tag}"
+            echo "commit=${release_commit}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Cache Bazel artifacts
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # actions/cache@v5.0.4
@@ -221,7 +227,8 @@ jobs:
       - name: Resolve release metadata
         id: release
         env:
-          INPUT_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+          GATED_TAG: ${{ steps.source.outputs.tag }}
+          GATED_COMMIT: ${{ steps.source.outputs.commit }}
           INPUT_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run || 'false' }}
           INPUT_APPEND_NOTES: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.append_notes || 'false' }}
           INPUT_PRERELEASE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.prerelease || 'false' }}
@@ -230,26 +237,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          tag="$INPUT_TAG"
-          if [[ -z "$tag" && "${GITHUB_REF}" == refs/tags/* ]]; then
-            tag="${GITHUB_REF#refs/tags/}"
-          fi
-          if [[ -z "$tag" ]]; then
-            tag="$(< VERSION)"
-          fi
-          if [[ -z "$tag" ]]; then
-            echo "Unable to determine release tag" >&2
+          tag="${GATED_TAG}"
+          release_commit="${GATED_COMMIT}"
+          if [[ -z "$tag" || -z "$release_commit" ]]; then
+            echo "Canonical release source outputs are incomplete" >&2
             exit 1
-          fi
-
-          if git rev-parse -q --verify "refs/tags/${tag}^{commit}" >/dev/null; then
-            release_commit="$(git rev-list -n1 "refs/tags/${tag}^{commit}")"
-          else
-            if [[ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" ]]; then
-              echo "Release tag ${tag} is not available in this checkout" >&2
-              exit 1
-            fi
-            release_commit="$(git rev-parse HEAD)"
           fi
 
           version="${tag#v}"
@@ -440,6 +432,15 @@ jobs:
               python3 -c 'import ast, re, sys; from pathlib import Path; text = Path(sys.argv[1]).read_text(); match = re.search(r"PUBLISHABLE_IMAGES\s*=\s*(\[[\s\S]*?\])\n\n", text); assert match, "unable to parse image inventory"; [print("//docker/images:" + entry.get("push_image", entry["image"])) for entry in ast.literal_eval(match.group(1))]' docker/images/image_inventory.bzl
             )
             bazel build --config=remote_push --stamp "${image_targets[@]}"
+          fi
+
+          echo "Rechecking release image digest equality after publish/build handling."
+          if "${tag_check_script}" "${release_sha_tag}" "${RELEASE_TAG}" latest; then
+            echo "Post-publish release image digests match the immutable release digest."
+          else
+            tag_check_status=$?
+            echo "Post-publish release image digest verification failed with status ${tag_check_status}; refusing to sign or advance the release." >&2
+            exit "${tag_check_status}"
           fi
 
           verify_tags=(latest "${release_sha_tag}")

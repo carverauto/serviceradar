@@ -24,6 +24,7 @@ load(
 exports_files([
     "export_rootfs_from_layout.py",
     "extract_rootfs.py",
+    "image_inventory.bzl",
     "overlay_deb_packages.py",
     "pg_config_rewrite.py",
     "pg_config_wrapper.sh",

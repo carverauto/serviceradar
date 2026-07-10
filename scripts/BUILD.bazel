@@ -7,9 +7,24 @@ exports_files([
     "check-gazelle-drift.sh",
     "check-native-addon-version-bumps.sh",
     "swiftlint_bazel.sh",
+    "test-release-publish-contracts.sh",
     "test-verify-native-addon-publish-negative.sh",
+    "verify-oci-publish.sh",
     "verify-native-addon-publish.sh",
 ])
+
+sh_test(
+    name = "release_publish_contracts_test",
+    timeout = "short",
+    srcs = ["test-release-publish-contracts.sh"],
+    data = [
+        "cosign_common.sh",
+        "cut-release.sh",
+        "verify-oci-publish.sh",
+        "//:.forgejo/workflows/release.yml",
+        "//docker/images:image_inventory.bzl",
+    ],
+)
 
 sh_test(
     name = "verify_native_addon_publish_negative_test",

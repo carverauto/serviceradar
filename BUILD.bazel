@@ -20,6 +20,7 @@ gazelle(
 )
 
 exports_files([
+    ".forgejo/workflows/release.yml",
     "VERSION",
     "Cargo.toml",
     "Cargo.lock",
