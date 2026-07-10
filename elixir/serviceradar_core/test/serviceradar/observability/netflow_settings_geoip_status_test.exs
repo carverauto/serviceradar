@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Observability.NetflowSettingsGeoipStatusTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias Ash.Error.Forbidden
   alias ServiceRadar.Actors.SystemActor

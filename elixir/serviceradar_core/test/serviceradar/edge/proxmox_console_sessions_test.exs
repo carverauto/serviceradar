@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.NetworkCredentialRule

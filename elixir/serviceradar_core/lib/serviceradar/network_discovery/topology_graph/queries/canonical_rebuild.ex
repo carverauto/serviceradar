@@ -33,10 +33,9 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Queries.CanonicalRebuild d
   ]
 
   # Edge-property fields the per-edge upsert `content_hash` keys on. The remaining
-  # content_hash terms (relation_type, pair_support_rank, local/neighbor if_index +
-  # if_name) are either the edge type (= source label table) or are derived from
-  # the Interface vertices' structural identity (the start_id/end_id the
-  # fingerprint already orders + hashes by), not edge properties.
+  # content_hash terms include the edge type and mutable Interface properties.
+  # The fingerprint query joins both endpoint Interface vertices so name/ifindex-
+  # only changes cannot be hidden behind the durable one-hour rebuild guard.
   @content_hash_property_fields [
     "protocol",
     "source",
@@ -93,20 +92,29 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Queries.CanonicalRebuild d
   defp edge_label_select(label) when is_binary(label) do
     property_terms =
       Enum.map_join(@rebuild_input_property_fields, "", fn field ->
-        " || '|' || #{property_term(field)}"
+        " || '|' || #{property_term("edge", field)}"
       end)
 
-    "SELECT start_id, end_id, '#{label}' AS rel,\n" <>
-      "    start_id::text || '>' || end_id::text || '|#{label}'#{property_terms} AS edge_sig\n" <>
-      "  FROM platform_graph.\"#{label}\""
+    interface_terms =
+      Enum.map_join(["start_interface", "end_interface"], "", fn endpoint ->
+        Enum.map_join(["name", "ifindex"], "", fn field ->
+          " || '|' || #{property_term(endpoint, field)}"
+        end)
+      end)
+
+    "SELECT edge.start_id, edge.end_id, '#{label}' AS rel,\n" <>
+      "    edge.start_id::text || '>' || edge.end_id::text || '|#{label}'#{property_terms}#{interface_terms} AS edge_sig\n" <>
+      "  FROM platform_graph.\"#{label}\" edge\n" <>
+      "  LEFT JOIN platform_graph.\"Interface\" start_interface ON start_interface.id = edge.start_id\n" <>
+      "  LEFT JOIN platform_graph.\"Interface\" end_interface ON end_interface.id = edge.end_id"
   end
 
-  defp property_term(field) when field in @timestamp_property_fields do
-    "left(coalesce((properties->'\"#{field}\"')::text, ''), 13)"
+  defp property_term(owner, field) when field in @timestamp_property_fields do
+    "left(coalesce((#{owner}.properties->'\"#{field}\"')::text, ''), 13)"
   end
 
-  defp property_term(field) do
-    "coalesce((properties->'\"#{field}\"')::text, '')"
+  defp property_term(owner, field) do
+    "coalesce((#{owner}.properties->'\"#{field}\"')::text, '')"
   end
 
   # Relation types that count as mapper evidence for the canonical rebuild.

@@ -8,7 +8,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
   3. Agents receive the correct sweep config based on partition
   4. Config changes trigger cache invalidation
   """
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.Infrastructure.Agent
@@ -178,9 +178,10 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
         end)
 
       assert compiled_group
-      assert matching_device1.ip in compiled_group["targets"]
-      assert matching_device2.ip in compiled_group["targets"]
-      refute non_matching_device_ip(unique_id, 1) in compiled_group["targets"]
+      device_targets = device_target_networks(compiled_group)
+      assert matching_device1.ip in device_targets
+      assert matching_device2.ip in device_targets
+      refute non_matching_device_ip(unique_id, 1) in device_targets
     end
 
     test "compiles sweep group with tag query and matching devices", %{
@@ -242,7 +243,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
         end)
 
       assert compiled_group
-      assert prod_device.ip in compiled_group["targets"]
+      assert prod_device.ip in device_target_networks(compiled_group)
       # Dev device should not be in targets (different tag value)
     end
 
@@ -292,9 +293,10 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
         end)
 
       assert compiled_group
-      refute first_ip in compiled_group["targets"]
-      refute second_ip in compiled_group["targets"]
-      refute "#{first_ip}, #{second_ip}" in compiled_group["targets"]
+      device_targets = device_target_networks(compiled_group)
+      refute first_ip in device_targets
+      refute second_ip in device_targets
+      refute "#{first_ip}, #{second_ip}" in device_targets
     end
 
     test "ignores integration network blacklist settings when compiling sweep targets", %{
@@ -362,7 +364,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
         end)
 
       assert compiled_group
-      assert included_ip in compiled_group["targets"]
+      assert included_ip in device_target_networks(compiled_group)
     end
 
     test "compiles sweep group combining SRQL with static_targets", %{
@@ -411,7 +413,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
 
       assert compiled_group
       # Should have both criteria-matched and static targets
-      assert device.ip in compiled_group["targets"]
+      assert device.ip in device_target_networks(compiled_group)
       assert "192.168.100.0/24" in compiled_group["targets"]
       assert "172.16.0.1" in compiled_group["targets"]
     end
@@ -693,5 +695,9 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
     third = rem(unique_id + offset, 200)
     fourth = rem(unique_id * 11 + offset * 17, 200) + 10
     "192.168.#{third}.#{fourth}"
+  end
+
+  defp device_target_networks(compiled_group) do
+    Enum.map(compiled_group["device_targets"] || [], & &1["network"])
   end
 end

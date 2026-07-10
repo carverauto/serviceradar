@@ -8,7 +8,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
   - SRQL-based targeting resolves profiles to devices
   - Proto encoding produces valid SNMP config
   """
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.Edge.AgentConfigGenerator

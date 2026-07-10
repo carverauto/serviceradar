@@ -3,7 +3,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
   Integration tests for command bus dispatch, status updates, and push-config delivery.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentCommands.PubSub, as: AgentCommandPubSub

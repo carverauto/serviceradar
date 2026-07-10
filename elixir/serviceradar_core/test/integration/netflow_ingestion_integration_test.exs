@@ -8,7 +8,7 @@ defmodule ServiceRadar.Integration.NetflowIngestionIntegrationTest do
   - BGP analytics query the derived store instead of legacy per-flow tables
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   import Ecto.Query
 

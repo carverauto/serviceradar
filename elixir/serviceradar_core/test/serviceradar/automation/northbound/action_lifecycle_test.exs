@@ -1,8 +1,9 @@
 defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
   @moduledoc false
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Northbound
   alias ServiceRadar.Automation.Northbound.ActionDescriptor
   alias ServiceRadar.Automation.Northbound.ActionInvocation
@@ -40,11 +41,12 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
       role: :admin
     }
 
-    {:ok, actor: actor}
+    {:ok, actor: actor, runtime_actor: SystemActor.system(:northbound_action_lifecycle_test)}
   end
 
   test "target lifecycle records polling state and redacts persisted result payloads", %{
-    actor: actor
+    actor: actor,
+    runtime_actor: runtime_actor
   } do
     {:ok, target} = create_target(actor)
     next_poll_at = DateTime.add(DateTime.utc_now(), 30, :second)
@@ -63,7 +65,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
                  next_poll_at: next_poll_at,
                  poll_deadline_at: deadline
                },
-               actor: actor
+               actor: runtime_actor
              )
 
     assert polling.status == :polling
@@ -74,13 +76,14 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
     assert DateTime.compare(polling.next_poll_at, DateTime.truncate(next_poll_at, :microsecond)) ==
              :eq
 
-    assert {:error, :oban_unavailable} = PollWorker.schedule_target(polling, next_poll_at)
+    assert {:ok, %Oban.Job{} = poll_job} = PollWorker.schedule_target(polling, next_poll_at)
+    assert poll_job.args == %{"target_id" => polling.id}
 
     assert {:ok, fetching} =
              ActionInvocationTarget.record_result_fetching(
                polling,
                %{result: %{"message" => "fetching results"}, last_poll_at: DateTime.utc_now()},
-               actor: actor
+               actor: runtime_actor
              )
 
     assert fetching.status == :result_fetching
@@ -89,7 +92,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
              ActionInvocationTarget.record_succeeded(
                fetching,
                %{result: %{"message" => "complete"}},
-               actor: actor
+               actor: runtime_actor
              )
 
     assert succeeded.status == :succeeded
@@ -97,7 +100,10 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
     assert %DateTime{} = succeeded.completed_at
   end
 
-  test "expired poll target marks target and invocation expired", %{actor: actor} do
+  test "expired poll target marks target and invocation expired", %{
+    actor: actor,
+    runtime_actor: runtime_actor
+  } do
     {:ok, target} = create_target(actor)
     deadline = DateTime.add(DateTime.utc_now(), -1, :second)
 
@@ -111,7 +117,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
                  next_poll_at: DateTime.add(DateTime.utc_now(), -1, :second),
                  poll_deadline_at: deadline
                },
-               actor: actor
+               actor: runtime_actor
              )
 
     assert :ok = PollWorker.perform(%Oban.Job{args: %{"target_id" => polling.id}})
@@ -127,14 +133,17 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
     assert expired_invocation.error_class == "provider_timeout"
   end
 
-  test "callback handler preserves token-only callback compatibility", %{actor: actor} do
+  test "callback handler preserves token-only callback compatibility", %{
+    actor: actor,
+    runtime_actor: runtime_actor
+  } do
     {:ok, target} = create_callback_target(actor, :token)
 
     assert {:ok, :accepted} =
              CommandResultHandler.handle_callback_result(
                target.id,
                %{"status" => "succeeded", "result" => %{"message" => "complete"}},
-               actor: actor,
+               actor: runtime_actor,
                token: "callback-token"
              )
 
@@ -143,7 +152,10 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
     assert updated.result["message"] == "complete"
   end
 
-  test "callback handler accepts valid signed callbacks", %{actor: actor} do
+  test "callback handler accepts valid signed callbacks", %{
+    actor: actor,
+    runtime_actor: runtime_actor
+  } do
     {:ok, target} = create_callback_target(actor, :hmac_required)
     raw_body = ~s({"status":"succeeded","result":{"message":"signed complete"}})
     timestamp = DateTime.utc_now() |> DateTime.to_unix() |> Integer.to_string()
@@ -153,7 +165,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
              CommandResultHandler.handle_callback_result(
                target.id,
                %{"status" => "succeeded", "result" => %{"message" => "signed complete"}},
-               actor: actor,
+               actor: runtime_actor,
                token: "callback-token",
                raw_body: raw_body,
                headers: %{
@@ -167,7 +179,10 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
     assert updated.result["message"] == "signed complete"
   end
 
-  test "callback handler rejects invalid signed callbacks", %{actor: actor} do
+  test "callback handler rejects invalid signed callbacks", %{
+    actor: actor,
+    runtime_actor: runtime_actor
+  } do
     {:ok, target} = create_callback_target(actor, :hmac_required)
     raw_body = ~s({"status":"succeeded"})
     timestamp = DateTime.utc_now() |> DateTime.to_unix() |> Integer.to_string()
@@ -176,7 +191,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
              CommandResultHandler.handle_callback_result(
                target.id,
                %{"status" => "succeeded"},
-               actor: actor,
+               actor: runtime_actor,
                token: "callback-token",
                raw_body: raw_body,
                headers: %{
@@ -189,7 +204,10 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
     assert updated.status == :running
   end
 
-  test "callback handler rejects stale signed callbacks", %{actor: actor} do
+  test "callback handler rejects stale signed callbacks", %{
+    actor: actor,
+    runtime_actor: runtime_actor
+  } do
     {:ok, target} = create_callback_target(actor, :hmac_required)
     raw_body = ~s({"status":"succeeded"})
 
@@ -205,7 +223,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
              CommandResultHandler.handle_callback_result(
                target.id,
                %{"status" => "succeeded"},
-               actor: actor,
+               actor: runtime_actor,
                token: "callback-token",
                raw_body: raw_body,
                headers: %{
@@ -215,14 +233,17 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
              )
   end
 
-  test "callback handler rejects missing signatures in required mode", %{actor: actor} do
+  test "callback handler rejects missing signatures in required mode", %{
+    actor: actor,
+    runtime_actor: runtime_actor
+  } do
     {:ok, target} = create_callback_target(actor, :hmac_required)
 
     assert {:error, :missing_callback_signature} =
              CommandResultHandler.handle_callback_result(
                target.id,
                %{"status" => "succeeded"},
-               actor: actor,
+               actor: runtime_actor,
                token: "callback-token",
                raw_body: ~s({"status":"succeeded"}),
                headers: %{}
@@ -247,10 +268,13 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
   end
 
   defp create_callback_target(actor, mode) do
+    runtime_actor = SystemActor.system(:northbound_action_lifecycle_test)
+
     with {:ok, target} <- create_target(actor),
          {:ok, invocation} <- ActionInvocation.get_by_id(target.invocation_id, actor: actor),
-         {:ok, _invocation} <- ActionInvocation.record_running(invocation, actor: actor),
-         {:ok, target} <- ActionInvocationTarget.record_running(target, %{}, actor: actor) do
+         {:ok, _invocation} <- ActionInvocation.record_running(invocation, actor: runtime_actor),
+         {:ok, target} <-
+           ActionInvocationTarget.record_running(target, %{}, actor: runtime_actor) do
       attrs =
         maybe_put_hmac_secret(
           %{
@@ -265,7 +289,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
           mode
         )
 
-      ActionInvocationTarget.prepare_callback(target, attrs, actor: actor)
+      ActionInvocationTarget.prepare_callback(target, attrs, actor: runtime_actor)
     end
   end
 

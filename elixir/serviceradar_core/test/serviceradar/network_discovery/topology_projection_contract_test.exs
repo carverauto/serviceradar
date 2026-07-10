@@ -104,6 +104,30 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
                TopologyGraph.classify_projection(normalized)
     end
 
+    test "low-confidence inferred evidence is filtered from projection" do
+      normalized =
+        MapperResultsIngestor.normalize_topology(%{
+          "protocol" => "SNMP-L2",
+          "local_device_id" => "dev-switch",
+          "local_device_ip" => "192.168.1.87",
+          "local_if_name" => "1/0/24",
+          "local_if_index" => 24,
+          "neighbor_device_id" => "sr:host-195",
+          "neighbor_mgmt_addr" => "192.168.1.195",
+          "neighbor_port_id" => "1/0/1",
+          "metadata" => %{
+            "source" => "snmp-arp-fdb",
+            "confidence_reason" => "unspecified",
+            "confidence_tier" => "low",
+            "confidence_score" => 40,
+            "evidence_class" => "inferred-segment"
+          }
+        })
+
+      assert {:ok, %{mode: :skip, relation: nil, reason: :skip_inferred_low_confidence}} =
+               TopologyGraph.classify_projection(normalized)
+    end
+
     test "SNMP-L2 medium single-identifier inferred evidence projects to OBSERVED_TO" do
       normalized = %{
         "protocol" => "snmp-l2",

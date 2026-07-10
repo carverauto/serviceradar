@@ -6,6 +6,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SRQL_FIXTURE_PF_PID=""
 
+# shellcheck source=scripts/db/test-database-url-guard.sh
+source "${SCRIPT_DIR}/db/test-database-url-guard.sh"
+
 refresh_srql_fixture_env() {
   local fixture_env
 
@@ -181,6 +184,8 @@ if [ -z "${db_url}" ]; then
   exit 1
 fi
 
+serviceradar_assert_test_database_url "${db_url}"
+
 if [ -n "${admin_url}" ]; then
   ca_file="${PGSSLROOTCERT:-${SERVICERADAR_TEST_DATABASE_CA_CERT_FILE:-${SRQL_TEST_DATABASE_CA_CERT_FILE:-${CNPG_CA_FILE:-}}}}"
 
@@ -238,4 +243,4 @@ export SERVICERADAR_CORE_RUN_MIGRATIONS=false
 cd "${REPO_ROOT}/elixir/serviceradar_core"
 MIX_ENV=test mix deps.get
 MIX_ENV=test mix ash.migrate
-MIX_ENV=test mix test --include integration --no-start
+MIX_ENV=test mix test --include integration --no-start --max-cases 1

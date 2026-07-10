@@ -6,22 +6,97 @@ defmodule ServiceRadar.TestSupport do
   The PostgreSQL search_path (set by CNPG credentials) determines the schema.
   """
 
-  def start_core! do
+  alias Ecto.Adapters.SQL.Sandbox
+
+  @sandbox_teardown_margin_ms 60_000
+
+  @doc "Starts core without implicitly taking database ownership."
+  def start_core!(opts \\ []) do
+    Application.put_env(
+      :serviceradar_core,
+      :audit_writer_async?,
+      not Keyword.get(opts, :synchronous_audit_writes?, true)
+    )
+
     {:ok, _} = Application.ensure_all_started(:serviceradar_core)
     ensure_repo_started!()
 
-    if Process.whereis(ServiceRadar.Repo) do
-      mode =
-        case System.get_env("SERVICERADAR_TEST_SANDBOX_MODE") do
-          "shared" -> {:shared, self()}
-          "manual" -> :manual
-          _ -> :auto
-        end
+    if sandbox_mode = Keyword.get(opts, :sandbox_mode) do
+      Sandbox.mode(ServiceRadar.Repo, sandbox_mode)
+    end
 
-      Ecto.Adapters.SQL.Sandbox.mode(ServiceRadar.Repo, mode)
+    if Keyword.get(opts, :sandbox_owner?, false) do
+      checkout_repo!()
     end
 
     :ok
+  end
+
+  @doc "Checks out a rollback-only database owner for the current test."
+  def checkout_repo!(context \\ %{}) do
+    cond do
+      is_nil(Process.whereis(ServiceRadar.Repo)) ->
+        :ok
+
+      context[:sandbox] == :unboxed ->
+        Sandbox.mode(ServiceRadar.Repo, :auto)
+
+        ExUnit.Callbacks.on_exit(fn ->
+          Sandbox.mode(ServiceRadar.Repo, :manual)
+        end)
+
+        :ok
+
+      true ->
+        owner_opts = sandbox_owner_opts(context)
+        owner = Sandbox.start_owner!(ServiceRadar.Repo, owner_opts)
+
+        ExUnit.Callbacks.on_exit(fn ->
+          stop_repo_owner(owner)
+        end)
+
+        {:ok, sandbox_owner: owner}
+    end
+  end
+
+  @doc "Runs a function in a fresh rollback-only database owner."
+  def with_repo_owner(fun) when is_function(fun, 0) do
+    owner = Sandbox.start_owner!(ServiceRadar.Repo, shared: true)
+
+    try do
+      fun.()
+    after
+      stop_repo_owner(owner)
+    end
+  end
+
+  defp stop_repo_owner(owner) do
+    if Process.alive?(owner) do
+      Sandbox.stop_owner(owner)
+    end
+  after
+    # start_owner!/2 leaves the pool pointing at the stopped shared owner.
+    Sandbox.mode(ServiceRadar.Repo, :manual)
+  end
+
+  defp sandbox_owner_opts(context) do
+    opts = [shared: not context[:async]]
+
+    case sandbox_ownership_timeout(context) do
+      nil -> opts
+      timeout -> Keyword.put(opts, :ownership_timeout, timeout)
+    end
+  end
+
+  @doc false
+  def sandbox_ownership_timeout(context) do
+    case context[:timeout] do
+      timeout when is_integer(timeout) and timeout > 120_000 ->
+        timeout + @sandbox_teardown_margin_ms
+
+      _other ->
+        nil
+    end
   end
 
   defp ensure_repo_started! do

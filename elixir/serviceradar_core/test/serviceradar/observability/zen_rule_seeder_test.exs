@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Observability.ZenRuleSeederTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.ZenRule

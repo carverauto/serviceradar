@@ -3,7 +3,7 @@ defmodule ServiceRadar.ResultsRouterIntegrationTest do
   Integration coverage for sync status ingestion through DIRE into inventory.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device

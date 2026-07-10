@@ -1,7 +1,7 @@
 defmodule ServiceRadar.Automation.Northbound.InvocationServiceTest do
   @moduledoc false
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Automation.Northbound
   alias ServiceRadar.Automation.Northbound.ActionDescriptor

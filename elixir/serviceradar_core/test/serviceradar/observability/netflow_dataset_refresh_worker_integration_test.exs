@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerIntegrationTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.EventWriter.FlowEnrichment
   alias ServiceRadar.Observability.NetflowOuiDatasetRefreshWorker

@@ -5,7 +5,7 @@ defmodule ServiceRadar.Inventory.SourceIdentityDriftDbTest do
   path into a periodic global `audit_and_persist/0`).
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device

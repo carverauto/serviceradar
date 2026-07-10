@@ -1,5 +1,5 @@
 defmodule ServiceRadar.WorkloadIdentityTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport

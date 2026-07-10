@@ -10,7 +10,7 @@ defmodule ServiceRadar.Inventory.IdentifierCardinalityGateTest do
       SERVICERADAR_TEST_DATABASE_URL=... mix test --only large_ingestion
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   import Ecto.Query
 

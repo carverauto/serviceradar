@@ -3,7 +3,7 @@ defmodule ServiceRadar.Cluster.StartupMigrationsTest do
   Integration tests for startup migration behavior.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Cluster.StartupMigrations
 

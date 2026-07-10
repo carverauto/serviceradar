@@ -2,7 +2,20 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 namespace="${SRQL_FIXTURE_NAMESPACE:-srql-fixtures}"
+
+# shellcheck source=scripts/db/test-database-url-guard.sh
+source "${SCRIPT_DIR}/db/test-database-url-guard.sh"
+
+db_url="${SERVICERADAR_TEST_DATABASE_URL:-${SRQL_TEST_DATABASE_URL:-}}"
+
+if [ -z "${db_url}" ]; then
+  echo "SERVICERADAR_TEST_DATABASE_URL or SRQL_TEST_DATABASE_URL is required." >&2
+  exit 1
+fi
+
+serviceradar_assert_test_database_url "${db_url}"
 
 if ! command -v kubectl >/dev/null 2>&1; then
   echo "kubectl is required to reset the srql fixture test database." >&2
@@ -12,13 +25,6 @@ fi
 parser="$(command -v python3 || command -v python || true)"
 if [ -z "${parser}" ]; then
   echo "python is required to reset the srql fixture test database." >&2
-  exit 1
-fi
-
-db_url="${SERVICERADAR_TEST_DATABASE_URL:-${SRQL_TEST_DATABASE_URL:-}}"
-
-if [ -z "${db_url}" ]; then
-  echo "SERVICERADAR_TEST_DATABASE_URL or SRQL_TEST_DATABASE_URL is required." >&2
   exit 1
 fi
 

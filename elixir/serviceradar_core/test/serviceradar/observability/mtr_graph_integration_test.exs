@@ -3,7 +3,7 @@ defmodule ServiceRadar.Observability.MtrGraphIntegrationTest do
   Integration tests for MTR graph projection into Apache AGE.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Observability.MtrGraph
@@ -22,7 +22,10 @@ defmodule ServiceRadar.Observability.MtrGraphIntegrationTest do
 
   setup_all do
     TestSupport.start_core!()
+    :ok
+  end
 
+  setup do
     if age_available?() do
       case ensure_graph(graph_name()) do
         :ok ->
@@ -33,13 +36,6 @@ defmodule ServiceRadar.Observability.MtrGraphIntegrationTest do
       end
     else
       {:ok, skip: "Apache AGE is not available"}
-    end
-  end
-
-  setup context do
-    case context[:skip] do
-      nil -> :ok
-      reason -> {:skip, reason}
     end
   end
 

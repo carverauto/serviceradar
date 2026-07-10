@@ -3,7 +3,7 @@ defmodule ServiceRadar.Plugins.OtelCollectorAddonPackageSeederTest do
   DB-backed coverage for the otel-collector native add-on control-plane seed.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Infrastructure.Agent

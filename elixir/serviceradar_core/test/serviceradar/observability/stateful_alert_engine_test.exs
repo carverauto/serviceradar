@@ -4,7 +4,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   determined by PostgreSQL search_path.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.EventWriter.OCSF
@@ -19,7 +19,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Observability.StatefulAlertRuleHistory
   alias ServiceRadar.ProcessRegistry
+  alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
+
+  @stateful_cleanup_worker "Elixir.ServiceRadar.Observability.StatefulAlertCleanupWorker"
 
   @moduletag :integration
 
@@ -1426,8 +1429,17 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert Enum.any?(rollover_history, &(&1.event_type == :recovered))
   end
 
+  @tag sandbox: :unboxed
   test "fans out across shards so rules in different shards fire concurrently and independently",
        %{actor: actor} do
+    previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
+    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 2)
+    reset_engine()
+
+    on_exit(fn ->
+      restore_env(:stateful_alert_engine_shards, previous_shards)
+    end)
+
     # Create enough rules that at least two land in distinct shards, then drive
     # them in a single batch. The previous single-GenServer engine processed
     # every rule serially behind one process (blocking on each rule's DB
@@ -1435,6 +1447,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     # this proves DB writes no longer funnel through a single serialization
     # point while every rule still fires exactly once.
     unique = System.unique_integer([:positive])
+    cleanup_jobs_before = stateful_cleanup_job_ids()
+    on_exit(fn -> cleanup_shard_fanout(unique, cleanup_jobs_before) end)
 
     rules =
       for index <- 1..6 do
@@ -1519,6 +1533,70 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     |> Enum.filter(fn alert -> alert.title == title end)
   end
 
+  defp cleanup_shard_fanout(unique, cleanup_jobs_before) do
+    %{rows: rows} =
+      Repo.query!(
+        "SELECT id::text FROM platform.stateful_alert_rules WHERE name LIKE $1",
+        ["shard-fanout-#{unique}-%"]
+      )
+
+    rule_ids = Enum.map(rows, fn [rule_id] -> rule_id end)
+
+    if rule_ids != [] do
+      Repo.query!(
+        "DELETE FROM platform.stateful_alert_rule_histories WHERE rule_id::text = ANY($1::text[])",
+        [rule_ids]
+      )
+
+      Repo.query!(
+        "DELETE FROM platform.stateful_alert_rule_states WHERE rule_id::text = ANY($1::text[])",
+        [rule_ids]
+      )
+
+      Repo.query!(
+        "DELETE FROM platform.alerts WHERE metadata->>'incident_rule_id' = ANY($1::text[])",
+        [rule_ids]
+      )
+
+      Repo.query!(
+        "DELETE FROM platform.ocsf_events WHERE metadata #>> '{serviceradar,rule_id}' = ANY($1::text[])",
+        [rule_ids]
+      )
+
+      Repo.query!(
+        "DELETE FROM platform.stateful_alert_rules WHERE id::text = ANY($1::text[])",
+        [rule_ids]
+      )
+    end
+
+    cleanup_jobs_after = stateful_cleanup_job_ids()
+    created_job_ids = MapSet.difference(cleanup_jobs_after, cleanup_jobs_before)
+
+    if MapSet.size(created_job_ids) > 0 do
+      Repo.query!(
+        "DELETE FROM platform.oban_jobs WHERE id = ANY($1::bigint[])",
+        [MapSet.to_list(created_job_ids)]
+      )
+    end
+
+    assert MapSet.difference(stateful_cleanup_job_ids(), cleanup_jobs_before) == MapSet.new()
+
+    :ok
+  end
+
+  defp stateful_cleanup_job_ids do
+    %{rows: rows} =
+      Repo.query!(
+        "SELECT id FROM platform.oban_jobs WHERE worker = $1",
+        [@stateful_cleanup_worker]
+      )
+
+    MapSet.new(rows, fn [id] -> id end)
+  end
+
+  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
+  defp restore_env(key, value), do: Application.put_env(:serviceradar_core, key, value)
+
   defp reset_engine do
     # The engine is sharded; terminate every shard so in-memory ETS state does
     # not leak between tests. Shard 0 keeps the legacy `:stateful_alert_engine`
@@ -1584,7 +1662,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   defp persisted_ocsf_event?(%{id: id, time: %DateTime{} = time}) do
     {:ok, uuid} = uuid_query_param(id)
 
-    case ServiceRadar.Repo.query(
+    case Repo.query(
            "SELECT 1 FROM platform.ocsf_events WHERE id = $1::uuid AND time = $2 LIMIT 1",
            [uuid, time]
          ) do

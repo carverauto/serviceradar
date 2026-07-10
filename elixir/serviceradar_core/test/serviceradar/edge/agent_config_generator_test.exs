@@ -5,7 +5,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
   Tests config generation from database, version hashing, and not_modified behavior.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.AgentConfig.ConfigInstance
   alias ServiceRadar.Edge.AgentConfigGenerator

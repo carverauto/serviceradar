@@ -3,7 +3,7 @@ defmodule ServiceRadar.Inventory.DeviceIdentifierGcWorkerTest do
   Integration coverage for identifier TTL garbage collection (DIRE task 8.2).
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   import Ecto.Query, only: [from: 2]
 

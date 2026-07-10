@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Observability.LogPromotionTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias Ecto.Adapters.SQL, as: SQL
   alias Postgrex.Result

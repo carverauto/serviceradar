@@ -1,7 +1,7 @@
 defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
   @moduledoc false
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent

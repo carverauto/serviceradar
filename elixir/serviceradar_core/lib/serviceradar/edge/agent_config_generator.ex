@@ -278,7 +278,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   defp generate_config!(agent_id) do
     checks = load_agent_checks!(agent_id)
-    sync_payload = load_sync_payload(agent_id)
+    sync_payload = load_sync_payload!(agent_id)
     sweep_config = load_sweep_config(agent_id)
     mapper_config = load_mapper_config(agent_id)
     sysmon_config = load_sysmon_config(agent_id)
@@ -2196,17 +2196,13 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     )
   end
 
-  defp load_sync_payload(agent_id) do
-    case SyncConfigGenerator.build_payload(agent_id) do
+  defp load_sync_payload!(agent_id) do
+    case SyncConfigGenerator.build_payload(agent_id, audit_sink: &deferred_audit_sink/1) do
       {:ok, payload} ->
         payload
 
       {:error, reason} ->
-        Logger.warning(
-          "Failed to load integration config for agent #{agent_id}: #{inspect(reason)}"
-        )
-
-        %{"agent_id" => agent_id, "sources" => %{}}
+        raise "failed to load integration config for agent #{agent_id}: #{inspect(reason)}"
     end
   end
 

@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Observability.ZenRuleTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor

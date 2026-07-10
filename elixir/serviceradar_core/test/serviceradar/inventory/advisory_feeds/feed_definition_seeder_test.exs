@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeederTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
   use Oban.Testing, repo: ServiceRadar.Repo, prefix: "platform"
 
   alias ServiceRadar.Inventory.AdvisoryFeeds.Config

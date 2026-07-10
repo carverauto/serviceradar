@@ -16,7 +16,7 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentE2ETest do
     4. converge onto the same uid when the same MAC is sighted again.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
@@ -35,7 +35,10 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentE2ETest do
 
   setup_all do
     TestSupport.start_core!()
+    :ok
+  end
 
+  setup do
     if age_available?() do
       graph_name = graph_name()
 

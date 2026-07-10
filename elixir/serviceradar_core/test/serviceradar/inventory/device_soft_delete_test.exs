@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   import Ecto.Query
 

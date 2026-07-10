@@ -5,7 +5,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
   Tests config compilation, validation, profile resolution, and credential handling.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.SNMPCompiler
@@ -90,10 +90,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     test "returns disabled config when no profile exists" do
       {:ok, config} = SNMPCompiler.compile("default", nil, [])
 
-      assert is_boolean(config["enabled"])
-      assert is_binary(config["profile_id"])
-      assert is_binary(config["profile_name"])
-      assert is_list(config["targets"])
+      assert config["enabled"] == false
+      assert config["profile_id"] == nil
+      assert config["profile_name"] == nil
+      assert config["targets"] == []
     end
 
     @tag :integration

@@ -3,7 +3,7 @@ defmodule ServiceRadar.Plugins.EndpointInventoryAddonPackageSeederTest do
   DB-backed coverage for the ScaLibr endpoint inventory native add-on seed.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Infrastructure.Agent
@@ -81,6 +81,7 @@ defmodule ServiceRadar.Plugins.EndpointInventoryAddonPackageSeederTest do
         %{
           uid: agent_uid,
           name: "Endpoint Inventory Test Agent #{unique_id}",
+          version: "1.2.0",
           host: "127.0.0.1",
           port: 50_051,
           metadata: %{"os" => "linux", "arch" => "amd64"}

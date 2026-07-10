@@ -4,7 +4,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorAgentIdTest do
   in device_identifiers so DIRE can deduplicate agent-reported devices.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.DeviceIdentifier

@@ -10,7 +10,7 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
   These tests satisfy task 4.1 from the remove-nats-internal-events proposal.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Infrastructure.HealthEvent
   alias ServiceRadar.Infrastructure.HealthPubSub

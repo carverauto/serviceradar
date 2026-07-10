@@ -3,7 +3,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
   Integration coverage for alias-conflict merges during sync ingestion.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAliasState

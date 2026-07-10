@@ -21,7 +21,7 @@ defmodule ServiceRadar.Automation.Ansible.RetentionWorkerPruneIntegrationTest do
       mix test --include integration \\
         test/serviceradar/automation/ansible/retention_worker_prune_integration_test.exs
   """
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias Ash.Seed
   alias ServiceRadar.Actors.SystemActor

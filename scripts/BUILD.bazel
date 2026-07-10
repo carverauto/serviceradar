@@ -34,3 +34,15 @@ sh_test(
     srcs = ["test-verify-native-addon-publish-negative.sh"],
     data = ["verify-native-addon-publish.sh"],
 )
+
+sh_test(
+    name = "test_integration_database_guard_test",
+    timeout = "short",
+    srcs = ["test-integration-database-guard.sh"],
+    data = [
+        "db/test-database-url-guard.sh",
+        "reset-srql-fixture-test-db.sh",
+        "reset-test-db.sh",
+        "test-integration.sh",
+    ],
+)

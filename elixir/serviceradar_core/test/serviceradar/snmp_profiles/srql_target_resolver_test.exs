@@ -9,7 +9,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
   - Error handling
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
