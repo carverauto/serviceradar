@@ -7,12 +7,22 @@ defmodule ServiceRadar.Repo.Migrations.OrderHealthEventsByDatabaseSequence do
   @sequence "platform.health_events_event_sequence_seq"
 
   def up do
+    # serviceradar:allow-startup-maintenance - this backfill is required before the
+    # application can use event_sequence as its total-order key. Deferring it would
+    # expose NULL or partially ordered health events to readers. The live relation was
+    # verified at 1,080 rows / 824 KiB on 2026-07-10 before release; an exclusive lock
+    # keeps legacy rows and concurrent inserts in one ordering epoch. Transaction-local
+    # deadlines make unexpected contention or growth fail the migration instead of
+    # stalling first-boot startup indefinitely.
+    execute("SET LOCAL lock_timeout = '5s'")
+    execute("SET LOCAL statement_timeout = '30s'")
+    execute("LOCK TABLE platform.health_events IN ACCESS EXCLUSIVE MODE")
+
     alter table(:health_events, prefix: @prefix) do
       modify :recorded_at, :utc_datetime_usec, null: false
       add :event_sequence, :bigint
     end
 
-    execute("LOCK TABLE platform.health_events IN ACCESS EXCLUSIVE MODE")
     execute("CREATE SEQUENCE #{@sequence} AS bigint MINVALUE 1 NO CYCLE")
 
     # The legacy column only retained whole seconds. Within those ties, xmin is
@@ -74,6 +84,8 @@ defmodule ServiceRadar.Repo.Migrations.OrderHealthEventsByDatabaseSequence do
   end
 
   def down do
+    execute("SET LOCAL lock_timeout = '5s'")
+    execute("SET LOCAL statement_timeout = '30s'")
     execute("LOCK TABLE platform.health_events IN ACCESS EXCLUSIVE MODE")
 
     drop_if_exists(
