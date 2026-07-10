@@ -726,6 +726,8 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
          }}
       )
 
+      # Status rows are written before bulk target upserts.
+      _ = :sys.get_state(StatusHandler)
       _command = wait_for_status(command.id, :running, actor)
 
       assert {:ok, %{rows: [["object"]]}} =
@@ -771,6 +773,8 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
          }}
       )
 
+      # Wait for the whole callback before the sandbox owner is released.
+      _ = :sys.get_state(StatusHandler)
       _command = wait_for_status(command.id, :completed, actor)
     end
 
