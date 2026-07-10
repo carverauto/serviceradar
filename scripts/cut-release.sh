@@ -8,7 +8,7 @@ Usage: scripts/cut-release.sh --version <version> [options]
 Options:
   --version <version>   Release version to publish (required).
                         Use X.Y.Z for releases, X.Y.Z-preN for pre-releases.
-  --tag-prefix <prefix> Prefix to prepend to the Git tag (default: v).
+  --tag-prefix <prefix> Prefix to prepend to the Git tag (must be v).
   --push                Push the current release branch to origin when finished.
                         The tag remains local until the branch is merged to staging.
   --no-push             Do not push any refs (default).
@@ -111,6 +111,15 @@ if [[ -z "$version" ]]; then
     exit 1
 fi
 
+if [[ "${tag_prefix}" != "v" ]]; then
+    echo "--tag-prefix must be v so the release workflow can publish the tag" >&2
+    exit 1
+fi
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+tag="${tag_prefix}${version}"
+"${script_dir}/validate-release-tag.sh" "${tag}"
+
 # Auto-detect pre-release from version string
 if [[ "$version" =~ -pre[0-9]*$ ]] || \
    [[ "$version" =~ -rc[0-9]*$ ]] || \
@@ -134,7 +143,6 @@ fi
 
 cd "$repo_root"
 
-tag="${tag_prefix}${version}"
 demo_argocd_source_file="helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml"
 current_branch=$(git symbolic-ref --quiet --short HEAD || true)
 

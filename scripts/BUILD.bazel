@@ -9,6 +9,7 @@ exports_files([
     "swiftlint_bazel.sh",
     "test-release-publish-contracts.sh",
     "test-verify-native-addon-publish-negative.sh",
+    "validate-release-tag.sh",
     "verify-oci-publish.sh",
     "verify-native-addon-publish.sh",
 ])
@@ -20,6 +21,7 @@ sh_test(
     data = [
         "cosign_common.sh",
         "cut-release.sh",
+        "validate-release-tag.sh",
         "verify-oci-publish.sh",
         "//:.forgejo/workflows/release.yml",
         "//docker/images:image_inventory.bzl",

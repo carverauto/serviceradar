@@ -127,10 +127,7 @@ jobs:
             version="$(tr -d '\r\n' < VERSION)"
             tag="v${version}"
           fi
-          if [[ ! "${tag}" =~ ^v[0-9] ]]; then
-            echo "Release tag must start with v followed by a version: ${tag}" >&2
-            exit 1
-          fi
+          ./scripts/validate-release-tag.sh "${tag}"
 
           if git rev-parse -q --verify "refs/tags/${tag}^{commit}" >/dev/null; then
             release_commit="$(git rev-list -n1 "refs/tags/${tag}^{commit}")"
@@ -147,10 +144,7 @@ jobs:
             exit 1
           fi
 
-          {
-            echo "tag=${tag}"
-            echo "commit=${release_commit}"
-          } >> "$GITHUB_OUTPUT"
+          printf 'tag=%s\ncommit=%s\n' "${tag}" "${release_commit}" >> "${GITHUB_OUTPUT}"
 
       - name: Cache Bazel artifacts
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # actions/cache@v5.0.4
@@ -562,42 +556,8 @@ jobs:
           fi
 
       # (Wasm plugin import index is uploaded by wasm-plugins.yml — see the note above.)
-      - name: Finalize Forgejo release
-        env:
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
-          DRAFT: ${{ steps.release.outputs.draft }}
-          FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
-          FORGEJO_URL: http://forgejo-http.forgejo.svc.cluster.local:3000
-          FORGEJO_REPOSITORY: carverauto/serviceradar
-        run: |
-          set -euo pipefail
-          if [[ "${DRAFT}" == "true" ]]; then
-            echo "Release left as draft per workflow input."
-            exit 0
-          fi
-
-          api_url="${FORGEJO_URL}/api/v1/repos/${FORGEJO_REPOSITORY}/releases/tags/${RELEASE_TAG}"
-          release_json=$(curl -sSf -H "Accept: application/json" -H "Authorization: token ${FORGEJO_TOKEN}" "$api_url" || true)
-          release_id=$(echo "$release_json" | jq -r '.id // empty')
-          if [[ -z "${release_id}" ]]; then
-            releases_url="${FORGEJO_URL}/api/v1/repos/${FORGEJO_REPOSITORY}/releases?limit=100"
-            release_id=$(curl -sSf -H "Accept: application/json" -H "Authorization: token ${FORGEJO_TOKEN}" "$releases_url" \
-              | jq -r --arg tag "${RELEASE_TAG}" '.[] | select(.tag_name == $tag) | .id' \
-              | head -n1)
-          fi
-          if [[ -z "${release_id}" ]]; then
-            echo "Unable to resolve release id for ${RELEASE_TAG}" >&2
-            exit 1
-          fi
-
-          curl -sSf -X PATCH \
-            -H "Accept: application/json" \
-            -H "Authorization: token ${FORGEJO_TOKEN}" \
-            "${FORGEJO_URL}/api/v1/repos/${FORGEJO_REPOSITORY}/releases/${release_id}" \
-            -d '{"draft": false}' >/dev/null
-          echo "Published release ${RELEASE_TAG}"
-
       - name: Verify uploaded release assets via Forgejo API
+        id: release_assets
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           VERSION: ${{ steps.release.outputs.version }}
@@ -608,7 +568,24 @@ jobs:
         run: |
           set -euo pipefail
           api_url="${FORGEJO_URL}/api/v1/repos/${FORGEJO_REPOSITORY}/releases/tags/${RELEASE_TAG}"
-          response=$(curl -sSf -H "Accept: application/json" -H "Authorization: token ${FORGEJO_TOKEN}" "$api_url")
+          response=$(curl -sSf -H "Accept: application/json" -H "Authorization: token ${FORGEJO_TOKEN}" "$api_url" || true)
+          release_id=$(echo "$response" | jq -r '.id // empty')
+          if [[ -z "${release_id}" ]]; then
+            releases_url="${FORGEJO_URL}/api/v1/repos/${FORGEJO_REPOSITORY}/releases?limit=100"
+            release_id=$(curl -sSf -H "Accept: application/json" -H "Authorization: token ${FORGEJO_TOKEN}" "$releases_url" \
+              | jq -r --arg tag "${RELEASE_TAG}" '.[] | select(.tag_name == $tag) | .id' \
+              | head -n1)
+            if [[ -n "${release_id}" ]]; then
+              response=$(curl -sSf \
+                -H "Accept: application/json" \
+                -H "Authorization: token ${FORGEJO_TOKEN}" \
+                "${FORGEJO_URL}/api/v1/repos/${FORGEJO_REPOSITORY}/releases/${release_id}")
+            fi
+          fi
+          if [[ ! "${release_id}" =~ ^[0-9]+$ ]]; then
+            echo "Unable to resolve draft release id for ${RELEASE_TAG}" >&2
+            exit 1
+          fi
           printf 'Release asset summary for %s:\n' "$RELEASE_TAG"
           echo "$response" | jq '.assets[]? | {name, size, download_count}'
           deb_count=$(echo "$response" | jq '[.assets[]? | select(.name | endswith(".deb"))] | length')
@@ -647,9 +624,37 @@ jobs:
             exit 1
           fi
           echo "Validated presence of ${deb_count} .deb, ${rpm_count} .rpm, ${pkg_count} .pkg, ${agent_runtime_count} runtime archive, ${agent_manifest_count} manifest, and ${agent_manifest_sig_count} signature assets."
+          printf 'release_id=%s\n' "${release_id}" >> "${GITHUB_OUTPUT}"
+
+      - name: Finalize Forgejo release
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_ID: ${{ steps.release_assets.outputs.release_id }}
+          DRAFT: ${{ steps.release.outputs.draft }}
+          FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+          FORGEJO_URL: http://forgejo-http.forgejo.svc.cluster.local:3000
+          FORGEJO_REPOSITORY: carverauto/serviceradar
+        run: |
+          set -euo pipefail
+          if [[ "${DRAFT}" == "true" ]]; then
+            echo "Release left as draft per workflow input."
+            exit 0
+          fi
+
+          if [[ ! "${RELEASE_ID}" =~ ^[0-9]+$ ]]; then
+            echo "Verified release id is invalid for ${RELEASE_TAG}: ${RELEASE_ID}" >&2
+            exit 1
+          fi
+
+          curl -sSf -X PATCH \
+            -H "Accept: application/json" \
+            -H "Authorization: token ${FORGEJO_TOKEN}" \
+            "${FORGEJO_URL}/api/v1/repos/${FORGEJO_REPOSITORY}/releases/${RELEASE_ID}" \
+            -d '{"draft": false}' >/dev/null
+          echo "Published release ${RELEASE_TAG}"
 
       - name: Advance demo release source branch
-        if: ${{ steps.release.outputs.dry_run != 'true' && steps.release.outputs.prerelease != 'true' }}
+        if: ${{ steps.release.outputs.dry_run != 'true' && steps.release.outputs.prerelease != 'true' && steps.release.outputs.draft != 'true' }}
         env:
           DEMO_RELEASE_BRANCH: demo/prod-release
           FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
