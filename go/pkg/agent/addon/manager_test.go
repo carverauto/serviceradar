@@ -226,6 +226,41 @@ func TestManagerSurfacesResourceLimitEnforcementFailure(t *testing.T) {
 	}
 }
 
+func TestRunnerRunOnceUsesSingleSpecSnapshot(t *testing.T) {
+	initial := Spec{
+		ID:         "sample",
+		BinaryPath: filepath.Join(t.TempDir(), "missing-addon"),
+		ConfigJSON: []byte("{}"),
+	}
+	r := newRunner(initial, applyDefaults(Config{RuntimeDir: t.TempDir()}))
+
+	snapshotCaptured := make(chan struct{})
+	continueStartup := make(chan struct{})
+	r.localOtlpEndpoint = func() string {
+		close(snapshotCaptured)
+		<-continueStartup
+		return ""
+	}
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- r.runOnce(t.Context())
+	}()
+
+	<-snapshotCaptured
+	updated := initial
+	updated.Resources = Resources{MemoryMaxBytes: 64 << 20}
+	r.update(updated)
+	close(continueStartup)
+
+	if err := <-runDone; err == nil {
+		t.Fatal("runOnce() with a missing binary returned nil")
+	}
+	if got := r.snapshot().ResourceLimitErr; got != "" {
+		t.Fatalf("runOnce() mixed updated resources into the captured spec: %q", got)
+	}
+}
+
 func TestManagerKeepsLegacyAddonNonTelemetry(t *testing.T) {
 	requireSampleAddon(t)
 
