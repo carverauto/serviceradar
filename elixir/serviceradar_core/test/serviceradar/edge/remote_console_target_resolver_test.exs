@@ -23,12 +23,12 @@ defmodule ServiceRadar.Edge.RemoteConsoleTargetResolverTest do
 
     assert target == %{
              target_kind: :pve_host,
-             console_mode: :ssh,
+             console_mode: :proxmox_termproxy,
              provider_ref: "proxmox:cluster-a:host:pve01"
            }
   end
 
-  test "infers guest kind and rejects disabled Proxmox console modes" do
+  test "infers guest kind and accepts the native LXC console mode" do
     lookup = fn
       VirtualizationHost, "sr:guest-101", _ash_opts ->
         {:ok, []}
@@ -44,12 +44,18 @@ defmodule ServiceRadar.Edge.RemoteConsoleTargetResolverTest do
          ]}
     end
 
-    assert {:error, :unsupported_console_mode} =
+    assert {:ok, target} =
              RemoteConsoleTargetResolver.resolve_proxmox(
                %{uid: "sr:guest-101"},
                %{"console_mode" => "proxmox_termproxy"},
                virtualization_lookup: lookup
              )
+
+    assert target == %{
+             target_kind: :lxc_guest,
+             console_mode: :proxmox_termproxy,
+             provider_ref: "proxmox:cluster-a:guest:101"
+           }
   end
 
   test "ignores non-Proxmox virtualization rows when resolving Proxmox targets" do
@@ -80,7 +86,7 @@ defmodule ServiceRadar.Edge.RemoteConsoleTargetResolverTest do
              )
 
     assert target.target_kind == :pve_host
-    assert target.console_mode == :ssh
+    assert target.console_mode == :proxmox_termproxy
     assert is_nil(target.provider_ref)
   end
 

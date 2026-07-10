@@ -58,7 +58,8 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
              desired_assignments: 2,
              upserted: 1,
              unchanged: 1,
-             disabled: 0
+             disabled: 0,
+             skips: %{}
            }
 
     assert_receive {:reconcile, policy, input_defs, opts}
