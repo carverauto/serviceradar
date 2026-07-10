@@ -204,12 +204,18 @@ plugin_dir="$(cd "$(dirname "${main_go}")" && pwd)"
 out="$(cd "$(dirname "${out}")" && pwd)/$(basename "${out}")"
 mkdir -p "$(dirname "${out}")"
 
-gocache_dir="${TMPDIR:-/tmp}/serviceradar-tinygo-gocache"
-mkdir -p "${gocache_dir}"
-export GOCACHE="${GOCACHE:-${gocache_dir}}"
-home_dir="${TMPDIR:-/tmp}/serviceradar-tinygo-home"
-mkdir -p "${home_dir}"
-export HOME="${HOME:-${home_dir}}"
+# Keep mutable Go and TinyGo state action-local. Interrupted sandboxed builds
+# can otherwise leave shared module or WASI library trees present but incomplete.
+tinygo_state_dir="$(mktemp -d "${TMPDIR:-/tmp}/serviceradar-tinygo-state.XXXXXX")"
+cleanup_tinygo_state() {
+  chmod -R u+w "${tinygo_state_dir}" 2>/dev/null || true
+  rm -rf "${tinygo_state_dir}" || true
+}
+trap cleanup_tinygo_state EXIT
+export HOME="${HOME:-${tinygo_state_dir}/home}"
+export GOCACHE="${GOCACHE:-${tinygo_state_dir}/go-build}"
+export GOMODCACHE="${GOMODCACHE:-${tinygo_state_dir}/go-mod}"
+mkdir -p "${HOME}" "${GOCACHE}" "${GOMODCACHE}"
 
 cmd=(
   "${tinygo_bin}"
