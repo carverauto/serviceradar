@@ -6,23 +6,31 @@ defmodule ServiceRadar.Security.EventsTest do
   alias ServiceRadar.Security.SecurityEvent
 
   setup do
-    # Keep the application-owned recorder inside this test's sandbox lifetime.
-    _ = Events.flush()
-    on_exit(fn -> Events.flush() end)
-    :ok
+    task_supervisor =
+      start_supervised!(
+        Supervisor.child_spec(Task.Supervisor,
+          id: {:security_events_task_supervisor, make_ref()}
+        )
+      )
+
+    recorder = start_recorder(task_supervisor)
+    {:ok, recorder: recorder, task_supervisor: task_supervisor}
   end
 
   describe "record/1" do
-    test "returns immediately and flush is a persistence barrier" do
+    test "returns immediately and flush is a persistence barrier", %{recorder: recorder} do
       correlation_id = "security-events-flush-#{System.unique_integer([:positive])}"
 
       assert :ok =
-               Events.record(%{
-                 kind: :rate_limit_denied,
-                 correlation_id: correlation_id
-               })
+               Events.record(
+                 %{
+                   kind: :rate_limit_denied,
+                   correlation_id: correlation_id
+                 },
+                 recorder
+               )
 
-      assert :ok = Events.flush()
+      assert :ok = Events.flush(recorder)
 
       assert %{rows: [[1]]} =
                Repo.query!(
@@ -31,18 +39,24 @@ defmodule ServiceRadar.Security.EventsTest do
                )
     end
 
-    test "is non-blocking even when the recorder is busy" do
+    test "is non-blocking even when the recorder is busy", %{recorder: recorder} do
       for _ <- 1..50 do
-        assert :ok = Events.record(%{kind: :rate_limit_denied, ip: "203.0.113.1"})
+        assert :ok =
+                 Events.record(
+                   %{kind: :rate_limit_denied, ip: "203.0.113.1"},
+                   recorder
+                 )
       end
 
-      assert :ok = Events.flush()
+      assert :ok = Events.flush(recorder)
     end
   end
 
   describe "overflow" do
     @tag :capture_log
-    test "counts the in-flight batch against capacity and flush waits for it" do
+    test "counts the in-flight batch against capacity and flush waits for it", %{
+      task_supervisor: task_supervisor
+    } do
       ref = make_ref()
       parent = self()
 
@@ -57,8 +71,6 @@ defmodule ServiceRadar.Security.EventsTest do
 
       on_exit(fn -> :telemetry.detach({__MODULE__, ref}) end)
 
-      task_supervisor = start_supervised!(Task.Supervisor)
-
       persist_fun = fn batch ->
         send(parent, {:persist_started, self(), batch})
 
@@ -68,13 +80,9 @@ defmodule ServiceRadar.Security.EventsTest do
       end
 
       recorder =
-        start_supervised!(
-          {Events,
-           name: nil,
-           max_queue: 3,
-           flush_interval: :infinity,
-           persist_fun: persist_fun,
-           task_supervisor: task_supervisor}
+        start_recorder(task_supervisor,
+          max_queue: 3,
+          persist_fun: persist_fun
         )
 
       assert :ok = Events.record(%{kind: :rate_limit_denied}, recorder)
@@ -103,7 +111,9 @@ defmodule ServiceRadar.Security.EventsTest do
     end
 
     @tag :capture_log
-    test "reports an abnormally terminated persistence batch as dropped" do
+    test "reports an abnormally terminated persistence batch as dropped", %{
+      task_supervisor: task_supervisor
+    } do
       ref = make_ref()
       parent = self()
 
@@ -118,16 +128,11 @@ defmodule ServiceRadar.Security.EventsTest do
 
       on_exit(fn -> :telemetry.detach({__MODULE__, ref}) end)
 
-      task_supervisor = start_supervised!(Task.Supervisor)
-
       recorder =
-        start_supervised!(
-          {Events,
-           name: nil,
-           max_queue: 2,
-           flush_interval: :infinity,
-           persist_fun: fn _batch -> exit(:persistence_failed) end,
-           task_supervisor: task_supervisor}
+        start_recorder(
+          task_supervisor,
+          max_queue: 2,
+          persist_fun: fn _batch -> exit(:persistence_failed) end
         )
 
       assert :ok = Events.record(%{kind: :rate_limit_denied}, recorder)
@@ -153,5 +158,17 @@ defmodule ServiceRadar.Security.EventsTest do
       assert :lockout_triggered in kinds
       assert severities == [:info, :warning, :critical]
     end
+  end
+
+  defp start_recorder(task_supervisor, opts \\ []) do
+    opts =
+      Keyword.merge(
+        [name: nil, flush_interval: :infinity, task_supervisor: task_supervisor],
+        opts
+      )
+
+    {Events, opts}
+    |> Supervisor.child_spec(id: {:security_events_recorder, make_ref()})
+    |> start_supervised!()
   end
 end
