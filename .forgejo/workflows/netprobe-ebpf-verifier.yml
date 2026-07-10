@@ -57,9 +57,8 @@ jobs:
 
   verify-ebpf:
     needs: verifier_config
-    if: ${{ needs.verifier_config.outputs.enabled == 'true' }}
     name: Verify eBPF programs on Linux ${{ matrix.kernel }}
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ needs.verifier_config.outputs.enabled == 'true' && matrix.runner || 'ubuntu24' }}
     env:
       BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
       SERVICERADAR_NETPROBE_EXPECT_KERNEL: ${{ matrix.kernel }}
@@ -74,13 +73,20 @@ jobs:
           - kernel: '6.x'
             runner: netprobe-kernel-6
     steps:
+      - name: Report disabled verifier
+        if: ${{ needs.verifier_config.outputs.enabled != 'true' }}
+        run: echo "Dedicated netprobe kernel verification is not enabled."
+
       - name: Checkout
+        if: ${{ needs.verifier_config.outputs.enabled == 'true' }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Install Socket Firewall
+        if: ${{ needs.verifier_config.outputs.enabled == 'true' }}
         run: bash scripts/ci/install-sfw.sh
 
       - name: Cache Bazel artifacts
+        if: ${{ needs.verifier_config.outputs.enabled == 'true' }}
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
         with:
           path: |
@@ -93,12 +99,15 @@ jobs:
             ${{ runner.os }}-bazel-
 
       - name: Install dependencies
+        if: ${{ needs.verifier_config.outputs.enabled == 'true' }}
         run: ./scripts/ci/ensure-forgejo-tools.sh bazel-build
 
       - name: Install Bazelisk
+        if: ${{ needs.verifier_config.outputs.enabled == 'true' }}
         run: ./scripts/install-bazelisk.sh
 
       - name: Setup Rust
+        if: ${{ needs.verifier_config.outputs.enabled == 'true' }}
         run: |
           set -euo pipefail
 
@@ -116,26 +125,34 @@ jobs:
           cargo --version
 
       - name: Verify eBPF object
+        if: ${{ needs.verifier_config.outputs.enabled == 'true' }}
         run: scripts/ci/netprobe-ebpf-verify.sh
 
   kernel-too-old:
     needs: verifier_config
-    if: ${{ needs.verifier_config.outputs.enabled == 'true' }}
     name: Verify eBPF refusal on Linux 5.4
-    runs-on: netprobe-kernel-5.4
+    runs-on: ${{ needs.verifier_config.outputs.enabled == 'true' && 'netprobe-kernel-5.4' || 'ubuntu24' }}
     env:
       SERVICERADAR_NETPROBE_EXPECT_KERNEL: '5.4'
     steps:
+      - name: Report disabled verifier
+        if: ${{ needs.verifier_config.outputs.enabled != 'true' }}
+        run: echo "Dedicated netprobe kernel verification is not enabled."
+
       - name: Checkout
+        if: ${{ needs.verifier_config.outputs.enabled == 'true' }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Install Socket Firewall
+        if: ${{ needs.verifier_config.outputs.enabled == 'true' }}
         run: bash scripts/ci/install-sfw.sh
 
       - name: Install dependencies
+        if: ${{ needs.verifier_config.outputs.enabled == 'true' }}
         run: ./scripts/ci/ensure-forgejo-tools.sh bazel-build
 
       - name: Setup Rust
+        if: ${{ needs.verifier_config.outputs.enabled == 'true' }}
         run: |
           set -euo pipefail
 
@@ -153,4 +170,5 @@ jobs:
           cargo --version
 
       - name: Verify unavailable state
+        if: ${{ needs.verifier_config.outputs.enabled == 'true' }}
         run: scripts/ci/netprobe-kernel-too-old.sh
