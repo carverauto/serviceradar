@@ -1,6 +1,6 @@
 id: alienvault-otx-threat-intel
 name: AlienVault OTX Threat Intel
-version: 0.3.1
+version: 0.3.2
 description: Collects AlienVault OTX export pages and emits normalized threat-intel indicators
 entrypoint: run_check
 runtime: wasi-preview1
@@ -21,13 +21,9 @@ permissions:
   allowed_ports:
     - 443
 resources:
-  # Raised 64->256: the deployed crashing 0.3.0 carries the same bounded
-  # fetchOTXExportPageAdaptive code as staging (the crash stack names that fn,
-  # which only exists in 0.2.0+), so the OOM is the WASM heap being genuinely
-  # tight for the OTX corpus (a 4MB JSON page parses into many x that in
-  # indicator structs, held across depth-2 adaptive recursion, and TinyGo's GC
-  # is conservative / non-compacting). OTX is a large feed; give generous
-  # headroom for a once-a-day plugin rather than risk repeated OOM + re-rolls.
+  # OTX export pages can be large. Keep headroom for decoding one bounded page;
+  # adaptive retries now return a single smaller leaf page instead of retaining
+  # and merging multiple decoded pages in the Wasm heap.
   requested_memory_mb: 256
   requested_cpu_ms: 15000
   max_open_connections: 2

@@ -99,19 +99,32 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestorTest do
   end
 
   describe "cursor_params/2" do
-    test "advances the page cursor for an in-progress walk" do
+    test "persists the effective limit with the next page for an in-progress walk" do
       cursor = %{
         "complete" => "false",
-        "next_page" => "24",
-        "next" => "https://otx.alienvault.com/api/v1/indicators/export?limit=1000&page=24"
+        "limit" => "500",
+        "next_page" => "46",
+        "next" => "https://otx.alienvault.com/api/v1/indicators/export?limit=500&page=46"
       }
 
       assert %{
-               "page" => 24,
+               "page" => 46,
+               "limit" => 500,
                "cursor_complete" => false,
                "cursor_next" =>
-                 "https://otx.alienvault.com/api/v1/indicators/export?limit=1000&page=24"
+                 "https://otx.alienvault.com/api/v1/indicators/export?limit=500&page=46"
              } == ThreatIntelPluginIngestor.cursor_params(cursor)
+    end
+
+    test "does not replace the configured limit with an invalid cursor value" do
+      cursor = %{
+        "complete" => "false",
+        "limit" => "not-a-limit",
+        "next_page" => "46"
+      }
+
+      assert %{"page" => 46, "cursor_complete" => false} ==
+               ThreatIntelPluginIngestor.cursor_params(cursor)
     end
 
     test "stamps an incremental modified_since cursor when a walk completes" do
@@ -137,6 +150,22 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestorTest do
              } ==
                ThreatIntelPluginIngestor.cursor_params(
                  %{"complete" => "true", "last_pull_at" => "2026-07-06T18:59:00Z"},
+                 now
+               )
+    end
+
+    test "keeps the effective limit after an adaptive walk completes" do
+      now = ~U[2026-07-06 19:00:00Z]
+
+      assert %{
+               "page" => 1,
+               "limit" => 125,
+               "cursor_complete" => true,
+               "cursor_next" => nil,
+               "modified_since" => "2026-07-04T19:00:00Z"
+             } ==
+               ThreatIntelPluginIngestor.cursor_params(
+                 %{"complete" => "true", "limit" => "125"},
                  now
                )
     end

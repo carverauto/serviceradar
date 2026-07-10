@@ -17,7 +17,7 @@ const (
 	defaultPage              = 1
 	defaultTimeoutMS         = 120000
 	defaultMaxIndicators     = 50000
-	defaultMaxPages          = 500
+	defaultMaxPages          = 25
 	defaultMaxRetries        = 5
 	defaultBackoffMS         = 2000
 	defaultMinPullIntervalMS = 86_400_000 // ~24h: OTX threat-intel is pulled at most once per day.
@@ -25,11 +25,11 @@ const (
 	maxLimit                 = 1000
 	maxTimeoutMS             = 600000
 	maxIndicators            = 500000
-	maxPages                 = 10000
+	maxPages                 = 100
 	maxRetries               = 7
 	maxBackoffMS             = 30000
 	maxMinPullIntervalMS     = 7 * 86_400_000 // clamp the throttle window at 7 days.
-	minAdaptiveLimit         = 250
+	minAdaptiveLimit         = 100
 	sourceAlienVaultOTX      = "alienvault_otx"
 )
 
@@ -93,7 +93,7 @@ type Config struct {
 	LastPullAt string `json:"last_pull_at"`
 	// CursorComplete mirrors the persisted cursor_complete flag. It is true only
 	// after a walk finished, which is when the daily throttle applies; a partial
-	// walk (cursor_complete=false, page>1) must always resume immediately.
+	// walk (cursor_complete=false, page>1) resumes on the next scheduled run.
 	CursorComplete bool `json:"cursor_complete"`
 }
 
@@ -327,42 +327,19 @@ func parseTimestamp(value string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-func runOTXCheck() (string, string, string) {
-	cfg := defaultConfig()
-	if err := sdk.LoadConfig(&cfg); err != nil {
-		return string(sdk.StatusUnknown), "OTX configuration could not be loaded", ""
-	}
-
-	cfg.applyDefaults()
-	if strings.TrimSpace(cfg.APIKey) == "" {
-		return string(sdk.StatusUnknown), "OTX API key is not configured", ""
-	}
-
-	page, err := fetchOTXExportPages(cfg)
-	if err != nil {
-		return string(sdk.StatusCritical), sanitizeError(err), ""
-	}
-
-	details := ctiPageDetailsJSON(page)
-
-	summary := "OTX export: " + page.Cursor.PagesFetched + " pages, " +
-		strconv.Itoa(page.Counts.Objects) + " rows, " +
-		strconv.Itoa(page.Counts.Indicators) + " indicators, " +
-		strconv.Itoa(page.Counts.Skipped) + " skipped"
-
-	return string(sdk.StatusOK), summary, details
-}
-
 type otxPageEmitter func(ctiPage) error
 
 func fetchAndSubmitOTXExportPages(cfg Config, emit otxPageEmitter) (int, error) {
 	currentPage := cfg.Page
+	currentLimit := cfg.Limit
+	pageBudget := boundedOTXPageBudget(cfg.MaxPages)
 	pagesFetched := 0
 	indicatorsEmitted := 0
 
-	for pagesFetched < cfg.MaxPages && indicatorsEmitted < cfg.MaxIndicators {
+	for pagesFetched < pageBudget && indicatorsEmitted < cfg.MaxIndicators {
 		pageCfg := cfg
 		pageCfg.Page = currentPage
+		pageCfg.Limit = currentLimit
 		pageCfg.MaxIndicators = cfg.MaxIndicators - indicatorsEmitted
 
 		page, err := fetchOTXExportPageAdaptive(pageCfg)
@@ -373,34 +350,42 @@ func fetchAndSubmitOTXExportPages(cfg Config, emit otxPageEmitter) (int, error) 
 		pagesFetched++
 		indicatorsEmitted += len(page.Indicators)
 
+		effectivePage := parsePositiveInt(page.Cursor.StartPage, currentPage)
+		effectiveLimit := parsePositiveInt(page.Cursor.Limit, currentLimit)
 		next := strings.TrimSpace(page.Cursor.Next)
 		nextPage := pageFromURL(next)
-		if nextPage <= currentPage {
-			nextPage = currentPage + 1
+		if nextPage <= effectivePage {
+			nextPage = effectivePage + 1
+		}
+		nextLimit := limitFromURL(next)
+		if nextLimit <= 0 {
+			nextLimit = effectiveLimit
 		}
 
-		page.Cursor.StartPage = strconv.Itoa(cfg.Page)
-		page.Cursor.Limit = strconv.Itoa(cfg.Limit)
-		page.Cursor.MaxPages = strconv.Itoa(cfg.MaxPages)
+		page.Cursor.MaxPages = strconv.Itoa(pageBudget)
 		page.Cursor.PagesFetched = strconv.Itoa(pagesFetched)
-		page.Cursor.LastPage = strconv.Itoa(currentPage)
+		page.Cursor.LastPage = strconv.Itoa(effectivePage)
 
 		switch {
 		case next == "":
+			page.Cursor.Limit = strconv.Itoa(effectiveLimit)
 			page.Cursor.Complete = "true"
 			// Stamp the successful-pull time so core persists it and the next
 			// run can self-throttle to at most one pull per day.
 			page.Cursor.LastPullAt = otxNow().Format(time.RFC3339)
-		case pagesFetched >= cfg.MaxPages:
+		case pagesFetched >= pageBudget:
+			page.Cursor.Limit = strconv.Itoa(nextLimit)
 			page.Cursor.Complete = "false"
 			page.Cursor.Next = next
 			page.Cursor.NextPage = strconv.Itoa(nextPage)
 			page.Counts.addSkipped("page_budget")
 		case indicatorsEmitted >= cfg.MaxIndicators:
+			page.Cursor.Limit = strconv.Itoa(nextLimit)
 			page.Cursor.Complete = "false"
 			page.Cursor.Next = next
 			page.Cursor.NextPage = strconv.Itoa(nextPage)
 		default:
+			page.Cursor.Limit = strconv.Itoa(nextLimit)
 			page.Cursor.Complete = "false"
 			page.Cursor.Next = next
 			page.Cursor.NextPage = strconv.Itoa(nextPage)
@@ -410,11 +395,12 @@ func fetchAndSubmitOTXExportPages(cfg Config, emit otxPageEmitter) (int, error) 
 			return pagesFetched, err
 		}
 
-		if next == "" || pagesFetched >= cfg.MaxPages || indicatorsEmitted >= cfg.MaxIndicators {
+		if next == "" || pagesFetched >= pageBudget || indicatorsEmitted >= cfg.MaxIndicators {
 			break
 		}
 
 		currentPage = nextPage
+		currentLimit = nextLimit
 	}
 
 	return pagesFetched, nil
@@ -430,56 +416,6 @@ func otxPageSummary(page ctiPage) string {
 		strconv.Itoa(page.Counts.Objects) + " rows, " +
 		strconv.Itoa(page.Counts.Indicators) + " indicators, " +
 		strconv.Itoa(page.Counts.Skipped) + " skipped"
-}
-
-func fetchOTXExportPages(cfg Config) (ctiPage, error) {
-	aggregate := newCTIPage(cfg)
-	currentPage := cfg.Page
-	pagesFetched := 0
-
-	for pagesFetched < cfg.MaxPages && len(aggregate.Indicators) < cfg.MaxIndicators {
-		pageCfg := cfg
-		pageCfg.Page = currentPage
-		pageCfg.MaxIndicators = cfg.MaxIndicators - len(aggregate.Indicators)
-
-		page, err := fetchOTXExportPageAdaptive(pageCfg)
-		if err != nil {
-			return ctiPage{}, err
-		}
-
-		pagesFetched++
-		mergeCTIPage(&aggregate, page)
-		aggregate.Cursor.PagesFetched = strconv.Itoa(pagesFetched)
-		aggregate.Cursor.LastPage = strconv.Itoa(currentPage)
-
-		next := strings.TrimSpace(page.Cursor.Next)
-		aggregate.Cursor.Next = next
-		if next == "" {
-			aggregate.Cursor.Complete = "true"
-			break
-		}
-
-		nextPage := pageFromURL(next)
-		if nextPage <= currentPage {
-			nextPage = currentPage + 1
-		}
-		currentPage = nextPage
-		aggregate.Cursor.NextPage = strconv.Itoa(currentPage)
-	}
-
-	if pagesFetched == cfg.MaxPages && aggregate.Cursor.Next != "" {
-		aggregate.Cursor.Complete = "false"
-		aggregate.Counts.addSkipped("page_budget")
-	}
-	if len(aggregate.Indicators) >= cfg.MaxIndicators && aggregate.Cursor.Next != "" {
-		aggregate.Cursor.Complete = "false"
-	}
-	if aggregate.Cursor.PagesFetched == "" {
-		aggregate.Cursor.PagesFetched = "0"
-	}
-
-	aggregate.Counts.Indicators = len(aggregate.Indicators)
-	return aggregate, nil
 }
 
 func fetchSingleOTXExportPage(cfg Config) (ctiPage, error) {
@@ -505,78 +441,93 @@ func fetchSingleOTXExportPage(cfg Config) (ctiPage, error) {
 	return page, nil
 }
 
-// fetchOTXExportPageAdaptive fetches one export page at cfg.Limit and, when the
-// upstream keeps timing out (deep export pages routinely 504 at large limits)
-// or the page exceeds the host body cap, refetches the same offset range as two
-// half-limit pages (recursively, down to minAdaptiveLimit) and merges them so
-// cursor arithmetic stays in cfg.Limit units.
+// fetchOTXExportPageAdaptive fetches one export page at cfg.Limit. A shrinkable
+// failure moves to the equivalent page at half the limit and returns the first
+// successful leaf page. The caller continues from that leaf's next cursor,
+// avoiding the recursive half-page merge that retained multiple decoded pages
+// in the constrained Wasm heap.
 func fetchOTXExportPageAdaptive(cfg Config) (ctiPage, error) {
-	page, err := fetchSingleOTXExportPageWithRetry(cfg)
-	if err == nil || !shrinkableOTXError(err) || cfg.Limit%2 != 0 || cfg.Limit/2 < minAdaptiveLimit {
-		return page, err
-	}
-
-	halfCfg := cfg
-	halfCfg.Limit = cfg.Limit / 2
-	halfCfg.Page = cfg.Page*2 - 1
-
-	first, err := fetchOTXExportPageAdaptive(halfCfg)
-	if err != nil {
-		return ctiPage{}, err
-	}
-
-	merged := first
-	merged.Cursor.Next = ""
-	if strings.TrimSpace(first.Cursor.Next) == "" {
-		return merged, nil
-	}
-
-	secondCfg := halfCfg
-	secondCfg.Page = halfCfg.Page + 1
-	secondCfg.MaxIndicators = cfg.MaxIndicators - len(first.Indicators)
-
-	second, err := fetchOTXExportPageAdaptive(secondCfg)
-	if err != nil {
-		return ctiPage{}, err
-	}
-
-	mergeCTIPage(&merged, second)
-
-	if strings.TrimSpace(second.Cursor.Next) != "" {
-		nextCfg := cfg
-		nextCfg.Page = cfg.Page + 1
-		nextURL, err := subscribedPulsesURL(nextCfg)
-		if err != nil {
-			return ctiPage{}, errors.New("OTX base URL is invalid")
-		}
-		merged.Cursor.Next = nextURL
-	}
-
-	return merged, nil
-}
-
-func fetchSingleOTXExportPageWithRetry(cfg Config) (ctiPage, error) {
-	attempts := cfg.MaxRetries + 1
-	if attempts < 1 {
-		attempts = 1
-	}
-
+	current := cfg
+	attemptBudget := adaptivePageAttemptBudget(cfg)
+	retryAttempt := 0
 	var lastErr error
-	for attempt := 1; attempt <= attempts; attempt++ {
-		page, err := fetchSingleOTXExportPage(cfg)
+
+	for attempt := 1; attempt <= attemptBudget; attempt++ {
+		page, err := fetchSingleOTXExportPage(current)
 		if err == nil {
 			return page, nil
 		}
 
 		lastErr = err
-		if attempt == attempts || !retryableOTXError(err) {
+		if shrinkableOTXError(err) {
+			if smaller, ok := smallerOTXPageCoordinate(current); ok {
+				current = smaller
+				retryAttempt = 0
+				continue
+			}
+		}
+
+		if attempt == attemptBudget || !retryableOTXError(err) {
 			break
 		}
 
-		otxSleep(time.Duration(backoffDelayMS(cfg.BackoffMS, attempt)) * time.Millisecond)
+		retryAttempt++
+		otxSleep(time.Duration(backoffDelayMS(cfg.BackoffMS, retryAttempt)) * time.Millisecond)
 	}
 
 	return ctiPage{}, lastErr
+}
+
+// adaptivePageAttemptBudget bounds all HTTP work for one emitted page across
+// retries and limit changes. It still guarantees one attempt at each valid
+// coordinate down to minAdaptiveLimit when max_retries is zero.
+func adaptivePageAttemptBudget(cfg Config) int {
+	retries := cfg.MaxRetries
+	if retries < 0 {
+		retries = 0
+	}
+	if retries > maxRetries {
+		retries = maxRetries
+	}
+
+	budget := retries + 1
+	coordinates := 1
+	for limit := cfg.Limit; limit%2 == 0 && limit/2 >= minAdaptiveLimit; limit /= 2 {
+		coordinates++
+	}
+	if budget < coordinates {
+		budget = coordinates
+	}
+
+	return budget
+}
+
+func boundedOTXPageBudget(configured int) int {
+	if configured <= 0 {
+		return defaultMaxPages
+	}
+	if configured > maxPages {
+		return maxPages
+	}
+	return configured
+}
+
+func smallerOTXPageCoordinate(cfg Config) (Config, bool) {
+	if cfg.Limit%2 != 0 || cfg.Limit/2 < minAdaptiveLimit || cfg.Page <= 0 {
+		return Config{}, false
+	}
+
+	// Halving the limit doubles the 1-based page index while preserving the
+	// zero-based row offset: (page-1)*limit.
+	maxInt := int(^uint(0) >> 1)
+	if cfg.Page > maxInt/2+1 {
+		return Config{}, false
+	}
+
+	smaller := cfg
+	smaller.Limit = cfg.Limit / 2
+	smaller.Page = (cfg.Page-1)*2 + 1
+	return smaller, true
 }
 
 // backoffDelayMS computes the bounded exponential backoff for the given attempt
@@ -840,22 +791,50 @@ func subscribedPulsesURL(cfg Config) (string, error) {
 }
 
 func pageFromURL(rawURL string) int {
-	key := "page="
-	idx := strings.Index(rawURL, key)
-	if idx < 0 {
-		return 0
-	}
-	start := idx + len(key)
-	end := start
-	for end < len(rawURL) && rawURL[end] >= '0' && rawURL[end] <= '9' {
-		end++
-	}
-	page, err := strconv.Atoi(rawURL[start:end])
-	if err != nil || page < 1 {
-		return 0
+	return positiveQueryInt(rawURL, "page")
+}
+
+func limitFromURL(rawURL string) int {
+	return positiveQueryInt(rawURL, "limit")
+}
+
+func positiveQueryInt(rawURL, key string) int {
+	needle := key + "="
+	searchFrom := 0
+
+	for searchFrom < len(rawURL) {
+		relative := strings.Index(rawURL[searchFrom:], needle)
+		if relative < 0 {
+			return 0
+		}
+		idx := searchFrom + relative
+		if idx > 0 && (rawURL[idx-1] == '?' || rawURL[idx-1] == '&') {
+			start := idx + len(needle)
+			end := start
+			for end < len(rawURL) && rawURL[end] >= '0' && rawURL[end] <= '9' {
+				end++
+			}
+			if end == start {
+				return 0
+			}
+			value, err := strconv.Atoi(rawURL[start:end])
+			if err == nil && value > 0 {
+				return value
+			}
+			return 0
+		}
+		searchFrom = idx + len(needle)
 	}
 
-	return page
+	return 0
+}
+
+func parsePositiveInt(value string, fallback int) int {
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
 }
 
 func writeQueryEscaped(b *jsonBuilder, value string) {
@@ -1041,18 +1020,6 @@ func newCTIPage(cfg Config) ctiPage {
 	page.Cursor.Limit = strconv.Itoa(cfg.Limit)
 	page.Cursor.MaxPages = strconv.Itoa(cfg.MaxPages)
 	return page
-}
-
-func mergeCTIPage(dst *ctiPage, src ctiPage) {
-	dst.Counts.Objects += src.Counts.Objects
-	dst.Counts.Skipped += src.Counts.Skipped
-	if src.Counts.Total > 0 {
-		dst.Counts.Total = src.Counts.Total
-	}
-	dst.Counts.SkippedByType.merge(src.Counts.SkippedByType)
-
-	dst.Indicators = append(dst.Indicators, src.Indicators...)
-	dst.Counts.Indicators = len(dst.Indicators)
 }
 
 func parseExportIndicatorArray(scanner *otxJSONScanner, page *ctiPage, cfg Config) error {
@@ -1599,17 +1566,6 @@ func (counts *ctiSkippedCounts) UnmarshalJSON(data []byte) error {
 		counts.add(kind, count)
 	}
 	return nil
-}
-
-func (counts *ctiSkippedCounts) merge(other ctiSkippedCounts) {
-	counts.Domain += other.Domain
-	counts.URL += other.URL
-	counts.Hostname += other.Hostname
-	counts.MaxIndicators += other.MaxIndicators
-	counts.PageBudget += other.PageBudget
-	counts.Empty += other.Empty
-	counts.Unknown += other.Unknown
-	counts.Other += other.Other
 }
 
 func normalizeIndicator(pulse otxPulse, indicator otxIndicator) (ctiIndicator, bool) {
