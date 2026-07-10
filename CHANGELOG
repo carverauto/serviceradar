@@ -20,14 +20,17 @@ configuration-delivery hardening.
   support; LXC and other container deployments no longer enter add-on failure
   loops.
 - Release and demo reliability: restored schema-baseline and integration-test
-  quality gates, fixed SRQL JSON wildcard parsing, preserved Armis attachment
-  metadata, made `demo/prod-release` the sole Argo image source, and prevented
-  release tags from publishing before their commit reaches staging. Unresolved
-  live drift remains operator-synced.
+  quality gates, rollback-isolated database tests, and fail-closed protection
+  against destructive test runs on non-test databases; fixed SRQL JSON wildcard
+  parsing; preserved Armis attachment metadata; made `demo/prod-release` the
+  sole Argo image source; and prevented release tags from publishing before
+  their commit reaches staging. Unresolved live drift remains operator-synced.
 - Release publishing: image preflight now verifies that the release and
   `latest` tags match the immutable commit-tag digest, fails closed on registry
   errors, and retries an interrupted remote Bazel publish once before using the
-  explicitly enabled local fallback.
+  explicitly enabled local fallback. Post-publish checks cover all 16 image
+  repositories and their signatures, and required package assets must verify
+  on the draft before Forgejo makes the release public.
 - Dependency safety: retired the standalone Jetstream package in favor of
   Gnat's maintained JetStream API and upgraded the core runtime's Ash, Decimal,
   Ecto, Req, and related dependencies. Only two cowlib advisories without a
