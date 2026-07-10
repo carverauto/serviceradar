@@ -27,6 +27,9 @@ defmodule Mix.Tasks.Serviceradar.DireRemediationTest do
              split_plan: [%{device_uid: "sr:scoped", new_device_count: 1}],
              execution_split_plan: [
                %{device_uid: "sr:eligible", source_id: "source-reviewed"}
+             ],
+             skipped_device_sample: [
+               %{device_uid: "sr:unsplittable", reason: "no_universal_mac"}
              ]
            }
          },
@@ -61,6 +64,8 @@ defmodule Mix.Tasks.Serviceradar.DireRemediationTest do
     assert output =~ "device_uid=sr:scoped"
     assert output =~ "execution_split_plan:"
     assert output =~ "device_uid=sr:eligible"
+    assert output =~ "skipped_device_sample:\n"
+    assert output =~ "    - device_uid=sr:unsplittable reason=no_universal_mac"
   end
 
   test "paired live allowlists are forwarded as an explicit live scope" do

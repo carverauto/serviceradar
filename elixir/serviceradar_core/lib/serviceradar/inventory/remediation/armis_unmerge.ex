@@ -90,13 +90,36 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
     devices = detect_candidates(candidate_limit, mode, opts)
     preconditions = detect_preconditions(candidate_limit, mode, opts)
 
+    {unsplittable_count, unsplittable_sample} =
+      detect_unsplittable_summary(sample_limit, mode, opts)
+
     planned =
       Enum.map(devices, fn device ->
         {device, Decisions.plan_armis_unmerge(device, device.mac_rows)}
       end)
 
     splits = for {device, {:split, plan}} <- planned, do: {device, plan}
-    skips = for {_device, {:skip, reason}} <- planned, do: to_string(reason)
+    skips = for {device, {:skip, reason}} <- planned, do: {device, to_string(reason)}
+
+    skipped_counts =
+      skips
+      |> Enum.map(&elem(&1, 1))
+      |> Enum.frequencies()
+      |> Map.update(
+        "no_universal_mac",
+        unsplittable_count,
+        &max(&1, unsplittable_count)
+      )
+
+    planner_skip_sample =
+      skips
+      |> Enum.sort_by(fn {device, reason} -> {reason, device.uid} end)
+      |> Enum.map(fn {device, reason} -> %{device_uid: device.uid, reason: reason} end)
+
+    skipped_device_sample =
+      (unsplittable_sample ++ planner_skip_sample)
+      |> Enum.uniq_by(&{&1.device_uid, &1.reason})
+      |> Enum.take(sample_limit)
 
     execution_splits = execution_splits(splits, opts)
 
@@ -113,7 +136,9 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
       planned_new_devices: sum_by(execution_splits, fn {_d, p} -> length(p.splits) end),
       planned_identifier_reassignments:
         sum_by(execution_splits, fn {_d, p} -> sum_by(p.splits, &length(&1.row_ids)) end),
-      skipped: Enum.frequencies(skips),
+      skipped: skipped_counts,
+      skipped_device_sample: skipped_device_sample,
+      unsplittable_devices: unsplittable_count,
       split_plan: execution_splits |> Enum.take(sample_limit) |> Enum.map(&plan_sample(&1, opts)),
       execution_split_plan:
         execution_splits |> Enum.take(sample_limit) |> Enum.map(&plan_sample(&1, opts)),
@@ -332,29 +357,87 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
 
   defp allowlist_values(_opts, _key, false), do: []
 
-  defp detect_preconditions(limit, mode, opts) do
+  defp detect_unsplittable_summary(sample_limit, mode, opts) do
+    {scope_filter, scope_params} = remediation_report_scope(mode, opts)
+    sample_param = "$#{length(scope_params) + 1}"
+
+    %{rows: [[count, uids]]} =
+      query!(
+        """
+        WITH unsplittable AS (
+          SELECT d.uid
+          FROM platform.ocsf_devices d
+          LEFT JOIN platform.integration_sources src
+            ON src.id::text = NULLIF(d.metadata->>'sync_service_id', '')
+          WHERE (
+            (
+              d.deleted_at IS NULL
+              AND COALESCE(d.metadata->>'integration_type', '') = 'armis'
+            )
+            OR d.deleted_reason = 'armis_source_device_id_ghost_cleanup'
+          )
+          #{scope_filter}
+          AND NOT EXISTS (
+            SELECT 1
+            FROM platform.device_identifiers di
+            WHERE di.device_id = d.uid
+              AND #{@universal_mac_filter}
+          )
+        )
+        SELECT count(*)::bigint,
+               COALESCE(
+                 (
+                   SELECT array_agg(sample.uid ORDER BY sample.uid)
+                   FROM (
+                     SELECT uid
+                     FROM unsplittable
+                     ORDER BY uid
+                     LIMIT #{sample_param}
+                   ) sample
+                 ),
+                 ARRAY[]::text[]
+               )
+        FROM unsplittable
+        """,
+        scope_params ++ [sample_limit]
+      )
+
+    sample = Enum.map(uids, &%{device_uid: &1, reason: "no_universal_mac"})
+    {count_to_integer(count), sample}
+  end
+
+  defp remediation_report_scope(mode, opts) do
     scoped? = mode == :execute or Keyword.get(opts, :armis_unmerge_include_live, false)
 
-    {scope_filter, limit_clause, scope_params} =
-      if scoped? do
-        device_uids = allowlist_values(opts, :armis_unmerge_live_device_uids, true)
-        source_ids = allowlist_values(opts, :armis_unmerge_live_source_ids, true)
+    if scoped? do
+      device_uids = allowlist_values(opts, :armis_unmerge_live_device_uids, true)
+      source_ids = allowlist_values(opts, :armis_unmerge_live_source_ids, true)
 
-        {"""
-         AND (
-           d.deleted_reason = 'armis_source_device_id_ghost_cleanup'
-           OR (
-             d.deleted_at IS NULL
-             AND d.uid = ANY($1::text[])
-             AND NULLIF(d.metadata->>'sync_service_id', '') = ANY($2::text[])
-             AND upper(COALESCE(d.hostname, '')) NOT LIKE 'FAKER-%'
-             AND lower(COALESCE(src.name, '')) NOT LIKE '%faker%'
-             AND lower(COALESCE(src.endpoint, '')) NOT LIKE '%serviceradar-faker%'
-           )
+      {"""
+       AND (
+         d.deleted_reason = 'armis_source_device_id_ghost_cleanup'
+         OR (
+           d.deleted_at IS NULL
+           AND d.uid = ANY($1::text[])
+           AND NULLIF(d.metadata->>'sync_service_id', '') = ANY($2::text[])
+           AND upper(COALESCE(d.hostname, '')) NOT LIKE 'FAKER-%'
+           AND lower(COALESCE(src.name, '')) NOT LIKE '%faker%'
+           AND lower(COALESCE(src.endpoint, '')) NOT LIKE '%serviceradar-faker%'
          )
-         """, "", [device_uids, source_ids]}
-      else
-        {"", "ORDER BY d.uid LIMIT $1", [limit]}
+       )
+       """, [device_uids, source_ids]}
+    else
+      {"", []}
+    end
+  end
+
+  defp detect_preconditions(limit, mode, opts) do
+    {scope_filter, scope_params} = remediation_report_scope(mode, opts)
+
+    {limit_clause, query_params} =
+      case scope_params do
+        [] -> {"ORDER BY d.uid LIMIT $1", [limit]}
+        _scoped -> {"", scope_params}
       end
 
     %{rows: [[invalid_rows, invalid_devices, macless_devices, local_only_devices]]} =
@@ -392,7 +475,7 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
                count(*) FILTER (WHERE mac_rows > 0 AND universal_rows = 0)
         FROM per_device
         """,
-        scope_params
+        query_params
       )
 
     invalid_rows = count_to_integer(invalid_rows)

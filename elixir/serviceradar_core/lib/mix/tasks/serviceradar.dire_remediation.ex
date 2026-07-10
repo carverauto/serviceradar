@@ -388,7 +388,8 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
         :merge_plan,
         :sample_extractions,
         :split_plan,
-        :execution_split_plan
+        :execution_split_plan,
+        :skipped_device_sample
       ])
 
     counts

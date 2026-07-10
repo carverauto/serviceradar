@@ -234,18 +234,54 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     assert owner_of_mac(hd(other_macs)) in split_owner_uids
   end
 
-  test "a local-only armis device is never a candidate and is left untouched", %{actor: actor} do
+  test "MAC-less and local-only armis devices are reported and left untouched", %{actor: actor} do
     armis_id = unique("armis-local-only")
     locals = [local_mac(), local_mac()]
 
-    device = seed_armis_device!(actor, armis_id, nil)
-    Enum.each(locals, &register_mac!(actor, device.uid, &1))
+    local_only = seed_armis_device!(actor, armis_id, nil)
+    macless_one = seed_armis_device!(actor, unique("armis-macless-one"), nil)
+    macless_two = seed_armis_device!(actor, unique("armis-macless-two"), nil)
+    Enum.each(locals, &register_mac!(actor, local_only.uid, &1))
 
-    assert {:ok, %{reports: %{"armis-unmerge" => report}}} =
-             DireRemediation.run(steps: ["armis-unmerge"], mode: :dry_run)
+    for suffix <- ["one", "two"] do
+      positive = seed_armis_device!(actor, unique("armis-positive-#{suffix}"), nil)
+      register_mac!(actor, positive.uid, universal_mac())
+      register_mac!(actor, positive.uid, universal_mac())
+    end
 
-    refute Enum.any?(report.split_plan, &(&1.device_uid == device.uid))
-    assert Enum.all?(locals, &(owner_of_mac(&1) == device.uid))
+    run = fn sample_limit ->
+      assert {:ok, %{reports: %{"armis-unmerge" => report}}} =
+               DireRemediation.run(
+                 steps: ["armis-unmerge"],
+                 mode: :dry_run,
+                 armis_unmerge_candidate_limit: 1,
+                 armis_unmerge_plan_sample_limit: sample_limit
+               )
+
+      report
+    end
+
+    report = run.(2)
+    rerun = run.(2)
+
+    expected_skips = MapSet.new([local_only.uid, macless_one.uid, macless_two.uid])
+    expected_sample = expected_skips |> Enum.sort() |> Enum.take(2)
+
+    assert report.candidate_devices == 1
+    assert report.unsplittable_devices == 3
+    assert report.skipped["no_universal_mac"] == report.unsplittable_devices
+
+    assert Enum.map(report.skipped_device_sample, & &1.device_uid) == expected_sample
+    assert rerun.skipped_device_sample == report.skipped_device_sample
+    assert Enum.all?(report.skipped_device_sample, &(&1.reason == "no_universal_mac"))
+
+    assert run.(0).skipped_device_sample == []
+
+    assert Enum.map(run.(1).skipped_device_sample, & &1.device_uid) ==
+             Enum.take(expected_sample, 1)
+
+    refute Enum.any?(report.split_plan, &MapSet.member?(expected_skips, &1.device_uid))
+    assert Enum.all?(locals, &(owner_of_mac(&1) == local_only.uid))
   end
 
   test "direct execute is fail-closed when the runtime gate is absent", %{actor: actor} do
@@ -306,22 +342,37 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
         allowed_split_mac
       )
 
+    local_only_macs = [local_mac(), local_mac()]
+    local_only = seed_armis_device!(actor, unique("armis-local-only"), nil, source.id)
+    Enum.each(local_only_macs, &register_mac!(actor, local_only.uid, &1))
+
+    unscoped_local_macs = [local_mac(), local_mac()]
+    unscoped_local = seed_armis_device!(actor, unique("armis-unscoped-local"), nil, source.id)
+    Enum.each(unscoped_local_macs, &register_mac!(actor, unscoped_local.uid, &1))
+
     opts = [
       armis_unmerge_execute_enabled: true,
       armis_unmerge_include_live: true,
-      armis_unmerge_live_device_uids: [allowed.uid],
+      armis_unmerge_live_device_uids: [allowed.uid, local_only.uid],
       armis_unmerge_live_source_ids: [source.id],
       armis_unmerge_candidate_limit: 1
     ]
 
     dry = ArmisUnmerge.run(:dry_run, opts, nil, actor)
     assert Enum.map(dry.execution_split_plan, & &1.device_uid) == [allowed.uid]
+    assert dry.unsplittable_devices == 1
+
+    assert dry.skipped_device_sample == [
+             %{device_uid: local_only.uid, reason: "no_universal_mac"}
+           ]
 
     report = run_execute_with_manifest(opts, actor)
 
     assert report.applied_splits == 1
     assert owner_of_mac(allowed_split_mac) != allowed.uid
     assert owner_of_mac(excluded_extra_mac) == excluded.uid
+    assert Enum.all?(local_only_macs, &(owner_of_mac(&1) == local_only.uid))
+    assert Enum.all?(unscoped_local_macs, &(owner_of_mac(&1) == unscoped_local.uid))
   end
 
   test "invalid blob MAC rows are reported and block execution", %{actor: actor} do
