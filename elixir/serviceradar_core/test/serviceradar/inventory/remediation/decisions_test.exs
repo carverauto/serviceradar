@@ -301,6 +301,7 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
           armis_provenance_valid?: true,
           integration_type: "armis",
           partition: "default",
+          source_partition: "default",
           tombstoned?: false,
           live_overmerge_verified?: true
         },
@@ -521,6 +522,26 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
         assert {:skip, :missing_partition} =
                  Decisions.plan_armis_unmerge(mega_device(), rows)
       end
+    end
+
+    test "a live source partition must be canonical and match the MAC partition" do
+      rows = [row("i1", @mac_a), row("i2", @mac_b)]
+
+      for invalid <- [nil, "", " default "] do
+        assert {:skip, :missing_source_partition} =
+                 Decisions.plan_armis_unmerge(
+                   mega_device(%{source_partition: invalid}),
+                   rows
+                 )
+      end
+
+      assert {:skip, :source_partition_mismatch} =
+               Decisions.plan_armis_unmerge(
+                 mega_device(%{source_partition: "tenant-b"}),
+                 rows
+               )
+
+      assert {:split, _plan} = Decisions.plan_armis_unmerge(mega_device(), rows)
     end
   end
 end

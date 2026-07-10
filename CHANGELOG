@@ -56,13 +56,17 @@ configuration-delivery hardening.
   registration after node identity or registry membership changes instead of
   remaining in local-only enforcement.
 - Device identity safety: ships the Armis over-merge disposition dormant and
-  dry-run-first. Execute remains runtime-gated, processes ghost records by
-  default, requires exact device/source allowlists for live records, rejects
-  faker-backed data, and applies each candidate transactionally. Multi-NIC
+  dry-run-first. Armis polling agent IDs are now observer provenance, so a
+  shared poller cannot bypass the disjoint-MAC veto or become discovered-device
+  identity. Execute remains runtime-gated, processes ghost records by default,
+  requires exact device/source allowlists for live records, rejects faker-backed
+  data, and applies each candidate transactionally. Multi-NIC
   splits are not assumed to self-heal and still require operator signoff. Dry
   runs count MAC-less and local-only records outside the bounded candidate
   budget and report a deterministic bounded sample, so unreachable residue is
-  visible before signoff.
+  visible before signoff. Live execution also requires the integration source
+  partition to match the planned MAC-identity partition and rechecks it under
+  lock before mutation.
 
 # ServiceRadar v1.4.9
 

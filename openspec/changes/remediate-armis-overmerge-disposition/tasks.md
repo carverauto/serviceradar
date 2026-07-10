@@ -29,6 +29,9 @@
   `BatchResolver` into a public `ServiceRadar.Inventory.Identity.Mac` helper.
 - [x] 2.2 Point `BatchResolver` at the extracted helper; unit-test parity so the
   veto and the un-merge detector cannot drift.
+- [x] 2.3 Treat the first-party Armis runtime's shared polling `agent_id` as
+  observer provenance so it is neither looked up nor registered as discovered
+  endpoint identity ahead of the distinct-MAC veto.
 
 ## 3. Detection + pure decision rules
 
@@ -45,7 +48,8 @@
   universal MAC row and never synthesize `default`. UID parity is asserted only
   for canonical Armis-only updates; convergence for enriched shapes relies on
   reassigned typed MAC ownership. Reject display blobs matching multiple planned
-  classes as `ambiguous_display_mac`.
+  classes as `ambiguous_display_mac`. Live candidates additionally require a
+  canonical integration-source partition equal to the universal-MAC partition.
 
 ## 4. `armis-unmerge` remediation step
 
@@ -87,8 +91,9 @@
   devices materialized, `mac` rows reassigned + `last_seen` bumped, `unmerge`
   audits written, manifest lines present; re-run is idempotent.
 - [x] 5.2a DB regressions: missing/blank/mixed partitions and multi-class display
-  MACs are reported without mutation; forced owner-barrier lock timeout returns
-  a structured nonzero report with its manifest path.
+  MACs are reported without mutation; integration-source partition mismatch and
+  post-plan drift fail closed; forced owner-barrier lock timeout returns a
+  structured nonzero report with its manifest path.
 - [x] 5.3 Regression: after execute, no device has two live devices sharing one
   typed `armis_device_id` (no new `typed_id_on_multiple_devices`); the Armis
   northbound candidate query still loads the survivor.
@@ -97,6 +102,10 @@
 - [x] 5.5 Add pure orchestrator and Mix-task tests for the execute gate,
   candidate/sample bounds, paired live allowlists, explicit-step reporting, and
   nonzero failure propagation.
+- [x] 5.6 Add production-shaped SyncIngestor regressions proving that a shared
+  Armis polling agent cannot bypass the distinct-MAC veto, register a poller
+  identifier on discovered endpoints, or resolve an endpoint onto the poller's
+  own host.
 
 ## 6. Guard removal (separate follow-up change, after live execute verified)
 

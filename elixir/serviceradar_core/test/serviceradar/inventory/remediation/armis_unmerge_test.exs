@@ -494,6 +494,72 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     assert owner_of_mac(split_mac) == device.uid
   end
 
+  test "live source partition must match the universal MAC partition", %{actor: actor} do
+    source = create_source!(actor, partition: "tenant-b")
+    split_mac = universal_mac()
+
+    device =
+      seed_verified_live_candidate!(
+        actor,
+        source.id,
+        unique("armis-source-partition-mismatch"),
+        universal_mac(),
+        split_mac
+      )
+
+    opts = execute_opts(device, source)
+    dry_run = ArmisUnmerge.run(:dry_run, opts, nil, actor)
+
+    assert dry_run.skipped["source_partition_mismatch"] >= 1
+    assert dry_run.detected_planned_splits == 0
+
+    report = run_execute_with_manifest(opts, actor)
+
+    assert report.applied_splits == 0
+    assert report.split_failures == 0
+    assert owner_of_mac(split_mac) == device.uid
+  end
+
+  test "matching non-default source and MAC partitions execute with the planned UID", %{
+    actor: actor
+  } do
+    partition = "tenant-b"
+    source = create_source!(actor, partition: partition)
+    armis_id = unique("armis-nondefault-partition")
+    split_mac = universal_mac()
+
+    device =
+      seed_verified_live_candidate!(
+        actor,
+        source.id,
+        armis_id,
+        universal_mac(),
+        split_mac
+      )
+
+    Repo.query!(
+      "UPDATE platform.device_identifiers SET partition = $2 WHERE device_id = $1",
+      [device.uid, partition]
+    )
+
+    expected_split_uid =
+      Ids.generate_deterministic_device_id(%{
+        armis_id: armis_id,
+        mac: split_mac,
+        partition: partition
+      })
+
+    dry_run = ArmisUnmerge.run(:dry_run, execute_opts(device, source), nil, actor)
+    assert dry_run.detected_planned_splits == 1
+
+    report = run_execute_with_manifest(execute_opts(device, source), actor)
+
+    assert report.applied_splits == 1
+    assert report.split_failures == 0
+    assert owner_of_mac(split_mac) == expected_split_uid
+    assert device_exists?(expected_split_uid)
+  end
+
   test "metadata-only and ambiguous typed Armis identities never execute", %{actor: actor} do
     source = create_source!(actor)
 
@@ -1083,6 +1149,72 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
   end
 
   @tag sandbox: :unboxed
+  test "integration source partition drift after planning rejects before mutation", %{
+    actor: actor
+  } do
+    source = create_source!(actor)
+    register_unboxed_cleanup!([source.id], [])
+
+    armis_id = unique("armis-source-partition-drift")
+    split_mac = universal_mac()
+    device_uid = test_device_uid()
+
+    split_uid =
+      Ids.generate_deterministic_device_id(%{
+        armis_id: armis_id,
+        mac: split_mac,
+        partition: "default"
+      })
+
+    register_unboxed_cleanup!([], [device_uid, split_uid])
+
+    device =
+      seed_verified_live_candidate!(
+        actor,
+        source.id,
+        armis_id,
+        universal_mac(),
+        split_mac,
+        device_uid
+      )
+
+    manifest_path = temporary_manifest_path("source_partition_drift")
+    manifest = Manifest.open(manifest_path, %{test: "source_partition_drift"})
+    writer = hold_integration_source_partition_update_async(source.id, "tenant-b")
+    writer_pid = writer.pid
+
+    try do
+      assert_receive {:source_partition_update_held, ^writer_pid}, 5_000
+
+      runner =
+        Task.async(fn ->
+          ArmisUnmerge.run(:execute, execute_opts(device, source), manifest, actor)
+        end)
+
+      try do
+        assert wait_for_manifest_entry(manifest_path, "candidate_preflight")
+        send(writer.pid, :commit)
+        assert {:ok, :committed} = Task.await(writer, 5_000)
+
+        report = Task.await(runner, 15_000)
+
+        assert report.applied_splits == 0
+        assert report.split_failures == 1
+        assert owner_of_mac(split_mac) == device.uid
+        refute device_exists?(split_uid)
+      after
+        release_and_await_task(writer)
+        await_task_termination(runner, 15_000)
+      end
+    after
+      release_and_await_task(writer)
+      Manifest.close(manifest)
+      File.rm(manifest_path)
+      cleanup_unboxed!([source.id], [device.uid, split_uid])
+    end
+  end
+
+  @tag sandbox: :unboxed
   test "source identifier drift after planning rejects the candidate before mutation", %{
     actor: actor
   } do
@@ -1490,6 +1622,29 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
         after
           10_000 ->
             raise "timed out waiting to commit source-device update"
+        end
+
+        :committed
+      end)
+    end)
+  end
+
+  defp hold_integration_source_partition_update_async(source_id, partition) do
+    parent = self()
+
+    Task.async(fn ->
+      Repo.transaction(fn ->
+        Repo.query!(
+          "UPDATE platform.integration_sources SET partition = $2 WHERE id::text = $1",
+          [source_id, partition]
+        )
+
+        send(parent, {:source_partition_update_held, self()})
+
+        receive do
+          :commit -> :ok
+        after
+          10_000 -> raise "timed out waiting to commit integration-source partition update"
         end
 
         :committed

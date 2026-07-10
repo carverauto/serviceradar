@@ -359,6 +359,12 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
       length(partitions) != 1 ->
         {:skip, :multiple_partitions}
 
+      not device[:tombstoned?] and not canonical_partition?(device[:source_partition]) ->
+        {:skip, :missing_source_partition}
+
+      not device[:tombstoned?] and device[:source_partition] != hd(partitions) ->
+        {:skip, :source_partition_mismatch}
+
       length(display_classes) > 1 ->
         {:skip, :ambiguous_display_mac}
 
@@ -424,6 +430,11 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
 
     {Enum.any?(values, &is_nil/1), values |> Enum.reject(&is_nil/1) |> Enum.uniq()}
   end
+
+  defp canonical_partition?(partition) when is_binary(partition),
+    do: partition != "" and String.trim(partition) == partition
+
+  defp canonical_partition?(_partition), do: false
 
   defp build_armis_split_plan(device, classes, partition) do
     target_uids =

@@ -210,7 +210,8 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
                COALESCE(d.discovery_sources, ARRAY[]::text[]) AS discovery_sources,
                src.source_type::text,
                src.name,
-               src.endpoint
+               src.endpoint,
+               src.partition
         FROM platform.ocsf_devices d
         JOIN universal ON universal.device_id = d.uid
         LEFT JOIN platform.integration_sources src
@@ -246,7 +247,8 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
                         discovery_sources,
                         source_type,
                         source_name,
-                        source_endpoint
+                        source_endpoint,
+                        source_partition
                       ] ->
       identifier_rows = Map.get(identifier_rows_by_device, uid, [])
       typed_armis_rows = Enum.filter(identifier_rows, &(&1.type == "armis_device_id"))
@@ -293,6 +295,7 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
         source_type: normalize_string(source_type),
         source_name: normalize_string(source_name),
         source_endpoint: normalize_string(source_endpoint),
+        source_partition: canonical_partition(source_partition),
         deleted_reason: normalize_string(deleted_reason),
         faker_source?:
           faker_hostname?(hostname) or faker_text?(source_name) or
@@ -665,7 +668,7 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
          :ok <- acquire_owner_mutation_barrier(),
          {:ok, current_device} <- lock_source_device(device.uid),
          :ok <- validate_source_state(device, plan, current_device),
-         :ok <- validate_live_source(device, current_device),
+         :ok <- validate_live_source(device, plan, current_device),
          :ok <- lock_and_validate_identifier_ownership(device, plan),
          :ok <- lock_and_validate_global_mac_owners(device.uid, plan) do
       lock_and_validate_targets(plan)
@@ -704,6 +707,9 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
 
       length(row_ids) != length(Enum.uniq(row_ids)) ->
         {:error, :duplicate_identifier_assignment}
+
+      not device.tombstoned? and device.source_partition != plan.partition ->
+        {:error, :source_partition_mismatch}
 
       true ->
         :ok
@@ -787,9 +793,9 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
     end
   end
 
-  defp validate_live_source(%{tombstoned?: true}, _current), do: :ok
+  defp validate_live_source(%{tombstoned?: true}, _plan, _current), do: :ok
 
-  defp validate_live_source(device, current) do
+  defp validate_live_source(device, plan, current) do
     cond do
       current.sync_service_id != device.sync_service_id ->
         {:error, :source_identity_changed}
@@ -804,15 +810,15 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
         {:error, :live_source_missing}
 
       true ->
-        lock_and_validate_integration_source(device, current.sync_service_id)
+        lock_and_validate_integration_source(device, plan, current.sync_service_id)
     end
   end
 
-  defp lock_and_validate_integration_source(device, source_id) do
+  defp lock_and_validate_integration_source(device, plan, source_id) do
     %{rows: rows} =
       query!(
         """
-        SELECT source_type::text, name, endpoint
+        SELECT source_type::text, name, endpoint, partition
         FROM platform.integration_sources
         WHERE id::text = $1
         FOR UPDATE
@@ -821,7 +827,9 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
       )
 
     case rows do
-      [[source_type, name, endpoint]] ->
+      [[source_type, name, endpoint, partition]] ->
+        partition = canonical_partition(partition)
+
         cond do
           source_type != "armis" ->
             {:error, :non_armis_integration_source}
@@ -830,6 +838,12 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
             normalize_string(name) != device.source_name or
               normalize_string(endpoint) != device.source_endpoint ->
             {:error, :integration_source_changed}
+
+          partition != device.source_partition ->
+            {:error, :integration_source_partition_changed}
+
+          partition != plan.partition ->
+            {:error, :source_partition_mismatch}
 
           faker_text?(name) or faker_endpoint?(endpoint) ->
             {:error, :faker_source_forbidden}
@@ -1450,6 +1464,12 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
   end
 
   defp normalize_string(_), do: nil
+
+  defp canonical_partition(value) when is_binary(value) do
+    if value != "" and String.trim(value) == value, do: value
+  end
+
+  defp canonical_partition(_value), do: nil
 
   defp normalize_string_list(values) when is_list(values) do
     values

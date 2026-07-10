@@ -12,9 +12,11 @@ universally-administered MACs) was written under one UID, producing ~173
 
 Two of the three phases are already done:
 
-- **Prevention (done).** `BatchResolver.distinct_mac_veto?/3` now returns a new
-  deterministic UID when two records' universal-MAC sets are non-empty and
-  disjoint, so new ingest never re-collapses distinct hardware.
+- **Prevention (done).** Armis polling `agent_id` values are treated as observer
+  provenance rather than endpoint identity, so they cannot bypass
+  `BatchResolver.distinct_mac_veto?/3`. The veto returns a new deterministic UID
+  when two records' universal-MAC sets are non-empty and disjoint, so new ingest
+  never re-collapses distinct hardware.
 - **Ghost cleanup + holding pattern (done, live/manual).** A live operation
   tombstoned the affected devices with `deleted_reason =
   'armis_source_device_id_ghost_cleanup'`. The original operation was documented
@@ -63,6 +65,9 @@ disposition.
   `distinct_mac_veto?/3` logic) from the private `BatchResolver` into a public
   `Identity.Mac` helper so detection/grouping provably cannot drift from the
   ingest-time veto.
+- **Classify the Armis polling agent as observer provenance** so the shared
+  poller ID is neither looked up nor registered as endpoint identity before the
+  MAC/Armis resolution rules run.
 - **Detection + operator dry-run report**: identify mega-devices (an
   Armis-keyed device owning ≥2 distinct universal atomic MACs) and the
   ghost-tombstoned population, with counts, MAC-count distribution, and a

@@ -22,6 +22,12 @@ whole design:
   provable inverse of this, so it must reuse the identical function (extracted to
   a public `Identity.Mac` helper) or detection drifts from prevention.
 
+- **The Armis agent is an observer, not discovered-device identity.** The
+  first-party Armis runtime stamps the polling agent on every device update.
+  Source policy must remove that shared value from effective identifiers;
+  otherwise `agent_id` priority resolves before the disjoint-MAC veto and can
+  re-collapse every reconstructed device onto the poller or survivor.
+
 - **The ghost cleanup already froze the data.** Affected devices are tombstoned
   (`deleted_reason = 'armis_source_device_id_ghost_cleanup'`). The original
   operation estimated ~389k sole-copy `mac` rows, but a 2026-07-09 observation
@@ -78,8 +84,10 @@ re-collapse cooldown. Before mutation it locks the source device, all source
 identifier rows, the integration source, and global normalized/display MAC and
 typed Armis owners, then compares the exact ownership snapshot
 `{id,type,value,partition}`. The semantic identifier provenance keys are
-recomputed under lock; hot timestamps and unrelated metadata are deliberately
-excluded. A short `SHARE ROW EXCLUSIVE` barrier on both owner tables prevents
+recomputed under lock. The integration source's canonical partition must match
+the planned universal-MAC partition and is also rechecked under its row lock;
+hot timestamps and unrelated metadata are deliberately excluded. A short
+`SHARE ROW EXCLUSIVE` barrier on both owner tables prevents
 ordinary ingest DML from racing absence checks. Canonical owners use the
 existing B-tree and legacy/display normalized tokens use concurrent GIN indexes;
 lock acquisition is capped at 5 seconds and candidate statements at 30 seconds.
@@ -104,8 +112,11 @@ surfaces the full MAC-count distribution so an operator sets an informed
 threshold (genuine multi-NIC hosts also clear `≥2`; mega-devices show dozens to
 hundreds). Every universal MAC row must carry the same canonical, nonblank
 partition; nil/blank rows report `missing_partition`, mixed values report
-`multiple_partitions`, and no default partition is synthesized. Detection runs
-only after `blob-purge` has atomized blob-hidden MACs; the step asserts zero
+`multiple_partitions`, and no default partition is synthesized. A live
+candidate's integration source must carry that same canonical partition;
+missing, noncanonical, or mismatched source partitions are reported instead of
+planned. Detection runs only after `blob-purge` has atomized blob-hidden MACs;
+the step asserts zero
 non-atomic `mac` rows remain (or normalizes in Elixir via
 `Mac.normalize_mac_list`). A display MAC blob that resolves to more than one
 planned class reports `ambiguous_display_mac`; it cannot select a survivor from
@@ -177,9 +188,13 @@ first ships the step.
   Live-device splitting is therefore gated behind the live scoping in Task 1.
 - **Operator noise / partial completion.** Execute defaults to a bounded 25
   candidates per run (dry-run remains 5,000); larger explicit batches still use
-  indexed owner checks and fail-closed lock/statement timeouts. Reconstructed MAC-only devices with
-  no other evidence may look sparse in the UI. This is strictly better than
-  frozen ghost data, but the report must make the before/after shape explicit.
+  indexed owner checks and fail-closed lock/statement timeouts. A ghost whose
+  retained IP is now owned by an active device fails restoration under the
+  active-IP uniqueness constraint and requires manual IP resolution before
+  retry; the candidate transaction remains unmodified. Reconstructed MAC-only
+  devices with no other evidence may look sparse in the UI. This is strictly
+  better than frozen ghost data, but the report must make the before/after shape
+  explicit.
 - **Rollback.** Every candidate has a durable preflight, prepared action set,
   and committed marker in the manifest (ids only). Prepared entries without a
   committed marker are conservatively reviewable after a crash. The per-split `unmerge`
@@ -188,7 +203,8 @@ first ships the step.
 ## Migration Plan
 
 1. Extract `universal_macs`/veto grouping to public `Identity.Mac`; unit-test
-   parity with `BatchResolver`.
+   parity with `BatchResolver`, and classify the Armis polling agent as observer
+   provenance before identity resolution.
 2. Build `Decisions` grouping/target rules (pure) + the `ArmisUnmerge` step;
    register in the orchestrator. Ship dormant: explicit bounded dry-run remains
    available, the step is never in the default order, and execute is rejected

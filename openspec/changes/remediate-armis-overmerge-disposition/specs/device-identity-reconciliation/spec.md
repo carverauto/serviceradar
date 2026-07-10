@@ -7,7 +7,9 @@ mega-device, reconstructing target grouping from the device's current universal
 MAC identifiers rather than from `merge_audit` history (which does not record the
 ingest-time collapse). Target grouping SHALL reuse the same universal-MAC
 definition as the ingest-time distinct-MAC veto so un-merge is the provable
-inverse of prevention.
+inverse of prevention. The first-party Armis polling agent ID SHALL be treated
+as observer provenance rather than discovered-device identity, so it cannot
+resolve before or bypass the disjoint-MAC veto.
 
 #### Scenario: Mega-device with distinct universal MACs is split
 - **GIVEN** a non-deleted Armis-keyed device owns two or more mutually-distinct
@@ -27,6 +29,15 @@ inverse of prevention.
 - **AND** it SHALL write one merge audit row with reason `unmerge` per split to
   arm the per-pair re-collapse cooldown
 
+#### Scenario: Shared Armis poller identity cannot re-collapse hardware
+- **GIVEN** production-shaped Armis updates from one polling agent that share an
+  `armis_device_id` but carry disjoint universal MACs
+- **WHEN** identity resolution processes those updates
+- **THEN** the polling `agent_id` SHALL be excluded from endpoint lookup and
+  identifier registration
+- **AND** each disjoint MAC SHALL remain owned by a distinct device
+- **AND** neither endpoint SHALL resolve onto the polling agent's own host
+
 ### Requirement: Armis Disposition Execution Is Fail-Closed
 The `armis-unmerge` step SHALL remain excluded from the default remediation run.
 An operator SHALL be able to explicitly invoke a bounded dry-run while execute
@@ -38,7 +49,9 @@ known faker source SHALL remain ineligible even when its hostname is not
 faker-shaped. Before each candidate mutation, the system SHALL lock and compare
 the exact source device and identifier snapshot, require exactly one typed
 `armis_device_id` consistent with optional metadata, revalidate canonical Armis
-source metadata and the independent integration-ID evidence, reject any global
+source metadata and the independent integration-ID evidence, require the
+integration source's canonical partition to match the planned universal-MAC
+partition and recheck it under the source row lock, reject any global
 normalized/display MAC or typed Armis alternate owner, and require every split
 target UID to be absent. Every planned universal MAC row SHALL have one
 canonical nonblank partition and all such rows SHALL agree; execute SHALL NOT
@@ -69,6 +82,13 @@ recomputed under lock.
 - **THEN** the command SHALL reject the incomplete live scope
 - **AND** no live device SHALL be mutated
 
+#### Scenario: Live source partition must match the identity partition
+- **GIVEN** an otherwise eligible live candidate whose integration source has a
+  missing, noncanonical, or different partition than its universal MAC rows
+- **WHEN** the disposition plans or executes the candidate
+- **THEN** it SHALL report the partition mismatch and SHALL NOT mutate the
+  candidate
+
 #### Scenario: Faker source remains ineligible
 - **GIVEN** an allowlisted live device resolves to a sync source whose endpoint
   is the ServiceRadar faker
@@ -77,8 +97,9 @@ recomputed under lock.
 
 #### Scenario: Stale or ambiguous candidate fails before mutation
 - **GIVEN** a dry-run plan whose display MAC, deletion reason, Armis metadata,
-  discovery source, integration evidence, identifier ownership, or partition
-  changes before its transaction acquires locks
+  discovery source, integration evidence, identifier ownership, universal-MAC
+  partition, or integration-source partition changes before its transaction
+  acquires locks
 - **OR** the candidate has zero or multiple typed Armis identifiers
 - **OR** a deterministic target or alternate normalized MAC owner already exists
 - **WHEN** execute revalidates the candidate
