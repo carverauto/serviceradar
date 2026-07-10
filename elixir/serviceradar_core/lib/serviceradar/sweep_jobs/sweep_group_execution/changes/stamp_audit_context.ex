@@ -91,7 +91,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution.Changes.StampAuditContext d
     if map_size(audit_inputs) == 0 do
       changeset
     else
-      inputs = Ash.Changeset.get_attribute(changeset, :version_action_inputs) || %{}
+      inputs = pending_attribute(changeset, :version_action_inputs) || %{}
 
       Ash.Changeset.change_attribute(
         changeset,
@@ -103,6 +103,12 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution.Changes.StampAuditContext d
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp pending_attribute(changeset, attribute) do
+    Keyword.get_lazy(changeset.atomics, attribute, fn ->
+      Ash.Changeset.get_attribute(changeset, attribute)
+    end)
+  end
 
   defp normalize_value(value) when is_atom(value), do: Atom.to_string(value)
   defp normalize_value(value), do: to_string(value)
