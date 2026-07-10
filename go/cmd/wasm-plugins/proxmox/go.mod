@@ -4,12 +4,12 @@ go 1.25.0
 
 require (
 	code.carverauto.dev/carverauto/serviceradar-sdk-go v0.2.1-0.20260609051018-6cdfec2437b9
-	github.com/tidwall/gjson v1.18.0
-	golang.org/x/crypto v0.50.0
+	github.com/tidwall/gjson v1.19.0
+	golang.org/x/crypto v0.54.0
 )
 
 require (
-	github.com/tidwall/match v1.1.1 // indirect
-	github.com/tidwall/pretty v1.2.0 // indirect
-	golang.org/x/sys v0.43.0 // indirect
+	github.com/tidwall/match v1.2.0 // indirect
+	github.com/tidwall/pretty v1.2.1 // indirect
+	golang.org/x/sys v0.47.0 // indirect
 )
