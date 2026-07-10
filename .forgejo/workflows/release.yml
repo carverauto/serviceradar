@@ -66,6 +66,14 @@ permissions:
 jobs:
   publish:
     runs-on: serviceradar-signing
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+      commit: ${{ steps.release.outputs.commit }}
+      dry_run: ${{ steps.release.outputs.dry_run }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+      draft: ${{ steps.release.outputs.draft }}
+      release_id: ${{ steps.release_assets.outputs.release_id }}
     container:
       image: registry.carverauto.dev/serviceradar/forgejo-ci@sha256:4da98b050cbbbc66e6c823977a80a7b67db51a610e48c28fc2e066c1bb164a79
       options: --user 1000:1000 --group-add 2375 --volume /var/run/secrets/kubernetes.io/serviceaccount/token:/var/run/secrets/kubernetes.io/serviceaccount/token:ro
@@ -555,7 +563,8 @@ jobs:
             fi
           fi
 
-      # (Wasm plugin import index is uploaded by wasm-plugins.yml — see the note above.)
+      # Parallel assets are checked by the unprivileged finalizer job after this
+      # signing job exits, so waiting never occupies a signing runner.
       - name: Verify uploaded release assets via Forgejo API
         if: ${{ steps.release.outputs.dry_run != 'true' }}
         id: release_assets
@@ -572,7 +581,7 @@ jobs:
           response=$(curl -sSf -H "Accept: application/json" -H "Authorization: token ${FORGEJO_TOKEN}" "$api_url" || true)
           release_id=$(echo "$response" | jq -r '.id // empty')
           if [[ -z "${release_id}" ]]; then
-            releases_url="${FORGEJO_URL}/api/v1/repos/${FORGEJO_REPOSITORY}/releases?limit=100"
+            releases_url="${FORGEJO_URL}/api/v1/repos/${FORGEJO_REPOSITORY}/releases?draft=true&limit=100"
             release_id=$(curl -sSf -H "Accept: application/json" -H "Authorization: token ${FORGEJO_TOKEN}" "$releases_url" \
               | jq -r --arg tag "${RELEASE_TAG}" '.[] | select(.tag_name == $tag) | .id' \
               | head -n1)
@@ -615,11 +624,6 @@ jobs:
             echo "No agent release manifest signature asset detected for ${RELEASE_TAG}" >&2
             exit 1
           fi
-          # NOTE: the Wasm plugin import index (serviceradar-wasm-plugin-index.json) is
-          # uploaded out-of-band by wasm-plugins.yml, which runs in parallel on the same
-          # tag and may not have finished when this step runs. That workflow verifies its
-          # own upload, so it is intentionally not asserted here (same as the native
-          # add-on index, which is likewise published by native-addons.yml).
           if [[ "${REQUIRE_MAC_PKG:-false}" == "true" ]] && (( pkg_count == 0 )); then
             echo "No .pkg assets detected for ${RELEASE_TAG}" >&2
             exit 1
@@ -627,22 +631,115 @@ jobs:
           echo "Validated presence of ${deb_count} .deb, ${rpm_count} .rpm, ${pkg_count} .pkg, ${agent_runtime_count} runtime archive, ${agent_manifest_count} manifest, and ${agent_manifest_sig_count} signature assets."
           printf 'release_id=%s\n' "${release_id}" >> "${GITHUB_OUTPUT}"
 
-      - name: Finalize Forgejo release
-        if: ${{ steps.release.outputs.dry_run != 'true' }}
+  # Keep release finalization off the privileged signing pool. Catalog and security
+  # workflows attach assets in parallel; this job waits until every required upload
+  # is visible before making the draft immutable.
+  finalize:
+    needs: publish
+    if: ${{ needs.publish.outputs.dry_run != 'true' && needs.publish.outputs.draft != 'true' }}
+    runs-on: ubuntu24
+    timeout-minutes: 95
+    environment: release
+    env:
+      FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+      FORGEJO_URL: http://forgejo-http.forgejo.svc.cluster.local:3000
+      FORGEJO_REPOSITORY: carverauto/serviceradar
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.publish.outputs.commit }}
+
+      - name: Wait for parallel release assets
+        id: parallel_assets
         env:
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
-          RELEASE_ID: ${{ steps.release_assets.outputs.release_id }}
-          DRAFT: ${{ steps.release.outputs.draft }}
-          FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
-          FORGEJO_URL: http://forgejo-http.forgejo.svc.cluster.local:3000
-          FORGEJO_REPOSITORY: carverauto/serviceradar
+          RELEASE_TAG: ${{ needs.publish.outputs.tag }}
+          RELEASE_ID: ${{ needs.publish.outputs.release_id }}
+          PARALLEL_ASSET_WAIT_TIMEOUT_SECONDS: "5400"
+          PARALLEL_ASSET_POLL_SECONDS: "10"
         run: |
           set -euo pipefail
-          if [[ "${DRAFT}" == "true" ]]; then
-            echo "Release left as draft per workflow input."
-            exit 0
+
+          if [[ ! "${RELEASE_ID}" =~ ^[0-9]+$ ]]; then
+            echo "Verified release id is invalid for ${RELEASE_TAG}: ${RELEASE_ID}" >&2
+            exit 1
+          fi
+          if [[ ! "${PARALLEL_ASSET_WAIT_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]] || \
+             [[ ! "${PARALLEL_ASSET_POLL_SECONDS}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Parallel asset wait bounds must be positive integers" >&2
+            exit 1
           fi
 
+          api_url="${FORGEJO_URL}/api/v1/repos/${FORGEJO_REPOSITORY}/releases/${RELEASE_ID}"
+          required_assets=(
+            "serviceradar-native-addon-index.json"
+            "serviceradar-wasm-plugin-index.json"
+            "serviceradar-source-security.tar.gz"
+            "serviceradar-image-security-${RELEASE_TAG}.tar.gz"
+          )
+          deadline=$((SECONDS + PARALLEL_ASSET_WAIT_TIMEOUT_SECONDS))
+          last_state="Forgejo API unavailable"
+
+          while (( SECONDS <= deadline )); do
+            response=""
+            if response="$(curl -sSf --connect-timeout 5 --max-time 10 \
+              -H "Accept: application/json" \
+              -H "Authorization: token ${FORGEJO_TOKEN}" \
+              "${api_url}")"; then
+              response_id="$(jq -r '.id // empty' <<<"${response}")"
+              response_tag="$(jq -r '.tag_name // empty' <<<"${response}")"
+              response_draft="$(jq -r '.draft // empty' <<<"${response}")"
+              if [[ "${response_id}" != "${RELEASE_ID}" || "${response_tag}" != "${RELEASE_TAG}" ]]; then
+                echo "Forgejo returned an unexpected release while verifying ${RELEASE_TAG}" >&2
+                exit 1
+              fi
+              if [[ "${response_draft}" != "true" ]]; then
+                echo "Release ${RELEASE_TAG} is no longer a draft; refusing parallel asset verification" >&2
+                exit 1
+              fi
+
+              missing_assets=()
+              for asset in "${required_assets[@]}"; do
+                asset_count="$(jq -r --arg name "${asset}" \
+                  '[.assets[]? | select(.name == $name and ((.size // 0) > 0))] | length' \
+                  <<<"${response}")"
+                if [[ "${asset_count}" != "1" ]]; then
+                  missing_assets+=("${asset}")
+                fi
+              done
+
+              if (( ${#missing_assets[@]} == 0 )); then
+                echo "Verified required catalogs and security bundles on draft ${RELEASE_TAG}."
+                printf 'release_id=%s\n' "${RELEASE_ID}" >> "${GITHUB_OUTPUT}"
+                exit 0
+              fi
+              last_state="$(IFS=,; echo "${missing_assets[*]}")"
+            fi
+
+            if (( SECONDS >= deadline )); then
+              break
+            fi
+            echo "Waiting for required parallel release assets on ${RELEASE_TAG}: ${last_state}"
+            remaining=$((deadline - SECONDS))
+            sleep_seconds="${PARALLEL_ASSET_POLL_SECONDS}"
+            if (( sleep_seconds > remaining )); then
+              sleep_seconds="${remaining}"
+            fi
+            sleep "${sleep_seconds}"
+          done
+
+          echo "Timed out waiting for required parallel assets on ${RELEASE_TAG}: ${last_state}" >&2
+          echo "Release ${RELEASE_TAG} remains a draft; refusing finalization and demo branch advancement." >&2
+          exit 1
+
+      - name: Finalize Forgejo release
+        id: finalize_release
+        env:
+          RELEASE_TAG: ${{ needs.publish.outputs.tag }}
+          RELEASE_ID: ${{ steps.parallel_assets.outputs.release_id }}
+        run: |
+          set -euo pipefail
           if [[ ! "${RELEASE_ID}" =~ ^[0-9]+$ ]]; then
             echo "Verified release id is invalid for ${RELEASE_TAG}: ${RELEASE_ID}" >&2
             exit 1
@@ -656,12 +753,9 @@ jobs:
           echo "Published release ${RELEASE_TAG}"
 
       - name: Advance demo release source branch
-        if: ${{ steps.release.outputs.dry_run != 'true' && steps.release.outputs.prerelease != 'true' && steps.release.outputs.draft != 'true' }}
+        if: ${{ needs.publish.outputs.prerelease != 'true' && steps.parallel_assets.outcome == 'success' && steps.finalize_release.outcome == 'success' }}
         env:
           DEMO_RELEASE_BRANCH: demo/prod-release
-          FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
-          FORGEJO_URL: http://forgejo-http.forgejo.svc.cluster.local:3000
-          FORGEJO_REPOSITORY: carverauto/serviceradar
         run: |
           set -euo pipefail
           if [[ -z "${FORGEJO_TOKEN:-}" ]]; then
@@ -682,4 +776,4 @@ jobs:
           git -c http.extraHeader="Authorization: token ${FORGEJO_TOKEN}" \
             push --force-with-lease demo-release "HEAD:refs/heads/${DEMO_RELEASE_BRANCH}"
 
-          echo "Advanced ${DEMO_RELEASE_BRANCH} to ${{ steps.release.outputs.commit }}"
+          echo "Advanced ${DEMO_RELEASE_BRANCH} to ${{ needs.publish.outputs.commit }}"

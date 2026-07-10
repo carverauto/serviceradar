@@ -20,7 +20,11 @@ gazelle(
 )
 
 exports_files([
+    ".forgejo/workflows/image-security.yml",
+    ".forgejo/workflows/native-addons.yml",
     ".forgejo/workflows/release.yml",
+    ".forgejo/workflows/source-security.yml",
+    ".forgejo/workflows/wasm-plugins.yml",
     "VERSION",
     "Cargo.toml",
     "Cargo.lock",

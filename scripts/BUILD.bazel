@@ -21,9 +21,14 @@ sh_test(
     data = [
         "cosign_common.sh",
         "cut-release.sh",
+        "upload-forgejo-release-asset.sh",
         "validate-release-tag.sh",
         "verify-oci-publish.sh",
+        "//:.forgejo/workflows/image-security.yml",
+        "//:.forgejo/workflows/native-addons.yml",
         "//:.forgejo/workflows/release.yml",
+        "//:.forgejo/workflows/source-security.yml",
+        "//:.forgejo/workflows/wasm-plugins.yml",
         "//docker/images:image_inventory.bzl",
     ],
 )
