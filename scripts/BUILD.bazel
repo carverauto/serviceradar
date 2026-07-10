@@ -41,6 +41,7 @@ sh_test(
     srcs = ["test-integration-database-guard.sh"],
     data = [
         "db/test-database-url-guard.sh",
+        "drop-test-db.sh",
         "reset-srql-fixture-test-db.sh",
         "reset-test-db.sh",
         "test-integration.sh",

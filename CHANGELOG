@@ -22,10 +22,12 @@ configuration-delivery hardening.
   support; LXC and other container deployments no longer enter add-on failure
   loops.
 - Release and demo reliability: restored schema-baseline and integration-test
-  quality gates, rollback-isolated database tests, and fail-closed protection
-  against destructive test runs on non-test databases; fixed SRQL JSON wildcard
-  parsing; preserved Armis attachment metadata; made `demo/prod-release` the
-  sole Argo image source; and prevented release tags from publishing before
+  quality gates, rollback-isolated database tests, per-run Forgejo integration
+  databases, and fail-closed protection against destructive test runs on
+  non-test databases. Restored build caches now repair missing transitive NIF
+  artifacts before compilation. This release also fixes SRQL JSON wildcard
+  parsing, preserves Armis attachment metadata, makes `demo/prod-release` the
+  sole Argo image source, and prevents release tags from publishing before
   their commit reaches staging. Unresolved live drift remains operator-synced.
 - Release publishing: image preflight now verifies that the release and
   `latest` tags match the immutable commit-tag digest, fails closed on registry

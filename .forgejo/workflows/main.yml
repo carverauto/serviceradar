@@ -311,6 +311,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [ "${SERVICERADAR_RUN_CORE_INTEGRATION:-1}" = "0" ]; then
+            echo "serviceradar_core integration database is unreachable; skipping optional integration tests" >&2
+            exit 0
+          fi
+
           ca_file="${RUNNER_TEMP}/srql-fixture-ca.crt"
           printf "%s" "${SRQL_TEST_DATABASE_CA_CERT}" > "${ca_file}"
 
@@ -319,4 +324,100 @@ jobs:
           export SERVICERADAR_TEST_DATABASE_CA_CERT_FILE="${ca_file}"
           export SRQL_TEST_DATABASE_CA_CERT_FILE="${ca_file}"
 
-          ./scripts/test-integration.sh
+          if [[ ! "${GITHUB_RUN_ID:-}" =~ ^[0-9]+$ ]] ||
+            [[ ! "${GITHUB_RUN_ATTEMPT:-}" =~ ^[0-9]+$ ]]; then
+            echo "GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT must be numeric." >&2
+            exit 1
+          fi
+
+          # Rust owns the shared fixture behind an advisory lock. Give the Core
+          # reset/migration suite its own database so concurrent PRs cannot drop
+          # another run's fixture.
+          database_name="sr_core_test_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          if [ "${#database_name}" -gt 63 ]; then
+            echo "isolated integration database name exceeds PostgreSQL's 63-byte limit" >&2
+            exit 1
+          fi
+
+          parser="$(command -v python3 || command -v python || true)"
+          if [ -z "${parser}" ]; then
+            echo "python is required to derive the isolated integration database URL." >&2
+            exit 1
+          fi
+
+          SERVICERADAR_TEST_DATABASE_URL="$("${parser}" - "${SRQL_TEST_DATABASE_URL}" "${database_name}" <<'PY'
+          import sys
+          from urllib.parse import quote, urlparse, urlunparse
+
+          parsed = urlparse(sys.argv[1])
+          database_name = sys.argv[2]
+
+          if parsed.scheme not in {"postgres", "postgresql"} or not parsed.hostname:
+              raise SystemExit("SRQL_TEST_DATABASE_URL is not a valid PostgreSQL URL")
+
+          print(
+              urlunparse(
+                  (
+                      parsed.scheme,
+                      parsed.netloc,
+                      "/" + quote(database_name, safe=""),
+                      parsed.params,
+                      parsed.query,
+                      parsed.fragment,
+                  )
+              )
+          )
+          PY
+          )"
+          export SERVICERADAR_TEST_DATABASE_URL
+          echo "::add-mask::${SERVICERADAR_TEST_DATABASE_URL}"
+
+          # shellcheck source=scripts/db/test-database-url-guard.sh
+          source ./scripts/db/test-database-url-guard.sh
+          serviceradar_assert_test_database_url "${SERVICERADAR_TEST_DATABASE_URL}"
+          printf 'SERVICERADAR_CI_TEST_DATABASE_URL=%s\n' \
+            "${SERVICERADAR_TEST_DATABASE_URL}" >> "${GITHUB_ENV}"
+
+          cleanup_done=0
+          cleanup_isolated_database() {
+            if [ "${cleanup_done}" -eq 1 ]; then
+              return 0
+            fi
+
+            cleanup_done=1
+            ./scripts/drop-test-db.sh \
+              "${SRQL_TEST_ADMIN_URL}" "${SERVICERADAR_TEST_DATABASE_URL}"
+          }
+          trap cleanup_isolated_database EXIT
+
+          test_status=0
+          ./scripts/test-integration.sh || test_status=$?
+
+          cleanup_status=0
+          cleanup_isolated_database || cleanup_status=$?
+          trap - EXIT
+
+          if [ "${test_status}" -ne 0 ]; then
+            exit "${test_status}"
+          fi
+
+          exit "${cleanup_status}"
+
+      - name: Retry isolated SRQL fixture cleanup
+        if: ${{ always() && secrets.SRQL_TEST_ADMIN_URL != '' && secrets.SRQL_TEST_DATABASE_CA_CERT != '' }}
+        env:
+          SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
+          SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SERVICERADAR_CI_TEST_DATABASE_URL:-}" ]; then
+            exit 0
+          fi
+
+          ca_file="${RUNNER_TEMP}/srql-fixture-ca.crt"
+          printf "%s" "${SRQL_TEST_DATABASE_CA_CERT}" > "${ca_file}"
+          export PGSSLROOTCERT="${ca_file}"
+
+          ./scripts/drop-test-db.sh \
+            "${SRQL_TEST_ADMIN_URL}" "${SERVICERADAR_CI_TEST_DATABASE_URL}"

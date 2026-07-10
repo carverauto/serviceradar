@@ -72,5 +72,10 @@ expect_entrypoint_guard \
   "${unsafe_url}"
 
 expect_entrypoint_guard \
+  "${SCRIPT_DIR}/drop-test-db.sh" \
+  "postgres://admin:secret@database.example/postgres" \
+  "${unsafe_url}"
+
+expect_entrypoint_guard \
   env SERVICERADAR_TEST_DATABASE_URL="${unsafe_url}" \
   "${SCRIPT_DIR}/reset-srql-fixture-test-db.sh"
