@@ -280,7 +280,7 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
   defp default_manifest_path do
     timestamp = Calendar.strftime(DateTime.utc_now(), "%Y%m%d%H%M%S")
 
-    Path.join(System.tmp_dir!(), "dire_remediation_#{timestamp}.ndjson")
+    Path.join(System.tmp_dir!(), "dire_remediation_#{timestamp}_#{Ecto.UUID.generate()}.ndjson")
   end
 
   # Do not trust caller-supplied values for the destructive execution gate.

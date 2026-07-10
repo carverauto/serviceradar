@@ -56,7 +56,7 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     * `--armis-plan-sample-limit <n>` — number of planned Armis merges printed
       by the legacy `armis-dups` step (default 50)
     * `--armis-unmerge-candidate-limit <n>` — maximum Armis unmerge candidates
-      inspected in one run (1..5000; default 5000)
+      inspected in one run (1..5000; default: dry-run 5000, execute 25)
     * `--armis-unmerge-plan-sample-limit <n>` — maximum Armis unmerge split
       plans printed in the report (0..5000; default 50)
     * `--armis-unmerge-live-device <uid>` — permit one live device UID during

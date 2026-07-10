@@ -33,6 +33,19 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
 
   @ghost_reason "armis_source_device_id_ghost_cleanup"
 
+  defmodule FailCommittedWriter do
+    @moduledoc false
+
+    alias ServiceRadar.Inventory.Remediation.Manifest.FileWriter
+
+    def sync(device), do: FileWriter.sync(device)
+
+    def write(_device, %{action: "candidate_committed"}),
+      do: {:error, {:manifest_sync_failed, :injected_committed_marker_failure}}
+
+    def write(device, entry), do: FileWriter.write(device, entry)
+  end
+
   setup_all do
     TestSupport.start_core!()
     :ok
@@ -65,8 +78,23 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     register_mac!(actor, mega.uid, survivor_mac)
     Enum.each(other_macs, &register_mac!(actor, mega.uid, &1))
     register_mac!(actor, mega.uid, local)
-    register_identifier!(actor, mega.uid, :integration_id, unique("integration"))
-    register_identifier!(actor, mega.uid, :integration_id, unique("integration"))
+    evidence_metadata = source_identifier_metadata(source.id)
+
+    register_identifier!(
+      actor,
+      mega.uid,
+      :integration_id,
+      unique("integration"),
+      evidence_metadata
+    )
+
+    register_identifier!(
+      actor,
+      mega.uid,
+      :integration_id,
+      unique("integration"),
+      evidence_metadata
+    )
 
     ghost_mac = universal_mac()
     ghost = seed_armis_device!(actor, unique("armis-ghost"), ghost_mac)
@@ -161,6 +189,17 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     assert Enum.any?(manifest_lines, &(&1 =~ "reassign_identifier"))
     assert Enum.any?(manifest_lines, &(&1 =~ "restore_device"))
     assert Enum.any?(manifest_lines, &(&1 =~ "touch_identifier"))
+    assert Enum.any?(manifest_lines, &(&1 =~ ~s("phase":"prepared")))
+    assert Enum.any?(manifest_lines, &(&1 =~ "candidate_committed"))
+
+    prepared_audit_ids =
+      manifest_lines
+      |> Enum.map(&Jason.decode!/1)
+      |> Enum.filter(&(&1["phase"] == "prepared" and &1["action"] == "create_merge_audit"))
+      |> Enum.flat_map(& &1["ids"])
+      |> MapSet.new()
+
+    assert prepared_audit_ids == MapSet.new(unmerge_audit_ids(mega.uid))
 
     # Northbound: the survivor is still the (single) candidate for its armis id.
     candidates = Repo.all(ArmisNorthboundRunner.candidates_query(%{id: source.id}))
@@ -269,7 +308,7 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     dry = ArmisUnmerge.run(:dry_run, opts, nil, actor)
     assert Enum.map(dry.execution_split_plan, & &1.device_uid) == [allowed.uid]
 
-    report = ArmisUnmerge.run(:execute, opts, nil, actor)
+    report = run_execute_with_manifest(opts, actor)
 
     assert report.applied_splits == 1
     assert owner_of_mac(allowed_split_mac) != allowed.uid
@@ -292,15 +331,13 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     register_mac!(actor, device.uid, "001AA0B94040,001422F42A2A")
 
     report =
-      ArmisUnmerge.run(
-        :execute,
+      run_execute_with_manifest(
         [
           armis_unmerge_execute_enabled: true,
           armis_unmerge_include_live: true,
           armis_unmerge_live_device_uids: [device.uid],
           armis_unmerge_live_source_ids: [source.id]
         ],
-        nil,
         actor
       )
 
@@ -326,19 +363,32 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     device = seed_armis_device!(actor, armis_id, drifted_mac, source.id, original_uid)
     register_mac!(actor, device.uid, original_mac)
     register_mac!(actor, device.uid, drifted_mac)
-    register_identifier!(actor, device.uid, :integration_id, unique("integration"))
-    register_identifier!(actor, device.uid, :integration_id, unique("integration"))
+    evidence_metadata = source_identifier_metadata(source.id)
+
+    register_identifier!(
+      actor,
+      device.uid,
+      :integration_id,
+      unique("integration"),
+      evidence_metadata
+    )
+
+    register_identifier!(
+      actor,
+      device.uid,
+      :integration_id,
+      unique("integration"),
+      evidence_metadata
+    )
 
     report =
-      ArmisUnmerge.run(
-        :execute,
+      run_execute_with_manifest(
         [
           armis_unmerge_execute_enabled: true,
           armis_unmerge_include_live: true,
           armis_unmerge_live_device_uids: [device.uid],
           armis_unmerge_live_source_ids: [source.id]
         ],
-        nil,
         actor
       )
 
@@ -382,6 +432,278 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     refute report.execution_blocked
     assert report.applied_splits == 0
     assert owner_of_mac(split_mac) == device.uid
+  end
+
+  test "metadata-only and ambiguous typed Armis identities never execute", %{actor: actor} do
+    source = create_source!(actor)
+
+    metadata_only =
+      seed_verified_live_candidate!(
+        actor,
+        source.id,
+        unique("armis-metadata-only"),
+        universal_mac(),
+        universal_mac()
+      )
+
+    Repo.query!(
+      "DELETE FROM platform.device_identifiers " <>
+        "WHERE device_id = $1 AND identifier_type = 'armis_device_id'",
+      [metadata_only.uid]
+    )
+
+    ambiguous_split_mac = universal_mac()
+
+    ambiguous =
+      seed_verified_live_candidate!(
+        actor,
+        source.id,
+        unique("armis-ambiguous"),
+        universal_mac(),
+        ambiguous_split_mac
+      )
+
+    register_identifier!(actor, ambiguous.uid, :armis_device_id, unique("armis-conflict"))
+
+    report =
+      ArmisUnmerge.run(
+        :dry_run,
+        [
+          armis_unmerge_include_live: true,
+          armis_unmerge_live_device_uids: [metadata_only.uid, ambiguous.uid],
+          armis_unmerge_live_source_ids: [source.id]
+        ],
+        nil,
+        actor
+      )
+
+    assert report.skipped["ambiguous_typed_armis_identity"] >= 2
+    refute Enum.any?(report.split_plan, &(&1.device_uid in [metadata_only.uid, ambiguous.uid]))
+    assert owner_of_mac(ambiguous_split_mac) == ambiguous.uid
+  end
+
+  test "lowercase source MAC rows fail the canonical blob-purge precondition", %{actor: actor} do
+    source = create_source!(actor)
+    split_mac = universal_mac()
+
+    device =
+      seed_verified_live_candidate!(
+        actor,
+        source.id,
+        unique("armis-lowercase-mac"),
+        universal_mac(),
+        split_mac
+      )
+
+    insert_raw_mac!(device.uid, String.downcase(universal_mac()))
+
+    report = ArmisUnmerge.run(:execute, execute_opts(device, source), nil, actor)
+
+    assert report.execution_blocked
+    assert report.execution_blocked_reason == "blob_purge_precondition_failed"
+    assert report.preconditions.invalid_mac_rows >= 1
+    assert owner_of_mac(split_mac) == device.uid
+  end
+
+  test "live evidence must be linked to the canonical Armis source", %{actor: actor} do
+    source = create_source!(actor)
+    other_source = create_source!(actor)
+    survivor_mac = universal_mac()
+    split_mac = universal_mac()
+
+    device =
+      seed_armis_device!(
+        actor,
+        unique("armis-unproven-evidence"),
+        survivor_mac,
+        source.id
+      )
+
+    register_mac!(actor, device.uid, survivor_mac)
+    register_mac!(actor, device.uid, split_mac)
+
+    unrelated_metadata = %{
+      "sync_service_id" => to_string(other_source.id),
+      "integration_type" => "proxmox"
+    }
+
+    register_identifier!(
+      actor,
+      device.uid,
+      :integration_id,
+      unique("integration"),
+      unrelated_metadata
+    )
+
+    register_identifier!(
+      actor,
+      device.uid,
+      :integration_id,
+      unique("integration"),
+      unrelated_metadata
+    )
+
+    report = run_execute_with_manifest(execute_opts(device, source), actor)
+
+    assert report.skipped["missing_live_overmerge_signal"] >= 1
+    assert report.applied_splits == 0
+    refute Enum.any?(report.split_plan, &(&1.device_uid == device.uid))
+    assert owner_of_mac(split_mac) == device.uid
+  end
+
+  test "typed Armis identity provenance must match the canonical source", %{actor: actor} do
+    source = create_source!(actor)
+    other_source = create_source!(actor)
+    split_mac = universal_mac()
+
+    device =
+      seed_verified_live_candidate!(
+        actor,
+        source.id,
+        unique("armis-unproven-typed"),
+        universal_mac(),
+        split_mac
+      )
+
+    Repo.query!(
+      "UPDATE platform.device_identifiers SET metadata = $2::jsonb " <>
+        "WHERE device_id = $1 AND identifier_type = 'armis_device_id'",
+      [device.uid, Jason.encode!(source_identifier_metadata(other_source.id))]
+    )
+
+    report = run_execute_with_manifest(execute_opts(device, source), actor)
+
+    assert report.skipped["unproven_armis_identity_source"] >= 1
+    assert report.applied_splits == 0
+    refute Enum.any?(report.split_plan, &(&1.device_uid == device.uid))
+    assert owner_of_mac(split_mac) == device.uid
+  end
+
+  test "a foreign display-only MAC owner blocks the complete candidate", %{actor: actor} do
+    source = create_source!(actor)
+    split_mac = universal_mac()
+
+    device =
+      seed_verified_live_candidate!(
+        actor,
+        source.id,
+        unique("armis-display-owner"),
+        universal_mac(),
+        split_mac
+      )
+
+    _foreign = create_device!(actor, formatted_lowercase_mac(split_mac))
+    report = run_execute_with_manifest(execute_opts(device, source), actor)
+
+    assert report.applied_splits == 0
+    assert report.split_failures == 1
+    assert owner_of_mac(split_mac) == device.uid
+  end
+
+  test "a foreign normalized legacy MAC identifier owner blocks the candidate", %{actor: actor} do
+    source = create_source!(actor)
+    split_mac = universal_mac()
+
+    device =
+      seed_verified_live_candidate!(
+        actor,
+        source.id,
+        unique("armis-legacy-owner"),
+        universal_mac(),
+        split_mac
+      )
+
+    foreign = create_device!(actor, nil)
+    insert_raw_mac!(foreign.uid, "#{String.downcase(split_mac)};#{universal_mac()}")
+
+    report = run_execute_with_manifest(execute_opts(device, source), actor)
+
+    assert report.applied_splits == 0
+    assert report.split_failures == 1
+    assert owner_of_mac(split_mac) == device.uid
+  end
+
+  test "the owner barrier serializes a concurrent foreign identifier insert", %{actor: actor} do
+    source = create_source!(actor)
+    armis_id = unique("armis-concurrent-owner")
+    survivor_mac = universal_mac()
+    split_mac = universal_mac()
+    device = seed_verified_live_candidate!(actor, source.id, armis_id, survivor_mac, split_mac)
+    foreign = create_device!(actor, nil)
+
+    split_uid =
+      Ids.generate_deterministic_device_id(%{
+        armis_id: armis_id,
+        mac: split_mac,
+        partition: "default"
+      })
+
+    writer =
+      hold_raw_mac_insert_async(
+        foreign.uid,
+        formatted_lowercase_mac(split_mac),
+        unique("other-partition")
+      )
+
+    writer_pid = writer.pid
+
+    on_exit(fn -> send(writer.pid, :commit) end)
+    assert_receive {:identifier_insert_held, ^writer_pid}, 5_000
+
+    manifest_path = temporary_manifest_path("concurrent_owner")
+    manifest = Manifest.open(manifest_path, %{test: "concurrent_owner"})
+
+    on_exit(fn ->
+      Manifest.close(manifest)
+      File.rm(manifest_path)
+    end)
+
+    runner =
+      Task.async(fn ->
+        ArmisUnmerge.run(:execute, execute_opts(device, source), manifest, actor)
+      end)
+
+    assert wait_for_manifest_entry(manifest_path, "candidate_preflight")
+    assert wait_for_pending_owner_barrier()
+    send(writer.pid, :commit)
+    assert {:ok, :committed} = Task.await(writer, 5_000)
+
+    report = Task.await(runner, 15_000)
+
+    assert report.applied_splits == 0
+    assert report.split_failures == 1
+    assert owner_of_mac(split_mac) == device.uid
+    refute device_exists?(split_uid)
+  end
+
+  test "an existing deterministic split target is never adopted or overwritten", %{actor: actor} do
+    source = create_source!(actor)
+    armis_id = unique("armis-existing-target")
+    split_mac = universal_mac()
+
+    device =
+      seed_verified_live_candidate!(
+        actor,
+        source.id,
+        armis_id,
+        universal_mac(),
+        split_mac
+      )
+
+    split_uid =
+      Ids.generate_deterministic_device_id(%{
+        armis_id: armis_id,
+        mac: split_mac,
+        partition: "default"
+      })
+
+    target = create_device!(actor, nil, split_uid)
+    report = run_execute_with_manifest(execute_opts(device, source), actor)
+
+    assert report.applied_splits == 0
+    assert report.split_failures == 1
+    assert owner_of_mac(split_mac) == device.uid
+    assert device_mac(target.uid) == nil
   end
 
   test "an audit failure rolls back device creation and every identifier mutation", %{
@@ -439,8 +761,207 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     assert unmerge_audit_count(device.uid) == 0
 
     manifest_lines = manifest_path |> File.read!() |> String.split("\n", trim: true)
-    assert length(manifest_lines) == 1
+    assert length(manifest_lines) == 2
+    assert Enum.any?(manifest_lines, &(&1 =~ "candidate_preflight"))
     refute Enum.any?(manifest_lines, &(&1 =~ "reassign_identifier"))
+    refute Enum.any?(manifest_lines, &(&1 =~ "candidate_committed"))
+  end
+
+  test "execute requires a writable manifest before the first mutation", %{actor: actor} do
+    source = create_source!(actor)
+    split_mac = universal_mac()
+
+    device =
+      seed_verified_live_candidate!(
+        actor,
+        source.id,
+        unique("armis-manifest-required"),
+        universal_mac(),
+        split_mac
+      )
+
+    report =
+      ArmisUnmerge.run(
+        :execute,
+        execute_opts(device, source),
+        nil,
+        actor
+      )
+
+    assert report.applied_splits == 0
+    assert report.split_failures == 1
+    assert report.manifest_failures == 1
+    assert owner_of_mac(split_mac) == device.uid
+  end
+
+  test "source state drift after planning rejects the candidate before mutation", %{actor: actor} do
+    source = create_source!(actor)
+    armis_id = unique("armis-stale-plan")
+    survivor_mac = universal_mac()
+    split_mac = universal_mac()
+    drifted_mac = universal_mac()
+    device = seed_verified_live_candidate!(actor, source.id, armis_id, survivor_mac, split_mac)
+
+    split_uid =
+      Ids.generate_deterministic_device_id(%{
+        armis_id: armis_id,
+        mac: split_mac,
+        partition: "default"
+      })
+
+    manifest_path = temporary_manifest_path("stale_plan")
+    manifest = Manifest.open(manifest_path, %{test: "stale_plan"})
+    writer = hold_source_device_update_async(device.uid, drifted_mac)
+    writer_pid = writer.pid
+
+    on_exit(fn ->
+      send(writer.pid, :commit)
+      Manifest.close(manifest)
+      File.rm(manifest_path)
+    end)
+
+    assert_receive {:source_update_held, ^writer_pid}, 5_000
+
+    runner =
+      Task.async(fn ->
+        ArmisUnmerge.run(:execute, execute_opts(device, source), manifest, actor)
+      end)
+
+    assert wait_for_manifest_entry(manifest_path, "candidate_preflight")
+    send(writer.pid, :commit)
+    assert {:ok, :committed} = Task.await(writer, 5_000)
+
+    report = Task.await(runner, 15_000)
+
+    assert report.applied_splits == 0
+    assert report.split_failures == 1
+    assert owner_of_mac(split_mac) == device.uid
+    assert device_mac(device.uid) == drifted_mac
+    refute device_exists?(split_uid)
+  end
+
+  test "source identifier drift after planning rejects the candidate before mutation", %{
+    actor: actor
+  } do
+    source = create_source!(actor)
+    armis_id = unique("armis-identifier-drift")
+    split_mac = universal_mac()
+    device = seed_verified_live_candidate!(actor, source.id, armis_id, universal_mac(), split_mac)
+
+    split_uid =
+      Ids.generate_deterministic_device_id(%{
+        armis_id: armis_id,
+        mac: split_mac,
+        partition: "default"
+      })
+
+    writer = hold_source_identifier_insert_async(device.uid, unique("agent-drift"))
+    writer_pid = writer.pid
+    on_exit(fn -> send(writer.pid, :commit) end)
+    assert_receive {:source_identifier_insert_held, ^writer_pid}, 5_000
+
+    report = run_concurrent_execute(device, source, writer)
+
+    assert report.applied_splits == 0
+    assert report.split_failures == 1
+    assert owner_of_mac(split_mac) == device.uid
+    refute device_exists?(split_uid)
+  end
+
+  test "last_seen-only churn remains outside the ownership snapshot", %{actor: actor} do
+    source = create_source!(actor)
+    armis_id = unique("armis-timestamp-churn")
+    split_mac = universal_mac()
+    device = seed_verified_live_candidate!(actor, source.id, armis_id, universal_mac(), split_mac)
+
+    writer = hold_identifier_timestamp_update_async(device.uid, split_mac)
+    writer_pid = writer.pid
+    on_exit(fn -> send(writer.pid, :commit) end)
+    assert_receive {:identifier_timestamp_update_held, ^writer_pid}, 5_000
+
+    report = run_concurrent_execute(device, source, writer)
+
+    assert report.applied_splits == 1
+    assert report.split_failures == 0
+    assert owner_of_mac(split_mac) != device.uid
+  end
+
+  test "prepared-manifest failure rolls back the candidate and halts execution", %{actor: actor} do
+    source = create_source!(actor)
+    armis_id = unique("armis-manifest-prepare")
+    survivor_mac = universal_mac()
+    split_mac = universal_mac()
+    device = seed_verified_live_candidate!(actor, source.id, armis_id, survivor_mac, split_mac)
+
+    split_uid =
+      Ids.generate_deterministic_device_id(%{
+        armis_id: armis_id,
+        mac: split_mac,
+        partition: "default"
+      })
+
+    manifest_path = temporary_manifest_path("prepare_failure")
+    manifest = Manifest.open(manifest_path, %{test: "prepare_failure"})
+    writer = hold_source_device_update_async(device.uid, nil)
+    writer_pid = writer.pid
+
+    on_exit(fn ->
+      send(writer.pid, :commit)
+      Manifest.close(manifest)
+      File.rm(manifest_path)
+    end)
+
+    assert_receive {:source_update_held, ^writer_pid}, 5_000
+
+    runner =
+      Task.async(fn ->
+        ArmisUnmerge.run(:execute, execute_opts(device, source), manifest, actor)
+      end)
+
+    assert wait_for_manifest_entry(manifest_path, "candidate_preflight")
+    Manifest.close(manifest)
+    send(writer.pid, :commit)
+    assert {:ok, :committed} = Task.await(writer, 5_000)
+
+    report = Task.await(runner, 15_000)
+
+    assert report.applied_splits == 0
+    assert report.split_failures == 1
+    assert report.manifest_failures == 1
+    assert owner_of_mac(survivor_mac) == device.uid
+    assert owner_of_mac(split_mac) == device.uid
+    refute device_exists?(split_uid)
+    assert unmerge_audit_count(device.uid) == 0
+  end
+
+  test "committed-marker failure preserves committed mutations and reports failure", %{
+    actor: actor
+  } do
+    source = create_source!(actor)
+    armis_id = unique("armis-manifest-committed")
+    split_mac = universal_mac()
+    device = seed_verified_live_candidate!(actor, source.id, armis_id, universal_mac(), split_mac)
+    manifest_path = temporary_manifest_path("committed_failure")
+    manifest = Manifest.open(manifest_path, %{test: "committed_failure"})
+    faulting_manifest = %{manifest | writer: FailCommittedWriter}
+
+    on_exit(fn ->
+      Manifest.close(manifest)
+      File.rm(manifest_path)
+    end)
+
+    report = ArmisUnmerge.run(:execute, execute_opts(device, source), faulting_manifest, actor)
+    Manifest.close(manifest)
+
+    assert report.applied_splits == 1
+    assert report.split_failures == 1
+    assert report.manifest_failures == 1
+    assert owner_of_mac(split_mac) != device.uid
+    assert unmerge_audit_count(device.uid) == 1
+
+    manifest_lines = manifest_path |> File.read!() |> String.split("\n", trim: true)
+    assert Enum.any?(manifest_lines, &(&1 =~ ~s("phase":"prepared")))
+    refute Enum.any?(manifest_lines, &(&1 =~ "candidate_committed"))
   end
 
   # -- seeding helpers -------------------------------------------------------
@@ -472,6 +993,8 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
       )
       |> Ash.create!(actor: actor)
 
+    identifier_metadata = if source_id, do: source_identifier_metadata(source_id), else: %{}
+
     DeviceIdentifier
     |> Ash.Changeset.for_create(
       :register,
@@ -480,7 +1003,8 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
         identifier_type: :armis_device_id,
         identifier_value: armis_id,
         partition: "default",
-        confidence: :strong
+        confidence: :strong,
+        metadata: identifier_metadata
       },
       actor: actor
     )
@@ -493,7 +1017,7 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     register_identifier!(actor, device_uid, :mac, mac)
   end
 
-  defp register_identifier!(actor, device_uid, type, value) do
+  defp register_identifier!(actor, device_uid, type, value, metadata \\ %{}) do
     DeviceIdentifier
     |> Ash.Changeset.for_create(
       :register,
@@ -502,8 +1026,32 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
         identifier_type: type,
         identifier_value: value,
         partition: "default",
-        confidence: :strong
+        confidence: :strong,
+        metadata: metadata
       },
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
+  end
+
+  defp insert_raw_mac!(device_uid, value) do
+    Repo.query!(
+      """
+      INSERT INTO platform.device_identifiers
+        (device_id, identifier_type, identifier_value, partition, confidence,
+         first_seen, last_seen, metadata)
+      VALUES ($1, 'mac', $2, 'default', 'strong',
+              timezone('utc', now()), timezone('utc', now()), '{}'::jsonb)
+      """,
+      [device_uid, value]
+    )
+  end
+
+  defp create_device!(actor, mac, uid \\ nil) do
+    Device
+    |> Ash.Changeset.for_create(
+      :create,
+      %{uid: uid || "sr:" <> Ecto.UUID.generate(), hostname: unique("owner"), mac: mac},
       actor: actor
     )
     |> Ash.create!(actor: actor)
@@ -513,9 +1061,29 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     device = seed_armis_device!(actor, armis_id, survivor_mac, source_id)
     register_mac!(actor, device.uid, survivor_mac)
     register_mac!(actor, device.uid, split_mac)
-    register_identifier!(actor, device.uid, :integration_id, unique("integration"))
-    register_identifier!(actor, device.uid, :integration_id, unique("integration"))
+    evidence_metadata = source_identifier_metadata(source_id)
+
+    register_identifier!(
+      actor,
+      device.uid,
+      :integration_id,
+      unique("integration"),
+      evidence_metadata
+    )
+
+    register_identifier!(
+      actor,
+      device.uid,
+      :integration_id,
+      unique("integration"),
+      evidence_metadata
+    )
+
     device
+  end
+
+  defp source_identifier_metadata(source_id) do
+    %{"sync_service_id" => to_string(source_id), "integration_type" => "armis"}
   end
 
   defp create_source!(actor, overrides \\ []) do
@@ -538,6 +1106,204 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
       actor: actor
     )
     |> Ash.create!(actor: actor)
+  end
+
+  defp execute_opts(device, source) do
+    [
+      armis_unmerge_execute_enabled: true,
+      armis_unmerge_include_live: true,
+      armis_unmerge_live_device_uids: [device.uid],
+      armis_unmerge_live_source_ids: [source.id]
+    ]
+  end
+
+  defp run_execute_with_manifest(opts, actor) do
+    path = temporary_manifest_path("direct")
+
+    manifest = Manifest.open(path, %{test: "direct_execute"})
+
+    try do
+      ArmisUnmerge.run(:execute, opts, manifest, actor)
+    after
+      Manifest.close(manifest)
+      File.rm(path)
+    end
+  end
+
+  defp temporary_manifest_path(label) do
+    Path.join(
+      System.tmp_dir!(),
+      "armis_unmerge_#{label}_#{System.unique_integer([:positive])}.ndjson"
+    )
+  end
+
+  defp hold_source_device_update_async(uid, mac) do
+    parent = self()
+
+    Task.async(fn ->
+      Repo.transaction(fn ->
+        if mac do
+          Repo.query!("UPDATE platform.ocsf_devices SET mac = $2 WHERE uid = $1", [uid, mac])
+        else
+          Repo.query!("UPDATE platform.ocsf_devices SET mac = mac WHERE uid = $1", [uid])
+        end
+
+        send(parent, {:source_update_held, self()})
+
+        receive do
+          :commit -> :ok
+        after
+          10_000 ->
+            raise "timed out waiting to commit source-device update"
+        end
+
+        :committed
+      end)
+    end)
+  end
+
+  defp hold_raw_mac_insert_async(device_uid, value, partition) do
+    parent = self()
+
+    Task.async(fn ->
+      Repo.transaction(fn ->
+        Repo.query!(
+          """
+          INSERT INTO platform.device_identifiers
+            (device_id, identifier_type, identifier_value, partition, confidence,
+             first_seen, last_seen, metadata)
+          VALUES ($1, 'mac', $2, $3, 'strong',
+                  timezone('utc', now()), timezone('utc', now()), '{}'::jsonb)
+          """,
+          [device_uid, value, partition]
+        )
+
+        send(parent, {:identifier_insert_held, self()})
+
+        receive do
+          :commit -> :ok
+        after
+          10_000 -> raise "timed out waiting to commit identifier insert"
+        end
+
+        :committed
+      end)
+    end)
+  end
+
+  defp hold_source_identifier_insert_async(device_uid, value) do
+    hold_identifier_write_async(
+      """
+      INSERT INTO platform.device_identifiers
+        (device_id, identifier_type, identifier_value, partition, confidence,
+         first_seen, last_seen, metadata)
+      VALUES ($1, 'agent_id', $2, 'default', 'strong',
+              timezone('utc', now()), timezone('utc', now()), '{}'::jsonb)
+      """,
+      [device_uid, value],
+      :source_identifier_insert_held
+    )
+  end
+
+  defp hold_identifier_timestamp_update_async(device_uid, mac) do
+    hold_identifier_write_async(
+      """
+      UPDATE platform.device_identifiers
+      SET last_seen = timezone('utc', now()) + interval '1 second'
+      WHERE device_id = $1 AND identifier_type = 'mac' AND identifier_value = $2
+      """,
+      [device_uid, mac],
+      :identifier_timestamp_update_held
+    )
+  end
+
+  defp hold_identifier_write_async(sql, params, signal) do
+    parent = self()
+
+    Task.async(fn ->
+      Repo.transaction(fn ->
+        Repo.query!(sql, params)
+        send(parent, {signal, self()})
+
+        receive do
+          :commit -> :ok
+        after
+          10_000 -> raise "timed out waiting to commit identifier write"
+        end
+
+        :committed
+      end)
+    end)
+  end
+
+  defp run_concurrent_execute(device, source, writer) do
+    manifest_path = temporary_manifest_path("concurrent_source")
+    manifest = Manifest.open(manifest_path, %{test: "concurrent_source"})
+
+    try do
+      runner =
+        Task.async(fn ->
+          ArmisUnmerge.run(
+            :execute,
+            execute_opts(device, source),
+            manifest,
+            SystemActor.system(:concurrent_execute)
+          )
+        end)
+
+      assert wait_for_manifest_entry(manifest_path, "candidate_preflight")
+      assert wait_for_pending_owner_barrier()
+      send(writer.pid, :commit)
+      assert {:ok, :committed} = Task.await(writer, 5_000)
+      Task.await(runner, 15_000)
+    after
+      Manifest.close(manifest)
+      File.rm(manifest_path)
+    end
+  end
+
+  defp wait_for_manifest_entry(path, marker, attempts \\ 200)
+
+  defp wait_for_manifest_entry(_path, _marker, 0), do: false
+
+  defp wait_for_manifest_entry(path, marker, attempts) do
+    case File.read(path) do
+      {:ok, contents} ->
+        if String.contains?(contents, marker) do
+          true
+        else
+          Process.sleep(25)
+          wait_for_manifest_entry(path, marker, attempts - 1)
+        end
+
+      {:error, _reason} ->
+        Process.sleep(25)
+        wait_for_manifest_entry(path, marker, attempts - 1)
+    end
+  end
+
+  defp wait_for_pending_owner_barrier(attempts \\ 200)
+
+  defp wait_for_pending_owner_barrier(0), do: false
+
+  defp wait_for_pending_owner_barrier(attempts) do
+    %{rows: [[waiting]]} =
+      Repo.query!("""
+      SELECT EXISTS (
+        SELECT 1
+        FROM pg_locks
+        WHERE relation = 'platform.device_identifiers'::regclass
+          AND mode = 'ShareRowExclusiveLock'
+          AND NOT granted
+      )
+      """)
+
+    if waiting do
+      true
+    else
+      Process.sleep(25)
+      wait_for_pending_owner_barrier(attempts - 1)
+    end
   end
 
   defp tombstone_as_ghost!(uid) do
@@ -614,6 +1380,17 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     count
   end
 
+  defp unmerge_audit_ids(from_uid) do
+    %{rows: rows} =
+      Repo.query!(
+        "SELECT event_id::text FROM platform.merge_audit " <>
+          "WHERE to_device_id = $1 AND reason = 'unmerge' ORDER BY event_id",
+        [from_uid]
+      )
+
+    Enum.map(rows, fn [event_id] -> event_id end)
+  end
+
   defp device_exists?(uid) do
     %{rows: [[exists]]} =
       Repo.query!("SELECT EXISTS(SELECT 1 FROM platform.ocsf_devices WHERE uid = $1)", [uid])
@@ -671,6 +1448,14 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmergeTest do
     "02#{~c"~10.16.0B" |> :io_lib.format([System.unique_integer([:positive])]) |> to_string()}"
     |> String.slice(0, 12)
     |> String.upcase()
+  end
+
+  defp formatted_lowercase_mac(mac) do
+    mac
+    |> String.downcase()
+    |> String.graphemes()
+    |> Enum.chunk_every(2)
+    |> Enum.map_join(":", &Enum.join/1)
   end
 
   defp maybe_put(map, _key, nil), do: map

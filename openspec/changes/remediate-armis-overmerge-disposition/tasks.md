@@ -30,34 +30,44 @@
 
 ## 3. Detection + pure decision rules
 
-- [x] 3.1 Add detection (bounded per-run `armis_unmerge_candidate_limit`, default 5000; idempotent re-runs converge on the remainder — a split device drops out of candidacy) for
-  mega-devices and the ghost-tombstoned population; assert `blob-purge` has run
-  (zero non-atomic `mac` rows) or normalize in Elixir via `Mac.normalize_mac_list`.
+- [x] 3.1 Add detection (bounded per-run `armis_unmerge_candidate_limit`, default
+  5,000 for dry-run and 25 for execute; idempotent re-runs converge on the
+  remainder because a split device drops out of candidacy) for mega-devices and
+  the ghost-tombstoned population; assert `blob-purge` has run (zero non-atomic
+  `mac` rows) or normalize in Elixir via `Mac.normalize_mac_list`.
 - [x] 3.2 Add pure `Decisions` functions: group a device's universal MACs into
-  target classes, retain the survivor UID, mint each additional target UID via
-  `Ids.generate_deterministic_device_id/1`, and classify unsplittable
-  (MAC-less / local-only / mixed-partition) devices as skipped-with-reason.
+  target classes, retain the survivor UID, mint each additional stable
+  remediation UID from `{armis_id, MAC, partition}`, and classify unsplittable
+  (MAC-less / local-only / mixed-partition) devices as skipped-with-reason. UID
+  parity is asserted only for canonical Armis-only updates; convergence for
+  enriched shapes relies on reassigned typed MAC ownership.
 
 ## 4. `armis-unmerge` remediation step
 
 - [x] 4.1 Implement `Remediation.ArmisUnmerge.run(mode, opts, manifest, actor)`
-  following `agent_links.ex`: per target group materialize a device
-  (adopt-live / `recreate_device` restore-tombstone / create-fresh), move the
-  group's `mac` rows via `DeviceIdentifier :reassign_device` (audited, TTL-reset,
-  `verified` preserved), place `armis_device_id` per 1.2, and write one
+  following the `agent_links.ex` transaction pattern: retain/restore only the
+  source survivor, require additional deterministic targets to be absent and
+  create them fresh, move each group's `mac` rows via `DeviceIdentifier
+  :reassign_device` (audited, TTL-reset, `verified` preserved), place
+  `armis_device_id` per 1.2, and write one
   `merge_audit` `reason: "unmerge"` per split. Dry-run plan vs execute apply.
-- [x] 4.2 `Manifest.record` every device restore/create and identifier reassign
-  (ids only), matching the existing rollback format.
+- [x] 4.2 Sync a write-ahead candidate preflight before mutation, sync exact
+  prepared restore/create/reassign/audit entries before database commit, and
+  sync a committed marker afterward; propagate every manifest failure and
+  create manifests exclusively so rollback evidence is never overwritten.
 - [x] 4.3 Register the step in `DireRemediation` (`@step_order`, `run_step`
   dispatch) after `agent-links`; ship it explicit dry-run-runnable, excluded from
   the default order, and reject execute before any mutation unless a runtime
   signoff gate is enabled. Live-device execution additionally requires paired,
   nonempty device-UID and sync-source-ID allowlists and rejects faker-backed
-  sources.
+  sources. Require typed Arm and independent integration-ID evidence metadata to
+  match that canonical Armis source.
 - [x] 4.4 Expose validated candidate/plan-sample bounds and paired live
   allowlists in the Mix task, print reports for explicitly selected dormant
   steps, and return a failing command status after printing any nonzero execute
-  failure counts.
+  failure counts. Keep dry-run discovery at 5,000 by default but bound execute
+  to 25 candidates, indexed normalized-owner lookups, and fail-closed owner-table
+  lock/statement timeouts.
 
 ## 5. Tests
 

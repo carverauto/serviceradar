@@ -325,8 +325,10 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
   operator must leave live-device execution disabled unless independent
   co-residency evidence validates the split. The **survivor** class keeps the
   existing device and its `armis_device_id`; every other class gets a fresh
-  device with the deterministic UID a veto-gated ingest would mint and is
-  MAC-only.
+  MAC-only device at a remediation-stable UID derived from
+  `{armis_device_id, MAC, partition}`. Future ingest resolves through the moved
+  typed MAC; the UID does not claim parity with enriched update shapes that
+  carry additional strong seeds.
 
     * `device` — `%{uid, mac, armis_device_id, partition, tombstoned?, live_overmerge_verified?}`
     * `mac_rows` — `[%{id, value, last_seen}]`, universal atomic MAC identifier rows
@@ -351,8 +353,21 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
       length(partitions) > 1 ->
         {:skip, :multiple_partitions}
 
-      blank?(device[:armis_device_id]) and (not device[:tombstoned?] or map_size(classes) > 1) ->
+      length(device[:typed_armis_rows] || []) != 1 ->
+        {:skip, :ambiguous_typed_armis_identity}
+
+      blank?(device[:armis_device_id]) ->
         {:skip, :missing_armis_device_id}
+
+      not blank?(device[:metadata_armis_device_id]) and
+          device[:metadata_armis_device_id] != device[:armis_device_id] ->
+        {:skip, :armis_identity_mismatch}
+
+      not device[:tombstoned?] and device[:armis_provenance_valid?] != true ->
+        {:skip, :unproven_armis_identity_source}
+
+      not device[:tombstoned?] and device[:integration_type] != "armis" ->
+        {:skip, :noncanonical_armis_integration}
 
       not device[:tombstoned?] and device[:live_overmerge_verified?] != true ->
         {:skip, :missing_live_overmerge_signal}
@@ -392,8 +407,8 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
 
     survivor_mac = pick_survivor_mac(device, classes, target_uids)
 
-    # A device may already carry the deterministic UID minted for one of its
-    # MAC classes (for example, its display MAC changed after initial ingest).
+    # A device may already carry the remediation-derived UID for one of its MAC
+    # classes (for example, its display MAC changed after initial ingest).
     # Every class that hashes to the existing UID must remain on the survivor;
     # emitting it as a split target would turn the reassignment into a no-op and
     # leave the candidate permanently unconverged.
@@ -438,7 +453,7 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
     }
   end
 
-  # Prefer the class whose deterministic target is already the device UID. The
+  # Prefer the class whose remediation target is already the device UID. The
   # mutable display MAC is only a fallback; selecting it first can emit the true
   # original class as a self-target after the display MAC changes.
   defp pick_survivor_mac(device, classes, target_uids) do
@@ -455,24 +470,23 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
       |> MapSet.to_list()
       |> Enum.find(&Map.has_key?(classes, &1))
 
-    deterministic_uid_mac || device_mac || most_recent_class(classes)
+    deterministic_uid_mac || device_mac || deterministic_fallback_class(classes)
   end
 
-  defp most_recent_class(classes) do
+  # Identifier `last_seen` is a hot TTL field and cannot be a durable plan
+  # input. Use the lowest normalized MAC as the stable fallback when neither
+  # the remediation-derived UID nor the display MAC anchors the survivor.
+  defp deterministic_fallback_class(classes) do
     classes
-    |> Enum.map(fn {mac, rows} ->
-      last_seen = rows |> Enum.map(&datetime_rank(&1[:last_seen])) |> Enum.max(fn -> 0 end)
-      {mac, last_seen}
-    end)
-    |> Enum.sort_by(fn {mac, last_seen} -> {-last_seen, mac} end)
+    |> Map.keys()
+    |> Enum.sort()
     |> List.first()
-    |> elem(0)
   end
 
-  # The UID a veto-gated ingest of this hardware would mint: deterministic over
-  # {armis_id, class MAC, partition}. Distinct per class (same armis id, different
-  # MAC) and reproducible, so a later real ingest of that MAC re-resolves to the
-  # same reconstructed device by its strong :mac match.
+  # Stable remediation UID over {armis_id, class MAC, partition}. This matches
+  # the canonical Armis-only ingest shape, but enriched updates can carry extra
+  # strong seeds and hash differently. Later ingest still resolves to the
+  # reconstructed device through the reassigned strong :mac identifier.
   defp armis_split_uid(device, mac, partition) do
     Ids.generate_deterministic_device_id(%{
       armis_id: device[:armis_device_id],

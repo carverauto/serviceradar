@@ -30,9 +30,11 @@ whole design:
 ## Goals
 
 - Reconstruct per-hardware devices from a mega-device's distinct universal-MAC
-  groups, retaining the existing survivor UID and minting each additional
-  split UID exactly as a veto-gated ingest would
-  (`Ids.generate_deterministic_device_id/1`).
+  groups, retaining the existing survivor UID and minting each additional split
+  at a stable remediation UID derived from `{armis_id, MAC, partition}`. This
+  equals the canonical Armis-only ingest hash, but does not claim UID parity for
+  enriched historical updates whose lost co-occurrence included other strong
+  seeds.
 - Rescue the ~389k orphaned sole-copy `mac` rows onto their reconstructed
   devices via the audited, TTL-resetting `DeviceIdentifier :reassign_device`
   before the TTL GC could ever reach them (reassign-before-delete).
@@ -59,19 +61,36 @@ whole design:
 
 ### Reconstruct from current DB state, mirroring `agent_links.ex`
 
-The new `ArmisUnmerge` step copies the `agent_links` blueprint, keyed on distinct
-universal MAC instead of agent→host: for each mega-device, derive the target
-groups, then per group choose a target device in order **adopt-live /
-restore-tombstone (`recreate_device`) / create-fresh**, move that group's `mac`
-identifier rows via `:reassign_device`, and write one `merge_audit`
+The new `ArmisUnmerge` step follows the `agent_links` transaction blueprint,
+keyed on distinct universal MAC instead of agent→host. The source device is the
+only row that may be retained or restored. Every additional deterministic target
+UID must be absent and is created fresh; an existing target is ambiguous and
+fails closed for manual review. The step moves each class's `mac` rows via
+`:reassign_device` and writes one `merge_audit`
 `reason: "unmerge", source: "dire_remediation"` row per split to arm the per-pair
-re-collapse cooldown. All within an `Ash.transaction`; `Manifest.record` every
-device restore/create and every identifier reassignment (ids only).
+re-collapse cooldown. Before mutation it locks the source device, all source
+identifier rows, the integration source, and global normalized/display MAC and
+typed Armis owners, then compares the exact ownership snapshot
+`{id,type,value,partition}`. The semantic identifier provenance keys are
+recomputed under lock; hot timestamps and unrelated metadata are deliberately
+excluded. A short `SHARE ROW EXCLUSIVE` barrier on both owner tables prevents
+ordinary ingest DML from racing absence checks. Canonical owners use the
+existing B-tree and legacy/display normalized tokens use concurrent GIN indexes;
+lock acquisition is capped at 5 seconds and candidate statements at 30 seconds.
+A synced manifest preflight precedes the transaction; exact prepared actions,
+including generated merge-audit IDs, are synced before database commit and a
+synced committed marker follows it. Manifest files are created exclusively and
+never overwrite prior rollback evidence.
 
 ### Detection = one Armis-keyed device with ≥2 distinct universal atomic MACs
 
-Grouping key copied verbatim from `armis_dups` (`COALESCE(metadata->>'armis_device_id',
-armis_device_id identifier)`); universal filter = atomic 12-hex `mac` rows whose
+The typed `armis_device_id` row is authoritative and must have exactly one owner;
+optional metadata must agree with it. Live candidates additionally require
+canonical `metadata.integration_type = 'armis'`, an Armis integration source,
+and at least two distinct `integration_id` rows whose identifier metadata names
+that same source and `integration_type = 'armis'`. The typed Armis row must carry
+the same provenance. Unscoped AWX, plugin, or other-source identifiers are not
+evidence. The universal filter is uppercase atomic 12-hex `mac` rows whose
 2nd hex char ∉ {2,3,6,7,A,B,E,F}. `≥2` is the floor, not a scalpel — the report
 surfaces the full MAC-count distribution so an operator sets an informed
 threshold (genuine multi-NIC hosts also clear `≥2`; mega-devices show dozens to
@@ -79,18 +98,20 @@ hundreds). Detection runs only after `blob-purge` has atomized blob-hidden MACs;
 the step asserts zero non-atomic `mac` rows remain (or normalizes in Elixir via
 `Mac.normalize_mac_list`).
 
-### New split UIDs match the veto-derived UID
+### New split UIDs are stable remediation identifiers
 
 The survivor class retains the existing device UID so references and the sole
 `armis_device_id` owner remain stable. For every additional class,
 `Ids.generate_deterministic_device_id/1` over reconstructed
-`{armis_id, class MAC, partition}` yields a distinct, reproducible `sr:` UID —
-the same one a fresh veto-gated ingest of that hardware resolves to by strong
-`:mac` match. If the existing UID already equals one class's deterministic UID,
-that class is forced to remain on the survivor so the plan never emits a
-self-target. This makes re-runs converge and keeps later observations routed to
-the same reconstructed owner. It does not automatically rejoin MAC classes that
-belong to one multi-NIC host.
+`{armis_id, class MAC, partition}` yields a distinct, reproducible `sr:` UID.
+Canonical Armis-only updates hash those same seeds, but updates carrying an
+agent, integration, or NetBox seed can hash differently; historical flattened
+rows no longer preserve which extra seeds co-occurred with each MAC, so the
+disposition makes no broader parity claim. If the existing UID already equals
+one class's remediation UID, that class remains on the survivor so the plan
+never emits a self-target. Re-runs converge, and later observations route to the
+same reconstructed owner through the reassigned strong `mac` identifier. This
+does not automatically rejoin MAC classes that belong to one multi-NIC host.
 
 ### `armis_device_id` disposition — survivor keeps it, other classes are MAC-only
 
@@ -98,8 +119,8 @@ To avoid creating a **new** `typed_id_on_multiple_devices` conflict (which the
 Armis northbound runner now skips on), the `armis_device_id` identifier must land
 on **exactly one** reconstructed device. Recommended default (mirroring
 `armis_dups`' protected-owner ranking): the survivor class is the one carrying
-the device's genuine/agent-bound MAC (or, absent one, the most-recently-seen
-universal MAC); it keeps the `armis_device_id`. The other reconstructed classes
+the device's genuine/agent-bound MAC (or, absent one, the lexically-lowest
+normalized universal MAC); it keeps the `armis_device_id`. The other reconstructed classes
 are MAC-only hardware devices with no Armis identity. **This is the primary
 decision needing operator confirmation** (see Open Questions) — the alternative
 (drop `armis_device_id` from all split devices, keeping it only on the
@@ -144,11 +165,14 @@ first ships the step.
   and cross-check a second over-merge signal (e.g. distinct `integration_id` per
   the June-2026 live forensics) before splitting. Live-device splitting is
   therefore gated behind the live scoping in Task 1.
-- **Operator noise / partial completion.** Reconstructed MAC-only devices with
+- **Operator noise / partial completion.** Execute defaults to a bounded 25
+  candidates per run (dry-run remains 5,000); larger explicit batches still use
+  indexed owner checks and fail-closed lock/statement timeouts. Reconstructed MAC-only devices with
   no other evidence may look sparse in the UI. This is strictly better than
   frozen ghost data, but the report must make the before/after shape explicit.
-- **Rollback.** Every restore/create/reassign is manifest-recorded (ids only);
-  an operator can target-reverse any single action. The per-split `unmerge`
+- **Rollback.** Every candidate has a durable preflight, prepared action set,
+  and committed marker in the manifest (ids only). Prepared entries without a
+  committed marker are conservatively reviewable after a crash. The per-split `unmerge`
   audit + standing veto prevent immediate re-collapse.
 
 ## Migration Plan

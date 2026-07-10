@@ -57,7 +57,11 @@ defmodule ServiceRadar.Inventory.MergeAudit do
     read :merged_from do
       description "Get all devices that were merged into a canonical device"
       argument :to_device_id, :string, allow_nil?: false
-      filter expr(to_device_id == ^arg(:to_device_id))
+
+      filter expr(
+               to_device_id == ^arg(:to_device_id) and
+                 (is_nil(reason) or reason != "unmerge")
+             )
     end
 
     read :merged_to do

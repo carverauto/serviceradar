@@ -289,11 +289,17 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
     @local_mac "02EA1432D278"
 
     defp mega_device(overrides \\ %{}) do
+      armis_id = Map.get(overrides, :armis_device_id, "armis-777")
+
       Map.merge(
         %{
           uid: "sr:mega",
           mac: nil,
-          armis_device_id: "armis-777",
+          armis_device_id: armis_id,
+          metadata_armis_device_id: armis_id,
+          typed_armis_rows: [%{id: "armis-row", value: armis_id}],
+          armis_provenance_valid?: true,
+          integration_type: "armis",
           partition: "default",
           tombstoned?: false,
           live_overmerge_verified?: true
@@ -327,6 +333,39 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
                  mega_device(%{live_overmerge_verified?: false}),
                  rows
                )
+    end
+
+    test "typed Armis ownership must be exact and agree with metadata" do
+      rows = [row("i1", @mac_a), row("i2", @mac_b)]
+
+      assert {:skip, :ambiguous_typed_armis_identity} =
+               Decisions.plan_armis_unmerge(mega_device(%{typed_armis_rows: []}), rows)
+
+      assert {:skip, :ambiguous_typed_armis_identity} =
+               Decisions.plan_armis_unmerge(
+                 mega_device(%{
+                   typed_armis_rows: [
+                     %{id: "armis-1", value: "armis-777"},
+                     %{id: "armis-2", value: "armis-778"}
+                   ]
+                 }),
+                 rows
+               )
+
+      assert {:skip, :armis_identity_mismatch} =
+               Decisions.plan_armis_unmerge(
+                 mega_device(%{metadata_armis_device_id: "armis-other"}),
+                 rows
+               )
+
+      assert {:skip, :unproven_armis_identity_source} =
+               Decisions.plan_armis_unmerge(
+                 mega_device(%{armis_provenance_valid?: false}),
+                 rows
+               )
+
+      assert {:skip, :noncanonical_armis_integration} =
+               Decisions.plan_armis_unmerge(mega_device(%{integration_type: "custom"}), rows)
     end
 
     test "a tombstoned ghost with one universal MAC still plans a restore (sole-copy rescue)" do
@@ -380,7 +419,28 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
       refute Enum.map(plan3.splits, & &1.new_uid) == Enum.map(plan1.splits, & &1.new_uid)
     end
 
-    test "the deterministic original-UID class survives even when device.mac changed" do
+    test "target UID parity is limited to canonical Armis-only update shapes" do
+      rows = [row("i1", @mac_a), row("i2", @mac_b)]
+      {:split, plan} = Decisions.plan_armis_unmerge(mega_device(%{mac: @mac_a}), rows)
+      split = Enum.find(plan.splits, &(&1.mac == @mac_b))
+
+      canonical_ids =
+        Ids.extract_strong_identifiers(%{
+          mac: @mac_b,
+          partition: "default",
+          metadata: %{
+            "integration_type" => "armis",
+            "armis_device_id" => "armis-777"
+          }
+        })
+
+      enriched_ids = put_in(canonical_ids.agent_id, "agent-strong-seed")
+
+      assert Ids.generate_deterministic_device_id(canonical_ids) == split.new_uid
+      refute Ids.generate_deterministic_device_id(enriched_ids) == split.new_uid
+    end
+
+    test "the remediation-derived UID class survives even when device.mac changed" do
       existing_uid =
         Ids.generate_deterministic_device_id(%{
           armis_id: "armis-777",
@@ -402,26 +462,25 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
       assert Enum.sort(Enum.map(plan.splits, & &1.mac)) == Enum.sort([@mac_b, @mac_c])
     end
 
-    test "without a device MAC anchor the most-recently-seen class survives, ties lexicographic" do
+    test "without a device MAC anchor the lexical class survives timestamp-only churn" do
       newer = DateTime.utc_now()
       older = DateTime.add(newer, -3600, :second)
 
-      {:split, plan} =
+      {:split, first_plan} =
+        Decisions.plan_armis_unmerge(mega_device(), [
+          row("i1", @mac_a, newer),
+          row("i2", @mac_b, older)
+        ])
+
+      {:split, churned_plan} =
         Decisions.plan_armis_unmerge(mega_device(), [
           row("i1", @mac_a, older),
           row("i2", @mac_b, newer)
         ])
 
-      assert plan.survivor.mac == @mac_b
-
-      # Equal last_seen -> lexicographically smallest value, deterministic re-runs.
-      {:split, tie_plan} =
-        Decisions.plan_armis_unmerge(mega_device(), [
-          row("i1", @mac_a, newer),
-          row("i2", @mac_b, newer)
-        ])
-
-      assert tie_plan.survivor.mac == Enum.min([@mac_a, @mac_b])
+      assert first_plan.survivor.mac == Enum.min([@mac_a, @mac_b])
+      assert churned_plan.survivor == first_plan.survivor
+      assert churned_plan.splits == first_plan.splits
     end
 
     test "non-atomic (blob) rows are ignored by the planner — blob-purge runs first" do

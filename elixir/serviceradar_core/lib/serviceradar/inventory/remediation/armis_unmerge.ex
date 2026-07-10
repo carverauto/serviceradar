@@ -18,9 +18,9 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
   by design, so later multi-MAC ingest does not automatically rejoin those
   classes; live execution therefore requires an explicit source and device
   allowlist backed by independent operator evidence. The **survivor** class
-  keeps the existing device (adopting a live one, restoring a tombstoned ghost)
-  and its `armis_device_id`; every other class gets a fresh device with the deterministic
-  UID a veto-gated ingest would mint and receives that class's MAC identifier rows
+  keeps the existing source device (or restores that source when it is a ghost)
+  and its `armis_device_id`; every other class requires an absent, remediation-
+  stable target UID, gets a fresh device, and receives that class's MAC identifier rows
   via the audited, TTL-resetting `DeviceIdentifier :reassign_device` — which is
   simultaneously the reassign-before-delete rescue for the ~389k sole-copy MAC
   rows orphaned onto `armis_source_device_id_ghost_cleanup` tombstones.
@@ -32,9 +32,10 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
       holding any universal MAC (orphaned hardware to re-home).
 
   Each candidate is applied in one database transaction after locking and
-  revalidating the source device, its complete universal-MAC row set, and every
-  existing target. A stale plan or partial failure rolls back the whole
-  candidate. Manifest entries are written only after commit. One `merge_audit`
+  revalidating the source device, its complete identifier set, and every global
+  MAC/Armis owner. Existing split targets, stale plans, and partial failures roll
+  back the whole candidate. A durable manifest preflight and prepared action set
+  are synced before commit, followed by a synced committed marker. One `merge_audit`
   `reason: "unmerge"` row per split arms the symmetric per-pair re-collapse
   cooldown without creating a survivor-to-split canonical redirect.
 
@@ -51,6 +52,7 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.MergeAudit
   alias ServiceRadar.Inventory.Remediation.Decisions
   alias ServiceRadar.Inventory.Remediation.Manifest
@@ -61,21 +63,29 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
 
   @step "armis-unmerge"
   @default_plan_sample_limit 50
-  @default_candidate_limit 5_000
+  @default_dry_run_candidate_limit 5_000
+  @default_execute_candidate_limit 25
   @transaction_resources [Device, DeviceIdentifier, MergeAudit]
 
   # Atomic, universally-administered MAC identifier rows (2nd hex char of a
   # universal MAC is never in the locally-administered set). Kept in one place so
   # detection cannot drift from `Identity.Mac.universal_macs/1`.
+  @canonical_mac_pattern ~r/^[0-9A-F]{12}$/
   @universal_mac_filter "identifier_type = 'mac' " <>
-                          "AND identifier_value ~ '^[0-9A-Fa-f]{12}$' " <>
+                          "AND identifier_value ~ '^[0-9A-F]{12}$' " <>
                           "AND substr(upper(identifier_value), 2, 1) " <>
                           "NOT IN ('2','3','6','7','A','B','E','F')"
 
   @doc false
   def run(mode, opts, manifest, actor) do
     sample_limit = Keyword.get(opts, :armis_unmerge_plan_sample_limit, @default_plan_sample_limit)
-    candidate_limit = Keyword.get(opts, :armis_unmerge_candidate_limit, @default_candidate_limit)
+
+    default_candidate_limit =
+      if mode == :execute,
+        do: @default_execute_candidate_limit,
+        else: @default_dry_run_candidate_limit
+
+    candidate_limit = Keyword.get(opts, :armis_unmerge_candidate_limit, default_candidate_limit)
 
     devices = detect_candidates(candidate_limit, mode, opts)
     preconditions = detect_preconditions(candidate_limit, mode, opts)
@@ -134,13 +144,14 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
             blocked_execution_report(base, :blob_purge_precondition_failed)
 
           true ->
-            {applied, failed, reassigned, created} =
+            {applied, failed, reassigned, created, manifest_failures} =
               execute_splits(execution_splits, manifest, actor)
 
             Map.merge(base, %{
               execution_blocked: false,
               applied_splits: applied,
               split_failures: failed,
+              manifest_failures: manifest_failures,
               applied_new_devices: created,
               applied_identifier_reassignments: reassigned
             })
@@ -163,38 +174,26 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
           GROUP BY device_id
         )
         SELECT d.uid,
-               COALESCE(NULLIF(d.metadata->>'armis_device_id', ''), di.identifier_value) AS armis_device_id,
+               NULLIF(d.metadata->>'armis_device_id', '') AS metadata_armis_device_id,
                d.mac AS device_mac,
                (d.deleted_at IS NOT NULL) AS tombstoned,
+               d.deleted_reason,
                universal.n AS universal_mac_count,
                d.hostname,
                NULLIF(d.metadata->>'sync_service_id', '') AS sync_service_id,
-               COALESCE(integration_ids.n, 0) AS integration_id_count,
-               (
-                 upper(COALESCE(d.hostname, '')) LIKE 'FAKER-%'
-                 OR lower(COALESCE(src.name, '')) LIKE '%faker%'
-                 OR lower(COALESCE(src.endpoint, '')) LIKE '%serviceradar-faker%'
-               ) AS faker_source
+               NULLIF(d.metadata->>'integration_type', '') AS integration_type,
+               COALESCE(d.discovery_sources, ARRAY[]::text[]) AS discovery_sources,
+               src.source_type::text,
+               src.name,
+               src.endpoint
         FROM platform.ocsf_devices d
         JOIN universal ON universal.device_id = d.uid
-        LEFT JOIN LATERAL (
-          SELECT identifier_value
-          FROM platform.device_identifiers
-          WHERE device_id = d.uid AND identifier_type = 'armis_device_id'
-          LIMIT 1
-        ) di ON true
-        LEFT JOIN LATERAL (
-          SELECT count(DISTINCT identifier_value) AS n
-          FROM platform.device_identifiers
-          WHERE device_id = d.uid AND identifier_type = 'integration_id'
-        ) integration_ids ON true
         LEFT JOIN platform.integration_sources src
           ON src.id::text = NULLIF(d.metadata->>'sync_service_id', '')
         WHERE (
           (
             d.deleted_at IS NULL
-            AND ('armis' = ANY(d.discovery_sources)
-                 OR COALESCE(d.metadata->>'integration_type', '') = 'armis')
+            AND COALESCE(d.metadata->>'integration_type', '') = 'armis'
             AND universal.n >= 2
           )
           OR (d.deleted_reason = 'armis_source_device_id_ghost_cleanup' AND universal.n >= 1)
@@ -207,33 +206,81 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
       )
 
     uids = Enum.map(rows, fn [uid | _] -> uid end)
-    mac_rows_by_device = load_universal_mac_rows(uids)
+    identifier_rows_by_device = load_candidate_identifier_rows(uids)
 
     Enum.map(rows, fn [
                         uid,
-                        armis_id,
+                        metadata_armis_id,
                         device_mac,
                         tombstoned,
+                        deleted_reason,
                         universal_mac_count,
                         hostname,
                         sync_service_id,
-                        integration_id_count,
-                        faker_source
+                        integration_type,
+                        discovery_sources,
+                        source_type,
+                        source_name,
+                        source_endpoint
                       ] ->
-      mac_rows = Map.get(mac_rows_by_device, uid, [])
+      identifier_rows = Map.get(identifier_rows_by_device, uid, [])
+      typed_armis_rows = Enum.filter(identifier_rows, &(&1.type == "armis_device_id"))
+      integration_rows = Enum.filter(identifier_rows, &(&1.type == "integration_id"))
+      all_mac_rows = Enum.filter(identifier_rows, &(&1.type == "mac"))
+      mac_rows = Enum.filter(all_mac_rows, &canonical_universal_mac_row?/1)
+      sync_service_id = normalize_string(sync_service_id)
+
+      typed_armis_id =
+        case typed_armis_rows do
+          [%{value: value}] -> normalize_string(value)
+          _ -> nil
+        end
+
+      integration_ids =
+        integration_rows
+        |> Enum.filter(&identifier_matches_armis_source?(&1, sync_service_id))
+        |> Enum.map(&normalize_string(&1.value))
+        |> Enum.reject(&is_nil/1)
+        |> Enum.uniq()
+        |> Enum.sort()
+
+      metadata_armis_id = normalize_string(metadata_armis_id)
+      hostname = normalize_string(hostname)
+
+      armis_provenance_valid? =
+        tombstoned or
+          case typed_armis_rows do
+            [row] -> identifier_matches_armis_source?(row, sync_service_id)
+            _ -> false
+          end
 
       %{
         uid: uid,
         mac: device_mac,
-        armis_device_id: normalize_string(armis_id),
-        hostname: normalize_string(hostname),
-        sync_service_id: normalize_string(sync_service_id),
-        faker_source?: faker_source,
-        live_overmerge_verified?: tombstoned or integration_id_count >= 2,
+        armis_device_id: typed_armis_id,
+        metadata_armis_device_id: metadata_armis_id,
+        typed_armis_rows: typed_armis_rows,
+        armis_provenance_valid?: armis_provenance_valid?,
+        hostname: hostname,
+        sync_service_id: sync_service_id,
+        integration_type: normalize_string(integration_type),
+        discovery_sources: normalize_string_list(discovery_sources),
+        source_type: normalize_string(source_type),
+        source_name: normalize_string(source_name),
+        source_endpoint: normalize_string(source_endpoint),
+        deleted_reason: normalize_string(deleted_reason),
+        faker_source?:
+          faker_hostname?(hostname) or faker_text?(source_name) or
+            faker_endpoint?(source_endpoint),
+        live_overmerge_verified?:
+          tombstoned or (length(integration_ids) >= 2 and source_type == "armis"),
+        integration_ids: integration_ids,
         universal_mac_count: universal_mac_count,
         partition: dominant_partition(mac_rows),
         tombstoned?: tombstoned,
-        mac_rows: Enum.map(mac_rows, &Map.take(&1, [:id, :value, :last_seen, :partition]))
+        identifier_snapshot:
+          Enum.map(identifier_rows, &Map.take(&1, [:id, :type, :value, :partition])),
+        mac_rows: Enum.map(mac_rows, &Map.take(&1, [:id, :value, :partition]))
       }
     end)
   end
@@ -322,8 +369,7 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
           WHERE (
             (
               d.deleted_at IS NULL
-              AND ('armis' = ANY(d.discovery_sources)
-                   OR COALESCE(d.metadata->>'integration_type', '') = 'armis')
+              AND COALESCE(d.metadata->>'integration_type', '') = 'armis'
             )
             OR d.deleted_reason = 'armis_source_device_id_ghost_cleanup'
           )
@@ -334,7 +380,7 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
                  count(di.id) FILTER (WHERE di.identifier_type = 'mac') AS mac_rows,
                  count(di.id) FILTER (
                    WHERE di.identifier_type = 'mac'
-                     AND di.identifier_value !~ '^[0-9A-Fa-f]{12}$'
+                     AND di.identifier_value !~ '^[0-9A-F]{12}$'
                  ) AS invalid_rows,
                  count(di.id) FILTER (WHERE #{@universal_mac_filter}) AS universal_rows
           FROM candidate_devices cd
@@ -373,15 +419,18 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
     runtime_enabled? and Keyword.get(opts, :armis_unmerge_execute_enabled, false)
   end
 
-  defp load_universal_mac_rows([]), do: %{}
+  defp load_candidate_identifier_rows([]), do: %{}
 
-  defp load_universal_mac_rows(uids) do
+  defp load_candidate_identifier_rows(uids) do
     %{rows: rows} =
       query!(
         """
-        SELECT id, device_id, upper(identifier_value) AS mac, last_seen, partition
+        SELECT id, device_id, identifier_type::text, identifier_value, partition,
+               NULLIF(metadata->>'sync_service_id', ''),
+               NULLIF(metadata->>'integration_type', '')
         FROM platform.device_identifiers
-        WHERE device_id = ANY($1) AND #{@universal_mac_filter}
+        WHERE device_id = ANY($1)
+        ORDER BY device_id, identifier_type, id
         """,
         [uids]
       )
@@ -390,8 +439,15 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
     |> Enum.group_by(fn [_id, device_id | _] -> device_id end)
     |> Map.new(fn {device_id, device_rows} ->
       {device_id,
-       Enum.map(device_rows, fn [id, _dev, mac, last_seen, partition] ->
-         %{id: id, value: mac, last_seen: to_datetime(last_seen), partition: partition}
+       Enum.map(device_rows, fn [id, _dev, type, value, partition, source_id, integration_type] ->
+         %{
+           id: id,
+           type: type,
+           value: value,
+           partition: partition,
+           source_id: normalize_string(source_id),
+           integration_type: normalize_string(integration_type)
+         }
        end)}
     end)
   end
@@ -439,6 +495,7 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
       execution_blocked_reason: to_string(reason),
       applied_splits: 0,
       split_failures: 0,
+      manifest_failures: 0,
       applied_new_devices: 0,
       applied_identifier_reassignments: 0
     })
@@ -447,26 +504,77 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
   # -- execute --------------------------------------------------------------
 
   defp execute_splits(splits, manifest, actor) do
-    Enum.reduce(splits, {0, 0, 0, 0}, fn {device, plan}, {applied, failed, reassigns, created} ->
-      case apply_split(device, plan, manifest, actor) do
-        {:ok, %{reassigned: r, created: c}} ->
-          {applied + 1, failed, reassigns + r, created + c}
+    Enum.reduce_while(
+      splits,
+      {0, 0, 0, 0, 0},
+      fn {device, plan}, {applied, failed, reassigns, created, manifest_failures} ->
+        case apply_split(device, plan, manifest, actor) do
+          {:ok, %{reassigned: r, created: c}} ->
+            {:cont, {applied + 1, failed, reassigns + r, created + c, manifest_failures}}
 
-        {:error, error} ->
-          Logger.warning("ArmisUnmerge: split of #{device.uid} failed: #{inspect(error)}")
-          {applied, failed + 1, reassigns, created}
+          {:error, {:manifest_preflight_failed, error}} ->
+            Logger.warning(
+              "ArmisUnmerge: manifest preflight for #{device.uid} failed: #{inspect(error)}"
+            )
+
+            {:halt, {applied, failed + 1, reassigns, created, manifest_failures + 1}}
+
+          {:committed_manifest_error, %{reassigned: r, created: c}, error} ->
+            Logger.error(
+              "ArmisUnmerge: split of #{device.uid} committed but manifest marker failed: #{inspect(error)}"
+            )
+
+            {:halt, {applied + 1, failed + 1, reassigns + r, created + c, manifest_failures + 1}}
+
+          {:error, {:manifest_prepare_failed, error}} ->
+            Logger.warning(
+              "ArmisUnmerge: prepared manifest for #{device.uid} failed: #{inspect(error)}"
+            )
+
+            {:halt, {applied, failed + 1, reassigns, created, manifest_failures + 1}}
+
+          {:error, error} ->
+            if manifest_prepare_failure?(error) do
+              Logger.warning(
+                "ArmisUnmerge: prepared manifest for #{device.uid} failed: #{inspect(error)}"
+              )
+
+              {:halt, {applied, failed + 1, reassigns, created, manifest_failures + 1}}
+            else
+              Logger.warning("ArmisUnmerge: split of #{device.uid} failed: #{inspect(error)}")
+              {:cont, {applied, failed + 1, reassigns, created, manifest_failures}}
+            end
+        end
       end
-    end)
+    )
   end
 
   defp lock_and_revalidate_candidate(device, plan) do
     with :ok <- validate_plan_shape(device, plan),
+         :ok <- acquire_owner_mutation_barrier(),
          {:ok, current_device} <- lock_source_device(device.uid),
          :ok <- validate_source_state(device, plan, current_device),
          :ok <- validate_live_source(device, current_device),
-         :ok <- lock_and_validate_identifier_ownership(device.uid, plan) do
+         :ok <- lock_and_validate_identifier_ownership(device, plan),
+         :ok <- lock_and_validate_global_mac_owners(device.uid, plan) do
       lock_and_validate_targets(plan)
     end
+  end
+
+  # Ordinary ingest does not participate in this step's advisory locks. These
+  # short maintenance locks conflict with INSERT/UPDATE/DELETE on both owner
+  # tables, making the subsequent global absence predicates a real barrier.
+  defp acquire_owner_mutation_barrier do
+    query!("SELECT set_config('lock_timeout', $1, true)", ["5s"])
+    query!("SELECT set_config('statement_timeout', $1, true)", ["30s"])
+
+    query!(
+      "LOCK TABLE platform.ocsf_devices, platform.device_identifiers " <>
+        "IN SHARE ROW EXCLUSIVE MODE",
+      []
+    )
+
+    :ok
   end
 
   defp validate_plan_shape(device, plan) do
@@ -499,8 +607,11 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
     %{rows: rows} =
       query!(
         """
-        SELECT (deleted_at IS NOT NULL), hostname,
-               NULLIF(metadata->>'sync_service_id', '')
+        SELECT (deleted_at IS NOT NULL), deleted_reason, hostname, mac,
+               NULLIF(metadata->>'sync_service_id', ''),
+               NULLIF(metadata->>'armis_device_id', ''),
+               NULLIF(metadata->>'integration_type', ''),
+               COALESCE(discovery_sources, ARRAY[]::text[])
         FROM platform.ocsf_devices
         WHERE uid = $1
         FOR UPDATE
@@ -509,12 +620,28 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
       )
 
     case rows do
-      [[tombstoned, hostname, sync_service_id]] ->
+      [
+        [
+          tombstoned,
+          deleted_reason,
+          hostname,
+          mac,
+          sync_service_id,
+          metadata_armis_device_id,
+          integration_type,
+          discovery_sources
+        ]
+      ] ->
         {:ok,
          %{
            tombstoned?: tombstoned,
+           deleted_reason: normalize_string(deleted_reason),
            hostname: normalize_string(hostname),
-           sync_service_id: normalize_string(sync_service_id)
+           mac: mac,
+           sync_service_id: normalize_string(sync_service_id),
+           metadata_armis_device_id: normalize_string(metadata_armis_device_id),
+           integration_type: normalize_string(integration_type),
+           discovery_sources: normalize_string_list(discovery_sources)
          }}
 
       _ ->
@@ -525,10 +652,27 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
   defp validate_source_state(device, plan, current) do
     expected_tombstoned? = device.tombstoned? and plan.survivor.action == :restore
 
-    if current.tombstoned? == expected_tombstoned? do
-      :ok
-    else
-      {:error, :source_device_state_changed}
+    cond do
+      current.tombstoned? != expected_tombstoned? ->
+        {:error, :source_device_state_changed}
+
+      current.deleted_reason != device.deleted_reason ->
+        {:error, :source_deleted_reason_changed}
+
+      current.mac != device.mac ->
+        {:error, :source_display_mac_changed}
+
+      current.metadata_armis_device_id != device.metadata_armis_device_id ->
+        {:error, :source_armis_metadata_changed}
+
+      current.integration_type != device.integration_type ->
+        {:error, :source_integration_type_changed}
+
+      current.discovery_sources != device.discovery_sources ->
+        {:error, :source_discovery_sources_changed}
+
+      true ->
+        :ok
     end
   end
 
@@ -539,6 +683,9 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
       current.sync_service_id != device.sync_service_id ->
         {:error, :source_identity_changed}
 
+      current.integration_type != "armis" ->
+        {:error, :noncanonical_armis_integration}
+
       faker_hostname?(current.hostname) ->
         {:error, :faker_source_forbidden}
 
@@ -546,15 +693,15 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
         {:error, :live_source_missing}
 
       true ->
-        lock_and_validate_integration_source(current.sync_service_id)
+        lock_and_validate_integration_source(device, current.sync_service_id)
     end
   end
 
-  defp lock_and_validate_integration_source(source_id) do
+  defp lock_and_validate_integration_source(device, source_id) do
     %{rows: rows} =
       query!(
         """
-        SELECT name, endpoint
+        SELECT source_type::text, name, endpoint
         FROM platform.integration_sources
         WHERE id::text = $1
         FOR UPDATE
@@ -563,31 +710,72 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
       )
 
     case rows do
-      [[name, endpoint]] ->
-        if faker_text?(name) or faker_endpoint?(endpoint),
-          do: {:error, :faker_source_forbidden},
-          else: :ok
+      [[source_type, name, endpoint]] ->
+        cond do
+          source_type != "armis" ->
+            {:error, :non_armis_integration_source}
+
+          normalize_string(source_type) != device.source_type or
+            normalize_string(name) != device.source_name or
+              normalize_string(endpoint) != device.source_endpoint ->
+            {:error, :integration_source_changed}
+
+          faker_text?(name) or faker_endpoint?(endpoint) ->
+            {:error, :faker_source_forbidden}
+
+          true ->
+            :ok
+        end
 
       _ ->
         {:error, :live_source_missing}
     end
   end
 
-  defp lock_and_validate_identifier_ownership(source_uid, plan) do
+  defp lock_and_validate_identifier_ownership(device, plan) do
     %{rows: rows} =
       query!(
         """
-        SELECT id, upper(identifier_value)
+        SELECT id, identifier_type::text, identifier_value, partition,
+               NULLIF(metadata->>'sync_service_id', ''),
+               NULLIF(metadata->>'integration_type', '')
         FROM platform.device_identifiers
-        WHERE device_id = $1 AND #{@universal_mac_filter}
-        ORDER BY id
+        WHERE device_id = $1
+        ORDER BY identifier_type, id
         FOR UPDATE
         """,
-        [source_uid]
+        [device.uid]
       )
 
-    actual_by_id = Map.new(rows, fn [id, mac] -> {id, mac} end)
-    actual_ids = actual_by_id |> Map.keys() |> MapSet.new()
+    actual =
+      Enum.map(rows, fn [id, type, value, partition, source_id, integration_type] ->
+        %{
+          id: id,
+          type: type,
+          value: value,
+          partition: partition,
+          source_id: normalize_string(source_id),
+          integration_type: normalize_string(integration_type)
+        }
+      end)
+
+    actual_snapshot = Enum.map(actual, &Map.take(&1, [:id, :type, :value, :partition]))
+
+    typed_armis_rows = Enum.filter(actual, &(&1.type == "armis_device_id"))
+
+    integration_ids =
+      actual
+      |> Enum.filter(&(&1.type == "integration_id"))
+      |> Enum.filter(&identifier_matches_armis_source?(&1, device.sync_service_id))
+      |> Enum.map(&normalize_string(&1.value))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    mac_rows = Enum.filter(actual, &(&1.type == "mac"))
+    universal_rows = Enum.filter(mac_rows, &canonical_universal_mac_row?/1)
+    actual_by_id = Map.new(universal_rows, &{&1.id, &1.value})
+    actual_ids = MapSet.new(Map.keys(actual_by_id))
 
     expected_ids =
       plan.survivor.row_ids
@@ -595,6 +783,29 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
       |> MapSet.new()
 
     cond do
+      actual_snapshot != device.identifier_snapshot ->
+        {:error, :source_identifier_snapshot_changed}
+
+      length(typed_armis_rows) != 1 or hd(typed_armis_rows).value != plan.armis_device_id ->
+        {:error, :ambiguous_typed_armis_identity}
+
+      not device.tombstoned? and
+          not identifier_matches_armis_source?(hd(typed_armis_rows), device.sync_service_id) ->
+        {:error, :unproven_armis_identity_source}
+
+      not is_nil(device.metadata_armis_device_id) and
+          device.metadata_armis_device_id != hd(typed_armis_rows).value ->
+        {:error, :armis_identity_mismatch}
+
+      not device.tombstoned? and length(integration_ids) < 2 ->
+        {:error, :missing_live_overmerge_signal}
+
+      integration_ids != device.integration_ids ->
+        {:error, :integration_identity_changed}
+
+      Enum.any?(mac_rows, &(not canonical_mac_row?(&1))) ->
+        {:error, :noncanonical_mac_identifier}
+
       actual_ids != expected_ids ->
         {:error, :identifier_ownership_changed}
 
@@ -608,12 +819,91 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
     end
   end
 
+  defp lock_and_validate_global_mac_owners(source_uid, plan) do
+    macs =
+      [plan.survivor.mac | Enum.map(plan.splits, & &1.mac)]
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    Enum.each(macs, fn mac ->
+      query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [mac])
+    end)
+
+    %{rows: canonical_identifier_owners} =
+      query!(
+        """
+        SELECT device_id, identifier_value
+        FROM platform.device_identifiers
+        WHERE identifier_type = 'mac'
+          AND device_id <> $1
+          AND identifier_value = ANY($2::text[])
+        FOR UPDATE
+        """,
+        [source_uid, macs]
+      )
+
+    %{rows: legacy_identifier_owners} =
+      query!(
+        """
+        SELECT device_id, identifier_value
+        FROM platform.device_identifiers
+        WHERE identifier_type = 'mac'
+          AND device_id <> $1
+          AND identifier_value !~ '^[0-9A-F]{12}$'
+          AND regexp_split_to_array(
+                upper(translate(identifier_value, ':-.', '')),
+                '[,;[:space:]]+'
+              ) && $2::text[]
+        FOR UPDATE
+        """,
+        [source_uid, macs]
+      )
+
+    identifier_owners = canonical_identifier_owners ++ legacy_identifier_owners
+
+    %{rows: display_owners} =
+      query!(
+        """
+        SELECT uid, mac
+        FROM platform.ocsf_devices d
+        WHERE d.uid <> $1
+          AND d.mac IS NOT NULL
+          AND regexp_split_to_array(
+                upper(translate(d.mac, ':-.', '')),
+                '[,;[:space:]]+'
+              ) && $2::text[]
+        FOR UPDATE
+        """,
+        [source_uid, macs]
+      )
+
+    %{rows: armis_owners} =
+      query!(
+        """
+        SELECT device_id, id
+        FROM platform.device_identifiers
+        WHERE identifier_type = 'armis_device_id'
+          AND identifier_value = $1
+          AND device_id <> $2
+        FOR UPDATE
+        """,
+        [plan.armis_device_id, source_uid]
+      )
+
+    cond do
+      armis_owners != [] -> {:error, :armis_identity_has_alternate_owner}
+      identifier_owners != [] -> {:error, :split_mac_has_alternate_identifier_owner}
+      display_owners != [] -> {:error, :split_mac_has_alternate_display_owner}
+      true -> :ok
+    end
+  end
+
   defp lock_and_validate_targets(%{splits: []}), do: :ok
 
   defp lock_and_validate_targets(plan) do
     target_uids = Enum.map(plan.splits, & &1.new_uid)
 
-    _locked =
+    %{rows: existing_targets} =
       query!(
         "SELECT uid FROM platform.ocsf_devices WHERE uid = ANY($1) FOR UPDATE",
         [target_uids]
@@ -630,42 +920,60 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
         [target_uids]
       )
 
-    case identifier_rows do
-      [] -> :ok
-      _ -> {:error, :split_target_has_universal_mac}
+    cond do
+      existing_targets != [] -> {:error, :split_target_exists}
+      identifier_rows != [] -> {:error, :split_target_has_universal_mac}
+      true -> :ok
     end
   end
 
   defp apply_split(device, plan, manifest, actor) do
-    @transaction_resources
-    |> Ash.transaction(fn ->
-      result =
-        with :ok <- lock_and_revalidate_candidate(device, plan),
-             {:ok, survivor_entries} <- ensure_survivor(plan, actor),
-             {:ok, _touched, touch_entries} <- touch_survivor_rows(plan, actor),
-             {:ok, split_result} <- apply_all_splits(device, plan, actor) do
-          %{
-            reassigned: split_result.reassigned,
-            created: split_result.created,
-            manifest_entries: survivor_entries ++ touch_entries ++ split_result.manifest_entries
-          }
+    candidate_token = Ecto.UUID.generate()
+
+    with :ok <- Manifest.ensure_writable(manifest),
+         :ok <- record_candidate_preflight(manifest, candidate_token, device, plan) do
+      @transaction_resources
+      |> Ash.transaction(fn ->
+        result =
+          with :ok <- lock_and_revalidate_candidate(device, plan),
+               {:ok, survivor_entries} <- ensure_survivor(plan, actor),
+               {:ok, _touched, touch_entries} <- touch_survivor_rows(plan, actor),
+               {:ok, split_result} <- apply_all_splits(device, plan, actor),
+               manifest_entries =
+                 survivor_entries ++ touch_entries ++ split_result.manifest_entries,
+               :ok <-
+                 record_manifest_entries(
+                   manifest,
+                   manifest_entries,
+                   candidate_token,
+                   "prepared"
+                 ) do
+            %{
+              reassigned: split_result.reassigned,
+              created: split_result.created
+            }
+          end
+
+        case result do
+          {:error, reason} -> Ash.DataLayer.rollback(@transaction_resources, reason)
+          success -> success
         end
+      end)
+      |> case do
+        {:ok, result} ->
+          case record_candidate_committed(manifest, candidate_token, device.uid) do
+            :ok -> {:ok, result}
+            {:error, reason} -> {:committed_manifest_error, result, reason}
+          end
 
-      case result do
-        {:error, reason} -> Ash.DataLayer.rollback(@transaction_resources, reason)
-        success -> success
+        {:error, reason} ->
+          {:error, reason}
+
+        {:error, reason, _stacktrace} ->
+          {:error, reason}
       end
-    end)
-    |> case do
-      {:ok, result} ->
-        record_manifest_entries(manifest, result.manifest_entries)
-        {:ok, Map.delete(result, :manifest_entries)}
-
-      {:error, reason} ->
-        {:error, reason}
-
-      {:error, reason, _stacktrace} ->
-        {:error, reason}
+    else
+      {:error, reason} -> {:error, {:manifest_preflight_failed, reason}}
     end
   end
 
@@ -739,45 +1047,18 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
     with {:ok, created, device_entries} <- ensure_split_device(split, actor),
          {:ok, reassigned, identifier_entries} <-
            reassign_rows(split.row_ids, split.new_uid, actor),
-         :ok <- record_unmerge_audit(device.uid, split, plan, actor) do
+         {:ok, audit_entries} <- record_unmerge_audit(device.uid, split, plan, actor) do
       {:ok,
        %{
          reassigned: reassigned,
          created: created,
-         manifest_entries: device_entries ++ identifier_entries
+         manifest_entries: device_entries ++ identifier_entries ++ audit_entries
        }}
     end
   end
 
   defp ensure_split_device(split, actor) do
-    case load_device_state(split.new_uid) do
-      :live ->
-        with {:ok, entries} <- set_device_mac(split.new_uid, split.mac, actor, "split"),
-             do: {:ok, 0, entries}
-
-      :tombstoned ->
-        with {:ok, restore_entries} <- restore_device(split.new_uid, actor, "split"),
-             {:ok, mac_entries} <- set_device_mac(split.new_uid, split.mac, actor, "split") do
-          {:ok, 0, restore_entries ++ mac_entries}
-        end
-
-      :absent ->
-        create_split_device(split.new_uid, split.mac, actor)
-    end
-  end
-
-  defp load_device_state(uid) do
-    %{rows: rows} =
-      query!(
-        "SELECT (deleted_at IS NOT NULL) FROM platform.ocsf_devices WHERE uid = $1 LIMIT 1",
-        [uid]
-      )
-
-    case rows do
-      [[true]] -> :tombstoned
-      [[false]] -> :live
-      _ -> :absent
-    end
+    create_split_device(split.new_uid, split.mac, actor)
   end
 
   defp restore_device(uid, actor, role) do
@@ -892,8 +1173,16 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
            },
            actor: actor
          ) do
-      {:ok, _} -> :ok
-      {:error, _} = err -> err
+      {:ok, audit} ->
+        {:ok,
+         manifest_entry(:create_merge_audit, "platform.merge_audit", [audit.event_id], %{
+           from_device_uid: split.new_uid,
+           to_device_uid: from_uid,
+           reason: "unmerge"
+         })}
+
+      {:error, _} = err ->
+        err
     end
   end
 
@@ -903,10 +1192,55 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
     [%{action: action, table: table, ids: ids, extra: extra}]
   end
 
-  defp record_manifest_entries(manifest, entries) do
-    Enum.each(entries, fn entry ->
-      Manifest.record(manifest, @step, entry.action, entry.table, entry.ids, entry.extra)
+  defp record_candidate_preflight(manifest, candidate_token, device, plan) do
+    assignments =
+      [%{action: "retain", target_uid: plan.survivor.uid, row_ids: plan.survivor.row_ids}] ++
+        Enum.map(plan.splits, fn split ->
+          %{action: "create_and_reassign", target_uid: split.new_uid, row_ids: split.row_ids}
+        end)
+
+    row_ids = Enum.flat_map(assignments, & &1.row_ids)
+
+    Manifest.record(
+      manifest,
+      @step,
+      :candidate_preflight,
+      "platform.device_identifiers",
+      row_ids,
+      %{
+        phase: "preflight",
+        candidate_token: candidate_token,
+        source_uid: device.uid,
+        target_uids: Enum.map(plan.splits, & &1.new_uid),
+        assignments: assignments
+      }
+    )
+  end
+
+  defp record_manifest_entries(manifest, entries, candidate_token, phase) do
+    Enum.reduce_while(entries, :ok, fn entry, :ok ->
+      extra = Map.merge(entry.extra, %{candidate_token: candidate_token, phase: phase})
+
+      case Manifest.record(manifest, @step, entry.action, entry.table, entry.ids, extra) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, {:manifest_prepare_failed, reason}}}
+      end
     end)
+  end
+
+  defp record_candidate_committed(manifest, candidate_token, source_uid) do
+    Manifest.record(
+      manifest,
+      @step,
+      :candidate_committed,
+      "platform.ocsf_devices",
+      [source_uid],
+      %{
+        phase: "committed",
+        candidate_token: candidate_token,
+        source_uid: source_uid
+      }
+    )
   end
 
   # -- report ---------------------------------------------------------------
@@ -948,11 +1282,36 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
     |> elem(0)
   end
 
-  defp sum_by(list, fun), do: list |> Enum.map(fun) |> Enum.sum()
+  defp canonical_mac_row?(%{value: value}) when is_binary(value),
+    do: Regex.match?(@canonical_mac_pattern, value)
 
-  defp to_datetime(%DateTime{} = dt), do: dt
-  defp to_datetime(%NaiveDateTime{} = dt), do: DateTime.from_naive!(dt, "Etc/UTC")
-  defp to_datetime(_), do: nil
+  defp canonical_mac_row?(_row), do: false
+
+  defp canonical_universal_mac_row?(%{value: value} = row) do
+    canonical_mac_row?(row) and Mac.universal_macs(value) == MapSet.new([value])
+  end
+
+  defp canonical_universal_mac_row?(_row), do: false
+
+  # Ash wraps transaction rollback reasons in its error classes. Preserve the
+  # durable-manifest failure tag through that wrapper so execution still halts.
+  defp manifest_prepare_failure?({:manifest_prepare_failed, _reason}), do: true
+
+  defp manifest_prepare_failure?(%{errors: errors}) when is_list(errors),
+    do: Enum.any?(errors, &manifest_prepare_failure?/1)
+
+  defp manifest_prepare_failure?(%{error: error, value: value}),
+    do: manifest_prepare_failure?(error) or manifest_prepare_failure?(value)
+
+  defp manifest_prepare_failure?(%{error: error}), do: manifest_prepare_failure?(error)
+  defp manifest_prepare_failure?(%{value: value}), do: manifest_prepare_failure?(value)
+
+  defp manifest_prepare_failure?(errors) when is_list(errors),
+    do: Enum.any?(errors, &manifest_prepare_failure?/1)
+
+  defp manifest_prepare_failure?(_error), do: false
+
+  defp sum_by(list, fun), do: list |> Enum.map(fun) |> Enum.sum()
 
   defp count_to_integer(%Decimal{} = value), do: Decimal.to_integer(value)
   defp count_to_integer(value) when is_integer(value), do: value
@@ -966,6 +1325,20 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
   end
 
   defp normalize_string(_), do: nil
+
+  defp normalize_string_list(values) when is_list(values) do
+    values
+    |> Enum.map(&normalize_string/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp normalize_string_list(_values), do: []
+
+  defp identifier_matches_armis_source?(row, source_id) when is_binary(source_id) do
+    row[:source_id] == source_id and row[:integration_type] == "armis"
+  end
+
+  defp identifier_matches_armis_source?(_row, _source_id), do: false
 
   defp faker_hostname?(hostname) when is_binary(hostname),
     do: hostname |> String.upcase() |> String.starts_with?("FAKER-")

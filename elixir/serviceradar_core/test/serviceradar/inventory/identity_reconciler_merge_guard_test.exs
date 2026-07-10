@@ -346,6 +346,38 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
       assert IdentityReconciler.follow_canonical_device_id(survivor.uid, actor) == survivor.uid
     end
 
+    test "unmerge rows are not canonical lineage for survivor metric history", %{actor: actor} do
+      {:ok, survivor} = create_device(actor, "lineage-survivor")
+      {:ok, merged_away} = create_device(actor, "lineage-merged-away")
+      {:ok, current_split} = create_device(actor, "lineage-current-split")
+
+      assert {:ok, _audit} =
+               MergeAudit.record(
+                 %{
+                   from_device_id: merged_away.uid,
+                   to_device_id: survivor.uid,
+                   reason: "manual_merge",
+                   source: "test"
+                 },
+                 actor: actor
+               )
+
+      assert {:ok, _audit} =
+               MergeAudit.record(
+                 %{
+                   from_device_id: current_split.uid,
+                   to_device_id: survivor.uid,
+                   reason: "unmerge",
+                   source: "test"
+                 },
+                 actor: actor
+               )
+
+      assert {:ok, lineage} = MergeAudit.get_merged_from(survivor.uid, actor: actor)
+      assert Enum.map(lineage, & &1.from_device_id) == [merged_away.uid]
+      refute Enum.any?(lineage, &(&1.from_device_id == current_split.uid))
+    end
+
     test "legacy null-reason merge audits remain canonical redirects", %{actor: actor} do
       {:ok, merged} = create_device(actor, "legacy-null-merge")
       {:ok, survivor} = create_device(actor, "legacy-null-survivor")

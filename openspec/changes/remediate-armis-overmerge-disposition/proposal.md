@@ -49,10 +49,11 @@ the disposition runs. This change designs and builds that disposition.
   distinct universal-MAC groups and moves each group's `mac` identifier rows via
   the audited, TTL-resetting `DeviceIdentifier :reassign_device` action — which
   is simultaneously the "reassign-before-delete" rescue for the sole-copy rows.
-  It follows the `agent_links.ex` blueprint (materialize target via
-  `recreate_device`, per-split `merge_audit` `reason: "unmerge"` to arm the
-  re-collapse cooldown, dry-run plan vs execute apply, `Manifest.record` every
-  mutation).
+  It restores the source ghost when needed but requires every additional
+  deterministic target UID to be absent and creates it fresh; any existing
+  target or alternate normalized MAC owner is rejected for manual review. A
+  per-split `merge_audit` with `reason: "unmerge"` arms the re-collapse cooldown,
+  and a synced write-ahead manifest records every candidate and mutation.
 - **Extract the veto's MAC grouping primitives** (`universal_macs/1`,
   `distinct_mac_veto?/3` logic) from the private `BatchResolver` into a public
   `Identity.Mac` helper so detection/grouping provably cannot drift from the

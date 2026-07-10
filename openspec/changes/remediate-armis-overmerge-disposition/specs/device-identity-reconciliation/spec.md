@@ -17,12 +17,13 @@ inverse of prevention.
 - **AND** the device UID and its non-faker sync source ID are both explicitly
   allowlisted for live-device execution
 - **WHEN** the disposition runs in execute mode
-- **THEN** it SHALL materialize one device per distinct universal-MAC group
-  by retaining the existing UID for the survivor group and adopting, restoring,
-  or creating each additional group at the deterministic UID a veto-gated
-  ingest of that hardware would produce
+- **THEN** it SHALL retain or restore the source UID for the survivor group and
+  create each additional group fresh at an absent, stable remediation UID
+  derived from `{armis_device_id, MAC, partition}`
 - **AND** it SHALL move each group's `mac` identifier rows to its reconstructed
   device through an audited reassignment (never a silent last-writer-wins repoint)
+- **AND** future ingest convergence SHALL rely on the reassigned typed MAC, not
+  on unsupported UID parity for historical updates with additional strong seeds
 - **AND** it SHALL write one merge audit row with reason `unmerge` per split to
   arm the per-pair re-collapse cooldown
 
@@ -34,7 +35,17 @@ any mutation occurs unless release runtime configuration enables the live-scopin
 signoff gate. Live-device execution SHALL additionally require explicit,
 nonempty device-UID and sync-source-ID allowlists, and a candidate backed by a
 known faker source SHALL remain ineligible even when its hostname is not
-faker-shaped.
+faker-shaped. Before each candidate mutation, the system SHALL lock and compare
+the exact source device and identifier snapshot, require exactly one typed
+`armis_device_id` consistent with optional metadata, revalidate canonical Armis
+source metadata and the independent integration-ID evidence, reject any global
+normalized/display MAC or typed Armis alternate owner, and require every split
+target UID to be absent. Execute SHALL require a writable, synced write-ahead
+manifest with distinguishable preflight, prepared, and committed records.
+The exact ownership snapshot SHALL contain `{id,type,value,partition}`; volatile
+timestamps and unrelated identifier metadata SHALL NOT invalidate a plan, while
+the semantic `sync_service_id` and `integration_type` provenance keys SHALL be
+recomputed under lock.
 
 #### Scenario: Dry-run remains available before signoff
 - **GIVEN** the runtime execution gate is disabled
@@ -60,6 +71,45 @@ faker-shaped.
   is the ServiceRadar faker
 - **WHEN** the disposition evaluates execution eligibility
 - **THEN** it SHALL exclude that device regardless of its hostname
+
+#### Scenario: Stale or ambiguous candidate fails before mutation
+- **GIVEN** a dry-run plan whose display MAC, deletion reason, Armis metadata,
+  discovery source, integration evidence, identifier ownership, or partition
+  changes before its transaction acquires locks
+- **OR** the candidate has zero or multiple typed Armis identifiers
+- **OR** a deterministic target or alternate normalized MAC owner already exists
+- **WHEN** execute revalidates the candidate
+- **THEN** it SHALL reject the complete candidate before restoring, creating, or
+  reassigning any row
+
+#### Scenario: Timestamp-only churn does not stale a plan
+- **GIVEN** an eligible plan whose identifier `last_seen` changes before locking
+- **WHEN** execute compares the ownership snapshot
+- **THEN** the timestamp-only change SHALL NOT reject the candidate
+
+#### Scenario: Source-linked evidence is mandatory
+- **GIVEN** a live candidate whose typed Armis row or integration-ID evidence
+  lacks `integration_type = 'armis'` and the canonical `sync_service_id`
+- **WHEN** the disposition evaluates it
+- **THEN** it SHALL remain ineligible even if two unrelated integration IDs exist
+
+#### Scenario: Owner absence checks exclude concurrent writers
+- **GIVEN** ordinary ingest is inserting or updating an identifier or display MAC
+- **WHEN** execute reaches its owner revalidation transaction
+- **THEN** a DML-conflicting owner-table barrier SHALL serialize that writer
+- **AND** the indexed canonical, legacy-token, and display-token checks SHALL see
+  every owner committed before the barrier
+- **AND** lock or statement timeout SHALL fail the candidate without mutation
+
+#### Scenario: Manifest is durable before database commit
+- **GIVEN** an eligible execute candidate
+- **WHEN** the disposition applies it
+- **THEN** it SHALL sync a write-ahead preflight before mutation
+- **AND** it SHALL sync the exact prepared action entries before database commit
+- **AND** prepared entries SHALL include every generated `merge_audit.event_id`
+- **AND** it SHALL sync a committed marker after commit
+- **AND** any manifest failure SHALL stop execution and produce a nonzero failure
+- **AND** it SHALL never truncate or overwrite an existing manifest path
 
 ### Requirement: Armis Disposition Reports Are Bounded And Actionable
 The operator CLI SHALL expose validated per-run candidate and plan-sample
@@ -118,6 +168,19 @@ does not create a new source identity conflict where the same typed
   `armis_device_id` identifier
 - **AND** the Armis northbound candidate query SHALL still resolve that
   `armis_device_id` to exactly one device
+
+### Requirement: Unmerge Audits Are Cooldown Evidence Only
+An audit row whose reason is `unmerge` SHALL arm the symmetric re-collapse
+cooldown but SHALL NOT be exposed by canonical `merged_to` or `merged_from`
+lineage reads.
+
+#### Scenario: Current split metrics stay separate from survivor history
+- **GIVEN** a current split device has an `unmerge` audit pointing to its source
+  survivor
+- **WHEN** the survivor metric view expands canonical pre-merge UID history
+- **THEN** it SHALL NOT include the current split UID
+- **AND** ordinary and legacy null-reason merge rows SHALL remain in canonical
+  lineage
 
 ### Requirement: Unsplittable Armis Collapses Are Reported, Not Split
 The disposition SHALL treat Armis collapses that have no universally-administered
