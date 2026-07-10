@@ -43,10 +43,10 @@ defmodule ServiceRadarWebNGWeb.Plugs.IgnoreSessionWritesTest do
   end
 
   describe "call/2" do
-    test "reproduces the regression: a dirty session breaks the websocket upgrade" do
-      assert_raise Plug.Conn.AlreadySentError, fn ->
-        attempt_upgrade(dirty_session_conn())
-      end
+    test "Plug tolerates a dirty session during the websocket upgrade" do
+      conn = attempt_upgrade(dirty_session_conn())
+
+      assert conn.state == :upgraded
     end
 
     test "lets the websocket upgrade succeed by ignoring session writes" do

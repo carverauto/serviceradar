@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.PluginConfigFormTest do
 
   alias ServiceRadarWebNGWeb.PluginConfigForm
 
+  @moduletag :db_free
+
   @camera_schema %{
     "type" => "object",
     "properties" => %{
@@ -18,12 +20,12 @@ defmodule ServiceRadarWebNGWeb.PluginConfigFormTest do
     }
   }
 
-  defp render(assigns) do
+  defp render_fields(assigns) do
     render_component(&PluginConfigForm.plugin_config_fields/1, assigns)
   end
 
   test "credential-materialized fields render as informational rows, not inputs" do
-    html = render(%{schema: @camera_schema, params: %{}, base_name: "assignment[params]"})
+    html = render_fields(%{schema: @camera_schema, params: %{}, base_name: "assignment[params]"})
 
     assert html =~ "Provided by credential rules"
     assert html =~ ~s(data-credential-materialized="host")
@@ -34,7 +36,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigFormTest do
   end
 
   test "without coverage info the row shows the neutral runtime explanation" do
-    html = render(%{schema: @camera_schema, params: %{}})
+    html = render_fields(%{schema: @camera_schema, params: %{}})
 
     assert html =~ "materialized per target by credential rules at runtime"
     refute html =~ "matches this agent"
@@ -49,7 +51,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigFormTest do
       rules: ["Protect HQ"]
     }
 
-    html = render(%{schema: @camera_schema, params: %{}, credential_coverage: coverage})
+    html = render_fields(%{schema: @camera_schema, params: %{}, credential_coverage: coverage})
 
     assert html =~ "text-success"
     assert html =~ "Protect HQ"
@@ -64,7 +66,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigFormTest do
       rules: []
     }
 
-    html = render(%{schema: @camera_schema, params: %{}, credential_coverage: coverage})
+    html = render_fields(%{schema: @camera_schema, params: %{}, credential_coverage: coverage})
 
     assert html =~ "text-warning"
     assert html =~ "No enabled unifi-protect/camera_inventory credential rule matches this agent"
@@ -78,7 +80,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigFormTest do
       }
     }
 
-    html = render(%{schema: schema, params: %{}})
+    html = render_fields(%{schema: schema, params: %{}})
 
     refute html =~ "internal"
     refute html =~ "Provided by credential rules"
@@ -91,7 +93,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigFormTest do
       "properties" => %{"base_url" => %{"type" => "string"}}
     }
 
-    html = render(%{schema: schema, params: %{}})
+    html = render_fields(%{schema: schema, params: %{}})
 
     assert html =~ "base_url"
     assert html =~ ~s(<span class="text-error">*</span>)
