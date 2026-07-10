@@ -13,13 +13,14 @@ import (
 
 const (
 	defaultBaseURL           = "https://otx.alienvault.com"
-	defaultLimit             = 1000
+	defaultLimit             = 100
 	defaultPage              = 1
 	defaultTimeoutMS         = 120000
 	defaultMaxIndicators     = 50000
 	defaultMaxPages          = 25
 	defaultMaxRetries        = 5
 	defaultBackoffMS         = 2000
+	defaultBootstrapLookback = 30
 	defaultMinPullIntervalMS = 86_400_000 // ~24h: OTX threat-intel is pulled at most once per day.
 	defaultTypes             = "IPv4,IPv6,CIDR"
 	maxLimit                 = 1000
@@ -30,6 +31,10 @@ const (
 	maxBackoffMS             = 30000
 	maxMinPullIntervalMS     = 7 * 86_400_000 // clamp the throttle window at 7 days.
 	minAdaptiveLimit         = 100
+	maxPullAttempts          = 64
+	maxPullDuration          = 5 * time.Minute
+	maxBootstrapLookback     = 3650
+	bootstrapMaxLimit        = 100
 	sourceAlienVaultOTX      = "alienvault_otx"
 )
 
@@ -50,6 +55,12 @@ var otxRandN = defaultRandN
 // runs are single-threaded, so a package counter reset per pull is safe.
 var otxAttempts int
 
+// A pull-wide budget keeps a successful multi-page walk bounded independently
+// of the per-page adaptive retry budget. Zero values disable the budget in
+// focused unit tests that call page helpers directly.
+var otxPullAttemptLimit int
+var otxPullDeadline time.Time
+
 var otxRandState uint64 = 0x9e3779b97f4a7c15
 
 func defaultRandN(n int) int {
@@ -66,8 +77,9 @@ func defaultRandN(n int) int {
 }
 
 var (
-	errJSONField = errors.New("json field not found")
-	errJSONParse = errors.New("json parse failed")
+	errJSONField     = errors.New("json field not found")
+	errJSONParse     = errors.New("json parse failed")
+	errOTXPullBudget = errors.New("OTX pull attempt or wall-time budget exhausted")
 )
 
 type Config struct {
@@ -75,14 +87,17 @@ type Config struct {
 	APIKeySecretRef string `json:"api_key_secret_ref"`
 	APIKey          string `json:"api_key"`
 	ModifiedSince   string `json:"modified_since"`
-	Types           string `json:"types"`
-	Limit           int    `json:"limit"`
-	Page            int    `json:"page"`
-	TimeoutMS       int    `json:"timeout_ms"`
-	MaxIndicators   int    `json:"max_indicators"`
-	MaxPages        int    `json:"max_pages"`
-	MaxRetries      int    `json:"max_retries"`
-	BackoffMS       int    `json:"backoff_ms"`
+	// BootstrapLookbackDays bounds the first walk to recently modified threat
+	// intel. Set 0 explicitly to request a full-history export.
+	BootstrapLookbackDays int    `json:"bootstrap_lookback_days"`
+	Types                 string `json:"types"`
+	Limit                 int    `json:"limit"`
+	Page                  int    `json:"page"`
+	TimeoutMS             int    `json:"timeout_ms"`
+	MaxIndicators         int    `json:"max_indicators"`
+	MaxPages              int    `json:"max_pages"`
+	MaxRetries            int    `json:"max_retries"`
+	BackoffMS             int    `json:"backoff_ms"`
 	// MinPullIntervalMS is the self-throttle window: a fresh OTX pull happens at
 	// most once per this interval even if the agent runs the check more often.
 	MinPullIntervalMS int `json:"min_pull_interval_ms"`
@@ -245,11 +260,14 @@ func runOTXCheckAndSubmit() error {
 	// healthy no-op instead of hammering OTX. A partial walk (cursor_complete
 	// false) is never throttled so pagination always finishes.
 	startedAt := otxNow()
+	cfg.applyBootstrapWindow(startedAt)
 	if skip, summary := throttleSkip(cfg, startedAt); skip {
 		return submitPluginResult(string(sdk.StatusOK), summary, "")
 	}
 
-	otxAttempts = 0
+	beginOTXPull(startedAt)
+	defer endOTXPull()
+
 	pages, err := fetchAndSubmitOTXExportPages(cfg, func(page ctiPage) error {
 		return submitPluginResult(string(sdk.StatusOK), otxPageSummary(page), ctiPageDetailsJSON(page))
 	})
@@ -325,6 +343,23 @@ func parseTimestamp(value string) (time.Time, bool) {
 		}
 	}
 	return time.Time{}, false
+}
+
+// applyBootstrapWindow abandons legacy full-corpus deep-page cursors when no
+// modified_since watermark exists. OTX's deep-offset export routinely 504s
+// even at small page sizes; a fixed recent watermark is resumable and keeps
+// new installations from depending on that upstream query path.
+func (c *Config) applyBootstrapWindow(now time.Time) {
+	if strings.TrimSpace(c.ModifiedSince) != "" || c.BootstrapLookbackDays <= 0 {
+		return
+	}
+
+	c.ModifiedSince = now.UTC().AddDate(0, 0, -c.BootstrapLookbackDays).Format(time.RFC3339)
+	c.Page = defaultPage
+	c.CursorComplete = false
+	if c.Limit > bootstrapMaxLimit {
+		c.Limit = bootstrapMaxLimit
+	}
 }
 
 type otxPageEmitter func(ctiPage) error
@@ -449,6 +484,8 @@ func fetchSingleOTXExportPage(cfg Config) (ctiPage, error) {
 func fetchOTXExportPageAdaptive(cfg Config) (ctiPage, error) {
 	current := cfg
 	attemptBudget := adaptivePageAttemptBudget(cfg)
+	retryBudget := boundedOTXRetryBudget(cfg.MaxRetries)
+	retriesUsed := 0
 	retryAttempt := 0
 	var lastErr error
 
@@ -467,39 +504,42 @@ func fetchOTXExportPageAdaptive(cfg Config) (ctiPage, error) {
 			}
 		}
 
-		if attempt == attemptBudget || !retryableOTXError(err) {
+		if attempt == attemptBudget || !retryableOTXError(err) || retriesUsed >= retryBudget {
 			break
 		}
 
+		retriesUsed++
 		retryAttempt++
-		otxSleep(time.Duration(backoffDelayMS(cfg.BackoffMS, retryAttempt)) * time.Millisecond)
+		if err := sleepForOTXRetry(
+			time.Duration(backoffDelayMS(cfg.BackoffMS, retryAttempt)) * time.Millisecond,
+		); err != nil {
+			return ctiPage{}, err
+		}
 	}
 
 	return ctiPage{}, lastErr
 }
 
-// adaptivePageAttemptBudget bounds all HTTP work for one emitted page across
-// retries and limit changes. It still guarantees one attempt at each valid
-// coordinate down to minAdaptiveLimit when max_retries is zero.
+// adaptivePageAttemptBudget allows every smaller equivalent coordinate plus a
+// separately bounded retry budget. Coordinate changes do not consume retries,
+// so a deep 504 can still be retried after it reaches the smallest leaf page.
 func adaptivePageAttemptBudget(cfg Config) int {
-	retries := cfg.MaxRetries
-	if retries < 0 {
-		retries = 0
-	}
-	if retries > maxRetries {
-		retries = maxRetries
-	}
-
-	budget := retries + 1
 	coordinates := 1
 	for limit := cfg.Limit; limit%2 == 0 && limit/2 >= minAdaptiveLimit; limit /= 2 {
 		coordinates++
 	}
-	if budget < coordinates {
-		budget = coordinates
-	}
 
-	return budget
+	return coordinates + boundedOTXRetryBudget(cfg.MaxRetries)
+}
+
+func boundedOTXRetryBudget(configured int) int {
+	if configured < 0 {
+		return 0
+	}
+	if configured > maxRetries {
+		return maxRetries
+	}
+	return configured
 }
 
 func boundedOTXPageBudget(configured int) int {
@@ -576,10 +616,9 @@ func retryableOTXError(err error) bool {
 }
 
 // shrinkableOTXError reports failures that a smaller export page is likely to
-// avoid: gateway timeouts on slow deep pages (502/503/504), host-side
-// timeouts/aborted transfers (-6/-5), and host body-cap truncation (-3).
-// Rate limiting (HTTP 429) is deliberately excluded — splitting a page doubles
-// the request count and makes throttling worse.
+// avoid: gateway errors on slow deep pages (502/503/504) and host body-cap
+// truncation (-3). Connection/read timeouts retry the same coordinate; changing
+// page size cannot repair blocked or transient network connectivity.
 func shrinkableOTXError(err error) bool {
 	if err == nil {
 		return false
@@ -587,11 +626,39 @@ func shrinkableOTXError(err error) bool {
 
 	message := err.Error()
 	return strings.Contains(message, "host error -3") ||
-		strings.Contains(message, "host error -5") ||
-		strings.Contains(message, "host error -6") ||
 		strings.Contains(message, "HTTP 502") ||
 		strings.Contains(message, "HTTP 503") ||
 		strings.Contains(message, "HTTP 504")
+}
+
+func beginOTXPull(startedAt time.Time) {
+	otxAttempts = 0
+	otxPullAttemptLimit = maxPullAttempts
+	otxPullDeadline = startedAt.Add(maxPullDuration)
+}
+
+func endOTXPull() {
+	otxPullAttemptLimit = 0
+	otxPullDeadline = time.Time{}
+}
+
+func sleepForOTXRetry(delay time.Duration) error {
+	if delay <= 0 {
+		return nil
+	}
+
+	if !otxPullDeadline.IsZero() {
+		remaining := otxPullDeadline.Sub(otxNow())
+		if remaining <= 0 {
+			return errOTXPullBudget
+		}
+		if delay > remaining {
+			delay = remaining
+		}
+	}
+
+	otxSleep(delay)
+	return nil
 }
 
 func extractJSONStringOrNull(payload []byte, field string) (string, error) {
@@ -700,16 +767,17 @@ func httpFailureSummary(resp *sdk.HTTPResponse) string {
 
 func defaultConfig() Config {
 	return Config{
-		BaseURL:           defaultBaseURL,
-		Types:             defaultTypes,
-		Limit:             defaultLimit,
-		Page:              defaultPage,
-		TimeoutMS:         defaultTimeoutMS,
-		MaxIndicators:     defaultMaxIndicators,
-		MaxPages:          defaultMaxPages,
-		MaxRetries:        defaultMaxRetries,
-		BackoffMS:         defaultBackoffMS,
-		MinPullIntervalMS: defaultMinPullIntervalMS,
+		BaseURL:               defaultBaseURL,
+		Types:                 defaultTypes,
+		Limit:                 defaultLimit,
+		Page:                  defaultPage,
+		TimeoutMS:             defaultTimeoutMS,
+		MaxIndicators:         defaultMaxIndicators,
+		MaxPages:              defaultMaxPages,
+		MaxRetries:            defaultMaxRetries,
+		BackoffMS:             defaultBackoffMS,
+		BootstrapLookbackDays: defaultBootstrapLookback,
+		MinPullIntervalMS:     defaultMinPullIntervalMS,
 	}
 }
 
@@ -755,6 +823,12 @@ func (c *Config) applyDefaults() {
 	}
 	if c.BackoffMS > maxBackoffMS {
 		c.BackoffMS = maxBackoffMS
+	}
+	if c.BootstrapLookbackDays < 0 {
+		c.BootstrapLookbackDays = defaultBootstrapLookback
+	}
+	if c.BootstrapLookbackDays > maxBootstrapLookback {
+		c.BootstrapLookbackDays = maxBootstrapLookback
 	}
 	if c.MinPullIntervalMS < 0 {
 		c.MinPullIntervalMS = defaultMinPullIntervalMS

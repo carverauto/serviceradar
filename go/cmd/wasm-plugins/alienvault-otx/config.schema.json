@@ -15,6 +15,13 @@
       "type": "string",
       "description": "Optional OTX modified_since cursor"
     },
+    "bootstrap_lookback_days": {
+      "type": "integer",
+      "description": "When modified_since is empty, start or recover the walk from this many days ago instead of using the unreliable full-corpus deep-page export. Set 0 explicitly to request full history.",
+      "minimum": 0,
+      "maximum": 3650,
+      "default": 30
+    },
     "types": {
       "type": "string",
       "description": "Comma-delimited OTX indicator types to fetch",
@@ -25,7 +32,7 @@
       "description": "OTX page size",
       "minimum": 1,
       "maximum": 1000,
-      "default": 1000
+      "default": 100
     },
     "page": {
       "type": "integer",
@@ -56,7 +63,7 @@
     },
     "max_retries": {
       "type": "integer",
-      "description": "Shared retry budget for one emitted page across transient failures and adaptive limit changes. Auth/4xx errors fail fast. The plugin always allows one attempt per valid smaller coordinate down to its minimum leaf size.",
+      "description": "Transient-failure retry budget for one emitted page. Moving to an equivalent smaller page does not consume retries. Auth and other non-retryable 4xx errors fail fast.",
       "minimum": 0,
       "maximum": 7,
       "default": 5

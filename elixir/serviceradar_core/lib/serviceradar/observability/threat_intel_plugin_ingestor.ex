@@ -304,6 +304,7 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
       is_binary(next_page) and next_page != "" ->
         %{"page" => parse_positive_int(next_page, next_page), "cursor_complete" => false}
         |> maybe_put_positive_int("limit", fetch_value(cursor, ["limit"]))
+        |> maybe_put_modified_since(fetch_value(cursor, ["modified_since"]))
         |> maybe_put_cursor_next(next)
 
       true ->
@@ -325,6 +326,13 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
   end
 
   defp maybe_put_cursor_next(params, _next), do: params
+
+  defp maybe_put_modified_since(params, modified_since)
+       when is_binary(modified_since) and modified_since != "" do
+    Map.put(params, "modified_since", modified_since)
+  end
+
+  defp maybe_put_modified_since(params, _modified_since), do: params
 
   defp maybe_put_last_pull_at(params, last_pull_at)
        when is_binary(last_pull_at) and last_pull_at != "" do

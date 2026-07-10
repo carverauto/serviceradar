@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNG.Plugins.AssignmentsTest do
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadarWebNG.Plugins.Assignments
   alias ServiceRadarWebNG.Plugins.Packages
 
@@ -61,6 +62,59 @@ defmodule ServiceRadarWebNG.Plugins.AssignmentsTest do
              Assignments.upgrade(assignment.id, new_package.id, actor: system_actor())
   end
 
+  test "upgrade clamps numeric params to target schema bounds without resetting assignment state" do
+    plugin_id = unique_plugin_id("bounded-upgrade")
+    _plugin = create_plugin(plugin_id)
+
+    old_package = plugin_id |> create_package("0.3.1") |> approve_package!()
+
+    target_schema = %{
+      "type" => "object",
+      "properties" => %{
+        "api_key_secret_ref" => %{"type" => "string", "secretRef" => true},
+        "limit" => %{"type" => "integer", "minimum" => 1, "maximum" => 1_000},
+        "max_pages" => %{"type" => "integer", "minimum" => 1, "maximum" => 100},
+        "max_retries" => %{"type" => "integer", "minimum" => 0, "maximum" => 7},
+        "page" => %{"type" => "integer", "minimum" => 1}
+      }
+    }
+
+    secret_ref = "credentialref:network-credential-secret:#{Ecto.UUID.generate()}"
+
+    params =
+      SecretRefs.prepare_params_for_storage(target_schema, %{
+        "api_key_secret_ref" => secret_ref,
+        "cursor_complete" => false,
+        "cursor_next" => "https://otx.alienvault.com/api/v1/indicators/export?limit=125&page=178",
+        "limit" => 125,
+        "max_pages" => 5_000,
+        "max_retries" => -1,
+        "page" => 177,
+        "unrelated" => %{"max_pages" => 5_000}
+      })
+
+    assignment = create_assignment!("agent-otx", old_package.id, params: params)
+
+    new_package =
+      plugin_id
+      |> create_package("0.3.2", config_schema: target_schema)
+      |> approve_package!()
+
+    assert {:ok, upgraded} =
+             Assignments.upgrade(assignment.id, new_package.id, actor: system_actor())
+
+    assert upgraded.params == %{
+             "api_key_secret_ref" => secret_ref,
+             "cursor_complete" => false,
+             "cursor_next" => "https://otx.alienvault.com/api/v1/indicators/export?limit=125&page=178",
+             "limit" => 125,
+             "max_pages" => 100,
+             "max_retries" => 0,
+             "page" => 177,
+             "unrelated" => %{"max_pages" => 5_000}
+           }
+  end
+
   defp unique_plugin_id(prefix), do: "assignment-#{prefix}-#{System.unique_integer([:positive])}"
 
   defp create_plugin(plugin_id) do
@@ -77,7 +131,7 @@ defmodule ServiceRadarWebNG.Plugins.AssignmentsTest do
     |> Ash.create!()
   end
 
-  defp create_package(plugin_id, version) do
+  defp create_package(plugin_id, version, opts \\ []) do
     manifest = %{@manifest | "id" => plugin_id, "version" => version}
 
     PluginPackage
@@ -90,7 +144,7 @@ defmodule ServiceRadarWebNG.Plugins.AssignmentsTest do
         entrypoint: "run_check",
         outputs: "serviceradar.plugin_result.v1",
         manifest: manifest,
-        config_schema: %{},
+        config_schema: Keyword.get(opts, :config_schema, %{}),
         signature: %{},
         source_type: :github,
         source_commit: "test-#{plugin_id}-#{version}"

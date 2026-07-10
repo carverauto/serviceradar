@@ -103,6 +103,7 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestorTest do
       cursor = %{
         "complete" => "false",
         "limit" => "500",
+        "modified_since" => "2026-06-10T00:00:00Z",
         "next_page" => "46",
         "next" => "https://otx.alienvault.com/api/v1/indicators/export?limit=500&page=46"
       }
@@ -110,6 +111,7 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestorTest do
       assert %{
                "page" => 46,
                "limit" => 500,
+               "modified_since" => "2026-06-10T00:00:00Z",
                "cursor_complete" => false,
                "cursor_next" =>
                  "https://otx.alienvault.com/api/v1/indicators/export?limit=500&page=46"

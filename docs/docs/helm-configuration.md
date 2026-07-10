@@ -130,6 +130,7 @@ Important notes:
 - This policy applies to pods selected by `networkPolicy.podSelector` (or all pods in the namespace when `podSelectorMatchAll: true`).
 - Edge hosts running `serviceradar-agent` outside Kubernetes need their own egress controls (host firewall/VPC/NACL). This policy only governs Kubernetes workloads.
 - External telemetry collectors have dedicated pod-scoped ingress policies. Use them for syslog, NetFlow, sFlow, SNMP traps, and BMP so opening a collector port does not also expose unrelated workloads. See [Kubernetes External Ingestion](./kubernetes-ingestion.md).
+- Plugins and integrations that call public services need explicit egress. For AlienVault OTX, allow `otx.alienvault.com` with an FQDN-aware policy. Its CDN addresses rotate, so a static `allowedCIDRs` entry requires ongoing DNS resolution and CIDR maintenance.
 
 Example:
 
