@@ -23,6 +23,7 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
   @active_session_statuses [:attached, :opening, :active]
   @default_protocol :sftp
   @frame_type "file_transfer_request"
+  @max_path_bytes 4_096
   @delete_permission "devices.remote_access.file_transfers.delete"
   @agent_frame_types [
     "file_transfer_progress",
@@ -38,6 +39,7 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
     with {:ok, session_id} <- normalize_uuid(session_id),
          {:ok, %RemoteAccessSession{} = session} <- fetch_session(session_id, opts),
          :ok <- ensure_transferable_session(session),
+         :ok <- validate_transfer_paths(request),
          attrs = transfer_attrs(session, request, opts),
          {:ok, transfer} <- transfer_resource(opts).create_transfer(attrs, system_opts),
          :ok <- dispatch_transfer_request(session, transfer, request, opts) do
@@ -356,6 +358,40 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
        when status in @active_session_statuses, do: :ok
 
   defp ensure_transferable_session(_session), do: {:error, :remote_access_session_not_active}
+
+  defp validate_transfer_paths(request) do
+    with :ok <- validate_transfer_path(value(request, :path)) do
+      validate_optional_transfer_path(value(request, :destination_path))
+    end
+  end
+
+  defp validate_optional_transfer_path(nil), do: :ok
+  defp validate_optional_transfer_path(path), do: validate_transfer_path(path)
+
+  defp validate_transfer_path(path) when is_binary(path) do
+    cond do
+      path == "" -> {:error, :invalid_file_transfer_path}
+      byte_size(path) > @max_path_bytes -> {:error, :invalid_file_transfer_path}
+      path_has_control_byte?(path) -> {:error, :invalid_file_transfer_path}
+      not String.starts_with?(path, "/") -> {:error, :invalid_file_transfer_path}
+      path_has_dot_segment?(path) -> {:error, :invalid_file_transfer_path}
+      true -> :ok
+    end
+  end
+
+  defp validate_transfer_path(_path), do: {:error, :invalid_file_transfer_path}
+
+  defp path_has_control_byte?(path) do
+    path
+    |> :binary.bin_to_list()
+    |> Enum.any?(&(&1 < 32 or &1 == 127))
+  end
+
+  defp path_has_dot_segment?(path) do
+    path
+    |> String.split("/", trim: true)
+    |> Enum.any?(&(&1 in [".", ".."]))
+  end
 
   defp transfer_attrs(session, request, opts) do
     direction = normalize_atom(value(request, :direction))

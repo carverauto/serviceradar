@@ -12,9 +12,11 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
   alias ServiceRadar.AgentConfig.Compilers.MapperCompiler
   alias ServiceRadar.AgentConfig.Compilers.SNMPCompiler
   alias ServiceRadar.AgentConfig.Compilers.SweepCompiler
+  alias ServiceRadar.AgentConfig.Compilers.VisibilityCompiler
   alias ServiceRadar.AgentConfig.DependencyResolvers
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Integrations.IntegrationSource
+  alias ServiceRadar.Inventory.VisibilityProfile
   alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
@@ -231,6 +233,12 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
         ServiceRadar.SysmonProfiles.SysmonProfile,
         :sysmon,
         ServiceRadar.AgentConfig.Compilers.SysmonCompiler
+      ),
+      config_server_entry(
+        :visibility_profile_config,
+        VisibilityProfile,
+        :visibility,
+        VisibilityCompiler
       )
     ]
   end

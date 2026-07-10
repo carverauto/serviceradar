@@ -13,6 +13,11 @@ defmodule ServiceRadar.Credentials.CredentialRulesReconcileTelemetryTest do
     end
   end
 
+  defmodule FailingReconciler do
+    @moduledoc false
+    def reconcile(_policy, _input_defs, _opts), do: {:error, [:boom]}
+  end
+
   setup do
     :telemetry_test.attach_event_handlers(self(), [@event])
     :ok
@@ -92,7 +97,7 @@ defmodule ServiceRadar.Credentials.CredentialRulesReconcileTelemetryTest do
   end
 
   test "errors emit an error-status event" do
-    failing_reconciler = FailingReconciler
+    failing_reconciler = __MODULE__.FailingReconciler
 
     assert {:error, _reason} =
              PluginAssignmentMaterializer.reconcile_provider_for_agent(
@@ -109,10 +114,5 @@ defmodule ServiceRadar.Credentials.CredentialRulesReconcileTelemetryTest do
     assert measurements.rules_matched == 0
     assert metadata.status == :error
     assert metadata.error
-  end
-
-  defmodule FailingReconciler do
-    @moduledoc false
-    def reconcile(_policy, _input_defs, _opts), do: {:error, [:boom]}
   end
 end

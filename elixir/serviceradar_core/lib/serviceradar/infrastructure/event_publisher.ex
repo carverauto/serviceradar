@@ -92,7 +92,7 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
         metadata
       )
 
-    publish_log(:state_change, payload)
+    publish_log(:state_change, payload, opts)
   end
 
   @doc """
@@ -147,7 +147,7 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
         metadata
       )
 
-    publish_log(:registered, payload)
+    publish_log(:registered, payload, opts)
   end
 
   @doc """
@@ -170,7 +170,7 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
         metadata
       )
 
-    publish_log(:deregistered, payload)
+    publish_log(:deregistered, payload, opts)
   end
 
   @doc """
@@ -196,7 +196,7 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
         metadata
       )
 
-    publish_log(:heartbeat_timeout, payload)
+    publish_log(:heartbeat_timeout, payload, opts)
   end
 
   @doc """
@@ -219,7 +219,7 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
         metadata
       )
 
-    publish_log(:health_change, payload)
+    publish_log(:health_change, payload, opts)
   end
 
   @doc """
@@ -276,10 +276,10 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
     }
   end
 
-  defp publish_log(event_type, payload) do
+  defp publish_log(event_type, payload, opts) do
     subject = "infrastructure.#{event_type}"
 
-    case InternalLogPublisher.publish(subject, payload) do
+    case publish_internal_log(log_publisher(opts), subject, payload) do
       :ok ->
         :telemetry.execute(
           [:serviceradar, :infrastructure, :log_published],
@@ -304,6 +304,14 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
         error
     end
   end
+
+  defp log_publisher(opts), do: Keyword.get(opts, :log_publisher, InternalLogPublisher)
+
+  defp publish_internal_log(publisher, subject, payload) when is_function(publisher, 2),
+    do: publisher.(subject, payload)
+
+  defp publish_internal_log(publisher, subject, payload) when is_atom(publisher),
+    do: publisher.publish(subject, payload)
 
   defp activity_for_event(:registered), do: OCSF.activity_log_create()
   defp activity_for_event(:deregistered), do: OCSF.activity_log_delete()

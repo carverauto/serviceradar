@@ -89,8 +89,6 @@ defmodule ServiceRadar.Plugins.AddonConfigContractFixtures do
       "n_sigma" => 3.5,
       "confirm_slots" => 5,
       "max_series" => 50_000,
-      # compat: string -> boolean
-      "cusum_enabled" => "true",
       "cusum_k" => 0.5,
       "cusum_h" => 5.0,
       "metric_feed" => %{"sources" => ["sysmon", "snmp"]},
