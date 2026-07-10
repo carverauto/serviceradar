@@ -20,7 +20,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxCatalogSyncWorker do
   use Oban.Worker,
     queue: :ansible_catalog,
     max_attempts: 1,
-    unique: [period: :infinity, states: [:available, :scheduled]]
+    unique: [period: :infinity, states: :incomplete]
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.AwxClient

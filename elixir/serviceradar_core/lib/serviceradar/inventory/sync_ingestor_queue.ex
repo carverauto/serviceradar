@@ -20,12 +20,15 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     defstruct batches: [], chunk_count: 0, timer_ref: nil, inflight: false, ready: false
   end
 
-  def start_link(_opts) do
-    GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
+  def start_link(opts \\ []) do
+    case Keyword.get(opts, :name, __MODULE__) do
+      nil -> GenServer.start_link(__MODULE__, opts)
+      name -> GenServer.start_link(__MODULE__, opts, name: name)
+    end
   end
 
   def enqueue(message) do
-    GenServer.cast(__MODULE__, {:enqueue, message})
+    GenServer.cast(queue_server(), {:enqueue, message})
   end
 
   def ingest_sync_results(message) do
@@ -33,8 +36,13 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   end
 
   @impl true
-  def init(_opts) do
-    {:ok, %{queue: %Queue{}, inflight_ref: nil}}
+  def init(opts) do
+    {:ok,
+     %{
+       queue: %Queue{},
+       inflight_ref: nil,
+       task_supervisor: Keyword.get(opts, :task_supervisor, task_supervisor())
+     }}
   end
 
   @impl true
@@ -145,7 +153,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
       ingest_updates(updates)
     end
 
-    case start_task(task_fun) do
+    case start_task(task_fun, state.task_supervisor) do
       {:ok, ref} ->
         %{state | inflight_ref: ref}
 
@@ -156,8 +164,10 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     end
   end
 
-  defp start_task(task_fun) do
-    start_task_with_supervisor(task_fun)
+  defp start_task(task_fun, nil), do: start_task_fallback(task_fun)
+
+  defp start_task(task_fun, supervisor) do
+    start_task_with_supervisor(task_fun, supervisor)
   catch
     :exit, {:noproc, _details} ->
       start_task_fallback(task_fun)
@@ -169,8 +179,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
       {:error, reason}
   end
 
-  defp start_task_with_supervisor(task_fun) do
-    case Task.Supervisor.start_child(ServiceRadar.SyncIngestor.TaskSupervisor, task_fun) do
+  defp start_task_with_supervisor(task_fun, supervisor) do
+    case Task.Supervisor.start_child(supervisor, task_fun) do
       {:ok, pid} ->
         {:ok, Process.monitor(pid)}
 
@@ -198,6 +208,18 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
   defp queue_max_chunks do
     Application.get_env(:serviceradar_core, :sync_ingestor_queue_max_chunks, 10)
+  end
+
+  defp queue_server do
+    Application.get_env(:serviceradar_core, :sync_ingestor_queue_server, __MODULE__)
+  end
+
+  defp task_supervisor do
+    Application.get_env(
+      :serviceradar_core,
+      :sync_ingestor_task_supervisor,
+      ServiceRadar.SyncIngestor.TaskSupervisor
+    )
   end
 
   defp ingest_updates(updates) do

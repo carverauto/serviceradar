@@ -6,7 +6,7 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
   asserted to remediate them idempotently.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor

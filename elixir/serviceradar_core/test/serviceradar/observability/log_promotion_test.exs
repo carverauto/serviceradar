@@ -1,10 +1,39 @@
+defmodule ServiceRadar.Observability.LogPromotionTest.BlockingAlertQueue do
+  @moduledoc false
+
+  def enqueue_events(events) do
+    test_pid = Application.fetch_env!(:serviceradar_core, :log_promotion_queue_test_pid)
+    send(test_pid, {:stateful_alert_enqueue_started, self(), events})
+
+    receive do
+      :release_stateful_alert_enqueue -> :ok
+    after
+      5_000 -> {:error, :blocking_alert_queue_timeout}
+    end
+  end
+end
+
+defmodule ServiceRadar.Observability.LogPromotionTest.RejectingAlertQueue do
+  @moduledoc false
+
+  def enqueue_events(events) do
+    test_pid = Application.fetch_env!(:serviceradar_core, :log_promotion_queue_test_pid)
+    reason = Application.fetch_env!(:serviceradar_core, :log_promotion_queue_rejection)
+    send(test_pid, {:stateful_alert_enqueue_rejected, reason, events})
+    {:error, reason}
+  end
+end
+
 defmodule ServiceRadar.Observability.LogPromotionTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias Ecto.Adapters.SQL, as: SQL
   alias Postgrex.Result
   alias ServiceRadar.Observability.EventRule
   alias ServiceRadar.Observability.LogPromotion
+  alias ServiceRadar.Observability.LogPromotionTest.BlockingAlertQueue
+  alias ServiceRadar.Observability.LogPromotionTest.RejectingAlertQueue
+  alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
@@ -17,6 +46,105 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
 
   setup do
     :ok
+  end
+
+  test "waits for the configured stateful alert queue admission" do
+    actor = %{id: "system", role: :admin}
+    previous_queue = Application.get_env(:serviceradar_core, :stateful_alert_evaluation_queue)
+
+    Application.put_env(:serviceradar_core, :stateful_alert_evaluation_queue, BlockingAlertQueue)
+    Application.put_env(:serviceradar_core, :log_promotion_queue_test_pid, self())
+
+    on_exit(fn ->
+      case previous_queue do
+        nil -> Application.delete_env(:serviceradar_core, :stateful_alert_evaluation_queue)
+        value -> Application.put_env(:serviceradar_core, :stateful_alert_evaluation_queue, value)
+      end
+
+      Application.delete_env(:serviceradar_core, :log_promotion_queue_test_pid)
+    end)
+
+    subject = "logs.queue-test.#{System.unique_integer([:positive])}"
+
+    {:ok, _rule} =
+      EventRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "queue-admission-#{Ash.UUID.generate()}",
+          source_type: :log,
+          source: %{},
+          match: %{"subject_prefix" => subject},
+          event: %{"log_name" => "test.queue.admission", "alert" => false}
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    log = %{
+      id: Ash.UUID.generate(),
+      timestamp: DateTime.utc_now(),
+      severity_text: "INFO",
+      severity_number: 11,
+      body: "queue admission probe",
+      service_name: "test",
+      attributes: %{"serviceradar" => %{"ingest" => %{"subject" => subject}}},
+      resource_attributes: %{},
+      created_at: DateTime.utc_now()
+    }
+
+    promotion_task = Task.async(fn -> LogPromotion.promote([log]) end)
+
+    assert_receive {:stateful_alert_enqueue_started, queue_pid, [_event]}, 2_000
+    assert Task.yield(promotion_task, 0) == nil
+
+    send(queue_pid, :release_stateful_alert_enqueue)
+    assert Task.await(promotion_task, 2_000) == {:ok, 1}
+  end
+
+  test "falls back to synchronous evaluation when the queue is full" do
+    configure_rejecting_alert_queue(:stateful_alert_evaluation_queue_full)
+    log = create_queue_probe("queue-full")
+
+    assert {:ok, 1} = LogPromotion.promote([log])
+    assert_receive {:stateful_alert_enqueue_rejected, :stateful_alert_evaluation_queue_full, [_]}
+    assert [{pid, _metadata}] = ProcessRegistry.lookup(:stateful_alert_engine)
+    assert Process.alive?(pid)
+  end
+
+  test "falls back to synchronous evaluation when the queue is unavailable" do
+    configure_rejecting_alert_queue(:stateful_alert_evaluation_queue_unavailable)
+    log = create_queue_probe("queue-unavailable")
+
+    assert {:ok, 1} = LogPromotion.promote([log])
+
+    assert_receive {:stateful_alert_enqueue_rejected,
+                    :stateful_alert_evaluation_queue_unavailable, [_]}
+
+    assert [{pid, _metadata}] = ProcessRegistry.lookup(:stateful_alert_engine)
+    assert Process.alive?(pid)
+  end
+
+  test "does not duplicate evaluation after an ambiguous queue timeout" do
+    configure_rejecting_alert_queue(:stateful_alert_evaluation_queue_timeout)
+    log = create_queue_probe("queue-timeout")
+
+    assert {:ok, 1} = LogPromotion.promote([log])
+
+    assert_receive {:stateful_alert_enqueue_rejected, :stateful_alert_evaluation_queue_timeout,
+                    [_]}
+
+    assert ProcessRegistry.lookup(:stateful_alert_engine) == []
+  end
+
+  test "does not duplicate evaluation after an ambiguous queue exit" do
+    reason = {:stateful_alert_evaluation_queue_unavailable, :shutdown}
+    configure_rejecting_alert_queue(reason)
+    log = create_queue_probe("queue-exit")
+
+    assert {:ok, 1} = LogPromotion.promote([log])
+    assert_receive {:stateful_alert_enqueue_rejected, ^reason, [_]}
+    assert ProcessRegistry.lookup(:stateful_alert_engine) == []
   end
 
   test "promotes log to event and creates alert" do
@@ -408,4 +536,60 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
     assert unmapped["falco"]["diagnostics"] == diagnostics
     assert unmapped["falco"]["output_fields"]["proc.cmdline"] == "/tmp/.build/tool --lint"
   end
+
+  defp configure_rejecting_alert_queue(reason) do
+    previous_queue = Application.get_env(:serviceradar_core, :stateful_alert_evaluation_queue)
+    previous_reason = Application.get_env(:serviceradar_core, :log_promotion_queue_rejection)
+    previous_test_pid = Application.get_env(:serviceradar_core, :log_promotion_queue_test_pid)
+    previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
+
+    TestSupport.drain_stateful_alert_engines()
+    Application.put_env(:serviceradar_core, :stateful_alert_evaluation_queue, RejectingAlertQueue)
+    Application.put_env(:serviceradar_core, :log_promotion_queue_rejection, reason)
+    Application.put_env(:serviceradar_core, :log_promotion_queue_test_pid, self())
+    Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 1)
+
+    on_exit(fn ->
+      TestSupport.drain_stateful_alert_engines()
+      restore_env(:stateful_alert_evaluation_queue, previous_queue)
+      restore_env(:log_promotion_queue_rejection, previous_reason)
+      restore_env(:log_promotion_queue_test_pid, previous_test_pid)
+      restore_env(:stateful_alert_engine_shards, previous_shards)
+    end)
+  end
+
+  defp create_queue_probe(label) do
+    actor = %{id: "system", role: :admin}
+    subject = "logs.#{label}.#{System.unique_integer([:positive])}"
+
+    {:ok, _rule} =
+      EventRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "#{label}-#{Ash.UUID.generate()}",
+          source_type: :log,
+          source: %{},
+          match: %{"subject_prefix" => subject},
+          event: %{"log_name" => "test.#{label}", "alert" => false}
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    %{
+      id: Ash.UUID.generate(),
+      timestamp: DateTime.utc_now(),
+      severity_text: "INFO",
+      severity_number: 11,
+      body: "queue rejection probe",
+      service_name: "test",
+      attributes: %{"serviceradar" => %{"ingest" => %{"subject" => subject}}},
+      resource_attributes: %{},
+      created_at: DateTime.utc_now()
+    }
+  end
+
+  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
+  defp restore_env(key, value), do: Application.put_env(:serviceradar_core, key, value)
 end

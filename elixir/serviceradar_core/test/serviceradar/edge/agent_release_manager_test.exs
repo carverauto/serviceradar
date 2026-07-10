@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   import Ash.Expr
 
@@ -73,6 +73,12 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
   end
 
   setup_all do
+    previous_public_key =
+      Application.fetch_env(:serviceradar_core, :agent_release_public_key)
+
+    previous_mirror_module =
+      Application.fetch_env(:serviceradar_core, :agent_release_artifact_mirror_module)
+
     TestSupport.start_core!()
     Application.put_env(:serviceradar_core, :agent_release_public_key, @release_public_key)
 
@@ -81,6 +87,11 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
       :agent_release_artifact_mirror_module,
       TestReleaseArtifactMirror
     )
+
+    on_exit(fn ->
+      restore_env_snapshot(:agent_release_public_key, previous_public_key)
+      restore_env_snapshot(:agent_release_artifact_mirror_module, previous_mirror_module)
+    end)
 
     :ok
   end
@@ -1119,6 +1130,11 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_core, key, value)
+
+  defp restore_env_snapshot(key, {:ok, value}),
+    do: Application.put_env(:serviceradar_core, key, value)
+
+  defp restore_env_snapshot(key, :error), do: Application.delete_env(:serviceradar_core, key)
 
   defp sign_manifest(manifest) do
     {:ok, payload} = ServiceRadar.Edge.ReleaseManifestValidator.canonical_json(manifest)

@@ -8,7 +8,7 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
   - PollJob tracks execution progress
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Monitoring.PollingSchedule

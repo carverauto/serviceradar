@@ -7,7 +7,7 @@ if System.get_env("SRQL_TEST_DATABASE_URL") ||
      System.get_env("SRQL_TEST_DATABASE_URL_FILE") ||
      System.get_env("SERVICERADAR_TEST_DATABASE_URL_FILE") do
   ExUnit.start(exclude: [:external, :cluster, :large_ingestion])
-  ServiceRadar.TestSupport.start_core!()
+  ServiceRadar.TestSupport.start_core!(sandbox_owner?: false, sandbox_mode: :manual)
 else
   ExUnit.start(exclude: [:integration, :external, :cluster, :large_ingestion])
 end

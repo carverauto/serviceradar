@@ -3,7 +3,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciliationJobTest do
   Integration coverage for scheduled reconciliation job merges.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device

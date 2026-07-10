@@ -55,6 +55,13 @@ const (
 	bumblebeeStateFailed                    = "scan_failed"
 	bumblebeeStateNotScanned                = "not_scanned"
 	bumblebeeCoverageFailed                 = "failed"
+	bumblebeeCoveragePartial                = "partial"
+	bumblebeeSeverityCritical               = "critical"
+	bumblebeeSeverityHigh                   = "high"
+	bumblebeeSeverityMedium                 = "medium"
+	bumblebeeSeverityLow                    = "low"
+	bumblebeeSeverityInfo                   = "info"
+	bumblebeeSeverityInformational          = "informational"
 )
 
 var errBumblebeeSpoolTooLarge = errors.New("bumblebee spool payload exceeds size budget")
@@ -545,16 +552,16 @@ func bumblebeeSeverityID(payload bumblebee.ScanPayload) int {
 	}
 
 	switch highestBumblebeeSeverity(payload.Findings) {
-	case "critical":
+	case bumblebeeSeverityCritical:
 		return 5
-	case "high":
+	case bumblebeeSeverityHigh:
 		return 4
-	case "medium":
+	case bumblebeeSeverityMedium:
 		return 3
-	case "low":
+	case bumblebeeSeverityLow:
 		return 2
 	default:
-		if payload.CoverageState == "partial" {
+		if payload.CoverageState == bumblebeeCoveragePartial {
 			return 2
 		}
 		return 1
@@ -563,13 +570,13 @@ func bumblebeeSeverityID(payload bumblebee.ScanPayload) int {
 
 func bumblebeeFindingSeverityID(finding bumblebee.Finding) int {
 	switch normalizedToken(finding.Severity, "") {
-	case "critical":
+	case bumblebeeSeverityCritical:
 		return 5
-	case "high":
+	case bumblebeeSeverityHigh:
 		return 4
-	case "medium":
+	case bumblebeeSeverityMedium:
 		return 3
-	case "low":
+	case bumblebeeSeverityLow:
 		return 2
 	default:
 		return 1
@@ -593,12 +600,12 @@ func bumblebeeSeverityName(severityID int) string {
 
 func highestBumblebeeSeverity(findings []bumblebee.Finding) string {
 	rank := map[string]int{
-		"critical":      5,
-		"high":          4,
-		"medium":        3,
-		"low":           2,
-		"info":          1,
-		"informational": 1,
+		bumblebeeSeverityCritical:      5,
+		bumblebeeSeverityHigh:          4,
+		bumblebeeSeverityMedium:        3,
+		bumblebeeSeverityLow:           2,
+		bumblebeeSeverityInfo:          1,
+		bumblebeeSeverityInformational: 1,
 	}
 	best := ""
 	bestRank := 0

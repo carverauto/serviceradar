@@ -41,11 +41,13 @@ const (
 )
 
 // ackedConfigSections fixes the order sections appear in a ConfigAck.
-var ackedConfigSections = []string{
-	configSectionBumblebee,
-	configSectionEndpointInventory,
-	configSectionAddons,
-	configSectionVisibility,
+func ackedConfigSections() [4]string {
+	return [...]string{
+		configSectionBumblebee,
+		configSectionEndpointInventory,
+		configSectionAddons,
+		configSectionVisibility,
+	}
 }
 
 // Wire values for ConfigSectionStatus.disposition. Core treats an ack without section
@@ -255,9 +257,10 @@ func (p *PushLoop) configSectionFailureSnapshot() map[string]configSectionFailur
 // either healthy or in a recorded permanent-failure state.
 func (p *PushLoop) configSectionAckStatuses() []*proto.ConfigSectionStatus {
 	failures := p.configSectionFailureSnapshot()
+	sections := ackedConfigSections()
 
-	statuses := make([]*proto.ConfigSectionStatus, 0, len(ackedConfigSections))
-	for _, section := range ackedConfigSections {
+	statuses := make([]*proto.ConfigSectionStatus, 0, len(sections))
+	for _, section := range sections {
 		status := &proto.ConfigSectionStatus{
 			Section:     section,
 			Disposition: configSectionDispositionSuccess,

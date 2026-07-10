@@ -186,6 +186,7 @@ COMMENT ON EXTENSION vector IS 'vector data type and ivfflat and hnsw access met
 
 CREATE TYPE platform.oban_job_state AS ENUM (
     'available',
+    'suspended',
     'scheduled',
     'executing',
     'retryable',
@@ -2768,7 +2769,7 @@ CREATE TABLE platform.anomaly_episodes (
     CONSTRAINT anomaly_episodes_clear_time_check CHECK ((((status = 'open'::text) AND (cleared_at IS NULL)) OR ((status <> 'open'::text) AND (cleared_at IS NOT NULL)))),
     CONSTRAINT anomaly_episodes_counts_check CHECK (((occurrence_count >= 1) AND (reopen_count >= 0))),
     CONSTRAINT anomaly_episodes_if_index_check CHECK (((if_index IS NULL) OR (if_index > 0))),
-    CONSTRAINT anomaly_episodes_severity_check CHECK ((((severity_id >= 0) AND (severity_id <= 5)) AND ((peak_severity_id >= 0) AND (peak_severity_id <= 5)) AND (peak_severity_id >= severity_id))),
+    CONSTRAINT anomaly_episodes_severity_check CHECK (severity_id BETWEEN 0 AND 5 AND peak_severity_id BETWEEN 0 AND 5 AND peak_severity_id >= severity_id),
     CONSTRAINT anomaly_episodes_status_check CHECK ((status = ANY (ARRAY['open'::text, 'cleared'::text, 'stale_closed'::text])))
 );
 
@@ -6194,7 +6195,7 @@ CREATE TABLE platform.oban_jobs (
 -- Name: TABLE oban_jobs; Type: COMMENT; Schema: platform; Owner: -
 --
 
-COMMENT ON TABLE platform.oban_jobs IS '13';
+COMMENT ON TABLE platform.oban_jobs IS '14';
 
 
 --
@@ -7303,7 +7304,7 @@ CREATE TABLE platform.runtime_topology_projection_meta (
     inserted_at timestamp without time zone NOT NULL,
     updated_at timestamp without time zone NOT NULL,
     input_hash text,
-    input_hashed_at timestamp without time zone
+    input_hashed_at timestamp(6) without time zone
 );
 
 
@@ -7335,7 +7336,7 @@ CREATE TABLE platform.seasonal_disposition_states (
     last_disposition text,
     last_status text,
     last_score double precision,
-    last_evaluated_at timestamp without time zone,
+    last_evaluated_at timestamp(6) without time zone,
     CONSTRAINT seasonal_disposition_states_counter_check CHECK ((consecutive_anomalous >= 0)),
     CONSTRAINT seasonal_disposition_states_dow_check CHECK (((dow >= 0) AND (dow <= 6))),
     CONSTRAINT seasonal_disposition_states_hod_check CHECK (((hod >= 0) AND (hod <= 23)))

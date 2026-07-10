@@ -6,7 +6,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
   that gateways use to manage agent lifecycle.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent

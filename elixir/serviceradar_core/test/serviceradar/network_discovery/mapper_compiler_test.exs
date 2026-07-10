@@ -3,7 +3,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
   Integration tests for MapperCompiler credential resolution.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.MapperCompiler

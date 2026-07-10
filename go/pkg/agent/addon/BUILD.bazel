@@ -38,6 +38,7 @@ go_test(
         "resource_limits_linux_test.go",
         "status_proto_test.go",
         "telemetry_env_test.go",
+        "telemetry_test.go",
     ],
     data = ["//go/cmd/serviceradar-sample-addon"],
     embed = [":addon"],

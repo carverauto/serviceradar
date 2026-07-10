@@ -29,11 +29,11 @@ Provision these only for deployments that ingest telemetry directly from routers
 |---|---:|---|---|---|---|
 | Syslog UDP | 514 | UDP | `serviceradar-log-collector:514` | UDP Gateway listener or dedicated UDP load balancer | UDP has no hostname/SNI. Use a deployment-specific IP or a deployment-specific port when multiple deployments share infrastructure. |
 | Syslog TCP | 514 | TCP | `serviceradar-log-collector-tcp:514` | TCP load balancer or Gateway TCP listener | Optional. Enable only when the deployment needs TCP syslog. |
-| NetFlow | 2055 | UDP | `serviceradar-flow-collector:2055` | Dedicated UDP load balancer or routed private service | NetFlow v9 templates are exporter and collector scoped. Keep exporter affinity stable. |
-| sFlow | 6343 | UDP | `serviceradar-flow-collector:6343` | Dedicated UDP load balancer or routed private service | Often shares the same collector address as NetFlow. |
-| IPFIX alternate port | 4739 | UDP | `serviceradar-flow-collector:4739` | Dedicated UDP load balancer or routed private service | Optional. Enable only when exporters require the conventional IPFIX port. |
-| SNMP traps | 162 | UDP | `serviceradar-trapd:162` | Dedicated UDP load balancer or routed private service | SNMP polling is outbound from agents; only traps need inbound UDP 162. |
-| BGP BMP | 11019 | TCP | `serviceradar-bmp-collector:11019` | Dedicated TCP load balancer or routed private service | BMP sessions usually come from routers and should be tightly source-restricted. |
+| NetFlow | 2055 | UDP | `serviceradar-flow-collector:2055` | Gateway UDP listener, dedicated UDP load balancer, or routed private service | NetFlow v9 templates are exporter and collector scoped. Keep exporter affinity stable. |
+| sFlow | 6343 | UDP | `serviceradar-flow-collector:6343` | Gateway UDP listener, dedicated UDP load balancer, or routed private service | Often shares the same collector address as NetFlow. |
+| IPFIX alternate port | 4739 | UDP | `serviceradar-flow-collector:4739` | Gateway UDP listener, dedicated UDP load balancer, or routed private service | Optional. Enable only when exporters require the conventional IPFIX port. |
+| SNMP traps | 162 | UDP | `serviceradar-trapd:162` | Gateway UDP listener, dedicated UDP load balancer, or routed private service | SNMP polling is outbound from agents; only traps need inbound UDP 162. |
+| BGP BMP | 11019 | TCP | `serviceradar-bmp-collector:11019` | Gateway TCP listener, dedicated TCP load balancer, or routed private service | BMP sessions usually come from routers and should be tightly source-restricted. |
 
 For UDP collectors, prefer a deployment-specific IP address when customers expect standard ports such as `514`, `162`, `2055`, or `6343`. A shared IP with unique ports can work operationally, but it requires customer device configuration that may be harder to standardize.
 

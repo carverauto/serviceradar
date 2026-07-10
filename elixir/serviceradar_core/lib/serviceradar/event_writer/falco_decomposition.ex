@@ -153,7 +153,7 @@ defmodule ServiceRadar.EventWriter.FalcoDecomposition do
     Enum.reject(
       [
         maybe_observable(context["hostname"], "Hostname", 1),
-        maybe_observable(context["rule"], "Rule Name", 99),
+        maybe_observable(context["rule"], "Falco Rule", 99),
         maybe_observable(context["namespace"], "Kubernetes Namespace", 99),
         maybe_observable(context["pod"], "Kubernetes Pod", 99),
         maybe_observable(context["container"], "Container Name", 99),

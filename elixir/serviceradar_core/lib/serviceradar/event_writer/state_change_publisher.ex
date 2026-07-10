@@ -182,6 +182,7 @@ defmodule ServiceRadar.EventWriter.StateChangePublisher do
 
   defp usable_uid?(uid), do: is_binary(uid) and String.trim(uid) != ""
 
+  defp normalize_value(value) when is_boolean(value), do: value
   defp normalize_value(value) when is_atom(value) and not is_nil(value), do: Atom.to_string(value)
   defp normalize_value(value), do: value
 

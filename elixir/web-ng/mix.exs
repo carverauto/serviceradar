@@ -56,6 +56,8 @@ defmodule ServiceRadarWebNG.MixProject do
       # {:usage_rules, "~> 1.0", only: [:dev]},  # Commented out for Docker build
       # ServiceRadar Core - Ash domains, cluster, registry
       {:serviceradar_core, path: "../serviceradar_core"},
+      {:gnat, "~> 1.15"},
+      {:connection, path: "../connection", override: true},
 
       # SRQL shared library for query parsing and execution
       {:serviceradar_srql, path: "../serviceradar_srql", override: true},

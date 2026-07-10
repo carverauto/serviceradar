@@ -29,7 +29,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   use Oban.Worker,
     queue: :monitoring,
     max_attempts: 3,
-    unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
+    unique: [period: :infinity, states: :incomplete]
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.OCSF

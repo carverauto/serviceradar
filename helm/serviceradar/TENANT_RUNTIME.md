@@ -36,6 +36,13 @@ NetFlow, sFlow, SNMP traps, and BMP use dedicated chart-managed LoadBalancer
 services when the selected hosted tier enables those collectors. OTLP is routed
 through Gateway API by default.
 
+DNS and public certificate custody stay with the hosted control plane. The
+tenant baseline disables `gatewayApi.dns.enabled` and
+`logCollector.otlp.gateway.dns.enabled`, so the rendered routes do not rely on
+tenant-cluster `external-dns`. It also leaves `gatewayApi.tls.clusterIssuer`
+empty; hosted bootstrap must issue/sync the public TLS secret named by
+`gatewayApi.tls.secretName` before the managed Gateway serves traffic.
+
 External telemetry NetworkPolicy CIDR lists are intentionally empty in the
 baseline. The hosted control plane's network-security sync writes tenant
 trusted-CIDR allow-lists when that section lands.

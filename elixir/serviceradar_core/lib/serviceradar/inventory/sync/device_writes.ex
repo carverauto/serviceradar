@@ -53,17 +53,20 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     recovered_records = DeviceRecords.merge_records_by_uid(remapped_records)
 
     if map_size(remap) == 0 and recovered_records == records do
-      Logger.warning("Bulk device upsert failed: #{inspect(original_error)}")
-      {:error, original_error}
+      Logger.warning(
+        "Bulk device upsert hit active-IP conflict without an identity remap; " <>
+          "retrying once after the concurrent insert: #{inspect(original_error)}"
+      )
     else
       Logger.warning(
-        "Bulk device upsert hit active-IP conflict; remapped #{length(records)} records to #{length(recovered_records)} and retrying"
+        "Bulk device upsert hit active-IP conflict; remapped #{length(records)} records " <>
+          "to #{length(recovered_records)} and retrying: #{inspect(original_error)}"
       )
+    end
 
-      case do_bulk_upsert_devices_once(recovered_records, update_query, refresh_rollups?) do
-        :ok -> {:ok, remap}
-        {:error, _} = error -> error
-      end
+    case do_bulk_upsert_devices_once(recovered_records, update_query, refresh_rollups?) do
+      :ok -> {:ok, remap}
+      {:error, _} = error -> error
     end
   end
 
@@ -71,9 +74,9 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     insert_devices(records, update_query, refresh_rollups?)
     :ok
   rescue
-    e ->
-      Logger.warning("Bulk device upsert retry failed: #{inspect(e)}")
-      {:error, e}
+    error ->
+      Logger.warning("Bulk device upsert retry failed: #{inspect(error)}")
+      {:error, error}
   end
 
   defp insert_devices(records, update_query, true) do

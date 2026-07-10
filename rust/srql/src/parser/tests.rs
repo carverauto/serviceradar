@@ -44,6 +44,23 @@ fn implicitly_promotes_wildcard_text_filters_to_like() {
 }
 
 #[test]
+fn implicitly_promotes_supported_device_jsonb_wildcards_to_like() {
+    for query in [
+        "in:devices os.name:%OS%",
+        "in:devices os.version:%17%",
+        "in:devices os.type:%network%",
+        "in:devices hw_info.serial_number:%ABC%",
+        "in:devices hw_info.cpu_type:%arm%",
+        "in:devices hw_info.cpu_architecture:%x86%",
+    ] {
+        let ast = parse(query).unwrap();
+
+        assert_eq!(ast.filters.len(), 1, "{query}");
+        assert!(matches!(ast.filters[0].op, FilterOp::Like), "{query}");
+    }
+}
+
+#[test]
 fn does_not_implicitly_promote_exact_filters_to_like() {
     let ast = parse("in:interfaces if_index:%1%").unwrap();
 

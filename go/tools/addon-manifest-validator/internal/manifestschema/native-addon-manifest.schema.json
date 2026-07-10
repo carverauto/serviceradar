@@ -102,6 +102,16 @@
             "enum": ["linux", "darwin", "windows"]
           }
         },
+        "agent_capabilities": {
+          "type": "array",
+          "title": "Required agent capabilities",
+          "description": "Capabilities the base agent must advertise before this add-on can be assigned. Empty by default.",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
         "os_capabilities": {
           "type": "array",
           "title": "Required OS capabilities",

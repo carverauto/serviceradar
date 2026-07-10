@@ -87,7 +87,8 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcherTest do
       assert {:ok, targets} =
                MtrAutomationDispatcher.target_contexts_from_srql("tags.role:edge", 25,
                  translate_fn: translate_fn,
-                 query_fn: query_fn
+                 query_fn: query_fn,
+                 managed_target_filter_fn: & &1
                )
 
       assert targets == [
@@ -154,7 +155,8 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcherTest do
       assert {:ok, targets} =
                MtrAutomationDispatcher.target_contexts_from_srql("tags.role:edge", 2,
                  translate_fn: translate_fn,
-                 query_fn: query_fn
+                 query_fn: query_fn,
+                 managed_target_filter_fn: & &1
                )
 
       assert targets == [

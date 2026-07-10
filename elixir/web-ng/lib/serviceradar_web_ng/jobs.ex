@@ -313,7 +313,7 @@ defmodule ServiceRadarWebNG.Jobs do
     if is_integer(period) and period > 0 do
       [
         period: period,
-        states: [:available, :scheduled, :executing],
+        states: :incomplete,
         keys: [:worker, :args, :queue]
       ]
     end

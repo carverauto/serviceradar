@@ -56,17 +56,6 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfersTest do
     end
   end
 
-  defmodule ApprovalResourceStub do
-    @moduledoc false
-
-    def get_by_id(approval_id, _opts) do
-      case Process.get(:remote_access_file_transfer_approval) do
-        %{id: ^approval_id} = approval -> {:ok, approval}
-        _other -> {:error, :not_found}
-      end
-    end
-  end
-
   defmodule CommandBusStub do
     @moduledoc false
 
@@ -530,13 +519,6 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfersTest do
     transfer = Map.put(transfer_fixture(session_id), :approval_id, approval_id)
     Process.put(:remote_access_file_transfer_lookup, transfer)
 
-    Process.put(:remote_access_file_transfer_approval, %{
-      id: approval_id,
-      status: :consumed,
-      session_id: session_id,
-      expires_at: DateTime.add(DateTime.utc_now(), 300, :second)
-    })
-
     frame = %{
       session_id: session_id,
       frame_type: "file_transfer_outcome",
@@ -546,7 +528,7 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfersTest do
     assert {:error, :file_transfer_approval_mismatch} =
              RemoteAccessFileTransfers.handle_agent_frame(frame,
                transfer_resource: TransferResourceStub,
-               approval_resource: ApprovalResourceStub
+               approval_checker: ApprovalCheckerStub
              )
 
     refute_receive {:update_transfer, _status, _attrs}
@@ -565,11 +547,13 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfersTest do
     assert {:ok, updated} =
              RemoteAccessFileTransfers.handle_agent_frame(approved_frame,
                transfer_resource: TransferResourceStub,
-               approval_resource: ApprovalResourceStub,
+               approval_checker: ApprovalCheckerStub,
+               recording: nil,
                audit_writer: AuditWriterStub
              )
 
     assert updated.status == :completed
+    assert_receive {:approval_revalidated, %{approval_id: ^approval_id, session_id: ^session_id}}
     assert_receive {:update_transfer, :completed, %{byte_count: 128}}
   end
 

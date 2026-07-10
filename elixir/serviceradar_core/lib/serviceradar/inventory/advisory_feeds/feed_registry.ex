@@ -48,15 +48,6 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedRegistry do
       feed_type: @default_feed_type,
       requires_credential: true,
       refresh_interval_seconds: 21_600
-    },
-    %{
-      feed: "nvd-api",
-      provider: "nvd",
-      feed_key: "nvd-api",
-      display_name: "NVD CVE 2.0 API",
-      feed_type: @default_feed_type,
-      requires_credential: false,
-      refresh_interval_seconds: 21_600
     }
   ]
 

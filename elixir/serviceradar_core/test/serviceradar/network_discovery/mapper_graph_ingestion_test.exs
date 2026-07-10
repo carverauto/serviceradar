@@ -1,9 +1,10 @@
 defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Links
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
@@ -11,7 +12,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
 
   setup_all do
     TestSupport.start_core!()
+    :ok
+  end
 
+  setup do
     if age_available?() do
       graph_name = graph_name()
 
@@ -28,6 +32,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
   end
 
   setup do
+    clear_report_fingerprints()
+    on_exit(&clear_report_fingerprints/0)
     Application.put_env(:serviceradar_core, :mapper_topology_edge_stale_minutes, 180)
 
     cleanup_graph(
@@ -120,6 +126,73 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     assert result["source"] == "lldp"
     assert result["tier"] == "high"
     assert result["score"] == 95
+  end
+
+  test "upsert_links reapplies every mutable projected device and interface property" do
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+
+    link = %{
+      local_device_id: "sr:dev-1",
+      local_device_ip: "192.0.2.10",
+      neighbor_device_id: "sr:dev-2",
+      neighbor_system_name: "switch-a",
+      neighbor_mgmt_addr: "192.0.2.20",
+      local_if_name: "eth0",
+      local_if_index: 10,
+      neighbor_port_id: "aa:bb:cc:dd:ee:ff",
+      protocol: "lldp",
+      metadata: %{"confidence_tier" => "high", "confidence_score" => 95},
+      timestamp: now,
+      created_at: now
+    }
+
+    TopologyGraph.upsert_links([link])
+
+    link = %{link | local_device_ip: "192.0.2.11"}
+    TopologyGraph.upsert_links([link])
+    [result] = cypher_rows("MATCH (d:Device {id:'sr:dev-1'}) RETURN {value: d.ip} AS result")
+    assert result["value"] == "192.0.2.11"
+
+    link = %{link | neighbor_system_name: "switch-b"}
+    TopologyGraph.upsert_links([link])
+
+    [result] =
+      cypher_rows("MATCH (d:Device {id:'sr:dev-2'}) RETURN {value: d.name} AS result")
+
+    assert result["value"] == "switch-b"
+
+    link = %{link | neighbor_mgmt_addr: "192.0.2.21"}
+    TopologyGraph.upsert_links([link])
+    [result] = cypher_rows("MATCH (d:Device {id:'sr:dev-2'}) RETURN {value: d.ip} AS result")
+    assert result["value"] == "192.0.2.21"
+
+    link = %{link | local_if_index: 11}
+    TopologyGraph.upsert_links([link])
+
+    [result] =
+      cypher_rows("MATCH (i:Interface {id:'sr:dev-1/eth0'}) RETURN {value: i.ifindex} AS result")
+
+    assert result["value"] == 11
+
+    # Whitespace changes the projected property but not its normalized vertex ID.
+    link = %{link | local_if_name: " eth0 "}
+    TopologyGraph.upsert_links([link])
+
+    [result] =
+      cypher_rows("MATCH (i:Interface {id:'sr:dev-1/eth0'}) RETURN {value: i.name} AS result")
+
+    assert result["value"] == " eth0 "
+
+    # Both spellings normalize to one vertex ID, but the projected name changed.
+    link = %{link | neighbor_port_id: "aabbccddeeff"}
+    TopologyGraph.upsert_links([link])
+
+    [result] =
+      cypher_rows(
+        "MATCH (i:Interface {id:'sr:dev-2/aa:bb:cc:dd:ee:ff'}) RETURN {value: i.name} AS result"
+      )
+
+    assert result["value"] == "aabbccddeeff"
   end
 
   test "upsert_links falls back when neighbor port metadata is missing" do
@@ -303,7 +376,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     assert pseudo_vertex["count"] == 0
   end
 
-  test "mapper SNMP ARP/FDB single-identifier payload with resolved sr: neighbor stays observation-only" do
+  test "mapper SNMP ARP/FDB payload with a managed neighbor projects as inferred evidence" do
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
     normalized =
@@ -323,8 +396,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
         }
       })
 
-    assert normalized.metadata["confidence_reason"] == "single_identifier_inference"
-    assert normalized.metadata["evidence_class"] == "observed-only"
+    assert normalized.metadata["confidence_reason"] == "managed_neighbor_identifier"
+    assert normalized.metadata["evidence_class"] == "inferred-segment"
+    assert normalized.metadata["relation_family"] == "INFERRED_TO"
 
     TopologyGraph.upsert_links([Map.put(normalized, :created_at, now)])
 
@@ -355,10 +429,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
       )
 
     assert connects["count"] == 0
-    assert inferred["count"] == 0
+    assert inferred["count"] == 1
     assert attached["count"] == 0
-    assert observed["count"] == 1
-    assert observed["source"] == "SNMP-L2"
+    assert observed["count"] == 0
   end
 
   test "upsert_links keeps multiple resolved SNMP-L2 neighbors for one local device" do
@@ -1068,6 +1141,18 @@ defmodule ServiceRadar.NetworkDiscovery.MapperGraphIngestionTest do
     end
   rescue
     _ -> false
+  end
+
+  defp clear_report_fingerprints do
+    Enum.each(:persistent_term.get(), fn
+      {{Links, :report_fingerprint, _scope} = key, _value} ->
+        :persistent_term.erase(key)
+
+      _other ->
+        :ok
+    end)
+
+    :ok
   end
 
   defp ensure_graph(graph_name) do

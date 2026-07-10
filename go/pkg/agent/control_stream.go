@@ -407,7 +407,8 @@ func (p *PushLoop) handleControlStream(
 		}
 
 		if cfg := resp.GetConfig(); cfg != nil {
-			if !p.applyConfigResponse(ctx, cfg, "control") {
+			sequence := p.nextConfigSequence()
+			if !p.applyConfigResponseWithSequence(ctx, cfg, "control", sequence) {
 				p.logger.Warn().
 					Str("config_version", cfg.ConfigVersion).
 					Msg("Skipped control stream config ack because config apply failed")

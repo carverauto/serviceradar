@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   import ExUnit.CaptureLog
 
@@ -14,16 +14,25 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
   require Ash.Query
 
   setup_all do
+    previous_rules_dir =
+      Application.fetch_env(:serviceradar_core, :device_enrichment_rules_dir)
+
     test_rules_dir = Path.join(System.tmp_dir!(), "serviceradar-device-rules-empty")
     File.mkdir_p!(test_rules_dir)
     Application.put_env(:serviceradar_core, :device_enrichment_rules_dir, test_rules_dir)
     DeviceEnrichmentRules.reload()
     ServiceRadar.TestSupport.start_core!()
-    ensure_inventory_rollup_schema!()
+
+    on_exit(fn ->
+      restore_env_snapshot(:device_enrichment_rules_dir, previous_rules_dir)
+      DeviceEnrichmentRules.reload()
+    end)
+
     :ok
   end
 
   setup do
+    ensure_inventory_rollup_schema!()
     actor = SystemActor.system(:sync_ingestor_vendor_type_test)
     {:ok, actor: actor}
   end
@@ -891,7 +900,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
       "hostname" => "updated-host",
       "source" => "armis",
       "metadata" => %{
-        "integration_id" => "armis-#{System.unique_integer([:positive])}",
+        "armis_device_id" => "armis-#{System.unique_integer([:positive])}",
         "integration_type" => "armis",
         "sys_descr" => "Ubiquiti UniFi UDM-Pro 4.4.6 Linux 4.19.152 al324"
       }
@@ -1201,4 +1210,9 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     $$;
     """)
   end
+
+  defp restore_env_snapshot(key, {:ok, value}),
+    do: Application.put_env(:serviceradar_core, key, value)
+
+  defp restore_env_snapshot(key, :error), do: Application.delete_env(:serviceradar_core, key)
 end

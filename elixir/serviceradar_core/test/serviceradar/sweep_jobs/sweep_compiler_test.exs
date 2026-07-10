@@ -3,7 +3,7 @@ defmodule ServiceRadar.SweepJobs.SweepCompilerTest do
   Tests for sweep config generation consistency.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.AgentConfig.Compilers.SweepCompiler
 

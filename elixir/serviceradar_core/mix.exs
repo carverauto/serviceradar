@@ -81,7 +81,7 @@ defmodule ServiceRadarCore.MixProject do
       {:oban, "~> 2.18"},
 
       # NATS JetStream for event publishing
-      {:jetstream, "~> 0.0.9"},
+      {:gnat, "~> 1.15"},
       {:connection, path: "../connection", override: true},
 
       # Broadway for high-throughput event processing

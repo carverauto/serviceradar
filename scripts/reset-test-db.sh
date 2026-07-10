@@ -2,6 +2,11 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# shellcheck source=scripts/db/test-database-url-guard.sh
+source "${SCRIPT_DIR}/db/test-database-url-guard.sh"
+
 if [ "$#" -ne 2 ]; then
   echo "Usage: $0 <admin_url> <db_url>" >&2
   exit 1
@@ -9,6 +14,8 @@ fi
 
 admin_url="$1"
 db_url="$2"
+
+serviceradar_assert_test_database_url "${db_url}"
 
 if ! command -v psql >/dev/null 2>&1; then
   echo "psql is required to reset the integration database." >&2

@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Credentials.ProxmoxApiSmokeIntegrationTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Credentials.ProxmoxApiSmoke
 

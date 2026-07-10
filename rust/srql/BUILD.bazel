@@ -54,6 +54,7 @@ rust_test(
     crate_name = "srql_api_tests",
     crate_root = "tests/api.rs",
     edition = "2021",
+    tags = ["local"],
     deps = [
         ":srql_lib",
     ] + all_crate_deps(normal = True, normal_dev = True),
@@ -75,6 +76,7 @@ rust_test(
     crate_name = "srql_comprehensive_tests",
     crate_root = "tests/comprehensive_queries.rs",
     edition = "2021",
+    tags = ["local"],
     deps = [
         ":srql_lib",
     ] + all_crate_deps(normal = True, normal_dev = True),

@@ -72,12 +72,12 @@ func TestApplyConfigResponseBumblebeeTransientDefersWithoutSkippingLaterSections
 			},
 		},
 	}, nil, 30*time.Second, logger.NewTestLogger())
-	pl.setConfigVersion("old-version")
+	pl.setConfigVersion(testOldConfigVersion)
 
 	// Enabled Bumblebee with a catalog but no object store: transient
 	// (ErrCatalogObjectStoreUnavailable) — the incident's permission-denied class.
 	ok := pl.applyConfigResponse(context.Background(), &proto.AgentConfigResponse{
-		ConfigVersion: "new-version",
+		ConfigVersion: testNewConfigVersion,
 		BumblebeeConfig: &proto.BumblebeeConfig{
 			Enabled: true,
 			Catalog: &proto.BumblebeeCatalogAssignment{
@@ -92,8 +92,8 @@ func TestApplyConfigResponseBumblebeeTransientDefersWithoutSkippingLaterSections
 	if ok {
 		t.Fatal("applyConfigResponse() = true, want false: a transient Bumblebee failure must defer the version")
 	}
-	if got := pl.getConfigVersion(); got != "old-version" {
-		t.Fatalf("config version = %q, want old-version (transient failures defer the commit)", got)
+	if got := pl.getConfigVersion(); got != testOldConfigVersion {
+		t.Fatalf("config version = %q, want %s (transient failures defer the commit)", got, testOldConfigVersion)
 	}
 	if got := icmpCheckCount(pl); got != 1 {
 		t.Fatalf("icmp checks applied = %d, want 1: later sections must still apply in the same cycle", got)
@@ -110,10 +110,10 @@ func TestApplyConfigResponseBumblebeeTransientDefersWithoutSkippingLaterSections
 func TestApplyConfigResponseTransientAddonFailureStillAppliesLaterSections(t *testing.T) {
 	srv, hits := statusServer(t, http.StatusInternalServerError)
 	pl := newDeliveryTestPushLoop(t)
-	pl.setConfigVersion("old-version")
+	pl.setConfigVersion(testOldConfigVersion)
 
 	ok := pl.applyConfigResponse(context.Background(), &proto.AgentConfigResponse{
-		ConfigVersion: "new-version",
+		ConfigVersion: testNewConfigVersion,
 		Addons:        []*proto.AddonAssignmentConfig{sidecar404Assignment("netprobe", srv.URL)},
 		Checks:        []*proto.AgentCheckConfig{testICMPCheck()},
 	}, "poll")
@@ -121,8 +121,8 @@ func TestApplyConfigResponseTransientAddonFailureStillAppliesLaterSections(t *te
 	if ok {
 		t.Fatal("applyConfigResponse() = true, want false: a transient add-on failure must defer the version")
 	}
-	if got := pl.getConfigVersion(); got != "old-version" {
-		t.Fatalf("config version = %q, want old-version (deferred)", got)
+	if got := pl.getConfigVersion(); got != testOldConfigVersion {
+		t.Fatalf("config version = %q, want %s (deferred)", got, testOldConfigVersion)
 	}
 	if *hits == 0 {
 		t.Fatal("expected the artifact endpoint to be hit")
@@ -131,8 +131,8 @@ func TestApplyConfigResponseTransientAddonFailureStillAppliesLaterSections(t *te
 		t.Fatalf("icmp checks applied = %d, want 1: the check section must not be skipped by an add-on defer", got)
 	}
 	// The heavy idempotent pass completed, so a resend of the same version skips it.
-	if got := pl.getLastAttemptedConfigVersion(); got != "new-version" {
-		t.Fatalf("last attempted version = %q, want new-version", got)
+	if got := pl.getLastAttemptedConfigVersion(); got != testNewConfigVersion {
+		t.Fatalf("last attempted version = %q, want %s", got, testNewConfigVersion)
 	}
 }
 
@@ -149,7 +149,8 @@ func TestApplyConfigResponseNetprobeParseErrorCommitsAndReportsSection(t *testin
 		sidecarManager:  manager,
 		sidecarStatus:   manager,
 	}, nil, 30*time.Second, logger.NewTestLogger())
-	pl.setConfigVersion("old-version")
+	setHostNetworkVisibilitySupportForTest(pl, true)
+	pl.setConfigVersion(testOldConfigVersion)
 
 	// A corrupt row that still exceeds the decoder's bounded compatibility:
 	// capture_interfaces must be an array, scalar string, or null.
@@ -161,7 +162,7 @@ func TestApplyConfigResponseNetprobeParseErrorCommitsAndReportsSection(t *testin
 	}
 
 	resp := &proto.AgentConfigResponse{
-		ConfigVersion:    "new-version",
+		ConfigVersion:    testNewConfigVersion,
 		VisibilityConfig: &proto.VisibilityConfig{Enabled: true},
 		Addons:           []*proto.AddonAssignmentConfig{badNetprobe},
 		Checks:           []*proto.AgentCheckConfig{testICMPCheck()},
@@ -170,8 +171,8 @@ func TestApplyConfigResponseNetprobeParseErrorCommitsAndReportsSection(t *testin
 	if !pl.applyConfigResponse(context.Background(), resp, "control") {
 		t.Fatal("applyConfigResponse() = false, want true: a permanent section failure must not defer the version")
 	}
-	if got := pl.getConfigVersion(); got != "new-version" {
-		t.Fatalf("config version = %q, want new-version (permanent failures commit + ack)", got)
+	if got := pl.getConfigVersion(); got != testNewConfigVersion {
+		t.Fatalf("config version = %q, want %s (permanent failures commit + ack)", got, testNewConfigVersion)
 	}
 	if got := icmpCheckCount(pl); got != 1 {
 		t.Fatalf("icmp checks applied = %d, want 1: other sections still apply", got)
@@ -227,6 +228,7 @@ func TestApplyConfigResponsePermanentFailureNotReattemptedForIdenticalPayload(t 
 		sidecarManager:  manager,
 		sidecarStatus:   manager,
 	}, nil, 30*time.Second, logger.NewTestLogger())
+	setHostNetworkVisibilitySupportForTest(pl, true)
 
 	badNetprobe := &proto.AddonAssignmentConfig{
 		AddonId:     agentnetprobe.DefaultSidecarName,

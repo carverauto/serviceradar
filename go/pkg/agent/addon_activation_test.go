@@ -941,12 +941,13 @@ func TestApplyConfigResponseDefersVersionWhenAddonDeliveryFails(t *testing.T) {
 				RuntimeDir: filepath.Join(t.TempDir(), "addons"),
 			}),
 		},
-		logger: logger.NewTestLogger(),
+		logger:                         logger.NewTestLogger(),
+		hostNetworkVisibilitySupported: func() bool { return true },
 	}
-	pl.setConfigVersion("old-version")
+	pl.setConfigVersion(testOldConfigVersion)
 
 	ok := pl.applyConfigResponse(context.Background(), &proto.AgentConfigResponse{
-		ConfigVersion: "new-version",
+		ConfigVersion: testNewConfigVersion,
 		Addons: []*proto.AddonAssignmentConfig{
 			{
 				AddonId:           "netprobe",
@@ -962,8 +963,8 @@ func TestApplyConfigResponseDefersVersionWhenAddonDeliveryFails(t *testing.T) {
 	if ok {
 		t.Fatal("applyConfigResponse() = true, want false when add-on delivery fails transiently")
 	}
-	if got := pl.getConfigVersion(); got != "old-version" {
-		t.Fatalf("config version = %q, want old-version", got)
+	if got := pl.getConfigVersion(); got != testOldConfigVersion {
+		t.Fatalf("config version = %q, want %s", got, testOldConfigVersion)
 	}
 }
 

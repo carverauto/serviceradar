@@ -56,7 +56,7 @@ defmodule Palisade.MixProject do
       # HTTP client for OutboundFetch. Both CRM and ServiceRadar
       # already pull Req in transitively; pinning here so palisade
       # builds standalone.
-      {:req, "~> 0.5"},
+      {:req, "~> 0.6"},
       # Dev / test tooling.
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
     ]

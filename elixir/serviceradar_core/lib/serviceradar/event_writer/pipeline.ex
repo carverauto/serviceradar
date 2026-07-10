@@ -38,6 +38,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   # Maximum number of upstream trace contexts linked onto a batch span.
   @max_batch_links 8
+  @tracer_cache_key {__MODULE__, :batch_tracer}
 
   @doc """
   Starts the Broadway pipeline.
@@ -134,7 +135,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
     if telemetry_subject?(subject) do
       fun.()
     else
-      Otel.span(
+      with_current_tracer_span(
         "event_writer.process_batch",
         %{
           kind: :consumer,
@@ -148,6 +149,26 @@ defmodule ServiceRadar.EventWriter.Pipeline do
         },
         fun
       )
+    end
+  end
+
+  defp with_current_tracer_span(name, start_opts, fun) do
+    Otel.span_with_tracer(current_tracer(), name, start_opts, fun)
+  end
+
+  # Application tracers survive SDK restarts in persistent_term. Key the hot-path
+  # cache by provider PID so a restarted provider is queried exactly once per worker.
+  defp current_tracer do
+    provider = Otel.provider_identity()
+
+    case Process.get(@tracer_cache_key) do
+      {^provider, tracer} ->
+        tracer
+
+      _stale_or_missing ->
+        {resolved_provider, tracer} = Otel.tracer_snapshot(__MODULE__, provider)
+        Process.put(@tracer_cache_key, {resolved_provider, tracer})
+        tracer
     end
   end
 

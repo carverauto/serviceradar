@@ -89,7 +89,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiDocsConsoleTest do
       # `devices.view` is granted to viewers, so the session-authenticated read
       # returns the device — proving the console's session auth resolves the
       # actor and the read policy allows it.
-      assert length(response["data"]) >= 1
+      refute Enum.empty?(response["data"])
     end
 
     test "a viewer's session-authenticated create is DENIED by policy", %{conn: conn} do

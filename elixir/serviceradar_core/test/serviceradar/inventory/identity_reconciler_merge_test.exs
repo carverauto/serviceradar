@@ -3,7 +3,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
   Integration coverage for merge behavior with interface observations.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device

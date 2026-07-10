@@ -48,6 +48,12 @@ for bin in pg_dump psql jq python3; do
   fi
 done
 
+# Keep the CI gate bounded. Without these settings a bad fixture DSN, password
+# prompt, or lock on a scratch database can leave the job silent until the
+# workflow-level timeout.
+export PGCONNECT_TIMEOUT="${PGCONNECT_TIMEOUT:-20}"
+export PGOPTIONS="${PGOPTIONS:-} -c statement_timeout=${BASELINE_PG_STATEMENT_TIMEOUT:-300000} -c lock_timeout=${BASELINE_PG_LOCK_TIMEOUT:-30000}"
+
 if [[ -z "${BASELINE_ADMIN_URL:-}" ]]; then
   echo "BASELINE_ADMIN_URL is required (admin DSN to the Timescale+AGE cluster)" >&2
   exit 1
@@ -84,6 +90,8 @@ u = urlparse(os.environ["BASELINE_ADMIN_URL"])
 qs = parse_qs(u.query)
 sslmode = (qs.get("sslmode") or ["require"])[0] or "require"
 qs["sslmode"] = [sslmode]
+for key in ("sslrootcert", "sslcert", "sslkey"):
+    qs.pop(key, None)
 host = u.hostname or ""
 admin_db = (u.path or "/").lstrip("/") or "postgres"
 
@@ -112,29 +120,37 @@ PY
 
 admin_psql() {
   # Connect to the maintenance database for CREATE/DROP DATABASE.
-  psql "${SR_ADMIN_DSN}" -v ON_ERROR_STOP=1 -q "$@"
+  psql -w "${SR_ADMIN_DSN}" -v ON_ERROR_STOP=1 -q -X "$@"
 }
 
 drop_scratch_dbs() {
+  local quiet="${1:-false}"
+
+  if [[ "${quiet}" != "true" ]]; then
+    echo "==> Dropping any prior scratch databases"
+  fi
+
   # WITH (FORCE) terminates any lingering backends so the drop cannot hang.
   admin_psql -c "DROP DATABASE IF EXISTS \"${baseline_db}\" WITH (FORCE)" >/dev/null 2>&1 || true
   admin_psql -c "DROP DATABASE IF EXISTS \"${replay_db}\" WITH (FORCE)" >/dev/null 2>&1 || true
 }
-trap drop_scratch_dbs EXIT
+trap 'drop_scratch_dbs true' EXIT
 
 echo "==> Creating scratch databases on ${SR_DB_HOST} (sslmode=${SR_SSLMODE})"
 drop_scratch_dbs
+echo "==> Creating baseline scratch database ${baseline_db}"
 admin_psql -c "CREATE DATABASE \"${baseline_db}\""
+echo "==> Creating replay scratch database ${replay_db}"
 admin_psql -c "CREATE DATABASE \"${replay_db}\""
 
 echo "==> Loading committed baseline into ${baseline_db}"
-psql "${SR_BASELINE_DSN}" -v ON_ERROR_STOP=1 -q -f "${SCHEMA_FILE}" >/dev/null
+psql -w "${SR_BASELINE_DSN}" -v ON_ERROR_STOP=1 -q -X -f "${SCHEMA_FILE}" >/dev/null
 
 echo "==> Replaying migrations (through ${included_through}) into ${replay_db}"
 # Ecto stores its migration ledger in the `platform` prefix
 # (config/test.exs: migration_default_prefix), so the schema must exist before
 # the first migration runs. Startup does the same via ensure_platform_schema!.
-psql "${SR_REPLAY_DSN}" -v ON_ERROR_STOP=1 -q -c "CREATE SCHEMA IF NOT EXISTS platform" >/dev/null
+psql -w "${SR_REPLAY_DSN}" -v ON_ERROR_STOP=1 -q -X -c "CREATE SCHEMA IF NOT EXISTS platform" >/dev/null
 
 (
   cd "${CORE_DIR}"

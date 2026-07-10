@@ -9,6 +9,7 @@ type SourceConfig struct {
 	Type               string            `json:"type"`                   // "armis", "netbox", etc.
 	Endpoint           string            `json:"endpoint"`               // API endpoint
 	Credentials        map[string]string `json:"credentials"`            // e.g., {"api_key": "xyz"}
+	Settings           map[string]any    `json:"settings,omitempty"`     // Non-secret source-specific settings
 	Prefix             string            `json:"prefix"`                 // Optional namespace prefix for device identifiers
 	InsecureSkipVerify bool              `json:"insecure_skip_verify"`   // For TLS connections
 	Queries            []QueryConfig     `json:"queries"`                // List of queries
@@ -18,7 +19,7 @@ type SourceConfig struct {
 	// agents and gateways. When set, they override any global defaults for
 	// the Sync service.
 	AgentID   string `json:"agent_id,omitempty"`
-	GatewayID  string `json:"gateway_id,omitempty"`
+	GatewayID string `json:"gateway_id,omitempty"`
 	Partition string `json:"partition,omitempty"`
 
 	SyncServiceID string `json:"sync_service_id,omitempty"`

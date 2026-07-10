@@ -1,5 +1,5 @@
 defmodule ServiceRadar.FlowAttributionTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.FlowAttribution
   alias ServiceRadar.FlowAttribution.Persistence

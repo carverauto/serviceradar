@@ -7,7 +7,7 @@ defmodule ServiceRadar.Automation.Ansible.LifecycleSeedWorker do
   use Oban.Worker,
     queue: :ansible_catalog,
     max_attempts: 3,
-    unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
+    unique: [period: :infinity, states: :incomplete]
 
   alias ServiceRadar.Automation.Ansible.Lifecycle
   alias ServiceRadar.SweepJobs.ObanSupport

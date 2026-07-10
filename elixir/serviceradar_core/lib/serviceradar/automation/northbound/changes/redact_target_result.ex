@@ -27,8 +27,14 @@ defmodule ServiceRadar.Automation.Northbound.Changes.RedactTargetResult do
 
   defp redacted_result(changeset) do
     changeset
-    |> Ash.Changeset.get_attribute(:result)
+    |> pending_attribute(:result)
     |> Kernel.||(%{})
     |> ActionRedaction.redact()
+  end
+
+  defp pending_attribute(changeset, attribute) do
+    Keyword.get_lazy(changeset.atomics, attribute, fn ->
+      Ash.Changeset.get_attribute(changeset, attribute)
+    end)
   end
 end

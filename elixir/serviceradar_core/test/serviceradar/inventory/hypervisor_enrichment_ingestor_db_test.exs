@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
@@ -362,6 +362,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
     suffix = System.unique_integer([:positive])
     provider = "proxmox"
     host_uid = "sr:agent-managed-hv-parent-#{suffix}"
+    host_ref = "#{provider}:node:pve-parent-#{suffix}"
     guest_ref = "#{provider}:guest:pve-parent-#{suffix}:vm:133"
 
     {:ok, _device} =
@@ -386,14 +387,35 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
       "details" => %{
         "schema" => "serviceradar.hypervisor_enrichment.v1",
         "provider" => provider,
+        "hosts" => [
+          %{
+            "provider_ref" => host_ref,
+            "device_uid" => host_uid,
+            "name" => "pve-parent-#{suffix}",
+            "status" => "online",
+            "metadata" => %{}
+          }
+        ],
         "guests" => [
           %{
             "provider_ref" => guest_ref,
+            "host_provider_ref" => host_ref,
             "device_uid" => host_uid,
             "name" => "vm-parent-#{suffix}",
             "guest_type" => "vm",
             "vmid" => 133,
             "status" => "running"
+          }
+        ],
+        "network_interfaces" => [
+          %{
+            "provider_ref" => "#{provider}:guest-nic:pve-parent-#{suffix}:vm:133:net0",
+            "host_provider_ref" => host_ref,
+            "guest_provider_ref" => guest_ref,
+            "name" => "net0",
+            "mac_address" => "02:00:00:00:85:01",
+            "ip_addresses" => ["10.66.#{rem(suffix, 200)}.13/24"],
+            "source" => "config"
           }
         ]
       }

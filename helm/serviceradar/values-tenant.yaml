@@ -47,7 +47,7 @@ gatewayApi:
   mode: managed
   host: acme.serviceradar.cloud
   dns:
-    enabled: true
+    enabled: false
     hostname: acme.serviceradar.cloud
   http:
     enabled: true
@@ -55,7 +55,9 @@ gatewayApi:
   tls:
     enabled: true
     secretName: serviceradar-gateway-tls
-    clusterIssuer: serviceradar-tenant-issuer
+    # Public certificates are issued centrally by the hosted control plane and
+    # synced into this secret; tenant clusters must not hold DNS01 credentials.
+    clusterIssuer: ""
   syslog:
     # Syslog rides the tenant Gateway UDP listener; no dedicated syslog
     # LoadBalancer is allocated for the hosted baseline.
@@ -172,6 +174,8 @@ logCollector:
         enabled: true
     gateway:
       enabled: true
+      dns:
+        enabled: false
       httpHostname: otlp-acme.serviceradar.cloud
       grpcHostname: otlp-grpc-acme.serviceradar.cloud
 

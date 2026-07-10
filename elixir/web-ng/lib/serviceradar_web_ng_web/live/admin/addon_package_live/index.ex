@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
 
   alias ServiceRadar.AgentRuntimeMetadata
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Plugins.ConfigSchema
   alias ServiceRadar.Plugins.RetiredNativeAddons
   alias ServiceRadarWebNG.Plugins.AddonAssignments
   alias ServiceRadarWebNG.Plugins.AddonFleet
@@ -295,9 +296,10 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   def handle_event("create_profile", %{"profile" => form}, socket) do
     scope = socket.assigns.current_scope
     package = socket.assigns.selected_package
+    submitted_form = form
     form = Map.merge(default_profile_form(package), form)
 
-    with {:ok, params} <- parse_profile_params(form),
+    with {:ok, params} <- parse_profile_params(submitted_form, package.config_schema),
          {:ok, priority} <- parse_positive_integer(Map.get(form, "priority"), 100),
          {:ok, max_targets} <- parse_positive_integer(Map.get(form, "max_targets"), 10_000),
          {:ok, target_query} <- profile_target_query(Map.get(form, "target_query")),
@@ -972,6 +974,20 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                       placeholder="in:agents"
                     />
                   </div>
+                  <div
+                    :if={
+                      config_schema_present?(flat_config_form_schema(@selected_package.config_schema))
+                    }
+                    id="addon-profile-configuration"
+                    class="space-y-3 rounded-lg border border-base-200/70 bg-base-100/60 p-3"
+                  >
+                    <div class="text-xs font-semibold text-base-content/70">Configuration</div>
+                    <.plugin_config_fields
+                      schema={flat_config_form_schema(@selected_package.config_schema)}
+                      params={config_params_map(@profile_form)}
+                      base_name="profile[params]"
+                    />
+                  </div>
                   <details class="rounded border border-base-200 bg-base-200/30">
                     <summary class="cursor-pointer px-3 py-2 text-xs font-semibold uppercase text-base-content/70">
                       Advanced Profile Options
@@ -1005,9 +1021,19 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                         ><%= @profile_form["args"] %></textarea>
                       </div>
                       <div>
-                        <label class="label"><span class="label-text">Params (JSON)</span></label>
+                        <label class="label">
+                          <span class="label-text">
+                            {if config_schema_present?(@selected_package.config_schema),
+                              do: "Raw Params (JSON)",
+                              else: "Params (JSON)"}
+                          </span>
+                        </label>
                         <textarea
-                          name="profile[params]"
+                          name={
+                            if config_schema_present?(@selected_package.config_schema),
+                              do: "profile[params_raw]",
+                              else: "profile[params]"
+                          }
                           class="textarea textarea-bordered w-full font-mono text-xs min-h-[70px]"
                         ><%= assignment_params_raw(@profile_form) %></textarea>
                       </div>
@@ -1169,7 +1195,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                       <div class="text-xs font-semibold text-base-content/70">Configuration</div>
                       <.plugin_config_fields
                         schema={@selected_package.config_schema}
-                        params={assignment_params_map(@assignment_form)}
+                        params={config_params_map(@assignment_form)}
                         base_name="assignment[params]"
                       />
                     </div>
@@ -1588,7 +1614,32 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
 
   defp default_profile_form(package) do
     base = default_profile_form(nil)
-    %{base | "name" => "#{package.name} profile"}
+
+    params =
+      if config_schema_present?(package.config_schema) do
+        default_profile_config_params(package)
+      else
+        base["params"]
+      end
+
+    %{base | "name" => "#{package.name} profile", "params" => params}
+  end
+
+  defp default_profile_config_params(package) do
+    schema = package.config_schema
+    defaults = ConfigSchema.normalize_params(schema, %{})
+    properties = Map.get(schema, "properties") || Map.get(schema, :properties) || %{}
+    enabled = Map.get(properties, "enabled") || Map.get(properties, :enabled) || %{}
+
+    # A netprobe profile is the operator's opt-in to host visibility and immediately
+    # materializes enabled assignments. Keep its runtime master switch aligned with that
+    # lifecycle default instead of silently persisting the schema-level false default.
+    if package.addon_id == "netprobe" and
+         (Map.get(enabled, "type") == "boolean" or Map.get(enabled, :type) == "boolean") do
+      Map.put(defaults, "enabled", true)
+    else
+      defaults
+    end
   end
 
   defp fetch_agent_uid(form) do
@@ -1706,13 +1757,48 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     end
   end
 
-  defp parse_profile_params(form) do
-    raw = Map.get(form, "params")
+  defp parse_profile_params(form, config_schema) do
+    if config_schema_present?(config_schema) do
+      structured = submitted_flat_config_params(form, config_schema)
 
-    if is_binary(raw) and String.trim(raw) != "" do
-      parse_json_object(raw)
+      raw = Map.get(form, "params_raw")
+
+      with {:ok, raw_params} <- parse_optional_json_object(raw) do
+        {:ok, Map.merge(raw_params, structured)}
+      end
     else
-      {:ok, %{}}
+      parse_params(form, config_schema)
+    end
+  end
+
+  defp parse_optional_json_object(raw) when is_binary(raw) do
+    if String.trim(raw) == "", do: {:ok, %{}}, else: parse_json_object(raw)
+  end
+
+  defp parse_optional_json_object(_raw), do: {:ok, %{}}
+
+  defp submitted_flat_config_params(form, config_schema) do
+    allowed_names =
+      config_schema
+      |> flat_config_form_schema()
+      |> Map.get("properties", %{})
+      |> Map.keys()
+      |> MapSet.new(&to_string/1)
+
+    case Map.get(form, "params") do
+      %{} = params ->
+        Enum.reduce(params, %{}, fn {name, value}, submitted ->
+          name = to_string(name)
+
+          if MapSet.member?(allowed_names, name) do
+            Map.put(submitted, name, value)
+          else
+            submitted
+          end
+        end)
+
+      _ ->
+        %{}
     end
   end
 
@@ -1892,7 +1978,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
 
   defp parse_selected_capabilities(_form), do: []
 
-  defp assignment_params_map(form) do
+  defp config_params_map(form) do
     case Map.get(form, "params") do
       %{} = map -> map
       _ -> %{}
@@ -1905,6 +1991,33 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
 
   defp raw_string(value) when is_binary(value), do: value
   defp raw_string(_value), do: nil
+
+  # The shared config component handles flat scalar fields and string lists. Complex
+  # object/array fields stay in the raw JSON editor so their structure is preserved.
+  defp flat_config_form_schema(schema) when is_map(schema) do
+    properties = Map.get(schema, "properties") || Map.get(schema, :properties) || %{}
+
+    flat_properties =
+      Map.filter(properties, fn {_name, property} -> flat_config_property?(property) end)
+
+    schema
+    |> Map.delete(:properties)
+    |> Map.put("properties", flat_properties)
+  end
+
+  defp flat_config_form_schema(_schema), do: %{}
+
+  defp flat_config_property?(property) when is_map(property) do
+    type = Map.get(property, "type") || Map.get(property, :type)
+    enum = Map.get(property, "enum") || Map.get(property, :enum)
+    items = Map.get(property, "items") || Map.get(property, :items) || %{}
+    item_type = Map.get(items, "type") || Map.get(items, :type)
+
+    type in ["boolean", "string", "integer", "number"] or
+      (type == "array" and item_type == "string") or (is_list(enum) and enum != [])
+  end
+
+  defp flat_config_property?(_property), do: false
 
   defp config_schema_present?(schema) when is_map(schema) do
     properties = Map.get(schema, "properties") || Map.get(schema, :properties) || %{}

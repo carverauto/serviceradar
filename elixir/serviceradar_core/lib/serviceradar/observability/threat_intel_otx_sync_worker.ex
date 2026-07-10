@@ -12,7 +12,7 @@ defmodule ServiceRadar.Observability.ThreatIntelOTXSyncWorker do
     unique: [
       period: 900,
       fields: [:worker, :args],
-      states: [:available, :scheduled, :executing, :retryable]
+      states: :incomplete
     ]
 
   alias ServiceRadar.Actors.SystemActor

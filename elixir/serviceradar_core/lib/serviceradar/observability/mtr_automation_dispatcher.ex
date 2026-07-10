@@ -107,7 +107,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
           rows
           |> Enum.map(&row_to_target_ctx/1)
           |> Enum.reject(&is_nil/1)
-          |> enforce_managed_baseline_targets()
+          |> managed_target_filter(opts).()
           |> Enum.reduce({acc, seen_targets}, fn target, {targets, seen} ->
             target_id = Map.get(target, :target_key) || Map.get(target, :target_ip)
 
@@ -582,6 +582,10 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
   end
 
   defp enforce_managed_baseline_targets(targets), do: targets
+
+  defp managed_target_filter(opts) do
+    Keyword.get(opts, :managed_target_filter_fn, &enforce_managed_baseline_targets/1)
+  end
 
   defp filter_targets_by_devices(targets, devices) do
     device_map = Map.new(devices, fn device -> {blank_to_nil(device.uid), device} end)

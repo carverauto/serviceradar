@@ -6,8 +6,29 @@ defmodule ServiceRadar.Observability.ZenRuleSupport do
   @name_regex ~r/^[a-z][a-z0-9_-]*$/
 
   def attribute_or_existing(changeset, attribute) do
-    Ash.Changeset.get_attribute(changeset, attribute) || Map.get(changeset.data, attribute)
+    case Ash.Changeset.fetch_change(changeset, attribute) do
+      {:ok, value} ->
+        value
+
+      :error ->
+        case fetch_param(changeset.params, attribute) do
+          {:ok, value} ->
+            value
+
+          :error ->
+            Ash.Changeset.get_attribute(changeset, attribute) ||
+              Map.get(changeset.data, attribute)
+        end
+    end
   end
+
+  defp fetch_param(params, attribute) when is_map(params) do
+    with :error <- Map.fetch(params, attribute) do
+      Map.fetch(params, Atom.to_string(attribute))
+    end
+  end
+
+  defp fetch_param(_params, _attribute), do: :error
 
   def valid_name?(name) when is_binary(name), do: Regex.match?(@name_regex, name)
   def valid_name?(_), do: false

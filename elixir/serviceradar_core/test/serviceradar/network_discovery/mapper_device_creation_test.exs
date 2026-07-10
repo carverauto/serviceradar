@@ -4,7 +4,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
   matches the polled IP address.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAliasState

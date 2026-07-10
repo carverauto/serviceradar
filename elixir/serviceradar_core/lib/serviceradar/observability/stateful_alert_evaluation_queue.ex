@@ -190,15 +190,25 @@ defmodule ServiceRadar.Observability.StatefulAlertEvaluationQueue do
   end
 
   defp evaluate_events(events) do
-    case evaluator() do
-      callback when is_function(callback, 1) ->
-        callback.(events)
+    result =
+      case evaluator() do
+        callback when is_function(callback, 1) ->
+          callback.(events)
 
-      {module, function} when is_atom(module) and is_atom(function) ->
-        apply(module, function, [events])
+        {module, function} when is_atom(module) and is_atom(function) ->
+          apply(module, function, [events])
 
-      module when is_atom(module) ->
-        module.evaluate_events(events)
+        module when is_atom(module) ->
+          module.evaluate_events(events)
+      end
+
+    case result do
+      :ok ->
+        :ok
+
+      {:error, reason} = error ->
+        Logger.warning("Stateful alert event evaluation failed: #{inspect(reason)}")
+        error
     end
   rescue
     error ->

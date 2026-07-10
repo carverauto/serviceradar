@@ -33,7 +33,9 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Projection.Policy do
   defp auxiliary_evidence_link?(payload) when is_map(payload) do
     relation = evidence_relation_type(payload)
     inferred_allowed = relation == "INFERRED_TO" and inferred_evidence_projectable?(payload)
-    auxiliary_relation_allowed = relation in Utils.auxiliary_relations()
+
+    auxiliary_relation_allowed =
+      relation != "INFERRED_TO" and relation in Utils.auxiliary_relations()
 
     inferred_allowed or auxiliary_relation_allowed
   end

@@ -6,7 +6,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordingReaperWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    unique: [period: 300, states: [:available, :scheduled, :executing, :retryable]]
+    unique: [period: 300, states: :incomplete]
 
   alias ServiceRadar.Edge.RemoteAccessRecordings
 

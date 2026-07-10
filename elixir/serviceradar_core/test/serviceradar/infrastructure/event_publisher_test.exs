@@ -2,8 +2,8 @@ defmodule ServiceRadar.Infrastructure.EventPublisherTest do
   @moduledoc """
   Tests for infrastructure event publishing.
 
-  Note: These tests mock the NATS connection since we don't want
-  to require a running NATS server for unit tests.
+  These tests inject the internal-log publisher so their result is independent
+  of the integration test application's database and NATS state.
   """
 
   use ExUnit.Case, async: true
@@ -12,9 +12,6 @@ defmodule ServiceRadar.Infrastructure.EventPublisherTest do
 
   describe "publish_state_change/1" do
     test "builds correct event structure" do
-      # This test verifies the event structure without actually publishing
-      # In production, this would go to NATS JetStream
-
       event_opts = [
         entity_type: :gateway,
         entity_id: "gateway-123",
@@ -22,15 +19,18 @@ defmodule ServiceRadar.Infrastructure.EventPublisherTest do
         old_state: :healthy,
         new_state: :degraded,
         reason: :heartbeat_timeout,
-        metadata: %{custom: "data"}
+        metadata: %{custom: "data"},
+        log_publisher: disconnected_publisher(self())
       ]
 
-      # The function will fail to publish (no NATS) but we can verify
-      # it processes the parameters correctly
       result = EventPublisher.publish_state_change(event_opts)
 
-      # Expect error since NATS is not connected
-      assert {:error, {:nats_not_connected, _}} = result
+      assert {:error, {:nats_not_connected, :test}} = result
+
+      assert_receive {:publish_internal_log, "infrastructure.state_change", payload}
+      assert payload.log_name == "infra.state_change"
+      assert payload.unmapped["entity_id"] == "gateway-123"
+      assert payload.unmapped["custom"] == "data"
     end
 
     test "requires all mandatory fields" do
@@ -76,11 +76,12 @@ defmodule ServiceRadar.Infrastructure.EventPublisherTest do
           :gateway,
           "gateway-123",
           initial_state: :healthy,
-          partition_id: "partition-uuid"
+          partition_id: "partition-uuid",
+          log_publisher: disconnected_publisher(self())
         )
 
-      # Expect error since NATS is not connected
-      assert {:error, {:nats_not_connected, _}} = result
+      assert {:error, {:nats_not_connected, :test}} = result
+      assert_receive {:publish_internal_log, "infrastructure.registered", _payload}
     end
   end
 
@@ -91,11 +92,12 @@ defmodule ServiceRadar.Infrastructure.EventPublisherTest do
           :agent,
           "agent-456",
           final_state: :disconnected,
-          reason: "shutdown"
+          reason: "shutdown",
+          log_publisher: disconnected_publisher(self())
         )
 
-      # Expect error since NATS is not connected
-      assert {:error, {:nats_not_connected, _}} = result
+      assert {:error, {:nats_not_connected, :test}} = result
+      assert_receive {:publish_internal_log, "infrastructure.deregistered", _payload}
     end
   end
 
@@ -106,11 +108,12 @@ defmodule ServiceRadar.Infrastructure.EventPublisherTest do
           :gateway,
           "gateway-123",
           last_seen: DateTime.utc_now(),
-          current_state: :healthy
+          current_state: :healthy,
+          log_publisher: disconnected_publisher(self())
         )
 
-      # Expect error since NATS is not connected
-      assert {:error, {:nats_not_connected, _}} = result
+      assert {:error, {:nats_not_connected, :test}} = result
+      assert_receive {:publish_internal_log, "infrastructure.heartbeat_timeout", _payload}
     end
   end
 
@@ -121,11 +124,19 @@ defmodule ServiceRadar.Infrastructure.EventPublisherTest do
           :checker,
           "checker-789",
           false,
-          reason: "consecutive_failures"
+          reason: "consecutive_failures",
+          log_publisher: disconnected_publisher(self())
         )
 
-      # Expect error since NATS is not connected
-      assert {:error, {:nats_not_connected, _}} = result
+      assert {:error, {:nats_not_connected, :test}} = result
+      assert_receive {:publish_internal_log, "infrastructure.health_change", _payload}
+    end
+  end
+
+  defp disconnected_publisher(test_pid) do
+    fn subject, payload ->
+      send(test_pid, {:publish_internal_log, subject, payload})
+      {:error, {:nats_not_connected, :test}}
     end
   end
 end

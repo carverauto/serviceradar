@@ -34,12 +34,17 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
     previous_queue_max = Application.get_env(:serviceradar_core, :sync_ingestor_queue_max_chunks)
     previous_delay = Application.get_env(:serviceradar_core, :sync_ingestor_test_delay_ms)
     previous_pid = Application.get_env(:serviceradar_core, :sync_ingestor_test_pid)
+    previous_queue_server = Application.get_env(:serviceradar_core, :sync_ingestor_queue_server)
 
     Application.put_env(:serviceradar_core, :sync_ingestor, TestIngestor)
     Application.put_env(:serviceradar_core, :sync_ingestor_test_pid, self())
 
-    restart_task_supervisor(ServiceRadar.SyncIngestor.TaskSupervisor)
-    restart_supervised(SyncIngestorQueue)
+    {:ok, sync_task_supervisor} = start_supervised(Task.Supervisor)
+
+    {:ok, sync_queue} =
+      start_supervised({SyncIngestorQueue, name: nil, task_supervisor: sync_task_supervisor})
+
+    Application.put_env(:serviceradar_core, :sync_ingestor_queue_server, sync_queue)
     flush_mailbox()
 
     on_exit(fn ->
@@ -48,6 +53,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
       restore_env(:sync_ingestor_queue_max_chunks, previous_queue_max)
       restore_env(:sync_ingestor_test_delay_ms, previous_delay)
       restore_env(:sync_ingestor_test_pid, previous_pid)
+      restore_env(:sync_ingestor_queue_server, previous_queue_server)
     end)
 
     :ok
@@ -87,47 +93,6 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_core, key, value)
-
-  defp restart_task_supervisor(name) do
-    stop_process(name)
-
-    case start_supervised({Task.Supervisor, name: name}) do
-      {:ok, pid} -> pid
-      {:error, {:already_started, pid}} -> pid
-    end
-  end
-
-  defp restart_supervised(module) when is_atom(module) do
-    stop_process(module)
-
-    case Process.whereis(module) do
-      nil ->
-        case start_supervised(module) do
-          {:ok, pid} -> pid
-          {:error, {:already_started, pid}} -> pid
-        end
-
-      pid ->
-        pid
-    end
-  end
-
-  defp stop_process(nil), do: :ok
-
-  defp stop_process(name) do
-    if pid = Process.whereis(name) do
-      ref = Process.monitor(pid)
-      Process.exit(pid, :shutdown)
-
-      receive do
-        {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
-      after
-        1_000 -> :ok
-      end
-    end
-
-    :ok
-  end
 
   defp flush_mailbox do
     receive do

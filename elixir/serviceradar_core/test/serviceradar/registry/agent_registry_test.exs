@@ -12,7 +12,7 @@ defmodule ServiceRadar.AgentRegistryTest do
   deployments with PostgreSQL search_path determining the schema).
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.AgentRegistry
   alias ServiceRadar.TestSupport

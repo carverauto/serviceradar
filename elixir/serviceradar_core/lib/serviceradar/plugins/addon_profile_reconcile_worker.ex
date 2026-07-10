@@ -9,7 +9,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcileWorker do
   use Oban.Worker,
     queue: :integrations,
     max_attempts: 3,
-    unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
+    unique: [period: :infinity, states: :incomplete]
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Plugins.AddonProfile

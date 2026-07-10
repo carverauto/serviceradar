@@ -10,11 +10,12 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
   These tests satisfy task 4.1 from the remove-nats-internal-events proposal.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Infrastructure.HealthEvent
   alias ServiceRadar.Infrastructure.HealthPubSub
   alias ServiceRadar.Infrastructure.HealthTracker
+  alias ServiceRadar.Repo
 
   @moduletag :database
 
@@ -57,6 +58,7 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
       assert event.reason == :high_latency
       assert event.metadata["latency_ms"] == 500
       assert event.recorded_at
+      assert {_microsecond, 6} = event.recorded_at.microsecond
     end
 
     test "creates a HealthEvent for gateway heartbeat timeout", %{
@@ -101,28 +103,32 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
       entity_id = "agent-timeline-#{unique_id}"
 
       # Record multiple state changes
-      {:ok, _} =
+      {:ok, connecting} =
         HealthTracker.record_state_change(:agent, entity_id, new_state: :connecting)
 
-      {:ok, _} =
+      {:ok, connected} =
         HealthTracker.record_state_change(:agent, entity_id,
           old_state: :connecting,
           new_state: :connected
         )
 
-      {:ok, _} =
+      {:ok, degraded} =
         HealthTracker.record_state_change(:agent, entity_id,
           old_state: :connected,
           new_state: :degraded,
           reason: :high_latency
         )
 
+      force_same_recorded_at([connecting, connected, degraded])
+
       # Query timeline
       {:ok, events} = HealthTracker.timeline(:agent, entity_id, hours: 1)
 
       assert length(events) == 3
-      # Most recent first
-      assert hd(events).new_state == :degraded
+      assert Enum.map(events, & &1.new_state) == [:degraded, :connected, :connecting]
+
+      sequences = Enum.map(events, & &1.event_sequence)
+      assert sequences == Enum.sort(sequences, :desc)
     end
 
     test "records node information", %{unique_id: unique_id} do
@@ -197,25 +203,28 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
       entity_id = "agent-status-#{unique_id}"
 
       # Record several events
-      {:ok, _} =
+      {:ok, connecting} =
         HealthTracker.record_state_change(:agent, entity_id, new_state: :connecting)
 
-      {:ok, _} =
+      {:ok, connected} =
         HealthTracker.record_state_change(:agent, entity_id,
           old_state: :connecting,
           new_state: :connected
         )
 
-      {:ok, _} =
+      {:ok, degraded} =
         HealthTracker.record_state_change(:agent, entity_id,
           old_state: :connected,
           new_state: :degraded
         )
 
+      force_same_recorded_at([connecting, connected, degraded])
+
       # Get current status
       {:ok, current} = HealthTracker.current_status(:agent, entity_id)
 
       assert current.new_state == :degraded
+      assert current.event_sequence == degraded.event_sequence
     end
 
     test "returns nil for entity with no events", %{unique_id: unique_id} do
@@ -377,5 +386,16 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
 
       assert Enum.all?(events, &(&1.entity_type == :agent))
     end
+  end
+
+  defp force_same_recorded_at(events) do
+    recorded_at = DateTime.utc_now()
+
+    Enum.each(events, fn event ->
+      Repo.query!(
+        "UPDATE platform.health_events SET recorded_at = $1 WHERE id = $2::text::uuid",
+        [recorded_at, event.id]
+      )
+    end)
   end
 end

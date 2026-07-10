@@ -35,7 +35,7 @@ defmodule ServiceRadar.Automation.Ansible.ScheduleEvaluatorWorker do
   use Oban.Worker,
     queue: :ansible_pulse,
     max_attempts: 1,
-    unique: [period: :infinity, states: [:available, :scheduled]]
+    unique: [period: :infinity, states: :incomplete]
 
   alias Oban.Cron.Expression
   alias ServiceRadar.Actors.SystemActor

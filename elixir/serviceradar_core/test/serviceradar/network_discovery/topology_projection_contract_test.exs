@@ -104,6 +104,30 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
                TopologyGraph.classify_projection(normalized)
     end
 
+    test "low-confidence inferred evidence is filtered from projection" do
+      normalized =
+        MapperResultsIngestor.normalize_topology(%{
+          "protocol" => "SNMP-L2",
+          "local_device_id" => "dev-switch",
+          "local_device_ip" => "192.168.1.87",
+          "local_if_name" => "1/0/24",
+          "local_if_index" => 24,
+          "neighbor_device_id" => "sr:host-195",
+          "neighbor_mgmt_addr" => "192.168.1.195",
+          "neighbor_port_id" => "1/0/1",
+          "metadata" => %{
+            "source" => "snmp-arp-fdb",
+            "confidence_reason" => "unspecified",
+            "confidence_tier" => "low",
+            "confidence_score" => 40,
+            "evidence_class" => "inferred-segment"
+          }
+        })
+
+      assert {:ok, %{mode: :skip, relation: nil, reason: :skip_inferred_low_confidence}} =
+               TopologyGraph.classify_projection(normalized)
+    end
+
     test "SNMP-L2 medium single-identifier inferred evidence projects to OBSERVED_TO" do
       normalized = %{
         "protocol" => "snmp-l2",
@@ -580,7 +604,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       assert query =~ "UNWIND candidates AS c"
       assert query =~ "support_rank"
       assert query =~ "pair_support_rank"
-      assert query =~ "SET cr.link_key = link_key"
+      assert query =~ "SET cr += {"
+      assert query =~ "link_key: link_key,"
 
       assert query =~
                "type(r) IN ['CONNECTS_TO', 'LOGICAL_PEER', 'HOSTED_ON', 'INFERRED_TO', 'ATTACHED_TO']"
@@ -596,22 +621,22 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       assert query =~ "toLower(trim(bi.device_id)) <> 'undefined'"
       assert query =~ "best_local_if_index"
       assert query =~ "best_neighbor_if_index"
-      assert query =~ "SET cr.local_if_index ="
-      assert query =~ "SET cr.neighbor_if_index ="
-      assert query =~ "SET cr.local_if_index_ab = cr.local_if_index"
-      assert query =~ "SET cr.local_if_index_ba = cr.neighbor_if_index"
-      assert query =~ "SET cr.local_if_name_ab = cr.local_if_name"
-      assert query =~ "SET cr.local_if_name_ba = cr.neighbor_if_name"
-      assert query =~ "SET cr.flow_pps = coalesce(cr.flow_pps, 0)"
-      assert query =~ "SET cr.flow_bps = coalesce(cr.flow_bps, 0)"
-      assert query =~ "SET cr.capacity_bps = coalesce(cr.capacity_bps, 0)"
-      assert query =~ "SET cr.flow_pps_ab = coalesce(cr.flow_pps_ab, 0)"
-      assert query =~ "SET cr.flow_pps_ba = coalesce(cr.flow_pps_ba, 0)"
-      assert query =~ "SET cr.flow_bps_ab = coalesce(cr.flow_bps_ab, 0)"
-      assert query =~ "SET cr.flow_bps_ba = coalesce(cr.flow_bps_ba, 0)"
-      assert query =~ "SET cr.telemetry_eligible = coalesce(cr.telemetry_eligible, false)"
-      assert query =~ "SET cr.telemetry_source = coalesce(cr.telemetry_source, 'none')"
-      assert query =~ "SET cr.telemetry_observed_at = coalesce(cr.telemetry_observed_at, '')"
+      assert query =~ "local_if_index: local_if_index,"
+      assert query =~ "neighbor_if_index: neighbor_if_index,"
+      assert query =~ "local_if_index_ab: local_if_index,"
+      assert query =~ "local_if_index_ba: neighbor_if_index,"
+      assert query =~ "local_if_name_ab: local_if_name,"
+      assert query =~ "local_if_name_ba: neighbor_if_name,"
+      assert query =~ "flow_pps: coalesce(cr.flow_pps, 0),"
+      assert query =~ "flow_bps: coalesce(cr.flow_bps, 0),"
+      assert query =~ "capacity_bps: coalesce(cr.capacity_bps, 0),"
+      assert query =~ "flow_pps_ab: coalesce(cr.flow_pps_ab, 0),"
+      assert query =~ "flow_pps_ba: coalesce(cr.flow_pps_ba, 0),"
+      assert query =~ "flow_bps_ab: coalesce(cr.flow_bps_ab, 0),"
+      assert query =~ "flow_bps_ba: coalesce(cr.flow_bps_ba, 0),"
+      assert query =~ "telemetry_eligible: coalesce(cr.telemetry_eligible, false),"
+      assert query =~ "telemetry_source: coalesce(cr.telemetry_source, 'none'),"
+      assert query =~ "telemetry_observed_at: coalesce(cr.telemetry_observed_at, ''),"
     end
 
     test "unseen projected link prune deletes reverse mapper edge before forward edge" do

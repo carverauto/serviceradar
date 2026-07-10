@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNG.Plugins.StorageTest do
   use ExUnit.Case, async: false
 
+  alias Gnat.Jetstream.API.Object
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadarWebNG.Plugins.Storage
 
@@ -59,6 +60,15 @@ defmodule ServiceRadarWebNG.Plugins.StorageTest do
 
     assert Storage.backend() == :jetstream
     assert {:error, :unsupported_backend} = Storage.blob_path(key)
+  end
+
+  @tag :jetstream_retirement
+  test "loads the integrated Gnat JetStream object-store API" do
+    assert Code.ensure_loaded?(Object)
+    assert Code.ensure_loaded?(Gnat.Jetstream.API.Stream)
+    assert function_exported?(Object, :put, 4)
+    assert function_exported?(Object, :get, 4)
+    assert function_exported?(Gnat.Jetstream.API.Stream, :info, 2)
   end
 
   test "JetStream client stores and fetches plugin blobs without filesystem paths" do

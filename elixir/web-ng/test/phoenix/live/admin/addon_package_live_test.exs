@@ -276,6 +276,154 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
     assert render(lv) =~ "Profile assignment"
   end
 
+  test "profile form exposes and enables a schema runtime switch by default", %{
+    conn: conn,
+    actor: actor
+  } do
+    package =
+      create_addon_package!(actor, %{
+        addon_id: "netprobe",
+        name: "Netprobe Profile Runtime Enabled",
+        version: "9999.0.0",
+        status: :approved,
+        supervision: :systemd_service,
+        approved_capabilities: ["flow.capture", "host.process"],
+        config_schema: %{
+          "type" => "object",
+          "additionalProperties" => false,
+          "properties" => %{
+            "enabled" => %{
+              "type" => "boolean",
+              "title" => "Enabled",
+              "default" => false
+            },
+            "flow_attribution_ipc_batch" => %{
+              "type" => "boolean",
+              "title" => "Flow attribution IPC batch",
+              "default" => true
+            },
+            "device_bindings" => %{
+              "type" => "array",
+              "items" => %{
+                "type" => "object",
+                "properties" => %{
+                  "ip" => %{"type" => "string"}
+                }
+              }
+            }
+          }
+        }
+      })
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/agents/addons/#{package.id}")
+
+    assert has_element?(lv, "#addon-profile-configuration")
+
+    assert has_element?(
+             lv,
+             ~s(#create-addon-profile-form input[name="profile[params][enabled]"][checked])
+           )
+
+    form_params = %{
+      "profile" => %{
+        "name" => "Host visibility",
+        "target_query" => "in:agents",
+        "priority" => "100",
+        "max_targets" => "10000",
+        "params" => %{
+          "enabled" => "true",
+          "flow_attribution_ipc_batch" => "true"
+        },
+        "params_raw" => Jason.encode!(%{"device_bindings" => [%{"ip" => "192.0.2.10"}]}),
+        "args" => ""
+      }
+    }
+
+    lv
+    |> form("#create-addon-profile-form", form_params)
+    |> render_change()
+
+    assert has_element?(
+             lv,
+             ~s(#create-addon-profile-form input[name="profile[params][enabled]"][checked])
+           )
+
+    html =
+      lv
+      |> form("#create-addon-profile-form", form_params)
+      |> render_submit()
+
+    assert html =~ "Add-on profile created."
+
+    [profile] =
+      AddonProfile
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(addon_package_id == ^package.id)
+      |> Ash.read!(actor: system_actor())
+
+    assert profile.params["enabled"] == true
+    assert profile.params["flow_attribution_ipc_batch"] == true
+    assert profile.params["device_bindings"] == [%{"ip" => "192.0.2.10"}]
+  end
+
+  test "profile raw params override defaults for complex-only schema fields", %{
+    conn: conn,
+    actor: actor
+  } do
+    package =
+      create_addon_package!(actor, %{
+        addon_id: "complex-profile-defaults",
+        name: "Complex Profile Defaults",
+        version: "9999.0.0",
+        status: :approved,
+        approved_capabilities: ["flow.capture"],
+        config_schema: %{
+          "type" => "object",
+          "additionalProperties" => false,
+          "properties" => %{
+            "device_bindings" => %{
+              "type" => "array",
+              "default" => [%{"ip" => "198.51.100.1"}],
+              "items" => %{
+                "type" => "object",
+                "properties" => %{
+                  "ip" => %{"type" => "string"}
+                }
+              }
+            }
+          }
+        }
+      })
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/agents/addons/#{package.id}")
+
+    refute has_element?(lv, "#addon-profile-configuration")
+
+    html =
+      lv
+      |> form("#create-addon-profile-form", %{
+        "profile" => %{
+          "name" => "Custom device bindings",
+          "target_query" => "in:agents",
+          "priority" => "100",
+          "max_targets" => "10000",
+          "params_raw" => Jason.encode!(%{"device_bindings" => [%{"ip" => "192.0.2.20"}]}),
+          "args" => ""
+        }
+      })
+      |> render_submit()
+
+    assert html =~ "Add-on profile created."
+
+    [profile] =
+      AddonProfile
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(addon_package_id == ^package.id)
+      |> Ash.read!(actor: system_actor())
+
+    assert profile.params["device_bindings"] == [%{"ip" => "192.0.2.20"}]
+  end
+
   test "assignment list shows profile provenance and reconcile state", %{
     conn: conn,
     actor: actor

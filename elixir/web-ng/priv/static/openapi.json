@@ -33,13 +33,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "boolean"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "boolean"
           },
           "less_than": {
             "type": "boolean"
@@ -73,13 +73,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -117,12 +117,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -184,6 +186,12 @@
             "type": "string"
           },
           "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
             "type": "string"
           }
         },
@@ -332,6 +340,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -381,6 +395,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -405,13 +425,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "boolean"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "boolean"
           },
           "less_than": {
             "type": "boolean"
@@ -448,12 +468,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "less_than": {
@@ -516,6 +538,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -540,13 +568,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "less_than": {
             "type": "object"
@@ -580,13 +608,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -723,13 +751,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -788,6 +816,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -837,6 +871,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -861,13 +901,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "less_than": {
             "type": "object"
@@ -905,12 +945,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -948,13 +990,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -992,12 +1034,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -1035,13 +1079,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -1078,12 +1122,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "less_than": {
@@ -1112,15 +1158,11 @@
             "items": {},
             "type": "array"
           },
-          "is_distinct_from": {
-            "type": "string"
-          },
+          "is_distinct_from": {},
           "is_nil": {
             "type": "boolean"
           },
-          "is_not_distinct_from": {
-            "type": "string"
-          },
+          "is_not_distinct_from": {},
           "less_than": {},
           "less_than_or_equal": {},
           "not_eq": {}
@@ -1284,6 +1326,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -1312,12 +1360,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "less_than": {
@@ -1358,12 +1408,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "less_than": {
@@ -1426,6 +1478,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -1474,6 +1532,12 @@
             "type": "string"
           },
           "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
             "type": "string"
           }
         },
@@ -1814,6 +1878,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -1838,13 +1908,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -1878,13 +1948,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "less_than": {
             "type": "object"
@@ -2037,6 +2107,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -2086,6 +2162,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -2110,13 +2192,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -2175,6 +2257,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -2203,12 +2291,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -2246,13 +2336,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -2286,13 +2376,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "boolean"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "boolean"
           },
           "less_than": {
             "type": "boolean"
@@ -2326,13 +2416,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -2366,13 +2456,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "less_than": {
             "type": "object"
@@ -2406,13 +2496,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -2477,6 +2567,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -2501,13 +2597,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -2699,6 +2795,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -2723,13 +2825,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "boolean"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "boolean"
           },
           "less_than": {
             "type": "boolean"
@@ -2767,12 +2869,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -2814,12 +2918,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "less_than": {
@@ -2861,12 +2967,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -2908,12 +3016,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -2976,6 +3086,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -3024,6 +3140,12 @@
             "type": "string"
           },
           "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
             "type": "string"
           }
         },
@@ -3074,6 +3196,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -3122,6 +3250,12 @@
             "type": "string"
           },
           "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
             "type": "string"
           }
         },
@@ -3201,6 +3335,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -3229,12 +3369,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -3272,13 +3414,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -3422,6 +3564,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -3450,12 +3598,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -3518,6 +3668,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -3567,6 +3723,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -3595,12 +3757,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -3663,6 +3827,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -3712,6 +3882,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -3736,13 +3912,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -3780,12 +3956,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "less_than": {
@@ -3917,13 +4095,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "less_than": {
             "type": "object"
@@ -3982,6 +4160,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -4006,13 +4190,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -4071,6 +4255,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -4120,6 +4310,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -4148,12 +4344,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -4316,6 +4514,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -4365,6 +4569,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -4392,12 +4602,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "less_than": {
@@ -4460,6 +4672,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -4487,12 +4705,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "less_than": {
@@ -4555,6 +4775,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -4603,6 +4829,12 @@
             "type": "string"
           },
           "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
             "type": "string"
           }
         },
@@ -5104,13 +5336,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -5217,13 +5449,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "less_than": {
             "type": "object"
@@ -5282,6 +5514,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -5331,6 +5569,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -5379,6 +5623,12 @@
             "type": "string"
           },
           "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
             "type": "string"
           }
         },
@@ -5459,13 +5709,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "less_than": {
             "type": "object"
@@ -5524,6 +5774,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -5552,12 +5808,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "less_than": {
@@ -5620,6 +5878,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -5644,13 +5908,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "less_than": {
             "type": "object"
@@ -5713,6 +5977,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -5741,13 +6011,15 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "format": "float",
+            "type": "number"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "format": "float",
+            "type": "number"
           },
           "less_than": {
             "format": "float",
@@ -5784,13 +6056,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -5824,13 +6096,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "less_than": {
             "type": "object"
@@ -5983,6 +6255,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -6007,13 +6285,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "boolean"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "boolean"
           },
           "less_than": {
             "type": "boolean"
@@ -6051,12 +6329,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -6119,6 +6399,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -6168,6 +6454,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -6192,13 +6484,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -6257,6 +6549,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -6285,12 +6583,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -6352,6 +6652,12 @@
             "type": "string"
           },
           "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
             "type": "string"
           }
         },
@@ -6457,12 +6763,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -6524,6 +6832,12 @@
             "type": "string"
           },
           "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
             "type": "string"
           }
         },
@@ -6646,13 +6960,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -6878,13 +7192,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -6943,6 +7257,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -6967,13 +7287,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -7032,6 +7352,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -7056,13 +7382,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -7121,6 +7447,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -7145,13 +7477,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -7189,12 +7521,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -7294,12 +7628,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -7337,13 +7673,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "less_than": {
             "type": "object"
@@ -7381,12 +7717,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -7491,6 +7829,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -7515,13 +7859,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "boolean"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "boolean"
           },
           "less_than": {
             "type": "boolean"
@@ -7555,13 +7899,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -7620,6 +7964,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -7644,13 +7994,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -7716,6 +8066,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -7740,13 +8096,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -7780,13 +8136,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "less_than": {
             "type": "object"
@@ -7824,13 +8180,15 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "format": "float",
+            "type": "number"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "format": "float",
+            "type": "number"
           },
           "less_than": {
             "format": "float",
@@ -7891,6 +8249,12 @@
             "type": "string"
           },
           "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
             "type": "string"
           }
         },
@@ -8301,13 +8665,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "less_than": {
             "type": "object"
@@ -8366,6 +8730,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -8394,12 +8764,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "less_than": {
@@ -8437,13 +8809,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "boolean"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "boolean"
           },
           "less_than": {
             "type": "boolean"
@@ -8590,13 +8962,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -8634,12 +9006,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "less_than": {
@@ -8677,13 +9051,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "less_than": {
             "type": "object"
@@ -8863,6 +9237,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -8887,13 +9267,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -8951,6 +9331,12 @@
             "type": "string"
           },
           "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
             "type": "string"
           }
         },
@@ -9077,6 +9463,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -9105,12 +9497,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "less_than": {
@@ -9151,12 +9545,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "less_than": {
@@ -9198,12 +9594,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -9241,13 +9639,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "less_than": {
             "type": "object"
@@ -9306,6 +9704,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -9354,6 +9758,12 @@
             "type": "string"
           },
           "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
             "type": "string"
           }
         },
@@ -9739,6 +10149,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -9763,13 +10179,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "boolean"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "boolean"
           },
           "less_than": {
             "type": "boolean"
@@ -9828,6 +10244,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -9876,6 +10298,12 @@
             "type": "string"
           },
           "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
             "type": "string"
           }
         },
@@ -9926,6 +10354,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -9975,6 +10409,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -9999,13 +10439,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -10039,13 +10479,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "boolean"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "boolean"
           },
           "less_than": {
             "type": "boolean"
@@ -10079,13 +10519,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -10406,13 +10846,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -10471,6 +10911,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -10499,12 +10945,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -10542,13 +10990,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -10607,6 +11055,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -10655,6 +11109,12 @@
             "type": "string"
           },
           "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
             "type": "string"
           }
         },
@@ -11399,13 +11859,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -11443,12 +11903,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -11675,6 +12137,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -11723,6 +12191,12 @@
             "type": "string"
           },
           "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
             "type": "string"
           }
         },
@@ -11825,6 +12299,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -11874,6 +12354,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -11902,12 +12388,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -11945,13 +12433,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -11989,12 +12477,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "uuid",
             "type": "string"
           },
           "less_than": {
@@ -12036,12 +12526,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -12104,6 +12596,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -12152,6 +12650,12 @@
             "type": "string"
           },
           "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
             "type": "string"
           }
         },
@@ -12334,13 +12838,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -12374,13 +12878,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "boolean"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "boolean"
           },
           "less_than": {
             "type": "boolean"
@@ -12439,6 +12943,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -12487,6 +12997,12 @@
             "type": "string"
           },
           "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
             "type": "string"
           }
         },
@@ -12537,6 +13053,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -12561,13 +13083,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -12601,13 +13123,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -12666,6 +13188,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -12714,6 +13242,12 @@
             "type": "string"
           },
           "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
             "type": "string"
           }
         },
@@ -12764,6 +13298,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -12788,13 +13328,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -12853,6 +13393,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -12877,13 +13423,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "less_than": {
             "type": "object"
@@ -13477,12 +14023,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -13520,13 +14068,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "object"
           },
           "less_than": {
             "type": "object"
@@ -13564,12 +14112,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -13607,13 +14157,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -13672,6 +14222,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -13700,12 +14256,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -13768,6 +14326,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -13792,13 +14356,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -13857,6 +14421,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -13906,6 +14476,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -13930,13 +14506,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"
@@ -13995,6 +14571,12 @@
           },
           "not_eq": {
             "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -14023,12 +14605,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -14057,15 +14641,11 @@
             "items": {},
             "type": "array"
           },
-          "is_distinct_from": {
-            "type": "string"
-          },
+          "is_distinct_from": {},
           "is_nil": {
             "type": "boolean"
           },
-          "is_not_distinct_from": {
-            "type": "string"
-          },
+          "is_not_distinct_from": {},
           "less_than": {},
           "less_than_or_equal": {},
           "not_eq": {}
@@ -14096,12 +14676,14 @@
             "type": "array"
           },
           "is_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
+            "format": "date-time",
             "type": "string"
           },
           "less_than": {
@@ -14163,6 +14745,12 @@
             "type": "string"
           },
           "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
             "type": "string"
           }
         },
@@ -14426,13 +15014,13 @@
             "type": "array"
           },
           "is_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "is_nil": {
             "type": "boolean"
           },
           "is_not_distinct_from": {
-            "type": "string"
+            "type": "integer"
           },
           "less_than": {
             "type": "integer"

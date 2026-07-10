@@ -17,6 +17,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,10 +35,11 @@ const (
 	defaultAgentUpdaterPath = "/usr/local/bin/serviceradar-agent-updater"
 	defaultAgentSeedPath    = "/usr/local/lib/serviceradar/agent/serviceradar-agent-seed"
 
-	releaseCurrentLinkName  = "current"
-	releaseActivationState  = "activation.json"
-	releaseActivationReport = "activation-report.json"
-	releaseSeedVersionDir   = "seed-installed"
+	releaseCurrentLinkName         = "current"
+	releaseActivationState         = "activation.json"
+	releaseActivationReport        = "activation-report.json"
+	releaseSeedVersionDir          = "seed-installed"
+	releaseUpdaterHelpProbeTimeout = 5 * time.Second
 )
 
 var errReleaseCurrentLinkMissing = errors.New("release current symlink is missing")
@@ -306,7 +308,10 @@ func validateAgentUpdaterSupportsFlags(path string, requiredFlags ...string) err
 		return nil
 	}
 
-	out, err := exec.Command(path, "--help").CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), releaseUpdaterHelpProbeTimeout)
+	defer cancel()
+
+	out, err := exec.CommandContext(ctx, path, "--help").CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("inspect release updater flags: %w", err)
 	}

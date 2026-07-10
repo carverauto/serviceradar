@@ -7,7 +7,7 @@
 - [x] 2.1 Validate and preview profile SRQL against device/agent inventory.
 - [x] 2.2 Resolve matched devices to eligible agents using existing device-agent identity relationships.
 - [x] 2.3 Materialize assignments with deterministic precedence and stale-assignment cleanup.
-- [ ] 2.4 Exclude incompatible agents using package platform/version/capability checks and record skip reasons.
+- [x] 2.4 Exclude incompatible agents using package platform/version/capability checks and record skip reasons.
 
 ## 3. UI/API
 - [ ] 3.1 Add settings UI/API for add-on profiles with SRQL preview and package/config selection.

@@ -64,8 +64,18 @@
 {{- if hasKey $gatewayApiAgentGateway "enabled" -}}
   {{- $gatewayApiAgentGatewayEnabled = $gatewayApiAgentGateway.enabled -}}
 {{- end -}}
-{{- $gatewayApiAgentGatewayEnvoyNamespace := default "envoy-gateway-system" $gatewayApiAgentGateway.envoyGatewayNamespace -}}
+{{- $gatewayApiEnvoyNamespace := default "envoy-gateway-system" $gatewayApi.envoyGatewayNamespace -}}
+{{- $gatewayApiAgentGatewayEnvoyNamespace := default $gatewayApiEnvoyNamespace $gatewayApiAgentGateway.envoyGatewayNamespace -}}
 {{- $gatewayApiAgentGatewayPorts := list (dict "protocol" "TCP" "port" $agentGatewayGrpcPort) (dict "protocol" "TCP" "port" $agentGatewayArtifactPort) -}}
+{{- $gatewayApiFlowCollector := default (dict) $gatewayApi.flowCollector -}}
+{{- $gatewayApiFlowCollectorEnabled := default false $gatewayApiFlowCollector.enabled -}}
+{{- $gatewayApiFlowCollectorEnvoyNamespace := default $gatewayApiEnvoyNamespace $gatewayApiFlowCollector.envoyGatewayNamespace -}}
+{{- $gatewayApiTrapd := default (dict) $gatewayApi.trapd -}}
+{{- $gatewayApiTrapdEnabled := default false $gatewayApiTrapd.enabled -}}
+{{- $gatewayApiTrapdEnvoyNamespace := default $gatewayApiEnvoyNamespace $gatewayApiTrapd.envoyGatewayNamespace -}}
+{{- $gatewayApiBmpCollector := default (dict) $gatewayApi.bmpCollector -}}
+{{- $gatewayApiBmpCollectorEnabled := default false $gatewayApiBmpCollector.enabled -}}
+{{- $gatewayApiBmpCollectorEnvoyNamespace := default $gatewayApiEnvoyNamespace $gatewayApiBmpCollector.envoyGatewayNamespace -}}
 {{- $flowCollector := default (dict) .Values.flowCollector -}}
 {{- $flowCollectorEnabled := default false $flowCollector.enabled -}}
 {{- $flowCollectorService := default (dict) $flowCollector.service -}}
@@ -381,6 +391,30 @@ spec:
 {{- include "serviceradar.networkPolicyPorts" $flowCollectorExternalPorts | trim | nindent 8 }}
 {{- end }}
 {{- end }}
+{{- if and $flowCollectorEnabled $gatewayApiFlowCollectorEnabled $hasFlowCollectorExternalPorts }}
+---
+# Gateway-mode flow ingest: NetFlow/sFlow/IPFIX enter through Gateway API and
+# are forwarded by envoy proxy pods to the internal flow-collector Service.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-flow-collector-gateway
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-flow-collector
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $gatewayApiFlowCollectorEnvoyNamespace | quote }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $flowCollectorExternalPorts | trim | nindent 8 }}
+{{- end }}
 {{- if and $logCollectorExternalServiceEnabled $logCollectorExternalEnabled $hasLogCollectorExternalCIDRs $hasLogCollectorExternalPorts (ne $logCollectorExternalServiceType "ClusterIP") }}
 ---
 apiVersion: networking.k8s.io/v1
@@ -499,6 +533,30 @@ spec:
 {{- include "serviceradar.networkPolicyPorts" $trapdExternalPorts | trim | nindent 8 }}
 {{- end }}
 {{- end }}
+{{- if and $gatewayApiTrapdEnabled $hasTrapdExternalPorts }}
+---
+# Gateway-mode SNMP trap ingest: traps enter through Gateway API and are
+# forwarded by envoy proxy pods to the internal trapd Service.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-trapd-gateway
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-trapd
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $gatewayApiTrapdEnvoyNamespace | quote }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $trapdExternalPorts | trim | nindent 8 }}
+{{- end }}
 {{- if and $bmpCollectorEnabled $bmpCollectorExternalEnabled $hasBmpCollectorExternalCIDRs $hasBmpCollectorExternalPorts (ne $bmpCollectorServiceType "ClusterIP") }}
 ---
 apiVersion: networking.k8s.io/v1
@@ -521,6 +579,30 @@ spec:
       ports:
 {{- include "serviceradar.networkPolicyPorts" $bmpCollectorExternalPorts | trim | nindent 8 }}
 {{- end }}
+{{- end }}
+{{- if and $bmpCollectorEnabled $gatewayApiBmpCollectorEnabled $hasBmpCollectorExternalPorts }}
+---
+# Gateway-mode BMP ingest: BMP sessions enter through Gateway API and are
+# forwarded by envoy proxy pods to the internal BMP collector Service.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-bmp-collector-gateway
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-bmp-collector
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $gatewayApiBmpCollectorEnvoyNamespace | quote }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $bmpCollectorExternalPorts | trim | nindent 8 }}
 {{- end }}
 {{- if and $gobgpEnabled $gobgpExternalEnabled $hasGobgpExternalCIDRs }}
 ---

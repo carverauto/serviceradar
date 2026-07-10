@@ -17,7 +17,7 @@ defmodule ServiceRadar.Observability.StatefulAlertCleanupWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
+    unique: [period: :infinity, states: :incomplete]
 
   import Ash.Expr
   import Ecto.Query, only: [from: 2]

@@ -125,6 +125,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterTest do
         "requires" => %{
           "base_agent" => ">=1.2.0",
           "platforms" => ["linux"],
+          "agent_capabilities" => ["host-network-visibility"],
           "os_capabilities" => ["CAP_NET_RAW", "CAP_NET_ADMIN", "CAP_BPF", "CAP_PERFMON"]
         },
         "resources" => %{
@@ -179,6 +180,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterTest do
       assert signal_schema["id"] == "com.carverauto.netprobe.flow"
       assert signal_schema["display_contract"] == "display/flow.display.json"
       assert attrs.artifacts == artifacts
+      assert attrs.requires["agent_capabilities"] == ["host-network-visibility"]
 
       assert attrs.requires["os_capabilities"] == [
                "CAP_NET_RAW",

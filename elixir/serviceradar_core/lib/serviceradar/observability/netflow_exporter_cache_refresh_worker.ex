@@ -11,7 +11,7 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
     max_attempts: 3,
     # Exclude :executing so the self-reschedule in perform/1 isn't deduped
     # against the still-running job (double-seed guarded by check_existing_job).
-    unique: [period: :infinity, states: [:available, :scheduled, :retryable]]
+    unique: [period: :infinity, states: :incomplete]
 
   import Ash.Expr
   import Ecto.Query, only: [from: 2]

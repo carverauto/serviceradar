@@ -13,7 +13,7 @@
 # shipped in this manifest's bundle yet, pending that design open question.
 id: netprobe
 name: Host Network Visibility (netprobe)
-version: 0.2.22
+version: 0.2.23
 description: >-
   Passive host fingerprinting (p0f/JA4), DPI, eBPF process attribution, and flow
   visibility. Capability-granted long-running daemon delivered as a signed
@@ -30,6 +30,7 @@ capabilities:
 requires:
   base_agent: ">=1.2.0"
   platforms: [linux]
+  agent_capabilities: [host-network-visibility]
   # Normalized + allowlist-checked by the agent (normalizeAddonCapabilities) and
   # applied to the staged binary via the root-owned agent-updater (setcap), never
   # by the add-on itself. eBPF + AF_XDP + raw/packet sockets for capture.

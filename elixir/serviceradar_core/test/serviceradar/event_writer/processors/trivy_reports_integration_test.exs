@@ -1,5 +1,5 @@
 defmodule ServiceRadar.EventWriter.Processors.TrivyReportsIntegrationTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.EventWriter.Processors.TrivyReports

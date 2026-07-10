@@ -17,11 +17,13 @@
 package armis
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/syncsources"
+	"github.com/carverauto/serviceradar/go/pkg/models"
 )
 
 const managedQueryLabel = "managed"
@@ -32,10 +34,15 @@ const managedQueryLabel = "managed"
 // byte-identical to the wire format the Elixir core consumed before the
 // driver was extracted from the sync runtime.
 func buildNormalizedUpdate(item device) map[string]interface{} {
+	return buildNormalizedUpdateWithSource(item, models.SourceConfig{})
+}
+
+func buildNormalizedUpdateWithSource(item device, source models.SourceConfig) map[string]interface{} {
 	run := syncsources.RunContext{
 		AgentID:   "agent-1",
 		GatewayID: "agent-1",
 		Partition: "default",
+		Source:    source,
 	}
 
 	update := buildUpdate(run, item, managedQueryLabel)
@@ -190,6 +197,72 @@ func TestBuildUpdateMapsSdkAttributesToInventoryFields(t *testing.T) {
 	}
 	if strings.Contains(timestamp, ".") {
 		t.Fatalf("timestamp = %q, want second precision", timestamp)
+	}
+}
+
+func TestBuildUpdatePreservesArmisAttachmentMetadataFromRawFields(t *testing.T) {
+	var item device
+	if err := json.Unmarshal([]byte(`{
+		"id": 18497,
+		"ipAddress": "10.0.4.40",
+		"display": "fsfo027c.global.example.com",
+		"Access Switch": "nsfocs-idfer1-asw001:2/20",
+		"Connection Type": "Wired",
+		"DHCP Lease Type": "Dynamic",
+		"VLAN": 3006,
+		"vlans": [3006],
+		"networkInterfaces": [
+			{"name": "Ethernet", "mac": "7C:57:58:18:18:EC"}
+		]
+	}`), &item); err != nil {
+		t.Fatalf("unmarshal device: %v", err)
+	}
+
+	update := buildNormalizedUpdate(item)
+	metadata, ok := update["metadata"].(map[string]string)
+	if !ok {
+		t.Fatalf("metadata has type %T, want map[string]string", update["metadata"])
+	}
+
+	for key, want := range map[string]string{
+		"armis_access_switch":   "nsfocs-idfer1-asw001:2/20",
+		"armis_connection_type": "Wired",
+		"armis_dhcp_lease_type": "Dynamic",
+		"armis_vlan":            "3006",
+		"armis_vlans":           "[3006]",
+	} {
+		if got := metadata[key]; got != want {
+			t.Fatalf("metadata[%q] = %q, want %q", key, got, want)
+		}
+	}
+
+	if _, ok := update["network_interfaces"]; !ok {
+		t.Fatal("networkInterfaces alias should still populate endpoint NIC inventory")
+	}
+}
+
+func TestBuildUpdatePreservesConfiguredArmisMetadataFields(t *testing.T) {
+	var item device
+	if err := json.Unmarshal([]byte(`{
+		"id": 42,
+		"ipAddress": "10.0.0.2",
+		"customAccessPort": "GigabitEthernet1/0/48"
+	}`), &item); err != nil {
+		t.Fatalf("unmarshal device: %v", err)
+	}
+
+	update := buildNormalizedUpdateWithSource(item, models.SourceConfig{
+		Settings: map[string]any{
+			"extra_metadata_fields": []any{"customAccessPort"},
+		},
+	})
+	metadata, ok := update["metadata"].(map[string]string)
+	if !ok {
+		t.Fatalf("metadata has type %T, want map[string]string", update["metadata"])
+	}
+
+	if got := metadata["armis_custom_access_port"]; got != "GigabitEthernet1/0/48" {
+		t.Fatalf("metadata[armis_custom_access_port] = %q", got)
 	}
 }
 

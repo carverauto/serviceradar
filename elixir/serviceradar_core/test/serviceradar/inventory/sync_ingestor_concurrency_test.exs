@@ -6,7 +6,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorConcurrencyTest do
   Tests use TestSupport for schema isolation.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
@@ -16,6 +16,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorConcurrencyTest do
   alias ServiceRadar.TestSupport
 
   @moduletag :integration
+  @moduletag sandbox: :unboxed
 
   setup_all do
     TestSupport.start_core!()
@@ -55,6 +56,15 @@ defmodule ServiceRadar.Inventory.SyncIngestorConcurrencyTest do
 
     assert {:ok, expected_id} =
              IdentityReconciler.resolve_device_id(identity_update, actor: actor)
+
+    on_exit(fn ->
+      ServiceRadar.Repo.query!(
+        "DELETE FROM platform.device_identifiers WHERE device_id = $1",
+        [expected_id]
+      )
+
+      ServiceRadar.Repo.query!("DELETE FROM platform.ocsf_devices WHERE uid = $1", [expected_id])
+    end)
 
     tasks =
       Enum.map(1..2, fn _ ->

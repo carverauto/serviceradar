@@ -8,6 +8,10 @@
 {{- $serviceName := default "serviceradar-web-ng" $service.name -}}
 {{- $servicePort := default 4000 $service.port -}}
 {{- $dns := default (dict) $gatewayApi.dns -}}
+{{- $dnsEnabled := true -}}
+{{- if hasKey $dns "enabled" -}}
+{{- $dnsEnabled = $dns.enabled -}}
+{{- end -}}
 {{- $dnsHostname := default $host $dns.hostname -}}
 {{- $envoyProxy := default (dict) $gatewayApi.envoyProxy -}}
 {{- $envoyService := default (dict) $envoyProxy.service -}}
@@ -29,6 +33,60 @@
 {{- $syslogServiceName := default "serviceradar-log-collector" $syslogService.name -}}
 {{- $syslogServicePort := default 514 $syslogService.port -}}
 {{- $syslogParentRefs := default (list) $syslog.parentRefs -}}
+{{- $envoyGatewayNamespace := default "envoy-gateway-system" $gatewayApi.envoyGatewayNamespace -}}
+{{- $flowCollector := default (dict) $gatewayApi.flowCollector -}}
+{{- $flowCollectorEnabled := default false $flowCollector.enabled -}}
+{{- $flowCollectorService := default (dict) $flowCollector.service -}}
+{{- $flowCollectorServiceName := default "serviceradar-flow-collector" $flowCollectorService.name -}}
+{{- $flowCollectorNetflow := default (dict) $flowCollector.netflow -}}
+{{- $flowCollectorNetflowEnabled := true -}}
+{{- if hasKey $flowCollectorNetflow "enabled" -}}
+{{- $flowCollectorNetflowEnabled = $flowCollectorNetflow.enabled -}}
+{{- end -}}
+{{- $flowCollectorNetflowListenerName := default "netflow" $flowCollectorNetflow.listenerName -}}
+{{- $flowCollectorNetflowPort := default 2055 $flowCollectorNetflow.port -}}
+{{- $flowCollectorNetflowServicePort := default $flowCollectorNetflowPort $flowCollectorNetflow.servicePort -}}
+{{- $flowCollectorNetflowRouteName := default (printf "%s-netflow" (include "serviceradar.fullname" .)) $flowCollectorNetflow.routeName -}}
+{{- $flowCollectorNetflowParentRefs := default (list) $flowCollectorNetflow.parentRefs -}}
+{{- $flowCollectorSflow := default (dict) $flowCollector.sflow -}}
+{{- $flowCollectorSflowEnabled := true -}}
+{{- if hasKey $flowCollectorSflow "enabled" -}}
+{{- $flowCollectorSflowEnabled = $flowCollectorSflow.enabled -}}
+{{- end -}}
+{{- $flowCollectorSflowListenerName := default "sflow" $flowCollectorSflow.listenerName -}}
+{{- $flowCollectorSflowPort := default 6343 $flowCollectorSflow.port -}}
+{{- $flowCollectorSflowServicePort := default $flowCollectorSflowPort $flowCollectorSflow.servicePort -}}
+{{- $flowCollectorSflowRouteName := default (printf "%s-sflow" (include "serviceradar.fullname" .)) $flowCollectorSflow.routeName -}}
+{{- $flowCollectorSflowParentRefs := default (list) $flowCollectorSflow.parentRefs -}}
+{{- $flowCollectorIpfix := default (dict) $flowCollector.ipfix -}}
+{{- $flowCollectorIpfixEnabled := false -}}
+{{- if hasKey $flowCollectorIpfix "enabled" -}}
+{{- $flowCollectorIpfixEnabled = $flowCollectorIpfix.enabled -}}
+{{- end -}}
+{{- $flowCollectorIpfixListenerName := default "ipfix" $flowCollectorIpfix.listenerName -}}
+{{- $flowCollectorIpfixPort := default 4739 $flowCollectorIpfix.port -}}
+{{- $flowCollectorIpfixServicePort := default $flowCollectorIpfixPort $flowCollectorIpfix.servicePort -}}
+{{- $flowCollectorIpfixRouteName := default (printf "%s-ipfix" (include "serviceradar.fullname" .)) $flowCollectorIpfix.routeName -}}
+{{- $flowCollectorIpfixParentRefs := default (list) $flowCollectorIpfix.parentRefs -}}
+{{- $flowCollectorListenerEnabled := and $flowCollectorEnabled (or $flowCollectorNetflowEnabled $flowCollectorSflowEnabled $flowCollectorIpfixEnabled) -}}
+{{- $trapd := default (dict) $gatewayApi.trapd -}}
+{{- $trapdEnabled := default false $trapd.enabled -}}
+{{- $trapdListenerName := default "snmp-traps" $trapd.listenerName -}}
+{{- $trapdPort := default 162 $trapd.port -}}
+{{- $trapdServicePort := default $trapdPort $trapd.servicePort -}}
+{{- $trapdRouteName := default (printf "%s-snmp-traps" (include "serviceradar.fullname" .)) $trapd.routeName -}}
+{{- $trapdParentRefs := default (list) $trapd.parentRefs -}}
+{{- $trapdService := default (dict) $trapd.service -}}
+{{- $trapdServiceName := default "serviceradar-trapd" $trapdService.name -}}
+{{- $bmpCollector := default (dict) $gatewayApi.bmpCollector -}}
+{{- $bmpCollectorEnabled := default false $bmpCollector.enabled -}}
+{{- $bmpCollectorListenerName := default "bmp" $bmpCollector.listenerName -}}
+{{- $bmpCollectorPort := default 11019 $bmpCollector.port -}}
+{{- $bmpCollectorServicePort := default $bmpCollectorPort $bmpCollector.servicePort -}}
+{{- $bmpCollectorRouteName := default (printf "%s-bmp" (include "serviceradar.fullname" .)) $bmpCollector.routeName -}}
+{{- $bmpCollectorParentRefs := default (list) $bmpCollector.parentRefs -}}
+{{- $bmpCollectorService := default (dict) $bmpCollector.service -}}
+{{- $bmpCollectorServiceName := default "serviceradar-bmp-collector" $bmpCollectorService.name -}}
 {{- $agentGateway := default (dict) $gatewayApi.agentGateway -}}
 {{- $agentGatewayEnabled := false -}}
 {{- if hasKey $agentGateway "enabled" -}}
@@ -65,7 +123,7 @@
 {{- if and $managedMode $httpRedirectToHttps (not $tlsEnabled) }}
 {{- fail "gatewayApi.http.redirectToHttps requires gatewayApi.tls.enabled=true" }}
 {{- end }}
-{{- if and $managedMode (not $httpEnabled) (not $tlsEnabled) }}
+{{- if and $managedMode (not (or $httpEnabled $tlsEnabled $syslogEnabled $agentGatewayEnabled $flowCollectorListenerEnabled $trapdEnabled $bmpCollectorEnabled)) }}
 {{- fail "gatewayApi must expose at least one listener" }}
 {{- end }}
 {{- if and $attachMode (eq (len $parentRefs) 0) }}
@@ -76,6 +134,21 @@
 {{- end }}
 {{- if and $attachMode $syslogEnabled (eq (len $syslogParentRefs) 0) }}
 {{- fail "gatewayApi.syslog.parentRefs is required when gatewayApi.syslog.enabled=true and gatewayApi.mode=attach" }}
+{{- end }}
+{{- if and $attachMode $flowCollectorEnabled $flowCollectorNetflowEnabled (eq (len $flowCollectorNetflowParentRefs) 0) }}
+{{- fail "gatewayApi.flowCollector.netflow.parentRefs is required when gatewayApi.flowCollector.enabled=true and gatewayApi.mode=attach" }}
+{{- end }}
+{{- if and $attachMode $flowCollectorEnabled $flowCollectorSflowEnabled (eq (len $flowCollectorSflowParentRefs) 0) }}
+{{- fail "gatewayApi.flowCollector.sflow.parentRefs is required when gatewayApi.flowCollector.enabled=true and gatewayApi.mode=attach" }}
+{{- end }}
+{{- if and $attachMode $flowCollectorEnabled $flowCollectorIpfixEnabled (eq (len $flowCollectorIpfixParentRefs) 0) }}
+{{- fail "gatewayApi.flowCollector.ipfix.parentRefs is required when gatewayApi.flowCollector.enabled=true and gatewayApi.mode=attach" }}
+{{- end }}
+{{- if and $attachMode $trapdEnabled (eq (len $trapdParentRefs) 0) }}
+{{- fail "gatewayApi.trapd.parentRefs is required when gatewayApi.trapd.enabled=true and gatewayApi.mode=attach" }}
+{{- end }}
+{{- if and $attachMode $bmpCollectorEnabled (eq (len $bmpCollectorParentRefs) 0) }}
+{{- fail "gatewayApi.bmpCollector.parentRefs is required when gatewayApi.bmpCollector.enabled=true and gatewayApi.mode=attach" }}
 {{- end }}
 {{- if and $attachMode $agentGatewayEnabled (eq (len $agentGatewayGrpcParentRefs) 0) }}
 {{- fail "gatewayApi.agentGateway.grpc.parentRefs is required when gatewayApi.agentGateway.enabled=true and gatewayApi.mode=attach" }}
@@ -192,6 +265,46 @@ spec:
         namespaces:
           from: Same
     {{- end }}
+    {{- if and $flowCollectorEnabled $flowCollectorNetflowEnabled }}
+    - name: {{ $flowCollectorNetflowListenerName }}
+      port: {{ $flowCollectorNetflowPort }}
+      protocol: UDP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
+    {{- if and $flowCollectorEnabled $flowCollectorSflowEnabled }}
+    - name: {{ $flowCollectorSflowListenerName }}
+      port: {{ $flowCollectorSflowPort }}
+      protocol: UDP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
+    {{- if and $flowCollectorEnabled $flowCollectorIpfixEnabled }}
+    - name: {{ $flowCollectorIpfixListenerName }}
+      port: {{ $flowCollectorIpfixPort }}
+      protocol: UDP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
+    {{- if $trapdEnabled }}
+    - name: {{ $trapdListenerName }}
+      port: {{ $trapdPort }}
+      protocol: UDP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
+    {{- if $bmpCollectorEnabled }}
+    - name: {{ $bmpCollectorListenerName }}
+      port: {{ $bmpCollectorPort }}
+      protocol: TCP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
     {{- if $agentGatewayEnabled }}
     - name: {{ $agentGatewayGrpcListenerName }}
       port: {{ $agentGatewayGrpcPort }}
@@ -217,7 +330,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: serviceradar
     app.kubernetes.io/component: edge-gateway
-  {{- if default true $dns.enabled }}
+  {{- if $dnsEnabled }}
   annotations:
     external-dns.alpha.kubernetes.io/hostname: {{ $dnsHostname | quote }}
   {{- end }}
@@ -349,6 +462,136 @@ spec:
           kind: Service
           name: {{ $syslogServiceName | quote }}
           port: {{ $syslogServicePort }}
+          weight: 1
+{{- end }}
+{{- if and $flowCollectorEnabled $flowCollectorNetflowEnabled }}
+---
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: UDPRoute
+metadata:
+  name: {{ $flowCollectorNetflowRouteName }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  parentRefs:
+    {{- if $managedMode }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: {{ $flowCollectorNetflowListenerName }}
+    {{- else }}
+{{ toYaml $flowCollectorNetflowParentRefs | nindent 4 }}
+    {{- end }}
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: {{ $flowCollectorServiceName | quote }}
+          port: {{ $flowCollectorNetflowServicePort }}
+          weight: 1
+{{- end }}
+{{- if and $flowCollectorEnabled $flowCollectorSflowEnabled }}
+---
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: UDPRoute
+metadata:
+  name: {{ $flowCollectorSflowRouteName }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  parentRefs:
+    {{- if $managedMode }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: {{ $flowCollectorSflowListenerName }}
+    {{- else }}
+{{ toYaml $flowCollectorSflowParentRefs | nindent 4 }}
+    {{- end }}
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: {{ $flowCollectorServiceName | quote }}
+          port: {{ $flowCollectorSflowServicePort }}
+          weight: 1
+{{- end }}
+{{- if and $flowCollectorEnabled $flowCollectorIpfixEnabled }}
+---
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: UDPRoute
+metadata:
+  name: {{ $flowCollectorIpfixRouteName }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  parentRefs:
+    {{- if $managedMode }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: {{ $flowCollectorIpfixListenerName }}
+    {{- else }}
+{{ toYaml $flowCollectorIpfixParentRefs | nindent 4 }}
+    {{- end }}
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: {{ $flowCollectorServiceName | quote }}
+          port: {{ $flowCollectorIpfixServicePort }}
+          weight: 1
+{{- end }}
+{{- if $trapdEnabled }}
+---
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: UDPRoute
+metadata:
+  name: {{ $trapdRouteName }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  parentRefs:
+    {{- if $managedMode }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: {{ $trapdListenerName }}
+    {{- else }}
+{{ toYaml $trapdParentRefs | nindent 4 }}
+    {{- end }}
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: {{ $trapdServiceName | quote }}
+          port: {{ $trapdServicePort }}
+          weight: 1
+{{- end }}
+{{- if $bmpCollectorEnabled }}
+---
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TCPRoute
+metadata:
+  name: {{ $bmpCollectorRouteName }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  parentRefs:
+    {{- if $managedMode }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: {{ $bmpCollectorListenerName }}
+    {{- else }}
+{{ toYaml $bmpCollectorParentRefs | nindent 4 }}
+    {{- end }}
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: {{ $bmpCollectorServiceName | quote }}
+          port: {{ $bmpCollectorServicePort }}
           weight: 1
 {{- end }}
 {{- if $agentGatewayEnabled }}

@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Observability.TimeseriesSeriesIdentityIntegrationTest do
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.Processors.Metrics
@@ -19,6 +19,10 @@ defmodule ServiceRadar.Observability.TimeseriesSeriesIdentityIntegrationTest do
 
   setup_all do
     TestSupport.start_core!()
+    :ok
+  end
+
+  setup do
     ensure_timeseries_series_identity!()
     :ok
   end

@@ -75,6 +75,50 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Enforce release tag source
+        env:
+          INPUT_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+          RELEASE_BASE_REF: origin/staging
+        run: |
+          set -euo pipefail
+
+          publish_tag="${INPUT_TAG}"
+          if [[ -z "${publish_tag}" && "${GITHUB_REF}" == refs/tags/* ]]; then
+            publish_tag="${GITHUB_REF#refs/tags/}"
+          fi
+          if [[ -z "${publish_tag}" || "${publish_tag}" != v* ]]; then
+            echo "Branch catalog dispatch: skipping release-tag source gate."
+            exit 0
+          fi
+
+          release_tag="${publish_tag}"
+          ./scripts/validate-release-tag.sh "${release_tag}"
+          expected_ref="refs/tags/${release_tag}"
+          if [[ "${GITHUB_REF}" != "${expected_ref}" ]]; then
+            echo "Release tag ${release_tag} must be published from ${expected_ref}, got ${GITHUB_REF}" >&2
+            exit 1
+          fi
+
+          tag_commit="$(git rev-list -n1 "refs/tags/${release_tag}^{commit}")"
+          if [[ ! "${tag_commit}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Unable to resolve commit for ${release_tag}" >&2
+            exit 1
+          fi
+          file_version="$(git show "${tag_commit}:VERSION")"
+          file_version="${file_version%%[$'\r\n']*}"
+          if [[ "${release_tag}" != "v${file_version}" ]]; then
+            echo "Release tag ${release_tag} does not match VERSION (${file_version})" >&2
+            exit 1
+          fi
+
+          git fetch --no-tags origin +refs/heads/staging:refs/remotes/origin/staging
+          if ! git merge-base --is-ancestor "${tag_commit}" "${RELEASE_BASE_REF}"; then
+            echo "Release commit ${tag_commit} is not reachable from ${RELEASE_BASE_REF}" >&2
+            exit 1
+          fi
+
+          echo "Validated ${release_tag} at ${tag_commit} from ${RELEASE_BASE_REF}."
+
       - name: Cache Bazel artifacts
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
         with:
@@ -240,8 +284,28 @@ jobs:
           fi
 
           api_base="${FORGEJO_URL}/api/v1/repos/${FORGEJO_REPOSITORY}"
-          release_json="$(curl -sS -H "Accept: application/json" -H "Authorization: token ${FORGEJO_TOKEN}" \
-            "${api_base}/releases/tags/${release_tag}" || true)"
+          fetch_release() {
+            local release_json release_id releases_json
+            release_json="$(curl -sS \
+              -H "Accept: application/json" \
+              -H "Authorization: token ${FORGEJO_TOKEN}" \
+              "${api_base}/releases/tags/${release_tag}" || true)"
+            release_id="$(echo "${release_json}" | jq -r 'select(type == "object") | .id // empty')"
+            if [[ -n "${release_id}" ]]; then
+              printf '%s\n' "${release_json}"
+              return 0
+            fi
+
+            releases_json="$(curl -sS \
+              -H "Accept: application/json" \
+              -H "Authorization: token ${FORGEJO_TOKEN}" \
+              "${api_base}/releases?draft=true&limit=100" || true)"
+            jq -c --arg tag "${release_tag}" \
+              'first(.[] | select(.tag_name == $tag)) // empty' \
+              <<<"${releases_json}" 2>/dev/null || true
+          }
+
+          release_json="$(fetch_release)"
           release_id="$(echo "${release_json}" | jq -r 'select(type == "object") | .id // empty')"
 
           if [[ -z "${release_id}" ]]; then
@@ -252,8 +316,10 @@ jobs:
             # to a draft — a published release rejects the index upload with HTTP 403.
             # So we must own the draft here; release.yml's publish_packages then
             # updates this same release in place (it only overwrites same-named
-            # assets, so our index survives) and its Finalize step publishes it.
-            release_json="$(
+            # assets, so our index survives) and its finalizer job publishes it.
+            # Tolerate a concurrent creator by re-fetching after a duplicate-tag
+            # response, matching the Wasm catalog publisher's behavior.
+            create_json="$(
               jq -n \
                 --arg tag_name "${release_tag}" \
                 --arg target_commitish "${target_commitish}" \
@@ -267,18 +333,34 @@ jobs:
                   draft: true,
                   prerelease: true
                 }' |
-                curl -sSf -X POST \
+                curl -sS -X POST \
                   -H "Accept: application/json" \
                   -H "Content-Type: application/json" \
                   -H "Authorization: token ${FORGEJO_TOKEN}" \
                   -d @- \
-                  "${api_base}/releases"
+                  "${api_base}/releases" || true
             )"
-            release_id="$(echo "${release_json}" | jq -r '.id // empty')"
+            release_id="$(echo "${create_json}" | jq -r 'select(type == "object") | .id // empty')"
+            if [[ -n "${release_id}" ]]; then
+              release_json="${create_json}"
+            else
+              release_json="$(fetch_release)"
+              release_id="$(echo "${release_json}" | jq -r 'select(type == "object") | .id // empty')"
+            fi
           fi
 
           if [[ -z "${release_id}" ]]; then
             echo "Unable to resolve or create release id for ${release_tag}" >&2
+            exit 1
+          fi
+
+          release_json="$(curl -sSf \
+            -H "Accept: application/json" \
+            -H "Authorization: token ${FORGEJO_TOKEN}" \
+            "${api_base}/releases/${release_id}")"
+          resolved_release_id="$(echo "${release_json}" | jq -r '.id // empty')"
+          if [[ "${resolved_release_id}" != "${release_id}" ]]; then
+            echo "Forgejo returned an unexpected release while resolving ${release_tag}" >&2
             exit 1
           fi
 

@@ -37,9 +37,8 @@ defmodule ServiceRadar.Edge.Workers.ProvisionAgentWorkerTest do
   `component_type == :agent`) do not crash.
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
-  alias Ecto.Adapters.SQL.Sandbox
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.NatsCredential
   alias ServiceRadar.Edge.OnboardingPackage
@@ -54,10 +53,6 @@ defmodule ServiceRadar.Edge.Workers.ProvisionAgentWorkerTest do
   end
 
   setup do
-    # Each test gets its own sandboxed connection so DB writes are rolled
-    # back at the end of the test.
-    :ok = Sandbox.checkout(Repo)
-
     prior_account_name = Application.get_env(:serviceradar, :nats_account_name)
     prior_account_seed = Application.get_env(:serviceradar, :nats_account_seed)
 
