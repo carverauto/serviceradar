@@ -81,6 +81,14 @@ if grep -q "{:serviceradar_srql" mix.exs; then
   run mix deps.compile serviceradar_srql --force
 fi
 
+# A restored _build caches core BEAM files, but its priv symlink targets uncached
+# source files.
+if grep -q "{:serviceradar_core" mix.exs &&
+  { [[ ! -f "../serviceradar_core/priv/native/anomaly_disposition_nif.so" ]] ||
+    [[ ! -f "../serviceradar_core/priv/native/zen_nif.so" ]]; }; then
+  run mix deps.compile serviceradar_core --force
+fi
+
 run mix format --check-formatted
 
 if [[ "${skip_warnings_as_errors}" == "true" ]]; then
