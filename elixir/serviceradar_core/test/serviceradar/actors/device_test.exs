@@ -11,7 +11,7 @@ defmodule ServiceRadar.Actors.DeviceTest do
   - Hibernation and idle timeout function correctly
   """
 
-  use ExUnit.Case, async: false
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.Device
   alias ServiceRadar.Actors.DeviceRegistry

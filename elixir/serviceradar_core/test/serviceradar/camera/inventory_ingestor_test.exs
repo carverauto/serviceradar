@@ -60,6 +60,7 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
              InventoryIngestor.ingest(payload, status,
                source_upsert: source_upsert,
                profile_upsert: profile_upsert,
+               resolve_device_uid: &preserve_explicit_device_uid/3,
                device_sync: fn _, _, _, _ -> :ok end
              )
 
@@ -106,6 +107,7 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
              InventoryIngestor.ingest(payload, %{},
                source_upsert: source_upsert,
                profile_upsert: profile_upsert,
+               resolve_device_uid: &preserve_explicit_device_uid/3,
                device_sync: fn _, _, _, _ -> :ok end
              )
 
@@ -154,6 +156,7 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
              InventoryIngestor.ingest(payload, %{},
                source_upsert: source_upsert,
                profile_upsert: profile_upsert,
+               resolve_device_uid: &preserve_explicit_device_uid/3,
                device_sync: fn _, _, _, _ -> :ok end
              )
 
@@ -204,6 +207,7 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
              InventoryIngestor.ingest(payload, %{},
                source_upsert: source_upsert,
                profile_upsert: profile_upsert,
+               resolve_device_uid: &preserve_explicit_device_uid/3,
                device_sync: fn _, _, _, _ -> :ok end
              )
 
@@ -514,6 +518,7 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
                observed_at: observed_at,
                source_upsert: source_upsert,
                profile_upsert: profile_upsert,
+               resolve_device_uid: &preserve_explicit_device_uid/3,
                device_sync: fn _, _, _, _ -> :ok end
              )
 
@@ -553,6 +558,7 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
              InventoryIngestor.ingest(payload, %{},
                source_upsert: source_upsert,
                profile_upsert: profile_upsert,
+               resolve_device_uid: &preserve_explicit_device_uid/3,
                device_sync: fn _, _, _, _ -> :ok end
              )
 
@@ -560,4 +566,6 @@ defmodule ServiceRadar.Camera.InventoryIngestorTest do
     assert source_attrs.vendor_camera_id == "cam-3"
     refute_receive {:source_upsert, %{vendor_camera_id: nil}}
   end
+
+  defp preserve_explicit_device_uid(_descriptor, _status, _actor), do: nil
 end
