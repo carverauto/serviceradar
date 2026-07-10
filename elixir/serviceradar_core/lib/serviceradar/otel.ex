@@ -12,6 +12,9 @@ defmodule ServiceRadar.Otel do
 
   require OpenTelemetry.Tracer, as: Tracer
 
+  @global_provider_name :otel_tracer_provider_global
+  @noop_tracer {:otel_tracer_noop, []}
+
   @doc """
   Runs `fun` inside a span named `name`, recording exception details and
   setting span status to `:error` when the function raises, throws, or exits.
@@ -45,24 +48,22 @@ defmodule ServiceRadar.Otel do
 
   @doc false
   @spec provider_identity() :: pid() | nil
-  def provider_identity, do: Process.whereis(:otel_tracer_provider_global)
+  def provider_identity, do: Process.whereis(@global_provider_name)
 
   @doc false
   @spec tracer_for_application(module(), pid() | nil) :: :opentelemetry.tracer()
   def tracer_for_application(application, provider \\ provider_identity()) do
-    case :opentelemetry.get_application(application) do
-      {name, version, schema_url} when is_pid(provider) ->
-        :otel_tracer_provider.get_tracer(provider, name, version, schema_url)
+    application
+    |> tracer_snapshot(provider)
+    |> elem(1)
+  end
 
-      {name, version, schema_url} ->
-        :opentelemetry.get_tracer(name, version, schema_url)
-
-      _unknown_application when is_pid(provider) ->
-        :otel_tracer_provider.get_tracer(provider, application, :undefined, :undefined)
-
-      _unknown_application ->
-        :opentelemetry.get_tracer(application, :undefined, :undefined)
-    end
+  @doc false
+  @spec tracer_snapshot(module(), pid() | nil) :: {pid() | nil, :opentelemetry.tracer()}
+  def tracer_snapshot(application, provider \\ provider_identity()) do
+    application
+    |> application_scope()
+    |> fetch_tracer_snapshot(provider, true)
   end
 
   @doc """
@@ -88,6 +89,55 @@ defmodule ServiceRadar.Otel do
     kind, reason ->
       Tracer.set_status(:error, Exception.format_banner(kind, reason))
       :erlang.raise(kind, reason, __STACKTRACE__)
+  end
+
+  defp application_scope(application) do
+    case :opentelemetry.get_application(application) do
+      {name, version, schema_url} -> {name, version, schema_url}
+      _unknown_application -> {application, :undefined, :undefined}
+    end
+  end
+
+  defp fetch_tracer_snapshot(scope, provider, retry?) when is_pid(provider) do
+    case safe_provider_tracer(provider, scope) do
+      {:ok, @noop_tracer} ->
+        retry_if_provider_changed(scope, provider, retry?, {provider, @noop_tracer})
+
+      {:ok, tracer} ->
+        {provider, tracer}
+
+      :unavailable ->
+        # Cache the noop under nil so a still-registered provider is retried on
+        # the next call rather than suppressing tracing for that worker.
+        retry_if_provider_changed(scope, provider, retry?, {nil, @noop_tracer})
+    end
+  end
+
+  defp fetch_tracer_snapshot(scope, _provider, true) do
+    case provider_identity() do
+      provider when is_pid(provider) -> fetch_tracer_snapshot(scope, provider, false)
+      nil -> {nil, @noop_tracer}
+    end
+  end
+
+  defp fetch_tracer_snapshot(_scope, _provider, false), do: {nil, @noop_tracer}
+
+  defp retry_if_provider_changed(scope, attempted_provider, true, fallback) do
+    case provider_identity() do
+      provider when is_pid(provider) and provider != attempted_provider ->
+        fetch_tracer_snapshot(scope, provider, false)
+
+      _same_or_missing_provider ->
+        fallback
+    end
+  end
+
+  defp retry_if_provider_changed(_scope, _attempted_provider, false, fallback), do: fallback
+
+  defp safe_provider_tracer(provider, {name, version, schema_url}) do
+    {:ok, :otel_tracer_provider.get_tracer(provider, name, version, schema_url)}
+  catch
+    :exit, _provider_lifecycle_reason -> :unavailable
   end
 
   defp format_reason(reason) when is_binary(reason), do: reason

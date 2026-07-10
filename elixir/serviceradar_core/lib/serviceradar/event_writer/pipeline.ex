@@ -166,8 +166,8 @@ defmodule ServiceRadar.EventWriter.Pipeline do
         tracer
 
       _stale_or_missing ->
-        tracer = Otel.tracer_for_application(__MODULE__, provider)
-        Process.put(@tracer_cache_key, {provider, tracer})
+        {resolved_provider, tracer} = Otel.tracer_snapshot(__MODULE__, provider)
+        Process.put(@tracer_cache_key, {resolved_provider, tracer})
         tracer
     end
   end
