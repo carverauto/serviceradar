@@ -181,21 +181,27 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
   defp bulk_upsert([], _resource, _actor), do: :ok
 
   defp bulk_upsert(attrs, resource, actor) do
-    case Ash.bulk_create(attrs, resource, :upsert,
-           actor: actor,
-           domain: ServiceRadar.Observability,
-           batch_size: @persistence_batch_size,
-           transaction: :batch,
-           return_errors?: true,
-           stop_on_error?: true
-         ) do
-      %Ash.BulkResult{status: :success} -> :ok
-      %Ash.BulkResult{errors: [_ | _] = errors} -> {:error, errors}
-      %Ash.BulkResult{} = result -> {:error, result}
-    end
+    attrs
+    |> Ash.bulk_create(resource, :upsert,
+      actor: actor,
+      domain: ServiceRadar.Observability,
+      batch_size: @persistence_batch_size,
+      transaction: :batch,
+      return_errors?: true,
+      stop_on_error?: true
+    )
+    |> bulk_result_outcome()
   rescue
     error -> {:error, error}
   end
+
+  @doc false
+  @spec bulk_result_outcome(Ash.BulkResult.t()) :: :ok | {:error, term()}
+  def bulk_result_outcome(%Ash.BulkResult{status: :success, error_count: 0}), do: :ok
+
+  def bulk_result_outcome(%Ash.BulkResult{errors: [_ | _] = errors}), do: {:error, errors}
+
+  def bulk_result_outcome(%Ash.BulkResult{} = result), do: {:error, result}
 
   defp upsert_sync_status(attrs, actor) when is_map(attrs) and map_size(attrs) > 0 do
     case Ash.create(ThreatIntelSyncStatus, attrs,

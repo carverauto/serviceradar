@@ -101,6 +101,18 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestorTest do
     assert List.last(normalized).indicator == "2001:db8::1388/128"
   end
 
+  test "rejects partial Ash bulk results even when diagnostic errors are omitted" do
+    result = %Ash.BulkResult{status: :partial_success, error_count: 1, errors: []}
+
+    assert {:error, ^result} = ThreatIntelPluginIngestor.bulk_result_outcome(result)
+
+    assert :ok =
+             ThreatIntelPluginIngestor.bulk_result_outcome(%Ash.BulkResult{
+               status: :success,
+               error_count: 0
+             })
+  end
+
   test "falls back to plugin id when provider source is absent" do
     observed_at = ~U[2026-04-27 12:00:00Z]
 

@@ -963,6 +963,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
   end
 
   defp update_assignment(socket, scope, assignment, attrs) do
+    assignment = current_assignment(assignment, scope)
+
     params =
       assignment.params
       |> normalize_assignment_params()
@@ -1264,6 +1266,19 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
 
   defp normalize_assignment_params(params) when is_map(params), do: stringify_keys(params)
   defp normalize_assignment_params(_params), do: %{}
+
+  defp current_assignment(%PluginAssignment{id: id} = fallback, scope) do
+    PluginAssignment
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.read_one(scope: scope)
+    |> case do
+      {:ok, %PluginAssignment{} = assignment} -> assignment
+      _ -> fallback
+    end
+  rescue
+    _ -> fallback
+  end
 
   defp existing_assignment(assignments, agent_uid) do
     Enum.find(assignments, &(&1.agent_uid == agent_uid))
