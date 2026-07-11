@@ -152,6 +152,56 @@ func TestFlowAttributionMaxDrainPerPushIsBounded(t *testing.T) {
 	}
 }
 
+func TestFlowAttributionDeliveryQueueRetainsBatchUntilAcknowledged(t *testing.T) {
+	var queue flowAttributionDeliveryQueue
+	loads := 0
+
+	load := func() *flowAttributionPendingBatch {
+		loads++
+
+		return &flowAttributionPendingBatch{
+			eventBatches: [][]*netprobepb.FlowAttributionEvent{
+				sampleFlowAttributionEvents(flowAttributionMaxEventsPerChunk),
+			},
+			totalEvents: flowAttributionMaxEventsPerChunk,
+		}
+	}
+
+	first := queue.getOrLoad(load)
+	retry := queue.getOrLoad(load)
+
+	if first == nil {
+		t.Fatal("first pending batch is nil")
+	}
+	if retry != first {
+		t.Fatal("unacknowledged delivery loaded a different batch")
+	}
+	if got, want := loads, 1; got != want {
+		t.Fatalf("loader calls before acknowledgement = %d, want %d", got, want)
+	}
+	if got := first.totalEvents; got > flowAttributionMaxDrainPerPush {
+		t.Fatalf("pending event count = %d, exceeds bound %d", got, flowAttributionMaxDrainPerPush)
+	}
+
+	if !queue.acknowledge(first) {
+		t.Fatal("acknowledge(first) = false, want true")
+	}
+
+	next := queue.getOrLoad(load)
+	if next == first {
+		t.Fatal("acknowledged batch was reused")
+	}
+	if got, want := loads, 2; got != want {
+		t.Fatalf("loader calls after acknowledgement = %d, want %d", got, want)
+	}
+	if queue.acknowledge(first) {
+		t.Fatal("stale acknowledgement cleared the next batch")
+	}
+	if retry := queue.getOrLoad(load); retry != next {
+		t.Fatal("stale acknowledgement replaced the current pending batch")
+	}
+}
+
 func TestBuildFlowAttributionGatewayStatusChunks_StreamsMultipleBatches(t *testing.T) {
 	batches := [][]*netprobepb.FlowAttributionEvent{
 		sampleFlowAttributionEvents(3),

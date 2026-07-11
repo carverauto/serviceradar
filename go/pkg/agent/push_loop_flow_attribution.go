@@ -35,6 +35,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -79,6 +80,52 @@ const (
 
 var errFlowAttributionEventExceedsBatchBudget = errors.New("flow attribution event exceeds batch message byte budget")
 
+// flowAttributionPendingBatch owns events removed from the sidecar channel
+// until core has durably accepted them through the gateway. The batch is
+// bounded by flowAttributionMaxDrainPerPush.
+type flowAttributionPendingBatch struct {
+	eventBatches      [][]*netprobepb.FlowAttributionEvent
+	totalEvents       int
+	hitDrainLimit     bool
+	batchStart        time.Time
+	batchEnd          time.Time
+	cumulativeDropped uint64
+	dropped           uint32
+}
+
+// flowAttributionDeliveryQueue keeps at most one drained batch in memory. A
+// failed StreamStatus call leaves the batch pending for the next push tick;
+// only a positive acknowledgement clears it. This is intentionally bounded,
+// but it is not a disk spool and does not survive an agent process restart.
+type flowAttributionDeliveryQueue struct {
+	mu      sync.Mutex
+	pending *flowAttributionPendingBatch
+}
+
+func (q *flowAttributionDeliveryQueue) getOrLoad(load func() *flowAttributionPendingBatch) *flowAttributionPendingBatch {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	if q.pending == nil {
+		q.pending = load()
+	}
+
+	return q.pending
+}
+
+func (q *flowAttributionDeliveryQueue) acknowledge(batch *flowAttributionPendingBatch) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	if batch == nil || q.pending != batch {
+		return false
+	}
+
+	q.pending = nil
+
+	return true
+}
+
 // agentFlowAttributionEventsForwardedTotal counts the number of
 // FlowAttributionEvent records the agent has successfully forwarded
 // to the gateway, surfaced as
@@ -100,11 +147,10 @@ func resetAgentFlowAttributionEventsForwardedTotal() {
 	agentFlowAttributionEventsForwardedTotal.Store(0)
 }
 
-// pushFlowAttribution drains buffered FlowAttributionEvents from the
-// netprobe sidecar, packs them into a FlowAttributionEventBatch, and
-// streams the batch to the agent-gateway as a single
-// GatewayServiceStatus with Source=FlowAttributionSource. Returns
-// true if a batch was sent.
+// pushFlowAttribution drains buffered FlowAttributionEvents from the netprobe
+// sidecar into a bounded pending batch and streams it to the agent-gateway.
+// The pending batch is cleared only after a positive gateway acknowledgement;
+// transport or persistence failures retry the same events on the next tick.
 //
 // Returns false when:
 //   - the netprobe sidecar is not attached (e.g. host-network
@@ -119,30 +165,41 @@ func (p *PushLoop) pushFlowAttribution(ctx context.Context) bool {
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
 
-	if netprobeSidecar == nil {
+	pending := p.flowAttributionDelivery.getOrLoad(func() *flowAttributionPendingBatch {
+		if netprobeSidecar == nil {
+			return nil
+		}
+
+		batchStart := time.Now().UTC()
+		eventBatches, totalEvents, hitDrainLimit := drainFlowAttributionBatches(netprobeSidecar)
+		if totalEvents == 0 {
+			return nil
+		}
+
+		cumulativeDropped, dropped := observeFlowAttributionDropped(netprobeSidecar)
+
+		return &flowAttributionPendingBatch{
+			eventBatches:      eventBatches,
+			totalEvents:       totalEvents,
+			hitDrainLimit:     hitDrainLimit,
+			batchStart:        batchStart,
+			batchEnd:          time.Now().UTC(),
+			cumulativeDropped: cumulativeDropped,
+			dropped:           dropped,
+		}
+	})
+	if pending == nil {
 		return false
 	}
-
-	batchStart := time.Now().UTC()
-	eventBatches, totalEvents, hitDrainLimit := drainFlowAttributionBatches(netprobeSidecar)
-	if totalEvents == 0 {
-		return false
-	}
-	batchEnd := time.Now().UTC()
-
-	// Observe the cumulative drop counter; commit the baseline only after
-	// a successful StreamStatus ack so a transport failure doesn't lose
-	// the delta — the next push will replay it.
-	cumulativeDropped, dropped := observeFlowAttributionDropped(netprobeSidecar)
 
 	gatewayID := p.gateway.GetGatewayID()
 
 	runtimeMetadata := currentRuntimeMetadata()
 	chunks, totalMessageBytes, err := buildFlowAttributionGatewayStatusChunks(
-		eventBatches,
-		batchStart,
-		batchEnd,
-		dropped,
+		pending.eventBatches,
+		pending.batchStart,
+		pending.batchEnd,
+		pending.dropped,
 		agentID,
 		gatewayID,
 		partition,
@@ -152,7 +209,7 @@ func (p *PushLoop) pushFlowAttribution(ctx context.Context) bool {
 	)
 	if err != nil {
 		p.logger.Error().Err(err).
-			Int("event_count", totalEvents).
+			Int("event_count", pending.totalEvents).
 			Msg("Failed to marshal flow attribution batch")
 		return false
 	}
@@ -163,36 +220,39 @@ func (p *PushLoop) pushFlowAttribution(ctx context.Context) bool {
 	resp, err := p.gateway.StreamStatus(pushCtx, chunks)
 	if err != nil {
 		p.logger.Error().Err(err).
-			Int("event_count", totalEvents).
+			Int("event_count", pending.totalEvents).
 			Int("chunk_count", len(chunks)).
 			Msg("Failed to stream flow attribution batch to gateway")
 		return false
 	}
 
-	if !resp.Received {
+	if resp == nil || !resp.Received {
 		p.logger.Warn().
-			Int("event_count", totalEvents).
+			Int("event_count", pending.totalEvents).
 			Int("chunk_count", len(chunks)).
 			Msg("Gateway did not acknowledge flow attribution batch")
 		return false
 	}
 
-	agentFlowAttributionEventsForwardedTotal.Add(uint64(totalEvents))
+	if !p.flowAttributionDelivery.acknowledge(pending) {
+		p.logger.Warn().
+			Int("event_count", pending.totalEvents).
+			Msg("Flow attribution acknowledgement did not match the pending batch")
+		return false
+	}
 
-	// Gateway acked — safe to advance the dropped-counter baseline now.
-	// On any earlier `return false`, the baseline stays unmoved so the
-	// next push replays the unreported delta.
-	commitFlowAttributionDropped(cumulativeDropped)
+	agentFlowAttributionEventsForwardedTotal.Add(uint64(pending.totalEvents))
+	commitFlowAttributionDropped(pending.cumulativeDropped)
 
 	logEvent := p.logger.Info()
-	if hitDrainLimit {
+	if pending.hitDrainLimit {
 		logEvent = p.logger.Warn()
 	}
 	logEvent.
-		Int("event_count", totalEvents).
+		Int("event_count", pending.totalEvents).
 		Int("chunk_count", len(chunks)).
 		Int("message_bytes", totalMessageBytes).
-		Uint32("dropped_since_last", dropped).
+		Uint32("dropped_since_last", pending.dropped).
 		Msg("Streamed flow attribution batch to gateway")
 
 	return true

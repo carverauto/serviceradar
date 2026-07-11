@@ -211,9 +211,12 @@ defmodule ServiceRadar.StatusHandler do
         # Persist the pushed attributions to CNPG so the correlation worker can
         # join them against collected NetFlow into attributed_flow rows. NetFlow
         # stays the flow source; netprobe only supplies the process context.
-        persist_flow_attribution(events || [], partition_id, agent_id)
-
-        :ok
+        case persist_flow_attribution(events || [], partition_id, agent_id) do
+          :ok -> :ok
+          {:ok, _result} -> :ok
+          {:error, _reason} = error -> error
+          other -> {:error, {:unexpected_flow_attribution_persist_result, other}}
+        end
 
       :error ->
         :telemetry.execute(

@@ -219,6 +219,46 @@ defmodule ServiceRadar.StatusHandlerTest do
       assert [%FlowAttributionEvent{comm: "curl"}] = events
     end
 
+    test "returns a synchronous failure when flow attribution persistence fails" do
+      original = Application.get_env(:serviceradar_core, StatusHandler, [])
+
+      Application.put_env(:serviceradar_core, StatusHandler,
+        flow_attribution_persister:
+          {__MODULE__, :persist_flow_attribution_result, [self(), {:error, :deadlock_exhausted}]}
+      )
+
+      on_exit(fn -> Application.put_env(:serviceradar_core, StatusHandler, original) end)
+
+      batch =
+        FlowAttributionEventBatch.encode(%FlowAttributionEventBatch{
+          events: [
+            %FlowAttributionEvent{
+              local_ip: "10.0.0.1",
+              local_port: 5000,
+              remote_ip: "10.0.0.2",
+              remote_port: 80,
+              transport_protocol: "TCP",
+              pid: 1,
+              comm: "curl"
+            }
+          ]
+        })
+
+      status = %{
+        source: "flow-attribution",
+        service_type: "passive-netprobe",
+        service_name: "flow-attribution",
+        agent_id: "agent-a",
+        partition: "prod-east",
+        message: batch
+      }
+
+      assert {:reply, {:error, :deadlock_exhausted}, %{}} =
+               StatusHandler.handle_call({:status_update, status}, self(), %{})
+
+      assert_receive {:flow_attribution_persisted, _events, "prod-east", "agent-a"}
+    end
+
     test "ignores malformed flow-attribution messages without crashing" do
       status = %{
         source: "flow-attribution",
@@ -791,6 +831,11 @@ defmodule ServiceRadar.StatusHandlerTest do
   def persist_flow_attribution(events, partition_id, agent_id, pid) do
     send(pid, {:flow_attribution_persisted, events, partition_id, agent_id})
     :ok
+  end
+
+  def persist_flow_attribution_result(events, partition_id, agent_id, pid, result) do
+    send(pid, {:flow_attribution_persisted, events, partition_id, agent_id})
+    result
   end
 
   def stub_publish(subject, payload, fun) when is_function(fun, 2), do: fun.(subject, payload)

@@ -169,8 +169,8 @@ defmodule ServiceRadar.FlowAttributionTest do
       workload_identity: nil
     }
 
-    assert %Postgrex.Result{num_rows: 1} = Persistence.insert_current_rows([row, row])
-    assert %Postgrex.Result{num_rows: 0} = Persistence.insert_current_rows([row, row])
+    assert {:ok, %Postgrex.Result{num_rows: 1}} = Persistence.insert_current_rows([row, row])
+    assert {:ok, %Postgrex.Result{num_rows: 0}} = Persistence.insert_current_rows([row, row])
 
     older = %{
       row
@@ -179,7 +179,7 @@ defmodule ServiceRadar.FlowAttributionTest do
         uid: 2000
     }
 
-    assert %Postgrex.Result{num_rows: 0} = Persistence.insert_current_rows([older])
+    assert {:ok, %Postgrex.Result{num_rows: 0}} = Persistence.insert_current_rows([older])
 
     %{rows: [[count, observed_at, cmdline, uid]]} =
       query!(
