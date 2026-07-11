@@ -17,6 +17,7 @@
 package agent
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -36,6 +37,33 @@ func sampleFlowAttributionEvents(n int) []*netprobepb.FlowAttributionEvent {
 		})
 	}
 	return out
+}
+
+func buildTestFlowAttributionWindow(
+	t *testing.T,
+	events []*netprobepb.FlowAttributionEvent,
+	start, end time.Time,
+	dropped uint32,
+) *flowAttributionDeliveryWindow {
+	t.Helper()
+
+	window, err := buildNextFlowAttributionDeliveryWindow(
+		events,
+		start,
+		end,
+		dropped,
+		"agent-A",
+		"gateway-1",
+		"prod-east",
+		"kv-1",
+		"10.0.0.10",
+		statusRuntimeMetadata{Version: "test-version", Hostname: "host-a", Os: "linux", Arch: "amd64"},
+	)
+	if err != nil {
+		t.Fatalf("build delivery window: %v", err)
+	}
+
+	return window
 }
 
 func TestBuildFlowAttributionGatewayStatus_WrapsBatchInEnvelope(t *testing.T) {
@@ -143,16 +171,22 @@ func TestBuildFlowAttributionGatewayStatus_EmptyEventsPreservesField(t *testing.
 
 func TestFlowAttributionMaxDrainPerPushIsBounded(t *testing.T) {
 	// Pin the constants so future edits don't accidentally unbound the
-	// per-message chunk or per-tick drain budgets.
+	// per-message, per-RPC, or per-tick budgets.
 	if got, want := flowAttributionMaxEventsPerChunk, 4096; got != want {
 		t.Errorf("flowAttributionMaxEventsPerChunk = %d, want %d", got, want)
 	}
 	if got, want := flowAttributionMaxDrainPerPush, 32*1024; got != want {
 		t.Errorf("flowAttributionMaxDrainPerPush = %d, want %d", got, want)
 	}
+	if got, want := flowAttributionMaxStreamWindowBytes, 8*1024*1024; got != want {
+		t.Errorf("flowAttributionMaxStreamWindowBytes = %d, want %d", got, want)
+	}
+	if got, want := flowAttributionMaxDeliveryStepsPerPush, 8; got != want {
+		t.Errorf("flowAttributionMaxDeliveryStepsPerPush = %d, want %d", got, want)
+	}
 }
 
-func TestFlowAttributionDeliveryQueueRetainsBatchUntilAcknowledged(t *testing.T) {
+func TestFlowAttributionDeliveryQueueAcknowledgesOnlyDeliveredPrefix(t *testing.T) {
 	var queue flowAttributionDeliveryQueue
 	loads := 0
 
@@ -160,10 +194,10 @@ func TestFlowAttributionDeliveryQueueRetainsBatchUntilAcknowledged(t *testing.T)
 		loads++
 
 		return &flowAttributionPendingBatch{
-			eventBatches: [][]*netprobepb.FlowAttributionEvent{
-				sampleFlowAttributionEvents(flowAttributionMaxEventsPerChunk),
-			},
-			totalEvents: flowAttributionMaxEventsPerChunk,
+			events:              sampleFlowAttributionEvents(3),
+			cumulativeDropped:   31,
+			dropped:             9,
+			dropBaselinePending: true,
 		}
 	}
 
@@ -179,12 +213,40 @@ func TestFlowAttributionDeliveryQueueRetainsBatchUntilAcknowledged(t *testing.T)
 	if got, want := loads, 1; got != want {
 		t.Fatalf("loader calls before acknowledgement = %d, want %d", got, want)
 	}
-	if got := first.totalEvents; got > flowAttributionMaxDrainPerPush {
-		t.Fatalf("pending event count = %d, exceeds bound %d", got, flowAttributionMaxDrainPerPush)
+
+	cumulative, commitDrop, remaining, ok := queue.acknowledgePrefix(first, 1)
+	if !ok {
+		t.Fatal("acknowledgePrefix(first, 1) = false, want true")
+	}
+	if got, want := cumulative, uint64(31); got != want {
+		t.Errorf("first acknowledged cumulative drop count = %d, want %d", got, want)
+	}
+	if !commitDrop {
+		t.Error("first prefix acknowledgement did not commit drop baseline")
+	}
+	if got, want := remaining, 2; got != want {
+		t.Errorf("remaining after first prefix = %d, want %d", got, want)
+	}
+	if got, want := first.events[0].GetPid(), uint32(1001); got != want {
+		t.Errorf("first retained PID = %d, want %d", got, want)
+	}
+	if first.dropBaselinePending || first.dropped != 0 {
+		t.Fatalf("drop baseline still pending after positive prefix acknowledgement: %+v", first)
 	}
 
-	if !queue.acknowledge(first) {
-		t.Fatal("acknowledge(first) = false, want true")
+	cumulative, commitDrop, remaining, ok = queue.acknowledgePrefix(first, 1)
+	if !ok {
+		t.Fatal("second acknowledgePrefix(first, 1) = false, want true")
+	}
+	if cumulative != 0 || commitDrop {
+		t.Errorf("second prefix repeated drop baseline: cumulative=%d commit=%t", cumulative, commitDrop)
+	}
+	if got, want := remaining, 1; got != want {
+		t.Errorf("remaining after second prefix = %d, want %d", got, want)
+	}
+
+	if _, _, remaining, ok = queue.acknowledgePrefix(first, 1); !ok || remaining != 0 {
+		t.Fatalf("final prefix acknowledgement = (remaining=%d, ok=%t), want (0, true)", remaining, ok)
 	}
 
 	next := queue.getOrLoad(load)
@@ -194,7 +256,7 @@ func TestFlowAttributionDeliveryQueueRetainsBatchUntilAcknowledged(t *testing.T)
 	if got, want := loads, 2; got != want {
 		t.Fatalf("loader calls after acknowledgement = %d, want %d", got, want)
 	}
-	if queue.acknowledge(first) {
+	if _, _, _, ok := queue.acknowledgePrefix(first, 1); ok {
 		t.Fatal("stale acknowledgement cleared the next batch")
 	}
 	if retry := queue.getOrLoad(load); retry != next {
@@ -202,69 +264,181 @@ func TestFlowAttributionDeliveryQueueRetainsBatchUntilAcknowledged(t *testing.T)
 	}
 }
 
-func TestBuildFlowAttributionGatewayStatusChunks_StreamsMultipleBatches(t *testing.T) {
-	batches := [][]*netprobepb.FlowAttributionEvent{
-		sampleFlowAttributionEvents(3),
-		sampleFlowAttributionEvents(2),
-	}
-	start := time.Unix(0, 1_700_000_000_000_000_000).UTC()
-	end := start.Add(250 * time.Millisecond)
-
-	chunks, messageBytes, err := buildFlowAttributionGatewayStatusChunks(
-		batches,
-		start,
-		end,
-		9,
-		"agent-A",
-		"gateway-1",
-		"prod-east",
-		"kv-1",
-		"10.0.0.10",
-		statusRuntimeMetadata{Version: "test-version", Hostname: "host-a", Os: "linux", Arch: "amd64"},
-	)
-	if err != nil {
-		t.Fatalf("build chunks: %v", err)
-	}
-	if got, want := len(chunks), 2; got != want {
-		t.Fatalf("chunks len = %d, want %d", got, want)
-	}
-	if messageBytes == 0 {
-		t.Fatal("messageBytes = 0, want non-zero")
-	}
-
-	assertFlowAttributionChunkMetadata(t, chunks[0], 0, 2, false)
-	assertFlowAttributionChunkMetadata(t, chunks[1], 1, 2, true)
-	assertFlowAttributionChunkEnvelope(t, chunks[0], "agent-A", "gateway-1", "prod-east", "10.0.0.10")
-	assertFlowAttributionChunkEnvelope(t, chunks[1], "agent-A", "gateway-1", "prod-east", "10.0.0.10")
-
-	first := decodeFlowAttributionBatchFromChunk(t, chunks[0])
-	second := decodeFlowAttributionBatchFromChunk(t, chunks[1])
-	if got, want := len(first.GetEvents()), 3; got != want {
-		t.Errorf("first events len = %d, want %d", got, want)
-	}
-	if got, want := len(second.GetEvents()), 2; got != want {
-		t.Errorf("second events len = %d, want %d", got, want)
-	}
-	if got, want := first.GetDroppedSinceLast(), uint32(9); got != want {
-		t.Errorf("first DroppedSinceLast = %d, want %d", got, want)
-	}
-	if got := second.GetDroppedSinceLast(); got != 0 {
-		t.Errorf("second DroppedSinceLast = %d, want 0", got)
-	}
-}
-
-func TestBuildFlowAttributionGatewayStatusChunks_SplitsOversizedBatch(t *testing.T) {
+func TestFlowAttributionDeliveryWindowPrefixRetryDoesNotRepeatDroppedBaseline(t *testing.T) {
 	largeArg := strings.Repeat("x", 4*1024*1024)
 	events := []*netprobepb.FlowAttributionEvent{
 		{Pid: 1001, Comm: "large-a", RedactedCmdline: []string{largeArg}},
 		{Pid: 1002, Comm: "large-b", RedactedCmdline: []string{largeArg}},
 	}
+	pending := &flowAttributionPendingBatch{
+		events:              events,
+		batchStart:          time.Unix(0, 1).UTC(),
+		batchEnd:            time.Unix(0, 2).UTC(),
+		cumulativeDropped:   44,
+		dropped:             11,
+		dropBaselinePending: true,
+	}
+	queue := flowAttributionDeliveryQueue{pending: pending}
 
-	chunks, _, err := buildFlowAttributionGatewayStatusChunks(
-		[][]*netprobepb.FlowAttributionEvent{events},
-		time.Unix(0, 1).UTC(),
-		time.Unix(0, 2).UTC(),
-		11,
+	first := buildTestFlowAttributionWindow(t, pending.events, pending.batchStart, pending.batchEnd, pending.dropped)
+	if got, want := first.eventCount, 1; got != want {
+		t.Fatalf("first window event count = %d, want %d", got, want)
+	}
+	firstBatch := decodeFlowAttributionBatchFromChunk(t, first.chunk)
+	if got, want := firstBatch.GetDroppedSinceLast(), uint32(11); got != want {
+		t.Errorf("first window DroppedSinceLast = %d, want %d", got, want)
+	}
+
+	cumulative, commitDrop, remaining, ok := queue.acknowledgePrefix(pending, first.eventCount)
+	if !ok || !commitDrop || cumulative != 44 || remaining != 1 {
+		t.Fatalf(
+			"first ack = (cumulative=%d, commit=%t, remaining=%d, ok=%t), want (44, true, 1, true)",
+			cumulative,
+			commitDrop,
+			remaining,
+			ok,
+		)
+	}
+
+	second := buildTestFlowAttributionWindow(t, pending.events, pending.batchStart, pending.batchEnd, pending.dropped)
+	retryAfterFailure := buildTestFlowAttributionWindow(t, pending.events, pending.batchStart, pending.batchEnd, pending.dropped)
+	secondBatch := decodeFlowAttributionBatchFromChunk(t, second.chunk)
+	retryBatch := decodeFlowAttributionBatchFromChunk(t, retryAfterFailure.chunk)
+	if got := secondBatch.GetDroppedSinceLast(); got != 0 {
+		t.Errorf("second window DroppedSinceLast = %d, want 0", got)
+	}
+	if got := retryBatch.GetDroppedSinceLast(); got != 0 {
+		t.Errorf("retry after partial success repeated DroppedSinceLast = %d, want 0", got)
+	}
+	if got, want := retryBatch.GetEvents()[0].GetPid(), secondBatch.GetEvents()[0].GetPid(); got != want {
+		t.Errorf("failed-window retry PID = %d, want retained prefix PID %d", got, want)
+	}
+	if got, want := len(pending.events), 1; got != want {
+		t.Errorf("simulated failed window removed events: remaining=%d, want %d", got, want)
+	}
+
+	if cumulative, commitDrop, remaining, ok = queue.acknowledgePrefix(pending, second.eventCount); !ok || commitDrop || cumulative != 0 || remaining != 0 {
+		t.Fatalf(
+			"second ack = (cumulative=%d, commit=%t, remaining=%d, ok=%t), want (0, false, 0, true)",
+			cumulative,
+			commitDrop,
+			remaining,
+			ok,
+		)
+	}
+}
+
+func TestFlowAttributionDeliveryWindowsBoundAggregateBeyondGatewayLimit(t *testing.T) {
+	largeArg := strings.Repeat("x", 11*1024*1024/2)
+	events := make([]*netprobepb.FlowAttributionEvent, 12)
+	for i := range events {
+		events[i] = &netprobepb.FlowAttributionEvent{
+			Pid:             uint32(2000 + i),
+			Comm:            "large-event",
+			RedactedCmdline: []string{largeArg},
+		}
+	}
+
+	totalStreamBytes := 0
+	deliveredPIDs := make([]uint32, 0, len(events))
+	remaining := events
+	dropped := uint32(7)
+	for len(remaining) > 0 {
+		window := buildTestFlowAttributionWindow(t, remaining, time.Unix(0, 1), time.Unix(0, 2), dropped)
+		if window.messageBytes > flowAttributionMaxBatchMessageBytes {
+			t.Fatalf("message bytes = %d, exceeds %d", window.messageBytes, flowAttributionMaxBatchMessageBytes)
+		}
+		if window.streamBytes > flowAttributionMaxStreamWindowBytes {
+			t.Fatalf("stream bytes = %d, exceeds %d", window.streamBytes, flowAttributionMaxStreamWindowBytes)
+		}
+		assertFlowAttributionChunkMetadata(t, window.chunk, 0, 1, true)
+		assertFlowAttributionChunkEnvelope(t, window.chunk, "agent-A", "gateway-1", "prod-east", "10.0.0.10")
+
+		batch := decodeFlowAttributionBatchFromChunk(t, window.chunk)
+		for _, event := range batch.GetEvents() {
+			deliveredPIDs = append(deliveredPIDs, event.GetPid())
+		}
+		totalStreamBytes += window.streamBytes
+		remaining = remaining[window.eventCount:]
+		dropped = 0
+	}
+
+	if totalStreamBytes <= 64*1024*1024 {
+		t.Fatalf("logical aggregate stream bytes = %d, want greater than gateway 64MiB limit", totalStreamBytes)
+	}
+	if got, want := len(deliveredPIDs), len(events); got != want {
+		t.Fatalf("delivered PID count = %d, want %d", got, want)
+	}
+	for i, pid := range deliveredPIDs {
+		if got, want := pid, uint32(2000+i); got != want {
+			t.Errorf("delivered PID[%d] = %d, want %d", i, got, want)
+		}
+	}
+}
+
+func TestFlowAttributionDeliveryWindowOmitsPathologicalOptionalMetadata(t *testing.T) {
+	pathological := strings.Repeat("x", 9*1024*1024)
+
+	window, err := buildNextFlowAttributionDeliveryWindow(
+		sampleFlowAttributionEvents(1),
+		time.Unix(0, 1),
+		time.Unix(0, 2),
+		0,
+		"agent-A",
+		"gateway-1",
+		"prod-east",
+		pathological,
+		pathological,
+		statusRuntimeMetadata{
+			Version:  pathological,
+			Hostname: pathological,
+			Os:       pathological,
+			Arch:     pathological,
+		},
+	)
+	if err != nil {
+		t.Fatalf("build window with pathological optional metadata: %v", err)
+	}
+	if window.streamBytes > flowAttributionMaxStreamWindowBytes {
+		t.Fatalf("stream bytes = %d, exceeds %d", window.streamBytes, flowAttributionMaxStreamWindowBytes)
+	}
+	if window.chunk.GetVersion() != "" || window.chunk.GetHostname() != "" ||
+		window.chunk.GetOs() != "" || window.chunk.GetArch() != "" ||
+		window.chunk.GetSourceIp() != "" {
+		t.Fatalf("pathological optional chunk metadata was not omitted: %+v", window.chunk)
+	}
+	if got := window.chunk.GetServices()[0].GetKvStoreId(); got != "" {
+		t.Fatalf("pathological KV store ID = %q, want omitted", got)
+	}
+}
+
+func TestFlowAttributionOversizedPoisonEventIsQuarantinedAndLaterEventsProgress(t *testing.T) {
+	resetAgentFlowAttributionEventCounters()
+	t.Cleanup(resetAgentFlowAttributionEventCounters)
+
+	poison := &netprobepb.FlowAttributionEvent{
+		Pid:             3001,
+		Comm:            "poison",
+		RedactedCmdline: []string{strings.Repeat("x", 7*1024*1024)},
+	}
+	pending := &flowAttributionPendingBatch{
+		events: []*netprobepb.FlowAttributionEvent{
+			poison,
+			{Pid: 3002, Comm: "valid"},
+		},
+		batchStart:          time.Unix(0, 1),
+		batchEnd:            time.Unix(0, 2),
+		cumulativeDropped:   51,
+		dropped:             5,
+		dropBaselinePending: true,
+	}
+	queue := flowAttributionDeliveryQueue{pending: pending}
+
+	_, err := buildNextFlowAttributionDeliveryWindow(
+		pending.events,
+		pending.batchStart,
+		pending.batchEnd,
+		pending.dropped,
 		"agent-A",
 		"gateway-1",
 		"prod-east",
@@ -272,40 +446,59 @@ func TestBuildFlowAttributionGatewayStatusChunks_SplitsOversizedBatch(t *testing
 		"10.0.0.10",
 		statusRuntimeMetadata{},
 	)
-	if err != nil {
-		t.Fatalf("build chunks: %v", err)
-	}
-	if got, want := len(chunks), 2; got != want {
-		t.Fatalf("chunks len = %d, want %d", got, want)
+	if !errors.Is(err, errFlowAttributionEventExceedsBatchBudget) {
+		t.Fatalf("poison event error = %v, want %v", err, errFlowAttributionEventExceedsBatchBudget)
 	}
 
-	first := decodeFlowAttributionBatchFromChunk(t, chunks[0])
-	second := decodeFlowAttributionBatchFromChunk(t, chunks[1])
-	if got, want := len(first.GetEvents()), 1; got != want {
-		t.Errorf("first split events len = %d, want %d", got, want)
+	quarantined, remaining, ok := queue.quarantineFirst(pending)
+	if !ok || quarantined != poison || remaining != 1 {
+		t.Fatalf("quarantine = (event=%p, remaining=%d, ok=%t), want (%p, 1, true)", quarantined, remaining, ok, poison)
 	}
-	if got, want := len(second.GetEvents()), 1; got != want {
-		t.Errorf("second split events len = %d, want %d", got, want)
+	if got, want := AgentFlowAttributionEventsQuarantinedTotal(), uint64(1); got != want {
+		t.Errorf("quarantined total = %d, want %d", got, want)
 	}
-	if got := first.GetDroppedSinceLast(); got != 11 {
-		t.Errorf("first DroppedSinceLast = %d, want 11", got)
+	if !pending.dropBaselinePending || pending.dropped != 5 {
+		t.Fatalf("quarantine consumed drop baseline: pending=%t dropped=%d", pending.dropBaselinePending, pending.dropped)
 	}
-	if got := second.GetDroppedSinceLast(); got != 0 {
-		t.Errorf("second DroppedSinceLast = %d, want 0", got)
+
+	validWindow := buildTestFlowAttributionWindow(t, pending.events, pending.batchStart, pending.batchEnd, pending.dropped)
+	validBatch := decodeFlowAttributionBatchFromChunk(t, validWindow.chunk)
+	if got, want := validBatch.GetEvents()[0].GetPid(), uint32(3002); got != want {
+		t.Fatalf("event after poison PID = %d, want %d", got, want)
+	}
+	if cumulative, commitDrop, remaining, ok := queue.acknowledgePrefix(pending, validWindow.eventCount); !ok || !commitDrop || cumulative != 51 || remaining != 0 {
+		t.Fatalf(
+			"valid ack = (cumulative=%d, commit=%t, remaining=%d, ok=%t), want (51, true, 0, true)",
+			cumulative,
+			commitDrop,
+			remaining,
+			ok,
+		)
+	}
+
+	next := queue.getOrLoad(func() *flowAttributionPendingBatch {
+		return &flowAttributionPendingBatch{events: []*netprobepb.FlowAttributionEvent{{Pid: 3003}}}
+	})
+	if next == nil || next.events[0].GetPid() != 3003 {
+		t.Fatalf("subsequent batch did not progress after poison event: %+v", next)
 	}
 }
 
-func TestAgentFlowAttributionEventsForwardedTotal_CounterMatchesDrain(t *testing.T) {
+func TestAgentFlowAttributionEventCounters(t *testing.T) {
 	// Simulate the counter accumulation that pushFlowAttribution does
 	// after a successful StreamStatus ack. The counter is process-wide.
-	resetAgentFlowAttributionEventsForwardedTotal()
-	t.Cleanup(resetAgentFlowAttributionEventsForwardedTotal)
+	resetAgentFlowAttributionEventCounters()
+	t.Cleanup(resetAgentFlowAttributionEventCounters)
 
 	agentFlowAttributionEventsForwardedTotal.Add(uint64(len(sampleFlowAttributionEvents(5))))
 	agentFlowAttributionEventsForwardedTotal.Add(uint64(len(sampleFlowAttributionEvents(7))))
+	agentFlowAttributionEventsQuarantinedTotal.Add(2)
 
 	if got, want := AgentFlowAttributionEventsForwardedTotal(), uint64(12); got != want {
 		t.Errorf("AgentFlowAttributionEventsForwardedTotal() = %d, want %d", got, want)
+	}
+	if got, want := AgentFlowAttributionEventsQuarantinedTotal(), uint64(2); got != want {
+		t.Errorf("AgentFlowAttributionEventsQuarantinedTotal() = %d, want %d", got, want)
 	}
 }
 

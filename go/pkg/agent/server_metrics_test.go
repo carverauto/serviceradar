@@ -52,6 +52,8 @@ func TestServerWritePrometheusMetricsIncludesBannerGrabStats(t *testing.T) {
 		"# TYPE sweep_banner_grab_bytes_received_total counter\nsweep_banner_grab_bytes_received_total 1024\n",
 		"# TYPE sweep_banner_grab_timeout_total counter\nsweep_banner_grab_timeout_total 12\n",
 		"# TYPE sweep_banner_grab_errors_total counter\nsweep_banner_grab_errors_total 13\n",
+		"# TYPE agent_flow_attribution_events_forwarded_total counter\n",
+		"# TYPE agent_flow_attribution_events_quarantined_total counter\n",
 	} {
 		if !strings.Contains(metrics, want) {
 			t.Fatalf("metrics missing %q in:\n%s", want, metrics)

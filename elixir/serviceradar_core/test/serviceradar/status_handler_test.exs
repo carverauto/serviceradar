@@ -259,6 +259,69 @@ defmodule ServiceRadar.StatusHandlerTest do
       assert_receive {:flow_attribution_persisted, _events, "prod-east", "agent-a"}
     end
 
+    test "emits dropped-event telemetry only after a failed prefix retry persists" do
+      {:ok, attempt_counter} = Agent.start_link(fn -> 0 end)
+
+      Application.put_env(:serviceradar_core, StatusHandler,
+        flow_attribution_persister:
+          {__MODULE__, :persist_flow_attribution_fail_once, [self(), attempt_counter]}
+      )
+
+      handler_id = {__MODULE__, self(), make_ref()}
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          [:serviceradar, :event_writer, :attributed_flow, :batch_received],
+          &__MODULE__.forward_flow_attribution_telemetry/4,
+          self()
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      batch =
+        FlowAttributionEventBatch.encode(%FlowAttributionEventBatch{
+          events: [
+            %FlowAttributionEvent{
+              local_ip: "10.0.0.1",
+              local_port: 5000,
+              remote_ip: "10.0.0.2",
+              remote_port: 80,
+              transport_protocol: "TCP",
+              pid: 1,
+              comm: "curl"
+            }
+          ],
+          dropped_since_last: 9
+        })
+
+      status = %{
+        source: "flow-attribution",
+        service_type: "passive-netprobe",
+        service_name: "flow-attribution",
+        agent_id: "agent-a",
+        partition: "prod-east",
+        message: batch
+      }
+
+      assert {:reply, {:error, :deadlock_exhausted}, %{}} =
+               StatusHandler.handle_call({:status_update, status}, self(), %{})
+
+      assert_receive {:flow_attribution_persist_attempt, 1, _events, "prod-east", "agent-a"}
+      refute_receive {:flow_attribution_batch_received, _, _, _}, 20
+
+      assert {:reply, :ok, %{}} =
+               StatusHandler.handle_call({:status_update, status}, self(), %{})
+
+      assert_receive {:flow_attribution_persist_attempt, 2, _events, "prod-east", "agent-a"}
+
+      assert_receive {:flow_attribution_batch_received, _event,
+                      %{count: 1, event_count: 1, dropped_since_last: 9},
+                      %{partition_id: "prod-east", agent_id: "agent-a"}}
+
+      refute_receive {:flow_attribution_batch_received, _, _, _}, 20
+    end
+
     test "ignores malformed flow-attribution messages without crashing" do
       status = %{
         source: "flow-attribution",
@@ -836,6 +899,17 @@ defmodule ServiceRadar.StatusHandlerTest do
   def persist_flow_attribution_result(events, partition_id, agent_id, pid, result) do
     send(pid, {:flow_attribution_persisted, events, partition_id, agent_id})
     result
+  end
+
+  def persist_flow_attribution_fail_once(events, partition_id, agent_id, pid, attempt_counter) do
+    attempt = Agent.get_and_update(attempt_counter, fn count -> {count + 1, count + 1} end)
+    send(pid, {:flow_attribution_persist_attempt, attempt, events, partition_id, agent_id})
+
+    if attempt == 1, do: {:error, :deadlock_exhausted}, else: :ok
+  end
+
+  def forward_flow_attribution_telemetry(event, measurements, metadata, pid) do
+    send(pid, {:flow_attribution_batch_received, event, measurements, metadata})
   end
 
   def stub_publish(subject, payload, fun) when is_function(fun, 2), do: fun.(subject, payload)
