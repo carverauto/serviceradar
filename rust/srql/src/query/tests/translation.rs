@@ -555,6 +555,42 @@ fn translate_flows_downsample_emits_time_bucket_query() {
 }
 
 #[test]
+fn translate_flows_app_filter_binds_value_and_correlates_override_rules() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:flows app:dusk time:last_24h sort:time:desc".to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("app filter should translate");
+    let sql = response.sql.to_lowercase();
+
+    assert!(
+        response
+            .params
+            .iter()
+            .any(|param| matches!(param, BindParam::Text(value) if value == "dusk")),
+        "expected the app filter value to be bound: {:?}",
+        response.params
+    );
+    assert!(
+        sql.contains("netflow_app_classification_rules")
+            && sql.contains("r.partition = baseline.flow_partition")
+            && sql.contains("r.protocol_num = baseline.flow_protocol_num"),
+        "override rules must correlate to the outer flow row: {}",
+        response.sql
+    );
+    assert!(
+        !sql.contains("r.partition = partition") && !sql.contains("r.protocol_num = protocol_num"),
+        "unqualified rule comparisons can resolve to the rule row itself: {}",
+        response.sql
+    );
+}
+
+#[test]
 fn translate_flows_downsample_30d_reads_prescaled_cagg() {
     // §26.4: a long-window downsample (bucket:1h over 30d) routes to a pre-scaled flow CAGG
     // through the closed-vs-current UNION (fj #33). Pin that scaling is applied exactly once

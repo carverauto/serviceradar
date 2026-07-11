@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
 
   import Phoenix.LiveViewTest
 
+  alias ServiceRadar.Integrations.MapboxSettings
+  alias ServiceRadar.Observability.NetflowLocalCidr
   alias ServiceRadarWebNG.AccountsFixtures
 
   setup %{conn: conn} do
@@ -126,6 +128,49 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     assert Enum.any?(queries, fn query ->
              String.contains?(query, "bucket:") and String.contains?(query, "time:last_24h")
            end)
+  end
+
+  test "flow details map renders a configured Local CIDR anchor", %{conn: conn} do
+    NetflowLocalCidr
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        partition: "default",
+        label: "k3s node interfaces",
+        cidr: "192.168.1.0/24",
+        location_label: "Carver, MN",
+        latitude: 44.7636,
+        longitude: -93.6258,
+        enabled: true
+      },
+      actor: system_actor()
+    )
+    |> Ash.create!()
+
+    settings = MapboxSettings.get_settings!(actor: system_actor())
+
+    settings
+    |> Ash.Changeset.for_update(
+      :update,
+      %{enabled: true, access_token: "pk.test-local-anchor"},
+      actor: system_actor()
+    )
+    |> Ash.update!()
+
+    q =
+      ~s(in:flows time:last_24h src_endpoint_ip:192.168.1.134 dst_endpoint_ip:13.217.9.183 src_endpoint_port:57196 dst_endpoint_port:443 protocol_num:6 sort:time:desc limit:1)
+
+    {:ok, lv, _html} =
+      live(conn, ~p"/observability?#{%{q: q, limit: 50, tab: "netflows", open_flow: "1"}}")
+
+    map_html = lv |> element(~s([phx-hook="MapboxFlowMap"])) |> render()
+    [markers_json] = Floki.attribute(map_html, "[phx-hook=MapboxFlowMap]", "data-markers")
+
+    assert [source | _] = Jason.decode!(markers_json)
+    assert source["label"] == "Source - 192.168.1.134 - Carver, MN"
+    assert source["local_anchor"] == true
+    assert source["lat"] == 44.7636
+    assert source["lng"] == -93.6258
   end
 
   defp collect_srql_queries(acc) do

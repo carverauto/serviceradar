@@ -93,7 +93,63 @@ describe("OperationsTrafficMap netflow panning", () => {
 })
 
 describe("OperationsTrafficMap netflow links", () => {
-  it("keeps non-GeoIP conversations using topology fallback points", () => {
+  it("omits one-sided geographic conversations instead of inventing an ocean endpoint", () => {
+    const links = OperationsTrafficMap._normalizeTrafficLinks(
+      [
+        {
+          source_label: "10.0.2.12",
+          target_label: "104.18.11.60",
+          geo_from: [-93.6258, 44.7636],
+          geo_to: null,
+          topology_from: [-120, 20],
+          topology_to: [-56, 26],
+          bytes: 1024,
+        },
+      ],
+      "netflow",
+    )
+
+    expect(links).toEqual([])
+  })
+
+  it("keeps fully mapped geographic conversations", () => {
+    const [link] = OperationsTrafficMap._normalizeTrafficLinks(
+      [
+        {
+          source_label: "10.0.2.12",
+          target_label: "8.8.8.8",
+          geo_from: [-93.6258, 44.7636],
+          geo_to: [-97.822, 37.751],
+          topology_from: [-120, 20],
+          topology_to: [-56, 26],
+          bytes: 1024,
+        },
+      ],
+      "netflow",
+    )
+
+    expect(link).toMatchObject({
+      from: [-93.6258, 44.7636],
+      to: [-97.822, 37.751],
+      sourceLabel: "10.0.2.12",
+      targetLabel: "8.8.8.8",
+      geoMapped: true,
+    })
+  })
+
+  it("rejects zero and out-of-range geographic coordinates", () => {
+    const links = OperationsTrafficMap._normalizeTrafficLinks(
+      [
+        {source_label: "a", target_label: "b", geo_from: [0, 0], geo_to: [-93, 44]},
+        {source_label: "c", target_label: "d", geo_from: [-93, 44], geo_to: [181, 45]},
+      ],
+      "netflow",
+    )
+
+    expect(links).toEqual([])
+  })
+
+  it("keeps schematic fallback points in topology view", () => {
     const [link] = OperationsTrafficMap._normalizeTrafficLinks(
       [
         {
@@ -104,16 +160,10 @@ describe("OperationsTrafficMap netflow links", () => {
           bytes: 1024,
         },
       ],
-      "netflow",
+      "topology_traffic",
     )
 
-    expect(link).toMatchObject({
-      from: [-120, 20],
-      to: [-90, 30],
-      sourceLabel: "10.0.0.10",
-      targetLabel: "10.0.0.20",
-      geoMapped: false,
-    })
+    expect(link).toMatchObject({from: [-120, 20], to: [-90, 30]})
   })
 
   it("normalizes attribution metadata for the map popup", () => {
@@ -122,6 +172,8 @@ describe("OperationsTrafficMap netflow links", () => {
         {
           source_label: "10.0.2.11",
           target_label: "192.168.10.96",
+          geo_from: [-93.6258, 44.7636],
+          geo_to: [-93.4687, 44.9212],
           topology_from: [-120, 20],
           topology_to: [-90, 30],
           bytes: 70,

@@ -25,7 +25,7 @@ pub(super) fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter
     match filter.field.as_str() {
         // device_id scope is expressed with validated SQL literals in `flow_device_scope_expr`.
         "device_id" => Ok(()),
-        "src_endpoint_ip" | "src_ip" | "dst_endpoint_ip" | "dst_ip" | "protocol_name"
+        "src_endpoint_ip" | "src_ip" | "dst_endpoint_ip" | "dst_ip" | "protocol_name" | "app"
         | "sampler_address" | "direction" | "flow_source" | "collector" | "exporter_name"
         | "in_if_name" | "out_if_name" | "in_if_speed_bps" | "out_if_speed_bps" | "event_type"
         | "attribution_status" | "status" | "pid" | "process_pid" | "uid" | "comm" | "process"
