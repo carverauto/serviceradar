@@ -18,6 +18,9 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
                            "COALESCE(source_identifier_value, '')) WHERE status = 'open'"}
   @default_example_limit 10
   @default_repair_limit 5_000
+  @postgres_bind_parameter_limit 65_535
+  @insert_bind_parameter_headroom 1_024
+  @max_insert_bind_parameters @postgres_bind_parameter_limit - @insert_bind_parameter_headroom
 
   # Categories produced by the periodic drift audit (audit_and_persist/1).
   # `active_ip_conflict` is intentionally excluded — those rows are written by
@@ -112,17 +115,28 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
   the northbound runner self-correct. Sync-written `active_ip_conflict` rows are
   never touched. Runs on a lower cadence off the per-source run hot path.
   """
-  def audit_and_persist do
+  def audit_and_persist(opts \\ []) do
     started_at = DateTime.utc_now()
-    audit = audit_armis()
-    _ = record_conflicts(audit.conflicts)
-    cleared_count = clear_stale_audit_conflicts(started_at)
+    audit = Keyword.get(opts, :audit_fun, &audit_armis/0).()
+    persist_fun = Keyword.get(opts, :persist_fun, &record_conflicts/1)
 
-    %{
-      audited_count: length(audit.conflicts),
-      cleared_count: cleared_count,
-      summary: audit.summary
-    }
+    case persist_fun.(audit.conflicts) do
+      :ok ->
+        %{
+          audited_count: length(audit.conflicts),
+          cleared_count: clear_stale_audit_conflicts(started_at),
+          summary: audit.summary
+        }
+
+      {:error, reason} = error ->
+        Logger.warning("SourceIdentityDrift: audit persistence failed: #{inspect(reason)}")
+        error
+
+      other ->
+        error = {:unexpected_persist_result, other}
+        Logger.warning("SourceIdentityDrift: audit persistence failed: #{inspect(error)}")
+        {:error, error}
+    end
   rescue
     e ->
       Logger.warning("SourceIdentityDrift: audit_and_persist failed: #{inspect(e)}")
@@ -184,35 +198,18 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
       |> Enum.map(&conflict_row(&1, now))
       |> Enum.reject(&is_nil/1)
 
-    if rows == [] do
-      :ok
-    else
-      Repo.insert_all(
-        "source_identity_conflicts",
-        rows,
-        prefix: "platform",
-        on_conflict:
-          {:replace,
-           [
-             :last_detected_at,
-             :current_ip,
-             :current_mac,
-             :site,
-             :conflicting_identifiers,
-             :proposed_action,
-             :confidence,
-             :metadata,
-             :updated_at
-           ]},
-        conflict_target: @open_conflict_target
-      )
+    case rows do
+      [] ->
+        :ok
 
-      :ok
+      rows ->
+        case persist_conflict_rows(rows) do
+          :ok -> :ok
+          {:error, reason} -> persist_error(reason)
+        end
     end
   rescue
-    e ->
-      Logger.warning("SourceIdentityDrift: failed to persist conflicts: #{inspect(e)}")
-      {:error, e}
+    e -> persist_error(e)
   end
 
   @doc """
@@ -814,6 +811,63 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
         updated_at: now
       }
     end
+  end
+
+  defp persist_conflict_rows(rows) do
+    chunk_size = max_rows_per_insert(rows)
+
+    case Repo.transaction(
+           fn ->
+             rows
+             |> Enum.chunk_every(chunk_size)
+             |> Enum.each(&insert_conflict_chunk/1)
+           end,
+           timeout: :infinity
+         ) do
+      {:ok, :ok} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp insert_conflict_chunk(rows) do
+    Repo.insert_all(
+      "source_identity_conflicts",
+      rows,
+      prefix: "platform",
+      on_conflict:
+        {:replace,
+         [
+           :last_detected_at,
+           :current_ip,
+           :current_mac,
+           :site,
+           :conflicting_identifiers,
+           :proposed_action,
+           :confidence,
+           :metadata,
+           :updated_at
+         ]},
+      conflict_target: @open_conflict_target
+    )
+
+    :ok
+  end
+
+  defp max_rows_per_insert(rows) do
+    bound_column_count =
+      rows
+      |> Enum.reduce(MapSet.new(), fn row, columns ->
+        Enum.reduce(Map.keys(row), columns, &MapSet.put(&2, &1))
+      end)
+      |> MapSet.size()
+      |> max(1)
+
+    max(1, div(@max_insert_bind_parameters, bound_column_count))
+  end
+
+  defp persist_error(reason) do
+    Logger.warning("SourceIdentityDrift: failed to persist conflicts: #{inspect(reason)}")
+    {:error, reason}
   end
 
   defp withholding_conflict_total(categories) do
