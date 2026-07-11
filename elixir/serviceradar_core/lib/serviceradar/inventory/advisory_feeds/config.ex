@@ -12,13 +12,14 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Config do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Inventory.AdvisoryFeeds.CredentialResolver
   alias ServiceRadar.Inventory.AdvisoryFeeds.FeedRegistry
   alias ServiceRadar.Inventory.VulnerabilityFeedDefinition
 
   require Ash.Query
 
   # Feeds whose credential_ref may carry the shared operator-supplied VulnCheck
-  # API token. The UI exposes the credential field on each VulnCheck-backed row,
+  # credential-secret ID. The UI exposes the credential field on each VulnCheck-backed row,
   # so read both while preferring the KEV row for existing deployments.
   @vulncheck_credential_feeds ["vulncheck-kev", "nist-nvd2"]
 
@@ -99,16 +100,26 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Config do
   @doc """
   VulnCheck API token.
 
-  Primary source is a VulnCheck-backed feed-def row's `credential_ref` column
-  (operator-settable from the UI); falls back to env (`VULNCHECK_API_TOKEN`,
-  `SERVICERADAR_VULNCHECK_TOKEN`) then app config. Returns
-  `{:error, :missing_vulncheck_token}` when absent everywhere.
+  Primary source is a VulnCheck-backed feed-def row's `credential_ref` column,
+  which stores a reusable `NetworkCredentialSecret` ID and resolves through the
+  credential broker. Environment/application values remain plaintext fallback
+  inputs for existing headless deployments.
   """
-  @spec vulncheck_token() :: {:ok, String.t()} | {:error, :missing_vulncheck_token}
-  def vulncheck_token do
+  @spec vulncheck_token(keyword()) :: {:ok, String.t()} | {:error, term()}
+  def vulncheck_token(opts \\ []) do
+    case definition_credential_ref() do
+      ref when is_binary(ref) ->
+        resolver = Keyword.get(opts, :credential_resolver, &CredentialResolver.resolve/2)
+        resolver.(ref, opts)
+
+      nil ->
+        fallback_vulncheck_token()
+    end
+  end
+
+  defp fallback_vulncheck_token do
     token =
-      definition_credential_ref() ||
-        System.get_env("VULNCHECK_API_TOKEN") ||
+      System.get_env("VULNCHECK_API_TOKEN") ||
         System.get_env("SERVICERADAR_VULNCHECK_TOKEN") ||
         config(:vulncheck_token, nil)
 

@@ -2,6 +2,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeederTest do
   use ServiceRadar.DataCase, async: false
   use Oban.Testing, repo: ServiceRadar.Repo, prefix: "platform"
 
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Inventory.AdvisoryFeeds.Config
   alias ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeeder
   alias ServiceRadar.Inventory.AdvisoryFeeds.FeedRegistry
@@ -22,7 +23,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeederTest do
       id: Ash.UUID.generate(),
       email: "feed-def-test@serviceradar.local",
       role: :admin,
-      permissions: MapSet.new(["settings.integrations.manage"])
+      permissions: MapSet.new(["settings.integrations.manage", "settings.credentials.manage"])
     }
 
     destroy_seeded_definitions(actor)
@@ -126,10 +127,11 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeederTest do
     assert :ok = FeedDefinitionSeeder.seed_defaults()
 
     vulncheck = fetch(actor, "vulncheck", "vulncheck-kev")
+    secret = create_vulncheck_secret!(actor, "primary", "operator-set-token")
 
     {:ok, _edited} =
       vulncheck
-      |> Ash.Changeset.for_update(:update, %{credential_ref: "operator-set-token"}, actor: actor)
+      |> Ash.Changeset.for_update(:update, %{credential_ref: to_string(secret.id)}, actor: actor)
       |> Ash.update(actor: actor)
 
     assert {:ok, "operator-set-token"} = Config.vulncheck_token()
@@ -141,10 +143,11 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeederTest do
     assert :ok = FeedDefinitionSeeder.seed_defaults()
 
     nist = fetch(actor, "nvd", "nist-nvd2")
+    secret = create_vulncheck_secret!(actor, "nist fallback", "nist-row-token")
 
     {:ok, _edited} =
       nist
-      |> Ash.Changeset.for_update(:update, %{credential_ref: " nist-row-token "}, actor: actor)
+      |> Ash.Changeset.for_update(:update, %{credential_ref: to_string(secret.id)}, actor: actor)
       |> Ash.update(actor: actor)
 
     assert {:ok, "nist-row-token"} = Config.vulncheck_token()
@@ -193,5 +196,17 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeederTest do
         _ -> :ok
       end
     end)
+  end
+
+  defp create_vulncheck_secret!(actor, name, token) do
+    NetworkCredentialSecret.create_secret!(
+      %{
+        name: "VulnCheck #{name}",
+        provider: "vulncheck",
+        credential_kind: :api_token,
+        secret_payload: token
+      },
+      actor: actor
+    )
   end
 end

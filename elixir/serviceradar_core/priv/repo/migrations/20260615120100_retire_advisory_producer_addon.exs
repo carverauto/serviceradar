@@ -19,7 +19,7 @@ defmodule ServiceRadar.Repo.Migrations.RetireAdvisoryProducerAddon do
 
   def up do
     execute("""
-    WITH advisory_credentials AS (
+    WITH raw_advisory_credentials AS (
       SELECT COALESCE(
         NULLIF(ps.credential_refs->>'api_token', ''),
         NULLIF(ps.credential_refs->>'vulncheck_api', ''),
@@ -34,10 +34,21 @@ defmodule ServiceRadar.Repo.Migrations.RetireAdvisoryProducerAddon do
       WHERE ap.addon_id = '#{@addon_id}'
       ORDER BY ps.updated_at DESC NULLS LAST, ps.inserted_at DESC NULLS LAST
     ),
+    advisory_credentials AS (
+      SELECT CASE
+        WHEN credential_ref LIKE 'credentialref:network-credential-secret:%'
+          THEN replace(credential_ref, 'credentialref:network-credential-secret:', '')
+        ELSE credential_ref
+      END AS credential_ref
+      FROM raw_advisory_credentials
+    ),
     selected_credential AS (
-      SELECT credential_ref
+      SELECT advisory_credentials.credential_ref
       FROM advisory_credentials
-      WHERE credential_ref IS NOT NULL
+      JOIN platform.network_credential_secrets secret
+        ON secret.id::text = advisory_credentials.credential_ref
+       AND secret.provider = 'vulncheck'
+      WHERE advisory_credentials.credential_ref IS NOT NULL
       LIMIT 1
     ),
     feed_rows(provider, feed_key, display_name) AS (

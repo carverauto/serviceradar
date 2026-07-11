@@ -101,6 +101,35 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.AcquisitionTest do
     end
   end
 
+  describe "download failures" do
+    test "rejects an HTTP error and removes the partial CISA file", %{root: root} do
+      http_get = fn _url, opts ->
+        File.write!(opts[:into].path, "gateway error")
+        {:ok, %{status: 503}}
+      end
+
+      assert {:error, {:download_failed, {:http_status, 503}}} =
+               Acquisition.acquire_cisa("https://example.invalid/cisa.json", "failed-run",
+                 http_get: http_get
+               )
+
+      refute File.exists?(
+               Path.join([root, "cisa-kev", "failed-run", "extracted", "cisa-kev.json"])
+             )
+    end
+  end
+
+  describe "default HTTP client" do
+    test "streams a successful response through the shared Finch pool" do
+      body = ~s({"vulnerabilities":[]})
+      {url, response_ref} = start_http_server(body)
+
+      assert {:ok, acquired} = Acquisition.acquire_cisa(url, "default-client-run")
+      assert File.read!(Path.join(acquired.extracted_dir, "cisa-kev.json")) == body
+      assert_receive {^response_ref, :served}, 5_000
+    end
+  end
+
   defp build_zip(root, entries) do
     zip_path = Path.join(root, "download-#{System.unique_integer([:positive])}.zip")
     File.mkdir_p!(Path.dirname(zip_path))
@@ -118,4 +147,41 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.AcquisitionTest do
   end
 
   defp to_binary(content) when is_binary(content), do: content
+
+  defp start_http_server(body) do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [
+        :binary,
+        packet: :raw,
+        active: false,
+        reuseaddr: true,
+        ip: {127, 0, 0, 1}
+      ])
+
+    {:ok, {_address, port}} = :inet.sockname(listener)
+    response_ref = make_ref()
+    parent = self()
+
+    spawn(fn ->
+      result =
+        with {:ok, socket} <- :gen_tcp.accept(listener, 5_000),
+             {:ok, _request} <- :gen_tcp.recv(socket, 0, 5_000),
+             :ok <-
+               :gen_tcp.send(socket, [
+                 "HTTP/1.1 200 OK\r\n",
+                 "content-type: application/json\r\n",
+                 "content-length: #{byte_size(body)}\r\n",
+                 "connection: close\r\n\r\n",
+                 body
+               ]) do
+          :gen_tcp.close(socket)
+          :served
+        end
+
+      :gen_tcp.close(listener)
+      send(parent, {response_ref, result})
+    end)
+
+    {"http://127.0.0.1:#{port}/cisa.json", response_ref}
+  end
 end
