@@ -18,9 +18,7 @@ defmodule ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTX do
   @default_limit 100
   @default_page 1
   @default_timeout_ms 60_000
-  @default_max_indicators 2_000
   @max_limit 100
-  @max_indicators 5_000
   @default_max_retries 2
   @default_backoff_ms 500
 
@@ -80,18 +78,11 @@ defmodule ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTX do
            config
            |> int_value([:limit, "limit"], @default_limit)
            |> clamp(1, @max_limit),
-         page:
-           cursor
-           |> int_value([:page, "page"], int_value(config, [:page, "page"], @default_page))
-           |> max(1),
+         page: cursor_page(cursor, int_value(config, [:page, "page"], @default_page)),
          timeout_ms:
            config
            |> int_value([:timeout_ms, "timeout_ms"], @default_timeout_ms)
            |> max(1),
-         max_indicators:
-           config
-           |> int_value([:max_indicators, "max_indicators"], @default_max_indicators)
-           |> clamp(1, @max_indicators),
          max_retries:
            config
            |> int_value([:max_retries, "max_retries"], @default_max_retries)
@@ -155,18 +146,15 @@ defmodule ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTX do
 
   defp page_map(body, cfg) do
     results = list_value(body, ["results"])
+    next = string_value(body, ["next"])
 
     {indicators, skipped, skipped_by_type} =
       results
       |> Enum.flat_map(&pulse_indicators/1)
       |> Enum.reduce({[], 0, %{}}, fn {pulse, indicator}, {rows, skipped, skipped_by_type} ->
-        if length(rows) >= cfg.max_indicators do
-          {rows, skipped + 1, increment_skip(skipped_by_type, "max_indicators")}
-        else
-          case normalize_indicator(pulse, indicator) do
-            {:ok, row} -> {[row | rows], skipped, skipped_by_type}
-            :skip -> {rows, skipped + 1, increment_skip(skipped_by_type, skip_type(indicator))}
-          end
+        case normalize_indicator(pulse, indicator) do
+          {:ok, row} -> {[row | rows], skipped, skipped_by_type}
+          :skip -> {rows, skipped + 1, increment_skip(skipped_by_type, skip_type(indicator))}
         end
       end)
 
@@ -179,7 +167,9 @@ defmodule ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTX do
       "collection_id" => @collection_id,
       "execution_mode" => "core_worker",
       "cursor" => %{
-        "next" => string_value(body, ["next"]),
+        "page" => cfg.page,
+        "next" => next,
+        "next_page" => page_from_url(next),
         "previous" => string_value(body, ["previous"]),
         "modified_since" => cfg.modified_since
       },
@@ -308,6 +298,29 @@ defmodule ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTX do
       _ -> default
     end
   end
+
+  defp cursor_page(cursor, default) do
+    cursor
+    |> int_value(
+      [:page, "page", :next_page, "next_page"],
+      page_from_url(string_value(cursor, [:next, "next"])) || default
+    )
+    |> max(1)
+  end
+
+  defp page_from_url(url) when is_binary(url) do
+    with %URI{query: query} when is_binary(query) <- URI.parse(url),
+         %{} = params <- URI.decode_query(query),
+         page when is_integer(page) and page > 0 <- parse_int(Map.get(params, "page", ""), nil) do
+      page
+    else
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp page_from_url(_url), do: nil
 
   defp fetch_value(map, keys) when is_map(map) and is_list(keys) do
     Enum.find_value(keys, fn key ->

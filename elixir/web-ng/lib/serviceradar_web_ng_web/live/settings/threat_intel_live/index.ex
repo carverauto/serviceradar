@@ -27,6 +27,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
   require Logger
 
   @plugin_id "alienvault-otx-threat-intel"
+  @assignment_editable_param_keys ~w(
+    base_url api_key_secret_ref limit page timeout_ms max_pages
+  )
   @default_form %{
     "agent_uid" => "",
     "enabled" => "true",
@@ -37,8 +40,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     "limit" => "100",
     "page" => "1",
     "timeout_ms" => "120000",
-    "max_pages" => "500",
-    "max_indicators" => "50000"
+    "max_pages" => "25"
   }
   @default_settings_form %{
     "otx_enabled" => "false",
@@ -50,7 +52,6 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     "otx_sync_interval_seconds" => "21600",
     "otx_page_size" => "100",
     "otx_timeout_ms" => "120000",
-    "otx_max_indicators" => "50000",
     "otx_modified_since" => "",
     "otx_raw_payload_archive_enabled" => "false",
     "otx_retrohunt_window_seconds" => "7776000",
@@ -160,8 +161,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     if RBAC.can?(socket.assigns.current_scope, "plugins.assign") do
       opts =
         case socket.assigns.otx_settings do
-          %NetflowSettings{otx_retrohunt_window_seconds: seconds, otx_max_indicators: limit} ->
-            [window_seconds: seconds, max_indicators: limit]
+          %NetflowSettings{otx_retrohunt_window_seconds: seconds} ->
+            [window_seconds: seconds]
 
           _ ->
             []
@@ -669,12 +670,6 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                       min="1000"
                     />
                     <.number_input
-                      name="settings[otx_max_indicators]"
-                      label="Max IOCs"
-                      value={@otx_settings_form["otx_max_indicators"]}
-                      min="1"
-                    />
-                    <.number_input
                       name="settings[otx_retrohunt_window_seconds]"
                       label="Retrohunt Window"
                       value={@otx_settings_form["otx_retrohunt_window_seconds"]}
@@ -776,13 +771,6 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                       name="assignment[limit]"
                       label="Page Size"
                       value={@assignment_form["limit"]}
-                      min="1"
-                      disabled={is_nil(@approved_package)}
-                    />
-                    <.number_input
-                      name="assignment[max_indicators]"
-                      label="Max IOCs"
-                      value={@assignment_form["max_indicators"]}
                       min="1"
                       disabled={is_nil(@approved_package)}
                     />
@@ -975,10 +963,19 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
   end
 
   defp update_assignment(socket, scope, assignment, attrs) do
+    assignment = current_assignment(assignment, scope)
+
+    params =
+      assignment.params
+      |> normalize_assignment_params()
+      |> Map.drop(["max_iocs", "max_indicators", "otx_max_indicators"])
+      |> Map.merge(Map.take(attrs.params, @assignment_editable_param_keys))
+
     update_attrs =
       attrs
       |> Map.delete(:agent_uid)
       |> Map.delete(:plugin_package_id)
+      |> Map.put(:params, params)
 
     case Assignments.update(assignment.id, update_attrs, scope: scope) do
       {:ok, _assignment} ->
@@ -1105,7 +1102,6 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
       "otx_sync_interval_seconds" => to_string(settings.otx_sync_interval_seconds || 21_600),
       "otx_page_size" => to_string(settings.otx_page_size || 100),
       "otx_timeout_ms" => to_string(settings.otx_timeout_ms || 120_000),
-      "otx_max_indicators" => to_string(settings.otx_max_indicators || 50_000),
       "otx_modified_since" => settings.otx_modified_since || "",
       "otx_raw_payload_archive_enabled" => settings.otx_raw_payload_archive_enabled |> truthy() |> to_string(),
       "otx_retrohunt_window_seconds" => to_string(settings.otx_retrohunt_window_seconds || 7_776_000),
@@ -1129,7 +1125,6 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
       otx_sync_interval_seconds: max(to_int(Map.get(params, "otx_sync_interval_seconds"), 21_600), 3_600),
       otx_page_size: clamp_int(Map.get(params, "otx_page_size"), 100, 1, 100),
       otx_timeout_ms: to_int(Map.get(params, "otx_timeout_ms"), 120_000),
-      otx_max_indicators: clamp_int(Map.get(params, "otx_max_indicators"), 50_000, 1, 500_000),
       otx_modified_since: blank_to_nil(Map.get(params, "otx_modified_since")),
       otx_raw_payload_archive_enabled: truthy_param?(Map.get(params, "otx_raw_payload_archive_enabled")),
       otx_retrohunt_window_seconds: to_int(Map.get(params, "otx_retrohunt_window_seconds"), 7_776_000),
@@ -1219,8 +1214,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
         "limit" => params["limit"],
         "page" => params["page"],
         "timeout_ms" => params["timeout_ms"],
-        "max_pages" => params["max_pages"],
-        "max_indicators" => params["max_indicators"]
+        "max_pages" => params["max_pages"]
       }
       |> Enum.reject(fn
         {_key, nil} -> true
@@ -1269,6 +1263,22 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
 
   defp stringify_keys(list) when is_list(list), do: Enum.map(list, &stringify_keys/1)
   defp stringify_keys(value), do: value
+
+  defp normalize_assignment_params(params) when is_map(params), do: stringify_keys(params)
+  defp normalize_assignment_params(_params), do: %{}
+
+  defp current_assignment(%PluginAssignment{id: id} = fallback, scope) do
+    PluginAssignment
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.read_one(scope: scope)
+    |> case do
+      {:ok, %PluginAssignment{} = assignment} -> assignment
+      _ -> fallback
+    end
+  rescue
+    _ -> fallback
+  end
 
   defp existing_assignment(assignments, agent_uid) do
     Enum.find(assignments, &(&1.agent_uid == agent_uid))

@@ -54,13 +54,6 @@
       "maximum": 100,
       "default": 25
     },
-    "max_indicators": {
-      "type": "integer",
-      "description": "Maximum normalized indicators emitted in one plugin run",
-      "minimum": 1,
-      "maximum": 500000,
-      "default": 50000
-    },
     "max_retries": {
       "type": "integer",
       "description": "Transient-failure retry budget for one emitted page. Moving to an equivalent smaller page does not consume retries. Auth and other non-retryable 4xx errors fail fast.",

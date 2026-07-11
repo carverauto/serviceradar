@@ -16,7 +16,6 @@ const (
 	defaultLimit             = 100
 	defaultPage              = 1
 	defaultTimeoutMS         = 120000
-	defaultMaxIndicators     = 50000
 	defaultMaxPages          = 25
 	defaultMaxRetries        = 5
 	defaultBackoffMS         = 2000
@@ -25,7 +24,6 @@ const (
 	defaultTypes             = "IPv4,IPv6,CIDR"
 	maxLimit                 = 1000
 	maxTimeoutMS             = 600000
-	maxIndicators            = 500000
 	maxPages                 = 100
 	maxRetries               = 7
 	maxBackoffMS             = 30000
@@ -94,7 +92,6 @@ type Config struct {
 	Limit                 int    `json:"limit"`
 	Page                  int    `json:"page"`
 	TimeoutMS             int    `json:"timeout_ms"`
-	MaxIndicators         int    `json:"max_indicators"`
 	MaxPages              int    `json:"max_pages"`
 	MaxRetries            int    `json:"max_retries"`
 	BackoffMS             int    `json:"backoff_ms"`
@@ -196,14 +193,13 @@ type ctiCounts struct {
 }
 
 type ctiSkippedCounts struct {
-	Domain        int
-	URL           int
-	Hostname      int
-	MaxIndicators int
-	PageBudget    int
-	Empty         int
-	Unknown       int
-	Other         int
+	Domain     int
+	URL        int
+	Hostname   int
+	PageBudget int
+	Empty      int
+	Unknown    int
+	Other      int
 }
 
 type jsonBuilder struct {
@@ -369,13 +365,11 @@ func fetchAndSubmitOTXExportPages(cfg Config, emit otxPageEmitter) (int, error) 
 	currentLimit := cfg.Limit
 	pageBudget := boundedOTXPageBudget(cfg.MaxPages)
 	pagesFetched := 0
-	indicatorsEmitted := 0
 
-	for pagesFetched < pageBudget && indicatorsEmitted < cfg.MaxIndicators {
+	for pagesFetched < pageBudget {
 		pageCfg := cfg
 		pageCfg.Page = currentPage
 		pageCfg.Limit = currentLimit
-		pageCfg.MaxIndicators = cfg.MaxIndicators - indicatorsEmitted
 
 		page, err := fetchOTXExportPageAdaptive(pageCfg)
 		if err != nil {
@@ -383,7 +377,6 @@ func fetchAndSubmitOTXExportPages(cfg Config, emit otxPageEmitter) (int, error) 
 		}
 
 		pagesFetched++
-		indicatorsEmitted += len(page.Indicators)
 
 		effectivePage := parsePositiveInt(page.Cursor.StartPage, currentPage)
 		effectiveLimit := parsePositiveInt(page.Cursor.Limit, currentLimit)
@@ -414,11 +407,6 @@ func fetchAndSubmitOTXExportPages(cfg Config, emit otxPageEmitter) (int, error) 
 			page.Cursor.Next = next
 			page.Cursor.NextPage = strconv.Itoa(nextPage)
 			page.Counts.addSkipped("page_budget")
-		case indicatorsEmitted >= cfg.MaxIndicators:
-			page.Cursor.Limit = strconv.Itoa(nextLimit)
-			page.Cursor.Complete = "false"
-			page.Cursor.Next = next
-			page.Cursor.NextPage = strconv.Itoa(nextPage)
 		default:
 			page.Cursor.Limit = strconv.Itoa(nextLimit)
 			page.Cursor.Complete = "false"
@@ -429,8 +417,12 @@ func fetchAndSubmitOTXExportPages(cfg Config, emit otxPageEmitter) (int, error) 
 		if err := emit(page); err != nil {
 			return pagesFetched, err
 		}
+		// submit_result copies the serialized page into the agent's bounded result
+		// pipeline. Drop the page-local indicator slice before fetching the next
+		// HTTP page so the Wasm heap only retains the current response/result.
+		page.Indicators = nil
 
-		if next == "" || pagesFetched >= pageBudget || indicatorsEmitted >= cfg.MaxIndicators {
+		if next == "" || pagesFetched >= pageBudget {
 			break
 		}
 
@@ -772,7 +764,6 @@ func defaultConfig() Config {
 		Limit:                 defaultLimit,
 		Page:                  defaultPage,
 		TimeoutMS:             defaultTimeoutMS,
-		MaxIndicators:         defaultMaxIndicators,
 		MaxPages:              defaultMaxPages,
 		MaxRetries:            defaultMaxRetries,
 		BackoffMS:             defaultBackoffMS,
@@ -799,12 +790,6 @@ func (c *Config) applyDefaults() {
 	}
 	if c.TimeoutMS > maxTimeoutMS {
 		c.TimeoutMS = maxTimeoutMS
-	}
-	if c.MaxIndicators <= 0 {
-		c.MaxIndicators = defaultMaxIndicators
-	}
-	if c.MaxIndicators > maxIndicators {
-		c.MaxIndicators = maxIndicators
 	}
 	if c.MaxPages <= 0 {
 		c.MaxPages = defaultMaxPages
@@ -943,11 +928,6 @@ func buildCTIPage(resp subscribedPulsesResponse, cfg Config) ctiPage {
 
 	for _, pulse := range resp.Results {
 		for _, indicator := range pulse.Indicators {
-			if len(page.Indicators) >= cfg.MaxIndicators {
-				page.Counts.addSkipped("max_indicators")
-				continue
-			}
-
 			normalized, ok := normalizeIndicator(pulse, indicator)
 			if !ok {
 				page.Counts.addSkipped(skipType(indicator))
@@ -1036,9 +1016,7 @@ func parseOTXExportPage(data []byte, cfg Config) (ctiPage, error) {
 		indicator := parseFlatExportIndicator(data[objectStart:objectEnd])
 
 		page.Counts.Objects++
-		if len(page.Indicators) >= cfg.MaxIndicators {
-			page.Counts.addSkipped("max_indicators")
-		} else if normalized, ok := normalizeIndicator(pulse, indicator); ok {
+		if normalized, ok := normalizeIndicator(pulse, indicator); ok {
 			page.Indicators = append(page.Indicators, normalized)
 		} else {
 			page.Counts.addSkipped(skipType(indicator))
@@ -1117,9 +1095,7 @@ func parseExportIndicatorArray(scanner *otxJSONScanner, page *ctiPage, cfg Confi
 		}
 		page.Counts.Objects++
 
-		if len(page.Indicators) >= cfg.MaxIndicators {
-			page.Counts.addSkipped("max_indicators")
-		} else if normalized, ok := normalizeIndicator(pulse, indicator); ok {
+		if normalized, ok := normalizeIndicator(pulse, indicator); ok {
 			page.Indicators = append(page.Indicators, normalized)
 		} else {
 			page.Counts.addSkipped(skipType(indicator))
@@ -1150,11 +1126,6 @@ func parsePulseArray(scanner *otxJSONScanner, page *ctiPage, cfg Config) error {
 		page.Counts.Objects++
 
 		for _, indicator := range pulse.Indicators {
-			if len(page.Indicators) >= cfg.MaxIndicators {
-				page.Counts.addSkipped("max_indicators")
-				continue
-			}
-
 			normalized, ok := normalizeIndicator(pulse, indicator)
 			if !ok {
 				page.Counts.addSkipped(skipType(indicator))
@@ -1596,8 +1567,6 @@ func (counts *ctiSkippedCounts) add(kind string, count int) {
 		counts.URL += count
 	case "hostname":
 		counts.Hostname += count
-	case "max_indicators":
-		counts.MaxIndicators += count
 	case "page_budget":
 		counts.PageBudget += count
 	case "empty":
@@ -1617,8 +1586,6 @@ func (counts ctiSkippedCounts) get(kind string) int {
 		return counts.URL
 	case "hostname":
 		return counts.Hostname
-	case "max_indicators":
-		return counts.MaxIndicators
 	case "page_budget":
 		return counts.PageBudget
 	case "empty":
@@ -1800,7 +1767,6 @@ func writeCountsJSON(b *jsonBuilder, counts ctiCounts) {
 		{"domain", counts.SkippedByType.Domain},
 		{"url", counts.SkippedByType.URL},
 		{"hostname", counts.SkippedByType.Hostname},
-		{"max_indicators", counts.SkippedByType.MaxIndicators},
 		{"page_budget", counts.SkippedByType.PageBudget},
 		{"empty", counts.SkippedByType.Empty},
 		{"unknown", counts.SkippedByType.Unknown},
