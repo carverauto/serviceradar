@@ -65,6 +65,47 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlannerTest do
              Enum.map(assignments_b, & &1.assignment_key)
   end
 
+  test "assignment key stays stable when target metadata changes" do
+    policy = %{
+      policy_id: "camera-policy-1",
+      policy_version: 1,
+      plugin_package_id: "camera-package-1"
+    }
+
+    input = fn hostname, vendor ->
+      [
+        %{
+          name: "targets",
+          entity: "devices",
+          query: "in:devices ip:192.168.1.62",
+          rows: [
+            %{
+              "uid" => "sr:device:1",
+              "agent_id" => "agent-a",
+              "ip" => "192.168.1.62",
+              "hostname" => hostname,
+              "vendor" => vendor
+            }
+          ]
+        }
+      ]
+    end
+
+    assert {:ok, %{assignments: [before_refresh]}} =
+             PolicyAssignmentPlanner.plan(policy, input.("sr-test-01", "Proxmox"),
+               generated_at: "2026-07-11T06:00:00Z"
+             )
+
+    assert {:ok, %{assignments: [after_refresh]}} =
+             PolicyAssignmentPlanner.plan(policy, input.("sr-test-pve04", "Ansible"),
+               generated_at: "2026-07-11T06:01:00Z"
+             )
+
+    assert before_refresh.assignment_key == after_refresh.assignment_key
+    refute before_refresh.params == after_refresh.params
+    refute before_refresh.metadata["chunk_hash"] == after_refresh.metadata["chunk_hash"]
+  end
+
   test "plan skips rows without agent ownership and returns policy field errors" do
     invalid_policy = %{
       policy_version: 1,

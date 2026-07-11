@@ -241,7 +241,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
 
     assert third.upserted == 1
     assert third.unchanged == 0
-    assert third.disabled == 1
+    assert third.disabled == 0
   end
 
   test "converges a drifted enabled assignment in place instead of duplicating" do
