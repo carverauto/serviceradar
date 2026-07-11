@@ -12,6 +12,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
 
   use ServiceRadarWebNG.DataCase, async: false
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.NativeAddonArtifactMirror
@@ -66,9 +68,14 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
           {:ok, %Req.Response{status: 200, body: Process.get(:native_addon_index_body)}}
 
         String.contains?(url, "/manifests/") ->
+          Process.put(
+            :native_addon_manifest_requests,
+            Process.get(:native_addon_manifest_requests, 0) + 1
+          )
+
           {:ok,
            %Req.Response{
-             status: 200,
+             status: Process.get(:native_addon_manifest_status, 200),
              body: Process.get(:native_addon_manifest),
              headers: %{"docker-content-digest" => [Process.get(:native_addon_oci_digest)]}
            }}
@@ -90,6 +97,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
   end
 
   setup do
+    original_logger_level = Logger.level()
     original_http_client = Application.get_env(:serviceradar_web_ng, :first_party_plugin_import_http_client)
     original_cosign = Application.get_env(:serviceradar_web_ng, :first_party_plugin_cosign_verifier)
     original_public_key = Application.get_env(:serviceradar_web_ng, :native_addon_release_public_key)
@@ -98,6 +106,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
 
     {public_key, private_key} = :crypto.generate_key(:eddsa, :ed25519)
     test_pid = self()
+
+    Logger.configure(level: :info)
 
     Application.put_env(:serviceradar_web_ng, :first_party_plugin_import_http_client, FakeOciClient)
     Application.put_env(:serviceradar_web_ng, :first_party_plugin_cosign_verifier, FakeCosignVerifier)
@@ -109,6 +119,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     end)
 
     on_exit(fn ->
+      Logger.configure(level: original_logger_level)
       restore_env(:first_party_plugin_import_http_client, original_http_client)
       restore_env(:first_party_plugin_cosign_verifier, original_cosign)
       restore_env(:native_addon_release_public_key, original_public_key)
@@ -206,12 +217,90 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert is_map(package.artifacts["linux/amd64"])
   end
 
-  test "sync worker does not let an executing job permanently block future syncs" do
+  test "sync worker keeps all incomplete jobs unique" do
     changes = NativeAddonSyncWorker.new(%{}).changes
 
-    assert changes.unique.states == [:available, :scheduled, :retryable]
-    refute :executing in changes.unique.states
+    assert MapSet.new(changes.unique.states) ==
+             MapSet.new([:available, :scheduled, :executing, :retryable, :suspended])
+
     assert NativeAddonSyncWorker.timeout(%Oban.Job{}) == to_timeout(minute: 10)
+  end
+
+  test "sync worker skips an exact verified package before fetching a removed historical manifest", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+    configure_sync_worker()
+
+    assert :ok = NativeAddonSyncWorker.perform(%Oban.Job{args: %{"force" => true, "limit" => 10}})
+
+    Process.put(:native_addon_manifest_requests, 0)
+    Process.put(:native_addon_manifest_status, 404)
+
+    log =
+      capture_log([level: :info], fn ->
+        assert :ok =
+                 NativeAddonSyncWorker.perform(%Oban.Job{
+                   args: %{"force" => true, "limit" => 10}
+                 })
+      end)
+
+    assert log =~ "import_ready=1 imported=0 skipped=1 failed=0"
+    assert Process.get(:native_addon_manifest_requests) == 0
+    assert length(sample_packages()) == 1
+  end
+
+  test "sync worker fetches a package that is missing locally", %{private_key: private_key} do
+    install_fixtures(private_key)
+    configure_sync_worker()
+    Process.put(:native_addon_manifest_requests, 0)
+    Process.put(:native_addon_manifest_status, 404)
+
+    log =
+      capture_log([level: :info], fn ->
+        assert :ok =
+                 NativeAddonSyncWorker.perform(%Oban.Job{
+                   args: %{"force" => true, "limit" => 10}
+                 })
+      end)
+
+    assert log =~ "import_ready=1 imported=0 skipped=0 failed=1"
+    assert Process.get(:native_addon_manifest_requests) == 1
+    assert sample_packages() == []
+  end
+
+  test "sync worker reports an immutable source conflict instead of skipping or overwriting", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+    configure_sync_worker()
+
+    assert :ok = NativeAddonSyncWorker.perform(%Oban.Job{args: %{"force" => true, "limit" => 10}})
+    [original] = sample_packages()
+
+    changed_digest = "sha256:" <> String.duplicate("f", 64)
+
+    Process.put(
+      :native_addon_index_body,
+      Jason.encode!(index_map(oci_digest: changed_digest))
+    )
+
+    Process.put(:native_addon_manifest_requests, 0)
+
+    log =
+      capture_log([level: :info], fn ->
+        assert :ok =
+                 NativeAddonSyncWorker.perform(%Oban.Job{
+                   args: %{"force" => true, "limit" => 10}
+                 })
+      end)
+
+    assert log =~ "import_ready=1 imported=0 skipped=0 failed=1"
+    assert Process.get(:native_addon_manifest_requests) == 0
+
+    [persisted] = sample_packages()
+    assert persisted.id == original.id
+    assert persisted.source_oci_digest == @oci_digest
   end
 
   test "sync_first_party_addons is idempotent: the second run skips already-imported packages", %{
@@ -314,6 +403,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     Process.put(:native_addon_release, release())
     Process.put(:native_addon_recent_releases, [release()])
     Process.put(:native_addon_oci_digest, @oci_digest)
+    Process.put(:native_addon_manifest_requests, 0)
+    Process.put(:native_addon_manifest_status, 200)
     Process.put(:native_addon_manifest, oci_manifest())
     Process.put(:native_addon_index_body, Jason.encode!(index_map([])))
 
@@ -342,6 +433,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
   defp index_map(opts) do
     private_key = Process.get(:native_addon_private_key)
     tarball_digest = Keyword.get(opts, :orphan_tarball_digest, tarball_digest())
+    oci_digest = Keyword.get(opts, :oci_digest, @oci_digest)
 
     %{
       "schema_version" => 1,
@@ -350,7 +442,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
           "addon_id" => "sample-addon",
           "version" => "1.0.0",
           "oci_ref" => @oci_ref,
-          "oci_digest" => @oci_digest,
+          "oci_digest" => oci_digest,
           "bundle_digest" => bundle_digest(),
           "artifacts" => [
             %{
@@ -425,6 +517,26 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
   defp signature_digest(private_key), do: digest(signature_hex(private_key))
 
   defp digest(bytes), do: "sha256:" <> (:sha256 |> :crypto.hash(bytes) |> Base.encode16(case: :lower))
+
+  defp configure_sync_worker do
+    Application.put_env(:serviceradar_web_ng, :native_addon_import,
+      repo_url: @repo_url,
+      index_asset_name: @index_asset_name,
+      auto_sync_enabled: false,
+      auto_approve_addon_ids: ["sample-addon"],
+      sync_release_limit: 10,
+      sync_interval_seconds: 3_600
+    )
+  end
+
+  defp sample_packages do
+    actor = SystemActor.system(:native_addon_sync_test)
+
+    AddonPackage
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(addon_id == "sample-addon" and version == "1.0.0")
+    |> Ash.read!(actor: actor)
+  end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)

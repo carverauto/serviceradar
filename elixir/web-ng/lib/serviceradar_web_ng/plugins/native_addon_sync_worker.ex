@@ -90,26 +90,15 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
           )
           |> dedupe_native_addon_versions()
           |> Enum.map(fn addon ->
-            import_attrs = %{
-              repo_url: addon.repo_url,
-              release_tag: addon.release_tag,
-              addon_id: addon.addon_id,
-              version: addon.version
-            }
-
-            result =
-              with {:ok, package} <- NativeAddonImporter.import(import_attrs) do
-                maybe_approve(package, auto_approve_addon_ids)
-              end
-
-            {addon, result}
+            {addon, import_or_reuse(addon, auto_approve_addon_ids)}
           end)
 
         summary = summary(addons, results)
 
         Logger.info(
           "First-party native add-on sync completed: discovered=#{summary.discovered} " <>
-            "import_ready=#{summary.import_ready} imported=#{summary.imported} failed=#{length(summary.failed)}"
+            "import_ready=#{summary.import_ready} imported=#{summary.imported} " <>
+            "skipped=#{summary.skipped} failed=#{length(summary.failed)}"
         )
 
         :ok
@@ -163,6 +152,76 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
     |> Enum.reverse()
   end
 
+  defp import_or_reuse(addon, auto_approve_addon_ids) do
+    case existing_package(addon.addon_id, addon.version) do
+      {:ok, nil} ->
+        import_addon(addon, auto_approve_addon_ids)
+
+      {:ok, %AddonPackage{} = package} ->
+        cond do
+          reusable_package?(package, addon) ->
+            with {:ok, package} <- maybe_approve(package, auto_approve_addon_ids) do
+              {:skipped, package}
+            end
+
+          source_conflict?(package, addon) ->
+            {:error,
+             {:native_addon_version_source_conflict,
+              %{
+                addon_id: addon.addon_id,
+                version: addon.version,
+                existing_oci_ref: package.source_oci_ref,
+                existing_oci_digest: package.source_oci_digest,
+                discovered_oci_ref: addon.oci_ref,
+                discovered_oci_digest: addon.oci_digest
+              }}}
+
+          true ->
+            import_addon(addon, auto_approve_addon_ids)
+        end
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp import_addon(addon, auto_approve_addon_ids) do
+    import_attrs = %{
+      repo_url: addon.repo_url,
+      release_tag: addon.release_tag,
+      addon_id: addon.addon_id,
+      version: addon.version
+    }
+
+    with {:ok, package} <- NativeAddonImporter.import(import_attrs),
+         {:ok, package} <- maybe_approve(package, auto_approve_addon_ids) do
+      {:imported, package}
+    end
+  end
+
+  defp existing_package(addon_id, version) do
+    actor = SystemActor.system(:native_addon_sync)
+
+    AddonPackage
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(addon_id == ^addon_id and version == ^version)
+    |> Ash.read_one(actor: actor)
+  end
+
+  defp reusable_package?(%AddonPackage{} = package, addon) do
+    source_matches?(package, addon) and package.verification_status == "verified" and
+      is_map(package.artifacts) and map_size(package.artifacts) > 0
+  end
+
+  defp source_conflict?(%AddonPackage{} = package, addon) do
+    package.source_oci_ref not in [nil, ""] and package.source_oci_digest not in [nil, ""] and
+      not source_matches?(package, addon)
+  end
+
+  defp source_matches?(%AddonPackage{} = package, addon) do
+    package.source_oci_ref == addon.oci_ref and package.source_oci_digest == addon.oci_digest
+  end
+
   defp maybe_approve(%AddonPackage{addon_id: addon_id, status: :staged} = package, auto_approve_addon_ids) do
     if addon_id in auto_approve_addon_ids do
       package
@@ -180,7 +239,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
   defp maybe_approve(%AddonPackage{} = package, _auto_approve_addon_ids), do: {:ok, package}
 
   defp summary(discovered, results) do
-    imported = Enum.count(results, fn {_addon, result} -> match?({:ok, _package}, result) end)
+    imported = Enum.count(results, fn {_addon, result} -> match?({:imported, _package}, result) end)
+    skipped = Enum.count(results, fn {_addon, result} -> match?({:skipped, _package}, result) end)
 
     failed =
       results
@@ -198,6 +258,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
       discovered: length(discovered),
       import_ready: length(results),
       imported: imported,
+      skipped: skipped,
       failed: failed
     }
   end
