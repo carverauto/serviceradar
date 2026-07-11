@@ -50,6 +50,26 @@ defmodule ServiceRadar.Observability.ServiceStatus do
         :created_at
       ]
     end
+
+    create :insert_once do
+      accept [
+        :timestamp,
+        :gateway_id,
+        :agent_id,
+        :service_id,
+        :service_name,
+        :service_type,
+        :available,
+        :message,
+        :details,
+        :partition,
+        :created_at
+      ]
+
+      upsert? true
+      upsert_fields []
+      return_skipped_upsert? true
+    end
   end
 
   policies do
@@ -57,7 +77,7 @@ defmodule ServiceRadar.Observability.ServiceStatus do
       authorize_if always()
     end
 
-    policy action(:create) do
+    policy action([:create, :insert_once]) do
       authorize_if always()
     end
   end

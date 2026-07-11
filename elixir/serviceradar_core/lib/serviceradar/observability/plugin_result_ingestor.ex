@@ -25,6 +25,9 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   require Logger
 
+  @handler_error_max_bytes 1_000
+  @handler_error_component_max_bytes 512
+
   @spec ingest(map() | list(), map()) :: :ok | {:error, term()}
   def ingest(payload, status) when is_map(payload) do
     actor = SystemActor.system(:plugin_result_ingestor)
@@ -49,9 +52,15 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
         :ok ->
           upsert_current_state(status_row)
 
-        {:error, {:plugin_result_handlers_failed, errors}} = error ->
-          _ = persist_handler_failure(status_row, payload, errors, actor)
-          error
+        {:error, {:plugin_result_handlers_failed, errors}} = handler_error ->
+          case persist_handler_failure(status_row, payload, errors, actor) do
+            :ok ->
+              handler_error
+
+            {:error, persistence_error} ->
+              {:error,
+               {:plugin_result_handler_failure_persistence_failed, errors, persistence_error}}
+          end
       end
     end
   rescue
@@ -72,11 +81,10 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   def ingest(_payload, _status), do: {:error, :invalid_payload}
 
   defp insert_status(row, actor) do
-    case Ash.create(ServiceStatus, row,
-           actor: actor,
-           domain: ServiceRadar.Observability,
-           return_records?: false
-         ) do
+    ServiceStatus
+    |> Ash.Changeset.for_create(:insert_once, row, actor: actor)
+    |> Ash.create(domain: ServiceRadar.Observability)
+    |> case do
       {:ok, _} -> :ok
       {:error, error} -> {:error, error}
       other -> {:error, other}
@@ -84,7 +92,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   end
 
   defp upsert_current_state(row) when is_map(row) do
-    ServiceStateRegistry.upsert_from_status(%{
+    state_registry().upsert_from_status_strict(%{
       agent_id: Map.get(row, :agent_id),
       gateway_id: Map.get(row, :gateway_id),
       partition: Map.get(row, :partition),
@@ -189,22 +197,24 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   defp ingest_registered_handlers(payload, status, observed_at, actor) do
     errors =
       Enum.reduce(plugin_result_handlers(), [], fn handler, errors ->
-        if handler_supports?(handler, payload, status) do
-          case ingest_handler(handler, payload, status, observed_at, actor) do
-            :ok ->
-              errors
+        case handler_support(handler, payload, status) do
+          {:ok, true} ->
+            case ingest_handler(handler, payload, status, observed_at, actor) do
+              :ok ->
+                errors
 
-            {:error, reason} ->
-              log_handler_failure(handler, reason)
-              [{handler_module(handler), reason} | errors]
+              {:error, reason} ->
+                add_handler_failure(errors, handler, reason)
 
-            other ->
-              reason = {:unexpected_handler_result, other}
-              log_handler_failure(handler, reason)
-              [{handler_module(handler), reason} | errors]
-          end
-        else
-          errors
+              other ->
+                add_handler_failure(errors, handler, {:unexpected_handler_result, other})
+            end
+
+          {:ok, false} ->
+            errors
+
+          {:error, reason} ->
+            add_handler_failure(errors, handler, reason)
         end
       end)
 
@@ -214,9 +224,15 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     end
   end
 
-  defp log_handler_failure(handler, reason) do
+  defp add_handler_failure(errors, handler, reason) do
+    error_text = handler_error_text(reason)
+    log_handler_failure(handler, error_text)
+    [{handler_module(handler), error_text} | errors]
+  end
+
+  defp log_handler_failure(handler, error_text) do
     Logger.warning(
-      "Plugin result handler #{inspect(handler_module(handler))} failed: #{inspect(reason)}"
+      "Plugin result handler #{inspect(handler_module(handler))} failed: #{error_text}"
     )
   end
 
@@ -238,7 +254,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   defp handler_failure_status_row(status_row, payload, errors) do
     failed_at = handler_failure_timestamp(status_row.timestamp)
-    handlers = Enum.map(errors, fn {handler, _reason} -> handler_label(handler) end)
+    handlers = Enum.map(errors, fn {handler, _error_text} -> handler_label(handler) end)
     message = "Plugin result downstream ingest failed: #{Enum.join(handlers, ", ")}"
 
     details =
@@ -249,10 +265,10 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
         "downstream_ingest" => %{
           "status" => "failed",
           "handlers" =>
-            Enum.map(errors, fn {handler, reason} ->
+            Enum.map(errors, fn {handler, error_text} ->
               %{
                 "handler" => handler_label(handler),
-                "error" => handler_error_text(reason)
+                "error" => error_text
               }
             end)
         }
@@ -268,14 +284,8 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     }
   end
 
-  defp handler_failure_timestamp(%DateTime{} = observed_at) do
-    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
-
-    case DateTime.compare(now, observed_at) do
-      :gt -> now
-      _ -> DateTime.add(observed_at, 1, :microsecond)
-    end
-  end
+  defp handler_failure_timestamp(%DateTime{} = observed_at),
+    do: DateTime.add(observed_at, 1, :microsecond)
 
   defp handler_label(handler) when is_atom(handler) do
     handler
@@ -285,39 +295,142 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   defp handler_label(handler), do: inspect(handler)
 
-  defp handler_error_text(%{__exception__: true} = error), do: Exception.message(error)
-
   defp handler_error_text(reason) do
     reason
-    |> inspect(limit: 20, printable_limit: 1_000)
-    |> String.slice(0, 1_000)
+    |> redact_handler_error_values()
+    |> render_handler_error()
+    |> sanitize_handler_error()
+    |> truncate_utf8(@handler_error_max_bytes)
+  rescue
+    _ -> "handler error unavailable"
   end
 
-  defp handler_supports?({handler, _opts}, payload, status) when is_atom(handler) do
-    handler_supports?(handler, payload, status)
+  defp redact_handler_error_values(%{__exception__: true} = error), do: error
+
+  defp redact_handler_error_values(%{__struct__: module} = value) do
+    {:struct, module, value |> Map.from_struct() |> redact_handler_error_values()}
   end
 
-  defp handler_supports?(handler, payload, status) when is_atom(handler) do
-    cond do
-      function_exported?(handler, :supports?, 2) ->
-        handler.supports?(payload, status)
+  defp redact_handler_error_values(value) when is_map(value) do
+    Map.new(value, fn {key, nested_value} ->
+      if sensitive_handler_error_key?(key) do
+        {key, "[REDACTED]"}
+      else
+        {key, redact_handler_error_values(nested_value)}
+      end
+    end)
+  end
 
-      function_exported?(handler, :supports?, 1) ->
-        handler.supports?(payload)
+  defp redact_handler_error_values({key, value}) when is_atom(key) or is_binary(key) do
+    if sensitive_handler_error_key?(key) do
+      {key, "[REDACTED]"}
+    else
+      {key, redact_handler_error_values(value)}
+    end
+  end
 
-      true ->
-        true
+  defp redact_handler_error_values(value) when is_tuple(value) do
+    value
+    |> Tuple.to_list()
+    |> Enum.map(&redact_handler_error_values/1)
+    |> List.to_tuple()
+  end
+
+  defp redact_handler_error_values(value) when is_list(value) do
+    Enum.map(value, &redact_handler_error_values/1)
+  end
+
+  defp redact_handler_error_values(value) when is_binary(value) do
+    truncate_utf8(value, @handler_error_component_max_bytes)
+  end
+
+  defp redact_handler_error_values(value), do: value
+
+  defp sensitive_handler_error_key?(key) when is_atom(key) or is_binary(key) do
+    key
+    |> to_string()
+    |> String.downcase()
+    |> String.replace("-", "_")
+    |> then(fn normalized ->
+      normalized in [
+        "api_key",
+        "apikey",
+        "api_token",
+        "access_token",
+        "authorization",
+        "bearer",
+        "password",
+        "secret"
+      ] or String.ends_with?(normalized, ["_password", "_secret", "_token"])
+    end)
+  end
+
+  defp sensitive_handler_error_key?(_key), do: false
+
+  defp render_handler_error({context, %{__exception__: true} = error}) do
+    "#{context}: #{Exception.message(error)}"
+  end
+
+  defp render_handler_error(%{__exception__: true} = error), do: Exception.message(error)
+
+  defp render_handler_error(reason) do
+    inspect(reason,
+      limit: 20,
+      printable_limit: @handler_error_max_bytes * 2,
+      charlists: :as_lists
+    )
+  end
+
+  defp sanitize_handler_error(text) when is_binary(text) do
+    text
+    |> String.replace(~r/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u, " ")
+    |> String.replace(~r/\s+/u, " ")
+    |> String.replace(
+      ~r/((?:api[_-]?(?:key|token)|access[_-]?token|authorization|password|secret)\s*(?:=>|:|=)\s*)("[^"]*"|'[^']*'|[^\s,}\]]+)/iu,
+      "\\1[REDACTED]"
+    )
+    |> String.replace(~r{://[^/\s:@]+:[^@\s/]+@}u, "://[REDACTED]@")
+    |> String.trim()
+  end
+
+  defp truncate_utf8(text, max_bytes) when byte_size(text) <= max_bytes, do: text
+
+  defp truncate_utf8(text, max_bytes) do
+    text
+    |> binary_part(0, max_bytes)
+    |> trim_incomplete_utf8()
+  end
+
+  defp trim_incomplete_utf8(text) do
+    if String.valid?(text),
+      do: text,
+      else: trim_incomplete_utf8(binary_part(text, 0, byte_size(text) - 1))
+  end
+
+  defp handler_support({handler, _opts}, payload, status) when is_atom(handler) do
+    handler_support(handler, payload, status)
+  end
+
+  defp handler_support(handler, payload, status) when is_atom(handler) do
+    supported =
+      cond do
+        function_exported?(handler, :supports?, 2) -> handler.supports?(payload, status)
+        function_exported?(handler, :supports?, 1) -> handler.supports?(payload)
+        true -> true
+      end
+
+    case supported do
+      true -> {:ok, true}
+      false -> {:ok, false}
+      other -> {:error, {:unexpected_support_result, other}}
     end
   rescue
-    e ->
-      Logger.warning(
-        "Plugin result handler #{inspect(handler)} support check failed: #{inspect(e)}"
-      )
-
-      false
+    error -> {:error, {:support_check_failed, error}}
+  catch
+    kind, reason -> {:error, {:support_check_failed, {kind, reason}}}
   end
 
-  defp handler_supports?(_handler, _payload, _status), do: false
+  defp handler_support(handler, _payload, _status), do: {:error, {:invalid_handler, handler}}
 
   defp ingest_handler(handler, payload, status, observed_at, actor) when is_atom(handler) do
     handler.ingest(payload, status, actor: actor, observed_at: observed_at)
@@ -346,6 +459,14 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       :serviceradar_core,
       :plugin_result_handlers,
       platform_contract_handlers()
+    )
+  end
+
+  defp state_registry do
+    Application.get_env(
+      :serviceradar_core,
+      :plugin_result_state_registry,
+      ServiceStateRegistry
     )
   end
 

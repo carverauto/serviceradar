@@ -81,6 +81,14 @@ defmodule ServiceRadar.Observability.ServiceState do
         :state,
         :updated_at
       ]
+
+      upsert_condition expr(
+                         last_observed_at < upsert_conflict(:last_observed_at) or
+                           (last_observed_at == upsert_conflict(:last_observed_at) and
+                              available == true and upsert_conflict(:available) == false)
+                       )
+
+      return_skipped_upsert? true
     end
 
     update :deactivate do

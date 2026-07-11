@@ -23,8 +23,28 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
 
   @spec upsert_from_status(map()) :: :ok
   def upsert_from_status(status) when is_map(status) do
-    actor = SystemActor.system(:service_state_registry)
+    case upsert_from_status_strict(status) do
+      :ok ->
+        :ok
 
+      {:error, error} ->
+        Logger.warning("Failed to upsert service state: #{inspect(error)}")
+        :ok
+    end
+  end
+
+  def upsert_from_status(_), do: :ok
+
+  @doc """
+  Persists a current service state while returning database or side-effect errors.
+
+  The `ServiceState` upsert is timestamp-guarded, so an older observation cannot
+  replace a newer current state even when concurrent ingestors race. For equal
+  timestamps, unavailable wins over available; otherwise the existing row wins.
+  """
+  @spec upsert_from_status_strict(map()) :: :ok | {:error, term()}
+  def upsert_from_status_strict(status) when is_map(status) do
+    actor = SystemActor.system(:service_state_registry)
     attrs = build_attrs_from_status(status, actor)
     previous = previous_service_availability(attrs, actor)
 
@@ -39,20 +59,18 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
         :ok
 
       {:error, error} ->
-        Logger.warning("Failed to upsert service state: #{inspect(error)}")
-        :ok
+        {:error, error}
 
       other ->
-        Logger.warning("Unexpected service state upsert result: #{inspect(other)}")
-        :ok
+        {:error, {:unexpected_service_state_upsert_result, other}}
     end
   rescue
-    error ->
-      Logger.warning("Service state upsert failed: #{Exception.message(error)}")
-      :ok
+    error -> {:error, error}
+  catch
+    kind, reason -> {:error, {kind, reason}}
   end
 
-  def upsert_from_status(_), do: :ok
+  def upsert_from_status_strict(_), do: {:error, :invalid_status}
 
   @doc """
   Batched equivalent of `upsert_from_status/1` for a list of statuses.
@@ -677,8 +695,19 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     raw =
       fetch(status, :agent_timestamp) || fetch(status, :timestamp) || fetch(status, :observed_at)
 
-    (%DateTime{} = dt) = FieldParser.parse_timestamp(raw)
-    DateTime.truncate(dt, :microsecond)
+    case raw do
+      %DateTime{} = timestamp ->
+        DateTime.truncate(timestamp, :microsecond)
+
+      %NaiveDateTime{} = timestamp ->
+        timestamp
+        |> DateTime.from_naive!("Etc/UTC")
+        |> DateTime.truncate(:microsecond)
+
+      raw ->
+        (%DateTime{} = timestamp) = FieldParser.parse_timestamp(raw)
+        DateTime.truncate(timestamp, :microsecond)
+    end
   rescue
     _ -> DateTime.truncate(DateTime.utc_now(), :microsecond)
   end
