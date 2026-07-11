@@ -23,7 +23,7 @@ spec:
         serviceradar.io/release-revision: {{ .Release.Revision | quote }}
       {{- end }}
     spec:
-      {{- include "serviceradar.topologySpread" . | nindent 6 }}
+      {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-rperf-client") | nindent 6 }}
       {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
       serviceAccountName: {{ .Values.spire.rperfCheckerServiceAccount | default "serviceradar-rperf-checker" }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}

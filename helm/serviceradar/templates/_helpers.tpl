@@ -215,20 +215,22 @@ serviceradar.io/runtime-cert-layout-version: {{ default "1" (default (dict) .Val
 {{- end -}}
 
 {{/*
-Topology spread constraints to distribute serviceradar pods across nodes.
+Topology spread constraints to distribute replicas of one workload across nodes.
 Enabled when .Values.topologySpread.enabled is true.
-Usage: {{ include "serviceradar.topologySpread" . | nindent 6 }}
+Usage: {{ include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-core") | nindent 6 }}
 */}}
 {{- define "serviceradar.topologySpread" -}}
-{{- $ts := default (dict) .Values.topologySpread -}}
+{{- $root := .root -}}
+{{- $app := .app -}}
+{{- $ts := default (dict) $root.Values.topologySpread -}}
 {{- if $ts.enabled }}
 topologySpreadConstraints:
-  - maxSkew: {{ $ts.maxSkew | default 2 }}
+  - maxSkew: {{ $ts.maxSkew | default 1 }}
     topologyKey: {{ $ts.topologyKey | default "kubernetes.io/hostname" }}
     whenUnsatisfiable: {{ $ts.whenUnsatisfiable | default "ScheduleAnyway" }}
     labelSelector:
       matchLabels:
-        app.kubernetes.io/part-of: serviceradar
+        app: {{ $app | quote }}
 {{- end }}
 {{- end -}}
 

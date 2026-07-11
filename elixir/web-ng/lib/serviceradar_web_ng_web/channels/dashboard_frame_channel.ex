@@ -26,13 +26,16 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
       socket =
         socket
         |> assign(:route_slug, route_slug)
-        |> assign(:initial_data_frames, stream_data_frames(stream))
+        |> assign(:initial_data_frames, initial_data_frames(stream))
+        |> assign(:deferred_data_frames, deferred_data_frames(stream))
         |> assign(:refresh_data_frames, refresh_data_frames(stream))
         |> assign(:last_frames, [])
         |> assign(:initial_frame_sent, false)
+        |> assign(:deferred_frame_sent, false)
         |> assign(:refresh_ms, refresh_ms(payload["refresh_interval_ms"]))
         |> assign(:last_frame_hash, nil)
         |> assign(:refresh_task_ref, nil)
+        |> assign(:refresh_task_kind, nil)
 
       send(self(), :dashboard_frame_tick)
       {:ok, %{"refresh_interval_ms" => socket.assigns.refresh_ms}, socket}
@@ -48,30 +51,39 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
 
   @impl true
   def handle_info(:dashboard_frame_tick, socket) do
-    socket = start_frame_refresh(socket, tick_data_frames(socket))
+    {kind, data_frames} = tick_data_frames(socket)
+    socket = start_frame_refresh(socket, data_frames, kind)
 
     Process.send_after(self(), :dashboard_frame_tick, socket.assigns.refresh_ms)
     {:noreply, socket}
   end
 
   def handle_info({:dashboard_frame_result, ref, {:ok, updates}}, %{assigns: %{refresh_task_ref: ref}} = socket) do
+    kind = socket.assigns.refresh_task_kind
+
     socket =
       socket
       |> assign(:refresh_task_ref, nil)
-      |> assign(:initial_frame_sent, true)
+      |> assign(:refresh_task_kind, nil)
+      |> mark_frame_batch_sent(kind)
       |> push_frame_updates(updates)
+      |> maybe_start_deferred_frame_refresh(kind)
 
     {:noreply, socket}
   end
 
   def handle_info({:dashboard_frame_result, ref, {:error, reason}}, %{assigns: %{refresh_task_ref: ref}} = socket) do
+    kind = socket.assigns.refresh_task_kind
+
     Logger.error("dashboard frame stream failed route_slug=#{socket.assigns[:route_slug]} error=#{inspect(reason)}")
     push(socket, "frames:error", %{"reason" => "frame_stream_unavailable"})
 
     socket =
       socket
       |> assign(:refresh_task_ref, nil)
-      |> assign(:initial_frame_sent, true)
+      |> assign(:refresh_task_kind, nil)
+      |> mark_frame_batch_sent(kind)
+      |> maybe_start_deferred_frame_refresh(kind)
 
     {:noreply, socket}
   end
@@ -83,21 +95,25 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
     socket =
       socket
       |> assign(:last_frame_hash, nil)
-      |> start_frame_refresh(socket.assigns.initial_data_frames)
+      |> assign(:deferred_frame_sent, false)
+      |> start_frame_refresh(socket.assigns.initial_data_frames, :initial)
 
     {:reply, {:ok, %{}}, socket}
   end
 
-  defp start_frame_refresh(%{assigns: %{refresh_task_ref: ref}} = socket, _data_frames) when not is_nil(ref), do: socket
+  defp start_frame_refresh(%{assigns: %{refresh_task_ref: ref}} = socket, _data_frames, _kind) when not is_nil(ref),
+    do: socket
 
-  defp start_frame_refresh(socket, data_frames) do
+  defp start_frame_refresh(socket, data_frames, kind) do
     ref = make_ref()
     parent = self()
     scope = socket.assigns.current_scope
 
     case Task.start(fn -> send(parent, {:dashboard_frame_result, ref, run_data_frames(data_frames, scope)}) end) do
       {:ok, _pid} ->
-        assign(socket, :refresh_task_ref, ref)
+        socket
+        |> assign(:refresh_task_ref, ref)
+        |> assign(:refresh_task_kind, kind)
 
       {:error, reason} ->
         Logger.error(
@@ -176,15 +192,34 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
   defp normalize_data_frames(data_frames) when is_list(data_frames), do: data_frames
   defp normalize_data_frames(_data_frames), do: []
 
-  defp tick_data_frames(%{assigns: %{initial_frame_sent: false, initial_data_frames: data_frames}}), do: data_frames
-  defp tick_data_frames(%{assigns: %{refresh_data_frames: data_frames}}), do: data_frames
+  defp tick_data_frames(%{assigns: %{initial_frame_sent: false, initial_data_frames: data_frames}}),
+    do: {:initial, data_frames}
 
-  defp stream_data_frames(stream) do
+  defp tick_data_frames(%{assigns: %{deferred_frame_sent: false, deferred_data_frames: [_ | _] = data_frames}}),
+    do: {:deferred, data_frames}
+
+  defp tick_data_frames(%{assigns: %{refresh_data_frames: data_frames}}), do: {:refresh, data_frames}
+
+  defp initial_data_frames(stream) do
+    data_frames = normalize_data_frames(stream["data_frames"] || stream[:data_frames])
+    required_frames = Enum.filter(data_frames, &required_frame?/1)
+
+    case required_frames do
+      [] -> active_optional_data_frames(data_frames, stream)
+      frames -> frames
+    end
+  end
+
+  defp deferred_data_frames(stream) do
     data_frames = normalize_data_frames(stream["data_frames"] || stream[:data_frames])
     active_frame_ids = MapSet.new(normalize_frame_ids(stream["active_frame_ids"] || stream[:active_frame_ids]))
+    initial_frame_ids = stream |> initial_data_frames() |> MapSet.new(&frame_id/1)
 
     Enum.filter(data_frames, fn frame ->
-      required_frame?(frame) or MapSet.member?(active_frame_ids, frame_id(frame))
+      id = frame_id(frame)
+
+      not required_frame?(frame) and MapSet.member?(active_frame_ids, id) and
+        not MapSet.member?(initial_frame_ids, id)
     end)
   end
 
@@ -193,6 +228,26 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
     |> then(&normalize_data_frames(&1["data_frames"] || &1[:data_frames]))
     |> Enum.filter(&required_frame?/1)
   end
+
+  defp active_optional_data_frames(data_frames, stream) do
+    active_frame_ids =
+      MapSet.new(normalize_frame_ids(stream["active_frame_ids"] || stream[:active_frame_ids]))
+
+    Enum.filter(data_frames, &MapSet.member?(active_frame_ids, frame_id(&1)))
+  end
+
+  defp mark_frame_batch_sent(socket, :initial), do: assign(socket, :initial_frame_sent, true)
+  defp mark_frame_batch_sent(socket, :deferred), do: assign(socket, :deferred_frame_sent, true)
+  defp mark_frame_batch_sent(socket, _kind), do: socket
+
+  defp maybe_start_deferred_frame_refresh(
+         %{assigns: %{deferred_frame_sent: false, deferred_data_frames: [_ | _] = data_frames}} = socket,
+         :initial
+       ) do
+    start_frame_refresh(socket, data_frames, :deferred)
+  end
+
+  defp maybe_start_deferred_frame_refresh(socket, _kind), do: socket
 
   defp required_frame?(frame) when is_map(frame) do
     case frame_value(frame, "required", :required) do

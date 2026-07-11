@@ -126,7 +126,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistry do
   def handle_info({:idle_close_relay, relay_session_id}, state) do
     state = pop_close_timer(state, relay_session_id)
 
-    if viewer_count_from_state(state, relay_session_id) == 0 do
+    if viewer_count_from_state(state, relay_session_id) == 0 and
+         owns_relay_session?(state, relay_session_id) do
       close_relay_session(state, relay_session_id)
     end
 
@@ -191,6 +192,14 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistry do
   end
 
   defp session_tracker(state), do: Map.get(state, :session_tracker, CameraMediaSessionTracker)
+
+  defp owns_relay_session?(state, relay_session_id) do
+    case session_tracker(state).fetch_session(relay_session_id) do
+      nil -> false
+      {:error, _reason} -> false
+      _session -> true
+    end
+  end
 
   defp close_relay_session(state, relay_session_id) do
     reason = "viewer idle timeout"

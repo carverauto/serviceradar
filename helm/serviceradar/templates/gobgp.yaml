@@ -66,7 +66,7 @@ spec:
       {{- end }}
     spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
-      {{- include "serviceradar.topologySpread" . | nindent 6 }}
+      {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-gobgp") | nindent 6 }}
       {{- with .Values.gobgp.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

@@ -6,25 +6,25 @@ defmodule ServiceRadarWebNGWeb.StatsTest do
   alias ServiceRadarWebNGWeb.Stats.Query
 
   describe "log severity query helpers" do
-    test "include title case variants used by direct log rows" do
-      assert "Critical" in Query.log_severity_values(:fatal)
-      assert "Debug" in Query.log_severity_values(:debug)
-      assert "Warning" in Query.log_severity_values(:warning)
-      assert "Notice" in Query.log_severity_values(:info)
-      assert "Error" in Query.log_severity_values(:error)
+    test "use canonical aliases without redundant case variants" do
+      assert Query.log_severity_values(:fatal) == ~w(fatal critical emergency alert)
+      assert Query.log_severity_values(:error) == ~w(error err)
+      assert Query.log_severity_values(:warning) == ~w(warning warn)
+      assert Query.log_severity_values(:info) == ~w(info information informational notice)
+      assert Query.log_severity_values(:debug) == ~w(debug trace)
     end
 
     test "builds click-through queries from shared severity groups" do
       assert Query.logs_severity_data_query(:debug, limit: 100) ==
-               "in:logs severity_text:(debug,DEBUG,Debug,trace,TRACE,Trace) time:last_24h sort:timestamp:desc limit:100"
+               "in:logs severity_text:(debug,trace) time:last_24h sort:timestamp:desc limit:100"
 
-      assert Query.logs_severity_data_query([:fatal, :error]) =~ "Critical"
-      assert Query.logs_severity_data_query([:fatal, :error]) =~ "Err"
+      assert Query.logs_severity_data_query([:fatal, :error]) ==
+               "in:logs severity_text:(fatal,critical,emergency,alert,error,err) time:last_24h sort:timestamp:desc"
     end
 
     test "builds fallback count queries from the same severity groups" do
       assert Query.logs_severity_count_query(:fatal) ==
-               ~s|in:logs severity_text:(fatal,FATAL,Fatal,critical,CRITICAL,Critical,emergency,EMERGENCY,Emergency,alert,ALERT,Alert) time:last_24h stats:"count() as total"|
+               ~s|in:logs severity_text:(fatal,critical,emergency,alert) time:last_24h stats:"count() as total"|
     end
   end
 

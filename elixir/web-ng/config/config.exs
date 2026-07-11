@@ -87,6 +87,8 @@ config :serviceradar_core, Oban,
   engine: Oban.Engines.Basic,
   repo: ServiceRadar.Repo,
   prefix: "platform",
+  # Keep :integrations runtime-only. Config deep-merges queue keywords, so a
+  # compile-time default would survive WEB_NG_OBAN_QUEUE_INTEGRATIONS=0.
   queues: [
     default: 10,
     # AshOban queues
@@ -96,8 +98,7 @@ config :serviceradar_core, Oban,
     onboarding: 3,
     events: 10,
     sweeps: 20,
-    edge: 10,
-    integrations: 5
+    edge: 10
   ],
   plugins: [
     # Keep jobs for 7 days

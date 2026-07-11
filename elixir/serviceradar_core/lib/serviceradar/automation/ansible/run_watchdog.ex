@@ -132,7 +132,7 @@ defmodule ServiceRadar.Automation.Ansible.RunWatchdog do
       "marked_at" => DateTime.to_iso8601(now)
     }
 
-    case PlaybookRun.record_unreachable(run, %{diagnostics: diagnostics}, actor) do
+    case PlaybookRun.record_unreachable(run, %{diagnostics: diagnostics}, actor: actor) do
       {:ok, _} ->
         Logger.info("AWX RunWatchdog marked run unreachable",
           run_id: run.id,
