@@ -45,6 +45,29 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     assert has_element?(lv, "#logs-live-status", "Off")
   end
 
+  test "stale deferred log loads do not overwrite the current card query", %{conn: conn} do
+    current_query =
+      "in:logs severity_text:(fatal,critical,emergency,alert) time:last_24h sort:timestamp:desc"
+
+    {:ok, lv, _html} =
+      live(conn, ~p"/observability?#{%{tab: "logs", q: current_query, limit: 20}}")
+
+    _ = drain_srql_calls()
+
+    stale_query = "in:logs time:last_24h sort:timestamp:desc"
+
+    send(
+      lv.pid,
+      {:load_tab_data, "logs", %{"tab" => "logs", "q" => stale_query, "limit" => "20"},
+       "https://example.test/observability"}
+    )
+
+    html = render(lv)
+
+    assert drain_srql_calls() == []
+    assert html =~ current_query
+  end
+
   test "log rows normalize the OTel SeverityNumber enum name into a badge", %{conn: conn} do
     {:ok, _lv, html} =
       live(conn, ~p"/observability?#{%{tab: "logs", q: "in:logs time:last_24h sort:timestamp:desc", limit: 20}}")

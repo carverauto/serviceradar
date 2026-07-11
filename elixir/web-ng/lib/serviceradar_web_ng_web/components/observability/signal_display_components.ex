@@ -60,7 +60,15 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
         <div :for={field <- @widget.fields} class="flex flex-col gap-0.5 min-w-0">
           <span class="text-xs text-base-content/50">{field.label}</span>
-          <span class="text-sm break-words">{field.value}</span>
+          <.link
+            :if={Map.get(field, :href)}
+            navigate={field.href}
+            class="link link-primary text-sm break-words"
+            aria-label={"View device for #{field.label} #{field.value}"}
+          >
+            {field.value}
+          </.link>
+          <span :if={!Map.get(field, :href)} class="text-sm break-words">{field.value}</span>
         </div>
       </div>
     </div>
