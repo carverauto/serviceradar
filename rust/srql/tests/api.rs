@@ -21,8 +21,43 @@ async fn srql_api_queries() {
         check_snmp_metrics_alias_filters_metric_type(&harness).await;
         check_rperf_metrics_queries_still_work(&harness).await;
         check_virtualization_inventory_queries(&harness).await;
+        check_logs_severity_topn_paginates_by_effective_timestamp(&harness).await;
     })
     .await;
+}
+
+async fn check_logs_severity_topn_paginates_by_effective_timestamp(harness: &SrqlTestHarness) {
+    let query = "in:logs severity_text:(INFO,ERROR) time:last_10m sort:timestamp:desc limit:1";
+    let first_response = harness
+        .query(QueryRequest {
+            query: query.to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        })
+        .await;
+    let (first_status, first_body) = read_json(first_response).await;
+
+    assert_eq!(first_status, http::StatusCode::OK, "{first_body}");
+    assert_eq!(first_body["results"][0]["body"], "Connection failed");
+    let next_cursor = first_body["pagination"]["next_cursor"]
+        .as_str()
+        .unwrap_or_else(|| panic!("first page must provide a cursor: {first_body}"));
+
+    let second_response = harness
+        .query(QueryRequest {
+            query: query.to_string(),
+            limit: None,
+            cursor: Some(next_cursor.to_string()),
+            direction: QueryDirection::Next,
+            mode: None,
+        })
+        .await;
+    let (second_status, second_body) = read_json(second_response).await;
+
+    assert_eq!(second_status, http::StatusCode::OK, "{second_body}");
+    assert_eq!(second_body["results"][0]["body"], "Application started");
 }
 
 async fn check_devices_inventory_query_matches_fixture(harness: &SrqlTestHarness) {

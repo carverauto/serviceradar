@@ -58,9 +58,10 @@ pub(crate) use filters_common::{
 pub(crate) use plan::build_query_plan;
 #[cfg(any(test, debug_assertions))]
 pub(crate) use sql::diesel_bind_count;
-#[cfg(test)]
-pub(crate) use sql::max_dollar_placeholder;
-pub(crate) use sql::{diesel_sql, reconcile_limit_offset_binds};
+pub(crate) use sql::{
+    bind_sql_param, diesel_sql, max_dollar_placeholder, reconcile_limit_offset_binds,
+    shift_dollar_placeholders,
+};
 pub use translate::translate_request;
 pub use types::{
     BindParam, PaginationMeta, QueryDirection, QueryPlan, QueryRequest, QueryResponse,
