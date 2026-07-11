@@ -19,6 +19,8 @@ defmodule ServiceRadar.Observability.LogPromotion do
 
   @rules_cache_key {__MODULE__, :active_log_rules}
   @default_rule_cache_ttl_ms 5_000
+  @binary_log_id_prefix "urn:serviceradar:log-id:binary:v1:"
+  @escaped_text_log_id_prefix "urn:serviceradar:log-id:text:v1:"
 
   @severity_text_map %{
     "fatal" => OCSF.severity_fatal(),
@@ -566,8 +568,10 @@ defmodule ServiceRadar.Observability.LogPromotion do
   end
 
   defp build_metadata(log, rule, subject) do
+    source_log_id = normalize_log_id(Map.get(log, :id))
+
     provenance = %{
-      source_log_id: Map.get(log, :id),
+      source_log_id: source_log_id,
       source_log_timestamp: Map.get(log, :timestamp),
       source_subject: subject,
       rule_id: rule.id,
@@ -575,11 +579,29 @@ defmodule ServiceRadar.Observability.LogPromotion do
     }
 
     [
-      correlation_uid: Map.get(log, :id),
+      correlation_uid: source_log_id,
       original_time: Map.get(log, :timestamp)
     ]
     |> OCSF.build_metadata()
     |> Map.put(:serviceradar, provenance)
+  end
+
+  defp normalize_log_id(id) when is_binary(id) do
+    if String.valid?(id), do: escape_reserved_log_id(id), else: encode_binary_log_id(id)
+  end
+
+  defp normalize_log_id(id), do: id
+
+  defp escape_reserved_log_id(id) do
+    if String.starts_with?(id, [@binary_log_id_prefix, @escaped_text_log_id_prefix]) do
+      @escaped_text_log_id_prefix <> Base.url_encode64(id, padding: false)
+    else
+      id
+    end
+  end
+
+  defp encode_binary_log_id(id) do
+    @binary_log_id_prefix <> Base.encode16(id, case: :lower)
   end
 
   defp build_unmapped(log, rule) do

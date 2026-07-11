@@ -194,6 +194,10 @@ func TestKeyValueConfigIncludesReplicas(t *testing.T) {
 func runJetStreamServer(t *testing.T, opts *server.Options) *server.Server {
 	t.Helper()
 
+	if opts.StoreDir == "" {
+		opts.StoreDir = t.TempDir()
+	}
+
 	srv, err := server.NewServer(opts)
 	require.NoError(t, err)
 

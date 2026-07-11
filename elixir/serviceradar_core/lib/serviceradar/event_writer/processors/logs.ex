@@ -706,9 +706,22 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   defp maybe_promote_logs(rows) do
     # DB connection's search_path determines the schema
-    _ = LogPromotion.promote(rows)
+    promotion_rows = Enum.map(rows, &canonicalize_generated_log_id/1)
+    _ = LogPromotion.promote(promotion_rows)
     :ok
   end
+
+  # Log rows use raw UUID bytes for PostgreSQL inserts. Promotion metadata is
+  # JSON, so cross the representation boundary here while the UUID contract is
+  # explicit instead of asking LogPromotion to infer UUIDs from byte length.
+  defp canonicalize_generated_log_id(%{id: id} = row) when is_binary(id) do
+    case Ecto.UUID.load(id) do
+      {:ok, uuid} -> Map.put(row, :id, uuid)
+      :error -> row
+    end
+  end
+
+  defp canonicalize_generated_log_id(row), do: row
 
   defp key_values_to_map(values) when is_list(values) do
     Enum.reduce(values, %{}, fn
