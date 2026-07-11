@@ -20,6 +20,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
   alias ServiceRadarWebNG.Plugins.AddonFleet
+  alias ServiceRadarWebNG.Plugins.AddonRuntimePolicy
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
 
@@ -255,7 +256,10 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
                           <span class={["badge badge-sm", package_status_badge(row.package_status)]}>
                             {package_status_label(row.package_status)}
                           </span>
-                          <span class={["badge badge-sm", assigned_badge(row)]}>
+                          <span
+                            data-role={"assignment-#{row.management_mode}"}
+                            class={["badge badge-sm", assigned_badge(row)]}
+                          >
                             {assigned_label(row)}
                           </span>
                         </div>
@@ -267,7 +271,10 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
                         <button
                           :if={row.degradation_reason}
                           type="button"
-                          class="mt-1 block text-left text-xs text-error underline decoration-dotted"
+                          class={[
+                            "mt-1 block text-left text-xs underline decoration-dotted",
+                            diagnostic_link_class(row.degradation_reason)
+                          ]}
                           phx-click="toggle_details"
                           phx-value-row={row_key(row)}
                         >
@@ -403,6 +410,11 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
           running <span class="font-mono">{running}</span>
           → assigned <span class="font-mono">{assigned}</span>
         </div>
+      <% {:required_runtime, version} -> %>
+        <div data-role="version-required-runtime" class="text-xs">
+          running <span :if={version} class="font-mono">{version}</span>
+          <div class="text-base-content/60">required runtime</div>
+        </div>
       <% {:running_unassigned, version} -> %>
         <div data-role="version-running-unassigned" class="text-xs">
           running <span :if={version} class="font-mono">{version}</span> (unassigned)
@@ -461,7 +473,13 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
       <div class="space-y-2">
         <div>
           <div class="text-base-content/50 uppercase tracking-wide">Runtime diagnostics</div>
-          <div :if={@row.degradation_reason} class="whitespace-pre-wrap break-words text-error">
+          <div
+            :if={@row.degradation_reason}
+            class={[
+              "whitespace-pre-wrap break-words",
+              diagnostic_text_class(@row.degradation_reason)
+            ]}
+          >
             {@row.degradation_reason}
           </div>
           <div :if={is_nil(@row.degradation_reason)} class="text-base-content/50">
@@ -510,10 +528,12 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
 
   defp assigned_badge(%{assigned?: true, enabled?: true}), do: "badge-success badge-soft"
   defp assigned_badge(%{assigned?: true}), do: "badge-ghost"
+  defp assigned_badge(%{management_mode: :required}), do: "badge-info badge-soft"
   defp assigned_badge(_row), do: "badge-ghost badge-outline"
 
   defp assigned_label(%{assigned?: true, enabled?: true}), do: "enabled"
   defp assigned_label(%{assigned?: true}), do: "disabled"
+  defp assigned_label(%{management_mode: :required}), do: "required"
   defp assigned_label(_row), do: "unassigned"
 
   defp running_badge(%{active?: true}), do: "badge-success"
@@ -528,6 +548,14 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
   defp attention_badge(_flag), do: "badge-error"
 
   defp attention_label(flag), do: Map.get(@attention_labels, flag, to_string(flag))
+
+  defp diagnostic_link_class(reason) do
+    if AddonRuntimePolicy.resource_limit_warning?(reason), do: "text-warning", else: "text-error"
+  end
+
+  defp diagnostic_text_class(reason) do
+    if AddonRuntimePolicy.resource_limit_warning?(reason), do: "text-warning", else: "text-error"
+  end
 
   defp format_time(nil), do: "—"
 

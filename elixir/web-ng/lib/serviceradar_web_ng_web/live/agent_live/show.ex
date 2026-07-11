@@ -16,6 +16,9 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.AddonStatus
   alias ServiceRadar.Plugins.PluginAssignment
+  alias ServiceRadar.Plugins.RetiredNativeAddons
+  alias ServiceRadarWebNG.AgentCapabilities
+  alias ServiceRadarWebNG.Plugins.AddonRuntimePolicy
   alias ServiceRadarWebNG.RBAC
 
   require Ash.Query
@@ -244,7 +247,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     |> Ash.read(scope: scope)
     |> case do
       {:ok, assignments} ->
-        assignments
+        Enum.reject(assignments, &RetiredNativeAddons.retired?(&1.addon_id))
 
       {:error, reason} ->
         Logger.warning("Failed to load addon assignments for #{agent_uid}: #{inspect(reason)}")
@@ -259,7 +262,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     |> Ash.read(scope: scope)
     |> case do
       {:ok, statuses} ->
-        statuses
+        Enum.reject(statuses, &RetiredNativeAddons.retired?(&1.addon_id))
 
       {:error, reason} ->
         Logger.warning("Failed to load addon statuses for #{agent_uid}: #{inspect(reason)}")
@@ -376,7 +379,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
-      <div class="mx-auto max-w-4xl p-6">
+      <div class="mx-auto max-w-6xl px-4 py-5 sm:px-6">
         <.header>
           Agent Details
           <:subtitle>
@@ -432,7 +435,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           <.registration_info agent={@agent} />
           <.plugin_assignments_card assignments={@plugin_assignments} />
           <.addon_assignments_card rows={@addon_reconciliation} />
-          <.service_checks_card checks={@checks} agent_uid={@agent_uid} />
+          <.service_checks_card checks={@checks} />
         </div>
       </div>
     </Layouts.app>
@@ -640,52 +643,86 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   attr :plugin_assignments, :list, default: []
 
   defp capabilities_card(assigns) do
+    capability_summary = AgentCapabilities.summarize(assigns.capabilities)
+
     # Capability info accepts binary names and internally uses an existing-atom lookup.
-    caps_with_info =
-      Enum.map(assigns.capabilities || [], fn cap ->
-        cap_name = if is_atom(cap), do: Atom.to_string(cap), else: to_string(cap)
-        info = InfrastructureAgent.capability_info(cap_name)
-        {cap_name, info}
+    available_caps =
+      Enum.map(capability_summary.available, fn cap_name ->
+        {cap_name, InfrastructureAgent.capability_info(cap_name)}
       end)
 
     plugin_caps = plugin_capability_rows(assigns.plugin_assignments)
 
     assigns =
       assigns
-      |> assign(:caps_with_info, caps_with_info)
+      |> assign(:available_caps, available_caps)
+      |> assign(:unavailable_caps, capability_summary.unavailable)
       |> assign(:plugin_caps, plugin_caps)
-      |> assign(:capability_count, length(caps_with_info) + length(plugin_caps))
+      |> assign(:capability_count, capability_summary.total + length(plugin_caps))
 
     ~H"""
     <div :if={@capability_count > 0} class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200">
-        <span class="text-sm font-semibold">Capabilities</span>
-        <span class="ml-2 badge badge-ghost badge-sm">{@capability_count}</span>
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-base-200 px-4 py-3">
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-semibold">Capabilities</span>
+          <span class="badge badge-ghost badge-sm">{@capability_count}</span>
+        </div>
+        <span :if={@unavailable_caps != []} class="badge badge-warning badge-soft badge-sm">
+          {length(@unavailable_caps)} unavailable
+        </span>
       </div>
       <div class="p-4 space-y-4">
-        <div :if={@caps_with_info != []} class="grid grid-cols-2 md:grid-cols-3 gap-3">
-          <%= for {cap, info} <- @caps_with_info do %>
-            <div class="flex items-center gap-2 p-2 rounded-lg bg-base-200/50">
-              <span class={"badge badge-#{info.color} badge-sm gap-1"}>
-                <span class="uppercase font-bold">{cap}</span>
-              </span>
-              <span class="text-xs text-base-content/60">{info.description}</span>
+        <div
+          :if={@available_caps != []}
+          class="grid overflow-hidden rounded-lg border border-base-200 sm:grid-cols-2"
+        >
+          <%= for {cap, info} <- @available_caps do %>
+            <div class="min-w-0 border-b border-base-200 p-3 last:border-b-0 sm:[&:nth-last-child(-n+2)]:border-b-0 sm:[&:nth-child(odd)]:border-r">
+              <div class="flex min-w-0 items-start gap-2">
+                <span class="status status-success status-xs mt-1.5 shrink-0" title="Available">
+                </span>
+                <code class="min-w-0 break-all text-xs font-semibold text-base-content">{cap}</code>
+              </div>
+              <p class="mt-1 pl-4 text-xs leading-5 text-base-content/60">{info.description}</p>
             </div>
           <% end %>
         </div>
 
+        <details
+          :if={@unavailable_caps != []}
+          class="collapse collapse-arrow rounded-lg bg-base-200/40"
+        >
+          <summary class="collapse-title min-h-0 py-3 text-sm font-medium">
+            Unavailable capability markers
+            <span class="ml-2 badge badge-warning badge-soft badge-sm">
+              {length(@unavailable_caps)}
+            </span>
+          </summary>
+          <div class="collapse-content pb-3">
+            <ul class="divide-y divide-base-300/60 rounded-md bg-base-100 px-3">
+              <li :for={cap <- @unavailable_caps} class="flex min-w-0 items-start gap-2 py-2">
+                <span class="status status-warning status-xs mt-1.5 shrink-0" title="Unavailable">
+                </span>
+                <code class="min-w-0 break-all text-xs text-base-content/70">{cap}</code>
+              </li>
+            </ul>
+          </div>
+        </details>
+
         <div :if={@plugin_caps != []}>
-          <div class="mb-2 text-xs font-semibold uppercase tracking-wider text-base-content/50">
+          <div class="mb-2 text-xs font-semibold text-base-content/50">
             Plugin-provided
           </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div class="grid overflow-hidden rounded-lg border border-base-200 md:grid-cols-2">
             <%= for cap <- @plugin_caps do %>
-              <div class="rounded-lg bg-base-200/50 p-2">
-                <div class="flex items-center gap-2">
-                  <span class="badge badge-primary badge-sm font-mono">{cap.name}</span>
+              <div class="min-w-0 border-b border-base-200 p-3 last:border-b-0 md:[&:nth-last-child(-n+2)]:border-b-0 md:[&:nth-child(odd)]:border-r">
+                <div class="flex min-w-0 items-start gap-2">
+                  <code class="min-w-0 break-all text-xs font-semibold text-base-content">
+                    {cap.name}
+                  </code>
                   <span :if={cap.enabled == false} class="badge badge-ghost badge-xs">disabled</span>
                 </div>
-                <div class="mt-1 text-xs text-base-content/60">{cap.description}</div>
+                <div class="mt-1 text-xs leading-5 text-base-content/60">{cap.description}</div>
               </div>
             <% end %>
           </div>
@@ -1060,12 +1097,15 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   defp addon_assignments_card(assigns) do
     ~H"""
     <div id="addons" class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-base-200 px-4 py-3">
         <div>
-          <span class="text-sm font-semibold">Add-on Drift</span>
-          <span :if={@rows != []} class="ml-2 badge badge-ghost badge-sm">
-            {length(@rows)}
-          </span>
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold">Add-on status</span>
+            <span :if={@rows != []} class="badge badge-ghost badge-sm">{length(@rows)}</span>
+          </div>
+          <p class="mt-0.5 text-xs text-base-content/60">
+            Desired delivery and the runtime state reported by this agent
+          </p>
         </div>
         <.link navigate={~p"/settings/agents/addons"} class="btn btn-xs btn-ghost">
           Manage Add-ons
@@ -1078,70 +1118,87 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
         </p>
       </div>
 
-      <div :if={@rows != []} class="overflow-x-auto">
-        <table class="table table-sm">
-          <thead>
-            <tr class="text-xs uppercase tracking-wide text-base-content/60">
-              <th>Add-on</th>
-              <th>Version</th>
-              <th>Assigned</th>
-              <th>Installed</th>
-              <th>Active</th>
-              <th>Drift</th>
-              <th>Capabilities</th>
-            </tr>
-          </thead>
-          <tbody>
-            <%= for row <- @rows do %>
-              <% package = row.package %>
-              <% status = row.status %>
-              <tr>
-                <td>
-                  <div class="font-medium">{addon_row_name(row)}</div>
-                  <div class="text-xs font-mono text-base-content/60">{row.addon_id}</div>
-                </td>
-                <td class="text-xs font-mono">{addon_row_version(package, status)}</td>
-                <td>
-                  <.ui_badge variant={if row.assigned?, do: "success", else: "ghost"} size="xs">
-                    {if row.assigned?, do: "assigned", else: "unassigned"}
+      <ul :if={@rows != []} class="divide-y divide-base-200 p-0">
+        <%= for row <- @rows do %>
+          <% package = row.package %>
+          <% status = row.status %>
+          <% capabilities = addon_package_capabilities(package) %>
+          <li class="px-4 py-4">
+            <div class="min-w-0">
+              <div class="grid min-w-0 gap-4 md:grid-cols-[minmax(0,1.35fr)_minmax(8rem,0.7fr)_minmax(8rem,0.7fr)_minmax(0,1.3fr)]">
+                <div class="min-w-0">
+                  <div class="flex min-w-0 items-start gap-2">
+                    <span
+                      class={[
+                        "status status-sm mt-1 shrink-0",
+                        addon_status_indicator_class(row.drift_state)
+                      ]}
+                      title={drift_state_text(row.drift_state)}
+                    >
+                    </span>
+                    <div class="min-w-0">
+                      <div class="break-words text-sm font-medium">{addon_row_name(row)}</div>
+                      <code class="block break-all text-xs text-base-content/60">{row.addon_id}</code>
+                      <code class="mt-1 block text-xs text-base-content/70">
+                        {addon_row_version(package, status)}
+                      </code>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="min-w-0">
+                  <div class="mb-1 text-[11px] font-semibold text-base-content/50">Delivery</div>
+                  <.ui_badge variant={management_mode_variant(row.management_mode)} size="xs">
+                    {management_mode_text(row.management_mode)}
                   </.ui_badge>
-                </td>
-                <td>
-                  <.ui_badge variant={installed_badge_variant(status)} size="xs">
-                    {installed_text(status)}
+                </div>
+
+                <div class="min-w-0">
+                  <div class="mb-1 text-[11px] font-semibold text-base-content/50">Runtime</div>
+                  <.ui_badge variant={runtime_badge_variant(status)} size="xs">
+                    {runtime_state_text(status)}
                   </.ui_badge>
-                </td>
-                <td>
-                  <.ui_badge variant={active_badge_variant(status)} size="xs">
-                    {active_text(status)}
-                  </.ui_badge>
-                </td>
-                <td>
+                </div>
+
+                <div class="min-w-0">
+                  <div class="mb-1 text-[11px] font-semibold text-base-content/50">
+                    Reconciliation
+                  </div>
                   <.ui_badge variant={drift_badge_variant(row.drift_state)} size="xs">
                     {drift_state_text(row.drift_state)}
                   </.ui_badge>
-                  <div :if={row.drift_reason} class="mt-1 max-w-xs text-[11px] text-base-content/60">
+                  <p
+                    :if={row.drift_reason}
+                    class={[
+                      "mt-1 break-words text-[11px] leading-4",
+                      drift_reason_class(row.drift_state)
+                    ]}
+                  >
                     {row.drift_reason}
-                  </div>
-                </td>
-                <td>
-                  <div class="flex max-w-md flex-wrap gap-1">
-                    <%= for cap <- addon_package_capabilities(package) do %>
-                      <span class="badge badge-ghost badge-xs font-mono">{cap}</span>
-                    <% end %>
-                    <span
-                      :if={addon_package_capabilities(package) == []}
-                      class="text-xs text-base-content/50"
-                    >
-                      —
-                    </span>
-                  </div>
-                </td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
+                  </p>
+                </div>
+              </div>
+
+              <details :if={capabilities != []} class="group mt-3 min-w-0 pl-0 md:pl-6">
+                <summary class="flex w-fit cursor-pointer list-none items-center gap-1 text-[11px] text-base-content/60 hover:text-base-content focus:outline-none">
+                  <.icon
+                    name="hero-chevron-right"
+                    class="size-3 transition-transform group-open:rotate-90"
+                  /> Package capabilities ({length(capabilities)})
+                </summary>
+                <div class="mt-2 grid gap-1 rounded-md bg-base-200/40 p-2 sm:grid-cols-2">
+                  <code
+                    :for={cap <- capabilities}
+                    class="min-w-0 break-all text-[10px] leading-4 text-base-content/70"
+                  >
+                    {cap}
+                  </code>
+                </div>
+              </details>
+            </div>
+          </li>
+        <% end %>
+      </ul>
     </div>
     """
   end
@@ -1175,6 +1232,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           package: package,
           status: status,
           assigned?: assignment.enabled,
+          management_mode: :assignment,
           drift_state: drift_state,
           drift_reason: drift_reason
         }
@@ -1184,14 +1242,23 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
       statuses
       |> Enum.reject(&MapSet.member?(assigned_ids, &1.addon_id))
       |> Enum.map(fn status ->
+        management_mode = AddonRuntimePolicy.management_mode(status.addon_id, false)
+
+        {drift_state, drift_reason} =
+          case management_mode do
+            :required -> addon_drift(nil, %{enabled: true}, status, agent)
+            :observed -> {:observed_unmanaged, "Reported by the agent without an assignment or required-runtime policy."}
+          end
+
         %{
           addon_id: status.addon_id,
           assignment: nil,
           package: nil,
           status: status,
           assigned?: false,
-          drift_state: :observed_unassigned,
-          drift_reason: "Agent reports this add-on, but no assignment exists."
+          management_mode: management_mode,
+          drift_state: drift_state,
+          drift_reason: drift_reason
         }
       end)
 
@@ -1204,6 +1271,9 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     cond do
       addon_arch_unsupported?(package, status, agent) ->
         {:arch_unsupported, "No package artifact matches the reported or agent platform."}
+
+      status.active and AddonRuntimePolicy.resource_limit_warning?(status.degradation_reason) ->
+        {:runtime_warning, status.degradation_reason}
 
       unhealthy_addon_status?(status) ->
         {:unhealthy, status.degradation_reason || "Agent reported the add-on as unhealthy."}
@@ -1271,37 +1341,61 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   defp addon_row_version(_package, %AddonStatus{version: version}) when is_binary(version), do: version
   defp addon_row_version(_package, _status), do: "—"
 
-  defp installed_badge_variant(nil), do: "ghost"
-  defp installed_badge_variant(%AddonStatus{}), do: "success"
+  defp management_mode_variant(:assignment), do: "success"
+  defp management_mode_variant(:required), do: "info"
+  defp management_mode_variant(:observed), do: "warning"
+  defp management_mode_variant(_mode), do: "ghost"
 
-  defp installed_text(nil), do: "not reported"
-  defp installed_text(%AddonStatus{state: state}), do: state || "reported"
+  defp management_mode_text(:assignment), do: "explicit assignment"
+  defp management_mode_text(:required), do: "required runtime"
+  defp management_mode_text(:observed), do: "unmanaged runtime"
+  defp management_mode_text(_mode), do: "unknown"
 
-  defp active_badge_variant(%AddonStatus{active: true}), do: "success"
-  defp active_badge_variant(%AddonStatus{}), do: "warning"
-  defp active_badge_variant(nil), do: "ghost"
+  defp runtime_badge_variant(%AddonStatus{active: true}), do: "success"
 
-  defp active_text(%AddonStatus{active: true}), do: "active"
-  defp active_text(%AddonStatus{}), do: "not active"
-  defp active_text(nil), do: "unknown"
+  defp runtime_badge_variant(%AddonStatus{state: state}) when state in ["unhealthy", "failed", "circuit_open"],
+    do: "error"
+
+  defp runtime_badge_variant(%AddonStatus{}), do: "warning"
+  defp runtime_badge_variant(nil), do: "ghost"
+
+  defp runtime_state_text(%AddonStatus{active: true}), do: "running"
+  defp runtime_state_text(%AddonStatus{state: state}) when is_binary(state), do: state
+  defp runtime_state_text(%AddonStatus{}), do: "not active"
+  defp runtime_state_text(nil), do: "not reported"
 
   defp drift_badge_variant(:healthy), do: "success"
   defp drift_badge_variant(:disabled), do: "ghost"
-  defp drift_badge_variant(:observed_unassigned), do: "warning"
+  defp drift_badge_variant(:observed_unmanaged), do: "warning"
   defp drift_badge_variant(:assigned_not_installed), do: "warning"
   defp drift_badge_variant(:assigned_not_active), do: "warning"
+  defp drift_badge_variant(:runtime_warning), do: "warning"
   defp drift_badge_variant(:unhealthy), do: "error"
   defp drift_badge_variant(:arch_unsupported), do: "error"
   defp drift_badge_variant(_), do: "ghost"
 
   defp drift_state_text(:healthy), do: "in sync"
   defp drift_state_text(:disabled), do: "disabled"
-  defp drift_state_text(:observed_unassigned), do: "unassigned"
+  defp drift_state_text(:observed_unmanaged), do: "unmanaged"
   defp drift_state_text(:assigned_not_installed), do: "not installed"
   defp drift_state_text(:assigned_not_active), do: "not active"
+  defp drift_state_text(:runtime_warning), do: "running with warning"
   defp drift_state_text(:unhealthy), do: "unhealthy"
   defp drift_state_text(:arch_unsupported), do: "arch unsupported"
   defp drift_state_text(state), do: to_string(state)
+
+  defp addon_status_indicator_class(:healthy), do: "status-success"
+  defp addon_status_indicator_class(:disabled), do: "status-neutral"
+
+  defp addon_status_indicator_class(state)
+       when state in [:observed_unmanaged, :assigned_not_installed, :assigned_not_active, :runtime_warning],
+       do: "status-warning"
+
+  defp addon_status_indicator_class(_state), do: "status-error"
+
+  defp drift_reason_class(:runtime_warning), do: "text-warning"
+  defp drift_reason_class(state) when state in [:unhealthy, :arch_unsupported], do: "text-error"
+  defp drift_reason_class(_state), do: "text-base-content/60"
 
   attr :assignments, :list, required: true
 
@@ -1379,19 +1473,25 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   end
 
   attr :checks, :list, required: true
-  attr :agent_uid, :string, required: true
 
   defp service_checks_card(assigns) do
     ~H"""
     <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
+      <div class="flex items-center justify-between border-b border-base-200 px-4 py-3">
         <div>
-          <span class="text-sm font-semibold">Service Checks</span>
-          <span :if={@checks != []} class="ml-2 badge badge-ghost badge-sm">{length(@checks)}</span>
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold">Direct service checks</span>
+            <span :if={@checks != []} class="badge badge-ghost badge-sm">{length(@checks)}</span>
+          </div>
+          <p class="mt-0.5 text-xs text-base-content/60">
+            Ping, TCP, HTTP, DNS, and gRPC checks assigned directly to this agent
+          </p>
         </div>
       </div>
       <div :if={@checks == []} class="p-4">
-        <p class="text-sm text-base-content/60">No service checks configured for this agent.</p>
+        <p class="text-sm text-base-content/60">
+          No direct service checks are assigned. Add-on and plugin work is reported in the sections above.
+        </p>
       </div>
       <div :if={@checks != []} class="divide-y divide-base-200">
         <%= for check <- @checks do %>

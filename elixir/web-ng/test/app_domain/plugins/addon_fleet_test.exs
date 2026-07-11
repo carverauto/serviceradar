@@ -31,6 +31,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleetTest do
       approved?: true,
       assigned?: true,
       enabled?: true,
+      management_mode: :assignment,
       running_state: "running",
       running_version: "1.0.0",
       active?: true,
@@ -199,7 +200,14 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleetTest do
     end
 
     test "running with no assignment reports running_unassigned, never a fabricated drift" do
-      assert AddonFleet.version_status(row(assigned?: false, assigned_version: nil, running_version: "0.1.19")) ==
+      assert AddonFleet.version_status(
+               row(
+                 assigned?: false,
+                 assigned_version: nil,
+                 management_mode: :observed,
+                 running_version: "0.1.19"
+               )
+             ) ==
                {:running_unassigned, "0.1.19"}
 
       # Observed state without a version string still reads as running/unassigned.
@@ -207,10 +215,23 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleetTest do
                row(
                  assigned?: false,
                  assigned_version: nil,
+                 management_mode: :observed,
                  running_version: nil,
                  running_state: "running"
                )
              ) == {:running_unassigned, nil}
+    end
+
+    test "required runtime is not described as unassigned" do
+      assert AddonFleet.version_status(
+               row(
+                 assigned?: false,
+                 assigned_version: nil,
+                 management_mode: :required,
+                 running_version: "0.1.1",
+                 running_state: "running"
+               )
+             ) == {:required_runtime, "0.1.1"}
     end
 
     test "assigned with no observed status reports not_reported" do
