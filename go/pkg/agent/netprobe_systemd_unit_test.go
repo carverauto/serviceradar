@@ -104,6 +104,12 @@ func TestAgentSystemdUnitDoesNotOwnSharedRuntimeDirectory(t *testing.T) {
 	if !strings.Contains(unit, "\nSlice=serviceradar.slice\n") {
 		t.Fatal("agent unit must join serviceradar.slice for ServiceRadar host-component cgroup accounting")
 	}
+	if !strings.Contains(unit, "\nDelegate=yes\n") {
+		t.Fatal("agent unit must delegate its cgroup so native add-on limits can be enforced")
+	}
+	if strings.Contains(unit, "\nDelegateSubgroup=") {
+		t.Fatal("agent unit must remain compatible with enterprise systemd releases before DelegateSubgroup")
+	}
 }
 
 func TestHostComponentSystemdUnitsShareSliceWithoutAgentParentage(t *testing.T) {

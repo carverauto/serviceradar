@@ -9,9 +9,11 @@ package addon
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -135,6 +137,69 @@ func TestResolveAddonCgroupRootRequiresRootOrSlice(t *testing.T) {
 	}
 	if got != "/tmp/addons" {
 		t.Fatalf("explicit root with slice = %q, want /tmp/addons", got)
+	}
+}
+
+func TestRequiredCgroupControllers(t *testing.T) {
+	tests := []struct {
+		name string
+		res  Resources
+		want []string
+	}{
+		{name: "none", res: Resources{}},
+		{name: "cpu", res: Resources{CPUMaxPercent: 50}, want: []string{"cpu"}},
+		{name: "memory high", res: Resources{MemoryHighBytes: 64 << 20}, want: []string{"memory"}},
+		{name: "memory max", res: Resources{MemoryMaxBytes: 64 << 20}, want: []string{"memory"}},
+		{name: "tasks", res: Resources{TasksMax: 16}, want: []string{"pids"}},
+		{
+			name: "all",
+			res: Resources{
+				CPUMaxPercent:   50,
+				MemoryMaxBytes:  64 << 20,
+				MemoryHighBytes: 48 << 20,
+				TasksMax:        16,
+			},
+			want: []string{"cpu", "memory", "pids"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := requiredCgroupControllers(tt.res); !slices.Equal(got, tt.want) {
+				t.Fatalf("requiredCgroupControllers() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEnableCgroupControllers(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "cgroup.controllers"), []byte("cpu io memory pids"), 0o644); err != nil {
+		t.Fatalf("write available controllers: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "cgroup.subtree_control"), nil, 0o644); err != nil {
+		t.Fatalf("write subtree controllers: %v", err)
+	}
+
+	required := []string{"cpu", "memory", "pids"}
+	if err := enableCgroupControllers(dir, required); err != nil {
+		t.Fatalf("enable controllers: %v", err)
+	}
+
+	contents, err := os.ReadFile(filepath.Join(dir, "cgroup.subtree_control"))
+	if err != nil {
+		t.Fatalf("read subtree controllers: %v", err)
+	}
+	if got, want := string(contents), "+cpu +memory +pids"; got != want {
+		t.Fatalf("cgroup.subtree_control = %q, want %q", got, want)
+	}
+
+	if err := enableCgroupControllers(dir, required); err != nil {
+		t.Fatalf("enable already configured controllers: %v", err)
+	}
+
+	if err := enableCgroupControllers(dir, []string{"cpuset"}); !errors.Is(err, errCgroupController) {
+		t.Fatalf("missing controller error = %v, want %v", err, errCgroupController)
 	}
 }
 
