@@ -172,6 +172,14 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
     |> String.slice(0, @metadata_limit)
   end
 
+  defp redact_log_term({key, nested}) when is_atom(key) or is_binary(key) do
+    if sensitive_log_key?(key) do
+      {key, "REDACTED"}
+    else
+      {key, redact_log_term(nested)}
+    end
+  end
+
   defp redact_log_term(value) when is_tuple(value) do
     value
     |> Tuple.to_list()
@@ -213,7 +221,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
 
   defp redact_authorization(value) when is_binary(value) do
     Regex.replace(
-      ~r/(?i)(["']?\b(?:authorization|proxy[_-]?authorization)\b["']?\s*[:=]\s*)(?:"(?:basic|bearer)\s+[^"]*"|'(?:basic|bearer)\s+[^']*'|(?:basic|bearer)\s+[^\s,;}\]]+)/,
+      ~r/(?i)(["']?\b(?:authorization|proxy[_-]?authorization)\b["']?\s*[:=]\s*)(?:"(?:basic|bearer|token)\s+[^"]*"|'(?:basic|bearer|token)\s+[^']*'|(?:basic|bearer|token)\s+[^\s,;}\]]+)/,
       value,
       "\\1REDACTED"
     )

@@ -1439,11 +1439,48 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     Enum.sort_by(first_party_rows ++ package_rows, &catalog_row_sort_key/1)
   end
 
-  defp addon_catalog_key(addon), do: {addon.addon_id, addon.version, addon.release_tag}
+  # Release tags are discovery provenance, not package identity. The same signed OCI
+  # artifact may be listed by multiple ServiceRadar releases, so catalog matching
+  # must use the immutable identity that NativeAddonSync uses for reuse decisions.
+  defp addon_catalog_key(addon) do
+    catalog_identity(addon.addon_id, addon.version, addon.oci_ref, addon.oci_digest)
+  end
 
   defp package_catalog_key(package) do
-    {package.addon_id, package.version, package.source_release_tag}
+    catalog_identity(
+      package.addon_id,
+      package.version,
+      package.source_oci_ref,
+      package.source_oci_digest
+    )
   end
+
+  defp catalog_identity(addon_id, version, oci_ref, oci_digest) do
+    {
+      normalize_catalog_value(addon_id),
+      normalize_catalog_value(version),
+      normalize_catalog_value(oci_ref),
+      normalize_catalog_digest(oci_digest)
+    }
+  end
+
+  defp normalize_catalog_digest(value) do
+    case normalize_catalog_value(value) do
+      value when is_binary(value) -> String.downcase(value)
+      nil -> nil
+    end
+  end
+
+  defp normalize_catalog_value(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      value -> value
+    end
+  end
+
+  defp normalize_catalog_value(value) when is_atom(value), do: value |> Atom.to_string() |> normalize_catalog_value()
+
+  defp normalize_catalog_value(_value), do: nil
 
   defp package_matches_release?(_package, nil), do: false
   defp package_matches_release?(package, release_tag), do: package.source_release_tag == release_tag

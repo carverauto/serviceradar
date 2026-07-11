@@ -861,6 +861,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
       "provider-bootstrap-secret",
       "raw-bearer-secret",
       "raw-basic-secret",
+      "raw-forgejo-token-secret",
       "url-user-secret",
       "url-password-secret",
       "url-token-secret",
@@ -886,6 +887,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
             ~s({"api_token":"json-secret"}),
             "Authorization: Bearer raw-bearer-secret",
             "Authorization=Basic raw-basic-secret",
+            "Authorization: token raw-forgejo-token-secret",
             "https://url-user-secret:url-password-secret@example.test/path",
             "https://url-token-secret@example.test/token-only",
             "https://example.test/path?access_token=query-token-secret&api_key=query-api-key-secret"
@@ -906,6 +908,33 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
       refute log =~ secret
     end)
 
+    assert byte_size(log) < 1_500
+  end
+
+  test "sync worker preserves keyed tuple context while redacting Forgejo credentials" do
+    configure_sync_worker()
+
+    Process.put(
+      :native_addon_recent_releases_result,
+      {:error,
+       {:transport,
+        [
+          {"authorization", "token FORGEJO_SENTINEL"},
+          {:api_token, "API_SENTINEL"}
+        ]}}
+    )
+
+    log =
+      capture_sync_log(fn ->
+        assert {:error, {:transport, _details}} =
+                 NativeAddonSyncWorker.perform(%Job{args: %{"force" => true, "limit" => 10}})
+      end)
+
+    assert log =~ "authorization"
+    assert log =~ "api_token"
+    assert log =~ "REDACTED"
+    refute log =~ "FORGEJO_SENTINEL"
+    refute log =~ "API_SENTINEL"
     assert byte_size(log) < 1_500
   end
 
@@ -985,6 +1014,30 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
       |> Ash.read!(actor: actor)
 
     assert length(packages) == 1
+  end
+
+  for {label, source_release_tag} <- [{"nil", nil}, {"older", "v0.9.0"}] do
+    test "single-package context reuses exact OCI identity with #{label} release provenance", %{
+      private_key: private_key
+    } do
+      source_release_tag = unquote(source_release_tag)
+      install_fixtures(private_key)
+
+      assert {:ok, [addon]} =
+               NativeAddonImporter.list_recent_addons(%{"repo_url" => @repo_url}, 10)
+
+      assert {:ok, imported, :imported} = AddonPackages.import_first_party_addon(addon)
+      assert imported.source_release_tag == "v1.0.0"
+
+      update_sample_package!(imported, %{source_release_tag: source_release_tag})
+      Process.put(:native_addon_manifest_requests, 0)
+      Process.put(:native_addon_manifest_status, 404)
+
+      assert {:ok, reused, :skipped} = AddonPackages.import_first_party_addon(addon)
+      assert reused.id == imported.id
+      assert reused.source_release_tag == source_release_tag
+      assert Process.get(:native_addon_manifest_requests) == 0
+    end
   end
 
   test "sync_first_party_addons repairs an exact-version package with a corrupt object key", %{
