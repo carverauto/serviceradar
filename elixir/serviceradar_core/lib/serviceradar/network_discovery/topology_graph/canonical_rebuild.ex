@@ -6,6 +6,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   alias ServiceRadar.Graph
   alias ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalMutationLock
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.Conflicts
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.HealthConditions
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Queries
@@ -15,7 +16,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
 
   require Logger
 
-  @canonical_rebuild_lock_key 1_104_202_506
   @default_canonical_rebuild_timeout_ms 60_000
   @projection_name "runtime_topology_links"
 
@@ -186,18 +186,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
         # top-level checkout, not a nested savepoint.
         #
         # They are idempotent, eventually-consistent materializations of the
-        # just-rebuilt CANONICAL_TOPOLOGY, so they do not need the structural
-        # rebuild's advisory lock. Keeping them inside that single lock
-        # transaction made one pooled connection hold, in series, the upsert +
-        # reconcile + guarded prune + a full metrics scan + N cypher telemetry
+        # just-rebuilt CANONICAL_TOPOLOGY. Keeping their full read/compute/write
+        # pipelines inside this transaction made one pooled connection hold, in
+        # series, the structural rebuild + a full metrics scan + N cypher telemetry
         # batches + the projection delete/insert. On a churn-bloated AGE graph the
-        # cumulative hold exceeded the 60s pool checkout budget (the recurring
-        # Postgrex "checked out for longer than 60000ms" disconnect), and a
-        # statement_timeout cancel in the telemetry step aborted the whole
-        # transaction — cascading into runtime_projection_refresh :failed. Running
-        # them after the lock bounds the lock connection to the structural rebuild
-        # and isolates the two materializations from each other so one slow/canceled
-        # step no longer crashes the pool or fails its sibling.
+        # cumulative hold exceeded the 60s pool checkout budget. Running them here
+        # bounds this transaction to the structural rebuild. The telemetry writer
+        # reacquires the same advisory lock only for its AGE SET batches, preventing
+        # concurrent canonical mutations without putting its metric scan back under
+        # this long-lived transaction.
         finalize_canonical_rebuild(structural_stats, fingerprint)
 
       {:ok, {:error, reason, stats}} ->
@@ -548,33 +545,20 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   end
 
   defp with_canonical_rebuild_lock(fun) when is_function(fun, 0) do
-    Repo.transaction(
-      fn ->
-        case Repo.query("SELECT pg_try_advisory_xact_lock($1)", [@canonical_rebuild_lock_key]) do
-          {:ok, %{rows: [[true]]}} ->
-            fun.()
-
-          {:ok, %{rows: [[false]]}} ->
-            {:busy, lock_skipped_rebuild_stats()}
-
-          {:ok, _unexpected} ->
-            Repo.rollback(:unexpected_lock_response)
-
-          {:error, reason} ->
-            Repo.rollback(reason)
-        end
-      end,
+    CanonicalMutationLock.try_run(fun,
+      busy_result: {:busy, lock_skipped_rebuild_stats()},
       timeout: canonical_rebuild_timeout_ms()
     )
   end
 
-  # Structural canonical rebuild — runs INSIDE the advisory-lock transaction.
+  # Structural canonical rebuild — runs INSIDE the canonical mutation lock.
   # Everything here mutates CANONICAL_TOPOLOGY structure (upsert + reconcile +
   # guarded prune + self-heal) and must be serialized by the lock. The two
   # downstream materializations (telemetry refresh + projection refresh) are
   # deliberately NOT run here; they run in finalize_canonical_rebuild/2 after the
-  # lock transaction commits so they don't extend the lock connection's checkout
-  # past the pool budget. Returns {:ok, structural_stats} (telemetry_refresh /
+  # structural transaction commits so they don't extend the lock connection's
+  # checkout past the pool budget. Telemetry reacquires this lock only around its
+  # AGE writes. Returns {:ok, structural_stats} (telemetry_refresh /
   # runtime_projection_refresh are merged in later) or {:error, reason, stats}.
   defp do_rebuild_canonical_device_links do
     before_edges = canonical_edge_count()
