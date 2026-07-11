@@ -125,7 +125,7 @@ spec:
         {{- end }}
     spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
-      {{- include "serviceradar.topologySpread" . | nindent 6 }}
+      {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-web-ng") | nindent 6 }}
       serviceAccountName: {{ $webNgSA }}
       securityContext:
         fsGroup: 10001

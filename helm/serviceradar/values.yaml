@@ -1,10 +1,10 @@
 namespace: demo
 
 # Pod topology spread constraints.
-# When enabled, the scheduler distributes serviceradar pods across nodes.
+# When enabled, the scheduler distributes replicas of each workload across nodes.
 topologySpread:
   enabled: false
-  # maxSkew: 2
+  # maxSkew: 1
   # topologyKey: kubernetes.io/hostname
   # whenUnsatisfiable: ScheduleAnyway
 

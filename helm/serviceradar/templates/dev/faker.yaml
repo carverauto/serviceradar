@@ -24,7 +24,7 @@ spec:
         serviceradar.io/release-revision: {{ .Release.Revision | quote }}
       {{- end }}
     spec:
-      {{- include "serviceradar.topologySpread" . | nindent 6 }}
+      {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-faker") | nindent 6 }}
       {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
       initContainers:
       # local-path PVs are hostPath-backed, so kubelet never applies the pod
