@@ -33,7 +33,7 @@ func TestBuildCTIPageNormalizesSupportedIndicators(t *testing.T) {
 		},
 	}
 
-	page := buildCTIPage(resp, Config{MaxIndicators: 10})
+	page := buildCTIPage(resp, Config{})
 
 	if page.Provider != sourceAlienVaultOTX {
 		t.Fatalf("provider = %q, want %q", page.Provider, sourceAlienVaultOTX)
@@ -82,7 +82,6 @@ func TestApplyDefaultsClampsBounds(t *testing.T) {
 		Limit:                 maxLimit + 50,
 		Page:                  -1,
 		TimeoutMS:             -1,
-		MaxIndicators:         maxIndicators + 50,
 		MaxPages:              maxPages + 50,
 		MaxRetries:            maxRetries + 50,
 		BackoffMS:             maxBackoffMS + 50,
@@ -105,9 +104,6 @@ func TestApplyDefaultsClampsBounds(t *testing.T) {
 	}
 	if cfg.TimeoutMS != defaultTimeoutMS {
 		t.Fatalf("timeout = %d, want %d", cfg.TimeoutMS, defaultTimeoutMS)
-	}
-	if cfg.MaxIndicators != maxIndicators {
-		t.Fatalf("max indicators = %d, want %d", cfg.MaxIndicators, maxIndicators)
 	}
 	if cfg.MaxPages != maxPages {
 		t.Fatalf("max pages = %d, want %d", cfg.MaxPages, maxPages)
@@ -198,7 +194,7 @@ func TestSubscribedPulsesResponseMatchesObservedOTXShape(t *testing.T) {
 		t.Fatalf("first indicator expiration = %q, want nil", *resp.Results[0].Indicators[0].Expiration)
 	}
 
-	page := buildCTIPage(resp, Config{MaxIndicators: 10})
+	page := buildCTIPage(resp, Config{})
 	if page.Counts.Objects != 2 {
 		t.Fatalf("objects = %d, want 2", page.Counts.Objects)
 	}
@@ -221,7 +217,7 @@ func TestSubscribedPulsesResponseMatchesObservedOTXShape(t *testing.T) {
 		t.Fatalf("expires_at = %q", page.Indicators[1].ExpiresAt)
 	}
 
-	scanned, err := parseOTXPage(body, Config{MaxIndicators: 10})
+	scanned, err := parseOTXPage(body, Config{})
 	if err != nil {
 		t.Fatalf("parseOTXPage: %v", err)
 	}
@@ -244,7 +240,7 @@ func TestParseObservedOTXFixture(t *testing.T) {
 		t.Fatalf("read fixture: %v", err)
 	}
 
-	page, err := parseOTXExportPage(body, Config{MaxIndicators: 2000})
+	page, err := parseOTXExportPage(body, Config{})
 	if err != nil {
 		t.Fatalf("parseOTXPage: %v", err)
 	}
@@ -253,7 +249,7 @@ func TestParseObservedOTXFixture(t *testing.T) {
 	}
 }
 
-func TestBuildCTIPageHonorsMaxIndicatorsAndRedactsSecrets(t *testing.T) {
+func TestBuildCTIPageIgnoresLegacyCapsAndRedactsSecrets(t *testing.T) {
 	resp := subscribedPulsesResponse{
 		Count: 1,
 		Results: []otxPulse{
@@ -269,16 +265,22 @@ func TestBuildCTIPageHonorsMaxIndicatorsAndRedactsSecrets(t *testing.T) {
 		},
 	}
 
-	page := buildCTIPage(resp, Config{APIKey: "secret-api-key", MaxIndicators: 2})
+	var cfg Config
+	if err := json.Unmarshal([]byte(`{
+		"api_key":"secret-api-key",
+		"max_iocs":1,
+		"max_indicators":2
+	}`), &cfg); err != nil {
+		t.Fatalf("decode legacy config: %v", err)
+	}
 
-	if page.Counts.Indicators != 2 {
-		t.Fatalf("indicators = %d, want 2", page.Counts.Indicators)
+	page := buildCTIPage(resp, cfg)
+
+	if page.Counts.Indicators != 3 {
+		t.Fatalf("indicators = %d, want all 3 despite legacy cap keys", page.Counts.Indicators)
 	}
-	if page.Counts.Skipped != 1 {
-		t.Fatalf("skipped = %d, want 1", page.Counts.Skipped)
-	}
-	if page.Counts.SkippedByType.get("max_indicators") != 1 {
-		t.Fatalf("skipped_by_type[max_indicators] = %d, want 1", page.Counts.SkippedByType.get("max_indicators"))
+	if page.Counts.Skipped != 0 {
+		t.Fatalf("skipped = %d, want 0", page.Counts.Skipped)
 	}
 
 	encoded, err := json.Marshal(ctiPageEnvelope{ThreatIntel: page})
@@ -312,7 +314,6 @@ func TestCTIPageDetailsJSONEncodesPayloadWithoutSecrets(t *testing.T) {
 	page := buildCTIPage(resp, Config{
 		APIKey:        "secret-api-key",
 		ModifiedSince: "2026-04-27T00:00:00Z",
-		MaxIndicators: 10,
 	})
 	encoded := ctiPageDetailsJSON(page)
 
@@ -356,7 +357,7 @@ func TestPluginResultJSONEncodesMinimalResult(t *testing.T) {
 	}
 }
 
-func TestConfigDecodingSupportsSecretRefsAndRuntimeSecret(t *testing.T) {
+func TestConfigDecodingSupportsSecretRefsAndIgnoresLegacyCaps(t *testing.T) {
 	const raw = `{
 		"base_url": "https://otx.example.test",
 		"api_key_secret_ref": "secret://api-key",
@@ -365,6 +366,7 @@ func TestConfigDecodingSupportsSecretRefsAndRuntimeSecret(t *testing.T) {
 		"timeout_ms": 30000,
 		"max_pages": 5,
 		"max_indicators": 25,
+		"max_iocs": 10,
 		"max_retries": 4,
 		"backoff_ms": 2500,
 		"bootstrap_lookback_days": 30
@@ -382,7 +384,7 @@ func TestConfigDecodingSupportsSecretRefsAndRuntimeSecret(t *testing.T) {
 		t.Fatalf("api_key was not decoded from runtime secret field")
 	}
 	if cfg.Limit != 10 || cfg.TimeoutMS != 30000 || cfg.MaxPages != 5 ||
-		cfg.MaxIndicators != 25 || cfg.MaxRetries != 4 || cfg.BackoffMS != 2500 ||
+		cfg.MaxRetries != 4 || cfg.BackoffMS != 2500 ||
 		cfg.BootstrapLookbackDays != 30 {
 		t.Fatalf("decoded numeric config = %+v", cfg)
 	}
@@ -424,9 +426,11 @@ func TestConfigSchemaDeclaresSecretRefAndBounds(t *testing.T) {
 		t.Fatalf("timeout_ms maximum = %d, want %d", got, maxTimeoutMS)
 	}
 
-	bound := properties["max_indicators"].(map[string]any)
-	if got := int(bound["maximum"].(float64)); got != maxIndicators {
-		t.Fatalf("max_indicators maximum = %d, want %d", got, maxIndicators)
+	if _, exists := properties["max_indicators"]; exists {
+		t.Fatal("config schema must not expose obsolete max_indicators")
+	}
+	if _, exists := properties["max_iocs"]; exists {
+		t.Fatal("config schema must not expose obsolete max_iocs")
 	}
 	pages := properties["max_pages"].(map[string]any)
 	if got := int(pages["maximum"].(float64)); got != maxPages {
@@ -452,7 +456,7 @@ func TestPluginManifestRestrictsHTTPAllowlist(t *testing.T) {
 	manifest := string(body)
 
 	for _, want := range []string{
-		"version: 0.3.2",
+		"version: 0.3.3",
 		"- http_request",
 		"allowed_domains:",
 		"- otx.alienvault.com",
@@ -555,16 +559,15 @@ func exportPageBody(next string, indicators ...string) []byte {
 
 func adaptiveTestConfig() Config {
 	return Config{
-		BaseURL:       defaultBaseURL,
-		APIKey:        "test-key",
-		Types:         defaultTypes,
-		Limit:         1000,
-		Page:          23,
-		TimeoutMS:     1000,
-		MaxIndicators: 5000,
-		MaxPages:      10,
-		MaxRetries:    0,
-		BackoffMS:     1,
+		BaseURL:    defaultBaseURL,
+		APIKey:     "test-key",
+		Types:      defaultTypes,
+		Limit:      1000,
+		Page:       23,
+		TimeoutMS:  1000,
+		MaxPages:   10,
+		MaxRetries: 0,
+		BackoffMS:  1,
 	}
 }
 
@@ -770,7 +773,6 @@ func TestFetchAndSubmitOTXExportPagesEnforcesHardPageBudget(t *testing.T) {
 	cfg := adaptiveTestConfig()
 	cfg.Limit = 250
 	cfg.Page = 1
-	cfg.MaxIndicators = maxPages + 10
 	cfg.MaxPages = maxPages + 1000
 
 	var emitted []ctiPage
@@ -800,6 +802,69 @@ func TestFetchAndSubmitOTXExportPagesEnforcesHardPageBudget(t *testing.T) {
 	}
 }
 
+func TestFetchAndSubmitOTXExportPagesStreamsEveryPageDespiteLegacyCaps(t *testing.T) {
+	emittedPages := 0
+	emittedIndicators := 0
+
+	fake := &fakeOTXHTTPClient{}
+	fake.handler = func(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+		page := pageFromURL(req.URL)
+		if page <= 0 {
+			t.Fatalf("request URL has no page: %q", req.URL)
+		}
+		if emittedPages != page-1 {
+			t.Fatalf(
+				"request for page %d started after %d emitted pages; prior page was not flushed",
+				page,
+				emittedPages,
+			)
+		}
+
+		next := ""
+		if page < 3 {
+			next = exportNextURL(100, page+1)
+		}
+		return &sdk.HTTPResponse{
+			Status: 200,
+			Body: exportPageBody(
+				next,
+				"192.0.2."+strconv.Itoa(page*2-1),
+				"192.0.2."+strconv.Itoa(page*2),
+			),
+		}, nil
+	}
+	swapOTXHTTP(t, fake)
+	swapOTXSleep(t)
+
+	cfg := defaultConfig()
+	if err := json.Unmarshal([]byte(`{
+		"limit":100,
+		"page":1,
+		"max_pages":3,
+		"max_iocs":1,
+		"max_indicators":1
+	}`), &cfg); err != nil {
+		t.Fatalf("decode legacy config: %v", err)
+	}
+
+	pages, err := fetchAndSubmitOTXExportPages(cfg, func(page ctiPage) error {
+		emittedPages++
+		emittedIndicators += len(page.Indicators)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk returned error: %v", err)
+	}
+	if pages != 3 || emittedPages != 3 || emittedIndicators != 6 {
+		t.Fatalf(
+			"pages=%d emitted_pages=%d emitted_indicators=%d, want 3/3/6",
+			pages,
+			emittedPages,
+			emittedIndicators,
+		)
+	}
+}
+
 func TestFetchAndSubmitOTXExportPagesEnforcesPullWideAttemptBudget(t *testing.T) {
 	fake := &fakeOTXHTTPClient{}
 	fake.handler = func(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
@@ -818,7 +883,6 @@ func TestFetchAndSubmitOTXExportPagesEnforcesPullWideAttemptBudget(t *testing.T)
 	cfg := adaptiveTestConfig()
 	cfg.Limit = 250
 	cfg.Page = 1
-	cfg.MaxIndicators = maxPullAttempts + 10
 	cfg.MaxPages = maxPages
 	cfg.MaxRetries = 0
 

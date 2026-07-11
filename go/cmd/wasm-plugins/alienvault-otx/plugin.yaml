@@ -1,6 +1,6 @@
 id: alienvault-otx-threat-intel
 name: AlienVault OTX Threat Intel
-version: 0.3.2
+version: 0.3.3
 description: Collects AlienVault OTX export pages and emits normalized threat-intel indicators
 entrypoint: run_check
 runtime: wasi-preview1

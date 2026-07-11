@@ -193,7 +193,7 @@ func (m *PluginManager) ApplyConfig(cfg *proto.PluginConfig) {
 	}
 
 	for _, assignment := range rejected {
-		m.enqueueResult(buildPluginErrorResult(assignment, "admission denied: engine limits exceeded"))
+		m.tryEnqueueResult(buildPluginErrorResult(assignment, "admission denied: engine limits exceeded"))
 	}
 
 	for _, assignment := range admitted {
@@ -750,7 +750,32 @@ func (m *PluginManager) DrainResults(max int) []PluginResult {
 	return results
 }
 
-func (m *PluginManager) enqueueResult(result PluginResult) {
+// enqueueResult waits until the result is admitted to the bounded queue or the
+// plugin execution is canceled. Wasm callers must not advance to the next page
+// until this returns nil.
+func (m *PluginManager) enqueueResult(ctx context.Context, result PluginResult) error {
+	managerCtx := m.ctx
+	if managerCtx == nil {
+		managerCtx = context.Background()
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	select {
+	case m.results <- result:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-managerCtx.Done():
+		return managerCtx.Err()
+	}
+}
+
+// tryEnqueueResult preserves best-effort reporting for control-plane errors.
+// Those paths can run on the same loop that drains results, so blocking there
+// would deadlock queue recovery.
+func (m *PluginManager) tryEnqueueResult(result PluginResult) {
 	select {
 	case m.results <- result:
 	default:
@@ -851,7 +876,7 @@ func (r *pluginRunner) runOnce(ctx context.Context) {
 
 	if !r.manager.acquireSlot() {
 		r.manager.recordExecution(false)
-		r.manager.enqueueResult(buildPluginErrorResult(r.assignment, "admission denied: max concurrent reached"))
+		r.manager.tryEnqueueResult(buildPluginErrorResult(r.assignment, "admission denied: max concurrent reached"))
 		return
 	}
 	defer r.manager.releaseSlot()
@@ -866,7 +891,7 @@ func (r *pluginRunner) runOnce(ctx context.Context) {
 			return
 		}
 		r.manager.recordExecution(false)
-		r.manager.enqueueResult(buildPluginErrorResult(r.assignment, fmt.Sprintf("execution failed: %s", err)))
+		r.manager.tryEnqueueResult(buildPluginErrorResult(r.assignment, fmt.Sprintf("execution failed: %s", err)))
 		r.manager.logger.Warn().
 			Err(err).
 			Str("assignment_id", r.assignment.AssignmentID).
@@ -876,7 +901,7 @@ func (r *pluginRunner) runOnce(ctx context.Context) {
 
 	if err := r.manager.executeWithWasm(runCtx, r.assignment, wasm); err != nil {
 		r.manager.recordExecution(false)
-		r.manager.enqueueResult(buildPluginErrorResult(r.assignment, fmt.Sprintf("execution failed: %s", err)))
+		r.manager.tryEnqueueResult(buildPluginErrorResult(r.assignment, fmt.Sprintf("execution failed: %s", err)))
 		r.manager.logger.Warn().
 			Err(err).
 			Str("assignment_id", r.assignment.AssignmentID).

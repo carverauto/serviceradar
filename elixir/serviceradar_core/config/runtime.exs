@@ -952,7 +952,6 @@ if config_env() == :prod do
       "limit" => parse_int_env.("SERVICERADAR_OTX_PAGE_SIZE", nil),
       "page" => parse_int_env.("SERVICERADAR_OTX_PAGE", nil),
       "timeout_ms" => parse_int_env.("SERVICERADAR_OTX_TIMEOUT_MS", nil),
-      "max_indicators" => parse_int_env.("SERVICERADAR_OTX_MAX_INDICATORS", nil),
       "max_retries" => parse_int_env.("SERVICERADAR_OTX_MAX_RETRIES", nil),
       "backoff_ms" => parse_int_env.("SERVICERADAR_OTX_BACKOFF_MS", nil)
     }

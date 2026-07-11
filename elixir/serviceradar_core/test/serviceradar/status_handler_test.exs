@@ -52,29 +52,25 @@ defmodule ServiceRadar.StatusHandlerTest do
     assert_receive {:forwarded, ^status}
   end
 
-  test "endpoint inventory synchronous status update replies after async router completion" do
+  test "endpoint inventory admission bypasses a busy ResultsRouter" do
     parent = self()
 
     router_pid =
       spawn(fn ->
         receive do
-          {:"$gen_call", from, {:results_update_async_reply, status, reply_to}} ->
-            send(parent, {:forwarded, status})
-            GenServer.reply(from, :ok)
-
-            GenServer.reply(
-              reply_to,
-              {:ok, %{directives: %{"endpoint_inventory" => %{"reconcile_floor" => true}}}}
-            )
+          _message -> Process.sleep(:infinity)
         end
       end)
 
     Process.register(router_pid, ServiceRadar.ResultsRouter)
+    queue_pid = start_endpoint_inventory_queue(parent)
+    configure_endpoint_inventory_queue(queue_pid)
 
     status = %{
       source: "results",
       service_type: "endpoint_inventory",
       service_name: "endpoint_inventory",
+      agent_id: "agent-1",
       message: Jason.encode!(%{"scan_id" => "scan-1"})
     }
 
@@ -83,39 +79,27 @@ defmodule ServiceRadar.StatusHandlerTest do
     assert {:noreply, %{}} =
              StatusHandler.handle_call({:status_update, status}, {self(), reply_ref}, %{})
 
-    assert_receive {:forwarded, ^status}
+    assert_receive {:endpoint_inventory_admitted,
+                    %{"agent_id" => "agent-1", "scan_id" => "scan-1"}}
 
     assert_receive {^reply_ref,
                     {:ok, %{directives: %{"endpoint_inventory" => %{"reconcile_floor" => true}}}}},
                    500
+
+    assert Process.alive?(router_pid)
+    Process.exit(router_pid, :kill)
   end
 
-  test "returns timeout error when synchronous ResultsRouter call exits" do
-    original = Application.get_env(:serviceradar_core, StatusHandler, [])
-
-    Application.put_env(
-      :serviceradar_core,
-      StatusHandler,
-      Keyword.put(original, :results_router_timeout_ms, 10)
-    )
-
-    on_exit(fn ->
-      if original == [] do
-        Application.delete_env(:serviceradar_core, StatusHandler)
-      else
-        Application.put_env(:serviceradar_core, StatusHandler, original)
-      end
-    end)
-
-    router_pid =
+  test "returns an error when endpoint inventory queue admission times out" do
+    queue_pid =
       spawn(fn ->
         receive do
-          {:"$gen_call", _from, {:results_update, _status}} ->
+          {:"$gen_call", _from, {:enqueue, _payload, _opts, _mode, _timeout}} ->
             Process.sleep(:infinity)
         end
       end)
 
-    Process.register(router_pid, ServiceRadar.ResultsRouter)
+    configure_endpoint_inventory_queue(queue_pid, 10)
 
     status = %{
       source: "results",
@@ -124,11 +108,11 @@ defmodule ServiceRadar.StatusHandlerTest do
       message: Jason.encode!(%{"scan_id" => "scan-timeout"})
     }
 
-    assert {:reply, {:error, :results_router_timeout}, %{}} =
+    assert {:reply, {:error, :endpoint_inventory_ingest_queue_timeout}, %{}} =
              StatusHandler.handle_call({:status_update, status}, self(), %{})
 
-    assert Process.alive?(router_pid)
-    Process.exit(router_pid, :kill)
+    assert Process.alive?(queue_pid)
+    Process.exit(queue_pid, :kill)
   end
 
   test "rejects all metric-only sources before ResultsRouter when they reach core" do
@@ -248,6 +232,55 @@ defmodule ServiceRadar.StatusHandlerTest do
       assert {:noreply, %{}} = StatusHandler.handle_cast({:status_update, status}, %{})
     end
   end
+
+  defp start_endpoint_inventory_queue(parent) do
+    spawn(fn -> endpoint_inventory_queue_loop(parent) end)
+  end
+
+  defp endpoint_inventory_queue_loop(parent) do
+    receive do
+      {:"$gen_call", from, {:enqueue, payload, _opts, {:reply_to, reply_to}, _timeout}} ->
+        send(parent, {:endpoint_inventory_admitted, payload})
+        GenServer.reply(from, :ok)
+
+        GenServer.reply(
+          reply_to,
+          {:ok, %{directives: %{"endpoint_inventory" => %{"reconcile_floor" => true}}}}
+        )
+
+        endpoint_inventory_queue_loop(parent)
+    end
+  end
+
+  defp configure_endpoint_inventory_queue(queue_pid, admission_timeout_ms \\ nil) do
+    previous_async = Application.get_env(:serviceradar_core, :endpoint_inventory_ingestor_async)
+
+    previous_queue =
+      Application.get_env(:serviceradar_core, :endpoint_inventory_ingestor_queue_server)
+
+    previous_timeout =
+      Application.get_env(:serviceradar_core, :endpoint_inventory_ingestor_admission_timeout_ms)
+
+    Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_async, true)
+    Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_queue_server, queue_pid)
+
+    if is_integer(admission_timeout_ms) do
+      Application.put_env(
+        :serviceradar_core,
+        :endpoint_inventory_ingestor_admission_timeout_ms,
+        admission_timeout_ms
+      )
+    end
+
+    on_exit(fn ->
+      restore_env(:endpoint_inventory_ingestor_async, previous_async)
+      restore_env(:endpoint_inventory_ingestor_queue_server, previous_queue)
+      restore_env(:endpoint_inventory_ingestor_admission_timeout_ms, previous_timeout)
+    end)
+  end
+
+  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
+  defp restore_env(key, value), do: Application.put_env(:serviceradar_core, key, value)
 
   describe "addon telemetry source" do
     setup do

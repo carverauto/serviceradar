@@ -69,17 +69,17 @@ defmodule ServiceRadar.Observability.ThreatIntel.Page do
 
     normalized_indicators =
       page.indicators
-      |> Enum.take(max_indicators)
+      |> maybe_take(max_indicators)
       |> Enum.map(&normalize_indicator(&1, page, observed_at))
       |> Enum.reject(&is_nil/1)
 
     normalized_stix_objects =
       page.objects
       |> Enum.flat_map(&StixIndicator.attrs_from_object(&1, page.source, observed_at))
-      |> Enum.take(max_indicators)
+      |> maybe_take(max_indicators)
 
     (normalized_indicators ++ normalized_stix_objects)
-    |> Enum.take(max_indicators)
+    |> maybe_take(max_indicators)
     |> Enum.uniq_by(&{&1.source, &1.indicator})
   end
 
@@ -106,7 +106,7 @@ defmodule ServiceRadar.Observability.ThreatIntel.Page do
       |> Enum.reject(&is_nil/1)
 
     (stix_objects ++ inline_objects)
-    |> Enum.take(max_objects)
+    |> maybe_take(max_objects)
     |> Enum.uniq_by(&{&1.source, &1.collection_id, &1.object_id, &1.object_version})
   end
 
@@ -375,6 +375,13 @@ defmodule ServiceRadar.Observability.ThreatIntel.Page do
       _ -> nil
     end
   end
+
+  defp maybe_take(values, :infinity), do: values
+
+  defp maybe_take(values, limit) when is_integer(limit) and limit >= 0,
+    do: Enum.take(values, limit)
+
+  defp maybe_take(values, _limit), do: values
 
   defp datetime_value(map, keys) do
     case fetch_value(map, keys) do
