@@ -57,7 +57,18 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundConflictAuditWorkerTest do
 
     assert :ok = ArmisNorthboundConflictAuditWorker.perform(%Oban.Job{})
     assert_received :audit_ran
-    assert_received {:safe_insert, _job}
+    assert_received {:safe_insert, follow_up}
+
+    assert %{states: states} = Ecto.Changeset.get_change(follow_up, :unique)
+    assert states == Oban.Job.unique_states(:scheduled)
+    assert %DateTime{} = Ecto.Changeset.get_change(follow_up, :scheduled_at)
+  end
+
+  test "seed jobs remain unique across every incomplete state" do
+    seed = ArmisNorthboundConflictAuditWorker.new(%{})
+
+    assert %{states: states} = Ecto.Changeset.get_change(seed, :unique)
+    assert states == Oban.Job.unique_states(:incomplete)
   end
 
   test "perform stays :ok and still reschedules when the audit returns an error" do

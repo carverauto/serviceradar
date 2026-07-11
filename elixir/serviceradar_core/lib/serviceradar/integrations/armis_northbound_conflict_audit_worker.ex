@@ -67,7 +67,13 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundConflictAuditWorker do
   defp schedule_next do
     _ =
       support_module().safe_insert(
-        new(%{}, schedule_in: max(audit_interval_seconds(), @min_reschedule_seconds))
+        new(%{},
+          schedule_in: max(audit_interval_seconds(), @min_reschedule_seconds),
+          # The current job is still :executing here. Use scheduled-only
+          # uniqueness for the follow-up so it can be inserted while the worker's
+          # default :incomplete uniqueness still protects scheduler seed jobs.
+          unique: [states: :scheduled]
+        )
       )
 
     :ok
