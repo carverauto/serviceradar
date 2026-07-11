@@ -1,3 +1,5 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
 package(default_visibility = ["//visibility:public"])
 
 config_setting(
@@ -8,4 +10,19 @@ config_setting(
 config_setting(
     name = "linux",
     constraint_values = ["@platforms//os:linux"],
+)
+
+sh_test(
+    name = "postinstall_shared_state_ownership_test",
+    srcs = ["postinstall_shared_state_ownership_test.sh"],
+    args = [
+        "$(rootpath //build/packaging/agent:scripts/postinstall.sh)",
+        "$(rootpath //build/packaging/rperf:scripts/postinstall.sh)",
+        "$(rootpath //build/packaging/rperf-checker:scripts/postinstall.sh)",
+    ],
+    data = [
+        "//build/packaging/agent:scripts/postinstall.sh",
+        "//build/packaging/rperf:scripts/postinstall.sh",
+        "//build/packaging/rperf-checker:scripts/postinstall.sh",
+    ],
 )

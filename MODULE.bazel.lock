@@ -1841,7 +1841,7 @@
           "REPO_MAPPING:rules_rust+,bazel_tools bazel_tools",
           "REPO_MAPPING:rules_rust+,rules_cc rules_cc+",
           "REPO_MAPPING:rules_rust+,rules_rust rules_rust+",
-          "FILE:@@//rust/rdp-connector-probe/Cargo.lock bf5b4926b49eb14d38f3c317503e9f73f6d602b0b797f93991b0aef83eeba561",
+          "FILE:@@//rust/rdp-connector-probe/Cargo.lock 05ae8dcadc3c1d0e388be67fd0cbc0db8e3589fb9a9198ccdaa2d86c152cbf7b",
           "FILE:@@//rust/rdp-connector-probe/Cargo.toml 436010b32ae7d616fbe8fb1a8f69b234c3b584a66c98e97235e3b88b4147380f"
         ],
         "generatedRepoSpecs": {
@@ -5940,7 +5940,7 @@
           "REPO_MAPPING:rules_rust+,bazel_tools bazel_tools",
           "REPO_MAPPING:rules_rust+,rules_cc rules_cc+",
           "REPO_MAPPING:rules_rust+,rules_rust rules_rust+",
-          "FILE:@@//Cargo.lock 315686eb39f786aa2de9ceb15e70e99521b1116e14f4bfe9ff4aa4cf6d2002de",
+          "FILE:@@//Cargo.lock bf32d9379060457ff9a59d405f9c811cfbdbec2fd2a4bc5c214322f6f40f7230",
           "FILE:@@//.cargo/config.toml 27c60a3b9d7893c0f4b12a98d0ebc58f6167511406c83ea185c3f661358ec6a9",
           "FILE:@@//Cargo.toml 37d6c614dc87b8689c61ccd6916828794ef76f131fc40ed88f6a702294fe842a",
           "FILE:@@//rust/kvutil/Cargo.toml b3be705ec7c2fdc55874f79cc5629ae3ba1a50b228725f0c4f8785b34ae13fab",
@@ -5954,7 +5954,7 @@
           "FILE:@@//rust/metric-proto/Cargo.toml f5fe688c697ffdea8e16f189ec957545341e9ddaa51867a6f32022e59149adcf",
           "FILE:@@//rust/log-collector/Cargo.toml ab49d44cefa1c4ae4c365cc70dca00c47a68c3e8fb60096d2e437f9e5d8d0884",
           "FILE:@@//rust/netprobe/Cargo.toml dd40fb500445fd878b79eeb519a7da99e88ea9eb386613c6f1fce8d22abf3576",
-          "FILE:@@//rust/workload-identity/Cargo.toml bb60d123fbdc70dbfd73337cce413233ae56547cd698b42389f2494dacb8928f",
+          "FILE:@@//rust/workload-identity/Cargo.toml 605598b3714a078e450f973dd6524630654442ed54515416a65fcbbab6c0c212",
           "FILE:@@//rust/powerdns/Cargo.toml 82bfe96fb2c0999f221712b5f80de5f00acfd314f6240ee9e4fc91c26caf50eb",
           "FILE:@@//rust/netprobe/ebpf/Cargo.toml e935029fec654fab951cab98449dcf53477175e8957602a04c67257c04ffe28d",
           "FILE:@@//rust/rperf-client/Cargo.toml ffe2d7beaeb2dd3ec1208ba1ad621df18699d090e045037fae9587f8013ad650",
