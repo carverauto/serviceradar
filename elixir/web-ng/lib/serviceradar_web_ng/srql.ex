@@ -212,16 +212,18 @@ defmodule ServiceRadarWebNG.SRQL do
   #
   #   * `plan_cache_mode = force_custom_plan` defeats PostgreSQL's generic-plan
   #     trap. Postgrex executes SRQL as *named prepared statements*, so after ~5
-  #     executions the cached statement flips to a generic plan. A generic plan
-  #     cannot estimate the selectivity of parameterized `= ANY($n)` / `IN`-style
-  #     filters (it substitutes a fixed default), so it scans a timestamp-ordered
-  #     index and filters instead of using the selective index — which
-  #     statement-times-out on sparse predicates over multi-million-row
-  #     hypertables. The observed failure was the Observability log severity
-  #     drill-down over `logs` (`lower(severity_text) = ANY($n)` finding ~2k
-  #     fatal rows inside a 24h window of ~5.5M). Forcing a custom plan makes the
-  #     planner re-estimate per execution using the actual bound parameters and
-  #     pick the selective index (`idx_logs_severity_lower_effective_ts`).
+  #     executions the cached statement can flip to a generic plan that cannot
+  #     estimate parameterized `= ANY($n)` / `IN` selectivity. Custom plans keep
+  #     the actual values visible to the planner and remain the correct default
+  #     for high-variance SRQL analytics.
+  #
+  #     Custom planning alone does not make every ordered membership query
+  #     indexable. In particular, PostgreSQL cannot preserve effective-timestamp
+  #     order across multiple values of the leading `lower(severity_text)` index
+  #     key. The SRQL logs compiler handles that sparse top-N shape separately by
+  #     merging bounded, scalar equality branches; retaining force_custom_plan
+  #     still protects that query and all other parameter-sensitive SRQL shapes
+  #     from generic-plan regressions.
   #
   # Applied to *all* SRQL executions, not only queries containing `= ANY(`: SRQL
   # is ad-hoc, high-variance analytics where per-execution custom planning is the
