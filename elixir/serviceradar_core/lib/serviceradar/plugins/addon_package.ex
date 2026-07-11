@@ -17,6 +17,8 @@ defmodule ServiceRadar.Plugins.AddonPackage do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine]
 
+  import Ash.Expr
+
   alias ServiceRadar.Changes.AfterAction
   alias ServiceRadar.Plugins.ProducerScheduleCatalog
 
@@ -65,6 +67,7 @@ defmodule ServiceRadar.Plugins.AddonPackage do
       transition :deny, from: :staged, to: :denied
       transition :revoke, from: [:approved], to: :revoked
       transition :restage, from: [:denied, :revoked], to: :staged
+      transition :reimport, from: [:staged, :approved, :denied, :revoked], to: :staged
     end
   end
 
@@ -92,10 +95,26 @@ defmodule ServiceRadar.Plugins.AddonPackage do
       change &sync_producer_schedule_contracts/2
     end
 
+    update :reimport do
+      description "Replace a previously reviewed package with newly verified artifacts"
+      require_atomic? false
+      accept @package_fields
+
+      change &guard_original_state/2
+      change transition_state(:staged)
+      change set_attribute(:approved_capabilities, [])
+      change set_attribute(:approved_by, nil)
+      change set_attribute(:approved_at, nil)
+      change set_attribute(:denied_reason, nil)
+      change &sync_producer_schedule_contracts/2
+    end
+
     update :approve do
       description "Approve a staged add-on package for distribution"
+      require_atomic? false
       accept @approval_fields
 
+      change &guard_original_state/2
       change transition_state(:approved)
       change set_attribute(:approved_at, &DateTime.utc_now/0)
     end
@@ -333,6 +352,20 @@ defmodule ServiceRadar.Plugins.AddonPackage do
 
   identities do
     identity :unique_addon_version, [:addon_id, :version]
+  end
+
+  defp guard_original_state(changeset, _context) do
+    original_updated_at = changeset.data.updated_at
+    original_status = changeset.data.status
+    original_artifacts = changeset.data.artifacts
+
+    Ash.Changeset.filter(
+      changeset,
+      expr(
+        updated_at == ^original_updated_at and status == ^original_status and
+          artifacts == ^original_artifacts
+      )
+    )
   end
 
   defp sync_producer_schedule_contracts(changeset, _context) do

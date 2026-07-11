@@ -8,10 +8,9 @@ defmodule ServiceRadarWebNG.Plugins.AddonPackages do
   Wasm Packages context.
   """
 
-  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Plugins.AddonPackage
-  alias ServiceRadar.Plugins.RetiredNativeAddons
   alias ServiceRadarWebNG.Plugins.NativeAddonImporter
+  alias ServiceRadarWebNG.Plugins.NativeAddonSync
 
   require Ash.Query
 
@@ -52,38 +51,42 @@ defmodule ServiceRadarWebNG.Plugins.AddonPackages do
     discovery_attrs = maybe_put(%{}, :repo_url, repo_url)
 
     with {:ok, addons} <- NativeAddonImporter.list_recent_addons(discovery_attrs, limit) do
-      existing = existing_import_keys(opts)
-
       candidates =
-        addons
-        |> maybe_filter_release_tag(release_tag)
-        |> Enum.reject(&RetiredNativeAddons.retired?(&1.addon_id))
-        |> Enum.filter(&Map.get(&1, :import_ready?))
-        |> dedupe_first_party_addon_versions()
+        NativeAddonSync.candidates(addons, release_tag: release_tag)
 
-      # Idempotence: a catalog entry whose (addon_id, version, release_tag) is
-      # already imported (with its artifacts intact) is skipped, not re-imported.
-      {already_imported, to_import} =
-        Enum.split_with(
-          candidates,
-          &MapSet.member?(existing, {&1.addon_id, &1.version, &1.release_tag})
-        )
+      decision_opts = Keyword.take(opts, [:scope, :actor])
 
       results =
-        Enum.map(to_import, fn addon ->
-          import_attrs = %{
-            repo_url: addon.repo_url,
-            release_tag: addon.release_tag,
-            addon_id: addon.addon_id,
-            version: addon.version
-          }
-
-          {addon, NativeAddonImporter.import(import_attrs)}
+        Enum.map(candidates, fn addon ->
+          {addon, NativeAddonSync.import_or_reuse(addon, decision_opts)}
         end)
 
-      {:ok, sync_summary(addons, results, length(already_imported))}
+      {:ok, NativeAddonSync.summary(addons, results)}
     end
   end
+
+  @spec import_first_party_addon(map(), keyword()) ::
+          {:ok, AddonPackage.t(), :imported | :skipped} | {:error, term()}
+  def import_first_party_addon(addon, opts \\ [])
+
+  def import_first_party_addon(addon, opts) when is_map(addon) do
+    case NativeAddonSync.candidates([addon]) do
+      [candidate] ->
+        case NativeAddonSync.import_or_reuse(
+               candidate,
+               Keyword.take(opts, [:scope, :actor, :auto_approve_addon_ids])
+             ) do
+          {:imported, package} -> {:ok, package, :imported}
+          {:skipped, package} -> {:ok, package, :skipped}
+          {:error, _reason} = error -> error
+        end
+
+      [] ->
+        {:error, :native_addon_not_import_ready}
+    end
+  end
+
+  def import_first_party_addon(_addon, _opts), do: {:error, :invalid_attributes}
 
   @spec approve(String.t(), map(), keyword()) :: {:ok, AddonPackage.t()} | {:error, term()}
   def approve(id, attrs, opts \\ [])
@@ -152,27 +155,6 @@ defmodule ServiceRadarWebNG.Plugins.AddonPackages do
     |> Ash.read_one(ash_opts(scope, nil))
   end
 
-  defp maybe_filter_release_tag(addons, release_tag) when is_binary(release_tag) and release_tag != "" do
-    Enum.filter(addons, &(&1.release_tag == release_tag))
-  end
-
-  defp maybe_filter_release_tag(addons, _release_tag), do: addons
-
-  defp dedupe_first_party_addon_versions(addons) do
-    addons
-    |> Enum.reduce({MapSet.new(), []}, fn addon, {seen, acc} ->
-      key = {addon.addon_id, addon.version}
-
-      if MapSet.member?(seen, key) do
-        {seen, acc}
-      else
-        {MapSet.put(seen, key), [addon | acc]}
-      end
-    end)
-    |> elem(1)
-    |> Enum.reverse()
-  end
-
   defp latest_package_per_addon(packages) do
     packages
     |> Enum.reduce(%{}, fn %AddonPackage{} = package, acc ->
@@ -219,53 +201,6 @@ defmodule ServiceRadarWebNG.Plugins.AddonPackages do
 
   defp package_sort_key(%AddonPackage{} = package) do
     {package.name |> to_string() |> String.downcase(), package.addon_id || ""}
-  end
-
-  defp sync_summary(discovered, results, skipped) do
-    imported = Enum.count(results, fn {_addon, result} -> match?({:ok, _package}, result) end)
-
-    failed =
-      results
-      |> Enum.filter(fn {_addon, result} -> match?({:error, _reason}, result) end)
-      |> Enum.map(fn {addon, {:error, reason}} ->
-        %{
-          addon_id: addon.addon_id,
-          version: addon.version,
-          release_tag: addon.release_tag,
-          error: reason
-        }
-      end)
-
-    %{
-      discovered: length(discovered),
-      import_ready: length(results) + skipped,
-      imported: imported,
-      skipped: skipped,
-      failed: failed
-    }
-  end
-
-  # (addon_id, version, release_tag) keys of packages that are already imported
-  # with their artifacts intact. Packages whose blobs went missing are excluded
-  # so a re-import can heal them.
-  defp existing_import_keys(opts) do
-    scope = Keyword.get(opts, :scope)
-    actor = Keyword.get(opts, :actor)
-
-    read_opts =
-      case ash_opts(scope, actor) do
-        [] -> [actor: SystemActor.system(:native_addon_importer)]
-        other -> other
-      end
-
-    AddonPackage
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.limit(@max_limit)
-    |> Ash.read!(read_opts)
-    |> Enum.reject(&(&1.verification_status == "blob_missing"))
-    |> MapSet.new(&{&1.addon_id, &1.version, &1.source_release_tag})
-  rescue
-    _ -> MapSet.new()
   end
 
   defp ash_opts(scope, actor) when not is_nil(scope) do

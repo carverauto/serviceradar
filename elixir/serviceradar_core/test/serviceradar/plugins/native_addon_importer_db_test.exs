@@ -11,6 +11,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
   alias ServiceRadar.Plugins.NativeAddonImporter, as: Importer
 
   @moduletag :integration
+  @moduletag sandbox: :unboxed
 
   setup_all do
     ServiceRadar.TestSupport.start_core!()
@@ -24,6 +25,11 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
 
   defp sign(priv, data), do: :crypto.sign(:eddsa, :none, data, [priv, :ed25519])
   defp sha(data), do: :sha256 |> :crypto.hash(data) |> Base.encode16(case: :lower)
+
+  defp signature_digest(signature) do
+    "sha256:" <>
+      (:sha256 |> :crypto.hash(signature <> "\n") |> Base.encode16(case: :lower))
+  end
 
   defp manifest(addon_id, uid) do
     %{
@@ -46,6 +52,49 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
     }
   end
 
+  defp entry(addon_id, uid, overrides \\ %{}) do
+    Map.merge(
+      %{
+        "addon_id" => addon_id,
+        "version" => "0.1.0",
+        "oci_ref" => "registry.carverauto.dev/serviceradar/#{addon_id}:sha-#{uid}",
+        "oci_digest" => "sha256:#{String.pad_leading(Integer.to_string(uid, 16), 64, "0")}"
+      },
+      overrides
+    )
+  end
+
+  defp signed_artifacts(priv, uid) do
+    tarball = "tarball-#{uid}"
+    signature = Base.encode16(sign(priv, tarball), case: :lower)
+
+    [
+      %{
+        os: "linux",
+        arch: "amd64",
+        tarball: tarball,
+        sha256: sha(tarball),
+        signature: signature,
+        signature_digest: signature_digest(signature)
+      }
+    ]
+  end
+
+  defp mirror(addon_id) do
+    fn os, arch, _bytes ->
+      {:ok, "native-addons/#{addon_id}/0.1.0/#{os}-#{arch}/obj"}
+    end
+  end
+
+  defp import_package(addon_id, uid, actor, pub, priv, entry_overrides \\ %{}, opts \\ []) do
+    Importer.import_entry(
+      manifest(addon_id, uid),
+      entry(addon_id, uid, entry_overrides),
+      signed_artifacts(priv, uid),
+      [public_key: pub, mirror: mirror(addon_id), actor: actor, release_tag: "sha-#{uid}"] ++ opts
+    )
+  end
+
   test "verifies, mirrors, and persists a staged AddonPackage with the per-arch artifacts map",
        %{actor: actor, uid: uid} do
     {pub, priv} = :crypto.generate_key(:eddsa, :ed25519)
@@ -53,6 +102,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
 
     entry = %{
       "addon_id" => addon_id,
+      "version" => "0.1.0",
       "oci_ref" => "registry.carverauto.dev/serviceradar/serviceradar-addon-netprobe:sha-#{uid}",
       "oci_digest" => "sha256:deadbeef"
     }
@@ -60,13 +110,15 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
     artifacts =
       for arch <- ["amd64", "arm64"] do
         tarball = "tarball-#{arch}-#{uid}"
+        signature = Base.encode16(sign(priv, tarball), case: :lower)
 
         %{
           os: "linux",
           arch: arch,
           tarball: tarball,
           sha256: sha(tarball),
-          signature: Base.encode16(sign(priv, tarball), case: :lower)
+          signature: signature,
+          signature_digest: signature_digest(signature)
         }
       end
 
@@ -92,6 +144,9 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
     assert package.artifacts["linux/arm64"]["signature"] ==
              Enum.find(artifacts, &(&1.arch == "arm64")).signature
 
+    assert package.artifacts["linux/arm64"]["signature_digest"] ==
+             Enum.find(artifacts, &(&1.arch == "arm64")).signature_digest
+
     # Persisted + readable back out of the DB.
     {:ok, reread} = Ash.get(AddonPackage, package.id, actor: actor)
     assert reread.status == :staged
@@ -99,7 +154,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
     assert reread.source_release_tag == "sha-#{uid}"
   end
 
-  test "updates an existing seeded package row instead of failing unique addon version",
+  test "restages an approved package when replacing its verified artifacts",
        %{actor: actor, uid: uid} do
     {pub, priv} = :crypto.generate_key(:eddsa, :ed25519)
     addon_id = "netprobe-seeded-#{uid}"
@@ -117,7 +172,8 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
           binary: "serviceradar-netprobe",
           capabilities: ["host-network-visibility"],
           artifacts: %{},
-          verification_status: "seeded"
+          verification_status: "seeded",
+          verification_error: "artifact mirror was incomplete"
         },
         actor: actor
       )
@@ -133,6 +189,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
       |> Ash.update()
 
     tarball = "tarball-#{uid}"
+    signature = Base.encode16(sign(priv, tarball), case: :lower)
 
     artifacts = [
       %{
@@ -140,14 +197,18 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
         arch: "amd64",
         tarball: tarball,
         sha256: sha(tarball),
-        signature: Base.encode16(sign(priv, tarball), case: :lower)
+        signature: signature,
+        signature_digest: signature_digest(signature)
       }
     ]
 
     mirror = fn os, arch, _bytes -> {:ok, "native-addons/#{addon_id}/0.1.0/#{os}-#{arch}/obj"} end
 
     assert {:ok, package} =
-             Importer.import_entry(manifest(addon_id, uid), %{"addon_id" => addon_id}, artifacts,
+             Importer.import_entry(
+               manifest(addon_id, uid),
+               %{"addon_id" => addon_id, "version" => "0.1.0"},
+               artifacts,
                public_key: pub,
                mirror: mirror,
                actor: actor,
@@ -155,8 +216,12 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
              )
 
     assert package.id == seeded.id
-    assert package.status == :approved
+    assert package.status == :staged
     assert package.verification_status == "verified"
+    assert is_nil(package.verification_error)
+    assert is_nil(package.approved_by)
+    assert is_nil(package.approved_at)
+    assert package.approved_capabilities == []
     assert package.source_release_tag == "sha-#{uid}"
 
     assert package.artifacts["linux/amd64"]["object_key"] ==
@@ -173,7 +238,10 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
     ]
 
     assert {:error, :invalid_signature} =
-             Importer.import_entry(manifest(addon_id, uid), %{"addon_id" => addon_id}, artifacts,
+             Importer.import_entry(
+               manifest(addon_id, uid),
+               %{"addon_id" => addon_id, "version" => "0.1.0"},
+               artifacts,
                public_key: pub,
                mirror: fn _os, _arch, _bytes -> {:ok, "k"} end,
                actor: actor
@@ -183,5 +251,302 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
              AddonPackage
              |> Ash.Query.for_read(:by_addon_id, %{addon_id: addon_id}, actor: actor)
              |> Ash.read()
+  end
+
+  test "never overwrites an upload-owned addon version even when its OCI fields are nil", %{
+    actor: actor,
+    uid: uid
+  } do
+    {pub, priv} = :crypto.generate_key(:eddsa, :ed25519)
+    addon_id = "upload-owned-#{uid}"
+
+    {:ok, owned} =
+      AddonPackage
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          addon_id: addon_id,
+          version: "0.1.0",
+          name: "Uploaded package #{uid}",
+          source_type: :upload,
+          source_oci_ref: nil,
+          source_oci_digest: nil,
+          artifacts: %{},
+          verification_status: "verified"
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    assert {:error,
+            {:native_addon_version_source_conflict,
+             %{reason: :source_type_owned, existing_source_type: :upload}}} =
+             import_package(addon_id, uid, actor, pub, priv)
+
+    {:ok, persisted} = Ash.get(AddonPackage, owned.id, actor: actor)
+    assert persisted.source_type == :upload
+    assert persisted.artifacts == %{}
+    assert persisted.name == "Uploaded package #{uid}"
+  end
+
+  test "a stale reimport cannot overwrite an approval", %{actor: actor, uid: uid} do
+    {pub, priv} = :crypto.generate_key(:eddsa, :ed25519)
+    addon_id = "approve-race-#{uid}"
+    {:ok, package} = import_package(addon_id, uid, actor, pub, priv)
+
+    replacement = %{
+      artifacts: %{
+        "linux/amd64" => %{
+          "object_key" => "replacement/#{uid}",
+          "sha256" => String.duplicate("f", 64),
+          "signature" => "replacement"
+        }
+      }
+    }
+
+    stale_reimport =
+      Ash.Changeset.for_update(package, :reimport, replacement, actor: actor)
+
+    assert {:ok, approved} =
+             package
+             |> Ash.Changeset.for_update(
+               :approve,
+               %{approved_capabilities: package.capabilities, approved_by: "race-test"},
+               actor: actor
+             )
+             |> Ash.update()
+
+    assert approved.status == :approved
+    assert {:error, _reason} = Ash.update(stale_reimport)
+
+    {:ok, persisted} = Ash.get(AddonPackage, package.id, actor: actor)
+    assert persisted.status == :approved
+    assert persisted.artifacts == package.artifacts
+  end
+
+  test "a stale approval cannot approve artifacts replaced by a reimport", %{
+    actor: actor,
+    uid: uid
+  } do
+    {pub, priv} = :crypto.generate_key(:eddsa, :ed25519)
+    addon_id = "reimport-race-#{uid}"
+    {:ok, package} = import_package(addon_id, uid, actor, pub, priv)
+
+    stale_approve =
+      Ash.Changeset.for_update(
+        package,
+        :approve,
+        %{approved_capabilities: package.capabilities, approved_by: "stale-review"},
+        actor: actor
+      )
+
+    replacement = %{
+      "linux/amd64" => %{
+        "object_key" => "replacement/#{uid}",
+        "sha256" => String.duplicate("e", 64),
+        "signature" => "replacement"
+      }
+    }
+
+    assert {:ok, reimported} =
+             package
+             |> Ash.Changeset.for_update(:reimport, %{artifacts: replacement}, actor: actor)
+             |> Ash.update()
+
+    assert reimported.status == :staged
+    assert reimported.artifacts == replacement
+    assert {:error, _reason} = Ash.update(stale_approve)
+
+    {:ok, persisted} = Ash.get(AddonPackage, package.id, actor: actor)
+    assert persisted.status == :staged
+    assert persisted.artifacts == replacement
+    assert is_nil(persisted.approved_by)
+  end
+
+  test "repairs missing immutable source metadata and then reuses the converged row", %{
+    actor: actor,
+    uid: uid
+  } do
+    {pub, priv} = :crypto.generate_key(:eddsa, :ed25519)
+    addon_id = "missing-source-metadata-#{uid}"
+    source_entry = entry(addon_id, uid)
+    artifacts = signed_artifacts(priv, uid)
+
+    assert {:ok, package, :created} =
+             Importer.import_entry_with_disposition(
+               manifest(addon_id, uid),
+               source_entry,
+               artifacts,
+               public_key: pub,
+               mirror: mirror(addon_id),
+               actor: actor,
+               release_tag: "sha-#{uid}"
+             )
+
+    assert {:ok, approved} =
+             package
+             |> Ash.Changeset.for_update(
+               :approve,
+               %{approved_capabilities: package.capabilities, approved_by: "source-review"},
+               actor: actor
+             )
+             |> Ash.update()
+
+    assert {:ok, missing_source} =
+             approved
+             |> Ash.Changeset.for_update(
+               :update,
+               %{source_oci_ref: nil, source_oci_digest: nil},
+               actor: actor
+             )
+             |> Ash.update()
+
+    assert missing_source.status == :approved
+    assert is_nil(missing_source.source_oci_ref)
+    assert is_nil(missing_source.source_oci_digest)
+
+    assert {:ok, repaired, :repaired} =
+             Importer.import_entry_with_disposition(
+               manifest(addon_id, uid),
+               source_entry,
+               artifacts,
+               public_key: pub,
+               mirror: mirror(addon_id),
+               actor: actor,
+               release_tag: "sha-#{uid}"
+             )
+
+    assert repaired.id == package.id
+    assert repaired.status == :staged
+    assert repaired.source_oci_ref == source_entry["oci_ref"]
+    assert repaired.source_oci_digest == source_entry["oci_digest"]
+    assert is_nil(repaired.approved_by)
+    assert repaired.artifacts == package.artifacts
+
+    assert {:ok, reused, :reused} =
+             Importer.import_entry_with_disposition(
+               manifest(addon_id, uid),
+               source_entry,
+               artifacts,
+               public_key: pub,
+               mirror: mirror(addon_id),
+               actor: actor,
+               release_tag: "sha-#{uid}"
+             )
+
+    assert reused.id == package.id
+    assert reused.status == :staged
+    assert reused.source_oci_ref == source_entry["oci_ref"]
+    assert reused.source_oci_digest == source_entry["oci_digest"]
+  end
+
+  test "concurrent imports of one source converge on one package", %{
+    actor: actor,
+    uid: uid
+  } do
+    {pub, priv} = :crypto.generate_key(:eddsa, :ed25519)
+    addon_id = "same-source-race-#{uid}"
+    parent = self()
+
+    blocking_mirror = fn os, arch, _bytes ->
+      send(parent, {:mirror_ready, self()})
+
+      receive do
+        :continue_import -> {:ok, "native-addons/#{addon_id}/0.1.0/#{os}-#{arch}/obj"}
+      after
+        10_000 -> {:error, :barrier_timeout}
+      end
+    end
+
+    import = fn ->
+      Importer.import_entry_with_disposition(
+        manifest(addon_id, uid),
+        entry(addon_id, uid),
+        signed_artifacts(priv, uid),
+        public_key: pub,
+        mirror: blocking_mirror,
+        actor: actor
+      )
+    end
+
+    tasks = [Task.async(import), Task.async(import)]
+    release_mirror_barrier!(2)
+    results = Enum.map(tasks, &Task.await(&1, 30_000))
+
+    assert Enum.all?(results, &match?({:ok, %AddonPackage{}, _disposition}, &1))
+
+    assert results |> Enum.map(fn {:ok, _package, disposition} -> disposition end) |> Enum.sort() ==
+             [:created, :reused]
+
+    assert results
+           |> Enum.map(fn {:ok, package, _disposition} -> package.id end)
+           |> Enum.uniq()
+           |> length() ==
+             1
+
+    assert package_count(addon_id, actor) == 1
+  end
+
+  test "concurrent imports with different immutable sources return one conflict", %{
+    actor: actor,
+    uid: uid
+  } do
+    {pub, priv} = :crypto.generate_key(:eddsa, :ed25519)
+    addon_id = "different-source-race-#{uid}"
+    parent = self()
+
+    blocking_mirror = fn os, arch, _bytes ->
+      send(parent, {:mirror_ready, self()})
+
+      receive do
+        :continue_import -> {:ok, "native-addons/#{addon_id}/0.1.0/#{os}-#{arch}/obj"}
+      after
+        10_000 -> {:error, :barrier_timeout}
+      end
+    end
+
+    import = fn source_suffix ->
+      Importer.import_entry(
+        manifest(addon_id, uid),
+        entry(addon_id, uid, %{
+          "oci_ref" => "registry.carverauto.dev/serviceradar/#{addon_id}:#{source_suffix}",
+          "oci_digest" => "sha256:#{String.duplicate(source_suffix, 64)}"
+        }),
+        signed_artifacts(priv, uid),
+        public_key: pub,
+        mirror: blocking_mirror,
+        actor: actor
+      )
+    end
+
+    tasks = [Task.async(fn -> import.("a") end), Task.async(fn -> import.("b") end)]
+    release_mirror_barrier!(2)
+    results = Enum.map(tasks, &Task.await(&1, 30_000))
+
+    assert Enum.count(results, &match?({:ok, %AddonPackage{}}, &1)) == 1
+
+    assert Enum.count(results, fn
+             {:error, {:native_addon_version_source_conflict, _details}} -> true
+             _ -> false
+           end) == 1
+
+    assert package_count(addon_id, actor) == 1
+  end
+
+  defp release_mirror_barrier!(count) do
+    pids =
+      Enum.map(1..count, fn _index ->
+        assert_receive {:mirror_ready, pid}, 10_000
+        pid
+      end)
+
+    Enum.each(pids, &send(&1, :continue_import))
+  end
+
+  defp package_count(addon_id, actor) do
+    AddonPackage
+    |> Ash.Query.for_read(:by_addon_id, %{addon_id: addon_id}, actor: actor)
+    |> Ash.read!(actor: actor)
+    |> length()
   end
 end

@@ -33,7 +33,8 @@ mkdir -p /etc/serviceradar/checkers
 
 # Set proper ownership and permissions
 chown -R serviceradar:serviceradar /etc/serviceradar/checkers
-chown -R serviceradar:serviceradar /var/lib/serviceradar
+# This package does not own native add-on state below the shared data root.
+chown serviceradar:serviceradar /var/lib/serviceradar
 chmod 755 /usr/local/bin/serviceradar-rperf
 chmod 644 /etc/serviceradar/rperf/rperf.conf
 
