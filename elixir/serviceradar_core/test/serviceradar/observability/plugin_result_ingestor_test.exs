@@ -864,6 +864,71 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest do
     assert [[true, _, _]] = current_state_rows(second_status)
   end
 
+  test "cross-gateway copies of one observation serialize one active logical state" do
+    Application.put_env(:serviceradar_core, :plugin_result_handlers, [])
+    {payload, first_status, observed_at} = plugin_result_fixture()
+    second_status = %{first_status | gateway_id: "#{first_status.gateway_id}-alternate"}
+
+    observation_lock_identity =
+      Jason.encode!([
+        "plugin-result-observation",
+        first_status.agent_id,
+        first_status.partition,
+        first_status.service_type,
+        first_status.service_name,
+        DateTime.to_iso8601(observed_at)
+      ])
+
+    parent = self()
+
+    lock_holder =
+      Task.async(fn ->
+        Repo.transaction(fn ->
+          Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+            observation_lock_identity
+          ])
+
+          send(parent, :cross_gateway_observation_lock_held)
+
+          receive do
+            :release_cross_gateway_observation_lock -> :ok
+          after
+            5_000 -> raise "timed out waiting to release cross-gateway observation lock"
+          end
+        end)
+      end)
+
+    assert_receive :cross_gateway_observation_lock_held
+
+    tasks =
+      for status <- [first_status, second_status] do
+        Task.async(fn ->
+          result = PluginResultIngestor.ingest(payload, status)
+          send(parent, {:cross_gateway_ingest_done, status.gateway_id})
+          result
+        end)
+      end
+
+    refute_receive {:cross_gateway_ingest_done, _gateway_id}, 250
+    send(lock_holder.pid, :release_cross_gateway_observation_lock)
+    assert {:ok, :ok} = Task.await(lock_holder, 5_000)
+    assert [:ok, :ok] = Enum.map(tasks, &Task.await(&1, 5_000))
+
+    for status <- [first_status, second_status] do
+      assert [[^observed_at, true, "edge plugin completed", details]] = history_rows(status)
+
+      assert %{"_serviceradar_plugin_result" => %{"kind" => "reported"}} =
+               Jason.decode!(details)
+    end
+
+    logical_states = logical_current_state_rows(first_status)
+    assert length(logical_states) == 2
+    assert Enum.count(logical_states, fn [_gateway_id, state] -> state == "active" end) == 1
+
+    assert MapSet.new(logical_states, fn [gateway_id, _state] -> gateway_id end) ==
+             MapSet.new([first_status.gateway_id, second_status.gateway_id])
+  end
+
   test "notification-aware state upserts do not publish effects from a rolled-back transaction" do
     {_payload, status, observed_at} = plugin_result_fixture()
     :ok = ServiceStatePubSub.subscribe()
@@ -1186,6 +1251,26 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest do
       [
         status.agent_id,
         status.gateway_id,
+        status.partition,
+        status.service_type,
+        status.service_name
+      ]
+    ).rows
+  end
+
+  defp logical_current_state_rows(status) do
+    Repo.query!(
+      """
+      SELECT gateway_id, state
+      FROM platform.service_state
+      WHERE agent_id = $1
+        AND partition = $2
+        AND service_type = $3
+        AND service_name = $4
+      ORDER BY gateway_id
+      """,
+      [
+        status.agent_id,
         status.partition,
         status.service_type,
         status.service_name

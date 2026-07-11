@@ -681,11 +681,10 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   end
 
   defp acquire_status_slot_locks(status_row) do
-    logical_lock_identity =
+    observation_lock_identity =
       Jason.encode!([
         "plugin-result-observation",
         status_row.agent_id,
-        status_row.gateway_id,
         status_row.partition,
         status_row.service_type,
         status_row.service_name,
@@ -699,7 +698,10 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
         status_row.service_name
       ])
 
-    with :ok <- acquire_status_slot_lock(logical_lock_identity) do
+    # Keep a stable order shared with lifecycle mutations: logical state,
+    # logical observation, then the physical service_status slot domain.
+    with :ok <- ServiceStateRegistry.acquire_plugin_state_lock(status_row),
+         :ok <- acquire_status_slot_lock(observation_lock_identity) do
       acquire_status_slot_lock(slot_lock_identity)
     end
   end

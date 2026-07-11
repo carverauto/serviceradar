@@ -4,9 +4,11 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
 
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Observability.ServiceStateRegistry
+  alias ServiceRadar.Observability.ServiceStatus
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Repo
 
   require Ash.Query
 
@@ -33,6 +35,50 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
 
     assert assignment_id == to_string(assignment.id)
     assert plugin_id == package.plugin_id
+  end
+
+  test "assignment state reconciliation waits for the shared logical plugin lock" do
+    gateway = gateway_fixture()
+    agent = agent_fixture(gateway, %{uid: unique_id("agent")})
+    package = approved_package_fixture("serviceradar.plugin_result.v1")
+    assignment = assignment_fixture(agent.uid, package.id)
+    parent = self()
+
+    identity = %{
+      agent_id: agent.uid,
+      partition: "default",
+      service_type: "plugin",
+      service_name: package.name
+    }
+
+    lock_holder =
+      Task.async(fn ->
+        Repo.transaction(fn ->
+          assert :ok = ServiceStateRegistry.acquire_plugin_state_lock(identity)
+          send(parent, :assignment_plugin_state_lock_held)
+
+          receive do
+            :release_assignment_plugin_state_lock -> :ok
+          after
+            5_000 -> raise "timed out waiting to release assignment plugin state lock"
+          end
+        end)
+      end)
+
+    assert_receive :assignment_plugin_state_lock_held
+
+    upsert_task =
+      Task.async(fn ->
+        result = ServiceStateRegistry.upsert_for_assignment(assignment)
+        send(parent, :assignment_state_upsert_done)
+        result
+      end)
+
+    refute_receive :assignment_state_upsert_done, 250
+    send(lock_holder.pid, :release_assignment_plugin_state_lock)
+    assert {:ok, :ok} = Task.await(lock_holder, 5_000)
+    assert :ok = Task.await(upsert_task, 5_000)
+    assert service_state_for(agent, package.name).state == "active"
   end
 
   test "streaming plugin assignments keep ready service rows" do
@@ -227,6 +273,125 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
     assert [state] = active_logical_states_for(agent, service_name)
     assert state.gateway_id == "serviceradar_agent_gateway@10.42.0.11"
     assert state.message == "newer gateway result"
+  end
+
+  test "history repair preserves the exact gateway from service status history" do
+    gateway = gateway_fixture()
+    agent = agent_fixture(gateway, %{uid: unique_id("agent")})
+    package = approved_package_fixture("serviceradar.plugin_result.v1")
+    _assignment = assignment_fixture(agent.uid, package.id)
+    historical_gateway_id = "serviceradar_agent_gateway@10.42.0.99"
+    observed_at = DateTime.utc_now() |> DateTime.add(-10, :second) |> DateTime.truncate(:microsecond)
+
+    ServiceStatus
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        timestamp: observed_at,
+        gateway_id: historical_gateway_id,
+        agent_id: agent.uid,
+        service_name: package.name,
+        service_type: "plugin",
+        available: true,
+        message: "historical plugin result",
+        details: Jason.encode!(%{"status" => "OK", "summary" => "historical plugin result"}),
+        partition: "default",
+        created_at: observed_at
+      },
+      actor: system_actor()
+    )
+    |> Ash.create!(domain: ServiceRadar.Observability)
+
+    assert {:ok, count} = ServiceStateRegistry.repair_plugin_states_from_history()
+    assert count >= 1
+
+    assert [state] = active_logical_states_for(agent, package.name)
+    assert state.gateway_id == historical_gateway_id
+    assert state.gateway_id != agent.gateway_id
+    assert state.message == "historical plugin result"
+  end
+
+  test "assignment deactivation deactivates every gateway variant" do
+    gateway = gateway_fixture()
+    agent = agent_fixture(gateway, %{uid: unique_id("agent")})
+    package = approved_package_fixture("serviceradar.plugin_result.v1")
+    assignment = assignment_fixture(agent.uid, package.id)
+    now = DateTime.utc_now()
+
+    states =
+      for gateway_id <- [agent.gateway_id, "serviceradar_agent_gateway@10.42.0.88"] do
+        insert_service_state!(%{
+          agent_id: agent.uid,
+          gateway_id: gateway_id,
+          partition: "default",
+          service_type: "plugin",
+          service_name: package.name,
+          available: true,
+          message: "active plugin result",
+          last_observed_at: now,
+          state: "active"
+        })
+      end
+
+    assert :ok = ServiceStateRegistry.deactivate_for_assignment(assignment)
+    assert [] = active_logical_states_for(agent, package.name)
+    assert Enum.all?(states, &(reloaded_state(&1).state == "inactive"))
+  end
+
+  test "package deactivation deactivates every assigned gateway variant" do
+    gateway = gateway_fixture()
+    agent = agent_fixture(gateway, %{uid: unique_id("agent")})
+    package = approved_package_fixture("serviceradar.plugin_result.v1")
+    _assignment = assignment_fixture(agent.uid, package.id)
+    now = DateTime.utc_now()
+
+    states =
+      for gateway_id <- [agent.gateway_id, "serviceradar_agent_gateway@10.42.0.77"] do
+        insert_service_state!(%{
+          agent_id: agent.uid,
+          gateway_id: gateway_id,
+          partition: "default",
+          service_type: "plugin",
+          service_name: package.name,
+          available: true,
+          message: "active plugin result",
+          last_observed_at: now,
+          state: "active"
+        })
+      end
+
+    assert :ok = ServiceStateRegistry.deactivate_for_package(package)
+    assert [] = active_logical_states_for(agent, package.name)
+    assert Enum.all?(states, &(reloaded_state(&1).state == "inactive"))
+  end
+
+  test "package deactivation cleans orphaned gateway variants after assignment deletion" do
+    gateway = gateway_fixture()
+    agent = agent_fixture(gateway, %{uid: unique_id("agent")})
+    package = approved_package_fixture("serviceradar.plugin_result.v1")
+    assignment = assignment_fixture(agent.uid, package.id)
+    now = DateTime.utc_now()
+
+    states =
+      for gateway_id <- [agent.gateway_id, "serviceradar_agent_gateway@10.42.0.66"] do
+        insert_service_state!(%{
+          agent_id: agent.uid,
+          gateway_id: gateway_id,
+          partition: "default",
+          service_type: "plugin",
+          service_name: package.name,
+          available: true,
+          message: "orphaned plugin result",
+          details: Jason.encode!(%{"plugin_id" => package.plugin_id}),
+          last_observed_at: now,
+          state: "active"
+        })
+      end
+
+    assert :ok = Ash.destroy!(assignment, actor: system_actor(), domain: ServiceRadar.Plugins)
+    assert :ok = ServiceStateRegistry.deactivate_for_package(package)
+    assert [] = active_logical_states_for(agent, package.name)
+    assert Enum.all?(states, &(reloaded_state(&1).state == "inactive"))
   end
 
   test "agent-reported plugin status preserves payload details for service cards" do

@@ -20,6 +20,32 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   @streaming_plugin_capability "camera_media_stream"
   @streaming_plugin_output "serviceradar.camera_stream.v1"
   @plugin_result_output "serviceradar.plugin_result.v1"
+  @plugin_state_lock_namespace "plugin-service-state"
+
+  @doc false
+  @spec acquire_plugin_state_lock(map()) :: :ok | {:error, term()}
+  def acquire_plugin_state_lock(identity) when is_map(identity) do
+    lock_identity =
+      identity
+      |> logical_plugin_identity()
+      |> then(fn identity ->
+        Jason.encode!([
+          @plugin_state_lock_namespace,
+          identity.agent_id,
+          identity.partition,
+          identity.service_type,
+          identity.service_name
+        ])
+      end)
+
+    case Repo.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [lock_identity]) do
+      {:ok, _result} -> :ok
+      {:error, reason} -> {:error, {:plugin_state_lock_acquire_failed, reason}}
+      other -> {:error, {:unexpected_plugin_state_lock_result, other}}
+    end
+  end
+
+  def acquire_plugin_state_lock(_identity), do: {:error, :invalid_plugin_state_identity}
 
   @spec upsert_from_status(map()) :: :ok
   def upsert_from_status(status) when is_map(status) do
@@ -330,7 +356,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
 
     case Repo.query(latest_plugin_status_sql(), [interval, limit]) do
       {:ok, %{rows: rows}} ->
-        Enum.each(rows, fn row -> upsert_from_status(status_from_history_row(row)) end)
+        Enum.each(rows, fn row -> upsert_history_status(status_from_history_row(row)) end)
 
         case deactivate_inactive_plugin_state_count() do
           {:ok, inactive_count} -> {:ok, length(rows) + inactive_count}
@@ -345,6 +371,52 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     error ->
       Logger.warning("Plugin service state history repair failed: #{Exception.message(error)}")
       {:error, error}
+  end
+
+  defp upsert_history_status(status) do
+    case Repo.transaction(fn ->
+           with :ok <- acquire_plugin_state_lock(status),
+                {:ok, notifications, side_effects} <-
+                  do_upsert_from_status_strict(status, true, preserve_gateway?: true) do
+             {notifications, side_effects}
+           else
+             {:error, reason} -> Repo.rollback(reason)
+           end
+         end) do
+      {:ok, {notifications, side_effects}} ->
+        _ = Ash.Notifier.notify(notifications)
+
+        case dispatch_deferred_side_effects(side_effects) do
+          :ok ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning(
+              "Plugin service state history repair side-effects failed: #{inspect(reason)}"
+            )
+
+            :ok
+        end
+
+      {:error, reason} ->
+        Logger.warning("Plugin service state history row repair failed: #{inspect(reason)}")
+        :ok
+
+      other ->
+        Logger.warning("Unexpected plugin service state history repair result: #{inspect(other)}")
+        :ok
+    end
+  rescue
+    error ->
+      Logger.warning(
+        "Plugin service state history row repair failed: #{Exception.message(error)}"
+      )
+
+      :ok
+  catch
+    kind, reason ->
+      Logger.warning("Plugin service state history row repair failed: #{inspect({kind, reason})}")
+      :ok
   end
 
   @spec upsert_for_assignment(PluginAssignment.t()) :: :ok
@@ -409,7 +481,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     with {:ok, package} <- load_package(assignment, actor),
          {:ok, agent} <- Agent.get_by_uid(assignment.agent_uid, actor: actor) do
       identity = identity_from_agent(agent, package.name, "plugin", assignment.agent_uid)
-      deactivate_by_identity(identity, actor)
+      deactivate_logical_plugin_states(identity, actor)
     else
       {:error, reason} ->
         Logger.warning("Failed to resolve service identity for assignment: #{inspect(reason)}")
@@ -436,6 +508,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
           deactivate_assignment_with_package(assignment, package, actor)
         end)
 
+        deactivate_orphaned_package_states(package, actor)
+
       {:error, reason} ->
         Logger.warning("Failed to load plugin assignments: #{inspect(reason)}")
         :ok
@@ -452,7 +526,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     case Agent.get_by_uid(assignment.agent_uid, actor: actor) do
       {:ok, agent} ->
         identity = identity_from_agent(agent, package.name, "plugin", assignment.agent_uid)
-        deactivate_by_identity(identity, actor)
+        deactivate_logical_plugin_states(identity, actor)
 
       {:error, reason} ->
         Logger.warning("Failed to resolve agent for assignment: #{inspect(reason)}")
@@ -460,32 +534,144 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     end
   end
 
-  defp deactivate_by_identity(identity, actor) when is_map(identity) do
-    ServiceState
-    |> Ash.Query.for_read(:by_identity, identity, actor: actor)
-    |> Ash.read_one(actor: actor, domain: ServiceRadar.Observability)
-    |> case do
-      {:ok, nil} ->
+  defp deactivate_orphaned_package_states(%PluginPackage{} = package, actor) do
+    params = [
+      package.name,
+      package.plugin_id,
+      @plugin_result_output,
+      @streaming_plugin_output,
+      @streaming_plugin_capability
+    ]
+
+    case Repo.query(orphaned_package_state_identities_sql(), params) do
+      {:ok, %{rows: rows}} ->
+        Enum.each(rows, fn [agent_id, partition, service_type, service_name] ->
+          deactivate_logical_plugin_states(
+            %{
+              agent_id: agent_id,
+              partition: partition,
+              service_type: service_type,
+              service_name: service_name
+            },
+            actor
+          )
+        end)
+
         :ok
 
-      {:ok, state} ->
-        state
-        |> Ash.Changeset.for_update(:deactivate, %{}, actor: actor)
-        |> Ash.update(domain: ServiceRadar.Observability)
-        |> case do
-          {:ok, updated} ->
-            ServiceStatePubSub.broadcast_update(updated)
-            :ok
-
-          {:error, error} ->
-            Logger.warning("Failed to deactivate service state: #{inspect(error)}")
-            :ok
-        end
-
-      {:error, error} ->
-        Logger.warning("Failed to load service state: #{inspect(error)}")
+      {:error, reason} ->
+        Logger.warning("Failed to load orphaned package service states: #{inspect(reason)}")
         :ok
     end
+  end
+
+  defp deactivate_logical_plugin_states(identity, actor) when is_map(identity) do
+    identity = logical_plugin_identity(identity)
+
+    case Repo.transaction(fn ->
+           with :ok <- acquire_plugin_state_lock(identity),
+                {:ok, states} <- active_logical_plugin_states(identity, actor),
+                {:ok, notifications, updated_states} <-
+                  deactivate_states_with_notifications(states, actor) do
+             {notifications, updated_states}
+           else
+             {:error, reason} -> Repo.rollback(reason)
+           end
+         end) do
+      {:ok, {notifications, updated_states}} ->
+        _ = Ash.Notifier.notify(notifications)
+        Enum.each(updated_states, &ServiceStatePubSub.broadcast_update/1)
+        :ok
+
+      {:error, error} ->
+        Logger.warning("Failed to deactivate logical plugin state: #{inspect(error)}")
+        :ok
+
+      other ->
+        Logger.warning("Unexpected logical plugin state deactivate result: #{inspect(other)}")
+        :ok
+    end
+  end
+
+  defp active_logical_plugin_states(identity, actor) do
+    ServiceState
+    |> filter(
+      agent_id == ^identity.agent_id and
+        partition == ^identity.partition and
+        service_type == ^identity.service_type and
+        service_name == ^identity.service_name and
+        state == "active"
+    )
+    |> Ash.read(actor: actor, domain: ServiceRadar.Observability)
+  end
+
+  defp deactivate_states_with_notifications(states, actor) when is_list(states) do
+    Enum.reduce_while(states, {:ok, [], []}, fn state, {:ok, notifications, updated_states} ->
+      state
+      |> Ash.Changeset.for_update(:deactivate, %{}, actor: actor)
+      |> Ash.update(domain: ServiceRadar.Observability, return_notifications?: true)
+      |> case do
+        {:ok, updated, state_notifications} ->
+          {:cont, {:ok, notifications ++ state_notifications, updated_states ++ [updated]}}
+
+        {:error, error} ->
+          {:halt, {:error, error}}
+      end
+    end)
+  end
+
+  defp orphaned_package_state_identities_sql do
+    """
+    SELECT DISTINCT
+      service_state.agent_id,
+      service_state.partition,
+      service_state.service_type,
+      service_state.service_name
+    FROM platform.service_state AS service_state
+    WHERE service_state.service_type = 'plugin'
+      AND service_state.state = 'active'
+      AND (
+        service_state.service_name = $1
+        OR (
+          service_state.details IS JSON
+          AND (
+            service_state.details::jsonb #>> '{labels,plugin_id}' = $2
+            OR service_state.details::jsonb ->> 'plugin_id' = $2
+          )
+        )
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM platform.plugin_assignments AS assignment
+        JOIN platform.plugin_packages AS package
+          ON package.id = assignment.plugin_package_id
+        WHERE assignment.enabled = true
+          AND assignment.agent_uid = service_state.agent_id
+          AND (
+            package.name = service_state.service_name
+            OR (
+              service_state.details IS JSON
+              AND (
+                service_state.details::jsonb #>> '{labels,plugin_id}' = package.plugin_id
+                OR service_state.details::jsonb ->> 'plugin_id' = package.plugin_id
+              )
+            )
+          )
+          AND (
+            package.outputs IN ($3, $4)
+            OR $5 = ANY(package.approved_capabilities)
+            OR (
+              coalesce(array_length(package.approved_capabilities, 1), 0) = 0
+              AND package.manifest->'capabilities' ? $5
+            )
+          )
+      )
+    ORDER BY
+      service_state.agent_id,
+      service_state.partition,
+      service_state.service_type,
+      service_state.service_name
+    """
   end
 
   defp deactivate_shadowed_plugin_states(
@@ -892,16 +1078,79 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   end
 
   defp maybe_upsert_assignment_state(attrs, actor) do
+    case Repo.transaction(fn ->
+           with :ok <- acquire_plugin_state_lock(attrs),
+                {:ok, notifications, side_effects} <-
+                  prepare_assignment_state_upsert(attrs, actor) do
+             {notifications, side_effects}
+           else
+             {:error, reason} -> Repo.rollback(reason)
+           end
+         end) do
+      {:ok, {notifications, side_effects}} ->
+        _ = Ash.Notifier.notify(notifications)
+
+        case dispatch_deferred_side_effects(side_effects) do
+          :ok ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning("Assignment service state side-effects failed: #{inspect(reason)}")
+            :ok
+        end
+
+      {:error, error} ->
+        Logger.warning("Assignment service state upsert failed: #{inspect(error)}")
+        :ok
+
+      other ->
+        Logger.warning("Unexpected assignment service state upsert result: #{inspect(other)}")
+        :ok
+    end
+  end
+
+  defp prepare_assignment_state_upsert(attrs, actor) do
     case load_existing_logical_state(attrs, actor) do
       {:ok, %ServiceState{state: "active"} = state} ->
         if assignment_placeholder_state?(state) do
-          upsert_service_state(attrs, actor)
+          upsert_assignment_state_with_notifications(attrs, actor)
         else
-          :ok
+          {:ok, [], []}
         end
 
-      _ ->
-        upsert_service_state(attrs, actor)
+      {:ok, nil} ->
+        upsert_assignment_state_with_notifications(attrs, actor)
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp upsert_assignment_state_with_notifications(attrs, actor) do
+    previous = previous_service_availability(attrs, actor)
+
+    ServiceState
+    |> Ash.Changeset.for_create(:upsert, attrs, actor: actor)
+    |> Ash.create(
+      domain: ServiceRadar.Observability,
+      return_notifications?: true
+    )
+    |> case do
+      {:ok, state, notifications} ->
+        if upsert_skipped?(state) do
+          {:ok, [], []}
+        else
+          {side_effect_notifications, side_effects} =
+            prepare_state_upsert_side_effects(state, previous, actor)
+
+          {:ok, notifications ++ side_effect_notifications, side_effects}
+        end
+
+      {:error, error} ->
+        {:error, error}
+
+      other ->
+        {:error, {:unexpected_assignment_service_state_upsert_result, other}}
     end
   end
 
@@ -954,29 +1203,6 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   defp assignment_initial_state("streaming"), do: {true, "streaming plugin ready"}
   defp assignment_initial_state(_), do: {false, "plugin assignment pending result"}
 
-  defp upsert_service_state(attrs, actor) when is_map(attrs) do
-    ServiceState
-    |> Ash.Changeset.for_create(:upsert, attrs, actor: actor)
-    |> Ash.create(domain: ServiceRadar.Observability)
-    |> case do
-      {:ok, state} ->
-        if !upsert_skipped?(state) do
-          deactivate_shadowed_plugin_states(state, actor)
-          ServiceStatePubSub.broadcast_update(state)
-        end
-
-        :ok
-
-      {:error, error} ->
-        Logger.warning("Failed to upsert service state: #{inspect(error)}")
-        :ok
-
-      other ->
-        Logger.warning("Unexpected service state upsert result: #{inspect(other)}")
-        :ok
-    end
-  end
-
   defp load_package(%PluginAssignment{} = assignment, actor) do
     PluginPackage
     |> Ash.Query.filter(id == ^assignment.plugin_package_id)
@@ -990,6 +1216,16 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
       partition: resolve_partition_from_agent(agent),
       service_type: service_type,
       service_name: normalize_string(service_name, "unknown")
+    }
+  end
+
+  defp logical_plugin_identity(identity) when is_map(identity) do
+    %{
+      agent_id: normalize_string(fetch(identity, :agent_id), "unknown"),
+      partition:
+        normalize_string(fetch(identity, :partition) || fetch(identity, :partition_id), "default"),
+      service_type: normalize_string(fetch(identity, :service_type), "plugin"),
+      service_name: normalize_string(fetch(identity, :service_name), "unknown")
     }
   end
 
