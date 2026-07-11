@@ -1,5 +1,6 @@
 defmodule ServiceRadarWebNGWeb.SecurityDiagnosticsShowTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
+  use ServiceRadarWebNG.AshTestHelpers
 
   import Phoenix.LiveViewTest
 
@@ -31,7 +32,14 @@ defmodule ServiceRadarWebNGWeb.SecurityDiagnosticsShowTest do
   end
 
   test "event detail renders Falco runtime diagnostics with partial attribution", %{conn: conn} do
-    {:ok, _lv, html} = live(conn, ~p"/events/falco-event-1")
+    source_device =
+      device_fixture(%{
+        uid: "falco-source-device",
+        hostname: "k8s-cp2-worker2",
+        ip: "10.42.3.25"
+      })
+
+    {:ok, lv, html} = live(conn, ~p"/events/falco-event-1")
 
     assert html =~ "Signal Details"
     assert html =~ "Falco Evidence"
@@ -44,6 +52,17 @@ defmodule ServiceRadarWebNGWeb.SecurityDiagnosticsShowTest do
     assert html =~ "Network Destination"
     assert html =~ "10.42.0.1"
     assert html =~ "partial (missing kubernetes.namespace, kubernetes.pod)"
+
+    assert has_element?(
+             lv,
+             "a[href='#{~p"/devices/#{source_device.uid}"}']",
+             "10.42.3.25"
+           )
+
+    destination_search =
+      ~p"/devices?#{%{q: ~s(in:devices ip:\"10.42.0.1\"), limit: 50}}"
+
+    assert has_element?(lv, "a[href='#{destination_search}']", "10.42.0.1")
   end
 
   test "event detail renders Trivy vulnerability findings from the display contract", %{conn: conn} do

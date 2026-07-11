@@ -167,6 +167,12 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
 
     assert_push "frames:replace", %{
       "frames" => [
+        %{"id" => "required", "status" => "ok"}
+      ]
+    }
+
+    assert_push "frames:replace", %{
+      "frames" => [
         %{"id" => "required", "status" => "ok"},
         %{"id" => "optional", "status" => "ok"}
       ]
@@ -203,6 +209,12 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
 
     assert_push "frames:replace", %{
       "frames" => [
+        %{"id" => "required", "status" => "ok"}
+      ]
+    }
+
+    assert_push "frames:replace", %{
+      "frames" => [
         %{"id" => "required", "status" => "ok"},
         %{"id" => "optional", "status" => "ok"}
       ]
@@ -216,6 +228,49 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
 
     assert_receive {:srql_query, "in:test_rows"}
     refute_receive {:srql_query, "in:test_optional_rows"}, 100
+  end
+
+  test "active optional frames do not block the required-frame update", %{user: user, scope: scope} do
+    Application.put_env(:serviceradar_web_ng, :dashboard_frame_test_pid, self())
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_web_ng, :dashboard_frame_test_pid)
+    end)
+
+    route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+
+    data_frames = [
+      %{"id" => "required", "query" => "in:test_rows", "encoding" => "json_rows", "limit" => 1},
+      %{
+        "id" => "optional",
+        "query" => "in:test_slow_rows",
+        "encoding" => "json_rows",
+        "limit" => 1,
+        "required" => false
+      }
+    ]
+
+    create_dashboard_instance!(route_slug, data_frames, scope)
+    token = DashboardFrameChannel.stream_token(route_slug, data_frames, ["optional"])
+
+    assert {:ok, _reply, _socket} =
+             UserSocket
+             |> socket("user-id", %{current_user: user, current_scope: scope})
+             |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{"token" => token})
+
+    assert_push "frames:replace", %{
+      "frames" => [%{"id" => "required", "status" => "ok"}]
+    }
+
+    assert_receive {:srql_query_started, "in:test_slow_rows", optional_query_pid}
+    send(optional_query_pid, :release_dashboard_frame_query)
+
+    assert_push "frames:replace", %{
+      "frames" => [
+        %{"id" => "required", "status" => "ok"},
+        %{"id" => "optional", "status" => "ok"}
+      ]
+    }
   end
 
   test "refresh errors preserve last successful frame results as stale", %{user: user, scope: scope} do
