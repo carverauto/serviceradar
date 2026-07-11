@@ -183,8 +183,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
         policy_id: policy_id,
         agent_id: agent_id,
         input_name: input["name"],
-        chunk_index: input["chunk_index"],
-        chunk_hash: input["chunk_hash"]
+        chunk_index: input["chunk_index"]
       }
       |> :erlang.term_to_binary()
       |> then(&:crypto.hash(:sha256, &1))
