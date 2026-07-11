@@ -85,13 +85,29 @@ struct Counters {
     listener_errors: u64,
 }
 
+#[derive(Debug, Default)]
+struct Degradations {
+    listener: Option<String>,
+    producer: Option<String>,
+    telemetry: Option<String>,
+}
+
+impl Degradations {
+    fn reason(&self) -> Option<&str> {
+        self.listener
+            .as_deref()
+            .or(self.telemetry.as_deref())
+            .or(self.producer.as_deref())
+    }
+}
+
 #[derive(Debug)]
 struct State {
     config: Config,
     config_hash: String,
     listener: Option<tokio::task::JoinHandle<()>>,
     counters: Counters,
-    degradation_reason: String,
+    degradations: Degradations,
     generation: u64,
     configured_at: Instant,
     last_producer_activity_at: Option<Instant>,
@@ -115,7 +131,7 @@ impl Default for PowerDnsAddon {
                 config_hash: String::new(),
                 listener: None,
                 counters: Counters::default(),
-                degradation_reason: String::new(),
+                degradations: Degradations::default(),
                 generation: 0,
                 configured_at: Instant::now(),
                 last_producer_activity_at: None,
@@ -150,7 +166,7 @@ impl Addon for PowerDnsAddon {
 
         state.config = config.clone();
         state.config_hash = config_hash.clone();
-        state.degradation_reason.clear();
+        state.degradations = Degradations::default();
         state.generation = state.generation.wrapping_add(1);
         state.configured_at = Instant::now();
         state.last_producer_activity_at = None;
@@ -210,7 +226,7 @@ fn spawn_listener(
             let mut state = state.lock().await;
             if state.generation == generation {
                 state.counters.listener_errors = state.counters.listener_errors.saturating_add(1);
-                state.degradation_reason = err.to_string();
+                state.degradations.listener = Some(err.to_string());
             }
         }
     })
@@ -250,7 +266,7 @@ async fn run_listener(
                 if state_guard.generation == generation {
                     state_guard.counters.listener_errors =
                         state_guard.counters.listener_errors.saturating_add(1);
-                    state_guard.degradation_reason = err.to_string();
+                    state_guard.degradations.producer = Some(err.to_string());
                 }
             }
         });
@@ -284,8 +300,12 @@ async fn handle_connection(
             Ok(message) => message,
             Err(err) => {
                 let mut state = state.lock().await;
-                state.counters.decode_failures = state.counters.decode_failures.saturating_add(1);
-                state.degradation_reason = format!("decode PowerDNS protobuf frame: {err}");
+                if state.generation == generation {
+                    state.counters.decode_failures =
+                        state.counters.decode_failures.saturating_add(1);
+                    state.degradations.producer =
+                        Some(format!("decode PowerDNS protobuf frame: {err}"));
+                }
                 continue;
             }
         };
@@ -296,6 +316,7 @@ async fn handle_connection(
         }
 
         state_guard.last_producer_activity_at = Some(Instant::now());
+        state_guard.degradations.producer = None;
         state_guard.counters.received = state_guard.counters.received.saturating_add(1);
 
         let Some(record) = map_message_to_record(&message, &config) else {
@@ -314,11 +335,12 @@ async fn handle_connection(
         match telemetry_tx.send(batch) {
             Ok(_) => {
                 state_guard.counters.emitted = state_guard.counters.emitted.saturating_add(1);
-                state_guard.degradation_reason.clear();
+                state_guard.degradations.telemetry = None;
             }
             Err(_) => {
                 state_guard.counters.dropped = state_guard.counters.dropped.saturating_add(1);
-                state_guard.degradation_reason = "no active telemetry receiver".to_owned();
+                state_guard.degradations.telemetry =
+                    Some("no active telemetry receiver".to_owned());
             }
         }
     }
@@ -331,6 +353,7 @@ fn register_producer_connection(state: &mut State, generation: u64, now: Instant
 
     state.active_producer_connections = state.active_producer_connections.saturating_add(1);
     state.last_producer_activity_at = Some(now);
+    state.degradations.producer = None;
     true
 }
 
@@ -348,8 +371,8 @@ fn health_status(state: &State, now: Instant) -> (HealthStatus, String) {
         return (HealthStatus::Healthy, String::new());
     }
 
-    if !state.degradation_reason.is_empty() {
-        return (HealthStatus::Degraded, state.degradation_reason.clone());
+    if let Some(reason) = state.degradations.reason() {
+        return (HealthStatus::Degraded, reason.to_owned());
     }
 
     if state.active_producer_connections > 0 {
@@ -819,7 +842,7 @@ mod tests {
             config_hash: String::new(),
             listener: None,
             counters: Counters::default(),
-            degradation_reason: String::new(),
+            degradations: Degradations::default(),
             generation: 7,
             configured_at: now,
             last_producer_activity_at: None,
@@ -857,6 +880,44 @@ mod tests {
 
         assert!(register_producer_connection(&mut state, 7, now));
         assert_eq!(health_status(&state, now).0, HealthStatus::Healthy);
+    }
+
+    #[test]
+    fn producer_reconnect_clears_transient_error_without_policy_hit() {
+        let now = Instant::now();
+        let mut state = health_test_state(now);
+        state.degradations.producer = Some("connection reset by peer".to_owned());
+
+        assert_eq!(health_status(&state, now).0, HealthStatus::Degraded);
+        assert!(register_producer_connection(&mut state, 7, now));
+
+        assert_eq!(state.degradations.producer, None);
+        assert_eq!(health_status(&state, now).0, HealthStatus::Healthy);
+    }
+
+    #[test]
+    fn producer_reconnect_preserves_non_producer_degradations() {
+        let now = Instant::now();
+        let mut state = health_test_state(now);
+        state.degradations.listener = Some("listener failed".to_owned());
+        state.degradations.producer = Some("connection reset by peer".to_owned());
+        state.degradations.telemetry = Some("no active telemetry receiver".to_owned());
+
+        assert!(register_producer_connection(&mut state, 7, now));
+
+        assert_eq!(state.degradations.producer, None);
+        assert_eq!(
+            state.degradations.listener.as_deref(),
+            Some("listener failed")
+        );
+        assert_eq!(
+            state.degradations.telemetry.as_deref(),
+            Some("no active telemetry receiver")
+        );
+        assert_eq!(
+            health_status(&state, now),
+            (HealthStatus::Degraded, "listener failed".to_owned())
+        );
     }
 
     #[test]
