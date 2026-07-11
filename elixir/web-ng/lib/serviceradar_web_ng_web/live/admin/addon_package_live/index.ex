@@ -185,6 +185,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     repo_url = socket.assigns.first_party_repo_url
     release_tag = socket.assigns.first_party_release_tag
     limit = first_party_sync_limit()
+    scope = socket.assigns.current_scope
 
     {:noreply,
      socket
@@ -193,7 +194,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
        AddonPackages.sync_first_party_addons(
          repo_url: repo_url,
          release_tag: release_tag,
-         limit: limit
+         limit: limit,
+         scope: scope
        )
      end)}
   end

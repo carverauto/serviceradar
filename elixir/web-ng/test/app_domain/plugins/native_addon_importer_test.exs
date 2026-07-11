@@ -65,7 +65,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
           {:ok, %Req.Response{status: 200, body: Process.get(:native_addon_release)}}
 
         String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases?per_page=") ->
-          {:ok, %Req.Response{status: 200, body: Process.get(:native_addon_recent_releases, [])}}
+          Process.get(:native_addon_recent_releases_result) ||
+            {:ok, %Req.Response{status: 200, body: Process.get(:native_addon_recent_releases, [])}}
 
         String.ends_with?(url, "/serviceradar-native-addon-index.json") ->
           {:ok, %Req.Response{status: 200, body: Process.get(:native_addon_index_body)}}
@@ -76,12 +77,13 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
             Process.get(:native_addon_manifest_requests, 0) + 1
           )
 
-          {:ok,
-           %Req.Response{
-             status: Process.get(:native_addon_manifest_status, 200),
-             body: Process.get(:native_addon_manifest),
-             headers: %{"docker-content-digest" => [Process.get(:native_addon_oci_digest)]}
-           }}
+          Process.get(:native_addon_manifest_result) ||
+            {:ok,
+             %Req.Response{
+               status: Process.get(:native_addon_manifest_status, 200),
+               body: Process.get(:native_addon_manifest),
+               headers: %{"docker-content-digest" => [Process.get(:native_addon_oci_digest)]}
+             }}
 
         blob = blob_for(url) ->
           {:ok, %Req.Response{status: 200, body: blob}}
@@ -259,19 +261,34 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert DateTime.after?(successor.scheduled_at, DateTime.utc_now())
   end
 
-  test "manual sync is not blocked forever by an executing periodic job" do
+  test "bootstrap recognizes an executing periodic job while manual sync remains available" do
     executing = insert_executing_sync_job!()
 
-    assert {:ok, scheduled} = NativeAddonSyncWorker.ensure_scheduled()
-    refute scheduled.conflict?
-    assert scheduled.worker == inspect(NativeAddonSyncWorker)
     assert {:ok, :already_scheduled} = NativeAddonSyncWorker.ensure_scheduled()
 
     assert {:ok, manual} = NativeAddonSyncWorker.enqueue_now(limit: 1)
     refute manual.conflict?
     assert manual.id != executing.id
-    assert manual.id != scheduled.id
     assert manual.state == "available"
+  end
+
+  test "a transient discovery failure does not enqueue a periodic successor" do
+    configure_sync_worker(auto_sync_enabled: true)
+    Process.put(:native_addon_recent_releases_result, {:error, :temporary_registry_failure})
+    executing = insert_executing_sync_job!()
+
+    assert {:error, :temporary_registry_failure} =
+             NativeAddonSyncWorker.perform(%{executing | args: %{}})
+
+    worker_jobs =
+      Repo.all(
+        from(job in Job,
+          where: job.worker == ^inspect(NativeAddonSyncWorker),
+          order_by: [asc: job.id]
+        )
+      )
+
+    assert Enum.map(worker_jobs, & &1.id) == [executing.id]
   end
 
   test "sync worker skips an exact verified package before fetching a removed historical manifest", %{
@@ -345,6 +362,92 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert is_nil(repaired.verification_error)
     assert is_nil(repaired.approved_by)
     assert repaired.approved_capabilities == []
+  end
+
+  test "sync worker repairs an otherwise exact package with a verification error", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+    configure_sync_worker()
+
+    assert {:ok, package} =
+             NativeAddonImporter.import(%{
+               "repo_url" => @repo_url,
+               "release_tag" => "v1.0.0",
+               "addon_id" => "sample-addon",
+               "version" => "1.0.0"
+             })
+
+    update_sample_package!(package, %{verification_error: "prior verification failed"})
+    Process.put(:native_addon_manifest_requests, 0)
+
+    log =
+      capture_sync_log(fn ->
+        assert :ok =
+                 NativeAddonSyncWorker.perform(%Job{args: %{"force" => true, "limit" => 10}})
+      end)
+
+    assert log =~ "import_ready=1 imported=1 skipped=0 failed=0"
+    assert Process.get(:native_addon_manifest_requests) == 1
+
+    [repaired] = sample_packages()
+    assert repaired.status == :staged
+    assert is_nil(repaired.verification_error)
+    assert repaired.artifacts == package.artifacts
+  end
+
+  for reviewed_status <- [:staged, :approved, :denied, :revoked] do
+    test "a repaired #{reviewed_status} package stays staged on the next exact auto-approve sync", %{
+      private_key: private_key
+    } do
+      reviewed_status = unquote(reviewed_status)
+      install_fixtures(private_key)
+      configure_sync_worker(auto_approve_addon_ids: ["sample-addon"])
+
+      assert {:ok, package} =
+               NativeAddonImporter.import(%{
+                 "repo_url" => @repo_url,
+                 "release_tag" => "v1.0.0",
+                 "addon_id" => "sample-addon",
+                 "version" => "1.0.0"
+               })
+
+      package = move_package_to_status!(package, reviewed_status)
+
+      corrupt_artifact =
+        package.artifacts
+        |> Map.fetch!("linux/amd64")
+        |> Map.put("object_key", "native-addons/sample-addon/1.0.0/linux/amd64/corrupt.tar.gz")
+
+      update_sample_package!(package, %{
+        artifacts: Map.put(package.artifacts, "linux/amd64", corrupt_artifact)
+      })
+
+      assert :ok =
+               NativeAddonSyncWorker.perform(%Job{args: %{"force" => true, "limit" => 10}})
+
+      [repaired] = sample_packages()
+      assert repaired.status == :staged
+      assert is_nil(repaired.approved_by)
+      assert repaired.approved_capabilities == []
+
+      Process.put(:native_addon_manifest_requests, 0)
+
+      log =
+        capture_sync_log(fn ->
+          assert :ok =
+                   NativeAddonSyncWorker.perform(%Job{
+                     args: %{"force" => true, "limit" => 10}
+                   })
+        end)
+
+      assert log =~ "import_ready=1 imported=0 skipped=1 failed=0"
+      assert Process.get(:native_addon_manifest_requests) == 0
+
+      [still_staged] = sample_packages()
+      assert still_staged.status == :staged
+      assert is_nil(still_staged.approved_by)
+    end
   end
 
   test "sync worker repairs a platform whose persisted tarball digest is wrong", %{
@@ -583,6 +686,77 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert length(sample_packages()) == 1
   end
 
+  test "sync worker recursively redacts secrets in discovery failures" do
+    configure_sync_worker()
+
+    private_key = "-----BEGIN OPENSSH PRIVATE KEY-----\nprivate-key-secret\n-----END OPENSSH PRIVATE KEY-----"
+
+    Process.put(
+      :native_addon_recent_releases_result,
+      {:error,
+       {:transport,
+        %{
+          api_token: "api-token-secret",
+          nested: [
+            %{"password" => "password-secret"},
+            %{private_key: private_key},
+            "passphrase=inline-secret",
+            ~s({"api_token":"json-secret"})
+          ]
+        }}}
+    )
+
+    log =
+      capture_sync_log(fn ->
+        assert {:error, {:transport, _details}} =
+                 NativeAddonSyncWorker.perform(%Job{args: %{"force" => true, "limit" => 10}})
+      end)
+
+    assert log =~ "First-party native add-on sync failed"
+    assert log =~ "REDACTED"
+    refute log =~ "api-token-secret"
+    refute log =~ "password-secret"
+    refute log =~ "private-key-secret"
+    refute log =~ "inline-secret"
+    refute log =~ "json-secret"
+    assert byte_size(log) < 1_500
+  end
+
+  test "sync worker sanitizes and bounds untrusted package metadata", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+    configure_sync_worker()
+
+    addon_secret = "addon-secret"
+    version_secret = "version-secret"
+    [sample_entry] = index_map([])["addons"]
+
+    untrusted_entry =
+      sample_entry
+      |> Map.put("addon_id", "api_token=#{addon_secret}" <> String.duplicate("x", 600))
+      |> Map.put("version", "password=#{version_secret}" <> String.duplicate("y", 600))
+
+    Process.put(
+      :native_addon_index_body,
+      Jason.encode!(%{"schema_version" => 1, "addons" => [untrusted_entry]})
+    )
+
+    log =
+      capture_sync_log(fn ->
+        assert :ok = NativeAddonSyncWorker.perform(%Job{args: %{"force" => true, "limit" => 10}})
+      end)
+
+    assert log =~ "First-party native add-on package sync failed"
+    assert log =~ "api_token=REDACTED"
+    assert log =~ "password=REDACTED"
+    refute log =~ addon_secret
+    refute log =~ version_secret
+    refute log =~ String.duplicate("x", 200)
+    refute log =~ String.duplicate("y", 200)
+    assert byte_size(log) < 2_000
+  end
+
   test "sync_first_party_addons is idempotent: the second run skips already-imported packages", %{
     private_key: private_key
   } do
@@ -599,6 +773,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert first.skipped == 0
     assert first.failed == []
 
+    Process.put(:native_addon_manifest_requests, 0)
+    Process.put(:native_addon_manifest_status, 404)
+
     assert {:ok, second} =
              AddonPackages.sync_first_party_addons(
                repo_url: @repo_url,
@@ -609,6 +786,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert second.imported == 0
     assert second.skipped == 1
     assert second.failed == []
+    assert Process.get(:native_addon_manifest_requests) == 0
 
     # Still exactly one package row for the entry — nothing was duplicated.
     actor = SystemActor.system(:native_addon_sync_test)
@@ -620,6 +798,148 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
       |> Ash.read!(actor: actor)
 
     assert length(packages) == 1
+  end
+
+  test "sync_first_party_addons repairs an exact-version package with a corrupt object key", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+
+    assert {:ok, %{imported: 1}} =
+             AddonPackages.sync_first_party_addons(
+               repo_url: @repo_url,
+               release_tag: "v1.0.0",
+               limit: 10
+             )
+
+    [package] = sample_packages()
+
+    corrupt =
+      package.artifacts
+      |> Map.fetch!("linux/amd64")
+      |> Map.put("object_key", "wrong/object/key")
+
+    update_sample_package!(package, %{
+      artifacts: Map.put(package.artifacts, "linux/amd64", corrupt)
+    })
+
+    Process.put(:native_addon_manifest_requests, 0)
+
+    assert {:ok, summary} =
+             AddonPackages.sync_first_party_addons(
+               repo_url: @repo_url,
+               release_tag: "v1.0.0",
+               limit: 10
+             )
+
+    assert summary.imported == 1
+    assert summary.skipped == 0
+    assert summary.failed == []
+    assert Process.get(:native_addon_manifest_requests) == 1
+
+    [repaired] = sample_packages()
+    assert repaired.status == :staged
+
+    assert repaired.artifacts["linux/amd64"]["object_key"] ==
+             NativeAddonArtifactMirror.object_key(
+               "sample-addon",
+               "1.0.0",
+               "linux",
+               "amd64",
+               tarball_sha256()
+             )
+  end
+
+  test "sync_first_party_addons reports immutable OCI source drift without fetching it", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+
+    assert {:ok, %{imported: 1}} =
+             AddonPackages.sync_first_party_addons(
+               repo_url: @repo_url,
+               release_tag: "v1.0.0",
+               limit: 10
+             )
+
+    changed_digest = "sha256:" <> String.duplicate("f", 64)
+    Process.put(:native_addon_index_body, Jason.encode!(index_map(oci_digest: changed_digest)))
+    Process.put(:native_addon_manifest_requests, 0)
+
+    assert {:ok, summary} =
+             AddonPackages.sync_first_party_addons(
+               repo_url: @repo_url,
+               release_tag: "v1.0.0",
+               limit: 10
+             )
+
+    assert summary.imported == 0
+    assert summary.skipped == 0
+
+    assert [
+             %{
+               error:
+                 {:native_addon_version_source_conflict,
+                  %{reason: :oci_source_mismatch, existing_source_type: :first_party}}
+             }
+           ] = summary.failed
+
+    assert Process.get(:native_addon_manifest_requests) == 0
+    [persisted] = sample_packages()
+    assert persisted.source_oci_digest == @oci_digest
+  end
+
+  for source_type <- [:upload, :github] do
+    test "sync_first_party_addons never overwrites a #{source_type}-owned version with nil OCI fields", %{
+      private_key: private_key
+    } do
+      source_type = unquote(source_type)
+      install_fixtures(private_key)
+      actor = SystemActor.system(:native_addon_sync_test)
+
+      {:ok, owned} =
+        AddonPackage
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            addon_id: "sample-addon",
+            version: "1.0.0",
+            name: "Externally owned",
+            source_type: source_type,
+            source_oci_ref: nil,
+            source_oci_digest: nil,
+            artifacts: %{},
+            verification_status: "verified"
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      Process.put(:native_addon_manifest_requests, 0)
+
+      assert {:ok, summary} =
+               AddonPackages.sync_first_party_addons(
+                 repo_url: @repo_url,
+                 release_tag: "v1.0.0",
+                 limit: 10
+               )
+
+      assert summary.imported == 0
+      assert summary.skipped == 0
+
+      assert [
+               %{
+                 error:
+                   {:native_addon_version_source_conflict,
+                    %{reason: :source_type_owned, existing_source_type: ^source_type}}
+               }
+             ] = summary.failed
+
+      assert Process.get(:native_addon_manifest_requests) == 0
+      {:ok, persisted} = Ash.get(AddonPackage, owned.id, actor: actor)
+      assert persisted.source_type == source_type
+      assert persisted.artifacts == %{}
+    end
   end
 
   test "rejects a tarball signed with a key other than the release key" do
@@ -674,6 +994,54 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
              })
 
     refute_received {:uploaded, _key, _size}
+  end
+
+  test "rejects duplicate normalized artifact platforms before mirroring", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key, platforms: ["amd64", "AMD64"])
+
+    assert {:error, {:duplicate_artifact_platform, "linux/amd64"}} =
+             NativeAddonImporter.import(%{
+               "repo_url" => @repo_url,
+               "release_tag" => "v1.0.0",
+               "addon_id" => "sample-addon",
+               "version" => "1.0.0"
+             })
+
+    refute_received {:uploaded, _key, _size}
+    assert sample_packages() == []
+  end
+
+  test "rejects a cosign-verified bundle whose manifest identity differs from its index entry", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+    mismatched_yaml = String.replace(@manifest_yaml, "id: sample-addon", "id: different-addon")
+    mismatched_bundle = bundle_with_manifest(mismatched_yaml)
+    Process.put(:native_addon_bundle, mismatched_bundle)
+
+    Process.put(:native_addon_index_body, Jason.encode!(index_map([])))
+    Process.put(:native_addon_manifest, oci_manifest())
+
+    Process.put(
+      :native_addon_blobs,
+      :native_addon_blobs
+      |> Process.get()
+      |> Map.put(bundle_digest(), mismatched_bundle)
+    )
+
+    assert {:error,
+            {:native_addon_identity_mismatch, %{entry_addon_id: "sample-addon", manifest_addon_id: "different-addon"}}} =
+             NativeAddonImporter.import(%{
+               "repo_url" => @repo_url,
+               "release_tag" => "v1.0.0",
+               "addon_id" => "sample-addon",
+               "version" => "1.0.0"
+             })
+
+    refute_received {:uploaded, _key, _size}
+    assert sample_packages() == []
   end
 
   # --- fixtures -----------------------------------------------------------------
@@ -785,24 +1153,28 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
   defp bundle do
     case Process.get(:native_addon_bundle) do
       nil ->
-        path = Path.join(System.tmp_dir!(), "sr-native-addon-#{System.unique_integer([:positive])}.zip")
-
-        try do
-          {:ok, _zip} =
-            :zip.create(String.to_charlist(path), [
-              {~c"addon.yaml", @manifest_yaml},
-              {~c"config.schema.json", Jason.encode!(%{"type" => "object"})}
-            ])
-
-          payload = File.read!(path)
-          Process.put(:native_addon_bundle, payload)
-          payload
-        after
-          File.rm(path)
-        end
+        payload = bundle_with_manifest(@manifest_yaml)
+        Process.put(:native_addon_bundle, payload)
+        payload
 
       payload ->
         payload
+    end
+  end
+
+  defp bundle_with_manifest(manifest_yaml) do
+    path = Path.join(System.tmp_dir!(), "sr-native-addon-#{System.unique_integer([:positive])}.zip")
+
+    try do
+      {:ok, _zip} =
+        :zip.create(String.to_charlist(path), [
+          {~c"addon.yaml", manifest_yaml},
+          {~c"config.schema.json", Jason.encode!(%{"type" => "object"})}
+        ])
+
+      File.read!(path)
+    after
+      File.rm(path)
     end
   end
 
@@ -855,6 +1227,39 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
   defp update_sample_package!(package, attrs) do
     package
     |> Ash.Changeset.for_update(:update, attrs, actor: SystemActor.system(:native_addon_sync_test))
+    |> Ash.update!()
+  end
+
+  defp move_package_to_status!(package, :staged), do: package
+
+  defp move_package_to_status!(package, :approved) do
+    package
+    |> Ash.Changeset.for_update(
+      :approve,
+      %{approved_capabilities: package.capabilities, approved_by: "reviewer"},
+      actor: SystemActor.system(:native_addon_sync_test)
+    )
+    |> Ash.update!()
+  end
+
+  defp move_package_to_status!(package, :denied) do
+    package
+    |> Ash.Changeset.for_update(
+      :deny,
+      %{denied_reason: "reviewed"},
+      actor: SystemActor.system(:native_addon_sync_test)
+    )
+    |> Ash.update!()
+  end
+
+  defp move_package_to_status!(package, :revoked) do
+    package
+    |> move_package_to_status!(:approved)
+    |> Ash.Changeset.for_update(
+      :revoke,
+      %{denied_reason: "revoked"},
+      actor: SystemActor.system(:native_addon_sync_test)
+    )
     |> Ash.update!()
   end
 

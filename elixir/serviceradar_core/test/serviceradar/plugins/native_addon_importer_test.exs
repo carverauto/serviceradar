@@ -140,6 +140,48 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterTest do
       mirror = fn _os, _arch, _bytes -> flunk("must not mirror an unverified artifact") end
       assert {:error, :invalid_signature} = Importer.verify_and_mirror(artifacts, pub, mirror)
     end
+
+    test "rejects duplicate normalized platforms before mirroring" do
+      {pub, priv} = keypair()
+      tarball = "duplicate-platform"
+      signature = priv |> sign(tarball) |> Base.encode16(case: :lower)
+
+      artifact = %{
+        os: "linux",
+        arch: "amd64",
+        tarball: tarball,
+        sha256: :sha256 |> :crypto.hash(tarball) |> Base.encode16(case: :lower),
+        signature: signature,
+        signature_digest: signature_digest(signature)
+      }
+
+      duplicate = %{artifact | os: " Linux ", arch: "AMD64"}
+
+      mirror = fn _os, _arch, _bytes ->
+        flunk("duplicate platforms must fail before mirroring")
+      end
+
+      assert {:error, {:duplicate_artifact_platform, "linux/amd64"}} =
+               Importer.verify_and_mirror([artifact, duplicate], pub, mirror)
+    end
+  end
+
+  test "rejects a bundle manifest identity that differs from the selected index entry" do
+    {pub, _priv} = keypair()
+    entry = %{"addon_id" => "netprobe", "version" => "0.1.0"}
+    mismatched_manifest = Map.put(manifest(), "id", "different-addon")
+
+    assert {:error, {:native_addon_identity_mismatch, mismatch}} =
+             Importer.import_entry(mismatched_manifest, entry, [],
+               public_key: pub,
+               mirror: fn _os, _arch, _bytes ->
+                 flunk("identity mismatch must fail before mirroring")
+               end,
+               actor: %{}
+             )
+
+    assert mismatch.entry_addon_id == "netprobe"
+    assert mismatch.manifest_addon_id == "different-addon"
   end
 
   describe "package_attrs/4" do
@@ -187,6 +229,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterTest do
     test "maps the manifest + index entry into create attrs (enum atoms, source refs)" do
       entry = %{
         "addon_id" => "netprobe",
+        "version" => "0.1.0",
         "oci_ref" => "registry.carverauto.dev/serviceradar/serviceradar-addon-netprobe:sha-abc",
         "oci_digest" => "sha256:deadbeef"
       }

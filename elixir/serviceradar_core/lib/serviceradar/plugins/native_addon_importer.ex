@@ -89,7 +89,8 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
     mirror = Keyword.fetch!(opts, :mirror)
     actor = Keyword.fetch!(opts, :actor)
 
-    with :ok <- ensure_not_retired_native_addon(manifest, entry),
+    with :ok <- ensure_entry_identity(manifest, entry),
+         :ok <- ensure_not_retired_native_addon(manifest, entry),
          {:ok, mirrored} <- verify_and_mirror(artifacts, public_key, mirror),
          {:ok, attrs} <- package_attrs(manifest, entry, mirrored, opts) do
       upsert_package(attrs, actor)
@@ -99,27 +100,116 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
   defp upsert_package(%{addon_id: addon_id, version: version} = attrs, actor) do
     case find_package(addon_id, version, actor) do
       {:ok, nil} ->
-        AddonPackage
-        |> Ash.Changeset.for_create(:create, attrs, actor: actor)
-        |> Ash.create()
+        case create_package(attrs, actor) do
+          {:ok, %AddonPackage{} = package} -> {:ok, package}
+          {:error, create_error} -> reconcile_after_create_error(attrs, actor, create_error)
+        end
 
       {:ok, %AddonPackage{} = package} ->
-        action = if package.status == :staged, do: :update, else: :reimport
+        reconcile_package(package, attrs, actor)
 
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp create_package(attrs, actor) do
+    AddonPackage
+    |> Ash.Changeset.for_create(:create, attrs, actor: actor)
+    |> Ash.create()
+  end
+
+  defp reconcile_after_create_error(
+         %{addon_id: addon_id, version: version} = attrs,
+         actor,
+         create_error
+       ) do
+    case find_package(addon_id, version, actor) do
+      {:ok, %AddonPackage{} = package} -> reconcile_package(package, attrs, actor)
+      {:ok, nil} -> {:error, create_error}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp reconcile_package(%AddonPackage{} = package, attrs, actor) do
+    cond do
+      package.source_type != :first_party ->
+        {:error, source_conflict(package, attrs, :source_type_owned)}
+
+      source_disagrees?(package, attrs) ->
+        {:error, source_conflict(package, attrs, :oci_source_mismatch)}
+
+      exact_verified_package?(package, attrs) ->
+        {:ok, package}
+
+      true ->
         with {:ok, updated} <-
                package
-               |> Ash.Changeset.for_update(action, Map.drop(attrs, [:addon_id, :version]),
+               |> Ash.Changeset.for_update(:reimport, Map.drop(attrs, [:addon_id, :version]),
                  actor: actor
                )
                |> Ash.update(),
              :ok <- ProducerScheduleCatalog.sync_package(updated, actor: actor) do
           {:ok, updated}
         end
-
-      {:error, _reason} = error ->
-        error
     end
   end
+
+  defp exact_verified_package?(package, attrs) do
+    package.verification_status == "verified" and is_nil(package.verification_error) and
+      package.artifacts == attrs.artifacts
+  end
+
+  defp source_disagrees?(package, attrs) do
+    populated_source_disagrees?(
+      package.source_oci_ref,
+      attrs.source_oci_ref,
+      &normalize_source/1
+    ) or
+      populated_source_disagrees?(
+        package.source_oci_digest,
+        attrs.source_oci_digest,
+        &normalize_digest/1
+      )
+  end
+
+  defp populated_source_disagrees?(existing, discovered, normalize) do
+    case normalize.(existing) do
+      nil -> false
+      normalized_existing -> normalized_existing != normalize.(discovered)
+    end
+  end
+
+  defp source_conflict(package, attrs, reason) do
+    {:native_addon_version_source_conflict,
+     %{
+       reason: reason,
+       addon_id: attrs.addon_id,
+       version: attrs.version,
+       existing_source_type: package.source_type,
+       existing_oci_ref: package.source_oci_ref,
+       existing_oci_digest: package.source_oci_digest,
+       discovered_oci_ref: attrs.source_oci_ref,
+       discovered_oci_digest: attrs.source_oci_digest
+     }}
+  end
+
+  defp normalize_source(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_source(_value), do: nil
+
+  defp normalize_digest(value) when is_binary(value) do
+    value
+    |> String.downcase()
+    |> normalize_source()
+  end
+
+  defp normalize_digest(_value), do: nil
 
   defp find_package(addon_id, version, actor) do
     AddonPackage
@@ -137,13 +227,50 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
   @spec verify_and_mirror([fetched_artifact()], binary(), function()) ::
           {:ok, %{String.t() => map()}} | {:error, term()}
   def verify_and_mirror(artifacts, public_key, mirror) do
-    Enum.reduce_while(artifacts, {:ok, %{}}, fn artifact, {:ok, acc} ->
-      case verify_and_mirror_one(artifact, public_key, mirror) do
-        {:ok, {key, value}} -> {:cont, {:ok, Map.put(acc, key, value)}}
-        {:error, _reason} = error -> {:halt, error}
+    with :ok <- ensure_unique_artifact_platforms(artifacts) do
+      Enum.reduce_while(artifacts, {:ok, %{}}, fn artifact, {:ok, acc} ->
+        case verify_and_mirror_one(artifact, public_key, mirror) do
+          {:ok, {key, value}} -> {:cont, {:ok, Map.put(acc, key, value)}}
+          {:error, _reason} = error -> {:halt, error}
+        end
+      end)
+    end
+  end
+
+  defp ensure_unique_artifact_platforms(artifacts) do
+    artifacts
+    |> Enum.reduce_while({:ok, MapSet.new()}, fn artifact, {:ok, seen} ->
+      case normalized_artifact_platform(artifact) do
+        {:ok, platform} ->
+          if MapSet.member?(seen, platform) do
+            {:halt, {:error, {:duplicate_artifact_platform, platform}}}
+          else
+            {:cont, {:ok, MapSet.put(seen, platform)}}
+          end
+
+        {:error, _reason} = error ->
+          {:halt, error}
       end
     end)
+    |> case do
+      {:ok, _seen} -> :ok
+      {:error, _reason} = error -> error
+    end
   end
+
+  defp normalized_artifact_platform(%{os: os, arch: arch})
+       when is_binary(os) and is_binary(arch) do
+    os = os |> String.trim() |> String.downcase()
+    arch = arch |> String.trim() |> String.downcase()
+
+    if os != "" and arch != "" do
+      {:ok, "#{os}/#{arch}"}
+    else
+      {:error, :invalid_artifact}
+    end
+  end
+
+  defp normalized_artifact_platform(_artifact), do: {:error, :invalid_artifact}
 
   defp verify_and_mirror_one(%{os: os, arch: arch} = artifact, public_key, mirror)
        when is_binary(os) and is_binary(arch) and os != "" and arch != "" do
@@ -315,6 +442,27 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
 
       _ ->
         nil
+    end
+  end
+
+  defp ensure_entry_identity(manifest, entry) do
+    manifest_addon_id = string_value(manifest, "id")
+    manifest_version = string_value(manifest, "version")
+    entry_addon_id = string_value(entry, "addon_id")
+    entry_version = string_value(entry, "version")
+
+    if manifest_addon_id == entry_addon_id and manifest_version == entry_version and
+         not is_nil(entry_addon_id) and not is_nil(entry_version) do
+      :ok
+    else
+      {:error,
+       {:native_addon_identity_mismatch,
+        %{
+          manifest_addon_id: manifest_addon_id,
+          manifest_version: manifest_version,
+          entry_addon_id: entry_addon_id,
+          entry_version: entry_version
+        }}}
     end
   end
 
