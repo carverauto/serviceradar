@@ -20,7 +20,12 @@ import (
 	gproto "google.golang.org/protobuf/proto"
 )
 
-const unknownStatus = "UNKNOWN"
+const (
+	unknownStatus          = "UNKNOWN"
+	testPluginAssignmentID = "assign-1"
+	testQueuedAssignmentID = "already-queued"
+	testPluginPagePayload  = `{"page":2}`
+)
 
 func TestAdmitAssignmentsEnforcesLimits(t *testing.T) {
 	mgr := &PluginManager{logger: logger.NewTestLogger()}
@@ -93,10 +98,10 @@ func TestPluginExecutionSubmitScheduledResultWaitsForQueueAdmission(t *testing.T
 	defer mgr.Stop()
 
 	mgr.results = make(chan PluginResult, 1)
-	mgr.results <- PluginResult{AssignmentID: "already-queued"}
+	mgr.results <- PluginResult{AssignmentID: testQueuedAssignmentID}
 
 	exec := newPluginExecution(mgr, &pluginAssignment{
-		AssignmentID: "assign-1",
+		AssignmentID: testPluginAssignmentID,
 		PluginID:     "alienvault-otx-threat-intel",
 		Name:         "AlienVault OTX",
 	})
@@ -105,7 +110,7 @@ func TestPluginExecutionSubmitScheduledResultWaitsForQueueAdmission(t *testing.T
 
 	done := make(chan int32, 1)
 	go func() {
-		done <- exec.submitScheduledResult(ctx, []byte(`{"page":2}`))
+		done <- exec.submitScheduledResult(ctx, []byte(testPluginPagePayload))
 	}()
 
 	select {
@@ -115,7 +120,7 @@ func TestPluginExecutionSubmitScheduledResultWaitsForQueueAdmission(t *testing.T
 	}
 
 	first := <-mgr.results
-	if first.AssignmentID != "already-queued" {
+	if first.AssignmentID != testQueuedAssignmentID {
 		t.Fatalf("first queued assignment = %q, want already-queued", first.AssignmentID)
 	}
 
@@ -129,7 +134,7 @@ func TestPluginExecutionSubmitScheduledResultWaitsForQueueAdmission(t *testing.T
 	}
 
 	result := <-mgr.results
-	if result.AssignmentID != "assign-1" || string(result.Payload) != `{"page":2}` {
+	if result.AssignmentID != testPluginAssignmentID || string(result.Payload) != testPluginPagePayload {
 		t.Fatalf("unexpected admitted result: %#v", result)
 	}
 	if !exec.hasSubmitted() {
@@ -142,13 +147,13 @@ func TestPluginExecutionSubmitScheduledResultReportsCanceledAdmission(t *testing
 	defer mgr.Stop()
 
 	mgr.results = make(chan PluginResult, 1)
-	mgr.results <- PluginResult{AssignmentID: "already-queued"}
-	exec := newPluginExecution(mgr, &pluginAssignment{AssignmentID: "assign-1"})
+	mgr.results <- PluginResult{AssignmentID: testQueuedAssignmentID}
+	exec := newPluginExecution(mgr, &pluginAssignment{AssignmentID: testPluginAssignmentID})
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	if code := exec.submitScheduledResult(ctx, []byte(`{"page":2}`)); code != pluginErrInternal {
+	if code := exec.submitScheduledResult(ctx, []byte(testPluginPagePayload)); code != pluginErrInternal {
 		t.Fatalf("submitScheduledResult returned %d, want %d", code, pluginErrInternal)
 	}
 	if exec.hasSubmitted() {
@@ -164,14 +169,14 @@ func TestPluginExecutionSubmitScheduledResultReportsAdmissionTimeout(t *testing.
 	defer mgr.Stop()
 
 	mgr.results = make(chan PluginResult, 1)
-	mgr.results <- PluginResult{AssignmentID: "already-queued"}
-	exec := newPluginExecution(mgr, &pluginAssignment{AssignmentID: "assign-1"})
+	mgr.results <- PluginResult{AssignmentID: testQueuedAssignmentID}
+	exec := newPluginExecution(mgr, &pluginAssignment{AssignmentID: testPluginAssignmentID})
 
 	ctx, cancel := context.WithTimeout(t.Context(), time.Nanosecond)
 	defer cancel()
 	<-ctx.Done()
 
-	if code := exec.submitScheduledResult(ctx, []byte(`{"page":2}`)); code != pluginErrTimeout {
+	if code := exec.submitScheduledResult(ctx, []byte(testPluginPagePayload)); code != pluginErrTimeout {
 		t.Fatalf("submitScheduledResult returned %d, want %d", code, pluginErrTimeout)
 	}
 	if exec.hasSubmitted() {
@@ -181,7 +186,7 @@ func TestPluginExecutionSubmitScheduledResultReportsAdmissionTimeout(t *testing.
 
 func TestDecodePluginTelemetryBuildsTelemetryBatch(t *testing.T) {
 	assignment := &pluginAssignment{
-		AssignmentID: "assign-1",
+		AssignmentID: testPluginAssignmentID,
 		PluginID:     "axis",
 		Name:         "Axis Camera",
 	}
@@ -203,7 +208,7 @@ func TestDecodePluginTelemetryBuildsTelemetryBatch(t *testing.T) {
 		t.Fatalf("decodePluginTelemetry() error = %v", err)
 	}
 
-	if signal.AssignmentID != "assign-1" || signal.PluginID != "axis" || signal.PluginName != "Axis Camera" {
+	if signal.AssignmentID != testPluginAssignmentID || signal.PluginID != "axis" || signal.PluginName != "Axis Camera" {
 		t.Fatalf("unexpected signal identity: %#v", signal)
 	}
 	if signal.Batch.GetSource().GetSourceType() != "axis-camera" {
@@ -230,7 +235,7 @@ func TestDecodePluginTelemetryBuildsTelemetryBatch(t *testing.T) {
 
 func TestDecodePluginTelemetryAcceptsServiceRadarMetricBatch(t *testing.T) {
 	assignment := &pluginAssignment{
-		AssignmentID: "assign-1",
+		AssignmentID: testPluginAssignmentID,
 		PluginID:     "metric-plugin",
 		Name:         "Metric Plugin",
 	}
@@ -298,7 +303,7 @@ func TestDecodePluginTelemetryAcceptsServiceRadarMetricBatch(t *testing.T) {
 
 func TestDecodePluginTelemetryRejectsJSONMetricPayload(t *testing.T) {
 	assignment := &pluginAssignment{
-		AssignmentID: "assign-1",
+		AssignmentID: testPluginAssignmentID,
 		PluginID:     "metric-plugin",
 		Name:         "Metric Plugin",
 	}
@@ -334,7 +339,7 @@ func TestTelemetryPayloadKindAcceptsServiceRadarMetricAliases(t *testing.T) {
 
 func TestBuildPluginSignalGatewayStatusWrapsTelemetryBatch(t *testing.T) {
 	signal := PluginSignalTelemetry{
-		AssignmentID: "assign-1",
+		AssignmentID: testPluginAssignmentID,
 		PluginID:     "axis",
 		Batch: &addonpb.TelemetryBatch{
 			Source: &addonpb.TelemetrySource{SourceType: "axis-camera", SourceInstance: "front-door"},
@@ -1259,7 +1264,7 @@ func TestNormalizePluginPayload(t *testing.T) {
 	observed := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
 
 	result := PluginResult{
-		AssignmentID: "assign-1",
+		AssignmentID: testPluginAssignmentID,
 		PluginID:     "plugin-1",
 		PluginName:   "HTTP Check",
 		Payload:      []byte(`{"status":"ok","summary":"all good","labels":{"region":"iad"}}`),
@@ -1293,7 +1298,7 @@ func TestNormalizePluginPayload(t *testing.T) {
 	if labels["region"] != "iad" {
 		t.Fatalf("expected region label to be preserved")
 	}
-	if labels["assignment_id"] != "assign-1" {
+	if labels["assignment_id"] != testPluginAssignmentID {
 		t.Fatalf("expected assignment_id label to be set")
 	}
 	if labels["plugin_id"] != "plugin-1" {
@@ -1374,7 +1379,7 @@ func TestNormalizePluginPayloadMapsFailedStatus(t *testing.T) {
 func TestBuildPluginErrorPayload(t *testing.T) {
 	pl := &PushLoop{}
 	result := PluginResult{
-		AssignmentID: "assign-1",
+		AssignmentID: testPluginAssignmentID,
 		PluginID:     "plugin-1",
 		PluginName:   "HTTP Check",
 	}
