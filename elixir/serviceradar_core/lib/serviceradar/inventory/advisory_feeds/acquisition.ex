@@ -22,6 +22,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
 
   @vulncheck_base "https://api.vulncheck.com/v3/backup"
   @default_timeout_ms 120_000
+  @user_agent "ServiceRadar advisory-feed-fetcher"
 
   @type acquired :: %{
           extracted_dir: Path.t(),
@@ -134,15 +135,23 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
     timeout = Keyword.get(opts, :timeout_ms, @default_timeout_ms)
 
     _ = File.mkdir_p(Path.dirname(dest_path))
+    _ = File.rm(dest_path)
 
     # No Authorization header on the presigned S3 GET — the URL is self-signed.
     case http_get.(url, into: File.stream!(dest_path), receive_timeout: timeout) do
       :ok -> :ok
-      {:ok, _resp} -> :ok
-      {:error, reason} -> {:error, {:download_failed, reason}}
+      {:ok, %{status: status}} when status in 200..299 -> :ok
+      {:ok, %{status: status}} -> download_error(dest_path, {:http_status, status})
+      {:error, reason} -> download_error(dest_path, reason)
+      other -> download_error(dest_path, {:invalid_http_result, other})
     end
   rescue
-    error -> {:error, {:download_failed, error}}
+    error -> download_error(dest_path, error)
+  end
+
+  defp download_error(dest_path, reason) do
+    _ = File.rm(dest_path)
+    {:error, {:download_failed, reason}}
   end
 
   defp maybe_verify_sha256(_path, sha256, _opts) when sha256 in [nil, ""], do: :ok
@@ -165,7 +174,14 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
   defp default_get_json(url, headers) do
     require_req!()
 
-    case Req.get(url, headers: headers, decode_body: :json) do
+    case Req.get(url,
+           headers: [{"user-agent", @user_agent} | headers],
+           decode_body: :json,
+           receive_timeout: @default_timeout_ms,
+           retry: :transient,
+           max_retries: 3,
+           finch: ServiceRadar.Finch
+         ) do
       {:ok, %{status: 200, body: body}} when is_map(body) -> {:ok, body}
       {:ok, %{status: status}} -> {:error, {:http_status, status}}
       {:error, reason} -> {:error, reason}
@@ -174,7 +190,16 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
 
   defp default_stream_get(url, opts) do
     require_req!()
-    {:ok, Req.get!([url: url] ++ opts)}
+
+    Req.get(
+      [
+        url: url,
+        headers: [{"user-agent", @user_agent}],
+        retry: :transient,
+        max_retries: 3,
+        finch: ServiceRadar.Finch
+      ] ++ opts
+    )
   end
 
   defp require_req! do

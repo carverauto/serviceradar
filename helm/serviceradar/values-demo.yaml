@@ -288,6 +288,10 @@ networkPolicy:
       # Allow IEEE OUI refresh from standards-oui.ieee.org
       # (resolved on 2026-02-28 to 140.98.223.27).
       - "140.98.223.27/32"
+      # Allow CISA KEV refresh from www.cisa.gov's current Akamai edge.
+      # Kubernetes NetworkPolicy cannot match FQDNs; resolved on 2026-07-11
+      # to 23.210.150.135 and summarized to the serving /24.
+      - "23.210.150.0/24"
       # Allow ARIN Whois-RWS ASN lookups from web-ng flow details modal.
       # whois.arin.net resolves (2026-02-28) to:
       # - 199.5.26.46
