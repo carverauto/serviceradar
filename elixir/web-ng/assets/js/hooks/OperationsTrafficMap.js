@@ -41,9 +41,16 @@ function normalizePoint(value) {
   return [0, 0]
 }
 
-function fallbackPoint(primary, fallback) {
-  if (Array.isArray(primary) && primary.length >= 2) return normalizePoint(primary)
-  return normalizePoint(fallback)
+function normalizeGeoPoint(value) {
+  if (!Array.isArray(value) || value.length < 2) return null
+
+  const longitude = Number(value[0])
+  const latitude = Number(value[1])
+  if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) return null
+  if (longitude < -180 || longitude > 180 || latitude < -90 || latitude > 90) return null
+  if (longitude === 0 && latitude === 0) return null
+
+  return [longitude, latitude]
 }
 
 function scaledColor(color, alphaMultiplier = 1) {
@@ -175,11 +182,21 @@ function normalizeTrafficLinks(rawLinks, mapView) {
   return rawLinks
     .map((link, idx) => {
       const useGeo = mapView === "netflow"
-      const geoMapped = Boolean(link?.geo_from && link?.geo_to)
+      const geoFrom = normalizeGeoPoint(link?.geo_from)
+      const geoTo = normalizeGeoPoint(link?.geo_to)
+      const geoMapped = Boolean(geoFrom && geoTo)
       const topologyFrom = link?.topology_from || link?.from || link?.source
       const topologyTo = link?.topology_to || link?.to || link?.target
-      const from = useGeo ? fallbackPoint(link?.geo_from, topologyFrom) : normalizePoint(topologyFrom)
-      const to = useGeo ? fallbackPoint(link?.geo_to, topologyTo) : normalizePoint(topologyTo)
+
+      // The NetFlow view is geographic. Mixing a real GeoIP/local-anchor point
+      // with the deterministic topology fallback invents an endpoint in open
+      // ocean for ASN-only or otherwise unmapped peers. Those conversations
+      // remain represented in the server-side totals and topology view, but
+      // are omitted from geographic arcs until both endpoints have coordinates.
+      if (useGeo && !geoMapped) return null
+
+      const from = useGeo ? geoFrom : normalizePoint(topologyFrom)
+      const to = useGeo ? geoTo : normalizePoint(topologyTo)
       const magnitude = Math.max(0, Number(link?.magnitude || link?.bytes || link?.packets || 0))
       const baseColor = useGeo ? netflowLinkColor(link, magnitude) : Array.isArray(link?.color) ? link.color : [56, 189, 248, 180]
       const color = scaledColor(baseColor, useGeo && !geoMapped ? 0.45 : 1)
@@ -231,6 +248,7 @@ function normalizeTrafficLinks(rawLinks, mapView) {
         laneOffset: (idx % 5) - 2,
       }
     })
+    .filter(Boolean)
     .filter((link) => link.from[0] !== link.to[0] || link.from[1] !== link.to[1])
 }
 

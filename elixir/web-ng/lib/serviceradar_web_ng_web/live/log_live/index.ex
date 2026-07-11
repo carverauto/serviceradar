@@ -22,6 +22,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.MetricSeries
   alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
+  alias ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext
+  alias ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext.LocalAnchor
+  alias ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext.MapMarkers
   alias ServiceRadarWebNGWeb.NetflowVisualize.Query, as: NFQuery
   alias ServiceRadarWebNGWeb.NetflowVisualize.State, as: NFState
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
@@ -784,6 +787,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     src_ip = netflow_addr(flow, :src)
     dst_ip = netflow_addr(flow, :dst)
     dst_port = to_int(netflow_port(flow, :dst))
+    partition = FlowContext.flow_partition(flow)
+
+    anchors =
+      safe_netflow_context_value(:local_anchors, fn -> LocalAnchor.load_anchors(scope) end) || []
 
     %{
       mapbox: safe_netflow_context_value(:mapbox, fn -> read_mapbox(user) end),
@@ -791,6 +798,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       dst_rdns: safe_netflow_context_value(:dst_rdns, fn -> read_rdns(user, dst_ip) end),
       src_geo: safe_netflow_context_value(:src_geo, fn -> read_geo(user, src_ip) end),
       dst_geo: safe_netflow_context_value(:dst_geo, fn -> read_geo(user, dst_ip) end),
+      src_anchor: LocalAnchor.resolve(anchors, src_ip, partition),
+      dst_anchor: LocalAnchor.resolve(anchors, dst_ip, partition),
       src_ipinfo: safe_netflow_context_value(:src_ipinfo, fn -> read_ipinfo(user, src_ip) end),
       dst_ipinfo: safe_netflow_context_value(:dst_ipinfo, fn -> read_ipinfo(user, dst_ip) end),
       src_threat: safe_netflow_context_value(:src_threat, fn -> read_threat(user, src_ip) end),
@@ -5750,13 +5759,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp netflow_present?(_), do: false
 
   defp netflow_map_markers(context, flow) when is_map(context) and is_map(flow) do
-    src_ip = netflow_addr(flow, :src)
-    dst_ip = netflow_addr(flow, :dst)
-
-    []
-    |> maybe_add_geo_marker("Source", src_ip, Map.get(context, :src_geo))
-    |> maybe_add_geo_marker("Dest", dst_ip, Map.get(context, :dst_geo))
-    |> Enum.take(2)
+    MapMarkers.netflow_map_markers(context, flow)
   end
 
   defp netflow_map_markers(_context, _flow), do: []
@@ -5772,33 +5775,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp netflow_map_dom_id(_), do: "netflow-flow-map"
-
-  defp maybe_add_geo_marker(markers, side, ip, geo) when is_list(markers) do
-    cond do
-      not is_map(geo) ->
-        markers
-
-      not is_number(Map.get(geo, :latitude)) or not is_number(Map.get(geo, :longitude)) ->
-        markers
-
-      true ->
-        label =
-          [side, ip, Map.get(geo, :city), Map.get(geo, :region), Map.get(geo, :country_name)]
-          |> Enum.filter(&is_binary/1)
-          |> Enum.map(&String.trim/1)
-          |> Enum.reject(&(&1 == ""))
-          |> Enum.join(" - ")
-
-        markers ++
-          [
-            %{
-              lng: Map.get(geo, :longitude),
-              lat: Map.get(geo, :latitude),
-              label: label
-            }
-          ]
-    end
-  end
 
   defp netflow_asn(flow, :src) when is_map(flow) do
     case to_int(netflow_value(flow, ["src_as_number", "src_asn"])) do

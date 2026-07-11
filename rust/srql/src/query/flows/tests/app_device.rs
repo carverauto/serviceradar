@@ -30,4 +30,9 @@ fn translate_grouped_stats_app_group_by_includes_rule_table() {
         sql.contains("netflow_app_classification_rules"),
         "expected SQL to reference netflow_app_classification_rules for app derivation: {sql}"
     );
+    assert!(
+        sql.contains("r.partition = baseline.flow_partition")
+            && sql.contains("r.protocol_num = baseline.flow_protocol_num"),
+        "expected aliased stats SQL to correlate override rules to f: {sql}"
+    );
 }

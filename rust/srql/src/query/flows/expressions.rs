@@ -181,18 +181,24 @@ pub(in crate::query) const FLOW_APP_EXPR: &str = r#"
         WHEN protocol_num = 6 AND dst_endpoint_port = 27017 THEN 'mongodb'
         WHEN protocol_num = 6 AND dst_endpoint_port = 9200 THEN 'elasticsearch'
         ELSE NULL
-      END AS app_label
+      END AS app_label,
+      partition AS flow_partition,
+      protocol_num AS flow_protocol_num,
+      dst_endpoint_port AS flow_dst_port,
+      src_endpoint_port AS flow_src_port,
+      src_endpoint_ip AS flow_src_ip,
+      dst_endpoint_ip AS flow_dst_ip
   ) baseline
   LEFT JOIN LATERAL (
     SELECT r.app_label
     FROM netflow_app_classification_rules r
     WHERE r.enabled
-      AND (r.partition IS NULL OR r.partition = partition)
-      AND (r.protocol_num IS NULL OR r.protocol_num = protocol_num)
-      AND (r.dst_port IS NULL OR r.dst_port = dst_endpoint_port)
-      AND (r.src_port IS NULL OR r.src_port = src_endpoint_port)
-      AND (r.src_cidr IS NULL OR (try_inet(NULLIF(src_endpoint_ip, '')) <<= r.src_cidr))
-      AND (r.dst_cidr IS NULL OR (try_inet(NULLIF(dst_endpoint_ip, '')) <<= r.dst_cidr))
+      AND (r.partition IS NULL OR r.partition = baseline.flow_partition)
+      AND (r.protocol_num IS NULL OR r.protocol_num = baseline.flow_protocol_num)
+      AND (r.dst_port IS NULL OR r.dst_port = baseline.flow_dst_port)
+      AND (r.src_port IS NULL OR r.src_port = baseline.flow_src_port)
+      AND (r.src_cidr IS NULL OR (try_inet(NULLIF(baseline.flow_src_ip, '')) <<= r.src_cidr))
+      AND (r.dst_cidr IS NULL OR (try_inet(NULLIF(baseline.flow_dst_ip, '')) <<= r.dst_cidr))
     ORDER BY
       r.priority DESC,
       (
