@@ -44,22 +44,45 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   """
   @spec upsert_from_status_strict(map()) :: :ok | {:error, term()}
   def upsert_from_status_strict(status) when is_map(status) do
+    do_upsert_from_status_strict(status, false)
+  end
+
+  def upsert_from_status_strict(_), do: {:error, :invalid_status}
+
+  @doc false
+  @spec upsert_from_status_strict_with_notifications(map()) ::
+          {:ok, list()} | {:error, term()}
+  def upsert_from_status_strict_with_notifications(status) when is_map(status) do
+    do_upsert_from_status_strict(status, true)
+  end
+
+  def upsert_from_status_strict_with_notifications(_), do: {:error, :invalid_status}
+
+  defp do_upsert_from_status_strict(status, return_notifications?) do
     actor = SystemActor.system(:service_state_registry)
     attrs = build_attrs_from_status(status, actor)
     previous = previous_service_availability(attrs, actor)
 
     ServiceState
     |> Ash.Changeset.for_create(:upsert, attrs, actor: actor)
-    |> Ash.create(domain: ServiceRadar.Observability)
+    |> Ash.create(
+      domain: ServiceRadar.Observability,
+      return_notifications?: return_notifications?
+    )
     |> case do
       {:ok, state} ->
-        if !upsert_skipped?(state) do
-          deactivate_shadowed_plugin_states(state, actor)
-          ServiceStatePubSub.broadcast_update(state)
-          maybe_publish_service_transition(previous, state)
-        end
-
+        run_state_upsert_side_effects(state, previous, actor)
         :ok
+
+      {:ok, state, notifications} ->
+        if upsert_skipped?(state) do
+          {:ok, []}
+        else
+          side_effect_notifications =
+            run_state_upsert_side_effects(state, previous, actor, return_notifications?: true)
+
+          {:ok, notifications ++ side_effect_notifications}
+        end
 
       {:error, error} ->
         {:error, error}
@@ -73,7 +96,23 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     kind, reason -> {:error, {kind, reason}}
   end
 
-  def upsert_from_status_strict(_), do: {:error, :invalid_status}
+  defp run_state_upsert_side_effects(state, previous, actor, opts \\ []) do
+    if upsert_skipped?(state) do
+      []
+    else
+      notifications =
+        if Keyword.get(opts, :return_notifications?, false) do
+          deactivate_shadowed_plugin_states_with_notifications(state, actor)
+        else
+          deactivate_shadowed_plugin_states(state, actor)
+          []
+        end
+
+      ServiceStatePubSub.broadcast_update(state)
+      maybe_publish_service_transition(previous, state)
+      notifications
+    end
+  end
 
   @doc """
   Batched equivalent of `upsert_from_status/1` for a list of statuses.
@@ -454,6 +493,32 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
 
   defp deactivate_shadowed_plugin_states(_state, _actor), do: :ok
 
+  defp deactivate_shadowed_plugin_states_with_notifications(
+         %ServiceState{service_type: "plugin"} = current_state,
+         actor
+       ) do
+    ServiceState
+    |> filter(
+      id != ^current_state.id and
+        agent_id == ^current_state.agent_id and
+        partition == ^current_state.partition and
+        service_type == ^current_state.service_type and
+        service_name == ^current_state.service_name and
+        state == "active"
+    )
+    |> Ash.read(actor: actor, domain: ServiceRadar.Observability)
+    |> case do
+      {:ok, states} ->
+        Enum.flat_map(states, &deactivate_shadow_state_with_notifications(&1, actor))
+
+      {:error, error} ->
+        Logger.warning("Failed to load shadowed plugin states: #{inspect(error)}")
+        []
+    end
+  end
+
+  defp deactivate_shadowed_plugin_states_with_notifications(_state, _actor), do: []
+
   defp deactivate_shadow_state(%ServiceState{} = state, actor) do
     state
     |> Ash.Changeset.for_update(:deactivate, %{}, actor: actor)
@@ -464,6 +529,21 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
 
       {:error, error} ->
         Logger.warning("Failed to deactivate shadowed plugin state: #{inspect(error)}")
+    end
+  end
+
+  defp deactivate_shadow_state_with_notifications(%ServiceState{} = state, actor) do
+    state
+    |> Ash.Changeset.for_update(:deactivate, %{}, actor: actor)
+    |> Ash.update(domain: ServiceRadar.Observability, return_notifications?: true)
+    |> case do
+      {:ok, updated, notifications} ->
+        ServiceStatePubSub.broadcast_update(updated)
+        notifications
+
+      {:error, error} ->
+        Logger.warning("Failed to deactivate shadowed plugin state: #{inspect(error)}")
+        []
     end
   end
 
