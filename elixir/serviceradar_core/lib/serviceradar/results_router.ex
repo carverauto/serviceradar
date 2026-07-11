@@ -48,6 +48,20 @@ defmodule ServiceRadar.ResultsRouter do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
   end
 
+  @doc """
+  Admits an endpoint-inventory result directly to its bounded ingestion queue.
+
+  Endpoint inventory acknowledgements are synchronous from the agent's point of
+  view because ingestion may return reconciliation directives. They must not sit
+  behind unrelated work in the singleton ResultsRouter mailbox while waiting to
+  reach the dedicated queue.
+  """
+  @spec admit_endpoint_inventory(map(), GenServer.from()) ::
+          :ok | {:ok, term()} | {:error, term()}
+  def admit_endpoint_inventory(status, reply_to) when is_map(status) do
+    process_and_publish(status, endpoint_inventory_reply_to: reply_to)
+  end
+
   @impl true
   def init(_state) do
     Logger.info("ResultsRouter started on node #{Node.self()}")
