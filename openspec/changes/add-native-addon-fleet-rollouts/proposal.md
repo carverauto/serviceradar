@@ -36,6 +36,10 @@ expected inactivity.
 - Restrict "Needs attention" to actionable desired-state or fresh runtime failures.
   Show stale/unavailable agents, observed-only built-ins, dormant ephemeral helpers,
   and in-progress convergence in separate counters and filters.
+- Replace the flat fleet matrix with an agent-first, expandable view backed by
+  server-side pagination. Load one bounded page of agents and their matching add-on
+  rows in batches, keep filters and page state in the URL, and calculate summary
+  counters across the full filtered fleet rather than from the visible page.
 - Audit policy changes, rollout transitions, source promotion, and rollback. Existing
   package verification, approval, capability narrowing, and target compatibility
   checks remain mandatory.
@@ -47,8 +51,9 @@ expected inactivity.
   - `elixir/serviceradar_core`: native add-on assignment/profile resources, rollout
     resources and coordinator, profile reconciliation, config generation, add-on
     status classification, jobs, authorization, and audit history
-  - `elixir/web-ng`: Add-on Fleet summaries/filters, package/profile assignment flows,
-    bulk upgrade preview, rollout controls, and rollout detail/history
+  - `elixir/web-ng`: Add-on Fleet agent-grouped pagination, summaries/filters,
+    package/profile assignment flows, bulk upgrade preview, rollout controls, and
+    rollout detail/history
   - `go/pkg/agent`: model-specific readiness/status details only where the existing
     add-on status contract cannot distinguish ready, dormant, and failed states
   - migrations, API/SRQL exposure, tests, and operator documentation

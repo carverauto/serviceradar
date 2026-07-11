@@ -52,6 +52,8 @@ age, supervision model, an active request for an ephemeral helper, or rollout gr
   reconciliation defeating batch boundaries.
 - Make every fleet summary count explainable from mutually exclusive row categories
   and stable reason codes.
+- Keep the fleet usable for thousands of agents by paging the parent agent set on the
+  server and loading child add-on rows in a bounded batch.
 - Treat disconnected/stale evidence, built-in observed-only components, and dormant
   ephemeral helpers according to their actual operational meaning.
 
@@ -192,8 +194,8 @@ their last evidence timestamp and explanatory reason.
 
 ### Decision 6: Summary counters describe different operational questions
 
-The fleet surface keeps one row per (agent, add-on), but its summary no longer treats
-all rows as equivalent deployments. It exposes:
+The fleet read model keeps one record per (agent, add-on), but its summary no longer
+treats all records as equivalent deployments. It exposes:
 
 - Managed deployments: enabled desired assignments.
 - Healthy/running: managed targets with fresh model-specific ready state.
@@ -206,7 +208,34 @@ all rows as equivalent deployments. It exposes:
 Every counter is a filter and every filtered row exposes its reason and evidence age.
 Catalog inventory and staged package counts remain separate from fleet runtime health.
 
-### Decision 7: Bulk upgrade mutates authoritative sources through rollouts
+### Decision 7: The fleet surface pages agents and batches child rows
+
+The primary fleet result is a stable, server-paginated set of agents rather than a
+flat page of (agent, add-on) records. Each compact parent row shows agent identity,
+availability, total and matching add-on counts, and its highest-priority health
+category. Expanding it reveals the matching add-on records and their desired version,
+observed version, update policy, runtime state, evidence age, and reason. When no
+row-level filter is active, expansion shows every add-on associated with that agent.
+
+Filters are applied on the server before selecting the distinct agent page. The read
+path performs a bounded aggregate/count query, one query for the requested parent
+page, and one batched child query for those agent IDs; it must not issue one child
+query per expanded agent. Summary counters are calculated over the complete filtered
+fleet and are therefore independent of the current page. The LiveView retains only
+the current page and its children in memory.
+
+The URL owns agent search, add-on filter, health category, page, page size, and sort.
+Changing a filter resets to the first page. Page sizes are bounded to 25, 50, or 100,
+and the server appends a stable agent identifier to the requested sort so page
+boundaries remain deterministic. Expansion state is page-local and is cleared for
+agents that leave the page. Invalid or out-of-range URL values fall back to safe
+defaults instead of producing an unbounded query.
+
+This shape keeps query count and LiveView memory bounded as fleets grow. It also
+preserves the normalized (agent, add-on) record as the unit used by rollout targets,
+health classification, audit, API, and SRQL consumers.
+
+### Decision 8: Bulk upgrade mutates authoritative sources through rollouts
 
 The add-on detail and fleet surfaces expose an "Upgrade assignments/profiles" action
 for an approved candidate. Preview groups targets by authoritative direct assignment
@@ -235,6 +264,10 @@ package as a candidate, but approval and rollout remain separately audited opera
 - A bad health classifier could stop or advance a rollout incorrectly. Mitigation:
   persist raw evidence beside the derived category and cover every delivery/supervision
   model with contract and state-machine tests.
+- Aggregate counters add work that is separate from the visible page. Mitigation:
+  query only indexed classification/filter columns, keep the aggregate independent of
+  child payload hydration, and verify plans and latency against a representative
+  multi-thousand-agent fixture.
 
 ## Migration Plan
 

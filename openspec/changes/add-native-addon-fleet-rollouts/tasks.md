@@ -37,6 +37,8 @@
 - [ ] 5.3 Exclude stale/offline evidence, healthy observed-only built-ins, dormant ephemeral helpers, and in-grace rollout targets from `needs_attention`
 - [ ] 5.4 Keep explicit unhealthy observed-only runtimes and incompatible/invalid desired assignments actionable
 - [ ] 5.5 Expose category/reason/freshness fields through supported API and SRQL surfaces
+- [ ] 5.6 Add an agent-first fleet query that applies filters before distinct-agent pagination, returns full-fleet category counters, uses a stable tie-break sort, and batch-loads matching child add-on rows without N+1 queries
+- [ ] 5.7 Bound supported page sizes and ensure the read path and LiveView retain only the requested agent page and its child rows
 
 ## 6. Operator UI
 
@@ -46,6 +48,8 @@
 - [ ] 6.4 Add rollout progress/detail with per-target evidence, pause/resume/cancel, retry, and rollback actions
 - [ ] 6.5 Replace the single fleet summary with managed, healthy/running, updating, needs-attention, unavailable/stale, expected-inactive, and observed-only counters/filters
 - [ ] 6.6 Show stable reason text and evidence age on every non-healthy row and show track-latest rollout impact during package approval
+- [ ] 6.7 Replace the flat fleet matrix with compact expandable agent rows that summarize availability and category counts and reveal desired/observed state for matching add-ons
+- [ ] 6.8 Persist agent search, add-on/category filters, stable sort, page, and bounded page size in the URL; reset pagination on filter changes and keep expansion state page-local
 
 ## 7. Verification
 
@@ -55,6 +59,8 @@
 - [ ] 7.4 Test fleet classification for real runtime failure, stale disconnected agent, never-reported assignment, healthy built-in observed-only runtime, dormant ephemeral helper, incompatible target, and in-progress convergence
 - [ ] 7.5 Add LiveView and Playwright coverage for bulk preview, policy controls, rollout operations, counters/filters, reason visibility, authorization, and responsive layout
 - [ ] 7.6 Run mixed-version demo rollouts against at least one continuous service, one systemd timer, and one ephemeral helper; verify no automatic updates occur before opt-in
+- [ ] 7.7 Load-test the fleet read path with at least 10,000 agents and multiple add-ons per agent; assert bounded result size, constant query count per page, deterministic page boundaries, full-fleet counters, and no duplicate or skipped agents while paging an unchanged result set
+- [ ] 7.8 Add LiveView and Playwright coverage for URL restoration, filter-driven page reset, parent expansion, batched child rendering, empty/last pages, and 25/50/100 page-size controls on desktop and mobile
 
 ## 8. Documentation and rollout
 

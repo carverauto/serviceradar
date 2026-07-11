@@ -100,3 +100,41 @@ package counts SHALL remain separate from runtime fleet health.
 - **WHEN** an operator selects any summary counter
 - **THEN** the table SHALL filter to exactly the rows counted by that category
 - **AND** every displayed row SHALL expose the reason it belongs to that category
+
+### Requirement: Add-on Fleet is grouped and paginated by agent
+The Add-on Fleet UI SHALL present one compact expandable parent row per agent on the
+current server-side page. The parent SHALL summarize identity, connectivity, total and
+matching add-on counts, and highest-priority health. Its expanded content SHALL show
+the matching per-add-on desired, observed, policy, runtime, freshness, and diagnostic
+details without loading the complete fleet into the LiveView.
+
+#### Scenario: Operator expands an agent
+- **GIVEN** an agent on the current page with multiple add-ons
+- **WHEN** the operator expands that agent
+- **THEN** the UI SHALL reveal its matching add-on rows in the existing page payload
+- **AND** SHALL NOT perform one database query per expanded agent
+- **AND** collapsing or expanding the agent SHALL NOT resize unrelated parent rows unexpectedly
+
+#### Scenario: Unfiltered expansion shows all associated add-ons
+- **GIVEN** no row-level add-on or health filter is active
+- **WHEN** an operator expands an agent
+- **THEN** every fleet add-on record associated with that agent SHALL be visible
+- **AND** the parent summary SHALL show the same total add-on count
+
+#### Scenario: URL restores fleet navigation state
+- **GIVEN** an operator has selected an agent search, add-on/category filters, sort, page, and page size
+- **WHEN** the URL is copied, reloaded, or revisited
+- **THEN** the UI SHALL restore those server-side query controls
+- **AND** changing any filter SHALL reset navigation to the first page
+
+#### Scenario: Summary counter is independent of page
+- **GIVEN** actionable add-ons exist on several agent pages
+- **WHEN** the operator views any one page
+- **THEN** the needs-attention counter SHALL show the full filtered-fleet total
+- **AND** selecting it SHALL reset to the first page and display only parent agents with matching actionable child rows
+
+#### Scenario: Page controls remain bounded and responsive
+- **GIVEN** more agents than fit on one page
+- **WHEN** the fleet surface renders on desktop or mobile
+- **THEN** the operator SHALL be able to choose only supported page sizes 25, 50, or 100 and navigate pages
+- **AND** parent and child labels, status, and diagnostics SHALL not overlap or overflow their containers

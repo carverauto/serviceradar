@@ -76,3 +76,36 @@ unconverged beyond its rollout/convergence deadline.
 - **WHEN** fleet state is classified, whether or not the agent is connected
 - **THEN** the row SHALL be `action_required`
 - **AND** the reason SHALL identify the compatibility violation rather than a runtime stop
+
+### Requirement: Native add-on fleet queries page agents and batch their add-ons
+The native add-on fleet read surface SHALL apply authorized search and health filters
+on the server, select a deterministic bounded page of distinct agents, and batch-load
+the matching add-on records for that agent page. It SHALL expose category counters for
+the complete filtered result, independent of the current page, and SHALL NOT perform a
+separate child query for each agent.
+
+#### Scenario: Large fleet returns a bounded agent page
+- **GIVEN** a fleet of 10,000 agents with multiple add-on records per agent
+- **WHEN** an operator requests page size 50 with no row-level filter
+- **THEN** the result SHALL contain at most 50 distinct parent agents and their add-on records
+- **AND** the child records SHALL be loaded in a bounded batch rather than one query per parent agent
+- **AND** the reported summary counters SHALL describe all 10,000 filtered agents and their add-on records rather than only the visible page
+
+#### Scenario: Filters precede parent pagination
+- **GIVEN** an add-on or health-category filter matching agents across multiple pages
+- **WHEN** the first filtered page is requested
+- **THEN** the server SHALL apply the row-level filter before selecting distinct parent agents
+- **AND** each returned parent SHALL have at least one matching child record
+- **AND** pagination metadata SHALL describe the filtered parent set
+
+#### Scenario: Stable sort prevents page drift
+- **GIVEN** multiple agents with equal values for the selected sort field
+- **WHEN** an unchanged filtered result is traversed page by page
+- **THEN** the server SHALL append a stable agent identifier as a tie-breaker
+- **AND** no agent SHALL be duplicated or skipped between page boundaries
+
+#### Scenario: Page size is bounded
+- **GIVEN** a request with an unsupported or excessive page size
+- **WHEN** the fleet query is evaluated
+- **THEN** the server SHALL use a supported bounded page size
+- **AND** SHALL NOT load the complete fleet into application memory
