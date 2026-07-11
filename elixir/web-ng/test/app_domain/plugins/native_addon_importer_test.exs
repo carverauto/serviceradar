@@ -223,6 +223,83 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert is_map(package.artifacts["linux/amd64"])
   end
 
+  test "a concurrent incomplete row is repaired without being auto-approved", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+
+    assert {:ok, [addon]} =
+             NativeAddonImporter.list_recent_addons(%{"repo_url" => @repo_url}, 10)
+
+    actor = SystemActor.system(:native_addon_sync_test)
+    test_pid = self()
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :native_addon_artifact_upload,
+      fn metadata, data, _opts ->
+        seeded =
+          case Process.get(:native_addon_race_package) do
+            nil ->
+              package =
+                AddonPackage
+                |> Ash.Changeset.for_create(
+                  :create,
+                  %{
+                    addon_id: "sample-addon",
+                    version: "1.0.0",
+                    name: "Concurrent incomplete import",
+                    source_type: :first_party,
+                    source_oci_ref: nil,
+                    source_oci_digest: nil,
+                    artifacts: %{},
+                    verification_status: "partial",
+                    verification_error: "artifact mirror incomplete"
+                  },
+                  actor: actor
+                )
+                |> Ash.create!()
+
+              Process.put(:native_addon_race_package, package)
+              package
+
+            package ->
+              package
+          end
+
+        send(test_pid, {:race_package_seeded, seeded.id})
+        send(test_pid, {:uploaded, metadata.key, byte_size(data)})
+        {:ok, %{key: metadata.key}}
+      end
+    )
+
+    assert {:ok, repaired, :imported} =
+             AddonPackages.import_first_party_addon(addon,
+               auto_approve_addon_ids: ["sample-addon"]
+             )
+
+    assert %AddonPackage{} = seeded = Process.get(:native_addon_race_package)
+    assert_received {:race_package_seeded, seeded_id}
+    assert seeded_id == seeded.id
+    assert repaired.id == seeded.id
+    assert repaired.status == :staged
+    assert repaired.verification_status == "verified"
+    assert is_nil(repaired.verification_error)
+    assert repaired.source_oci_ref == @oci_ref
+    assert repaired.source_oci_digest == @oci_digest
+    assert is_nil(repaired.approved_by)
+    assert repaired.approved_capabilities == []
+    assert is_map(repaired.artifacts["linux/amd64"])
+
+    Process.put(:native_addon_manifest_requests, 0)
+    Process.put(:native_addon_manifest_status, 404)
+
+    assert {:ok, reused, :skipped} = AddonPackages.import_first_party_addon(addon)
+    assert reused.id == seeded.id
+    assert reused.status == :staged
+    assert Process.get(:native_addon_manifest_requests) == 0
+  end
+
   test "sync worker default uniqueness remains valid for Oban 2.23" do
     changes = NativeAddonSyncWorker.new(%{}).changes
 
@@ -270,6 +347,36 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     refute manual.conflict?
     assert manual.id != executing.id
     assert manual.state == "available"
+  end
+
+  test "a suspended manual sync does not suppress periodic bootstrap" do
+    manual = insert_sync_job!("suspended", %{"force" => true, "limit" => 1})
+
+    assert {:ok, bootstrap} = NativeAddonSyncWorker.ensure_scheduled()
+    refute bootstrap.conflict?
+    assert bootstrap.id != manual.id
+    assert bootstrap.state == "scheduled"
+    refute Map.get(bootstrap.args, "force")
+
+    assert {:ok, :already_scheduled} = NativeAddonSyncWorker.ensure_scheduled()
+  end
+
+  test "manual sync uniqueness blocks overlap while one is executing" do
+    executing = insert_executing_sync_job!(%{"force" => true, "limit" => 1})
+
+    assert {:ok, duplicate} = NativeAddonSyncWorker.enqueue_now(limit: 2)
+    assert duplicate.conflict?
+    assert duplicate.id == executing.id
+
+    force_jobs =
+      Repo.all(
+        from(job in Job,
+          where: job.worker == ^inspect(NativeAddonSyncWorker),
+          where: fragment("COALESCE(?->>'force', 'false') = 'true'", job.args)
+        )
+      )
+
+    assert Enum.map(force_jobs, & &1.id) == [executing.id]
   end
 
   test "a transient discovery failure does not enqueue a periodic successor" do
@@ -615,6 +722,56 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert persisted.source_oci_digest == @oci_digest
   end
 
+  test "sync worker repairs missing source metadata once and then reuses it", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+    configure_sync_worker(auto_approve_addon_ids: ["sample-addon"])
+
+    assert :ok = NativeAddonSyncWorker.perform(%Job{args: %{"force" => true, "limit" => 10}})
+    [approved] = sample_packages()
+    assert approved.status == :approved
+
+    update_sample_package!(approved, %{
+      source_oci_ref: nil,
+      source_oci_digest: nil
+    })
+
+    Process.put(:native_addon_manifest_requests, 0)
+
+    repair_log =
+      capture_sync_log(fn ->
+        assert :ok = NativeAddonSyncWorker.perform(%Job{args: %{"force" => true, "limit" => 10}})
+      end)
+
+    assert repair_log =~ "import_ready=1 imported=1 skipped=0 failed=0"
+    assert Process.get(:native_addon_manifest_requests) == 1
+
+    [repaired] = sample_packages()
+    assert repaired.id == approved.id
+    assert repaired.status == :staged
+    assert repaired.source_oci_ref == @oci_ref
+    assert repaired.source_oci_digest == @oci_digest
+    assert is_nil(repaired.approved_by)
+
+    Process.put(:native_addon_manifest_requests, 0)
+    Process.put(:native_addon_manifest_status, 404)
+
+    reuse_log =
+      capture_sync_log(fn ->
+        assert :ok = NativeAddonSyncWorker.perform(%Job{args: %{"force" => true, "limit" => 10}})
+      end)
+
+    assert reuse_log =~ "import_ready=1 imported=0 skipped=1 failed=0"
+    assert Process.get(:native_addon_manifest_requests) == 0
+
+    [reused] = sample_packages()
+    assert reused.id == repaired.id
+    assert reused.status == :staged
+    assert reused.source_oci_ref == @oci_ref
+    assert reused.source_oci_digest == @oci_digest
+  end
+
   test "sync worker treats one missing stored source field and one mismatch as a conflict", %{
     private_key: private_key
   } do
@@ -691,17 +848,47 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
 
     private_key = "-----BEGIN OPENSSH PRIVATE KEY-----\nprivate-key-secret\n-----END OPENSSH PRIVATE KEY-----"
 
+    secrets = [
+      "api-token-secret",
+      "password-secret",
+      "private-key-secret",
+      "inline-secret",
+      "json-secret",
+      "bearer-map-secret",
+      "basic-map-secret",
+      "client-secret-value",
+      "access-key-value",
+      "provider-bootstrap-secret",
+      "raw-bearer-secret",
+      "raw-basic-secret",
+      "url-user-secret",
+      "url-password-secret",
+      "url-token-secret",
+      "query-token-secret",
+      "query-api-key-secret"
+    ]
+
     Process.put(
       :native_addon_recent_releases_result,
       {:error,
        {:transport,
         %{
+          "Proxy-Authorization" => "Basic basic-map-secret",
           api_token: "api-token-secret",
+          authorization: "Bearer bearer-map-secret",
+          client_secret: "client-secret-value",
+          access_key: "access-key-value",
+          provider_bootstrap: "provider-bootstrap-secret",
           nested: [
             %{"password" => "password-secret"},
             %{private_key: private_key},
             "passphrase=inline-secret",
-            ~s({"api_token":"json-secret"})
+            ~s({"api_token":"json-secret"}),
+            "Authorization: Bearer raw-bearer-secret",
+            "Authorization=Basic raw-basic-secret",
+            "https://url-user-secret:url-password-secret@example.test/path",
+            "https://url-token-secret@example.test/token-only",
+            "https://example.test/path?access_token=query-token-secret&api_key=query-api-key-secret"
           ]
         }}}
     )
@@ -714,11 +901,11 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
 
     assert log =~ "First-party native add-on sync failed"
     assert log =~ "REDACTED"
-    refute log =~ "api-token-secret"
-    refute log =~ "password-secret"
-    refute log =~ "private-key-secret"
-    refute log =~ "inline-secret"
-    refute log =~ "json-secret"
+
+    Enum.each(secrets, fn secret ->
+      refute log =~ secret
+    end)
+
     assert byte_size(log) < 1_500
   end
 
@@ -996,6 +1183,43 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     refute_received {:uploaded, _key, _size}
   end
 
+  test "sync worker canonicalizes platform keys and reuses the persisted artifact", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key, platforms: ["AMD64"])
+    configure_sync_worker()
+
+    assert :ok = NativeAddonSyncWorker.perform(%Job{args: %{"force" => true, "limit" => 10}})
+
+    [package] = sample_packages()
+    assert Map.keys(package.artifacts) == ["linux/amd64"]
+    refute Map.has_key?(package.artifacts, "linux/AMD64")
+
+    expected_key =
+      NativeAddonArtifactMirror.object_key(
+        "sample-addon",
+        "1.0.0",
+        "linux",
+        "amd64",
+        tarball_sha256("AMD64")
+      )
+
+    assert package.artifacts["linux/amd64"]["object_key"] == expected_key
+    assert_received {:uploaded, ^expected_key, _size}
+
+    Process.put(:native_addon_manifest_requests, 0)
+    Process.put(:native_addon_manifest_status, 404)
+
+    log =
+      capture_sync_log(fn ->
+        assert :ok = NativeAddonSyncWorker.perform(%Job{args: %{"force" => true, "limit" => 10}})
+      end)
+
+    assert log =~ "import_ready=1 imported=0 skipped=1 failed=0"
+    assert Process.get(:native_addon_manifest_requests) == 0
+    assert Map.keys(hd(sample_packages()).artifacts) == ["linux/amd64"]
+  end
+
   test "rejects duplicate normalized artifact platforms before mirroring", %{
     private_key: private_key
   } do
@@ -1263,13 +1487,17 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     |> Ash.update!()
   end
 
-  defp insert_executing_sync_job! do
+  defp insert_executing_sync_job!(args \\ %{}) do
+    insert_sync_job!("executing", args)
+  end
+
+  defp insert_sync_job!(state, args) do
     now = DateTime.utc_now()
 
-    %{}
+    args
     |> Job.new(worker: NativeAddonSyncWorker, queue: :web_maintenance)
     |> Ecto.Changeset.change(
-      state: "executing",
+      state: state,
       attempt: 1,
       max_attempts: 3,
       attempted_at: now,

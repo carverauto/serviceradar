@@ -363,6 +363,83 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
     assert is_nil(persisted.approved_by)
   end
 
+  test "repairs missing immutable source metadata and then reuses the converged row", %{
+    actor: actor,
+    uid: uid
+  } do
+    {pub, priv} = :crypto.generate_key(:eddsa, :ed25519)
+    addon_id = "missing-source-metadata-#{uid}"
+    source_entry = entry(addon_id, uid)
+    artifacts = signed_artifacts(priv, uid)
+
+    assert {:ok, package, :created} =
+             Importer.import_entry_with_disposition(
+               manifest(addon_id, uid),
+               source_entry,
+               artifacts,
+               public_key: pub,
+               mirror: mirror(addon_id),
+               actor: actor,
+               release_tag: "sha-#{uid}"
+             )
+
+    assert {:ok, approved} =
+             package
+             |> Ash.Changeset.for_update(
+               :approve,
+               %{approved_capabilities: package.capabilities, approved_by: "source-review"},
+               actor: actor
+             )
+             |> Ash.update()
+
+    assert {:ok, missing_source} =
+             approved
+             |> Ash.Changeset.for_update(
+               :update,
+               %{source_oci_ref: nil, source_oci_digest: nil},
+               actor: actor
+             )
+             |> Ash.update()
+
+    assert missing_source.status == :approved
+    assert is_nil(missing_source.source_oci_ref)
+    assert is_nil(missing_source.source_oci_digest)
+
+    assert {:ok, repaired, :repaired} =
+             Importer.import_entry_with_disposition(
+               manifest(addon_id, uid),
+               source_entry,
+               artifacts,
+               public_key: pub,
+               mirror: mirror(addon_id),
+               actor: actor,
+               release_tag: "sha-#{uid}"
+             )
+
+    assert repaired.id == package.id
+    assert repaired.status == :staged
+    assert repaired.source_oci_ref == source_entry["oci_ref"]
+    assert repaired.source_oci_digest == source_entry["oci_digest"]
+    assert is_nil(repaired.approved_by)
+    assert repaired.artifacts == package.artifacts
+
+    assert {:ok, reused, :reused} =
+             Importer.import_entry_with_disposition(
+               manifest(addon_id, uid),
+               source_entry,
+               artifacts,
+               public_key: pub,
+               mirror: mirror(addon_id),
+               actor: actor,
+               release_tag: "sha-#{uid}"
+             )
+
+    assert reused.id == package.id
+    assert reused.status == :staged
+    assert reused.source_oci_ref == source_entry["oci_ref"]
+    assert reused.source_oci_digest == source_entry["oci_digest"]
+  end
+
   test "concurrent imports of one source converge on one package", %{
     actor: actor,
     uid: uid
@@ -382,7 +459,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
     end
 
     import = fn ->
-      Importer.import_entry(
+      Importer.import_entry_with_disposition(
         manifest(addon_id, uid),
         entry(addon_id, uid),
         signed_artifacts(priv, uid),
@@ -396,9 +473,15 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
     release_mirror_barrier!(2)
     results = Enum.map(tasks, &Task.await(&1, 30_000))
 
-    assert Enum.all?(results, &match?({:ok, %AddonPackage{}}, &1))
+    assert Enum.all?(results, &match?({:ok, %AddonPackage{}, _disposition}, &1))
 
-    assert results |> Enum.map(fn {:ok, package} -> package.id end) |> Enum.uniq() |> length() ==
+    assert results |> Enum.map(fn {:ok, _package, disposition} -> disposition end) |> Enum.sort() ==
+             [:created, :reused]
+
+    assert results
+           |> Enum.map(fn {:ok, package, _disposition} -> package.id end)
+           |> Enum.uniq()
+           |> length() ==
              1
 
     assert package_count(addon_id, actor) == 1

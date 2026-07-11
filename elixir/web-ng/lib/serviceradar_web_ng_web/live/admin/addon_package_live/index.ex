@@ -205,30 +205,21 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   end
 
   def handle_event("import_first_party_addon", params, socket) do
-    attrs = %{
-      repo_url: socket.assigns.first_party_repo_url,
-      release_tag: params["release_tag"],
-      addon_id: params["addon_id"],
-      version: params["version"]
-    }
+    addon =
+      Enum.find(socket.assigns.first_party_catalog_all, fn addon ->
+        addon.release_tag == params["release_tag"] and addon.addon_id == params["addon_id"] and
+          addon.version == params["version"]
+      end)
 
-    if RetiredNativeAddons.retired?(attrs.addon_id) do
-      {:noreply, put_flash(socket, :error, "This add-on is retired: #{RetiredNativeAddons.reason(attrs.addon_id)}")}
-    else
-      case NativeAddonImporter.import(attrs) do
-        {:ok, package} ->
-          {:noreply,
-           socket
-           |> put_flash(:info, "Imported first-party add-on #{package.name} #{package.version}")
-           |> assign(:packages, list_addon_packages(socket.assigns.current_scope))
-           |> load_first_party_catalog()}
+    case addon do
+      nil ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "First-party add-on is no longer present in the selected release")
+         |> load_first_party_catalog()}
 
-        {:error, reason} ->
-          {:noreply,
-           socket
-           |> put_flash(:error, "First-party add-on import failed: #{format_error(reason)}")
-           |> load_first_party_catalog()}
-      end
+      addon ->
+        import_catalog_addon(socket, addon)
     end
   end
 
@@ -1259,6 +1250,34 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
       </Shell.settings_chrome>
     </Layouts.app>
     """
+  end
+
+  defp import_catalog_addon(socket, addon) do
+    if RetiredNativeAddons.retired?(addon.addon_id) do
+      {:noreply, put_flash(socket, :error, "This add-on is retired: #{RetiredNativeAddons.reason(addon.addon_id)}")}
+    else
+      case AddonPackages.import_first_party_addon(addon, scope: socket.assigns.current_scope) do
+        {:ok, package, :imported} ->
+          {:noreply,
+           socket
+           |> put_flash(:info, "Imported first-party add-on #{package.name} #{package.version}")
+           |> assign(:packages, list_addon_packages(socket.assigns.current_scope))
+           |> load_first_party_catalog()}
+
+        {:ok, package, :skipped} ->
+          {:noreply,
+           socket
+           |> put_flash(:info, "First-party add-on #{package.name} #{package.version} is already current")
+           |> assign(:packages, list_addon_packages(socket.assigns.current_scope))
+           |> load_first_party_catalog()}
+
+        {:error, reason} ->
+          {:noreply,
+           socket
+           |> put_flash(:error, "First-party add-on import failed: #{format_error(reason)}")
+           |> load_first_party_catalog()}
+      end
+    end
   end
 
   defp list_addon_packages(scope), do: AddonPackages.list(%{limit: 500}, scope: scope)

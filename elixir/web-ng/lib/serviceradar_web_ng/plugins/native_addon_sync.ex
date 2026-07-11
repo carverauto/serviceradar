@@ -38,7 +38,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   def import_or_reuse(addon, opts \\ []) when is_map(addon) do
     case existing_package(addon.addon_id, addon.version, opts) do
       {:ok, nil} ->
-        import_addon(addon, opts)
+        sync_import(addon, opts)
 
       {:ok, %AddonPackage{} = package} ->
         cond do
@@ -49,7 +49,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
             {:skipped, package}
 
           true ->
-            repair_addon(addon)
+            sync_import(addon, opts)
         end
 
       {:error, _reason} = error ->
@@ -101,16 +101,21 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
     end
   end
 
-  defp import_addon(addon, opts) do
-    with {:ok, package} <- NativeAddonImporter.import(import_attrs(addon)),
-         {:ok, package} <- maybe_approve(package, opts) do
-      {:imported, package}
-    end
-  end
+  defp sync_import(addon, opts) do
+    case NativeAddonImporter.import_with_disposition(import_attrs(addon)) do
+      {:ok, package, :created} ->
+        with {:ok, package} <- maybe_approve(package, opts) do
+          {:imported, package}
+        end
 
-  defp repair_addon(addon) do
-    with {:ok, package} <- NativeAddonImporter.import(import_attrs(addon)) do
-      {:imported, package}
+      {:ok, package, :repaired} ->
+        {:imported, package}
+
+      {:ok, package, :reused} ->
+        {:skipped, package}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

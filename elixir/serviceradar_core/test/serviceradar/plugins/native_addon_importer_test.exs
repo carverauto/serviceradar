@@ -164,6 +164,39 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterTest do
       assert {:error, {:duplicate_artifact_platform, "linux/amd64"}} =
                Importer.verify_and_mirror([artifact, duplicate], pub, mirror)
     end
+
+    test "normalizes platform names before mirroring and persistence" do
+      {pub, priv} = keypair()
+      tarball = "canonical-platform"
+      signature = priv |> sign(tarball) |> Base.encode16(case: :lower)
+
+      artifact = %{
+        os: " Linux ",
+        arch: "AMD64",
+        tarball: tarball,
+        sha256: :sha256 |> :crypto.hash(tarball) |> Base.encode16(case: :lower),
+        signature: signature,
+        signature_digest: signature_digest(signature)
+      }
+
+      parent = self()
+
+      mirror = fn os, arch, _bytes ->
+        send(parent, {:mirrored_platform, os, arch})
+        {:ok, "addons/netprobe/#{os}/#{arch}/obj"}
+      end
+
+      assert {:ok, map} = Importer.verify_and_mirror([artifact], pub, mirror)
+      assert_receive {:mirrored_platform, "linux", "amd64"}
+
+      assert %{
+               "linux/amd64" => %{
+                 "object_key" => "addons/netprobe/linux/amd64/obj"
+               }
+             } = map
+
+      refute Map.has_key?(map, " Linux /AMD64")
+    end
   end
 
   test "rejects a bundle manifest identity that differs from the selected index entry" do

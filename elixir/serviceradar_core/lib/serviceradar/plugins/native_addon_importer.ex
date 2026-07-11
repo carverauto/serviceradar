@@ -65,6 +65,8 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
           required(:sha256) => String.t()
         }
 
+  @type import_disposition :: :created | :reused | :repaired
+
   @doc """
   Import one native add-on into a staged `AddonPackage`.
 
@@ -85,6 +87,17 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
           {:ok, AddonPackage.t()} | {:error, term()}
   def import_entry(manifest, entry, artifacts, opts)
       when is_map(manifest) and is_map(entry) and is_list(artifacts) do
+    with {:ok, package, _disposition} <-
+           import_entry_with_disposition(manifest, entry, artifacts, opts) do
+      {:ok, package}
+    end
+  end
+
+  @doc "Import one native add-on and report whether persistence created, reused, or repaired the row."
+  @spec import_entry_with_disposition(map(), map(), [fetched_artifact()], keyword()) ::
+          {:ok, AddonPackage.t(), import_disposition()} | {:error, term()}
+  def import_entry_with_disposition(manifest, entry, artifacts, opts)
+      when is_map(manifest) and is_map(entry) and is_list(artifacts) do
     public_key = Keyword.fetch!(opts, :public_key)
     mirror = Keyword.fetch!(opts, :mirror)
     actor = Keyword.fetch!(opts, :actor)
@@ -101,7 +114,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
     case find_package(addon_id, version, actor) do
       {:ok, nil} ->
         case create_package(attrs, actor) do
-          {:ok, %AddonPackage{} = package} -> {:ok, package}
+          {:ok, %AddonPackage{} = package} -> {:ok, package, :created}
           {:error, create_error} -> reconcile_after_create_error(attrs, actor, create_error)
         end
 
@@ -140,7 +153,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
         {:error, source_conflict(package, attrs, :oci_source_mismatch)}
 
       exact_verified_package?(package, attrs) ->
-        {:ok, package}
+        {:ok, package, :reused}
 
       true ->
         with {:ok, updated} <-
@@ -150,14 +163,23 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
                )
                |> Ash.update(),
              :ok <- ProducerScheduleCatalog.sync_package(updated, actor: actor) do
-          {:ok, updated}
+          {:ok, updated, :repaired}
         end
     end
   end
 
   defp exact_verified_package?(package, attrs) do
     package.verification_status == "verified" and is_nil(package.verification_error) and
-      package.artifacts == attrs.artifacts
+      source_matches?(package, attrs) and package.artifacts == attrs.artifacts
+  end
+
+  defp source_matches?(package, attrs) do
+    existing_ref = normalize_source(package.source_oci_ref)
+    existing_digest = normalize_digest(package.source_oci_digest)
+
+    not is_nil(existing_ref) and not is_nil(existing_digest) and
+      existing_ref == normalize_source(attrs.source_oci_ref) and
+      existing_digest == normalize_digest(attrs.source_oci_digest)
   end
 
   defp source_disagrees?(package, attrs) do
@@ -241,7 +263,9 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
     artifacts
     |> Enum.reduce_while({:ok, MapSet.new()}, fn artifact, {:ok, seen} ->
       case normalized_artifact_platform(artifact) do
-        {:ok, platform} ->
+        {:ok, os, arch} ->
+          platform = "#{os}/#{arch}"
+
           if MapSet.member?(seen, platform) do
             {:halt, {:error, {:duplicate_artifact_platform, platform}}}
           else
@@ -258,23 +282,30 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
     end
   end
 
-  defp normalized_artifact_platform(%{os: os, arch: arch})
-       when is_binary(os) and is_binary(arch) do
-    os = os |> String.trim() |> String.downcase()
-    arch = arch |> String.trim() |> String.downcase()
-
-    if os != "" and arch != "" do
-      {:ok, "#{os}/#{arch}"}
-    else
-      {:error, :invalid_artifact}
+  defp normalized_artifact_platform(%{os: os, arch: arch}) do
+    with {:ok, os} <- normalize_platform_segment(os),
+         {:ok, arch} <- normalize_platform_segment(arch) do
+      {:ok, os, arch}
     end
   end
 
   defp normalized_artifact_platform(_artifact), do: {:error, :invalid_artifact}
 
-  defp verify_and_mirror_one(%{os: os, arch: arch} = artifact, public_key, mirror)
-       when is_binary(os) and is_binary(arch) and os != "" and arch != "" do
-    with :ok <- verify_sha256(artifact.tarball, artifact.sha256),
+  defp normalize_platform_segment(value) when is_binary(value) do
+    normalized = value |> String.trim() |> String.downcase()
+
+    if Regex.match?(~r/\A[a-z0-9][a-z0-9._-]*\z/, normalized) do
+      {:ok, normalized}
+    else
+      {:error, :invalid_artifact}
+    end
+  end
+
+  defp normalize_platform_segment(_value), do: {:error, :invalid_artifact}
+
+  defp verify_and_mirror_one(artifact, public_key, mirror) when is_map(artifact) do
+    with {:ok, os, arch} <- normalized_artifact_platform(artifact),
+         :ok <- verify_sha256(artifact.tarball, artifact.sha256),
          :ok <- verify_artifact_signature(artifact.tarball, artifact.signature, public_key),
          :ok <- verify_signature_digest(artifact.signature, Map.get(artifact, :signature_digest)),
          {:ok, object_key} <- mirror.(os, arch, artifact.tarball) do

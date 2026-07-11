@@ -65,6 +65,29 @@ defmodule ServiceRadarWebNG.Plugins.AddonPackages do
     end
   end
 
+  @spec import_first_party_addon(map(), keyword()) ::
+          {:ok, AddonPackage.t(), :imported | :skipped} | {:error, term()}
+  def import_first_party_addon(addon, opts \\ [])
+
+  def import_first_party_addon(addon, opts) when is_map(addon) do
+    case NativeAddonSync.candidates([addon]) do
+      [candidate] ->
+        case NativeAddonSync.import_or_reuse(
+               candidate,
+               Keyword.take(opts, [:scope, :actor, :auto_approve_addon_ids])
+             ) do
+          {:imported, package} -> {:ok, package, :imported}
+          {:skipped, package} -> {:ok, package, :skipped}
+          {:error, _reason} = error -> error
+        end
+
+      [] ->
+        {:error, :native_addon_not_import_ready}
+    end
+  end
+
+  def import_first_party_addon(_addon, _opts), do: {:error, :invalid_attributes}
+
   @spec approve(String.t(), map(), keyword()) :: {:ok, AddonPackage.t()} | {:error, term()}
   def approve(id, attrs, opts \\ [])
 

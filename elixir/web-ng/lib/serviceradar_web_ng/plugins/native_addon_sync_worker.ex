@@ -25,7 +25,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
   @bootstrap_unique [period: :infinity, states: :incomplete]
   @successor_unique [period: :infinity, states: [:available, :scheduled, :retryable]]
   @bootstrap_states ["available", "scheduled", "executing", "retryable", "suspended"]
-  @manual_unique [period: :infinity, states: [:available, :retryable]]
+  @manual_unique [period: :infinity, states: :incomplete, keys: [:force]]
 
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
@@ -138,6 +138,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
       from(j in Oban.Job,
         where: j.worker == ^inspect(__MODULE__),
         where: j.state in ^@bootstrap_states,
+        where: fragment("COALESCE(?->>'force', 'false') <> 'true'", j.args),
         limit: 1
       )
 
@@ -179,9 +180,13 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
   end
 
   defp redact_log_term(value) when is_map(value) do
-    value
-    |> CredentialRedactor.redact()
-    |> Map.new(fn {key, nested} -> {key, redact_log_term(nested)} end)
+    Map.new(value, fn {key, nested} ->
+      if sensitive_log_key?(key) do
+        {key, "REDACTED"}
+      else
+        {key, redact_log_term(nested)}
+      end
+    end)
   end
 
   defp redact_log_term(value) when is_list(value), do: Enum.map(value, &redact_log_term/1)
@@ -189,6 +194,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
   defp redact_log_term(value) when is_binary(value) do
     value
     |> CredentialRedactor.redact()
+    |> redact_url_userinfo()
+    |> redact_authorization()
     |> redact_inline_secrets()
   end
 
@@ -196,13 +203,58 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
 
   defp redact_inline_secrets(value) when is_binary(value) do
     Regex.replace(
-      ~r/(?i)(["']?\b(?:api[_-]?token|password|passwd|passphrase|private[_-]?key)\b["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;}\]]+)/,
+      ~r/(?i)(["']?\b(?:(?:[a-z0-9]+[_-])*(?:token|secret)|api[_-]?key|access[_-]?key|password|passwd|passphrase|private[_-]?key)\b["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;}\]]+)/,
       value,
       "\\1REDACTED"
     )
   end
 
   defp redact_inline_secrets(value), do: value
+
+  defp redact_authorization(value) when is_binary(value) do
+    Regex.replace(
+      ~r/(?i)(["']?\b(?:authorization|proxy[_-]?authorization)\b["']?\s*[:=]\s*)(?:"(?:basic|bearer)\s+[^"]*"|'(?:basic|bearer)\s+[^']*'|(?:basic|bearer)\s+[^\s,;}\]]+)/,
+      value,
+      "\\1REDACTED"
+    )
+  end
+
+  defp redact_authorization(value), do: value
+
+  defp redact_url_userinfo(value) when is_binary(value) do
+    Regex.replace(
+      ~r{(?i)\b([a-z][a-z0-9+.-]*://)([^/@\s]+)@},
+      value,
+      "\\1REDACTED@"
+    )
+  end
+
+  defp redact_url_userinfo(value), do: value
+
+  defp sensitive_log_key?(key) do
+    normalized =
+      key
+      |> log_key_string()
+      |> String.downcase()
+      |> String.replace(~r/[^a-z0-9]+/, "_")
+      |> String.trim("_")
+
+    normalized in [
+      "authorization",
+      "proxy_authorization",
+      "provider_auth",
+      "provider_bootstrap",
+      "credential_material"
+    ] or
+      Regex.match?(
+        ~r/(^|_)(token|secret|password|passwd|passphrase|private_key|api_key|access_key)($|_)/,
+        normalized
+      )
+  end
+
+  defp log_key_string(key) when is_binary(key), do: key
+  defp log_key_string(key) when is_atom(key), do: Atom.to_string(key)
+  defp log_key_string(key), do: inspect(key, limit: 5, printable_limit: 64)
 
   defp sanitize_log_text(value) do
     String.replace(value, ~r/[\x00-\x1F\x7F]/u, " ")
