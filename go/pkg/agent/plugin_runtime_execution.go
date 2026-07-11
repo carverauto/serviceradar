@@ -18,6 +18,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strings"
 	"sync"
@@ -197,7 +198,7 @@ func (e *pluginExecution) hostLog(_ context.Context, mod api.Module, level uint3
 	}
 }
 
-func (e *pluginExecution) hostSubmitResult(_ context.Context, mod api.Module, ptr, size uint32) int32 {
+func (e *pluginExecution) hostSubmitResult(ctx context.Context, mod api.Module, ptr, size uint32) int32 {
 	if !e.hasCapability("submit_result") {
 		return pluginErrDenied
 	}
@@ -220,13 +221,24 @@ func (e *pluginExecution) hostSubmitResult(_ context.Context, mod api.Module, pt
 		return pluginErrOK
 	}
 
-	e.manager.enqueueResult(PluginResult{
+	return e.submitScheduledResult(ctx, payload)
+}
+
+func (e *pluginExecution) submitScheduledResult(ctx context.Context, payload []byte) int32 {
+	err := e.manager.enqueueResult(ctx, PluginResult{
 		AssignmentID: e.assignment.AssignmentID,
 		PluginID:     e.assignment.PluginID,
 		PluginName:   e.assignment.Name,
 		Payload:      payload,
 		ObservedAt:   time.Now().UTC(),
 	})
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return pluginErrTimeout
+		}
+		return pluginErrInternal
+	}
+
 	e.markSubmitted()
 
 	return pluginErrOK

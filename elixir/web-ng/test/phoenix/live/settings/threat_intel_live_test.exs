@@ -36,6 +36,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
 
     assert html =~ "Threat Intel"
     refute html =~ "otx-liveview-secret"
+    refute html =~ "Max IOCs"
+    refute html =~ "max_indicators"
 
     lv
     |> form("#otx-settings-form", %{
@@ -48,7 +50,6 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
         "otx_sync_interval_seconds" => "900",
         "otx_page_size" => "75",
         "otx_timeout_ms" => "15000",
-        "otx_max_indicators" => "2500",
         "otx_retrohunt_window_seconds" => "86400",
         "threat_intel_match_window_seconds" => "1800",
         "otx_raw_payload_archive_enabled" => "true"
@@ -81,7 +82,6 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
         "otx_sync_interval_seconds" => "900",
         "otx_page_size" => "75",
         "otx_timeout_ms" => "15000",
-        "otx_max_indicators" => "2500",
         "otx_retrohunt_window_seconds" => "86400",
         "threat_intel_match_window_seconds" => "1800"
       }
@@ -133,8 +133,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
         "api_key_secret_ref" => "edge-liveview-secret",
         "limit" => "25",
         "page" => "1",
-        "timeout_ms" => "12000",
-        "max_indicators" => "500"
+        "timeout_ms" => "12000"
       }
     })
     |> render_submit()
@@ -158,6 +157,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
 
     assert assignment.params["base_url"] == "https://otx.alienvault.com"
     assert assignment.params["api_key_secret_ref"] =~ "secretref:api_key"
+    refute Map.has_key?(assignment.params, "max_indicators")
+    refute Map.has_key?(assignment.params, "max_iocs")
 
     %Postgrex.Result{rows: [[raw_params]]} =
       query!(
@@ -166,6 +167,45 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
       )
 
     refute raw_params =~ "edge-liveview-secret"
+
+    query!(
+      """
+      UPDATE platform.plugin_assignments
+      SET params = params ||
+        '{"max_iocs":1,"max_indicators":1,"otx_max_indicators":1,"types":"IPv4","future_setting":"preserve-me"}'::jsonb
+      WHERE id = ($1::text)::uuid
+      """,
+      [assignment.id]
+    )
+
+    render_submit(lv, "save_assignment", %{
+      "assignment" => %{
+        "agent_uid" => agent.uid,
+        "enabled" => "true",
+        "interval_seconds" => "21600",
+        "timeout_seconds" => "25",
+        "base_url" => "https://otx.alienvault.com",
+        "api_key_secret_ref" => "",
+        "limit" => "25",
+        "page" => "1",
+        "timeout_ms" => "12000",
+        "max_pages" => "25",
+        "max_iocs" => "1",
+        "max_indicators" => "1"
+      }
+    })
+
+    refreshed =
+      PluginAssignment
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(id == ^assignment.id)
+      |> Ash.read_one!(scope: scope)
+
+    refute Map.has_key?(refreshed.params, "max_indicators")
+    refute Map.has_key?(refreshed.params, "max_iocs")
+    refute Map.has_key?(refreshed.params, "otx_max_indicators")
+    assert refreshed.params["types"] == "IPv4"
+    assert refreshed.params["future_setting"] == "preserve-me"
   end
 
   test "manual sync, match, and retrohunt buttons report enqueue outcome", %{conn: conn} do
@@ -554,8 +594,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
         "api_key_secret_ref" => %{"type" => "string", "secretRef" => true},
         "limit" => %{"type" => "integer", "minimum" => 1, "maximum" => 100},
         "page" => %{"type" => "integer", "minimum" => 1},
-        "timeout_ms" => %{"type" => "integer", "minimum" => 1000},
-        "max_indicators" => %{"type" => "integer", "minimum" => 1, "maximum" => 500_000}
+        "timeout_ms" => %{"type" => "integer", "minimum" => 1000}
       },
       "required" => ["api_key_secret_ref"]
     }

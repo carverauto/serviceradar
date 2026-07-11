@@ -79,6 +79,28 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestorTest do
            ] = ThreatIntelPluginIngestor.normalize_indicators(payload, %{}, observed_at)
   end
 
+  test "does not truncate a valid OTX page at the legacy 5000 row boundary" do
+    observed_at = ~U[2026-04-27 12:00:00Z]
+
+    indicators =
+      Enum.map(0..5_000, fn suffix ->
+        %{"indicator" => "2001:db8::#{Integer.to_string(suffix, 16)}"}
+      end)
+
+    payload = %{
+      "threat_intel" => %{
+        "provider" => "alienvault_otx",
+        "source" => "alienvault_otx",
+        "indicators" => indicators
+      }
+    }
+
+    normalized = ThreatIntelPluginIngestor.normalize_indicators(payload, %{}, observed_at)
+
+    assert length(normalized) == 5_001
+    assert List.last(normalized).indicator == "2001:db8::1388/128"
+  end
+
   test "falls back to plugin id when provider source is absent" do
     observed_at = ~U[2026-04-27 12:00:00Z]
 

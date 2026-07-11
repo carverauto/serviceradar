@@ -9,11 +9,10 @@ exports_files([
 
 filegroup(
     name = "srcs",
-    srcs = glob(
-        ["**"],
-        exclude = [
-            "dist/**",
-            "manifest.json",
-        ],
-    ),
+    srcs = [
+        "go.mod",
+        "go.sum",
+        "host.go",
+        "main.go",
+    ],
 )

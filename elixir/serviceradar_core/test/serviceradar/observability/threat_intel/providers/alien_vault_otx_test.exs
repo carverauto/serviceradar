@@ -3,6 +3,7 @@ defmodule ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTXTest do
 
   alias ServiceRadar.Observability.ThreatIntel.Page
   alias ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTX
+  alias ServiceRadar.Observability.ThreatIntelOTXSyncWorker
 
   test "fetches subscribed pulses with auth header and pagination params" do
     parent = self()
@@ -15,7 +16,7 @@ defmodule ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTXTest do
          status: 200,
          body: %{
            "count" => 2,
-           "next" => "https://otx.example/api/v1/pulses/subscribed?page=2",
+           "next" => "https://otx.example/api/v1/pulses/subscribed?page=5",
            "results" => [
              %{
                "id" => "pulse-1",
@@ -28,6 +29,11 @@ defmodule ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTXTest do
                    "indicator" => "198.51.100.10",
                    "type" => "IPv4",
                    "created" => "2026-04-26T10:30:00Z"
+                 },
+                 %{
+                   "indicator" => "198.51.100.11",
+                   "type" => "IPv4",
+                   "created" => "2026-04-26T10:31:00Z"
                  },
                  %{"indicator" => "example.invalid", "type" => "domain"}
                ]
@@ -44,6 +50,8 @@ defmodule ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTXTest do
                  base_url: "https://otx.example",
                  limit: 25,
                  page: 3,
+                 max_iocs: 1,
+                 max_indicators: 1,
                  http_get: http_get,
                  validate_url?: false
                },
@@ -65,24 +73,79 @@ defmodule ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTXTest do
     assert page.provider == "alienvault_otx"
     assert page.source == "alienvault_otx"
     assert page.collection_id == "otx:pulses:subscribed"
-    assert page.cursor["next"] == "https://otx.example/api/v1/pulses/subscribed?page=2"
+    assert page.cursor["page"] == 4
+    assert page.cursor["next"] == "https://otx.example/api/v1/pulses/subscribed?page=5"
+    assert page.cursor["next_page"] == 5
+
+    assert ThreatIntelOTXSyncWorker.continuation_cursor(page.cursor) == %{
+             "page" => 5,
+             "next" => "https://otx.example/api/v1/pulses/subscribed?page=5",
+             "modified_since" => "2026-04-27T00:00:00Z"
+           }
 
     assert page.counts == %{
              "objects" => 1,
-             "indicators" => 1,
+             "indicators" => 2,
              "skipped" => 1,
              "skipped_by_type" => %{"domain" => 1},
              "total" => 2
            }
 
-    assert [
-             %{
-               "indicator" => "198.51.100.10",
-               "source_object_id" => "pulse-1",
-               "source_object_type" => "otx-pulse",
-               "source_context" => "otx-user"
-             }
-           ] = page.indicators
+    assert Enum.map(page.indicators, & &1["indicator"]) == [
+             "198.51.100.10",
+             "198.51.100.11"
+           ]
+
+    assert Enum.all?(page.indicators, fn indicator ->
+             indicator["source_object_id"] == "pulse-1" and
+               indicator["source_object_type"] == "otx-pulse" and
+               indicator["source_context"] == "otx-user"
+           end)
+  end
+
+  test "resumes a legacy cursor that only persisted the provider next URL" do
+    parent = self()
+
+    http_get = fn url, _opts ->
+      send(parent, {:request, url})
+      {:ok, %Req.Response{status: 200, body: %{"results" => []}}}
+    end
+
+    assert {:ok, %Page{}} =
+             AlienVaultOTX.fetch_page(
+               %{
+                 api_key: "test-key",
+                 base_url: "https://otx.example",
+                 http_get: http_get,
+                 validate_url?: false
+               },
+               %{"next" => "https://otx.example/api/v1/pulses/subscribed?limit=100&page=6"}
+             )
+
+    assert_received {:request, url}
+    assert URI.decode_query(URI.parse(url).query)["page"] == "6"
+  end
+
+  test "stamps a durable completion high-water for the next root sync" do
+    now = ~U[2026-07-11 03:00:00Z]
+
+    page = %Page{
+      provider: "alienvault_otx",
+      source: "alienvault_otx",
+      cursor: %{"page" => 7, "next" => nil},
+      raw: %{}
+    }
+
+    stamped = ThreatIntelOTXSyncWorker.stamp_durable_cursor(page, now)
+
+    assert stamped.cursor == %{
+             "page" => 1,
+             "next" => nil,
+             "complete" => "true",
+             "modified_since" => "2026-07-09T03:00:00Z"
+           }
+
+    assert stamped.raw["cursor"] == stamped.cursor
   end
 
   test "retries OTX rate limits and transient server failures" do

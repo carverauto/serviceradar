@@ -88,6 +88,97 @@ func TestNormalizeResources(t *testing.T) {
 	}
 }
 
+func TestPluginExecutionSubmitScheduledResultWaitsForQueueAdmission(t *testing.T) {
+	mgr := NewPluginManager(t.Context(), PluginManagerConfig{Logger: logger.NewTestLogger()})
+	defer mgr.Stop()
+
+	mgr.results = make(chan PluginResult, 1)
+	mgr.results <- PluginResult{AssignmentID: "already-queued"}
+
+	exec := newPluginExecution(mgr, &pluginAssignment{
+		AssignmentID: "assign-1",
+		PluginID:     "alienvault-otx-threat-intel",
+		Name:         "AlienVault OTX",
+	})
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+
+	done := make(chan int32, 1)
+	go func() {
+		done <- exec.submitScheduledResult(ctx, []byte(`{"page":2}`))
+	}()
+
+	select {
+	case code := <-done:
+		t.Fatalf("submitScheduledResult returned %d before queue admission", code)
+	case <-time.After(25 * time.Millisecond):
+	}
+
+	first := <-mgr.results
+	if first.AssignmentID != "already-queued" {
+		t.Fatalf("first queued assignment = %q, want already-queued", first.AssignmentID)
+	}
+
+	select {
+	case code := <-done:
+		if code != pluginErrOK {
+			t.Fatalf("submitScheduledResult returned %d, want %d", code, pluginErrOK)
+		}
+	case <-ctx.Done():
+		t.Fatal("submitScheduledResult did not complete after queue capacity became available")
+	}
+
+	result := <-mgr.results
+	if result.AssignmentID != "assign-1" || string(result.Payload) != `{"page":2}` {
+		t.Fatalf("unexpected admitted result: %#v", result)
+	}
+	if !exec.hasSubmitted() {
+		t.Fatal("execution was not marked submitted after queue admission")
+	}
+}
+
+func TestPluginExecutionSubmitScheduledResultReportsCanceledAdmission(t *testing.T) {
+	mgr := NewPluginManager(t.Context(), PluginManagerConfig{Logger: logger.NewTestLogger()})
+	defer mgr.Stop()
+
+	mgr.results = make(chan PluginResult, 1)
+	mgr.results <- PluginResult{AssignmentID: "already-queued"}
+	exec := newPluginExecution(mgr, &pluginAssignment{AssignmentID: "assign-1"})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	if code := exec.submitScheduledResult(ctx, []byte(`{"page":2}`)); code != pluginErrInternal {
+		t.Fatalf("submitScheduledResult returned %d, want %d", code, pluginErrInternal)
+	}
+	if exec.hasSubmitted() {
+		t.Fatal("execution was marked submitted after canceled queue admission")
+	}
+	if got := len(mgr.results); got != 1 {
+		t.Fatalf("queued results = %d, want 1", got)
+	}
+}
+
+func TestPluginExecutionSubmitScheduledResultReportsAdmissionTimeout(t *testing.T) {
+	mgr := NewPluginManager(t.Context(), PluginManagerConfig{Logger: logger.NewTestLogger()})
+	defer mgr.Stop()
+
+	mgr.results = make(chan PluginResult, 1)
+	mgr.results <- PluginResult{AssignmentID: "already-queued"}
+	exec := newPluginExecution(mgr, &pluginAssignment{AssignmentID: "assign-1"})
+
+	ctx, cancel := context.WithTimeout(t.Context(), time.Nanosecond)
+	defer cancel()
+	<-ctx.Done()
+
+	if code := exec.submitScheduledResult(ctx, []byte(`{"page":2}`)); code != pluginErrTimeout {
+		t.Fatalf("submitScheduledResult returned %d, want %d", code, pluginErrTimeout)
+	}
+	if exec.hasSubmitted() {
+		t.Fatal("execution was marked submitted after queue admission timeout")
+	}
+}
+
 func TestDecodePluginTelemetryBuildsTelemetryBatch(t *testing.T) {
 	assignment := &pluginAssignment{
 		AssignmentID: "assign-1",

@@ -68,23 +68,23 @@
 
 ## 5. Remove The Independent OTX IOC Cap
 
-- [ ] 5.1 Remove `Max IOCs` from both deployment OTX settings and edge assignment
+- [x] 5.1 Remove `Max IOCs` from both deployment OTX settings and edge assignment
   forms, defaults, serializers, and validation messages.
-- [ ] 5.2 Stop passing or applying `otx_max_indicators` / `max_indicators` in the
+- [x] 5.2 Stop passing or applying `otx_max_indicators` / `max_indicators` in the
   core OTX provider and edge OTX plugin; remove `max_indicators` skip accounting.
-- [ ] 5.3 Keep page size, maximum pages, request timeout, retry-attempt budget,
+- [x] 5.3 Keep page size, maximum pages, request timeout, retry-attempt budget,
   wall-time budget, payload admission, and resumable cursor enforcement.
-- [ ] 5.4 Ensure accepted pages/results are persisted in chunks without silently
+- [x] 5.4 Ensure accepted pages/results are persisted in chunks without silently
   truncating valid indicators at the old count.
-- [ ] 5.5 Decouple retrohunt from `otx_max_indicators`; use an internal observable
+- [x] 5.5 Decouple retrohunt from `otx_max_indicators`; use an internal observable
   keyset batch and persisted continuation cursor over the requested time window.
-- [ ] 5.6 Accept and ignore legacy `max_iocs`, `max_indicators`, and
+- [x] 5.6 Accept and ignore legacy `max_iocs`, `max_indicators`, and
   `otx_max_indicators` keys in stored assignments, delivered config, settings,
   and queued jobs; strip them on the next successful edit.
-- [ ] 5.7 Keep the old database column inert for the compatibility window and
+- [x] 5.7 Keep the old database column inert for the compatibility window and
   document the later cleanup migration rather than dropping it in the first
   rollout.
-- [ ] 5.8 Bump the AlienVault OTX Wasm package version and satisfy the first-party
+- [x] 5.8 Bump the AlienVault OTX Wasm package version and satisfy the first-party
   Wasm manifest/build/publish gates required by the repository.
 
 ## 6. Security, Performance, And Observability
@@ -111,7 +111,7 @@
   propagation.
 - [ ] 7.4 Add LiveView tests for RBAC, dashboard/settings links, filters,
   pagination, match detail, both flow pivots, stale state, and query failure state.
-- [ ] 7.5 Add Go/plugin tests proving old cap keys are ignored, page/page-count and
+- [x] 7.5 Add Go/plugin tests proving old cap keys are ignored, page/page-count and
   time/attempt limits remain enforced, partial cursors resume, and valid rows are
   not counted as `max_indicators` skips.
 - [ ] 7.6 Add migration/rollback tests for any supporting index and the inert legacy
@@ -122,14 +122,14 @@
 - [ ] 7.8 Validate desktop and mobile behavior with Playwright screenshots and
   verify that dashboard, investigation, flow, attributed-flow, and settings links
   all preserve their intended state.
-- [ ] 7.9 Validate with `openspec validate improve-threat-intel-investigation --strict`.
+- [x] 7.9 Validate with `openspec validate improve-threat-intel-investigation --strict`.
 
 ## 8. Documentation And Rollout
 
 - [ ] 8.1 Document imported inventory vs current match vs retrohunt evidence vs
   canonical finding semantics and the exact dashboard metric definitions.
 - [ ] 8.2 Document SRQL threat-intel examples and the interactive time-window limits.
-- [ ] 8.3 Document OTX continuation behavior and clarify that the removed `Max IOCs`
+- [x] 8.3 Document OTX continuation behavior and clarify that the removed `Max IOCs`
   setting was never a retained-corpus cap.
 - [ ] 8.4 Canary the change with an intentionally partial OTX walk, confirm cursor
   progress to completion, and compare dashboard, SRQL, and investigation counts.

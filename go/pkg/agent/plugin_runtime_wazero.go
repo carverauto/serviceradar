@@ -101,7 +101,7 @@ func (m *PluginManager) executeWithWasm(ctx context.Context, assignment *pluginA
 	}
 
 	if !exec.hasSubmitted() {
-		m.enqueueResult(buildPluginErrorResult(assignment, "no result submitted"))
+		m.tryEnqueueResult(buildPluginErrorResult(assignment, "no result submitted"))
 	}
 
 	return nil

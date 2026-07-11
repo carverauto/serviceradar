@@ -276,6 +276,8 @@ defmodule ServiceRadar.Observability.NetflowSettings do
       allow_nil? false
       default 50_000
       public? true
+
+      description "Deprecated compatibility field; accepted from older releases but no longer enforced"
     end
 
     attribute :otx_modified_since, :string do
