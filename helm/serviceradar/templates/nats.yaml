@@ -88,7 +88,7 @@ spec:
       annotations:
         {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
     spec:
-      {{- include "serviceradar.topologySpread" . | nindent 6 }}
+      {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-nats") | nindent 6 }}
       containers:
       - name: nats
         image: nats:{{ .Values.image.tags.nats | default "latest" }}
