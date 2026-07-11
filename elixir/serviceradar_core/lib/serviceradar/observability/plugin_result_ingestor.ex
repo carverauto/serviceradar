@@ -44,9 +44,15 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
         available
       )
 
-    with :ok <- insert_status(status_row, actor),
-         :ok <- upsert_current_state(status_row) do
-      ingest_registered_handlers(payload, status, observed_at, actor)
+    with :ok <- insert_status(status_row, actor) do
+      case ingest_registered_handlers(payload, status, observed_at, actor) do
+        :ok ->
+          upsert_current_state(status_row)
+
+        {:error, {:plugin_result_handlers_failed, errors}} = error ->
+          _ = persist_handler_failure(status_row, payload, errors, actor)
+          error
+      end
     end
   rescue
     e ->
@@ -181,21 +187,110 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   end
 
   defp ingest_registered_handlers(payload, status, observed_at, actor) do
-    Enum.each(plugin_result_handlers(), fn handler ->
-      if handler_supports?(handler, payload, status) do
-        case ingest_handler(handler, payload, status, observed_at, actor) do
-          :ok ->
-            :ok
+    errors =
+      Enum.reduce(plugin_result_handlers(), [], fn handler, errors ->
+        if handler_supports?(handler, payload, status) do
+          case ingest_handler(handler, payload, status, observed_at, actor) do
+            :ok ->
+              errors
 
-          {:error, reason} ->
-            Logger.warning(
-              "Plugin result handler #{inspect(handler_module(handler))} failed: #{inspect(reason)}"
-            )
+            {:error, reason} ->
+              log_handler_failure(handler, reason)
+              [{handler_module(handler), reason} | errors]
+
+            other ->
+              reason = {:unexpected_handler_result, other}
+              log_handler_failure(handler, reason)
+              [{handler_module(handler), reason} | errors]
+          end
+        else
+          errors
         end
-      end
-    end)
+      end)
 
-    :ok
+    case Enum.reverse(errors) do
+      [] -> :ok
+      errors -> {:error, {:plugin_result_handlers_failed, errors}}
+    end
+  end
+
+  defp log_handler_failure(handler, reason) do
+    Logger.warning(
+      "Plugin result handler #{inspect(handler_module(handler))} failed: #{inspect(reason)}"
+    )
+  end
+
+  defp persist_handler_failure(status_row, payload, errors, actor) do
+    failure_row = handler_failure_status_row(status_row, payload, errors)
+
+    with :ok <- insert_status(failure_row, actor),
+         :ok <- upsert_current_state(failure_row) do
+      :ok
+    else
+      {:error, reason} = error ->
+        Logger.error(
+          "Plugin result handler failure status persistence failed: #{inspect(reason)}"
+        )
+
+        error
+    end
+  end
+
+  defp handler_failure_status_row(status_row, payload, errors) do
+    failed_at = handler_failure_timestamp(status_row.timestamp)
+    handlers = Enum.map(errors, fn {handler, _reason} -> handler_label(handler) end)
+    message = "Plugin result downstream ingest failed: #{Enum.join(handlers, ", ")}"
+
+    details =
+      FieldParser.encode_json(%{
+        "status" => "CRITICAL",
+        "summary" => message,
+        "reported_result" => payload,
+        "downstream_ingest" => %{
+          "status" => "failed",
+          "handlers" =>
+            Enum.map(errors, fn {handler, reason} ->
+              %{
+                "handler" => handler_label(handler),
+                "error" => handler_error_text(reason)
+              }
+            end)
+        }
+      })
+
+    %{
+      status_row
+      | timestamp: failed_at,
+        created_at: failed_at,
+        available: false,
+        message: message,
+        details: details
+    }
+  end
+
+  defp handler_failure_timestamp(%DateTime{} = observed_at) do
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+
+    case DateTime.compare(now, observed_at) do
+      :gt -> now
+      _ -> DateTime.add(observed_at, 1, :microsecond)
+    end
+  end
+
+  defp handler_label(handler) when is_atom(handler) do
+    handler
+    |> Module.split()
+    |> Enum.join(".")
+  end
+
+  defp handler_label(handler), do: inspect(handler)
+
+  defp handler_error_text(%{__exception__: true} = error), do: Exception.message(error)
+
+  defp handler_error_text(reason) do
+    reason
+    |> inspect(limit: 20, printable_limit: 1_000)
+    |> String.slice(0, 1_000)
   end
 
   defp handler_supports?({handler, _opts}, payload, status) when is_atom(handler) do
