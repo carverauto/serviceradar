@@ -4,16 +4,28 @@
 
 The current native add-on lifecycle is:
 
-1. Import a signed package as staged.
-2. Review and approve the package and its narrowed capability grant.
+1. When first-party sync is enabled, discover signed official release-index entries
+   and import each verified package version as staged. The optional
+   `autoApproveAddonIds` allowlist approves only named trusted add-ons after import;
+   every other imported version remains staged for operator review.
+2. Review and approve the package and its narrowed capability grant. Approval makes
+   that concrete version eligible for assignment; it does not deploy it or change an
+   existing assignment.
 3. Select that concrete package from a direct assignment or an add-on profile.
-4. Deliver the resulting desired state through agent config.
-5. Let the agent download, verify, activate, supervise, and report status.
+   Both source types persist a concrete package ID; profile reconciliation
+   materializes concrete per-agent assignments from that profile selection.
+4. Automatically deliver enabled assignments for approved packages through agent
+   config whenever desired state changes.
+5. Let each agent automatically reconcile the delivered assignment by downloading,
+   verifying, staging, activating, supervising, and reporting the selected package.
 
 Steps 4 and 5 are automatic after desired state changes. Step 2 intentionally does not
 perform step 3. The missing layer is a safe mechanism that advances desired state
 across many agents without changing every profile-derived assignment in one reconcile
-cycle.
+cycle. The current fleet read model can calculate and display a newer approved version,
+but no update policy consumes that value: there is no native add-on rollout controller,
+canary/batch state machine, or health-gated latest-version tracking. Wasm plugin
+assignment and scheduling remain a separate lifecycle and are not part of this model.
 
 The current fleet read model compounds the ambiguity. Its attention flags treat every
 enabled assignment without a status as `assigned_not_running`, every inactive status
