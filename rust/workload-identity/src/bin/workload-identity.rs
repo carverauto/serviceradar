@@ -44,7 +44,7 @@ struct Args {
 struct Config {
     #[serde(default = "default_enabled")]
     enabled: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_nonempty_path")]
     root: Option<PathBuf>,
     #[serde(default)]
     cri_endpoint: Option<PathBuf>,
@@ -54,7 +54,10 @@ struct Config {
     runtime: Option<RuntimeConfig>,
     #[serde(default = "default_refresh_interval_s")]
     refresh_interval_s: u64,
-    #[serde(default = "default_spool_dir")]
+    #[serde(
+        default = "default_spool_dir",
+        deserialize_with = "deserialize_spool_dir"
+    )]
     spool_dir: PathBuf,
     #[serde(default = "default_max_identities")]
     max_identities: usize,
@@ -354,13 +357,31 @@ fn default_spool_dir() -> PathBuf {
     PathBuf::from(DEFAULT_SPOOL_DIR)
 }
 
+fn deserialize_optional_nonempty_path<'de, D>(deserializer: D) -> Result<Option<PathBuf>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<String>::deserialize(deserializer)?;
+    Ok(value.and_then(|path| {
+        let path = path.trim();
+        (!path.is_empty()).then(|| PathBuf::from(path))
+    }))
+}
+
+fn deserialize_spool_dir<'de, D>(deserializer: D) -> Result<PathBuf, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(deserialize_optional_nonempty_path(deserializer)?.unwrap_or_else(default_spool_dir))
+}
+
 fn default_max_identities() -> usize {
     DEFAULT_MAX_IDENTITIES
 }
 
 #[cfg(test)]
 mod addon_config_contract_tests {
-    use super::Config;
+    use super::{Config, DEFAULT_SPOOL_DIR};
     use std::path::PathBuf;
 
     /// fj#4383 add-on config contract test: decodes the committed
@@ -389,5 +410,24 @@ mod addon_config_contract_tests {
             runtime.socket,
             Some(PathBuf::from("/run/containerd/containerd.sock"))
         );
+    }
+
+    #[test]
+    fn explicit_blank_paths_use_operational_defaults() {
+        let cfg: Config = serde_json::from_str(
+            r#"{
+                "root": "  ",
+                "spool_dir": "",
+                "refresh_interval_s": 60,
+                "max_identities": 50000
+            }"#,
+        )
+        .expect("blank path config must decode");
+
+        assert_eq!(
+            cfg.root, None,
+            "blank root must retain live-node / behavior"
+        );
+        assert_eq!(cfg.spool_dir, PathBuf::from(DEFAULT_SPOOL_DIR));
     }
 }

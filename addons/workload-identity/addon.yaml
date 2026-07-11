@@ -6,7 +6,7 @@
 # consumer of the resulting upstream current-state data.
 id: workload-identity
 name: Workload Identity
-version: 0.1.4
+version: 0.1.5
 description: >-
   Node-local CRI/container workload metadata collector for Kubernetes pod,
   namespace, container, image, and runtime identity enrichment.

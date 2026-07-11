@@ -17,13 +17,9 @@ mkdir -p /var/lib/serviceradar
 mkdir -p /var/lib/serviceradar/cache
 mkdir -p /var/lib/serviceradar/agent/versions
 mkdir -p /var/lib/serviceradar/agent/tmp
-# Endpoint-inventory state dirs: the agent writes its runtime profile here AS THE
-# serviceradar user. Create them explicitly so the recursive chown below owns them
-# as serviceradar from install. Historically they were created while the agent ran
-# as root, so a leftover root-owned dir left the serviceradar agent unable to write
-# its profile — which permanently deferred the config-version ack and produced a
-# config re-stream storm (fj #4301). The chown -R re-owns any such stale dirs on
-# upgrade; creating them here makes fresh installs correct from the start.
+# Endpoint-inventory state dirs: the agent writes its runtime profile here as the
+# serviceradar user. Create and own this subtree explicitly so a stale root-owned
+# directory cannot permanently defer the config-version ack (fj #4301).
 mkdir -p /var/lib/serviceradar/endpoint-inventory/profile
 mkdir -p /var/lib/serviceradar/endpoint-inventory/spool
 mkdir -p /var/lib/serviceradar/endpoint-inventory/cache
@@ -40,7 +36,13 @@ if [ -f /etc/serviceradar/agent.json ]; then
 fi
 chown -R serviceradar:serviceradar /etc/serviceradar/checkers
 chown -R serviceradar:serviceradar /etc/serviceradar/sidecars
-chown -R serviceradar:serviceradar /var/lib/serviceradar
+# Do not recursively chown the shared state root. Native add-ons keep root-owned
+# state below it and may intentionally drop CAP_DAC_OVERRIDE; taking ownership of
+# those directories while the add-on remains running makes its next write fail.
+chown serviceradar:serviceradar /var/lib/serviceradar
+chown -R serviceradar:serviceradar /var/lib/serviceradar/cache
+chown -R serviceradar:serviceradar /var/lib/serviceradar/agent
+chown -R serviceradar:serviceradar /var/lib/serviceradar/endpoint-inventory
 chmod 755 /etc/serviceradar/
 chmod 750 /etc/serviceradar/sidecars
 chmod 755 /var/lib/serviceradar

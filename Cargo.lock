@@ -6346,7 +6346,7 @@ dependencies = [
 
 [[package]]
 name = "serviceradar-workload-identity"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "clap 4.6.1",

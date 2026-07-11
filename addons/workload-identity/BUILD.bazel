@@ -1,3 +1,5 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
 exports_files([
     "addon.yaml",
     "config.schema.json",
@@ -24,4 +26,11 @@ filegroup(
     name = "workload_identity_runtime_config",
     srcs = ["workload-identity.json"],
     visibility = ["//visibility:public"],
+)
+
+sh_test(
+    name = "workload_identity_systemd_state_test",
+    srcs = ["workload_identity_systemd_state_test.sh"],
+    args = ["$(rootpath :serviceradar-workload-identity.service)"],
+    data = [":serviceradar-workload-identity.service"],
 )
