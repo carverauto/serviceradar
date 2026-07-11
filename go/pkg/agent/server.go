@@ -311,6 +311,18 @@ func (s *Server) initAddonManager() {
 		localOtlpEndpoint = strings.TrimSpace(s.config.LocalOtlpEndpoint)
 		addonCgroupRoot = strings.TrimSpace(s.config.AddonCgroupRoot)
 	}
+	runtimeCgroupRoot, cgroupErr := defaultAddonCgroupRoot()
+	if cgroupErr != nil {
+		s.logger.Warn().Err(cgroupErr).
+			Msg("Could not prepare delegated systemd cgroup for agent-sidecar add-ons")
+	}
+	if addonCgroupRoot == "" {
+		addonCgroupRoot = runtimeCgroupRoot
+		if addonCgroupRoot != "" {
+			s.logger.Info().Str("cgroup_root", addonCgroupRoot).
+				Msg("Using delegated systemd cgroup for agent-sidecar add-ons")
+		}
+	}
 
 	s.addonManager = agentaddon.NewManager(agentaddon.Config{
 		CredentialResolver: s.credentialBroker,
@@ -322,7 +334,9 @@ func (s *Server) initAddonManager() {
 		// config wins inside the manager.
 		LocalOtlpEndpoint: localOtlpEndpoint,
 		// Delegated cgroup v2 sub-tree for agent-sidecar add-on resource limits;
-		// empty disables enforcement (best-effort at launch either way).
+		// When omitted by an older persisted config, a delegated systemd
+		// supervisor subgroup supplies the runtime default. Empty after that
+		// disables enforcement (best-effort at launch either way).
 		AddonCgroupRoot: addonCgroupRoot,
 		Logger:          s.logger.WithComponent("agent.addon"),
 	})

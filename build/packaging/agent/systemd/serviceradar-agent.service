@@ -12,6 +12,9 @@ ExecStart=/usr/local/bin/serviceradar-agent
 # instead of becoming their privileged process supervisor.
 Slice=serviceradar.slice
 Delegate=yes
+# The agent moves itself into a leaf subgroup before enabling cpu/memory/pids
+# controllers for agent-supervised native add-ons. Keep this compatible with
+# enterprise systemd releases that predate DelegateSubgroup=.
 # Keep /run/serviceradar under explicit setup rather than RuntimeDirectory=.
 # Netprobe also publishes /run/serviceradar/netprobe/ipc.sock; if systemd owns the
 # shared parent as the agent RuntimeDirectory, an agent restart can remove or

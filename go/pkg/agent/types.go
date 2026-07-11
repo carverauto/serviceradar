@@ -165,8 +165,10 @@ type ServerConfig struct {
 	// under which agent-sidecar add-on subprocesses are placed with their
 	// manifest resource limits (cpu.max/memory.max/memory.high/pids.max). It
 	// takes precedence over a manifest slice for process-supervised add-ons.
-	// Empty disables cgroup enforcement unless the manifest declares a writable
-	// slice; systemd-supervised add-ons use unit directives instead
+	// When omitted, systemd deployments derive the delegated service root from
+	// /proc/self/cgroup if the agent runs in the packaged supervisor subgroup.
+	// Empty after runtime discovery disables cgroup enforcement unless the
+	// manifest declares a writable slice; systemd-supervised add-ons use unit directives instead
 	// (move-anomaly-detection-to-edge §4.2).
 	AddonCgroupRoot string `json:"addon_cgroup_root,omitempty"`
 
