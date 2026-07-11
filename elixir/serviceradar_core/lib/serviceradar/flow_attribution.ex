@@ -19,25 +19,41 @@ defmodule ServiceRadar.FlowAttribution do
   require Logger
 
   @doc "Persist a batch of pushed attribution events."
-  @spec persist([FlowAttributionEvent.t()], String.t() | nil, String.t() | nil) :: :ok
-  def persist(events, partition_id, agent_id) when is_list(events) do
+  @spec persist(
+          [FlowAttributionEvent.t()],
+          String.t() | nil,
+          String.t() | nil,
+          keyword()
+        ) :: :ok | {:error, term()}
+  def persist(events, partition_id, agent_id, opts \\ [])
+
+  def persist(events, partition_id, agent_id, opts) when is_list(events) do
     rows =
       events
       |> Enum.map(&EventRows.from_event(&1, partition_id, agent_id))
       |> Enum.reject(&is_nil/1)
 
-    if rows != [] do
-      Persistence.insert_current_rows(rows)
-    end
+    case rows do
+      [] ->
+        :ok
 
-    :ok
+      rows ->
+        persistence = Keyword.get(opts, :persistence, &Persistence.insert_current_rows/1)
+
+        case persistence.(rows) do
+          :ok -> :ok
+          {:ok, _result} -> :ok
+          {:error, reason} -> persistence_error(reason)
+          %Postgrex.Result{} -> :ok
+          other -> persistence_error({:unexpected_persistence_result, other})
+        end
+    end
   rescue
     error ->
-      Logger.warning("FlowAttribution.persist failed: #{inspect(error)}")
-      :ok
+      persistence_error(error)
   end
 
-  def persist(_events, _partition_id, _agent_id), do: :ok
+  def persist(_events, _partition_id, _agent_id, _opts), do: :ok
 
   @doc """
   Correlate recent attributions with recent NetFlow and stamp matches as
@@ -74,4 +90,9 @@ defmodule ServiceRadar.FlowAttribution do
   """
   @spec retention_minutes() :: pos_integer()
   defdelegate retention_minutes, to: Retention
+
+  defp persistence_error(reason) do
+    Logger.warning("FlowAttribution.persist failed: #{inspect(reason)}")
+    {:error, {:flow_attribution_persist_failed, reason}}
+  end
 end

@@ -154,6 +154,7 @@ type PushLoop struct {
 
 	workloadIdentityMu       sync.Mutex
 	lastWorkloadIdentityFile workloadIdentityFileSignature
+	flowAttributionDelivery  flowAttributionDeliveryQueue
 
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, lastAttemptedConfigVersion, started
 	cancelMu sync.Mutex

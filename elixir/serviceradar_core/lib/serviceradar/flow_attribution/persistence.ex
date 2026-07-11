@@ -1,9 +1,13 @@
 defmodule ServiceRadar.FlowAttribution.Persistence do
   @moduledoc false
 
+  alias ServiceRadar.Backoff
+
   @schema "platform"
   @table "flow_process_attribution_current"
   @workload_identity_table "workload_identity_current"
+  @deadlock_retries 3
+  @deadlock_backoff_opts [base_ms: 10, max_ms: 80, factor: 2.0, jitter: 0.2]
 
   @upsert_sql """
   WITH input_rows AS (
@@ -118,6 +122,7 @@ defmodule ServiceRadar.FlowAttribution.Persistence do
     ORDER BY wi.observed_at DESC
     LIMIT 1
   ) AS workload ON r.container_id IS NOT NULL
+  ORDER BY r.partition, r.attribution_key
   ON CONFLICT (partition, attribution_key) DO UPDATE SET
     observed_at = GREATEST(#{@table}.observed_at, EXCLUDED.observed_at),
     updated_at = now(),
@@ -174,19 +179,32 @@ defmodule ServiceRadar.FlowAttribution.Persistence do
      OR (#{@table}.workload_identity IS NULL AND EXCLUDED.workload_identity IS NOT NULL)
   """
 
-  @spec insert_current_rows([map()]) :: Postgrex.Result.t()
-  def insert_current_rows(rows) do
+  @spec insert_current_rows([map()], keyword()) ::
+          {:ok, Postgrex.Result.t()} | {:error, term()}
+  def insert_current_rows(rows, opts \\ []) do
     rows =
       rows
-      |> dedupe_current_rows()
+      |> prepare_current_rows()
       |> Enum.map(fn row ->
         Map.update!(row, :observed_at, &DateTime.to_iso8601/1)
       end)
 
-    ServiceRadar.Repo.query!(@upsert_sql, [Jason.encode!(rows)])
+    query = Keyword.get(opts, :query, &ServiceRadar.Repo.query/2)
+    sleep = Keyword.get(opts, :sleep, &Process.sleep/1)
+    retries = Keyword.get(opts, :deadlock_retries, @deadlock_retries)
+
+    execute_with_deadlock_retry(
+      Jason.encode!(rows),
+      query,
+      sleep,
+      retries,
+      Backoff.new(@deadlock_backoff_opts)
+    )
   end
 
-  defp dedupe_current_rows(rows) do
+  @doc false
+  @spec prepare_current_rows([map()]) :: [map()]
+  def prepare_current_rows(rows) do
     rows
     |> Enum.reduce(%{}, fn row, acc ->
       key = {Map.fetch!(row, :partition), Map.fetch!(row, :attribution_key)}
@@ -200,5 +218,37 @@ defmodule ServiceRadar.FlowAttribution.Persistence do
       end)
     end)
     |> Map.values()
+    |> Enum.sort_by(&{Map.fetch!(&1, :partition), Map.fetch!(&1, :attribution_key)})
   end
+
+  defp execute_with_deadlock_retry(payload, query, sleep, retries_left, backoff) do
+    case query.(@upsert_sql, [payload]) do
+      {:error, %Postgrex.Error{} = error} when retries_left > 0 ->
+        if deadlock?(error) do
+          {delay_ms, next_backoff} = Backoff.next(backoff)
+          sleep.(delay_ms)
+
+          execute_with_deadlock_retry(
+            payload,
+            query,
+            sleep,
+            retries_left - 1,
+            next_backoff
+          )
+        else
+          {:error, error}
+        end
+
+      result ->
+        result
+    end
+  end
+
+  defp deadlock?(%Postgrex.Error{postgres: postgres}) when is_map(postgres) do
+    Map.get(postgres, :code) == :deadlock_detected or
+      Map.get(postgres, :code) == "40P01" or
+      Map.get(postgres, :pg_code) == "40P01"
+  end
+
+  defp deadlock?(_error), do: false
 end
