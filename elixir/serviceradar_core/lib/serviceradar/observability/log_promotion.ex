@@ -566,8 +566,10 @@ defmodule ServiceRadar.Observability.LogPromotion do
   end
 
   defp build_metadata(log, rule, subject) do
+    source_log_id = normalize_log_id(Map.get(log, :id))
+
     provenance = %{
-      source_log_id: Map.get(log, :id),
+      source_log_id: source_log_id,
       source_log_timestamp: Map.get(log, :timestamp),
       source_subject: subject,
       rule_id: rule.id,
@@ -575,12 +577,27 @@ defmodule ServiceRadar.Observability.LogPromotion do
     }
 
     [
-      correlation_uid: Map.get(log, :id),
+      correlation_uid: source_log_id,
       original_time: Map.get(log, :timestamp)
     ]
     |> OCSF.build_metadata()
     |> Map.put(:serviceradar, provenance)
   end
+
+  defp normalize_log_id(id) when is_binary(id) and byte_size(id) == 16 do
+    case Ecto.UUID.load(id) do
+      {:ok, uuid} -> uuid
+      :error -> encode_binary_log_id(id)
+    end
+  end
+
+  defp normalize_log_id(id) when is_binary(id) do
+    if String.valid?(id), do: id, else: encode_binary_log_id(id)
+  end
+
+  defp normalize_log_id(id), do: id
+
+  defp encode_binary_log_id(id), do: "binary:" <> Base.encode16(id, case: :lower)
 
   defp build_unmapped(log, rule) do
     %{

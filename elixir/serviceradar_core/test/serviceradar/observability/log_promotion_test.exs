@@ -196,6 +196,66 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
     assert alert_count > 0
   end
 
+  test "normalizes binary log IDs before inserting OCSF metadata" do
+    actor = %{id: "system", role: :admin}
+    subject = "logs.binary-id.#{System.unique_integer([:positive])}"
+    log_name = "test.binary_id.#{Ash.UUID.generate()}"
+
+    {:ok, _rule} =
+      EventRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "binary-log-id-#{Ash.UUID.generate()}",
+          source_type: :log,
+          source: %{},
+          match: %{"subject_prefix" => subject},
+          event: %{"log_name" => log_name, "alert" => false}
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    canonical_log_id = Ecto.UUID.generate()
+
+    log = %{
+      id: Ecto.UUID.dump!(canonical_log_id),
+      timestamp: DateTime.utc_now(),
+      severity_text: "INFO",
+      severity_number: 11,
+      body: "raw UUID log ID",
+      service_name: "test",
+      attributes: %{"serviceradar" => %{"ingest" => %{"subject" => subject}}},
+      resource_attributes: %{},
+      created_at: DateTime.utc_now()
+    }
+
+    assert {:ok, 1} = LogPromotion.promote([log])
+
+    metadata = promoted_metadata(log_name, log.body)
+
+    assert metadata["correlation_uid"] == canonical_log_id
+    assert metadata["serviceradar"]["source_log_id"] == canonical_log_id
+
+    invalid_binary_log = %{log | id: <<0xFF, 0x00, 0x80>>, body: "invalid binary log ID"}
+
+    assert {:ok, 1} = LogPromotion.promote([invalid_binary_log])
+
+    metadata = promoted_metadata(log_name, invalid_binary_log.body)
+
+    assert metadata["correlation_uid"] == "binary:ff0080"
+    assert metadata["serviceradar"]["source_log_id"] == "binary:ff0080"
+
+    text_log = %{log | id: "source-specific-log-id", body: "text log ID"}
+
+    assert {:ok, 1} = LogPromotion.promote([text_log])
+
+    metadata = promoted_metadata(log_name, text_log.body)
+
+    assert metadata["correlation_uid"] == text_log.id
+    assert metadata["serviceradar"]["source_log_id"] == text_log.id
+  end
+
   test "matches event_type filter before promoting logs" do
     actor = %{id: "system", role: :admin}
     message = "event_type-match-#{Ash.UUID.generate()}"
@@ -535,6 +595,23 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
     assert %{"name" => container_id, "type" => "Container ID", "type_id" => 99} in observables
     assert unmapped["falco"]["diagnostics"] == diagnostics
     assert unmapped["falco"]["output_fields"]["proc.cmdline"] == "/tmp/.build/tool --lint"
+  end
+
+  defp promoted_metadata(log_name, message) do
+    assert %Result{rows: [[metadata]]} =
+             SQL.query!(
+               Repo,
+               """
+               SELECT metadata
+               FROM ocsf_events
+               WHERE log_name = $1 AND message = $2
+               ORDER BY time DESC
+               LIMIT 1
+               """,
+               [log_name, message]
+             )
+
+    metadata
   end
 
   defp configure_rejecting_alert_queue(reason) do
