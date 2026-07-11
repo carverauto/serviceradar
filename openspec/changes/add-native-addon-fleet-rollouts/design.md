@@ -27,6 +27,12 @@ but no update policy consumes that value: there is no native add-on rollout cont
 canary/batch state machine, or health-gated latest-version tracking. Wasm plugin
 assignment and scheduling remain a separate lifecycle and are not part of this model.
 
+This proposal does not change the existing UI requirement that a new assignment's
+version selector defaults to the latest approved package. That is a one-time default
+selection: once the source is saved under `manual_pin`, its concrete package remains
+stable until an operator starts an upgrade or explicitly enables tracking. Likewise,
+the fleet's existing "up to date" badge remains a comparison, not an update policy.
+
 The current fleet read model compounds the ambiguity. Its attention flags treat every
 enabled assignment without a status as `assigned_not_running`, every inactive status
 as `stopped_or_inactive`, and every status without an assignment as
