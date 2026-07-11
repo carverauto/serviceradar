@@ -68,11 +68,23 @@ defmodule ServiceRadarWebNGWeb.AgentLive.ShowTest do
 
     {:ok, _lv, html} = live(conn, ~p"/agents/agent-1")
 
-    assert html =~ "Service Checks"
+    assert html =~ "Direct service checks"
     assert html =~ "PVE API 8006"
     assert html =~ "192.168.2.10"
     assert html =~ "30s"
-    refute html =~ "No service checks configured for this agent."
+    refute html =~ "No direct service checks are assigned."
+  end
+
+  test "empty direct-check state distinguishes checks from add-on and plugin work", %{conn: conn} do
+    user = AccountsFixtures.user_fixture(%{role: :operator})
+    conn = log_in_user(conn, user)
+
+    {:ok, _lv, html} = live(conn, ~p"/agents/agent-1")
+
+    assert html =~ "Direct service checks"
+    assert html =~ "Ping, TCP, HTTP, DNS, and gRPC checks assigned directly to this agent"
+    assert html =~ "No direct service checks are assigned."
+    assert html =~ "Add-on and plugin work is reported in the sections above."
   end
 
   test "network visibility card surfaces kernel BPF availability" do
@@ -206,12 +218,61 @@ defmodule ServiceRadarWebNGWeb.AgentLive.ShowTest do
 
     {:ok, _lv, html} = live(conn, ~p"/agents/agent-1")
 
-    assert html =~ "Add-on Drift"
+    assert html =~ "Add-on status"
     assert html =~ "Netprobe Unhealthy"
     assert html =~ "unhealthy"
     assert html =~ "health probe failed"
     assert html =~ "Netprobe Unsupported"
     assert html =~ "arch unsupported"
+  end
+
+  test "required runtimes and active resource-limit warnings are represented honestly", %{conn: conn} do
+    old_required_addons = Application.get_env(:serviceradar_core, :required_agent_addons)
+    Application.put_env(:serviceradar_core, :required_agent_addons, ["otel-collector"])
+
+    on_exit(fn ->
+      if is_nil(old_required_addons) do
+        Application.delete_env(:serviceradar_core, :required_agent_addons)
+      else
+        Application.put_env(:serviceradar_core, :required_agent_addons, old_required_addons)
+      end
+    end)
+
+    user = AccountsFixtures.user_fixture(%{role: :operator})
+    conn = log_in_user(conn, user)
+
+    report_addon_status!("agent-1", "otel-collector", %{
+      state: "running",
+      active: true,
+      version: "0.1.1",
+      degradation_reason: "resource limits not enforced: create addon cgroup root: permission denied"
+    })
+
+    report_addon_status!("agent-1", "advisory-producer", %{
+      state: "running",
+      active: true,
+      version: "0.1.0"
+    })
+
+    {:ok, lv, _html} = live(conn, ~p"/agents/agent-1")
+    addons_html = lv |> element("#addons") |> render()
+
+    assert addons_html =~ "required runtime"
+    assert addons_html =~ "running with warning"
+    assert addons_html =~ "resource limits not enforced"
+    refute addons_html =~ "advisory-producer"
+    refute addons_html =~ ">unhealthy<"
+  end
+
+  test "unavailable capability markers are collapsed away from active capabilities", %{conn: conn} do
+    user = AccountsFixtures.user_fixture(%{role: :operator})
+    conn = log_in_user(conn, user)
+
+    {:ok, _lv, html} = live(conn, ~p"/agents/agent-1")
+
+    assert html =~ "Capabilities"
+    assert html =~ "Unavailable capability markers"
+    assert html =~ "host-network-visibility.dpi.unavailable"
   end
 
   defmodule RecordingSRQLStub do
@@ -248,7 +309,11 @@ defmodule ServiceRadarWebNGWeb.AgentLive.ShowTest do
             "last_update_at" => "2026-03-27T18:02:00Z",
             "last_seen_time" => "2026-03-27T18:03:00Z",
             "metadata" => %{"os" => "linux", "arch" => "arm64"},
-            "capabilities" => ["agent"]
+            "capabilities" => [
+              "agent",
+              "host-network-visibility",
+              "host-network-visibility.dpi.unavailable"
+            ]
           }
         ]
       else

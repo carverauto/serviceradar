@@ -25,6 +25,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.AddonStatus
   alias ServiceRadar.Plugins.RetiredNativeAddons
+  alias ServiceRadarWebNG.Plugins.AddonRuntimePolicy
 
   require Ash.Query
 
@@ -39,6 +40,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
     * `{:up_to_date, version, latest?}` — running == assigned; `latest?` is true
       when that version is also the latest approved version of the add-on
     * `{:drift, running, assigned}` — both sides present and different
+    * `{:required_runtime, version_or_nil}` — platform-required runtime without
+      an explicit assignment row
     * `{:running_unassigned, version_or_nil}` — observed running with no assignment
     * `{:not_reported, assigned_version_or_nil}` — assigned but no observed status
     * `nil` — nothing meaningful to say
@@ -46,6 +49,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
   @type version_status ::
           {:up_to_date, String.t(), boolean()}
           | {:drift, String.t(), String.t()}
+          | {:required_runtime, String.t() | nil}
           | {:running_unassigned, String.t() | nil}
           | {:not_reported, String.t() | nil}
           | nil
@@ -71,6 +75,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
           approved?: boolean(),
           assigned?: boolean(),
           enabled?: boolean(),
+          management_mode: AddonRuntimePolicy.management_mode(),
           running_state: String.t() | nil,
           running_version: String.t() | nil,
           active?: boolean(),
@@ -258,6 +263,11 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
 
   def version_status(%{assigned?: true} = row), do: {:not_reported, Map.get(row, :assigned_version)}
 
+  def version_status(%{management_mode: :required, running_version: running, running_state: state} = row)
+      when is_binary(running) or is_binary(state) do
+    {:required_runtime, running_version_or_nil(row)}
+  end
+
   def version_status(%{running_version: running, running_state: state} = row)
       when is_binary(running) or is_binary(state) do
     {:running_unassigned, running_version_or_nil(row)}
@@ -323,6 +333,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
   defp build_row(agent_uid, addon_id, package, assignment, status, stale_assignments, row_context) do
     collector? = MapSet.member?(@collector_addon_ids, addon_id)
     last_scan_at = if collector?, do: Map.get(row_context.scans_by_agent, agent_uid)
+    management_mode = AddonRuntimePolicy.management_mode(addon_id, not is_nil(assignment))
 
     base = %{
       agent_uid: agent_uid,
@@ -338,6 +349,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
       approved?: package_approved?(package),
       assigned?: not is_nil(assignment),
       enabled?: assignment != nil and assignment.enabled,
+      management_mode: management_mode,
       running_state: status && status.state,
       running_version: status && status.version,
       active?: status != nil and status.active,
@@ -349,7 +361,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
     }
 
     version_status = version_status(base)
-    attention = attention_flags(package, assignment, status, version_status)
+    attention = attention_flags(package, assignment, status, version_status, management_mode)
 
     base
     |> Map.put(:version_status, version_status)
@@ -428,13 +440,13 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
 
   # --- "needs attention" classification -------------------------------------
 
-  defp attention_flags(package, assignment, status, version_status) do
+  defp attention_flags(package, assignment, status, version_status, management_mode) do
     []
     |> staged_not_approved(package, assignment)
     |> assigned_not_running(assignment, status)
     |> stopped_or_inactive(assignment, status)
     |> version_drift(version_status)
-    |> observed_unassigned(assignment, status)
+    |> observed_unassigned(assignment, status, management_mode)
   end
 
   defp staged_not_approved(flags, %AddonPackage{status: status}, _assignment)
@@ -461,8 +473,9 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
   defp version_drift(flags, {:drift, _running, _assigned}), do: [:version_drift | flags]
   defp version_drift(flags, _version_status), do: flags
 
-  defp observed_unassigned(flags, nil, %AddonStatus{}), do: [:observed_unassigned | flags]
-  defp observed_unassigned(flags, _assignment, _status), do: flags
+  defp observed_unassigned(flags, nil, %AddonStatus{}, :observed), do: [:observed_unassigned | flags]
+
+  defp observed_unassigned(flags, _assignment, _status, _management_mode), do: flags
 
   # --- data loading ---------------------------------------------------------
 

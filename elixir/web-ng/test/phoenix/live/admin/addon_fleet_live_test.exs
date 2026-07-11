@@ -110,6 +110,33 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     refute fleet_table_html(html) =~ addon_id
   end
 
+  test "required runtimes do not inflate the needs-attention count", %{conn: conn} do
+    old_required_addons = Application.get_env(:serviceradar_core, :required_agent_addons)
+    Application.put_env(:serviceradar_core, :required_agent_addons, ["otel-collector"])
+
+    on_exit(fn ->
+      if is_nil(old_required_addons) do
+        Application.delete_env(:serviceradar_core, :required_agent_addons)
+      else
+        Application.put_env(:serviceradar_core, :required_agent_addons, old_required_addons)
+      end
+    end)
+
+    unique = System.unique_integer([:positive])
+    gateway = gateway_fixture(%{id: "fleet-required-gw-#{unique}", component_id: "fleet-required-#{unique}"})
+    agent = agent_fixture(gateway, %{uid: "fleet-required-agent-#{unique}", name: "Required Runtime Agent"})
+
+    report_status!(agent.uid, "otel-collector", state: "running", active: true, version: "0.1.1")
+
+    {:ok, _lv, html} = live(conn, ~p"/settings/agents/addons/fleet")
+    fleet_html = fleet_table_html(html)
+
+    assert fleet_html =~ ~s(data-role="version-required-runtime")
+    assert fleet_html =~ "required runtime"
+    assert fleet_html =~ ~s(data-role="assignment-required")
+    refute fleet_html =~ "running, unassigned"
+  end
+
   # The fleet matrix table markup (everything before the catalog inventory
   # panel), so assertions can scope to fleet rows only.
   defp fleet_table_html(html) do

@@ -9,8 +9,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
 
   import ServiceRadarWebNGWeb.UIComponents
 
-  alias Phoenix.LiveView.JS
   alias ServiceRadar.Infrastructure.Agent, as: InfrastructureAgent
+  alias ServiceRadarWebNG.AgentCapabilities
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
@@ -271,15 +271,15 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
-      <div class="mx-auto max-w-7xl p-6 space-y-6">
+      <div class="mx-auto max-w-[100rem] space-y-6 px-4 py-5 sm:px-6">
         <%!-- Live Connected Agents Section --%>
         <.ui_panel>
-          <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
-            <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-start justify-between gap-2 border-b border-base-200 px-4 py-3">
+            <div class="flex flex-wrap items-center gap-2">
               <span class="text-sm font-semibold">Live Agents</span>
               <span class="badge badge-sm badge-success">{length(@live_agents)} connected</span>
             </div>
-            <span class="text-xs text-base-content/50">Real-time gateway registry</span>
+            <span class="text-xs leading-5 text-base-content/50">Real-time gateway registry</span>
           </div>
           <.live_agents_table id="live-agents" agents={@live_agents} />
         </.ui_panel>
@@ -448,7 +448,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
   defp live_agents_table(assigns) do
     ~H"""
     <div class="overflow-x-auto">
-      <table id={@id} class="table table-sm table-zebra w-full">
+      <table id={@id} class="table table-sm table-zebra w-full min-w-[72rem] table-fixed">
         <thead>
           <tr>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-10">
@@ -463,7 +463,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
               Gateway Node
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+            <th class="w-80 whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
               Capabilities
             </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-20">
@@ -487,8 +487,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
           <%= for {agent, idx} <- Enum.with_index(@agents) do %>
             <tr
               id={"#{@id}-row-#{idx}"}
-              class="hover:bg-base-200/40 cursor-pointer transition-colors"
-              phx-click={JS.navigate(~p"/agents/#{agent.agent_id}")}
+              class="hover:bg-base-200/40 transition-colors"
             >
               <td class="whitespace-nowrap">
                 <.status_indicator status={agent.status} />
@@ -497,7 +496,9 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
                 class="whitespace-nowrap text-xs font-mono truncate max-w-[12rem]"
                 title={agent.agent_id}
               >
-                {agent.agent_id}
+                <.link navigate={~p"/agents/#{agent.agent_id}"} class="link link-primary">
+                  {agent.agent_id}
+                </.link>
               </td>
               <td class="whitespace-nowrap text-xs">
                 <span :if={agent.partition_id} class="badge badge-sm badge-ghost">
@@ -511,7 +512,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
               >
                 {format_node(agent.gateway_node)}
               </td>
-              <td class="text-xs">
+              <td class="min-w-0 align-top text-xs">
                 <.capabilities_list capabilities={agent.capabilities} />
               </td>
               <td class="text-xs">
@@ -572,7 +573,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
   defp agents_table(assigns) do
     ~H"""
     <div class="overflow-x-auto">
-      <table id={@id} class="table table-sm table-zebra w-full">
+      <table id={@id} class="table table-sm table-zebra w-full min-w-[88rem] table-fixed">
         <thead>
           <tr>
             <th
@@ -599,7 +600,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-32">
               Release
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+            <th class="w-72 whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
               Capabilities
             </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-20">
@@ -699,7 +700,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
                   </.ui_badge>
                 </div>
               </td>
-              <td class="text-xs">
+              <td class="min-w-0 align-top text-xs">
                 <.capabilities_list capabilities={Map.get(agent, "capabilities", [])} />
               </td>
               <td class="text-xs">
@@ -766,15 +767,70 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
   attr(:capabilities, :list, default: [])
 
   defp capabilities_list(assigns) do
-    caps = assigns.capabilities || []
-    assigns = assign(assigns, :caps, caps)
+    summary = AgentCapabilities.summarize(assigns.capabilities)
+
+    assigns =
+      assigns
+      |> assign(:available, summary.available)
+      |> assign(:unavailable, summary.unavailable)
+      |> assign(:total, summary.total)
 
     ~H"""
-    <div class="flex flex-wrap gap-1">
-      <%= for cap <- @caps do %>
-        <span class="badge badge-xs badge-outline">{cap}</span>
-      <% end %>
-      <span :if={@caps == []} class="text-base-content/40">—</span>
+    <div class="min-w-0 max-w-72">
+      <span :if={@total == 0} class="text-base-content/40">—</span>
+
+      <div :if={@total > 0} class="flex min-w-0 flex-col gap-1.5">
+        <div class="flex flex-wrap items-center gap-1.5">
+          <span class="badge badge-ghost badge-xs whitespace-nowrap">
+            {length(@available)} active
+          </span>
+          <span
+            :if={@unavailable != []}
+            class="badge badge-warning badge-soft badge-xs whitespace-nowrap"
+          >
+            {length(@unavailable)} unavailable
+          </span>
+        </div>
+
+        <div :if={@available != []} class="space-y-0.5">
+          <code
+            :for={cap <- Enum.take(@available, 2)}
+            class="block max-w-full truncate text-[11px] text-base-content/70"
+            title={cap}
+          >
+            {cap}
+          </code>
+        </div>
+
+        <details class="group min-w-0">
+          <summary class="flex w-fit cursor-pointer list-none items-center gap-1 text-[11px] text-base-content/60 hover:text-base-content focus:outline-none">
+            <.icon
+              name="hero-chevron-right"
+              class="size-3 transition-transform group-open:rotate-90"
+            /> Reported details
+          </summary>
+          <div class="mt-2 min-w-0 space-y-2 rounded-md bg-base-200/50 p-2">
+            <div :if={@available != []}>
+              <div class="mb-1 text-[10px] font-semibold text-base-content/50">Active</div>
+              <code
+                :for={cap <- @available}
+                class="block break-all text-[10px] leading-4 text-base-content/70"
+              >
+                {cap}
+              </code>
+            </div>
+            <div :if={@unavailable != []}>
+              <div class="mb-1 text-[10px] font-semibold text-warning">Unavailable</div>
+              <code
+                :for={cap <- @unavailable}
+                class="block break-all text-[10px] leading-4 text-base-content/60"
+              >
+                {cap}
+              </code>
+            </div>
+          </div>
+        </details>
+      </div>
     </div>
     """
   end

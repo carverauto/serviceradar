@@ -6,7 +6,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.IndexTest do
   alias ServiceRadarWebNG.AccountsFixtures
 
   setup %{conn: conn} do
-    user = AccountsFixtures.user_fixture(%{role: :operator})
+    user = AccountsFixtures.user_fixture(%{role: :admin})
     conn = log_in_user(conn, user)
 
     old = Application.get_env(:serviceradar_web_ng, :srql_module)
@@ -54,6 +54,15 @@ defmodule ServiceRadarWebNGWeb.AgentLive.IndexTest do
     assert html =~ "Roll Out Selected"
     assert html =~ "agent_ids=agent-2"
     assert html =~ "source=agents_selection"
+  end
+
+  test "capability cells summarize unavailable markers without rendering a badge wall", %{conn: conn} do
+    {:ok, _lv, html} = live(conn, ~p"/agents")
+
+    assert html =~ "2 active"
+    assert html =~ "1 unavailable"
+    assert html =~ "Reported details"
+    assert html =~ "host-network-visibility.flow_attribution.unavailable"
   end
 
   test "applies rollout filters through the agents index controls", %{conn: conn} do
@@ -134,6 +143,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.IndexTest do
 
     def query(query) when is_binary(query), do: query(query, %{})
 
+    @impl true
     def query(query, _opts) when is_binary(query) do
       case :persistent_term.get({ServiceRadarWebNGWeb.AgentLive.IndexTest, :test_pid}, nil) do
         pid when is_pid(pid) -> send(pid, {:srql_query, query})
@@ -163,7 +173,11 @@ defmodule ServiceRadarWebNGWeb.AgentLive.IndexTest do
           "release_rollout_state" => "healthy",
           "last_update_at" => "2026-03-27T18:00:00Z",
           "last_seen_time" => "2026-03-27T18:01:00Z",
-          "capabilities" => ["agent"]
+          "capabilities" => [
+            "agent",
+            "host-network-visibility",
+            "host-network-visibility.flow_attribution.unavailable"
+          ]
         },
         %{
           "uid" => "agent-2",
