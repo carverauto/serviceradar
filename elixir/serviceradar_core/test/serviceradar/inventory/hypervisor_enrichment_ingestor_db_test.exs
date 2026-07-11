@@ -6,6 +6,8 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
   alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.ProxmoxEnrichmentIngestor
+  alias ServiceRadar.Inventory.VirtualizationHost
   alias ServiceRadar.Repo
 
   @moduletag :integration
@@ -114,6 +116,100 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
                """,
                [guest_uid]
              ).rows
+  end
+
+  test "links a streamed Proxmox guest batch to a host persisted by the node batch", %{
+    actor: actor
+  } do
+    suffix = System.unique_integer([:positive])
+    node = "pve-streamed-#{suffix}"
+    host_ref = "proxmox:node:#{node}"
+    guest_ref = "proxmox:guest:#{node}:qemu:#{suffix}"
+    nic_ref = "proxmox:guest-nic:#{guest_ref}:020000000001"
+    observed_at = DateTime.utc_now()
+
+    node_payload = %{
+      "observed_at" => DateTime.to_iso8601(observed_at),
+      "details" => %{
+        "schema" => "serviceradar.proxmox_enrichment.v1",
+        "targets" => [
+          %{
+            "cluster" => [%{"type" => "cluster", "name" => "streamed-#{suffix}"}],
+            "nodes" => [
+              %{
+                "node" => node,
+                "status" => "online",
+                "ip" => "10.78.#{rem(suffix, 200)}.11"
+              }
+            ],
+            "guests" => []
+          }
+        ]
+      }
+    }
+
+    assert :ok = ProxmoxEnrichmentIngestor.ingest(node_payload, %{}, actor: actor)
+
+    VirtualizationHost
+    |> Ash.Changeset.for_create(:create, %{
+      provider: "vsphere",
+      provider_ref: host_ref,
+      name: "wrong-provider-#{node}",
+      observed_at: observed_at
+    })
+    |> Ash.create!(actor: actor)
+
+    guest_payload = %{
+      "observed_at" => DateTime.to_iso8601(observed_at),
+      "details" => %{
+        "schema" => "serviceradar.proxmox_enrichment.v1",
+        "targets" => [
+          %{
+            "cluster" => [%{"type" => "cluster", "name" => "streamed-#{suffix}"}],
+            "nodes" => [],
+            "guests" => [
+              %{
+                "node" => node,
+                "type" => "qemu",
+                "vmid" => suffix,
+                "name" => "vm-streamed-#{suffix}",
+                "status" => "running",
+                "interfaces" => [
+                  %{
+                    "name" => "eth0",
+                    "mac_address" => "02:00:00:00:00:01",
+                    "ip_addresses" => ["10.79.#{rem(suffix, 200)}.12/24"],
+                    "source" => "config"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+
+    assert :ok = ProxmoxEnrichmentIngestor.ingest(guest_payload, %{}, actor: actor)
+
+    assert [[host_id, ^host_ref, guest_id, ^guest_ref, ^host_ref, ^nic_ref]] =
+             Repo.query!(
+               """
+               SELECT h.id, h.provider_ref, g.id, g.provider_ref, nh.provider_ref, n.provider_ref
+               FROM platform.virtualization_hosts h
+               JOIN platform.virtualization_guests g ON g.host_id = h.id
+               JOIN platform.virtualization_network_interfaces n
+                 ON n.host_id = h.id AND n.guest_id = g.id
+               JOIN platform.virtualization_hosts nh ON nh.id = n.host_id
+               WHERE h.provider = 'proxmox'
+                 AND h.provider_ref = $1
+                 AND g.provider_ref = $2
+                 AND n.provider_ref = $3
+               """,
+               [host_ref, guest_ref, nic_ref]
+             ).rows
+
+    assert is_binary(host_id)
+    assert is_binary(guest_id)
   end
 
   test "resolves hosts to existing devices by case-insensitive hostname", %{actor: actor} do
