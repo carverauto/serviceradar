@@ -296,8 +296,8 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
     case session_loader.(session_id) do
       {:ok, %{status: status} = session}
       when status in [:closing, "closing", :closed, "closed", :failed, "failed"] ->
-        Logger.warning(
-          "Recovered camera relay request_close transition for #{session_id} after #{inspect_close_error(reason)}"
+        Logger.debug(
+          "Camera relay request_close was already applied for #{session_id} after #{inspect_close_error(reason)}"
         )
 
         {:ok, session, false}
