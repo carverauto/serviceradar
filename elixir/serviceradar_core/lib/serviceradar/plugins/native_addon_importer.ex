@@ -102,9 +102,11 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
         |> Ash.create()
 
       {:ok, %AddonPackage{} = package} ->
+        action = if package.status == :staged, do: :update, else: :reimport
+
         with {:ok, updated} <-
                package
-               |> Ash.Changeset.for_update(:update, Map.drop(attrs, [:addon_id, :version]),
+               |> Ash.Changeset.for_update(action, Map.drop(attrs, [:addon_id, :version]),
                  actor: actor
                )
                |> Ash.update(),
@@ -258,7 +260,8 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
          source_oci_digest: string_value(entry, "oci_digest"),
          source_release_tag: Keyword.get(opts, :release_tag),
          imported_at: DateTime.truncate(now, :second),
-         verification_status: "verified"
+         verification_status: "verified",
+         verification_error: nil
        }}
     end
   end

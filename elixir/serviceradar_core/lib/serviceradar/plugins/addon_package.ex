@@ -65,6 +65,7 @@ defmodule ServiceRadar.Plugins.AddonPackage do
       transition :deny, from: :staged, to: :denied
       transition :revoke, from: [:approved], to: :revoked
       transition :restage, from: [:denied, :revoked], to: :staged
+      transition :reimport, from: [:approved, :denied, :revoked], to: :staged
     end
   end
 
@@ -89,6 +90,19 @@ defmodule ServiceRadar.Plugins.AddonPackage do
     update :update do
       require_atomic? false
       accept @package_fields
+      change &sync_producer_schedule_contracts/2
+    end
+
+    update :reimport do
+      description "Replace a previously reviewed package with newly verified artifacts"
+      require_atomic? false
+      accept @package_fields
+
+      change transition_state(:staged)
+      change set_attribute(:approved_capabilities, [])
+      change set_attribute(:approved_by, nil)
+      change set_attribute(:approved_at, nil)
+      change set_attribute(:denied_reason, nil)
       change &sync_producer_schedule_contracts/2
     end
 

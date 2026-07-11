@@ -198,6 +198,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterTest do
       assert attrs.source_release_tag == "sha-abc"
       assert attrs.source_type == :first_party
       assert attrs.verification_status == "verified"
+      assert is_nil(attrs.verification_error)
     end
 
     test "defaults resources to an empty map when the manifest omits it" do

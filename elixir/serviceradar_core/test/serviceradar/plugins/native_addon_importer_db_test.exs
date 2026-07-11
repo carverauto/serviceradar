@@ -99,7 +99,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
     assert reread.source_release_tag == "sha-#{uid}"
   end
 
-  test "updates an existing seeded package row instead of failing unique addon version",
+  test "restages an approved package when replacing its verified artifacts",
        %{actor: actor, uid: uid} do
     {pub, priv} = :crypto.generate_key(:eddsa, :ed25519)
     addon_id = "netprobe-seeded-#{uid}"
@@ -117,7 +117,8 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
           binary: "serviceradar-netprobe",
           capabilities: ["host-network-visibility"],
           artifacts: %{},
-          verification_status: "seeded"
+          verification_status: "seeded",
+          verification_error: "artifact mirror was incomplete"
         },
         actor: actor
       )
@@ -155,8 +156,12 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
              )
 
     assert package.id == seeded.id
-    assert package.status == :approved
+    assert package.status == :staged
     assert package.verification_status == "verified"
+    assert is_nil(package.verification_error)
+    assert is_nil(package.approved_by)
+    assert is_nil(package.approved_at)
+    assert package.approved_capabilities == []
     assert package.source_release_tag == "sha-#{uid}"
 
     assert package.artifacts["linux/amd64"]["object_key"] ==

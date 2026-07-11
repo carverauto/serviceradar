@@ -22,6 +22,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
 
   @default_release_limit 10
   @default_reschedule_seconds 3_600
+  @failure_reason_limit 512
+  @queued_unique [period: :infinity, states: [:available, :scheduled, :retryable]]
+  @manual_unique [period: :infinity, states: [:available, :retryable]]
 
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
@@ -29,7 +32,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
       if check_existing_job() do
         {:ok, :already_scheduled}
       else
-        %{} |> new(schedule_in: 60) |> ObanSupport.safe_insert()
+        %{} |> queued_job(schedule_in: 60) |> ObanSupport.safe_insert()
       end
     else
       {:error, :oban_unavailable}
@@ -45,7 +48,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
       |> maybe_put("limit", Keyword.get(opts, :limit))
 
     args
-    |> new()
+    |> manual_job()
     |> ObanSupport.safe_insert()
   end
 
@@ -101,6 +104,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
             "skipped=#{summary.skipped} failed=#{length(summary.failed)}"
         )
 
+        Enum.each(summary.failed, &log_package_failure/1)
+
         :ok
 
       {:error, reason} ->
@@ -111,7 +116,15 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
 
   defp schedule_next do
     if auto_sync_enabled?() and ObanSupport.available?() do
-      _ = ObanSupport.safe_insert(new(%{}, schedule_in: reschedule_seconds()))
+      case ObanSupport.safe_insert(queued_job(%{}, schedule_in: reschedule_seconds())) do
+        {:ok, %Oban.Job{}} ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("Failed to schedule the next first-party native add-on sync",
+            reason: bounded_failure_reason(reason)
+          )
+      end
     end
 
     :ok
@@ -120,7 +133,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
   defp check_existing_job do
     query =
       from(j in Oban.Job,
-        where: j.worker == ^to_string(__MODULE__),
+        where: j.worker == ^inspect(__MODULE__),
         where: j.state in ["available", "scheduled", "retryable"],
         limit: 1
       )
@@ -177,7 +190,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
               }}}
 
           true ->
-            import_addon(addon, auto_approve_addon_ids)
+            repair_addon(addon)
         end
 
       {:error, _reason} = error ->
@@ -199,6 +212,19 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
     end
   end
 
+  defp repair_addon(addon) do
+    import_attrs = %{
+      repo_url: addon.repo_url,
+      release_tag: addon.release_tag,
+      addon_id: addon.addon_id,
+      version: addon.version
+    }
+
+    with {:ok, package} <- NativeAddonImporter.import(import_attrs) do
+      {:imported, package}
+    end
+  end
+
   defp existing_package(addon_id, version) do
     actor = SystemActor.system(:native_addon_sync)
 
@@ -210,16 +236,174 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
 
   defp reusable_package?(%AddonPackage{} = package, addon) do
     source_matches?(package, addon) and package.verification_status == "verified" and
-      is_map(package.artifacts) and map_size(package.artifacts) > 0
+      artifact_contract_matches?(package.artifacts, addon.artifacts)
   end
 
   defp source_conflict?(%AddonPackage{} = package, addon) do
-    package.source_oci_ref not in [nil, ""] and package.source_oci_digest not in [nil, ""] and
-      not source_matches?(package, addon)
+    populated_source_disagrees?(package.source_oci_ref, addon.oci_ref, &normalize_source_ref/1) or
+      populated_source_disagrees?(
+        package.source_oci_digest,
+        addon.oci_digest,
+        &normalize_source_digest/1
+      )
   end
 
   defp source_matches?(%AddonPackage{} = package, addon) do
-    package.source_oci_ref == addon.oci_ref and package.source_oci_digest == addon.oci_digest
+    existing_ref = normalize_source_ref(package.source_oci_ref)
+    existing_digest = normalize_source_digest(package.source_oci_digest)
+
+    not is_nil(existing_ref) and not is_nil(existing_digest) and
+      existing_ref == normalize_source_ref(addon.oci_ref) and
+      existing_digest == normalize_source_digest(addon.oci_digest)
+  end
+
+  defp artifact_contract_matches?(persisted, declared) when is_map(persisted) and is_list(declared) and declared != [] do
+    with {:ok, declared_contracts} <- declared_artifact_contracts(declared),
+         {:ok, persisted_contracts} <- persisted_artifact_contracts(persisted) do
+      declared_platforms = declared_contracts |> Map.keys() |> MapSet.new()
+      persisted_platforms = persisted_contracts |> Map.keys() |> MapSet.new()
+
+      declared_platforms == persisted_platforms and
+        Enum.all?(declared_contracts, fn {platform, declared_contract} ->
+          Map.get(persisted_contracts, platform) == declared_contract
+        end)
+    else
+      _ -> false
+    end
+  end
+
+  defp artifact_contract_matches?(_persisted, _declared), do: false
+
+  defp declared_artifact_contracts(artifacts) do
+    Enum.reduce_while(artifacts, {:ok, %{}}, fn artifact, {:ok, contracts} ->
+      with {:ok, platform} <- artifact_platform(artifact),
+           false <- Map.has_key?(contracts, platform),
+           sha256 when is_binary(sha256) <- normalize_sha256(map_value(artifact, :tarball_sha256)),
+           tarball_digest when tarball_digest == "sha256:" <> sha256 <-
+             normalize_digest(map_value(artifact, :tarball_digest)),
+           signature_digest when is_binary(signature_digest) <-
+             normalize_digest(map_value(artifact, :signature_digest)) do
+        contract = %{sha256: sha256, signature_digest: signature_digest}
+        {:cont, {:ok, Map.put(contracts, platform, contract)}}
+      else
+        _ -> {:halt, {:error, :invalid_declared_artifact_contract}}
+      end
+    end)
+  end
+
+  defp persisted_artifact_contracts(artifacts) do
+    Enum.reduce_while(artifacts, {:ok, %{}}, fn {platform_key, artifact}, {:ok, contracts} ->
+      with platform when is_binary(platform) <- normalize_platform(platform_key),
+           false <- Map.has_key?(contracts, platform),
+           true <- is_map(artifact),
+           object_key when is_binary(object_key) <- normalize_string(map_value(artifact, :object_key)),
+           sha256 when is_binary(sha256) <- normalize_sha256(map_value(artifact, :sha256)),
+           signature when is_binary(signature) <- normalize_string(map_value(artifact, :signature)) do
+        contract = %{sha256: sha256, signature_digest: digest(signature)}
+        {:cont, {:ok, Map.put(contracts, platform, contract)}}
+      else
+        _ -> {:halt, {:error, :invalid_persisted_artifact_contract}}
+      end
+    end)
+  end
+
+  defp artifact_platform(artifact) when is_map(artifact) do
+    with os when is_binary(os) <- normalize_platform_segment(map_value(artifact, :os)),
+         arch when is_binary(arch) <- normalize_platform_segment(map_value(artifact, :arch)) do
+      {:ok, "#{os}/#{arch}"}
+    else
+      _ -> {:error, :invalid_artifact_platform}
+    end
+  end
+
+  defp artifact_platform(_artifact), do: {:error, :invalid_artifact_platform}
+
+  defp normalize_platform(value) do
+    case normalize_string(value) do
+      value when is_binary(value) ->
+        case String.split(value, "/", parts: 2) do
+          [os, arch] ->
+            with os when is_binary(os) <- normalize_platform_segment(os),
+                 arch when is_binary(arch) <- normalize_platform_segment(arch) do
+              "#{os}/#{arch}"
+            else
+              _ -> nil
+            end
+
+          _ ->
+            nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp normalize_platform_segment(value) do
+    case normalize_string(value) do
+      value when is_binary(value) ->
+        value = String.downcase(value)
+        if Regex.match?(~r/\A[a-z0-9][a-z0-9._-]*\z/, value), do: value
+
+      _ ->
+        nil
+    end
+  end
+
+  defp normalize_sha256(value) do
+    case normalize_string(value) do
+      value when is_binary(value) ->
+        value = String.downcase(value)
+
+        if Regex.match?(~r/\A[0-9a-f]{64}\z/, value), do: value
+
+      _ ->
+        nil
+    end
+  end
+
+  defp normalize_digest(value) do
+    case normalize_source_digest(value) do
+      "sha256:" <> sha256 = digest ->
+        if normalize_sha256(sha256), do: digest
+
+      _ ->
+        nil
+    end
+  end
+
+  defp normalize_source_ref(value), do: normalize_string(value)
+
+  defp normalize_source_digest(value) do
+    case normalize_string(value) do
+      value when is_binary(value) -> String.downcase(value)
+      _ -> nil
+    end
+  end
+
+  defp populated_source_disagrees?(existing, discovered, normalize) do
+    case normalize_string(existing) do
+      nil -> false
+      _existing -> normalize.(existing) != normalize.(discovered)
+    end
+  end
+
+  defp normalize_string(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      value -> value
+    end
+  end
+
+  defp normalize_string(value) when is_atom(value), do: value |> Atom.to_string() |> normalize_string()
+  defp normalize_string(_value), do: nil
+
+  defp map_value(map, key) when is_map(map) and is_atom(key) do
+    Map.get(map, Atom.to_string(key)) || Map.get(map, key)
+  end
+
+  defp digest(value) do
+    "sha256:" <> (:sha256 |> :crypto.hash(value) |> Base.encode16(case: :lower))
   end
 
   defp maybe_approve(%AddonPackage{addon_id: addon_id, status: :staged} = package, auto_approve_addon_ids) do
@@ -261,6 +445,29 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
       skipped: skipped,
       failed: failed
     }
+  end
+
+  defp log_package_failure(failure) do
+    Logger.warning("First-party native add-on package sync failed",
+      addon_id: failure.addon_id,
+      addon_version: failure.version,
+      release_tag: failure.release_tag,
+      reason: bounded_failure_reason(failure.error)
+    )
+  end
+
+  defp bounded_failure_reason(reason) do
+    reason
+    |> inspect(limit: 20, printable_limit: @failure_reason_limit, width: 120)
+    |> String.slice(0, @failure_reason_limit)
+  end
+
+  defp queued_job(args, opts) do
+    new(args, Keyword.put(opts, :unique, @queued_unique))
+  end
+
+  defp manual_job(args, opts \\ []) do
+    new(args, Keyword.put(opts, :unique, @manual_unique))
   end
 
   defp auto_sync_enabled? do
