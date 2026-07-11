@@ -1439,12 +1439,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       restore_env(:stateful_alert_engine_shards, previous_shards)
     end)
 
-    # Create enough rules that at least two land in distinct shards, then drive
-    # them in a single batch. The previous single-GenServer engine processed
-    # every rule serially behind one process (blocking on each rule's DB
-    # writes). The sharded engine runs disjoint rules in separate processes, so
-    # this proves DB writes no longer funnel through a single serialization
-    # point while every rule still fires exactly once.
+    # Pin alternating rule IDs to each configured shard, then drive them in a
+    # single batch. The previous single-GenServer engine processed every rule
+    # serially behind one process (blocking on each rule's DB writes). The
+    # sharded engine runs disjoint rules in separate processes, so this proves
+    # DB writes no longer funnel through a single serialization point while
+    # every rule still fires exactly once.
     unique = System.unique_integer([:positive])
     cleanup_jobs_before = stateful_cleanup_job_ids()
     on_exit(fn -> cleanup_shard_fanout(unique, cleanup_jobs_before) end)
@@ -1476,6 +1476,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
             },
             actor: actor
           )
+          |> Ash.Changeset.force_change_attribute(:id, rule_id_for_shard(rem(index, 2)))
           |> Ash.create()
 
         {index, title, rule}
@@ -1488,10 +1489,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       end)
       |> Enum.uniq()
 
-    # Guard the premise: the batch must exercise more than one shard for this to
-    # be a meaningful concurrency test.
-    assert length(shards) > 1,
-           "expected rules to span multiple shards, got #{inspect(shards)}"
+    # Guard the premise: the batch must exercise both configured shards for this
+    # to be a meaningful concurrency test.
+    assert Enum.sort(shards) == [0, 1]
 
     events =
       for {index, _title, _rule} <- rules do
@@ -1646,6 +1646,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       {:ok, %{num_rows: 1}} -> true
       _ -> false
     end
+  end
+
+  defp rule_id_for_shard(shard) do
+    (&Ash.UUID.generate/0)
+    |> Stream.repeatedly()
+    |> Enum.find(&(StatefulAlertEngine.shard_for_rule_id(&1) == shard))
   end
 
   defp uuid_query_param(<<_::128>> = uuid), do: {:ok, uuid}

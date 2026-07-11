@@ -190,19 +190,24 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
   def episode_projection(_row), do: :skip
 
   @doc false
-  def reset_rate_guard! do
-    case :ets.whereis(@rate_guard_table) do
-      :undefined -> :ok
-      tid -> :ets.delete(tid)
-    end
-  end
+  def reset_rate_guard!, do: delete_table_if_present(@rate_guard_table)
 
   @doc false
-  def reset_tripwire! do
-    case :ets.whereis(@tripwire_table) do
-      :undefined -> :ok
-      tid -> :ets.delete(tid)
+  def reset_tripwire!, do: delete_table_if_present(@tripwire_table)
+
+  defp delete_table_if_present(table) do
+    case :ets.whereis(table) do
+      :undefined ->
+        :ok
+
+      tid ->
+        :ets.delete(tid)
+        :ok
     end
+  rescue
+    # Test-owned tables are deleted automatically when their owner exits. The
+    # owner can terminate between whereis/1 and delete/1 during ExUnit teardown.
+    ArgumentError -> :ok
   end
 
   defp transition_row(row, repo) do
