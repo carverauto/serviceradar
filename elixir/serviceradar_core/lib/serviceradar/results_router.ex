@@ -141,8 +141,13 @@ defmodule ServiceRadar.ResultsRouter do
   defp publish_status_batch([]), do: :ok
 
   defp publish_status_batch(statuses) do
-    ServiceStateRegistry.bulk_upsert_from_statuses(statuses)
-    ServiceStatusPubSub.broadcast_batch(statuses)
+    statuses = Enum.reject(statuses, &plugin_result_status?/1)
+
+    if statuses != [] do
+      ServiceStateRegistry.bulk_upsert_from_statuses(statuses)
+      ServiceStatusPubSub.broadcast_batch(statuses)
+    end
+
     :ok
   rescue
     error ->
@@ -196,6 +201,9 @@ defmodule ServiceRadar.ResultsRouter do
     end
   end
 
+  defp publish_status_update(%{source: source}) when source in ["plugin-result", :plugin_result],
+    do: :ok
+
   defp publish_status_update(status) do
     ServiceStateRegistry.upsert_from_status(status)
     ServiceStatusPubSub.broadcast_update(status)
@@ -206,6 +214,11 @@ defmodule ServiceRadar.ResultsRouter do
     :exit, reason ->
       Logger.warning("Service status publish failed", reason: inspect(reason))
   end
+
+  defp plugin_result_status?(%{source: source}) when source in ["plugin-result", :plugin_result],
+    do: true
+
+  defp plugin_result_status?(_status), do: false
 
   defp process(%{source: source, service_type: "sync"} = status, _opts)
        when source in ["results", :results] do

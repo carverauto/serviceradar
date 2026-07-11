@@ -1,10 +1,18 @@
 defmodule ServiceRadar.Observability.PluginResultIngestorTest do
   use ServiceRadar.DataCase, async: false
 
+  import ExUnit.CaptureLog
+
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Infrastructure.Gateway
   alias ServiceRadar.Observability.PluginResultIngestor
   alias ServiceRadar.Observability.ServiceStatePubSub
   alias ServiceRadar.Observability.ServiceStateRegistry
+  alias ServiceRadar.Observability.ServiceStatus
+  alias ServiceRadar.Observability.ServiceStatusPubSub
   alias ServiceRadar.Repo
+  alias ServiceRadar.ResultsRouter
 
   defmodule FailingHandler do
     @moduledoc false
@@ -116,6 +124,30 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest do
          "token=bare-token-text-secret credential 'credential-text-secret' " <>
          "private_key=private-key-text-secret " <>
          "-----BEGIN PRIVATE KEY-----pem-text-secret-----END PRIVATE KEY-----"}
+    end
+  end
+
+  defmodule SensitiveCredentialHandler do
+    @moduledoc false
+
+    def supports?(_payload, _status), do: true
+
+    def ingest(_payload, _status, _opts) do
+      private_key_begin = "-----BEGIN " <> "PRIVATE KEY-----\n"
+      private_key_end = "\n-----END " <> "PRIVATE KEY-----"
+      rsa_private_key_begin = "-----BEGIN RSA " <> "PRIVATE KEY-----\n"
+
+      {:error,
+       %{
+         detail:
+           "Authorization: Basic basic-auth-secret\n" <>
+             private_key_begin <>
+             String.duplicate("long-pem-secret-", 100) <>
+             private_key_end,
+         unterminated:
+           rsa_private_key_begin <>
+             String.duplicate("unterminated-pem-secret-", 100)
+       }}
     end
   end
 
@@ -509,6 +541,163 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest do
     assert current_state_details(status) == recovery_details
   end
 
+  test "returning to an older handler set allocates above the global generation" do
+    {payload, status, observed_at} = plugin_result_fixture()
+
+    Application.put_env(:serviceradar_core, :plugin_result_handlers, [ReplayHandler])
+    ReplayHandler.put_outcomes([{:error, :set_a_failure}, :ok, {:error, :set_a_returned}])
+
+    assert {:error, {:plugin_result_handlers_failed, [{ReplayHandler, ":set_a_failure"}]}} =
+             PluginResultIngestor.ingest(payload, status)
+
+    assert :ok = PluginResultIngestor.ingest(payload, status)
+
+    Application.put_env(:serviceradar_core, :plugin_result_handlers, [SecondaryReplayHandler])
+    SecondaryReplayHandler.put_outcomes([:ok])
+    assert :ok = PluginResultIngestor.ingest(payload, status)
+
+    Application.put_env(:serviceradar_core, :plugin_result_handlers, [ReplayHandler])
+
+    assert {:error, {:plugin_result_handlers_failed, [{ReplayHandler, ":set_a_returned"}]}} =
+             PluginResultIngestor.ingest(payload, status)
+
+    first_failure_at = DateTime.add(observed_at, 1, :microsecond)
+    first_recovery_at = DateTime.add(observed_at, 2, :microsecond)
+    returned_failure_at = DateTime.add(observed_at, 5, :microsecond)
+
+    assert [
+             [^observed_at, true, _, _],
+             [^first_failure_at, false, _, _],
+             [^first_recovery_at, true, _, _],
+             [^returned_failure_at, false, _, returned_failure_details]
+           ] = history_rows(status)
+
+    assert %{
+             "downstream_ingest" => %{
+               "generation" => 3,
+               "status" => "failed"
+             }
+           } = Jason.decode!(returned_failure_details)
+
+    assert [[false, _, ^returned_failure_at]] = current_state_rows(status)
+  end
+
+  test "raw and marker slots preserve distinct service identities" do
+    {payload, first_status, observed_at} = plugin_result_fixture()
+
+    second_status = %{
+      first_status
+      | agent_id: "#{first_status.agent_id}-other",
+        partition: "other-partition",
+        service_type: "plugin-variant"
+    }
+
+    expected_error =
+      {:error, {:plugin_result_handlers_failed, [{FailingHandler, ":forced_failure"}]}}
+
+    assert ^expected_error = PluginResultIngestor.ingest(payload, first_status)
+    assert ^expected_error = PluginResultIngestor.ingest(payload, second_status)
+
+    first_failure_at = DateTime.add(observed_at, 1, :microsecond)
+    second_reported_at = DateTime.add(observed_at, 2, :microsecond)
+    second_failure_at = DateTime.add(observed_at, 3, :microsecond)
+
+    assert [
+             [^observed_at, true, _, _],
+             [^first_failure_at, false, _, first_failure_details]
+           ] = history_rows(first_status)
+
+    assert [
+             [^second_reported_at, true, "edge plugin completed", second_reported_details],
+             [^second_failure_at, false, _, second_failure_details]
+           ] =
+             history_rows(second_status)
+
+    assert %{
+             "_serviceradar_plugin_result" => %{
+               "kind" => "reported",
+               "observation_timestamp" => observation_timestamp
+             }
+           } = Jason.decode!(second_reported_details)
+
+    assert observation_timestamp == DateTime.to_iso8601(observed_at)
+
+    assert %{"downstream_ingest" => %{"generation" => 1}} =
+             Jason.decode!(first_failure_details)
+
+    assert %{"downstream_ingest" => %{"generation" => 2}} =
+             Jason.decode!(second_failure_details)
+
+    assert [[false, _, ^first_failure_at]] = current_state_rows(first_status)
+    assert [[false, _, ^second_failure_at]] = current_state_rows(second_status)
+  end
+
+  test "state proof preserves the authenticated gateway instead of the agent registry gateway" do
+    {payload, status, observed_at} = plugin_result_fixture()
+    registry_gateway = "#{status.gateway_id}-registry"
+    create_agent(status.agent_id, registry_gateway)
+
+    Application.put_env(:serviceradar_core, :plugin_result_handlers, [ReplayHandler])
+    ReplayHandler.put_outcomes([:ok, {:error, :replayed_failure}])
+
+    assert :ok = PluginResultIngestor.ingest(payload, status)
+
+    assert {:error, {:plugin_result_handlers_failed, [{ReplayHandler, ":replayed_failure"}]}} =
+             PluginResultIngestor.ingest(payload, status)
+
+    failed_at = DateTime.add(observed_at, 1, :microsecond)
+    proven_at = DateTime.add(observed_at, 2, :microsecond)
+
+    assert [
+             [^observed_at, true, _, _],
+             [^failed_at, false, _, _],
+             [^proven_at, true, _, _]
+           ] = history_rows(status)
+
+    assert [[true, "edge plugin completed", ^proven_at]] = current_state_rows(status)
+    assert [] = current_state_rows(%{status | gateway_id: registry_gateway})
+  end
+
+  test "physical slot reallocation carries forward same-provenance state proof" do
+    {payload, status, observed_at} = plugin_result_fixture()
+
+    Application.put_env(:serviceradar_core, :plugin_result_handlers, [ReplayHandler])
+    ReplayHandler.put_outcomes([:ok, {:error, :late_failure}])
+
+    assert :ok = PluginResultIngestor.ingest(payload, status)
+
+    collision_status = %{
+      status
+      | agent_id: "#{status.agent_id}-collision",
+        partition: "collision-partition",
+        service_type: "plugin-collision"
+    }
+
+    collision_at = DateTime.add(observed_at, 1, :microsecond)
+    insert_history_status(collision_status, %{"status" => "CRITICAL"}, collision_at, "occupied")
+
+    assert {:error, {:plugin_result_handlers_failed, [{ReplayHandler, ":late_failure"}]}} =
+             PluginResultIngestor.ingest(payload, status)
+
+    reallocated_failure_at = DateTime.add(observed_at, 3, :microsecond)
+    reallocated_success_at = DateTime.add(observed_at, 4, :microsecond)
+
+    assert [
+             [^observed_at, true, _, _],
+             [^reallocated_failure_at, false, _, failure_details],
+             [^reallocated_success_at, true, _, success_details]
+           ] = history_rows(status)
+
+    assert %{"downstream_ingest" => %{"generation" => 2, "status" => "failed"}} =
+             Jason.decode!(failure_details)
+
+    assert %{"downstream_ingest" => %{"generation" => 2, "status" => "succeeded"}} =
+             Jason.decode!(success_details)
+
+    assert [[true, "edge plugin completed", ^reallocated_success_at]] =
+             current_state_rows(status)
+  end
+
   test "marker allocation cannot cross the next genuine observation" do
     {payload, status, observed_at} = plugin_result_fixture()
     next_observed_at = DateTime.add(observed_at, 1, :microsecond)
@@ -536,6 +725,172 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest do
              [^next_observed_at, true, "next observation", _]
            ] = history_rows(status)
 
+    assert [] = current_state_rows(status)
+  end
+
+  test "results router leaves plugin result state ownership with the plugin ingestor" do
+    previous_ingestor =
+      Application.get_env(:serviceradar_core, :plugin_result_ingestor)
+
+    Application.put_env(
+      :serviceradar_core,
+      :plugin_result_ingestor,
+      PluginResultIngestor
+    )
+
+    on_exit(fn -> restore_env(:plugin_result_ingestor, previous_ingestor) end)
+
+    Application.put_env(:serviceradar_core, :plugin_result_handlers, [])
+    {payload, status, observed_at} = plugin_result_fixture()
+    enclosing_timestamp = DateTime.add(observed_at, 10, :second)
+    :ok = ServiceStatusPubSub.subscribe()
+
+    routed_status =
+      Map.merge(status, %{
+        available: true,
+        agent_timestamp: enclosing_timestamp,
+        message: Jason.encode!(payload)
+      })
+
+    assert {:reply, :ok, %{}} =
+             ResultsRouter.handle_call({:results_update, routed_status}, self(), %{})
+
+    succeeded_at = DateTime.add(observed_at, 2, :microsecond)
+
+    assert [[^observed_at, true, "edge plugin completed", _details]] =
+             history_rows(status)
+
+    assert [[true, "edge plugin completed", ^succeeded_at]] =
+             current_state_rows(status)
+
+    assert %{
+             "downstream_ingest" => %{
+               "generation" => 1,
+               "observation_timestamp" => observation_timestamp,
+               "status" => "succeeded"
+             }
+           } = status |> current_state_details() |> Jason.decode!()
+
+    assert observation_timestamp == DateTime.to_iso8601(observed_at)
+    refute succeeded_at == enclosing_timestamp
+
+    assert_receive {:service_status_updated,
+                    %ServiceStatus{
+                      agent_id: agent_id,
+                      gateway_id: gateway_id,
+                      timestamp: ^observed_at
+                    }}
+
+    assert agent_id == status.agent_id
+    assert gateway_id == status.gateway_id
+    refute_receive {:service_status_updated, _duplicate}, 50
+  end
+
+  test "buffered results router persists and broadcasts through the plugin ingestor" do
+    previous_ingestor = Application.get_env(:serviceradar_core, :plugin_result_ingestor)
+    previous_batching = Application.get_env(:serviceradar_core, :results_router_batching)
+
+    Application.put_env(:serviceradar_core, :plugin_result_ingestor, PluginResultIngestor)
+    Application.put_env(:serviceradar_core, :results_router_batching, true)
+
+    on_exit(fn ->
+      restore_env(:plugin_result_ingestor, previous_ingestor)
+      restore_env(:results_router_batching, previous_batching)
+    end)
+
+    Application.put_env(:serviceradar_core, :plugin_result_handlers, [])
+    {payload, status, observed_at} = plugin_result_fixture()
+    :ok = ServiceStatusPubSub.subscribe()
+
+    routed_status =
+      Map.merge(status, %{
+        available: true,
+        agent_timestamp: DateTime.add(observed_at, 15, :second),
+        message: Jason.encode!(payload)
+      })
+
+    initial_state = %{buffer: [], buffer_size: 0, timer: nil}
+
+    assert {:noreply, buffered_state} =
+             ResultsRouter.handle_cast({:results_update, routed_status}, initial_state)
+
+    assert buffered_state.buffer_size == 1
+    assert [] = history_rows(status)
+
+    assert {:noreply, flushed_state} = ResultsRouter.handle_info(:flush_results, buffered_state)
+    if is_reference(flushed_state.timer), do: Process.cancel_timer(flushed_state.timer)
+
+    succeeded_at = DateTime.add(observed_at, 2, :microsecond)
+    assert [[^observed_at, true, "edge plugin completed", _]] = history_rows(status)
+    assert [[true, "edge plugin completed", ^succeeded_at]] = current_state_rows(status)
+
+    assert_receive {:service_status_updated, %ServiceStatus{timestamp: ^observed_at}}
+    refute_receive {:service_status_updated, _duplicate}, 50
+  end
+
+  test "concurrent identities retain distinct reported history rows" do
+    Application.put_env(:serviceradar_core, :plugin_result_handlers, [])
+    {payload, first_status, observed_at} = plugin_result_fixture()
+
+    second_status = %{
+      first_status
+      | agent_id: "#{first_status.agent_id}-concurrent",
+        partition: "concurrent-partition",
+        service_type: "plugin-concurrent"
+    }
+
+    tasks =
+      for status <- [first_status, second_status] do
+        Task.async(fn -> PluginResultIngestor.ingest(payload, status) end)
+      end
+
+    assert [:ok, :ok] = Enum.map(tasks, &Task.await(&1, 5_000))
+
+    assert [[first_reported_at, true, "edge plugin completed", first_details]] =
+             history_rows(first_status)
+
+    assert [[second_reported_at, true, "edge plugin completed", second_details]] =
+             history_rows(second_status)
+
+    assert [first_reported_at, second_reported_at] |> MapSet.new() |> MapSet.size() == 2
+    assert observed_at in [first_reported_at, second_reported_at]
+
+    for details <- [first_details, second_details] do
+      assert %{"_serviceradar_plugin_result" => %{"kind" => "reported"}} =
+               Jason.decode!(details)
+    end
+
+    assert [[true, _, _]] = current_state_rows(first_status)
+    assert [[true, _, _]] = current_state_rows(second_status)
+  end
+
+  test "notification-aware state upserts do not publish effects from a rolled-back transaction" do
+    {_payload, status, observed_at} = plugin_result_fixture()
+    :ok = ServiceStatePubSub.subscribe()
+
+    attrs = %{
+      agent_id: status.agent_id,
+      gateway_id: status.gateway_id,
+      partition: status.partition,
+      service_type: status.service_type,
+      service_name: status.service_name,
+      available: false,
+      message: "must roll back",
+      timestamp: observed_at
+    }
+
+    assert {:error, :forced_rollback} =
+             Repo.transaction(fn ->
+               assert {:ok, notifications, side_effects} =
+                        ServiceStateRegistry.upsert_from_status_strict_with_notifications(attrs)
+
+               assert is_list(notifications)
+               assert side_effects != []
+               refute_receive {:service_state_updated, _state}
+               Repo.rollback(:forced_rollback)
+             end)
+
+    refute_receive {:service_state_updated, _state}, 50
     assert [] = current_state_rows(status)
   end
 
@@ -601,6 +956,48 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest do
            } = Jason.decode!(details)
 
     assert persisted_error == error_text
+  end
+
+  test "long PEM values and Basic authorization are redacted before truncation" do
+    Application.put_env(
+      :serviceradar_core,
+      :plugin_result_handlers,
+      [SensitiveCredentialHandler]
+    )
+
+    {payload, status, _observed_at} = plugin_result_fixture()
+
+    captured_log =
+      capture_log(fn ->
+        send(self(), {:sensitive_result, PluginResultIngestor.ingest(payload, status)})
+      end)
+
+    assert_receive {:sensitive_result,
+                    {:error,
+                     {:plugin_result_handlers_failed, [{SensitiveCredentialHandler, error_text}]}}}
+
+    assert error_text =~ "[REDACTED]"
+    assert error_text =~ "[REDACTED PRIVATE KEY]"
+
+    assert [_, [_, false, _, details]] = history_rows(status)
+
+    assert %{
+             "downstream_ingest" => %{
+               "handlers" => [%{"error" => persisted_error}]
+             }
+           } = Jason.decode!(details)
+
+    assert persisted_error == error_text
+
+    for secret <- [
+          "basic-auth-secret",
+          "long-pem-secret",
+          "unterminated-pem-secret"
+        ] do
+      refute error_text =~ secret
+      refute persisted_error =~ secret
+      refute captured_log =~ secret
+    end
   end
 
   test "textual bearer, token, credential, and private key forms are redacted" do
@@ -737,10 +1134,20 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest do
       """
       SELECT timestamp, available, message, details
       FROM platform.service_status
-      WHERE gateway_id = $1 AND service_name = $2
+      WHERE agent_id = $1
+        AND gateway_id = $2
+        AND partition = $3
+        AND service_type = $4
+        AND service_name = $5
       ORDER BY timestamp
       """,
-      [status.gateway_id, status.service_name]
+      [
+        status.agent_id,
+        status.gateway_id,
+        status.partition,
+        status.service_type,
+        status.service_name
+      ]
     ).rows
   end
 
@@ -751,11 +1158,17 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest do
       FROM platform.service_state
       WHERE agent_id = $1
         AND gateway_id = $2
-        AND partition = 'default'
-        AND service_type = 'plugin'
-        AND service_name = $3
+        AND partition = $3
+        AND service_type = $4
+        AND service_name = $5
       """,
-      [status.agent_id, status.gateway_id, status.service_name]
+      [
+        status.agent_id,
+        status.gateway_id,
+        status.partition,
+        status.service_type,
+        status.service_name
+      ]
     ).rows
   end
 
@@ -766,11 +1179,17 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest do
       FROM platform.service_state
       WHERE agent_id = $1
         AND gateway_id = $2
-        AND partition = 'default'
-        AND service_type = 'plugin'
-        AND service_name = $3
+        AND partition = $3
+        AND service_type = $4
+        AND service_name = $5
       """,
-      [status.agent_id, status.gateway_id, status.service_name]
+      [
+        status.agent_id,
+        status.gateway_id,
+        status.partition,
+        status.service_type,
+        status.service_name
+      ]
     ).rows
   end
 
@@ -781,11 +1200,17 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest do
       FROM platform.service_state
       WHERE agent_id = $1
         AND gateway_id = $2
-        AND partition = 'default'
-        AND service_type = 'plugin'
-        AND service_name = $3
+        AND partition = $3
+        AND service_type = $4
+        AND service_name = $5
       """,
-      [status.agent_id, status.gateway_id, status.service_name]
+      [
+        status.agent_id,
+        status.gateway_id,
+        status.partition,
+        status.service_type,
+        status.service_name
+      ]
     ).rows
     |> List.first()
     |> List.first()
@@ -806,15 +1231,17 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest do
         partition,
         created_at
       )
-      VALUES ($1, $2, $3, $4, 'plugin', true, $5, $6, 'default', $1)
+      VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8, $1)
       """,
       [
         observed_at,
         status.gateway_id,
         status.agent_id,
         status.service_name,
+        status.service_type,
         message,
-        Jason.encode!(payload)
+        Jason.encode!(payload),
+        status.partition
       ]
     )
   end
@@ -841,14 +1268,14 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest do
         gen_random_uuid(),
         $1,
         $2,
-        'default',
-        'plugin',
         $3,
         $4,
         $5,
-        $5,
-        $6::timestamptz AT TIME ZONE 'UTC',
+        $6,
         $7,
+        $7,
+        $8::timestamptz AT TIME ZONE 'UTC',
+        $9,
         now() AT TIME ZONE 'UTC',
         now() AT TIME ZONE 'UTC'
       )
@@ -856,6 +1283,8 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest do
       [
         status.agent_id,
         status.gateway_id,
+        status.partition,
+        status.service_type,
         status.service_name,
         Keyword.fetch!(opts, :available),
         Keyword.fetch!(opts, :message),
@@ -863,6 +1292,28 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest do
         Keyword.fetch!(opts, :state)
       ]
     )
+  end
+
+  defp create_agent(agent_id, gateway_id) do
+    actor = SystemActor.system(:plugin_result_ingestor_test)
+
+    assert {:ok, _gateway} =
+             Gateway
+             |> Ash.Changeset.for_create(:register, %{id: gateway_id}, actor: actor)
+             |> Ash.create(domain: ServiceRadar.Infrastructure)
+
+    assert {:ok, _agent} =
+             Agent
+             |> Ash.Changeset.for_create(
+               :register,
+               %{
+                 uid: agent_id,
+                 name: agent_id,
+                 gateway_id: gateway_id
+               },
+               actor: actor
+             )
+             |> Ash.create(domain: ServiceRadar.Infrastructure)
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
