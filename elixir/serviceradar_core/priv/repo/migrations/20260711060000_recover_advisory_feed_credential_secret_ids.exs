@@ -18,6 +18,10 @@ defmodule ServiceRadar.Repo.Migrations.RecoverAdvisoryFeedCredentialSecretIds do
   @addon_id "advisory-producer"
 
   def up do
+    # serviceradar:allow-startup-maintenance - this forward recovery is bounded
+    # to the two advisory feed definitions, one retired add-on schedule, and one
+    # unavailable built-in feed row. Each lookup uses an existing identifier or
+    # provider/feed key index; it does not scan or rewrite telemetry data.
     execute("""
     WITH normalized AS (
       SELECT
