@@ -162,6 +162,87 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     assert forwarded.service_type == "endpoint_inventory"
   end
 
+  test "synchronously propagates flow attribution persistence failures" do
+    parent = self()
+
+    handler_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_call", from, {:status_update, status}} ->
+            send(parent, {:forwarded, status})
+            GenServer.reply(from, {:error, :deadlock_exhausted})
+        end
+      end)
+
+    Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+    status = %{
+      service_name: "flow-attribution",
+      service_type: "passive-netprobe",
+      source: "flow-attribution",
+      agent_id: "agent-1",
+      gateway_id: "gateway-1",
+      partition: "default",
+      message: <<10, 0>>
+    }
+
+    assert {:error, :deadlock_exhausted} = StatusProcessor.process(status)
+    assert_receive {:forwarded, forwarded}
+    assert_normalized_status(forwarded, status)
+  end
+
+  test "flow attribution core timeout returns once without a distributed retry" do
+    previous_timeout =
+      Application.get_env(
+        :serviceradar_agent_gateway,
+        :flow_attribution_core_call_timeout_ms
+      )
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :flow_attribution_core_call_timeout_ms,
+      10
+    )
+
+    on_exit(fn ->
+      restore_env(:flow_attribution_core_call_timeout_ms, previous_timeout)
+    end)
+
+    parent = self()
+
+    handler_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_call", _from, {:status_update, status}} ->
+            send(parent, {:forward_attempt, status})
+
+            receive do
+              {:"$gen_call", _second_from, {:status_update, second_status}} ->
+                send(parent, {:unexpected_second_attempt, second_status})
+            after
+              100 -> :ok
+            end
+        end
+      end)
+
+    Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+    status = %{
+      service_name: "flow-attribution",
+      service_type: "passive-netprobe",
+      source: "flow-attribution",
+      agent_id: "agent-1",
+      gateway_id: "gateway-1",
+      partition: "default",
+      message: <<10, 0>>
+    }
+
+    assert {:error, :forward_timeout} = StatusProcessor.process(status)
+    assert_receive {:forward_attempt, forwarded}
+    assert_normalized_status(forwarded, status)
+    refute_receive {:unexpected_second_attempt, _status}, 50
+  end
+
   test "publishes package telemetry metrics before buffering when core status handler is unavailable" do
     parent = self()
 

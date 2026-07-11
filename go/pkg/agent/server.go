@@ -500,6 +500,8 @@ func (s *Server) WritePrometheusMetrics(w io.Writer) error {
 		{"sweep_banner_grab_connection_reset_total", "counter", stats.ConnectionResetTotal},
 		{"sweep_banner_grab_timeout_total", "counter", stats.TimeoutTotal},
 		{"sweep_banner_grab_errors_total", "counter", stats.ErrorsTotal},
+		{"agent_flow_attribution_events_forwarded_total", "counter", AgentFlowAttributionEventsForwardedTotal()},
+		{"agent_flow_attribution_events_quarantined_total", "counter", AgentFlowAttributionEventsQuarantinedTotal()},
 	}
 
 	for _, metric := range metrics {

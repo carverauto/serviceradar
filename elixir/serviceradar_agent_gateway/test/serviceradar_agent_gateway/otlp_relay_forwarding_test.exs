@@ -41,6 +41,29 @@ defmodule ServiceRadarAgentGateway.OtlpRelayForwardingTest do
     end
   end
 
+  test "flow attribution persistence failures fail the stream for agent retry" do
+    parent = self()
+
+    handler_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_call", from, {:status_update, status}} ->
+            send(parent, {:flow_attribution_forwarded, status})
+            GenServer.reply(from, {:error, :deadlock_exhausted})
+        end
+      end)
+
+    Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+    assert_raise GRPC.RPCError, ~r/flow-attribution forward failed/, fn ->
+      AgentGatewayServer.process_chunk_services([flow_attribution_service()], metadata())
+    end
+
+    assert_receive {:flow_attribution_forwarded, status}
+    assert status.partition == "cert-partition"
+    assert status.agent_id == "agent-1"
+  end
+
   test "invalid non-relay statuses are still dropped without failing the stream" do
     bad_service = %Monitoring.GatewayServiceStatus{
       service_name: "bad\nname",
@@ -115,6 +138,17 @@ defmodule ServiceRadarAgentGateway.OtlpRelayForwardingTest do
       },
       overrides
     )
+  end
+
+  defp flow_attribution_service do
+    %Monitoring.GatewayServiceStatus{
+      service_name: "flow-attribution",
+      service_type: "passive-netprobe",
+      source: "flow-attribution",
+      partition: "payload-spoofed-partition",
+      available: true,
+      message: <<10, 0>>
+    }
   end
 
   defp metadata do

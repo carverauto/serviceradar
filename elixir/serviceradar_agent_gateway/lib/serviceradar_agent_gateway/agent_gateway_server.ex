@@ -74,6 +74,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   @max_stream_config_window_bytes 64 * 1024 * 1024
   @agent_gateway_component_types [:agent]
   @otlp_relay_source "otlp-relay"
+  @flow_attribution_source "flow-attribution"
+  @strict_delivery_sources [@otlp_relay_source, @flow_attribution_source]
 
   @doc false
   @spec gateway_id() :: String.t()
@@ -404,12 +406,12 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     :ok
   end
 
-  # OTLP relay statuses get honest failure semantics: any validation or forward
-  # error fails the whole RPC so the agent retries from its edge spool (no
-  # silent drops, no false acks). Everything else keeps the lenient
-  # drop-and-log behavior.
+  # Strict-delivery statuses get honest failure semantics: any validation or
+  # forward error fails the whole RPC so the agent retries its retained payload
+  # (no silent drops and no false acknowledgements). Everything else keeps the
+  # lenient drop-and-log behavior.
   defp process_push_service(service, metadata, {count, directives}) do
-    if otlp_relay_service?(service) do
+    if strict_delivery_service?(service) do
       {count + 1, directives ++ process_service_status(service, metadata)}
     else
       try do
@@ -429,10 +431,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
   end
 
-  defp otlp_relay_service?(%Monitoring.GatewayServiceStatus{source: source}) when is_binary(source),
-    do: String.trim(source) == @otlp_relay_source
+  defp strict_delivery_service?(%Monitoring.GatewayServiceStatus{source: source}) when is_binary(source),
+    do: String.trim(source) in @strict_delivery_sources
 
-  defp otlp_relay_service?(_service), do: false
+  defp strict_delivery_service?(_service), do: false
 
   # Process a single service status and forward to the core
   defp process_service_status(service, metadata) do
@@ -541,10 +543,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     }
   end
 
-  # OTLP relay attribution is stamped from the gateway-authenticated view, so
-  # the relay partition must come from the mTLS-cert-derived metadata — never
-  # from the payload-supplied service field.
-  defp status_partition(_service, metadata, @otlp_relay_source), do: normalize_partition(metadata.partition)
+  # Durable ingestion is stamped from the gateway-authenticated view, so the
+  # partition must come from mTLS-derived metadata, never from the payload.
+  defp status_partition(_service, metadata, source) when source in @strict_delivery_sources,
+    do: normalize_partition(metadata.partition)
 
   defp status_partition(service, metadata, _source), do: normalize_partition(service.partition || metadata.partition)
 
@@ -571,14 +573,14 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         gateway_status_directives(service, result)
 
       {:error, reason} ->
-        if status.source == @otlp_relay_source do
-          # Honest ack semantics for the relay: failing the whole gRPC call
-          # makes the agent retry the frame from its spool instead of the
-          # gateway acking data it could not deliver. Relay StreamStatus calls
-          # carry only relay statuses, so failing the call is safe.
-          Logger.warning("Failed to forward otlp-relay status from agent #{status.agent_id}: #{inspect(reason)}")
+        if status.source in @strict_delivery_sources do
+          # Failing the whole gRPC call makes the agent retry its retained
+          # payload instead of acknowledging data core could not persist.
+          Logger.warning("Failed to forward #{status.source} status from agent #{status.agent_id}: #{inspect(reason)}")
 
-          raise GRPC.RPCError, status: :unavailable, message: "otlp-relay forward failed"
+          raise GRPC.RPCError,
+            status: :unavailable,
+            message: "#{status.source} forward failed"
         else
           Logger.warning("Failed to process status for service #{service.service_name}: #{inspect(reason)}")
 
@@ -1476,10 +1478,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   @doc false
   def process_chunk_services(services, metadata) do
     Enum.flat_map(services, fn service ->
-      if otlp_relay_service?(service) do
-        # Relay statuses bypass the lenient drop-and-log rescue: any failure
-        # raises out of stream_status so the whole call fails and the agent
-        # retries the frame from its edge spool.
+      if strict_delivery_service?(service) do
+        # Strict-delivery statuses bypass the lenient drop-and-log rescue: any
+        # failure raises out of stream_status so the whole call fails and the
+        # agent retries its retained payload.
         process_service_status(service, metadata)
       else
         try do
