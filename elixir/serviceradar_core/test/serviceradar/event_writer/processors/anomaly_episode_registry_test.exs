@@ -53,12 +53,12 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistryTest do
     on_exit(fn ->
       Process.delete(:episode_decision)
       Process.delete(:episode_test_pid)
-      AnomalyEpisodeRegistry.reset_rate_guard!()
-      AnomalyEpisodeRegistry.reset_tripwire!()
       restore_env(:anomaly_episodes_enabled, previous)
       restore_env(:anomaly_episode_rate_limit_per_hour, previous_limit)
       restore_env(:anomaly_ingest_flood_threshold_per_minute, previous_threshold)
       restore_env(:anomaly_ingest_tripwire_publisher, previous_publisher)
+      AnomalyEpisodeRegistry.reset_rate_guard!()
+      AnomalyEpisodeRegistry.reset_tripwire!()
     end)
   end
 
