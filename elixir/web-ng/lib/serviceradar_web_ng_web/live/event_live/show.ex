@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   import ServiceRadarWebNGWeb.Observability.SignalDisplayComponents
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadarWebNG.Observability.SignalDisplay
   alias ServiceRadarWebNGWeb.AnomalySeriesKey
@@ -53,7 +54,11 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
       end
 
     related = build_related(event, socket.assigns.current_scope)
-    signal_display = build_signal_display(event)
+
+    device_lookup_scope =
+      if connected?(socket), do: socket.assigns.current_scope
+
+    signal_display = build_signal_display(event, device_lookup_scope)
     device_ref = build_device_ref(event, socket.assigns.current_scope)
 
     {:noreply,
@@ -600,14 +605,65 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   defp normalize_severity(v) when is_binary(v), do: v |> String.trim() |> String.downcase()
   defp normalize_severity(v), do: v |> to_string() |> normalize_severity()
 
-  defp build_signal_display(event) when is_map(event) do
+  @device_ip_paths ~w(
+    metadata.security_signal.diagnostics.network.source_ip
+    metadata.security_signal.diagnostics.network.destination_ip
+    src_endpoint.ip
+    dst_endpoint.ip
+  )
+
+  defp build_signal_display(event, scope) when is_map(event) do
     case SignalDisplay.render_record(event) do
-      {:ok, widgets} -> widgets
+      {:ok, widgets} -> Enum.map(widgets, &add_device_ip_links(&1, scope))
       :error -> nil
     end
   end
 
-  defp build_signal_display(_event), do: nil
+  defp build_signal_display(_event, _scope), do: nil
+
+  defp add_device_ip_links(%{type: type, fields: fields} = widget, scope)
+       when type in [:facts, :timeline] and is_list(fields) do
+    Map.put(widget, :fields, Enum.map(fields, &add_device_ip_link(&1, scope)))
+  end
+
+  defp add_device_ip_links(widget, _scope), do: widget
+
+  defp add_device_ip_link(%{path: path, value: ip} = field, scope) when path in @device_ip_paths and is_binary(ip) do
+    if valid_ip?(ip) do
+      Map.put(field, :href, device_ip_path(ip, scope))
+    else
+      field
+    end
+  end
+
+  defp add_device_ip_link(field, _scope), do: field
+
+  defp device_ip_path(ip, scope) do
+    case lookup_device_by_ip(ip, scope) do
+      %Device{uid: uid} when is_binary(uid) and uid != "" ->
+        ~p"/devices/#{uid}"
+
+      _ ->
+        ~p"/devices?#{%{q: ~s(in:devices ip:\"#{escape_value(ip)}\"), limit: 50}}"
+    end
+  end
+
+  defp lookup_device_by_ip(_ip, nil), do: nil
+
+  defp lookup_device_by_ip(ip, scope) do
+    case Device.get_by_ip(ip, false, scope: scope) do
+      {:ok, [%Device{} = device | _]} -> device
+      {:ok, %{results: [%Device{} = device | _]}} -> device
+      _ -> nil
+    end
+  end
+
+  defp valid_ip?(ip) do
+    case :inet.parse_address(String.to_charlist(String.trim(ip))) do
+      {:ok, _address} -> true
+      {:error, _reason} -> false
+    end
+  end
 
   defp format_timestamp(event) do
     ts =

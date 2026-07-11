@@ -38,6 +38,27 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistryTest do
       :ok
     end
 
+    def fetch_session(relay_session_id) do
+      send(test_pid(), {:fetch_session, relay_session_id})
+      %{relay_session_id: relay_session_id, status: "active"}
+    end
+
+    defp test_pid do
+      Application.fetch_env!(:serviceradar_core_elx, :camera_relay_viewer_registry_test_pid)
+    end
+  end
+
+  defmodule NonOwnerSessionTrackerStub do
+    @moduledoc false
+
+    defdelegate sync_viewer_count(relay_session_id, viewer_count), to: SessionTrackerStub
+    defdelegate mark_closing(relay_session_id, attrs), to: SessionTrackerStub
+
+    def fetch_session(relay_session_id) do
+      send(test_pid(), {:fetch_session, relay_session_id})
+      nil
+    end
+
     defp test_pid do
       Application.fetch_env!(:serviceradar_core_elx, :camera_relay_viewer_registry_test_pid)
     end
@@ -173,6 +194,26 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistryTest do
     assert_receive {:request_close, ^relay_session_id, opts}, 500
     assert opts[:reason] == "viewer idle timeout"
     assert ViewerRegistry.viewer_count(relay_session_id) == 0
+    refute_receive {:mark_closing, ^relay_session_id, _attrs}, 50
+  end
+
+  test "only the core replica that owns the relay session requests idle close" do
+    relay_session_id = "relay-non-owner-idle-close-1"
+    viewer_id = "viewer-non-owner-idle-close-1"
+
+    :sys.replace_state(ViewerRegistry, fn state ->
+      Map.put(state, :session_tracker, NonOwnerSessionTrackerStub)
+    end)
+
+    :ok = RelayPubSub.subscribe_viewer(relay_session_id, viewer_id)
+    :ok = RelayPubSub.viewer_join(relay_session_id, viewer_id)
+    _ = :sys.get_state(ViewerRegistry)
+
+    :ok = RelayPubSub.viewer_leave(relay_session_id, viewer_id)
+
+    assert_receive {:sync_viewer_count, ^relay_session_id, 0}
+    assert_receive {:fetch_session, ^relay_session_id}, 500
+    refute_receive {:request_close, ^relay_session_id, _opts}, 100
     refute_receive {:mark_closing, ^relay_session_id, _attrs}, 50
   end
 

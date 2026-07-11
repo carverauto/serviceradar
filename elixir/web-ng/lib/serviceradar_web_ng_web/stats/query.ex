@@ -8,12 +8,11 @@ defmodule ServiceRadarWebNGWeb.Stats.Query do
 
   @default_time_window "last_24h"
   @log_severity_values %{
-    fatal: ~w(fatal FATAL Fatal critical CRITICAL Critical emergency EMERGENCY Emergency alert ALERT Alert),
-    error: ~w(error ERROR Error err ERR Err),
-    warning: ~w(warning WARNING Warning warn WARN Warn),
-    info:
-      ~w(info INFO Info information INFORMATION Information informational INFORMATIONAL Informational notice NOTICE Notice),
-    debug: ~w(debug DEBUG Debug trace TRACE Trace)
+    fatal: ~w(fatal critical emergency alert),
+    error: ~w(error err),
+    warning: ~w(warning warn),
+    info: ~w(info information informational notice),
+    debug: ~w(debug trace)
   }
 
   @doc """
@@ -44,11 +43,11 @@ defmodule ServiceRadarWebNGWeb.Stats.Query do
   end
 
   @doc """
-  Return the exact `severity_text` values used for a log severity group.
+  Return the canonical `severity_text` values used for a log severity group.
 
-  SRQL text filters are exact-match and case-sensitive. These groups intentionally
-  include lower, upper, and title case variants so click-through queries match the
-  rollup CAGG, which groups with `lower(severity_text)`.
+  Log severity filters are case-insensitive in both SRQL data and stats queries,
+  matching the rollup CAGG's `lower(severity_text)` groups. Keeping one lowercase
+  value per alias avoids redundant bind values in click-through queries.
   """
   @spec log_severity_values(atom() | [atom()]) :: [String.t()]
   def log_severity_values(levels) when is_list(levels) do

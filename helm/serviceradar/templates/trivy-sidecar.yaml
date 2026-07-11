@@ -84,7 +84,7 @@ spec:
         serviceradar.io/release-revision: {{ .Release.Revision | quote }}
         {{- end }}
     spec:
-      {{- include "serviceradar.topologySpread" . | nindent 6 }}
+      {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-trivy-sidecar") | nindent 6 }}
       serviceAccountName: serviceradar-trivy-sidecar
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       {{- include "serviceradar.podSecurityContext" . | nindent 6 }}

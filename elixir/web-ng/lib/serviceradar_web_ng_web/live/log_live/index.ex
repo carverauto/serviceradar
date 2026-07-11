@@ -997,7 +997,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   @impl true
   def handle_info({:load_tab_data, tab, params, uri}, socket) do
-    if socket.assigns.active_tab == tab do
+    if current_tab_load?(socket, tab, params) do
       {:noreply, load_tab(socket, tab, params, uri)}
     else
       {:noreply, socket}
@@ -7317,6 +7317,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         send(self(), {:load_tab_data, tab, params, uri})
         socket
     end
+  end
+
+  # A patch schedules same-tab data loading through the LiveView mailbox. If a
+  # newer patch is already queued, its handle_params/3 call can run before this
+  # message. Do not let the older load overwrite the newer query's results.
+  defp current_tab_load?(socket, tab, params) do
+    socket.assigns.active_tab == tab and
+      Map.get(socket.assigns, :current_params, %{}) == params
   end
 
   defp load_tab(socket, tab, params, uri) do

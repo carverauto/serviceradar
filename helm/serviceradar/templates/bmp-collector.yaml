@@ -70,7 +70,7 @@ spec:
         serviceradar.io/release-revision: {{ .Release.Revision | quote }}
       {{- end }}
     spec:
-      {{- include "serviceradar.topologySpread" . | nindent 6 }}
+      {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-bmp-collector") | nindent 6 }}
       serviceAccountName: {{ .Values.spire.bmpCollectorServiceAccount | default "serviceradar-bmp-collector" }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       securityContext:
