@@ -78,8 +78,7 @@ defmodule ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTX do
            config
            |> int_value([:limit, "limit"], @default_limit)
            |> clamp(1, @max_limit),
-         page:
-           cursor_page(cursor, int_value(config, [:page, "page"], @default_page)),
+         page: cursor_page(cursor, int_value(config, [:page, "page"], @default_page)),
          timeout_ms:
            config
            |> int_value([:timeout_ms, "timeout_ms"], @default_timeout_ms)
@@ -302,7 +301,10 @@ defmodule ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTX do
 
   defp cursor_page(cursor, default) do
     cursor
-    |> int_value([:page, "page", :next_page, "next_page"], page_from_url(string_value(cursor, [:next, "next"])) || default)
+    |> int_value(
+      [:page, "page", :next_page, "next_page"],
+      page_from_url(string_value(cursor, [:next, "next"])) || default
+    )
     |> max(1)
   end
 
