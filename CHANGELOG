@@ -1,3 +1,46 @@
+# ServiceRadar v1.4.11
+
+Production-safe recovery from v1.4.10, with restored plugin execution,
+bounded threat-intel ingestion, faster dashboard hydration, and durable
+netprobe attribution.
+
+## Whats New
+
+**1.4.11**
+- Upgrade safety: repairs installations already affected by the v1.4.10
+  database-ownership regression. The pre-upgrade migration uses the direct
+  CNPG connection to restore the canonical PgBouncer `user_search` function,
+  normalize its ACL, and return it to the database administrator before
+  workloads reconnect through the pooler. The health-event migration now
+  respects the table owner, Oban is upgraded and validated at schema v14, and
+  startup ownership repair no longer claims unrelated public functions.
+- AWX and Wasm plugins: first-party manifests now accept JSON Schema array
+  constraints such as `minItems`, `maxItems`, and `uniqueItems`. Credential
+  broker grants survive their full lifecycle again after the AshPaperTrail
+  compatibility update, restoring recurring AWX inventory synchronization and
+  other secret-backed plugin checks.
+- AlienVault OTX: plugin v0.3.2 abandons unreliable deep full-corpus offsets in
+  favor of a resumable 30-day bootstrap watermark and 100-row initial pages.
+  Adaptive retries retain their leaf budget without recursive page retention,
+  while every pull is capped at 64 upstream requests and five minutes. Partial
+  walks persist `modified_since`, upgrades clamp retained numeric settings to
+  the target schema, and the Helm guidance documents FQDN-aware egress for the
+  rotating OTX CDN.
+- Dashboard responsiveness: camera preview startup is asynchronous and no
+  longer blocks the dashboard hydration path. Database job scheduling also
+  avoids the multi-second failures caused by the stale Oban schema.
+- Netprobe reliability: the agent package owns a systemd runtime-directory
+  override that preserves add-on IPC sockets across base-agent restarts. The
+  updater also detects and repairs a missing live netprobe socket, keeping
+  process attribution flowing while older package-managed units are replaced.
+  Existing host installations should upgrade the `serviceradar-agent` OS
+  package; a binary self-update alone cannot permanently replace old unit and
+  updater files.
+- Dependency and release checks: aligns Plug 1.20.3 across the Elixir runtimes,
+  updates web test coverage for current dependency behavior, and adds focused
+  regression coverage for CNPG recovery, OTX retry/cursor bounds, assignment
+  upgrades, plugin manifests, dashboard hydration, and agent IPC convergence.
+
 # ServiceRadar v1.4.10
 
 Netprobe flow-attribution recovery, safer eBPF targeting, and agent
