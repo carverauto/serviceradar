@@ -5,7 +5,7 @@ namespace: demo
 
 topologySpread:
   enabled: true
-  maxSkew: 2
+  maxSkew: 1
   topologyKey: kubernetes.io/hostname
   whenUnsatisfiable: ScheduleAnyway
 
@@ -318,6 +318,8 @@ networkPolicy:
       # Observed on 2026-05-08.
       - "54.192.55.0/24"
       - "99.84.203.0/24"
+      # Observed on 2026-07-10.
+      - "3.170.185.0/24"
   calicoLogDenied:
     enabled: true
     selector: "all()"

@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 	"unicode"
@@ -40,6 +41,16 @@ const (
 	releaseActivationReport        = "activation-report.json"
 	releaseSeedVersionDir          = "seed-installed"
 	releaseUpdaterHelpProbeTimeout = 5 * time.Second
+
+	agentServiceUnitName             = "serviceradar-agent.service"
+	agentSharedRuntimeDropInName     = "50-serviceradar-shared-runtime.conf"
+	defaultSystemdUnitDir            = "/etc/systemd/system"
+	agentSharedRuntimeDropInContents = `# Managed by ServiceRadar. Keep the shared runtime tree outside the agent unit lifecycle.
+[Service]
+RuntimeDirectory=
+RuntimeDirectoryMode=0750
+ExecStartPre=+/usr/bin/install -d -o serviceradar -g serviceradar -m 0750 /run/serviceradar
+`
 )
 
 var errReleaseCurrentLinkMissing = errors.New("release current symlink is missing")
@@ -55,6 +66,7 @@ var errReleaseActivationVersionInvalid = errors.New("release activation version 
 var errReleaseActivationCommandIDInvalid = errors.New("release activation command id is invalid")
 var errReleaseActivationCommandTypeInvalid = errors.New("release activation command type is invalid")
 var errReleaseActivationArgumentControlChars = errors.New("release activation arguments must not contain control characters")
+var errSystemctlRunnerRequired = errors.New("systemctl runner is required")
 
 type ReleaseActivationConfig struct {
 	RuntimeRoot      string
@@ -88,6 +100,10 @@ type releaseActivationExecArgs struct {
 }
 
 func ActivateStagedRelease(cfg ReleaseActivationConfig) error {
+	return activateStagedRelease(cfg, migrateAgentServiceSharedRuntime)
+}
+
+func activateStagedRelease(cfg ReleaseActivationConfig, migrateHost func(string) error) error {
 	runtimeRoot := resolveReleaseRuntimeRoot(cfg.RuntimeRoot)
 	execArgs, err := validateReleaseActivationExecArgs(cfg.Version, cfg.CommandID, cfg.CommandType)
 	if err != nil {
@@ -114,6 +130,11 @@ func ActivateStagedRelease(cfg ReleaseActivationConfig) error {
 	if err != nil {
 		return err
 	}
+	if migrateHost != nil {
+		if err := migrateHost(runtimeRoot); err != nil {
+			return fmt.Errorf("prepare agent service runtime migration: %w", err)
+		}
+	}
 
 	deadline := cfg.RollbackDeadline
 	if deadline <= 0 {
@@ -137,6 +158,68 @@ func ActivateStagedRelease(cfg ReleaseActivationConfig) error {
 	}
 	if err := switchReleaseCurrentSymlink(runtimeRoot, filepath.Join(releaseVersionsDirName, execArgs.Version)); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// migrateAgentServiceSharedRuntime installs a systemd drop-in before a managed release
+// restart. Older package units declared RuntimeDirectory=serviceradar, which lets an
+// agent restart remove netprobe's live IPC socket below the shared parent. A package
+// upgrade is required to permanently migrate hosts whose installed updater predates
+// this hook; once the new agent starts, its add-on reconcile loop heals netprobe after
+// each legacy-unit restart by refusing to skip an active unit with no IPC socket.
+// Host mutation is restricted to the fixed package-managed runtime layout on Linux;
+// explicit test/runtime roots do not alter the host service manager.
+func migrateAgentServiceSharedRuntime(runtimeRoot string) error {
+	if runtime.GOOS != linuxOS || resolveReleaseRuntimeRoot(runtimeRoot) != defaultReleaseRuntimeRoot {
+		return nil
+	}
+
+	return installAgentSharedRuntimeDropIn(context.Background(), defaultSystemdUnitDir, runSystemctl)
+}
+
+type systemctlRunner func(context.Context, ...string) error
+
+func installAgentSharedRuntimeDropIn(ctx context.Context, unitDir string, systemctl systemctlRunner) error {
+	if systemctl == nil {
+		return errSystemctlRunnerRequired
+	}
+
+	dropInDir := filepath.Join(unitDir, agentServiceUnitName+".d")
+	if err := os.MkdirAll(dropInDir, 0o755); err != nil {
+		return fmt.Errorf("create agent systemd drop-in directory: %w", err)
+	}
+
+	dropInPath := filepath.Join(dropInDir, agentSharedRuntimeDropInName)
+	temp, err := os.CreateTemp(dropInDir, "."+agentSharedRuntimeDropInName+"-*")
+	if err != nil {
+		return fmt.Errorf("create agent systemd drop-in: %w", err)
+	}
+	tempPath := temp.Name()
+	defer func() { _ = os.Remove(tempPath) }()
+
+	if err := temp.Chmod(systemdUnitFileMode); err != nil {
+		_ = temp.Close()
+		return fmt.Errorf("set agent systemd drop-in mode: %w", err)
+	}
+	if _, err := temp.WriteString(agentSharedRuntimeDropInContents); err != nil {
+		_ = temp.Close()
+		return fmt.Errorf("write agent systemd drop-in: %w", err)
+	}
+	if err := temp.Sync(); err != nil {
+		_ = temp.Close()
+		return fmt.Errorf("sync agent systemd drop-in: %w", err)
+	}
+	if err := temp.Close(); err != nil {
+		return fmt.Errorf("close agent systemd drop-in: %w", err)
+	}
+	if err := os.Rename(tempPath, dropInPath); err != nil {
+		return fmt.Errorf("publish agent systemd drop-in: %w", err)
+	}
+
+	if err := systemctl(ctx, "daemon-reload"); err != nil {
+		return fmt.Errorf("reload systemd after agent runtime migration: %w", err)
 	}
 
 	return nil

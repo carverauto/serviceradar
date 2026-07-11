@@ -25,6 +25,30 @@ defmodule ServiceRadar.Repo.Migrations.OrderHealthEventsByDatabaseSequence do
 
     execute("CREATE SEQUENCE #{@sequence} AS bigint MINVALUE 1 NO CYCLE")
 
+    # Startup ownership repair deliberately makes existing ServiceRadar tables
+    # app-owned before migrations run, while the Helm migration Repo remains an
+    # admin so it can bootstrap extensions and databases. PostgreSQL rejects
+    # OWNED BY when a newly created admin-owned sequence and its table have
+    # different owners, so align the sequence with the table first. This is also
+    # a no-op owner transition when migrations already run as the app role.
+    execute("""
+    DO $migration$
+    DECLARE
+      table_owner name;
+    BEGIN
+      SELECT pg_get_userbyid(c.relowner)
+      INTO STRICT table_owner
+      FROM pg_class AS c
+      WHERE c.oid = 'platform.health_events'::regclass;
+
+      EXECUTE format(
+        'ALTER SEQUENCE platform.health_events_event_sequence_seq OWNER TO %I',
+        table_owner
+      );
+    END
+    $migration$
+    """)
+
     # The legacy column only retained whole seconds. Within those ties, xmin is
     # the best remaining transaction-order signal and ctid preserves physical
     # insert order within one transaction; UUID is the final stable fallback.

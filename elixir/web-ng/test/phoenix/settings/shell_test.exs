@@ -227,18 +227,12 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
     assert html =~ "Uptime"
 
     # Precise structural check: the linked card is an <a>, the plain card a <div>.
-    {:ok, doc} = Floki.parse_fragment(html)
-    linked = Floki.find(doc, ~s(a.stat[href="/settings/api-credentials"]))
-    assert linked != []
-    assert Floki.text(linked) =~ "API keys"
+    doc = LazyHTML.from_fragment(html)
+    linked = LazyHTML.query(doc, ~s(a.stat[href="/settings/api-credentials"]))
+    assert LazyHTML.text(linked) =~ "API keys"
 
-    plain =
-      doc
-      |> Floki.find(".stats .stat")
-      |> Enum.filter(fn el -> Floki.text([el]) =~ "Uptime" end)
-
-    assert plain != []
-    assert Enum.all?(plain, fn {tag, _attrs, _children} -> tag == "div" end)
+    plain = LazyHTML.query(doc, ".stats div.stat")
+    assert LazyHTML.text(plain) =~ "Uptime"
   end
 
   test "the profile (users) status cards carry per-resource navigate destinations" do

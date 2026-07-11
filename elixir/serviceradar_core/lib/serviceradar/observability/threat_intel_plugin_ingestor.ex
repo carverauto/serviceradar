@@ -292,21 +292,20 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
         # Persist the plugin-stamped last successful-pull time so the edge plugin
         # can self-throttle to at most one pull per day. Round-tripping it here
         # reuses the same cursor->assignment-params mechanism as modified_since.
-        maybe_put_last_pull_at(
-          %{
-            "page" => 1,
-            "cursor_complete" => true,
-            "cursor_next" => nil,
-            "modified_since" => completed_walk_modified_since(now)
-          },
-          fetch_value(cursor, ["last_pull_at"])
-        )
+        %{
+          "page" => 1,
+          "cursor_complete" => true,
+          "cursor_next" => nil,
+          "modified_since" => completed_walk_modified_since(now)
+        }
+        |> maybe_put_positive_int("limit", fetch_value(cursor, ["limit"]))
+        |> maybe_put_last_pull_at(fetch_value(cursor, ["last_pull_at"]))
 
       is_binary(next_page) and next_page != "" ->
-        maybe_put_cursor_next(
-          %{"page" => parse_positive_int(next_page, next_page), "cursor_complete" => false},
-          next
-        )
+        %{"page" => parse_positive_int(next_page, next_page), "cursor_complete" => false}
+        |> maybe_put_positive_int("limit", fetch_value(cursor, ["limit"]))
+        |> maybe_put_modified_since(fetch_value(cursor, ["modified_since"]))
+        |> maybe_put_cursor_next(next)
 
       true ->
         %{}
@@ -328,12 +327,26 @@ defmodule ServiceRadar.Observability.ThreatIntelPluginIngestor do
 
   defp maybe_put_cursor_next(params, _next), do: params
 
+  defp maybe_put_modified_since(params, modified_since)
+       when is_binary(modified_since) and modified_since != "" do
+    Map.put(params, "modified_since", modified_since)
+  end
+
+  defp maybe_put_modified_since(params, _modified_since), do: params
+
   defp maybe_put_last_pull_at(params, last_pull_at)
        when is_binary(last_pull_at) and last_pull_at != "" do
     Map.put(params, "last_pull_at", last_pull_at)
   end
 
   defp maybe_put_last_pull_at(params, _last_pull_at), do: params
+
+  defp maybe_put_positive_int(params, key, value) do
+    case parse_positive_int(value, nil) do
+      int when is_integer(int) and int > 0 -> Map.put(params, key, int)
+      _ -> params
+    end
+  end
 
   defp fetch_assignment(assignment_id, actor) do
     PluginAssignment

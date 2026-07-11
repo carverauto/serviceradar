@@ -15,6 +15,7 @@ defmodule ServiceRadar.Inventory.SourceIdentityDriftDbTest do
   alias ServiceRadar.TestSupport
 
   @moduletag :integration
+  @oversized_batch_count 3_500
 
   setup_all do
     TestSupport.start_core!()
@@ -93,6 +94,49 @@ defmodule ServiceRadar.Inventory.SourceIdentityDriftDbTest do
     # active-IP category is written by sync ingestion, not the audit.
     assert %{} = SourceIdentityDrift.audit_and_persist()
     assert conflict_status(device_uid, "active_ip_conflict") == "open"
+  end
+
+  test "record_conflicts chunks statements below PostgreSQL's bind parameter limit" do
+    source_id = unique("bulk-source")
+    conflicts = bulk_conflicts(source_id, @oversized_batch_count)
+
+    assert :ok = SourceIdentityDrift.record_conflicts(conflicts)
+
+    assert conflict_count(source_id, "metadata_identifier_disagreement") ==
+             @oversized_batch_count
+  end
+
+  test "record_conflicts rolls back earlier chunks when a later chunk fails" do
+    source_id = unique("rollback-source")
+
+    conflicts =
+      source_id
+      |> bulk_conflicts(@oversized_batch_count)
+      |> List.update_at(-1, &Map.put(&1, :metadata, %{"not_json" => self()}))
+
+    assert {:error, _reason} = SourceIdentityDrift.record_conflicts(conflicts)
+    assert conflict_count(source_id, "metadata_identifier_disagreement") == 0
+  end
+
+  test "audit persistence failure does not clear previously open audit conflicts" do
+    source_id = unique("failed-audit-source")
+    device_uid = "sr:" <> Ecto.UUID.generate()
+
+    open_conflict =
+      source_id
+      |> conflict("metadata_identifier_disagreement", unique("armis-stale"))
+      |> Map.put(:device_uid, device_uid)
+
+    assert :ok = SourceIdentityDrift.record_conflicts([open_conflict])
+    assert conflict_status(device_uid, "metadata_identifier_disagreement") == "open"
+
+    assert {:error, :forced_persist_failure} =
+             SourceIdentityDrift.audit_and_persist(
+               audit_fun: fn -> %{conflicts: [], summary: %{}} end,
+               persist_fun: fn [] -> {:error, :forced_persist_failure} end
+             )
+
+    assert conflict_status(device_uid, "metadata_identifier_disagreement") == "open"
   end
 
   test "source_conflict_report is scoped to the source; blank-source conflicts do not leak" do
@@ -207,6 +251,25 @@ defmodule ServiceRadar.Inventory.SourceIdentityDriftDbTest do
     case rows do
       [[status] | _] -> status
       _ -> nil
+    end
+  end
+
+  defp conflict_count(source_id, category) do
+    %{rows: [[count]]} =
+      Repo.query!(
+        "SELECT count(*) FROM platform.source_identity_conflicts " <>
+          "WHERE source_id = $1 AND conflict_category = $2",
+        [source_id, category]
+      )
+
+    count
+  end
+
+  defp bulk_conflicts(source_id, count) do
+    for index <- 1..count do
+      source_id
+      |> conflict("metadata_identifier_disagreement", "armis-bulk-#{index}")
+      |> Map.put(:device_uid, "sr:bulk-#{source_id}-#{index}")
     end
   end
 

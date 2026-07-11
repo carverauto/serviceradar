@@ -15,6 +15,13 @@
       "type": "string",
       "description": "Optional OTX modified_since cursor"
     },
+    "bootstrap_lookback_days": {
+      "type": "integer",
+      "description": "When modified_since is empty, start or recover the walk from this many days ago instead of using the unreliable full-corpus deep-page export. Set 0 explicitly to request full history.",
+      "minimum": 0,
+      "maximum": 3650,
+      "default": 30
+    },
     "types": {
       "type": "string",
       "description": "Comma-delimited OTX indicator types to fetch",
@@ -25,7 +32,7 @@
       "description": "OTX page size",
       "minimum": 1,
       "maximum": 1000,
-      "default": 1000
+      "default": 100
     },
     "page": {
       "type": "integer",
@@ -42,10 +49,10 @@
     },
     "max_pages": {
       "type": "integer",
-      "description": "Maximum OTX pages fetched in one plugin run",
+      "description": "Maximum OTX pages fetched in one plugin run. Incomplete cursors resume on the next scheduled invocation.",
       "minimum": 1,
-      "maximum": 10000,
-      "default": 500
+      "maximum": 100,
+      "default": 25
     },
     "max_indicators": {
       "type": "integer",
@@ -56,7 +63,7 @@
     },
     "max_retries": {
       "type": "integer",
-      "description": "Retry attempts for transient OTX page fetch failures (timeouts, HTTP 5xx incl 504, connection errors). Auth/4xx errors fail fast. attempts = max_retries + 1.",
+      "description": "Transient-failure retry budget for one emitted page. Moving to an equivalent smaller page does not consume retries. Auth and other non-retryable 4xx errors fail fast.",
       "minimum": 0,
       "maximum": 7,
       "default": 5

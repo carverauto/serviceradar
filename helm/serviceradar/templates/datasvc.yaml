@@ -39,7 +39,7 @@ spec:
       {{- end }}
     spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
-      {{- include "serviceradar.topologySpread" . | nindent 6 }}
+      {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-datasvc") | nindent 6 }}
       serviceAccountName: {{ $datasvcSA }}
       {{- include "serviceradar.elixirReleasePodSecurityContext" . | nindent 6 }}
       containers:
