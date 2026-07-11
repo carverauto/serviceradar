@@ -2,11 +2,13 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Refresh do
   @moduledoc false
 
   alias ServiceRadar.Graph
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalMutationLock
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Queries
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Edges
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Metrics
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
+  alias ServiceRadar.Repo
 
   require Logger
 
@@ -25,6 +27,17 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Refresh do
         case persist_canonical_edge_telemetry_updates(Enum.reverse(updates)) do
           :ok ->
             Logger.info("canonical_edge_telemetry_stats #{inspect(stats)}")
+            {:ok, stats}
+
+          {:skipped, :canonical_mutation_in_progress} ->
+            stats =
+              Map.merge(stats, %{
+                write_skipped: true,
+                skip_reason: :canonical_mutation_in_progress
+              })
+
+            Logger.debug("Canonical edge telemetry write skipped; canonical mutation lock busy")
+
             {:ok, stats}
 
           {:error, reason} ->
@@ -144,6 +157,30 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Refresh do
   defp persist_canonical_edge_telemetry_updates([]), do: :ok
 
   defp persist_canonical_edge_telemetry_updates(updates) when is_list(updates) do
+    # Fetching and computing telemetry stays outside the advisory-lock transaction.
+    # Only the AGE relationship writes are serialized with structural canonical
+    # rebuilds and other telemetry finalizers. This prevents concurrent SETs from
+    # deadlocking or hitting AGE's stale-entity update failure without restoring
+    # the old, long-lived transaction that also covered metric scans/projection.
+    case CanonicalMutationLock.try_run(
+           fn ->
+             case do_persist_canonical_edge_telemetry_updates(updates) do
+               :ok ->
+                 :ok
+
+               {:error, reason} ->
+                 Repo.rollback({:canonical_edge_telemetry_upsert_failed, reason})
+             end
+           end,
+           busy_result: {:skipped, :canonical_mutation_in_progress}
+         ) do
+      {:ok, result} -> result
+      {:error, {:canonical_edge_telemetry_upsert_failed, reason}} -> {:error, reason}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp do_persist_canonical_edge_telemetry_updates(updates) when is_list(updates) do
     updates
     |> Enum.chunk_every(Telemetry.canonical_edge_telemetry_batch_size())
     |> Enum.reduce_while(:ok, fn batch, :ok ->
