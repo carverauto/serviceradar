@@ -53,9 +53,12 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     |> Ash.create(domain: ServiceRadar.Observability)
     |> case do
       {:ok, state} ->
-        deactivate_shadowed_plugin_states(state, actor)
-        ServiceStatePubSub.broadcast_update(state)
-        maybe_publish_service_transition(previous, state)
+        if !upsert_skipped?(state) do
+          deactivate_shadowed_plugin_states(state, actor)
+          ServiceStatePubSub.broadcast_update(state)
+          maybe_publish_service_transition(previous, state)
+        end
+
         :ok
 
       {:error, error} ->
@@ -165,10 +168,12 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     records = result.records || []
 
     Enum.each(records, fn %ServiceState{} = state ->
-      previous = Map.get(previous_by_identity, identity_key_from_state(state))
-      deactivate_shadowed_plugin_states(state, actor)
-      ServiceStatePubSub.broadcast_update(state)
-      maybe_publish_service_transition(previous, state)
+      if !upsert_skipped?(state) do
+        previous = Map.get(previous_by_identity, identity_key_from_state(state))
+        deactivate_shadowed_plugin_states(state, actor)
+        ServiceStatePubSub.broadcast_update(state)
+        maybe_publish_service_transition(previous, state)
+      end
     end)
 
     case result.errors do
@@ -188,6 +193,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   defp identity_key_from_state(%ServiceState{} = state) do
     {state.agent_id, state.gateway_id, state.partition, state.service_type, state.service_name}
   end
+
+  defp upsert_skipped?(record), do: Ash.Resource.get_metadata(record, :upsert_skipped) == true
 
   # add-causal-engine (Decision 1): capture prior availability BEFORE the upsert
   # so a transition can be published to signals.state.service_state afterward.
@@ -839,8 +846,11 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     |> Ash.create(domain: ServiceRadar.Observability)
     |> case do
       {:ok, state} ->
-        deactivate_shadowed_plugin_states(state, actor)
-        ServiceStatePubSub.broadcast_update(state)
+        if !upsert_skipped?(state) do
+          deactivate_shadowed_plugin_states(state, actor)
+          ServiceStatePubSub.broadcast_update(state)
+        end
+
         :ok
 
       {:error, error} ->

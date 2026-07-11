@@ -18,15 +18,22 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   alias ServiceRadar.Inventory.ProxmoxEnrichmentIngestor
   alias ServiceRadar.Inventory.VulnerabilityAdvisoryIngestor
   alias ServiceRadar.Observability.ServiceIdentity
+  alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Observability.ServiceStatus
   alias ServiceRadar.Observability.ThreatIntelPluginIngestor
   alias ServiceRadar.WifiMap.BatchIngestor
 
+  require Ash.Query
   require Logger
 
   @handler_error_max_bytes 1_000
   @handler_error_component_max_bytes 512
+  @private_key_pattern ~r/-----BEGIN(?: [A-Z0-9]+)? PRIVATE KEY-----.*?-----END(?: [A-Z0-9]+)? PRIVATE KEY-----/su
+  @bearer_value_pattern ~r/\b(Bearer)\s+[^\s,}\]]+/iu
+  @sensitive_assignment_pattern ~r/((?:api[_ -]?(?:key|token)|access[_ -]?(?:key|token)|refresh[_ -]?token|bearer[_ -]?token|client[_ -]?secret|private[_ -]?key|credentials?|password|secret|token)\s*(?:=>|:|=)\s*)("[^"]*"|'[^']*'|[^\s,}\]]+)/iu
+  @sensitive_quoted_value_pattern ~r/\b((?:private[_ -]?key|credentials?|token)\s+)("[^"]*"|'[^']*')/iu
+  @sensitive_bare_value_pattern ~r/\b((?:private[_ -]?key|credentials?|token)\s+)([A-Za-z0-9_.\/+\-=:]{8,})/iu
 
   @spec ingest(map() | list(), map()) :: :ok | {:error, term()}
   def ingest(payload, status) when is_map(payload) do
@@ -47,26 +54,42 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
         available
       )
 
-    with :ok <- insert_status(status_row, actor) do
-      case ingest_registered_handlers(payload, status, observed_at, actor) do
-        :ok ->
-          upsert_current_state(status_row)
+    case insert_status(status_row, actor) do
+      :ok ->
+        case ingest_registered_handlers(payload, status, observed_at, actor) do
+          :ok ->
+            case persist_handler_success(status_row, payload, actor) do
+              :ok ->
+                :ok
 
-        {:error, {:plugin_result_handlers_failed, errors}} = handler_error ->
-          case persist_handler_failure(status_row, payload, errors, actor) do
-            :ok ->
-              handler_error
+              {:error, persistence_error} ->
+                error_text = handler_error_text(persistence_error)
+                Logger.error("Plugin result handler success persistence failed: #{error_text}")
+                {:error, {:plugin_result_handler_success_persistence_failed, error_text}}
+            end
 
-            {:error, persistence_error} ->
-              {:error,
-               {:plugin_result_handler_failure_persistence_failed, errors, persistence_error}}
-          end
-      end
+          {:error, {:plugin_result_handlers_failed, errors}} = handler_error ->
+            case persist_handler_failure(status_row, payload, errors, actor) do
+              :ok ->
+                handler_error
+
+              {:error, persistence_error_text} ->
+                {:error,
+                 {:plugin_result_handler_failure_persistence_failed, errors,
+                  persistence_error_text}}
+            end
+        end
+
+      {:error, persistence_error} ->
+        error_text = handler_error_text(persistence_error)
+        Logger.error("Plugin result status persistence failed: #{error_text}")
+        {:error, {:plugin_result_status_persistence_failed, error_text}}
     end
   rescue
     e ->
-      Logger.error("Plugin result ingest failed: #{inspect(e)}")
-      {:error, e}
+      error_text = handler_error_text(e)
+      Logger.error("Plugin result ingest failed: #{error_text}")
+      {:error, {:plugin_result_ingest_failed, error_text}}
   end
 
   def ingest(payload, status) when is_list(payload) do
@@ -240,15 +263,41 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     failure_row = handler_failure_status_row(status_row, payload, errors)
 
     with :ok <- insert_status(failure_row, actor),
-         :ok <- upsert_current_state(failure_row) do
+         {:ok, success_recorded?} <- handler_success_recorded?(status_row, actor),
+         :ok <- persist_failure_state(status_row, failure_row, payload, actor, success_recorded?) do
       :ok
     else
-      {:error, reason} = error ->
-        Logger.error(
-          "Plugin result handler failure status persistence failed: #{inspect(reason)}"
-        )
+      {:error, reason} ->
+        error_text = handler_error_text(reason)
+        Logger.error("Plugin result handler failure status persistence failed: #{error_text}")
 
-        error
+        {:error, error_text}
+    end
+  end
+
+  defp persist_failure_state(status_row, _failure_row, payload, actor, true) do
+    persist_handler_recovery(status_row, payload, actor)
+  end
+
+  defp persist_failure_state(_status_row, failure_row, _payload, _actor, false) do
+    upsert_current_state(failure_row)
+  end
+
+  defp persist_handler_success(status_row, payload, actor) do
+    with {:ok, failure_recorded?} <- handler_failure_recorded?(status_row, actor) do
+      if failure_recorded? do
+        persist_handler_recovery(status_row, payload, actor)
+      else
+        upsert_current_state(status_row)
+      end
+    end
+  end
+
+  defp persist_handler_recovery(status_row, payload, actor) do
+    recovery_row = handler_recovery_status_row(status_row, payload)
+
+    with :ok <- insert_status(recovery_row, actor) do
+      upsert_current_state(recovery_row)
     end
   end
 
@@ -286,6 +335,106 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   defp handler_failure_timestamp(%DateTime{} = observed_at),
     do: DateTime.add(observed_at, 1, :microsecond)
+
+  defp handler_recovery_status_row(status_row, payload) do
+    recovered_at = handler_recovery_timestamp(status_row.timestamp)
+
+    details =
+      FieldParser.encode_json(%{
+        "status" => fetch_string(payload, ["status"]),
+        "summary" => status_row.message,
+        "reported_result" => payload,
+        "downstream_ingest" => %{
+          "status" => "succeeded",
+          "recovered_from_failure" => true
+        }
+      })
+
+    %{
+      status_row
+      | timestamp: recovered_at,
+        created_at: recovered_at,
+        details: details
+    }
+  end
+
+  defp handler_recovery_timestamp(%DateTime{} = observed_at),
+    do: DateTime.add(observed_at, 2, :microsecond)
+
+  defp handler_failure_recorded?(status_row, actor) do
+    handler_marker_recorded?(
+      status_row,
+      handler_failure_timestamp(status_row.timestamp),
+      "failed",
+      actor
+    )
+  end
+
+  defp handler_success_recorded?(status_row, actor) do
+    with {:ok, recovery_recorded?} <-
+           handler_marker_recorded?(
+             status_row,
+             handler_recovery_timestamp(status_row.timestamp),
+             "succeeded",
+             actor
+           ) do
+      if recovery_recorded? do
+        {:ok, true}
+      else
+        successful_current_state_recorded?(status_row, actor)
+      end
+    end
+  end
+
+  defp handler_marker_recorded?(status_row, timestamp, marker_status, actor) do
+    gateway_id = status_row.gateway_id
+    service_name = status_row.service_name
+
+    ServiceStatus
+    |> Ash.Query.filter(
+      timestamp == ^timestamp and gateway_id == ^gateway_id and service_name == ^service_name
+    )
+    |> Ash.read_one(actor: actor, domain: ServiceRadar.Observability)
+    |> case do
+      {:ok, nil} -> {:ok, false}
+      {:ok, %ServiceStatus{details: details}} -> {:ok, handler_marker?(details, marker_status)}
+      {:error, error} -> {:error, error}
+      other -> {:error, {:unexpected_service_status_lookup_result, other}}
+    end
+  end
+
+  defp handler_marker?(details, marker_status) when is_binary(details) do
+    case Jason.decode(details) do
+      {:ok, %{"downstream_ingest" => %{"status" => ^marker_status}}} -> true
+      _ -> false
+    end
+  end
+
+  defp handler_marker?(_details, _marker_status), do: false
+
+  defp successful_current_state_recorded?(status_row, actor) do
+    ServiceState
+    |> Ash.Query.filter(
+      agent_id == ^status_row.agent_id and partition == ^status_row.partition and
+        service_type == ^status_row.service_type and service_name == ^status_row.service_name
+    )
+    |> Ash.read(actor: actor, domain: ServiceRadar.Observability)
+    |> case do
+      {:ok, states} when is_list(states) ->
+        {:ok, Enum.any?(states, &successful_current_state?(&1, status_row))}
+
+      {:error, error} ->
+        {:error, error}
+
+      other ->
+        {:error, {:unexpected_service_state_lookup_result, other}}
+    end
+  end
+
+  defp successful_current_state?(%ServiceState{} = state, status_row) do
+    DateTime.compare(state.last_observed_at, status_row.timestamp) == :eq and
+      state.available == status_row.available and state.message == status_row.message
+  end
 
   defp handler_label(handler) when is_atom(handler) do
     handler
@@ -349,6 +498,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   defp sensitive_handler_error_key?(key) when is_atom(key) or is_binary(key) do
     key
     |> to_string()
+    |> String.replace(~r/([a-z0-9])([A-Z])/, "\\1_\\2")
     |> String.downcase()
     |> String.replace("-", "_")
     |> then(fn normalized ->
@@ -357,11 +507,22 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
         "apikey",
         "api_token",
         "access_token",
+        "access_key",
         "authorization",
         "bearer",
+        "bearer_token",
+        "client_secret",
+        "credential",
+        "credentials",
         "password",
+        "private_key",
+        "privatekey",
+        "refresh_token",
         "secret"
-      ] or String.ends_with?(normalized, ["_password", "_secret", "_token"])
+      ] or normalized == "token" or
+        String.starts_with?(normalized, ["token_", "credential_"]) or
+        String.contains?(normalized, ["credential", "private_key", "privatekey"]) or
+        String.ends_with?(normalized, ["_password", "_secret", "_token", "_access_key"])
     end)
   end
 
@@ -383,12 +544,13 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   defp sanitize_handler_error(text) when is_binary(text) do
     text
+    |> String.replace(@private_key_pattern, "[REDACTED PRIVATE KEY]")
+    |> String.replace(@bearer_value_pattern, "\\1 [REDACTED]")
     |> String.replace(~r/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u, " ")
     |> String.replace(~r/\s+/u, " ")
-    |> String.replace(
-      ~r/((?:api[_-]?(?:key|token)|access[_-]?token|authorization|password|secret)\s*(?:=>|:|=)\s*)("[^"]*"|'[^']*'|[^\s,}\]]+)/iu,
-      "\\1[REDACTED]"
-    )
+    |> String.replace(@sensitive_assignment_pattern, "\\1[REDACTED]")
+    |> String.replace(@sensitive_quoted_value_pattern, "\\1[REDACTED]")
+    |> String.replace(@sensitive_bare_value_pattern, "\\1[REDACTED]")
     |> String.replace(~r{://[^/\s:@]+:[^@\s/]+@}u, "://[REDACTED]@")
     |> String.trim()
   end
@@ -437,6 +599,9 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   rescue
     e ->
       {:error, e}
+  catch
+    kind, reason ->
+      {:error, {kind, reason}}
   end
 
   defp ingest_handler({handler, opts}, payload, status, observed_at, actor)
@@ -445,6 +610,9 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   rescue
     e ->
       {:error, e}
+  catch
+    kind, reason ->
+      {:error, {kind, reason}}
   end
 
   defp ingest_handler(handler, _payload, _status, _observed_at, _actor) do

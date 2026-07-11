@@ -2,6 +2,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Observability.PluginResultIngestor
+  alias ServiceRadar.Observability.ServiceStatePubSub
   alias ServiceRadar.Repo
 
   defmodule FailingHandler do
@@ -47,14 +48,80 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest do
       {:error,
        %{
          api_token: "do-not-persist",
-         detail: String.duplicate("x", 2_000)
+         bearer: "bearer-structured-secret",
+         credential: "credential-structured-secret",
+         privateKey: "private-key-structured-secret",
+         token: "bare-token-structured-secret",
+         detail:
+           "Authorization: Bearer bearer-text-secret " <>
+             "token=bare-token-text-secret credential 'credential-text-secret' " <>
+             "private_key=private-key-text-secret " <>
+             "-----BEGIN PRIVATE KEY-----pem-text-secret-----END PRIVATE KEY----- " <>
+             String.duplicate("x", 2_000)
        }}
     end
   end
 
+  defmodule ReplayHandler do
+    @moduledoc false
+
+    @outcomes_key {__MODULE__, :outcomes}
+
+    def put_outcomes(outcomes), do: Process.put(@outcomes_key, outcomes)
+
+    def supports?(_payload, _status), do: true
+
+    def ingest(_payload, _status, _opts) do
+      case Process.get(@outcomes_key, []) do
+        [outcome | rest] ->
+          Process.put(@outcomes_key, rest)
+          outcome
+
+        [] ->
+          :ok
+      end
+    end
+  end
+
+  defmodule TextErrorHandler do
+    @moduledoc false
+
+    def supports?(_payload, _status), do: true
+
+    def ingest(_payload, _status, _opts) do
+      {:error,
+       "Authorization: Bearer bearer-text-secret " <>
+         "token=bare-token-text-secret credential 'credential-text-secret' " <>
+         "private_key=private-key-text-secret " <>
+         "-----BEGIN PRIVATE KEY-----pem-text-secret-----END PRIVATE KEY-----"}
+    end
+  end
+
+  defmodule ThrowingHandler do
+    @moduledoc false
+
+    def supports?(_payload, _status), do: true
+    def ingest(_payload, _status, _opts), do: throw({:token, "throw-token-secret"})
+  end
+
+  defmodule ExitingHandler do
+    @moduledoc false
+
+    def supports?(_payload, _status), do: true
+    def ingest(_payload, _status, _opts), do: exit({:credential, "exit-credential-secret"})
+  end
+
   defmodule RejectingStateRegistry do
     @moduledoc false
-    def upsert_from_status_strict(_status), do: {:error, :forced_state_failure}
+
+    def upsert_from_status_strict(_status) do
+      {:error,
+       %{
+         credential: "state-credential-secret",
+         private_key: "state-private-key-secret",
+         token: "state-token-secret"
+       }}
+    end
   end
 
   setup do
@@ -116,12 +183,16 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest do
 
   test "duplicate observations rerun handlers without duplicating history" do
     {payload, status, observed_at} = plugin_result_fixture()
+    :ok = ServiceStatePubSub.subscribe()
 
     expected_error =
       {:error, {:plugin_result_handlers_failed, [{FailingHandler, ":forced_failure"}]}}
 
     assert ^expected_error = PluginResultIngestor.ingest(payload, status)
+    assert_receive {:service_state_updated, _state}
+
     assert ^expected_error = PluginResultIngestor.ingest(payload, status)
+    refute_receive {:service_state_updated, _state}, 50
 
     assert_receive {:failing_handler_ingest, ^payload}
     assert_receive {:failing_handler_ingest, ^payload}
@@ -129,6 +200,70 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest do
     assert [
              [^observed_at, true, "edge plugin completed", _],
              [failed_at, false, _, _]
+           ] = history_rows(status)
+
+    assert failed_at == DateTime.add(observed_at, 1, :microsecond)
+  end
+
+  test "successful replay records recovery after an initial handler failure" do
+    Application.put_env(:serviceradar_core, :plugin_result_handlers, [ReplayHandler])
+    ReplayHandler.put_outcomes([{:error, :transient_failure}, :ok])
+    {payload, status, observed_at} = plugin_result_fixture()
+
+    assert {:error, {:plugin_result_handlers_failed, [{ReplayHandler, ":transient_failure"}]}} =
+             PluginResultIngestor.ingest(payload, status)
+
+    assert :ok = PluginResultIngestor.ingest(payload, status)
+
+    failed_at = DateTime.add(observed_at, 1, :microsecond)
+    recovered_at = DateTime.add(observed_at, 2, :microsecond)
+
+    assert [
+             [^observed_at, true, "edge plugin completed", _],
+             [^failed_at, false, _, _],
+             [^recovered_at, true, "edge plugin completed", recovery_details]
+           ] = history_rows(status)
+
+    assert %{
+             "downstream_ingest" => %{
+               "status" => "succeeded",
+               "recovered_from_failure" => true
+             }
+           } = Jason.decode!(recovery_details)
+
+    assert [[true, "edge plugin completed", ^recovered_at]] = current_state_rows(status)
+  end
+
+  test "a failing duplicate cannot downgrade an already successful observation" do
+    Application.put_env(:serviceradar_core, :plugin_result_handlers, [ReplayHandler])
+
+    ReplayHandler.put_outcomes([
+      :ok,
+      {:error, :late_duplicate_failure},
+      {:error, :repeated_duplicate_failure}
+    ])
+
+    {payload, status, observed_at} = plugin_result_fixture()
+
+    assert :ok = PluginResultIngestor.ingest(payload, status)
+
+    assert {:error,
+            {:plugin_result_handlers_failed, [{ReplayHandler, ":late_duplicate_failure"}]}} =
+             PluginResultIngestor.ingest(payload, status)
+
+    recovered_at = DateTime.add(observed_at, 2, :microsecond)
+    assert [[true, "edge plugin completed", ^recovered_at]] = current_state_rows(status)
+
+    assert {:error,
+            {:plugin_result_handlers_failed, [{ReplayHandler, ":repeated_duplicate_failure"}]}} =
+             PluginResultIngestor.ingest(payload, status)
+
+    assert [[true, "edge plugin completed", ^recovered_at]] = current_state_rows(status)
+
+    assert [
+             [^observed_at, true, "edge plugin completed", _],
+             [failed_at, false, _, _],
+             [^recovered_at, true, "edge plugin completed", _]
            ] = history_rows(status)
 
     assert failed_at == DateTime.add(observed_at, 1, :microsecond)
@@ -215,7 +350,21 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest do
 
     assert byte_size(error_text) <= 1_000
     assert error_text =~ "[REDACTED]"
-    refute error_text =~ "do-not-persist"
+
+    for secret <- [
+          "do-not-persist",
+          "bearer-structured-secret",
+          "credential-structured-secret",
+          "private-key-structured-secret",
+          "bare-token-structured-secret",
+          "bearer-text-secret",
+          "bare-token-text-secret",
+          "credential-text-secret",
+          "private-key-text-secret",
+          "pem-text-secret"
+        ] do
+      refute error_text =~ secret
+    end
 
     assert [_, [_, false, _, details]] = history_rows(status)
 
@@ -226,6 +375,69 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest do
            } = Jason.decode!(details)
 
     assert persisted_error == error_text
+  end
+
+  test "textual bearer, token, credential, and private key forms are redacted" do
+    Application.put_env(:serviceradar_core, :plugin_result_handlers, [TextErrorHandler])
+    {payload, status, _observed_at} = plugin_result_fixture()
+
+    assert {:error, {:plugin_result_handlers_failed, [{TextErrorHandler, error_text}]}} =
+             PluginResultIngestor.ingest(payload, status)
+
+    assert error_text =~ "[REDACTED]"
+
+    for secret <- [
+          "bearer-text-secret",
+          "bare-token-text-secret",
+          "credential-text-secret",
+          "private-key-text-secret",
+          "pem-text-secret"
+        ] do
+      refute error_text =~ secret
+    end
+
+    assert [_, [_, false, _, details]] = history_rows(status)
+
+    assert %{
+             "downstream_ingest" => %{
+               "handlers" => [%{"error" => ^error_text}]
+             }
+           } = Jason.decode!(details)
+  end
+
+  test "handler throws and exits become redacted failures" do
+    Application.put_env(
+      :serviceradar_core,
+      :plugin_result_handlers,
+      [ThrowingHandler, ExitingHandler]
+    )
+
+    {payload, status, _observed_at} = plugin_result_fixture()
+
+    assert {:error,
+            {:plugin_result_handlers_failed,
+             [{ThrowingHandler, throw_error}, {ExitingHandler, exit_error}]}} =
+             PluginResultIngestor.ingest(payload, status)
+
+    assert throw_error =~ "throw"
+    assert throw_error =~ "[REDACTED]"
+    refute throw_error =~ "throw-token-secret"
+
+    assert exit_error =~ "exit"
+    assert exit_error =~ "[REDACTED]"
+    refute exit_error =~ "exit-credential-secret"
+    assert [[false, _, _]] = current_state_rows(status)
+  end
+
+  test "top-level ingest exceptions return only bounded sanitized text" do
+    {payload, status, _observed_at} = plugin_result_fixture()
+
+    assert {:error, {:plugin_result_ingest_failed, error_text}} =
+             PluginResultIngestor.ingest(payload, {:invalid_status, status})
+
+    assert is_binary(error_text)
+    assert String.valid?(error_text)
+    assert byte_size(error_text) <= 1_000
   end
 
   test "does not discard failure-state persistence errors" do
@@ -239,8 +451,14 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest do
 
     assert {:error,
             {:plugin_result_handler_failure_persistence_failed,
-             [{FailingHandler, ":forced_failure"}], :forced_state_failure}} =
+             [{FailingHandler, ":forced_failure"}], persistence_error}} =
              PluginResultIngestor.ingest(payload, status)
+
+    assert persistence_error =~ "[REDACTED]"
+    assert byte_size(persistence_error) <= 1_000
+    refute persistence_error =~ "state-credential-secret"
+    refute persistence_error =~ "state-private-key-secret"
+    refute persistence_error =~ "state-token-secret"
 
     assert [_, [_, false, _, _]] = history_rows(status)
     assert [] = current_state_rows(status)
