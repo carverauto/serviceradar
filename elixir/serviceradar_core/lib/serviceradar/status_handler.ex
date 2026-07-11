@@ -202,18 +202,24 @@ defmodule ServiceRadar.StatusHandler do
 
     case decode_batch(message) do
       {:ok, %FlowAttributionEventBatch{events: events, dropped_since_last: dropped}} ->
-        :telemetry.execute(
-          @telemetry_batch_received,
-          %{count: 1, event_count: length(events || []), dropped_since_last: dropped || 0},
-          %{partition_id: partition_id, agent_id: agent_id}
-        )
-
         # Persist the pushed attributions to CNPG so the correlation worker can
         # join them against collected NetFlow into attributed_flow rows. NetFlow
         # stays the flow source; netprobe only supplies the process context.
-        persist_flow_attribution(events || [], partition_id, agent_id)
+        case persist_flow_attribution(events || [], partition_id, agent_id) do
+          :ok ->
+            emit_flow_attribution_batch_received(events, dropped, partition_id, agent_id)
+            :ok
 
-        :ok
+          {:ok, _result} ->
+            emit_flow_attribution_batch_received(events, dropped, partition_id, agent_id)
+            :ok
+
+          {:error, _reason} = error ->
+            error
+
+          other ->
+            {:error, {:unexpected_flow_attribution_persist_result, other}}
+        end
 
       :error ->
         :telemetry.execute(
@@ -244,6 +250,14 @@ defmodule ServiceRadar.StatusHandler do
   end
 
   defp decode_batch(_), do: :error
+
+  defp emit_flow_attribution_batch_received(events, dropped, partition_id, agent_id) do
+    :telemetry.execute(
+      @telemetry_batch_received,
+      %{count: 1, event_count: length(events || []), dropped_since_last: dropped || 0},
+      %{partition_id: partition_id, agent_id: agent_id}
+    )
+  end
 
   defp persist_flow_attribution(events, partition_id, agent_id) do
     case flow_attribution_persister() do

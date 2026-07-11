@@ -30,6 +30,9 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
 
   require Logger
 
+  @core_call_timeout_ms 30_000
+  @flow_attribution_core_call_timeout_ms 25_000
+
   @doc """
   Process a service status update.
 
@@ -277,13 +280,21 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
       pid when is_pid(pid) ->
         try do
           if ack_result_status?(status) do
-            GenServer.call(pid, message, 30_000)
+            GenServer.call(pid, message, core_call_timeout_ms(status))
           else
             GenServer.cast(pid, message)
             :ok
           end
         catch
-          :exit, _ -> {:error, :not_available}
+          :exit, {:timeout, _call} ->
+            {:error, :forward_timeout}
+
+          :exit, {:noproc, _call} ->
+            {:error, :not_available}
+
+          :exit, reason ->
+            Logger.warning("Failed to forward status to local core: #{inspect(reason)}")
+            {:error, :forward_failed}
         end
     end
   end
@@ -298,7 +309,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
           # Cast to the core handler on the remote node
           result =
             if ack_result_status?(status) do
-              GenServer.call({handler, node}, message, 30_000)
+              GenServer.call({handler, node}, message, core_call_timeout_ms(status))
             else
               GenServer.cast({handler, node}, message)
               :ok
@@ -324,7 +335,19 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   defp ack_result_status?(%{source: source, service_type: service_type})
        when source in ["results", :results] and service_type in ["endpoint_inventory", :endpoint_inventory], do: true
 
+  defp ack_result_status?(%{source: source}) when source in ["flow-attribution", :flow_attribution], do: true
+
   defp ack_result_status?(_status), do: false
+
+  defp core_call_timeout_ms(%{source: source}) when source in ["flow-attribution", :flow_attribution] do
+    Application.get_env(
+      :serviceradar_agent_gateway,
+      :flow_attribution_core_call_timeout_ms,
+      @flow_attribution_core_call_timeout_ms
+    )
+  end
+
+  defp core_call_timeout_ms(_status), do: @core_call_timeout_ms
 
   # Find a node that has the handler running
   defp find_handler_node(handler) do
@@ -345,10 +368,10 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     end
   end
 
-  # "otlp-relay" is intentionally NOT buffered: a buffered relay frame would be
-  # acked to the agent before delivery (false ack) and could be silently dropped
-  # by the bounded StatusBuffer. Relay durability lives at the edge spool, so
-  # failures must surface as errors and fail the gRPC call instead.
+  # Strict-delivery statuses are intentionally NOT buffered: buffering would ack
+  # the agent before durable delivery and could silently drop data from the
+  # bounded StatusBuffer. OTLP uses its disk spool; flow attribution uses a
+  # bounded in-memory pending batch. Failures must surface to those owners.
   defp should_buffer?(status), do: results_router_source?(status)
 
   defp results_router_source?(status) do
