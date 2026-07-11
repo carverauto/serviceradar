@@ -183,6 +183,13 @@ emitting telemetry. Use `taggedOnly=true` only when the deployment owns and has
 verified a separate Recursor tagging path, because RPZ verdicts are not guaranteed
 to appear on the protobuf stream otherwise.
 
+The add-on health check allows 60 seconds for Recursor to connect after startup or
+reconfiguration, then reports `degraded` while no protobuf producer is connected.
+Treat that diagnostic as configuration drift on the resolver: the ServiceRadar
+assignment owns the receiver settings, but the deployment's PowerDNS configuration
+management must durably own `logging.protobuf_servers` and restart or reload Recursor
+when that setting changes.
+
 Use `setProtobufMasks()` when client-IP anonymization is required by the deployment.
 `outgoingProtobufServer` is not needed for RPZ hit logging because the policy verdict
 is present on the client-facing response stream.
