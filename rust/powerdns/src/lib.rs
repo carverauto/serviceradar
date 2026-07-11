@@ -17,6 +17,7 @@
 use std::collections::BTreeMap;
 use std::net::IpAddr;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use addon_sdk::pb;
 use addon_sdk::{
@@ -40,7 +41,7 @@ pub mod dnsmessage {
 }
 
 const ADDON_ID: &str = "powerdns";
-const ADDON_VERSION: &str = "0.1.1";
+const ADDON_VERSION: &str = "0.1.2";
 const SOURCE_TYPE: &str = "powerdns";
 const DNS_ACTIVITY_SCHEMA_ID: &str = "com.carverauto.powerdns.dns_activity";
 const DNS_ACTIVITY_SCHEMA_VERSION: &str = "1.0.0";
@@ -50,6 +51,7 @@ const DNS_ACTIVITY_DISPLAY_CONTRACT_PATH: &str = "display/dns_activity.display.j
 const DEFAULT_LISTEN_ADDR: &str = "127.0.0.1:6000";
 const DEFAULT_SOURCE_INSTANCE: &str = "powerdns";
 const DEFAULT_BATCH_QUEUE_SIZE: usize = 1024;
+const PRODUCER_CONNECT_GRACE: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
@@ -90,6 +92,10 @@ struct State {
     listener: Option<tokio::task::JoinHandle<()>>,
     counters: Counters,
     degradation_reason: String,
+    generation: u64,
+    configured_at: Instant,
+    last_producer_activity_at: Option<Instant>,
+    active_producer_connections: u64,
 }
 
 #[derive(Clone)]
@@ -110,6 +116,10 @@ impl Default for PowerDnsAddon {
                 listener: None,
                 counters: Counters::default(),
                 degradation_reason: String::new(),
+                generation: 0,
+                configured_at: Instant::now(),
+                last_producer_activity_at: None,
+                active_producer_connections: 0,
             })),
         }
     }
@@ -141,12 +151,18 @@ impl Addon for PowerDnsAddon {
         state.config = config.clone();
         state.config_hash = config_hash.clone();
         state.degradation_reason.clear();
+        state.generation = state.generation.wrapping_add(1);
+        state.configured_at = Instant::now();
+        state.last_producer_activity_at = None;
+        state.active_producer_connections = 0;
+        let generation = state.generation;
 
         if config.enabled {
             state.listener = Some(spawn_listener(
                 config,
                 self.telemetry_tx.clone(),
                 Arc::clone(&self.state),
+                generation,
             ));
         }
 
@@ -159,17 +175,12 @@ impl Addon for PowerDnsAddon {
 
     async fn health(&self) -> Result<Health> {
         let state = self.state.lock().await;
-        let enabled = state.config.enabled;
-        let status = if !enabled || state.degradation_reason.is_empty() {
-            HealthStatus::Healthy
-        } else {
-            HealthStatus::Degraded
-        };
+        let (status, degradation_reason) = health_status(&state, Instant::now());
 
         Ok(Health {
             status,
             version: ADDON_VERSION.to_owned(),
-            degradation_reason: state.degradation_reason.clone(),
+            degradation_reason,
         })
     }
 
@@ -192,12 +203,15 @@ fn spawn_listener(
     config: Config,
     telemetry_tx: broadcast::Sender<pb::TelemetryBatch>,
     state: Arc<Mutex<State>>,
+    generation: u64,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        if let Err(err) = run_listener(config, telemetry_tx, Arc::clone(&state)).await {
+        if let Err(err) = run_listener(config, telemetry_tx, Arc::clone(&state), generation).await {
             let mut state = state.lock().await;
-            state.counters.listener_errors = state.counters.listener_errors.saturating_add(1);
-            state.degradation_reason = err.to_string();
+            if state.generation == generation {
+                state.counters.listener_errors = state.counters.listener_errors.saturating_add(1);
+                state.degradation_reason = err.to_string();
+            }
         }
     })
 }
@@ -206,6 +220,7 @@ async fn run_listener(
     config: Config,
     telemetry_tx: broadcast::Sender<pb::TelemetryBatch>,
     state: Arc<Mutex<State>>,
+    generation: u64,
 ) -> Result<()> {
     let listener = TcpListener::bind(&config.listen_addr)
         .await
@@ -213,17 +228,30 @@ async fn run_listener(
 
     loop {
         let (stream, _) = listener.accept().await?;
+        {
+            let mut state_guard = state.lock().await;
+            if !register_producer_connection(&mut state_guard, generation, Instant::now()) {
+                return Ok(());
+            }
+        }
+
         let config = config.clone();
         let telemetry_tx = telemetry_tx.clone();
         let state = Arc::clone(&state);
 
         tokio::spawn(async move {
-            if let Err(err) =
-                handle_connection(stream, config, telemetry_tx, Arc::clone(&state)).await
-            {
-                let mut state = state.lock().await;
-                state.counters.listener_errors = state.counters.listener_errors.saturating_add(1);
-                state.degradation_reason = err.to_string();
+            let result =
+                handle_connection(stream, config, telemetry_tx, Arc::clone(&state), generation)
+                    .await;
+
+            let mut state_guard = state.lock().await;
+            unregister_producer_connection(&mut state_guard, generation, Instant::now());
+            if let Err(err) = result {
+                if state_guard.generation == generation {
+                    state_guard.counters.listener_errors =
+                        state_guard.counters.listener_errors.saturating_add(1);
+                    state_guard.degradation_reason = err.to_string();
+                }
             }
         });
     }
@@ -234,6 +262,7 @@ async fn handle_connection(
     config: Config,
     telemetry_tx: broadcast::Sender<pb::TelemetryBatch>,
     state: Arc<Mutex<State>>,
+    generation: u64,
 ) -> Result<()> {
     loop {
         let mut length_bytes = [0_u8; 2];
@@ -262,6 +291,11 @@ async fn handle_connection(
         };
 
         let mut state_guard = state.lock().await;
+        if state_guard.generation != generation {
+            return Ok(());
+        }
+
+        state_guard.last_producer_activity_at = Some(Instant::now());
         state_guard.counters.received = state_guard.counters.received.saturating_add(1);
 
         let Some(record) = map_message_to_record(&message, &config) else {
@@ -288,6 +322,55 @@ async fn handle_connection(
             }
         }
     }
+}
+
+fn register_producer_connection(state: &mut State, generation: u64, now: Instant) -> bool {
+    if state.generation != generation {
+        return false;
+    }
+
+    state.active_producer_connections = state.active_producer_connections.saturating_add(1);
+    state.last_producer_activity_at = Some(now);
+    true
+}
+
+fn unregister_producer_connection(state: &mut State, generation: u64, now: Instant) {
+    if state.generation == generation {
+        state.active_producer_connections = state.active_producer_connections.saturating_sub(1);
+        if state.active_producer_connections == 0 {
+            state.last_producer_activity_at = Some(now);
+        }
+    }
+}
+
+fn health_status(state: &State, now: Instant) -> (HealthStatus, String) {
+    if !state.config.enabled {
+        return (HealthStatus::Healthy, String::new());
+    }
+
+    if !state.degradation_reason.is_empty() {
+        return (HealthStatus::Degraded, state.degradation_reason.clone());
+    }
+
+    if state.active_producer_connections > 0 {
+        return (HealthStatus::Healthy, String::new());
+    }
+
+    let disconnected_since = state
+        .last_producer_activity_at
+        .unwrap_or(state.configured_at);
+    if now.saturating_duration_since(disconnected_since) < PRODUCER_CONNECT_GRACE {
+        return (HealthStatus::Healthy, String::new());
+    }
+
+    (
+        HealthStatus::Degraded,
+        format!(
+            "no PowerDNS Recursor protobuf producer connected to {} for {}s; configure logging.protobuf_servers",
+            state.config.listen_addr,
+            PRODUCER_CONNECT_GRACE.as_secs()
+        ),
+    )
 }
 
 fn map_message_to_record(
@@ -729,6 +812,82 @@ mod tests {
         SIGNAL_SCHEMA_METADATA_SCHEMA_ID, SIGNAL_SCHEMA_METADATA_SCHEMA_VERSION,
         SIGNAL_SCHEMA_METADATA_SIGNAL_TYPE,
     };
+
+    fn health_test_state(now: Instant) -> State {
+        State {
+            config: Config::default(),
+            config_hash: String::new(),
+            listener: None,
+            counters: Counters::default(),
+            degradation_reason: String::new(),
+            generation: 7,
+            configured_at: now,
+            last_producer_activity_at: None,
+            active_producer_connections: 0,
+        }
+    }
+
+    #[test]
+    fn health_allows_producer_connection_grace() {
+        let now = Instant::now();
+        let state = health_test_state(now);
+
+        assert_eq!(health_status(&state, now).0, HealthStatus::Healthy);
+    }
+
+    #[test]
+    fn health_degrades_when_no_producer_connects() {
+        let now = Instant::now();
+        let mut state = health_test_state(now);
+        state.configured_at = now - PRODUCER_CONNECT_GRACE - Duration::from_secs(1);
+
+        let (status, reason) = health_status(&state, now);
+
+        assert_eq!(status, HealthStatus::Degraded);
+        assert!(reason.contains("no PowerDNS Recursor protobuf producer connected"));
+        assert!(reason.contains(DEFAULT_LISTEN_ADDR));
+        assert!(reason.contains("logging.protobuf_servers"));
+    }
+
+    #[test]
+    fn active_producer_keeps_health_healthy() {
+        let now = Instant::now();
+        let mut state = health_test_state(now);
+        state.configured_at = now - PRODUCER_CONNECT_GRACE - Duration::from_secs(1);
+
+        assert!(register_producer_connection(&mut state, 7, now));
+        assert_eq!(health_status(&state, now).0, HealthStatus::Healthy);
+    }
+
+    #[test]
+    fn producer_disconnect_gets_reconnect_grace() {
+        let now = Instant::now();
+        let mut state = health_test_state(now);
+        state.configured_at = now - PRODUCER_CONNECT_GRACE - Duration::from_secs(1);
+        assert!(register_producer_connection(&mut state, 7, now));
+
+        unregister_producer_connection(&mut state, 7, now);
+
+        assert_eq!(state.active_producer_connections, 0);
+        assert_eq!(health_status(&state, now).0, HealthStatus::Healthy);
+        assert_eq!(
+            health_status(&state, now + PRODUCER_CONNECT_GRACE).0,
+            HealthStatus::Degraded
+        );
+    }
+
+    #[test]
+    fn stale_listener_generation_cannot_change_connection_health() {
+        let now = Instant::now();
+        let mut state = health_test_state(now);
+
+        assert!(!register_producer_connection(&mut state, 6, now));
+        assert_eq!(state.active_producer_connections, 0);
+
+        unregister_producer_connection(&mut state, 6, now);
+        assert_eq!(state.active_producer_connections, 0);
+        assert_eq!(state.last_producer_activity_at, None);
+    }
 
     #[test]
     fn rpz_response_maps_to_ocsf_dns_activity() {
