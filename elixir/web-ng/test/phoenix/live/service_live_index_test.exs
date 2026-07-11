@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLiveIndexTest do
 
   import Phoenix.LiveViewTest
 
+  alias ServiceRadar.Observability.PluginResultIngestor
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Plugins.Plugin
@@ -11,6 +12,24 @@ defmodule ServiceRadarWebNGWeb.ServiceLiveIndexTest do
   alias ServiceRadar.Plugins.PluginPackage
 
   setup :register_and_log_in_user
+
+  defmodule ReplayHandler do
+    @moduledoc false
+
+    def put_outcomes(outcomes), do: Process.put({__MODULE__, :outcomes}, outcomes)
+    def supports?(_payload, _status), do: true
+
+    def ingest(_payload, _status, _opts) do
+      case Process.get({__MODULE__, :outcomes}, []) do
+        [outcome | rest] ->
+          Process.put({__MODULE__, :outcomes}, rest)
+          outcome
+
+        [] ->
+          :ok
+      end
+    end
+  end
 
   test "renders plugin cards from durable service state", %{conn: conn} do
     gateway = gateway_fixture()
@@ -40,6 +59,70 @@ defmodule ServiceRadarWebNGWeb.ServiceLiveIndexTest do
 
     assert html =~ "UniFi Protect Camera"
     assert has_element?(view, "#service-cards", "camera check healthy")
+  end
+
+  test "renders display contract from a recovered real plugin result", %{conn: conn} do
+    gateway = gateway_fixture()
+    agent = agent_fixture(gateway)
+
+    package =
+      approved_plugin_package_fixture(
+        "Display Contract Plugin",
+        "serviceradar.plugin_result.v1",
+        display_contract: %{"schema_version" => 1, "widgets" => ["stat_card"]}
+      )
+
+    _assignment = plugin_assignment_fixture(agent.uid, package.id)
+    previous_handlers = Application.get_env(:serviceradar_core, :plugin_result_handlers)
+
+    Application.put_env(:serviceradar_core, :plugin_result_handlers, [ReplayHandler])
+    on_exit(fn -> restore_env(:plugin_result_handlers, previous_handlers) end)
+    ReplayHandler.put_outcomes([{:error, :transient_failure}, :ok])
+
+    observed_at = DateTime.utc_now() |> DateTime.add(-5, :second) |> DateTime.truncate(:microsecond)
+
+    payload = %{
+      "status" => "OK",
+      "summary" => "display result recovered",
+      "observed_at" => DateTime.to_iso8601(observed_at),
+      "schema_version" => 1,
+      "labels" => %{"plugin_id" => package.plugin_id},
+      "display" => [
+        %{"widget" => "stat_card", "label" => "Imported hosts", "value" => 20},
+        %{"widget" => "table", "columns" => ["host"], "rows" => [%{"host" => "blocked"}]}
+      ]
+    }
+
+    status = %{
+      source: "plugin-result",
+      agent_id: agent.uid,
+      gateway_id: agent.gateway_id,
+      partition: "default",
+      service_type: "plugin",
+      service_name: package.name,
+      available: true
+    }
+
+    assert {:error, {:plugin_result_handlers_failed, [{ReplayHandler, ":transient_failure"}]}} =
+             PluginResultIngestor.ingest(payload, status)
+
+    assert :ok = PluginResultIngestor.ingest(payload, status)
+
+    params = %{
+      "service_name" => package.name,
+      "service_type" => "plugin",
+      "gateway_id" => agent.gateway_id,
+      "agent_id" => agent.uid,
+      "partition" => "default",
+      "timestamp" => observed_at |> DateTime.add(2, :microsecond) |> DateTime.to_iso8601()
+    }
+
+    {:ok, view, html} = live(conn, ~p"/services/check?#{params}")
+
+    assert html =~ "UI schema version 1"
+    assert has_element?(view, "div", "Imported hosts")
+    assert has_element?(view, "div", "20")
+    refute html =~ "blocked"
   end
 
   test "active plugin card read excludes non-plugin rows and large details" do
@@ -89,8 +172,9 @@ defmodule ServiceRadarWebNGWeb.ServiceLiveIndexTest do
     |> Ash.create!(domain: ServiceRadar.Observability)
   end
 
-  defp approved_plugin_package_fixture(name, output) do
+  defp approved_plugin_package_fixture(name, output, opts \\ []) do
     plugin_id = "service-live-plugin-#{System.unique_integer([:positive])}"
+    display_contract = Keyword.get(opts, :display_contract, %{})
 
     Plugin
     |> Ash.Changeset.for_create(
@@ -127,7 +211,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLiveIndexTest do
         outputs: output,
         manifest: manifest,
         config_schema: %{},
-        display_contract: %{},
+        display_contract: display_contract,
         content_hash: "sha256:#{plugin_id}",
         signature: %{},
         source_type: :upload
@@ -156,4 +240,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLiveIndexTest do
     )
     |> Ash.create!()
   end
+
+  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
+  defp restore_env(key, value), do: Application.put_env(:serviceradar_core, key, value)
 end

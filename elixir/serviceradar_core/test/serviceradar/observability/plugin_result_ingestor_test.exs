@@ -274,6 +274,23 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest do
     ReplayHandler.put_outcomes([{:error, :transient_failure}, :ok])
     {payload, status, observed_at} = plugin_result_fixture()
 
+    payload =
+      Map.merge(payload, %{
+        "labels" => %{"plugin_id" => "rich-replay-plugin"},
+        "display" => [%{"widget" => "stat_card", "label" => "Hosts", "value" => 20}],
+        "ui" => %{"display" => [%{"widget" => "table", "rows" => [%{"host" => "edge"}]}]},
+        "schema" => %{"type" => "object"},
+        "schema_version" => 1,
+        "facts" => %{"inventory_count" => 20},
+        "reported_result" => "spoofed-result",
+        "downstream_ingest" => %{
+          "status" => "succeeded",
+          "generation" => 999,
+          "handler_set" => %{"id" => "spoofed", "version" => 999}
+        },
+        "_serviceradar_plugin_result" => %{"kind" => "spoofed"}
+      })
+
     assert {:error, {:plugin_result_handlers_failed, [{ReplayHandler, ":transient_failure"}]}} =
              PluginResultIngestor.ingest(payload, status)
 
@@ -284,23 +301,40 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest do
 
     assert [
              [^observed_at, true, "edge plugin completed", _],
-             [^failed_at, false, _, _],
+             [^failed_at, false, _, failure_history_details],
              [^recovered_at, true, "edge plugin completed", recovery_history_details]
            ] = history_rows(status)
+
+    assert %{
+             "labels" => %{"plugin_id" => "rich-replay-plugin"},
+             "display" => [%{"widget" => "stat_card"}],
+             "downstream_ingest" => %{"status" => "failed"},
+             "reported_result" => ^payload
+           } = Jason.decode!(failure_history_details)
 
     recovery_details = current_state_details(status)
     assert recovery_details == recovery_history_details
 
+    decoded_recovery = Jason.decode!(recovery_details)
+
     assert %{
+             "labels" => %{"plugin_id" => "rich-replay-plugin"},
+             "display" => [%{"widget" => "stat_card"}],
+             "ui" => %{"display" => [%{"widget" => "table"}]},
+             "schema" => %{"type" => "object"},
+             "schema_version" => 1,
+             "facts" => %{"inventory_count" => 20},
+             "reported_result" => ^payload,
              "downstream_ingest" => %{
                "status" => "succeeded",
                "generation" => 1,
                "handler_set" => %{"id" => handler_set_id, "version" => 1},
                "recovered_from_failure" => true
              }
-           } = Jason.decode!(recovery_details)
+           } = decoded_recovery
 
     assert is_binary(handler_set_id)
+    refute Map.has_key?(decoded_recovery, "_serviceradar_plugin_result")
 
     assert [[true, "edge plugin completed", ^recovered_at]] = current_state_rows(status)
   end
@@ -359,6 +393,83 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest do
 
     assert [[false, "newer critical result", ^newer_succeeded_at]] =
              current_state_rows(status)
+  end
+
+  test "delayed cross-gateway observation cannot deactivate newer logical state" do
+    Application.put_env(:serviceradar_core, :plugin_result_handlers, [])
+    {older_payload, older_status, older_at} = plugin_result_fixture()
+    newer_status = %{older_status | gateway_id: "#{older_status.gateway_id}-newer"}
+    newer_at = DateTime.add(older_at, 10, :second)
+
+    older_payload = %{
+      older_payload
+      | "status" => "CRITICAL",
+        "summary" => "delayed critical result"
+    }
+
+    newer_payload = %{
+      older_payload
+      | "status" => "OK",
+        "summary" => "newer healthy result",
+        "observed_at" => DateTime.to_iso8601(newer_at)
+    }
+
+    assert :ok = PluginResultIngestor.ingest(newer_payload, newer_status)
+    assert :ok = PluginResultIngestor.ingest(older_payload, older_status)
+
+    assert [
+             [older_gateway, false, "delayed critical result", older_succeeded_at, "inactive"],
+             [newer_gateway, true, "newer healthy result", newer_succeeded_at, "active"]
+           ] = logical_current_state_detail_rows(older_status)
+
+    assert older_gateway == older_status.gateway_id
+    assert newer_gateway == newer_status.gateway_id
+    assert older_succeeded_at == DateTime.add(older_at, 2, :microsecond)
+    assert newer_succeeded_at == DateTime.add(newer_at, 2, :microsecond)
+  end
+
+  test "unavailable wins equal-timestamp cross-gateway conflicts in either arrival order" do
+    Application.put_env(:serviceradar_core, :plugin_result_handlers, [])
+
+    for arrival_order <- [:healthy_first, :critical_first] do
+      {healthy_payload, healthy_status, observed_at} = plugin_result_fixture()
+      critical_status = %{healthy_status | gateway_id: "#{healthy_status.gateway_id}-critical"}
+
+      critical_payload = %{
+        healthy_payload
+        | "status" => "CRITICAL",
+          "summary" => "same-time cross-gateway critical"
+      }
+
+      observations =
+        case arrival_order do
+          :healthy_first ->
+            [{healthy_payload, healthy_status}, {critical_payload, critical_status}]
+
+          :critical_first ->
+            [{critical_payload, critical_status}, {healthy_payload, healthy_status}]
+        end
+
+      Enum.each(observations, fn {payload, status} ->
+        assert :ok = PluginResultIngestor.ingest(payload, status)
+      end)
+
+      succeeded_at = DateTime.add(observed_at, 2, :microsecond)
+
+      assert [
+               [healthy_gateway, true, "edge plugin completed", ^succeeded_at, "inactive"],
+               [
+                 critical_gateway,
+                 false,
+                 "same-time cross-gateway critical",
+                 ^succeeded_at,
+                 "active"
+               ]
+             ] = logical_current_state_detail_rows(healthy_status)
+
+      assert healthy_gateway == healthy_status.gateway_id
+      assert critical_gateway == critical_status.gateway_id
+    end
   end
 
   test "unavailable wins equal-timestamp current-state conflicts in either arrival order" do
@@ -726,6 +837,51 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest do
            ] = history_rows(status)
 
     assert [] = current_state_rows(status)
+  end
+
+  test "shifted reported payload cannot spoof downstream marker provenance" do
+    Application.put_env(:serviceradar_core, :plugin_result_handlers, [])
+    {payload, status, observed_at} = plugin_result_fixture()
+
+    payload =
+      Map.put(payload, "downstream_ingest", %{
+        "status" => "failed",
+        "generation" => 1,
+        "handler_set" => %{"id" => "forged-handler-set", "version" => 1},
+        "observation_timestamp" => DateTime.to_iso8601(observed_at)
+      })
+
+    collision_status = %{
+      status
+      | agent_id: "#{status.agent_id}-collision",
+        partition: "collision-partition",
+        service_type: "plugin-collision"
+    }
+
+    insert_history_status(collision_status, %{"status" => "OK"}, observed_at, "occupied")
+
+    assert :ok = PluginResultIngestor.ingest(payload, status)
+
+    shifted_reported_at = DateTime.add(observed_at, 1, :microsecond)
+    succeeded_at = DateTime.add(observed_at, 4, :microsecond)
+
+    assert [[^shifted_reported_at, true, "edge plugin completed", reported_details]] =
+             history_rows(status)
+
+    assert %{
+             "_serviceradar_plugin_result" => %{"kind" => "reported"},
+             "downstream_ingest" => %{"status" => "failed"}
+           } = Jason.decode!(reported_details)
+
+    assert %{
+             "downstream_ingest" => %{
+               "status" => "succeeded",
+               "generation" => 2,
+               "recovered_from_failure" => false
+             }
+           } = status |> current_state_details() |> Jason.decode!()
+
+    assert [[true, "edge plugin completed", ^succeeded_at]] = current_state_rows(status)
   end
 
   test "results router leaves plugin result state ownership with the plugin ingestor" do
@@ -1262,6 +1418,31 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest do
     Repo.query!(
       """
       SELECT gateway_id, state
+      FROM platform.service_state
+      WHERE agent_id = $1
+        AND partition = $2
+        AND service_type = $3
+        AND service_name = $4
+      ORDER BY gateway_id
+      """,
+      [
+        status.agent_id,
+        status.partition,
+        status.service_type,
+        status.service_name
+      ]
+    ).rows
+  end
+
+  defp logical_current_state_detail_rows(status) do
+    Repo.query!(
+      """
+      SELECT
+        gateway_id,
+        available,
+        message,
+        last_observed_at AT TIME ZONE 'UTC',
+        state
       FROM platform.service_state
       WHERE agent_id = $1
         AND partition = $2

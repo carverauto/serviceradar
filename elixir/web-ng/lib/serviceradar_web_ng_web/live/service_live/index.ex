@@ -833,6 +833,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   defp extract_display_instructions(details) when is_map(details) do
     Map.get(details, "display") ||
       get_in(details, ["ui", "display"]) ||
+      get_in(details, ["reported_result", "display"]) ||
+      get_in(details, ["reported_result", "ui", "display"]) ||
       []
   end
 
@@ -868,7 +870,9 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     get_in(details, ["labels", "plugin_id"]) ||
       get_in(details, [:labels, :plugin_id]) ||
       Map.get(details, "plugin_id") ||
-      Map.get(details, :plugin_id)
+      Map.get(details, :plugin_id) ||
+      get_in(details, ["reported_result", "labels", "plugin_id"]) ||
+      get_in(details, ["reported_result", "plugin_id"])
   end
 
   defp plugin_id_from_details(_details), do: nil
@@ -919,7 +923,9 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   defp compact_display(_), do: []
 
   defp service_summary(service, details) do
-    Map.get(details, "summary") || Map.get(service, "message")
+    Map.get(details, "summary") ||
+      get_in(details, ["reported_result", "summary"]) ||
+      Map.get(service, "message")
   end
 
   defp filter_plugin_services(services) when is_list(services) do

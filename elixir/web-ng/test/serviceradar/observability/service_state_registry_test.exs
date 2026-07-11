@@ -2,6 +2,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
+  alias ServiceRadar.Observability.PluginResultIngestor
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Observability.ServiceStatus
@@ -311,6 +312,69 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
     assert state.message == "historical plugin result"
   end
 
+  test "history repair reactivates newest inactive exact row and deactivates older gateway" do
+    gateway = gateway_fixture()
+    agent = agent_fixture(gateway, %{uid: unique_id("agent")})
+    package = approved_package_fixture("serviceradar.plugin_result.v1")
+    _assignment = assignment_fixture(agent.uid, package.id)
+    older_at = DateTime.utc_now() |> DateTime.add(-60, :second) |> DateTime.truncate(:microsecond)
+    newer_at = DateTime.add(older_at, 10, :second)
+    newer_gateway_id = "serviceradar_agent_gateway@10.42.0.109"
+
+    older_state =
+      insert_service_state!(%{
+        agent_id: agent.uid,
+        gateway_id: agent.gateway_id,
+        partition: "default",
+        service_type: "plugin",
+        service_name: package.name,
+        available: false,
+        message: "older critical result",
+        last_observed_at: older_at,
+        state: "active"
+      })
+
+    newer_state =
+      insert_service_state!(%{
+        agent_id: agent.uid,
+        gateway_id: newer_gateway_id,
+        partition: "default",
+        service_type: "plugin",
+        service_name: package.name,
+        available: true,
+        message: "newest historical result",
+        last_observed_at: newer_at,
+        state: "inactive"
+      })
+
+    ServiceStatus
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        timestamp: newer_at,
+        gateway_id: newer_gateway_id,
+        agent_id: agent.uid,
+        service_name: package.name,
+        service_type: "plugin",
+        available: true,
+        message: "newest historical result",
+        details: Jason.encode!(%{"status" => "OK", "summary" => "newest historical result"}),
+        partition: "default",
+        created_at: newer_at
+      },
+      actor: system_actor()
+    )
+    |> Ash.create!(domain: ServiceRadar.Observability)
+
+    assert {:ok, count} = ServiceStateRegistry.repair_plugin_states_from_history()
+    assert count >= 1
+
+    assert reloaded_state(older_state).state == "inactive"
+
+    assert %ServiceState{state: "active", gateway_id: ^newer_gateway_id} =
+             reloaded_state(newer_state)
+  end
+
   test "assignment deactivation deactivates every gateway variant" do
     gateway = gateway_fixture()
     agent = agent_fixture(gateway, %{uid: unique_id("agent")})
@@ -370,27 +434,44 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
     agent = agent_fixture(gateway, %{uid: unique_id("agent")})
     package = approved_package_fixture("serviceradar.plugin_result.v1")
     assignment = assignment_fixture(agent.uid, package.id)
-    now = DateTime.utc_now()
+    runtime_service_name = "Runtime #{package.name}"
+    observed_at = DateTime.utc_now() |> DateTime.add(-5, :second) |> DateTime.truncate(:microsecond)
+    previous_handlers = Application.get_env(:serviceradar_core, :plugin_result_handlers)
 
-    states =
-      for gateway_id <- [agent.gateway_id, "serviceradar_agent_gateway@10.42.0.66"] do
-        insert_service_state!(%{
-          agent_id: agent.uid,
-          gateway_id: gateway_id,
-          partition: "default",
-          service_type: "plugin",
-          service_name: package.name,
-          available: true,
-          message: "orphaned plugin result",
-          details: Jason.encode!(%{"plugin_id" => package.plugin_id}),
-          last_observed_at: now,
-          state: "active"
-        })
-      end
+    Application.put_env(:serviceradar_core, :plugin_result_handlers, [])
+    on_exit(fn -> restore_env(:plugin_result_handlers, previous_handlers) end)
+
+    payload = %{
+      "status" => "OK",
+      "summary" => "runtime plugin result",
+      "observed_at" => DateTime.to_iso8601(observed_at),
+      "labels" => %{"plugin_id" => package.plugin_id},
+      "display" => [%{"widget" => "stat_card", "label" => "Objects", "value" => 56}]
+    }
+
+    for gateway_id <- [agent.gateway_id, "serviceradar_agent_gateway@10.42.0.66"] do
+      assert :ok =
+               PluginResultIngestor.ingest(payload, %{
+                 source: "plugin-result",
+                 agent_id: agent.uid,
+                 gateway_id: gateway_id,
+                 partition: "default",
+                 service_type: "plugin",
+                 service_name: runtime_service_name
+               })
+    end
+
+    states = logical_states_for(agent, runtime_service_name)
+    assert length(states) == 2
+    assert Enum.count(states, &(&1.state == "active")) == 1
+
+    assert Enum.all?(states, fn state ->
+             get_in(Jason.decode!(state.details), ["labels", "plugin_id"]) == package.plugin_id
+           end)
 
     assert :ok = Ash.destroy!(assignment, actor: system_actor(), domain: ServiceRadar.Plugins)
     assert :ok = ServiceStateRegistry.deactivate_for_package(package)
-    assert [] = active_logical_states_for(agent, package.name)
+    assert [] = active_logical_states_for(agent, runtime_service_name)
     assert Enum.all?(states, &(reloaded_state(&1).state == "inactive"))
   end
 
@@ -446,6 +527,12 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
   end
 
   defp active_logical_states_for(agent, service_name) do
+    agent
+    |> logical_states_for(service_name)
+    |> Enum.filter(&(&1.state == "active"))
+  end
+
+  defp logical_states_for(agent, service_name) do
     metadata = agent.metadata || %{}
     partition = metadata["partition"] || "default"
 
@@ -455,8 +542,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
       agent_id == ^agent.uid and
         partition == ^partition and
         service_type == "plugin" and
-        service_name == ^service_name and
-        state == "active"
+        service_name == ^service_name
     )
     |> Ash.read!(actor: system_actor(), domain: ServiceRadar.Observability)
   end
@@ -544,4 +630,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
   end
 
   defp unique_id(prefix), do: "#{prefix}-#{System.unique_integer([:positive])}"
+
+  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
+  defp restore_env(key, value), do: Application.put_env(:serviceradar_core, key, value)
 end

@@ -64,13 +64,31 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   @doc """
   Persists a current service state while returning database or side-effect errors.
 
-  The `ServiceState` upsert is timestamp-guarded, so an older observation cannot
-  replace a newer current state even when concurrent ingestors race. For equal
-  timestamps, unavailable wins over available; otherwise the existing row wins.
+  The physical `ServiceState` upsert is timestamp-guarded. Plugin rows are then
+  reconciled across gateway variants: real results outrank assignment placeholders,
+  newer observations win, and unavailable wins an equal-timestamp tie. Repair may
+  reactivate an inactive exact row when its timestamp and availability are unchanged.
   """
   @spec upsert_from_status_strict(map()) :: :ok | {:error, term()}
   def upsert_from_status_strict(status) when is_map(status) do
-    do_upsert_from_status_strict(status, false)
+    case Repo.transaction(fn ->
+           with :ok <- maybe_acquire_plugin_state_lock(status),
+                {:ok, notifications, side_effects} <- do_upsert_from_status_strict(status) do
+             {notifications, side_effects}
+           else
+             {:error, reason} -> Repo.rollback(reason)
+           end
+         end) do
+      {:ok, {notifications, side_effects}} ->
+        _ = Ash.Notifier.notify(notifications)
+        dispatch_deferred_side_effects(side_effects)
+
+      {:error, reason} ->
+        {:error, reason}
+
+      other ->
+        {:error, {:unexpected_service_state_transaction_result, other}}
+    end
   end
 
   def upsert_from_status_strict(_), do: {:error, :invalid_status}
@@ -79,12 +97,12 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   @spec upsert_from_status_strict_with_notifications(map()) ::
           {:ok, list(), list()} | {:error, term()}
   def upsert_from_status_strict_with_notifications(status) when is_map(status) do
-    do_upsert_from_status_strict(status, true, preserve_gateway?: true)
+    do_upsert_from_status_strict(status, preserve_gateway?: true)
   end
 
   def upsert_from_status_strict_with_notifications(_), do: {:error, :invalid_status}
 
-  defp do_upsert_from_status_strict(status, return_notifications?, opts \\ []) do
+  defp do_upsert_from_status_strict(status, opts \\ []) do
     actor = SystemActor.system(:service_state_registry)
     attrs = build_attrs_from_status(status, actor, opts)
     previous = previous_service_availability(attrs, actor)
@@ -93,20 +111,15 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     |> Ash.Changeset.for_create(:upsert, attrs, actor: actor)
     |> Ash.create(
       domain: ServiceRadar.Observability,
-      return_notifications?: return_notifications?
+      return_notifications?: true
     )
     |> case do
-      {:ok, state} ->
-        run_state_upsert_side_effects(state, previous, actor)
-        :ok
-
       {:ok, state, notifications} ->
-        if upsert_skipped?(state) do
-          {:ok, [], []}
-        else
-          {side_effect_notifications, side_effects} =
-            prepare_state_upsert_side_effects(state, previous, actor)
+        upserted? = not upsert_skipped?(state)
+        notifications = if upserted?, do: notifications, else: []
 
+        with {:ok, side_effect_notifications, side_effects} <-
+               prepare_state_upsert_side_effects(state, previous, actor, upserted?) do
           {:ok, notifications ++ side_effect_notifications, side_effects}
         end
 
@@ -122,24 +135,40 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     kind, reason -> {:error, {kind, reason}}
   end
 
-  defp run_state_upsert_side_effects(state, previous, actor) do
-    if !upsert_skipped?(state) do
-      deactivate_shadowed_plugin_states(state, actor)
-      ServiceStatePubSub.broadcast_update(state)
-      maybe_publish_service_transition(previous, state)
+  defp maybe_acquire_plugin_state_lock(status) do
+    if normalize_string(fetch(status, :service_type), "unknown") == "plugin" do
+      acquire_plugin_state_lock(status)
+    else
+      :ok
     end
   end
 
-  defp prepare_state_upsert_side_effects(state, previous, actor) do
-    {notifications, shadow_states} =
-      deactivate_shadowed_plugin_states_with_notifications(state, actor)
+  defp prepare_state_upsert_side_effects(
+         %ServiceState{service_type: "plugin"} = state,
+         previous,
+         actor,
+         upserted?
+       ) do
+    with {:ok, notifications, changed_states, winner} <-
+           reconcile_logical_plugin_states_with_notifications(state, actor) do
+      side_effects = Enum.map(changed_states, &{:broadcast_update, &1})
 
-    side_effects =
-      Enum.map(shadow_states, &{:broadcast_update, &1}) ++
-        [{:state_upserted, state, previous}]
+      side_effects =
+        if upserted? and winner.id == state.id do
+          side_effects ++ [{:state_upserted, winner, previous}]
+        else
+          side_effects
+        end
 
-    {notifications, side_effects}
+      {:ok, notifications, side_effects}
+    end
   end
+
+  defp prepare_state_upsert_side_effects(state, previous, _actor, true) do
+    {:ok, [], [{:state_upserted, state, previous}]}
+  end
+
+  defp prepare_state_upsert_side_effects(_state, _previous, _actor, false), do: {:ok, [], []}
 
   @doc false
   @spec dispatch_deferred_side_effects(list()) :: :ok | {:error, term()}
@@ -377,7 +406,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     case Repo.transaction(fn ->
            with :ok <- acquire_plugin_state_lock(status),
                 {:ok, notifications, side_effects} <-
-                  do_upsert_from_status_strict(status, true, preserve_gateway?: true) do
+                  do_upsert_from_status_strict(status, preserve_gateway?: true) do
              {notifications, side_effects}
            else
              {:error, reason} -> Repo.rollback(reason)
@@ -637,6 +666,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
           AND (
             service_state.details::jsonb #>> '{labels,plugin_id}' = $2
             OR service_state.details::jsonb ->> 'plugin_id' = $2
+            OR service_state.details::jsonb #>> '{reported_result,labels,plugin_id}' = $2
+            OR service_state.details::jsonb #>> '{reported_result,plugin_id}' = $2
           )
         )
       )
@@ -654,6 +685,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
               AND (
                 service_state.details::jsonb #>> '{labels,plugin_id}' = package.plugin_id
                 OR service_state.details::jsonb ->> 'plugin_id' = package.plugin_id
+                OR service_state.details::jsonb #>> '{reported_result,labels,plugin_id}' = package.plugin_id
+                OR service_state.details::jsonb #>> '{reported_result,plugin_id}' = package.plugin_id
               )
             )
           )
@@ -672,6 +705,65 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
       service_state.service_type,
       service_state.service_name
     """
+  end
+
+  defp reconcile_logical_plugin_states_with_notifications(
+         %ServiceState{service_type: "plugin"} = current_state,
+         actor
+       ) do
+    with {:ok, states} <- logical_plugin_states(current_state, actor),
+         %ServiceState{} = winner <- logical_plugin_state_winner(states),
+         {:ok, notifications, changed_states} <-
+           apply_logical_plugin_state_winner(states, winner, actor) do
+      winner = Enum.find(changed_states, winner, &(&1.id == winner.id))
+      {:ok, notifications, changed_states, winner}
+    else
+      nil -> {:error, :logical_plugin_state_winner_missing}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp logical_plugin_states(%ServiceState{} = state, actor) do
+    ServiceState
+    |> filter(
+      agent_id == ^state.agent_id and
+        partition == ^state.partition and
+        service_type == ^state.service_type and
+        service_name == ^state.service_name
+    )
+    |> Ash.read(actor: actor, domain: ServiceRadar.Observability)
+  end
+
+  defp logical_plugin_state_winner([]), do: nil
+
+  defp logical_plugin_state_winner(states) do
+    Enum.max_by(states, &logical_state_rank/1)
+  end
+
+  defp apply_logical_plugin_state_winner(states, winner, actor) do
+    # Avoid exposing two active rows when repair needs to reactivate the winner.
+    states
+    |> Enum.sort_by(&(&1.id == winner.id))
+    |> Enum.reduce_while({:ok, [], []}, fn state, {:ok, notifications, changed_states} ->
+      desired_state = if state.id == winner.id, do: "active", else: "inactive"
+
+      if state.state == desired_state do
+        {:cont, {:ok, notifications, changed_states}}
+      else
+        action = if desired_state == "active", do: :activate, else: :deactivate
+
+        state
+        |> Ash.Changeset.for_update(action, %{}, actor: actor)
+        |> Ash.update(domain: ServiceRadar.Observability, return_notifications?: true)
+        |> case do
+          {:ok, updated, state_notifications} ->
+            {:cont, {:ok, notifications ++ state_notifications, changed_states ++ [updated]}}
+
+          {:error, error} ->
+            {:halt, {:error, error}}
+        end
+      end
+    end)
   end
 
   defp deactivate_shadowed_plugin_states(
@@ -699,40 +791,6 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
 
   defp deactivate_shadowed_plugin_states(_state, _actor), do: :ok
 
-  defp deactivate_shadowed_plugin_states_with_notifications(
-         %ServiceState{service_type: "plugin"} = current_state,
-         actor
-       ) do
-    ServiceState
-    |> filter(
-      id != ^current_state.id and
-        agent_id == ^current_state.agent_id and
-        partition == ^current_state.partition and
-        service_type == ^current_state.service_type and
-        service_name == ^current_state.service_name and
-        state == "active"
-    )
-    |> Ash.read(actor: actor, domain: ServiceRadar.Observability)
-    |> case do
-      {:ok, states} ->
-        Enum.reduce(states, {[], []}, fn state, {notifications, updated_states} ->
-          case deactivate_shadow_state_with_notifications(state, actor) do
-            {:ok, updated, state_notifications} ->
-              {notifications ++ state_notifications, updated_states ++ [updated]}
-
-            :error ->
-              {notifications, updated_states}
-          end
-        end)
-
-      {:error, error} ->
-        Logger.warning("Failed to load shadowed plugin states: #{inspect(error)}")
-        {[], []}
-    end
-  end
-
-  defp deactivate_shadowed_plugin_states_with_notifications(_state, _actor), do: {[], []}
-
   defp deactivate_shadow_state(%ServiceState{} = state, actor) do
     state
     |> Ash.Changeset.for_update(:deactivate, %{}, actor: actor)
@@ -743,20 +801,6 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
 
       {:error, error} ->
         Logger.warning("Failed to deactivate shadowed plugin state: #{inspect(error)}")
-    end
-  end
-
-  defp deactivate_shadow_state_with_notifications(%ServiceState{} = state, actor) do
-    state
-    |> Ash.Changeset.for_update(:deactivate, %{}, actor: actor)
-    |> Ash.update(domain: ServiceRadar.Observability, return_notifications?: true)
-    |> case do
-      {:ok, updated, notifications} ->
-        {:ok, updated, notifications}
-
-      {:error, error} ->
-        Logger.warning("Failed to deactivate shadowed plugin state: #{inspect(error)}")
-        :error
     end
   end
 
@@ -850,6 +894,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
                 AND (
                   service_state.details::jsonb #>> '{labels,plugin_id}' = package.plugin_id
                   OR service_state.details::jsonb ->> 'plugin_id' = package.plugin_id
+                  OR service_state.details::jsonb #>> '{reported_result,labels,plugin_id}' = package.plugin_id
+                  OR service_state.details::jsonb #>> '{reported_result,plugin_id}' = package.plugin_id
                 )
               )
             )
@@ -1140,10 +1186,10 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
         if upsert_skipped?(state) do
           {:ok, [], []}
         else
-          {side_effect_notifications, side_effects} =
-            prepare_state_upsert_side_effects(state, previous, actor)
-
-          {:ok, notifications ++ side_effect_notifications, side_effects}
+          with {:ok, side_effect_notifications, side_effects} <-
+                 prepare_state_upsert_side_effects(state, previous, actor, true) do
+            {:ok, notifications ++ side_effect_notifications, side_effects}
+          end
         end
 
       {:error, error} ->
@@ -1189,7 +1235,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
       end
 
     real_result_rank = if placeholder_message?(state.message), do: 0, else: 1
-    {real_result_rank, observed_at}
+    unavailable_rank = if state.available == false, do: 1, else: 0
+    {real_result_rank, observed_at, unavailable_rank, state.gateway_id || ""}
   end
 
   defp assignment_plugin_type(%PluginPackage{} = package) do

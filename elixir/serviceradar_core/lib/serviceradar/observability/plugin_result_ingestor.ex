@@ -40,6 +40,13 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   @reported_status_insert_attempts 4
   @reported_status_marker_key "_serviceradar_plugin_result"
   @reported_status_marker_version 1
+  @reserved_state_detail_keys [
+    @reported_status_marker_key,
+    "downstream_ingest",
+    "reported_result",
+    "status",
+    "summary"
+  ]
   @private_key_pattern ~r/-----BEGIN(?: [A-Z0-9]+)? PRIVATE KEY-----.*?-----END(?: [A-Z0-9]+)? PRIVATE KEY-----/su
   @unterminated_private_key_pattern ~r/-----BEGIN(?: [A-Z0-9]+)? PRIVATE KEY-----.*\z/su
   @authorization_header_pattern ~r/\b(Authorization\s*:\s*)(?:Basic|Bearer)\s+[^\s,}\]]+/iu
@@ -354,7 +361,9 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       })
 
     details =
-      Map.put(payload, @reported_status_marker_key, %{
+      payload
+      |> drop_top_level_keys([@reported_status_marker_key])
+      |> Map.put(@reported_status_marker_key, %{
         "kind" => "reported",
         "observation_timestamp" => DateTime.to_iso8601(observed_at),
         "service_id" => to_string(service_id),
@@ -387,6 +396,15 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   end
 
   defp fetch_value(_map, _keys), do: nil
+
+  defp drop_top_level_keys(map, reserved_keys) when is_map(map) and is_list(reserved_keys) do
+    reserved_keys = MapSet.new(reserved_keys)
+
+    Map.reject(map, fn {key, _value} ->
+      normalized_key = if is_atom(key), do: Atom.to_string(key), else: key
+      MapSet.member?(reserved_keys, normalized_key)
+    end)
+  end
 
   defp fetch_string(map, keys) do
     case fetch_value(map, keys) do
@@ -550,7 +568,9 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     message = "Plugin result downstream ingest failed: #{Enum.join(handlers, ", ")}"
 
     details =
-      FieldParser.encode_json(%{
+      payload
+      |> drop_top_level_keys(@reserved_state_detail_keys)
+      |> Map.merge(%{
         "status" => "CRITICAL",
         "summary" => message,
         "reported_result" => payload,
@@ -568,6 +588,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
             end)
         }
       })
+      |> FieldParser.encode_json()
 
     %{
       status_row
@@ -581,7 +602,9 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   defp handler_success_status_row(status_row, payload, marker) do
     details =
-      FieldParser.encode_json(%{
+      payload
+      |> drop_top_level_keys(@reserved_state_detail_keys)
+      |> Map.merge(%{
         "status" => fetch_string(payload, ["status"]),
         "summary" => status_row.message,
         "reported_result" => payload,
@@ -593,6 +616,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
           "recovered_from_failure" => marker.failure_recorded?
         }
       })
+      |> FieldParser.encode_json()
 
     %{
       status_row
@@ -1133,6 +1157,9 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   defp parse_handler_marker_details(details, timestamp, source) when is_binary(details) do
     case Jason.decode(details) do
+      {:ok, %{@reported_status_marker_key => %{"kind" => "reported"}}} ->
+        nil
+
       {:ok,
        %{
          "downstream_ingest" => %{

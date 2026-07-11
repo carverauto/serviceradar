@@ -372,6 +372,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
   defp extract_display_instructions(details) when is_map(details) do
     Map.get(details, "display") ||
       get_in(details, ["ui", "display"]) ||
+      get_in(details, ["reported_result", "display"]) ||
+      get_in(details, ["reported_result", "ui", "display"]) ||
       []
   end
 
@@ -393,7 +395,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
   defp filter_display_by_contract(display, _contract), do: display
 
   defp load_display_contract(details, scope) when is_map(details) do
-    plugin_id = get_in(details, ["labels", "plugin_id"]) || get_in(details, [:labels, :plugin_id])
+    plugin_id = plugin_id_from_details(details)
 
     if is_binary(plugin_id) and plugin_id != "" do
       %{"plugin_id" => plugin_id, "status" => "approved", "limit" => 1}
@@ -410,9 +412,21 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
 
   defp load_display_contract(_details, _scope), do: %{}
 
+  defp plugin_id_from_details(details) do
+    get_in(details, ["labels", "plugin_id"]) ||
+      get_in(details, [:labels, :plugin_id]) ||
+      Map.get(details, "plugin_id") ||
+      Map.get(details, :plugin_id) ||
+      get_in(details, ["reported_result", "labels", "plugin_id"]) ||
+      get_in(details, ["reported_result", "plugin_id"])
+  end
+
   defp resolve_schema_version(details, contract) do
     detail_version =
-      Map.get(details, "schema_version") || get_in(details, ["display", "schema_version"])
+      Map.get(details, "schema_version") ||
+        get_in(details, ["display", "schema_version"]) ||
+        get_in(details, ["reported_result", "schema_version"]) ||
+        get_in(details, ["reported_result", "display", "schema_version"])
 
     contract_version = Map.get(contract, "schema_version") || Map.get(contract, :schema_version)
 
@@ -446,7 +460,9 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
   end
 
   defp service_summary(service, details) do
-    Map.get(details, "summary") || Map.get(service, "message")
+    Map.get(details, "summary") ||
+      get_in(details, ["reported_result", "summary"]) ||
+      Map.get(service, "message")
   end
 
   defp format_status(status) do
