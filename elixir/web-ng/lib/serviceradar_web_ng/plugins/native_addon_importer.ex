@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.NativeAddonArtifactMirror
   alias ServiceRadar.Plugins.NativeAddonImporter, as: Core
   alias ServiceRadar.Plugins.RetiredNativeAddons
@@ -81,8 +82,18 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
 
   def list_recent_addons_with_summary(_attrs, _limit), do: {:error, :invalid_attributes}
 
-  @spec import(map()) :: {:ok, ServiceRadar.Plugins.AddonPackage.t()} | {:error, term()}
+  @spec import(map()) :: {:ok, AddonPackage.t()} | {:error, term()}
   def import(attrs) when is_map(attrs) do
+    with {:ok, package, _disposition} <- import_with_disposition(attrs) do
+      {:ok, package}
+    end
+  end
+
+  def import(_attrs), do: {:error, :invalid_attributes}
+
+  @spec import_with_disposition(map()) ::
+          {:ok, AddonPackage.t(), Core.import_disposition()} | {:error, term()}
+  def import_with_disposition(attrs) when is_map(attrs) do
     with {:ok, repo} <- import_repo(attrs),
          {:ok, release_tag} <-
            Client.require_value(fetch_value(attrs, [:release_tag, "release_tag"]), "Release tag is required"),
@@ -95,7 +106,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
          :ok <- ensure_not_retired_entry(entry),
          {:ok, fetched} <- fetch_artifact(repo, entry),
          {:ok, manifest, config_schema} <- extract_manifest(fetched.bundle) do
-      Core.import_entry(manifest, entry, fetched.artifacts,
+      Core.import_entry_with_disposition(manifest, entry, fetched.artifacts,
         public_key: public_key,
         mirror: build_mirror(addon_id(manifest, entry), version(manifest, entry)),
         actor: SystemActor.system(:native_addon_importer),
@@ -105,7 +116,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
     end
   end
 
-  def import(_attrs), do: {:error, :invalid_attributes}
+  def import_with_disposition(_attrs), do: {:error, :invalid_attributes}
 
   defp ensure_not_retired_entry(entry) do
     addon_id = entry_string(entry, "addon_id")
@@ -306,15 +317,24 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
   defp fetch_one_artifact(repo, ref, artifact, layer_digests) when is_map(artifact) do
     os = entry_string(artifact, "os")
     arch = entry_string(artifact, "arch")
+    signature_digest = entry_string(artifact, "signature_digest")
 
     with true <- is_binary(os) and is_binary(arch) and os != "" and arch != "",
          {:ok, tarball} <-
            fetch_layer_blob(repo, ref, entry_string(artifact, "tarball_digest"), layer_digests, @max_artifact_bytes),
          {:ok, sig_blob} <-
-           fetch_layer_blob(repo, ref, entry_string(artifact, "signature_digest"), layer_digests, @max_artifact_bytes),
+           fetch_layer_blob(repo, ref, signature_digest, layer_digests, @max_artifact_bytes),
          signature when is_binary(signature) <- Client.normalize_string(sig_blob),
          sha256 when is_binary(sha256) <- entry_string(artifact, "tarball_sha256") do
-      {:ok, %{os: os, arch: arch, tarball: tarball, signature: signature, sha256: sha256}}
+      {:ok,
+       %{
+         os: os,
+         arch: arch,
+         tarball: tarball,
+         signature: signature,
+         signature_digest: signature_digest,
+         sha256: sha256
+       }}
     else
       false -> {:error, :invalid_artifact_platform}
       nil -> {:error, :invalid_artifact_metadata}
