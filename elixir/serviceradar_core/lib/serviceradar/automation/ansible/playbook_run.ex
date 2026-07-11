@@ -70,7 +70,7 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRun do
       transition :record_succeeded, from: :running, to: :succeeded
       transition :record_partial, from: :running, to: :partial
       transition :record_failed, from: [:launching, :running], to: :failed
-      transition :record_unreachable, from: [:launching, :running], to: :unreachable
+      transition :record_unreachable, from: [:pending, :launching, :running], to: :unreachable
       transition :record_canceled, from: [:running], to: :canceled
     end
   end

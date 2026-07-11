@@ -197,10 +197,10 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
 
         <div class="min-w-0 rounded-lg border border-white/10 bg-white/5">
           <div class="border-b border-white/10 px-4 py-3">
-            <h3 class="text-sm font-semibold">Top Critical Findings</h3>
+            <h3 class="text-sm font-semibold">Critical / High Findings</h3>
           </div>
           <div :if={@overview.recent == []} class="px-4 py-6 text-sm text-slate-400">
-            No recent security findings found.
+            No critical or high findings in the latest indexed rows.
           </div>
           <div :if={@overview.recent != []} class="divide-y divide-white/10">
             <.recent_security_finding :for={finding <- @overview.recent} finding={finding} />
@@ -246,7 +246,11 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
 
   defp recent_security_finding(assigns) do
     ~H"""
-    <div class="min-w-0 px-4 py-3">
+    <.link
+      navigate={~p"/events/#{@finding.event_id}"}
+      class="block min-w-0 px-4 py-3 transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-info/60"
+      aria-label={"View event details for #{@finding.title}"}
+    >
       <div class="flex flex-wrap items-start justify-between gap-2">
         <div class="min-w-0">
           <div class="truncate text-sm font-semibold text-slate-100">{@finding.title}</div>
@@ -260,7 +264,7 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
           {@finding.severity || "Unknown"}
         </span>
       </div>
-    </div>
+    </.link>
     """
   end
 
@@ -510,8 +514,11 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
   end
 
   defp build_security_overview(rows) when is_list(rows) do
+    critical_high_rows =
+      Enum.filter(rows, &(normalized_severity(&1) in @critical_severities))
+
     recent =
-      rows
+      critical_high_rows
       |> Enum.map(&security_finding_row/1)
       |> Enum.sort_by(&severity_rank(&1.severity))
       |> Enum.take(5)
@@ -520,7 +527,7 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
       status: :ready,
       query: @security_overview_query,
       total: length(rows),
-      critical_high: Enum.count(rows, &(normalized_severity(&1) in @critical_severities)),
+      critical_high: length(critical_high_rows),
       severity_counts: count_rows(rows, &severity_label_for_row/1),
       source_counts: count_rows(rows, &source_label/1),
       recent: recent
@@ -551,6 +558,7 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
 
   defp security_finding_row(row) do
     %{
+      event_id: value(row, "id"),
       title:
         value(row, "finding_title") || value(row, "message") || value(row, "short_message") ||
           value(row, "finding_uid") || value(row, "id") || "Security finding",

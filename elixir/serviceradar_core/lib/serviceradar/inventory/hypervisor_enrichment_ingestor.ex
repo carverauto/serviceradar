@@ -277,6 +277,13 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
          {:ok, cluster_ids} <- upsert_group(VirtualizationCluster, records.clusters, actor),
          host_rows = link_refs(records.hosts, cluster_ids, %{}),
          {:ok, host_ids} <- upsert_group(VirtualizationHost, host_rows, actor),
+         {:ok, host_ids} <-
+           load_existing_reference_ids(
+             VirtualizationHost,
+             host_ids,
+             referenced_provider_refs(records, :host_provider_ref),
+             actor
+           ),
          datastores = link_refs(records.datastores, cluster_ids, host_ids),
          disks = link_refs(records.host_disks, %{}, host_ids),
          guests = link_refs(records.guests, %{}, host_ids),
@@ -1239,10 +1246,52 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
            upsert_fields: upsert_fields(resource)
          ) do
       %Ash.BulkResult{status: :success, records: records} ->
-        {:ok, Map.new(records, &{&1.provider_ref, &1.id})}
+        {:ok, Map.new(records, &{{&1.provider, &1.provider_ref}, &1.id})}
 
       %Ash.BulkResult{errors: errors} = result ->
         {:error, errors || result}
+    end
+  end
+
+  defp referenced_provider_refs(records, ref_key) do
+    records
+    |> Map.values()
+    |> List.flatten()
+    |> Enum.map(&{Map.get(&1, :provider), Map.get(&1, ref_key)})
+    |> Enum.filter(fn {provider, provider_ref} ->
+      present?(provider) and present?(provider_ref)
+    end)
+    |> Enum.uniq()
+  end
+
+  defp load_existing_reference_ids(_resource, known_ids, [], _actor), do: {:ok, known_ids}
+
+  defp load_existing_reference_ids(resource, known_ids, provider_refs, actor) do
+    missing_refs = Enum.reject(provider_refs, &Map.has_key?(known_ids, &1))
+
+    if missing_refs == [] do
+      {:ok, known_ids}
+    else
+      providers = missing_refs |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+      provider_refs = missing_refs |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
+      missing_ref_set = MapSet.new(missing_refs)
+
+      resource
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(provider in ^providers and provider_ref in ^provider_refs)
+      |> Ash.read(actor: actor)
+      |> case do
+        {:ok, records} ->
+          existing_ids =
+            records
+            |> Enum.filter(&MapSet.member?(missing_ref_set, {&1.provider, &1.provider_ref}))
+            |> Map.new(&{{&1.provider, &1.provider_ref}, &1.id})
+
+          {:ok, Map.merge(known_ids, existing_ids)}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
 
@@ -1381,9 +1430,12 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   end
 
   defp maybe_link_ref(row, ref_key, id_key, id_map) do
-    case Map.get(row, ref_key) do
-      ref when is_binary(ref) -> Map.put(row, id_key, Map.get(id_map, ref))
-      _ -> row
+    case {Map.get(row, :provider), Map.get(row, ref_key)} do
+      {provider, ref} when is_binary(provider) and is_binary(ref) ->
+        Map.put(row, id_key, Map.get(id_map, {provider, ref}))
+
+      _ ->
+        row
     end
   end
 

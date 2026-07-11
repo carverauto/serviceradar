@@ -11,7 +11,7 @@
 
 topologySpread:
   enabled: true
-  maxSkew: 2
+  maxSkew: 1
   topologyKey: kubernetes.io/hostname
   whenUnsatisfiable: ScheduleAnyway
 

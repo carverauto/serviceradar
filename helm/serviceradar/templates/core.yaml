@@ -86,7 +86,7 @@ spec:
         {{- end }}
     spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
-      {{- include "serviceradar.topologySpread" . | nindent 6 }}
+      {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-core") | nindent 6 }}
       serviceAccountName: {{ $coreSA }}
       {{- include "serviceradar.elixirReleasePodSecurityContext" . | nindent 6 }}
       containers:

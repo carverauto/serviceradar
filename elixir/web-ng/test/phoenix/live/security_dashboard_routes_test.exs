@@ -39,6 +39,9 @@ defmodule ServiceRadarWebNGWeb.SecurityDashboardRoutesTest do
     assert html =~ "Recent findings"
     assert html =~ "Critical / High"
     assert html =~ "Terminal shell in container"
+    assert html =~ "Critical / High Findings"
+    refute html =~ "Routine medium finding"
+    assert has_element?(view, "a[href='/events/falco-event-1']", "Terminal shell in container")
     assert has_element?(view, "a[href='/dashboards/security-findings']", "Security Findings")
     assert has_element?(view, "a[href*='in%3Asecurity_findings'][href*='limit%3A25']", "Open findings")
     assert has_element?(view, "a[href='/settings/security/vulnerability-feeds']", "Advisory Feeds")
@@ -146,6 +149,43 @@ defmodule ServiceRadarWebNGWeb.SecurityDashboardRoutesTest do
       refute html =~ "Dashboard package unavailable"
       refute html =~ "Dashboard package failed to load"
     end
+  end
+
+  test "security dashboard defers but activates source coverage probes", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/dashboards/security-findings")
+    _ = render_async(view, 5_000)
+
+    [host_json] =
+      view
+      |> render()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("[phx-hook='DashboardWasmHost']")
+      |> LazyHTML.attribute("data-host")
+
+    stream_token =
+      host_json
+      |> Jason.decode!()
+      |> get_in(["data_provider", "stream_token"])
+
+    assert {:ok, stream} =
+             Phoenix.Token.verify(
+               ServiceRadarWebNGWeb.Endpoint,
+               "dashboard-frame-stream-v1",
+               stream_token,
+               max_age: 3_600
+             )
+
+    assert MapSet.new(stream["active_frame_ids"]) ==
+             MapSet.new([
+               "vulnerability_findings",
+               "trivy_findings_latest",
+               "trivy_scan_latest",
+               "bumblebee_findings_latest",
+               "bumblebee_scan_latest",
+               "falco_findings_latest",
+               "endpoint_inventory_findings_latest",
+               "powerdns_dns_latest"
+             ])
   end
 
   defp insert_trivy_finding!(event_uuid, finding_uuid) do
@@ -298,7 +338,7 @@ defmodule ServiceRadarWebNGWeb.SecurityDashboardRoutesTest do
 
           String.starts_with?(query, "in:security_findings ") and
               not String.contains?(query, "source:") ->
-            [falco_row()]
+            [medium_row(), falco_row()]
 
           true ->
             []
@@ -339,6 +379,20 @@ defmodule ServiceRadarWebNGWeb.SecurityDashboardRoutesTest do
           "service_radar" => %{"source_type" => "falco", "device_hostname" => "agent-k8s-cp2-worker2"}
         },
         "raw_data" => %{"diagnostics" => diagnostics}
+      }
+    end
+
+    defp medium_row do
+      %{
+        "id" => "medium-event-1",
+        "class_uid" => 2004,
+        "severity" => "Medium",
+        "source" => "falco",
+        "log_provider" => "falco",
+        "event_timestamp" => "2026-06-10T21:02:33Z",
+        "short_message" => "Routine medium finding",
+        "message" => "Routine medium finding",
+        "metadata" => %{"service_radar" => %{"source_type" => "falco"}}
       }
     end
   end
