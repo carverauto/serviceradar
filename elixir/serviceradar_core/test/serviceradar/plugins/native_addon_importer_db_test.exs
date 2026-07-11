@@ -25,6 +25,11 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
   defp sign(priv, data), do: :crypto.sign(:eddsa, :none, data, [priv, :ed25519])
   defp sha(data), do: :sha256 |> :crypto.hash(data) |> Base.encode16(case: :lower)
 
+  defp signature_digest(signature) do
+    "sha256:" <>
+      (:sha256 |> :crypto.hash(signature <> "\n") |> Base.encode16(case: :lower))
+  end
+
   defp manifest(addon_id, uid) do
     %{
       "id" => addon_id,
@@ -60,13 +65,15 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
     artifacts =
       for arch <- ["amd64", "arm64"] do
         tarball = "tarball-#{arch}-#{uid}"
+        signature = Base.encode16(sign(priv, tarball), case: :lower)
 
         %{
           os: "linux",
           arch: arch,
           tarball: tarball,
           sha256: sha(tarball),
-          signature: Base.encode16(sign(priv, tarball), case: :lower)
+          signature: signature,
+          signature_digest: signature_digest(signature)
         }
       end
 
@@ -91,6 +98,9 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
 
     assert package.artifacts["linux/arm64"]["signature"] ==
              Enum.find(artifacts, &(&1.arch == "arm64")).signature
+
+    assert package.artifacts["linux/arm64"]["signature_digest"] ==
+             Enum.find(artifacts, &(&1.arch == "arm64")).signature_digest
 
     # Persisted + readable back out of the DB.
     {:ok, reread} = Ash.get(AddonPackage, package.id, actor: actor)
@@ -134,6 +144,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
       |> Ash.update()
 
     tarball = "tarball-#{uid}"
+    signature = Base.encode16(sign(priv, tarball), case: :lower)
 
     artifacts = [
       %{
@@ -141,7 +152,8 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
         arch: "amd64",
         tarball: tarball,
         sha256: sha(tarball),
-        signature: Base.encode16(sign(priv, tarball), case: :lower)
+        signature: signature,
+        signature_digest: signature_digest(signature)
       }
     ]
 

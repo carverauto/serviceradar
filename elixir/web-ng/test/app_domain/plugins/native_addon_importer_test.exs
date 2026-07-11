@@ -161,6 +161,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert is_map(artifact)
     assert artifact["sha256"] == tarball_sha256()
     assert artifact["signature"] == signature_hex(private_key)
+    assert artifact["signature_digest"] == signature_digest(private_key, "amd64")
 
     expected_key =
       NativeAddonArtifactMirror.object_key("sample-addon", "1.0.0", "linux", "amd64", tarball_sha256())
@@ -263,6 +264,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
 
     assert {:ok, scheduled} = NativeAddonSyncWorker.ensure_scheduled()
     refute scheduled.conflict?
+    assert scheduled.worker == inspect(NativeAddonSyncWorker)
+    assert {:ok, :already_scheduled} = NativeAddonSyncWorker.ensure_scheduled()
 
     assert {:ok, manual} = NativeAddonSyncWorker.enqueue_now(limit: 1)
     refute manual.conflict?
@@ -278,6 +281,17 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     configure_sync_worker()
 
     assert :ok = NativeAddonSyncWorker.perform(%Job{args: %{"force" => true, "limit" => 10}})
+    [package] = sample_packages()
+    persisted = package.artifacts["linux/amd64"]
+
+    assert persisted["signature"] == String.trim(signature_blob(private_key, "amd64"))
+    assert persisted["signature_digest"] == signature_digest(private_key, "amd64")
+
+    legacy_artifact = Map.delete(persisted, "signature_digest")
+
+    update_sample_package!(package, %{
+      artifacts: Map.put(package.artifacts, "linux/amd64", legacy_artifact)
+    })
 
     Process.put(:native_addon_manifest_requests, 0)
     Process.put(:native_addon_manifest_status, 404)
@@ -364,6 +378,81 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     [repaired] = sample_packages()
     assert repaired.status == :staged
     assert repaired.artifacts["linux/arm64"]["sha256"] == tarball_sha256("arm64")
+  end
+
+  test "sync worker repairs a platform whose persisted object key is wrong", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+    configure_sync_worker()
+
+    assert :ok = NativeAddonSyncWorker.perform(%Job{args: %{"force" => true, "limit" => 10}})
+    [approved] = sample_packages()
+
+    wrong_artifact =
+      approved.artifacts
+      |> Map.fetch!("linux/amd64")
+      |> Map.put("object_key", "native-addons/sample-addon/1.0.0/linux/amd64/stale.tar.gz")
+
+    update_sample_package!(approved, %{
+      artifacts: Map.put(approved.artifacts, "linux/amd64", wrong_artifact)
+    })
+
+    Process.put(:native_addon_manifest_requests, 0)
+
+    log =
+      capture_sync_log(fn ->
+        assert :ok = NativeAddonSyncWorker.perform(%Job{args: %{"force" => true, "limit" => 10}})
+      end)
+
+    assert log =~ "import_ready=1 imported=1 skipped=0 failed=0"
+    assert Process.get(:native_addon_manifest_requests) == 1
+
+    [repaired] = sample_packages()
+    assert repaired.status == :staged
+
+    assert repaired.artifacts["linux/amd64"]["object_key"] ==
+             NativeAddonArtifactMirror.object_key(
+               "sample-addon",
+               "1.0.0",
+               "linux",
+               "amd64",
+               tarball_sha256()
+             )
+  end
+
+  test "sync worker repairs a mutated signature even when its persisted digest is stale", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+    configure_sync_worker()
+
+    assert :ok = NativeAddonSyncWorker.perform(%Job{args: %{"force" => true, "limit" => 10}})
+    [approved] = sample_packages()
+
+    mutated_artifact =
+      approved.artifacts
+      |> Map.fetch!("linux/amd64")
+      |> Map.put("signature", String.duplicate("0", 128))
+
+    update_sample_package!(approved, %{
+      artifacts: Map.put(approved.artifacts, "linux/amd64", mutated_artifact)
+    })
+
+    Process.put(:native_addon_manifest_requests, 0)
+
+    log =
+      capture_sync_log(fn ->
+        assert :ok = NativeAddonSyncWorker.perform(%Job{args: %{"force" => true, "limit" => 10}})
+      end)
+
+    assert log =~ "import_ready=1 imported=1 skipped=0 failed=0"
+    assert Process.get(:native_addon_manifest_requests) == 1
+
+    [repaired] = sample_packages()
+    assert repaired.status == :staged
+    assert repaired.artifacts["linux/amd64"]["signature"] == signature_hex(private_key)
+    assert repaired.artifacts["linux/amd64"]["signature_digest"] == signature_digest(private_key, "amd64")
   end
 
   test "sync worker fetches a package that is missing locally", %{private_key: private_key} do
@@ -606,7 +695,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
       Enum.reduce(platforms, %{bundle_digest() => bundle()}, fn arch, blobs ->
         blobs
         |> Map.put(tarball_digest(arch), tarball(arch))
-        |> Map.put(signature_digest(private_key, arch), signature_hex(private_key, arch))
+        |> Map.put(signature_digest(private_key, arch), signature_blob(private_key, arch))
       end)
 
     Process.put(:native_addon_blobs, artifact_blobs)
@@ -679,7 +768,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
           %{
             "mediaType" => "application/vnd.serviceradar.native-addon.artifact-signature.v1+hex",
             "digest" => signature_digest(Process.get(:native_addon_private_key), arch),
-            "size" => byte_size(signature_hex(Process.get(:native_addon_private_key), arch))
+            "size" => byte_size(signature_blob(Process.get(:native_addon_private_key), arch))
           }
         ]
       end)
@@ -729,9 +818,11 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     |> Base.encode16(case: :lower)
   end
 
+  defp signature_blob(private_key, arch), do: signature_hex(private_key, arch) <> "\n"
+
   defp bundle_digest, do: digest(bundle())
   defp tarball_digest(arch), do: digest(tarball(arch))
-  defp signature_digest(private_key, arch), do: digest(signature_hex(private_key, arch))
+  defp signature_digest(private_key, arch), do: digest(signature_blob(private_key, arch))
 
   defp digest(bytes), do: "sha256:" <> (:sha256 |> :crypto.hash(bytes) |> Base.encode16(case: :lower))
 

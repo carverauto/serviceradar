@@ -15,7 +15,8 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
     3. mirrors the tarball into ServiceRadar object storage via the injected
        `:mirror` function,
 
-  and records the resolved per-arch `{object_key, sha256, signature}` on a staged
+  and records the resolved per-arch `{object_key, sha256, signature,
+  signature_digest}` on a staged
   `AddonPackage`. `AgentConfigGenerator.select_addon_artifact/3` reads that
   `artifacts` map back out (keyed `"os/arch"`) when compiling the agent assignment.
 
@@ -52,14 +53,15 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
 
   @typedoc """
   A per-arch artifact ready to verify + mirror: the raw tarball bytes, the hex
-  ed25519 signature over those bytes, and the expected sha256 (hex). os/arch come
-  from the index entry.
+  ed25519 signature over those bytes, the signature layer digest, and the expected
+  sha256 (hex). os/arch come from the index entry.
   """
   @type fetched_artifact :: %{
           required(:os) => String.t(),
           required(:arch) => String.t(),
           required(:tarball) => binary(),
           required(:signature) => String.t(),
+          optional(:signature_digest) => String.t(),
           required(:sha256) => String.t()
         }
 
@@ -129,7 +131,8 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
   @doc """
   Verify each per-arch artifact (sha256 + ed25519 over the raw tarball) and mirror
   it, returning the `artifacts` map keyed `"os/arch" => %{object_key, sha256,
-  signature}`. Fails closed on the first verification or mirror error.
+  signature, signature_digest}`. Fails closed on the first verification or mirror
+  error.
   """
   @spec verify_and_mirror([fetched_artifact()], binary(), function()) ::
           {:ok, %{String.t() => map()}} | {:error, term()}
@@ -146,14 +149,24 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
        when is_binary(os) and is_binary(arch) and os != "" and arch != "" do
     with :ok <- verify_sha256(artifact.tarball, artifact.sha256),
          :ok <- verify_artifact_signature(artifact.tarball, artifact.signature, public_key),
+         :ok <- verify_signature_digest(artifact.signature, Map.get(artifact, :signature_digest)),
          {:ok, object_key} <- mirror.(os, arch, artifact.tarball) do
-      {:ok,
-       {"#{os}/#{arch}",
-        %{
-          "object_key" => object_key,
-          "sha256" => String.downcase(artifact.sha256),
-          "signature" => artifact.signature
-        }}}
+      persisted = %{
+        "object_key" => object_key,
+        "sha256" => String.downcase(artifact.sha256),
+        "signature" => artifact.signature
+      }
+
+      persisted =
+        case Map.get(artifact, :signature_digest) do
+          value when is_binary(value) ->
+            Map.put(persisted, "signature_digest", String.downcase(value))
+
+          _ ->
+            persisted
+        end
+
+      {:ok, {"#{os}/#{arch}", persisted}}
     end
   end
 
@@ -193,6 +206,23 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
         {:error, :malformed_signature}
     end
   end
+
+  defp verify_signature_digest(_signature, nil), do: :ok
+
+  defp verify_signature_digest(signature, expected)
+       when is_binary(signature) and is_binary(expected) do
+    actual =
+      "sha256:" <>
+        (:sha256 |> :crypto.hash(String.trim(signature) <> "\n") |> Base.encode16(case: :lower))
+
+    if actual == String.downcase(String.trim(expected)) do
+      :ok
+    else
+      {:error, :signature_digest_mismatch}
+    end
+  end
+
+  defp verify_signature_digest(_signature, _expected), do: {:error, :signature_digest_mismatch}
 
   @doc """
   Decode a key or signature accepting the same encodings the agent accepts: hex

@@ -15,6 +15,11 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterTest do
 
   defp sign(priv, data), do: :crypto.sign(:eddsa, :none, data, [priv, :ed25519])
 
+  defp signature_digest(signature) do
+    "sha256:" <>
+      (:sha256 |> :crypto.hash(signature <> "\n") |> Base.encode16(case: :lower))
+  end
+
   describe "verify_artifact_signature/3" do
     test "accepts a valid ed25519 signature (hex and base64) over the bytes" do
       {pub, priv} = keypair()
@@ -70,13 +75,15 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterTest do
       artifacts =
         for arch <- ["amd64", "arm64"] do
           tarball = "tarball-#{arch}"
+          signature = priv |> sign(tarball) |> Base.encode16(case: :lower)
 
           %{
             os: "linux",
             arch: arch,
             tarball: tarball,
             sha256: :sha256 |> :crypto.hash(tarball) |> Base.encode16(case: :lower),
-            signature: priv |> sign(tarball) |> Base.encode16(case: :lower)
+            signature: signature,
+            signature_digest: signature_digest(signature)
           }
         end
 
@@ -91,6 +98,29 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterTest do
 
       assert get_in(map, ["linux/amd64", "signature"]) ==
                Enum.find(artifacts, &(&1.arch == "amd64")).signature
+
+      assert get_in(map, ["linux/amd64", "signature_digest"]) ==
+               Enum.find(artifacts, &(&1.arch == "amd64")).signature_digest
+    end
+
+    test "rejects a signature whose declared layer digest does not match its canonical bytes" do
+      {pub, priv} = keypair()
+      tarball = "real"
+      signature = priv |> sign(tarball) |> Base.encode16(case: :lower)
+
+      artifact = %{
+        os: "linux",
+        arch: "amd64",
+        tarball: tarball,
+        sha256: :sha256 |> :crypto.hash(tarball) |> Base.encode16(case: :lower),
+        signature: signature,
+        signature_digest: "sha256:" <> String.duplicate("0", 64)
+      }
+
+      mirror = fn _os, _arch, _bytes -> flunk("must not mirror mismatched signature metadata") end
+
+      assert {:error, :signature_digest_mismatch} =
+               Importer.verify_and_mirror([artifact], pub, mirror)
     end
 
     test "fails closed on a bad signature and never mirrors it" do

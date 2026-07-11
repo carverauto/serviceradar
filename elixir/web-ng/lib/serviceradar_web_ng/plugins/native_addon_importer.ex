@@ -306,15 +306,24 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
   defp fetch_one_artifact(repo, ref, artifact, layer_digests) when is_map(artifact) do
     os = entry_string(artifact, "os")
     arch = entry_string(artifact, "arch")
+    signature_digest = entry_string(artifact, "signature_digest")
 
     with true <- is_binary(os) and is_binary(arch) and os != "" and arch != "",
          {:ok, tarball} <-
            fetch_layer_blob(repo, ref, entry_string(artifact, "tarball_digest"), layer_digests, @max_artifact_bytes),
          {:ok, sig_blob} <-
-           fetch_layer_blob(repo, ref, entry_string(artifact, "signature_digest"), layer_digests, @max_artifact_bytes),
+           fetch_layer_blob(repo, ref, signature_digest, layer_digests, @max_artifact_bytes),
          signature when is_binary(signature) <- Client.normalize_string(sig_blob),
          sha256 when is_binary(sha256) <- entry_string(artifact, "tarball_sha256") do
-      {:ok, %{os: os, arch: arch, tarball: tarball, signature: signature, sha256: sha256}}
+      {:ok,
+       %{
+         os: os,
+         arch: arch,
+         tarball: tarball,
+         signature: signature,
+         signature_digest: signature_digest,
+         sha256: sha256
+       }}
     else
       false -> {:error, :invalid_artifact_platform}
       nil -> {:error, :invalid_artifact_metadata}

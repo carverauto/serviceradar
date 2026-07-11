@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.NativeAddonArtifactMirror
   alias ServiceRadar.Plugins.RetiredNativeAddons
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -236,7 +237,12 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
 
   defp reusable_package?(%AddonPackage{} = package, addon) do
     source_matches?(package, addon) and package.verification_status == "verified" and
-      artifact_contract_matches?(package.artifacts, addon.artifacts)
+      artifact_contract_matches?(
+        package.addon_id,
+        package.version,
+        package.artifacts,
+        addon.artifacts
+      )
   end
 
   defp source_conflict?(%AddonPackage{} = package, addon) do
@@ -257,22 +263,24 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
       existing_digest == normalize_source_digest(addon.oci_digest)
   end
 
-  defp artifact_contract_matches?(persisted, declared) when is_map(persisted) and is_list(declared) and declared != [] do
+  defp artifact_contract_matches?(addon_id, version, persisted, declared)
+       when is_binary(addon_id) and is_binary(version) and is_map(persisted) and is_list(declared) and declared != [] do
     with {:ok, declared_contracts} <- declared_artifact_contracts(declared),
-         {:ok, persisted_contracts} <- persisted_artifact_contracts(persisted) do
+         {:ok, persisted_contracts} <-
+           persisted_artifact_contracts(addon_id, version, persisted) do
       declared_platforms = declared_contracts |> Map.keys() |> MapSet.new()
       persisted_platforms = persisted_contracts |> Map.keys() |> MapSet.new()
 
       declared_platforms == persisted_platforms and
         Enum.all?(declared_contracts, fn {platform, declared_contract} ->
-          Map.get(persisted_contracts, platform) == declared_contract
+          persisted_contract_matches?(Map.get(persisted_contracts, platform), declared_contract)
         end)
     else
       _ -> false
     end
   end
 
-  defp artifact_contract_matches?(_persisted, _declared), do: false
+  defp artifact_contract_matches?(_addon_id, _version, _persisted, _declared), do: false
 
   defp declared_artifact_contracts(artifacts) do
     Enum.reduce_while(artifacts, {:ok, %{}}, fn artifact, {:ok, contracts} ->
@@ -291,20 +299,80 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
     end)
   end
 
-  defp persisted_artifact_contracts(artifacts) do
+  defp persisted_artifact_contracts(addon_id, version, artifacts) do
     Enum.reduce_while(artifacts, {:ok, %{}}, fn {platform_key, artifact}, {:ok, contracts} ->
-      with platform when is_binary(platform) <- normalize_platform(platform_key),
-           false <- Map.has_key?(contracts, platform),
-           true <- is_map(artifact),
-           object_key when is_binary(object_key) <- normalize_string(map_value(artifact, :object_key)),
-           sha256 when is_binary(sha256) <- normalize_sha256(map_value(artifact, :sha256)),
-           signature when is_binary(signature) <- normalize_string(map_value(artifact, :signature)) do
-        contract = %{sha256: sha256, signature_digest: digest(signature)}
-        {:cont, {:ok, Map.put(contracts, platform, contract)}}
-      else
-        _ -> {:halt, {:error, :invalid_persisted_artifact_contract}}
+      case persisted_artifact_contract(addon_id, version, platform_key, artifact) do
+        {:ok, platform, contract} ->
+          if Map.has_key?(contracts, platform) do
+            {:halt, {:error, :duplicate_persisted_artifact_platform}}
+          else
+            {:cont, {:ok, Map.put(contracts, platform, contract)}}
+          end
+
+        {:error, _reason} = error ->
+          {:halt, error}
       end
     end)
+  end
+
+  defp persisted_artifact_contract(addon_id, version, platform_key, artifact) when is_map(artifact) do
+    platform = normalize_platform(platform_key)
+    object_key = normalize_string(map_value(artifact, :object_key))
+    sha256 = normalize_sha256(map_value(artifact, :sha256))
+    signature = normalize_string(map_value(artifact, :signature))
+    signature_digest_result = persisted_signature_digest(artifact)
+
+    with platform when is_binary(platform) <- platform,
+         object_key when is_binary(object_key) <- object_key,
+         sha256 when is_binary(sha256) <- sha256,
+         signature when is_binary(signature) <- signature,
+         {:ok, signature_digest} <- signature_digest_result do
+      [os, arch] = String.split(platform, "/", parts: 2)
+      expected_object_key = NativeAddonArtifactMirror.object_key(addon_id, version, os, arch, sha256)
+
+      if object_key == expected_object_key do
+        {:ok, platform,
+         %{
+           sha256: sha256,
+           signature_digest: signature_digest,
+           canonical_signature_digest: digest(signature <> "\n")
+         }}
+      else
+        {:error, :unexpected_persisted_artifact_object_key}
+      end
+    else
+      _ -> {:error, :invalid_persisted_artifact_contract}
+    end
+  end
+
+  defp persisted_artifact_contract(_addon_id, _version, _platform_key, _artifact),
+    do: {:error, :invalid_persisted_artifact_contract}
+
+  defp persisted_contract_matches?(
+         %{
+           sha256: sha256,
+           signature_digest: persisted_signature_digest,
+           canonical_signature_digest: canonical_signature_digest
+         },
+         %{sha256: sha256, signature_digest: declared_signature_digest}
+       ) do
+    canonical_signature_digest == declared_signature_digest and
+      persisted_signature_digest in [nil, declared_signature_digest]
+  end
+
+  defp persisted_contract_matches?(_persisted, _declared), do: false
+
+  defp persisted_signature_digest(artifact) do
+    case normalize_string(map_value(artifact, :signature_digest)) do
+      nil ->
+        {:ok, nil}
+
+      value ->
+        case normalize_digest(value) do
+          nil -> {:error, :invalid_signature_digest}
+          digest -> {:ok, digest}
+        end
+    end
   end
 
   defp artifact_platform(artifact) when is_map(artifact) do
@@ -387,6 +455,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
       _existing -> normalize.(existing) != normalize.(discovered)
     end
   end
+
+  defp normalize_string(nil), do: nil
 
   defp normalize_string(value) when is_binary(value) do
     case String.trim(value) do
