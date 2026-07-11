@@ -29,8 +29,18 @@ defmodule ServiceRadar.Oban.SchemaValidator do
   def validate do
     case check_tables() do
       {:ok, _} ->
-        Logger.info("[ObanSchemaValidator] All Oban tables present in #{@oban_schema} schema")
-        :ok
+        case check_migration_version() do
+          :ok ->
+            Logger.info(
+              "[ObanSchemaValidator] Oban tables and schema version are current in #{@oban_schema}"
+            )
+
+            :ok
+
+          {:error, message} ->
+            Logger.error("[ObanSchemaValidator] #{message}")
+            {:error, message}
+        end
 
       {:error, missing} ->
         error_msg = build_error_message(missing)
@@ -75,6 +85,37 @@ defmodule ServiceRadar.Oban.SchemaValidator do
     end
   end
 
+  @doc false
+  @spec migration_version_status(non_neg_integer() | :infinity, non_neg_integer()) ::
+          :ok | {:error, String.t()}
+  def migration_version_status(:infinity, _required), do: :ok
+  def migration_version_status(version, version), do: :ok
+
+  def migration_version_status(migrated, required)
+      when is_integer(migrated) and is_integer(required) and migrated < required do
+    {:error,
+     "Oban schema in #{@oban_schema} is version #{migrated}, but runtime requires version #{required}. " <>
+       "Run ServiceRadar database migrations before starting Oban."}
+  end
+
+  def migration_version_status(migrated, required)
+      when is_integer(migrated) and is_integer(required) and migrated > required do
+    {:error,
+     "Oban schema in #{@oban_schema} is version #{migrated}, but runtime supports version #{required}. " <>
+       "Deploy the matching ServiceRadar application version."}
+  end
+
+  def migration_version_status(migrated, required) do
+    {:error,
+     "Unable to compare Oban schema version #{inspect(migrated)} with runtime version #{inspect(required)}."}
+  end
+
+  @doc false
+  @spec required_migration_version() :: non_neg_integer()
+  def required_migration_version do
+    Oban.Migration.current_version(repo: ServiceRadar.Repo)
+  end
+
   @doc """
   Checks which schema(s) contain Oban tables.
 
@@ -106,6 +147,12 @@ defmodule ServiceRadar.Oban.SchemaValidator do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp check_migration_version do
+    migrated = Oban.Migration.migrated_version(prefix: @oban_schema, repo: ServiceRadar.Repo)
+    required = required_migration_version()
+    migration_version_status(migrated, required)
   end
 
   defp get_tables_in_schema(schema) do

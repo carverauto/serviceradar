@@ -3,6 +3,21 @@ defmodule ServiceRadar.Plugins.ManifestTest do
 
   alias ServiceRadar.Plugins.Manifest
 
+  @wasm_plugins_root Path.expand("../../../../../go/cmd/wasm-plugins", __DIR__)
+  @first_party_config_schema_paths (case Path.wildcard(
+                                           Path.join(
+                                             @wasm_plugins_root,
+                                             "**/config*.schema.json"
+                                           )
+                                         ) do
+                                      [] -> raise "no first-party Wasm config schemas found"
+                                      paths -> paths
+                                    end)
+
+  for path <- @first_party_config_schema_paths do
+    @external_resource path
+  end
+
   @valid_manifest %{
     "id" => "http-checker",
     "name" => "HTTP Checker",
@@ -342,6 +357,15 @@ defmodule ServiceRadar.Plugins.ManifestTest do
   test "config schema validation accepts JSON object" do
     schema = ~S({"type":"object","properties":{"interval":{"type":"string"}}})
     assert :ok == Manifest.validate_config_schema(schema)
+  end
+
+  test "config schema validation accepts every first-party Wasm plugin schema" do
+    Enum.each(@first_party_config_schema_paths, fn path ->
+      schema = path |> File.read!() |> Jason.decode!()
+
+      assert :ok == Manifest.validate_config_schema(schema),
+             "invalid first-party config schema: #{Path.relative_to(path, @wasm_plugins_root)}"
+    end)
   end
 
   test "config schema validation accepts vendor extensions and password format annotations" do

@@ -269,9 +269,8 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
       constraints min: 1
     end
 
-    # AshPaperTrail 0.5.7's notification builder dumps tracked datetime
-    # attributes as :utc_datetime; keep lifecycle timestamps at seconds
-    # precision even though the database columns can store microseconds.
+    # PaperTrail dumps tracked datetime attributes as :utc_datetime; keep lifecycle
+    # timestamps at seconds precision even though the columns support microseconds.
     attribute :expires_at, :utc_datetime do
       allow_nil? false
       public? true

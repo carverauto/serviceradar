@@ -6,6 +6,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantLifecycleIntegrationTest
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Edge.AgentGatewaySync
   alias ServiceRadar.Monitoring.OcsfEvent
+  alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
   @moduletag :integration
@@ -49,11 +50,33 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantLifecycleIntegrationTest
           target_id: "device-#{unique}",
           agent_id: "agent-#{unique}",
           resolution_location: :agent,
+          inject: %{
+            "type" => "http_header",
+            "name" => "Authorization",
+            "scheme" => "Bearer"
+          },
+          metadata: %{"controller_id" => "awx-#{unique}"},
           ttl_seconds: 1,
           expires_at: expires_at
         }),
         actor: actor
       )
+
+    assert %{rows: [[action_inputs]]} =
+             Repo.query!(
+               """
+               SELECT version_action_inputs
+               FROM platform.credential_broker_grant_versions
+               WHERE version_source_id = ($1::text)::uuid
+                 AND version_action_name = 'issue'
+               ORDER BY version_inserted_at DESC
+               LIMIT 1
+               """,
+               [grant.id]
+             )
+
+    assert get_in(action_inputs, ["inject", "scheme"]) == "Bearer"
+    assert get_in(action_inputs, ["metadata", "controller_id"]) == "awx-#{unique}"
 
     assert {:error, :grant_expired} =
              AgentGatewaySync.resolve_credential_broker_grant(%{

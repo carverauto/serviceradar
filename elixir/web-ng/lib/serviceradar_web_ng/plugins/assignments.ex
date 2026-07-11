@@ -294,9 +294,14 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
   defp upgrade_attributes(assignment, target_package_id, schema, attrs) do
     params = Map.get(attrs, :params) || Map.get(attrs, "params") || assignment.params || %{}
 
+    params =
+      schema
+      |> SecretRefs.prepare_params_for_storage(params, assignment.params || %{})
+      |> clamp_numeric_params_to_schema(schema)
+
     %{
       plugin_package_id: target_package_id,
-      params: SecretRefs.prepare_params_for_storage(schema, params, assignment.params || %{})
+      params: params
     }
     |> maybe_copy_upgrade_attr(attrs, :enabled)
     |> maybe_copy_upgrade_attr(attrs, :interval_seconds)
@@ -304,6 +309,54 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
     |> maybe_copy_upgrade_attr(attrs, :permissions_override)
     |> maybe_copy_upgrade_attr(attrs, :resources_override)
   end
+
+  # Package upgrades retain the existing assignment params, but a newer package
+  # may narrow a numeric bound. Clamp only schema-declared numeric properties so
+  # target validation can succeed without resetting cursors, secrets, or unknown keys.
+  defp clamp_numeric_params_to_schema(params, %{"properties" => properties}) when is_map(params) and is_map(properties) do
+    Enum.reduce(properties, params, fn
+      {key, %{"type" => type} = property}, acc when type in ["integer", "number"] ->
+        clamp_numeric_param(acc, key, type, property)
+
+      _property, acc ->
+        acc
+    end)
+  end
+
+  defp clamp_numeric_params_to_schema(params, _schema), do: params
+
+  defp clamp_numeric_param(params, key, type, property) do
+    case Map.fetch(params, key) do
+      {:ok, value} when is_number(value) and (type == "number" or is_integer(value)) ->
+        Map.put(params, key, clamp_numeric_value(value, type, property))
+
+      _ ->
+        params
+    end
+  end
+
+  defp clamp_numeric_value(value, "integer", property) do
+    value
+    |> clamp_minimum(integer_bound(Map.get(property, "minimum"), :minimum))
+    |> clamp_maximum(integer_bound(Map.get(property, "maximum"), :maximum))
+  end
+
+  defp clamp_numeric_value(value, "number", property) do
+    value
+    |> clamp_minimum(Map.get(property, "minimum"))
+    |> clamp_maximum(Map.get(property, "maximum"))
+  end
+
+  defp integer_bound(value, _direction) when is_integer(value), do: value
+  defp integer_bound(value, :minimum) when is_float(value), do: value |> Float.ceil() |> trunc()
+  defp integer_bound(value, :maximum) when is_float(value), do: value |> Float.floor() |> trunc()
+  defp integer_bound(_value, _direction), do: nil
+
+  defp clamp_minimum(value, minimum) when is_number(minimum) and value < minimum, do: minimum
+  defp clamp_minimum(value, _minimum), do: value
+
+  defp clamp_maximum(value, maximum) when is_number(maximum) and value > maximum, do: maximum
+  defp clamp_maximum(value, _maximum), do: value
 
   defp maybe_copy_upgrade_attr(update_attrs, source_attrs, field) do
     string_field = Atom.to_string(field)

@@ -78,14 +78,15 @@ func TestSubscribedPulsesURL(t *testing.T) {
 
 func TestApplyDefaultsClampsBounds(t *testing.T) {
 	cfg := Config{
-		BaseURL:       " ",
-		Limit:         maxLimit + 50,
-		Page:          -1,
-		TimeoutMS:     -1,
-		MaxIndicators: maxIndicators + 50,
-		MaxPages:      maxPages + 50,
-		MaxRetries:    maxRetries + 50,
-		BackoffMS:     maxBackoffMS + 50,
+		BaseURL:               " ",
+		Limit:                 maxLimit + 50,
+		Page:                  -1,
+		TimeoutMS:             -1,
+		MaxIndicators:         maxIndicators + 50,
+		MaxPages:              maxPages + 50,
+		MaxRetries:            maxRetries + 50,
+		BackoffMS:             maxBackoffMS + 50,
+		BootstrapLookbackDays: maxBootstrapLookback + 50,
 	}
 
 	cfg.applyDefaults()
@@ -116,6 +117,9 @@ func TestApplyDefaultsClampsBounds(t *testing.T) {
 	}
 	if cfg.BackoffMS != maxBackoffMS {
 		t.Fatalf("backoff ms = %d, want %d", cfg.BackoffMS, maxBackoffMS)
+	}
+	if cfg.BootstrapLookbackDays != maxBootstrapLookback {
+		t.Fatalf("bootstrap lookback = %d, want %d", cfg.BootstrapLookbackDays, maxBootstrapLookback)
 	}
 }
 
@@ -249,54 +253,6 @@ func TestParseObservedOTXFixture(t *testing.T) {
 	}
 }
 
-func TestMergeExportPagesTracksRowsIndicatorsAndCursor(t *testing.T) {
-	first := []byte(`{
-		"count": 4,
-		"next": "https://otx.alienvault.com/api/v1/indicators/export?limit=2&page=2",
-		"results": [
-			{"id": 1, "indicator": "example.invalid", "type": "domain"},
-			{"id": 2, "indicator": "192.0.2.10", "type": "IPv4"}
-		]
-	}`)
-	second := []byte(`{
-		"count": 4,
-		"next": null,
-		"results": [
-			{"id": 3, "indicator": "198.51.100.0/24", "type": "CIDR"},
-			{"id": 4, "indicator": "https://example.invalid/a", "type": "URL"}
-		]
-	}`)
-
-	cfg := Config{Limit: 2, Page: 1, MaxIndicators: 10, MaxPages: 10}
-	cfg.applyDefaults()
-
-	page1, err := parseOTXExportPage(first, cfg)
-	if err != nil {
-		t.Fatalf("parse first page: %v", err)
-	}
-	page2, err := parseOTXExportPage(second, cfg)
-	if err != nil {
-		t.Fatalf("parse second page: %v", err)
-	}
-
-	merged := newCTIPage(cfg)
-	mergeCTIPage(&merged, page1)
-	mergeCTIPage(&merged, page2)
-
-	if merged.Counts.Objects != 4 {
-		t.Fatalf("objects = %d, want 4", merged.Counts.Objects)
-	}
-	if merged.Counts.Indicators != 2 {
-		t.Fatalf("indicators = %d, want 2", merged.Counts.Indicators)
-	}
-	if merged.Counts.SkippedByType.get("domain") != 1 || merged.Counts.SkippedByType.get("url") != 1 {
-		t.Fatalf("skipped_by_type = %#v", merged.Counts.SkippedByType)
-	}
-	if got := pageFromURL(page1.Cursor.Next); got != 2 {
-		t.Fatalf("next page = %d, want 2", got)
-	}
-}
-
 func TestBuildCTIPageHonorsMaxIndicatorsAndRedactsSecrets(t *testing.T) {
 	resp := subscribedPulsesResponse{
 		Count: 1,
@@ -410,7 +366,8 @@ func TestConfigDecodingSupportsSecretRefsAndRuntimeSecret(t *testing.T) {
 		"max_pages": 5,
 		"max_indicators": 25,
 		"max_retries": 4,
-		"backoff_ms": 2500
+		"backoff_ms": 2500,
+		"bootstrap_lookback_days": 30
 	}`
 
 	var cfg Config
@@ -425,7 +382,8 @@ func TestConfigDecodingSupportsSecretRefsAndRuntimeSecret(t *testing.T) {
 		t.Fatalf("api_key was not decoded from runtime secret field")
 	}
 	if cfg.Limit != 10 || cfg.TimeoutMS != 30000 || cfg.MaxPages != 5 ||
-		cfg.MaxIndicators != 25 || cfg.MaxRetries != 4 || cfg.BackoffMS != 2500 {
+		cfg.MaxIndicators != 25 || cfg.MaxRetries != 4 || cfg.BackoffMS != 2500 ||
+		cfg.BootstrapLookbackDays != 30 {
 		t.Fatalf("decoded numeric config = %+v", cfg)
 	}
 }
@@ -474,6 +432,16 @@ func TestConfigSchemaDeclaresSecretRefAndBounds(t *testing.T) {
 	if got := int(pages["maximum"].(float64)); got != maxPages {
 		t.Fatalf("max_pages maximum = %d, want %d", got, maxPages)
 	}
+	if got := int(pages["default"].(float64)); got != defaultMaxPages {
+		t.Fatalf("max_pages default = %d, want %d", got, defaultMaxPages)
+	}
+	bootstrap := properties["bootstrap_lookback_days"].(map[string]any)
+	if got := int(bootstrap["default"].(float64)); got != defaultBootstrapLookback {
+		t.Fatalf("bootstrap_lookback_days default = %d, want %d", got, defaultBootstrapLookback)
+	}
+	if got := int(bootstrap["maximum"].(float64)); got != maxBootstrapLookback {
+		t.Fatalf("bootstrap_lookback_days maximum = %d, want %d", got, maxBootstrapLookback)
+	}
 }
 
 func TestPluginManifestRestrictsHTTPAllowlist(t *testing.T) {
@@ -484,6 +452,7 @@ func TestPluginManifestRestrictsHTTPAllowlist(t *testing.T) {
 	manifest := string(body)
 
 	for _, want := range []string{
+		"version: 0.3.2",
 		"- http_request",
 		"allowed_domains:",
 		"- otx.alienvault.com",
@@ -604,7 +573,7 @@ func exportNextURL(limit, page int) string {
 		"&page=" + strconv.Itoa(page) + "&types=IPv4%2CIPv6%2CCIDR"
 }
 
-func TestFetchSingleOTXExportPageWithRetryRetries429WithExponentialBackoff(t *testing.T) {
+func TestFetchOTXExportPageAdaptiveRetries429WithExponentialBackoff(t *testing.T) {
 	fake := &fakeOTXHTTPClient{}
 	fake.handler = func(_ sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 		if len(fake.requests) < 3 {
@@ -620,7 +589,7 @@ func TestFetchSingleOTXExportPageWithRetryRetries429WithExponentialBackoff(t *te
 	cfg.MaxRetries = 3
 	cfg.BackoffMS = 1000
 
-	page, err := fetchSingleOTXExportPageWithRetry(cfg)
+	page, err := fetchOTXExportPageAdaptive(cfg)
 	if err != nil {
 		t.Fatalf("fetch returned error: %v", err)
 	}
@@ -636,7 +605,7 @@ func TestFetchSingleOTXExportPageWithRetryRetries429WithExponentialBackoff(t *te
 	}
 }
 
-func TestFetchOTXExportPageAdaptiveSplitsDeepPageTimeouts(t *testing.T) {
+func TestFetchOTXExportPageAdaptiveMovesToEquivalentSmallerCoordinate(t *testing.T) {
 	gateway504 := []byte("<html><head><title>504 Gateway Time-out</title></head></html>")
 
 	fake := &fakeOTXHTTPClient{}
@@ -648,11 +617,6 @@ func TestFetchOTXExportPageAdaptiveSplitsDeepPageTimeouts(t *testing.T) {
 			return &sdk.HTTPResponse{
 				Status: 200,
 				Body:   exportPageBody(exportNextURL(500, 46), "192.0.2.1", "192.0.2.2"),
-			}, nil
-		case strings.Contains(req.URL, "limit=500&page=46"):
-			return &sdk.HTTPResponse{
-				Status: 200,
-				Body:   exportPageBody(exportNextURL(500, 47), "192.0.2.3", "192.0.2.4"),
 			}, nil
 		default:
 			t.Fatalf("unexpected request URL %q", req.URL)
@@ -666,17 +630,23 @@ func TestFetchOTXExportPageAdaptiveSplitsDeepPageTimeouts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("adaptive fetch returned error: %v", err)
 	}
-	if len(fake.requests) != 3 {
-		t.Fatalf("requests = %d, want 3", len(fake.requests))
+	if len(fake.requests) != 2 {
+		t.Fatalf("requests = %d, want 2", len(fake.requests))
 	}
-	if len(page.Indicators) != 4 {
-		t.Fatalf("indicators = %d, want 4", len(page.Indicators))
+	if len(page.Indicators) != 2 {
+		t.Fatalf("indicators = %d, want 2", len(page.Indicators))
 	}
-	if page.Counts.Objects != 4 {
-		t.Fatalf("objects = %d, want 4", page.Counts.Objects)
+	if page.Counts.Objects != 2 {
+		t.Fatalf("objects = %d, want 2", page.Counts.Objects)
 	}
-	if !strings.Contains(page.Cursor.Next, "limit=1000&page=24") {
-		t.Fatalf("cursor next = %q, want original-limit page 24", page.Cursor.Next)
+	if page.Cursor.StartPage != "45" || page.Cursor.Limit != "500" {
+		t.Fatalf("cursor = %+v, want effective limit=500 start_page=45", page.Cursor)
+	}
+	if !strings.Contains(page.Cursor.Next, "limit=500&page=46") {
+		t.Fatalf("cursor next = %q, want effective-limit page 46", page.Cursor.Next)
+	}
+	if originalOffset, leafOffset := (23-1)*1000, (45-1)*500; originalOffset != leafOffset {
+		t.Fatalf("offset changed during shrink: original=%d leaf=%d", originalOffset, leafOffset)
 	}
 }
 
@@ -701,12 +671,15 @@ func TestFetchOTXExportPageAdaptiveCompletesWhenFirstHalfEndsExport(t *testing.T
 	if page.Cursor.Next != "" {
 		t.Fatalf("cursor next = %q, want empty", page.Cursor.Next)
 	}
+	if page.Cursor.Limit != "500" {
+		t.Fatalf("cursor limit = %q, want effective limit 500", page.Cursor.Limit)
+	}
 	if len(page.Indicators) != 1 {
 		t.Fatalf("indicators = %d, want 1", len(page.Indicators))
 	}
 }
 
-func TestFetchOTXExportPageAdaptiveBoundedRecursion(t *testing.T) {
+func TestFetchOTXExportPageAdaptiveBoundsAllAttemptsForOneLeafPage(t *testing.T) {
 	fake := &fakeOTXHTTPClient{}
 	fake.handler = func(_ sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 		return &sdk.HTTPResponse{Status: 504, Body: []byte("504 Gateway Time-out")}, nil
@@ -726,6 +699,7 @@ func TestFetchOTXExportPageAdaptiveBoundedRecursion(t *testing.T) {
 		"limit=1000&page=23",
 		"limit=500&page=45",
 		"limit=250&page=89",
+		"limit=125&page=177",
 	}
 	if len(fake.requests) != len(wantURLs) {
 		t.Fatalf("requests = %d, want %d", len(fake.requests), len(wantURLs))
@@ -734,6 +708,132 @@ func TestFetchOTXExportPageAdaptiveBoundedRecursion(t *testing.T) {
 		if !strings.Contains(fake.requests[i].URL, fragment) {
 			t.Fatalf("request %d URL = %q, want fragment %q", i, fake.requests[i].URL, fragment)
 		}
+	}
+}
+
+func TestFetchOTXExportPageAdaptiveKeepsRetriesForSmallestLeaf(t *testing.T) {
+	fake := &fakeOTXHTTPClient{}
+	fake.handler = func(_ sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+		return &sdk.HTTPResponse{Status: 504, Body: []byte("504 Gateway Time-out")}, nil
+	}
+	swapOTXHTTP(t, fake)
+	sleeps := swapOTXSleep(t)
+	swapOTXRand(t)
+
+	cfg := adaptiveTestConfig()
+	cfg.MaxRetries = 3
+	cfg.BackoffMS = 1
+
+	_, err := fetchOTXExportPageAdaptive(cfg)
+	if err == nil {
+		t.Fatal("expected error when every coordinate and leaf retry times out")
+	}
+
+	wantURLs := []string{
+		"limit=1000&page=23",
+		"limit=500&page=45",
+		"limit=250&page=89",
+		"limit=125&page=177",
+		"limit=125&page=177",
+		"limit=125&page=177",
+		"limit=125&page=177",
+	}
+	if len(fake.requests) != len(wantURLs) {
+		t.Fatalf("requests = %d, want %d", len(fake.requests), len(wantURLs))
+	}
+	for i, fragment := range wantURLs {
+		if !strings.Contains(fake.requests[i].URL, fragment) {
+			t.Fatalf("request %d URL = %q, want fragment %q", i, fake.requests[i].URL, fragment)
+		}
+	}
+	if want := []time.Duration{time.Millisecond, 2 * time.Millisecond, 4 * time.Millisecond}; len(*sleeps) != len(want) || (*sleeps)[0] != want[0] || (*sleeps)[1] != want[1] ||
+		(*sleeps)[2] != want[2] {
+		t.Fatalf("sleeps = %v, want %v", *sleeps, want)
+	}
+}
+
+func TestFetchAndSubmitOTXExportPagesEnforcesHardPageBudget(t *testing.T) {
+	fake := &fakeOTXHTTPClient{}
+	fake.handler = func(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+		page := pageFromURL(req.URL)
+		if page <= 0 {
+			t.Fatalf("request URL has no page: %q", req.URL)
+		}
+		return &sdk.HTTPResponse{
+			Status: 200,
+			Body:   exportPageBody(exportNextURL(250, page+1), "192.0.2.1"),
+		}, nil
+	}
+	swapOTXHTTP(t, fake)
+	swapOTXSleep(t)
+
+	cfg := adaptiveTestConfig()
+	cfg.Limit = 250
+	cfg.Page = 1
+	cfg.MaxIndicators = maxPages + 10
+	cfg.MaxPages = maxPages + 1000
+
+	var emitted []ctiPage
+	pages, err := fetchAndSubmitOTXExportPages(cfg, func(page ctiPage) error {
+		emitted = append(emitted, page)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk returned error: %v", err)
+	}
+	if pages != maxPages || len(fake.requests) != maxPages || len(emitted) != maxPages {
+		t.Fatalf(
+			"pages=%d requests=%d emitted=%d, want hard cap %d",
+			pages,
+			len(fake.requests),
+			len(emitted),
+			maxPages,
+		)
+	}
+
+	final := emitted[len(emitted)-1]
+	if final.Cursor.Complete != "false" || final.Cursor.MaxPages != strconv.Itoa(maxPages) {
+		t.Fatalf("final cursor = %+v, want incomplete with max_pages=%d", final.Cursor, maxPages)
+	}
+	if final.Counts.SkippedByType.get("page_budget") != 1 {
+		t.Fatalf("page budget skips = %d, want 1", final.Counts.SkippedByType.get("page_budget"))
+	}
+}
+
+func TestFetchAndSubmitOTXExportPagesEnforcesPullWideAttemptBudget(t *testing.T) {
+	fake := &fakeOTXHTTPClient{}
+	fake.handler = func(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+		page := pageFromURL(req.URL)
+		return &sdk.HTTPResponse{
+			Status: 200,
+			Body:   exportPageBody(exportNextURL(250, page+1), "192.0.2.1"),
+		}, nil
+	}
+	swapOTXHTTP(t, fake)
+	swapOTXSleep(t)
+
+	beginOTXPull(time.Now().UTC())
+	t.Cleanup(endOTXPull)
+
+	cfg := adaptiveTestConfig()
+	cfg.Limit = 250
+	cfg.Page = 1
+	cfg.MaxIndicators = maxPullAttempts + 10
+	cfg.MaxPages = maxPages
+	cfg.MaxRetries = 0
+
+	pages, err := fetchAndSubmitOTXExportPages(cfg, func(ctiPage) error { return nil })
+	if err == nil || !strings.Contains(err.Error(), "pull attempt or wall-time budget exhausted") {
+		t.Fatalf("error = %v, want pull-wide budget exhaustion", err)
+	}
+	if pages != maxPullAttempts || len(fake.requests) != maxPullAttempts || otxAttempts != maxPullAttempts {
+		t.Fatalf(
+			"pages=%d requests=%d attempts=%d, want %d",
+			pages,
+			len(fake.requests),
+			otxAttempts,
+			maxPullAttempts,
+		)
 	}
 }
 
@@ -749,7 +849,8 @@ func TestFetchOTXExportPageAdaptiveSplitsOnBodyCapWithoutRetrying(t *testing.T) 
 				Body:   exportPageBody(exportNextURL(500, 46), "192.0.2.1"),
 			}, nil
 		}
-		return &sdk.HTTPResponse{Status: 200, Body: exportPageBody("", "192.0.2.2")}, nil
+		t.Fatalf("unexpected request URL %q", req.URL)
+		return nil, nil
 	}
 	swapOTXHTTP(t, fake)
 	sleeps := swapOTXSleep(t)
@@ -761,18 +862,21 @@ func TestFetchOTXExportPageAdaptiveSplitsOnBodyCapWithoutRetrying(t *testing.T) 
 	if err != nil {
 		t.Fatalf("adaptive fetch returned error: %v", err)
 	}
-	if len(fake.requests) != 3 {
-		t.Fatalf("requests = %d, want 3 (too-large must not be retried at the same size)", len(fake.requests))
+	if len(fake.requests) != 2 {
+		t.Fatalf("requests = %d, want 2 (too-large must move directly to a leaf page)", len(fake.requests))
 	}
 	if len(*sleeps) != 0 {
 		t.Fatalf("sleeps = %v, want none", *sleeps)
 	}
-	if len(page.Indicators) != 2 {
-		t.Fatalf("indicators = %d, want 2", len(page.Indicators))
+	if len(page.Indicators) != 1 {
+		t.Fatalf("indicators = %d, want 1", len(page.Indicators))
+	}
+	if page.Cursor.Limit != "500" || page.Cursor.StartPage != "45" {
+		t.Fatalf("cursor = %+v, want effective limit=500 start_page=45", page.Cursor)
 	}
 }
 
-func TestFetchAndSubmitOTXExportPagesAdvancesCursorAcrossAdaptivePages(t *testing.T) {
+func TestFetchAndSubmitOTXExportPagesContinuesAtLeafLimitWithoutGaps(t *testing.T) {
 	fake := &fakeOTXHTTPClient{}
 	fake.handler = func(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 		switch {
@@ -788,7 +892,7 @@ func TestFetchAndSubmitOTXExportPagesAdvancesCursorAcrossAdaptivePages(t *testin
 				Status: 200,
 				Body:   exportPageBody(exportNextURL(500, 47), "192.0.2.3", "192.0.2.4"),
 			}, nil
-		case strings.Contains(req.URL, "limit=1000&page=24"):
+		case strings.Contains(req.URL, "limit=500&page=47"):
 			return &sdk.HTTPResponse{Status: 200, Body: exportPageBody("", "192.0.2.9")}, nil
 		default:
 			t.Fatalf("unexpected request URL %q", req.URL)
@@ -809,24 +913,108 @@ func TestFetchAndSubmitOTXExportPagesAdvancesCursorAcrossAdaptivePages(t *testin
 	if err != nil {
 		t.Fatalf("walk returned error: %v", err)
 	}
-	if pages != 2 || len(emitted) != 2 {
-		t.Fatalf("pages = %d emitted = %d, want 2 and 2", pages, len(emitted))
+	if pages != 3 || len(emitted) != 3 {
+		t.Fatalf("pages = %d emitted = %d, want 3 and 3", pages, len(emitted))
 	}
 
 	first := emitted[0]
-	if first.Cursor.Complete != "false" || first.Cursor.NextPage != "24" {
-		t.Fatalf("first cursor = %+v, want complete=false next_page=24", first.Cursor)
+	if first.Cursor.Complete != "false" || first.Cursor.NextPage != "46" {
+		t.Fatalf("first cursor = %+v, want complete=false next_page=46", first.Cursor)
 	}
-	if first.Cursor.Limit != "1000" || first.Cursor.LastPage != "23" {
-		t.Fatalf("first cursor = %+v, want limit=1000 last_page=23", first.Cursor)
+	if first.Cursor.Limit != "500" || first.Cursor.LastPage != "45" {
+		t.Fatalf("first cursor = %+v, want limit=500 last_page=45", first.Cursor)
 	}
-	if first.Counts.Indicators != 4 {
-		t.Fatalf("first indicators = %d, want 4", first.Counts.Indicators)
+	if first.Counts.Indicators != 2 {
+		t.Fatalf("first indicators = %d, want 2", first.Counts.Indicators)
 	}
 
 	second := emitted[1]
-	if second.Cursor.Complete != "true" || second.Cursor.PagesFetched != "2" {
-		t.Fatalf("second cursor = %+v, want complete=true pages_fetched=2", second.Cursor)
+	if second.Cursor.Limit != "500" || second.Cursor.LastPage != "46" || second.Cursor.NextPage != "47" {
+		t.Fatalf("second cursor = %+v, want limit=500 last_page=46 next_page=47", second.Cursor)
+	}
+
+	final := emitted[2]
+	if final.Cursor.Complete != "true" || final.Cursor.PagesFetched != "3" || final.Cursor.Limit != "500" {
+		t.Fatalf("final cursor = %+v, want complete=true pages_fetched=3", final.Cursor)
+	}
+
+	wantURLs := []string{
+		"limit=1000&page=23",
+		"limit=500&page=45",
+		"limit=500&page=46",
+		"limit=500&page=47",
+	}
+	if len(fake.requests) != len(wantURLs) {
+		t.Fatalf("requests = %d, want %d", len(fake.requests), len(wantURLs))
+	}
+	for i, fragment := range wantURLs {
+		if !strings.Contains(fake.requests[i].URL, fragment) {
+			t.Fatalf("request %d URL = %q, want fragment %q", i, fake.requests[i].URL, fragment)
+		}
+	}
+	if strings.Contains(fake.requests[len(fake.requests)-1].URL, "limit=1000&page=24") {
+		t.Fatalf("walk returned to the old page coordinate: %q", fake.requests[len(fake.requests)-1].URL)
+	}
+}
+
+func TestFetchAndSubmitOTXExportPagesPersistsResumableLeafCoordinateAtPageBudget(t *testing.T) {
+	fake := &fakeOTXHTTPClient{}
+	fake.handler = func(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+		switch {
+		case strings.Contains(req.URL, "limit=1000&page=23"):
+			return &sdk.HTTPResponse{Status: 504, Body: []byte("504 Gateway Time-out")}, nil
+		case strings.Contains(req.URL, "limit=500&page=45"):
+			return &sdk.HTTPResponse{
+				Status: 200,
+				Body:   exportPageBody(exportNextURL(500, 46), "192.0.2.1"),
+			}, nil
+		case strings.Contains(req.URL, "limit=500&page=46"):
+			return &sdk.HTTPResponse{Status: 200, Body: exportPageBody("", "192.0.2.2")}, nil
+		default:
+			t.Fatalf("unexpected request URL %q", req.URL)
+			return nil, nil
+		}
+	}
+	swapOTXHTTP(t, fake)
+	swapOTXSleep(t)
+
+	cfg := adaptiveTestConfig()
+	cfg.MaxPages = 1
+
+	var firstRun []ctiPage
+	pages, err := fetchAndSubmitOTXExportPages(cfg, func(page ctiPage) error {
+		firstRun = append(firstRun, page)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("first walk returned error: %v", err)
+	}
+	if pages != 1 || len(firstRun) != 1 {
+		t.Fatalf("first walk pages=%d emitted=%d, want 1 and 1", pages, len(firstRun))
+	}
+
+	cursor := firstRun[0].Cursor
+	if cursor.Complete != "false" || cursor.Limit != "500" || cursor.NextPage != "46" {
+		t.Fatalf("page-budget cursor = %+v, want complete=false limit=500 next_page=46", cursor)
+	}
+
+	resume := adaptiveTestConfig()
+	resume.Limit = parsePositiveInt(cursor.Limit, 0)
+	resume.Page = parsePositiveInt(cursor.NextPage, 0)
+	resume.MaxPages = 1
+
+	var resumed []ctiPage
+	if _, err := fetchAndSubmitOTXExportPages(resume, func(page ctiPage) error {
+		resumed = append(resumed, page)
+		return nil
+	}); err != nil {
+		t.Fatalf("resumed walk returned error: %v", err)
+	}
+	if len(resumed) != 1 || resumed[0].Cursor.Complete != "true" {
+		t.Fatalf("resumed pages = %+v, want one completed page", resumed)
+	}
+	if got := fake.requests[len(fake.requests)-1].URL; !strings.Contains(got, "limit=500&page=46") {
+		t.Fatalf("resume request URL = %q, want persisted leaf coordinate", got)
 	}
 }
 
@@ -852,6 +1040,52 @@ func TestThrottleSkipsFreshPullWithinDailyWindow(t *testing.T) {
 	// next due should be last pull + 24h.
 	if !strings.Contains(summary, "2026-07-07T10:00:00Z") {
 		t.Fatalf("summary = %q, want next-due 24h after last pull", summary)
+	}
+}
+
+func TestApplyBootstrapWindowRecoversLegacyFullCorpusCursor(t *testing.T) {
+	now := time.Date(2026, 7, 10, 20, 0, 0, 0, time.UTC)
+	cfg := defaultConfig()
+	cfg.Page = 23
+	cfg.Limit = 1000
+	cfg.CursorComplete = true
+	cfg.LastPullAt = now.Add(-time.Hour).Format(time.RFC3339)
+
+	cfg.applyBootstrapWindow(now)
+
+	if cfg.ModifiedSince != "2026-06-10T20:00:00Z" {
+		t.Fatalf("modified_since = %q, want fixed 30-day watermark", cfg.ModifiedSince)
+	}
+	if cfg.Page != 1 || cfg.Limit != bootstrapMaxLimit || cfg.CursorComplete {
+		t.Fatalf(
+			"bootstrap state page=%d limit=%d complete=%v, want page=1 limit=%d complete=false",
+			cfg.Page,
+			cfg.Limit,
+			cfg.CursorComplete,
+			bootstrapMaxLimit,
+		)
+	}
+}
+
+func TestApplyBootstrapWindowPreservesExplicitAndDisabledFullHistory(t *testing.T) {
+	now := time.Date(2026, 7, 10, 20, 0, 0, 0, time.UTC)
+
+	explicit := defaultConfig()
+	explicit.ModifiedSince = "2026-01-01T00:00:00Z"
+	explicit.Page = 23
+	explicit.Limit = 1000
+	explicit.applyBootstrapWindow(now)
+	if explicit.ModifiedSince != "2026-01-01T00:00:00Z" || explicit.Page != 23 || explicit.Limit != 1000 {
+		t.Fatalf("explicit watermark changed: %+v", explicit)
+	}
+
+	disabled := defaultConfig()
+	disabled.BootstrapLookbackDays = 0
+	disabled.Page = 23
+	disabled.Limit = 1000
+	disabled.applyBootstrapWindow(now)
+	if disabled.ModifiedSince != "" || disabled.Page != 23 || disabled.Limit != 1000 {
+		t.Fatalf("explicit full-history configuration changed: %+v", disabled)
 	}
 }
 
@@ -914,7 +1148,7 @@ func TestThrottleDoesNotSkipWhenNotDueOrResuming(t *testing.T) {
 	}
 }
 
-func TestFetchSingleOTXExportPageWithRetrySucceedsAfterTransientFailures(t *testing.T) {
+func TestFetchOTXExportPageAdaptiveRetriesTransientFailuresAtMinimumLimit(t *testing.T) {
 	fake := &fakeOTXHTTPClient{}
 	fake.handler = func(_ sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 		switch len(fake.requests) {
@@ -933,10 +1167,12 @@ func TestFetchSingleOTXExportPageWithRetrySucceedsAfterTransientFailures(t *test
 	swapOTXRand(t)
 
 	cfg := adaptiveTestConfig()
+	cfg.Limit = 125
+	cfg.Page = 177
 	cfg.MaxRetries = 5
 	cfg.BackoffMS = 2000
 
-	page, err := fetchSingleOTXExportPageWithRetry(cfg)
+	page, err := fetchOTXExportPageAdaptive(cfg)
 	if err != nil {
 		t.Fatalf("fetch returned error after transient failures: %v", err)
 	}
@@ -952,7 +1188,85 @@ func TestFetchSingleOTXExportPageWithRetrySucceedsAfterTransientFailures(t *test
 	}
 }
 
-func TestFetchSingleOTXExportPageWithRetryFailsFastOnAuthError(t *testing.T) {
+func TestFetchOTXExportPageAdaptiveRetriesNetworkTimeoutAtSameCoordinate(t *testing.T) {
+	fake := &fakeOTXHTTPClient{}
+	fake.handler = func(_ sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+		if len(fake.requests) < 3 {
+			return nil, sdk.HostError{Code: -6, Op: "http_request"}
+		}
+		return &sdk.HTTPResponse{Status: 200, Body: exportPageBody("", "192.0.2.1")}, nil
+	}
+	swapOTXHTTP(t, fake)
+	sleeps := swapOTXSleep(t)
+	swapOTXRand(t)
+
+	cfg := adaptiveTestConfig()
+	cfg.MaxRetries = 2
+	cfg.BackoffMS = 1000
+
+	page, err := fetchOTXExportPageAdaptive(cfg)
+	if err != nil {
+		t.Fatalf("fetch returned error after transient network timeouts: %v", err)
+	}
+	if len(page.Indicators) != 1 || len(fake.requests) != 3 {
+		t.Fatalf("indicators=%d requests=%d, want 1 and 3", len(page.Indicators), len(fake.requests))
+	}
+	for i, request := range fake.requests {
+		if !strings.Contains(request.URL, "limit=1000&page=23") {
+			t.Fatalf("request %d URL = %q, want unchanged coordinate", i, request.URL)
+		}
+	}
+	if want := []time.Duration{time.Second, 2 * time.Second}; len(*sleeps) != len(want) ||
+		(*sleeps)[0] != want[0] || (*sleeps)[1] != want[1] {
+		t.Fatalf("sleeps = %v, want %v", *sleeps, want)
+	}
+}
+
+func TestReserveOTXPullAttemptCapsRequestAtWallTimeBudget(t *testing.T) {
+	now := time.Date(2026, 7, 10, 20, 0, 0, 0, time.UTC)
+	swapOTXNow(t, now)
+	beginOTXPull(now)
+	t.Cleanup(endOTXPull)
+
+	timeoutMS, err := reserveOTXPullAttempt(maxTimeoutMS)
+	if err != nil {
+		t.Fatalf("reserve attempt returned error: %v", err)
+	}
+	if want := int(maxPullDuration.Milliseconds()); timeoutMS != want {
+		t.Fatalf("request timeout = %d, want pull remainder %d", timeoutMS, want)
+	}
+
+	otxPullDeadline = now
+	if _, err := reserveOTXPullAttempt(defaultTimeoutMS); !errors.Is(err, errOTXPullBudget) {
+		t.Fatalf("expired reserve error = %v, want %v", err, errOTXPullBudget)
+	}
+}
+
+func TestSleepForOTXRetryCapsBackoffAtWallTimeBudget(t *testing.T) {
+	now := time.Date(2026, 7, 10, 20, 0, 0, 0, time.UTC)
+	swapOTXNow(t, now)
+	sleeps := swapOTXSleep(t)
+	beginOTXPull(now)
+	t.Cleanup(endOTXPull)
+
+	otxPullDeadline = now.Add(1500 * time.Millisecond)
+	if err := sleepForOTXRetry(2 * time.Second); err != nil {
+		t.Fatalf("bounded retry sleep returned error: %v", err)
+	}
+	if len(*sleeps) != 1 || (*sleeps)[0] != 1500*time.Millisecond {
+		t.Fatalf("sleeps = %v, want [1.5s]", *sleeps)
+	}
+
+	otxPullDeadline = now
+	if err := sleepForOTXRetry(time.Second); !errors.Is(err, errOTXPullBudget) {
+		t.Fatalf("expired retry sleep error = %v, want %v", err, errOTXPullBudget)
+	}
+	if len(*sleeps) != 1 {
+		t.Fatalf("expired retry added sleep: %v", *sleeps)
+	}
+}
+
+func TestFetchOTXExportPageAdaptiveFailsFastOnAuthError(t *testing.T) {
 	fake := &fakeOTXHTTPClient{}
 	fake.handler = func(_ sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 		return &sdk.HTTPResponse{Status: 403, Body: []byte(`{"detail":"Authentication required"}`)}, nil
@@ -964,7 +1278,7 @@ func TestFetchSingleOTXExportPageWithRetryFailsFastOnAuthError(t *testing.T) {
 	cfg := adaptiveTestConfig()
 	cfg.MaxRetries = 5
 
-	if _, err := fetchSingleOTXExportPageWithRetry(cfg); err == nil {
+	if _, err := fetchOTXExportPageAdaptive(cfg); err == nil {
 		t.Fatal("expected auth error")
 	}
 	if len(fake.requests) != 1 {
@@ -1121,5 +1435,31 @@ func TestApplyDefaultsClampsMinPullInterval(t *testing.T) {
 	fresh.applyDefaults()
 	if fresh.MinPullIntervalMS != defaultMinPullIntervalMS {
 		t.Fatalf("default = %d, want %d", fresh.MinPullIntervalMS, defaultMinPullIntervalMS)
+	}
+	if fresh.BootstrapLookbackDays != defaultBootstrapLookback || fresh.Limit != defaultLimit {
+		t.Fatalf(
+			"bootstrap defaults lookback=%d limit=%d, want %d and %d",
+			fresh.BootstrapLookbackDays,
+			fresh.Limit,
+			defaultBootstrapLookback,
+			defaultLimit,
+		)
+	}
+
+	bootstrapDisabled := defaultConfig()
+	bootstrapDisabled.BootstrapLookbackDays = 0
+	bootstrapDisabled.applyDefaults()
+	if bootstrapDisabled.BootstrapLookbackDays != 0 {
+		t.Fatalf("explicit bootstrap disable = %d, want 0", bootstrapDisabled.BootstrapLookbackDays)
+	}
+
+	bootstrapNegative := Config{BootstrapLookbackDays: -1}
+	bootstrapNegative.applyDefaults()
+	if bootstrapNegative.BootstrapLookbackDays != defaultBootstrapLookback {
+		t.Fatalf(
+			"negative bootstrap lookback = %d, want default %d",
+			bootstrapNegative.BootstrapLookbackDays,
+			defaultBootstrapLookback,
+		)
 	}
 }

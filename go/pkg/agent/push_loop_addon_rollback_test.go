@@ -19,6 +19,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -284,5 +285,117 @@ func TestSystemdAddonAssignmentCurrentRequiresMatchingStageMetadataAndTrackedUni
 	assignment.ArtifactSha256 = sha256Hex([]byte("different"))
 	if pl.systemdAddonAssignmentCurrent(assignment, runtimeRoot) {
 		t.Fatal("assignment with a different artifact sha must not be treated as current")
+	}
+}
+
+func TestSystemdAddonRuntimeEndpointReadyRequiresNetprobeSocket(t *testing.T) {
+	socketDir, err := os.MkdirTemp("/tmp", "sr-netprobe-")
+	if err != nil {
+		t.Fatalf("create short test socket directory: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
+	socketPath := filepath.Join(socketDir, "ipc.sock")
+	if systemdAddonRuntimeEndpointReady(
+		true,
+		netprobeTestAddonID,
+		addonSupervisionSystemdService,
+		socketPath,
+	) {
+		t.Fatal("active netprobe with a missing IPC socket must be reconciled")
+	}
+
+	var listenConfig net.ListenConfig
+	listener, err := listenConfig.Listen(context.Background(), "unix", socketPath)
+	if err != nil {
+		t.Fatalf("listen on test Unix socket: %v", err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+
+	if !systemdAddonRuntimeEndpointReady(
+		true,
+		netprobeTestAddonID,
+		addonSupervisionSystemdService,
+		socketPath,
+	) {
+		t.Fatal("active netprobe with its IPC socket should skip unchanged activation")
+	}
+}
+
+func TestApplySystemdAddonReconcilesCurrentNetprobeWhenIPCSocketMissing(t *testing.T) {
+	payload := []byte("netprobe-binary")
+	sha := sha256Hex(payload)
+	runtimeRoot := stageSystemdAddonFixture(t, map[string][]string{
+		"1.1.0": {netprobeTestUnit},
+	})
+	versionDir := filepath.Join(resolveAddonArtifactRoot(runtimeRoot), netprobeTestAddonID, addonVersionsDir, "1.1.0")
+	if err := os.WriteFile(filepath.Join(versionDir, "serviceradar-netprobe"), payload, addonBinaryMode); err != nil {
+		t.Fatalf("write binary: %v", err)
+	}
+	if err := writeAddonStageMetadata(versionDir, addonStageMetadata{
+		AddonID:        netprobeTestAddonID,
+		Version:        "1.1.0",
+		BinaryName:     "serviceradar-netprobe",
+		ArtifactObject: "native-addons/netprobe/1.1.0/linux/amd64/netprobe.tar.gz",
+		ArtifactSHA256: sha,
+	}); err != nil {
+		t.Fatalf("write stage metadata: %v", err)
+	}
+	if err := writeAddonSystemdActivationMetadata(versionDir, addonSystemdActivationMetadata{
+		AddonID:        netprobeTestAddonID,
+		Version:        "1.1.0",
+		BinaryName:     "serviceradar-netprobe",
+		ArtifactSHA256: sha,
+		Units:          []string{netprobeTestUnit},
+		Enable:         netprobeTestUnit,
+	}); err != nil {
+		t.Fatalf("write activation metadata: %v", err)
+	}
+
+	assignment := &proto.AddonAssignmentConfig{
+		AddonId:           netprobeTestAddonID,
+		Version:           "1.1.0",
+		BinaryPath:        "/var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe",
+		ArtifactObjectKey: "native-addons/netprobe/1.1.0/linux/amd64/netprobe.tar.gz",
+		ArtifactSha256:    sha,
+	}
+	pl := newSystemdAddonPushLoop(t)
+	pl.rememberSystemdAddon(netprobeTestAddonID, []string{netprobeTestUnit})
+	if !pl.systemdAddonAssignmentCurrent(assignment, runtimeRoot) {
+		t.Fatal("test fixture must be a current systemd assignment")
+	}
+
+	missingSocket := filepath.Join(t.TempDir(), "ipc.sock")
+	deliveries := 0
+	installs := 0
+	disposition := pl.applySystemdAddonAtRoot(
+		context.Background(),
+		assignment,
+		addonDeliveryPushedArtifact,
+		addonSupervisionSystemdService,
+		time.Now(),
+		runtimeRoot,
+		func(context.Context, *proto.AddonAssignmentConfig, string) bool {
+			return systemdAddonRuntimeEndpointReady(
+				true,
+				netprobeTestAddonID,
+				addonSupervisionSystemdService,
+				missingSocket,
+			)
+		},
+		func(context.Context, *proto.AddonAssignmentConfig, string, time.Time) (string, addonDeliveryDisposition, error) {
+			deliveries++
+			return filepath.Join(versionDir, "serviceradar-netprobe"), addonDeliverySucceeded, nil
+		},
+		func(context.Context, string, []string, string, agentaddon.Resources) error {
+			installs++
+			return nil
+		},
+	)
+
+	if disposition != addonDeliverySucceeded {
+		t.Fatalf("apply disposition = %v, want success", disposition)
+	}
+	if deliveries != 1 || installs != 1 {
+		t.Fatalf("deliveries = %d, installs = %d; missing IPC socket must reach reinstall", deliveries, installs)
 	}
 }

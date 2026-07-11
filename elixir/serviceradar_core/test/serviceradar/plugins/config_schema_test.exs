@@ -44,6 +44,56 @@ defmodule ServiceRadar.Plugins.ConfigSchemaTest do
              ConfigSchema.validate_params(schema, %{"enabled" => true, "batch_queue_size" => 1024})
   end
 
+  test "array cardinality constraints are validated and enforced" do
+    schema = %{
+      "type" => "object",
+      "properties" => %{
+        "controllers" => %{
+          "type" => "array",
+          "items" => %{"type" => "object"},
+          "minItems" => 1,
+          "maxItems" => 2,
+          "uniqueItems" => true
+        }
+      }
+    }
+
+    assert :ok = ConfigSchema.validate_schema(schema)
+    assert :ok = ConfigSchema.validate_params(schema, %{"controllers" => [%{"id" => "awx"}]})
+
+    assert {:error, _errors} = ConfigSchema.validate_params(schema, %{"controllers" => []})
+
+    assert {:error, _errors} =
+             ConfigSchema.validate_params(schema, %{
+               "controllers" => [%{"id" => "awx"}, %{"id" => "awx"}]
+             })
+  end
+
+  test "array cardinality declarations reject invalid shapes" do
+    invalid_schema = fn constraints ->
+      %{
+        "type" => "object",
+        "properties" => %{
+          "controllers" =>
+            Map.merge(
+              %{"type" => "array", "items" => %{"type" => "object"}},
+              constraints
+            )
+        }
+      }
+    end
+
+    for {constraints, expected} <- [
+          {%{"minItems" => -1}, "minItems must be a non-negative integer"},
+          {%{"maxItems" => "two"}, "maxItems must be a non-negative integer"},
+          {%{"uniqueItems" => "true"}, "uniqueItems must be a boolean"},
+          {%{"minItems" => 2, "maxItems" => 1}, "minItems must be less than or equal to maxItems"}
+        ] do
+      assert {:error, errors} = ConfigSchema.validate_schema(invalid_schema.(constraints))
+      assert Enum.any?(errors, &String.contains?(&1, expected))
+    end
+  end
+
   test "blank numeric form values are omitted instead of persisted as strings or defaults" do
     schema = %{
       "type" => "object",

@@ -14,9 +14,11 @@ type httpClient interface {
 }
 
 func doOTXHostHTTPRequest(apiURL, apiKey string, timeoutMS int) (*sdk.HTTPResponse, error) {
-	// Count every upstream attempt (including adaptive page splits and retries)
-	// so a totally-rejected daily pull can report how hard it tried.
-	otxAttempts++
+	requestTimeoutMS, err := reserveOTXPullAttempt(timeoutMS)
+	if err != nil {
+		return nil, err
+	}
+
 	return otxHTTP.Do(sdk.HTTPRequest{
 		Method: http.MethodGet,
 		URL:    apiURL,
@@ -24,6 +26,36 @@ func doOTXHostHTTPRequest(apiURL, apiKey string, timeoutMS int) (*sdk.HTTPRespon
 			"accept":        "application/json",
 			"X-OTX-API-KEY": apiKey,
 		},
-		TimeoutMS: timeoutMS,
+		TimeoutMS: requestTimeoutMS,
 	})
+}
+
+func reserveOTXPullAttempt(timeoutMS int) (int, error) {
+	if otxPullAttemptLimit > 0 && otxAttempts >= otxPullAttemptLimit {
+		return 0, errOTXPullBudget
+	}
+
+	if !otxPullDeadline.IsZero() {
+		remaining := otxPullDeadline.Sub(otxNow())
+		if remaining <= 0 {
+			return 0, errOTXPullBudget
+		}
+
+		remainingMS := int(remaining.Milliseconds())
+		if remainingMS < 1 {
+			remainingMS = 1
+		}
+		if timeoutMS <= 0 || timeoutMS > remainingMS {
+			timeoutMS = remainingMS
+		}
+	}
+
+	if timeoutMS < 1 {
+		timeoutMS = 1
+	}
+
+	// Count every actual upstream attempt, including adaptive coordinate changes
+	// and retries, so a rejected daily pull reports how hard it tried.
+	otxAttempts++
+	return timeoutMS, nil
 }

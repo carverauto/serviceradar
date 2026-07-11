@@ -63,7 +63,7 @@ defmodule ServiceRadarCore.MixProject do
       {:ash_oban, "~> 0.4"},
       {:ash_state_machine, "~> 0.2"},
       {:ash_json_api, "~> 1.4"},
-      {:ash_paper_trail, "~> 0.5.7"},
+      {:ash_paper_trail, "~> 0.6.0"},
       {:open_api_spex, "~> 3.16"},
       {:ash_admin, "~> 0.12"},
       {:ash_cloak, "~> 0.1"},

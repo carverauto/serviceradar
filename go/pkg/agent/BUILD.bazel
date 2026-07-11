@@ -227,6 +227,7 @@ go_test(
         "//addons/netprobe:netprobe_systemd_unit",
         "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_runtime_config",
         "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_systemd_units",
+        "//build/packaging/agent:systemd/50-serviceradar-shared-runtime.conf",
         "//build/packaging/agent:systemd/serviceradar-agent.service",
     ],
     embed = [":agent"],

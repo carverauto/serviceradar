@@ -83,6 +83,13 @@ PACKAGES = {
                 "rpm_filetag": "config(noreplace)",
                 "allow_empty": True,
             },
+            {
+                # Repair legacy units that still own /run/serviceradar. This is
+                # package-owned so upgrade converges before postinstall restarts.
+                "src": "systemd/50-serviceradar-shared-runtime.conf",
+                "dest": "/etc/systemd/system/serviceradar-agent.service.d/50-serviceradar-shared-runtime.conf",
+                "mode": "0644",
+            },
         ],
         "systemd": {
             "src": "systemd/serviceradar-agent.service",

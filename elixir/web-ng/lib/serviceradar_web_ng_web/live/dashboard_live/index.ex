@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   alias ServiceRadarWebNGWeb.DashboardLive.Index.Common
   alias ServiceRadarWebNGWeb.DashboardLive.Index.Page
 
+  require Logger
+
   @camera_preview_limit 4
   @camera_relay_poll_interval_ms 1_000
 
@@ -44,9 +46,25 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
     socket =
       socket
       |> assign_dashboard(dashboard_assigns)
-      |> maybe_start_camera_previews()
+      |> maybe_start_camera_previews_async()
 
     {:noreply, socket}
+  end
+
+  def handle_async(:camera_previews_open, {:ok, tiles}, socket) when is_list(tiles) do
+    Enum.each(tiles, &schedule_camera_preview_refresh/1)
+
+    {:noreply, assign(socket, :camera_preview_tiles, tiles)}
+  end
+
+  def handle_async(:camera_previews_open, {:ok, result}, socket) do
+    Logger.warning("Ignoring invalid dashboard camera preview result: #{inspect(result)}")
+    {:noreply, assign(socket, :camera_preview_tiles, [])}
+  end
+
+  def handle_async(:camera_previews_open, {:exit, reason}, socket) do
+    Logger.warning("Dashboard camera preview startup failed: #{inspect(reason)}")
+    {:noreply, assign(socket, :camera_preview_tiles, [])}
   end
 
   def handle_async(:fieldsurvey_summary_load, {:ok, survey_summary}, socket) do
@@ -212,13 +230,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
 
   defp replace_survey_kpi_card(_kpi_cards, _survey_card), do: []
 
-  defp maybe_start_camera_previews(socket) do
+  defp maybe_start_camera_previews_async(socket) do
     if RBAC.can?(socket.assigns.current_scope, "devices.view") do
-      tiles =
-        CameraMultiview.open_preview_tiles(socket.assigns.current_scope, @camera_preview_limit)
+      scope = socket.assigns.current_scope
 
-      Enum.each(tiles, &schedule_camera_preview_refresh/1)
-      assign(socket, :camera_preview_tiles, tiles)
+      start_async(socket, :camera_previews_open, fn ->
+        CameraMultiview.open_preview_tiles(scope, @camera_preview_limit)
+      end)
     else
       socket
     end
