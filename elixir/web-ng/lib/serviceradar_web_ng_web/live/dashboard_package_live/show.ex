@@ -391,7 +391,11 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
         "frames" => Enum.map(frames, &frame_summary/1),
         "stream_topic" => "dashboards:#{instance.route_slug}",
         "stream_token" =>
-          DashboardFrameChannel.stream_token(instance.route_slug, data_frames, active_optional_frame_ids(overrides)),
+          DashboardFrameChannel.stream_token(
+            instance.route_slug,
+            data_frames,
+            active_optional_frame_ids(data_frames, overrides)
+          ),
         "refresh_interval_ms" => 15_000
       },
       "mapbox" => %{
@@ -442,16 +446,24 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
   defp maybe_put_first_query(overrides, ""), do: overrides
   defp maybe_put_first_query(overrides, query), do: Map.put(overrides, "__first__", query)
 
-  defp active_optional_frame_ids(overrides) when is_map(overrides) do
-    overrides
-    |> Map.keys()
-    |> Enum.reject(&(&1 == "__first__"))
-    |> Enum.map(&to_string/1)
+  defp active_optional_frame_ids(data_frames, overrides) when is_list(data_frames) and is_map(overrides) do
+    optional_frame_ids =
+      data_frames
+      |> Enum.reject(&required_frame?/1)
+      |> Enum.map(&frame_id/1)
+
+    override_frame_ids =
+      overrides
+      |> Map.keys()
+      |> Enum.reject(&(&1 == "__first__"))
+      |> Enum.map(&to_string/1)
+
+    (optional_frame_ids ++ override_frame_ids)
     |> Enum.reject(&(&1 == ""))
     |> Enum.uniq()
   end
 
-  defp active_optional_frame_ids(_overrides), do: []
+  defp active_optional_frame_ids(_data_frames, _overrides), do: []
 
   defp apply_frame_query_overrides(data_frames, overrides) when is_list(data_frames) do
     data_frames
