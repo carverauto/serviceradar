@@ -7,6 +7,7 @@ use crate::{
         bind_sql_param, max_dollar_placeholder, reconcile_limit_offset_binds,
         shift_dollar_placeholders, BindParam, QueryPlan,
     },
+    schema::logs::dsl::id as col_id,
 };
 use diesel::pg::Pg;
 use diesel::prelude::*;
@@ -83,7 +84,12 @@ pub(super) fn build(plan: &QueryPlan) -> Result<Option<SeverityTopNQuery>> {
         branch.limit = branch_limit;
         branch.offset = 0;
 
-        let query = build_query(&branch)?.limit(branch_limit).offset(0);
+        let query = match primary_timestamp_direction(plan) {
+            OrderDirection::Asc => build_query(&branch)?.then_order_by(col_id.asc()),
+            OrderDirection::Desc => build_query(&branch)?.then_order_by(col_id.desc()),
+        }
+        .limit(branch_limit)
+        .offset(0);
         let branch_sql = crate::query::diesel_sql(&query)?;
         let mut branch_params = collect_base_params(&branch)?;
         reconcile_limit_offset_binds(&branch_sql, &mut branch_params, branch_limit, 0)?;
@@ -132,6 +138,14 @@ fn has_supported_timestamp_order(plan: &QueryPlan) -> bool {
             .all(|clause| clause.field == "timestamp" || clause.field == "severity_number")
 }
 
+fn primary_timestamp_direction(plan: &QueryPlan) -> OrderDirection {
+    plan.order
+        .as_slice()
+        .first()
+        .expect("top-N eligibility requires timestamp ordering")
+        .direction
+}
+
 fn severity_values(plan: &QueryPlan) -> Result<Option<(usize, Vec<String>)>> {
     let mut matched = None;
 
@@ -166,7 +180,8 @@ fn is_severity_field(field: &str) -> bool {
 }
 
 fn outer_order_sql(plan: &QueryPlan) -> String {
-    plan.order
+    let mut order = plan
+        .order
         .iter()
         .map(|clause| {
             let expression = match clause.field.as_str() {
@@ -182,8 +197,13 @@ fn outer_order_sql(plan: &QueryPlan) -> String {
             };
             format!("{expression} {direction}")
         })
-        .collect::<Vec<_>>()
-        .join(", ")
+        .collect::<Vec<_>>();
+    let tie_direction = match primary_timestamp_direction(plan) {
+        OrderDirection::Asc => "ASC",
+        OrderDirection::Desc => "DESC",
+    };
+    order.push(format!("{TOPN_ALIAS}.id {tie_direction}"));
+    order.join(", ")
 }
 
 #[cfg(test)]
@@ -230,9 +250,14 @@ mod tests {
         assert!(!sql.contains(" = ANY("), "{sql}");
         assert!(
             sql.contains(
-                "ORDER BY COALESCE(severity_topn.observed_timestamp, severity_topn.\"timestamp\") DESC"
+                "ORDER BY COALESCE(severity_topn.observed_timestamp, severity_topn.\"timestamp\") DESC, severity_topn.id DESC"
             ),
             "{sql}"
+        );
+        assert_eq!(
+            sql.matches("\"logs\".\"id\" DESC").count(),
+            2,
+            "every scalar branch must use the same unique tie-breaker: {sql}"
         );
         assert_eq!(
             params
@@ -290,9 +315,14 @@ mod tests {
             let (sql, _) = build(&plan).unwrap().unwrap().into_parts();
             assert!(
                 sql.contains(&format!(
-                    "ORDER BY COALESCE(severity_topn.observed_timestamp, severity_topn.\"timestamp\") {expected}"
+                    "ORDER BY COALESCE(severity_topn.observed_timestamp, severity_topn.\"timestamp\") {expected}, severity_topn.id {expected}"
                 )),
                 "{sql}"
+            );
+            assert_eq!(
+                sql.matches(&format!("\"logs\".\"id\" {expected}")).count(),
+                2,
+                "every scalar branch must use the primary timestamp direction: {sql}"
             );
         }
     }

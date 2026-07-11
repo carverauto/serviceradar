@@ -116,9 +116,15 @@ fn translate_timestamp_sorted_severity_list_uses_bounded_topn_branches() {
     assert!(!response.sql.contains(" = ANY("), "{}", response.sql);
     assert!(
         response.sql.contains(
-            "ORDER BY COALESCE(severity_topn.observed_timestamp, severity_topn.\"timestamp\") DESC"
+            "ORDER BY COALESCE(severity_topn.observed_timestamp, severity_topn.\"timestamp\") DESC, severity_topn.id DESC"
         ),
         "{}",
+        response.sql
+    );
+    assert_eq!(
+        response.sql.matches("\"logs\".\"id\" DESC").count(),
+        4,
+        "every scalar branch must use the unique tie-breaker\n{}",
         response.sql
     );
     assert_eq!(

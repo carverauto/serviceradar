@@ -27,37 +27,69 @@ async fn srql_api_queries() {
 }
 
 async fn check_logs_severity_topn_paginates_by_effective_timestamp(harness: &SrqlTestHarness) {
-    let query = "in:logs severity_text:(INFO,ERROR) time:last_10m sort:timestamp:desc limit:1";
-    let first_response = harness
+    let query = "in:logs source:\"srql-topn-tie\" severity_text:(FATAL,CRITICAL) time:last_1h sort:timestamp:desc limit:1";
+    let expected_ids = [
+        "00000000-0000-0000-0000-000000000004",
+        "00000000-0000-0000-0000-000000000003",
+        "00000000-0000-0000-0000-000000000002",
+        "00000000-0000-0000-0000-000000000001",
+    ];
+    let mut cursor = None;
+    let mut seen_ids = Vec::new();
+
+    for expected_id in expected_ids {
+        let response = harness
+            .query(QueryRequest {
+                query: query.to_string(),
+                limit: None,
+                cursor,
+                direction: QueryDirection::Next,
+                mode: None,
+            })
+            .await;
+        let (status, body) = read_json(response).await;
+
+        assert_eq!(status, http::StatusCode::OK, "{body}");
+        let rows = body["results"]
+            .as_array()
+            .unwrap_or_else(|| panic!("results must be an array: {body}"));
+        assert_eq!(rows.len(), 1, "each page must contain one tied row: {body}");
+        let id = rows[0]["id"]
+            .as_str()
+            .unwrap_or_else(|| panic!("row must include its id: {body}"));
+        assert_eq!(id, expected_id, "timestamp ties must be UUID-desc: {body}");
+        seen_ids.push(id.to_string());
+        cursor = body["pagination"]["next_cursor"]
+            .as_str()
+            .map(str::to_string);
+        assert!(
+            cursor.is_some(),
+            "full page must provide next cursor: {body}"
+        );
+    }
+
+    assert_eq!(
+        seen_ids, expected_ids,
+        "no tied row may be skipped or repeated"
+    );
+    let mut unique_ids = seen_ids.clone();
+    unique_ids.sort();
+    unique_ids.dedup();
+    assert_eq!(unique_ids.len(), expected_ids.len());
+
+    let exhausted_response = harness
         .query(QueryRequest {
             query: query.to_string(),
             limit: None,
-            cursor: None,
+            cursor,
             direction: QueryDirection::Next,
             mode: None,
         })
         .await;
-    let (first_status, first_body) = read_json(first_response).await;
-
-    assert_eq!(first_status, http::StatusCode::OK, "{first_body}");
-    assert_eq!(first_body["results"][0]["body"], "Connection failed");
-    let next_cursor = first_body["pagination"]["next_cursor"]
-        .as_str()
-        .unwrap_or_else(|| panic!("first page must provide a cursor: {first_body}"));
-
-    let second_response = harness
-        .query(QueryRequest {
-            query: query.to_string(),
-            limit: None,
-            cursor: Some(next_cursor.to_string()),
-            direction: QueryDirection::Next,
-            mode: None,
-        })
-        .await;
-    let (second_status, second_body) = read_json(second_response).await;
-
-    assert_eq!(second_status, http::StatusCode::OK, "{second_body}");
-    assert_eq!(second_body["results"][0]["body"], "Application started");
+    let (exhausted_status, exhausted_body) = read_json(exhausted_response).await;
+    assert_eq!(exhausted_status, http::StatusCode::OK, "{exhausted_body}");
+    assert_eq!(exhausted_body["results"], serde_json::json!([]));
+    assert!(exhausted_body["pagination"]["next_cursor"].is_null());
 }
 
 async fn check_devices_inventory_query_matches_fixture(harness: &SrqlTestHarness) {
