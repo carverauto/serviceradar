@@ -311,7 +311,7 @@ func pendingMatchesPayload(manifest *InventoryCacheManifest, payload *ScanPayloa
 	pending := pendingUpload(manifest)
 	producerID := ""
 	if payload != nil {
-		producerID = metadataString(payload.Metadata, "scanner_producer_id")
+		producerID = scannerProducerID(payload.Metadata)
 	}
 	return pendingCoreMatchesPayload(manifest, payload) &&
 		pending.AgentID == payload.AgentID &&
@@ -343,7 +343,7 @@ func legacyPendingPayloadMatchesConfig(cfg Config, manifest *InventoryCacheManif
 	return payload.AgentID == cfg.AgentID &&
 		(manifest.AgentID == "" || manifest.AgentID == payload.AgentID) &&
 		strings.TrimSpace(payload.ConfigHash) != "" &&
-		strings.TrimSpace(metadataString(payload.Metadata, "scanner_producer_id")) != "" &&
+		strings.TrimSpace(scannerProducerID(payload.Metadata)) != "" &&
 		strings.TrimSpace(payload.CollectorVersion) != ""
 }
 
@@ -364,7 +364,7 @@ func ensurePendingIdentity(cfg Config, manifest *InventoryCacheManifest, payload
 	}
 
 	pending := manifest.PendingUpload
-	producerID := metadataString(payload.Metadata, "scanner_producer_id")
+	producerID := scannerProducerID(payload.Metadata)
 	pending.AgentID = payload.AgentID
 	pending.ConfigHash = payload.ConfigHash
 	pending.ProducerID = producerID

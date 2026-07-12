@@ -35,6 +35,7 @@ import (
 
 const (
 	scalibrTestAgentID = "agent-ns01"
+	scalibrTestConfig  = "cfg-hash"
 	severityHigh       = "High"
 )
 
@@ -49,7 +50,7 @@ func TestPayloadFromResultTranslatesPackagesDiagnosticsAndScannerActivity(t *tes
 	started := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
 	ended := started.Add(2 * time.Second)
 
-	payload := runner.payloadFromResult(started, "cfg-hash", &result.ScanResult{
+	payload, _ := runner.payloadAndPackagesFromResult(started, scalibrTestConfig, &result.ScanResult{
 		Version:   "v0.4.5",
 		StartTime: started,
 		EndTime:   ended,
@@ -106,7 +107,7 @@ func TestPayloadFromResultTranslatesGenericFindingsToScannerFindings(t *testing.
 	runner := NewRunner(cfg)
 	started := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
 
-	payload := runner.payloadFromResult(started, "cfg-hash", &result.ScanResult{
+	payload, _ := runner.payloadAndPackagesFromResult(started, scalibrTestConfig, &result.ScanResult{
 		StartTime: started,
 		EndTime:   started.Add(time.Second),
 		Status:    &plugin.ScanStatus{Status: plugin.ScanStatusSucceeded},
@@ -154,7 +155,7 @@ func TestPayloadFromResultKeepsFailedScanAsDiagnosticPayload(t *testing.T) {
 	runner := NewRunner(cfg)
 	started := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
 
-	payload := runner.payloadFromResult(started, "cfg-hash", &result.ScanResult{
+	payload, _ := runner.payloadAndPackagesFromResult(started, scalibrTestConfig, &result.ScanResult{
 		StartTime: started,
 		EndTime:   started.Add(time.Second),
 		Status: &plugin.ScanStatus{
@@ -298,7 +299,7 @@ func TestPartialScaLibrResultHasNoAuthoritativeSBOMOrCacheCommit(t *testing.T) {
 	cfg.TmpDir = filepath.Join(root, "tmp")
 	runner := NewRunner(cfg)
 	started := time.Unix(2_000, 0).UTC()
-	payload, packages := runner.payloadAndPackagesFromResult(started, "cfg-hash", &result.ScanResult{
+	payload, packages := runner.payloadAndPackagesFromResult(started, scalibrTestConfig, &result.ScanResult{
 		StartTime: started,
 		EndTime:   started.Add(time.Second),
 		Status:    &plugin.ScanStatus{Status: plugin.ScanStatusPartiallySucceeded},
@@ -314,7 +315,7 @@ func TestPartialScaLibrResultHasNoAuthoritativeSBOMOrCacheCommit(t *testing.T) {
 	}
 	identity := endpointinventory.CacheIdentity{
 		AgentID:         cfg.AgentID,
-		ConfigHash:      "cfg-hash",
+		ConfigHash:      scalibrTestConfig,
 		ProducerID:      ProducerID,
 		ProducerVersion: ProducerVersion,
 	}
@@ -354,7 +355,7 @@ func TestNilAggregateStatusRequiresAffirmativePluginSuccess(t *testing.T) {
 		"wholly nil plugin": {nil},
 	} {
 		t.Run(name, func(t *testing.T) {
-			payload := runner.payloadFromResult(started, "cfg-hash", &result.ScanResult{
+			payload, _ := runner.payloadAndPackagesFromResult(started, scalibrTestConfig, &result.ScanResult{
 				StartTime: started, EndTime: started.Add(time.Second), Status: nil,
 				PluginStatus: statuses, Inventory: packageInventory,
 			})
@@ -419,7 +420,7 @@ func TestScaLibrPackageLimitFailsBeforeBuildingSBOM(t *testing.T) {
 	cfg.MaxPackages = 1
 	runner := NewRunner(cfg)
 	started := time.Unix(3_000, 0).UTC()
-	payload, packages := runner.payloadAndPackagesFromResult(started, "cfg-hash", &result.ScanResult{
+	payload, packages := runner.payloadAndPackagesFromResult(started, scalibrTestConfig, &result.ScanResult{
 		StartTime: started,
 		EndTime:   started.Add(time.Second),
 		Status:    &plugin.ScanStatus{Status: plugin.ScanStatusSucceeded},
@@ -445,7 +446,7 @@ func TestStaleScaLibrFinalizeIsSuccessfulDiscard(t *testing.T) {
 	cfg.UploadJitter = "0s"
 	runner := NewRunner(cfg)
 	identity := endpointinventory.CacheIdentity{
-		AgentID: cfg.AgentID, ConfigHash: "cfg-hash", ProducerID: ProducerID, ProducerVersion: ProducerVersion,
+		AgentID: cfg.AgentID, ConfigHash: scalibrTestConfig, ProducerID: ProducerID, ProducerVersion: ProducerVersion,
 	}
 	newerAt := time.Unix(5_000, 0).UTC()
 	newer := completePayloadForFinalizeTest(cfg, "scan-newer", "newer-package", "newer-artifact", newerAt)
@@ -483,7 +484,7 @@ func completePayloadForFinalizeTest(
 	scannedAt time.Time,
 ) *endpointinventory.ScanPayload {
 	return &endpointinventory.ScanPayload{
-		SchemaVersion: endpointinventory.SchemaVersion, AgentID: cfg.AgentID, ConfigHash: "cfg-hash",
+		SchemaVersion: endpointinventory.SchemaVersion, AgentID: cfg.AgentID, ConfigHash: scalibrTestConfig,
 		CollectorVersion: ProducerVersion, ScanID: scanID, State: scanStateScanned,
 		CoverageState: coverageComplete, LastScanAt: scannedAt, LastSuccessfulScanAt: &scannedAt,
 		PackageCount: 1, PackageSetHash: packageHash, ArtifactHash: artifactHash,
@@ -504,7 +505,7 @@ func TestScaLibrPayloadUsesSharedPendingAckAndReconcileLifecycle(t *testing.T) {
 	runner := NewRunner(cfg)
 	identity := endpointinventory.CacheIdentity{
 		AgentID:         cfg.AgentID,
-		ConfigHash:      "cfg-hash",
+		ConfigHash:      scalibrTestConfig,
 		ProducerID:      ProducerID,
 		ProducerVersion: ProducerVersion,
 	}
@@ -527,7 +528,7 @@ func TestScaLibrPayloadUsesSharedPendingAckAndReconcileLifecycle(t *testing.T) {
 		},
 	}
 
-	first, packages := runner.payloadAndPackagesFromResult(started, "cfg-hash", scanResult)
+	first, packages := runner.payloadAndPackagesFromResult(started, scalibrTestConfig, scanResult)
 	if err := endpointinventory.FinalizeFullScan(cfg.Config, identity, first, packages, nil, started); err != nil {
 		t.Fatal(err)
 	}
@@ -556,15 +557,11 @@ func TestScaLibrPayloadUsesSharedPendingAckAndReconcileLifecycle(t *testing.T) {
 	if err := endpointinventory.MarkServerReconcileRequested(cfg.Config, reconcileAt, "server floor"); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err = endpointinventory.ReadCacheManifest(cfg.Config)
-	if err != nil {
-		t.Fatal(err)
-	}
 	secondStarted := started.Add(3 * time.Minute)
 	secondResult := *scanResult
 	secondResult.StartTime = secondStarted
 	secondResult.EndTime = secondStarted.Add(time.Second)
-	second, secondPackages := runner.payloadAndPackagesFromResult(secondStarted, "cfg-hash", &secondResult)
+	second, secondPackages := runner.payloadAndPackagesFromResult(secondStarted, scalibrTestConfig, &secondResult)
 	if err := endpointinventory.FinalizeFullScan(
 		cfg.Config,
 		identity,
@@ -593,15 +590,11 @@ func TestScaLibrPayloadUsesSharedPendingAckAndReconcileLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	manifest, err = endpointinventory.ReadCacheManifest(cfg.Config)
-	if err != nil {
-		t.Fatal(err)
-	}
 	thirdStarted := started.Add(5 * time.Minute)
 	thirdResult := *scanResult
 	thirdResult.StartTime = thirdStarted
 	thirdResult.EndTime = thirdStarted.Add(time.Second)
-	third, thirdPackages := runner.payloadAndPackagesFromResult(thirdStarted, "cfg-hash", &thirdResult)
+	third, thirdPackages := runner.payloadAndPackagesFromResult(thirdStarted, scalibrTestConfig, &thirdResult)
 	if err := endpointinventory.FinalizeFullScan(
 		cfg.Config,
 		identity,

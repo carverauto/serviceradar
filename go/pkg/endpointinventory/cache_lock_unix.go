@@ -28,6 +28,7 @@ import (
 
 const cacheManifestLockFileName = ".manifest.lock"
 
+//nolint:gochecknoglobals // Manifest read-modify-write operations require one process-wide lock.
 var cacheManifestProcessLock sync.Mutex
 
 func withCacheManifestLock(cfg Config, fn func() error) error {

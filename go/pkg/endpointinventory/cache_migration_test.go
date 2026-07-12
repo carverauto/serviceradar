@@ -18,7 +18,7 @@ import (
 func TestCacheWithoutImmutableFullScanAnchorCannotSlideCadence(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.AgentID = endpointInventoryTestAgentID
-	cfg.Cadence = "24h"
+	cfg.Cadence = endpointInventoryTestDaily
 	cfg.Sources = []string{PackageSourceDpkg}
 	identity := testCacheIdentity(cfg)
 	now := time.Unix(20_000, 0).UTC()
@@ -48,7 +48,7 @@ func TestLegacyPendingPayloadMigratesAnImmutableCadenceAnchor(t *testing.T) {
 	root := t.TempDir()
 	cfg := DefaultConfig()
 	cfg.AgentID = endpointInventoryTestAgentID
-	cfg.Cadence = "24h"
+	cfg.Cadence = endpointInventoryTestDaily
 	cfg.Sources = []string{PackageSourceDpkg}
 	cfg.SpoolDir = filepath.Join(root, "spool")
 	cfg.CacheDir = filepath.Join(root, "cache")
@@ -126,7 +126,7 @@ func TestLegacyPendingPayloadMigratesAnImmutableCadenceAnchor(t *testing.T) {
 func TestCacheIdentityMismatchForcesFullScan(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.AgentID = endpointInventoryTestAgentID
-	cfg.Cadence = "24h"
+	cfg.Cadence = endpointInventoryTestDaily
 	cfg.Sources = []string{PackageSourceDpkg}
 	identity := testCacheIdentity(cfg)
 	now := time.Unix(30_000, 0).UTC()
@@ -166,7 +166,7 @@ func TestCachedScanCommitDetectsConcurrentReconcileRequest(t *testing.T) {
 	root := t.TempDir()
 	cfg := DefaultConfig()
 	cfg.AgentID = endpointInventoryTestAgentID
-	cfg.Cadence = "24h"
+	cfg.Cadence = endpointInventoryTestDaily
 	cfg.Sources = []string{PackageSourceDpkg}
 	cfg.SpoolDir = filepath.Join(root, "spool")
 	cfg.CacheDir = filepath.Join(root, "cache")

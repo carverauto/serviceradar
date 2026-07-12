@@ -211,16 +211,6 @@ func (r *Runner) finalizeFullScan(
 	return false, err
 }
 
-func (r *Runner) payloadFromResult(
-	started time.Time,
-	configHash string,
-	scanResult *result.ScanResult,
-) *endpointinventory.ScanPayload {
-	payload, _ := r.payloadAndPackagesFromResult(started, configHash, scanResult)
-
-	return payload
-}
-
 func (r *Runner) payloadAndPackagesFromResult(
 	started time.Time,
 	configHash string,

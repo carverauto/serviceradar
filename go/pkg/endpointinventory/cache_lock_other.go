@@ -20,6 +20,7 @@ package endpointinventory
 
 import "sync"
 
+//nolint:gochecknoglobals // Manifest read-modify-write operations require one process-wide lock.
 var cacheManifestProcessLock sync.Mutex
 
 func withCacheManifestLock(_ Config, fn func() error) error {

@@ -55,6 +55,7 @@ var (
 	ErrInvalidMaxPackages      = errors.New("invalid max_packages")
 	ErrInvalidMaxOutputSize    = errors.New("invalid max_output_bytes")
 	ErrInvalidDuration         = errors.New("invalid duration")
+	ErrInvalidRetryRange       = errors.New("invalid upload_retry_max: must be greater than or equal to upload_retry_initial")
 	ErrInvalidRetryAttempts    = errors.New("invalid upload_retry_max_attempts")
 	ErrInvalidFullScanInterval = errors.New("invalid force_full_scan_interval")
 	ErrUnsupportedSource       = errors.New("unsupported source")
@@ -310,7 +311,7 @@ func validateConfig(cfg Config) error {
 	} else if retryMax <= 0 {
 		return fmt.Errorf("invalid upload_retry_max: %w", ErrInvalidDuration)
 	} else if retryInitial, initialErr := time.ParseDuration(cfg.UploadRetryInitial); initialErr == nil && retryMax < retryInitial {
-		return fmt.Errorf("invalid upload_retry_max: must be greater than or equal to upload_retry_initial")
+		return ErrInvalidRetryRange
 	}
 	if cfg.UploadRetryMaxAttempts <= 0 {
 		return fmt.Errorf("%w: %d", ErrInvalidRetryAttempts, cfg.UploadRetryMaxAttempts)

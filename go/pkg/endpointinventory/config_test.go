@@ -74,7 +74,7 @@ func TestValidateConfigRejectsInvalidRetryAndOutputBounds(t *testing.T) {
 		"negative packages": func(cfg *Config) { cfg.MaxPackages = -1 },
 		"negative attempts": func(cfg *Config) { cfg.UploadRetryMaxAttempts = -1 },
 		"retry max below initial": func(cfg *Config) {
-			cfg.UploadRetryInitial = "10m"
+			cfg.UploadRetryInitial = endpointInventoryTestTenMins
 			cfg.UploadRetryMax = "5m"
 		},
 		"output above transport cap": func(cfg *Config) {

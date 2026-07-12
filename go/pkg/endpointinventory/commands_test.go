@@ -27,7 +27,7 @@ func TestEvaluateManifestQuerySupportsExistsCountAndDetail(t *testing.T) {
 	manifest := endpointInventoryQueryManifest(scannedAt)
 	cfg := DefaultConfig()
 	cfg.AgentID = configTestAgentID
-	cfg.CacheStaleThreshold = "10m"
+	cfg.CacheStaleThreshold = endpointInventoryTestTenMins
 	now := scannedAt.Add(2 * time.Minute)
 
 	exists, err := EvaluateManifestQuery(cfg, manifest, EndpointInventoryQuery{

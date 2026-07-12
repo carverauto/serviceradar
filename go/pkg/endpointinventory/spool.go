@@ -72,7 +72,7 @@ func payloadMatchesCurrentManifest(manifest *InventoryCacheManifest, payload *Sc
 	if manifest == nil || payload == nil ||
 		manifest.AgentID != payload.AgentID ||
 		manifest.ConfigHash != payload.ConfigHash ||
-		manifest.ProducerID != metadataString(payload.Metadata, "scanner_producer_id") ||
+		manifest.ProducerID != scannerProducerID(payload.Metadata) ||
 		manifest.ProducerVersion != payload.CollectorVersion ||
 		manifest.PackageSetHash != payload.PackageSetHash ||
 		manifest.ArtifactHash != payload.ArtifactHash ||
@@ -87,7 +87,6 @@ func payloadMatchesCurrentManifest(manifest *InventoryCacheManifest, payload *Sc
 }
 
 func ensureSpoolDirs(cfg Config, includeRuns bool) error {
-
 	// 0770 (group-writable) so both the root scanner and the non-root
 	// serviceradar agent can write spool entries and upload markers into the
 	// shared serviceradar-group dirs.

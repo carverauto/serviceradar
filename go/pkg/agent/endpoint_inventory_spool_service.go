@@ -67,6 +67,9 @@ func (s *EndpointInventorySpoolService) UpdateConfig(*models.Config) error {
 func (s *EndpointInventorySpoolService) GetStatus(context.Context) (*proto.StatusResponse, error) {
 	data, err := s.statusPayload()
 	if err != nil {
+		if errors.Is(err, endpointinventory.ErrPendingUploadUnavailable) {
+			return nil, err
+		}
 		if errors.Is(err, os.ErrNotExist) {
 			return s.notScannedStatus(), nil
 		}

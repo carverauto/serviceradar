@@ -249,7 +249,7 @@ func pendingUploadState(
 		ScanID:               payload.ScanID,
 		AgentID:              payload.AgentID,
 		ConfigHash:           payload.ConfigHash,
-		ProducerID:           metadataString(payload.Metadata, "scanner_producer_id"),
+		ProducerID:           scannerProducerID(payload.Metadata),
 		ProducerVersion:      payload.CollectorVersion,
 		PackageSetHash:       payload.PackageSetHash,
 		ArtifactHash:         payload.ArtifactHash,
@@ -264,8 +264,8 @@ func pendingUploadState(
 	}
 }
 
-func metadataString(metadata map[string]any, key string) string {
-	value, _ := metadata[key].(string)
+func scannerProducerID(metadata map[string]any) string {
+	value, _ := metadata["scanner_producer_id"].(string)
 	return value
 }
 

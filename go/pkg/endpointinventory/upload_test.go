@@ -13,7 +13,7 @@ func TestRunnerSchedulesPendingUploadWithoutReplacingUploadedHashes(t *testing.T
 	tmpDir := t.TempDir()
 	dpkgPath := writeEndpointInventoryFixture(t, tmpDir)
 	cfg := testEndpointInventoryConfig(tmpDir, dpkgPath)
-	cfg.UploadJitter = "10m"
+	cfg.UploadJitter = endpointInventoryTestTenMins
 	configHash := computeConfigHash(cfg)
 
 	previousUpload := "old-package-hash"

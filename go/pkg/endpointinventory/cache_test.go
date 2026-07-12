@@ -135,7 +135,7 @@ func TestCacheCanSkipFullScanWhileReconcileAnchorAwaitsAck(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Sources = []string{PackageSourceDpkg}
 	cfg.AgentID = endpointInventoryTestAgentID
-	cfg.Cadence = "24h"
+	cfg.Cadence = endpointInventoryTestDaily
 	cfg.SpoolDir = filepath.Join(root, "spool")
 	cfg.CacheDir = filepath.Join(root, "cache")
 	cfg.TmpDir = filepath.Join(root, "tmp")
@@ -189,7 +189,7 @@ func TestCacheCanSkipFullScanRecoversInterruptedPendingSpoolWrite(t *testing.T) 
 	cfg := DefaultConfig()
 	cfg.AgentID = endpointInventoryTestAgentID
 	cfg.Sources = []string{PackageSourceDpkg}
-	cfg.Cadence = "24h"
+	cfg.Cadence = endpointInventoryTestDaily
 	cfg.SpoolDir = filepath.Join(root, "spool")
 	cfg.CacheDir = filepath.Join(root, "cache")
 	cfg.TmpDir = filepath.Join(root, "tmp")

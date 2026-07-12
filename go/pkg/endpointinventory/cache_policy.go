@@ -92,12 +92,12 @@ func readMatchingPendingPayloadUnlocked(
 ) (*ScanPayload, []byte, error) {
 	data, err := os.ReadFile(PendingUploadPath(cfg.SpoolDir))
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: %v", ErrPendingUploadUnavailable, err)
+		return nil, nil, fmt.Errorf("%w: %w", ErrPendingUploadUnavailable, err)
 	}
 
 	var payload ScanPayload
 	if err := json.Unmarshal(data, &payload); err != nil {
-		return nil, nil, fmt.Errorf("%w: decode payload: %v", ErrPendingUploadUnavailable, err)
+		return nil, nil, fmt.Errorf("%w: decode payload: %w", ErrPendingUploadUnavailable, err)
 	}
 	if !pendingCoreMatchesPayload(manifest, &payload) ||
 		(!pendingMatchesPayload(manifest, &payload) && !legacyPendingPayloadMatchesConfig(cfg, manifest, &payload)) {

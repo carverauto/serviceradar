@@ -15,6 +15,8 @@ import (
 const (
 	endpointInventoryTestAgentID  = "agent-1"
 	endpointInventoryTestCadence  = "6h"
+	endpointInventoryTestDaily    = "24h"
+	endpointInventoryTestTenMins  = "10m"
 	collectionPolicyMetadataKey   = "collection_policy"
 	diagnosticStateError          = "error"
 	redactionPolicyMetadataKey    = "redaction_policy"
@@ -384,14 +386,14 @@ func TestBuildCycloneDXIncludesAgentAndOSProperties(t *testing.T) {
 func TestDisabledPayloadIncludesCollectionPolicy(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.AgentID = endpointInventoryTestAgentID
-	cfg.Cadence = "24h"
+	cfg.Cadence = endpointInventoryTestDaily
 
 	scan, err := NewRunner(cfg).Run(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	policy, ok := scan.Metadata[collectionPolicyMetadataKey].(map[string]any)
-	if !ok || policy["cadence"] != "24h" {
+	if !ok || policy["cadence"] != endpointInventoryTestDaily {
 		t.Fatalf("disabled payload missing collection policy: %#v", scan.Metadata)
 	}
 }
