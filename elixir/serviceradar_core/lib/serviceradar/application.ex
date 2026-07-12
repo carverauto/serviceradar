@@ -156,10 +156,7 @@ defmodule ServiceRadar.Application do
         cluster_children(),
 
         # Coordinator-only duties for core-elx candidates
-        coordinator_children(),
-
-        # NATS ingest notification → PubSub bridge (lightweight, no ack needed)
-        nats_ingest_notifier_child()
+        coordinator_children()
       ]
       |> List.flatten()
       |> Enum.reject(&is_nil/1)
@@ -464,12 +461,6 @@ defmodule ServiceRadar.Application do
 
     if enabled and ServiceRadar.SPIFFE.certs_available?() do
       ServiceRadar.SPIFFE.CertMonitor
-    end
-  end
-
-  defp nats_ingest_notifier_child do
-    if nats_enabled?() do
-      ServiceRadar.Observability.NatsIngestNotifier
     end
   end
 
