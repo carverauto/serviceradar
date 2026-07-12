@@ -21,10 +21,15 @@ const (
 )
 
 func TestEndpointInventorySpoolServiceMissingSpoolReturnsNotScanned(t *testing.T) {
-	spoolPath := filepath.Join(t.TempDir(), "missing.json")
+	tmpDir := t.TempDir()
+	spoolPath := filepath.Join(tmpDir, "missing.json")
 	service := NewEndpointInventorySpoolService(
 		endpointInventorySpoolTestAgentID,
-		&EndpointInventoryStatusConfig{SpoolPath: spoolPath},
+		&EndpointInventoryStatusConfig{
+			SpoolPath: spoolPath,
+			CacheDir:  filepath.Join(tmpDir, "cache"),
+			TmpDir:    filepath.Join(tmpDir, "tmp"),
+		},
 	)
 
 	status, err := service.GetStatus(context.Background())
@@ -297,7 +302,11 @@ func TestEndpointInventorySpoolServiceOverridesExistingAgentID(t *testing.T) {
 
 	service := NewEndpointInventorySpoolService(
 		endpointInventorySpoolTestAgentID,
-		&EndpointInventoryStatusConfig{SpoolPath: spoolPath},
+		&EndpointInventoryStatusConfig{
+			SpoolPath: spoolPath,
+			CacheDir:  filepath.Join(tmpDir, "cache"),
+			TmpDir:    filepath.Join(tmpDir, "tmp"),
+		},
 	)
 	status, err := service.GetStatus(context.Background())
 	if err != nil {
