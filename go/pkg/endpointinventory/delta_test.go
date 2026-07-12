@@ -108,9 +108,13 @@ func TestRunAttachesDeltaOnChangedScanWithPriorUploadedState(t *testing.T) {
 		{Name: deltaTestPkgCurl, Version: "7.80", Arch: "amd64", Manager: PackageSourceDpkg},
 	}
 	priorHash := ComputePackageSetHash(priorPackages)
+	configHash := computeConfigHash(cfg)
 	if err := WriteCacheManifest(cfg, &InventoryCacheManifest{
 		SchemaVersion:              CacheVersion,
 		AgentID:                    cfg.AgentID,
+		ConfigHash:                 configHash,
+		ProducerID:                 collectorName,
+		ProducerVersion:            collectorVersion,
 		PackageSetHash:             priorHash,
 		ArtifactHash:               "prior-artifact",
 		LastUploadedPackageSetHash: priorHash,

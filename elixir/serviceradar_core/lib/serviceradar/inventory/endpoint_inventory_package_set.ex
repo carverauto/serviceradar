@@ -213,10 +213,17 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackageSet do
 
   def scan_state(payload) do
     case Payload.string_value(payload, :state) || Payload.string_value(payload, :status) do
-      value when value in ["scanned", "scan_failed", "not_scanned", "unchanged"] -> value
-      value when value in ["complete", "success"] -> "scanned"
-      "failed" -> "scan_failed"
-      _ -> "scanned"
+      value when value in ["scanned", "scan_failed", "not_scanned", "unchanged", "partial"] ->
+        value
+
+      value when value in ["complete", "success"] ->
+        "scanned"
+
+      "failed" ->
+        "scan_failed"
+
+      _ ->
+        "scanned"
     end
   end
 
@@ -275,6 +282,9 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackageSet do
         Payload.datetime_value(payload, :last_successful_scan_at) ||
           Payload.datetime_value(payload, :last_scan_at) ||
           fallback
+
+      "partial" ->
+        nil
 
       _ ->
         Payload.datetime_value(payload, :last_successful_scan_at)

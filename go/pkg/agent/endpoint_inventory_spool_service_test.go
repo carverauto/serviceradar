@@ -3,15 +3,22 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/endpointinventory"
 )
 
-const endpointInventorySpoolTestAgentID = "agent-1"
+const (
+	endpointInventorySpoolTestAgentID         = "agent-1"
+	endpointInventorySpoolTestConfigHash      = "config-hash"
+	endpointInventorySpoolTestProducerID      = "serviceradar.scalibr.endpoint_inventory"
+	endpointInventorySpoolTestProducerVersion = "0.1.2"
+)
 
 func TestEndpointInventorySpoolServiceMissingSpoolReturnsNotScanned(t *testing.T) {
 	spoolPath := filepath.Join(t.TempDir(), "missing.json")
@@ -59,17 +66,12 @@ func TestEndpointInventorySpoolServiceDefersPendingUploadBeforeDue(t *testing.T)
 		t.Fatal(err)
 	}
 	if err := endpointinventory.WriteCacheManifest(cfg, &endpointinventory.InventoryCacheManifest{
-		SchemaVersion: endpointinventory.CacheVersion,
-		AgentID:       endpointInventorySpoolTestAgentID,
-		PendingUpload: &endpointinventory.PendingUploadState{
-			ScanID:         payload.ScanID,
-			PackageSetHash: payload.PackageSetHash,
-			ArtifactHash:   payload.ArtifactHash,
-			UploadReason:   payload.UploadReason,
-			AvailableAfter: time.Now().UTC().Add(time.Hour),
-			CreatedAt:      time.Now().UTC(),
-			UpdatedAt:      time.Now().UTC(),
-		},
+		SchemaVersion:   endpointinventory.CacheVersion,
+		AgentID:         endpointInventorySpoolTestAgentID,
+		ConfigHash:      endpointInventorySpoolTestConfigHash,
+		ProducerID:      endpointInventorySpoolTestProducerID,
+		ProducerVersion: endpointInventorySpoolTestProducerVersion,
+		PendingUpload:   endpointInventoryPendingState(payload, time.Now().UTC().Add(time.Hour)),
 		SourceMTimes:    map[string]endpointinventory.SourceMTime{},
 		Packages:        []endpointinventory.Package{},
 		SourceSummaries: []endpointinventory.SourceSummary{},
@@ -114,17 +116,12 @@ func TestEndpointInventorySpoolServiceReturnsPendingUploadWhenDue(t *testing.T) 
 		t.Fatal(err)
 	}
 	if err := endpointinventory.WriteCacheManifest(cfg, &endpointinventory.InventoryCacheManifest{
-		SchemaVersion: endpointinventory.CacheVersion,
-		AgentID:       endpointInventorySpoolTestAgentID,
-		PendingUpload: &endpointinventory.PendingUploadState{
-			ScanID:         payload.ScanID,
-			PackageSetHash: payload.PackageSetHash,
-			ArtifactHash:   payload.ArtifactHash,
-			UploadReason:   payload.UploadReason,
-			AvailableAfter: time.Now().UTC().Add(-time.Second),
-			CreatedAt:      time.Now().UTC().Add(-time.Minute),
-			UpdatedAt:      time.Now().UTC().Add(-time.Minute),
-		},
+		SchemaVersion:   endpointinventory.CacheVersion,
+		AgentID:         endpointInventorySpoolTestAgentID,
+		ConfigHash:      endpointInventorySpoolTestConfigHash,
+		ProducerID:      endpointInventorySpoolTestProducerID,
+		ProducerVersion: endpointInventorySpoolTestProducerVersion,
+		PendingUpload:   endpointInventoryPendingState(payload, time.Now().UTC().Add(-time.Second)),
 		SourceMTimes:    map[string]endpointinventory.SourceMTime{},
 		Packages:        []endpointinventory.Package{},
 		SourceSummaries: []endpointinventory.SourceSummary{},
@@ -151,6 +148,70 @@ func TestEndpointInventorySpoolServiceReturnsPendingUploadWhenDue(t *testing.T) 
 	}
 	if got.SBOM == nil || got.UploadReason != endpointinventory.UploadReasonChanged {
 		t.Fatalf("expected pending full upload, got %#v", got)
+	}
+}
+
+func TestEndpointInventorySpoolServiceRejectsMissingOrMismatchedPendingPayload(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(t *testing.T, cfg endpointinventory.Config)
+	}{
+		{
+			name: "missing",
+			mutate: func(t *testing.T, cfg endpointinventory.Config) {
+				t.Helper()
+				if err := os.Remove(endpointinventory.PendingUploadPath(cfg.SpoolDir)); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "mismatched",
+			mutate: func(t *testing.T, cfg endpointinventory.Config) {
+				t.Helper()
+				mismatch := endpointInventoryFullUploadPayload(time.Now().UTC())
+				mismatch.ScanID = "different-scan"
+				data, err := json.Marshal(mismatch)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(endpointinventory.PendingUploadPath(cfg.SpoolDir), data, 0640); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			cfg := endpointinventory.DefaultConfig()
+			cfg.AgentID = endpointInventorySpoolTestAgentID
+			cfg.SpoolDir = filepath.Join(root, "spool")
+			cfg.CacheDir = filepath.Join(root, "cache")
+			cfg.TmpDir = filepath.Join(root, "tmp")
+			payload := endpointInventoryFullUploadPayload(time.Now().UTC())
+			if err := endpointinventory.WriteSpool(cfg, payload); err != nil {
+				t.Fatal(err)
+			}
+			if err := endpointinventory.WriteCacheManifest(cfg, &endpointinventory.InventoryCacheManifest{
+				SchemaVersion: endpointinventory.CacheVersion, AgentID: payload.AgentID,
+				ConfigHash: payload.ConfigHash, ProducerID: endpointInventorySpoolTestProducerID,
+				ProducerVersion: payload.CollectorVersion,
+				PendingUpload:   endpointInventoryPendingState(payload, time.Now().UTC().Add(-time.Minute)),
+				Packages:        []endpointinventory.Package{}, SourceSummaries: []endpointinventory.SourceSummary{},
+				SourceMTimes: map[string]endpointinventory.SourceMTime{},
+			}); err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(t, cfg)
+
+			service := NewEndpointInventorySpoolService(payload.AgentID, &EndpointInventoryStatusConfig{
+				SpoolPath: endpointinventory.LatestPath(cfg.SpoolDir), CacheDir: cfg.CacheDir, TmpDir: cfg.TmpDir,
+			})
+			_, err := service.GetStatus(context.Background())
+			if !errors.Is(err, endpointinventory.ErrPendingUploadUnavailable) {
+				t.Fatalf("status error = %v, want ErrPendingUploadUnavailable", err)
+			}
+		})
 	}
 }
 
@@ -252,6 +313,53 @@ func TestEndpointInventorySpoolServiceOverridesExistingAgentID(t *testing.T) {
 	}
 }
 
+func TestEndpointInventorySpoolServiceEnforcesCapAfterAgentIDMutation(t *testing.T) {
+	root := t.TempDir()
+	spoolPath := filepath.Join(root, "latest.json")
+	payload := map[string]any{
+		"agent_id":       "x",
+		"schema_version": endpointinventory.SchemaVersion,
+		"scan_id":        "scan-size-cap",
+		"state":          "not_scanned",
+		"coverage_state": "not_scanned",
+		"metadata":       map[string]any{"padding": ""},
+	}
+	padding := strings.Repeat("p", int(endpointinventory.MaxSpoolPayloadBytes)-1024)
+	payload["metadata"].(map[string]any)["padding"] = padding
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remaining := int(endpointinventory.MaxSpoolPayloadBytes) - len(raw)
+	if remaining < 0 {
+		t.Fatalf("test fixture exceeded cap before final mutation: %d", len(raw))
+	}
+	payload["metadata"].(map[string]any)["padding"] = padding + strings.Repeat("p", remaining)
+	raw, err = json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int64(len(raw)) != endpointinventory.MaxSpoolPayloadBytes {
+		t.Fatalf("fixture size = %d, want %d", len(raw), endpointinventory.MaxSpoolPayloadBytes)
+	}
+	if err := os.WriteFile(spoolPath, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewEndpointInventorySpoolService(
+		strings.Repeat("agent", 1024),
+		&EndpointInventoryStatusConfig{
+			SpoolPath: spoolPath,
+			CacheDir:  filepath.Join(root, "cache"),
+			TmpDir:    filepath.Join(root, "tmp"),
+		},
+	)
+	_, err = service.GetStatus(context.Background())
+	if !errors.Is(err, errEndpointInventorySpoolTooLarge) {
+		t.Fatalf("status error = %v, want errEndpointInventorySpoolTooLarge", err)
+	}
+}
+
 func TestEndpointInventorySpoolServiceStabilizesAcknowledgedUnchangedStatus(t *testing.T) {
 	tmpDir := t.TempDir()
 	spoolDir := filepath.Join(tmpDir, "spool")
@@ -265,6 +373,9 @@ func TestEndpointInventorySpoolServiceStabilizesAcknowledgedUnchangedStatus(t *t
 	manifest := &endpointinventory.InventoryCacheManifest{
 		SchemaVersion:              endpointinventory.CacheVersion,
 		AgentID:                    endpointInventorySpoolTestAgentID,
+		ConfigHash:                 endpointInventorySpoolTestConfigHash,
+		ProducerID:                 endpointInventorySpoolTestProducerID,
+		ProducerVersion:            endpointInventorySpoolTestProducerVersion,
 		PackageSetHash:             "package-hash",
 		ArtifactHash:               "artifact-hash",
 		LastUploadedPackageSetHash: "package-hash",
@@ -295,6 +406,16 @@ func TestEndpointInventorySpoolServiceStabilizesAcknowledgedUnchangedStatus(t *t
 	firstPayload.ScanID = "scan-first"
 	firstPayload.SBOM = nil
 	firstPayload.UploadReason = endpointinventory.UploadReasonUnchanged
+	firstPayload.CoverageState = "unchanged"
+	firstPayload.Metadata = map[string]any{
+		"reason":              "cadence_not_due",
+		"scanner_activity":    map[string]any{"scan_id": "nested-first", "started_at": firstScanAt},
+		"scanner_producer_id": endpointInventorySpoolTestProducerID,
+	}
+	manifest.LastScanAt = firstScanAt
+	if err := endpointinventory.WriteCacheManifest(cfg, manifest); err != nil {
+		t.Fatal(err)
+	}
 	if err := endpointinventory.WriteSpool(cfg, firstPayload); err != nil {
 		t.Fatal(err)
 	}
@@ -308,6 +429,16 @@ func TestEndpointInventorySpoolServiceStabilizesAcknowledgedUnchangedStatus(t *t
 	secondPayload.ScanID = "scan-second"
 	secondPayload.SBOM = nil
 	secondPayload.UploadReason = endpointinventory.UploadReasonUnchanged
+	secondPayload.CoverageState = "unchanged"
+	secondPayload.Metadata = map[string]any{
+		"reason":              "cadence_not_due",
+		"scanner_activity":    map[string]any{"scan_id": "nested-second", "started_at": secondScanAt},
+		"scanner_producer_id": endpointInventorySpoolTestProducerID,
+	}
+	manifest.LastScanAt = secondScanAt
+	if err := endpointinventory.WriteCacheManifest(cfg, manifest); err != nil {
+		t.Fatal(err)
+	}
 	if err := endpointinventory.WriteSpool(cfg, secondPayload); err != nil {
 		t.Fatal(err)
 	}
@@ -336,10 +467,76 @@ func TestEndpointInventorySpoolServiceStabilizesAcknowledgedUnchangedStatus(t *t
 	}
 }
 
+func TestSuppressEndpointInventoryUploadedSBOMRequiresHashProof(t *testing.T) {
+	payload := endpointInventoryFullUploadPayload(time.Unix(1_000, 0).UTC())
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertFullUpload := func(name string, got []byte) {
+		t.Helper()
+		var decoded endpointinventory.ScanPayload
+		if err := json.Unmarshal(got, &decoded); err != nil {
+			t.Fatalf("%s: decode payload: %v", name, err)
+		}
+		if decoded.SBOM == nil || decoded.UploadReason != endpointinventory.UploadReasonChanged {
+			t.Fatalf("%s: unacknowledged full upload was suppressed: %#v", name, decoded)
+		}
+	}
+
+	assertFullUpload("missing manifest", suppressEndpointInventoryUploadedSBOM(data, nil))
+	assertFullUpload("mismatched hashes", suppressEndpointInventoryUploadedSBOM(data, &endpointinventory.InventoryCacheManifest{
+		LastUploadedPackageSetHash: "older-package-hash",
+		LastUploadedArtifactHash:   "older-artifact-hash",
+	}))
+
+	got := suppressEndpointInventoryUploadedSBOM(data, &endpointinventory.InventoryCacheManifest{
+		LastUploadedPackageSetHash: payload.PackageSetHash,
+		LastUploadedArtifactHash:   payload.ArtifactHash,
+	})
+	var decoded endpointinventory.ScanPayload
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.SBOM != nil || decoded.UploadReason != endpointinventory.UploadReasonUnchanged {
+		t.Fatalf("acknowledged upload was not compacted: %#v", decoded)
+	}
+}
+
+func TestStabilizeEndpointInventoryUnchangedStatusPreservesFullScanFreshness(t *testing.T) {
+	scannedAt := time.Unix(1_000, 0).UTC()
+	payload := endpointInventoryFullUploadPayload(scannedAt)
+	payload.SBOM = nil
+	payload.UploadReason = endpointinventory.UploadReasonUnchanged
+	payload.Metadata = map[string]any{
+		endpointinventory.MetadataReasonKey: endpointinventory.MetadataReasonFullScanHashUnchanged,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := &endpointinventory.InventoryCacheManifest{
+		LastUploadedPackageSetHash: payload.PackageSetHash,
+		LastUploadedArtifactHash:   payload.ArtifactHash,
+	}
+
+	got := stabilizeEndpointInventoryUnchangedStatus(data, manifest)
+	var decoded endpointinventory.ScanPayload
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.ScanID != payload.ScanID || !decoded.LastScanAt.Equal(scannedAt) {
+		t.Fatalf("completed full scan freshness was stabilized away: %#v", decoded)
+	}
+}
+
 func endpointInventoryFullUploadPayload(scannedAt time.Time) *endpointinventory.ScanPayload {
 	return &endpointinventory.ScanPayload{
 		SchemaVersion:        endpointinventory.SchemaVersion,
-		AgentID:              "agent-original",
+		AgentID:              endpointInventorySpoolTestAgentID,
+		ConfigHash:           endpointInventorySpoolTestConfigHash,
+		CollectorVersion:     endpointInventorySpoolTestProducerVersion,
 		ScanID:               "scan-1",
 		State:                "scanned",
 		CoverageState:        "complete",
@@ -351,10 +548,33 @@ func endpointInventoryFullUploadPayload(scannedAt time.Time) *endpointinventory.
 		ArtifactHash:         "artifact-hash",
 		HashAlgorithm:        endpointinventory.HashAlgorithm,
 		UploadReason:         endpointinventory.UploadReasonChanged,
+		Metadata: map[string]any{
+			"scanner_producer_id": endpointInventorySpoolTestProducerID,
+		},
 		SBOM: &endpointinventory.CycloneDXBOM{
 			BOMFormat:   endpointinventory.CycloneDXFormat,
 			SpecVersion: endpointinventory.CycloneDXSpecVersion,
 			Version:     1,
 		},
+	}
+}
+
+func endpointInventoryPendingState(
+	payload *endpointinventory.ScanPayload,
+	availableAfter time.Time,
+) *endpointinventory.PendingUploadState {
+	now := time.Now().UTC()
+	return &endpointinventory.PendingUploadState{
+		ScanID:          payload.ScanID,
+		AgentID:         payload.AgentID,
+		ConfigHash:      payload.ConfigHash,
+		ProducerID:      endpointInventorySpoolTestProducerID,
+		ProducerVersion: payload.CollectorVersion,
+		PackageSetHash:  payload.PackageSetHash,
+		ArtifactHash:    payload.ArtifactHash,
+		UploadReason:    payload.UploadReason,
+		AvailableAfter:  availableAfter,
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	}
 }

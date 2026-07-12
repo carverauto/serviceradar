@@ -29,7 +29,6 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
-const maxEndpointInventorySpoolBytes = 32 * 1024 * 1024
 const endpointInventoryUploadDeferredState = "upload_deferred"
 
 var errEndpointInventorySpoolTooLarge = errors.New("endpoint inventory spool payload exceeds size budget")
@@ -73,11 +72,10 @@ func (s *EndpointInventorySpoolService) GetStatus(context.Context) (*proto.Statu
 		}
 		return nil, err
 	}
-	if len(data) > maxEndpointInventorySpoolBytes {
+	data = ensureEndpointInventoryAgentID(data, s.agentID)
+	if int64(len(data)) > endpointinventory.MaxSpoolPayloadBytes {
 		return nil, errEndpointInventorySpoolTooLarge
 	}
-
-	data = ensureEndpointInventoryAgentID(data, s.agentID)
 
 	return &proto.StatusResponse{
 		Available:   true,
@@ -88,18 +86,13 @@ func (s *EndpointInventorySpoolService) GetStatus(context.Context) (*proto.Statu
 }
 
 func (s *EndpointInventorySpoolService) statusPayload() ([]byte, error) {
-	manifest, err := endpointinventory.ReadCacheManifest(s.cfg)
+	manifest, pendingData, err := endpointinventory.ReadCacheManifestAndPending(s.cfg)
 	if err != nil {
 		return nil, err
 	}
 	if manifest != nil && manifest.PendingUpload != nil {
 		if endpointinventory.PendingUploadDue(s.cfg, manifest, time.Now().UTC()) {
-			data, err := os.ReadFile(endpointinventory.PendingUploadPath(s.cfg.SpoolDir))
-			if err != nil {
-				return nil, err
-			}
-
-			return attachEndpointInventoryStandingQuestionCounts(data, manifest), nil
+			return attachEndpointInventoryStandingQuestionCounts(pendingData, manifest), nil
 		}
 
 		data, err := os.ReadFile(s.spoolPath)
@@ -115,15 +108,18 @@ func (s *EndpointInventorySpoolService) statusPayload() ([]byte, error) {
 		return nil, err
 	}
 
-	// No pending upload means the current package set has already been
-	// acknowledged upstream (or the scan was unchanged). Re-emitting the raw
+	// Matching last-uploaded hashes prove the current package set has already
+	// been acknowledged upstream. Re-emitting the raw
 	// spool here re-ships the payload on every heartbeat: the scanner mints a
 	// fresh scan_id and timestamps on each run, so the push-loop status
 	// signature changes every scan even when the package set is byte-identical,
 	// and core ingests a new scan row each time. Stabilize the unchanged status
 	// so the signature is identical across runs and the heartbeat dedup
 	// suppresses re-pushes until the package set actually changes.
-	stabilized := stabilizeEndpointInventoryUnchangedStatus(suppressEndpointInventoryUploadedSBOM(data), manifest)
+	stabilized := stabilizeEndpointInventoryUnchangedStatus(
+		suppressEndpointInventoryUploadedSBOM(data, manifest),
+		manifest,
+	)
 
 	return attachEndpointInventoryStandingQuestionCounts(stabilized, manifest), nil
 }
@@ -203,12 +199,16 @@ func deferEndpointInventoryUpload(
 	return updated
 }
 
-func suppressEndpointInventoryUploadedSBOM(data []byte) []byte {
+func suppressEndpointInventoryUploadedSBOM(
+	data []byte,
+	manifest *endpointinventory.InventoryCacheManifest,
+) []byte {
 	var payload endpointinventory.ScanPayload
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return data
 	}
-	if !endpointinventory.PayloadRequiresFullUpload(&payload) {
+	if !endpointinventory.PayloadRequiresFullUpload(&payload) ||
+		!endpointinventory.UploadAcknowledged(&payload, manifest) {
 		return data
 	}
 
@@ -241,7 +241,7 @@ func stabilizeEndpointInventoryUnchangedStatus(
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return data
 	}
-	if !endpointinventory.IsUploadedUnchangedScan(&payload, manifest) {
+	if !endpointinventory.ShouldStabilizeUnchangedScan(&payload, manifest) {
 		return data
 	}
 

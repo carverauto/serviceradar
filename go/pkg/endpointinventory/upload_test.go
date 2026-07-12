@@ -14,11 +14,15 @@ func TestRunnerSchedulesPendingUploadWithoutReplacingUploadedHashes(t *testing.T
 	dpkgPath := writeEndpointInventoryFixture(t, tmpDir)
 	cfg := testEndpointInventoryConfig(tmpDir, dpkgPath)
 	cfg.UploadJitter = "10m"
+	configHash := computeConfigHash(cfg)
 
 	previousUpload := "old-package-hash"
 	if err := WriteCacheManifest(cfg, &InventoryCacheManifest{
 		SchemaVersion:              CacheVersion,
 		AgentID:                    cfg.AgentID,
+		ConfigHash:                 configHash,
+		ProducerID:                 collectorName,
+		ProducerVersion:            collectorVersion,
 		PackageSetHash:             previousUpload,
 		ArtifactHash:               "old-artifact-hash",
 		LastUploadedPackageSetHash: previousUpload,
@@ -65,11 +69,11 @@ func TestUploadRetryAndSuccessUpdatePendingState(t *testing.T) {
 	cfg.UploadRetryMax = "5m"
 	cfg.UploadRetryMaxAttempts = 2
 
-	payload, err := NewRunner(cfg).Run(context.Background())
-	if err != nil {
+	if err := MarkServerReconcileRequested(cfg, time.Unix(90, 0).UTC(), "server floor"); err != nil {
 		t.Fatal(err)
 	}
-	if err := MarkServerReconcileRequested(cfg, time.Unix(90, 0).UTC(), "server floor"); err != nil {
+	payload, err := NewRunner(cfg).Run(context.Background())
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -133,5 +137,80 @@ func TestUploadRetryExhaustionSuppressesDueUpload(t *testing.T) {
 	}
 	if !PendingUploadExhausted(cfg, manifest) || PendingUploadDue(cfg, manifest, failedAt.Add(time.Hour)) {
 		t.Fatalf("expected exhausted pending upload not to become due: %#v", manifest.PendingUpload)
+	}
+}
+
+func TestPendingUploadUsesPersistedProducerRetryPolicy(t *testing.T) {
+	tmpDir := t.TempDir()
+	dpkgPath := writeEndpointInventoryFixture(t, tmpDir)
+	producerCfg := testEndpointInventoryConfig(tmpDir, dpkgPath)
+	producerCfg.UploadRetryInitial = "17m"
+	producerCfg.UploadRetryMax = "45m"
+	producerCfg.UploadRetryMaxAttempts = 8
+
+	payload, err := NewRunner(producerCfg).Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := ReadCacheManifest(producerCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.PendingUpload == nil ||
+		manifest.PendingUpload.RetryInitial != "17m" ||
+		manifest.PendingUpload.RetryMax != "45m" ||
+		manifest.PendingUpload.RetryMaxAttempts != 8 {
+		t.Fatalf("producer retry policy was not persisted: %#v", manifest.PendingUpload)
+	}
+
+	consumerCfg := DefaultConfig()
+	consumerCfg.AgentID = producerCfg.AgentID
+	consumerCfg.CacheDir = producerCfg.CacheDir
+	consumerCfg.SpoolDir = producerCfg.SpoolDir
+	consumerCfg.TmpDir = producerCfg.TmpDir
+	failedAt := time.Unix(500, 0).UTC()
+	if err := MarkUploadFailed(consumerCfg, payload, failedAt, errEndpointInventoryUploadTestGatewayUnavailable); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err = ReadCacheManifest(consumerCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := *manifest.PendingUpload.NextAttemptAt, failedAt.Add(17*time.Minute); !got.Equal(want) {
+		t.Fatalf("next attempt = %v, want persisted-policy delay %v", got, want)
+	}
+	manifest.PendingUpload.Attempts = 5
+	if PendingUploadExhausted(consumerCfg, manifest) {
+		t.Fatal("consumer default of five attempts must not exhaust producer policy of eight")
+	}
+}
+
+func TestUploadAckPreservesNewerReconcileRequest(t *testing.T) {
+	tmpDir := t.TempDir()
+	dpkgPath := writeEndpointInventoryFixture(t, tmpDir)
+	cfg := testEndpointInventoryConfig(tmpDir, dpkgPath)
+	payload, err := NewRunner(cfg).Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	newer := payload.LastScanAt.Add(time.Minute)
+	if err := MarkServerReconcileRequested(cfg, newer, "newer reconcile"); err != nil {
+		t.Fatal(err)
+	}
+	if err := MarkServerReconcileRequested(cfg, newer.Add(-time.Second), "older reconcile"); err != nil {
+		t.Fatal(err)
+	}
+	if err := MarkUploadSucceeded(cfg, payload, newer.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	manifest, err := ReadCacheManifest(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.ServerReconcileRequestedAt == nil || !manifest.ServerReconcileRequestedAt.Equal(newer) ||
+		manifest.ServerReconcileReason != "newer reconcile" {
+		t.Fatalf("newer reconcile request was cleared or regressed: %#v", manifest)
 	}
 }

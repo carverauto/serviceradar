@@ -250,7 +250,9 @@ function freshness(row) {
     return "unknown"
   }
 
-  const staleAfterMs = 24 * 60 * 60 * 1000
+  // Daily scans wake on an hourly timer with randomized delay. Keep enough
+  // grace that a healthy cadence-due scan is not briefly labeled stale.
+  const staleAfterMs = 26 * 60 * 60 * 1000
 
   return Date.now() - scannedAt.getTime() > staleAfterMs ? "stale" : "fresh"
 }

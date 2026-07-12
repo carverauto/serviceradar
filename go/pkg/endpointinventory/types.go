@@ -38,7 +38,21 @@ const (
 
 	CommandTypeCacheQuery     = "endpoint_inventory.cache_query"
 	CommandTypeForceFreshScan = "endpoint_inventory.force_fresh_scan"
+
+	// MaxSpoolPayloadBytes is the largest endpoint-inventory payload the agent
+	// status transport accepts. Producers must not be configured to emit a
+	// larger payload than the consumer can read.
+	MaxSpoolPayloadBytes int64 = 32 * 1024 * 1024
 )
+
+// CacheIdentity binds cached inventory to the producer configuration that
+// created it. All fields are required for cache reuse.
+type CacheIdentity struct {
+	AgentID         string `json:"agent_id"`
+	ConfigHash      string `json:"config_hash"`
+	ProducerID      string `json:"producer_id"`
+	ProducerVersion string `json:"producer_version"`
+}
 
 type Config struct {
 	Enabled                bool     `json:"enabled"`
@@ -128,6 +142,9 @@ type ScanPayload struct {
 type InventoryCacheManifest struct {
 	SchemaVersion                string                        `json:"schema_version"`
 	AgentID                      string                        `json:"agent_id"`
+	ConfigHash                   string                        `json:"config_hash,omitempty"`
+	ProducerID                   string                        `json:"producer_id,omitempty"`
+	ProducerVersion              string                        `json:"producer_version,omitempty"`
 	PackageSetHash               string                        `json:"package_set_hash,omitempty"`
 	ArtifactHash                 string                        `json:"artifact_hash,omitempty"`
 	LastUploadedPackageSetHash   string                        `json:"last_uploaded_package_set_hash,omitempty"`
@@ -140,6 +157,7 @@ type InventoryCacheManifest struct {
 	StandingQuestionResultCounts []StandingQuestionResultCount `json:"standing_question_result_counts,omitempty"`
 	LastScanAt                   time.Time                     `json:"last_scan_at"`
 	LastSuccessfulScanAt         *time.Time                    `json:"last_successful_scan_at,omitempty"`
+	LastFullScanAt               *time.Time                    `json:"last_full_scan_at,omitempty"`
 	LastChangedScanAt            *time.Time                    `json:"last_changed_scan_at,omitempty"`
 	ScansSinceFull               int                           `json:"scans_since_full"`
 	UnchangedScanCount           int                           `json:"unchanged_scan_count"`
@@ -167,18 +185,26 @@ type StandingQuestionResultCount struct {
 }
 
 type PendingUploadState struct {
-	ScanID         string     `json:"scan_id"`
-	PackageSetHash string     `json:"package_set_hash"`
-	ArtifactHash   string     `json:"artifact_hash"`
-	UploadReason   string     `json:"upload_reason"`
-	AvailableAfter time.Time  `json:"available_after"`
-	NextAttemptAt  *time.Time `json:"next_attempt_at,omitempty"`
-	Attempts       int        `json:"attempts"`
-	Exhausted      bool       `json:"exhausted,omitempty"`
-	LastAttemptAt  *time.Time `json:"last_attempt_at,omitempty"`
-	LastError      string     `json:"last_error,omitempty"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+	ScanID               string     `json:"scan_id"`
+	AgentID              string     `json:"agent_id,omitempty"`
+	ConfigHash           string     `json:"config_hash,omitempty"`
+	ProducerID           string     `json:"producer_id,omitempty"`
+	ProducerVersion      string     `json:"producer_version,omitempty"`
+	PackageSetHash       string     `json:"package_set_hash"`
+	ArtifactHash         string     `json:"artifact_hash"`
+	UploadReason         string     `json:"upload_reason"`
+	AvailableAfter       time.Time  `json:"available_after"`
+	NextAttemptAt        *time.Time `json:"next_attempt_at,omitempty"`
+	Attempts             int        `json:"attempts"`
+	Exhausted            bool       `json:"exhausted,omitempty"`
+	LastAttemptAt        *time.Time `json:"last_attempt_at,omitempty"`
+	LastError            string     `json:"last_error,omitempty"`
+	RetryInitial         string     `json:"retry_initial,omitempty"`
+	RetryMax             string     `json:"retry_max,omitempty"`
+	RetryMaxAttempts     int        `json:"retry_max_attempts,omitempty"`
+	ReconcileRequestedAt *time.Time `json:"reconcile_requested_at,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
 }
 
 type SourceMTime struct {

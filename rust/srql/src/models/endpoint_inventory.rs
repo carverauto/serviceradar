@@ -214,7 +214,7 @@ impl EndpointInventoryScanRow {
     }
 }
 
-const ENDPOINT_INVENTORY_STALE_THRESHOLD_SECONDS: i64 = 86_400;
+const ENDPOINT_INVENTORY_STALE_THRESHOLD_SECONDS: i64 = 26 * 60 * 60;
 
 fn endpoint_inventory_freshness(
     last_successful_scan_at: Option<DateTime<Utc>>,
@@ -241,4 +241,24 @@ fn endpoint_inventory_freshness(
         "stale_threshold_seconds": ENDPOINT_INVENTORY_STALE_THRESHOLD_SECONDS,
         "last_successful_scan_at": last_successful,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Duration;
+
+    #[test]
+    fn endpoint_inventory_freshness_allows_daily_timer_grace() {
+        let now = Utc::now();
+        let fresh = endpoint_inventory_freshness(Some(now - Duration::hours(25)));
+        let stale = endpoint_inventory_freshness(Some(now - Duration::hours(27)));
+
+        assert_eq!(
+            fresh["stale_threshold_seconds"],
+            ENDPOINT_INVENTORY_STALE_THRESHOLD_SECONDS
+        );
+        assert_eq!(fresh["verdict"], "fresh");
+        assert_eq!(stale["verdict"], "stale");
+    }
 }

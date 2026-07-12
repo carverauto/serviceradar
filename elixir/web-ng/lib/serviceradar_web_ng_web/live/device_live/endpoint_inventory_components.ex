@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
   use ServiceRadarWebNGWeb, :html
 
-  @stale_scan_seconds 86_400
+  @stale_scan_seconds 26 * 60 * 60
 
   attr(:scan, :any, default: nil)
   attr(:scans, :list, default: [])
@@ -988,7 +988,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
           tone: :warning,
           label: "Stale",
           title: "Latest successful scan is stale",
-          detail: "The latest successful endpoint inventory scan is older than 24 hours.",
+          detail: "The latest successful endpoint inventory scan is older than 26 hours.",
           empty_message: "No current package rows are available and the latest successful scan is stale."
         }
 

@@ -508,6 +508,41 @@ func systemdAddonUnitStatusWithReader(
 		return systemdUnitStatus{state: agentaddon.StateStopped}
 	}
 
+	// A timer is the cadence owner for timer-supervised add-ons. Prefer its
+	// health over a backing oneshot service, whose most recent successful run is
+	// normally inactive and whose transient activity must not mask an elapsed
+	// timer with no future trigger.
+	timerUnits := make([]string, 0, len(units))
+	serviceUnits := make([]string, 0, len(units))
+	for _, unit := range units {
+		if strings.HasSuffix(strings.TrimSpace(unit), ".timer") {
+			timerUnits = append(timerUnits, unit)
+		} else {
+			serviceUnits = append(serviceUnits, unit)
+		}
+	}
+	if len(timerUnits) > 0 {
+		timerStatus := systemdTimerUnitStatusWithReader(timerUnits, readUnitStatus)
+		if timerStatus.state != agentaddon.StateRunning {
+			return timerStatus
+		}
+
+		// An inactive oneshot service is expected between timer firings. A failed
+		// service is not: preserve that failure instead of letting the healthy
+		// timer hide it. An active service contributes the in-flight scan PID.
+		for _, unit := range serviceUnits {
+			status := readUnitStatus(unit)
+			if status.state == agentaddon.StateUnhealthy {
+				return status
+			}
+			if status.state == agentaddon.StateRunning && status.pid > 0 {
+				timerStatus.pid = status.pid
+			}
+		}
+
+		return timerStatus
+	}
+
 	best := systemdUnitStatus{state: agentaddon.StateStopped}
 	for _, unit := range units {
 		status := readUnitStatus(unit)
@@ -530,6 +565,32 @@ func systemdAddonUnitStatusWithReader(
 	return best
 }
 
+func systemdTimerUnitStatusWithReader(
+	units []string,
+	readUnitStatus func(string) systemdUnitStatus,
+) systemdUnitStatus {
+	best := systemdUnitStatus{state: agentaddon.StateStopped}
+	for _, unit := range units {
+		status := readUnitStatus(unit)
+		switch status.state {
+		case agentaddon.StateUnhealthy, agentaddon.StateCircuitOpen:
+			return status
+		case agentaddon.StateRunning:
+			best = status
+		case agentaddon.StateStarting, agentaddon.StateRestarting:
+			if best.state != agentaddon.StateRunning {
+				best = status
+			}
+		case agentaddon.StateStopped:
+			if best.state == agentaddon.StateStopped {
+				best = status
+			}
+		}
+	}
+
+	return best
+}
+
 func readSystemdUnitStatusDefault(unit string) systemdUnitStatus {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -539,7 +600,10 @@ func readSystemdUnitStatusDefault(unit string) systemdUnitStatus {
 		"systemctl",
 		"show",
 		"--property=ActiveState",
+		"--property=SubState",
 		"--property=MainPID",
+		"--property=NextElapseUSecRealtime",
+		"--property=NextElapseUSecMonotonic",
 		unit,
 	)
 	out, err := cmd.Output()
@@ -550,11 +614,18 @@ func readSystemdUnitStatusDefault(unit string) systemdUnitStatus {
 		}
 	}
 
-	return parseSystemdUnitStatusOutput(string(out))
+	return parseSystemdUnitStatusOutputForUnit(unit, string(out))
 }
 
 func parseSystemdUnitStatusOutput(out string) systemdUnitStatus {
+	return parseSystemdUnitStatusOutputForUnit("", out)
+}
+
+func parseSystemdUnitStatusOutputForUnit(unit string, out string) systemdUnitStatus {
 	activeState := ""
+	subState := ""
+	nextRealtime := ""
+	nextMonotonic := ""
 	pid := 0
 
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
@@ -566,9 +637,35 @@ func parseSystemdUnitStatusOutput(out string) systemdUnitStatus {
 		switch strings.TrimSpace(key) {
 		case "ActiveState":
 			activeState = strings.TrimSpace(value)
+		case "SubState":
+			subState = strings.TrimSpace(value)
 		case "MainPID":
 			if parsed, parseErr := strconv.Atoi(strings.TrimSpace(value)); parseErr == nil && parsed > 0 {
 				pid = parsed
+			}
+		case "NextElapseUSecRealtime":
+			nextRealtime = strings.TrimSpace(value)
+		case "NextElapseUSecMonotonic":
+			nextMonotonic = strings.TrimSpace(value)
+		}
+	}
+	if strings.HasSuffix(strings.TrimSpace(unit), ".timer") && activeState == "active" {
+		if subState != "waiting" && subState != "running" {
+			reportedSubState := subState
+			if reportedSubState == "" {
+				reportedSubState = "unknown"
+			}
+			return systemdUnitStatus{
+				state:     agentaddon.StateUnhealthy,
+				pid:       pid,
+				lastError: fmt.Sprintf("systemd timer is %s with no scheduled trigger", reportedSubState),
+			}
+		}
+		if subState == "waiting" && !finiteSystemdTimerNext(nextRealtime) && !finiteSystemdTimerNext(nextMonotonic) {
+			return systemdUnitStatus{
+				state:     agentaddon.StateUnhealthy,
+				pid:       pid,
+				lastError: "systemd timer has no finite next trigger",
 			}
 		}
 	}
@@ -584,6 +681,15 @@ func parseSystemdUnitStatusOutput(out string) systemdUnitStatus {
 		return systemdUnitStatus{state: agentaddon.StateUnhealthy, pid: pid, lastError: "systemd unit failed"}
 	default:
 		return systemdUnitStatus{state: agentaddon.StateStopped, pid: pid}
+	}
+}
+
+func finiteSystemdTimerNext(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "0", "infinity", "n/a":
+		return false
+	default:
+		return true
 	}
 }
 

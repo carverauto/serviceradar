@@ -29,8 +29,15 @@ import (
 
 var ErrNoPendingUpload = errors.New("endpoint inventory upload is not pending")
 
+const (
+	MetadataReasonKey                   = "reason"
+	MetadataReasonFullScanHashUnchanged = "full_scan_hash_unchanged"
+)
+
 func PayloadRequiresFullUpload(payload *ScanPayload) bool {
 	return payload != nil &&
+		payload.State == scanStateScanned &&
+		payload.CoverageState == coverageComplete &&
 		payload.UploadReason == UploadReasonChanged &&
 		payload.PackageSetHash != "" &&
 		payload.ArtifactHash != "" &&
@@ -64,6 +71,31 @@ func IsUploadedUnchangedScan(payload *ScanPayload, manifest *InventoryCacheManif
 		manifest.LastUploadedArtifactHash == payload.ArtifactHash
 }
 
+// UploadAcknowledged reports whether the cache contains positive hash evidence
+// that the exact payload was acknowledged upstream and no retry remains.
+func UploadAcknowledged(payload *ScanPayload, manifest *InventoryCacheManifest) bool {
+	if payload == nil || manifest == nil || manifest.PendingUpload != nil {
+		return false
+	}
+	if payload.PackageSetHash == "" || payload.ArtifactHash == "" {
+		return false
+	}
+
+	return manifest.LastUploadedPackageSetHash == payload.PackageSetHash &&
+		manifest.LastUploadedArtifactHash == payload.ArtifactHash
+}
+
+// ShouldStabilizeUnchangedScan keeps cached timer wakeups byte-stable while
+// allowing a completed unchanged full scan to carry one real freshness update.
+func ShouldStabilizeUnchangedScan(payload *ScanPayload, manifest *InventoryCacheManifest) bool {
+	if !IsUploadedUnchangedScan(payload, manifest) {
+		return false
+	}
+
+	reason, _ := payload.Metadata[MetadataReasonKey].(string)
+	return reason != MetadataReasonFullScanHashUnchanged
+}
+
 // StabilizeUnchangedScanPayload normalizes the volatile fields of an
 // already-acknowledged unchanged status so repeated emissions produce a
 // byte-identical payload. The scan id is replaced with a deterministic value
@@ -92,6 +124,12 @@ func StabilizeUnchangedScanPayload(payload *ScanPayload) {
 	// Drop volatile counters that change every scan but carry no ingest value.
 	delete(payload.Metadata, "scans_since_full")
 	delete(payload.Metadata, "server_reconcile_requested_at")
+	// Cached timer wakeups are not scanner runs. ScaLibR metadata embeds another
+	// scan id and timestamps, so retaining it would defeat heartbeat dedup and
+	// create hourly scanner-activity signals.
+	delete(payload.Metadata, "scanner_activity")
+	delete(payload.Metadata, "scanner_findings")
+	delete(payload.Metadata, "scanner_findings_count")
 }
 
 // StableUnchangedScanID derives a deterministic scan id for an unchanged
@@ -117,7 +155,7 @@ func PendingUploadDue(cfg Config, manifest *InventoryCacheManifest, now time.Tim
 	if pending.Exhausted {
 		return false
 	}
-	if cfg.UploadRetryMaxAttempts > 0 && pending.Attempts >= cfg.UploadRetryMaxAttempts {
+	if maxAttempts := pendingRetryMaxAttempts(cfg, pending); maxAttempts > 0 && pending.Attempts >= maxAttempts {
 		return false
 	}
 
@@ -132,7 +170,8 @@ func PendingUploadDue(cfg Config, manifest *InventoryCacheManifest, now time.Tim
 func PendingUploadExhausted(cfg Config, manifest *InventoryCacheManifest) bool {
 	pending := pendingUpload(manifest)
 	return pending != nil &&
-		(pending.Exhausted || (cfg.UploadRetryMaxAttempts > 0 && pending.Attempts >= cfg.UploadRetryMaxAttempts))
+		(pending.Exhausted ||
+			(pendingRetryMaxAttempts(cfg, pending) > 0 && pending.Attempts >= pendingRetryMaxAttempts(cfg, pending)))
 }
 
 func PendingUploadDelay(cfg Config, payload *ScanPayload) time.Duration {
@@ -156,47 +195,37 @@ func MarkUploadSucceeded(cfg Config, payload *ScanPayload, uploadedAt time.Time)
 		return nil
 	}
 
-	manifest, err := ReadCacheManifest(cfg)
-	if err != nil {
-		return err
-	}
-	if !pendingMatchesPayload(manifest, payload) {
-		return ErrNoPendingUpload
-	}
+	return withCacheManifestLock(cfg, func() error {
+		manifest, err := readCacheManifestUnlocked(cfg)
+		if err != nil {
+			return err
+		}
+		if !ensurePendingIdentity(cfg, manifest, payload) {
+			return ErrNoPendingUpload
+		}
 
-	manifest.LastUploadedPackageSetHash = payload.PackageSetHash
-	manifest.LastUploadedArtifactHash = payload.ArtifactHash
-	manifest.PendingUpload = nil
-	manifest.ServerReconcileRequestedAt = nil
-	manifest.ServerReconcileReason = ""
-	manifest.UpdatedAt = uploadedAt.UTC()
+		pending := *manifest.PendingUpload
+		manifest.LastUploadedPackageSetHash = payload.PackageSetHash
+		manifest.LastUploadedArtifactHash = payload.ArtifactHash
+		manifest.PendingUpload = nil
+		if sameReconcileRequest(manifest.ServerReconcileRequestedAt, pending.ReconcileRequestedAt) {
+			manifest.ServerReconcileRequestedAt = nil
+			manifest.ServerReconcileReason = ""
+		}
+		manifest.UpdatedAt = uploadedAt.UTC()
 
-	if err := WriteCacheManifest(cfg, manifest); err != nil {
-		return err
-	}
+		if err := writeCacheManifestUnlocked(cfg, manifest); err != nil {
+			return err
+		}
+		if err := os.Remove(PendingUploadPath(cfg.SpoolDir)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove endpoint inventory pending upload: %w", err)
+		}
 
-	if err := os.Remove(PendingUploadPath(cfg.SpoolDir)); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("remove endpoint inventory pending upload: %w", err)
-	}
-
-	return nil
+		return nil
+	})
 }
 
 func MarkServerReconcileRequested(cfg Config, requestedAt time.Time, reason string) error {
-	manifest, err := ReadCacheManifest(cfg)
-	if err != nil {
-		return err
-	}
-	if manifest == nil {
-		manifest = &InventoryCacheManifest{
-			SchemaVersion:   CacheVersion,
-			AgentID:         cfg.AgentID,
-			Packages:        []Package{},
-			SourceSummaries: []SourceSummary{},
-			SourceMTimes:    map[string]SourceMTime{},
-		}
-	}
-
 	requested := requestedAt.UTC()
 	if requested.IsZero() {
 		requested = time.Now().UTC()
@@ -207,13 +236,32 @@ func MarkServerReconcileRequested(cfg Config, requestedAt time.Time, reason stri
 		reason = metadataReasonServerReconcileFloor
 	}
 
-	manifest.SchemaVersion = CacheVersion
-	manifest.AgentID = cfg.AgentID
-	manifest.ServerReconcileRequestedAt = &requested
-	manifest.ServerReconcileReason = reason
-	manifest.UpdatedAt = requested
+	return withCacheManifestLock(cfg, func() error {
+		manifest, err := readCacheManifestUnlocked(cfg)
+		if err != nil {
+			return err
+		}
+		if manifest == nil {
+			manifest = &InventoryCacheManifest{
+				SchemaVersion:   CacheVersion,
+				AgentID:         cfg.AgentID,
+				Packages:        []Package{},
+				SourceSummaries: []SourceSummary{},
+				SourceMTimes:    map[string]SourceMTime{},
+			}
+		}
+		if manifest.ServerReconcileRequestedAt != nil && !requested.After(*manifest.ServerReconcileRequestedAt) {
+			return nil
+		}
 
-	return WriteCacheManifest(cfg, manifest)
+		manifest.SchemaVersion = CacheVersion
+		manifest.AgentID = cfg.AgentID
+		manifest.ServerReconcileRequestedAt = &requested
+		manifest.ServerReconcileReason = reason
+		manifest.UpdatedAt = requested
+
+		return writeCacheManifestUnlocked(cfg, manifest)
+	})
 }
 
 func MarkUploadFailed(cfg Config, payload *ScanPayload, failedAt time.Time, cause error) error {
@@ -221,31 +269,34 @@ func MarkUploadFailed(cfg Config, payload *ScanPayload, failedAt time.Time, caus
 		return nil
 	}
 
-	manifest, err := ReadCacheManifest(cfg)
-	if err != nil {
-		return err
-	}
-	if !pendingMatchesPayload(manifest, payload) {
-		return ErrNoPendingUpload
-	}
+	return withCacheManifestLock(cfg, func() error {
+		manifest, err := readCacheManifestUnlocked(cfg)
+		if err != nil {
+			return err
+		}
+		if !ensurePendingIdentity(cfg, manifest, payload) {
+			return ErrNoPendingUpload
+		}
 
-	pending := manifest.PendingUpload
-	failed := failedAt.UTC()
-	pending.Attempts++
-	pending.LastAttemptAt = &failed
-	pending.UpdatedAt = failed
-	if cause != nil {
-		pending.LastError = cause.Error()
-	}
-	if cfg.UploadRetryMaxAttempts > 0 && pending.Attempts >= cfg.UploadRetryMaxAttempts {
-		pending.Exhausted = true
-		pending.NextAttemptAt = nil
-	} else {
-		next := failed.Add(retryDelay(cfg, pending.Attempts))
-		pending.NextAttemptAt = &next
-	}
+		pending := manifest.PendingUpload
+		failed := failedAt.UTC()
+		pending.Attempts++
+		pending.LastAttemptAt = &failed
+		pending.UpdatedAt = failed
+		if cause != nil {
+			pending.LastError = cause.Error()
+		}
+		maxAttempts := pendingRetryMaxAttempts(cfg, pending)
+		if maxAttempts > 0 && pending.Attempts >= maxAttempts {
+			pending.Exhausted = true
+			pending.NextAttemptAt = nil
+		} else {
+			next := failed.Add(retryDelay(cfg, pending, pending.Attempts))
+			pending.NextAttemptAt = &next
+		}
 
-	return WriteCacheManifest(cfg, manifest)
+		return writeCacheManifestUnlocked(cfg, manifest)
+	})
 }
 
 func pendingUpload(manifest *InventoryCacheManifest) *PendingUploadState {
@@ -258,19 +309,107 @@ func pendingUpload(manifest *InventoryCacheManifest) *PendingUploadState {
 
 func pendingMatchesPayload(manifest *InventoryCacheManifest, payload *ScanPayload) bool {
 	pending := pendingUpload(manifest)
+	producerID := ""
+	if payload != nil {
+		producerID = metadataString(payload.Metadata, "scanner_producer_id")
+	}
+	return pendingCoreMatchesPayload(manifest, payload) &&
+		pending.AgentID == payload.AgentID &&
+		pending.ConfigHash == payload.ConfigHash &&
+		pending.ProducerID == producerID &&
+		pending.ProducerVersion == payload.CollectorVersion
+}
+
+func pendingCoreMatchesPayload(manifest *InventoryCacheManifest, payload *ScanPayload) bool {
+	pending := pendingUpload(manifest)
 	return pending != nil &&
 		payload != nil &&
+		PayloadRequiresFullUpload(payload) &&
 		pending.PackageSetHash == payload.PackageSetHash &&
 		pending.ArtifactHash == payload.ArtifactHash &&
 		pending.ScanID == payload.ScanID
 }
 
-func retryDelay(cfg Config, attempt int) time.Duration {
-	initial, err := time.ParseDuration(cfg.UploadRetryInitial)
+func legacyPendingPayloadMatchesConfig(cfg Config, manifest *InventoryCacheManifest, payload *ScanPayload) bool {
+	pending := pendingUpload(manifest)
+	if !pendingCoreMatchesPayload(manifest, payload) || pending == nil ||
+		!pendingIdentityEmpty(pending) || manifest == nil ||
+		strings.TrimSpace(manifest.ConfigHash) != "" ||
+		strings.TrimSpace(manifest.ProducerID) != "" ||
+		strings.TrimSpace(manifest.ProducerVersion) != "" {
+		return false
+	}
+
+	return payload.AgentID == cfg.AgentID &&
+		(manifest.AgentID == "" || manifest.AgentID == payload.AgentID) &&
+		strings.TrimSpace(payload.ConfigHash) != "" &&
+		strings.TrimSpace(metadataString(payload.Metadata, "scanner_producer_id")) != "" &&
+		strings.TrimSpace(payload.CollectorVersion) != ""
+}
+
+func pendingIdentityEmpty(pending *PendingUploadState) bool {
+	return pending != nil &&
+		strings.TrimSpace(pending.AgentID) == "" &&
+		strings.TrimSpace(pending.ConfigHash) == "" &&
+		strings.TrimSpace(pending.ProducerID) == "" &&
+		strings.TrimSpace(pending.ProducerVersion) == ""
+}
+
+func ensurePendingIdentity(cfg Config, manifest *InventoryCacheManifest, payload *ScanPayload) bool {
+	if pendingMatchesPayload(manifest, payload) {
+		return true
+	}
+	if !legacyPendingPayloadMatchesConfig(cfg, manifest, payload) {
+		return false
+	}
+
+	pending := manifest.PendingUpload
+	producerID := metadataString(payload.Metadata, "scanner_producer_id")
+	pending.AgentID = payload.AgentID
+	pending.ConfigHash = payload.ConfigHash
+	pending.ProducerID = producerID
+	pending.ProducerVersion = payload.CollectorVersion
+	manifest.AgentID = payload.AgentID
+	manifest.ConfigHash = payload.ConfigHash
+	manifest.ProducerID = producerID
+	manifest.ProducerVersion = payload.CollectorVersion
+
+	return true
+}
+
+func sameReconcileRequest(current *time.Time, captured *time.Time) bool {
+	if current == nil || captured == nil {
+		return current == nil && captured == nil
+	}
+
+	return current.Equal(*captured)
+}
+
+func pendingRetryMaxAttempts(cfg Config, pending *PendingUploadState) int {
+	if pending != nil && pending.RetryMaxAttempts > 0 {
+		return pending.RetryMaxAttempts
+	}
+
+	return cfg.UploadRetryMaxAttempts
+}
+
+func retryDelay(cfg Config, pending *PendingUploadState, attempt int) time.Duration {
+	initialSetting := cfg.UploadRetryInitial
+	maxSetting := cfg.UploadRetryMax
+	if pending != nil {
+		if strings.TrimSpace(pending.RetryInitial) != "" {
+			initialSetting = pending.RetryInitial
+		}
+		if strings.TrimSpace(pending.RetryMax) != "" {
+			maxSetting = pending.RetryMax
+		}
+	}
+
+	initial, err := time.ParseDuration(initialSetting)
 	if err != nil || initial <= 0 {
 		initial = 5 * time.Minute
 	}
-	maxDelay, err := time.ParseDuration(cfg.UploadRetryMax)
+	maxDelay, err := time.ParseDuration(maxSetting)
 	if err != nil || maxDelay <= 0 {
 		maxDelay = time.Hour
 	}

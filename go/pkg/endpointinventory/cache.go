@@ -22,17 +22,26 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
-	"time"
 )
 
 const CacheManifestFileName = "manifest.json"
+
+var (
+	ErrCacheRefreshRequired     = errors.New("endpoint inventory cache changed during scan")
+	ErrIncompleteFullScan       = errors.New("endpoint inventory full scan payload is incomplete")
+	ErrPendingUploadUnavailable = errors.New("endpoint inventory pending upload is unavailable")
+	ErrStaleFullScan            = errors.New("endpoint inventory full scan is older than the committed cache")
+)
 
 func CacheManifestPath(cacheDir string) string {
 	return filepath.Join(cacheDir, CacheManifestFileName)
 }
 
 func ReadCacheManifest(cfg Config) (*InventoryCacheManifest, error) {
+	return readCacheManifestUnlocked(cfg)
+}
+
+func readCacheManifestUnlocked(cfg Config) (*InventoryCacheManifest, error) {
 	data, err := os.ReadFile(CacheManifestPath(cfg.CacheDir))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -55,6 +64,12 @@ func WriteCacheManifest(cfg Config, manifest *InventoryCacheManifest) error {
 		return nil
 	}
 
+	return withCacheManifestLock(cfg, func() error {
+		return writeCacheManifestUnlocked(cfg, manifest)
+	})
+}
+
+func writeCacheManifestUnlocked(cfg Config, manifest *InventoryCacheManifest) error {
 	// 0770 (group-writable) so both the root scanner and the non-root
 	// serviceradar agent can write the cache manifest via the shared
 	// serviceradar-group dirs.
@@ -72,241 +87,24 @@ func WriteCacheManifest(cfg Config, manifest *InventoryCacheManifest) error {
 	return nil
 }
 
-func CollectSourceMTimes(cfg Config) map[string]SourceMTime {
-	mtimes := make(map[string]SourceMTime, len(cfg.Sources))
-
-	for _, source := range cfg.Sources {
-		mtimes[source] = sourceMTime(source, sourceMTimeCandidatePaths(cfg, source))
-	}
-
-	return mtimes
-}
-
-func cacheCanSkipFullScan(cfg Config, manifest *InventoryCacheManifest, current map[string]SourceMTime) bool {
-	if manifest == nil || manifest.PackageSetHash == "" || manifest.ArtifactHash == "" {
-		return false
-	}
-	if cfg.ForceFreshScan {
-		return false
-	}
-	if manifest.ServerReconcileRequestedAt != nil {
-		return false
-	}
-	// Cadence floor: if the package sources are unchanged and we already scanned
-	// within the configured cadence window, short-circuit to the cached
-	// unchanged payload rather than re-collecting. This caps the effective scan
-	// rate at ~cadence regardless of how frequently the timer / trigger fires,
-	// while still honoring a source mtime change (handled below) immediately.
-	if cadenceFloorActive(cfg, manifest) && sourceMTimesEqual(cfg.Sources, manifest.SourceMTimes, current) {
-		return true
-	}
-	if cfg.ForceFullScanInterval <= 1 {
-		return false
-	}
-	if manifest.ScansSinceFull >= cfg.ForceFullScanInterval-1 {
-		return false
-	}
-
-	return sourceMTimesEqual(cfg.Sources, manifest.SourceMTimes, current)
-}
-
-// cadenceFloorActive reports whether the previous scan happened recently enough
-// (within the configured cadence) that a fresh full collection should be
-// skipped. A zero/invalid cadence disables the floor so behavior matches the
-// pre-existing source-mtime gate.
-func cadenceFloorActive(cfg Config, manifest *InventoryCacheManifest) bool {
-	cadence, err := time.ParseDuration(cfg.Cadence)
-	if err != nil || cadence <= 0 {
-		return false
-	}
-	if manifest.LastScanAt.IsZero() {
-		return false
-	}
-
-	return time.Since(manifest.LastScanAt) < cadence
-}
-
-func sourceMTimesEqual(sources []string, previous map[string]SourceMTime, current map[string]SourceMTime) bool {
-	for _, source := range sources {
-		if previous[source] != current[source] {
-			return false
-		}
-	}
-
-	return true
-}
-
-func sourceMTime(source string, paths []string) SourceMTime {
-	if len(paths) == 0 {
-		return SourceMTime{Source: source}
-	}
-
-	fallback := SourceMTime{Source: source, Path: paths[0]}
-	for _, path := range paths {
-		trimmed := strings.TrimSpace(path)
-		if trimmed == "" {
-			continue
+// ReadCacheManifestAndPending returns a manifest snapshot and, when present,
+// the exact pending payload named by that snapshot. The shared lock prevents an
+// acknowledgement or scanner commit from changing either side mid-read.
+func ReadCacheManifestAndPending(cfg Config) (*InventoryCacheManifest, []byte, error) {
+	var (
+		manifest *InventoryCacheManifest
+		pending  []byte
+	)
+	err := withCacheManifestLock(cfg, func() error {
+		var err error
+		manifest, err = readCacheManifestUnlocked(cfg)
+		if err != nil || manifest == nil || manifest.PendingUpload == nil {
+			return err
 		}
 
-		info, err := os.Stat(trimmed)
-		if err != nil {
-			if fallback.Path == "" {
-				fallback.Path = trimmed
-			}
-			continue
-		}
+		_, pending, err = readMatchingPendingPayloadUnlocked(cfg, manifest)
+		return err
+	})
 
-		return SourceMTime{
-			Source:        source,
-			Path:          trimmed,
-			Exists:        true,
-			MTimeUnixNano: info.ModTime().UnixNano(),
-			Size:          info.Size(),
-		}
-	}
-
-	return fallback
-}
-
-func sourceMTimeCandidatePaths(cfg Config, source string) []string {
-	switch source {
-	case PackageSourceDpkg:
-		return []string{cfg.DpkgStatusPath}
-	case PackageSourceAPK:
-		return []string{cfg.APKInstalledPath}
-	case PackageSourceRPM:
-		return append([]string(nil), cfg.RPMDatabasePaths...)
-	default:
-		return nil
-	}
-}
-
-func unchangedManifest(cfg Config, previous *InventoryCacheManifest, current map[string]SourceMTime, scannedAt time.Time) *InventoryCacheManifest {
-	manifest := copyCacheManifest(previous)
-	manifest.SchemaVersion = CacheVersion
-	manifest.AgentID = cfg.AgentID
-	manifest.SourceMTimes = copySourceMTimes(current)
-	manifest.LastScanAt = scannedAt
-	manifest.LastSuccessfulScanAt = &scannedAt
-	manifest.ScansSinceFull++
-	manifest.UnchangedScanCount++
-	manifest.UpdatedAt = scannedAt
-
-	return manifest
-}
-
-func fullScanManifest(
-	cfg Config,
-	previous *InventoryCacheManifest,
-	payload *ScanPayload,
-	packages []Package,
-	current map[string]SourceMTime,
-	scannedAt time.Time,
-) *InventoryCacheManifest {
-	manifest := copyCacheManifest(previous)
-	manifest.SchemaVersion = CacheVersion
-	manifest.AgentID = cfg.AgentID
-	manifest.PackageSetHash = payload.PackageSetHash
-	manifest.ArtifactHash = payload.ArtifactHash
-	manifest.HashAlgorithm = payload.HashAlgorithm
-	manifest.PackageCount = payload.PackageCount
-	manifest.Packages = append([]Package(nil), packages...)
-	manifest.SourceSummaries = append([]SourceSummary(nil), payload.Diagnostics...)
-	manifest.SourceMTimes = copySourceMTimes(current)
-	manifest.StandingQuestionResultCounts = copyStandingQuestionResultCounts(payload.StandingQuestionResultCounts)
-	manifest.LastScanAt = scannedAt
-	manifest.LastSuccessfulScanAt = payload.LastSuccessfulScanAt
-	manifest.ScansSinceFull = 0
-	manifest.FullScanCount++
-	manifest.UpdatedAt = scannedAt
-
-	if payload.UploadReason == UploadReasonChanged {
-		manifest.LastChangedScanAt = payload.LastSuccessfulScanAt
-		manifest.UnchangedScanCount = 0
-		manifest.ServerReconcileRequestedAt = nil
-		manifest.ServerReconcileReason = ""
-		manifest.PendingUpload = pendingUploadState(cfg, previous, payload, scannedAt)
-	} else {
-		manifest.UnchangedScanCount++
-	}
-
-	return manifest
-}
-
-func pendingUploadState(
-	cfg Config,
-	previous *InventoryCacheManifest,
-	payload *ScanPayload,
-	scannedAt time.Time,
-) *PendingUploadState {
-	if !PayloadRequiresFullUpload(payload) {
-		return nil
-	}
-
-	if pendingMatchesPayload(previous, payload) {
-		pending := *previous.PendingUpload
-		pending.UpdatedAt = scannedAt
-		return &pending
-	}
-
-	availableAfter := scannedAt.Add(PendingUploadDelay(cfg, payload)).UTC()
-
-	return &PendingUploadState{
-		ScanID:         payload.ScanID,
-		PackageSetHash: payload.PackageSetHash,
-		ArtifactHash:   payload.ArtifactHash,
-		UploadReason:   payload.UploadReason,
-		AvailableAfter: availableAfter,
-		CreatedAt:      scannedAt,
-		UpdatedAt:      scannedAt,
-	}
-}
-
-func copyCacheManifest(previous *InventoryCacheManifest) *InventoryCacheManifest {
-	if previous == nil {
-		return &InventoryCacheManifest{
-			Packages:        []Package{},
-			SourceSummaries: []SourceSummary{},
-			SourceMTimes:    map[string]SourceMTime{},
-		}
-	}
-
-	manifest := *previous
-	manifest.Packages = append([]Package(nil), previous.Packages...)
-	manifest.SourceSummaries = append([]SourceSummary(nil), previous.SourceSummaries...)
-	manifest.SourceMTimes = copySourceMTimes(previous.SourceMTimes)
-	manifest.StandingQuestionResultCounts = copyStandingQuestionResultCounts(previous.StandingQuestionResultCounts)
-
-	return &manifest
-}
-
-func copySourceMTimes(sourceMTimes map[string]SourceMTime) map[string]SourceMTime {
-	copied := make(map[string]SourceMTime, len(sourceMTimes))
-	for source, sourceMTime := range sourceMTimes {
-		copied[source] = sourceMTime
-	}
-
-	return copied
-}
-
-func copyStandingQuestionResultCounts(counts []StandingQuestionResultCount) []StandingQuestionResultCount {
-	copied := make([]StandingQuestionResultCount, 0, len(counts))
-	for _, count := range counts {
-		next := count
-		if count.Labels != nil {
-			next.Labels = make(map[string]string, len(count.Labels))
-			for key, value := range count.Labels {
-				next.Labels[key] = value
-			}
-		}
-		if count.Metadata != nil {
-			next.Metadata = make(map[string]string, len(count.Metadata))
-			for key, value := range count.Metadata {
-				next.Metadata[key] = value
-			}
-		}
-		copied = append(copied, next)
-	}
-
-	return copied
+	return manifest, pending, err
 }

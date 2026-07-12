@@ -218,8 +218,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
                upload_object: successful_upload()
              )
 
-    assert result.current? == true
-    scan = current_scan(agent_id)
+    assert result.current? == false
+    scan = scan_by_id(agent_id, "scan-legacy-source-#{unique}")
     assert scan.coverage_state == "unknown"
     assert scan.source_summaries == []
     assert scan.enabled_sources == []
@@ -262,13 +262,14 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
         }
       ])
 
-    assert {:ok, _result} =
+    assert {:ok, result} =
              EndpointInventoryIngestor.ingest_report(payload,
                actor: actor,
                upload_object: successful_upload()
              )
 
-    scan = current_scan(agent_id)
+    assert result.current? == false
+    scan = scan_by_id(agent_id, "scan-diagnostic-alias-#{unique}")
     assert scan.coverage_state == "partial"
     assert scan.enabled_sources == ["os-packages", "language-packages"]
 
@@ -335,13 +336,14 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
       |> Map.delete("enabled_plugins")
       |> Map.delete("detected_plugins")
 
-    assert {:ok, _result} =
+    assert {:ok, result} =
              EndpointInventoryIngestor.ingest_report(payload,
                actor: actor,
                upload_object: successful_upload()
              )
 
-    scan = current_scan(agent_id)
+    assert result.current? == false
+    scan = scan_by_id(agent_id, "scan-no-diagnostics-#{unique}")
     assert scan.coverage_state == "unknown"
     assert scan.source_summaries == []
     assert scan.enabled_sources == []
@@ -367,13 +369,14 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
         }
       ])
 
-    assert {:ok, _result} =
+    assert {:ok, result} =
              EndpointInventoryIngestor.ingest_report(payload,
                actor: actor,
                upload_object: successful_upload()
              )
 
-    scan = current_scan(agent_id)
+    assert result.current? == false
+    scan = scan_by_id(agent_id, "scan-diagnostic-failed-#{unique}")
     assert scan.package_count == 0
     assert scan.coverage_state == "failed"
   end
@@ -613,17 +616,20 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
                     }}
   end
 
-  test "unchanged package_set_hash short-circuits without upload or write work", %{
+  test "same-hash completed full scan advances freshness without replacing packages", %{
     actor: actor
   } do
     unique = System.unique_integer([:positive])
     device = create_device!(actor, "endpoint-inventory-unchanged-device-#{unique}")
     agent_id = "endpoint-inventory-unchanged-agent-#{unique}"
+    artifact_hash = unique |> Integer.to_string(16) |> String.pad_leading(64, "0")
     create_agent!(actor, agent_id, device.uid)
 
     assert {:ok, first} =
-             EndpointInventoryIngestor.ingest_report(
-               scan_payload(agent_id, "scan-full-#{unique}"),
+             agent_id
+             |> scan_payload("scan-full-#{unique}")
+             |> Map.put("artifact_hash", artifact_hash)
+             |> EndpointInventoryIngestor.ingest_report(
                actor: actor,
                upload_object: successful_upload()
              )
@@ -633,6 +639,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert first.package_count == 1
     assert package_row_count(agent_id) == 1
     assert [%{scan_ref: package_scan_ref}] = current_packages(agent_id)
+    freshness_at = NaiveDateTime.add(first_scan.last_scan_at, 1, :hour)
     test_pid = self()
 
     unchanged_payload =
@@ -644,9 +651,12 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
         "coverage_state" => "complete",
         "package_count" => first_scan.package_count,
         "package_set_hash" => first_scan.package_set_hash,
-        "artifact_hash" => "artifact-hash-#{unique}",
+        "artifact_hash" => artifact_hash,
         "hash_algorithm" => "sha256-v1",
-        "upload_reason" => "unchanged"
+        "upload_reason" => "unchanged",
+        "last_scan_at" => freshness_at,
+        "last_successful_scan_at" => freshness_at,
+        "metadata" => %{"reason" => "full_scan_hash_unchanged"}
       })
 
     upload_object = fn _metadata, _data, _opts ->
@@ -670,15 +680,57 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert package_row_count(agent_id) == 1
 
     current = current_scan(agent_id)
-    assert current.scan_id == "scan-full-#{unique}"
+    assert current.id == first_scan.id
+    assert current.scan_id == first_scan.scan_id
+    assert NaiveDateTime.compare(current.last_scan_at, freshness_at) == :eq
     assert current.package_set_hash == first_scan.package_set_hash
-    assert current.unchanged_scan_count == 0
+    assert current.artifact_hash == artifact_hash
+    assert current.unchanged_scan_count == 1
     assert current.last_changed_scan_at == first_scan.last_changed_scan_at
     assert current.reconcile_floor_due == false
+    assert current.metadata["test_scan_id"] == first_scan.metadata["test_scan_id"]
+
+    assert current.metadata["latest_freshness_observation"]["scan_id"] ==
+             "scan-unchanged-#{unique}"
+
     assert scan_row_count(agent_id) == 1
+    assert endpoint_inventory_scan_activity("scan-unchanged-#{unique}")
+    assert artifact_count(first.scan_ref) == 1
 
     assert [%{name: "nginx", scan_ref: scan_ref}] = current_packages(agent_id)
     assert scan_ref == package_scan_ref
+
+    duplicate_payload =
+      Map.put(unchanged_payload, "scan_id", "scan-unchanged-duplicate-#{unique}")
+
+    assert {:ok, duplicate} =
+             EndpointInventoryIngestor.ingest_report(duplicate_payload,
+               actor: actor,
+               upload_object: upload_object
+             )
+
+    assert duplicate.scan_id == first_scan.scan_id
+    assert current_scan(agent_id).unchanged_scan_count == 1
+
+    delayed_payload =
+      unchanged_payload
+      |> Map.put("scan_id", "scan-unchanged-delayed-#{unique}")
+      |> Map.put("last_scan_at", NaiveDateTime.add(first_scan.last_scan_at, 30, :minute))
+      |> Map.put(
+        "last_successful_scan_at",
+        NaiveDateTime.add(first_scan.last_scan_at, 30, :minute)
+      )
+
+    assert {:ok, delayed} =
+             EndpointInventoryIngestor.ingest_report(delayed_payload,
+               actor: actor,
+               upload_object: upload_object
+             )
+
+    assert delayed.scan_id == first_scan.scan_id
+    after_delayed = current_scan(agent_id)
+    assert after_delayed.unchanged_scan_count == 1
+    assert NaiveDateTime.compare(after_delayed.last_scan_at, freshness_at) == :eq
 
     Repo.delete_all(
       from(s in "endpoint_inventory_scans",
@@ -690,6 +742,80 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert [%{name: "nginx", scan_ref: scan_ref_after_retention}] = current_packages(agent_id)
     assert scan_ref_after_retention == first_scan.id
     refute_receive :unexpected_unchanged_upload, 100
+  end
+
+  test "scanned partial payload cannot replace the current inventory graph", %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    device = create_device!(actor, "endpoint-inventory-partial-device-#{unique}")
+    agent_id = "endpoint-inventory-partial-agent-#{unique}"
+    create_agent!(actor, agent_id, device.uid)
+
+    assert {:ok, first} =
+             agent_id
+             |> scan_payload("scan-partial-anchor-#{unique}")
+             |> Map.put("artifact_hash", String.duplicate("a", 64))
+             |> EndpointInventoryIngestor.ingest_report(
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    anchor = current_scan(agent_id)
+    anchor_packages = current_packages(agent_id)
+
+    partial_payload =
+      agent_id
+      |> scan_payload("scan-partial-#{unique}",
+        components: [package_component("partial-only", "9.9.9")]
+      )
+      |> Map.merge(%{
+        "state" => "scanned",
+        "coverage_state" => "partial",
+        "artifact_hash" => String.duplicate("b", 64)
+      })
+
+    assert {:ok, partial} =
+             EndpointInventoryIngestor.ingest_report(partial_payload,
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    assert partial.current? == false
+    assert partial.scan_ref != first.scan_ref
+
+    current = current_scan(agent_id)
+    assert current.id == anchor.id
+    assert current.scan_id == anchor.scan_id
+    assert current.artifact_hash == anchor.artifact_hash
+    assert current.artifact_count == anchor.artifact_count
+    assert current.manager_counts == anchor.manager_counts
+    assert current_packages(agent_id) == anchor_packages
+    assert artifact_count(anchor.id) == 1
+
+    assert %{status: "Failure"} = endpoint_inventory_scan_activity("scan-partial-#{unique}")
+
+    inferred_partial_payload =
+      partial_payload
+      |> Map.put("scan_id", "scan-partial-inferred-#{unique}")
+      |> Map.delete("coverage_state")
+      |> Map.put("diagnostics", [
+        %{
+          "name" => "os/dpkg",
+          "state" => "partial",
+          "detected" => true,
+          "package_count" => 1,
+          "error" => "one path was unreadable"
+        }
+      ])
+
+    assert {:ok, inferred_partial} =
+             EndpointInventoryIngestor.ingest_report(inferred_partial_payload,
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    assert inferred_partial.current? == false
+    assert current_scan(agent_id).id == anchor.id
+    assert current_packages(agent_id) == anchor_packages
   end
 
   test "duplicate scan id short-circuits before upload and transaction work", %{actor: actor} do
@@ -753,7 +879,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
       |> Map.delete("sbom")
       |> Map.merge(%{
         "state" => "unchanged",
-        "coverage_state" => "unchanged",
+        "coverage_state" => "complete",
         "package_count" => first_scan.package_count,
         "package_set_hash" => first_scan.package_set_hash,
         "upload_reason" => "unchanged",
@@ -842,6 +968,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
 
     assert first.package_count == 2
     assert package_row_count(agent_id) == 2
+    anchor = current_scan(agent_id)
 
     # An `unchanged` upload that carries NO SBOM/packages and whose hash does not
     # match the stored current scan (hash drift) must NOT fall through to a 0-row
@@ -866,15 +993,18 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
 
     assert degraded.current? == true
     assert degraded.package_rows_replaced? == false
+    assert degraded.reconcile_floor? == true
+    assert degraded.directives["endpoint_inventory"]["reconcile_floor"] == true
     # package_count is reconciled to the actually-loaded current rows, not 487.
     assert degraded.package_count == 2
 
     degraded_scan = current_scan(agent_id)
-    assert degraded_scan.scan_id == "scan-degraded-#{unique}"
+    assert degraded_scan.id == anchor.id
+    assert degraded_scan.scan_id == anchor.scan_id
     assert degraded_scan.package_count == 2
-    assert degraded_scan.metadata["reported_package_count"] == 487
-    assert degraded_scan.metadata["loaded_package_count"] == 2
-    assert degraded_scan.metadata["degraded_empty_upload"] == true
+    assert degraded_scan.artifact_hash == anchor.artifact_hash
+    assert degraded_scan.metadata == anchor.metadata
+    assert scan_row_count(agent_id) == 1
 
     assert names = agent_id |> current_packages() |> Enum.map(& &1.name) |> Enum.sort()
     assert names == ["curl", "nginx"]
@@ -1314,9 +1444,10 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
       |> Map.delete("sbom")
       |> Map.merge(%{
         "state" => "unchanged",
-        "coverage_state" => "complete",
+        "coverage_state" => "unchanged",
         "package_count" => first_scan.package_count,
         "package_set_hash" => first_scan.package_set_hash,
+        "artifact_hash" => first_scan.artifact_hash,
         "hash_algorithm" => "sha256-v1",
         "upload_reason" => "unchanged"
       })
@@ -1334,8 +1465,114 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert result.directives["endpoint_inventory"]["upload_reason"] == "changed"
 
     scan = current_scan(agent_id)
+    assert scan.id == first_scan.id
+    assert scan.scan_id == first_scan.scan_id
     assert scan.reconcile_floor_due == true
     assert scan.unchanged_scan_count == 1
+    assert scan.artifact_hash == first_scan.artifact_hash
+    assert scan_row_count(agent_id) == 1
+    assert artifact_count(first_scan.id) == 1
+    assert Enum.all?(current_packages(agent_id), &(&1.scan_ref == first_scan.id))
+  end
+
+  @tag sandbox: :unboxed
+  test "concurrent freshness observations cross the reconcile floor atomically", %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    agent_id = "endpoint-inventory-concurrent-floor-agent-#{unique}"
+    artifact_hash = unique |> Integer.to_string(16) |> String.pad_leading(64, "c")
+    on_exit(fn -> cleanup_unboxed_inventory(agent_id, artifact_hash) end)
+
+    assert {:ok, _first} =
+             agent_id
+             |> scan_payload("scan-concurrent-floor-anchor-#{unique}")
+             |> Map.put("artifact_hash", artifact_hash)
+             |> EndpointInventoryIngestor.ingest_report(
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    anchor = current_scan(agent_id)
+
+    {1, _} =
+      Repo.update_all(
+        from(s in "endpoint_inventory_scans", where: s.id == ^anchor.id),
+        [set: [unchanged_scan_count: 22, reconcile_floor_due: false]],
+        prefix: "platform"
+      )
+
+    parent = self()
+
+    hook = fn context ->
+      send(parent, {:freshness_ready, context.scan_id, self()})
+
+      receive do
+        {:release_freshness, scan_id} when scan_id == context.scan_id -> :ok
+      after
+        5_000 -> raise "timed out waiting to release freshness observation"
+      end
+    end
+
+    payload = fn scan_id, seconds ->
+      agent_id
+      |> scan_payload(scan_id, components: [])
+      |> Map.delete("sbom")
+      |> Map.merge(%{
+        "state" => "unchanged",
+        "coverage_state" => "complete",
+        "package_count" => anchor.package_count,
+        "package_set_hash" => anchor.package_set_hash,
+        "artifact_hash" => anchor.artifact_hash,
+        "hash_algorithm" => "sha256-v1",
+        "upload_reason" => "unchanged",
+        "last_scan_at" => NaiveDateTime.add(anchor.last_scan_at, seconds, :second),
+        "last_successful_scan_at" => NaiveDateTime.add(anchor.last_scan_at, seconds, :second),
+        "metadata" => %{"reason" => "full_scan_hash_unchanged"}
+      })
+    end
+
+    older_id = "scan-concurrent-floor-older-#{unique}"
+    newer_id = "scan-concurrent-floor-newer-#{unique}"
+
+    older_task =
+      Task.async(fn ->
+        EndpointInventoryIngestor.ingest_report(payload.(older_id, 1),
+          actor: actor,
+          upload_object: successful_upload(),
+          reconcile_floor_scan_count: 24,
+          reconcile_floor_max_age_days: 0,
+          before_hash_freshness_touch: hook
+        )
+      end)
+
+    newer_task =
+      Task.async(fn ->
+        EndpointInventoryIngestor.ingest_report(payload.(newer_id, 2),
+          actor: actor,
+          upload_object: successful_upload(),
+          reconcile_floor_scan_count: 24,
+          reconcile_floor_max_age_days: 0,
+          before_hash_freshness_touch: hook
+        )
+      end)
+
+    assert_receive {:freshness_ready, ^older_id, older_pid}, 5_000
+    assert_receive {:freshness_ready, ^newer_id, newer_pid}, 5_000
+
+    send(older_pid, {:release_freshness, older_id})
+    assert {:ok, older_result} = Task.await(older_task, 5_000)
+    assert older_result.reconcile_floor? == false
+
+    send(newer_pid, {:release_freshness, newer_id})
+    assert {:ok, newer_result} = Task.await(newer_task, 5_000)
+    assert newer_result.reconcile_floor? == true
+    assert newer_result.directives["endpoint_inventory"]["reconcile_floor"] == true
+    assert newer_result.scan_id == anchor.scan_id
+
+    current = current_scan(agent_id)
+    assert current.id == anchor.id
+    assert current.scan_id == anchor.scan_id
+    assert current.unchanged_scan_count == 24
+    assert current.reconcile_floor_due == true
   end
 
   defp scan_payload(agent_id, scan_id, opts \\ []) do
@@ -1436,13 +1673,55 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
           source_summaries: s.source_summaries,
           package_count: s.package_count,
           package_set_hash: s.package_set_hash,
+          artifact_hash: s.artifact_hash,
+          artifact_count: s.artifact_count,
+          manager_counts: s.manager_counts,
           server_package_set_hash: s.server_package_set_hash,
           package_set_hash_mismatch: s.package_set_hash_mismatch,
           unchanged_scan_count: s.unchanged_scan_count,
+          last_scan_at: s.last_scan_at,
           last_changed_scan_at: s.last_changed_scan_at,
           reconcile_floor_due: s.reconcile_floor_due,
           metadata: s.metadata
         }
+      ),
+      prefix: "platform"
+    )
+  end
+
+  defp scan_by_id(agent_id, scan_id) do
+    Repo.one!(
+      from(s in "endpoint_inventory_scans",
+        where: s.agent_id == ^agent_id and s.scan_id == ^scan_id,
+        select: %{
+          id: s.id,
+          current: s.current,
+          package_count: s.package_count,
+          coverage_state: s.coverage_state,
+          source_summaries: s.source_summaries,
+          enabled_sources: s.enabled_sources
+        }
+      ),
+      prefix: "platform"
+    )
+  end
+
+  defp cleanup_unboxed_inventory(agent_id, artifact_hash) do
+    Repo.delete_all(
+      from(e in "ocsf_events",
+        where: fragment("?->>'agent_id' = ?", e.unmapped, ^agent_id)
+      ),
+      prefix: "platform"
+    )
+
+    Repo.delete_all(
+      from(s in "endpoint_inventory_scans", where: s.agent_id == ^agent_id),
+      prefix: "platform"
+    )
+
+    Repo.delete_all(
+      from(c in "endpoint_inventory_artifact_contents",
+        where: c.artifact_hash == ^artifact_hash
       ),
       prefix: "platform"
     )

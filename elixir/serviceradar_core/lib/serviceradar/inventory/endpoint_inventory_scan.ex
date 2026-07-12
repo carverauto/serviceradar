@@ -286,7 +286,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryScan do
               :string,
               expr(
                 fragment(
-                  "CASE WHEN ? IS NULL THEN 'unknown' WHEN ? > NOW() - INTERVAL '24 hours' THEN 'fresh' ELSE 'stale' END",
+                  "CASE WHEN ? IS NULL THEN 'unknown' WHEN ? > NOW() - INTERVAL '26 hours' THEN 'fresh' ELSE 'stale' END",
                   last_successful_scan_at,
                   last_successful_scan_at
                 )

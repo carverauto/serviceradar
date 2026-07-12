@@ -42,24 +42,94 @@ func WriteSpool(cfg Config, payload *ScanPayload) error {
 		return nil
 	}
 
+	return withCacheManifestLock(cfg, func() error {
+		manifest, err := readCacheManifestUnlocked(cfg)
+		if err != nil {
+			return err
+		}
+		if manifest != nil && payloadRepresentsCommittedScan(payload) &&
+			!payloadMatchesCurrentManifest(manifest, payload) {
+			return nil
+		}
+		if manifest != nil && !payloadRepresentsCommittedScan(payload) &&
+			manifest.LastFullScanAt != nil && payload.LastScanAt.Before(*manifest.LastFullScanAt) {
+			return nil
+		}
+		writePending := PayloadRequiresFullUpload(payload) &&
+			(manifest == nil || pendingMatchesPayload(manifest, payload))
+
+		return writeSpoolUnlocked(cfg, payload, writePending)
+	})
+}
+
+func payloadRepresentsCommittedScan(payload *ScanPayload) bool {
+	return payload != nil &&
+		(payload.State == scanStateScanned || payload.State == scanStateUnchanged) &&
+		(payload.CoverageState == coverageComplete || payload.CoverageState == coverageUnchanged)
+}
+
+func payloadMatchesCurrentManifest(manifest *InventoryCacheManifest, payload *ScanPayload) bool {
+	if manifest == nil || payload == nil ||
+		manifest.AgentID != payload.AgentID ||
+		manifest.ConfigHash != payload.ConfigHash ||
+		manifest.ProducerID != metadataString(payload.Metadata, "scanner_producer_id") ||
+		manifest.ProducerVersion != payload.CollectorVersion ||
+		manifest.PackageSetHash != payload.PackageSetHash ||
+		manifest.ArtifactHash != payload.ArtifactHash ||
+		!manifest.LastScanAt.Equal(payload.LastScanAt) {
+		return false
+	}
+	if PayloadRequiresFullUpload(payload) {
+		return pendingMatchesPayload(manifest, payload)
+	}
+
+	return true
+}
+
+func ensureSpoolDirs(cfg Config, includeRuns bool) error {
+
 	// 0770 (group-writable) so both the root scanner and the non-root
 	// serviceradar agent can write spool entries and upload markers into the
 	// shared serviceradar-group dirs.
 	if err := os.MkdirAll(cfg.SpoolDir, 0770); err != nil {
 		return fmt.Errorf("create spool dir: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Join(cfg.SpoolDir, "runs"), 0770); err != nil {
-		return fmt.Errorf("create run spool dir: %w", err)
+	if includeRuns {
+		if err := os.MkdirAll(filepath.Join(cfg.SpoolDir, "runs"), 0770); err != nil {
+			return fmt.Errorf("create run spool dir: %w", err)
+		}
 	}
 	if err := os.MkdirAll(cfg.TmpDir, 0770); err != nil {
 		return fmt.Errorf("create tmp dir: %w", err)
 	}
 
+	return nil
+}
+
+func writePendingUploadUnlocked(cfg Config, payload *ScanPayload) error {
+	if !PayloadRequiresFullUpload(payload) {
+		return nil
+	}
+	if err := ensureSpoolDirs(cfg, false); err != nil {
+		return err
+	}
+	if err := writeJSONAtomic(PendingUploadPath(cfg.SpoolDir), cfg.TmpDir, cfg.MaxOutputBytes, payload); err != nil {
+		return fmt.Errorf("write endpoint inventory pending upload: %w", err)
+	}
+
+	return nil
+}
+
+func writeSpoolUnlocked(cfg Config, payload *ScanPayload, writePending bool) error {
+	if err := ensureSpoolDirs(cfg, true); err != nil {
+		return err
+	}
+
 	if err := writeJSONAtomic(LatestPath(cfg.SpoolDir), cfg.TmpDir, cfg.MaxOutputBytes, payload); err != nil {
 		return err
 	}
-	if PayloadRequiresFullUpload(payload) {
-		if err := writeJSONAtomic(PendingUploadPath(cfg.SpoolDir), cfg.TmpDir, cfg.MaxOutputBytes, payload); err != nil {
+	if writePending {
+		if err := writePendingUploadUnlocked(cfg, payload); err != nil {
 			return err
 		}
 	}
