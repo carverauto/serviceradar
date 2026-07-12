@@ -190,7 +190,10 @@ defmodule ServiceRadar.Observability.PluginResultIngestorFailureTest do
     refute persistence_error =~ "state-private-key-secret"
     refute persistence_error =~ "state-token-secret"
 
-    assert [[^observed_at, true, "edge plugin completed", _]] = history_rows(status)
+    assert [[reported_at, true, "edge plugin completed", _] = reported_row] =
+             history_rows(status)
+
+    assert reported_at == assert_reported_event_block(reported_row, observed_at)
     assert [] = current_state_rows(status)
 
     Application.put_env(
@@ -202,10 +205,10 @@ defmodule ServiceRadar.Observability.PluginResultIngestorFailureTest do
     assert {:error, {:plugin_result_handlers_failed, [{FailingHandler, ":forced_failure"}]}} =
              PluginResultIngestor.ingest(payload, status)
 
-    failed_at = DateTime.add(observed_at, 1, :microsecond)
+    failed_at = marker_timestamp(reported_at, 1, "failed")
 
     assert [
-             [^observed_at, true, "edge plugin completed", _],
+             [^reported_at, true, "edge plugin completed", _],
              [^failed_at, false, _, _]
            ] = history_rows(status)
 

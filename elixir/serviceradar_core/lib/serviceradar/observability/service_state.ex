@@ -102,6 +102,10 @@ defmodule ServiceRadar.Observability.ServiceState do
       accept []
       change set_attribute(:state, "active")
     end
+
+    update :replace_snapshot do
+      accept [:available, :message, :details, :last_observed_at, :state]
+    end
   end
 
   policies do
@@ -109,7 +113,7 @@ defmodule ServiceRadar.Observability.ServiceState do
       authorize_if always()
     end
 
-    policy action([:upsert, :activate, :deactivate]) do
+    policy action([:upsert, :activate, :deactivate, :replace_snapshot]) do
       authorize_if always()
     end
   end

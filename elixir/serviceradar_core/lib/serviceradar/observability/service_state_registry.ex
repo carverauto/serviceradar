@@ -41,17 +41,23 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     as: :upsert_strict_with_notifications
 
   @doc false
+  @spec replace_from_status_with_notifications(map()) ::
+          {:ok, list(), list()} | {:error, term()}
+  def replace_from_status_with_notifications(status) do
+    StatusIngestor.replace_with_notifications(status, preserve_gateway?: true)
+  end
+
+  @doc false
   @spec dispatch_deferred_side_effects(list()) :: :ok | {:error, term()}
   defdelegate dispatch_deferred_side_effects(side_effects), to: SideEffects, as: :dispatch
 
   @doc """
   Batched equivalent of `upsert_from_status/1` for a list of statuses.
 
-  Builds attrs for each status, dedups by the `:unique_service_identity`
-  (agent_id/gateway_id/partition/service_type/service_name) keeping the last
-  status per identity, then performs ONE `Ash.bulk_create(:upsert, ...)`. The
-  per-state side-effects run per returned record so behavior matches the
-  single-status path.
+  Plugin statuses use the strict single-status path so assignment eligibility,
+  logical-identity locks, and winner reconciliation remain transactional. Other
+  statuses are deduplicated by `:unique_service_identity` and use
+  `Ash.bulk_create(:upsert, ...)`.
 
   Returns `:ok`; failures are logged and never raise (matches the per-status
   path's best-effort contract on the ResultsRouter hot path).

@@ -3,7 +3,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusNormalizer do
 
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.Infrastructure.Agent
-  alias ServiceRadar.Observability.ServiceState
+  alias ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
 
@@ -13,7 +13,9 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusNormalizer do
 
   @doc false
   def attrs_from_status(status, actor, opts \\ []) do
-    message = normalize_message(fetch(status, :message))
+    raw_message = fetch(status, :message)
+    raw_details = fetch(status, :details) || raw_message
+    message = normalize_message(raw_message)
     agent_id = normalize_string(fetch(status, :agent_id), "unknown")
     service_type = normalize_string(fetch(status, :service_type), "unknown")
 
@@ -32,7 +34,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusNormalizer do
       service_name: normalize_string(fetch(status, :service_name), "unknown"),
       available: normalize_available(fetch(status, :available)),
       message: normalize_message_value(message),
-      details: normalize_details(fetch(status, :message)),
+      details: normalize_details(raw_details),
       last_observed_at: resolve_observed_at(status),
       state: "active"
     }
@@ -48,7 +50,10 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusNormalizer do
 
   @doc false
   def fetch(status, key) when is_map(status) do
-    Map.get(status, key) || Map.get(status, Atom.to_string(key))
+    case Map.fetch(status, key) do
+      {:ok, value} -> value
+      :error -> Map.get(status, Atom.to_string(key))
+    end
   end
 
   @doc false
@@ -56,7 +61,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusNormalizer do
         %PluginAssignment{} = assignment,
         %PluginPackage{} = package
       ) do
-    assignment.enabled == true and
+    assignment.enabled == true and package.status == :approved and
       (streaming_plugin_package?(package) or plugin_result_package?(package))
   end
 
@@ -100,32 +105,14 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusNormalizer do
 
   @doc false
   def logical_plugin_identity(identity) when is_map(identity) do
-    %{
-      agent_id: normalize_string(fetch(identity, :agent_id), "unknown"),
-      partition:
-        normalize_string(fetch(identity, :partition) || fetch(identity, :partition_id), "default"),
-      service_type: normalize_string(fetch(identity, :service_type), "plugin"),
-      service_name: normalize_string(fetch(identity, :service_name), "unknown")
-    }
+    PluginStateContract.logical_identity(identity)
   end
 
   @doc false
-  def logical_state_rank(%ServiceState{} = state) do
-    observed_at =
-      case state.last_observed_at do
-        %DateTime{} = dt -> DateTime.to_unix(dt, :nanosecond)
-        _ -> 0
-      end
-
-    real_result_rank = if placeholder_message?(state.message), do: 0, else: 1
-    unavailable_rank = if state.available == false, do: 1, else: 0
-    {real_result_rank, observed_at, unavailable_rank, state.gateway_id || ""}
-  end
+  def logical_state_rank(state), do: PluginStateContract.state_rank(state)
 
   @doc false
-  def assignment_placeholder_state?(%ServiceState{} = state) do
-    placeholder_message?(state.message)
-  end
+  def assignment_placeholder_state?(state), do: PluginStateContract.placeholder_state?(state)
 
   @doc false
   def streaming_plugin_package?(%PluginPackage{} = package) do
@@ -139,7 +126,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusNormalizer do
   end
 
   defp resolve_partition(status) do
-    fetch(status, :partition) || fetch(status, :partition_id) || "default"
+    normalize_string(fetch(status, :partition) || fetch(status, :partition_id), "default")
   end
 
   defp normalize_available(true), do: true
@@ -267,14 +254,10 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusNormalizer do
   defp assignment_initial_state("streaming"), do: {true, "streaming plugin ready"}
   defp assignment_initial_state(_), do: {false, "plugin assignment pending result"}
 
-  defp placeholder_message?("plugin assignment pending result"), do: true
-  defp placeholder_message?("streaming plugin ready"), do: true
-  defp placeholder_message?(_), do: false
-
   defp resolve_partition_from_agent(agent) do
     metadata = agent.metadata || %{}
 
-    metadata["partition_id"] || metadata["partition"] || "default"
+    normalize_string(metadata["partition_id"] || metadata["partition"], "default")
   end
 
   defp canonical_gateway_id(status, agent_id, actor) do

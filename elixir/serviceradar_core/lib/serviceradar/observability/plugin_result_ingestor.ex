@@ -17,9 +17,13 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
   alias ServiceRadar.Inventory.ProxmoxEnrichmentIngestor
   alias ServiceRadar.Inventory.VulnerabilityAdvisoryIngestor
+  alias ServiceRadar.Observability.PluginResultReportedMarker
+  alias ServiceRadar.Observability.PluginResultSlot
   alias ServiceRadar.Observability.ServiceIdentity
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Observability.ServiceStateRegistry
+  alias ServiceRadar.Observability.ServiceStateRegistry.PluginResultStateWinner
+  alias ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract
   alias ServiceRadar.Observability.ServiceStatus
   alias ServiceRadar.Observability.ServiceStatusPubSub
   alias ServiceRadar.Observability.ThreatIntelPluginIngestor
@@ -32,12 +36,10 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   @handler_error_max_bytes 1_000
   @handler_error_component_max_bytes 512
   @handler_provenance_version 1
-  # A service observation owns at most 256 microseconds of synthetic history.
-  # Allocation fails instead of crossing the next genuine observation.
   @handler_marker_max_generations 128
   @handler_marker_window_microseconds @handler_marker_max_generations * 2
   @handler_marker_insert_attempts 4
-  @reported_status_insert_attempts 4
+  @status_slot_bucket_width_microseconds @handler_marker_window_microseconds + 1
   @reported_status_marker_key "_serviceradar_plugin_result"
   @reported_status_marker_version 1
   @reserved_state_detail_keys [
@@ -80,7 +82,12 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
         case ingest_registered_handlers(handlers, payload, status, observed_at, actor) do
           :ok ->
-            case persist_handler_success(status_row, payload, handlers, actor) do
+            case persist_handler_success(
+                   service_status_attributes(reported_status),
+                   payload,
+                   handlers,
+                   actor
+                 ) do
               {:ok, status_event} ->
                 publish_committed_status(status_event || reported_status)
                 :ok
@@ -93,7 +100,13 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
             end
 
           {:error, {:plugin_result_handlers_failed, errors}} = handler_error ->
-            case persist_handler_failure(status_row, payload, errors, handlers, actor) do
+            case persist_handler_failure(
+                   service_status_attributes(reported_status),
+                   payload,
+                   errors,
+                   handlers,
+                   actor
+                 ) do
               {:ok, status_event} ->
                 publish_committed_status(status_event || reported_status)
                 handler_error
@@ -131,30 +144,51 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   def ingest(_payload, _status), do: {:error, :invalid_payload}
 
   defp insert_status(row, actor) do
-    case Repo.transaction(fn ->
-           case acquire_status_slot_locks(row) do
-             :ok ->
-               case do_insert_reported_status(row, actor, @reported_status_insert_attempts) do
-                 {:ok, status, notifications} ->
-                   {:ok, status, notifications}
+    do_insert_status(row, actor, 0)
+  end
 
-                 {:error, reason} ->
-                   Repo.rollback(reason)
+  defp do_insert_status(row, actor, attempt) do
+    if attempt < PluginResultSlot.insert_attempts() do
+      block_base = PluginResultSlot.block_base(row, attempt)
+      physical_row = reported_status_physical_row(row, block_base)
+      lock_mode = if attempt == 0, do: :try, else: :exclusive
+
+      case Repo.transaction(fn ->
+             with :ok <- acquire_status_identity_locks(physical_row),
+                  {:ok, existing} <- existing_reported_status(row, actor) do
+               case existing do
+                 %ServiceStatus{} = status ->
+                   {:ok, status, []}
+
+                 nil ->
+                   with :ok <- acquire_status_slot_bucket_locks(physical_row, lock_mode),
+                        {:ok, status, notifications} <-
+                          do_insert_reported_status(row, physical_row, actor) do
+                     {:ok, status, notifications}
+                   else
+                     {:error, reason} -> Repo.rollback(reason)
+                   end
                end
+             else
+               {:error, reason} -> Repo.rollback(reason)
+             end
+           end) do
+        {:ok, {:ok, status, notifications}} ->
+          _ = Ash.Notifier.notify(notifications)
+          {:ok, status}
 
-             {:error, reason} ->
-               Repo.rollback(reason)
-           end
-         end) do
-      {:ok, {:ok, status, notifications}} ->
-        _ = Ash.Notifier.notify(notifications)
-        {:ok, status}
-
-      {:error, reason} ->
         {:error, reason}
+        when reason in [:reported_status_slot_collision, :status_slot_lock_busy] ->
+          do_insert_status(row, actor, attempt + 1)
 
-      other ->
-        {:error, {:unexpected_reported_status_transaction_result, other}}
+        {:error, reason} ->
+          {:error, reason}
+
+        other ->
+          {:error, {:unexpected_reported_status_transaction_result, other}}
+      end
+    else
+      {:error, :reported_status_allocation_exhausted}
     end
   end
 
@@ -178,55 +212,127 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     end
   end
 
-  defp do_insert_reported_status(row, actor, attempts) do
-    with {:ok, slot_rows} <- reported_status_slot_rows(row, actor) do
-      case Enum.find(slot_rows, &reported_status_matches?(&1, row)) do
+  defp reported_status_physical_row(row, block_base) do
+    details =
+      case Jason.decode(row.details) do
+        {:ok, %{@reported_status_marker_key => marker} = decoded} when is_map(marker) ->
+          decoded
+          |> Map.put(
+            @reported_status_marker_key,
+            Map.put(marker, "slot", reported_slot(block_base))
+          )
+          |> FieldParser.encode_json()
+
+        _ ->
+          row.details
+      end
+
+    %{row | timestamp: block_base, details: details}
+  end
+
+  defp reported_slot(block_base) do
+    %{
+      "base_timestamp" => DateTime.to_iso8601(block_base),
+      "version" => 1,
+      "width_microseconds" => PluginResultSlot.block_width_microseconds()
+    }
+  end
+
+  defp service_status_attributes(%ServiceStatus{} = status) do
+    Map.take(status, [
+      :timestamp,
+      :gateway_id,
+      :agent_id,
+      :service_id,
+      :service_name,
+      :service_type,
+      :available,
+      :message,
+      :details,
+      :partition,
+      :created_at
+    ])
+  end
+
+  defp existing_reported_status(row, actor) do
+    observed_at = PluginResultSlot.logical_observed_at(row)
+
+    lower_bound =
+      DateTime.add(
+        observed_at,
+        -PluginResultSlot.allocation_window_microseconds(),
+        :microsecond
+      )
+
+    agent_id = row.agent_id
+    gateway_id = row.gateway_id
+    partition = row.partition
+    service_type = row.service_type
+    service_name = row.service_name
+
+    ServiceStatus
+    |> Ash.Query.filter(
+      timestamp >= ^lower_bound and timestamp <= ^observed_at and agent_id == ^agent_id and
+        gateway_id == ^gateway_id and partition == ^partition and service_type == ^service_type and
+        service_name == ^service_name
+    )
+    |> Ash.read(actor: actor, domain: ServiceRadar.Observability)
+    |> case do
+      {:ok, rows} when is_list(rows) -> {:ok, preferred_reported_status(rows, row)}
+      {:error, error} -> {:error, error}
+      other -> {:error, {:unexpected_existing_reported_status_result, other}}
+    end
+  end
+
+  defp preferred_reported_status(rows, logical_row) do
+    rows
+    |> Enum.filter(&reported_status_matches?(&1, logical_row))
+    |> Enum.min_by(
+      fn status ->
+        marker_rank = if parse_reported_status_marker(status), do: 0, else: 1
+        {marker_rank, DateTime.to_unix(status.timestamp, :microsecond)}
+      end,
+      fn -> nil end
+    )
+  end
+
+  defp do_insert_reported_status(logical_row, physical_row, actor) do
+    with {:ok, slot_rows} <- reported_status_overlap_rows(physical_row, actor) do
+      case Enum.find(slot_rows, &reported_status_matches?(&1, logical_row)) do
         %ServiceStatus{} = existing ->
           {:ok, existing, []}
 
         nil ->
-          insert_reported_status_at_available_slot(row, slot_rows, actor, attempts)
+          if Enum.any?(slot_rows, &blocking_status_overlap?(&1, physical_row)) do
+            {:error, :reported_status_slot_collision}
+          else
+            insert_reported_status_at_available_slot(logical_row, physical_row, actor)
+          end
       end
     end
   end
 
-  defp insert_reported_status_at_available_slot(row, slot_rows, actor, attempts) do
-    case available_reported_status_timestamp(row, slot_rows) do
-      nil ->
-        {:error, :reported_status_slot_window_exhausted}
-
-      timestamp ->
-        physical_row = %{row | timestamp: timestamp}
-
-        with {:ok, _record, notifications} <-
-               insert_status_with_notifications(physical_row, actor),
-             {:ok, persisted} <- service_status_at_slot(physical_row, actor) do
-          if reported_status_matches?(persisted, row) do
-            {:ok, persisted, notifications}
-          else
-            retry_reported_status_insert(row, actor, attempts)
-          end
-        end
+  defp insert_reported_status_at_available_slot(logical_row, physical_row, actor) do
+    with {:ok, _record, notifications} <-
+           insert_status_with_notifications(physical_row, actor),
+         {:ok, persisted} <- service_status_at_slot(physical_row, actor) do
+      if reported_status_matches?(persisted, logical_row) do
+        {:ok, persisted, notifications}
+      else
+        {:error, :reported_status_slot_collision}
+      end
     end
   end
 
-  defp retry_reported_status_insert(row, actor, attempts) when attempts > 1 do
-    do_insert_reported_status(row, actor, attempts - 1)
-  end
-
-  defp retry_reported_status_insert(_row, _actor, _attempts) do
-    {:error, :reported_status_slot_collision}
-  end
-
-  defp reported_status_slot_rows(row, actor) do
-    observed_at = row.timestamp
-    upper_bound = DateTime.add(observed_at, @handler_marker_window_microseconds, :microsecond)
+  defp reported_status_overlap_rows(row, actor) do
+    lower_bound = DateTime.add(row.timestamp, -@handler_marker_window_microseconds, :microsecond)
+    upper_bound = DateTime.add(row.timestamp, @handler_marker_window_microseconds, :microsecond)
     gateway_id = row.gateway_id
     service_name = row.service_name
 
     ServiceStatus
     |> Ash.Query.filter(
-      timestamp >= ^observed_at and timestamp <= ^upper_bound and
+      timestamp >= ^lower_bound and timestamp <= ^upper_bound and
         gateway_id == ^gateway_id and service_name == ^service_name
     )
     |> Ash.read(actor: actor, domain: ServiceRadar.Observability)
@@ -235,6 +341,11 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       {:error, error} -> {:error, error}
       other -> {:error, {:unexpected_reported_status_slot_result, other}}
     end
+  end
+
+  defp blocking_status_overlap?(status, physical_row) do
+    DateTime.compare(status.timestamp, physical_row.timestamp) != :lt or
+      not is_nil(parse_reported_status_marker(status))
   end
 
   defp service_status_at_slot(row, actor) do
@@ -255,51 +366,63 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     end
   end
 
-  defp available_reported_status_timestamp(row, slot_rows) do
-    occupied_offsets =
-      MapSet.new(slot_rows, &DateTime.diff(&1.timestamp, row.timestamp, :microsecond))
-
-    next_observation_offset = next_genuine_observation_offset(slot_rows, row.timestamp)
-
-    Enum.find_value(0..@handler_marker_window_microseconds, fn offset ->
-      if offset < next_observation_offset and not MapSet.member?(occupied_offsets, offset) do
-        DateTime.add(row.timestamp, offset, :microsecond)
-      end
-    end)
-  end
-
   defp upsert_current_state_with_notifications(row) when is_map(row) do
     registry = state_registry()
 
-    attrs = %{
-      agent_id: Map.get(row, :agent_id),
-      gateway_id: Map.get(row, :gateway_id),
-      partition: Map.get(row, :partition),
-      service_type: Map.get(row, :service_type),
-      service_name: Map.get(row, :service_name),
-      available: Map.get(row, :available),
-      message: Map.get(row, :details) || Map.get(row, :message),
-      timestamp: Map.get(row, :timestamp)
-    }
+    case PluginResultStateWinner.select(row) do
+      {:ok, candidate} ->
+        attrs = %{
+          agent_id: Map.get(candidate, :agent_id),
+          gateway_id: Map.get(candidate, :gateway_id),
+          partition: Map.get(candidate, :partition),
+          service_type: Map.get(candidate, :service_type),
+          service_name: Map.get(candidate, :service_name),
+          available: Map.get(candidate, :available),
+          message: Map.get(candidate, :details) || Map.get(candidate, :message),
+          timestamp: Map.get(candidate, :timestamp)
+        }
 
-    if Code.ensure_loaded?(registry) and
-         function_exported?(registry, :upsert_from_status_strict_with_notifications, 1) do
-      case registry.upsert_from_status_strict_with_notifications(attrs) do
-        {:ok, notifications, side_effects} ->
-          {:ok, notifications, [{registry, side_effects}]}
+        do_upsert_current_state_with_notifications(registry, attrs)
 
-        {:error, reason} ->
-          {:error, reason}
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 
-        other ->
-          {:error, {:unexpected_service_state_upsert_result, other}}
-      end
-    else
-      case registry.upsert_from_status_strict(attrs) do
-        :ok -> {:ok, [], []}
-        {:error, reason} -> {:error, reason}
-        other -> {:error, {:unexpected_service_state_upsert_result, other}}
-      end
+  defp do_upsert_current_state_with_notifications(registry, attrs) do
+    cond do
+      Code.ensure_loaded?(registry) and
+          function_exported?(registry, :replace_from_status_with_notifications, 1) ->
+        case registry.replace_from_status_with_notifications(attrs) do
+          {:ok, notifications, side_effects} ->
+            {:ok, notifications, [{registry, side_effects}]}
+
+          {:error, reason} ->
+            {:error, reason}
+
+          other ->
+            {:error, {:unexpected_service_state_replace_result, other}}
+        end
+
+      Code.ensure_loaded?(registry) and
+          function_exported?(registry, :upsert_from_status_strict_with_notifications, 1) ->
+        case registry.upsert_from_status_strict_with_notifications(attrs) do
+          {:ok, notifications, side_effects} ->
+            {:ok, notifications, [{registry, side_effects}]}
+
+          {:error, reason} ->
+            {:error, reason}
+
+          other ->
+            {:error, {:unexpected_service_state_upsert_result, other}}
+        end
+
+      true ->
+        case registry.upsert_from_status_strict(attrs) do
+          :ok -> {:ok, [], []}
+          {:error, reason} -> {:error, reason}
+          other -> {:error, {:unexpected_service_state_upsert_result, other}}
+        end
     end
   end
 
@@ -324,63 +447,33 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     end
   end
 
-  defp resolve_service_name(status) do
-    case status[:service_name] do
-      name when is_binary(name) and name != "" -> name
-      _ -> "plugin"
-    end
-  end
-
-  defp resolve_service_type(status) do
-    case status[:service_type] do
-      type when is_binary(type) and type != "" -> type
-      _ -> "plugin"
-    end
-  end
-
-  defp resolve_gateway_id(status) do
-    case status[:gateway_id] do
-      id when is_binary(id) and id != "" -> id
-      _ -> "unknown"
-    end
-  end
-
   defp build_status_row(payload, status, observed_at, created_at, summary, available) do
-    gateway_id = resolve_gateway_id(status)
-    service_name = resolve_service_name(status)
-    service_type = resolve_service_type(status)
-    partition = status[:partition] || "default"
+    identity = PluginStateContract.status_identity(status)
+    service_id = ServiceIdentity.service_id(identity)
 
-    service_id =
-      ServiceIdentity.service_id(%{
-        agent_id: status[:agent_id],
-        gateway_id: gateway_id,
-        partition: partition,
-        service_type: service_type,
-        service_name: service_name
-      })
+    reported_payload = drop_top_level_keys(payload, [@reported_status_marker_key])
+    payload_digest = payload_digest(reported_payload)
 
     details =
-      payload
-      |> drop_top_level_keys([@reported_status_marker_key])
-      |> Map.put(@reported_status_marker_key, %{
+      Map.put(reported_payload, @reported_status_marker_key, %{
         "kind" => "reported",
         "observation_timestamp" => DateTime.to_iso8601(observed_at),
+        "payload_digest" => payload_digest,
         "service_id" => to_string(service_id),
         "version" => @reported_status_marker_version
       })
 
     %{
       timestamp: observed_at,
-      gateway_id: gateway_id,
-      agent_id: status[:agent_id],
+      gateway_id: identity.gateway_id,
+      agent_id: identity.agent_id,
       service_id: service_id,
-      service_name: service_name,
-      service_type: service_type,
+      service_name: identity.service_name,
+      service_type: identity.service_type,
       available: available,
       message: summary,
       details: FieldParser.encode_json(details),
-      partition: partition,
+      partition: identity.partition,
       created_at: created_at
     }
   end
@@ -547,25 +640,48 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   defp persist_handler_success_state(status_row, payload, marker, actor) do
     success_row = handler_success_status_row(status_row, payload, marker)
 
-    with {:ok, history_notifications} <-
-           maybe_insert_handler_recovery(success_row, marker, actor),
+    with {:ok, history_notifications, history_status_event} <-
+           maybe_insert_handler_recovery(status_row, success_row, marker, actor),
          {:ok, state_notifications, side_effects} <-
            upsert_current_state_with_notifications(success_row) do
-      status_event = if marker.failure_recorded?, do: success_row
+      status_event = history_status_event || if(marker.failure_recorded?, do: success_row)
 
       {:ok, history_notifications ++ state_notifications, side_effects, status_event}
     end
   end
 
-  defp maybe_insert_handler_recovery(success_row, %{failure_recorded?: true} = marker, actor) do
-    insert_handler_marker(success_row, marker, "succeeded", actor)
+  defp maybe_insert_handler_recovery(reported_row, success_row, marker, actor) do
+    if marker.failure_recorded? or not server_reported_status?(reported_row) do
+      insert_handler_recovery_marker(success_row, marker, actor)
+    else
+      case PluginResultStateWinner.multiple_reported_payloads?(success_row) do
+        {:ok, true} -> insert_handler_recovery_marker(success_row, marker, actor)
+        {:ok, false} -> {:ok, [], nil}
+        {:error, reason} -> {:error, reason}
+      end
+    end
   end
 
-  defp maybe_insert_handler_recovery(_success_row, _marker, _actor), do: {:ok, []}
+  defp server_reported_status?(row), do: not is_nil(parse_reported_status_marker(row))
+
+  defp insert_handler_recovery_marker(success_row, marker, actor) do
+    case insert_handler_marker_with_result(success_row, marker, "succeeded", actor) do
+      {:ok, notifications, true, persisted} ->
+        {:ok, notifications, persisted}
+
+      {:ok, notifications, false, persisted} ->
+        status_event = if marker.failure_recorded?, do: persisted
+        {:ok, notifications, status_event}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 
   defp handler_failure_status_row(status_row, payload, errors, marker) do
     handlers = Enum.map(errors, fn {handler, _error_text} -> handler_label(handler) end)
     message = "Plugin result downstream ingest failed: #{Enum.join(handlers, ", ")}"
+    reported_payload = drop_top_level_keys(payload, [@reported_status_marker_key])
 
     details =
       payload
@@ -573,12 +689,13 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       |> Map.merge(%{
         "status" => "CRITICAL",
         "summary" => message,
-        "reported_result" => payload,
+        "reported_result" => reported_payload,
         "downstream_ingest" => %{
           "status" => "failed",
           "generation" => marker.generation,
           "handler_set" => marker.handler_set,
           "observation_timestamp" => marker.observation_timestamp,
+          "payload_digest" => marker.payload_digest,
           "handlers" =>
             Enum.map(errors, fn {handler, error_text} ->
               %{
@@ -601,18 +718,21 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   end
 
   defp handler_success_status_row(status_row, payload, marker) do
+    reported_payload = drop_top_level_keys(payload, [@reported_status_marker_key])
+
     details =
       payload
       |> drop_top_level_keys(@reserved_state_detail_keys)
       |> Map.merge(%{
         "status" => fetch_string(payload, ["status"]),
         "summary" => status_row.message,
-        "reported_result" => payload,
+        "reported_result" => reported_payload,
         "downstream_ingest" => %{
           "status" => "succeeded",
           "generation" => marker.generation,
           "handler_set" => marker.handler_set,
           "observation_timestamp" => marker.observation_timestamp,
+          "payload_digest" => marker.payload_digest,
           "recovered_from_failure" => marker.failure_recorded?
         }
       })
@@ -627,17 +747,27 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   end
 
   defp insert_handler_marker(row, marker, marker_status, actor) do
-    with {:ok, _record, notifications} <- insert_status_with_notifications(row, actor),
-         {:ok, persisted_marker} <- handler_marker_at(row, actor) do
+    case insert_handler_marker_with_result(row, marker, marker_status, actor) do
+      {:ok, notifications, _inserted?, _persisted} -> {:ok, notifications}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp insert_handler_marker_with_result(row, marker, marker_status, actor) do
+    with {:ok, record, notifications} <- insert_status_with_notifications(row, actor),
+         {:ok, persisted} <- handler_status_at(row, actor) do
+      persisted_marker = parse_handler_marker(persisted)
+
       if marker_matches?(persisted_marker, marker, marker_status) do
-        {:ok, notifications}
+        inserted? = Ash.Resource.get_metadata(record, :upsert_skipped) != true
+        {:ok, notifications, inserted?, persisted}
       else
         {:error, :handler_marker_collision}
       end
     end
   end
 
-  defp handler_marker_at(row, actor) do
+  defp handler_status_at(row, actor) do
     timestamp = row.timestamp
     agent_id = row.agent_id
     gateway_id = row.gateway_id
@@ -654,7 +784,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     |> Ash.read_one(actor: actor, domain: ServiceRadar.Observability)
     |> case do
       {:ok, nil} -> {:ok, nil}
-      {:ok, %ServiceStatus{} = status} -> {:ok, parse_handler_marker(status)}
+      {:ok, %ServiceStatus{} = status} -> {:ok, status}
       {:error, error} -> {:error, error}
       other -> {:error, {:unexpected_service_status_lookup_result, other}}
     end
@@ -663,6 +793,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   defp marker_matches?(persisted, marker, marker_status) when is_map(persisted) do
     persisted.status == marker_status and persisted.generation == marker.generation and
       persisted.observation_timestamp == marker.observation_timestamp and
+      persisted.payload_digest == marker.payload_digest and
       persisted.handler_set == marker.handler_set
   end
 
@@ -705,6 +836,14 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   end
 
   defp acquire_status_slot_locks(status_row) do
+    with :ok <- acquire_status_identity_locks(status_row) do
+      acquire_status_slot_bucket_locks(status_row, :exclusive)
+    end
+  end
+
+  defp acquire_status_identity_locks(status_row) do
+    logical_observed_at = PluginResultSlot.logical_observed_at(status_row)
+
     observation_lock_identity =
       Jason.encode!([
         "plugin-result-observation",
@@ -712,10 +851,10 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
         status_row.partition,
         status_row.service_type,
         status_row.service_name,
-        DateTime.to_iso8601(status_row.timestamp)
+        DateTime.to_iso8601(logical_observed_at)
       ])
 
-    slot_lock_identity =
+    legacy_slot_lock_identity =
       Jason.encode!([
         "service-status-slots",
         status_row.gateway_id,
@@ -723,15 +862,72 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       ])
 
     # Keep a stable order shared with lifecycle mutations: logical state,
-    # logical observation, then the physical service_status slot domain.
+    # logical observation, rolling-upgrade compatibility, then ascending
+    # physical service_status interval buckets.
     with :ok <- ServiceStateRegistry.acquire_plugin_state_lock(status_row),
          :ok <- acquire_status_slot_lock(observation_lock_identity) do
-      acquire_status_slot_lock(slot_lock_identity)
+      acquire_status_slot_lock(legacy_slot_lock_identity, :shared)
     end
   end
 
-  defp acquire_status_slot_lock(lock_identity) do
-    case Repo.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [lock_identity]) do
+  defp acquire_status_slot_bucket_locks(status_row, mode) do
+    status_row
+    |> status_slot_bucket_ids()
+    |> Enum.reduce_while(:ok, fn bucket_id, :ok ->
+      lock_identity =
+        Jason.encode!([
+          "service-status-slots-v2",
+          status_row.gateway_id,
+          status_row.service_name,
+          bucket_id
+        ])
+
+      case acquire_status_slot_lock(lock_identity, mode) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp status_slot_bucket_ids(status_row) do
+    first_microsecond = DateTime.to_unix(status_row.timestamp, :microsecond)
+    last_microsecond = first_microsecond + @handler_marker_window_microseconds
+    first_bucket = Integer.floor_div(first_microsecond, @status_slot_bucket_width_microseconds)
+    last_bucket = Integer.floor_div(last_microsecond, @status_slot_bucket_width_microseconds)
+
+    Enum.to_list(first_bucket..last_bucket)
+  end
+
+  defp acquire_status_slot_lock(lock_identity, mode \\ :exclusive)
+
+  defp acquire_status_slot_lock(lock_identity, :exclusive) do
+    acquire_status_slot_lock_with_query(
+      "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+      lock_identity
+    )
+  end
+
+  defp acquire_status_slot_lock(lock_identity, :shared) do
+    acquire_status_slot_lock_with_query(
+      "SELECT pg_advisory_xact_lock_shared(hashtextextended($1, 0))",
+      lock_identity
+    )
+  end
+
+  defp acquire_status_slot_lock(lock_identity, :try) do
+    case Repo.query(
+           "SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))",
+           [lock_identity]
+         ) do
+      {:ok, %{rows: [[true]]}} -> :ok
+      {:ok, %{rows: [[false]]}} -> {:error, :status_slot_lock_busy}
+      {:error, reason} -> {:error, {:status_slot_lock_acquire_failed, reason}}
+      other -> {:error, {:unexpected_status_slot_lock_result, other}}
+    end
+  end
+
+  defp acquire_status_slot_lock_with_query(query, lock_identity) do
+    case Repo.query(query, [lock_identity]) do
       {:ok, _result} -> :ok
       {:error, reason} -> {:error, {:status_slot_lock_acquire_failed, reason}}
       other -> {:error, {:unexpected_status_slot_lock_result, other}}
@@ -757,7 +953,8 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     with {:ok, rows} <- handler_marker_rows(status_row, actor),
          {:ok, slot_rows} <- handler_marker_slot_rows(status_row, actor),
          {:ok, state} <- handler_marker_state(status_row, actor) do
-      observation_timestamp = DateTime.to_iso8601(status_row.timestamp)
+      observation_timestamp = PluginResultSlot.logical_observation_timestamp(status_row)
+      payload_digest = reported_status_payload_digest(status_row.details)
 
       markers =
         (rows ++ List.wrap(state))
@@ -768,18 +965,28 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
             valid_marker_timestamp?(marker, status_row.timestamp)
         end)
 
-      current_markers = Enum.filter(markers, &(&1.handler_set == provenance))
-      failure_recorded? = latest_handler_history_failed?(markers)
+      payload_markers = Enum.filter(markers, &(&1.payload_digest == payload_digest))
 
-      with {:ok, global_generation} <- max_marker_generation(markers) do
+      current_markers =
+        Enum.filter(payload_markers, &(&1.handler_set == provenance))
+
+      failure_recorded? = latest_handler_history_failed?(payload_markers)
+
+      with {:ok, payload_generation} <- max_marker_generation(payload_markers) do
         case current_marker_generation(current_markers) do
           {:ok, generation}
-          when generation == global_generation ->
-            if globally_latest_provenance?(markers, provenance, generation) and
+          when generation == payload_generation ->
+            if globally_latest_provenance?(
+                 markers,
+                 provenance,
+                 payload_digest,
+                 generation
+               ) and
                  generation_reusable?(
                    status_row,
                    provenance,
                    observation_timestamp,
+                   payload_digest,
                    generation,
                    slot_rows
                  ) do
@@ -790,19 +997,19 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
                 status_row,
                 provenance,
                 observation_timestamp,
+                payload_digest,
                 generation,
                 generation_markers,
-                failure_recorded?,
-                rows
+                failure_recorded?
               )
             else
               allocate_marker_context(
                 status_row,
                 provenance,
                 observation_timestamp,
+                payload_digest,
                 markers,
                 failure_recorded?,
-                rows,
                 slot_rows
               )
             end
@@ -812,9 +1019,9 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
               status_row,
               provenance,
               observation_timestamp,
+              payload_digest,
               markers,
               failure_recorded?,
-              rows,
               slot_rows
             )
 
@@ -826,9 +1033,9 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
               status_row,
               provenance,
               observation_timestamp,
+              payload_digest,
               markers,
               failure_recorded?,
-              rows,
               slot_rows
             )
         end
@@ -920,13 +1127,22 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     end
   end
 
-  defp globally_latest_provenance?(markers, provenance, generation) do
+  defp globally_latest_provenance?(markers, provenance, payload_digest, generation) do
     markers
     |> Enum.filter(&(&1.generation == generation))
-    |> Enum.all?(&(&1.handler_set == provenance))
+    |> Enum.all?(fn marker ->
+      marker.handler_set == provenance and marker.payload_digest == payload_digest
+    end)
   end
 
-  defp generation_reusable?(status_row, provenance, observation_timestamp, generation, slot_rows) do
+  defp generation_reusable?(
+         status_row,
+         provenance,
+         observation_timestamp,
+         payload_digest,
+         generation,
+         slot_rows
+       ) do
     Enum.all?(["failed", "succeeded"], fn marker_status ->
       timestamp = marker_timestamp(status_row.timestamp, generation, marker_status)
 
@@ -941,7 +1157,8 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
               %{
                 generation: generation,
                 handler_set: provenance,
-                observation_timestamp: observation_timestamp
+                observation_timestamp: observation_timestamp,
+                payload_digest: payload_digest
               },
               marker_status
             )
@@ -959,49 +1176,48 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
          status_row,
          provenance,
          observation_timestamp,
+         payload_digest,
          markers,
          failure_recorded?,
-         rows,
          slot_rows
        ) do
     occupied_offsets =
       MapSet.new(slot_rows, &DateTime.diff(&1.timestamp, status_row.timestamp, :microsecond))
 
     max_generation = markers |> Enum.map(& &1.generation) |> Enum.max(fn -> 0 end)
-    next_observation_offset = next_genuine_observation_offset(rows, status_row.timestamp)
-
-    generation =
-      find_available_generation(max_generation, occupied_offsets, next_observation_offset)
+    generation = find_available_generation(max_generation, occupied_offsets)
 
     case generation do
       nil ->
         {:error, :handler_marker_window_exhausted}
 
       generation ->
-        provenance_markers = Enum.filter(markers, &(&1.handler_set == provenance))
+        provenance_markers =
+          Enum.filter(markers, fn marker ->
+            marker.handler_set == provenance and marker.payload_digest == payload_digest
+          end)
 
         build_marker_context(
           status_row,
           provenance,
           observation_timestamp,
+          payload_digest,
           generation,
           provenance_markers,
-          failure_recorded?,
-          rows
+          failure_recorded?
         )
     end
   end
 
-  defp find_available_generation(max_generation, _occupied_offsets, _next_observation_offset)
+  defp find_available_generation(max_generation, _occupied_offsets)
        when max_generation >= @handler_marker_max_generations, do: nil
 
-  defp find_available_generation(max_generation, occupied_offsets, next_observation_offset) do
+  defp find_available_generation(max_generation, occupied_offsets) do
     Enum.find((max_generation + 1)..@handler_marker_max_generations, fn generation ->
       failure_offset = marker_offset(generation, "failed")
       success_offset = marker_offset(generation, "succeeded")
 
-      success_offset < next_observation_offset and
-        not MapSet.member?(occupied_offsets, failure_offset) and
+      not MapSet.member?(occupied_offsets, failure_offset) and
         not MapSet.member?(occupied_offsets, success_offset)
     end)
   end
@@ -1010,17 +1226,15 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
          status_row,
          provenance,
          observation_timestamp,
+         payload_digest,
          generation,
          current_markers,
-         failure_recorded?,
-         rows
+         failure_recorded?
        ) do
     failure_at = marker_timestamp(status_row.timestamp, generation, "failed")
     success_at = marker_timestamp(status_row.timestamp, generation, "succeeded")
-    next_observation_at = next_genuine_observation_at(rows, status_row.timestamp)
 
-    if generation > @handler_marker_max_generations or
-         (next_observation_at && DateTime.compare(success_at, next_observation_at) != :lt) do
+    if generation > @handler_marker_max_generations do
       {:error, :handler_marker_window_exhausted}
     else
       {:ok,
@@ -1028,6 +1242,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
          generation: generation,
          handler_set: provenance,
          observation_timestamp: observation_timestamp,
+         payload_digest: payload_digest,
          failure_at: failure_at,
          success_at: success_at,
          failure_recorded?: failure_recorded?,
@@ -1049,54 +1264,9 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     end
   end
 
-  defp next_genuine_observation_offset(rows, observed_at) do
-    case next_genuine_observation_at(rows, observed_at) do
-      nil -> @handler_marker_window_microseconds + 1
-      timestamp -> DateTime.diff(timestamp, observed_at, :microsecond)
-    end
-  end
-
-  defp next_genuine_observation_at(rows, observed_at) do
-    rows
-    |> Enum.filter(&DateTime.after?(&1.timestamp, observed_at))
-    |> Enum.reject(&observation_owned_status?(&1, observed_at))
-    |> Enum.map(& &1.timestamp)
-    |> Enum.min_by(&DateTime.to_unix(&1, :microsecond), fn -> nil end)
-  end
-
-  defp observation_owned_status?(status, observed_at) do
-    synthetic_downstream_marker?(status, observed_at) or
-      reported_status_owned_by_observation?(status, observed_at)
-  end
-
-  defp synthetic_downstream_marker?(%ServiceStatus{} = status, observed_at) do
-    case parse_handler_marker(status) do
-      nil ->
-        false
-
-      marker ->
-        marker.observation_timestamp == DateTime.to_iso8601(observed_at) and
-          valid_marker_timestamp?(marker, observed_at)
-    end
-  end
-
-  defp synthetic_downstream_marker?(_status, _observed_at), do: false
-
-  defp reported_status_owned_by_observation?(%ServiceStatus{} = status, observed_at) do
-    case parse_reported_status_marker(status) do
-      nil ->
-        false
-
-      marker ->
-        marker.observation_timestamp == DateTime.to_iso8601(observed_at) and
-          valid_reported_status_timestamp?(status.timestamp, observed_at)
-    end
-  end
-
-  defp reported_status_owned_by_observation?(_status, _observed_at), do: false
-
   defp reported_status_matches?(%ServiceStatus{} = persisted, row) do
-    if exact_service_status_identity?(persisted, row) do
+    if exact_service_status_identity?(persisted, row) and
+         reported_status_content_matches?(persisted, row) do
       case parse_reported_status_marker(persisted) do
         nil ->
           DateTime.compare(persisted.timestamp, row.timestamp) == :eq
@@ -1113,37 +1283,24 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   defp reported_status_matches?(_persisted, _row), do: false
 
+  defp reported_status_content_matches?(%ServiceStatus{} = persisted, row) do
+    persisted.available == Map.get(row, :available) and
+      persisted.message == Map.get(row, :message) and
+      reported_status_payload_digest(persisted.details) ==
+        reported_status_payload_digest(Map.get(row, :details))
+  end
+
+  defp reported_status_payload_digest(details) when is_binary(details) do
+    PluginResultReportedMarker.payload_digest_without_marker(details)
+  end
+
+  defp reported_status_payload_digest(details), do: payload_digest(details)
+
   defp valid_reported_status_timestamp?(physical_timestamp, observed_at) do
-    offset = DateTime.diff(physical_timestamp, observed_at, :microsecond)
-    offset >= 0 and offset <= @handler_marker_window_microseconds
+    PluginResultSlot.within_allocation_window?(physical_timestamp, observed_at)
   end
 
-  defp parse_reported_status_marker(%ServiceStatus{details: details, service_id: service_id})
-       when is_binary(details) and not is_nil(service_id) do
-    case Jason.decode(details) do
-      {:ok,
-       %{
-         @reported_status_marker_key => %{
-           "kind" => "reported",
-           "observation_timestamp" => observation_timestamp,
-           "service_id" => marker_service_id,
-           "version" => @reported_status_marker_version
-         }
-       }}
-      when is_binary(observation_timestamp) and is_binary(marker_service_id) ->
-        if marker_service_id == to_string(service_id) do
-          %{
-            observation_timestamp: observation_timestamp,
-            service_id: marker_service_id
-          }
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  defp parse_reported_status_marker(_status), do: nil
+  defp parse_reported_status_marker(status), do: PluginResultReportedMarker.parse(status)
 
   defp parse_handler_marker(%ServiceStatus{details: details, timestamp: timestamp}) do
     parse_handler_marker_details(details, timestamp, :history)
@@ -1157,18 +1314,16 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   defp parse_handler_marker_details(details, timestamp, source) when is_binary(details) do
     case Jason.decode(details) do
-      {:ok, %{@reported_status_marker_key => %{"kind" => "reported"}}} ->
-        nil
-
       {:ok,
        %{
-         "downstream_ingest" => %{
-           "status" => status,
-           "generation" => generation,
-           "handler_set" => %{"id" => id, "version" => version} = handler_set,
-           "observation_timestamp" => observation_timestamp
-         }
-       }}
+         "downstream_ingest" =>
+           %{
+             "status" => status,
+             "generation" => generation,
+             "handler_set" => %{"id" => id, "version" => version} = handler_set,
+             "observation_timestamp" => observation_timestamp
+           } = downstream_ingest
+       } = decoded}
       when status in ["failed", "succeeded"] and is_integer(generation) and generation > 0 and
              is_binary(id) and is_integer(version) and is_binary(observation_timestamp) ->
         %{
@@ -1176,6 +1331,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
           generation: generation,
           handler_set: handler_set,
           observation_timestamp: observation_timestamp,
+          payload_digest: handler_payload_digest(decoded, downstream_ingest),
           timestamp: timestamp,
           source: source
         }
@@ -1225,6 +1381,31 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     end
   rescue
     _ -> "unknown"
+  end
+
+  defp handler_payload_digest(decoded, downstream_ingest) do
+    case Map.get(downstream_ingest, "payload_digest") do
+      digest when is_binary(digest) and byte_size(digest) == 64 ->
+        digest
+
+      _ ->
+        case Map.get(decoded, "reported_result") do
+          payload when is_map(payload) ->
+            payload
+            |> drop_top_level_keys([@reported_status_marker_key])
+            |> payload_digest()
+
+          payload when is_list(payload) ->
+            payload_digest(payload)
+
+          _ ->
+            decoded |> drop_top_level_keys(@reserved_state_detail_keys) |> payload_digest()
+        end
+    end
+  end
+
+  defp payload_digest(payload) do
+    PluginResultReportedMarker.payload_digest(payload)
   end
 
   defp digest_term(term) do

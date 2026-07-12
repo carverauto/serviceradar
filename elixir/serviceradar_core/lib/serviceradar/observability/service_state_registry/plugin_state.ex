@@ -15,6 +15,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginState do
   @streaming_plugin_output "serviceradar.camera_stream.v1"
   @plugin_result_output "serviceradar.plugin_result.v1"
   @plugin_state_lock_namespace "plugin-service-state"
+  @plugin_state_reconcile_lock "plugin-service-state-reconcile"
 
   @doc false
   @spec acquire_lock(map()) :: :ok | {:error, term()}
@@ -32,16 +33,61 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginState do
         ])
       end)
 
-    case Repo.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [lock_identity]) do
-      {:ok, _result} -> :ok
-      {:error, reason} -> {:error, {:plugin_state_lock_acquire_failed, reason}}
-      other -> {:error, {:unexpected_plugin_state_lock_result, other}}
+    with :ok <- acquire_reconcile_shared_lock() do
+      case Repo.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [lock_identity]) do
+        {:ok, _result} -> :ok
+        {:error, reason} -> {:error, {:plugin_state_lock_acquire_failed, reason}}
+        other -> {:error, {:unexpected_plugin_state_lock_result, other}}
+      end
     end
   end
 
   def acquire_lock(_identity), do: {:error, :invalid_plugin_state_identity}
 
   @doc false
+  def acquire_reconciliation_lock do
+    case Repo.query(Queries.lock_plugin_state_reconciliation(), []) do
+      {:ok, _result} -> :ok
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:unexpected_plugin_state_lock_result, other}}
+    end
+  end
+
+  defp acquire_reconcile_shared_lock do
+    case Repo.query("SELECT pg_advisory_xact_lock_shared(hashtextextended($1, 0))", [
+           @plugin_state_reconcile_lock
+         ]) do
+      {:ok, _result} -> :ok
+      {:error, reason} -> {:error, {:plugin_state_reconcile_lock_acquire_failed, reason}}
+      other -> {:error, {:unexpected_plugin_state_reconcile_lock_result, other}}
+    end
+  end
+
+  @doc false
+  def prepare_upsert_side_effects(
+        %ServiceState{service_type: "plugin", state: "inactive"} = state,
+        _previous,
+        actor,
+        upserted?
+      ) do
+    identity = StatusNormalizer.logical_plugin_identity(state)
+
+    with {:ok, active_states} <- active_logical_plugin_states(identity, actor),
+         {:ok, notifications, changed_states} <-
+           deactivate_states_with_notifications(active_states, actor) do
+      side_effects = Enum.map(changed_states, &{:broadcast_update, &1})
+
+      side_effects =
+        if upserted? do
+          side_effects ++ [{:broadcast_update, state}]
+        else
+          side_effects
+        end
+
+      {:ok, notifications, side_effects}
+    end
+  end
+
   def prepare_upsert_side_effects(
         %ServiceState{service_type: "plugin"} = state,
         previous,
@@ -71,13 +117,20 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginState do
 
   @doc false
   def deactivate_logical_states(identity, actor) when is_map(identity) do
+    deactivate_logical_states(identity, actor, fn states -> {:ok, states} end)
+  end
+
+  @doc false
+  def deactivate_logical_states(identity, actor, select_states)
+      when is_map(identity) and is_function(select_states, 1) do
     identity = StatusNormalizer.logical_plugin_identity(identity)
 
     case Repo.transaction(fn ->
            with :ok <- acquire_lock(identity),
                 {:ok, states} <- active_logical_plugin_states(identity, actor),
+                {:ok, selected_states} <- select_states.(states),
                 {:ok, notifications, updated_states} <-
-                  deactivate_states_with_notifications(states, actor) do
+                  deactivate_states_with_notifications(selected_states, actor) do
              {notifications, updated_states}
            else
              {:error, reason} -> Repo.rollback(reason)
@@ -95,6 +148,15 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginState do
       other ->
         Logger.warning("Unexpected logical plugin state deactivate result: #{inspect(other)}")
         :ok
+    end
+  end
+
+  @doc false
+  def prepare_snapshot_reactivation(%ServiceState{} = winner, states, actor)
+      when is_list(states) do
+    with {:ok, notifications, changed_states} <-
+           apply_logical_plugin_state_winner(states, winner, actor) do
+      {:ok, notifications, Enum.map(changed_states, &{:broadcast_update, &1})}
     end
   end
 
@@ -124,10 +186,20 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginState do
   @doc false
   def deactivate_inactive_count do
     # These bulk cleanup passes intentionally skip PubSub. They reconcile reload-time
-    # Postgres state and avoid broadcasting one message per stale row.
-    with {:ok, shadow_count} <- deactivate_stale_active_plugin_shadows(),
-         {:ok, orphan_count} <- deactivate_orphaned_active_plugin_states() do
-      {:ok, shadow_count + orphan_count}
+    # Postgres state and avoid broadcasting one message per stale row. Keep both
+    # passes atomic so a failed orphan pass cannot expose a reactivated orphan.
+    case Repo.transaction(fn ->
+           with :ok <- acquire_reconciliation_lock(),
+                {:ok, shadow_count} <- reconcile_plugin_state_winners(),
+                {:ok, orphan_count} <- deactivate_orphaned_active_plugin_states() do
+             shadow_count + orphan_count
+           else
+             {:error, reason} -> Repo.rollback(reason)
+           end
+         end) do
+      {:ok, count} -> {:ok, count}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:unexpected_plugin_state_cleanup_result, other}}
     end
   end
 
@@ -230,8 +302,10 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginState do
     end
   end
 
-  defp deactivate_stale_active_plugin_shadows do
-    case Repo.query(Queries.deactivate_stale_active_plugin_shadows(), []) do
+  defp reconcile_plugin_state_winners do
+    params = [@streaming_plugin_output, @plugin_result_output, @streaming_plugin_capability]
+
+    case Repo.query(Queries.reconcile_plugin_state_winners(), params) do
       {:ok, %{rows: [[count]]}} ->
         {:ok, normalize_count(count)}
 
@@ -239,7 +313,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginState do
         {:ok, 0}
 
       {:error, reason} = error ->
-        Logger.warning("Failed to deactivate stale plugin service shadows: #{inspect(reason)}")
+        Logger.warning("Failed to reconcile plugin service state winners: #{inspect(reason)}")
         error
     end
   end

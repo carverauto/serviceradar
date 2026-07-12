@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.Data do
 
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Observability.ServiceStateRegistry
+  alias ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract
   alias ServiceRadarWebNGWeb.ServiceLive.Display
   alias ServiceRadarWebNGWeb.ServiceLive.Service
 
@@ -63,14 +64,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.Data do
     |> Map.values()
   end
 
-  defp state_sort_key(%ServiceState{last_observed_at: %DateTime{} = observed_at} = state),
-    do: {state_result_rank(state), DateTime.to_unix(observed_at, :nanosecond)}
-
-  defp state_sort_key(_state), do: {0, 0}
-
-  defp state_result_rank(%ServiceState{message: "plugin assignment pending result"}), do: 0
-  defp state_result_rank(%ServiceState{message: "streaming plugin ready"}), do: 0
-  defp state_result_rank(%ServiceState{}), do: 1
+  defp state_sort_key(%ServiceState{} = state), do: PluginStateContract.state_rank(state)
 
   defp state_identity_key(%ServiceState{} = state) do
     agent_id = state.agent_id || ""

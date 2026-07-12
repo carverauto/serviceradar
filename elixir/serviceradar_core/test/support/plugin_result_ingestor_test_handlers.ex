@@ -15,6 +15,20 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest.FailingHandler do
   end
 end
 
+defmodule ServiceRadar.Observability.PluginResultIngestorTest.SuccessfulHandler do
+  @moduledoc false
+
+  def supports?(_payload, _status), do: true
+
+  def ingest(payload, _status, _opts) do
+    if pid = Application.get_env(:serviceradar_core, :plugin_result_ingestor_test_pid) do
+      send(pid, {:successful_handler_ingest, payload})
+    end
+
+    :ok
+  end
+end
+
 defmodule ServiceRadar.Observability.PluginResultIngestorTest.RaisingSupportHandler do
   @moduledoc false
 
@@ -160,4 +174,10 @@ defmodule ServiceRadar.Observability.PluginResultIngestorTest.RejectingStateRegi
        token: "state-token-secret"
      }}
   end
+end
+
+defmodule ServiceRadar.Observability.PluginResultIngestorTest.AcceptingStateRegistry do
+  @moduledoc false
+
+  def upsert_from_status_strict_with_notifications(_status), do: {:ok, [], []}
 end

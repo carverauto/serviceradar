@@ -7,6 +7,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusIngestor do
   alias ServiceRadar.EventWriter.StateChangePublisher
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Observability.ServiceStatePubSub
+  alias ServiceRadar.Observability.ServiceStateRegistry.PluginAssignmentEligibility
   alias ServiceRadar.Observability.ServiceStateRegistry.PluginState
   alias ServiceRadar.Observability.ServiceStateRegistry.SideEffects
   alias ServiceRadar.Observability.ServiceStateRegistry.StatusNormalizer
@@ -64,11 +65,52 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusIngestor do
   def upsert_strict_with_notifications(_), do: {:error, :invalid_status}
 
   @doc false
+  @spec replace_with_notifications(map(), keyword()) ::
+          {:ok, list(), list()} | {:error, term()}
+  def replace_with_notifications(status, opts \\ [])
+
+  def replace_with_notifications(status, opts) when is_map(status) do
+    actor = SystemActor.system(:service_state_registry)
+    raw_attrs = StatusNormalizer.attrs_from_status(status, actor, opts)
+
+    with {:ok, attrs} <- PluginAssignmentEligibility.apply_to_attrs(raw_attrs) do
+      previous = previous_service_availability(attrs, actor)
+
+      case exact_service_state(attrs, actor) do
+        {:ok, nil} ->
+          create_with_notifications(attrs, previous, actor)
+
+        {:ok, %ServiceState{} = state} ->
+          replace_exact_state(state, attrs, previous, actor)
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  rescue
+    error -> {:error, error}
+  catch
+    kind, reason -> {:error, {kind, reason}}
+  end
+
+  def replace_with_notifications(_status, _opts), do: {:error, :invalid_status}
+
+  @doc false
   def upsert_with_notifications(status, opts \\ []) do
     actor = SystemActor.system(:service_state_registry)
-    attrs = StatusNormalizer.attrs_from_status(status, actor, opts)
-    previous = previous_service_availability(attrs, actor)
+    raw_attrs = StatusNormalizer.attrs_from_status(status, actor, opts)
 
+    with {:ok, attrs} <- PluginAssignmentEligibility.apply_to_attrs(raw_attrs) do
+      previous = previous_service_availability(attrs, actor)
+      create_with_notifications(attrs, previous, actor)
+    end
+  rescue
+    error -> {:error, error}
+  catch
+    kind, reason -> {:error, {kind, reason}}
+  end
+
+  defp create_with_notifications(attrs, previous, actor) do
     ServiceState
     |> Ash.Changeset.for_create(:upsert, attrs, actor: actor)
     |> Ash.create(
@@ -80,9 +122,17 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusIngestor do
         upserted? = not upsert_skipped?(state)
         notifications = if upserted?, do: notifications, else: []
 
-        with {:ok, side_effect_notifications, side_effects} <-
-               PluginState.prepare_upsert_side_effects(state, previous, actor, upserted?) do
-          {:ok, notifications ++ side_effect_notifications, side_effects}
+        with {:ok, state, eligibility_notifications, eligibility_changed?} <-
+               enforce_requested_inactive_state(state, attrs, actor),
+             {:ok, side_effect_notifications, side_effects} <-
+               PluginState.prepare_upsert_side_effects(
+                 state,
+                 previous,
+                 actor,
+                 upserted? or eligibility_changed?
+               ) do
+          {:ok, notifications ++ eligibility_notifications ++ side_effect_notifications,
+           side_effects}
         end
 
       {:error, error} ->
@@ -91,20 +141,27 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusIngestor do
       other ->
         {:error, {:unexpected_service_state_upsert_result, other}}
     end
-  rescue
-    error -> {:error, error}
-  catch
-    kind, reason -> {:error, {kind, reason}}
   end
 
   @doc false
   @spec bulk_upsert([map()]) :: :ok
   def bulk_upsert(statuses) when is_list(statuses) do
+    {plugin_statuses, other_statuses} =
+      statuses
+      |> Enum.filter(&is_map/1)
+      |> Enum.split_with(&plugin_status?/1)
+
+    Enum.each(plugin_statuses, &upsert_plugin_from_bulk/1)
+    bulk_upsert_non_plugin(other_statuses)
+  end
+
+  def bulk_upsert(_), do: :ok
+
+  defp bulk_upsert_non_plugin(statuses) do
     actor = SystemActor.system(:service_state_registry)
 
     deduped =
       statuses
-      |> Enum.filter(&is_map/1)
       |> Enum.map(&StatusNormalizer.attrs_from_status(&1, actor))
       |> dedup_attrs_by_identity()
 
@@ -132,8 +189,6 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusIngestor do
       :ok
   end
 
-  def bulk_upsert(_), do: :ok
-
   @doc false
   def previous_service_availability(attrs, actor) do
     if StateChangePublisher.enabled?() do
@@ -148,6 +203,40 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusIngestor do
 
   @doc false
   def upsert_skipped?(record), do: Ash.Resource.get_metadata(record, :upsert_skipped) == true
+
+  defp enforce_requested_inactive_state(
+         %ServiceState{service_type: "plugin", state: "active"} = state,
+         %{state: "inactive"},
+         actor
+       ) do
+    state
+    |> Ash.Changeset.for_update(:deactivate, %{}, actor: actor)
+    |> Ash.update(domain: ServiceRadar.Observability, return_notifications?: true)
+    |> case do
+      {:ok, updated, notifications} -> {:ok, updated, notifications, true}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:unexpected_plugin_state_deactivate_result, other}}
+    end
+  end
+
+  defp enforce_requested_inactive_state(state, _attrs, _actor), do: {:ok, state, [], false}
+
+  defp plugin_status?(status) do
+    status
+    |> StatusNormalizer.fetch(:service_type)
+    |> StatusNormalizer.normalize_string("unknown")
+    |> Kernel.==("plugin")
+  end
+
+  defp upsert_plugin_from_bulk(status) do
+    case upsert_strict(status) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Bulk plugin service state upsert failed: #{inspect(reason)}")
+    end
+  end
 
   defp maybe_acquire_plugin_state_lock(status) do
     if StatusNormalizer.normalize_string(StatusNormalizer.fetch(status, :service_type), "unknown") ==
@@ -245,6 +334,47 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusIngestor do
 
       _ ->
         nil
+    end
+  end
+
+  defp exact_service_state(attrs, actor) do
+    ServiceState
+    |> filter(
+      agent_id == ^Map.fetch!(attrs, :agent_id) and
+        gateway_id == ^Map.fetch!(attrs, :gateway_id) and
+        partition == ^Map.fetch!(attrs, :partition) and
+        service_type == ^Map.fetch!(attrs, :service_type) and
+        service_name == ^Map.fetch!(attrs, :service_name)
+    )
+    |> Ash.read_one(actor: actor, domain: ServiceRadar.Observability)
+  end
+
+  defp replace_exact_state(state, attrs, previous, actor) do
+    replacement =
+      Map.take(attrs, [:available, :message, :details, :last_observed_at, :state])
+
+    changed? =
+      Enum.any?(replacement, fn {field, value} -> Map.get(state, field) != value end)
+
+    if changed? do
+      state
+      |> Ash.Changeset.for_update(:replace_snapshot, replacement, actor: actor)
+      |> Ash.update(domain: ServiceRadar.Observability, return_notifications?: true)
+      |> case do
+        {:ok, updated, notifications} ->
+          with {:ok, side_effect_notifications, side_effects} <-
+                 PluginState.prepare_upsert_side_effects(updated, previous, actor, true) do
+            {:ok, notifications ++ side_effect_notifications, side_effects}
+          end
+
+        {:error, error} ->
+          {:error, error}
+
+        other ->
+          {:error, {:unexpected_service_state_replace_result, other}}
+      end
+    else
+      PluginState.prepare_upsert_side_effects(state, previous, actor, false)
     end
   end
 end
