@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/endpointinventory"
 )
@@ -30,6 +29,8 @@ import (
 var (
 	errScanRootsRequired      = errors.New("scan_roots is required")
 	errScaLibrPluginsRequired = errors.New("scalibr_plugins is required")
+	errInvalidMaxFileSize     = errors.New("invalid max_file_size")
+	errInvalidMaxInodes       = errors.New("invalid max_inodes")
 )
 
 func LoadConfig(path string) (Config, error) {
@@ -47,9 +48,14 @@ func LoadConfig(path string) (Config, error) {
 	}
 
 	applyDefaults(&cfg)
+	// The add-on assignment owns collection cadence. The shared runtime profile
+	// still supplies identity and endpoint-inventory policy, but must not silently
+	// replace the cadence declared in this producer's staged configuration.
+	configuredCadence := cfg.Cadence
 	if err := endpointinventory.ApplyRuntimeProfileFile(&cfg.Config); err != nil {
 		return cfg, err
 	}
+	cfg.Cadence = configuredCadence
 	applyDefaults(&cfg)
 
 	return cfg, validateConfig(cfg)
@@ -82,12 +88,30 @@ func applyDefaults(cfg *Config) {
 		cfg.ScanTimeout = base.ScanTimeout
 	}
 	if cfg.Cadence == "" {
-		cfg.Cadence = base.Cadence
+		cfg.Cadence = defaultCadence
 	}
-	if cfg.MaxPackages <= 0 {
+	if len(cfg.Sources) == 0 {
+		cfg.Sources = append([]string(nil), base.Sources...)
+	}
+	if cfg.UploadJitter == "" {
+		cfg.UploadJitter = base.UploadJitter
+	}
+	if cfg.UploadRetryInitial == "" {
+		cfg.UploadRetryInitial = base.UploadRetryInitial
+	}
+	if cfg.UploadRetryMax == "" {
+		cfg.UploadRetryMax = base.UploadRetryMax
+	}
+	if cfg.UploadRetryMaxAttempts == 0 {
+		cfg.UploadRetryMaxAttempts = base.UploadRetryMaxAttempts
+	}
+	if cfg.CacheStaleThreshold == "" {
+		cfg.CacheStaleThreshold = "26h"
+	}
+	if cfg.MaxPackages == 0 {
 		cfg.MaxPackages = base.MaxPackages
 	}
-	if cfg.MaxOutputBytes <= 0 {
+	if cfg.MaxOutputBytes == 0 {
 		cfg.MaxOutputBytes = base.MaxOutputBytes
 	}
 }
@@ -102,15 +126,13 @@ func validateConfig(cfg Config) error {
 	if len(cfg.ScaLibrPlugins) == 0 {
 		return errScaLibrPluginsRequired
 	}
-	if _, err := time.ParseDuration(cfg.ScanTimeout); err != nil {
-		return fmt.Errorf("%w: scan_timeout", endpointinventory.ErrInvalidDuration)
+	if cfg.MaxFileSize < 0 {
+		return fmt.Errorf("%w: %d", errInvalidMaxFileSize, cfg.MaxFileSize)
 	}
-	if cfg.MaxPackages <= 0 {
-		return endpointinventory.ErrInvalidMaxPackages
+	if cfg.MaxInodes < 0 {
+		return fmt.Errorf("%w: %d", errInvalidMaxInodes, cfg.MaxInodes)
 	}
-	if cfg.MaxOutputBytes <= 0 {
-		return endpointinventory.ErrInvalidMaxOutputSize
-	}
-
-	return nil
+	base := cfg.Config
+	base.Enabled = true
+	return endpointinventory.ValidateConfig(base)
 }

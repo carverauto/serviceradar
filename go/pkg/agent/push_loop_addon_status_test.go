@@ -17,9 +17,11 @@
 package agent
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -286,5 +288,159 @@ func TestParseSystemdUnitStatusOutputIgnoresPropertyOrder(t *testing.T) {
 	}
 	if got.pid != 673112 {
 		t.Fatalf("pid = %d, want 673112", got.pid)
+	}
+}
+
+func TestParseSystemdTimerStatusRequiresFiniteNextTrigger(t *testing.T) {
+	running := parseSystemdUnitStatusOutputForUnit(
+		"serviceradar-scalibr-endpoint-inventory.timer",
+		"NextElapseUSecRealtime=Sun 2026-07-12 01:00:00 CDT\nSubState=waiting\nActiveState=active\n",
+	)
+	if running.state != agentaddon.StateRunning {
+		t.Fatalf("waiting timer state = %q, want %q: %s", running.state, agentaddon.StateRunning, running.lastError)
+	}
+	inFlight := parseSystemdUnitStatusOutputForUnit(
+		"serviceradar-scalibr-endpoint-inventory.timer",
+		"NextElapseUSecRealtime=infinity\nNextElapseUSecMonotonic=n/a\nSubState=running\nActiveState=active\n",
+	)
+	if inFlight.state != agentaddon.StateRunning {
+		t.Fatalf("in-flight timer with infinite next trigger state = %q, want %q: %s", inFlight.state, agentaddon.StateRunning, inFlight.lastError)
+	}
+	inFlightWithoutNext := parseSystemdUnitStatusOutputForUnit(
+		"serviceradar-scalibr-endpoint-inventory.timer",
+		"SubState=running\nActiveState=active\n",
+	)
+	if inFlightWithoutNext.state != agentaddon.StateRunning {
+		t.Fatalf("in-flight timer without next trigger state = %q, want %q: %s", inFlightWithoutNext.state, agentaddon.StateRunning, inFlightWithoutNext.lastError)
+	}
+
+	elapsed := parseSystemdUnitStatusOutputForUnit(
+		"serviceradar-scalibr-endpoint-inventory.timer",
+		"ActiveState=active\nSubState=elapsed\nNextElapseUSecRealtime=infinity\nNextElapseUSecMonotonic=infinity\n",
+	)
+	if elapsed.state != agentaddon.StateUnhealthy || elapsed.lastError == "" {
+		t.Fatalf("elapsed timer must be unhealthy: %#v", elapsed)
+	}
+
+	missingNext := parseSystemdUnitStatusOutputForUnit(
+		"serviceradar-scalibr-endpoint-inventory.timer",
+		"ActiveState=active\nSubState=waiting\nNextElapseUSecRealtime=infinity\nNextElapseUSecMonotonic=n/a\n",
+	)
+	if missingNext.state != agentaddon.StateUnhealthy || missingNext.lastError == "" {
+		t.Fatalf("timer without finite next trigger must be unhealthy: %#v", missingNext)
+	}
+}
+
+func TestSystemdAddonRuntimeReadyRequiresScheduledTimer(t *testing.T) {
+	const (
+		addonID = "scalibr-endpoint-inventory"
+		timer   = "serviceradar-scalibr-endpoint-inventory.timer"
+	)
+
+	pl := NewPushLoop(
+		&Server{config: &ServerConfig{AgentID: "agent-timer-readiness"}},
+		nil,
+		30*time.Second,
+		logger.NewTestLogger(),
+	)
+	pl.installedSystemdAddons = map[string][]string{
+		addonID: {"serviceradar-scalibr-endpoint-inventory.service", timer},
+	}
+	assignment := &proto.AddonAssignmentConfig{AddonId: addonID}
+
+	tests := []struct {
+		name   string
+		output string
+		want   bool
+	}{
+		{
+			name:   "waiting with finite trigger",
+			output: "ActiveState=active\nSubState=waiting\nNextElapseUSecRealtime=Sun 2026-07-12 01:00:00 CDT\n",
+			want:   true,
+		},
+		{
+			name:   "running with infinite trigger",
+			output: "ActiveState=active\nSubState=running\nNextElapseUSecRealtime=infinity\nNextElapseUSecMonotonic=n/a\n",
+			want:   true,
+		},
+		{
+			name:   "running without next trigger",
+			output: "ActiveState=active\nSubState=running\n",
+			want:   true,
+		},
+		{
+			name:   "elapsed with infinite trigger",
+			output: "ActiveState=active\nSubState=elapsed\nNextElapseUSecRealtime=infinity\nNextElapseUSecMonotonic=infinity\n",
+			want:   false,
+		},
+		{
+			name:   "waiting without finite trigger",
+			output: "ActiveState=active\nSubState=waiting\nNextElapseUSecRealtime=infinity\nNextElapseUSecMonotonic=n/a\n",
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stubSystemdUnitStatus(t, pl, func(unit string) systemdUnitStatus {
+				return parseSystemdUnitStatusOutputForUnit(unit, tt.output)
+			})
+
+			got := pl.systemdAddonRuntimeReady(context.Background(), assignment, addonSupervisionSystemdTimer)
+			if got != tt.want {
+				t.Fatalf("systemdAddonRuntimeReady() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSystemdAddonUnitStatusPrefersTimerHealthOverServiceActivity(t *testing.T) {
+	got := systemdAddonUnitStatusWithReader(
+		[]string{
+			"serviceradar-scalibr-endpoint-inventory.service",
+			"serviceradar-scalibr-endpoint-inventory.timer",
+		},
+		func(unit string) systemdUnitStatus {
+			if strings.HasSuffix(unit, ".service") {
+				return systemdUnitStatus{state: agentaddon.StateRunning, pid: 1234}
+			}
+
+			return systemdUnitStatus{
+				state:     agentaddon.StateUnhealthy,
+				lastError: "systemd timer has no finite next trigger",
+			}
+		},
+	)
+	if got.state != agentaddon.StateUnhealthy {
+		t.Fatalf("timer health was masked by backing service: %#v", got)
+	}
+}
+
+func TestSystemdAddonUnitStatusPreservesBackingServiceFailure(t *testing.T) {
+	units := []string{
+		"serviceradar-scalibr-endpoint-inventory.service",
+		"serviceradar-scalibr-endpoint-inventory.timer",
+	}
+
+	failed := systemdAddonUnitStatusWithReader(units, func(unit string) systemdUnitStatus {
+		if strings.HasSuffix(unit, ".service") {
+			return systemdUnitStatus{state: agentaddon.StateUnhealthy, lastError: "systemd unit failed"}
+		}
+
+		return systemdUnitStatus{state: agentaddon.StateRunning}
+	})
+	if failed.state != agentaddon.StateUnhealthy || failed.lastError == "" {
+		t.Fatalf("healthy timer hid failed backing service: %#v", failed)
+	}
+
+	idle := systemdAddonUnitStatusWithReader(units, func(unit string) systemdUnitStatus {
+		if strings.HasSuffix(unit, ".service") {
+			return systemdUnitStatus{state: agentaddon.StateStopped}
+		}
+
+		return systemdUnitStatus{state: agentaddon.StateRunning}
+	})
+	if idle.state != agentaddon.StateRunning {
+		t.Fatalf("inactive oneshot service made healthy timer unhealthy: %#v", idle)
 	}
 }

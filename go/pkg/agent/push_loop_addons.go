@@ -763,7 +763,7 @@ func (p *PushLoop) systemdAddonRuntimeReady(ctx context.Context, a *proto.AddonA
 		return false
 	}
 
-	active := systemdUnitActive(ctx, enable)
+	active := p.systemdAddonUnitReady(ctx, enable)
 	socketPath := ""
 	if a.GetAddonId() == agentnetprobe.DefaultSidecarName && supervision == addonSupervisionSystemdService {
 		socketPath = p.netprobeIPCSocketPath()
@@ -783,6 +783,18 @@ func (p *PushLoop) systemdAddonRuntimeReady(ctx context.Context, a *proto.AddonA
 	}
 
 	return false
+}
+
+// systemdAddonUnitReady uses the same parsed timer health used by add-on status
+// reporting. systemctl is-active alone treats elapsed timers and waiting timers
+// without a finite next trigger as ready, preventing assignment reconciliation from
+// repairing their schedules. Services retain the cheaper is-active probe.
+func (p *PushLoop) systemdAddonUnitReady(ctx context.Context, unit string) bool {
+	if strings.HasSuffix(strings.TrimSpace(unit), ".timer") {
+		return p.readSystemdAddonUnitStatus(unit).state == agentaddon.StateRunning
+	}
+
+	return systemdUnitActive(ctx, unit)
 }
 
 func (p *PushLoop) netprobeIPCSocketPath() string {

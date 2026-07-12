@@ -61,13 +61,13 @@
     "collect_file_hashes": { "type": "boolean", "default": false },
     "max_packages": { "type": "integer", "minimum": 1, "default": 100000 },
     "force_full_scan_interval": { "type": "integer", "minimum": 1, "default": 24 },
-    "cache_stale_threshold": { "type": "string", "default": "24h" },
+    "cache_stale_threshold": { "type": "string", "default": "26h" },
     "upload_jitter": { "type": "string", "default": "0s" },
     "upload_retry_initial": { "type": "string", "default": "5m" },
     "upload_retry_max": { "type": "string", "default": "1h" },
     "upload_retry_max_attempts": { "type": "integer", "minimum": 1, "default": 5 },
     "force_fresh_enabled": { "type": "boolean", "default": false },
-    "max_output_bytes": { "type": "integer", "minimum": 1, "default": 33554432 }
+    "max_output_bytes": { "type": "integer", "minimum": 1, "maximum": 33554432, "default": 33554432 }
   },
   "required": ["enabled", "scalibr_plugins", "scan_roots"]
 }

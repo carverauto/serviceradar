@@ -13,6 +13,7 @@ func TestWriteSpoolWritesLatestAndRunPayload(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfg := DefaultConfig()
 	cfg.SpoolDir = filepath.Join(tmpDir, "spool")
+	cfg.CacheDir = filepath.Join(tmpDir, "cache")
 	cfg.TmpDir = filepath.Join(tmpDir, "tmp")
 	cfg.MaxOutputBytes = 1024 * 1024
 
@@ -100,6 +101,7 @@ func TestWriteSpoolRejectsOversizePayload(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfg := DefaultConfig()
 	cfg.SpoolDir = filepath.Join(tmpDir, "spool")
+	cfg.CacheDir = filepath.Join(tmpDir, "cache")
 	cfg.TmpDir = filepath.Join(tmpDir, "tmp")
 	cfg.MaxOutputBytes = 32
 

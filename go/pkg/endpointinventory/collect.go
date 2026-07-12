@@ -45,6 +45,7 @@ const (
 	scanStateNotScanned   = "not_scanned"
 	scanStateNotSupported = "not_supported"
 	scanStateScanned      = "scanned"
+	scanStatePartial      = "partial"
 	scanStateUnchanged    = "unchanged"
 
 	coverageComplete                 = "complete"
@@ -76,6 +77,12 @@ func NewRunner(cfg Config) *Runner {
 func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 	started := time.Now().UTC()
 	configHash := computeConfigHash(r.cfg)
+	identity := CacheIdentity{
+		AgentID:         r.cfg.AgentID,
+		ConfigHash:      configHash,
+		ProducerID:      collectorName,
+		ProducerVersion: collectorVersion,
+	}
 	if !r.cfg.Enabled {
 		return disabledPayload(r.cfg, started, configHash), nil
 	}
@@ -89,13 +96,13 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 	if err != nil {
 		return nil, err
 	}
-	if cacheCanSkipFullScan(r.cfg, cache, sourceMTimes) {
+	if CacheCanSkipFullScan(r.cfg, identity, cache, sourceMTimes, started) {
 		payload := r.unchangedPayload(started, osInfo, cache, "source_mtime_unchanged")
-		if err := WriteCacheManifest(r.cfg, unchangedManifest(r.cfg, cache, sourceMTimes, started)); err != nil {
+		if err := RecordCachedScan(r.cfg, identity, sourceMTimes, started); err == nil {
+			return payload, nil
+		} else if !errors.Is(err, ErrCacheRefreshRequired) {
 			return nil, err
 		}
-
-		return payload, nil
 	}
 
 	packages, sources := r.collectPackages(ctx)
@@ -108,23 +115,26 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 	switch coverage {
 	case coverageFailed:
 		state = scanStateFailed
+	case coveragePartial:
+		state = scanStatePartial
 	case coverageNoSupportedPackageSource:
 		state = scanStateNotSupported
 	case coverageUnknown:
 		state = scanStateNotScanned
 	}
-	sbom := BuildCycloneDX(r.cfg, started, osInfo, packages)
-	packageSetHash := ComputePackageSetHash(packages)
-	artifactHash := ComputeArtifactHash(sbom)
-	uploadReason := UploadReasonChanged
-	serverReconcileRequested := cache != nil && cache.ServerReconcileRequestedAt != nil
-	if cache != nil &&
-		cache.LastUploadedPackageSetHash == packageSetHash &&
-		cache.LastUploadedArtifactHash == artifactHash &&
-		!serverReconcileRequested {
-		uploadReason = UploadReasonUnchanged
+	var (
+		sbom             *CycloneDXBOM
+		packageSetHash   string
+		artifactHash     string
+		lastSuccessfulAt *time.Time
+	)
+	if state == scanStateScanned && coverage == coverageComplete {
+		completeSBOM := BuildCycloneDX(r.cfg, started, osInfo, packages)
+		sbom = &completeSBOM
+		packageSetHash = ComputePackageSetHash(packages)
+		artifactHash = ComputeArtifactHash(completeSBOM)
+		lastSuccessfulAt = &started
 	}
-
 	payload := &ScanPayload{
 		SchemaVersion:        SchemaVersion,
 		AgentID:              r.cfg.AgentID,
@@ -134,7 +144,7 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 		CoverageState:        coverage,
 		ConfigHash:           configHash,
 		LastScanAt:           started,
-		LastSuccessfulScanAt: &started,
+		LastSuccessfulScanAt: lastSuccessfulAt,
 		OS:                   osInfo,
 		EnabledPlugins:       append([]string(nil), r.cfg.Sources...),
 		DetectedPlugins:      detectedSources(sources),
@@ -143,27 +153,17 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 		PackageSetHash:       packageSetHash,
 		ArtifactHash:         artifactHash,
 		HashAlgorithm:        HashAlgorithm,
-		UploadReason:         uploadReason,
+		UploadReason:         UploadReasonChanged,
 		DurationMillis:       time.Since(started).Milliseconds(),
 		Truncated:            summariesTruncated(sources),
 		Metadata:             collectionPolicyMetadata(r.cfg),
-	}
-	if uploadReason == UploadReasonChanged {
-		payload.SBOM = &sbom
-		payload.PackageDelta = changedScanDelta(cache, packages, packageSetHash, serverReconcileRequested)
-		if serverReconcileRequested {
-			payload.Metadata["reason"] = metadataReasonServerReconcileFloor
-			payload.Metadata["server_reconcile_requested_at"] = cache.ServerReconcileRequestedAt
-			payload.Metadata["server_reconcile_reason"] = cache.ServerReconcileReason
-		}
-	} else {
-		payload.State = scanStateUnchanged
-		payload.CoverageState = coverageUnchanged
-		payload.Metadata["reason"] = "full_scan_hash_unchanged"
+		SBOM:                 sbom,
 	}
 
-	if err := WriteCacheManifest(r.cfg, fullScanManifest(r.cfg, cache, payload, packages, sourceMTimes, started)); err != nil {
-		return nil, err
+	if state == scanStateScanned && coverage == coverageComplete {
+		if err := FinalizeFullScan(r.cfg, identity, payload, packages, sourceMTimes, started); err != nil {
+			return nil, err
+		}
 	}
 
 	return payload, nil
@@ -231,7 +231,7 @@ func (r *Runner) unchangedPayload(
 		CoverageState:        coverageUnchanged,
 		ConfigHash:           computeConfigHash(r.cfg),
 		LastScanAt:           scannedAt,
-		LastSuccessfulScanAt: &scannedAt,
+		LastSuccessfulScanAt: cache.LastSuccessfulScanAt,
 		OS:                   osInfo,
 		EnabledPlugins:       append([]string(nil), r.cfg.Sources...),
 		DetectedPlugins:      detectedSources(cache.SourceSummaries),
@@ -453,6 +453,11 @@ func computeConfigHash(cfg Config) string {
 		CollectFileHashes bool     `json:"collect_file_hashes"`
 		MaxPackages       int      `json:"max_packages"`
 		MaxOutputBytes    int64    `json:"max_output_bytes"`
+		OSReleasePath     string   `json:"os_release_path"`
+		DpkgStatusPath    string   `json:"dpkg_status_path"`
+		APKInstalledPath  string   `json:"apk_installed_path"`
+		RPMDatabasePaths  []string `json:"rpm_database_paths"`
+		RPMPath           string   `json:"rpm_path"`
 	}{
 		Sources:           append([]string(nil), cfg.Sources...),
 		ScanTimeout:       cfg.ScanTimeout,
@@ -460,6 +465,11 @@ func computeConfigHash(cfg Config) string {
 		CollectFileHashes: cfg.CollectFileHashes,
 		MaxPackages:       cfg.MaxPackages,
 		MaxOutputBytes:    cfg.MaxOutputBytes,
+		OSReleasePath:     cfg.OSReleasePath,
+		DpkgStatusPath:    cfg.DpkgStatusPath,
+		APKInstalledPath:  cfg.APKInstalledPath,
+		RPMDatabasePaths:  append([]string(nil), cfg.RPMDatabasePaths...),
+		RPMPath:           cfg.RPMPath,
 	})
 	if err != nil {
 		return ""
@@ -471,7 +481,8 @@ func computeConfigHash(cfg Config) string {
 
 func collectionPolicyMetadata(cfg Config) map[string]any {
 	return map[string]any{
-		"enabled_plugins": append([]string(nil), cfg.Sources...),
+		"scanner_producer_id": collectorName,
+		"enabled_plugins":     append([]string(nil), cfg.Sources...),
 		"collection_policy": map[string]any{
 			"cadence":             cfg.Cadence,
 			"collect_paths":       cfg.CollectPaths,

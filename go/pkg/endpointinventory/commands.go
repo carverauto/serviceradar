@@ -222,7 +222,7 @@ func staleThresholdSeconds(cfg Config, query EndpointInventoryQuery) int64 {
 
 	threshold, err := time.ParseDuration(cfg.CacheStaleThreshold)
 	if err != nil || threshold <= 0 {
-		threshold = 24 * time.Hour
+		threshold = 26 * time.Hour
 	}
 
 	return int64(threshold.Seconds())

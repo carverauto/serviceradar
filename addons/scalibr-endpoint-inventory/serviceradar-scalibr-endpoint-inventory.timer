@@ -2,9 +2,9 @@
 Description=Run ServiceRadar ScaLibr Endpoint Software Inventory Scanner
 
 [Timer]
-OnBootSec=5m
-OnUnitActiveSec=12h
+OnCalendar=hourly
 RandomizedDelaySec=10m
+AccuracySec=1m
 Persistent=true
 Unit=serviceradar-scalibr-endpoint-inventory.service
 

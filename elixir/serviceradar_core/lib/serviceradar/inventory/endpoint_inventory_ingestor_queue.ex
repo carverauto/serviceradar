@@ -210,7 +210,16 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
   end
 
   defp can_start_job?(%State{} = state) do
-    state.pending_count > 0 and map_size(state.inflight) < state.max_concurrency
+    state.pending_count > 0 and map_size(state.inflight) < state.max_concurrency and
+      runnable_job_pending?(state)
+  end
+
+  defp runnable_job_pending?(%State{} = state) do
+    busy_agents = state.inflight |> Map.values() |> MapSet.new(& &1.job.agent_id)
+
+    state.pending
+    |> :queue.to_list()
+    |> Enum.any?(&(not MapSet.member?(busy_agents, &1.agent_id)))
   end
 
   defp start_next_job(%State{} = state) do
@@ -265,15 +274,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueue do
 
     jobs = :queue.to_list(state.pending)
 
-    {job, remaining} =
-      case split_next_fair_job(jobs, busy_agents, []) do
-        {:ok, job, remaining} ->
-          {job, remaining}
-
-        :none ->
-          [job | remaining] = jobs
-          {job, remaining}
-      end
+    {:ok, job, remaining} = split_next_fair_job(jobs, busy_agents, [])
 
     {job, %{state | pending: :queue.from_list(remaining), pending_count: state.pending_count - 1}}
   end

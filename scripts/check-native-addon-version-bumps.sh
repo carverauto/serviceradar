@@ -173,7 +173,7 @@ path_belongs_to_addon() {
       ;;
     scalibr-endpoint-inventory)
       case "${path}" in
-        addons/scalibr-endpoint-inventory/*|go/cmd/scalibr-endpoint-inventory/*) return 0 ;;
+        addons/scalibr-endpoint-inventory/*|go/cmd/scalibr-endpoint-inventory/*|go/pkg/scalibrinventory/*|go/pkg/endpointinventory/*) return 0 ;;
       esac
       ;;
     rdp)
