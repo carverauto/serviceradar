@@ -270,7 +270,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
     assert :ok = EndpointInventoryIngestorQueue.enqueue(other_agent)
   end
 
-  test "fair dequeue prefers an agent without an in-flight ingest when a slot opens", %{
+  test "serializes one agent while allowing another agent to overlap", %{
     endpoint_inventory_task_supervisor: task_supervisor
   } do
     Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_max_concurrency, 2)
@@ -284,10 +284,10 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
     )
 
     Application.put_env(:serviceradar_core, :endpoint_inventory_queue_test_delay_ms, %{
-      "scan-fair-a1" => 80,
-      "scan-fair-a2" => 500,
+      "scan-fair-a1" => 300,
+      "scan-fair-a2" => 100,
       "scan-fair-a3" => 0,
-      "scan-fair-b1" => 300
+      "scan-fair-b1" => 500
     })
 
     restart_queue(task_supervisor)
@@ -304,10 +304,13 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
     assert :ok = EndpointInventoryIngestorQueue.enqueue(other_agent)
 
     assert_receive {:endpoint_inventory_ingest_started, ^first, _opts}, 500
-    assert_receive {:endpoint_inventory_ingest_started, ^second, _opts}, 500
-    assert_receive {:endpoint_inventory_ingest_finished, ^first}, 1_000
-
     assert_receive {:endpoint_inventory_ingest_started, ^other_agent, _opts}, 500
+
+    refute_receive {:endpoint_inventory_ingest_started, ^second, _opts}, 100
+    refute_receive {:endpoint_inventory_ingest_started, ^third, _opts}, 50
+
+    assert_receive {:endpoint_inventory_ingest_finished, ^first}, 1_000
+    assert_receive {:endpoint_inventory_ingest_started, ^second, _opts}, 500
     refute_receive {:endpoint_inventory_ingest_started, ^third, _opts}, 50
   end
 

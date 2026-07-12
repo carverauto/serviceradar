@@ -1196,6 +1196,38 @@ SELECT base.now_ts - INTERVAL '2 hours',
     base.now_ts
 FROM base;
 WITH base AS (
+    SELECT NOW() AS now_ts,
+        NOW() - INTERVAL '20 minutes' AS effective_ts
+)
+INSERT INTO logs (
+        timestamp,
+        observed_timestamp,
+        id,
+        severity_text,
+        severity_number,
+        body,
+        source,
+        service_name,
+        created_at
+    )
+SELECT base.effective_ts,
+    base.effective_ts,
+    tied.id::uuid,
+    tied.severity_text,
+    tied.severity_number,
+    'Top-N timestamp tie ' || tied.id,
+    'srql-topn-tie',
+    'srql-test',
+    base.now_ts
+FROM base
+CROSS JOIN (
+    VALUES
+        ('00000000-0000-0000-0000-000000000001', 'FATAL', 21),
+        ('00000000-0000-0000-0000-000000000002', 'CRITICAL', 21),
+        ('00000000-0000-0000-0000-000000000003', 'FATAL', 21),
+        ('00000000-0000-0000-0000-000000000004', 'CRITICAL', 21)
+) AS tied(id, severity_text, severity_number);
+WITH base AS (
     SELECT NOW() AS now_ts
 )
 INSERT INTO ocsf_events (

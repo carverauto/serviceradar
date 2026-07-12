@@ -29,6 +29,7 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
 
   alias Ecto.Adapters.SQL, as: SQL
   alias Postgrex.Result
+  alias ServiceRadar.EventWriter.Processors.Logs
   alias ServiceRadar.Observability.EventRule
   alias ServiceRadar.Observability.LogPromotion
   alias ServiceRadar.Observability.LogPromotionTest.BlockingAlertQueue
@@ -194,6 +195,150 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
              )
 
     assert alert_count > 0
+  end
+
+  test "logs processor promotes its generated UUID bytes as canonical text" do
+    actor = %{id: "system", role: :admin}
+    subject = "logs.processor-binary-id.#{System.unique_integer([:positive])}"
+    log_name = "test.processor_binary_id.#{Ash.UUID.generate()}"
+    body = "processor raw UUID log ID #{Ash.UUID.generate()}"
+
+    {:ok, _rule} =
+      EventRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "processor-binary-log-id-#{Ash.UUID.generate()}",
+          source_type: :log,
+          source: %{},
+          match: %{"subject_prefix" => subject},
+          event: %{"log_name" => log_name, "alert" => false}
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    message = %{
+      data:
+        Jason.encode!(%{
+          "timestamp" => DateTime.to_iso8601(DateTime.utc_now()),
+          "severity_text" => "INFO",
+          "severity_number" => 11,
+          "body" => body,
+          "service_name" => "test"
+        }),
+      metadata: %{subject: subject, received_at: DateTime.utc_now()}
+    }
+
+    assert %{id: generated_id} = Logs.parse_message(message)
+    assert is_binary(generated_id)
+    assert byte_size(generated_id) == 16
+
+    assert {:ok, 1} = Logs.process_batch([message])
+
+    assert %Result{rows: [[canonical_log_id]]} =
+             SQL.query!(
+               Repo,
+               "SELECT id::text FROM logs WHERE body = $1 ORDER BY timestamp DESC LIMIT 1",
+               [body]
+             )
+
+    metadata = promoted_metadata(log_name, body)
+
+    assert {:ok, persisted_binary_id} = Ecto.UUID.dump(canonical_log_id)
+    assert byte_size(persisted_binary_id) == byte_size(generated_id)
+    assert metadata["correlation_uid"] == canonical_log_id
+    assert metadata["serviceradar"]["source_log_id"] == canonical_log_id
+    assert Jason.encode!(metadata)
+  end
+
+  test "preserves text IDs and injectively encodes invalid binary IDs" do
+    actor = %{id: "system", role: :admin}
+    subject = "logs.source-id.#{System.unique_integer([:positive])}"
+    log_name = "test.source_id.#{Ash.UUID.generate()}"
+
+    {:ok, _rule} =
+      EventRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "source-log-id-#{Ash.UUID.generate()}",
+          source_type: :log,
+          source: %{},
+          match: %{"subject_prefix" => subject},
+          event: %{"log_name" => log_name, "alert" => false}
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    base_log = %{
+      id: "source-log-id-01",
+      timestamp: DateTime.utc_now(),
+      severity_text: "INFO",
+      severity_number: 11,
+      body: "sixteen byte text log ID",
+      service_name: "test",
+      attributes: %{"serviceradar" => %{"ingest" => %{"subject" => subject}}},
+      resource_attributes: %{},
+      created_at: DateTime.utc_now()
+    }
+
+    assert byte_size(base_log.id) == 16
+    assert {:ok, 1} = LogPromotion.promote([base_log])
+
+    metadata = promoted_metadata(log_name, base_log.body)
+
+    assert metadata["correlation_uid"] == base_log.id
+    assert metadata["serviceradar"]["source_log_id"] == base_log.id
+
+    canonical_uuid = Ecto.UUID.generate()
+    canonical_uuid_log = %{base_log | id: canonical_uuid, body: "canonical UUID text log ID"}
+
+    assert {:ok, 1} = LogPromotion.promote([canonical_uuid_log])
+    metadata = promoted_metadata(log_name, canonical_uuid_log.body)
+    assert metadata["correlation_uid"] == canonical_uuid
+    assert metadata["serviceradar"]["source_log_id"] == canonical_uuid
+
+    invalid_binary_log = %{base_log | id: <<0xFF, 0x00, 0x80>>, body: "invalid binary log ID"}
+
+    assert {:ok, 1} = LogPromotion.promote([invalid_binary_log])
+
+    metadata = promoted_metadata(log_name, invalid_binary_log.body)
+    encoded_binary_id = "urn:serviceradar:log-id:binary:v1:ff0080"
+
+    assert metadata["correlation_uid"] == encoded_binary_id
+    assert metadata["serviceradar"]["source_log_id"] == encoded_binary_id
+    assert Jason.encode!(metadata)
+
+    fallback_looking_text_log = %{
+      base_log
+      | id: "binary:ff0080",
+        body: "fallback-looking text log ID"
+    }
+
+    assert {:ok, 1} = LogPromotion.promote([fallback_looking_text_log])
+    metadata = promoted_metadata(log_name, fallback_looking_text_log.body)
+    assert metadata["correlation_uid"] == fallback_looking_text_log.id
+    refute metadata["correlation_uid"] == encoded_binary_id
+
+    reserved_text_log = %{
+      base_log
+      | id: encoded_binary_id,
+        body: "reserved namespace text log ID"
+    }
+
+    assert {:ok, 1} = LogPromotion.promote([reserved_text_log])
+    metadata = promoted_metadata(log_name, reserved_text_log.body)
+
+    escaped_text_id =
+      "urn:serviceradar:log-id:text:v1:" <>
+        Base.url_encode64(reserved_text_log.id, padding: false)
+
+    assert metadata["correlation_uid"] == escaped_text_id
+    assert metadata["serviceradar"]["source_log_id"] == escaped_text_id
+    refute metadata["correlation_uid"] == encoded_binary_id
+    assert Jason.encode!(metadata)
   end
 
   test "matches event_type filter before promoting logs" do
@@ -535,6 +680,23 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
     assert %{"name" => container_id, "type" => "Container ID", "type_id" => 99} in observables
     assert unmapped["falco"]["diagnostics"] == diagnostics
     assert unmapped["falco"]["output_fields"]["proc.cmdline"] == "/tmp/.build/tool --lint"
+  end
+
+  defp promoted_metadata(log_name, message) do
+    assert %Result{rows: [[metadata]]} =
+             SQL.query!(
+               Repo,
+               """
+               SELECT metadata
+               FROM ocsf_events
+               WHERE log_name = $1 AND message = $2
+               ORDER BY time DESC
+               LIMIT 1
+               """,
+               [log_name, message]
+             )
+
+    metadata
   end
 
   defp configure_rejecting_alert_queue(reason) do

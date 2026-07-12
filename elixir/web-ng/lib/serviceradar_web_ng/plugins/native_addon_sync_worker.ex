@@ -10,18 +10,22 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
 
   import Ecto.Query, only: [from: 2]
 
-  alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Plugins.AddonPackage
-  alias ServiceRadar.Plugins.RetiredNativeAddons
+  alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
   alias ServiceRadarWebNG.Plugins.NativeAddonImporter
+  alias ServiceRadarWebNG.Plugins.NativeAddonSync
 
-  require Ash.Query
   require Logger
 
   @default_release_limit 10
   @default_reschedule_seconds 3_600
+  @failure_reason_limit 512
+  @metadata_limit 128
+  @bootstrap_unique [period: :infinity, states: :incomplete]
+  @successor_unique [period: :infinity, states: [:available, :scheduled, :retryable]]
+  @bootstrap_states ["available", "scheduled", "executing", "retryable", "suspended"]
+  @manual_unique [period: :infinity, states: :incomplete, keys: [:force]]
 
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
@@ -29,7 +33,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
       if check_existing_job() do
         {:ok, :already_scheduled}
       else
-        %{} |> new(schedule_in: 60) |> ObanSupport.safe_insert()
+        %{} |> bootstrap_job(schedule_in: 60) |> ObanSupport.safe_insert()
       end
     else
       {:error, :oban_unavailable}
@@ -45,7 +49,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
       |> maybe_put("limit", Keyword.get(opts, :limit))
 
     args
-    |> new()
+    |> manual_job()
     |> ObanSupport.safe_insert()
   end
 
@@ -57,18 +61,19 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
     args = args || %{}
     force? = Map.get(args, "force") == true
 
-    try do
+    result =
       if force? or auto_sync_enabled?() do
         run_sync(args)
       else
         Logger.debug("First-party native add-on sync skipped because auto-sync is disabled")
         :ok
       end
-    after
-      if !force? do
-        schedule_next()
-      end
+
+    if !force? and result == :ok do
+      schedule_next()
     end
+
+    result
   end
 
   defp run_sync(args) do
@@ -83,46 +88,46 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
       {:ok, addons} ->
         results =
           addons
-          |> maybe_filter_release_tag(release_tag)
-          |> Enum.filter(
-            &(Map.get(&1, :import_ready?) and selected_addon?(&1, addon_ids) and
-                not RetiredNativeAddons.retired?(&1.addon_id))
-          )
-          |> dedupe_native_addon_versions()
+          |> NativeAddonSync.candidates(release_tag: release_tag, addon_ids: addon_ids)
           |> Enum.map(fn addon ->
-            import_attrs = %{
-              repo_url: addon.repo_url,
-              release_tag: addon.release_tag,
-              addon_id: addon.addon_id,
-              version: addon.version
-            }
-
-            result =
-              with {:ok, package} <- NativeAddonImporter.import(import_attrs) do
-                maybe_approve(package, auto_approve_addon_ids)
-              end
-
-            {addon, result}
+            {addon,
+             NativeAddonSync.import_or_reuse(addon,
+               auto_approve_addon_ids: auto_approve_addon_ids
+             )}
           end)
 
-        summary = summary(addons, results)
+        summary = NativeAddonSync.summary(addons, results)
 
         Logger.info(
           "First-party native add-on sync completed: discovered=#{summary.discovered} " <>
-            "import_ready=#{summary.import_ready} imported=#{summary.imported} failed=#{length(summary.failed)}"
+            "import_ready=#{summary.import_ready} imported=#{summary.imported} " <>
+            "skipped=#{summary.skipped} failed=#{length(summary.failed)}"
         )
+
+        Enum.each(summary.failed, &log_package_failure/1)
 
         :ok
 
       {:error, reason} ->
-        Logger.warning("First-party native add-on sync failed", reason: inspect(reason))
+        Logger.warning("First-party native add-on sync failed",
+          reason: bounded_failure_reason(reason)
+        )
+
         {:error, reason}
     end
   end
 
   defp schedule_next do
     if auto_sync_enabled?() and ObanSupport.available?() do
-      _ = ObanSupport.safe_insert(new(%{}, schedule_in: reschedule_seconds()))
+      case ObanSupport.safe_insert(successor_job(%{}, schedule_in: reschedule_seconds())) do
+        {:ok, %Oban.Job{}} ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("Failed to schedule the next first-party native add-on sync",
+            reason: bounded_failure_reason(reason)
+          )
+      end
     end
 
     :ok
@@ -131,75 +136,151 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
   defp check_existing_job do
     query =
       from(j in Oban.Job,
-        where: j.worker == ^to_string(__MODULE__),
-        where: j.state in ["available", "scheduled", "retryable"],
+        where: j.worker == ^inspect(__MODULE__),
+        where: j.state in ^@bootstrap_states,
+        where: fragment("COALESCE(?->>'force', 'false') <> 'true'", j.args),
         limit: 1
       )
 
     Repo.exists?(query, prefix: ObanSupport.prefix())
   end
 
-  defp maybe_filter_release_tag(addons, release_tag) when is_binary(release_tag) and release_tag != "" do
-    Enum.filter(addons, &(&1.release_tag == release_tag))
+  defp log_package_failure(failure) do
+    Logger.warning("First-party native add-on package sync failed",
+      addon_id: bounded_metadata(failure.addon_id),
+      addon_version: bounded_metadata(failure.version),
+      release_tag: bounded_metadata(failure.release_tag),
+      reason: bounded_failure_reason(failure.error)
+    )
   end
 
-  defp maybe_filter_release_tag(addons, _release_tag), do: addons
-
-  defp selected_addon?(_addon, []), do: true
-  defp selected_addon?(addon, addon_ids), do: addon.addon_id in addon_ids
-
-  defp dedupe_native_addon_versions(addons) do
-    addons
-    |> Enum.reduce({MapSet.new(), []}, fn addon, {seen, acc} ->
-      key = {addon.addon_id, addon.version}
-
-      if MapSet.member?(seen, key) do
-        {seen, acc}
-      else
-        {MapSet.put(seen, key), [addon | acc]}
-      end
-    end)
-    |> elem(1)
-    |> Enum.reverse()
+  defp bounded_failure_reason(reason) do
+    reason
+    |> redact_log_term()
+    |> inspect(limit: 20, printable_limit: @failure_reason_limit, width: 120)
+    |> redact_inline_secrets()
+    |> sanitize_log_text()
+    |> String.slice(0, @failure_reason_limit)
   end
 
-  defp maybe_approve(%AddonPackage{addon_id: addon_id, status: :staged} = package, auto_approve_addon_ids) do
-    if addon_id in auto_approve_addon_ids do
-      package
-      |> Ash.Changeset.for_update(
-        :approve,
-        %{approved_capabilities: package.capabilities || [], approved_by: "system:native_addon_sync"},
-        actor: SystemActor.system(:native_addon_sync)
-      )
-      |> Ash.update()
+  defp bounded_metadata(value) do
+    value
+    |> redact_log_term()
+    |> log_string()
+    |> redact_inline_secrets()
+    |> sanitize_log_text()
+    |> String.slice(0, @metadata_limit)
+  end
+
+  defp redact_log_term({key, nested}) when is_atom(key) or is_binary(key) do
+    if sensitive_log_key?(key) do
+      {key, "REDACTED"}
     else
-      {:ok, package}
+      {key, redact_log_term(nested)}
     end
   end
 
-  defp maybe_approve(%AddonPackage{} = package, _auto_approve_addon_ids), do: {:ok, package}
+  defp redact_log_term(value) when is_tuple(value) do
+    value
+    |> Tuple.to_list()
+    |> Enum.map(&redact_log_term/1)
+    |> List.to_tuple()
+  end
 
-  defp summary(discovered, results) do
-    imported = Enum.count(results, fn {_addon, result} -> match?({:ok, _package}, result) end)
+  defp redact_log_term(value) when is_map(value) do
+    Map.new(value, fn {key, nested} ->
+      if sensitive_log_key?(key) do
+        {key, "REDACTED"}
+      else
+        {key, redact_log_term(nested)}
+      end
+    end)
+  end
 
-    failed =
-      results
-      |> Enum.filter(fn {_addon, result} -> match?({:error, _reason}, result) end)
-      |> Enum.map(fn {addon, {:error, reason}} ->
-        %{
-          addon_id: addon.addon_id,
-          version: addon.version,
-          release_tag: addon.release_tag,
-          error: reason
-        }
-      end)
+  defp redact_log_term(value) when is_list(value), do: Enum.map(value, &redact_log_term/1)
 
-    %{
-      discovered: length(discovered),
-      import_ready: length(results),
-      imported: imported,
-      failed: failed
-    }
+  defp redact_log_term(value) when is_binary(value) do
+    value
+    |> CredentialRedactor.redact()
+    |> redact_url_userinfo()
+    |> redact_authorization()
+    |> redact_inline_secrets()
+  end
+
+  defp redact_log_term(value), do: value
+
+  defp redact_inline_secrets(value) when is_binary(value) do
+    Regex.replace(
+      ~r/(?i)(["']?\b(?:(?:[a-z0-9]+[_-])*(?:token|secret)|api[_-]?key|access[_-]?key|password|passwd|passphrase|private[_-]?key)\b["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;}\]]+)/,
+      value,
+      "\\1REDACTED"
+    )
+  end
+
+  defp redact_inline_secrets(value), do: value
+
+  defp redact_authorization(value) when is_binary(value) do
+    Regex.replace(
+      ~r/(?i)(["']?\b(?:authorization|proxy[_-]?authorization)\b["']?\s*[:=]\s*)(?:"(?:basic|bearer|token)\s+[^"]*"|'(?:basic|bearer|token)\s+[^']*'|(?:basic|bearer|token)\s+[^\s,;}\]]+)/,
+      value,
+      "\\1REDACTED"
+    )
+  end
+
+  defp redact_authorization(value), do: value
+
+  defp redact_url_userinfo(value) when is_binary(value) do
+    Regex.replace(
+      ~r{(?i)\b([a-z][a-z0-9+.-]*://)([^/@\s]+)@},
+      value,
+      "\\1REDACTED@"
+    )
+  end
+
+  defp redact_url_userinfo(value), do: value
+
+  defp sensitive_log_key?(key) do
+    normalized =
+      key
+      |> log_key_string()
+      |> String.downcase()
+      |> String.replace(~r/[^a-z0-9]+/, "_")
+      |> String.trim("_")
+
+    normalized in [
+      "authorization",
+      "proxy_authorization",
+      "provider_auth",
+      "provider_bootstrap",
+      "credential_material"
+    ] or
+      Regex.match?(
+        ~r/(^|_)(token|secret|password|passwd|passphrase|private_key|api_key|access_key)($|_)/,
+        normalized
+      )
+  end
+
+  defp log_key_string(key) when is_binary(key), do: key
+  defp log_key_string(key) when is_atom(key), do: Atom.to_string(key)
+  defp log_key_string(key), do: inspect(key, limit: 5, printable_limit: 64)
+
+  defp sanitize_log_text(value) do
+    String.replace(value, ~r/[\x00-\x1F\x7F]/u, " ")
+  end
+
+  defp log_string(value) when is_binary(value), do: value
+  defp log_string(value), do: inspect(value, limit: 10, printable_limit: @metadata_limit)
+
+  defp bootstrap_job(args, opts) do
+    new(args, Keyword.put(opts, :unique, @bootstrap_unique))
+  end
+
+  defp successor_job(args, opts) do
+    new(args, Keyword.put(opts, :unique, @successor_unique))
+  end
+
+  defp manual_job(args, opts \\ []) do
+    new(args, Keyword.put(opts, :unique, @manual_unique))
   end
 
   defp auto_sync_enabled? do

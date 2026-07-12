@@ -27,7 +27,7 @@ func TestEvaluateManifestQuerySupportsExistsCountAndDetail(t *testing.T) {
 	manifest := endpointInventoryQueryManifest(scannedAt)
 	cfg := DefaultConfig()
 	cfg.AgentID = configTestAgentID
-	cfg.CacheStaleThreshold = "10m"
+	cfg.CacheStaleThreshold = endpointInventoryTestTenMins
 	now := scannedAt.Add(2 * time.Minute)
 
 	exists, err := EvaluateManifestQuery(cfg, manifest, EndpointInventoryQuery{
@@ -106,6 +106,38 @@ func TestEvaluateManifestQueryReportsStaleAndRejectsUnsafeInput(t *testing.T) {
 	}, now)
 	if !errors.Is(err, ErrEmptyQueryPredicate) {
 		t.Fatalf("err = %v, want ErrEmptyQueryPredicate", err)
+	}
+}
+
+func TestDefaultFreshnessThresholdUsesTwentySixHourGrace(t *testing.T) {
+	scannedAt := time.Unix(100, 0).UTC()
+	manifest := endpointInventoryQueryManifest(scannedAt)
+	cfg := DefaultConfig()
+	predicate := EndpointInventoryQuery{Mode: QueryModeCount, Predicate: PackagePredicate{Name: "nginx"}}
+
+	fresh, err := EvaluateManifestQuery(cfg, manifest, predicate, scannedAt.Add(25*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh.Freshness.Verdict != FreshnessFresh {
+		t.Fatalf("25-hour inventory = %q, want fresh", fresh.Freshness.Verdict)
+	}
+
+	stale, err := EvaluateManifestQuery(cfg, manifest, predicate, scannedAt.Add(27*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stale.Freshness.Verdict != FreshnessStale {
+		t.Fatalf("27-hour inventory = %q, want stale", stale.Freshness.Verdict)
+	}
+
+	cfg.CacheStaleThreshold = "invalid"
+	fallback, err := EvaluateManifestQuery(cfg, manifest, predicate, scannedAt.Add(25*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fallback.Freshness.Verdict != FreshnessFresh || fallback.StaleThresholdSeconds != 26*60*60 {
+		t.Fatalf("invalid-config fallback did not use 26h: %#v", fallback.Freshness)
 	}
 }
 

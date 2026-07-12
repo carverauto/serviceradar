@@ -47,8 +47,9 @@ import (
 
 const (
 	ProducerID       = "serviceradar.scalibr.endpoint_inventory"
-	ProducerVersion  = "0.1.0"
+	ProducerVersion  = "0.1.2"
 	DefaultScannerID = "osv-scalibr"
+	defaultCadence   = "24h"
 
 	metadataScannerActivityKey = "scanner_activity"
 	metadataScannerFindingsKey = "scanner_findings"
@@ -56,6 +57,7 @@ const (
 	scanStateScanned    = "scanned"
 	scanStateNotScanned = "not_scanned"
 	scanStateFailed     = "scan_failed"
+	scanStatePartial    = "partial"
 
 	coverageComplete = "complete"
 	coveragePartial  = "partial"
@@ -72,6 +74,7 @@ var (
 	errScaLibrScanFailed        = errors.New("scalibr endpoint inventory scan failed")
 	errScanRootRequired         = errors.New("at least one scan root is required")
 	errNilScaLibrScanResult     = errors.New("scalibr returned nil scan result")
+	errPackageLimitExceeded     = errors.New("scalibr endpoint inventory package limit exceeded")
 	errUnsupportedScaLibrPlugin = errors.New("unsupported scalibr endpoint inventory plugin")
 )
 
@@ -91,8 +94,12 @@ type Config struct {
 }
 
 func DefaultConfig() Config {
+	base := endpointinventory.DefaultConfig()
+	base.Cadence = defaultCadence
+	base.CacheStaleThreshold = "26h"
+
 	return Config{
-		Config:         endpointinventory.DefaultConfig(),
+		Config:         base,
 		ScannerID:      DefaultScannerID,
 		ScaLibrPlugins: []string{"os/dpkg", "os/rpm", "os/apk"},
 		ScanRoots:      []string{"/"},
@@ -110,8 +117,28 @@ func NewRunner(cfg Config) *Runner {
 func (r *Runner) Run(ctx context.Context) (*endpointinventory.ScanPayload, error) {
 	started := time.Now().UTC()
 	configHash := computeConfigHash(r.cfg)
+	identity := endpointinventory.CacheIdentity{
+		AgentID:         r.cfg.AgentID,
+		ConfigHash:      configHash,
+		ProducerID:      ProducerID,
+		ProducerVersion: ProducerVersion,
+	}
 	if !r.cfg.Enabled {
 		return disabledPayload(r.cfg, started, configHash), nil
+	}
+
+	sourceMTimes := endpointinventory.CollectSourceMTimes(r.cfg.Config)
+	cache, err := endpointinventory.ReadCacheManifest(r.cfg.Config)
+	if err != nil {
+		return nil, err
+	}
+	if endpointinventory.CacheCanSkipFullScan(r.cfg.Config, identity, cache, sourceMTimes, started) {
+		payload := r.unchangedPayload(started, configHash, cache, "cadence_not_due")
+		if err := endpointinventory.RecordCachedScan(r.cfg.Config, identity, sourceMTimes, started); err == nil {
+			return payload, nil
+		} else if !errors.Is(err, endpointinventory.ErrCacheRefreshRequired) {
+			return nil, err
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, endpointinventory.ScanTimeout(r.cfg.Config))
@@ -147,17 +174,50 @@ func (r *Runner) Run(ctx context.Context) (*endpointinventory.ScanPayload, error
 
 	extractors = filterExtractorsByCapabilities(extractors, capabilities)
 	scanResult := runScaLibrFilesystemScan(ctx, started, r.cfg, scanRoots, extractors)
+	payload, packages := r.payloadAndPackagesFromResult(started, configHash, scanResult)
+	if payload.State == scanStateScanned && payload.CoverageState == coverageComplete {
+		discarded, err := r.finalizeFullScan(
+			r.cfg.Config,
+			identity,
+			payload,
+			packages,
+			sourceMTimes,
+			started,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if discarded {
+			return nil, nil
+		}
+	}
 
-	return r.payloadFromResult(started, configHash, scanResult), nil
+	return payload, nil
 }
 
-func (r *Runner) payloadFromResult(
+func (r *Runner) finalizeFullScan(
+	cfg endpointinventory.Config,
+	identity endpointinventory.CacheIdentity,
+	payload *endpointinventory.ScanPayload,
+	packages []endpointinventory.Package,
+	sourceMTimes map[string]endpointinventory.SourceMTime,
+	started time.Time,
+) (bool, error) {
+	err := endpointinventory.FinalizeFullScan(cfg, identity, payload, packages, sourceMTimes, started)
+	if errors.Is(err, endpointinventory.ErrStaleFullScan) {
+		return true, nil
+	}
+
+	return false, err
+}
+
+func (r *Runner) payloadAndPackagesFromResult(
 	started time.Time,
 	configHash string,
 	scanResult *result.ScanResult,
-) *endpointinventory.ScanPayload {
+) (*endpointinventory.ScanPayload, []endpointinventory.Package) {
 	if scanResult == nil {
-		return r.failurePayload(started, configHash, nil, errNilScaLibrScanResult)
+		return r.failurePayload(started, configHash, nil, errNilScaLibrScanResult), nil
 	}
 
 	endedAt := firstTime(scanResult.EndTime, time.Now().UTC())
@@ -172,11 +232,27 @@ func (r *Runner) payloadFromResult(
 			})
 		}
 	}
+	if len(packages) > r.cfg.MaxPackages {
+		return r.failurePayload(
+			started,
+			configHash,
+			scanResult.PluginStatus,
+			fmt.Errorf("%w: got %d, max %d", errPackageLimitExceeded, len(packages), r.cfg.MaxPackages),
+		), nil
+	}
 
 	state, coverage := scanState(scanResult.Status, diagnostics, len(packages))
-	sbom := endpointinventory.BuildCycloneDX(r.cfg.Config, started, endpointinventory.OSInfo{}, packages)
-	packageSetHash := endpointinventory.ComputePackageSetHash(packages)
-	artifactHash := endpointinventory.ComputeArtifactHash(sbom)
+	var (
+		sbom           *endpointinventory.CycloneDXBOM
+		packageSetHash string
+		artifactHash   string
+	)
+	if state == scanStateScanned && coverage == coverageComplete {
+		completeSBOM := endpointinventory.BuildCycloneDX(r.cfg.Config, started, endpointinventory.OSInfo{}, packages)
+		sbom = &completeSBOM
+		packageSetHash = endpointinventory.ComputePackageSetHash(packages)
+		artifactHash = endpointinventory.ComputeArtifactHash(completeSBOM)
+	}
 	activity := r.scanActivity(started, endedAt, configHash, state, coverage, diagnostics, artifactHash, int64(len(packages)))
 	findings := scannerFindings(r.cfg, scanResult.Inventory, activity.ScanID)
 
@@ -200,7 +276,7 @@ func (r *Runner) payloadFromResult(
 		UploadReason:         endpointinventory.UploadReasonChanged,
 		DurationMillis:       endedAt.Sub(started).Milliseconds(),
 		Truncated:            diagnosticsTruncated(diagnostics),
-		SBOM:                 &sbom,
+		SBOM:                 sbom,
 		Metadata: map[string]any{
 			"scanner_family":               "endpoint_inventory",
 			"scanner_contract_version":     addon.ScannerContractVersion,
@@ -214,11 +290,45 @@ func (r *Runner) payloadFromResult(
 			"scalibr_enabled_plugin_names": append([]string(nil), r.cfg.ScaLibrPlugins...),
 		},
 	}
-	if state == scanStateFailed {
-		payload.SBOM = nil
-	}
+	return payload, packages
+}
 
-	return payload
+func (r *Runner) unchangedPayload(
+	scannedAt time.Time,
+	configHash string,
+	cache *endpointinventory.InventoryCacheManifest,
+	reason string,
+) *endpointinventory.ScanPayload {
+	return &endpointinventory.ScanPayload{
+		SchemaVersion:        endpointinventory.SchemaVersion,
+		AgentID:              r.cfg.AgentID,
+		ScanID:               newScanID(scannedAt, r.cfg.AgentID, configHash),
+		CollectorVersion:     ProducerVersion,
+		State:                "unchanged",
+		CoverageState:        "unchanged",
+		ConfigHash:           configHash,
+		LastScanAt:           scannedAt,
+		LastSuccessfulScanAt: cache.LastSuccessfulScanAt,
+		EnabledPlugins:       append([]string(nil), r.cfg.ScaLibrPlugins...),
+		DetectedPlugins:      detectedPlugins(cache.SourceSummaries),
+		Diagnostics:          append([]endpointinventory.SourceSummary(nil), cache.SourceSummaries...),
+		PackageCount:         cache.PackageCount,
+		PackageSetHash:       cache.PackageSetHash,
+		ArtifactHash:         cache.ArtifactHash,
+		HashAlgorithm:        firstNonEmpty(cache.HashAlgorithm, endpointinventory.HashAlgorithm),
+		UploadReason:         endpointinventory.UploadReasonUnchanged,
+		Metadata: map[string]any{
+			"reason":                       reason,
+			"scans_since_full":             cache.ScansSinceFull + 1,
+			"scanner_family":               "endpoint_inventory",
+			"scanner_contract_version":     addon.ScannerContractVersion,
+			"scanner_producer_id":          ProducerID,
+			"scanner_producer_version":     ProducerVersion,
+			"scanner_id":                   firstNonEmpty(r.cfg.ScannerID, DefaultScannerID),
+			"scanner_version":              r.cfg.ScannerVersion,
+			"scalibr_enabled_plugin_names": append([]string(nil), r.cfg.ScaLibrPlugins...),
+		},
+	}
 }
 
 func (r *Runner) failurePayload(
@@ -387,7 +497,7 @@ func sourceDiagnostics(statuses []*plugin.Status) []endpointinventory.SourceSumm
 			Source: status.Name,
 			Name:   status.Name,
 			Type:   "scanner_plugin",
-			State:  "scanned",
+			State:  sourceStateUnknown,
 		}
 		if status.Status != nil {
 			summary.State = pluginState(status.Status.Status)
@@ -407,6 +517,19 @@ func sourceDiagnostics(statuses []*plugin.Status) []endpointinventory.SourceSumm
 	}
 
 	return diagnostics
+}
+
+func allDiagnosticsSucceeded(diagnostics []endpointinventory.SourceSummary) bool {
+	if len(diagnostics) == 0 {
+		return false
+	}
+	for _, diagnostic := range diagnostics {
+		if diagnostic.State != scanStateScanned {
+			return false
+		}
+	}
+
+	return true
 }
 
 func runScaLibrFilesystemScan(
@@ -431,15 +554,7 @@ func runScaLibrFilesystemScan(
 	})
 
 	ended := time.Now().UTC()
-	status := &plugin.ScanStatus{Status: plugin.ScanStatusSucceeded}
-	switch {
-	case err != nil && inv.IsEmpty():
-		status = &plugin.ScanStatus{Status: plugin.ScanStatusFailed, FailureReason: err.Error()}
-	case err != nil:
-		status = &plugin.ScanStatus{Status: plugin.ScanStatusPartiallySucceeded, FailureReason: err.Error()}
-	case hasPluginStatusFailure(statuses):
-		status = &plugin.ScanStatus{Status: plugin.ScanStatusPartiallySucceeded}
-	}
+	status := scaLibrAggregateScanStatus(inv, statuses, err)
 
 	return &result.ScanResult{
 		Version:      cfg.ScannerVersion,
@@ -448,6 +563,23 @@ func runScaLibrFilesystemScan(
 		Status:       status,
 		PluginStatus: statuses,
 		Inventory:    inv,
+	}
+}
+
+func scaLibrAggregateScanStatus(
+	inv scalibrinventory.Inventory,
+	statuses []*plugin.Status,
+	scanErr error,
+) *plugin.ScanStatus {
+	switch {
+	case scanErr != nil && inv.IsEmpty():
+		return &plugin.ScanStatus{Status: plugin.ScanStatusFailed, FailureReason: scanErr.Error()}
+	case scanErr != nil:
+		return &plugin.ScanStatus{Status: plugin.ScanStatusPartiallySucceeded, FailureReason: scanErr.Error()}
+	case !allPluginStatusesSucceeded(statuses):
+		return &plugin.ScanStatus{Status: plugin.ScanStatusPartiallySucceeded}
+	default:
+		return &plugin.ScanStatus{Status: plugin.ScanStatusSucceeded}
 	}
 }
 
@@ -602,8 +734,14 @@ func scannerFindings(cfg Config, inv scalibrinventory.Inventory, parentScanID st
 
 func scanState(status *plugin.ScanStatus, diagnostics []endpointinventory.SourceSummary, packageCount int) (string, string) {
 	if status == nil {
-		if packageCount > 0 {
+		if hasDiagnosticFailure(diagnostics) {
+			return scanStatePartial, coveragePartial
+		}
+		if packageCount > 0 && allDiagnosticsSucceeded(diagnostics) {
 			return scanStateScanned, coverageComplete
+		}
+		if packageCount > 0 {
+			return scanStatePartial, coveragePartial
 		}
 		return scanStateNotScanned, coverageUnknown
 	}
@@ -612,17 +750,17 @@ func scanState(status *plugin.ScanStatus, diagnostics []endpointinventory.Source
 	case plugin.ScanStatusSucceeded:
 		return scanStateScanned, coverageComplete
 	case plugin.ScanStatusPartiallySucceeded:
-		return scanStateScanned, coveragePartial
+		return scanStatePartial, coveragePartial
 	case plugin.ScanStatusFailed:
 		if packageCount > 0 {
-			return scanStateScanned, coveragePartial
+			return scanStatePartial, coveragePartial
 		}
 		return scanStateFailed, coverageFailed
 	case plugin.ScanStatusUnspecified:
 		fallthrough
 	default:
 		if hasDiagnosticFailure(diagnostics) {
-			return scanStateScanned, coveragePartial
+			return scanStatePartial, coveragePartial
 		}
 		return scanStateNotScanned, coverageUnknown
 	}
@@ -649,6 +787,8 @@ func scannerState(state string) string {
 		return addon.ScannerStateSucceeded
 	case scanStateFailed:
 		return addon.ScannerStateFailed
+	case scanStatePartial:
+		return addon.ScannerStatePartial
 	default:
 		return addon.ScannerStateSkipped
 	}
@@ -771,20 +911,23 @@ func diagnosticsTruncated(diagnostics []endpointinventory.SourceSummary) bool {
 	return false
 }
 
-func hasPluginStatusFailure(statuses []*plugin.Status) bool {
+func allPluginStatusesSucceeded(statuses []*plugin.Status) bool {
+	if len(statuses) == 0 {
+		return false
+	}
+
 	for _, status := range statuses {
 		if status == nil || status.Status == nil {
-			continue
+			return false
 		}
-		if status.Status.Status == plugin.ScanStatusFailed ||
-			status.Status.Status == plugin.ScanStatusPartiallySucceeded ||
+		if status.Status.Status != plugin.ScanStatusSucceeded ||
 			status.Status.FailureReason != "" ||
 			len(status.Status.FileErrors) > 0 {
-			return true
+			return false
 		}
 	}
 
-	return false
+	return true
 }
 
 func hasDiagnosticFailure(diagnostics []endpointinventory.SourceSummary) bool {
@@ -798,7 +941,7 @@ func hasDiagnosticFailure(diagnostics []endpointinventory.SourceSummary) bool {
 }
 
 func successfulAt(state string, at time.Time) *time.Time {
-	if state == scanStateFailed || state == scanStateNotScanned {
+	if state == scanStateFailed || state == scanStatePartial || state == scanStateNotScanned {
 		return nil
 	}
 	return &at
@@ -899,17 +1042,45 @@ func firstTime(values ...time.Time) time.Time {
 
 func computeConfigHash(cfg Config) string {
 	data, err := json.Marshal(struct {
-		EndpointConfig endpointinventory.Config `json:"endpoint_config"`
-		Plugins        []string                 `json:"scalibr_plugins"`
-		ScanRoots      []string                 `json:"scan_roots"`
-		PathsToExtract []string                 `json:"paths_to_extract"`
-		DirsToSkip     []string                 `json:"dirs_to_skip"`
+		ScannerID         string   `json:"scanner_id"`
+		ScannerVersion    string   `json:"scanner_version"`
+		Plugins           []string `json:"scalibr_plugins"`
+		ScanRoots         []string `json:"scan_roots"`
+		PathsToExtract    []string `json:"paths_to_extract"`
+		DirsToSkip        []string `json:"dirs_to_skip"`
+		NetworkOnline     bool     `json:"network_online"`
+		ReadSymlinks      bool     `json:"read_symlinks"`
+		MaxFileSize       int      `json:"max_file_size"`
+		MaxInodes         int      `json:"max_inodes"`
+		Sources           []string `json:"sources"`
+		DpkgStatusPath    string   `json:"dpkg_status_path"`
+		APKInstalledPath  string   `json:"apk_installed_path"`
+		RPMDatabasePaths  []string `json:"rpm_database_paths"`
+		ScanTimeout       string   `json:"scan_timeout"`
+		CollectPaths      bool     `json:"collect_paths"`
+		CollectFileHashes bool     `json:"collect_file_hashes"`
+		MaxPackages       int      `json:"max_packages"`
+		MaxOutputBytes    int64    `json:"max_output_bytes"`
 	}{
-		EndpointConfig: cfg.Config,
-		Plugins:        append([]string(nil), cfg.ScaLibrPlugins...),
-		ScanRoots:      append([]string(nil), cfg.ScanRoots...),
-		PathsToExtract: append([]string(nil), cfg.PathsToExtract...),
-		DirsToSkip:     append([]string(nil), cfg.DirsToSkip...),
+		ScannerID:         cfg.ScannerID,
+		ScannerVersion:    cfg.ScannerVersion,
+		Plugins:           append([]string(nil), cfg.ScaLibrPlugins...),
+		ScanRoots:         append([]string(nil), cfg.ScanRoots...),
+		PathsToExtract:    append([]string(nil), cfg.PathsToExtract...),
+		DirsToSkip:        append([]string(nil), cfg.DirsToSkip...),
+		NetworkOnline:     cfg.NetworkOnline,
+		ReadSymlinks:      cfg.ReadSymlinks,
+		MaxFileSize:       cfg.MaxFileSize,
+		MaxInodes:         cfg.MaxInodes,
+		Sources:           append([]string(nil), cfg.Sources...),
+		DpkgStatusPath:    cfg.DpkgStatusPath,
+		APKInstalledPath:  cfg.APKInstalledPath,
+		RPMDatabasePaths:  append([]string(nil), cfg.RPMDatabasePaths...),
+		ScanTimeout:       cfg.ScanTimeout,
+		CollectPaths:      cfg.CollectPaths,
+		CollectFileHashes: cfg.CollectFileHashes,
+		MaxPackages:       cfg.MaxPackages,
+		MaxOutputBytes:    cfg.MaxOutputBytes,
 	})
 	if err != nil {
 		return ""
@@ -956,7 +1127,7 @@ func cloneStrings(values []string) []string {
 }
 
 func IsScanFailed(payload *endpointinventory.ScanPayload) bool {
-	return payload != nil && payload.State == "scan_failed"
+	return payload != nil && (payload.State == scanStateFailed || payload.State == scanStatePartial)
 }
 
 func ScanFailedError() error {

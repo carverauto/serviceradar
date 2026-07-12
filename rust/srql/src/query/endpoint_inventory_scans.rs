@@ -34,7 +34,7 @@ type EndpointInventoryScansQuery<'a> = BoxedSelectStatement<
     Pg,
 >;
 
-const STALE_THRESHOLD_SQL: &str = "NOW() - INTERVAL '24 hours'";
+const STALE_THRESHOLD_SQL: &str = "NOW() - INTERVAL '26 hours'";
 
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
     ensure_entity(plan)?;

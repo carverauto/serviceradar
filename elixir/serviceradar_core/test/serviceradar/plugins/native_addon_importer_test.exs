@@ -15,6 +15,11 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterTest do
 
   defp sign(priv, data), do: :crypto.sign(:eddsa, :none, data, [priv, :ed25519])
 
+  defp signature_digest(signature) do
+    "sha256:" <>
+      (:sha256 |> :crypto.hash(signature <> "\n") |> Base.encode16(case: :lower))
+  end
+
   describe "verify_artifact_signature/3" do
     test "accepts a valid ed25519 signature (hex and base64) over the bytes" do
       {pub, priv} = keypair()
@@ -70,13 +75,15 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterTest do
       artifacts =
         for arch <- ["amd64", "arm64"] do
           tarball = "tarball-#{arch}"
+          signature = priv |> sign(tarball) |> Base.encode16(case: :lower)
 
           %{
             os: "linux",
             arch: arch,
             tarball: tarball,
             sha256: :sha256 |> :crypto.hash(tarball) |> Base.encode16(case: :lower),
-            signature: priv |> sign(tarball) |> Base.encode16(case: :lower)
+            signature: signature,
+            signature_digest: signature_digest(signature)
           }
         end
 
@@ -91,6 +98,29 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterTest do
 
       assert get_in(map, ["linux/amd64", "signature"]) ==
                Enum.find(artifacts, &(&1.arch == "amd64")).signature
+
+      assert get_in(map, ["linux/amd64", "signature_digest"]) ==
+               Enum.find(artifacts, &(&1.arch == "amd64")).signature_digest
+    end
+
+    test "rejects a signature whose declared layer digest does not match its canonical bytes" do
+      {pub, priv} = keypair()
+      tarball = "real"
+      signature = priv |> sign(tarball) |> Base.encode16(case: :lower)
+
+      artifact = %{
+        os: "linux",
+        arch: "amd64",
+        tarball: tarball,
+        sha256: :sha256 |> :crypto.hash(tarball) |> Base.encode16(case: :lower),
+        signature: signature,
+        signature_digest: "sha256:" <> String.duplicate("0", 64)
+      }
+
+      mirror = fn _os, _arch, _bytes -> flunk("must not mirror mismatched signature metadata") end
+
+      assert {:error, :signature_digest_mismatch} =
+               Importer.verify_and_mirror([artifact], pub, mirror)
     end
 
     test "fails closed on a bad signature and never mirrors it" do
@@ -110,6 +140,81 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterTest do
       mirror = fn _os, _arch, _bytes -> flunk("must not mirror an unverified artifact") end
       assert {:error, :invalid_signature} = Importer.verify_and_mirror(artifacts, pub, mirror)
     end
+
+    test "rejects duplicate normalized platforms before mirroring" do
+      {pub, priv} = keypair()
+      tarball = "duplicate-platform"
+      signature = priv |> sign(tarball) |> Base.encode16(case: :lower)
+
+      artifact = %{
+        os: "linux",
+        arch: "amd64",
+        tarball: tarball,
+        sha256: :sha256 |> :crypto.hash(tarball) |> Base.encode16(case: :lower),
+        signature: signature,
+        signature_digest: signature_digest(signature)
+      }
+
+      duplicate = %{artifact | os: " Linux ", arch: "AMD64"}
+
+      mirror = fn _os, _arch, _bytes ->
+        flunk("duplicate platforms must fail before mirroring")
+      end
+
+      assert {:error, {:duplicate_artifact_platform, "linux/amd64"}} =
+               Importer.verify_and_mirror([artifact, duplicate], pub, mirror)
+    end
+
+    test "normalizes platform names before mirroring and persistence" do
+      {pub, priv} = keypair()
+      tarball = "canonical-platform"
+      signature = priv |> sign(tarball) |> Base.encode16(case: :lower)
+
+      artifact = %{
+        os: " Linux ",
+        arch: "AMD64",
+        tarball: tarball,
+        sha256: :sha256 |> :crypto.hash(tarball) |> Base.encode16(case: :lower),
+        signature: signature,
+        signature_digest: signature_digest(signature)
+      }
+
+      parent = self()
+
+      mirror = fn os, arch, _bytes ->
+        send(parent, {:mirrored_platform, os, arch})
+        {:ok, "addons/netprobe/#{os}/#{arch}/obj"}
+      end
+
+      assert {:ok, map} = Importer.verify_and_mirror([artifact], pub, mirror)
+      assert_receive {:mirrored_platform, "linux", "amd64"}
+
+      assert %{
+               "linux/amd64" => %{
+                 "object_key" => "addons/netprobe/linux/amd64/obj"
+               }
+             } = map
+
+      refute Map.has_key?(map, " Linux /AMD64")
+    end
+  end
+
+  test "rejects a bundle manifest identity that differs from the selected index entry" do
+    {pub, _priv} = keypair()
+    entry = %{"addon_id" => "netprobe", "version" => "0.1.0"}
+    mismatched_manifest = Map.put(manifest(), "id", "different-addon")
+
+    assert {:error, {:native_addon_identity_mismatch, mismatch}} =
+             Importer.import_entry(mismatched_manifest, entry, [],
+               public_key: pub,
+               mirror: fn _os, _arch, _bytes ->
+                 flunk("identity mismatch must fail before mirroring")
+               end,
+               actor: %{}
+             )
+
+    assert mismatch.entry_addon_id == "netprobe"
+    assert mismatch.manifest_addon_id == "different-addon"
   end
 
   describe "package_attrs/4" do
@@ -157,6 +262,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterTest do
     test "maps the manifest + index entry into create attrs (enum atoms, source refs)" do
       entry = %{
         "addon_id" => "netprobe",
+        "version" => "0.1.0",
         "oci_ref" => "registry.carverauto.dev/serviceradar/serviceradar-addon-netprobe:sha-abc",
         "oci_digest" => "sha256:deadbeef"
       }
@@ -198,6 +304,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterTest do
       assert attrs.source_release_tag == "sha-abc"
       assert attrs.source_type == :first_party
       assert attrs.verification_status == "verified"
+      assert is_nil(attrs.verification_error)
     end
 
     test "defaults resources to an empty map when the manifest omits it" do

@@ -176,7 +176,7 @@ fn endpoint_inventory_scans_example_freshness_and_hash() {
         lower.contains("\"endpoint_inventory_scans\".\"device_uid\" =")
             && lower.contains("\"endpoint_inventory_scans\".\"current\" =")
             && lower.contains("\"endpoint_inventory_scans\".\"package_set_hash\" =")
-            && lower.contains("\"endpoint_inventory_scans\".\"last_successful_scan_at\" > now() - interval '24 hours'"),
+            && lower.contains("\"endpoint_inventory_scans\".\"last_successful_scan_at\" > now() - interval '26 hours'"),
         "expected device/current/hash/freshness filters in SQL, got: {sql}"
     );
     assert!(

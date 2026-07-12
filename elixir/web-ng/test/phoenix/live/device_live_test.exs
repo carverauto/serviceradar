@@ -2294,7 +2294,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   } do
     unique = System.unique_integer([:positive])
     now = DateTime.truncate(DateTime.utc_now(), :second)
-    stale_at = DateTime.add(now, -2 * 86_400, :second)
+    grace_window_at = DateTime.add(now, -25 * 60 * 60, :second)
+    stale_at = DateTime.add(now, -27 * 60 * 60, :second)
 
     scenarios = [
       %{
@@ -2359,6 +2360,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         empty: "The latest endpoint inventory scan is partial and produced no current package rows."
       },
       %{
+        suffix: "grace-window",
+        scan: %{
+          state: "scanned",
+          coverage_state: "complete",
+          package_count: 0,
+          last_scan_at: grace_window_at,
+          last_successful_scan_at: grace_window_at,
+          source_summaries: [%{"source" => "dpkg", "state" => "complete", "package_count" => 0}]
+        },
+        title: "Scan completed with no package rows",
+        detail: "reported complete coverage",
+        empty: "The latest endpoint inventory scan completed, but it did not report current package rows."
+      },
+      %{
         suffix: "stale",
         scan: %{
           state: "scanned",
@@ -2369,7 +2384,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
           source_summaries: [%{"source" => "dpkg", "state" => "complete", "package_count" => 0}]
         },
         title: "Latest successful scan is stale",
-        detail: "older than 24 hours",
+        detail: "older than 26 hours",
         empty: "No current package rows are available and the latest successful scan is stale."
       },
       %{

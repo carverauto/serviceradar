@@ -38,6 +38,9 @@ go_library(
 go_test(
     name = "datasvc_test",
     srcs = [
+        "config_test.go",
+        "nats_account_service_test.go",
+        "nats_reconnect_test.go",
         "rbac_test.go",
         "server_test.go",
         "watch_test.go",
@@ -45,8 +48,11 @@ go_test(
     embed = [":datasvc"],
     deps = [
         "//go/pkg/models",
+        "//go/pkg/nats/accounts",
         "//proto",
+        "@com_github_nats_io_nats_go//:nats_go",
         "@com_github_nats_io_nats_go//jetstream",
+        "@com_github_nats_io_nats_server_v2//server",
         "@com_github_stretchr_testify//assert",
         "@com_github_stretchr_testify//require",
         "@org_golang_google_grpc//:grpc",

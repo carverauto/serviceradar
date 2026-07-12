@@ -41,22 +41,24 @@ const (
 	defaultRPMPath             = PackageSourceRPM
 	defaultCadence             = "12h"
 	defaultMaxPackages         = 100000
-	defaultMaxOutputBytes      = 32 * 1024 * 1024
+	defaultMaxOutputBytes      = MaxSpoolPayloadBytes
 	defaultFullScanInterval    = 24
 	defaultUploadJitter        = "0s"
 	defaultUploadRetryInitial  = "5m"
 	defaultUploadRetryMax      = "1h"
 	defaultUploadRetryAttempts = 5
-	defaultCacheStale          = "24h"
+	defaultCacheStale          = "26h"
 )
 
 var (
-	ErrAgentIDRequired      = errors.New("agent_id is required")
-	ErrInvalidMaxPackages   = errors.New("invalid max_packages")
-	ErrInvalidMaxOutputSize = errors.New("invalid max_output_bytes")
-	ErrInvalidDuration      = errors.New("invalid duration")
-	ErrInvalidRetryAttempts = errors.New("invalid upload_retry_max_attempts")
-	ErrUnsupportedSource    = errors.New("unsupported source")
+	ErrAgentIDRequired         = errors.New("agent_id is required")
+	ErrInvalidMaxPackages      = errors.New("invalid max_packages")
+	ErrInvalidMaxOutputSize    = errors.New("invalid max_output_bytes")
+	ErrInvalidDuration         = errors.New("invalid duration")
+	ErrInvalidRetryRange       = errors.New("invalid upload_retry_max: must be greater than or equal to upload_retry_initial")
+	ErrInvalidRetryAttempts    = errors.New("invalid upload_retry_max_attempts")
+	ErrInvalidFullScanInterval = errors.New("invalid force_full_scan_interval")
+	ErrUnsupportedSource       = errors.New("unsupported source")
 )
 
 func DefaultConfig() Config {
@@ -158,7 +160,7 @@ func applyDefaults(cfg *Config) {
 	if cfg.Cadence == "" {
 		cfg.Cadence = defaultCadence
 	}
-	if cfg.ForceFullScanInterval <= 0 {
+	if cfg.ForceFullScanInterval == 0 {
 		cfg.ForceFullScanInterval = defaultFullScanInterval
 	}
 	if cfg.UploadJitter == "" {
@@ -170,16 +172,16 @@ func applyDefaults(cfg *Config) {
 	if cfg.UploadRetryMax == "" {
 		cfg.UploadRetryMax = defaultUploadRetryMax
 	}
-	if cfg.UploadRetryMaxAttempts <= 0 {
+	if cfg.UploadRetryMaxAttempts == 0 {
 		cfg.UploadRetryMaxAttempts = defaultUploadRetryAttempts
 	}
 	if cfg.CacheStaleThreshold == "" {
 		cfg.CacheStaleThreshold = defaultCacheStale
 	}
-	if cfg.MaxPackages <= 0 {
+	if cfg.MaxPackages == 0 {
 		cfg.MaxPackages = defaultMaxPackages
 	}
-	if cfg.MaxOutputBytes <= 0 {
+	if cfg.MaxOutputBytes == 0 {
 		cfg.MaxOutputBytes = defaultMaxOutputBytes
 	}
 }
@@ -284,8 +286,10 @@ func validateConfig(cfg Config) error {
 	if strings.TrimSpace(cfg.AgentID) == "" {
 		return ErrAgentIDRequired
 	}
-	if _, err := time.ParseDuration(cfg.ScanTimeout); err != nil {
+	if timeout, err := time.ParseDuration(cfg.ScanTimeout); err != nil {
 		return fmt.Errorf("invalid scan_timeout: %w", err)
+	} else if timeout <= 0 {
+		return fmt.Errorf("invalid scan_timeout: %w", ErrInvalidDuration)
 	}
 	if cadence, err := time.ParseDuration(cfg.Cadence); err != nil {
 		return fmt.Errorf("invalid cadence: %w", err)
@@ -306,18 +310,25 @@ func validateConfig(cfg Config) error {
 		return fmt.Errorf("invalid upload_retry_max: %w", err)
 	} else if retryMax <= 0 {
 		return fmt.Errorf("invalid upload_retry_max: %w", ErrInvalidDuration)
+	} else if retryInitial, initialErr := time.ParseDuration(cfg.UploadRetryInitial); initialErr == nil && retryMax < retryInitial {
+		return ErrInvalidRetryRange
 	}
 	if cfg.UploadRetryMaxAttempts <= 0 {
 		return fmt.Errorf("%w: %d", ErrInvalidRetryAttempts, cfg.UploadRetryMaxAttempts)
 	}
+	if cfg.ForceFullScanInterval <= 0 {
+		return fmt.Errorf("%w: %d", ErrInvalidFullScanInterval, cfg.ForceFullScanInterval)
+	}
 	if cfg.MaxPackages <= 0 {
 		return fmt.Errorf("%w: %d", ErrInvalidMaxPackages, cfg.MaxPackages)
 	}
-	if cfg.MaxOutputBytes <= 0 {
+	if cfg.MaxOutputBytes <= 0 || cfg.MaxOutputBytes > MaxSpoolPayloadBytes {
 		return fmt.Errorf("%w: %d", ErrInvalidMaxOutputSize, cfg.MaxOutputBytes)
 	}
-	if _, err := time.ParseDuration(cfg.CacheStaleThreshold); err != nil {
+	if stale, err := time.ParseDuration(cfg.CacheStaleThreshold); err != nil {
 		return fmt.Errorf("invalid cache_stale_threshold: %w", err)
+	} else if stale <= 0 {
+		return fmt.Errorf("invalid cache_stale_threshold: %w", ErrInvalidDuration)
 	}
 	for _, source := range cfg.Sources {
 		switch source {
@@ -328,6 +339,12 @@ func validateConfig(cfg Config) error {
 	}
 
 	return nil
+}
+
+// ValidateConfig validates an effective endpoint-inventory configuration.
+// Callers embedding Config should apply their defaults before invoking it.
+func ValidateConfig(cfg Config) error {
+	return validateConfig(cfg)
 }
 
 func ScanTimeout(cfg Config) time.Duration {

@@ -8,8 +8,28 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.AddonProfile
+  alias ServiceRadar.Plugins.NativeAddonArtifactMirror
 
   require Ash.Query
+
+  defmodule FakeNativeAddonCatalogClient do
+    @moduledoc false
+
+    def get(url, _opts) do
+      fixture = Application.fetch_env!(:serviceradar_web_ng, :native_addon_live_catalog_fixture)
+
+      cond do
+        String.contains?(url, "/releases?per_page=") ->
+          {:ok, %Req.Response{status: 200, body: [fixture.release]}}
+
+        String.ends_with?(url, "/serviceradar-native-addon-index.json") ->
+          {:ok, %Req.Response{status: 200, body: Jason.encode!(fixture.index)}}
+
+        true ->
+          {:ok, %Req.Response{status: 404, body: ""}}
+      end
+    end
+  end
 
   setup %{conn: conn} do
     user = admin_user_fixture()
@@ -83,6 +103,121 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
 
     assert html =~ "0.1.0"
     refute html =~ "0.2.0"
+  end
+
+  test "catalog matches an exact OCI package whose release provenance is nil", %{
+    conn: conn,
+    actor: actor
+  } do
+    unique = System.unique_integer([:positive])
+    addon_id = "oci-catalog-addon-#{unique}"
+    version = "1.0.0"
+    release_tag = "v#{20_000 + rem(unique, 100_000)}.0.0"
+    oci_ref = "registry.carverauto.dev/serviceradar/#{addon_id}:#{version}"
+    oci_digest = "sha256:" <> String.duplicate("a", 64)
+    tarball_sha256 = String.duplicate("b", 64)
+
+    package =
+      create_addon_package!(actor, %{
+        addon_id: addon_id,
+        name: "OCI Catalog Add-on #{unique}",
+        version: version,
+        source_oci_ref: oci_ref,
+        source_oci_digest: oci_digest,
+        source_release_tag: nil,
+        artifacts: %{
+          "linux/amd64" => %{
+            "object_key" =>
+              NativeAddonArtifactMirror.object_key(
+                addon_id,
+                version,
+                "linux",
+                "amd64",
+                tarball_sha256
+              ),
+            "sha256" => tarball_sha256,
+            "signature" => "catalog-signature",
+            "signature_digest" => "sha256:" <> String.duplicate("c", 64)
+          }
+        }
+      })
+
+    release = %{
+      "tag_name" => release_tag,
+      "name" => "ServiceRadar #{release_tag}",
+      "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/#{release_tag}",
+      "assets" => [
+        %{
+          "name" => "serviceradar-native-addon-index.json",
+          "browser_download_url" =>
+            "https://code.carverauto.dev/carverauto/serviceradar/releases/download/#{release_tag}/serviceradar-native-addon-index.json"
+        }
+      ]
+    }
+
+    index = %{
+      "schema_version" => 1,
+      "addons" => [
+        %{
+          "addon_id" => addon_id,
+          "name" => package.name,
+          "version" => version,
+          "oci_ref" => oci_ref,
+          "oci_digest" => oci_digest,
+          "bundle_digest" => "sha256:" <> String.duplicate("d", 64),
+          "artifacts" => [
+            %{
+              "os" => "linux",
+              "arch" => "amd64",
+              "tarball_digest" => "sha256:#{tarball_sha256}",
+              "signature_digest" => "sha256:" <> String.duplicate("c", 64),
+              "tarball_sha256" => tarball_sha256
+            }
+          ]
+        }
+      ]
+    }
+
+    original_client =
+      Application.get_env(:serviceradar_web_ng, :first_party_plugin_import_http_client)
+
+    original_fixture =
+      Application.get_env(:serviceradar_web_ng, :native_addon_live_catalog_fixture)
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :first_party_plugin_import_http_client,
+      FakeNativeAddonCatalogClient
+    )
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :native_addon_live_catalog_fixture,
+      %{release: release, index: index}
+    )
+
+    on_exit(fn ->
+      restore_env(:first_party_plugin_import_http_client, original_client)
+      restore_env(:native_addon_live_catalog_fixture, original_fixture)
+    end)
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/agents/addons")
+    html = render_click(lv, "sync_first_party_catalog", %{})
+
+    assert html =~ release_tag
+    assert html =~ package.id
+    assert html =~ "staged"
+    refute html =~ "not imported"
+
+    assert has_element?(
+             lv,
+             ~s(button[phx-click="view_package"][phx-value-id="#{package.id}"])
+           )
+
+    refute has_element?(
+             lv,
+             ~s(button[phx-click="import_first_party_addon"][phx-value-addon_id="#{addon_id}"])
+           )
   end
 
   test "approves a staged add-on package with narrowed capabilities", %{conn: conn, actor: actor} do
@@ -537,4 +672,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
     |> Ash.Changeset.force_change_attribute(:status, :connected)
     |> Ash.update!()
   end
+
+  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
+  defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
 end

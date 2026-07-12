@@ -51,8 +51,11 @@ func unchangedScanPayload(scannedAt time.Time) *ScanPayload {
 		UploadReason:         UploadReasonUnchanged,
 		DurationMillis:       42,
 		Metadata: map[string]any{
-			"reason":           "full_scan_hash_unchanged",
-			"scans_since_full": 74,
+			"reason":                 "cadence_not_due",
+			"scans_since_full":       74,
+			"scanner_activity":       map[string]any{"scan_id": "nested-volatile"},
+			"scanner_findings":       []any{map[string]any{"scan_id": "nested-volatile"}},
+			"scanner_findings_count": 1,
 		},
 	}
 }
@@ -112,11 +115,25 @@ func TestStabilizeUnchangedScanPayloadIsDeterministic(t *testing.T) {
 	if _, ok := first.Metadata["scans_since_full"]; ok {
 		t.Fatal("scans_since_full must be dropped")
 	}
+	for _, key := range []string{"scanner_activity", "scanner_findings", "scanner_findings_count"} {
+		if _, ok := first.Metadata[key]; ok {
+			t.Fatalf("%s must be dropped from cached wakeups", key)
+		}
+	}
 	if first.PackageSetHash != "pkg-hash" || first.ArtifactHash != "art-hash" {
 		t.Fatal("identity-bearing hashes must be preserved")
 	}
 	if first.PackageCount != 315 {
 		t.Fatalf("package_count must be preserved, got %d", first.PackageCount)
+	}
+}
+
+func TestShouldStabilizeUnchangedScanPreservesFullScanFreshness(t *testing.T) {
+	payload := unchangedScanPayload(time.Unix(1_000, 0).UTC())
+	payload.Metadata[MetadataReasonKey] = MetadataReasonFullScanHashUnchanged
+
+	if ShouldStabilizeUnchangedScan(payload, uploadedUnchangedManifest()) {
+		t.Fatal("completed full scan must retain its timestamp for one freshness update")
 	}
 }
 

@@ -83,7 +83,7 @@
       "staleThreshold": {
         "type": "string",
         "title": "Stale threshold",
-        "default": "24h"
+        "default": "26h"
       }
     }
   },

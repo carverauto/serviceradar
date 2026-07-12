@@ -185,6 +185,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     repo_url = socket.assigns.first_party_repo_url
     release_tag = socket.assigns.first_party_release_tag
     limit = first_party_sync_limit()
+    scope = socket.assigns.current_scope
 
     {:noreply,
      socket
@@ -193,7 +194,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
        AddonPackages.sync_first_party_addons(
          repo_url: repo_url,
          release_tag: release_tag,
-         limit: limit
+         limit: limit,
+         scope: scope
        )
      end)}
   end
@@ -203,30 +205,21 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   end
 
   def handle_event("import_first_party_addon", params, socket) do
-    attrs = %{
-      repo_url: socket.assigns.first_party_repo_url,
-      release_tag: params["release_tag"],
-      addon_id: params["addon_id"],
-      version: params["version"]
-    }
+    addon =
+      Enum.find(socket.assigns.first_party_catalog_all, fn addon ->
+        addon.release_tag == params["release_tag"] and addon.addon_id == params["addon_id"] and
+          addon.version == params["version"]
+      end)
 
-    if RetiredNativeAddons.retired?(attrs.addon_id) do
-      {:noreply, put_flash(socket, :error, "This add-on is retired: #{RetiredNativeAddons.reason(attrs.addon_id)}")}
-    else
-      case NativeAddonImporter.import(attrs) do
-        {:ok, package} ->
-          {:noreply,
-           socket
-           |> put_flash(:info, "Imported first-party add-on #{package.name} #{package.version}")
-           |> assign(:packages, list_addon_packages(socket.assigns.current_scope))
-           |> load_first_party_catalog()}
+    case addon do
+      nil ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "First-party add-on is no longer present in the selected release")
+         |> load_first_party_catalog()}
 
-        {:error, reason} ->
-          {:noreply,
-           socket
-           |> put_flash(:error, "First-party add-on import failed: #{format_error(reason)}")
-           |> load_first_party_catalog()}
-      end
+      addon ->
+        import_catalog_addon(socket, addon)
     end
   end
 
@@ -1259,6 +1252,34 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     """
   end
 
+  defp import_catalog_addon(socket, addon) do
+    if RetiredNativeAddons.retired?(addon.addon_id) do
+      {:noreply, put_flash(socket, :error, "This add-on is retired: #{RetiredNativeAddons.reason(addon.addon_id)}")}
+    else
+      case AddonPackages.import_first_party_addon(addon, scope: socket.assigns.current_scope) do
+        {:ok, package, :imported} ->
+          {:noreply,
+           socket
+           |> put_flash(:info, "Imported first-party add-on #{package.name} #{package.version}")
+           |> assign(:packages, list_addon_packages(socket.assigns.current_scope))
+           |> load_first_party_catalog()}
+
+        {:ok, package, :skipped} ->
+          {:noreply,
+           socket
+           |> put_flash(:info, "First-party add-on #{package.name} #{package.version} is already current")
+           |> assign(:packages, list_addon_packages(socket.assigns.current_scope))
+           |> load_first_party_catalog()}
+
+        {:error, reason} ->
+          {:noreply,
+           socket
+           |> put_flash(:error, "First-party add-on import failed: #{format_error(reason)}")
+           |> load_first_party_catalog()}
+      end
+    end
+  end
+
   defp list_addon_packages(scope), do: AddonPackages.list(%{limit: 500}, scope: scope)
 
   defp load_first_party_catalog(socket) do
@@ -1418,11 +1439,48 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     Enum.sort_by(first_party_rows ++ package_rows, &catalog_row_sort_key/1)
   end
 
-  defp addon_catalog_key(addon), do: {addon.addon_id, addon.version, addon.release_tag}
+  # Release tags are discovery provenance, not package identity. The same signed OCI
+  # artifact may be listed by multiple ServiceRadar releases, so catalog matching
+  # must use the immutable identity that NativeAddonSync uses for reuse decisions.
+  defp addon_catalog_key(addon) do
+    catalog_identity(addon.addon_id, addon.version, addon.oci_ref, addon.oci_digest)
+  end
 
   defp package_catalog_key(package) do
-    {package.addon_id, package.version, package.source_release_tag}
+    catalog_identity(
+      package.addon_id,
+      package.version,
+      package.source_oci_ref,
+      package.source_oci_digest
+    )
   end
+
+  defp catalog_identity(addon_id, version, oci_ref, oci_digest) do
+    {
+      normalize_catalog_value(addon_id),
+      normalize_catalog_value(version),
+      normalize_catalog_value(oci_ref),
+      normalize_catalog_digest(oci_digest)
+    }
+  end
+
+  defp normalize_catalog_digest(value) do
+    case normalize_catalog_value(value) do
+      value when is_binary(value) -> String.downcase(value)
+      nil -> nil
+    end
+  end
+
+  defp normalize_catalog_value(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      value -> value
+    end
+  end
+
+  defp normalize_catalog_value(value) when is_atom(value), do: value |> Atom.to_string() |> normalize_catalog_value()
+
+  defp normalize_catalog_value(_value), do: nil
 
   defp package_matches_release?(_package, nil), do: false
   defp package_matches_release?(package, release_tag), do: package.source_release_tag == release_tag

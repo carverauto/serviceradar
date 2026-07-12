@@ -25,12 +25,12 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   @hash_algorithm "sha256-v1"
   @upload_reason_changed "changed"
   @upload_reason_unchanged "unchanged"
+  @metadata_reason_full_scan_hash_unchanged "full_scan_hash_unchanged"
   @metadata_reason_upload_already_acknowledged "upload_already_acknowledged"
   @state_not_scanned "not_scanned"
   @coverage_state_unchanged "unchanged"
   @default_reconcile_floor_scan_count 24
   @default_reconcile_floor_max_age_days 7
-  @successful_states ["scanned", "complete", "success", "unchanged"]
 
   @spec ingest_report(map(), keyword()) :: {:ok, map()} | {:error, term()}
   def ingest_report(payload, opts \\ [])
@@ -114,26 +114,49 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     if hash_noop_candidate?(context) do
       current = current_scan_snapshot(context.agent_id)
 
-      if hash_matches_current?(context, current) do
-        current_row_count = current_package_row_count(context.agent_id)
-        freshness_context = apply_hash_freshness(context, current, current_row_count)
-
-        if hash_freshness_short_circuit?(freshness_context, current) do
-          {:ok, emit_hash_noop_result(freshness_context, current)}
-        else
+      cond do
+        is_nil(current) ->
           :continue
-        end
-      else
-        :continue
+
+        not package_hash_matches_current?(context, current) ->
+          {:ok, emit_hash_noop_result(force_reconcile(context), current)}
+
+        not artifact_hash_matches_current?(context, current) ->
+          {:ok, emit_hash_noop_result(force_reconcile(context), current)}
+
+        true ->
+          current_row_count = current_package_row_count(context.agent_id)
+          freshness_context = apply_hash_freshness(context, current, current_row_count)
+
+          cond do
+            full_scan_hash_unchanged?(freshness_context, current) ->
+              touch_hash_noop_freshness(freshness_context, current)
+
+            freshness_context.reconcile_floor_due? ->
+              touch_hash_noop_freshness(freshness_context, current)
+
+            hash_freshness_short_circuit?(freshness_context, current) ->
+              {:ok, emit_hash_noop_result(freshness_context, current)}
+
+            true ->
+              {:ok, emit_hash_noop_result(force_reconcile(freshness_context), current)}
+          end
       end
     else
       :continue
     end
   end
 
-  defp hash_matches_current?(context, current) do
+  defp package_hash_matches_current?(context, current) do
     current_package_set_hash(current) == reported_package_set_hash(context)
   end
+
+  defp artifact_hash_matches_current?(context, current) do
+    context.artifact_hash not in [nil, ""] and
+      context.artifact_hash == Map.get(current || %{}, :artifact_hash)
+  end
+
+  defp force_reconcile(context), do: %{context | reconcile_floor_due?: true}
 
   defp hash_noop_candidate?(context) do
     successful_scan?(context) and context.upload_reason == @upload_reason_unchanged and
@@ -153,25 +176,131 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     |> tap(&EndpointInventoryTelemetry.emit_ingest_result/1)
   end
 
+  defp touch_hash_noop_freshness(context, current) do
+    invoke_before_hash_freshness_touch(context)
+
+    case Repo.transaction(fn ->
+           {updated_count, _} = update_current_scan_freshness(context, current)
+           insert_scan_activity_event(current.id, context)
+
+           latest = current_scan_snapshot(context.agent_id)
+           result_context = freshness_result_context(context, latest, updated_count)
+           hash_noop_result(latest, result_context)
+         end) do
+      {:ok, result} ->
+        {:ok, tap(result, &EndpointInventoryTelemetry.emit_ingest_result/1)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp invoke_before_hash_freshness_touch(%{before_hash_freshness_touch: hook} = context)
+       when is_function(hook, 1),
+       do: hook.(context)
+
+  defp invoke_before_hash_freshness_touch(_context), do: :ok
+
+  defp update_current_scan_freshness(context, current) do
+    metadata = freshness_observation_metadata(context)
+    scan_count_floor = context.reconcile_floor_scan_count
+
+    Repo.update_all(
+      from(s in "endpoint_inventory_scans",
+        where:
+          s.id == ^current.id and s.current == true and
+            s.package_set_hash == ^context.package_set_hash and
+            s.artifact_hash == ^context.artifact_hash and
+            (is_nil(s.last_scan_at) or s.last_scan_at < ^context.last_scan_at),
+        update: [
+          set: [
+            last_scan_at: ^context.last_scan_at,
+            last_successful_scan_at:
+              fragment(
+                "GREATEST(?, ?)",
+                s.last_successful_scan_at,
+                ^context.last_successful_scan_at
+              ),
+            ingested_at: ^context.ingested_at,
+            reconcile_floor_due:
+              fragment(
+                "? OR ? OR (? > 0 AND ? + 1 >= ?)",
+                s.reconcile_floor_due,
+                ^context.reconcile_floor_due?,
+                ^scan_count_floor,
+                s.unchanged_scan_count,
+                ^scan_count_floor
+              ),
+            metadata: fragment("COALESCE(?, '{}'::jsonb) || ?::jsonb", s.metadata, ^metadata),
+            updated_at: ^context.now
+          ],
+          inc: [unchanged_scan_count: 1]
+        ]
+      ),
+      [],
+      prefix: "platform"
+    )
+  end
+
+  defp freshness_result_context(context, _latest, 1), do: context
+
+  defp freshness_result_context(context, latest, 0) do
+    if package_hash_matches_current?(context, latest) and
+         artifact_hash_matches_current?(context, latest) do
+      %{context | reconcile_floor_due?: false}
+    else
+      force_reconcile(context)
+    end
+  end
+
+  defp freshness_observation_metadata(context) do
+    %{
+      "latest_freshness_observation" =>
+        Payload.compact_map(%{
+          "scan_id" => context.scan_id,
+          "last_scan_at" => Payload.iso8601(context.last_scan_at),
+          "last_successful_scan_at" => Payload.iso8601(context.last_successful_scan_at),
+          "collector_version" => context.collector_version
+        })
+    }
+  end
+
   defp hash_noop_result(current, context) do
     %{
       agent_id: context.agent_id,
       device_uid: Map.get(current || %{}, :device_uid) || context.device_uid,
       scan_id: Map.get(current || %{}, :scan_id) || context.scan_id,
       scan_ref: Map.get(current || %{}, :id),
-      package_count: context.package_count,
+      package_count: Map.get(current || %{}, :package_count, context.package_count),
       artifact_uploaded?: false,
       package_rows_replaced?: false,
       scan_history_recorded?: false,
       package_event_count: 0,
       package_set_hash_mismatch?: context.package_set_hash_mismatch?,
-      reconcile_floor?: false,
+      reconcile_floor?:
+        context.reconcile_floor_due? or Map.get(current || %{}, :reconcile_floor_due, false),
       upload_reason: @upload_reason_unchanged,
-      directives: %{},
+      directives:
+        scan_ack_directives(%{
+          reconcile_floor_due?:
+            context.reconcile_floor_due? or
+              Map.get(current || %{}, :reconcile_floor_due, false)
+        }),
       current?: Map.get(current || %{}, :current, false),
       package_change_signal_publish_count: 0,
       short_circuited?: true
     }
+  end
+
+  defp full_scan_hash_unchanged?(context, current) do
+    reason =
+      context.payload
+      |> Payload.map_value(:metadata)
+      |> Payload.string_value(:reason)
+
+    reason == @metadata_reason_full_scan_hash_unchanged and
+      context.artifact_hash not in [nil, ""] and
+      context.artifact_hash == Map.get(current || %{}, :artifact_hash)
   end
 
   defp maybe_short_circuit_noop(payload, agent_id, scan_id) do
@@ -319,6 +448,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
        collector_version: Payload.string_value(payload, :collector_version),
        state: EndpointInventoryPackageSet.scan_state(payload),
        coverage_state: EndpointInventoryPackageSet.coverage_state(payload, packages, diagnostics),
+       reported_coverage_state: Payload.string_value(payload, :coverage_state),
+       authoritative_anchor?: authoritative_anchor?(payload, packages),
        package_count: Payload.integer_value(payload, :package_count, length(packages)),
        enabled_sources: EndpointInventoryPackageSet.enabled_diagnostics(payload, diagnostics),
        manager_counts: EndpointInventoryPackageSet.manager_counts(packages),
@@ -344,6 +475,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
          Keyword.get(opts, :reconcile_floor_scan_count, @default_reconcile_floor_scan_count),
        reconcile_floor_max_age_days:
          Keyword.get(opts, :reconcile_floor_max_age_days, @default_reconcile_floor_max_age_days),
+       before_hash_freshness_touch: Keyword.get(opts, :before_hash_freshness_touch),
        last_scan_at:
          Payload.datetime_value(payload, :last_scan_at) ||
            Payload.datetime_value(payload, :scanned_at) ||
@@ -353,6 +485,11 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
        now: now,
        metadata: Payload.metadata(payload)
      }}
+  end
+
+  defp authoritative_anchor?(payload, _packages) do
+    map_size(Payload.map_value(payload, :sbom)) > 0 or
+      Map.has_key?(payload, :packages) or Map.has_key?(payload, "packages")
   end
 
   # Applies a change-only package delta to the device's current package set when
@@ -772,7 +909,21 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     end
   end
 
-  defp successful_scan?(context), do: context.state in @successful_states
+  defp successful_scan?(%{state: "unchanged", coverage_state: coverage})
+       when coverage in [@coverage_state_unchanged, "complete"], do: true
+
+  defp successful_scan?(%{state: state, reported_coverage_state: "complete"})
+       when state in ["scanned", "complete", "success"], do: true
+
+  defp successful_scan?(%{
+         state: state,
+         reported_coverage_state: nil,
+         coverage_state: "complete",
+         authoritative_anchor?: true
+       })
+       when state in ["scanned", "complete", "success"], do: true
+
+  defp successful_scan?(_context), do: false
 
   defp existing_scan_snapshot(agent_id, scan_id) do
     Repo.one(
@@ -831,11 +982,15 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
           state: s.state,
           coverage_state: s.coverage_state,
           package_set_hash: s.package_set_hash,
+          artifact_hash: s.artifact_hash,
           upload_reason: s.upload_reason,
           server_package_set_hash: s.server_package_set_hash,
+          last_successful_scan_at: s.last_successful_scan_at,
+          last_scan_at: s.last_scan_at,
           last_changed_scan_at: s.last_changed_scan_at,
           unchanged_scan_count: s.unchanged_scan_count,
           reconcile_floor_due: s.reconcile_floor_due,
+          metadata: s.metadata,
           current: s.current
         },
         limit: 1
