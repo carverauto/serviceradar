@@ -4,7 +4,7 @@
 - [x] 1.2 Validate read-only topology and access for the two SSH canaries, Farm PVE nodes, online Tonka PVE nodes, the controlled Windows target, and the in-cluster AWX controller.
 - [x] 1.3 Create non-tracking feature worktrees for ServiceRadar and the public `serviceradar-ansible` repository without modifying shared branches.
 - [x] 1.4 Record the architecture, security boundaries, conflicts, delivery children, rollout gates, and rollback requirements in this program proposal.
-- [ ] 1.5 Review and approve this program-level architecture and sequence. Approval does not authorize product code, live AWX mutation, CA generation/distribution, target configuration, console enablement, or demo rollout without the corresponding conflict-free child approval.
+- [x] 1.5 Review and approve this program-level architecture and sequence. Approval does not authorize product code, live AWX mutation, CA generation/distribution, target configuration, console enablement, or demo rollout without the corresponding conflict-free child approval.
 
 ## 2. Prerequisite OpenSpec reconciliation
 
