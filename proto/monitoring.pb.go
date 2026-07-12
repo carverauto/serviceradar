@@ -1820,6 +1820,7 @@ type GatewayStatusChunk struct {
 	Os                                      string                                          `protobuf:"bytes,16,opt,name=os,proto3" json:"os,omitempty"`                                         // Agent runtime OS at push time
 	Arch                                    string                                          `protobuf:"bytes,17,opt,name=arch,proto3" json:"arch,omitempty"`                                     // Agent runtime architecture at push time
 	EndpointInventoryStandingQuestionCounts []*EndpointInventoryStandingQuestionResultCount `protobuf:"bytes,18,rep,name=endpoint_inventory_standing_question_counts,json=endpointInventoryStandingQuestionCounts,proto3" json:"endpoint_inventory_standing_question_counts,omitempty"`
+	Capabilities                            []string                                        `protobuf:"bytes,19,rep,name=capabilities,proto3" json:"capabilities,omitempty"` // Delivery capabilities asserted for every chunk in this stream
 	unknownFields                           protoimpl.UnknownFields
 	sizeCache                               protoimpl.SizeCache
 }
@@ -1962,6 +1963,13 @@ func (x *GatewayStatusChunk) GetArch() string {
 func (x *GatewayStatusChunk) GetEndpointInventoryStandingQuestionCounts() []*EndpointInventoryStandingQuestionResultCount {
 	if x != nil {
 		return x.EndpointInventoryStandingQuestionCounts
+	}
+	return nil
+}
+
+func (x *GatewayStatusChunk) GetCapabilities() []string {
+	if x != nil {
+		return x.Capabilities
 	}
 	return nil
 }
@@ -7814,7 +7822,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12!\n" +
 	"\fservice_type\x18\x02 \x01(\tR\vserviceType\x12%\n" +
 	"\x0edirective_type\x18\x03 \x01(\tR\rdirectiveType\x12!\n" +
-	"\fpayload_json\x18\x04 \x01(\fR\vpayloadJson\"\x88\x05\n" +
+	"\fpayload_json\x18\x04 \x01(\fR\vpayloadJson\"\xac\x05\n" +
 	"\x12GatewayStatusChunk\x12<\n" +
 	"\bservices\x18\x01 \x03(\v2 .monitoring.GatewayServiceStatusR\bservices\x12\x1d\n" +
 	"\n" +
@@ -7834,7 +7842,8 @@ const file_monitoring_proto_rawDesc = "" +
 	"\bhostname\x18\x0f \x01(\tR\bhostname\x12\x0e\n" +
 	"\x02os\x18\x10 \x01(\tR\x02os\x12\x12\n" +
 	"\x04arch\x18\x11 \x01(\tR\x04arch\x12\x96\x01\n" +
-	"+endpoint_inventory_standing_question_counts\x18\x12 \x03(\v28.monitoring.EndpointInventoryStandingQuestionResultCountR'endpointInventoryStandingQuestionCountsJ\x04\b\v\x10\fJ\x04\b\f\x10\r\"\xd5\x02\n" +
+	"+endpoint_inventory_standing_question_counts\x18\x12 \x03(\v28.monitoring.EndpointInventoryStandingQuestionResultCountR'endpointInventoryStandingQuestionCounts\x12\"\n" +
+	"\fcapabilities\x18\x13 \x03(\tR\fcapabilitiesJ\x04\b\v\x10\fJ\x04\b\f\x10\r\"\xd5\x02\n" +
 	"\x14GatewayServiceStatus\x12!\n" +
 	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x1c\n" +
 	"\tavailable\x18\x02 \x01(\bR\tavailable\x12\x18\n" +

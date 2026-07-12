@@ -41,6 +41,26 @@ defmodule ServiceRadarAgentGateway.StreamStatusLimitsTest do
     end
   end
 
+  test "pins normalized delivery capabilities for the entire stream" do
+    pinned =
+      AgentGatewayServer.pin_stream_capabilities(nil, [
+        " plugin-result-retained:v1 ",
+        "other:v1",
+        "other:v1"
+      ])
+
+    assert pinned == ["other:v1", "plugin-result-retained:v1"]
+
+    assert AgentGatewayServer.pin_stream_capabilities(pinned, [
+             "other:v1",
+             "plugin-result-retained:v1"
+           ]) == pinned
+
+    assert_raise GRPC.RPCError, ~r/capabilities changed mid-stream/, fn ->
+      AgentGatewayServer.pin_stream_capabilities(pinned, ["other:v1"])
+    end
+  end
+
   test "protobuf metric status sources are rejected instead of truncated when oversized" do
     oversized_payload = :binary.copy("x", 15 * 1024 * 1024 + 1)
 

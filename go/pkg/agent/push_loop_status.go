@@ -25,12 +25,23 @@ import (
 	"strings"
 	"time"
 
+	"github.com/carverauto/serviceradar/go/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/go/pkg/endpointinventory"
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
 )
 
-const sysmonMetricTargetBatchMessageBytes = 6 * 1024 * 1024
+const (
+	sysmonMetricTargetBatchMessageBytes = 6 * 1024 * 1024
+	// The gateway synchronously commits each retry-capable plugin result. Keep
+	// streams small and budget ten seconds per result so modest handler latency
+	// cannot repeatedly time out the same large prefix after partial progress.
+	maxPluginResultsPerStream                = 10
+	minPluginResultStreamTimeout             = 30 * time.Second
+	pluginResultStreamTimeoutPerChunk        = 10 * time.Second
+	pluginResultStreamTimeoutGrace           = 10 * time.Second
+	pluginResultRetainedDeliveryCapabilityV1 = "plugin-result-retained:v1"
+)
 
 // pushRegularStatuses sends non-sysmon statuses via PushStatus.
 func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.GatewayServiceStatus, reason statusPushReason) bool {
@@ -272,20 +283,23 @@ func (p *PushLoop) sysmonGatewayStatusFromPayload(
 }
 
 func (p *PushLoop) pushPluginResults(ctx context.Context) bool {
+	p.pluginResultDeliveryMu.Lock()
+	defer p.pluginResultDeliveryMu.Unlock()
+
 	p.server.mu.RLock()
 	pluginManager := p.server.pluginManager
 	agentID := p.server.config.AgentID
 	partition := p.server.config.Partition
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
-	gatewayID := p.gateway.GetGatewayID()
+	gatewayID := gatewayIDFromClient(p.gateway)
 	runtimeMetadata := currentRuntimeMetadata()
 
-	if pluginManager == nil {
-		return false
+	results := p.pendingPluginResults
+	if len(results) == 0 && pluginManager != nil {
+		results = pluginManager.DrainResults(maxPluginResultsPerStream)
+		p.pendingPluginResults = results
 	}
-
-	results := pluginManager.DrainResults(200)
 	if len(results) == 0 {
 		return false
 	}
@@ -317,6 +331,9 @@ func (p *PushLoop) pushPluginResults(ctx context.Context) bool {
 			Hostname:    runtimeMetadata.Hostname,
 			Os:          runtimeMetadata.Os,
 			Arch:        runtimeMetadata.Arch,
+			Capabilities: []string{
+				pluginResultRetainedDeliveryCapabilityV1,
+			},
 		}
 		chunks = append(chunks, chunk)
 	}
@@ -332,22 +349,46 @@ func (p *PushLoop) pushPluginResults(ctx context.Context) bool {
 		chunk.IsFinal = i == len(chunks)-1
 	}
 
-	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	pushCtx, cancel := context.WithTimeout(ctx, pluginResultStreamTimeout(len(chunks)))
 	defer cancel()
 
-	resp, err := p.gateway.StreamStatus(pushCtx, chunks)
+	resp, err := p.streamPluginResultStatus(pushCtx, chunks)
 	if err != nil {
 		p.logger.Error().Err(err).Int("plugin_results", len(chunks)).Msg("Failed to stream plugin results to gateway")
 		return false
 	}
 
-	if resp.Received {
+	if resp != nil && resp.Received {
+		p.pendingPluginResults = nil
 		p.logger.Info().Int("plugin_results", len(chunks)).Msg("Successfully streamed plugin results to gateway")
 		return true
 	}
 
 	p.logger.Warn().Msg("Gateway did not acknowledge plugin result stream")
 	return false
+}
+
+func pluginResultStreamTimeout(chunkCount int) time.Duration {
+	timeout := time.Duration(chunkCount)*pluginResultStreamTimeoutPerChunk + pluginResultStreamTimeoutGrace
+	if timeout < minPluginResultStreamTimeout {
+		return minPluginResultStreamTimeout
+	}
+
+	return timeout
+}
+
+func (p *PushLoop) streamPluginResultStatus(
+	ctx context.Context,
+	chunks []*proto.GatewayStatusChunk,
+) (*proto.GatewayStatusResponse, error) {
+	if p.pluginResultStreamStatus != nil {
+		return p.pluginResultStreamStatus(ctx, chunks)
+	}
+	if p.gateway == nil {
+		return nil, agentgateway.ErrGatewayNotConnected
+	}
+
+	return p.gateway.StreamStatus(ctx, chunks)
 }
 
 func (p *PushLoop) pushPluginTelemetry(ctx context.Context) bool {

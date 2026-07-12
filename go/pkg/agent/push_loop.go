@@ -56,6 +56,11 @@ type limitedJSONBuffer struct {
 	limit int
 }
 
+type pluginResultStatusStreamer func(
+	context.Context,
+	[]*proto.GatewayStatusChunk,
+) (*proto.GatewayStatusResponse, error)
+
 func (b *limitedJSONBuffer) Write(p []byte) (int, error) {
 	if b.limit > 0 && b.Len()+len(p) > b.limit {
 		remaining := b.limit - b.Len()
@@ -155,6 +160,9 @@ type PushLoop struct {
 	workloadIdentityMu       sync.Mutex
 	lastWorkloadIdentityFile workloadIdentityFileSignature
 	flowAttributionDelivery  flowAttributionDeliveryQueue
+	pluginResultDeliveryMu   sync.Mutex
+	pendingPluginResults     []PluginResult
+	pluginResultStreamStatus pluginResultStatusStreamer
 
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, lastAttemptedConfigVersion, started
 	cancelMu sync.Mutex
