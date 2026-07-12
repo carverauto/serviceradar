@@ -94,6 +94,63 @@ fn translate_param_arity_matches_sql_placeholders() {
 }
 
 #[test]
+fn translate_timestamp_sorted_severity_list_uses_bounded_topn_branches() {
+    let config = test_config();
+    let cursor = encode_cursor(40, &config.cursor_secret).unwrap();
+    let request = QueryRequest {
+        query: "in:logs severity_text:(fatal,critical,emergency,alert) time:last_24h sort:timestamp:desc limit:20".to_string(),
+        limit: None,
+        cursor: Some(cursor),
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+    assert_eq!(
+        response.sql.matches(" UNION ALL ").count(),
+        3,
+        "{}",
+        response.sql
+    );
+    assert!(response.sql.starts_with("SELECT severity_topn.* FROM ("));
+    assert!(!response.sql.contains(" = ANY("), "{}", response.sql);
+    assert!(
+        response.sql.contains(
+            "ORDER BY COALESCE(severity_topn.observed_timestamp, severity_topn.\"timestamp\") DESC, severity_topn.id DESC"
+        ),
+        "{}",
+        response.sql
+    );
+    assert_eq!(
+        response.sql.matches("\"logs\".\"id\" DESC").count(),
+        4,
+        "every scalar branch must use the unique tie-breaker\n{}",
+        response.sql
+    );
+    assert_eq!(
+        response
+            .params
+            .iter()
+            .filter(|param| matches!(param, BindParam::Int(60)))
+            .count(),
+        4,
+        "each branch must retain the first two pages"
+    );
+    assert!(matches!(
+        response.params.get(response.params.len() - 2),
+        Some(BindParam::Int(20))
+    ));
+    assert!(matches!(response.params.last(), Some(BindParam::Int(40))));
+    assert_eq!(
+        super::max_dollar_placeholder(&response.sql),
+        response.params.len(),
+        "sql placeholders must be contiguous with params\nsql: {}\nparams: {:?}",
+        response.sql,
+        response.params
+    );
+}
+
+#[test]
 fn translate_includes_visualization_metadata() {
     let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
     let request = QueryRequest {

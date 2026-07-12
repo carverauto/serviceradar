@@ -75,7 +75,7 @@ impl CapacityForecastRow {
     }
 }
 
-#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[derive(Debug, Clone, Queryable, QueryableByName, Selectable, Serialize)]
 #[diesel(table_name = crate::schema::logs, check_for_backend(diesel::pg::Pg))]
 pub struct LogRow {
     pub timestamp: DateTime<Utc>,

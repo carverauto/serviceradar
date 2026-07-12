@@ -5,6 +5,7 @@ mod stats;
 mod stats_clauses;
 mod stats_expr;
 mod time;
+mod topn;
 
 use self::{
     filters::{apply_filter, collect_filter_params},
@@ -60,6 +61,11 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
             .collect());
     }
 
+    if let Some(query) = topn::build(plan)? {
+        let rows = query.load(conn).await?;
+        return Ok(rows.into_iter().map(LogRow::into_json).collect());
+    }
+
     let query = build_query(plan)?;
     let rows: Vec<LogRow> = query
         .limit(plan.limit)
@@ -95,9 +101,21 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
         return Ok((sql, params));
     }
 
+    if let Some(query) = topn::build(plan)? {
+        return Ok(query.into_parts());
+    }
+
     let query = build_query(plan)?;
     let sql = super::diesel_sql(&query.limit(plan.limit).offset(plan.offset))?;
 
+    let mut params = collect_base_params(plan)?;
+    params.push(BindParam::Int(plan.limit));
+    params.push(BindParam::Int(plan.offset));
+
+    Ok((sql, params))
+}
+
+fn collect_base_params(plan: &QueryPlan) -> Result<Vec<BindParam>> {
     let mut params = Vec::new();
     if let Some(TimeRange { start, end }) = &plan.time_range {
         params.push(BindParam::timestamptz(*start));
@@ -108,10 +126,7 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
         collect_filter_params(&mut params, filter)?;
     }
 
-    params.push(BindParam::Int(plan.limit));
-    params.push(BindParam::Int(plan.offset));
-
-    Ok((sql, params))
+    Ok(params)
 }
 
 fn ensure_entity(plan: &QueryPlan) -> Result<()> {
