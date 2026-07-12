@@ -73,17 +73,12 @@ defmodule ServiceRadar.Observability.PluginResultSlotAllocatorTest do
         }
       end)
 
-    results =
-      statuses
-      |> Task.async_stream(
-        fn status -> PluginResultIngestor.ingest(payload, status) end,
-        max_concurrency: 20,
-        ordered: false,
-        timeout: 120_000
-      )
-      |> Enum.to_list()
+    # This test exercises allocator capacity for identities with the same logical
+    # timestamp. Concurrency is covered by the identity and slot-lock tests; using
+    # one task per identity here only overloads the shared SQL sandbox owner.
+    results = Enum.map(statuses, &PluginResultIngestor.ingest(payload, &1))
 
-    assert Enum.all?(results, &(&1 == {:ok, :ok}))
+    assert Enum.all?(results, &(&1 == :ok))
 
     Enum.each(1..300, fn _index ->
       assert_receive {:successful_handler_ingest, ^payload}, 1_000

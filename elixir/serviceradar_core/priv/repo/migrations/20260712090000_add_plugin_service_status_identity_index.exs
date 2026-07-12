@@ -13,6 +13,9 @@ defmodule ServiceRadar.Repo.Migrations.AddPluginServiceStatusIdentityIndex do
   @disable_migration_lock true
 
   def up do
+    build_options =
+      if service_status_hypertable?(), do: "WITH (timescaledb.transaction_per_chunk)", else: ""
+
     execute("""
     CREATE INDEX IF NOT EXISTS idx_service_status_plugin_identity_time
     ON platform.service_status (
@@ -21,12 +24,32 @@ defmodule ServiceRadar.Repo.Migrations.AddPluginServiceStatusIdentityIndex do
       service_name,
       timestamp DESC
     )
-    WITH (timescaledb.transaction_per_chunk)
+    #{build_options}
     WHERE service_type = 'plugin' AND agent_id IS NOT NULL
     """)
   end
 
   def down do
     execute("DROP INDEX IF EXISTS platform.idx_service_status_plugin_identity_time")
+  end
+
+  defp service_status_hypertable? do
+    case repo().query!("SELECT to_regclass('timescaledb_information.hypertables')") do
+      %{rows: [[nil]]} ->
+        false
+
+      %{rows: [[_hypertables_view]]} ->
+        %{rows: [[hypertable?]]} =
+          repo().query!("""
+          SELECT EXISTS (
+            SELECT 1
+            FROM timescaledb_information.hypertables
+            WHERE hypertable_schema = 'platform'
+              AND hypertable_name = 'service_status'
+          )
+          """)
+
+        hypertable?
+    end
   end
 end
