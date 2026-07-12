@@ -244,6 +244,7 @@ go_test(
         "//go/pkg/agent/sidecar",
         "//go/pkg/agent/snmp",
         "//go/pkg/agent/syncsources",
+        "//go/pkg/agentgateway",
         "//go/pkg/bumblebee",
         "//go/pkg/config",
         "//go/pkg/endpointinventory",
