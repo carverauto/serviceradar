@@ -81,7 +81,7 @@ defmodule ServiceRadar.Plugins.EndpointInventoryAddonPackageSeederTest do
         %{
           uid: agent_uid,
           name: "Endpoint Inventory Test Agent #{unique_id}",
-          version: "1.2.0",
+          version: "1.4.12",
           host: "127.0.0.1",
           port: 50_051,
           metadata: %{"os" => "linux", "arch" => "amd64"}
