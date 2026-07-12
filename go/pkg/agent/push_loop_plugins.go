@@ -39,7 +39,7 @@ func (p *PushLoop) buildPluginGatewayStatus(
 	}
 
 	serviceName := pluginServiceName(result)
-	gatewayID := p.gateway.GetGatewayID()
+	gatewayID := gatewayIDFromClient(p.gateway)
 
 	return &proto.GatewayServiceStatus{
 		ServiceName:  serviceName,

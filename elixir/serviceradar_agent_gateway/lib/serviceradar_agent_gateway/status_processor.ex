@@ -32,6 +32,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
 
   @core_call_timeout_ms 30_000
   @flow_attribution_core_call_timeout_ms 25_000
+  @plugin_result_retained_delivery_capability_v1 "plugin-result-retained:v1"
 
   @doc """
   Process a service status update.
@@ -337,6 +338,9 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
 
   defp ack_result_status?(%{source: source}) when source in ["flow-attribution", :flow_attribution], do: true
 
+  defp ack_result_status?(%{source: source} = status) when source in ["plugin-result", :plugin_result],
+    do: retained_plugin_result_delivery?(status)
+
   defp ack_result_status?(_status), do: false
 
   defp core_call_timeout_ms(%{source: source}) when source in ["flow-attribution", :flow_attribution] do
@@ -370,9 +374,15 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
 
   # Strict-delivery statuses are intentionally NOT buffered: buffering would ack
   # the agent before durable delivery and could silently drop data from the
-  # bounded StatusBuffer. OTLP uses its disk spool; flow attribution uses a
-  # bounded in-memory pending batch. Failures must surface to those owners.
+  # bounded StatusBuffer. Their edge owners retain unacknowledged payloads.
+  defp should_buffer?(%{source: source} = status) when source in ["plugin-result", :plugin_result],
+    do: not retained_plugin_result_delivery?(status)
+
   defp should_buffer?(status), do: results_router_source?(status)
+
+  defp retained_plugin_result_delivery?(status) do
+    @plugin_result_retained_delivery_capability_v1 in List.wrap(Map.get(status, :delivery_capabilities, []))
+  end
 
   defp results_router_source?(status) do
     source = status[:source]
@@ -392,8 +402,6 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
       :mtr_metrics,
       "sweep-metrics",
       :sweep_metrics,
-      "plugin-result",
-      :plugin_result,
       "workload-identity",
       :workload_identity
     ] or package_telemetry_source?(source)

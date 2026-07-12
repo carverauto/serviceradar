@@ -1082,9 +1082,9 @@ http_file(
 
 http_file(
     name = "postgresql_18_pgvector_amd64_deb",
-    sha256 = "9c945d6110e88d2bd6477da1085bf6b626a3ec3dc05faa58227fa8ab049ab428",
+    sha256 = "2960d16635b1ea45e9ecddfbbb5d5d669af63db0df7dca56a9fd176f19bc285c",
     urls = [
-        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/pgvector/postgresql-18-pgvector_0.8.2-1.pgdg12%2B1_amd64.deb",
+        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/pgvector/postgresql-18-pgvector_0.8.5-1.pgdg12%2B1_amd64.deb",
     ],
 )
 

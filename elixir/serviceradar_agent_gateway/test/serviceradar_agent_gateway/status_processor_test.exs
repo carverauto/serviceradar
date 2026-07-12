@@ -3,6 +3,8 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
 
   alias ServiceRadarAgentGateway.StatusProcessor
 
+  @plugin_result_retained_delivery_capability_v1 "plugin-result-retained:v1"
+
   setup do
     existing = Process.whereis(ServiceRadar.StatusHandler)
 
@@ -587,6 +589,61 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     refute_receive {:plugin_published, _status}
   end
 
+  test "synchronously forwards retry-capable plugin results" do
+    parent = self()
+
+    handler_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_call", from, {:status_update, status}} ->
+            send(parent, {:forwarded, status})
+            GenServer.reply(from, :ok)
+        end
+      end)
+
+    Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+    status =
+      plugin_result_status(delivery_capabilities: [@plugin_result_retained_delivery_capability_v1])
+
+    assert :ok = StatusProcessor.process(status)
+    assert_receive {:forwarded, forwarded}
+    assert forwarded.delivery_capabilities == [@plugin_result_retained_delivery_capability_v1]
+  end
+
+  test "legacy plugin results retain buffered acknowledgement semantics when core is unavailable" do
+    assert :ok = StatusProcessor.process(plugin_result_status())
+  end
+
+  test "returns retry-capable plugin-result forwarding errors without buffering when core is unavailable" do
+    status =
+      plugin_result_status(delivery_capabilities: [@plugin_result_retained_delivery_capability_v1])
+
+    assert {:error, :not_available} = StatusProcessor.process(status)
+  end
+
+  test "synchronously propagates uncommitted plugin-result persistence failures" do
+    parent = self()
+
+    handler_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_call", from, {:status_update, status}} ->
+            send(parent, {:forwarded, status})
+            GenServer.reply(from, {:error, :database_unavailable})
+        end
+      end)
+
+    Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+    status =
+      plugin_result_status(delivery_capabilities: [@plugin_result_retained_delivery_capability_v1])
+
+    assert {:error, :database_unavailable} = StatusProcessor.process(status)
+    assert_receive {:forwarded, forwarded}
+    assert forwarded.source == "plugin-result"
+  end
+
   test "publishes rperf metrics without core status forward" do
     parent = self()
 
@@ -951,21 +1008,24 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     }
   end
 
-  defp plugin_result_status do
-    %{
-      service_name: "proxmox-inventory",
-      service_type: "wasm-plugin",
-      source: "plugin-result",
-      agent_id: "agent-1",
-      gateway_id: "gateway-1",
-      partition: "default",
-      message:
-        Jason.encode!(%{
-          "status" => "WARNING",
-          "summary" => "resource pressure",
-          "metrics" => [%{"name" => "proxmox_guest_cpu_ratio_max", "value" => 0.91}]
-        })
-    }
+  defp plugin_result_status(overrides \\ []) do
+    Map.merge(
+      %{
+        service_name: "proxmox-inventory",
+        service_type: "wasm-plugin",
+        source: "plugin-result",
+        agent_id: "agent-1",
+        gateway_id: "gateway-1",
+        partition: "default",
+        message:
+          Jason.encode!(%{
+            "status" => "WARNING",
+            "summary" => "resource pressure",
+            "metrics" => [%{"name" => "proxmox_guest_cpu_ratio_max", "value" => 0.91}]
+          })
+      },
+      Map.new(overrides)
+    )
   end
 
   defp assert_normalized_status(published, original) do

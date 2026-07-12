@@ -30,7 +30,12 @@ defmodule ServiceRadar.ResultsRouterTest do
     @moduledoc false
     def ingest(payload, status) do
       send(self(), {:plugin_ingest, payload, status})
-      :ok
+
+      Application.get_env(
+        :serviceradar_core,
+        :plugin_result_ingestor_test_result,
+        :ok
+      )
     end
   end
 
@@ -79,6 +84,10 @@ defmodule ServiceRadar.ResultsRouterTest do
     previous_async = Application.get_env(:serviceradar_core, :sync_ingestor_async)
     previous_sweep = Application.get_env(:serviceradar_core, :sweep_ingestor)
     previous_plugin = Application.get_env(:serviceradar_core, :plugin_result_ingestor)
+
+    previous_plugin_result =
+      Application.get_env(:serviceradar_core, :plugin_result_ingestor_test_result)
+
     previous_endpoint = Application.get_env(:serviceradar_core, :endpoint_inventory_ingestor)
 
     previous_endpoint_async =
@@ -165,6 +174,7 @@ defmodule ServiceRadar.ResultsRouterTest do
       restore_env(:endpoint_inventory_ingestor_queue_server, previous_endpoint_queue_server)
       restore_env(:results_router_batching, previous_batching)
       restore_env(:results_router_max_buffer, previous_max_buffer)
+      restore_env(:plugin_result_ingestor_test_result, previous_plugin_result)
     end)
 
     :ok
@@ -566,6 +576,31 @@ defmodule ServiceRadar.ResultsRouterTest do
              ResultsRouter.handle_call({:results_update, status}, self(), %{})
 
     refute_receive {:plugin_ingest, _payload, _status}
+  end
+
+  test "returns plugin ingestion failures to synchronous callers" do
+    error = {:error, {:plugin_result_handlers_failed, [{TestPluginIngestor, "failed"}]}}
+
+    Application.put_env(
+      :serviceradar_core,
+      :plugin_result_ingestor_test_result,
+      error
+    )
+
+    payload = %{"status" => "OK", "summary" => "plugin ok"}
+
+    status = %{
+      source: "plugin-result",
+      service_type: "plugin",
+      message: Jason.encode!(payload),
+      agent_id: "agent-1",
+      gateway_id: "gateway-1"
+    }
+
+    assert {:reply, ^error, %{}} =
+             ResultsRouter.handle_call({:results_update, status}, self(), %{})
+
+    assert_receive {:plugin_ingest, ^payload, ^status}
   end
 
   test "routes asynchronous endpoint inventory payloads through bounded queue" do

@@ -252,6 +252,7 @@ message GatewayStatusChunk {
   string os = 16;              // Agent runtime OS at push time
   string arch = 17;            // Agent runtime architecture at push time
   repeated EndpointInventoryStandingQuestionResultCount endpoint_inventory_standing_question_counts = 18;
+  repeated string capabilities = 19; // Delivery capabilities asserted for every chunk in this stream
 }
 
 // GatewayServiceStatus represents a single service status pushed by an agent.

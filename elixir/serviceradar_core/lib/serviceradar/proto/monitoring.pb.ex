@@ -390,6 +390,8 @@ defmodule Monitoring.GatewayStatusChunk do
     repeated: true,
     type: Monitoring.EndpointInventoryStandingQuestionResultCount,
     json_name: "endpointInventoryStandingQuestionCounts"
+
+  field :capabilities, 19, repeated: true, type: :string
 end
 
 defmodule Monitoring.GatewayServiceStatus do

@@ -81,11 +81,30 @@ defmodule ServiceRadar.Observability.ServiceState do
         :state,
         :updated_at
       ]
+
+      upsert_condition expr(
+                         last_observed_at < upsert_conflict(:last_observed_at) or
+                           (last_observed_at == upsert_conflict(:last_observed_at) and
+                              ((available == true and upsert_conflict(:available) == false) or
+                                 (state != "active" and upsert_conflict(:state) == "active" and
+                                    available == upsert_conflict(:available))))
+                       )
+
+      return_skipped_upsert? true
     end
 
     update :deactivate do
       accept []
       change set_attribute(:state, "inactive")
+    end
+
+    update :activate do
+      accept []
+      change set_attribute(:state, "active")
+    end
+
+    update :replace_snapshot do
+      accept [:available, :message, :details, :last_observed_at, :state]
     end
   end
 
@@ -94,7 +113,7 @@ defmodule ServiceRadar.Observability.ServiceState do
       authorize_if always()
     end
 
-    policy action([:upsert, :deactivate]) do
+    policy action([:upsert, :activate, :deactivate, :replace_snapshot]) do
       authorize_if always()
     end
   end

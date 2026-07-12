@@ -3,6 +3,8 @@ defmodule ServiceRadarAgentGateway.OtlpRelayForwardingTest do
 
   alias ServiceRadarAgentGateway.AgentGatewayServer
 
+  @plugin_result_retained_delivery_capability_v1 "plugin-result-retained:v1"
+
   setup do
     existing = Process.whereis(ServiceRadar.StatusHandler)
 
@@ -60,6 +62,44 @@ defmodule ServiceRadarAgentGateway.OtlpRelayForwardingTest do
     end
 
     assert_receive {:flow_attribution_forwarded, status}
+    assert status.partition == "cert-partition"
+    assert status.agent_id == "agent-1"
+  end
+
+  test "plugin-result forwarding failures fail the stream for agent retry" do
+    assert_raise GRPC.RPCError, ~r/plugin-result forward failed/, fn ->
+      AgentGatewayServer.process_chunk_services([plugin_result_service()], retained_plugin_result_metadata())
+    end
+  end
+
+  test "legacy plugin-result forwarding keeps buffered acknowledgement semantics" do
+    assert AgentGatewayServer.process_chunk_services([plugin_result_service()], metadata()) == []
+  end
+
+  test "committed plugin-result handler failures acknowledge the stream" do
+    parent = self()
+
+    handler_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_call", from, {:status_update, status}} ->
+            send(parent, {:plugin_result_forwarded, status})
+
+            GenServer.reply(
+              from,
+              {:error, {:plugin_result_handlers_failed, [{TestHandler, ":forced_failure"}]}}
+            )
+        end
+      end)
+
+    Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+    assert AgentGatewayServer.process_chunk_services(
+             [plugin_result_service()],
+             retained_plugin_result_metadata()
+           ) == []
+
+    assert_receive {:plugin_result_forwarded, status}
     assert status.partition == "cert-partition"
     assert status.agent_id == "agent-1"
   end
@@ -151,6 +191,17 @@ defmodule ServiceRadarAgentGateway.OtlpRelayForwardingTest do
     }
   end
 
+  defp plugin_result_service do
+    %Monitoring.GatewayServiceStatus{
+      service_name: "proxmox-inventory",
+      service_type: "plugin",
+      source: "plugin-result",
+      partition: "payload-spoofed-partition",
+      available: true,
+      message: Jason.encode!(%{"status" => "OK", "summary" => "inventory complete"})
+    }
+  end
+
   defp metadata do
     %{
       agent_id: "agent-1",
@@ -164,5 +215,13 @@ defmodule ServiceRadarAgentGateway.OtlpRelayForwardingTest do
       total_chunks: 1,
       is_final: true
     }
+  end
+
+  defp retained_plugin_result_metadata do
+    Map.put(
+      metadata(),
+      :delivery_capabilities,
+      [@plugin_result_retained_delivery_capability_v1]
+    )
   end
 end
