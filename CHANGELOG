@@ -1,3 +1,33 @@
+# ServiceRadar v1.4.13
+
+Durable plugin-result delivery and deterministic service-state recovery across
+rolling upgrades.
+
+## Whats New
+
+**1.4.13**
+- Plugin-result delivery: acknowledgement-capable agents retain ordered result
+  batches until the gateway confirms `Received=true`, preventing transient core
+  or handler failures from silently dropping results. Capability-gated strict
+  delivery preserves compatibility while older and newer agents overlap during
+  rolling upgrades.
+- Deterministic service state: core now surfaces downstream handler failures,
+  validates trusted reported-result markers, serializes assignment lifecycle
+  and repair work, and uses stable winner ordering for equal-time observations.
+  Collision-safe observation slots and a partial identity index prevent
+  same-time results from different gateways from corrupting current state.
+- Recovery and upgrade safety: plugin-result replay and history repair converge
+  state after interrupted processing, and the identity-index migration works
+  with both Timescale hypertables and baseline regular PostgreSQL tables.
+  `RollingUpdate` remains the supported deployment strategy; raw result history
+  stays durable during bounded old/new core overlap.
+- Maintainability: the service-state registry and service LiveViews are split
+  into focused modules, with the plugin-result regression suite divided into
+  targeted fixtures and cases while preserving existing public workflows.
+- Build reproducibility: PostgreSQL 18 pgvector is repinned to the official
+  verified 0.8.5 package, and the retained-delivery test has its generated
+  Bazel dependency registered. (PR #4545)
+
 # ServiceRadar v1.4.12
 
 Endpoint-inventory, flow-attribution, and add-on recovery, with uncapped
