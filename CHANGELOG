@@ -1,3 +1,59 @@
+# ServiceRadar v1.4.12
+
+Endpoint-inventory, flow-attribution, and add-on recovery, with uncapped
+threat-intel ingestion and safer control-plane operation.
+
+## Whats New
+
+**1.4.12**
+- Endpoint inventory: ScaLibR 0.1.2 now uses the shared
+  cache/pending/acknowledgement lifecycle, rejects incomplete scans as current
+  state, repairs elapsed systemd timers, and preserves packages and artifacts
+  across retries and same-hash freshness updates. Same-agent ingests are
+  serialized, endpoint results bypass unrelated router congestion, and the
+  freshness contract is consistently 26 hours. Requires base agent 1.4.12.
+  (PRs #4535, #4555)
+- NetFlow and attribution: database deadlocks no longer cause attributed-flow
+  prefixes to be acknowledged and discarded. Delivery now retries ordered
+  persistence, removes only positively acknowledged byte-bounded prefixes, and
+  quarantines individually oversized records. SRQL application filters and
+  partition/protocol rule correlation are corrected, local-CIDR anchors appear
+  in flow details, and topology fallback points no longer produce ocean-bound
+  map arcs. (PRs #4540, #4546)
+- Threat and vulnerability feeds: AlienVault OTX 0.3.3 removes the configured
+  maximum-IOC cap and streams bounded pages through durable continuation,
+  transactional persistence, and resumable retrohunt state. PowerDNS 0.1.2
+  reports a missing Recursor protobuf producer as degraded instead of silently
+  appearing healthy. VulnCheck feeds again select encrypted broker-managed
+  credentials; installations with no surviving token must supply a replacement.
+  (PRs #4537, #4542, #4544)
+- Add-on operations: upgraded agents restore delegated cgroup-v2 CPU, memory,
+  and process limits; workload-identity 0.1.5 preserves its spool across package
+  upgrades; native package sync reuses only exact verified artifacts; and stable
+  policy assignment keys stop metadata changes from creating duplicate enabled
+  assignments. Agent and fleet views now distinguish assigned, required, and
+  unmanaged runtimes without counting required platform services as drift.
+  (PRs #4538, #4539, #4543, #4547, #4549)
+- Observability and security: fatal-card multi-severity log queries use bounded
+  indexed branches instead of timing out over timestamp-only scans. Critical
+  and high security findings link to event details, event IPs link to devices or
+  a prefilled search, and typed log promotion preserves processor UUIDs and
+  arbitrary source IDs without collisions. (PRs #4533, #4548, #4552)
+- Data and topology correctness: source-identity conflicts are persisted in
+  transactional batches below PostgreSQL's parameter limit; streamed Proxmox
+  children reconnect to previously persisted hosts; canonical topology
+  collisions merge before endpoint remapping; and structural and telemetry
+  graph writes share bounded cross-replica serialization. (PRs #4528, #4529,
+  #4530, #4541)
+- Runtime and cluster reliability: Ansible watchdog jobs again transition
+  pending, launching, and running jobs to unreachable; only the owning core
+  replica closes idle camera relays; workload-specific topology constraints
+  spread replicated services with `maxSkew: 1`; and the obsolete NATS ingest
+  notifier is removed while post-persistence EventWriter notifications remain
+  authoritative. Stateful-alert and embedded-JetStream integration gates are
+  also isolated for deterministic CI runs. (PRs #4531, #4532, #4536, #4550,
+  #4551, #4553)
+
 # ServiceRadar v1.4.11
 
 Production-safe recovery from v1.4.10, with restored plugin execution,
