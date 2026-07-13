@@ -97,6 +97,50 @@ defmodule ServiceRadar.Automation.LaunchEnvelopesTest do
     assert AutomationLaunchEnvelopeMemoryStore.records(store) == []
   end
 
+  test "accepts only a verified preallocated command/reference pair" do
+    store = start_supervised!({Agent, fn -> memory_state() end})
+
+    assert {:ok, allocation} =
+             LaunchEnvelopes.allocate(encryption_key: @key, now: @issued_at)
+
+    issuer = fn envelope_ref, command_id ->
+      send(self(), {:issued_for, envelope_ref, command_id})
+
+      {:ok,
+       %{
+         grant: %{id: grant_id()},
+         bearer: @bearer,
+         idempotency_key: @idempotency_key
+       }}
+    end
+
+    opts = [
+      store: AutomationLaunchEnvelopeMemoryStore,
+      store_context: store,
+      encryption_key: @key,
+      allocation: allocation
+    ]
+
+    assert {:ok, prepared} =
+             LaunchEnvelopes.prepare_and_seal(context_attrs(), issuer, opts)
+
+    assert prepared.command_id == allocation.command_id
+    assert_receive {:issued_for, reference, command_id}
+    assert reference == allocation.reference
+    assert command_id == allocation.command_id
+
+    tampered = Map.put(allocation, :reference_verifier, :binary.copy(<<0>>, 32))
+
+    assert {:error, :invalid_launch_envelope_allocation} =
+             LaunchEnvelopes.prepare_and_seal(
+               context_attrs(),
+               issuer,
+               Keyword.put(opts, :allocation, tampered)
+             )
+
+    refute_receive {:issued_for, _, _}
+  end
+
   defp prepare(store) do
     LaunchEnvelopes.prepare_and_seal(
       context_attrs(),

@@ -217,6 +217,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStore do
       }
 
       attrs = %{
+        grant_id: value(grant, :id),
         operation_id: value(grant, :parent_run_id),
         execution_id: value(grant, :execution_id),
         tenant_id: value(grant, :tenant_id),

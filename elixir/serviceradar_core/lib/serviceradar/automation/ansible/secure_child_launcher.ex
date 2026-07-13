@@ -5,16 +5,16 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
   The public request contains durable AWX membership IDs, never host names,
   addresses, device metadata, or an Ansible limit. Every mutable resource is
   reloaded before planning. The resulting authority ceiling is attenuated to
-  `ansible.runs.launch` and the exact membership IDs in this child.
+  the source-controlled action permissions and exact membership IDs in this
+  child.
 
   This service intentionally accepts only a current human actor. Scheduled and
   northbound execution must use a separately reviewed delegation path rather
   than substituting a `SystemActor` for the initiating principal.
 
-  Callback-enabled bindings remain fail-closed until a callback action registry
-  can map reviewed action names to RBAC permissions and a callback gate can
-  atomically persist pending grants with the child plan. No bearer value or
-  callback policy is accepted in launch inputs.
+  Callback-enabled bindings use only their immutable reviewed launch contract.
+  No bearer, callback endpoint, callback phase, or callback policy is accepted
+  in launch inputs.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -22,6 +22,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
   alias ServiceRadar.Automation.Ansible.SecureChildLauncher.AshAdapter
   alias ServiceRadar.Automation.Ansible.Targeting
   alias ServiceRadar.Automation.Ansible.VariableSchema.Var
+  alias ServiceRadar.Automation.CallbackGrants.ActionContract
+  alias ServiceRadar.Automation.CallbackGrants.LaunchContract
 
   @launch_permission "ansible.runs.launch"
   @max_targets 500
@@ -32,7 +34,17 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
                             "api_key",
                             "authorization",
                             "bearer_token",
+                            "allowed_callback_origin",
+                            "allowed_origin",
+                            "callback_manifest_sha256",
+                            "callback_operation",
+                            "callback_origin",
+                            "callback_phase",
                             "callback_policy",
+                            "callback_response_policy_provider",
+                            "callback_state",
+                            "callback_url",
+                            "desired_state",
                             "device_uid",
                             "device_uids",
                             "extra_vars",
@@ -40,8 +52,34 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
                             "host_limit",
                             "hostname",
                             "limit",
-                            "public_policy"
+                            "manifest_sha256",
+                            "operation",
+                            "phase",
+                            "public_policy",
+                            "remote_access_operation",
+                            "response_policy_provider",
+                            "state"
                           ])
+
+  @reserved_input_names MapSet.new([
+                          "allowed_callback_origin",
+                          "allowed_origin",
+                          "callback_manifest_sha256",
+                          "callback_operation",
+                          "callback_origin",
+                          "callback_phase",
+                          "callback_policy",
+                          "callback_response_policy_provider",
+                          "callback_state",
+                          "callback_url",
+                          "desired_state",
+                          "manifest_sha256",
+                          "operation",
+                          "phase",
+                          "remote_access_operation",
+                          "response_policy_provider",
+                          "state"
+                        ])
 
   @type request :: %{
           required(:actor) => map(),
@@ -74,7 +112,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
          :ok <- validate_controller(controller, scope.controller_id),
          {:ok, binding} <-
            adapter.load_binding(scope.controller_id, normalized.job_template_id),
-         {:ok, launch_binding} <-
+         {:ok, launch_binding, callback_contract} <-
            validate_binding(
              binding,
              scope,
@@ -82,6 +120,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
              normalized.mode,
              now
            ),
+         :ok <- require_action_permissions(authorization, callback_contract),
          {:ok, held_device_uids} <- adapter.active_hold_device_uids(scope.device_uids),
          :ok <- reject_active_holds(held_device_uids, scope.device_uids),
          {:ok, variable_schema} <- binding_variable_schema(binding),
@@ -91,6 +130,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
              authorization,
              normalized.membership_ids,
              binding,
+             callback_contract,
              now
            ),
          {:ok, plan} <-
@@ -107,7 +147,10 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
              binding: launch_binding,
              variable_schema: variable_schema,
              inputs: normalized.inputs,
-             callback_gate_available: false
+             callback_gate_available: not is_nil(callback_contract),
+             callback_contract: callback_contract,
+             dynamic_callback_slot:
+               if(callback_contract, do: launch_binding.callback_credential_slot)
            }) do
       adapter.launch(plan, controller)
     end
@@ -339,7 +382,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
          :ok <- binding_approval(binding, now),
          :ok <- binding_inventory(allowed_inventory_ids, scope.inventory_id),
          :ok <- binding_mode(binding, mode),
-         :ok <- callback_disabled(callback_actions),
+         {:ok, callback_contract} <- callback_contract(binding, callback_actions),
          {:ok, credential_ids} <- credential_ids(value(binding, :credentials)) do
       {:ok,
        %{
@@ -366,7 +409,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
          callback_credential_injector_digest:
            value(binding, :callback_credential_injector_digest),
          callback_credential_slot: value(binding, :callback_credential_slot)
-       }}
+       }, callback_contract}
     end
   end
 
@@ -437,9 +480,9 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
       else: {:error, :binding_mode_not_approved}
   end
 
-  defp callback_disabled([]), do: :ok
+  defp callback_contract(_binding, []), do: {:ok, nil}
 
-  defp callback_disabled(_actions), do: {:error, :callback_gate_unavailable}
+  defp callback_contract(binding, _actions), do: LaunchContract.from_binding(binding)
 
   defp credential_ids(credentials) when is_list(credentials) and credentials != [] do
     ids = Enum.map(credentials, &value(&1, :id))
@@ -508,9 +551,12 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
   defp binding_var(_name, _definition), do: {:error, :binding_input_schema_invalid}
 
   defp non_sensitive_input_name(name) do
-    if Regex.match?(@sensitive_input_name, String.downcase(name)),
-      do: {:error, {:sensitive_binding_input_forbidden, name}},
-      else: :ok
+    normalized = String.downcase(name)
+
+    if Regex.match?(@sensitive_input_name, normalized) or
+         MapSet.member?(@reserved_input_names, normalized),
+       do: {:error, {:sensitive_binding_input_forbidden, name}},
+       else: :ok
   end
 
   defp variable_type(type) when type in [:text, "text"], do: {:ok, :text}
@@ -523,7 +569,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
 
   defp variable_type(_type), do: {:error, :binding_input_schema_invalid}
 
-  defp actor_snapshot(actor, authorization, membership_ids, binding, now) do
+  defp actor_snapshot(actor, authorization, membership_ids, binding, callback_contract, now) do
     permissions = authorization.permissions |> MapSet.to_list() |> Enum.sort()
 
     authorization_basis = %{
@@ -542,11 +588,36 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
       tenant_id: value(actor, :tenant_id) || "platform",
       authorization_version: Targeting.snapshot_digest(authorization_basis),
       authority_ceiling: %{
-        "permissions" => [@launch_permission],
+        "permissions" => required_permissions(callback_contract),
         "target_membership_ids" => Enum.sort(membership_ids)
       },
       approval_snapshot: approval_snapshot(binding, now)
     }
+  end
+
+  defp require_action_permissions(_authorization, nil), do: :ok
+
+  defp require_action_permissions(%{permissions: %MapSet{} = permissions}, contract) do
+    missing =
+      contract
+      |> required_permissions()
+      |> Enum.reject(&MapSet.member?(permissions, &1))
+
+    if missing == [],
+      do: :ok,
+      else: {:error, {:callback_permissions_required, missing}}
+  end
+
+  defp require_action_permissions(_authorization, _contract),
+    do: {:error, :fresh_authorization_required}
+
+  defp required_permissions(nil), do: [@launch_permission]
+
+  defp required_permissions(contract) do
+    case ActionContract.fetch(contract.action) do
+      {:ok, action_contract} -> ActionContract.required_permissions(action_contract)
+      {:error, _reason} -> []
+    end
   end
 
   defp approval_snapshot(binding, now) do

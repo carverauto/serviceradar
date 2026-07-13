@@ -316,13 +316,12 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncherTest do
     refute_receive {:launch, _, _}
   end
 
-  test "rejects callback-enabled bindings until the callback action gate exists" do
-    Process.put(
-      {FakeAdapter, :binding},
-      {:ok, reviewed_binding(%{callback_actions: ["remote_access.ssh_ca.bundle.read"]})}
-    )
+  test "requires fresh action permissions and derives callback policy from the binding" do
+    Process.put({FakeAdapter, :binding}, {:ok, callback_binding()})
 
-    assert {:error, :callback_gate_unavailable} = launch()
+    assert {:error,
+            {:callback_permissions_required, ["devices.remote_access.ssh.ca_bundle.read"]}} =
+             launch()
 
     Process.put(
       {FakeAdapter, :authorization},
@@ -336,8 +335,48 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncherTest do
        })}
     )
 
-    assert {:error, :callback_gate_unavailable} = launch()
-    refute_receive {:launch, _, _}
+    assert {:ok, %{plan: plan}} = launch()
+
+    assert_receive {:launch, ^plan, _controller}
+
+    assert plan.callback_contract.action == "remote_access.ssh_ca.bundle.read"
+
+    assert plan.operation.authority_ceiling["permissions"] == [
+             "ansible.runs.launch",
+             "devices.remote_access.ssh.ca_bundle.read"
+           ]
+
+    assert plan.execution.credential_snapshot["dynamic_callback_slot"] ==
+             "ssh_ca_callback"
+  end
+
+  test "rejects callback endpoint and lifecycle fields from requests and survey inputs" do
+    for key <- [
+          :callback_url,
+          :callback_origin,
+          :callback_response_policy_provider,
+          :manifest_sha256,
+          :phase,
+          :operation,
+          :state
+        ] do
+      assert {:error, {:raw_launch_scope_or_policy_forbidden, [expected]}} =
+               launch(%{key => "attacker-selected"})
+
+      assert expected == Atom.to_string(key)
+    end
+
+    Process.put(
+      {FakeAdapter, :binding},
+      {:ok,
+       reviewed_binding(%{
+         input_schema: %{"phase" => %{"type" => "text", "required" => true}},
+         input_classifications: %{"phase" => "internal"}
+       })}
+    )
+
+    assert {:error, {:sensitive_binding_input_forbidden, "phase"}} =
+             launch(%{inputs: %{"phase" => "commit"}})
   end
 
   test "passes only binding-declared typed inputs to the planner" do
@@ -372,5 +411,31 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncherTest do
     overrides
     |> request()
     |> SecureChildLauncher.launch(adapter: FakeAdapter, now: @now)
+  end
+
+  defp callback_binding do
+    reviewed_binding(%{
+      callback_actions: ["remote_access.ssh_ca.bundle.read"],
+      callback_credential_type_id: 6,
+      callback_credential_organization_id: 2,
+      callback_credential_injector_digest: String.duplicate("c", 64),
+      callback_credential_slot: "ssh_ca_callback",
+      review_metadata: %{
+        "policy_version" => "ssh-policy-v1",
+        "callback_contract" => %{
+          "schema" => "serviceradar.automation_callback_launch_contract/v1",
+          "action" => "remote_access.ssh_ca.bundle.read",
+          "action_version" => "1.0.0",
+          "request_schema" => "serviceradar.remote_access.ssh_ca_bundle_request/v1",
+          "response_schema" => "serviceradar.remote_access.ssh_ca_bundle/v1",
+          "manifest_sha256" => String.duplicate("a", 64),
+          "phase" => "preflight",
+          "operation" => "enroll",
+          "state" => "present",
+          "policy_version" => "ssh-policy-v1",
+          "ttl_seconds" => 120
+        }
+      }
+    })
   end
 end

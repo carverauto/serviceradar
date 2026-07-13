@@ -41,7 +41,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes do
     store = Keyword.get(opts, :store, AshStore)
     store_context = Keyword.get(opts, :store_context)
 
-    with {:ok, allocation} <- allocate(opts) do
+    with {:ok, allocation} <- allocation(opts) do
       store.transaction(
         fn ->
           with {:ok, issued} <- issue_grant.(allocation.reference, allocation.command_id),
@@ -156,6 +156,39 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes do
     end
   end
 
+  defp allocation(opts) do
+    case Keyword.fetch(opts, :allocation) do
+      {:ok, supplied} -> validate_allocation(supplied, opts)
+      :error -> allocate(opts)
+    end
+  end
+
+  defp validate_allocation(allocation, opts) when is_map(allocation) do
+    reference = value(allocation, :reference)
+    supplied_verifier = value(allocation, :reference_verifier)
+    issued_at = value(allocation, :issued_at)
+
+    with {:ok, command_id} <- canonical_uuid(value(allocation, :command_id)),
+         true <- match?(%DateTime{}, issued_at) || {:error, :invalid_launch_envelope_allocation},
+         {:ok, expected_verifier} <- Cipher.reference_verifier(reference, cipher_opts(opts)),
+         true <-
+           secure_equal?(expected_verifier, supplied_verifier) ||
+             {:error, :invalid_launch_envelope_allocation} do
+      {:ok,
+       %{
+         reference: reference,
+         reference_verifier: supplied_verifier,
+         command_id: command_id,
+         issued_at: DateTime.truncate(issued_at, :microsecond)
+       }}
+    else
+      false -> {:error, :invalid_launch_envelope_allocation}
+      {:error, _reason} -> {:error, :invalid_launch_envelope_allocation}
+    end
+  end
+
+  defp validate_allocation(_allocation, _opts), do: {:error, :invalid_launch_envelope_allocation}
+
   defp issued_grant(%{grant: grant, bearer: bearer, idempotency_key: idempotency_key})
        when is_map(grant) and is_binary(bearer) and is_binary(idempotency_key) do
     case value(grant, :id) do
@@ -216,6 +249,12 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes do
   end
 
   defp canonical_uuid(_value), do: {:error, :invalid_launch_envelope_command_id}
+
+  defp secure_equal?(left, right)
+       when is_binary(left) and is_binary(right) and byte_size(left) == byte_size(right),
+       do: :crypto.hash_equals(left, right)
+
+  defp secure_equal?(_left, _right), do: false
 
   defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
 end

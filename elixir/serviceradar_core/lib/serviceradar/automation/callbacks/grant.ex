@@ -74,6 +74,8 @@ defmodule ServiceRadar.Automation.Callbacks.Grant do
     create :create_pending do
       primary? true
 
+      argument :grant_id, :uuid, allow_nil?: false
+
       accept [
         :operation_id,
         :execution_id,
@@ -117,6 +119,8 @@ defmodule ServiceRadar.Automation.Callbacks.Grant do
         :issued_at,
         :expires_at
       ]
+
+      change set_attribute(:id, arg(:grant_id))
     end
 
     update :activate_bound do

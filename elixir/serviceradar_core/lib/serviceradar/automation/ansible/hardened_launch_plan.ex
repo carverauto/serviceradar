@@ -209,15 +209,21 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlan do
         "verb" => "awx.launch_job"
       }
 
-      {:ok,
-       %{
-         operation: operation,
-         execution: execution,
-         targets: targets,
-         launch_opts: launch_opts,
-         command_context: command_context,
-         snapshot: snapshot
-       }}
+      plan = %{
+        operation: operation,
+        execution: execution,
+        targets: targets,
+        launch_opts: launch_opts,
+        command_context: command_context,
+        snapshot: snapshot
+      }
+
+      plan =
+        if callback_actions == [],
+          do: plan,
+          else: Map.put(plan, :callback_contract, value(intent, :callback_contract))
+
+      {:ok, plan}
     end
   end
 

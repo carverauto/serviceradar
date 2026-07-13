@@ -27,6 +27,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStoreDbTest do
 
   test "persists pending before credential binding and atomically consumes/replays", context do
     assert {:ok, pending} = AshStore.create_pending(context.grant, %{}, nil)
+    assert pending.id == context.grant.id
     assert pending.state == :pending
     assert pending.ephemeral_credential_id == nil
 
@@ -578,7 +579,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStoreDbTest do
     {:ok, policy_digest} = CanonicalJSON.digest(policy)
 
     %{
-      id: Ash.UUID.generate(),
+      id: Ash.UUIDv7.generate(),
       state: :pending,
       tenant_id: "platform",
       parent_run_id: ids.operation,

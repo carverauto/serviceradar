@@ -18,6 +18,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStoreTest do
     grant = pure_grant()
     assert {:ok, attrs} = AshStore.grant_create_attrs(grant)
 
+    assert attrs.grant_id == grant.id
     assert attrs.operation_id == grant.parent_run_id
     assert attrs.execution_id == grant.execution_id
     assert attrs.controller_id == grant.awx_scope_snapshot.controller_id

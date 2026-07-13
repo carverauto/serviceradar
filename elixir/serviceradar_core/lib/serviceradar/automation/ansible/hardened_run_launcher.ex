@@ -8,12 +8,23 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncher do
   plan.
   """
 
+  alias ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator
   alias ServiceRadar.Automation.Ansible.HardenedRunLauncher.AshActions
 
   @spec launch(map(), struct(), keyword()) :: {:ok, map()} | {:error, term()}
   def launch(plan, controller, opts \\ [])
 
   def launch(plan, controller, opts) when is_map(plan) do
+    if callback_enabled?(plan) do
+      CallbackLaunchOrchestrator.launch(plan, controller, opts)
+    else
+      launch_without_callback(plan, controller, opts)
+    end
+  end
+
+  def launch(_plan, _controller, _opts), do: {:error, :invalid_launch_plan}
+
+  defp launch_without_callback(plan, controller, opts) do
     actions = Keyword.get(opts, :actions, AshActions)
 
     with {:ok, persisted} <- actions.persist_plan(plan),
@@ -34,7 +45,7 @@ defmodule ServiceRadar.Automation.Ansible.HardenedRunLauncher do
     end
   end
 
-  def launch(_plan, _controller, _opts), do: {:error, :invalid_launch_plan}
+  defp callback_enabled?(plan), do: List.wrap(get_in(plan, [:operation, :callback_actions])) != []
 
   defp dispatch_context(plan, persisted, opts) do
     plan.command_context
