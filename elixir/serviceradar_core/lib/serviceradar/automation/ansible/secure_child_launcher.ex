@@ -11,10 +11,10 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
   northbound execution must use a separately reviewed delegation path rather
   than substituting a `SystemActor` for the initiating principal.
 
-  Callback-enabled bindings additionally preflight every declared callback
-  action against that same fresh human permission set. They remain fail-closed
-  until a callback gate can atomically persist pending grants with the child
-  plan; no bearer value or callback policy is accepted in launch inputs.
+  Callback-enabled bindings remain fail-closed until a callback action registry
+  can map reviewed action names to RBAC permissions and a callback gate can
+  atomically persist pending grants with the child plan. No bearer value or
+  callback policy is accepted in launch inputs.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -80,7 +80,6 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
              scope,
              normalized.job_template_id,
              normalized.mode,
-             authorization,
              now
            ),
          {:ok, held_device_uids} <- adapter.active_hold_device_uids(scope.device_uids),
@@ -332,8 +331,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
 
   defp validate_controller(_controller, _expected_id), do: {:error, :controller_not_found}
 
-  defp validate_binding(binding, scope, job_template_id, mode, authorization, now)
-       when is_map(binding) do
+  defp validate_binding(binding, scope, job_template_id, mode, now) when is_map(binding) do
     allowed_inventory_ids = List.wrap(value(binding, :allowed_inventory_ids))
     callback_actions = List.wrap(value(binding, :callback_actions))
 
@@ -341,7 +339,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
          :ok <- binding_approval(binding, now),
          :ok <- binding_inventory(allowed_inventory_ids, scope.inventory_id),
          :ok <- binding_mode(binding, mode),
-         :ok <- callback_disabled(callback_actions, authorization),
+         :ok <- callback_disabled(callback_actions),
          {:ok, credential_ids} <- credential_ids(value(binding, :credentials)) do
       {:ok,
        %{
@@ -366,7 +364,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
     end
   end
 
-  defp validate_binding(_binding, _scope, _job_template_id, _mode, _authorization, _now),
+  defp validate_binding(_binding, _scope, _job_template_id, _mode, _now),
     do: {:error, :binding_not_found}
 
   defp binding_identity(binding, controller_id, job_template_id) do
@@ -433,17 +431,9 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
       else: {:error, :binding_mode_not_approved}
   end
 
-  defp callback_disabled([], _authorization), do: :ok
+  defp callback_disabled([]), do: :ok
 
-  defp callback_disabled(actions, %{permissions: %MapSet{} = permissions}) do
-    missing = actions |> Enum.reject(&MapSet.member?(permissions, &1)) |> Enum.sort()
-
-    if missing == [],
-      do: {:error, :callback_gate_unavailable},
-      else: {:error, {:callback_permissions_required, missing}}
-  end
-
-  defp callback_disabled(_actions, _authorization), do: {:error, :fresh_authorization_required}
+  defp callback_disabled(_actions), do: {:error, :callback_gate_unavailable}
 
   defp credential_ids(credentials) when is_list(credentials) and credentials != [] do
     ids = Enum.map(credentials, &value(&1, :id))

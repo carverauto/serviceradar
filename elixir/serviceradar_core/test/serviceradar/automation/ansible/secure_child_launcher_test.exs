@@ -316,14 +316,13 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncherTest do
     refute_receive {:launch, _, _}
   end
 
-  test "rejects callback-enabled bindings until pending-grant gating exists" do
+  test "rejects callback-enabled bindings until the callback action gate exists" do
     Process.put(
       {FakeAdapter, :binding},
       {:ok, reviewed_binding(%{callback_actions: ["remote_access.ssh_ca.bundle.read"]})}
     )
 
-    assert {:error, {:callback_permissions_required, ["remote_access.ssh_ca.bundle.read"]}} =
-             launch()
+    assert {:error, :callback_gate_unavailable} = launch()
 
     Process.put(
       {FakeAdapter, :authorization},
@@ -332,7 +331,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncherTest do
          permissions:
            MapSet.new([
              "ansible.runs.launch",
-             "remote_access.ssh_ca.bundle.read"
+             "devices.remote_access.ssh.ca_bundle.read"
            ])
        })}
     )
