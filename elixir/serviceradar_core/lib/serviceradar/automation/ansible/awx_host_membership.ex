@@ -14,9 +14,11 @@ defmodule ServiceRadar.Automation.Ansible.AwxHostMembership do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Automation.Ansible.Changes.ApproveAwxHostMembership
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_check {ActorHasPermission, permission: "ansible.runs.view"}
+  @manage_check {ActorHasPermission, permission: "ansible.controllers.manage"}
 
   postgres do
     table "ansible_awx_host_memberships"
@@ -143,6 +145,44 @@ defmodule ServiceRadar.Automation.Ansible.AwxHostMembership do
       change set_attribute(:link_disposition, :quarantined)
       change set_attribute(:canonical_device_uid, nil)
     end
+
+    update :approve_link do
+      description "Approve one exact, current, unambiguous AWX-to-device membership link"
+      require_atomic? false
+      accept []
+
+      argument :controller_id, :uuid, allow_nil?: false
+
+      argument :inventory_id, :integer,
+        allow_nil?: false,
+        constraints: [min: 1]
+
+      argument :awx_host_id, :integer,
+        allow_nil?: false,
+        constraints: [min: 1]
+
+      argument :canonical_device_uid, :string,
+        allow_nil?: false,
+        constraints: [min_length: 1, max_length: 1_024]
+
+      argument :source_generation, :integer,
+        allow_nil?: false,
+        constraints: [min: 1]
+
+      argument :source_fingerprint, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\Asha256:[0-9a-f]{64}\z/]
+
+      argument :expected_link_evidence, :map, allow_nil?: false
+
+      argument :link_evidence_digest, :string,
+        allow_nil?: false,
+        constraints: [match: ~r/\A[0-9a-f]{64}\z/]
+
+      argument :approved_at, :utc_datetime_usec, allow_nil?: false
+
+      change ApproveAwxHostMembership
+    end
   end
 
   policies do
@@ -154,6 +194,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxHostMembership do
       [:read, :by_id, :by_source_identity, :current_for_device, :current_for_inventory],
       @view_check
     )
+
+    action_with_permission([:approve_link], @manage_check)
   end
 
   attributes do
