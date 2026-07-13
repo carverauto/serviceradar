@@ -1,0 +1,18 @@
+suite: automation callback keyring
+templates:
+  - templates/secret-generator-job.yaml
+tests:
+  - it: validates existing callback keyrings and never silently replaces them
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'is_valid_callback_keyring_raw'
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-secret-generator
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'Refusing to replace it automatically'
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-secret-generator

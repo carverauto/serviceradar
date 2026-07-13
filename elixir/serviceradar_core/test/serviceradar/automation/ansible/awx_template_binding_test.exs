@@ -160,10 +160,10 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBindingTest do
     )
   end
 
-  test "callback actions require an exact reviewed dynamic credential type and slot" do
+  test "callback actions require the exact reviewed AWX credential contract" do
     refute_valid(
       %{callback_actions: ["remote_access.ssh_ca.bundle.read"]},
-      "dynamic credential type and slot"
+      "credential type, organization, injector digest, and slot"
     )
 
     refute_valid(
@@ -175,6 +175,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBindingTest do
              valid_attrs(%{
                callback_actions: ["remote_access.ssh_ca.bundle.read"],
                callback_credential_type_id: 91,
+               callback_credential_organization_id: 2,
+               callback_credential_injector_digest: String.duplicate("d", 64),
                callback_credential_slot: "ssh_ca_callback"
              })
            ).valid?
@@ -279,6 +281,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBindingTest do
         input_classifications: %{"version" => "internal", "batch_size" => "public"},
         callback_actions: [],
         callback_credential_type_id: nil,
+        callback_credential_organization_id: nil,
+        callback_credential_injector_digest: nil,
         callback_credential_slot: nil,
         awx_created_by_id: 11,
         reviewed_by_principal_type: :human,

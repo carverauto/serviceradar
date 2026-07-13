@@ -24,4 +24,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimit.Bodies do
       error_description: "Too many authentication attempts. Please try again later."
     })
   end
+
+  @doc false
+  def automation_callback(_retry_after), do: ~s({"error":"callback_denied"})
 end

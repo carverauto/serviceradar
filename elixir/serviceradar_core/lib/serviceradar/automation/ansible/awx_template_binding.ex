@@ -158,6 +158,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
         :input_classifications,
         :callback_actions,
         :callback_credential_type_id,
+        :callback_credential_organization_id,
+        :callback_credential_injector_digest,
         :callback_credential_slot,
         :awx_created_by_id,
         :reviewed_by_principal_type,
@@ -334,7 +336,22 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
     attribute :input_schema, :map, allow_nil?: false, default: %{}, public?: true
     attribute :input_classifications, :map, allow_nil?: false, default: %{}, public?: true
     attribute :callback_actions, {:array, :string}, allow_nil?: false, default: [], public?: true
-    attribute :callback_credential_type_id, :integer, allow_nil?: true, public?: true
+
+    attribute :callback_credential_type_id, :integer,
+      allow_nil?: true,
+      public?: true,
+      constraints: [min: 1]
+
+    attribute :callback_credential_organization_id, :integer,
+      allow_nil?: true,
+      public?: true,
+      constraints: [min: 1]
+
+    attribute :callback_credential_injector_digest, :string,
+      allow_nil?: true,
+      public?: true,
+      constraints: [max_length: 64]
+
     attribute :callback_credential_slot, :string, allow_nil?: true, public?: true
 
     attribute :awx_created_by_id, :integer do
@@ -619,18 +636,23 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
   defp validate_callback_contract(changeset) do
     actions = List.wrap(attribute(changeset, :callback_actions))
     credential_type_id = attribute(changeset, :callback_credential_type_id)
+    organization_id = attribute(changeset, :callback_credential_organization_id)
+    injector_digest = attribute(changeset, :callback_credential_injector_digest)
     slot = attribute(changeset, :callback_credential_slot)
+    callback_fields = [credential_type_id, organization_id, injector_digest, slot]
 
     cond do
-      actions == [] and (not is_nil(credential_type_id) or not is_nil(slot)) ->
-        invalid(:callback_actions, "empty callbacks cannot retain a credential type or slot")
+      actions == [] and Enum.any?(callback_fields, &(not is_nil(&1))) ->
+        invalid(:callback_actions, "empty callbacks cannot retain a credential contract")
 
       actions != [] and
           (not is_integer(credential_type_id) or credential_type_id <= 0 or
+             not is_integer(organization_id) or organization_id <= 0 or
+             not is_binary(injector_digest) or not Regex.match?(@sha256_hex, injector_digest) or
              not is_binary(slot) or not Regex.match?(@callback_slot, slot)) ->
         invalid(
           :callback_actions,
-          "callbacks require a reviewed dynamic credential type and slot"
+          "callbacks require a reviewed credential type, organization, injector digest, and slot"
         )
 
       actions != [] and

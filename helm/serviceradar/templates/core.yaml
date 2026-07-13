@@ -52,6 +52,7 @@
 {{- $deviceEnrichmentFsSecret := default "" $deviceEnrichmentFsOverrides.existingSecret -}}
 {{- $deviceEnrichmentFsClaim := default "" $deviceEnrichmentFsOverrides.existingClaim -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
+{{- $automationCallbacks := default (dict) .Values.automationCallbacks -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -525,6 +526,14 @@ spec:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: cloak-key
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_HMAC_KEYRING_FILE
+          value: "/etc/serviceradar/automation-callback/hmac-keyring.json"
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_AWX_CREDENTIAL_TYPE_ID
+          value: {{ default 0 $automationCallbacks.awxCredentialTypeId | quote }}
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_AWX_ORGANIZATION_ID
+          value: {{ default 0 $automationCallbacks.awxOrganizationId | quote }}
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_AWX_INJECTOR_DIGEST
+          value: {{ default "" $automationCallbacks.awxInjectorDigest | quote }}
         - name: GEOLITE_MMDB_SCHEDULER_ENABLED
           value: {{ default false $geoipMmdb.enabled | quote }}
         - name: GEOLITE_MMDB_DOWNLOAD_ENABLED
@@ -577,6 +586,9 @@ spec:
         volumeMounts:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: automation-callback-secrets
+          mountPath: /etc/serviceradar/automation-callback
           readOnly: true
         - name: {{ $cnpgClusterName }}-ca
           mountPath: /etc/serviceradar/cnpg
@@ -636,6 +648,13 @@ spec:
       - name: cert-data
         secret:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+      - name: automation-callback-secrets
+        secret:
+          secretName: {{ $secrets | quote }}
+          defaultMode: 0440
+          items:
+          - key: automation-callback-hmac-keyring
+            path: hmac-keyring.json
       - name: {{ $cnpgClusterName }}-ca
         secret:
           secretName: {{ $cnpgClusterName }}-ca

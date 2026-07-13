@@ -21,6 +21,48 @@ alias ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer,
 
 alias ServiceRadar.Observability.SeasonalDisposition.Worker, as: SeasonalDispositionWorker
 
+# Automation callback bearer verification is file-only: never accept HMAC key
+# material directly from an environment variable where process inspection can
+# expose it. Missing or malformed callback configuration leaves the feature
+# fail-closed.
+case System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_HMAC_KEYRING_FILE") do
+  path when is_binary(path) and path != "" ->
+    verifier_config =
+      ServiceRadar.Automation.CallbackGrants.RuntimeConfig.load_verifier_file!(path)
+
+    config :serviceradar_core, :automation_callback_grants, verifier_config: verifier_config
+
+  _ ->
+    :ok
+end
+
+callback_credential_contract =
+  with {type_id, ""} <-
+         Integer.parse(
+           System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_AWX_CREDENTIAL_TYPE_ID", "")
+         ),
+       true <- type_id > 0,
+       {organization_id, ""} <-
+         Integer.parse(System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_AWX_ORGANIZATION_ID", "")),
+       true <- organization_id > 0,
+       digest when is_binary(digest) <-
+         System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_AWX_INJECTOR_DIGEST"),
+       true <- Regex.match?(~r/\A[0-9a-f]{64}\z/, digest) do
+    [
+      credential_type_id: type_id,
+      organization_id: organization_id,
+      injector_digest: digest
+    ]
+  else
+    _ -> nil
+  end
+
+if callback_credential_contract do
+  config :serviceradar_core,
+         :automation_callback_awx_credential_contract,
+         callback_credential_contract
+end
+
 # Netprobe native add-on package — signed artifact refs for the package seeder.
 # native-addons.yml emits per-arch object_key/sha256/signature refs in its import index;
 # deployments pass them here (as JSON) + the published version so

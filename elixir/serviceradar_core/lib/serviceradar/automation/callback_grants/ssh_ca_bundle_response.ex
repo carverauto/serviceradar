@@ -19,6 +19,10 @@ defmodule ServiceRadar.Automation.CallbackGrants.SshCaBundleResponse do
 
   @request_keys MapSet.new(~w(action schema_version manifest_sha256 phase operation state))
 
+  @approval_snapshot_keys MapSet.new(
+                            ~w(binding_id binding_version approval_id approval_expires_at reviewed_by_principal_type reviewed_by_principal_id reviewed_at review_metadata issued_at)
+                          )
+
   @target_keys MapSet.new(
                  ~w(inventory_hostname inventory_address target_identity ca_keys accounts transaction retirement_proof)
                )
@@ -65,8 +69,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.SshCaBundleResponse do
   def build(grant, request) when is_map(grant) and is_map(request) do
     with {:ok, contract} <- ActionContract.fetch(value(grant, :action)),
          {:ok, expected_request} <- expected_request(grant),
-         {:ok, request} <- string_map(request),
-         :ok <- exact_keys(request, @request_keys, :invalid_callback_request),
+         {:ok, request} <- validate_request(request),
          true <- request == expected_request || {:error, :callback_request_mismatch},
          {:ok, authorization} <- authorization(grant, contract),
          {:ok, targets} <- targets(grant, expected_request, authorization),
@@ -83,13 +86,26 @@ defmodule ServiceRadar.Automation.CallbackGrants.SshCaBundleResponse do
 
   def build(_grant, _request), do: {:error, :invalid_callback_response_input}
 
+  @doc "Validates the exact public SSH CA callback request envelope."
+  @spec validate_request(map()) :: {:ok, map()} | {:error, term()}
+  def validate_request(request) when is_map(request) do
+    with {:ok, request} <- string_map(request),
+         :ok <- exact_keys(request, @request_keys, :invalid_callback_request),
+         :ok <- validate_request_shape(request) do
+      {:ok, request}
+    end
+  end
+
+  def validate_request(_request), do: {:error, :invalid_callback_request}
+
   defp authorization(grant, contract) do
     approval = value(grant, :approval_snapshot) || %{}
     awx = value(grant, :awx_scope_snapshot) || %{}
+    approval_id = value(approval, :approval_id) || value(approval, :id)
 
     authorization = %{
       "permissions" => ActionContract.required_permissions(contract),
-      "policy_approved" => value(approval, :approved) == true,
+      "policy_approved" => approved_snapshot?(approval),
       "binding_verified" => value(grant, :binding_verified) == true,
       "scm_revision" => value(awx, :scm_revision),
       "content_sha256" => value(awx, :content_sha256)
@@ -97,7 +113,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.SshCaBundleResponse do
 
     authorization =
       authorization
-      |> maybe_put("approval_id", value(approval, :id))
+      |> maybe_put("approval_id", approval_id)
       |> maybe_put("binding_id", value(awx, :binding_id))
 
     cond do
@@ -106,6 +122,34 @@ defmodule ServiceRadar.Automation.CallbackGrants.SshCaBundleResponse do
       not digest?(authorization["content_sha256"], 64) -> {:error, :invalid_content_digest}
       not digest?(authorization["scm_revision"], 40..64) -> {:error, :invalid_scm_revision}
       true -> {:ok, authorization}
+    end
+  end
+
+  defp approved_snapshot?(approval) do
+    with {:ok, normalized} <- string_map(approval),
+         :ok <- exact_keys(normalized, @approval_snapshot_keys, :invalid_approval_snapshot),
+         :ok <- nonempty_string(normalized["binding_id"], :invalid_approval_snapshot),
+         true <- is_integer(normalized["binding_version"]) and normalized["binding_version"] > 0,
+         :ok <- nonempty_string(normalized["approval_id"], :invalid_approval_snapshot),
+         true <- datetime_string?(normalized["approval_expires_at"]),
+         true <-
+           normalized["reviewed_by_principal_type"] in [
+             :human,
+             "human",
+             :service_principal,
+             "service_principal"
+           ],
+         :ok <-
+           nonempty_string(
+             normalized["reviewed_by_principal_id"],
+             :invalid_approval_snapshot
+           ),
+         true <- datetime_string?(normalized["reviewed_at"]),
+         true <- is_map(normalized["review_metadata"]),
+         true <- datetime_string?(normalized["issued_at"]) do
+      true
+    else
+      _ -> false
     end
   end
 
@@ -476,6 +520,12 @@ defmodule ServiceRadar.Automation.CallbackGrants.SshCaBundleResponse do
 
   defp nonempty_string(value, _reason) when is_binary(value) and value != "", do: :ok
   defp nonempty_string(_value, reason), do: {:error, reason}
+
+  defp datetime_string?(value) when is_binary(value) do
+    match?({:ok, %DateTime{}, 0}, DateTime.from_iso8601(value))
+  end
+
+  defp datetime_string?(_value), do: false
 
   defp digest?(value, size) when is_integer(size),
     do: is_binary(value) and byte_size(value) == size and Regex.match?(~r/\A[0-9a-f]+\z/, value)

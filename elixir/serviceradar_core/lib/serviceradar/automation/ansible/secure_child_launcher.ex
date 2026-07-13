@@ -359,7 +359,13 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
          job_type: Atom.to_string(mode),
          awx_created_by_id: value(binding, :awx_created_by_id),
          input_classifications: value(binding, :input_classifications),
-         callback_actions: callback_actions
+         callback_actions: callback_actions,
+         callback_credential_type_id: value(binding, :callback_credential_type_id),
+         callback_credential_organization_id:
+           value(binding, :callback_credential_organization_id),
+         callback_credential_injector_digest:
+           value(binding, :callback_credential_injector_digest),
+         callback_credential_slot: value(binding, :callback_credential_slot)
        }}
     end
   end
