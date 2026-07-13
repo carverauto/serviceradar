@@ -268,7 +268,7 @@ data:
       "events": {
         "enabled": true,
         "stream_name": "events",
-        "subjects": ["events.>", "logs.>", "otel.traces.>", "otel.metrics.>", "pdns.ocsf", "pdns.ocsf.>", "signals.analytics.>"]
+        "subjects": ["events.>", "logs.>", "otel.traces.>", "otel.metrics.>", "pdns.ocsf", "pdns.ocsf.>"]
       },
       "snmp": {
         "enabled": false,

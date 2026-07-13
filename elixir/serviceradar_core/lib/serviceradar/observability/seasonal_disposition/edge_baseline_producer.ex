@@ -26,8 +26,9 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
 
   Background Ash access uses `ServiceRadar.Actors.SystemActor` (never
   `authorize?: false`). Tests can inject `:sources`, `:runner`, `:profiles_loader`,
-  `:profile_updater`, and `:reconcile_fun`; production uses the seasonal sources,
-  `SRQLRunner`, and the Ash-backed `AddonProfile` read/update + reconcile.
+  `:profile_updater`, `:reconcile_fun`, and `:heartbeat_recorder`; production uses
+  the seasonal sources, `SRQLRunner`, the Ash-backed `AddonProfile` read/update +
+  reconcile, and the `HealthTracker`-backed heartbeat.
   """
 
   use Oban.Worker,
@@ -40,6 +41,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
     ]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Infrastructure.HealthTracker
   alias ServiceRadar.Observability.SeasonalDisposition.EdgeBaseline
   alias ServiceRadar.Observability.SeasonalDisposition.Source
   alias ServiceRadar.Observability.SeasonalDisposition.Worker
@@ -52,6 +54,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
 
   @addon_id "anomaly"
   @params_key "seasonal_baselines"
+  @heartbeat_check_id "seasonal-baseline-producer"
   @default_interface_top_k_per_device 16
   @default_interface_min_history_weeks 3
   @default_max_baselines_per_agent 1_000
@@ -117,7 +120,12 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
   Build the payload and deliver it. Host baselines are written onto every enabled
   anomaly `AddonProfile`'s profile params; interface baselines are written onto
   matching profile-owned `AddonAssignment.params` after the optional reconcile.
-  Returns a summary map.
+  A profile/assignment whose params already carry a byte-equal
+  `"seasonal_baselines"` payload is skipped, so an unchanged hourly run causes
+  no param writes and no agent config redelivery. Every successful run records
+  a `#{@heartbeat_check_id}` heartbeat health event — the freshness tripwire
+  (`SeasonalBaselineFreshnessWorker`) reads its recency to tell "delivery is
+  running" from "delivery silently died". Returns a summary map.
   """
   @spec reconcile(keyword()) :: {:ok, map()} | {:error, term()}
   def reconcile(opts \\ []) do
@@ -125,23 +133,31 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
 
     with {:ok, delivery} <- build_delivery(opts),
          {:ok, profiles} <- load_profiles(opts, actor),
-         {:ok, updated} <- update_profiles(profiles, delivery.global_baselines, opts, actor),
-         :ok <- maybe_reconcile(updated, opts, actor),
-         {:ok, assignment_summary} <- update_scoped_assignments(updated, delivery, opts, actor) do
-      {:ok,
-       %{
-         series: delivery.stats.global_series + delivery.stats.scoped_series,
-         global_series: delivery.stats.global_series,
-         scoped_series: delivery.stats.scoped_series,
-         scoped_agents: map_size(delivery.scoped_baselines),
-         truncated_series: delivery.stats.cap_dropped,
-         profiles_updated: length(updated),
-         profiles_total: length(profiles),
-         assignments_updated: assignment_summary.updated,
-         assignments_total: assignment_summary.total
-       }}
+         {:ok, {refreshed, changed}} <-
+           update_profiles(profiles, delivery.global_baselines, opts, actor),
+         :ok <- maybe_reconcile(changed, opts, actor),
+         {:ok, assignment_summary} <-
+           update_scoped_assignments(refreshed, delivery, opts, actor) do
+      summary = %{
+        series: delivery.stats.global_series + delivery.stats.scoped_series,
+        global_series: delivery.stats.global_series,
+        scoped_series: delivery.stats.scoped_series,
+        scoped_agents: map_size(delivery.scoped_baselines),
+        truncated_series: delivery.stats.cap_dropped,
+        profiles_updated: length(changed),
+        profiles_total: length(refreshed),
+        assignments_updated: assignment_summary.updated,
+        assignments_total: assignment_summary.total
+      }
+
+      record_heartbeat(summary, opts)
+      {:ok, summary}
     end
   end
+
+  @doc "Health-event entity id of the producer's per-run delivery heartbeat."
+  @spec heartbeat_check_id() :: String.t()
+  def heartbeat_check_id, do: @heartbeat_check_id
 
   @spec enqueue_now(keyword()) :: {:ok, Oban.Job.t()} | {:error, term()}
   def enqueue_now(opts \\ []) do
@@ -425,15 +441,23 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
     end
   end
 
+  # Returns `{:ok, {refreshed, changed}}`: every profile (updated in place when
+  # written), plus the subset that actually changed. A profile already carrying
+  # a byte-equal payload is skipped — no param write, no reconcile fan-out, no
+  # agent config redelivery on unchanged hourly runs.
   defp update_profiles(profiles, baselines, opts, actor) do
     updater = profile_updater(opts)
 
-    Enum.reduce_while(profiles, {:ok, []}, fn profile, {:ok, acc} ->
-      params = merge_params(profile_params(profile), baselines)
+    Enum.reduce_while(profiles, {:ok, {[], []}}, fn profile, {:ok, {refreshed, changed}} ->
+      params = profile_params(profile)
 
-      case updater.(profile, params, actor) do
-        {:ok, updated} -> {:cont, {:ok, [updated | acc]}}
-        {:error, reason} -> {:halt, {:error, reason}}
+      if Map.get(params, @params_key) == baselines do
+        {:cont, {:ok, {[profile | refreshed], changed}}}
+      else
+        case updater.(profile, merge_params(params, baselines), actor) do
+          {:ok, updated} -> {:cont, {:ok, {[updated | refreshed], [updated | changed]}}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
       end
     end)
   end
@@ -454,11 +478,16 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
 
   # An empty payload still writes `seasonal_baselines: %{}`, clearing any stale
   # delivered baselines so the edge reverts to the rolling-only path (back-compat).
+  # No sibling metadata key: the DB-stored package `config.schema.json` (root
+  # `additionalProperties: false`) validates params on every profile/assignment
+  # update, so a key the approved schema does not declare would fail validation
+  # on existing deployments. Run liveness is a health-event heartbeat instead
+  # (`record_heartbeat/2`).
   defp merge_params(params, baselines) when is_map(params) do
     Map.put(params, @params_key, baselines)
   end
 
-  defp merge_params(_params, baselines), do: %{@params_key => baselines}
+  defp merge_params(_params, baselines), do: merge_params(%{}, baselines)
 
   defp profile_params(%AddonProfile{params: params}) when is_map(params), do: params
   defp profile_params(%{params: params}) when is_map(params), do: params
@@ -518,11 +547,17 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
         scope = assignment_agent_uid(assignment)
         scoped = Map.get(delivery.scoped_baselines, scope, %{})
         baselines = Map.merge(delivery.global_baselines, scoped)
-        params = merge_params(assignment_params(assignment), baselines)
+        params = assignment_params(assignment)
 
-        case updater.(assignment, params, actor) do
-          {:ok, _updated} -> {:cont, {:ok, %{stats | updated: stats.updated + 1}}}
-          {:error, reason} -> {:halt, {:error, reason}}
+        if Map.get(params, @params_key) == baselines do
+          # Unchanged payload: skip the write (and the config redelivery it
+          # would trigger on the agent).
+          {:cont, {:ok, stats}}
+        else
+          case updater.(assignment, merge_params(params, baselines), actor) do
+            {:ok, _updated} -> {:cont, {:ok, %{stats | updated: stats.updated + 1}}}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
         end
       end
     )
@@ -567,6 +602,56 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer do
         :ok
 
       _ ->
+        :ok
+    end
+  end
+
+  # Per-run delivery heartbeat (freshness-tripwire contract). The
+  # `SeasonalBaselineFreshnessWorker` judges delivery liveness by the RECENCY
+  # of this health event, so a row must land on EVERY successful run —
+  # `HealthTracker.record_health_check/3` dedupes unchanged states, which
+  # would freeze the recency signal while the producer stays healthy, so the
+  # (idempotent) healthy state change is recorded directly. Best-effort: a
+  # failed heartbeat write never fails a reconcile whose delivery writes
+  # already succeeded.
+  defp record_heartbeat(summary, opts) do
+    recorder = Keyword.get(opts, :heartbeat_recorder, &default_heartbeat_recorder/1)
+
+    recorder.(%{
+      profiles: summary.profiles_total,
+      assignments: summary.assignments_total,
+      profiles_updated: summary.profiles_updated,
+      assignments_updated: summary.assignments_updated,
+      series: summary.series
+    })
+
+    :ok
+  rescue
+    error ->
+      Logger.warning("Failed to record seasonal edge baseline heartbeat",
+        check: @heartbeat_check_id,
+        reason: inspect(error)
+      )
+
+      :ok
+  end
+
+  defp default_heartbeat_recorder(metadata) do
+    case HealthTracker.record_state_change(:core, @heartbeat_check_id,
+           old_state: :healthy,
+           new_state: :healthy,
+           reason: :heartbeat,
+           metadata: metadata
+         ) do
+      {:ok, _event} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to record seasonal edge baseline heartbeat",
+          check: @heartbeat_check_id,
+          reason: inspect(reason)
+        )
+
         :ok
     end
   end

@@ -25,7 +25,8 @@ defmodule ServiceRadar.Observability.CapacityForecastConfigTest do
       :warning_threshold_percent,
       :model,
       :minimum_history_points,
-      :metric_class_overrides
+      :metric_class_overrides,
+      :default_source_opt_ins
     ]
 
     assert create_action.accept == expected_fields
@@ -62,6 +63,37 @@ defmodule ServiceRadar.Observability.CapacityForecastConfigTest do
 
     assert attributes.metric_class_overrides.default |> Map.keys() |> Enum.sort() ==
              ["cpu", "disk", "flow", "interface", "memory"]
+
+    assert attributes.default_source_opt_ins.default == []
+    refute attributes.default_source_opt_ins.allow_nil?
+  end
+
+  test "source opt-ins accept only the bursty opt-in sources" do
+    invalid =
+      Ash.Changeset.for_create(CapacityForecastConfig, :create, %{
+        default_source_opt_ins: ["cpu_usage", "bogus_source"]
+      })
+
+    refute invalid.valid?
+
+    assert Enum.any?(invalid.errors, fn error ->
+             Map.get(error, :field) == :default_source_opt_ins
+           end)
+
+    valid =
+      Ash.Changeset.for_create(CapacityForecastConfig, :create, %{
+        default_source_opt_ins: ["cpu_usage", "interface_rate", "flow_bytes_per_hour"]
+      })
+
+    assert valid.valid?
+  end
+
+  test "opt-in migration adds the text[] column with an empty array default" do
+    migration =
+      File.read!("priv/repo/migrations/20260712113000_add_capacity_forecast_source_opt_ins.exs")
+
+    assert migration =~ "ALTER TABLE platform.capacity_forecast_configs"
+    assert migration =~ "default_source_opt_ins text[] NOT NULL DEFAULT '{}'::text[]"
   end
 
   test "migration creates unseeded platform forecast config with guard constraints" do

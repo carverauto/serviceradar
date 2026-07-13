@@ -18,6 +18,7 @@ defmodule ServiceRadar.Plugins.AddonProfile do
   alias ServiceRadar.Plugins.Changes.SetAssignmentAddonId
   alias ServiceRadar.Plugins.Validations.AddonAssignmentParams
   alias ServiceRadar.Plugins.Validations.AddonPackageApproved
+  alias ServiceRadar.Plugins.Validations.SingleEnabledAddonProfile
 
   @mutable_fields [
     :name,
@@ -69,15 +70,22 @@ defmodule ServiceRadar.Plugins.AddonProfile do
       change ApplyAddonConfigDefaults
       validate AddonPackageApproved
       validate AddonAssignmentParams
+      validate SingleEnabledAddonProfile
     end
 
     update :update do
+      # SingleEnabledAddonProfile requires a cross-row read ({:not_atomic, ..}),
+      # so updates must fall back to the non-atomic path (where validate/3
+      # runs) instead of erroring MustBeAtomic.
+      require_atomic? false
+
       accept @mutable_fields ++ [:last_reconciled_at, :last_reconcile_summary]
 
       change SetAssignmentAddonId
       change ApplyAddonConfigDefaults
       validate AddonPackageApproved
       validate AddonAssignmentParams
+      validate SingleEnabledAddonProfile
     end
 
     action :preview do

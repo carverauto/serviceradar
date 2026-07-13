@@ -159,6 +159,53 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistryTest do
     refute_receive {:tripwire, _, _}, 100
   end
 
+  describe "enabled?/0" do
+    setup do
+      previous_env_var = System.get_env("EVENT_WRITER_ANOMALY_EPISODES")
+
+      on_exit(fn ->
+        case previous_env_var do
+          nil -> System.delete_env("EVENT_WRITER_ANOMALY_EPISODES")
+          value -> System.put_env("EVENT_WRITER_ANOMALY_EPISODES", value)
+        end
+      end)
+
+      Application.delete_env(:serviceradar_core, :anomaly_episodes_enabled)
+      System.delete_env("EVENT_WRITER_ANOMALY_EPISODES")
+      :ok
+    end
+
+    test "defaults to enabled" do
+      assert AnomalyEpisodeRegistry.enabled?()
+    end
+
+    test "env var kill switch disables the registry" do
+      for value <- ["false", "0", "no", "off", " False "] do
+        System.put_env("EVENT_WRITER_ANOMALY_EPISODES", value)
+        refute AnomalyEpisodeRegistry.enabled?()
+      end
+
+      System.put_env("EVENT_WRITER_ANOMALY_EPISODES", "true")
+      assert AnomalyEpisodeRegistry.enabled?()
+    end
+
+    test "app env override wins over the env var" do
+      System.put_env("EVENT_WRITER_ANOMALY_EPISODES", "true")
+      Application.put_env(:serviceradar_core, :anomaly_episodes_enabled, false)
+
+      refute AnomalyEpisodeRegistry.enabled?()
+    end
+
+    test "kill switch passes rows through without episode upserts" do
+      System.put_env("EVENT_WRITER_ANOMALY_EPISODES", "false")
+
+      row = anomaly_row("anomaly_open", severity_id: 4)
+
+      assert [^row] = AnomalyEpisodeRegistry.transition_rows([row], RepoStub)
+      refute_receive {:episode_upsert, _params}, 100
+    end
+  end
+
   test "complete projection falls back to finding UID and opened_at for legacy producers" do
     row = anomaly_row("anomaly_open", severity_id: 4)
 

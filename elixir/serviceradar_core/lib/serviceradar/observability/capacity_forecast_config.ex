@@ -11,6 +11,8 @@ defmodule ServiceRadar.Observability.CapacityForecastConfig do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Observability.CapacityForecasting.Source
+
   @manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
                  permission: "observability.alerts.manage"}
   @fields [
@@ -19,7 +21,8 @@ defmodule ServiceRadar.Observability.CapacityForecastConfig do
     :warning_threshold_percent,
     :model,
     :minimum_history_points,
-    :metric_class_overrides
+    :metric_class_overrides,
+    :default_source_opt_ins
   ]
   @default_metric_class_overrides %{
     "interface" => %{},
@@ -66,6 +69,9 @@ defmodule ServiceRadar.Observability.CapacityForecastConfig do
     update :update do
       description "Update capacity forecast configuration"
       accept @fields
+      # The opt-in subset validation runs in-process; the singleton row does
+      # not need an atomic update.
+      require_atomic? false
     end
   end
 
@@ -82,6 +88,10 @@ defmodule ServiceRadar.Observability.CapacityForecastConfig do
                less_than_or_equal_to: {:ref, :forecast_horizon_seconds}
              ),
              message: "must be less than or equal to forecast horizon"
+
+    validate fn changeset, _context ->
+      validate_source_opt_ins(changeset)
+    end
   end
 
   attributes do
@@ -140,6 +150,37 @@ defmodule ServiceRadar.Observability.CapacityForecastConfig do
       description "Per-metric-class forecast overrides keyed by interface, cpu, memory, disk, or flow"
     end
 
+    attribute :default_source_opt_ins, {:array, :string} do
+      allow_nil? false
+      default []
+      public? true
+
+      description "Bursty forecast sources opted in beyond the monotone defaults (cpu_usage, interface_rate, flow_bytes_per_hour)"
+    end
+
     timestamps()
+  end
+
+  # memory_usage and disk_usage always forecast; only the bursty sources the
+  # worker excludes by default are valid opt-ins (Settings UI contract).
+  defp validate_source_opt_ins(changeset) do
+    case Ash.Changeset.fetch_change(changeset, :default_source_opt_ins) do
+      {:ok, opt_ins} when is_list(opt_ins) ->
+        allowed = Source.opt_in_names()
+
+        case Enum.reject(opt_ins, &(&1 in allowed)) do
+          [] ->
+            :ok
+
+          unknown ->
+            {:error,
+             field: :default_source_opt_ins,
+             message: "must be a subset of #{Enum.join(allowed, ", ")}",
+             vars: [unknown: Enum.join(unknown, ", ")]}
+        end
+
+      _ ->
+        :ok
+    end
   end
 end

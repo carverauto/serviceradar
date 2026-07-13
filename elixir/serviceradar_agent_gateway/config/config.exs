@@ -98,4 +98,12 @@ config :serviceradar_core,
     ServiceRadar.Spatial
   ]
 
+# The gateway joins the ERTS cluster and stays in the Horde registry CRDT mesh
+# (it *writes* the control-stream/agent entries core reads — see
+# ServiceRadar.ProcessRegistry.join_process_registry?/0), but it must never
+# host distributed processes: the gateway runs without the core Repo, so a
+# StatefulAlertEngine shard (or any repo-backed worker) placed here would load
+# zero rules and silently drop alert evaluations.
+config :serviceradar_core, host_distributed_processes: false
+
 import_config "#{config_env()}.exs"

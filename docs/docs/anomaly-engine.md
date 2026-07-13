@@ -147,6 +147,13 @@ Still-open heartbeats update the episode row (`last_seen_at`, peak fields,
 occurrence count) and do not create new OCSF rows. Stale close sweeps prevent
 producer crashes from leaving permanent open episodes.
 
+Episode folding in the event writer is enabled by default.
+`EVENT_WRITER_ANOMALY_EPISODES` is a kill switch: set it to `false`, `0`, `no`,
+or `off` to disable episode state and write every anomaly row through to
+`ocsf_events`. The stale-close sweep derives its threshold from the emission
+settings as `max(2 × episode heartbeat, 30 minutes)`, so a single delayed
+heartbeat cannot stale-close a live episode.
+
 ## Severity And Scores
 
 Severity is intentionally not a direct mapping from an unbounded accumulator.
@@ -180,7 +187,9 @@ detected transitions = emitted transitions + folded episode updates + shed-accou
 ```
 
 Core also emits an operational tripwire when anomaly upserts exceed expected
-rate, so a stale or regressed add-on is visible quickly.
+rate, so a stale or regressed add-on is visible quickly. The inverse failure,
+a silently dead pipeline, is covered by the scheduled tripwires in
+[Liveness Tripwires](#liveness-tripwires).
 
 ## Capacity Forecasting
 
@@ -199,6 +208,15 @@ A projected finding requires:
 
 Findings emit on state transitions (`projected` to `cleared` and back), not once
 per series per hourly run.
+
+The excluded bursty sources are explicit opt-ins. Set
+`SERVICERADAR_CAPACITY_FORECASTING_SOURCE_OPT_INS` (comma-separated:
+`cpu_usage`, `interface_rate`, `flow_bytes_per_hour`) or select sources in
+**Settings > Anomaly Detection**. A non-empty Settings selection overrides the
+env list; an untouched Settings value leaves the env opt-ins in effect. Unknown
+names are logged and ignored, and the valid subset still runs. Series the
+worker declines to forecast are recorded with a skip reason and summarized on
+the Observability health page, so "no forecasts" is explainable in-product.
 
 ## Configuration Delivery
 
@@ -222,12 +240,19 @@ managed defaults < operator-explicit top-level profile/assignment params
 The baseline producer writes `seasonal_baselines`; the config projector writes
 `managed`. The writers are intentionally disjoint.
 
+The projector is enabled by default and its cron ships in the production
+release (default `57 * * * *`), so operator Settings reach the edge without
+extra deployment config. The projector writes only the reserved `managed`
+sub-key; operator-explicit top-level profile or assignment params still win.
+
 Kill switches exist at multiple layers:
 
 - per-class `enabled=false`.
 - per-class `drift_mode=off`.
-- projector env flag `SERVICERADAR_ANOMALY_EDGE_CONFIG_PROJECTION`.
-- event-writer episode flag for ingest rollout.
+- projector env flag `SERVICERADAR_ANOMALY_EDGE_CONFIG_PROJECTION` (default
+  `true`; set `false` to stop projecting Settings to the edge).
+- event-writer episode kill switch `EVENT_WRITER_ANOMALY_EPISODES` (default
+  on; set `false` to fall back to per-row anomaly ingest).
 
 ## Alert Pipeline
 
@@ -240,6 +265,41 @@ liveness check injects a synthetic confirmed episode and verifies:
 3. the alert recovers on clear.
 
 This protects against silent subject or schema cutovers in the event stream.
+
+Seeded alert rules are version-reconciled at boot: rules the seeder created
+carry a `managed` marker and a `template_version`, and managed rules behind the
+current template are upgraded in place. Operator-modified rules are skipped and
+logged; clearing `managed` permanently detaches a rule from the seeder. A
+one-time repair migration also fixes pre-cutover seeded rules whose
+`subject_prefix` still pointed at the legacy `signals.causal.predictions`
+subject.
+
+## Liveness Tripwires
+
+Silence is monitored in both directions: the over-rate tripwire catches a
+flooding add-on, and three coordinator-scheduled tripwires catch the opposite
+failure, a silently dead pipeline. Each emits an operational health event on
+failure:
+
+- **Alert-path liveness**: replays a synthetic episode open and clear through
+  the rule engine and asserts the seeded rule contract.
+  `SERVICERADAR_ANOMALY_LIVENESS_ENABLED` (default `true`),
+  `SERVICERADAR_ANOMALY_LIVENESS_CRON` (default `23 */6 * * *`).
+- **Ingest silence**: fires when zero anomaly upserts arrive for
+  `SERVICERADAR_ANOMALY_SILENCE_HOURS` (default `6`) while
+  `timeseries_metrics` ingest is alive.
+  `SERVICERADAR_ANOMALY_SILENCE_TRIPWIRE_ENABLED` (default `true`),
+  `SERVICERADAR_ANOMALY_SILENCE_TRIPWIRE_CRON` (default `7 * * * *`).
+- **Baseline-delivery liveness**: the edge-baseline producer records a
+  `seasonal-baseline-producer` heartbeat health event on every successful
+  delivery run; this fires when no heartbeat landed within
+  `SERVICERADAR_SEASONAL_BASELINE_FRESHNESS_HOURS` (default `26`).
+  `SERVICERADAR_SEASONAL_BASELINE_TRIPWIRE_ENABLED` (default `true`),
+  `SERVICERADAR_SEASONAL_BASELINE_TRIPWIRE_CRON` (default `37 * * * *`).
+
+The add-on side `drift_inactive_no_baseline` counter is surfaced on the health
+page so bounded silence (no baseline delivered yet) is visibly different from
+broken delivery.
 
 ## Verification Gates
 

@@ -78,6 +78,53 @@ defmodule ServiceRadar.Observability.AnomalyConfigSeederTest do
     assert attrs.metric_class_overrides["disk"]["warning_threshold_percent"] == 85.0
   end
 
+  test "forecast seed attrs parse comma-separated source opt-ins" do
+    env = %{
+      "SERVICERADAR_CAPACITY_FORECASTING_SOURCE_OPT_INS" =>
+        "cpu_usage, interface_rate,,cpu_usage,bogus_source,memory_usage"
+    }
+
+    attrs = AnomalyConfigSeeder.forecast_attrs_from_env(&Map.get(env, &1))
+
+    # memory_usage forecasts by default and bogus_source is unknown; only the
+    # resource's allowed opt-ins survive so first-boot creation cannot fail.
+    assert attrs.default_source_opt_ins == ["cpu_usage", "interface_rate"]
+  end
+
+  test "absent source opt-in env seeds an empty opt-in list" do
+    attrs = AnomalyConfigSeeder.forecast_attrs_from_env(fn _ -> nil end)
+
+    assert attrs.default_source_opt_ins == []
+  end
+
+  test "empty JSON map env values seed the code defaults instead of empty maps" do
+    env = %{
+      "SERVICERADAR_ANOMALY_METRIC_CLASS_OVERRIDES_JSON" => "{}",
+      "SERVICERADAR_ANOMALY_EMISSION_JSON" => "{}",
+      "SERVICERADAR_CAPACITY_FORECAST_CONFIG_METRIC_CLASS_OVERRIDES_JSON" => "{}"
+    }
+
+    anomaly_attrs = AnomalyConfigSeeder.anomaly_attrs_from_env(&Map.get(env, &1))
+    forecast_attrs = AnomalyConfigSeeder.forecast_attrs_from_env(&Map.get(env, &1))
+
+    assert anomaly_attrs.metric_class_overrides["cpu"]["drift_mode"] == "deseasonalized_only"
+    assert anomaly_attrs.metric_class_overrides["disk"]["drift_mode"] == "off"
+    assert anomaly_attrs.emission["cooldown_secs"] == 300
+
+    assert forecast_attrs.metric_class_overrides |> Map.keys() |> Enum.sort() ==
+             ["cpu", "disk", "flow", "interface", "memory"]
+  end
+
+  test "explicit non-empty override env replaces the code defaults" do
+    env = %{
+      "SERVICERADAR_ANOMALY_METRIC_CLASS_OVERRIDES_JSON" => ~s({"cpu":{"drift_mode":"off"}})
+    }
+
+    attrs = AnomalyConfigSeeder.anomaly_attrs_from_env(&Map.get(env, &1))
+
+    assert attrs.metric_class_overrides == %{"cpu" => %{"drift_mode" => "off"}}
+  end
+
   test "anomaly seed attrs clamp out-of-range numeric env values" do
     env = %{
       "SERVICERADAR_ANOMALY_N_SIGMA" => "50",

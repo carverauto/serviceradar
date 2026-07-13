@@ -1,9 +1,14 @@
 defmodule ServiceRadar.Edge.AgentConfigGeneratorProtoTest do
-  use ExUnit.Case, async: true
+  # async: false — the delivery-resumed test temporarily raises the global
+  # Logger level to :info (config/test.exs pins :warning, which silently
+  # filters the Logger.info line the test asserts on).
+  use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
 
   alias ServiceRadar.Edge.AgentConfigGenerator
+
+  require Logger
 
   # Params that stay schema-invalid after coercion: the coercion helpers
   # leave unparseable scalars untouched, so this fails integer validation
@@ -218,6 +223,10 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorProtoTest do
     end
 
     test "error log is deduped for identical refused params and re-fires after recovery" do
+      previous_level = Logger.level()
+      Logger.configure(level: :info)
+      on_exit(fn -> Logger.configure(level: previous_level) end)
+
       agent = "agent-dedup-#{System.unique_integer([:positive])}"
 
       first = capture_log(fn -> render_addons([netprobe_addon(@uncoercible_params)], agent) end)

@@ -6,6 +6,11 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
   enabled, unchanged anomaly evaluations update `platform.anomaly_episodes` and
   are withheld from the event log; opens, severity escalations, and clears still
   pass through as OCSF transition rows.
+
+  The registry is enabled by default. `EVENT_WRITER_ANOMALY_EPISODES` is a kill
+  switch: set it to `false`/`0`/`no`/`off` to disable episode folding and write
+  every anomaly row through to `ocsf_events`. The `:anomaly_episodes_enabled`
+  app env wins over the env var when set to a boolean.
   """
 
   alias ServiceRadar.Events.InternalLogPublisher
@@ -166,10 +171,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
         app_env
 
       is_binary(System.get_env(@feature_flag_env)) ->
-        @feature_flag_env |> System.get_env() |> truthy_env?()
+        @feature_flag_env |> System.get_env() |> falsy_env?() |> Kernel.not()
 
       true ->
-        false
+        true
     end
   end
 
@@ -859,12 +864,12 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
     |> IO.iodata_to_binary()
   end
 
-  defp truthy_env?(value) when is_binary(value) do
+  defp falsy_env?(value) when is_binary(value) do
     value
     |> String.trim()
     |> String.downcase()
-    |> Kernel.in(["1", "true", "yes", "on"])
+    |> Kernel.in(["0", "false", "no", "off"])
   end
 
-  defp truthy_env?(_value), do: false
+  defp falsy_env?(_value), do: false
 end

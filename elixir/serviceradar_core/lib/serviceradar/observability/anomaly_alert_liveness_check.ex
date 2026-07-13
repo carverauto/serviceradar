@@ -20,6 +20,7 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessCheck do
 
   @rule_name "causal_prediction_health_finding"
   @alert_title "Anomaly Finding"
+  @default_device_uid "sr:anomaly-alert-liveness"
   @default_timeout_ms 5_000
   @poll_ms 100
 
@@ -35,7 +36,7 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessCheck do
   @spec run(keyword()) :: {:ok, result()} | {:error, term()}
   def run(opts \\ []) do
     now = Keyword.get(opts, :now, DateTime.utc_now())
-    device_uid = Keyword.get(opts, :device_uid, "sr:anomaly-alert-liveness")
+    device_uid = Keyword.get(opts, :device_uid, @default_device_uid)
     series_key = Keyword.get(opts, :series_key, unique_series_key(now))
     timeout_ms = Keyword.get(opts, :timeout_ms, @default_timeout_ms)
     actor = Keyword.get(opts, :actor, SystemActor.system(:anomaly_alert_liveness))
@@ -61,6 +62,19 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessCheck do
          resolved_at: resolved.resolved_at
        }}
     end
+  end
+
+  @doc """
+  Best-effort cleanup after an interrupted run: injects the synthetic clear
+  transition for `series_key` so a lingering open liveness alert resolves.
+  Safe when nothing is open — the engine treats an unmatched clear as a no-op.
+  """
+  @spec emit_clear(String.t(), keyword()) :: :ok | {:error, term()}
+  def emit_clear(series_key, opts \\ []) when is_binary(series_key) do
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+    device_uid = Keyword.get(opts, :device_uid, @default_device_uid)
+
+    StatefulAlertEngine.evaluate_events([event(:clear, now, device_uid, series_key)])
   end
 
   defp seed_rules do

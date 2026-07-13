@@ -83,6 +83,65 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
     assert payload["max_bytes"] == 10_737_418_240
   end
 
+  test "scoped stream opts keep shape options for the requested stream" do
+    opts = [
+      stream_name: "analytics_predictions",
+      stream_retention: "limits",
+      stream_max_bytes: 1_073_741_824
+    ]
+
+    assert JetstreamConsumer.scoped_stream_opts(opts, "analytics_predictions") == opts
+  end
+
+  test "scoped stream opts keep shape options when only stream-name case normalization differs" do
+    opts = [stream_name: "EVENTS", stream_retention: "limits", stream_max_bytes: 8_589_934_592]
+
+    assert JetstreamConsumer.scoped_stream_opts(opts, "events") == opts
+  end
+
+  test "scoped stream opts drop shape options when discovery resolved a different stream" do
+    opts = [
+      stream_name: "analytics_predictions",
+      consumer_name: "serviceradar-event-writer-analytics-predictions",
+      filter_subject: "signals.analytics.predictions.>",
+      stream_retention: "limits",
+      stream_storage: "file",
+      stream_discard: "old",
+      stream_replicas: 1,
+      stream_max_bytes: 1_073_741_824,
+      stream_max_age: 86_400_000_000_000,
+      stream_duplicate_window: 120_000_000_000
+    ]
+
+    scoped = JetstreamConsumer.scoped_stream_opts(opts, "events")
+
+    assert Keyword.get(scoped, :stream_name) == "analytics_predictions"
+
+    assert Keyword.get(scoped, :consumer_name) ==
+             "serviceradar-event-writer-analytics-predictions"
+
+    assert Keyword.get(scoped, :filter_subject) == "signals.analytics.predictions.>"
+
+    for shape_opt <- [
+          :stream_retention,
+          :stream_storage,
+          :stream_discard,
+          :stream_replicas,
+          :stream_max_bytes,
+          :stream_max_age,
+          :stream_duplicate_window
+        ] do
+      refute Keyword.has_key?(scoped, shape_opt),
+             "expected #{inspect(shape_opt)} to be dropped for the fallback stream"
+    end
+  end
+
+  test "scoped stream opts keep shape options when no stream was requested" do
+    opts = [stream_max_bytes: 1_073_741_824]
+
+    assert JetstreamConsumer.scoped_stream_opts(opts, "sflow_raw") == opts
+  end
+
   test "normalized subjects keeps non-overlapping subjects" do
     assert JetstreamConsumer.normalized_subjects(["metrics.sysmon.*"], "metrics.snmp.>") ==
              ["metrics.sysmon.*", "metrics.snmp.>"]
@@ -139,6 +198,48 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
     assert payload.config.max_ack_pending == 256
     assert payload.config.max_deliver == 5
     refute Map.has_key?(payload.config, :deliver_subject)
+  end
+
+  test "subject overlap errors are recognized by err_code and description" do
+    assert JetstreamConsumer.subject_overlap_error?(%{
+             "code" => 400,
+             "err_code" => 10_065,
+             "description" => "subjects overlap with an existing stream"
+           })
+
+    assert JetstreamConsumer.subject_overlap_error?(%{"err_code" => 10_065})
+    assert JetstreamConsumer.subject_overlap_error?("subjects overlap with an existing stream")
+
+    refute JetstreamConsumer.subject_overlap_error?(%{
+             "code" => 400,
+             "err_code" => 10_058,
+             "description" => "stream name already in use"
+           })
+
+    refute JetstreamConsumer.subject_overlap_error?(:timeout)
+  end
+
+  test "overlap fallback re-resolves onto the stream owning the subject" do
+    assert JetstreamConsumer.overlap_fallback_stream({:ok, ["events"]}, "analytics_predictions") ==
+             {:ok, "events"}
+
+    assert JetstreamConsumer.overlap_fallback_stream(
+             {:ok, ["analytics_predictions", "events"]},
+             "analytics_predictions"
+           ) == {:ok, "events"}
+  end
+
+  test "overlap fallback keeps the original error when discovery finds no other stream" do
+    assert JetstreamConsumer.overlap_fallback_stream({:ok, []}, "analytics_predictions") ==
+             :error
+
+    assert JetstreamConsumer.overlap_fallback_stream(
+             {:ok, ["analytics_predictions"]},
+             "analytics_predictions"
+           ) == :error
+
+    assert JetstreamConsumer.overlap_fallback_stream({:error, :timeout}, "analytics_predictions") ==
+             :error
   end
 
   test "immutable push pull consumer shape errors require durable recreation" do

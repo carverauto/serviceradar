@@ -44,7 +44,29 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
     limit = Keyword.get(opts, :limit, @default_limit)
     include_sources = source_name_set(Keyword.get(opts, :include_sources, []))
 
-    all_sources = [
+    Enum.filter(all_sources(time_range, limit), fn source ->
+      MapSet.member?(@default_source_names, source.name) or
+        MapSet.member?(include_sources, source.name)
+    end)
+  end
+
+  @doc """
+  Names of the opt-in (non-default) forecast sources, in definition order.
+
+  The single source of truth for every opt-in allowlist: the resource
+  validation, the first-boot seeder filter, the worker's run-time validation,
+  and the Settings UI checkbox list all derive from this.
+  """
+  @spec opt_in_names() :: [String.t()]
+  def opt_in_names do
+    @default_time_range
+    |> all_sources(@default_limit)
+    |> Enum.map(& &1.name)
+    |> Enum.reject(&MapSet.member?(@default_source_names, &1))
+  end
+
+  defp all_sources(time_range, limit) do
+    [
       %__MODULE__{
         name: "cpu_usage",
         resource_type: "cpu",
@@ -123,11 +145,6 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
         value_unit: "bytes"
       }
     ]
-
-    Enum.filter(all_sources, fn source ->
-      MapSet.member?(@default_source_names, source.name) or
-        MapSet.member?(include_sources, source.name)
-    end)
   end
 
   @spec from_config(map() | keyword() | t()) :: t()
@@ -177,7 +194,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
   end
 
   defp source_name_set(:all),
-    do: MapSet.new(~w(cpu_usage memory_usage disk_usage interface_rate flow_bytes_per_hour))
+    do: MapSet.new(all_sources(@default_time_range, @default_limit), & &1.name)
 
   defp source_name_set("all"), do: source_name_set(:all)
 
