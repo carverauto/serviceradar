@@ -227,10 +227,18 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
   end
 
   describe "fetch_job_host_summaries/3" do
-    test "carries job_id" do
+    test "carries job_id and a bounded default" do
       assert {:ok, _} = AwxClient.fetch_job_host_summaries(controller(), 7331, dispatch_opts())
       assert_receive {:dispatch, "agent-a", "awx.fetch_job_host_summaries", payload, _opts}
-      assert payload["args"] == %{"job_id" => 7331}
+      assert payload["args"] == %{"job_id" => 7331, "max_hosts" => 1_000}
+    end
+
+    test "accepts an exact upper bound for scope verification" do
+      assert {:ok, _} =
+               AwxClient.fetch_job_host_summaries(controller(), 7331, 3, dispatch_opts())
+
+      assert_receive {:dispatch, "agent-a", "awx.fetch_job_host_summaries", payload, _opts}
+      assert payload["args"] == %{"job_id" => 7331, "max_hosts" => 3}
     end
   end
 

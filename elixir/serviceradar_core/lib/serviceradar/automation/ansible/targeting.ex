@@ -346,16 +346,16 @@ defmodule ServiceRadar.Automation.Ansible.Targeting do
   end
 
   defp verify_job_markers(job, dispatch_id, snapshot_digest) do
-    extra_vars = value(job, :extra_vars)
+    dispatch_markers = value(job, :dispatch_markers)
 
     cond do
-      not is_map(extra_vars) ->
+      not is_map(dispatch_markers) ->
         {:error, :accepted_markers_missing}
 
-      value(extra_vars, :serviceradar_dispatch_id) != dispatch_id ->
+      value(dispatch_markers, :serviceradar_dispatch_id) != dispatch_id ->
         {:error, :accepted_dispatch_id_mismatch}
 
-      value(extra_vars, :serviceradar_snapshot_digest) != snapshot_digest ->
+      value(dispatch_markers, :serviceradar_snapshot_digest) != snapshot_digest ->
         {:error, :accepted_snapshot_digest_mismatch}
 
       true ->

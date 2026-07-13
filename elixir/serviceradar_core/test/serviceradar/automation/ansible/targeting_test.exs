@@ -143,7 +143,7 @@ defmodule ServiceRadar.Automation.Ansible.TargetingTest do
       job = %{
         inventory_id: 34,
         host_limit: "farm01-pve01",
-        extra_vars: %{
+        dispatch_markers: %{
           "serviceradar_dispatch_id" => "dispatch-1",
           "serviceradar_snapshot_digest" => plan.target_digest
         }
@@ -159,7 +159,7 @@ defmodule ServiceRadar.Automation.Ansible.TargetingTest do
       job = %{
         inventory_id: 34,
         host_limit: "farm01-pve01",
-        extra_vars: %{
+        dispatch_markers: %{
           "serviceradar_dispatch_id" => "wrong",
           "serviceradar_snapshot_digest" => plan.target_digest
         }
@@ -170,7 +170,7 @@ defmodule ServiceRadar.Automation.Ansible.TargetingTest do
       assert {:error, :accepted_dispatch_id_mismatch} =
                Targeting.verify_job_scope(plan, job, summaries, "dispatch-1")
 
-      corrected = put_in(job, [:extra_vars, "serviceradar_dispatch_id"], "dispatch-1")
+      corrected = put_in(job, [:dispatch_markers, "serviceradar_dispatch_id"], "dispatch-1")
 
       assert {:error, :job_host_scope_mismatch} =
                Targeting.verify_job_scope(

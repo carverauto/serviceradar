@@ -40,6 +40,7 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlan do
     with :ok <- validate_mode(mode),
          :ok <- validate_actor(actor),
          {:ok, membership_targets} <- validate_memberships(memberships, held_device_uids),
+         :ok <- validate_target_ceiling(actor, membership_targets),
          {:ok, group_names} <- inventory_group_names(binding),
          {:ok, child} <- Targeting.build_child(membership_targets, controller_id, group_names),
          {:ok, reviewed_binding} <- Targeting.validate_binding(binding, child, mode),
@@ -237,9 +238,29 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlan do
       not is_map(value(actor, :authority_ceiling)) ->
         {:error, :authority_ceiling_required}
 
+      "ansible.runs.launch" not in List.wrap(
+        value(value(actor, :authority_ceiling), :permissions)
+      ) ->
+        {:error, :launch_permission_required}
+
       true ->
         :ok
     end
+  end
+
+  defp validate_target_ceiling(actor, targets) do
+    allowed =
+      actor
+      |> value(:authority_ceiling)
+      |> value(:target_membership_ids)
+      |> List.wrap()
+      |> MapSet.new()
+
+    requested = MapSet.new(targets, & &1.membership_id)
+
+    if MapSet.subset?(requested, allowed),
+      do: :ok,
+      else: {:error, :target_outside_authority_ceiling}
   end
 
   defp validate_memberships(memberships, held_device_uids) when is_list(memberships) do

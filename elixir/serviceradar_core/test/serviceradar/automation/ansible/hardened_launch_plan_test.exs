@@ -16,7 +16,7 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlanTest do
         authorization_version: "role-v7",
         authority_ceiling: %{
           "permissions" => ["ansible.runs.launch"],
-          "targets" => [@membership_id]
+          "target_membership_ids" => [@membership_id]
         },
         approval_snapshot: %{}
       },
@@ -124,6 +124,24 @@ defmodule ServiceRadar.Automation.Ansible.HardenedLaunchPlanTest do
 
     assert {:error, :initiating_principal_required} =
              HardenedLaunchPlan.build(intent(%{actor_snapshot: system_actor}))
+  end
+
+  test "rejects permissions or targets outside the issuance ceiling" do
+    no_launch = actor(%{authority_ceiling: %{"target_membership_ids" => [@membership_id]}})
+
+    assert {:error, :launch_permission_required} =
+             HardenedLaunchPlan.build(intent(%{actor_snapshot: no_launch}))
+
+    wrong_target =
+      actor(%{
+        authority_ceiling: %{
+          "permissions" => ["ansible.runs.launch"],
+          "target_membership_ids" => ["018f3f56-1111-7222-8333-000000000000"]
+        }
+      })
+
+    assert {:error, :target_outside_authority_ceiling} =
+             HardenedLaunchPlan.build(intent(%{actor_snapshot: wrong_target}))
   end
 
   test "rejects stale, unapproved, or held memberships" do

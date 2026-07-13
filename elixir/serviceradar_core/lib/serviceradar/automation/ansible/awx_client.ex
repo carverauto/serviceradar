@@ -139,10 +139,17 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   @spec fetch_job_host_summaries(Controller.t(), integer(), keyword()) ::
           {:ok, struct()} | {:error, term()}
   def fetch_job_host_summaries(controller, job_id, opts \\ []) when is_integer(job_id) do
+    fetch_job_host_summaries(controller, job_id, 1_000, opts)
+  end
+
+  @spec fetch_job_host_summaries(Controller.t(), integer(), pos_integer(), keyword()) ::
+          {:ok, struct()} | {:error, term()}
+  def fetch_job_host_summaries(controller, job_id, max_hosts, opts)
+      when is_integer(job_id) and is_integer(max_hosts) and max_hosts >= 1 and max_hosts <= 10_000 do
     dispatch_verb(
       controller,
       "awx.fetch_job_host_summaries",
-      %{"job_id" => job_id},
+      %{"job_id" => job_id, "max_hosts" => max_hosts},
       opts
     )
   end
