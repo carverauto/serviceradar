@@ -16,6 +16,15 @@ defmodule ServiceRadar.Automation.CallbackGrants.Store do
   @callback create_pending(map(), map(), context()) :: {:ok, map()} | {:error, term()}
   @callback fetch(binary(), context()) :: {:ok, map()} | {:error, term()}
 
+  @callback bind_credential(
+              binary(),
+              pos_integer(),
+              authorization_hook(),
+              map(),
+              DateTime.t(),
+              context()
+            ) :: {:ok, :bound | :existing, map()} | {:error, term()}
+
   @callback activate(binary(), map(), authorization_hook(), map(), DateTime.t(), context()) ::
               {:ok, :activated | :existing, map()} | {:error, term()}
 
@@ -54,7 +63,11 @@ defmodule ServiceRadar.Automation.CallbackGrants.Authorizer do
   authority from the worker or transport actor.
   """
 
-  @callback current_authority(:issue | :activate | :use | :replay, map(), term()) ::
+  @callback current_authority(
+              :issue | :bind_credential | :activate | :use | :replay,
+              map(),
+              term()
+            ) ::
               {:ok, map()} | {:error, term()}
 end
 

@@ -107,6 +107,7 @@ defmodule ServiceRadar.Automation.Callbacks.AuditEvent do
       constraints one_of: [
                     :mint_pending,
                     :envelope_resolved,
+                    :credential_created,
                     :dispatch_succeeded,
                     :dispatch_failed,
                     :binding_activated,

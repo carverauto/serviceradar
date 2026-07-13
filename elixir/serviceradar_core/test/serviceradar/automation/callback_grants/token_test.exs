@@ -49,6 +49,38 @@ defmodule ServiceRadar.Automation.CallbackGrants.TokenTest do
              Token.verify(bearer, grant, HMACKeyedVerifier, pruned)
   end
 
+  test "server-minted idempotency keys bind to a private domain-separated verifier" do
+    assert {:ok, issued} =
+             Token.issue_idempotency_key(HMACKeyedVerifier, @config,
+               random_bytes: fn 32 -> :binary.copy(<<7>>, 32) end
+             )
+
+    assert issued.idempotency_key =~ ~r/\Asrci_v1_[A-Za-z0-9_-]+\z/
+    assert issued.verifier_key_id == "primary-2026"
+    assert byte_size(issued.verifier_digest) == 32
+
+    grant = %{
+      idempotency_verifier_key_id: issued.verifier_key_id,
+      idempotency_verifier_digest: issued.verifier_digest
+    }
+
+    assert :ok =
+             Token.verify_idempotency_key(
+               issued.idempotency_key,
+               grant,
+               HMACKeyedVerifier,
+               @config
+             )
+
+    assert {:error, :invalid_idempotency_key} =
+             Token.verify_idempotency_key(
+               "srci_v1_" <> String.duplicate("x", 43),
+               grant,
+               HMACKeyedVerifier,
+               @config
+             )
+  end
+
   test "weak verifier keys and short entropy sources fail closed" do
     weak = [active_key_id: "weak", keys: %{"weak" => "short"}]
 

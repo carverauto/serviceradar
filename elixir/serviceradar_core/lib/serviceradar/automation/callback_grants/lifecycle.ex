@@ -19,7 +19,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
   @audience "serviceradar.awx.callback/v1"
 
   @scope_required MapSet.new(
-                    ~w(controller_id inventory_id job_template_id project_id scm_revision content_sha256 execution_environment_id machine_credential_id credential_ids callback_credential_type_id callback_credential_id callback_credential_injector_digest host_limit target_count target_digest snapshot_digest targets binding_id awx_created_by_id)
+                    ~w(controller_id inventory_id job_template_id project_id scm_revision content_sha256 execution_environment_id machine_credential_id credential_ids callback_credential_type_id callback_credential_organization_id callback_credential_injector_digest host_limit target_count target_digest snapshot_digest targets binding_id awx_created_by_id)
                   )
 
   @scope_optional MapSet.new()
@@ -39,17 +39,56 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
          :ok <- Authority.validate_issue(draft, current, contract),
          :ok <- validate_response_snapshot(draft),
          {:ok, issued} <- issue_token(opts),
+         {:ok, issued_idempotency} <- issue_idempotency_key(opts),
          grant_attrs =
            draft
            |> Map.put(:verifier_key_id, issued.verifier_key_id)
-           |> Map.put(:verifier_digest, issued.verifier_digest),
+           |> Map.put(:verifier_digest, issued.verifier_digest)
+           |> Map.put(:idempotency_verifier_key_id, issued_idempotency.verifier_key_id)
+           |> Map.put(:idempotency_verifier_digest, issued_idempotency.verifier_digest),
          {:ok, audit} <- Audit.attrs(:grant_pending, grant_attrs),
          {:ok, grant} <- store(opts).create_pending(grant_attrs, audit, store_context(opts)) do
-      {:ok, %{grant: pending_result(grant), bearer: issued.bearer}}
+      {:ok,
+       %{
+         grant: pending_result(grant),
+         bearer: issued.bearer,
+         idempotency_key: issued_idempotency.idempotency_key
+       }}
     end
   end
 
   def prepare(_attrs, _opts), do: {:error, :invalid_callback_grant}
+
+  @doc "Binds the externally created ephemeral AWX credential to a pending grant."
+  @spec bind_credential(binary(), pos_integer(), opts()) :: {:ok, map()} | {:error, term()}
+  def bind_credential(grant_id, credential_id, opts)
+      when is_binary(grant_id) and is_integer(credential_id) and credential_id > 0 and
+             is_list(opts) do
+    now = now(opts)
+
+    with {:ok, grant} <- store(opts).fetch(grant_id, store_context(opts)),
+         :ok <- not_expired(grant, now),
+         {:ok, contract} <- ActionContract.fetch(value(grant, :action)),
+         authorize = credential_binding_hook(contract, opts),
+         {:ok, audit} <- Audit.attrs(:credential_bound, grant),
+         {:ok, outcome, bound} <-
+           store(opts).bind_credential(
+             grant_id,
+             credential_id,
+             authorize,
+             audit,
+             now,
+             store_context(opts)
+           ) do
+      {:ok, public_result(bound, %{outcome: outcome, credential_bound: true})}
+    else
+      {:error, :grant_expired} -> expire_and_deny(grant_id, opts)
+      {:error, reason} -> handle_valid_denial(grant_id, reason, opts)
+    end
+  end
+
+  def bind_credential(_grant_id, _credential_id, _opts),
+    do: {:error, :invalid_callback_credential}
 
   @doc "Binds a pending grant to one verified controller-local AWX job."
   @spec activate(binary(), map(), opts()) :: {:ok, map()} | {:error, term()}
@@ -76,7 +115,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
       {:ok, public_result(activated, %{outcome: outcome})}
     else
       {:error, :grant_expired} -> expire_and_deny(grant_id, opts)
-      {:error, _} = error -> error
+      {:error, reason} -> handle_valid_denial(grant_id, reason, opts)
     end
   end
 
@@ -170,12 +209,15 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
          approval_digest: approval_digest,
          policy_digest: policy_digest,
          approval_snapshot: value(attrs, :approval_snapshot),
+         policy_snapshot: value(attrs, :policy_snapshot),
          policy_version: value(value(attrs, :policy_snapshot) || %{}, :version),
          awx_scope_snapshot: awx_scope,
          response_snapshot: response_snapshot,
          binding_verified: false,
          job_binding: nil,
-         ephemeral_credential_id: value(attrs, :ephemeral_credential_id)
+         ephemeral_credential_id: nil,
+         dispatch_agent_id: value(attrs, :dispatch_agent_id),
+         launch_envelope_ref: value(attrs, :launch_envelope_ref)
        }}
     else
       false -> {:error, :invalid_callback_grant}
@@ -195,24 +237,34 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
   defp consume_by_state(grant, idempotency_key, request, now, opts) do
     case value(grant, :state) do
       :pending ->
-        {:retry,
-         %{
-           status: 409,
-           code: "grant_pending",
-           retryable: true,
-           retry_after_seconds: 1
-         }}
+        with :ok <- audit_pending(grant, opts) do
+          {:retry,
+           %{
+             status: 409,
+             code: "grant_pending",
+             retryable: true,
+             retry_after_seconds: 1
+           }}
+        end
 
       state when state in [:active, :consumed] ->
         consume_active(grant, idempotency_key, request, now, opts)
 
       state ->
-        {:error, {:grant_not_active, state}}
+        handle_valid_denial(value(grant, :id), {:grant_not_active, state}, opts)
     end
   end
 
   defp consume_active(grant, idempotency_key, request, now, opts) do
+    case do_consume_active(grant, idempotency_key, request, now, opts) do
+      {:error, reason} -> handle_valid_denial(value(grant, :id), reason, opts)
+      result -> result
+    end
+  end
+
+  defp do_consume_active(grant, idempotency_key, request, now, opts) do
     with :ok <- validate_idempotency_key(idempotency_key),
+         :ok <- verify_idempotency_key(idempotency_key, grant, opts),
          {:ok, built} <- SshCaBundleResponse.build(grant, request),
          {:ok, request_digest} <- CanonicalJSON.digest(request),
          {:ok, contract} <- ActionContract.fetch(value(grant, :action)),
@@ -269,6 +321,14 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
     end
   end
 
+  defp credential_binding_hook(contract, opts) do
+    fn locked_grant ->
+      with {:ok, current} <- current_authority(:bind_credential, locked_grant, opts) do
+        Authority.validate_issue(locked_grant, current, contract)
+      end
+    end
+  end
+
   defp use_hook(contract, opts) do
     fn locked_grant ->
       with {:ok, current} <- current_authority(:use, locked_grant, opts) do
@@ -299,7 +359,10 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
          :ok <- required_id(scope["machine_credential_id"], :machine_credential_required),
          :ok <- required_id(scope["callback_credential_type_id"], :callback_credential_required),
          :ok <-
-           required_id(scope["callback_credential_id"], :callback_credential_instance_required),
+           required_id(
+             scope["callback_credential_organization_id"],
+             :callback_credential_organization_required
+           ),
          true <-
            digest?(scope["callback_credential_injector_digest"], 64) ||
              {:error, :invalid_callback_injector_digest},
@@ -328,7 +391,11 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
              MapSet.put(MapSet.new(Map.keys(expected_scope)), "job_id") ||
              {:error, :incomplete_job_binding},
          :ok <- required_id(binding["job_id"], :job_id_required),
-         scope = Map.delete(binding, "job_id"),
+         :ok <- exact_accepted_credentials(grant, expected_scope, binding),
+         scope =
+           binding
+           |> Map.delete("job_id")
+           |> Map.put("credential_ids", expected_scope["credential_ids"]),
          {:ok, digest} <- validate_scope(scope),
          true <-
            secure_equal(digest, value(grant, :scope_digest)) ||
@@ -337,6 +404,26 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
     else
       false -> {:error, :invalid_job_binding}
       {:error, _} = error -> error
+    end
+  end
+
+  defp exact_accepted_credentials(grant, expected_scope, binding) do
+    credential_id = value(grant, :ephemeral_credential_id)
+    base = List.wrap(expected_scope["credential_ids"])
+    accepted = List.wrap(binding["credential_ids"])
+
+    cond do
+      not is_integer(credential_id) or credential_id <= 0 ->
+        {:error, :callback_credential_not_bound}
+
+      Enum.uniq(base) != base or Enum.uniq(accepted) != accepted ->
+        {:error, :credential_binding_mismatch}
+
+      Enum.sort(accepted) != Enum.sort(base ++ [credential_id]) ->
+        {:error, :credential_binding_mismatch}
+
+      true ->
+        :ok
     end
   end
 
@@ -425,6 +512,22 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
     Token.issue(verifier, Keyword.fetch!(opts, :verifier_config), opts)
   end
 
+  defp issue_idempotency_key(opts) do
+    verifier = Keyword.get(opts, :verifier, HMACKeyedVerifier)
+    Token.issue_idempotency_key(verifier, Keyword.fetch!(opts, :verifier_config), opts)
+  end
+
+  defp verify_idempotency_key(idempotency_key, grant, opts) do
+    verifier = Keyword.get(opts, :verifier, HMACKeyedVerifier)
+
+    Token.verify_idempotency_key(
+      idempotency_key,
+      grant,
+      verifier,
+      Keyword.fetch!(opts, :verifier_config)
+    )
+  end
+
   defp current_authority(stage, grant, opts) do
     authorizer = Keyword.fetch!(opts, :authorizer)
 
@@ -441,17 +544,77 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
     if function_exported?(adapter, :record_audit, 2) do
       case adapter.fetch(grant_id, store_context(opts)) do
         {:ok, grant} ->
-          with {:ok, audit} <- Audit.attrs(:callback_denied, grant, %{reason: to_string(reason)}) do
+          with {:ok, audit} <-
+                 Audit.attrs(:callback_denied, grant, %{reason: inspect_reason(reason)}) do
             adapter.record_audit(audit, store_context(opts))
           end
 
-        _ ->
+        {:error, :grant_not_found} ->
           :ok
+
+        {:error, _} = error ->
+          error
+      end
+    else
+      {:error, :callback_audit_unavailable}
+    end
+  end
+
+  defp audit_pending(grant, opts) do
+    adapter = store(opts)
+
+    if function_exported?(adapter, :record_audit, 2) do
+      with {:ok, audit} <-
+             Audit.attrs(:callback_pending, grant, %{
+               reason: "grant_pending",
+               retryable: true
+             }) do
+        adapter.record_audit(audit, store_context(opts))
+      end
+    else
+      {:error, :callback_audit_unavailable}
+    end
+  end
+
+  defp handle_valid_denial(grant_id, reason, opts) do
+    if authority_contraction?(reason) do
+      revoke_authority_contraction(grant_id, reason, opts)
+    else
+      case audit_denial(grant_id, reason, opts) do
+        :ok -> {:error, reason}
+        {:error, audit_reason} -> {:error, {:denial_audit_failed, audit_reason}}
       end
     end
-
-    :ok
   end
+
+  defp revoke_authority_contraction(grant_id, reason, opts) do
+    with {:ok, _grant} <- terminate(grant_id, :revoked, reason, :revoked, opts),
+         :ok <- audit_denial(grant_id, reason, opts) do
+      {:error, reason}
+    end
+  end
+
+  defp authority_contraction?(reason)
+       when reason in [
+              :principal_disabled,
+              :principal_changed,
+              :tenant_changed,
+              :service_principal_owner_changed,
+              :system_actor_has_no_authority,
+              :current_permission_denied,
+              :action_no_longer_authorized,
+              :target_no_longer_authorized,
+              :approval_changed,
+              :target_policy_changed,
+              :awx_binding_changed,
+              :run_not_active,
+              :job_not_active,
+              :job_binding_changed,
+              :awx_binding_not_verified
+            ],
+       do: true
+
+  defp authority_contraction?(_reason), do: false
 
   defp pending_result(grant) do
     %{
@@ -503,7 +666,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
 
   defp keyed_idempotency(idempotency_key, grant, opts) do
     verifier = Keyword.get(opts, :verifier, HMACKeyedVerifier)
-    key_id = value(grant, :verifier_key_id)
+    key_id = value(grant, :idempotency_verifier_key_id)
     material = "serviceradar-callback-idempotency-v1\0" <> idempotency_key
 
     with {:ok, digest} <-
@@ -555,6 +718,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
   defp store_context(opts), do: Keyword.get(opts, :store_context)
 
   defp inspect_reason({:job_terminal, status}), do: "job_terminal:#{status}"
+  defp inspect_reason({:grant_not_active, state}), do: "grant_not_active:#{state}"
   defp inspect_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp inspect_reason(reason) when is_binary(reason), do: reason
   defp inspect_reason(_reason), do: "unspecified"

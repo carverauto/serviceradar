@@ -87,6 +87,8 @@ defmodule ServiceRadar.Repo.Migrations.AddAutomationCallbackGrantsFoundation do
       add(:ca_key_set_digest, :text, null: false)
       add(:token_verifier, :binary, null: false)
       add(:token_pepper_version, :text, null: false)
+      add(:idempotency_key_verifier, :binary, null: false)
+      add(:idempotency_pepper_version, :text, null: false)
       add(:state, :text, null: false, default: "pending")
       add(:budget_limit, :integer, null: false)
       add(:budget_used, :integer, null: false, default: 0)
@@ -113,6 +115,13 @@ defmodule ServiceRadar.Repo.Migrations.AddAutomationCallbackGrantsFoundation do
     create(
       unique_index(:automation_callback_grants, [:token_verifier],
         name: "automation_callback_grants_token_verifier_uidx",
+        prefix: @prefix
+      )
+    )
+
+    create(
+      unique_index(:automation_callback_grants, [:idempotency_key_verifier],
+        name: "automation_callback_grants_idempotency_verifier_uidx",
         prefix: @prefix
       )
     )
@@ -198,7 +207,9 @@ defmodule ServiceRadar.Repo.Migrations.AddAutomationCallbackGrantsFoundation do
              prefix: @prefix,
              check:
                "octet_length(token_verifier) = 32 AND " <>
-                 "char_length(token_pepper_version) BETWEEN 1 AND 64"
+                 "char_length(token_pepper_version) BETWEEN 1 AND 64 AND " <>
+                 "octet_length(idempotency_key_verifier) = 32 AND " <>
+                 "char_length(idempotency_pepper_version) BETWEEN 1 AND 64"
            )
 
     create constraint(:automation_callback_grants, :automation_callback_grants_expiry,
@@ -287,6 +298,7 @@ defmodule ServiceRadar.Repo.Migrations.AddAutomationCallbackGrantsFoundation do
       add(:state, :text, null: false, default: "reserved")
       add(:budget_sequence, :integer)
       add(:response_reference, :text)
+      add(:response_bytes, :binary)
       add(:response_fingerprint, :text)
       add(:response_size_bytes, :integer)
       add(:response_schema_version, :text)
@@ -329,21 +341,23 @@ defmodule ServiceRadar.Repo.Migrations.AddAutomationCallbackGrantsFoundation do
     create constraint(:automation_callback_uses, :automation_callback_uses_response_size,
              prefix: @prefix,
              check:
-               "response_size_bytes IS NULL OR " <>
-                 "(response_size_bytes >= 0 AND response_size_bytes <= 262144)"
+               "(response_size_bytes IS NULL OR " <>
+                 "(response_size_bytes >= 0 AND response_size_bytes <= 262144)) AND " <>
+                 "(response_bytes IS NULL OR octet_length(response_bytes) <= 262144)"
            )
 
     create constraint(:automation_callback_uses, :automation_callback_uses_lifecycle,
              prefix: @prefix,
              check:
                "(state = 'reserved' AND budget_sequence IS NULL AND response_reference IS NULL AND " <>
-                 "response_fingerprint IS NULL AND committed_at IS NULL AND aborted_at IS NULL) OR " <>
-                 "(state = 'committed' AND budget_sequence > 0 AND response_reference IS NOT NULL AND " <>
+                 "response_bytes IS NULL AND response_fingerprint IS NULL AND committed_at IS NULL AND " <>
+                 "aborted_at IS NULL) OR " <>
+                 "(state = 'committed' AND budget_sequence > 0 AND response_bytes IS NOT NULL AND " <>
                  "response_fingerprint IS NOT NULL AND response_size_bytes IS NOT NULL AND " <>
                  "response_schema_version IS NOT NULL AND policy_version IS NOT NULL AND " <>
                  "committed_at IS NOT NULL AND aborted_at IS NULL) OR " <>
                  "(state = 'aborted' AND abort_reason IS NOT NULL AND aborted_at IS NOT NULL AND " <>
-                 "committed_at IS NULL)"
+                 "response_reference IS NULL AND response_bytes IS NULL AND committed_at IS NULL)"
            )
   end
 
@@ -421,7 +435,8 @@ defmodule ServiceRadar.Repo.Migrations.AddAutomationCallbackGrantsFoundation do
     create constraint(:automation_callback_audit_events, :automation_callback_audit_event_type,
              prefix: @prefix,
              check:
-               "event_type IN ('mint_pending', 'envelope_resolved', 'dispatch_succeeded', " <>
+               "event_type IN ('mint_pending', 'envelope_resolved', 'credential_created', " <>
+                 "'dispatch_succeeded', " <>
                  "'dispatch_failed', 'binding_activated', 'callback_allowed', " <>
                  "'callback_denied', 'callback_pending', 'callback_replay', " <>
                  "'budget_committed', 'grant_revoked', 'grant_expired', " <>
@@ -472,4 +487,6 @@ defmodule ServiceRadar.Repo.Migrations.AddAutomationCallbackGrantsFoundation do
                  "'misuse_detected')"
            )
   end
+
+  defp utc_now, do: fragment("(now() AT TIME ZONE 'utc')")
 end

@@ -64,6 +64,44 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
     end
 
     @impl true
+    def bind_credential(id, credential_id, authorize, audit, _now, pid) do
+      Agent.get_and_update(pid, fn state ->
+        case Map.fetch(state.grants, id) do
+          {:ok, %{state: :pending, ephemeral_credential_id: nil} = grant} ->
+            case authorize.(grant) do
+              :ok ->
+                bound = Map.put(grant, :ephemeral_credential_id, credential_id)
+
+                {{:ok, :bound, bound},
+                 %{
+                   state
+                   | grants: Map.put(state.grants, id, bound),
+                     audits: [audit | state.audits]
+                 }}
+
+              {:error, _} = error ->
+                {error, state}
+            end
+
+          {:ok, %{state: :pending, ephemeral_credential_id: ^credential_id} = grant} ->
+            case authorize.(grant) do
+              :ok -> {{:ok, :existing, grant}, state}
+              {:error, _} = error -> {error, state}
+            end
+
+          {:ok, %{state: :pending}} ->
+            {{:error, :callback_credential_conflict}, state}
+
+          {:ok, grant} ->
+            {{:error, {:grant_not_pending, grant.state}}, state}
+
+          :error ->
+            {{:error, :grant_not_found}, state}
+        end
+      end)
+    end
+
+    @impl true
     def activate(id, binding, authorize, audit, _now, pid) do
       Agent.get_and_update(pid, fn state ->
         with :ok <- forced(state, :activate),
@@ -154,7 +192,15 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
 
         %{idempotency_key_verifier: key, request_digest: digest, response: ^response}
         when key == attrs.idempotency_key_verifier and digest == attrs.request_digest ->
-          {{:ok, :replay, response, grant}, state}
+          case forced(state, :replay) do
+            :ok ->
+              replay_audit = Map.put(audit, :event, "callback_replay")
+
+              {{:ok, :replay, response, grant}, %{state | audits: [replay_audit | state.audits]}}
+
+            {:error, _} = error ->
+              {error, state}
+          end
 
         %{idempotency_key_verifier: key} when key == attrs.idempotency_key_verifier ->
           {{:error, :idempotency_payload_conflict}, state}
@@ -202,8 +248,10 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
 
     defp forced(%{force: %{activate: nil}}, :activate), do: :ok
     defp forced(%{force: %{consume: nil}}, :consume), do: :ok
+    defp forced(%{force: %{replay: nil}}, :replay), do: :ok
     defp forced(%{force: %{activate: reason}}, :activate), do: {:error, reason}
     defp forced(%{force: %{consume: reason}}, :consume), do: {:error, reason}
+    defp forced(%{force: %{replay: reason}}, :replay), do: {:error, reason}
   end
 
   @now ~U[2026-07-12 18:00:00Z]
@@ -225,7 +273,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
           uses: %{},
           audits: [],
           cleanups: %{},
-          force: %{activate: nil, consume: nil}
+          force: %{activate: nil, consume: nil, replay: nil}
         }
       end)
 
@@ -266,8 +314,8 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
     %{store: store, authorizer: authorizer, cleanup: cleanup, attrs: attrs, opts: opts}
   end
 
-  test "pending issuance returns one opaque bearer and no verifier material", context do
-    assert {:ok, %{grant: pending, bearer: bearer}} =
+  test "pending issuance returns opaque bearer and idempotency credentials once", context do
+    assert {:ok, %{grant: pending, bearer: bearer, idempotency_key: idempotency_key}} =
              Lifecycle.prepare(context.attrs, context.opts)
 
     assert pending == %{
@@ -279,16 +327,26 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
            }
 
     assert byte_size(bearer) == 43
+    assert byte_size(idempotency_key) in 32..128
+    assert idempotency_key != bearer
     refute inspect(pending) =~ bearer
+    refute inspect(pending) =~ idempotency_key
     refute inspect(pending) =~ "verifier"
 
     stored = grant(context.store)
     refute Map.has_key?(stored, :bearer)
     assert stored.verifier_key_id == "callback-v1"
     assert byte_size(stored.verifier_digest) == 32
+    assert stored.idempotency_verifier_key_id == "callback-v1"
+    assert byte_size(stored.idempotency_verifier_digest) == 32
+    refute Map.has_key?(stored, :idempotency_key)
+    assert stored.policy_snapshot == context.attrs.policy_snapshot
+    assert stored.dispatch_agent_id == "agent-gateway-demo"
+    assert stored.launch_envelope_ref == "vault-envelope:callback-grant-1"
 
     state = Agent.get(context.store, & &1)
     refute inspect(state.audits) =~ bearer
+    refute inspect(state.audits) =~ idempotency_key
     refute Enum.any?(state.audits, &Map.has_key?(&1, :verifier_digest))
   end
 
@@ -322,17 +380,19 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
              Lifecycle.consume(
                @grant_id,
                issued.bearer,
-               idempotency("pending"),
+               issued.idempotency_key,
                request(context.attrs),
                context.opts
              )
 
     assert grant(context.store).budget_remaining == 1
     assert Agent.get(context.store, & &1.uses) == %{}
+    assert Enum.any?(Agent.get(context.store, & &1.audits), &(&1.event == "callback_pending"))
   end
 
   test "activation binds one exact job and cannot expand its scope", context do
     {:ok, _issued} = Lifecycle.prepare(context.attrs, context.opts)
+    assert {:ok, %{outcome: :bound}} = Lifecycle.bind_credential(@grant_id, 31, context.opts)
     binding = job_binding(context.attrs)
 
     assert {:ok, %{state: :active, job_id: 9_001, outcome: :activated}} =
@@ -352,6 +412,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
 
   test "activation rechecks current target and permission contraction", context do
     {:ok, _issued} = Lifecycle.prepare(context.attrs, context.opts)
+    assert {:ok, _bound} = Lifecycle.bind_credential(@grant_id, 31, context.opts)
 
     update_authority(context.authorizer, fn authority ->
       %{authority | permissions: ["ansible.runs.launch"]}
@@ -360,11 +421,13 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
     assert {:error, :current_permission_denied} =
              Lifecycle.activate(@grant_id, job_binding(context.attrs), context.opts)
 
-    assert grant(context.store).state == :pending
+    assert grant(context.store).state == :revoked
+    assert_receive {:cleanup, :revoked, _grant}
   end
 
   test "adapter-reported activation races leave the pending grant inert", context do
     {:ok, _issued} = Lifecycle.prepare(context.attrs, context.opts)
+    assert {:ok, _bound} = Lifecycle.bind_credential(@grant_id, 31, context.opts)
 
     Agent.update(context.store, fn state ->
       put_in(state, [:force, :activate], :serialization_conflict)
@@ -375,6 +438,36 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
 
     assert grant(context.store).state == :pending
     assert grant(context.store).binding_verified == false
+  end
+
+  test "credential binding is locked, reauthorized, and idempotent only for the same instance",
+       context do
+    {:ok, _issued} = Lifecycle.prepare(context.attrs, context.opts)
+    assert grant(context.store).ephemeral_credential_id == nil
+
+    assert {:ok, %{outcome: :bound, credential_bound: true}} =
+             Lifecycle.bind_credential(@grant_id, 31, context.opts)
+
+    assert {:ok, %{outcome: :existing, credential_bound: true}} =
+             Lifecycle.bind_credential(@grant_id, 31, context.opts)
+
+    assert {:error, :callback_credential_conflict} =
+             Lifecycle.bind_credential(@grant_id, 32, context.opts)
+
+    assert grant(context.store).ephemeral_credential_id == 31
+  end
+
+  test "activation rejects an unbound or incorrectly combined callback credential", context do
+    {:ok, _issued} = Lifecycle.prepare(context.attrs, context.opts)
+
+    assert {:error, :callback_credential_not_bound} =
+             Lifecycle.activate(@grant_id, job_binding(context.attrs), context.opts)
+
+    assert {:ok, _bound} = Lifecycle.bind_credential(@grant_id, 31, context.opts)
+    missing_callback = put_in(job_binding(context.attrs), [:credential_ids], [5])
+
+    assert {:error, :credential_binding_mismatch} =
+             Lifecycle.activate(@grant_id, missing_callback, context.opts)
   end
 
   test "response targets cannot be substituted for another canonical tuple", context do
@@ -407,14 +500,14 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
   end
 
   test "first read commits atomically and same key replays identical bytes", context do
-    %{bearer: bearer} = prepare_and_activate(context)
+    %{bearer: bearer, idempotency_key: key} = prepare_and_activate(context)
     request = request(context.attrs)
 
     assert {:ok, first} =
              Lifecycle.consume(
                @grant_id,
                bearer,
-               idempotency("attempt-0001"),
+               key,
                request,
                context.opts
              )
@@ -433,13 +526,13 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
     persisted_use = Agent.get(context.store, & &1.uses[@grant_id])
     assert byte_size(persisted_use.idempotency_key_verifier) == 32
     refute Map.has_key?(persisted_use, :idempotency_key)
-    refute inspect(persisted_use) =~ idempotency("attempt-0001")
+    refute inspect(persisted_use) =~ key
 
     assert {:ok, replay} =
              Lifecycle.consume(
                @grant_id,
                bearer,
-               idempotency("attempt-0001"),
+               key,
                request,
                context.opts
              )
@@ -448,6 +541,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
     assert replay.body == first.body
     assert grant(context.store).state == :consumed
     assert grant(context.store).budget_remaining == 0
+    assert Enum.any?(Agent.get(context.store, & &1.audits), &(&1.event == "callback_replay"))
   end
 
   test "idempotency keys follow the public credential contract", context do
@@ -475,15 +569,54 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
     assert Agent.get(context.store, & &1.uses) == %{}
   end
 
-  test "same-key changed payload and different-key replay are denied", context do
+  test "a well-formed but unminted idempotency key is denied before first use", context do
     %{bearer: bearer} = prepare_and_activate(context)
+
+    assert {:error, :invalid_idempotency_key} =
+             Lifecycle.consume(
+               @grant_id,
+               bearer,
+               idempotency("wrong-first-use"),
+               request(context.attrs),
+               context.opts
+             )
+
+    assert grant(context.store).state == :active
+    assert grant(context.store).budget_remaining == 1
+    assert Agent.get(context.store, & &1.uses) == %{}
+  end
+
+  test "replay audit failure releases no cached response", context do
+    %{bearer: bearer, idempotency_key: key} = prepare_and_activate(context)
+    request = request(context.attrs)
+
+    assert {:ok, first} =
+             Lifecycle.consume(@grant_id, bearer, key, request, context.opts)
+
+    Agent.update(context.store, fn state ->
+      put_in(state, [:force, :replay], :replay_audit_commit_failed)
+    end)
+
+    assert {:error, :replay_audit_commit_failed} =
+             Lifecycle.consume(@grant_id, bearer, key, request, context.opts)
+
+    assert grant(context.store).state == :consumed
+    assert grant(context.store).budget_remaining == 0
+
+    refute Enum.any?(Agent.get(context.store, & &1.audits), fn audit ->
+             audit.event == "callback_replay" and audit.response_digest == first.response_digest
+           end)
+  end
+
+  test "same-key changed payload and different-key replay are denied", context do
+    %{bearer: bearer, idempotency_key: key} = prepare_and_activate(context)
     request = request(context.attrs)
 
     assert {:ok, _first} =
              Lifecycle.consume(
                @grant_id,
                bearer,
-               idempotency("attempt-0001"),
+               key,
                request,
                context.opts
              )
@@ -494,12 +627,12 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
              Lifecycle.consume(
                @grant_id,
                bearer,
-               idempotency("attempt-0001"),
+               key,
                changed,
                context.opts
              )
 
-    assert {:error, :success_budget_consumed} =
+    assert {:error, :invalid_idempotency_key} =
              Lifecycle.consume(
                @grant_id,
                bearer,
@@ -509,18 +642,18 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
              )
   end
 
-  test "different-key first-use races have exactly one winner", context do
-    %{bearer: bearer} = prepare_and_activate(context)
+  test "same minted-key first-use races commit once and replay once", context do
+    %{bearer: bearer, idempotency_key: key} = prepare_and_activate(context)
     parent = self()
 
     tasks =
-      for suffix <- ["0001", "0002"] do
+      for _attempt <- 1..2 do
         Task.async(fn ->
           result =
             Lifecycle.consume(
               @grant_id,
               bearer,
-              idempotency("race-#{suffix}"),
+              key,
               request(context.attrs),
               context.opts
             )
@@ -531,13 +664,13 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
       end
 
     results = Enum.map(tasks, &Task.await/1)
-    assert Enum.count(results, &match?({:ok, _}, &1)) == 1
-    assert Enum.count(results, &match?({:error, :success_budget_consumed}, &1)) == 1
+    assert Enum.count(results, &match?({:ok, _}, &1)) == 2
+    assert Enum.count(results, fn {:ok, result} -> result.replay end) == 1
     assert map_size(Agent.get(context.store, & &1.uses)) == 1
   end
 
   test "promotion never expands the immutable response", context do
-    %{bearer: bearer} = prepare_and_activate(context)
+    %{bearer: bearer, idempotency_key: key} = prepare_and_activate(context)
 
     update_authority(context.authorizer, fn authority ->
       %{
@@ -552,7 +685,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
              Lifecycle.consume(
                @grant_id,
                bearer,
-               idempotency("attempt-0001"),
+               key,
                request(context.attrs),
                context.opts
              )
@@ -565,14 +698,14 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
   end
 
   test "same-key replay is denied after current authority contracts", context do
-    %{bearer: bearer} = prepare_and_activate(context)
+    %{bearer: bearer, idempotency_key: key} = prepare_and_activate(context)
     request = request(context.attrs)
 
     assert {:ok, _} =
              Lifecycle.consume(
                @grant_id,
                bearer,
-               idempotency("attempt-0001"),
+               key,
                request,
                context.opts
              )
@@ -583,14 +716,17 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
              Lifecycle.consume(
                @grant_id,
                bearer,
-               idempotency("attempt-0001"),
+               key,
                request,
                context.opts
              )
+
+    assert grant(context.store).state == :revoked
+    assert_receive {:cleanup, :revoked, _grant}
   end
 
   test "atomic audit failure releases no response and consumes no budget", context do
-    %{bearer: bearer} = prepare_and_activate(context)
+    %{bearer: bearer, idempotency_key: key} = prepare_and_activate(context)
 
     Agent.update(context.store, fn state ->
       put_in(state, [:force, :consume], :audit_commit_failed)
@@ -600,7 +736,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
              Lifecycle.consume(
                @grant_id,
                bearer,
-               idempotency("attempt-0001"),
+               key,
                request(context.attrs),
                context.opts
              )
@@ -627,7 +763,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
   end
 
   test "expiry and terminal transitions remove authority before cleanup failure", context do
-    %{bearer: bearer} = prepare_and_activate(context)
+    %{bearer: bearer, idempotency_key: key} = prepare_and_activate(context)
 
     Agent.update(context.cleanup, fn state ->
       %{
@@ -648,7 +784,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
              Lifecycle.consume(
                @grant_id,
                bearer,
-               idempotency("attempt-0001"),
+               key,
                request(context.attrs),
                expired_opts
              )
@@ -665,11 +801,15 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
     refute Map.has_key?(safe_grant, :verifier_key_id)
     refute Map.has_key?(safe_grant, :token_verifier)
     refute Map.has_key?(safe_grant, :token_pepper_version)
+    refute Map.has_key?(safe_grant, :idempotency_verifier_digest)
+    refute Map.has_key?(safe_grant, :idempotency_verifier_key_id)
     refute Map.has_key?(safe_grant, :launch_envelope_ref)
+    refute Map.has_key?(safe_grant, :policy_snapshot)
+    refute Map.has_key?(safe_grant, :response_snapshot)
   end
 
   test "explicit revoke and terminal job cleanup keep grants unusable", context do
-    %{bearer: bearer} = prepare_and_activate(context)
+    %{bearer: bearer, idempotency_key: key} = prepare_and_activate(context)
 
     assert {:ok, %{state: :revoked}} =
              Lifecycle.revoke(@grant_id, :operator_revoked, context.opts)
@@ -678,16 +818,21 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
              Lifecycle.consume(
                @grant_id,
                bearer,
-               idempotency("attempt-0001"),
+               key,
                request(context.attrs),
                context.opts
              )
 
     assert_receive {:cleanup, :revoked, _grant}
+
+    assert Enum.any?(Agent.get(context.store, & &1.audits), fn audit ->
+             audit.event == "callback_denied" and
+               audit.reason == "grant_not_active:revoked"
+           end)
   end
 
   test "terminal AWX status revokes the grant and invokes terminal cleanup", context do
-    %{bearer: bearer} = prepare_and_activate(context)
+    %{bearer: bearer, idempotency_key: key} = prepare_and_activate(context)
 
     assert {:ok, %{state: :revoked}} =
              Lifecycle.job_terminal(@grant_id, :failed, context.opts)
@@ -696,7 +841,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
              Lifecycle.consume(
                @grant_id,
                bearer,
-               idempotency("attempt-0001"),
+               key,
                request(context.attrs),
                context.opts
              )
@@ -706,6 +851,9 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
 
   defp prepare_and_activate(context) do
     assert {:ok, issued} = Lifecycle.prepare(context.attrs, context.opts)
+
+    assert {:ok, %{credential_bound: true}} =
+             Lifecycle.bind_credential(@grant_id, 31, context.opts)
 
     assert {:ok, %{state: :active}} =
              Lifecycle.activate(@grant_id, job_binding(context.attrs), context.opts)
@@ -737,7 +885,11 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
     }
   end
 
-  defp job_binding(attrs), do: Map.put(attrs.awx_scope_snapshot, :job_id, 9_001)
+  defp job_binding(attrs) do
+    attrs.awx_scope_snapshot
+    |> Map.update!(:credential_ids, &Enum.uniq(&1 ++ [31]))
+    |> Map.put(:job_id, 9_001)
+  end
 
   defp attrs do
     target_identity = %{
@@ -749,6 +901,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
 
     awx_target =
       Map.merge(target_identity, %{
+        membership_id: "018f3f56-1111-7222-8333-123456789ac2",
         host_name: "farm01-pve01",
         ansible_host: "192.168.2.22"
       })
@@ -807,7 +960,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
         execution_environment_id: 4,
         machine_credential_id: 5,
         callback_credential_type_id: 6,
-        callback_credential_id: 31,
+        callback_credential_organization_id: 2,
         callback_credential_injector_digest: String.duplicate("c", 64),
         host_limit: "farm01-pve01",
         target_count: 1,
@@ -825,7 +978,8 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
         state: "present",
         targets: [response_target]
       },
-      ephemeral_credential_id: 31
+      dispatch_agent_id: "agent-gateway-demo",
+      launch_envelope_ref: "vault-envelope:callback-grant-1"
     }
   end
 

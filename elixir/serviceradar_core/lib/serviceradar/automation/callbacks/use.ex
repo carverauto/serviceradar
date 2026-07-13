@@ -1,9 +1,10 @@
 defmodule ServiceRadar.Automation.Callbacks.Use do
   @moduledoc """
-  Replay-bounded idempotency and immutable response reference for a callback use.
+  Replay-bounded idempotency and immutable response retention for a callback use.
 
-  The response body is deliberately absent. A committed row points to the
-  immutable response through a private reference and exposes only its schema,
+  A committed row privately retains at most 256 KiB of sensitive response bytes
+  so a lost first response can be replayed byte-for-byte exactly once per
+  server-minted idempotency key. Public projections expose only its schema,
   size, policy version, and fingerprint.
   """
 
@@ -89,6 +90,7 @@ defmodule ServiceRadar.Automation.Callbacks.Use do
       accept [
         :budget_sequence,
         :response_reference,
+        :response_bytes,
         :response_fingerprint,
         :response_size_bytes,
         :response_schema_version,
@@ -152,7 +154,15 @@ defmodule ServiceRadar.Automation.Callbacks.Use do
       public? false
       sensitive? true
 
-      description "Immutable response object reference; the response body is never stored in this row"
+      description "Optional immutable object reference for deployments that externalize retained response bytes"
+    end
+
+    attribute :response_bytes, :binary do
+      allow_nil? true
+      public? false
+      sensitive? true
+
+      description "Immutable bounded response bytes retained only for exact lost-response replay"
     end
 
     attribute :response_fingerprint, :string, allow_nil?: true, public?: true

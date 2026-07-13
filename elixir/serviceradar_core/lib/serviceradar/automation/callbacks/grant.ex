@@ -22,6 +22,8 @@ defmodule ServiceRadar.Automation.Callbacks.Grant do
     schema "platform"
 
     identity_index_names unique_token_verifier: "automation_callback_grants_token_verifier_uidx",
+                         unique_idempotency_key_verifier:
+                           "automation_callback_grants_idempotency_verifier_uidx",
                          one_live_grant_per_partition:
                            "automation_callback_grants_live_partition_uidx"
 
@@ -106,6 +108,8 @@ defmodule ServiceRadar.Automation.Callbacks.Grant do
         :ca_key_set_digest,
         :token_verifier,
         :token_pepper_version,
+        :idempotency_key_verifier,
+        :idempotency_pepper_version,
         :budget_limit,
         :idempotency_policy,
         :dispatch_agent_id,
@@ -157,7 +161,8 @@ defmodule ServiceRadar.Automation.Callbacks.Grant do
         :credential_cleanup_state,
         :credential_cleanup_attempted_at,
         :credential_cleanup_completed_at,
-        :credential_cleanup_error_code
+        :credential_cleanup_error_code,
+        :orphan_risk_state
       ]
     end
   end
@@ -265,6 +270,20 @@ defmodule ServiceRadar.Automation.Callbacks.Grant do
     end
 
     attribute :token_pepper_version, :string do
+      allow_nil? false
+      public? false
+      sensitive? true
+    end
+
+    attribute :idempotency_key_verifier, :binary do
+      allow_nil? false
+      public? false
+      sensitive? true
+
+      description "Keyed verifier for the server-minted idempotency key; never plaintext or an unkeyed hash"
+    end
+
+    attribute :idempotency_pepper_version, :string do
       allow_nil? false
       public? false
       sensitive? true
@@ -379,6 +398,7 @@ defmodule ServiceRadar.Automation.Callbacks.Grant do
 
   identities do
     identity :unique_token_verifier, [:token_verifier]
+    identity :unique_idempotency_key_verifier, [:idempotency_key_verifier]
 
     identity :one_live_grant_per_partition,
              [:execution_id, :action, :action_version, :policy_digest],

@@ -14,11 +14,14 @@ defmodule ServiceRadar.Automation.Callbacks.FoundationTest do
     for {resource, attribute_name} <- [
           {Grant, :token_verifier},
           {Grant, :token_pepper_version},
+          {Grant, :idempotency_key_verifier},
+          {Grant, :idempotency_pepper_version},
           {Grant, :launch_envelope_ref},
           {Grant, :awx_ephemeral_credential_id},
           {Use, :idempotency_key_verifier},
           {Use, :idempotency_pepper_version},
-          {Use, :response_reference}
+          {Use, :response_reference},
+          {Use, :response_bytes}
         ] do
       attribute = Info.attribute(resource, attribute_name)
       refute attribute.public?
@@ -72,6 +75,8 @@ defmodule ServiceRadar.Automation.Callbacks.FoundationTest do
       :ca_key_set_digest,
       :token_verifier,
       :token_pepper_version,
+      :idempotency_key_verifier,
+      :idempotency_pepper_version,
       :budget_limit,
       :idempotency_policy,
       :dispatch_agent_id,
@@ -84,6 +89,10 @@ defmodule ServiceRadar.Automation.Callbacks.FoundationTest do
     assert MapSet.subset?(MapSet.new(required), MapSet.new(create.accept))
 
     assert identity_attributes(Grant, :unique_token_verifier) == [:token_verifier]
+
+    assert identity_attributes(Grant, :unique_idempotency_key_verifier) == [
+             :idempotency_key_verifier
+           ]
 
     assert identity_attributes(Grant, :one_live_grant_per_partition) == [
              :execution_id,
@@ -108,6 +117,7 @@ defmodule ServiceRadar.Automation.Callbacks.FoundationTest do
           "budget_limit = 1",
           "cardinality(target_membership_ids) BETWEEN 1 AND 100",
           "octet_length(token_verifier) = 32",
+          "octet_length(idempotency_key_verifier) = 32",
           "devices.remote_access.ssh.ca_bundle.read"
         ] do
       assert migration =~ invariant

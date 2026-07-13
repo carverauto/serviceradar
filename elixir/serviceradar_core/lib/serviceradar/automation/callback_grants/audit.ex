@@ -52,8 +52,32 @@ defmodule ServiceRadar.Automation.CallbackGrants.Audit do
       "token_verifier",
       :token_pepper_version,
       "token_pepper_version",
+      :idempotency_key_verifier,
+      "idempotency_key_verifier",
+      :idempotency_pepper_version,
+      "idempotency_pepper_version",
+      :idempotency_verifier_digest,
+      "idempotency_verifier_digest",
+      :idempotency_verifier_key_id,
+      "idempotency_verifier_key_id",
       :launch_envelope_ref,
-      "launch_envelope_ref"
+      "launch_envelope_ref",
+      :response_bytes,
+      "response_bytes",
+      :response_reference,
+      "response_reference",
+      :response_ref,
+      "response_ref",
+      :committed_response_bytes,
+      "committed_response_bytes",
+      :committed_response_reference,
+      "committed_response_reference",
+      :body,
+      "body",
+      :policy_snapshot,
+      "policy_snapshot",
+      :response_snapshot,
+      "response_snapshot"
     ])
   end
 
