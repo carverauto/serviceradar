@@ -66,7 +66,7 @@ func (m *PluginManager) enqueueActionResult(
 		Payload:      append([]byte(nil), payload...),
 		ObservedAt:   time.Now().UTC(),
 	}); err != nil {
-		return nil, fmt.Errorf("%w: %v", errPluginActionResultBackpressure, err)
+		return nil, fmt.Errorf("%w: %w", errPluginActionResultBackpressure, err)
 	}
 
 	encoded, err := json.Marshal(ack)
@@ -77,9 +77,9 @@ func (m *PluginManager) enqueueActionResult(
 }
 
 func boundedActionResultAck(result map[string]any, pluginStatus string) map[string]any {
-	status := "succeeded"
+	status := commandStatusSucceeded
 	if pluginStatus == pluginStatusCritical || pluginStatus == pluginStatusUnknown {
-		status = "failed"
+		status = commandStatusFailed
 	}
 
 	ack := map[string]any{

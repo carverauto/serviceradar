@@ -700,7 +700,7 @@ func (p *PushLoop) handlePluginRunAction(ctx context.Context, cmd *proto.Command
 
 	commandSucceeded := true
 	message := "plugin action completed"
-	if resultPayload["schema"] == actionResultAckSchema && resultPayload["status"] == "failed" {
+	if resultPayload["schema"] == actionResultAckSchema && resultPayload["status"] == commandStatusFailed {
 		commandSucceeded = false
 		message = "plugin action failed"
 	}

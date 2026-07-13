@@ -376,7 +376,8 @@ func TestApplyCredentialBrokerHTTPInjectionSetsBearerHeader(t *testing.T) {
 func TestApplyCredentialBrokerFormInjectionTargetsExactEndpoint(t *testing.T) {
 	t.Parallel()
 
-	req, err := http.NewRequest(
+	req, err := http.NewRequestWithContext(
+		t.Context(),
 		http.MethodPost,
 		"https://hpna.example.com/oauth/token",
 		strings.NewReader("scope=inventory"),
@@ -427,7 +428,8 @@ func TestApplyCredentialBrokerFormInjectionTargetsExactEndpoint(t *testing.T) {
 func TestApplyCredentialBrokerFormInjectionRejectsCallerSecretField(t *testing.T) {
 	t.Parallel()
 
-	req, err := http.NewRequest(
+	req, err := http.NewRequestWithContext(
+		t.Context(),
 		http.MethodPost,
 		"https://hpna.example.com/oauth/token",
 		strings.NewReader("username=caller-supplied"),
@@ -454,7 +456,8 @@ func TestApplyCredentialBrokerFormInjectionRejectsCallerSecretField(t *testing.T
 func TestApplyCredentialBrokerFormInjectionIgnoresOtherEndpoint(t *testing.T) {
 	t.Parallel()
 
-	req, err := http.NewRequest(
+	req, err := http.NewRequestWithContext(
+		t.Context(),
 		http.MethodPost,
 		"https://hpna.example.com/api/devices",
 		strings.NewReader(`{"command":"list device"}`),
@@ -495,7 +498,9 @@ func TestApplyCredentialBrokerFormInjectionRequiresHTTPSAndMaterial(t *testing.T
 		"field_username": "username",
 	}}
 
-	httpReq, err := http.NewRequest(http.MethodPost, "http://hpna.example.com/oauth/token", nil)
+	httpReq, err := http.NewRequestWithContext(
+		t.Context(), http.MethodPost, "http://hpna.example.com/oauth/token", nil,
+	)
 	if err != nil {
 		t.Fatalf("create HTTP request: %v", err)
 	}
@@ -505,7 +510,9 @@ func TestApplyCredentialBrokerFormInjectionRequiresHTTPSAndMaterial(t *testing.T
 		t.Fatalf("expected non-HTTPS form rejection, got %v", err)
 	}
 
-	httpsReq, err := http.NewRequest(http.MethodPost, "https://hpna.example.com/oauth/token", nil)
+	httpsReq, err := http.NewRequestWithContext(
+		t.Context(), http.MethodPost, "https://hpna.example.com/oauth/token", nil,
+	)
 	if err != nil {
 		t.Fatalf("create HTTPS request: %v", err)
 	}
@@ -562,7 +569,7 @@ func TestPluginManagerEnqueueActionResultQueuesFullPayloadAndReturnsBoundedAck(t
 	if got := ack["schema"]; got != actionResultAckSchema {
 		t.Fatalf("ack schema = %v, want %s", got, actionResultAckSchema)
 	}
-	if got := ack["status"]; got != "succeeded" {
+	if got := ack["status"]; got != commandStatusSucceeded {
 		t.Fatalf("ack status = %v, want succeeded", got)
 	}
 	if got := ack["device_count"]; got != float64(2) {

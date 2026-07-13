@@ -3,7 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -21,6 +21,9 @@ import (
 
 const hpnaWasmPathEnv = "SERVICERADAR_HPNA_WASM_PATH"
 
+var errUnexpectedHPNACredentialGrant = errors.New("unexpected HPNA credential grant")
+
+//nolint:gocyclo // This end-to-end test validates the complete host, broker, and Wasm result path.
 func TestHPNAPluginRunsThroughAgentHost(t *testing.T) {
 	wasmPath := strings.TrimSpace(os.Getenv(hpnaWasmPathEnv))
 	if wasmPath == "" {
@@ -204,7 +207,9 @@ func TestHPNAPluginRunsThroughAgentHost(t *testing.T) {
 	if len(queued) != 1 {
 		t.Fatalf("queued results = %d, want 1", len(queued))
 	}
-	if ack["schema"] != actionResultAckSchema || ack["status"] != "succeeded" || ack["device_count"] != float64(1) {
+	if ack["schema"] != actionResultAckSchema ||
+		ack["status"] != commandStatusSucceeded ||
+		ack["device_count"] != float64(1) {
 		t.Fatalf("unexpected action-result acknowledgement: %#v; result: %s", ack, queued[0].Payload)
 	}
 	if tokenRequests.Load() != 1 || inventoryRequests.Load() != 1 || resolver.calls.Load() != 1 {
@@ -249,7 +254,7 @@ func (r *hpnaIntegrationCredentialResolver) ResolveCredentialGrant(
 ) (CredentialBrokerMaterial, error) {
 	r.calls.Add(1)
 	if grant.GrantID != "hpna-token" {
-		return CredentialBrokerMaterial{}, fmt.Errorf("unexpected credential grant %q", grant.GrantID)
+		return CredentialBrokerMaterial{}, errUnexpectedHPNACredentialGrant
 	}
 	return CredentialBrokerMaterial{Fields: map[string]string{
 		"username": "svc-hpna",
