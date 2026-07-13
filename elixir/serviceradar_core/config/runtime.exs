@@ -6,6 +6,8 @@ import Config
 alias Cluster.Strategy.DNSPoll
 alias Cluster.Strategy.Kubernetes.DNS
 alias Geolix.Adapter.MMDB2
+alias ServiceRadar.Automation.Ansible.FileCallbackResponsePolicyProvider
+alias ServiceRadar.Automation.CallbackGrants.RuntimeConfig
 alias ServiceRadar.Edge.RemoteAccessSSHCACommandSigner
 alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
 alias ServiceRadar.EventWriter.Processors.Flows
@@ -27,8 +29,7 @@ alias ServiceRadar.Observability.SeasonalDisposition.Worker, as: SeasonalDisposi
 # fail-closed.
 case System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_HMAC_KEYRING_FILE") do
   path when is_binary(path) and path != "" ->
-    verifier_config =
-      ServiceRadar.Automation.CallbackGrants.RuntimeConfig.load_verifier_file!(path)
+    verifier_config = RuntimeConfig.load_verifier_file!(path)
 
     config :serviceradar_core, :automation_callback_grants, verifier_config: verifier_config
 
@@ -36,31 +37,27 @@ case System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_HMAC_KEYRING_FILE") do
     :ok
 end
 
-callback_credential_contract =
-  with {type_id, ""} <-
-         Integer.parse(
-           System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_AWX_CREDENTIAL_TYPE_ID", "")
-         ),
-       true <- type_id > 0,
-       {organization_id, ""} <-
-         Integer.parse(System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_AWX_ORGANIZATION_ID", "")),
-       true <- organization_id > 0,
-       digest when is_binary(digest) <-
-         System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_AWX_INJECTOR_DIGEST"),
-       true <- Regex.match?(~r/\A[0-9a-f]{64}\z/, digest) do
-    [
-      credential_type_id: type_id,
-      organization_id: organization_id,
-      injector_digest: digest
-    ]
-  else
-    _ -> nil
-  end
+callback_deployment =
+  RuntimeConfig.callback_deployment_config!(%{
+    enabled: System.get_env("SERVICERADAR_AUTOMATION_CALLBACKS_ENABLED", "false"),
+    credential_type_id: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_AWX_CREDENTIAL_TYPE_ID"),
+    organization_id: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_AWX_ORGANIZATION_ID"),
+    injector_digest: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_AWX_INJECTOR_DIGEST"),
+    response_policy_file: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_RESPONSE_POLICY_FILE")
+  })
 
-if callback_credential_contract do
+if is_map(callback_deployment) do
+  config :serviceradar_core,
+         FileCallbackResponsePolicyProvider,
+         callback_deployment.response_policy_provider_config
+
   config :serviceradar_core,
          :automation_callback_awx_credential_contract,
-         callback_credential_contract
+         callback_deployment.credential_contract
+
+  config :serviceradar_core,
+         :automation_callback_response_policy_provider,
+         callback_deployment.response_policy_provider
 end
 
 # Netprobe native add-on package — signed artifact refs for the package seeder.

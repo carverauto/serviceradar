@@ -3,6 +3,8 @@ defmodule ServiceRadar.Automation.CallbackGrants.RuntimeConfig do
 
   import Bitwise
 
+  alias ServiceRadar.Automation.Ansible.FileCallbackResponsePolicyProvider
+
   @max_file_bytes 8_192
   @max_keys 4
 
@@ -22,6 +24,42 @@ defmodule ServiceRadar.Automation.CallbackGrants.RuntimeConfig do
   end
 
   def load_verifier_file!(_path), do: raise("automation callback HMAC keyring file is required")
+
+  @spec callback_deployment_config!(map()) :: :disabled | map()
+  def callback_deployment_config!(attrs) when is_map(attrs) do
+    case boolean(value(attrs, :enabled)) do
+      {:ok, false} ->
+        :disabled
+
+      {:ok, true} ->
+        with {:ok, credential_type_id} <- positive_integer(value(attrs, :credential_type_id)),
+             {:ok, organization_id} <- positive_integer(value(attrs, :organization_id)),
+             injector_digest when is_binary(injector_digest) <-
+               value(attrs, :injector_digest),
+             true <- Regex.match?(~r/\A[0-9a-f]{64}\z/, injector_digest),
+             policy_file when is_binary(policy_file) and policy_file != "" <-
+               value(attrs, :response_policy_file),
+             :ok <- validate_response_policy_file(policy_file) do
+          %{
+            credential_contract: [
+              credential_type_id: credential_type_id,
+              organization_id: organization_id,
+              injector_digest: injector_digest
+            ],
+            response_policy_provider: FileCallbackResponsePolicyProvider,
+            response_policy_provider_config: [path: policy_file]
+          }
+        else
+          _ -> raise "invalid enabled automation callback deployment configuration"
+        end
+
+      {:error, _} ->
+        raise "invalid automation callback enabled flag"
+    end
+  end
+
+  def callback_deployment_config!(_attrs),
+    do: raise("invalid automation callback deployment configuration")
 
   @spec verifier_config(map()) :: {:ok, keyword()} | {:error, atom()}
   def verifier_config(%{"active_key_id" => active_key_id, "keys" => encoded_keys} = document)
@@ -58,6 +96,29 @@ defmodule ServiceRadar.Automation.CallbackGrants.RuntimeConfig do
   end
 
   defp key_id(_value), do: {:error, :invalid_verifier_config}
+
+  defp boolean(value) when value in [true, "true", "1", "yes"], do: {:ok, true}
+  defp boolean(value) when value in [false, nil, "", "false", "0", "no"], do: {:ok, false}
+  defp boolean(_value), do: {:error, :invalid_boolean}
+
+  defp positive_integer(value) when is_integer(value) and value > 0, do: {:ok, value}
+
+  defp positive_integer(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {integer, ""} when integer > 0 -> {:ok, integer}
+      _ -> {:error, :invalid_positive_integer}
+    end
+  end
+
+  defp positive_integer(_value), do: {:error, :invalid_positive_integer}
+
+  defp validate_response_policy_file(path) do
+    FileCallbackResponsePolicyProvider.validate_file!(path)
+  rescue
+    _ -> {:error, :invalid_response_policy_file}
+  end
+
+  defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
 
   # Kubernetes projected secrets are mounted 0440 by the chart. Reject any
   # file readable or writable by "other" users and every executable keyring.

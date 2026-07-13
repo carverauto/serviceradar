@@ -460,3 +460,28 @@ that opt into cnpg.pooler.route.<workload>.
 {{- define "serviceradar.gatewayApiStreamingBackendTrafficPolicyName" -}}
 {{- printf "%s-camera-stream-policy" (include "serviceradar.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
+
+{{/* Fail chart rendering when callback execution is enabled without its exact reviewed contract. */}}
+{{- define "serviceradar.validateAutomationCallbacks" -}}
+{{- $callbacks := default (dict) .Values.automationCallbacks -}}
+{{- $enabled := false -}}
+{{- if hasKey $callbacks "enabled" -}}{{- $enabled = get $callbacks "enabled" -}}{{- end -}}
+{{- if $enabled -}}
+  {{- if le (int (default 0 $callbacks.awxCredentialTypeId)) 0 -}}
+    {{- fail "automationCallbacks.awxCredentialTypeId must be a positive AWX credential type ID when automationCallbacks.enabled=true" -}}
+  {{- end -}}
+  {{- if le (int (default 0 $callbacks.awxOrganizationId)) 0 -}}
+    {{- fail "automationCallbacks.awxOrganizationId must be a positive AWX organization ID when automationCallbacks.enabled=true" -}}
+  {{- end -}}
+  {{- if not (regexMatch "^[0-9a-f]{64}$" (default "" $callbacks.awxInjectorDigest)) -}}
+    {{- fail "automationCallbacks.awxInjectorDigest must be the lowercase SHA-256 of the reviewed AWX injector when automationCallbacks.enabled=true" -}}
+  {{- end -}}
+  {{- $responsePolicy := default (dict) $callbacks.responsePolicy -}}
+  {{- if eq (default "" $responsePolicy.existingSecretName) "" -}}
+    {{- fail "automationCallbacks.responsePolicy.existingSecretName is required when automationCallbacks.enabled=true" -}}
+  {{- end -}}
+  {{- if eq (default "" $responsePolicy.secretKey) "" -}}
+    {{- fail "automationCallbacks.responsePolicy.secretKey is required when automationCallbacks.enabled=true" -}}
+  {{- end -}}
+{{- end -}}
+{{- end -}}

@@ -9,14 +9,13 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
   """
 
   alias ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator.AshActions
-  alias ServiceRadar.Automation.Ansible.UnavailableCallbackResponsePolicyProvider
+  alias ServiceRadar.Automation.Ansible.CallbackResponsePolicy
   alias ServiceRadar.Automation.CallbackGrants.ActionContract
   alias ServiceRadar.Automation.CallbackGrants.Authority
   alias ServiceRadar.Automation.CallbackGrants.Runtime
   alias ServiceRadar.Automation.LaunchEnvelopes
 
   @audience "serviceradar.awx.callback/v1"
-  @provider_config :automation_callback_response_policy_provider
   @principal_types [:human, :service_principal, "human", "service_principal"]
 
   @spec launch(map(), struct(), keyword()) :: {:ok, map()} | {:error, term()}
@@ -30,9 +29,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
          {:ok, action_contract} <- ActionContract.fetch(launch_contract.action),
          :ok <- exact_action_contract(launch_contract, action_contract),
          :ok <- validate_initiating_authority(plan, action_contract),
-         {:ok, provider} <- response_policy_provider(opts),
-         {:ok, response_snapshot} <-
-           response_snapshot(provider, plan, launch_contract),
+         {:ok, response_policy} <- response_policy(plan, launch_contract, opts),
          {:ok, lifecycle_opts} <- lifecycle_opts(opts),
          envelope_opts = envelope_opts(opts),
          {:ok, allocation} <- envelopes.allocate(envelope_opts),
@@ -43,7 +40,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
              controller,
              launch_contract,
              action_contract,
-             response_snapshot,
+             response_policy,
              lifecycle_opts,
              envelope_opts,
              allocation,
@@ -174,26 +171,9 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
     end
   end
 
-  defp response_policy_provider(opts) do
-    provider =
-      Keyword.get(opts, :response_policy_provider) ||
-        Application.get_env(
-          :serviceradar_core,
-          @provider_config,
-          UnavailableCallbackResponsePolicyProvider
-        )
-
-    with true <- is_atom(provider),
-         {:module, ^provider} <- Code.ensure_loaded(provider),
-         true <- function_exported?(provider, :snapshot, 1) do
-      {:ok, provider}
-    else
-      _ -> {:error, :callback_response_policy_unavailable}
-    end
-  end
-
-  defp response_snapshot(provider, plan, launch_contract) do
+  defp response_policy(plan, launch_contract, opts) do
     expected_targets = provider_targets(plan)
+    approval = value(plan.operation, :approval_snapshot) || %{}
 
     provider_context = %{
       action: launch_contract.action,
@@ -203,63 +183,36 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
       controller_id: plan.execution.controller_id,
       inventory_id: plan.execution.inventory_id,
       job_template_id: plan.execution.job_template_id,
+      binding_id: value(approval, :binding_id),
+      binding_version: value(approval, :binding_version),
+      approval_id: value(approval, :approval_id),
+      approval_expires_at: value(approval, :approval_expires_at),
+      reviewed_by_principal_type: value(approval, :reviewed_by_principal_type),
+      reviewed_by_principal_id: value(approval, :reviewed_by_principal_id),
+      reviewed_at: value(approval, :reviewed_at),
+      scm_revision: plan.execution.scm_revision,
+      content_sha256: plan.execution.content_sha256,
+      now: Keyword.get(opts, :now, DateTime.utc_now()),
       targets: expected_targets
     }
 
-    with {:ok, supplied} <- safe_provider_snapshot(provider, provider_context),
-         {:ok, targets} <- exact_provider_targets(supplied),
-         :ok <- exact_target_scope(targets, expected_targets) do
+    with {:ok, policy} <-
+           CallbackResponsePolicy.snapshot(provider_context,
+             provider: Keyword.get(opts, :response_policy_provider)
+           ) do
       {:ok,
        %{
-         "manifest_sha256" => launch_contract.manifest_sha256,
-         "phase" => launch_contract.phase,
-         "operation" => launch_contract.operation,
-         "state" => launch_contract.state,
-         "targets" => targets
+         digest: policy.digest,
+         snapshot: %{
+           "manifest_sha256" => launch_contract.manifest_sha256,
+           "phase" => launch_contract.phase,
+           "operation" => launch_contract.operation,
+           "state" => launch_contract.state,
+           "targets" => policy.targets
+         }
        }}
     end
   end
-
-  defp safe_provider_snapshot(provider, context) do
-    case provider.snapshot(context) do
-      {:ok, snapshot} when is_map(snapshot) -> {:ok, snapshot}
-      {:error, _reason} = error -> error
-      _ -> {:error, :invalid_callback_response_policy_snapshot}
-    end
-  rescue
-    _ -> {:error, :callback_response_policy_unavailable}
-  catch
-    _, _ -> {:error, :callback_response_policy_unavailable}
-  end
-
-  defp exact_provider_targets(snapshot) do
-    keys = Enum.map(Map.keys(snapshot), &to_string/1)
-    targets = value(snapshot, :targets)
-
-    if keys == ["targets"] and is_list(targets) and targets != [],
-      do: {:ok, targets},
-      else: {:error, :invalid_callback_response_policy_snapshot}
-  end
-
-  defp exact_target_scope(targets, expected) when length(targets) == length(expected) do
-    actual =
-      targets
-      |> Enum.map(fn target ->
-        %{
-          "inventory_hostname" => value(target, :inventory_hostname),
-          "inventory_address" => value(target, :inventory_address),
-          "target_identity" => stringify_map(value(target, :target_identity))
-        }
-      end)
-      |> Enum.sort_by(&target_sort_key/1)
-
-    if actual == Enum.sort_by(expected, &target_sort_key/1),
-      do: :ok,
-      else: {:error, :callback_response_target_scope_mismatch}
-  end
-
-  defp exact_target_scope(_targets, _expected),
-    do: {:error, :callback_response_target_scope_mismatch}
 
   defp provider_targets(plan) do
     Enum.map(plan.targets, fn target ->
@@ -274,13 +227,6 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
         }
       }
     end)
-  end
-
-  defp target_sort_key(target) do
-    identity = value(target, :target_identity) || %{}
-
-    {to_string(value(identity, :controller_id)), value(identity, :inventory_id),
-     value(identity, :awx_host_id), to_string(value(identity, :canonical_device_uid))}
   end
 
   defp lifecycle_opts(opts) do
@@ -311,7 +257,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
          controller,
          launch_contract,
          action_contract,
-         response_snapshot,
+         response_policy,
          lifecycle_opts,
          envelope_opts,
          allocation,
@@ -321,6 +267,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
     actor = value(plan.snapshot, :actor) || %{}
     approval = value(plan.operation, :approval_snapshot) || %{}
     scope = awx_scope(plan, approval)
+    response_snapshot = response_policy.snapshot
 
     with :ok <- dispatch_agent(controller),
          {:ok, target_keys} <- Authority.target_keys(response_snapshot["targets"]) do
@@ -357,7 +304,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
              authorization_version: value(actor, :authorization_version)
            },
            approval_snapshot: approval,
-           policy_snapshot: policy_snapshot(plan, launch_contract, approval),
+           policy_snapshot:
+             policy_snapshot(plan, launch_contract, approval, response_policy.digest),
            issuance_ceiling: %{
              "permissions" => permissions,
              "actions" => [launch_contract.action],
@@ -428,7 +376,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
     }
   end
 
-  defp policy_snapshot(_plan, contract, approval) do
+  defp policy_snapshot(_plan, contract, approval, response_policy_digest) do
     %{
       "schema" => "serviceradar.automation_callback_policy/v1",
       "action" => contract.action,
@@ -437,7 +385,8 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
       "version" => contract.policy_version,
       "approval_id" => value(approval, :approval_id),
       "approval_state" => "approved",
-      "approval_expires_at" => value(approval, :approval_expires_at)
+      "approval_expires_at" => value(approval, :approval_expires_at),
+      "response_policy_digest" => response_policy_digest
     }
   end
 
@@ -446,11 +395,6 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
       do: :ok,
       else: {:error, :controller_agent_id_missing}
   end
-
-  defp stringify_map(map) when is_map(map),
-    do: Map.new(map, fn {key, value} -> {to_string(key), value} end)
-
-  defp stringify_map(_map), do: nil
 
   defp value(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, to_string(key))
 

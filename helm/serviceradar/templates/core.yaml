@@ -53,6 +53,10 @@
 {{- $deviceEnrichmentFsClaim := default "" $deviceEnrichmentFsOverrides.existingClaim -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
 {{- $automationCallbacks := default (dict) .Values.automationCallbacks -}}
+{{- include "serviceradar.validateAutomationCallbacks" . -}}
+{{- $automationCallbacksEnabled := false -}}
+{{- if hasKey $automationCallbacks "enabled" -}}{{- $automationCallbacksEnabled = get $automationCallbacks "enabled" -}}{{- end -}}
+{{- $automationCallbackResponsePolicy := default (dict) $automationCallbacks.responsePolicy -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -528,12 +532,18 @@ spec:
               key: cloak-key
         - name: SERVICERADAR_AUTOMATION_CALLBACK_HMAC_KEYRING_FILE
           value: "/etc/serviceradar/automation-callback/hmac-keyring.json"
+        - name: SERVICERADAR_AUTOMATION_CALLBACKS_ENABLED
+          value: {{ $automationCallbacksEnabled | quote }}
+        {{- if $automationCallbacksEnabled }}
         - name: SERVICERADAR_AUTOMATION_CALLBACK_AWX_CREDENTIAL_TYPE_ID
-          value: {{ default 0 $automationCallbacks.awxCredentialTypeId | quote }}
+          value: {{ $automationCallbacks.awxCredentialTypeId | quote }}
         - name: SERVICERADAR_AUTOMATION_CALLBACK_AWX_ORGANIZATION_ID
-          value: {{ default 0 $automationCallbacks.awxOrganizationId | quote }}
+          value: {{ $automationCallbacks.awxOrganizationId | quote }}
         - name: SERVICERADAR_AUTOMATION_CALLBACK_AWX_INJECTOR_DIGEST
-          value: {{ default "" $automationCallbacks.awxInjectorDigest | quote }}
+          value: {{ $automationCallbacks.awxInjectorDigest | quote }}
+        - name: SERVICERADAR_AUTOMATION_CALLBACK_RESPONSE_POLICY_FILE
+          value: "/etc/serviceradar/automation-callback-policy/response-policy.json"
+        {{- end }}
         - name: GEOLITE_MMDB_SCHEDULER_ENABLED
           value: {{ default false $geoipMmdb.enabled | quote }}
         - name: GEOLITE_MMDB_DOWNLOAD_ENABLED
@@ -590,6 +600,11 @@ spec:
         - name: automation-callback-secrets
           mountPath: /etc/serviceradar/automation-callback
           readOnly: true
+        {{- if $automationCallbacksEnabled }}
+        - name: automation-callback-response-policy
+          mountPath: /etc/serviceradar/automation-callback-policy
+          readOnly: true
+        {{- end }}
         - name: {{ $cnpgClusterName }}-ca
           mountPath: /etc/serviceradar/cnpg
           readOnly: true
@@ -655,6 +670,15 @@ spec:
           items:
           - key: automation-callback-hmac-keyring
             path: hmac-keyring.json
+      {{- if $automationCallbacksEnabled }}
+      - name: automation-callback-response-policy
+        secret:
+          secretName: {{ $automationCallbackResponsePolicy.existingSecretName | quote }}
+          defaultMode: 0440
+          items:
+          - key: {{ $automationCallbackResponsePolicy.secretKey | quote }}
+            path: response-policy.json
+      {{- end }}
       - name: {{ $cnpgClusterName }}-ca
         secret:
           secretName: {{ $cnpgClusterName }}-ca

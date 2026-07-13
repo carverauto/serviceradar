@@ -11,6 +11,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
 
   @behaviour ServiceRadar.Automation.CallbackGrants.Authorizer
 
+  alias ServiceRadar.Automation.Ansible.CallbackResponsePolicy
   alias ServiceRadar.Automation.Ansible.Targeting
   alias ServiceRadar.Automation.CallbackGrants.Authority
   alias ServiceRadar.Automation.CallbackGrants.CanonicalJSON
@@ -72,7 +73,8 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
                           "version",
                           "approval_id",
                           "approval_state",
-                          "approval_expires_at"
+                          "approval_expires_at",
+                          "response_policy_digest"
                         ])
   @max_approval_snapshot_age_seconds 300
 
@@ -117,7 +119,8 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
              memberships,
              binding,
              callback_contract,
-             now
+             now,
+             context
            ),
          {:ok, holds} <- source.active_holds(rebuilt.device_uids),
          true <- holds == [] || {:error, :target_policy_changed} do
@@ -143,7 +146,8 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
          memberships,
          binding,
          callback_contract,
-         now
+         now,
+         context
        ) do
     scope = value(grant, :awx_scope_snapshot) || %{}
 
@@ -155,6 +159,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
          {:ok, policy_snapshot} <- current_policy_snapshot(grant, binding),
          {:ok, targets} <-
            current_targets(grant, execution, execution_targets, memberships),
+         :ok <- current_response_policy(grant, binding, targets, policy_snapshot, now, context),
          {:ok, current_scope} <-
            current_scope(scope, execution, binding, targets, callback_contract),
          :ok <- stage_job(stage, grant, execution, targets, current_scope),
@@ -823,6 +828,9 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
          true <-
            normalized["approval_expires_at"] ==
              iso8601(value(binding, :approval_expires_at)) ||
+             {:error, :target_policy_changed},
+         true <-
+           digest?(normalized["response_policy_digest"], 64) ||
              {:error, :target_policy_changed} do
       {:ok, snapshot}
     else
@@ -833,6 +841,63 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
 
   defp policy_version(binding),
     do: value(value(binding, :review_metadata) || %{}, :policy_version)
+
+  defp current_response_policy(grant, binding, targets, policy_snapshot, now, context) do
+    scope = value(grant, :awx_scope_snapshot) || %{}
+
+    provider_context = %{
+      action: value(grant, :action),
+      action_version: value(grant, :action_version),
+      policy_version: value(policy_snapshot, :version),
+      tenant_id: to_string(value(grant, :tenant_id)),
+      controller_id: value(binding, :controller_id),
+      inventory_id: value(scope, :inventory_id),
+      job_template_id: value(binding, :job_template_id),
+      binding_id: value(binding, :id),
+      binding_version: value(binding, :binding_version),
+      approval_id: value(binding, :approval_id),
+      approval_expires_at: value(binding, :approval_expires_at),
+      reviewed_by_principal_type: value(binding, :reviewed_by_principal_type),
+      reviewed_by_principal_id: value(binding, :reviewed_by_principal_id),
+      reviewed_at: value(binding, :reviewed_at),
+      scm_revision: value(binding, :scm_revision),
+      content_sha256: value(binding, :content_sha256),
+      now: now,
+      targets: Enum.map(targets, &response_policy_target/1)
+    }
+
+    with {:ok, current} <-
+           CallbackResponsePolicy.snapshot(provider_context,
+             provider: response_policy_provider(context)
+           ),
+         true <- secure_equal(current.digest, value(policy_snapshot, :response_policy_digest)) do
+      :ok
+    else
+      _ -> {:error, :target_policy_changed}
+    end
+  end
+
+  defp response_policy_target(target) do
+    %{
+      "inventory_hostname" => target.host_name,
+      "inventory_address" => target.ansible_host,
+      "target_identity" => %{
+        "controller_id" => to_string(target.controller_id),
+        "inventory_id" => target.inventory_id,
+        "awx_host_id" => target.awx_host_id,
+        "canonical_device_uid" => target.canonical_device_uid
+      }
+    }
+  end
+
+  defp response_policy_provider(context) when is_map(context),
+    do:
+      Map.get(context, :response_policy_provider) || Map.get(context, "response_policy_provider")
+
+  defp response_policy_provider(context) when is_list(context),
+    do: Keyword.get(context, :response_policy_provider)
+
+  defp response_policy_provider(_context), do: nil
 
   defp authorization_version(:human, _principal, owner, profile, permissions) do
     Targeting.snapshot_digest(%{
@@ -967,6 +1032,9 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
 
   defp positive_integer?(value), do: is_integer(value) and value > 0
   defp blank?(value), do: is_nil(value) or value == ""
+
+  defp digest?(value, size) when is_integer(size),
+    do: is_binary(value) and byte_size(value) == size and Regex.match?(~r/\A[0-9a-f]+\z/, value)
 
   defp normalize_principal_type(value) when value in [:human, "human"], do: :human
 

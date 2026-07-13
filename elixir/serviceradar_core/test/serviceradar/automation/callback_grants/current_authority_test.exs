@@ -25,6 +25,41 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
     defp result(key), do: {:ok, :current_authority_fixture |> Process.get() |> Map.fetch!(key)}
   end
 
+  defmodule PolicyProvider do
+    @moduledoc false
+    @behaviour ServiceRadar.Automation.Ansible.CallbackResponsePolicyProvider
+
+    @impl true
+    def snapshot(context) do
+      fixture = Process.get(:current_authority_fixture)
+      configured = Map.fetch!(fixture, :response_policy_targets)
+      expected = Map.fetch!(context, :targets)
+
+      if target_scopes(configured) == target_scopes(expected) do
+        {:ok, %{"targets" => configured}}
+      else
+        {:error, :callback_response_target_scope_mismatch}
+      end
+    end
+
+    defp target_scopes(targets) do
+      targets
+      |> Enum.map(fn target ->
+        identity = target["target_identity"] || target[:target_identity]
+
+        {
+          identity["controller_id"] || identity[:controller_id],
+          identity["inventory_id"] || identity[:inventory_id],
+          identity["awx_host_id"] || identity[:awx_host_id],
+          identity["canonical_device_uid"] || identity[:canonical_device_uid],
+          target["inventory_hostname"] || target[:inventory_hostname],
+          target["inventory_address"] || target[:inventory_address]
+        }
+      end)
+      |> Enum.sort()
+    end
+  end
+
   setup do
     fixture = fixture()
     Process.put(:current_authority_fixture, fixture)
@@ -189,6 +224,18 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
     assert {:error, :target_policy_changed} = authorize(unversioned)
   end
 
+  test "fails closed when the server-owned CA or principal policy changes", %{
+    fixture: fixture
+  } do
+    changed =
+      update_in(fixture.response_policy_targets, fn [target] ->
+        [put_in(target["accounts"], [%{"name" => "operator", "principals" => [principal()]}])]
+      end)
+
+    assert {:error, :target_policy_changed} =
+             authorize(%{fixture | response_policy_targets: changed})
+  end
+
   test "fails closed while a target policy hold is active", %{fixture: fixture} do
     assert {:error, :target_policy_changed} = authorize(%{fixture | holds: [%{id: "hold-1"}]})
   end
@@ -216,6 +263,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
 
     CurrentAuthority.current_authority(stage, fixture.grant,
       source: Source,
+      response_policy_provider: PolicyProvider,
       now: @now
     )
   end
@@ -476,6 +524,34 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
       "approval_expires_at" => DateTime.to_iso8601(binding.approval_expires_at)
     }
 
+    response_policy_targets = [
+      %{
+        "inventory_hostname" => membership.host_name,
+        "inventory_address" => membership.ansible_host,
+        "target_identity" => %{
+          "controller_id" => membership.controller_id,
+          "inventory_id" => membership.inventory_id,
+          "awx_host_id" => membership.awx_host_id,
+          "canonical_device_uid" => membership.canonical_device_uid
+        },
+        "ca_keys" => [
+          %{
+            "id" => "ca-main",
+            "public_key" => "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK7Q",
+            "fingerprint" => "SHA256:test"
+          }
+        ],
+        "accounts" => [%{"name" => "mfreeman", "principals" => [principal()]}],
+        "transaction" => %{}
+      }
+    ]
+
+    {:ok, response_policy_digest} =
+      CanonicalJSON.digest(%{"targets" => response_policy_targets})
+
+    policy_snapshot =
+      Map.put(policy_snapshot, "response_policy_digest", response_policy_digest)
+
     {:ok, approval_digest} = CanonicalJSON.digest(approval_snapshot)
 
     {:ok, policy_digest} = CanonicalJSON.digest(policy_snapshot)
@@ -491,6 +567,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
       principal_owner_id: nil,
       authorization_version: authorization_version,
       action: @action,
+      action_version: "1.0.0",
       issued_at: @now,
       awx_scope_snapshot: scope,
       scope_digest: scope_digest,
@@ -544,7 +621,10 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
         credential_type_id: 6,
         organization_id: 2,
         injector_digest: injector_digest
-      }
+      },
+      response_policy_targets: response_policy_targets
     }
   end
+
+  defp principal, do: "srp_v1_0123456789abcdefghijklmnop"
 end

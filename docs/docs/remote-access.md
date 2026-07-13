@@ -218,9 +218,14 @@ ServiceRadar already has an AWX/AAP-backed [Ansible Integration](./ansible). Use
 5. Let AWX inventory sync mark the matching inventory devices as `ansible_managed`.
 6. Select one or more devices in ServiceRadar inventory and launch the enrollment job with **Run Task** or `/ansible/launch?devices=<device-uids>`.
 
-ServiceRadar sends AWX a host `limit` derived from the selected devices, so the sample playbook uses `hosts: all` and relies on the launch limit to narrow the run. The playbook accepts the public CA key and SSH server options as `extra_vars`; define them in an AWX Survey for a polished operator flow or enter them as raw JSON from the ServiceRadar launch page. For ServiceRadar-launched AWX jobs, pass the public key inline as `serviceradar_ssh_ca_public_key`; `serviceradar_ssh_ca_public_key_file` only works when that file is available inside the AWX execution environment.
+ServiceRadar sends AWX a host `limit` derived from the selected devices, so the sample playbook uses `hosts: all` and relies on the launch limit to narrow the run. There are two distinct execution modes:
 
-Example launch variables:
+- An integrated, callback-enabled ServiceRadar launch obtains the public CA and exact target/account/principal policy from ServiceRadar's reviewed callback response. Do not put that response, the callback bearer, or the CA mapping in a survey, ordinary `extra_vars`, inventory variables, facts, artifacts, or target files.
+- A direct `ansible-playbook` run outside ServiceRadar can accept a public CA key file as an explicit operator-controlled fallback. This path has no ServiceRadar callback authority and must not receive a ServiceRadar API key or callback bearer.
+
+The inline `serviceradar_ssh_ca_public_key` variable remains a manual/lab fallback only. It is not the integrated ServiceRadar/AWX enrollment path.
+
+Example manual/lab variables:
 
 ```json
 {
@@ -252,6 +257,101 @@ ansible-playbook \
   -e serviceradar_sshd_service=ssh \
   -e serviceradar_ssh_ca_public_key_file=/secure/path/serviceradar_user_ca.pub
 ```
+
+### Callback response policy
+
+Callback-enabled enrollment is disabled by default. Enabling it requires the exact reviewed AWX custom-credential contract and an operator-owned Kubernetes Secret containing the target-scoped response policy:
+
+```yaml
+automationCallbacks:
+  enabled: true
+  awxCredentialTypeId: 91
+  awxOrganizationId: 2
+  awxInjectorDigest: "<lowercase-sha256-of-the-reviewed-injector>"
+  responsePolicy:
+    existingSecretName: serviceradar-automation-callback-policy
+    secretKey: response-policy.json
+```
+
+The chart rejects enabled deployments with zero AWX IDs, a malformed injector digest, or no policy Secret. Both core and web-ng mount the Secret read-only. Keep it in a Secret rather than a ConfigMap: SSH CA public keys are public, but the per-device account and opaque-principal mapping is internal authorization data.
+
+The policy file has this exact shape. Replace every example identifier and key with values from the reviewed ServiceRadar binding, AWX inventory, and CA custody boundary:
+
+```json
+{
+  "schema": "serviceradar.automation.callback_response_policy/v1",
+  "policies": [
+    {
+      "enabled": true,
+      "action": "remote_access.ssh_ca.bundle.read",
+      "action_version": "1.0.0",
+      "policy_version": "ssh-policy-v3",
+      "scope": {
+        "tenant_id": "platform",
+        "controller_id": "<serviceradar-controller-uuid>",
+        "inventory_id": 34,
+        "job_template_id": 42,
+        "binding_id": "<serviceradar-binding-uuid>",
+        "binding_version": 7,
+        "approval_id": "<serviceradar-approval-uuid>",
+        "scm_revision": "<reviewed-40-to-64-character-lowercase-hex-revision>",
+        "content_sha256": "<reviewed-64-character-lowercase-sha256>"
+      },
+      "review": {
+        "state": "approved",
+        "reviewed_by_principal_type": "human",
+        "reviewed_by_principal_id": "<reviewer-principal-id>",
+        "reviewed_at": "2026-07-13T01:00:00.000000Z",
+        "expires_at": "2026-07-20T01:00:00.000000Z"
+      },
+      "signer_key_id": "serviceradar-user-ca-2026q2",
+      "ca_keys": [
+        {
+          "id": "serviceradar-user-ca-2026q2",
+          "public_key": "ssh-ed25519 <base64-public-key-blob>",
+          "fingerprint": "SHA256:<openssh-sha256-fingerprint>"
+        }
+      ],
+      "targets": [
+        {
+          "state": "ready",
+          "target_identity": {
+            "controller_id": "<serviceradar-controller-uuid>",
+            "inventory_id": 34,
+            "awx_host_id": 100,
+            "canonical_device_uid": "device:linux-01"
+          },
+          "ca_key_ids": ["serviceradar-user-ca-2026q2"],
+          "accounts": [
+            {
+              "name": "mfreeman",
+              "principals": ["srp_v1_0123456789abcdefghijklmnop"]
+            }
+          ],
+          "transaction": {
+            "generation": "generation-7",
+            "machine_credential_ref": "awx-credential-ref:5"
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+The provider accepts only public OpenSSH CA keys whose declared fingerprint matches the key blob. It rejects private-key fields, passwords, bearer/API tokens, reusable credentials, `root` target accounts, non-opaque principals, unknown fields, duplicate selectors, disabled targets, and partial target sets. Every ready target must trust the declared `signer_key_id`. Policy selection uses only tenant, controller, inventory, template, binding/approval, reviewed revision/content, AWX host ID, and canonical device UID. Hostnames and IP addresses are copied from the current authorized inventory membership and never select a policy.
+
+The current external-command signer returns certificates but does not expose a trusted public-key discovery API. Before enabling callbacks, export and attest its public key and fingerprint inside the signer custody process, put only that public material in this policy, and verify that `signer_key_id` exactly matches `SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID`. Never mount the signer private key in the response-policy Secret. During rotation, include both public keys only for the reviewed overlap window and make the active signer key the declared `signer_key_id`.
+
+Create or update the policy Secret through your normal secret-management/GitOps process. A one-off bootstrap command is:
+
+```bash
+kubectl -n <namespace> create secret generic serviceradar-automation-callback-policy \
+  --from-file=response-policy.json=/secure/path/response-policy.json \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+ServiceRadar validates the complete file at startup, re-reads the matching policy during every callback authority check, and compares its canonical digest with the immutable issuance snapshot. Disabling, expiring, removing, or changing a CA/account/principal mapping denies the whole callback; the operator must launch a newly authorized job. A policy update never broadens an already-issued grant.
 
 ## Host Key Trust
 

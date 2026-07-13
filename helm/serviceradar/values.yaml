@@ -1903,12 +1903,20 @@ secrets:
   cloakKey: ""
 
 # Exact reviewed AWX custom-credential contract used by callback-enabled
-# template bindings. Leave any field unset to keep callback grants fail-closed.
+# template bindings. Callback execution remains off until every field and an
+# operator-owned response-policy Secret are configured. When enabled, the chart
+# rejects zero IDs, malformed digests, and missing policy mounts.
 automationCallbacks:
+  enabled: false
   awxCredentialTypeId: 0
   awxOrganizationId: 0
   # Lowercase SHA-256 of the exact AWX custom credential injector definition.
   awxInjectorDigest: ""
+  responsePolicy:
+    # Existing Secret containing the reviewed, target-scoped public SSH CA
+    # response policy. The chart never generates this policy or CA material.
+    existingSecretName: ""
+    secretKey: "response-policy.json"
   # The HMAC keyring itself lives in secrets.existingSecretName. For zero-gap
   # rotation, first add the next key as inactive and roll both core and web;
   # then make it active and roll both workloads again. Retain every retired key

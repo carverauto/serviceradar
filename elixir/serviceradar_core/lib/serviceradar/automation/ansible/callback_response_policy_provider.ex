@@ -21,6 +21,15 @@ defmodule ServiceRadar.Automation.Ansible.CallbackResponsePolicyProvider do
           required(:controller_id) => binary(),
           required(:inventory_id) => pos_integer(),
           required(:job_template_id) => pos_integer(),
+          required(:binding_id) => binary(),
+          required(:binding_version) => pos_integer(),
+          required(:approval_id) => binary(),
+          required(:approval_expires_at) => binary(),
+          required(:reviewed_by_principal_type) => binary(),
+          required(:reviewed_by_principal_id) => binary(),
+          required(:reviewed_at) => binary(),
+          required(:scm_revision) => binary(),
+          required(:content_sha256) => binary(),
           required(:targets) => [map()]
         }
 
