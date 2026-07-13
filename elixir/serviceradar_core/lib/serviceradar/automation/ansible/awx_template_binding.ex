@@ -152,6 +152,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
         :ask_limit_on_launch,
         :ask_job_type_on_launch,
         :dispatch_markers_retained,
+        :inventory_groups_verified,
         :inventory_group_names,
         :input_schema,
         :input_classifications,
@@ -316,6 +317,11 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
       public?: true
 
     attribute :dispatch_markers_retained, :boolean,
+      allow_nil?: false,
+      default: false,
+      public?: true
+
+    attribute :inventory_groups_verified, :boolean,
       allow_nil?: false,
       default: false,
       public?: true
@@ -513,12 +519,17 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
     groups = List.wrap(attribute(changeset, :inventory_group_names))
 
     valid? =
-      groups != [] and Enum.all?(groups, &valid_display_name?/1) and
+      attribute(changeset, :inventory_groups_verified) == true and
+        Enum.all?(groups, &valid_display_name?/1) and
         length(groups) == length(Enum.uniq(groups))
 
     if valid?,
       do: :ok,
-      else: invalid(:inventory_group_names, "must contain unique non-empty AWX group names")
+      else:
+        invalid(
+          :inventory_group_names,
+          "must be a verified complete set of unique non-empty AWX group names"
+        )
   end
 
   defp validate_input_contract(changeset) do

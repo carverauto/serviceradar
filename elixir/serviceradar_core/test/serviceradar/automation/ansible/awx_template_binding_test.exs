@@ -98,6 +98,15 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBindingTest do
     )
   end
 
+  test "accepts a verified empty group set and rejects unverified collision evidence" do
+    assert changeset(valid_attrs(%{inventory_group_names: []})).valid?
+
+    refute_valid(
+      %{inventory_groups_verified: false},
+      "verified complete set"
+    )
+  end
+
   test "requires exact non-secret credential references and an SSH machine credential" do
     refute_valid(
       %{credentials: [%{"id" => 5, "kind" => "ssh", "password" => "forbidden"}]},
@@ -252,6 +261,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBindingTest do
         ask_limit_on_launch: true,
         ask_job_type_on_launch: true,
         dispatch_markers_retained: true,
+        inventory_groups_verified: true,
         inventory_group_names: ["linux", "proxmox"],
         input_schema: %{
           "version" => %{

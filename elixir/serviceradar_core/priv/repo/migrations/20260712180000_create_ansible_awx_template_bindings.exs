@@ -35,6 +35,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateAnsibleAwxTemplateBindings do
       add(:ask_limit_on_launch, :boolean, null: false, default: false)
       add(:ask_job_type_on_launch, :boolean, null: false, default: false)
       add(:dispatch_markers_retained, :boolean, null: false, default: false)
+      add(:inventory_groups_verified, :boolean, null: false, default: false)
       add(:inventory_group_names, {:array, :text}, null: false, default: [])
       add(:input_schema, :map, null: false, default: %{})
       add(:input_classifications, :map, null: false, default: %{})
@@ -119,7 +120,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateAnsibleAwxTemplateBindings do
              prefix: @prefix,
              check:
                "project_update_on_launch = false AND ask_limit_on_launch = true AND " <>
-                 "dispatch_markers_retained = true AND cardinality(inventory_group_names) > 0 " <>
+                 "dispatch_markers_retained = true AND inventory_groups_verified = true " <>
                  "AND cardinality(credentials) > 0 AND " <>
                  "scm_revision ~ '^[0-9a-f]{40}$|^[0-9a-f]{64}$' AND " <>
                  "content_sha256 ~ '^[0-9a-f]{64}$'"
