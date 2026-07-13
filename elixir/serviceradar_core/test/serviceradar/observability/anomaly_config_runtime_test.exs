@@ -75,6 +75,34 @@ defmodule ServiceRadar.Observability.AnomalyConfigRuntimeTest do
     assert opts[:capacity_metric_class_overrides]["disk"]["minimum_history_points"] == 120
   end
 
+  test "forecast source opt-ins are forwarded only when operators selected sources" do
+    settings = %CapacityForecastConfig{
+      forecast_horizon_seconds: 15_552_000,
+      warning_horizon_seconds: 1_209_600,
+      warning_threshold_percent: 75.0,
+      model: :linear,
+      minimum_history_points: 96,
+      metric_class_overrides: %{},
+      default_source_opt_ins: ["cpu_usage", "interface_rate"]
+    }
+
+    opts = AnomalyConfigRuntime.capacity_forecasting_opts_from_settings(settings)
+
+    assert opts[:default_source_opt_ins] == ["cpu_usage", "interface_rate"]
+
+    # An untouched Settings list must not mask env opt-ins: the worker merges
+    # DB-derived opts over its env config, so the key is omitted when empty.
+    for empty <- [[], nil] do
+      opts =
+        AnomalyConfigRuntime.capacity_forecasting_opts_from_settings(%{
+          settings
+          | default_source_opt_ins: empty
+        })
+
+      refute Keyword.has_key?(opts, :default_source_opt_ins)
+    end
+  end
+
   test "linear forecast model is forwarded to the worker" do
     settings = %CapacityForecastConfig{
       forecast_horizon_seconds: 15_552_000,

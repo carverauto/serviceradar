@@ -92,17 +92,27 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   add-on evicts the series at its memory cap) no `anomaly_clear` ever arrives, so the
   alert would otherwise sit open until manual cleanup.
 
+  Engine silence is not proof of staleness: event-id dedupe hides add-on heartbeats
+  for still-open anomalies. `live_series_keys` carries the series keys of anomaly
+  episodes that are still open (per `platform.anomaly_episodes`); alerts grouped on
+  those series are kept, everything else past `cutoff` resolves.
+
   Runs inside each owning shard and reuses the exact resolve path a real
   `anomaly_clear` takes (`handle_recovery`), so the in-memory ETS snapshot and the
   Postgres `alert_id` stay consistent — a later re-anomaly of the same series opens a
   fresh alert rather than being suppressed by a stale snapshot. Returns the count
   resolved across all shards.
   """
-  @spec resolve_stale_anomalies(String.t(), DateTime.t(), DateTime.t()) ::
+  @spec resolve_stale_anomalies(String.t(), DateTime.t(), DateTime.t(), MapSet.t()) ::
           {:ok, non_neg_integer()} | {:error, term()}
-  def resolve_stale_anomalies(rule_name, %DateTime{} = cutoff, %DateTime{} = now)
+  def resolve_stale_anomalies(
+        rule_name,
+        %DateTime{} = cutoff,
+        %DateTime{} = now,
+        %MapSet{} = live_series_keys \\ MapSet.new()
+      )
       when is_binary(rule_name) do
-    fan_out_resolve({:resolve_stale_anomalies, {rule_name, cutoff, now}})
+    fan_out_resolve({:resolve_stale_anomalies, {rule_name, cutoff, now, live_series_keys}})
   end
 
   @doc "Number of engine shards (configurable, defaults to #{@default_shard_count})."
@@ -206,7 +216,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
         table: table,
         rules: [],
         rules_loaded_at: nil,
-        ash_opts: ash_opts
+        ash_opts: ash_opts,
+        repo_unavailable_logged: false
       })
 
     load_state_snapshots(state)
@@ -254,14 +265,18 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   @impl true
-  def handle_call({:resolve_stale_anomalies, {rule_name, cutoff, now}}, _from, state) do
+  def handle_call(
+        {:resolve_stale_anomalies, {rule_name, cutoff, now, live_series_keys}},
+        _from,
+        state
+      ) do
     {state, rules} = load_rules_if_needed(state)
 
     # Only the shard that owns the rule will find it in its loaded set.
     resolved =
       case Enum.find(rules, fn rule -> rule.name == rule_name end) do
         nil -> 0
-        rule -> StateMachine.sweep_stale_anomalies(rule, cutoff, now, state)
+        rule -> StateMachine.sweep_stale_anomalies(rule, cutoff, now, state, live_series_keys)
       end
 
     {:reply, {:ok, resolved}, state}
@@ -269,6 +284,20 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     error ->
       Logger.warning("Stale-anomaly auto-resolve failed: #{inspect(error)}")
       {:reply, {:error, error}, state}
+  end
+
+  # Rolling-deploy compat: shards are Horde-placed cluster-wide, so during a
+  # rolling deploy a worker on an old node can reach a shard running this code
+  # with the legacy 3-tuple (no live-set). Treat it as an empty live-set sweep,
+  # which is exactly the pre-live-set behavior. The reverse skew — this node's
+  # 4-tuple reaching an old-code shard — cannot be patched here: the old shard
+  # crashes with a FunctionClauseError, the caller's `call/2` catch maps the
+  # exit to `{:error, _}` (so the Oban job retries instead of crashing), Horde
+  # restarts the shard, and the next 30-minute sweep after the deploy finishes
+  # succeeds. The tradeoff is bounded by the sweep cadence.
+  @impl true
+  def handle_call({:resolve_stale_anomalies, {rule_name, cutoff, now}}, from, state) do
+    handle_call({:resolve_stale_anomalies, {rule_name, cutoff, now, MapSet.new()}}, from, state)
   end
 
   defp call(shard, message) do
@@ -345,15 +374,43 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
         |> unwrap_page()
         |> Enum.filter(fn rule -> shard_for_rule_id(rule.id) == state.shard end)
 
+      :telemetry.execute(
+        [:serviceradar, :stateful_alert_engine, :rules_loaded],
+        %{count: length(rules)},
+        %{shard: state.shard}
+      )
+
       updated = %{state | rules: rules, rules_loaded_at: System.monotonic_time(:millisecond)}
       {updated, rules}
     else
-      {state, []}
+      {report_repo_unavailable(state), []}
     end
   rescue
     error ->
       Logger.warning("Failed to load stateful alert rules: #{inspect(error)}")
       {state, []}
+  end
+
+  # A shard hosted on a repo-less node (gateway/web tiers) evaluates every batch
+  # against zero rules, silently dropping alerts. Warn once per shard process and
+  # count every occurrence so dashboards can spot misplaced shards.
+  defp report_repo_unavailable(state) do
+    :telemetry.execute(
+      [:serviceradar, :stateful_alert_engine, :repo_unavailable],
+      %{count: 1},
+      %{shard: state.shard, node: node()}
+    )
+
+    if state.repo_unavailable_logged do
+      state
+    else
+      Logger.warning(
+        "StatefulAlertEngine shard #{state.shard} on #{node()} has no repo available; " <>
+          "loading zero alert rules"
+      )
+
+      %{state | repo_unavailable_logged: true}
+    end
   end
 
   defp unwrap_page({:ok, %Keyset{results: results}}), do: results

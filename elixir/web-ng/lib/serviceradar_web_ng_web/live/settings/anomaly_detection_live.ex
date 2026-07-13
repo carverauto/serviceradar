@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
   alias ServiceRadar.Observability.AnomalyConfigRuntime
   alias ServiceRadar.Observability.AnomalyDetectionConfig
   alias ServiceRadar.Observability.CapacityForecastConfig
+  alias ServiceRadar.Observability.CapacityForecasting.Source
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
 
@@ -34,6 +35,19 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
     {"High", "high"},
     {"Critical", "critical"}
   ]
+  # Labels for the known opt-in sources; the key list itself derives from
+  # `Source.opt_in_names/0` so a source added in serviceradar_core surfaces
+  # here automatically (with a humanized fallback label until named).
+  @forecast_source_opt_in_labels %{
+    "cpu_usage" => "CPU usage (daily p95)",
+    "interface_rate" => "Interface utilization (daily p95)",
+    "flow_bytes_per_hour" => "Flow volume"
+  }
+  @forecast_source_opt_in_keys Source.opt_in_names()
+  @forecast_source_opt_ins Enum.map(
+                             @forecast_source_opt_in_keys,
+                             &{&1, Map.get(@forecast_source_opt_in_labels, &1, Phoenix.Naming.humanize(&1))}
+                           )
   @edge_metric_class_keys Enum.map(@edge_metric_classes, &elem(&1, 0))
   @float_class_fields ~w(cusum_k cusum_h h_confirm_mult drift_min_effect min_std_floor min_cv)
   @int_class_fields ~w(drift_confirm_window drift_clear_slots drift_adopt_after_samples drift_escalate_after_secs)
@@ -67,6 +81,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
        |> assign(:page_title, "Anomaly Detection")
        |> assign(:current_path, @path)
        |> assign(:edge_metric_classes, @edge_metric_classes)
+       |> assign(:forecast_source_opt_ins, @forecast_source_opt_ins)
        |> assign(:drift_mode_options, @drift_mode_options)
        |> assign(:severity_cap_options, @severity_cap_options)
        |> assign(:anomaly_settings, anomaly_settings)
@@ -548,6 +563,30 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                   />
                 </div>
 
+                <fieldset class="mt-4 rounded-lg border border-base-300 p-3">
+                  <legend class="px-1 text-sm font-medium">Additional forecast sources</legend>
+                  <p class="mb-2 text-xs text-base-content/60">
+                    These daily-aggregate targets are statistically weaker than the default
+                    memory and disk exhaustion sources and are off by design.
+                  </p>
+                  <input type="hidden" name="forecast[default_source_opt_ins][]" value="" />
+                  <div class="grid gap-2 sm:grid-cols-2">
+                    <label
+                      :for={{source_key, source_label} <- @forecast_source_opt_ins}
+                      class="flex items-center gap-2 rounded-md border border-base-300 bg-base-100 px-3 py-2 text-sm"
+                    >
+                      <input
+                        type="checkbox"
+                        name="forecast[default_source_opt_ins][]"
+                        value={source_key}
+                        checked={source_key in selected_source_opt_ins(@forecast_params)}
+                        class="checkbox checkbox-sm"
+                      />
+                      <span>{source_label}</span>
+                    </label>
+                  </div>
+                </fieldset>
+
                 <div class="mt-4">
                   <label class="label">
                     <span class="label-text">Metric class overrides (JSON)</span>
@@ -647,6 +686,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
       "warning_threshold_percent" => to_string(settings.warning_threshold_percent),
       "model" => Atom.to_string(settings.model),
       "minimum_history_points" => to_string(settings.minimum_history_points),
+      "default_source_opt_ins" => Enum.map(settings.default_source_opt_ins || [], &to_string/1),
       "metric_class_overrides" => pretty_json(settings.metric_class_overrides)
     }
   end
@@ -658,6 +698,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
       "warning_threshold_percent" => "80.0",
       "model" => "linear",
       "minimum_history_points" => "72",
+      "default_source_opt_ins" => [],
       "metric_class_overrides" => pretty_json(%{"interface" => %{}, "cpu" => %{}, "memory" => %{}, "disk" => %{}})
     }
   end
@@ -752,7 +793,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
          {:ok, warning_threshold_percent} <-
            float_param(params["warning_threshold_percent"], :warning_threshold_percent),
          {:ok, minimum_history_points} <-
-           int_param(params["minimum_history_points"], :minimum_history_points) do
+           int_param(params["minimum_history_points"], :minimum_history_points),
+         {:ok, default_source_opt_ins} <- source_opt_ins_param(params["default_source_opt_ins"]) do
       {:ok,
        %{
          forecast_horizon_seconds: forecast_horizon_seconds,
@@ -760,6 +802,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
          warning_threshold_percent: warning_threshold_percent,
          model: model,
          minimum_history_points: minimum_history_points,
+         default_source_opt_ins: default_source_opt_ins,
          metric_class_overrides: overrides
        }}
     else
@@ -923,6 +966,30 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
       _ -> {:error, :invalid_json}
     end
   end
+
+  defp selected_source_opt_ins(params) when is_map(params) do
+    params
+    |> Map.get("default_source_opt_ins", [])
+    |> List.wrap()
+    |> Enum.filter(&(&1 in @forecast_source_opt_in_keys))
+  end
+
+  defp selected_source_opt_ins(_params), do: []
+
+  # The hidden [] input submits "" when nothing is checked; drop it along with
+  # anything outside the allowed opt-in source names.
+  defp source_opt_ins_param(values) when is_list(values) do
+    opt_ins =
+      values
+      |> Enum.filter(&is_binary/1)
+      |> Enum.map(&String.trim/1)
+      |> Enum.filter(&(&1 in @forecast_source_opt_in_keys))
+      |> Enum.uniq()
+
+    {:ok, opt_ins}
+  end
+
+  defp source_opt_ins_param(_values), do: {:ok, []}
 
   defp model_param("linear"), do: {:ok, :linear}
   defp model_param("seasonal_linear"), do: {:ok, :seasonal_linear}

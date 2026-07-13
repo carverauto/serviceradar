@@ -733,6 +733,89 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     refute Enum.any?(queries, &String.contains?(&1, "in:flows"))
   end
 
+  test "env source opt-ins from worker config reach the default source list" do
+    put_worker_env(default_source_opt_ins: ["cpu_usage"])
+    job = %Oban.Job{args: %{"trigger" => "cron"}, inserted_at: @forecasted_at}
+
+    assert :ok =
+             Worker.run(job,
+               runner: EmptyRunner,
+               emit_verdicts?: false,
+               runtime_config_source: :none
+             )
+
+    queries = collect_queries(3)
+    assert Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.cpu"|))
+    refute_receive {:capacity_forecast_query, _query}
+  end
+
+  test "empty Settings opt-in list preserves env opt-ins" do
+    put_worker_env(default_source_opt_ins: ["cpu_usage"])
+
+    runtime_opts_fetcher = fn _actor ->
+      {:ok, forecast_settings(default_source_opt_ins: [])}
+    end
+
+    job = %Oban.Job{args: %{"trigger" => "cron"}, inserted_at: @forecasted_at}
+
+    assert :ok =
+             Worker.run(job,
+               runner: EmptyRunner,
+               emit_verdicts?: false,
+               runtime_config_source: :database,
+               runtime_opts_fetcher: runtime_opts_fetcher
+             )
+
+    queries = collect_queries(3)
+    assert Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.cpu"|))
+    refute Enum.any?(queries, &String.contains?(&1, "in:timeseries_metric_interface_hourly"))
+    refute_receive {:capacity_forecast_query, _query}
+  end
+
+  test "non-empty Settings opt-ins override env opt-ins" do
+    put_worker_env(default_source_opt_ins: ["cpu_usage"])
+
+    runtime_opts_fetcher = fn _actor ->
+      {:ok, forecast_settings(default_source_opt_ins: ["interface_rate"])}
+    end
+
+    job = %Oban.Job{args: %{"trigger" => "cron"}, inserted_at: @forecasted_at}
+
+    assert :ok =
+             Worker.run(job,
+               runner: EmptyRunner,
+               emit_verdicts?: false,
+               runtime_config_source: :database,
+               runtime_opts_fetcher: runtime_opts_fetcher
+             )
+
+    queries = collect_queries(3)
+    assert Enum.any?(queries, &String.contains?(&1, "in:timeseries_metric_interface_hourly"))
+    refute Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.cpu"|))
+    refute_receive {:capacity_forecast_query, _query}
+  end
+
+  test "unknown source opt-ins warn and the valid subset still applies" do
+    job = %Oban.Job{args: %{"trigger" => "cron"}, inserted_at: @forecasted_at}
+
+    log =
+      capture_log(fn ->
+        assert :ok =
+                 Worker.run(job,
+                   runner: EmptyRunner,
+                   emit_verdicts?: false,
+                   runtime_config_source: :none,
+                   default_source_opt_ins: ["cpu_usage", "bogus_source"]
+                 )
+      end)
+
+    assert log =~ "Ignoring unknown capacity forecasting source opt-ins: bogus_source"
+
+    queries = collect_queries(3)
+    assert Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.cpu"|))
+    refute_receive {:capacity_forecast_query, _query}
+  end
+
   test "runtime percent threshold does not override non-percent flow capacity source" do
     AnomalyConfigRuntime.put_cache_for_test(%{
       capacity_forecasting_opts: [
@@ -1750,5 +1833,38 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       threshold: 100.0,
       model: "linear"
     }
+  end
+
+  defp put_worker_env(config) do
+    previous = Application.get_env(:serviceradar_core, Worker)
+    Application.put_env(:serviceradar_core, Worker, config)
+
+    on_exit(fn ->
+      case previous do
+        nil -> Application.delete_env(:serviceradar_core, Worker)
+        _ -> Application.put_env(:serviceradar_core, Worker, previous)
+      end
+    end)
+  end
+
+  defp collect_queries(count) do
+    for _ <- 1..count do
+      assert_receive {:capacity_forecast_query, query}
+      query
+    end
+  end
+
+  defp forecast_settings(overrides) do
+    struct!(
+      %CapacityForecastConfig{
+        forecast_horizon_seconds: 7_776_000,
+        warning_horizon_seconds: 2_592_000,
+        warning_threshold_percent: 80.0,
+        model: :linear,
+        minimum_history_points: 24,
+        metric_class_overrides: %{}
+      },
+      overrides
+    )
   end
 end

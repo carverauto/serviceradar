@@ -230,6 +230,36 @@ defmodule ServiceRadar.EventWriter.Config do
   end
 
   @doc """
+  The dedicated ANALYTICS_PREDICTIONS stream/consumer definition.
+
+  Dedicated verdict stream (restore-anomaly-alerting design D9): the shared
+  `events` stream is byte-capped and the otel collector pins its MaxAge to
+  30m, so anomaly/capacity verdicts died in any core outage >30m.
+  1 GiB / 24h, discard old. Existing deployments keep consuming from `events`
+  until the operator releases `signals.analytics.>` there (see the change
+  runbook); fresh installs converge automatically.
+
+  Shared by `default_streams/0` and both runtime.exs stream lists so the
+  retention stanza cannot drift.
+  """
+  @spec analytics_predictions_stream() :: stream_config()
+  def analytics_predictions_stream do
+    %{
+      name: "ANALYTICS_PREDICTIONS",
+      stream_name: "analytics_predictions",
+      subject: "signals.analytics.predictions.>",
+      processor: AnalyticsSignals,
+      batch_size: 100,
+      batch_timeout: 1_000,
+      stream_retention: "limits",
+      stream_storage: "file",
+      stream_discard: "old",
+      stream_max_bytes: 1_073_741_824,
+      stream_max_age: 86_400_000_000_000
+    }
+  end
+
+  @doc """
   Returns the default stream configurations.
 
   Subjects are unprefixed in single-deployment deployments.
@@ -349,14 +379,7 @@ defmodule ServiceRadar.EventWriter.Config do
         batch_size: 100,
         batch_timeout: 1_000
       },
-      %{
-        name: "ANALYTICS_PREDICTIONS",
-        stream_name: "events",
-        subject: "signals.analytics.predictions.>",
-        processor: AnalyticsSignals,
-        batch_size: 100,
-        batch_timeout: 1_000
-      },
+      analytics_predictions_stream(),
       %{
         name: "SFLOW_RAW",
         subject: "flows.raw.sflow",

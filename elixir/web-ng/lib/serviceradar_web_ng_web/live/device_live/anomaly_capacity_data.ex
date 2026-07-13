@@ -501,7 +501,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
     Enum.join(
       [
         "in:capacity_forecasts",
-        "status:(projected,at_risk,exhaustion_projected)",
+        # The worker/DB only ever persist status projected|skipped (DB CHECK);
+        # at_risk/exhaustion_projected never occur as row statuses.
+        "status:projected",
         "has_exhaustion:true",
         ~s|#{field}:"#{QueryData.escape_value(value)}"|,
         "time:last_24h",
@@ -951,20 +953,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp operator_visible_anomaly_row?(row) do
     status = status_value(row)
     reason = row |> reason() |> normalize_text()
-    disposition_action = row |> map_value("anomaly_disposition") |> map_value("action") |> normalize_text()
+    # normalize_text(nil) would stringify the atom to "nil"; an absent
+    # disposition/action must normalize to "" so it reads as not-explicit.
+    disposition_action =
+      case row |> map_value("anomaly_disposition") |> map_value("action") do
+        nil -> ""
+        action -> normalize_text(action)
+      end
 
     not pending_or_warmup_status?(status) and not pending_or_warmup_reason?(reason) and
       disposition_action != "suppress" and
       actionable_anomaly_row?(row, disposition_action)
   end
 
-  # CPU edge spikes are deliberately high-recall detector evidence. They become
-  # operator-facing device findings only after central disposition escalates
-  # them; otherwise short per-core bursts create noisy "anomaly" counts and chart
-  # markers while overall host CPU is healthy.
+  # CPU edge spikes are deliberately high-recall detector evidence. A central
+  # disposition that explicitly routes them away (action other than "escalate")
+  # hides them; rows carrying no disposition stay visible, matching the default
+  # the episode path synthesizes in episode_to_event_row/1 — no producer
+  # persists anomaly_disposition on event rows, so requiring an explicit
+  # "escalate" would unconditionally hide every cpu finding.
   defp actionable_anomaly_row?(row, disposition_action) do
     case metric_class(row) do
-      "cpu" -> disposition_action == "escalate"
+      "cpu" -> disposition_action in ["", "escalate"]
       _ -> true
     end
   end

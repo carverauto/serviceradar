@@ -12,13 +12,9 @@ alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.EventWriter.Processors.PowerDNS
 alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
 alias ServiceRadar.Jobs.RootSpanRatioWorker
-alias ServiceRadar.Observability.AnomalyAddonConfigProjector
 alias ServiceRadar.Observability.CapacityForecasting.Worker, as: CapacityForecastingWorker
 alias ServiceRadar.Observability.DataRetentionWorker
-
-alias ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer,
-  as: SeasonalEdgeBaselineProducer
-
+alias ServiceRadar.Observability.ProductionSchedule
 alias ServiceRadar.Observability.SeasonalDisposition.Worker, as: SeasonalDispositionWorker
 
 # Netprobe native add-on package — signed artifact refs for the package seeder.
@@ -1274,71 +1270,6 @@ if config_env() == :prod do
       []
     end
 
-  seasonal_disposition_enabled =
-    "SERVICERADAR_SEASONAL_DISPOSITION_ENABLED"
-    |> System.get_env("true")
-    |> String.downcase()
-    |> Kernel.in(["1", "true", "yes", "on"])
-
-  seasonal_disposition_cron =
-    System.get_env("SERVICERADAR_SEASONAL_DISPOSITION_CRON", "47 * * * *")
-
-  seasonal_disposition_emit_verdicts =
-    "SERVICERADAR_SEASONAL_DISPOSITION_EMIT_VERDICTS"
-    |> System.get_env("true")
-    |> String.downcase()
-    |> Kernel.in(["1", "true", "yes", "on"])
-
-  seasonal_disposition_crontab =
-    if seasonal_disposition_enabled do
-      [
-        {seasonal_disposition_cron, SeasonalDispositionWorker,
-         args: %{"trigger" => "cron"}, queue: :maintenance}
-      ]
-    else
-      []
-    end
-
-  seasonal_edge_baseline_enabled =
-    "SERVICERADAR_SEASONAL_EDGE_BASELINE_ENABLED"
-    |> System.get_env("true")
-    |> String.downcase()
-    |> Kernel.in(["1", "true", "yes", "on"])
-
-  seasonal_edge_baseline_cron =
-    System.get_env("SERVICERADAR_SEASONAL_EDGE_BASELINE_CRON", "53 * * * *")
-
-  # Push the freshly built hour-of-week baselines onto the anomaly add-on profile
-  # params a few minutes after the disposition pass refreshes the profile rows.
-  seasonal_edge_baseline_crontab =
-    if seasonal_disposition_enabled and seasonal_edge_baseline_enabled do
-      [
-        {seasonal_edge_baseline_cron, SeasonalEdgeBaselineProducer,
-         args: %{"trigger" => "cron"}, queue: :maintenance}
-      ]
-    else
-      []
-    end
-
-  anomaly_edge_config_projection_enabled =
-    "SERVICERADAR_ANOMALY_EDGE_CONFIG_PROJECTION"
-    |> System.get_env("false")
-    |> String.downcase()
-    |> Kernel.in(["1", "true", "yes", "on"])
-
-  anomaly_edge_config_projection_cron =
-    System.get_env("SERVICERADAR_ANOMALY_EDGE_CONFIG_PROJECTION_CRON", "57 * * * *")
-
-  anomaly_edge_config_projection_crontab =
-    if anomaly_edge_config_projection_enabled do
-      [
-        {anomaly_edge_config_projection_cron, AnomalyAddonConfigProjector,
-         args: %{"trigger" => "cron"}, queue: :maintenance}
-      ]
-    else
-      []
-    end
-
   oban_lifeline_rescue_after_ms =
     "OBAN_LIFELINE_RESCUE_AFTER_MS"
     |> System.get_env(Integer.to_string(to_timeout(minute: 240)))
@@ -1354,7 +1285,10 @@ if config_env() == :prod do
     seasonal_period:
       String.to_integer(
         System.get_env("SERVICERADAR_CAPACITY_FORECASTING_SEASONAL_PERIOD") || "24"
-      )
+      ),
+    # Comma-separated source names; the worker validates against the known
+    # source list at run time. A non-empty Settings value overrides this.
+    default_source_opt_ins: ProductionSchedule.capacity_source_opt_ins()
 
   config :serviceradar_core, Oban,
     engine: Oban.Engines.Basic,
@@ -1398,30 +1332,23 @@ if config_env() == :prod do
            {"*/10 * * * *", ServiceRadar.Edge.RemoteAccessRecordingReaperWorker,
             queue: :maintenance},
            {"31 3 * * *", ServiceRadar.Edge.RemoteAccessVersionRetentionWorker,
-            queue: :maintenance},
-           {"*/5 * * * *", ServiceRadar.Observability.AnomalyEpisodeStaleCloseWorker,
-            queue: :maintenance},
-           {"*/30 * * * *", ServiceRadar.Observability.ResolveStaleAnomaliesWorker,
             queue: :maintenance}
          ] ++
            object_store_retention_crontab ++
            capacity_forecasting_crontab ++
-           seasonal_disposition_crontab ++
-           seasonal_edge_baseline_crontab ++ anomaly_edge_config_projection_crontab}
+           ProductionSchedule.cron_entries()}
     ],
     peer: Oban.Peers.Database
 
-  config :serviceradar_core, SeasonalDispositionWorker,
-    enabled: seasonal_disposition_enabled,
-    emit_verdicts?: seasonal_disposition_emit_verdicts,
-    seasonal_n_sigma:
-      String.to_float(System.get_env("SERVICERADAR_SEASONAL_DISPOSITION_N_SIGMA") || "3.0"),
-    min_bucket_samples:
-      String.to_integer(
-        System.get_env("SERVICERADAR_SEASONAL_DISPOSITION_MIN_BUCKET_SAMPLES") || "4"
-      ),
-    confirm_slots:
-      String.to_integer(System.get_env("SERVICERADAR_SEASONAL_DISPOSITION_CONFIRM_SLOTS") || "1")
+  config :serviceradar_core,
+         SeasonalDispositionWorker,
+         ProductionSchedule.seasonal_disposition_worker_config()
+
+  # Operator-set stale thresholds for the scheduled anomaly workers; the
+  # worker modules' own defaults apply when unset.
+  for {key, value} <- ProductionSchedule.app_env() do
+    config :serviceradar_core, key, value
+  end
 
   config :serviceradar_core, :object_store_retention,
     enabled?: object_store_retention_enabled,
@@ -1631,14 +1558,10 @@ if config_env() == :prod do
           batch_size: 100,
           batch_timeout: 1_000
         },
-        %{
-          name: "ANALYTICS_PREDICTIONS",
-          stream_name: "events",
-          subject: "signals.analytics.predictions.>",
-          processor: AnalyticsSignals,
-          batch_size: 100,
-          batch_timeout: 1_000
-        },
+        # Dedicated anomaly/capacity verdict stream (restore-anomaly-alerting
+        # design D9); definition shared with Config.default_streams/0 so the
+        # retention stanza cannot drift.
+        ServiceRadar.EventWriter.Config.analytics_predictions_stream(),
         %{
           name: "SFLOW_RAW",
           subject: "flows.raw.sflow",

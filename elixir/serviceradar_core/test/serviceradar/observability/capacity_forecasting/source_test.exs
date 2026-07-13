@@ -84,6 +84,18 @@ defmodule ServiceRadar.Observability.CapacityForecasting.SourceTest do
     refute flow_source.metric_name == "bps"
   end
 
+  test "opt_in_names lists exactly the non-default sources in definition order" do
+    # Literal guard: the resource validation, seeder filter, worker validation,
+    # and Settings UI all derive from this list, so a bad edit to the source
+    # definitions must fail loudly here.
+    assert Source.opt_in_names() == ["cpu_usage", "interface_rate", "flow_bytes_per_hour"]
+
+    default_names = Enum.map(Source.defaults(), & &1.name)
+    all_names = Enum.map(Source.defaults(include_sources: :all), & &1.name)
+
+    assert Enum.sort(Source.opt_in_names() ++ default_names) == Enum.sort(all_names)
+  end
+
   test "configured sources preserve value units" do
     source =
       Source.from_config(%{

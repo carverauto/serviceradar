@@ -18,6 +18,7 @@ defmodule ServiceRadar.Plugins.AddonProfile do
   alias ServiceRadar.Plugins.Changes.SetAssignmentAddonId
   alias ServiceRadar.Plugins.Validations.AddonAssignmentParams
   alias ServiceRadar.Plugins.Validations.AddonPackageApproved
+  alias ServiceRadar.Plugins.Validations.SingleEnabledAddonProfile
 
   @mutable_fields [
     :name,
@@ -33,73 +34,92 @@ defmodule ServiceRadar.Plugins.AddonProfile do
   ]
 
   postgres do
-    table "addon_profiles"
-    repo ServiceRadar.Repo
-    schema "platform"
+    table("addon_profiles")
+    repo(ServiceRadar.Repo)
+    schema("platform")
+
+    custom_indexes do
+      # Race backstop for Validations.SingleEnabledAddonProfile: the
+      # validation reads-then-writes, so two concurrent enables can both pass
+      # it. Predicate must stay in sync with @exclusive_addon_ids there.
+      index([:addon_id],
+        name: "addon_profiles_single_enabled_anomaly_index",
+        unique: true,
+        where: "enabled AND addon_id = 'anomaly'",
+        message: "only one enabled add-on profile is allowed for the anomaly add-on"
+      )
+    end
 
     references do
-      reference :addon_package, on_delete: :delete
+      reference(:addon_package, on_delete: :delete)
     end
   end
 
   code_interface do
-    define :get_by_id, action: :by_id, args: [:id]
-    define :list_enabled, action: :enabled
-    define :preview, action: :preview
-    define :reconcile_now, action: :reconcile_now
+    define(:get_by_id, action: :by_id, args: [:id])
+    define(:list_enabled, action: :enabled)
+    define(:preview, action: :preview)
+    define(:reconcile_now, action: :reconcile_now)
   end
 
   actions do
-    defaults [:read, :destroy]
+    defaults([:read, :destroy])
 
     read :by_id do
-      get? true
-      argument :id, :uuid, allow_nil?: false
-      filter expr(id == ^arg(:id))
+      get?(true)
+      argument(:id, :uuid, allow_nil?: false)
+      filter(expr(id == ^arg(:id)))
     end
 
     read :enabled do
-      filter expr(enabled == true)
+      filter(expr(enabled == true))
     end
 
     create :create do
-      accept @mutable_fields
+      accept(@mutable_fields)
 
-      change SetAssignmentAddonId
-      change ApplyAddonConfigDefaults
-      validate AddonPackageApproved
-      validate AddonAssignmentParams
+      change(SetAssignmentAddonId)
+      change(ApplyAddonConfigDefaults)
+      validate(AddonPackageApproved)
+      validate(AddonAssignmentParams)
+      validate(SingleEnabledAddonProfile)
     end
 
     update :update do
-      accept @mutable_fields ++ [:last_reconciled_at, :last_reconcile_summary]
+      # SingleEnabledAddonProfile requires a cross-row read ({:not_atomic, ..}),
+      # so updates must fall back to the non-atomic path (where validate/3
+      # runs) instead of erroring MustBeAtomic.
+      require_atomic?(false)
 
-      change SetAssignmentAddonId
-      change ApplyAddonConfigDefaults
-      validate AddonPackageApproved
-      validate AddonAssignmentParams
+      accept(@mutable_fields ++ [:last_reconciled_at, :last_reconcile_summary])
+
+      change(SetAssignmentAddonId)
+      change(ApplyAddonConfigDefaults)
+      validate(AddonPackageApproved)
+      validate(AddonAssignmentParams)
+      validate(SingleEnabledAddonProfile)
     end
 
     action :preview do
-      argument :id, :uuid, allow_nil?: false
-      argument :sample_limit, :integer, allow_nil?: true, default: 10
-      returns :map
+      argument(:id, :uuid, allow_nil?: false)
+      argument(:sample_limit, :integer, allow_nil?: true, default: 10)
+      returns(:map)
 
-      run fn input, context ->
+      run(fn input, context ->
         AddonProfileOps.preview_by_id(input.arguments.id,
           sample_limit: input.arguments.sample_limit,
           actor: action_actor(context)
         )
-      end
+      end)
     end
 
     action :reconcile_now do
-      argument :id, :uuid, allow_nil?: false
-      returns :map
+      argument(:id, :uuid, allow_nil?: false)
+      returns(:map)
 
-      run fn input, context ->
+      run(fn input, context ->
         AddonProfileOps.reconcile_by_id(input.arguments.id, actor: action_actor(context))
-      end
+      end)
     end
   end
 
@@ -110,100 +130,100 @@ defmodule ServiceRadar.Plugins.AddonProfile do
   end
 
   attributes do
-    uuid_primary_key :id
+    uuid_primary_key(:id)
 
     attribute :name, :string do
-      allow_nil? false
-      public? true
+      allow_nil?(false)
+      public?(true)
     end
 
     attribute :description, :string do
-      allow_nil? true
-      public? true
+      allow_nil?(true)
+      public?(true)
     end
 
     attribute :addon_id, :string do
-      allow_nil? false
-      public? true
-      description "Denormalized add-on identifier from the selected package."
+      allow_nil?(false)
+      public?(true)
+      description("Denormalized add-on identifier from the selected package.")
     end
 
     attribute :addon_package_id, :uuid do
-      allow_nil? false
-      public? true
+      allow_nil?(false)
+      public?(true)
     end
 
     attribute :target_query, :string do
-      allow_nil? false
-      public? true
-      description "SRQL query that selects target devices or agents."
+      allow_nil?(false)
+      public?(true)
+      description("SRQL query that selects target devices or agents.")
     end
 
     attribute :params, :map do
-      allow_nil? false
-      public? true
-      default %{}
+      allow_nil?(false)
+      public?(true)
+      default(%{})
     end
 
     attribute :args, {:array, :string} do
-      allow_nil? false
-      public? true
-      default []
+      allow_nil?(false)
+      public?(true)
+      default([])
     end
 
     attribute :priority, :integer do
-      allow_nil? false
-      public? true
-      default 100
-      constraints min: 0
+      allow_nil?(false)
+      public?(true)
+      default(100)
+      constraints(min: 0)
     end
 
     attribute :max_targets, :integer do
-      allow_nil? false
-      public? true
-      default 10_000
-      constraints min: 1, max: 1_000_000
+      allow_nil?(false)
+      public?(true)
+      default(10_000)
+      constraints(min: 1, max: 1_000_000)
     end
 
     attribute :metadata, :map do
-      allow_nil? false
-      public? true
-      default %{}
+      allow_nil?(false)
+      public?(true)
+      default(%{})
     end
 
     attribute :enabled, :boolean do
-      allow_nil? false
-      public? true
-      default true
+      allow_nil?(false)
+      public?(true)
+      default(true)
     end
 
     attribute :last_reconciled_at, :utc_datetime_usec do
-      allow_nil? true
-      public? true
+      allow_nil?(true)
+      public?(true)
     end
 
     attribute :last_reconcile_summary, :map do
-      allow_nil? false
-      public? true
-      default %{}
+      allow_nil?(false)
+      public?(true)
+      default(%{})
     end
 
-    create_timestamp :inserted_at
-    update_timestamp :updated_at
+    create_timestamp(:inserted_at)
+    update_timestamp(:updated_at)
   end
 
   relationships do
     belongs_to :addon_package, ServiceRadar.Plugins.AddonPackage do
-      allow_nil? false
-      public? true
-      destination_attribute :id
-      source_attribute :addon_package_id
-      define_attribute? false
+      allow_nil?(false)
+      public?(true)
+      destination_attribute(:id)
+      source_attribute(:addon_package_id)
+      define_attribute?(false)
     end
 
     has_many :assignments, ServiceRadar.Plugins.AddonAssignment do
-      public? true
-      destination_attribute :addon_profile_id
+      public?(true)
+      destination_attribute(:addon_profile_id)
     end
   end
 

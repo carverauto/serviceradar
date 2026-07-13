@@ -4,15 +4,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
-use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serviceradar_anomaly_core::{
-    Cusum, DEFAULT_CONFIRM_SLOTS, DEFAULT_MIN_SAMPLES, DEFAULT_N_SIGMA, DEFAULT_WINDOW_SIZE,
-    ReasonContext, ReasonSample, SaturationGate, reason_impl,
+    DEFAULT_CONFIRM_SLOTS, DEFAULT_MIN_SAMPLES, DEFAULT_N_SIGMA, DEFAULT_WINDOW_SIZE,
+    scorecard::{
+        BacktestSample, ReplayConfig, SeriesState, load_truth, open_bufread, run_scorecard,
+    },
 };
 
 #[derive(Clone, Debug, Parser)]
@@ -21,9 +22,18 @@ use serviceradar_anomaly_core::{
     about = "Replay JSONL metric samples through serviceradar-anomaly-core"
 )]
 struct Args {
-    /// Input JSONL file. Reads stdin when omitted or set to '-'.
+    /// Input JSONL file (gzipped when the path ends in .gz). Reads stdin when
+    /// omitted or set to '-'.
     #[arg(short, long)]
     input: Option<PathBuf>,
+
+    /// Score the replay against a labeled truth CSV
+    /// (`series_key,i,t_ns,value,is_truth,klass`, as written by
+    /// tools/anomaly-proof/gen.py; gzipped when the path ends in .gz) and print a
+    /// scorecard JSON instead of per-sample verdicts. The span-matching semantics
+    /// mirror tools/anomaly-proof/plot.py.
+    #[arg(long)]
+    truth: Option<PathBuf>,
 
     /// Emit all verdicts, only breached/pending verdicts, or only confirmed anomalies.
     #[arg(long, default_value_t = EmitMode::Anomalies)]
@@ -93,6 +103,26 @@ struct Args {
     cusum_h: f64,
 }
 
+impl Args {
+    fn replay_config(&self) -> ReplayConfig {
+        ReplayConfig {
+            window_size: self.window_size,
+            min_samples: self.min_samples,
+            n_sigma: self.n_sigma,
+            confirm_slots: self.confirm_slots,
+            saturation_gate_min: self.saturation_gate_min,
+            min_std_floor: self.min_std_floor,
+            min_cv: self.min_cv,
+            seasonal: self.seasonal,
+            seasonal_n_sigma: self.seasonal_n_sigma,
+            seasonal_min_samples: self.seasonal_min_samples,
+            cusum: self.cusum,
+            cusum_k: self.cusum_k,
+            cusum_h: self.cusum_h,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, ValueEnum)]
 enum EmitMode {
     All,
@@ -110,63 +140,6 @@ impl std::fmt::Display for EmitMode {
         };
         f.write_str(value)
     }
-}
-
-#[derive(Debug, Deserialize)]
-struct InputSample {
-    series_key: String,
-    value: f64,
-    #[serde(default)]
-    observed_at_unix_nano: Option<u64>,
-}
-
-#[derive(Debug, Default)]
-struct SeriesState {
-    window_tail: Vec<f64>,
-    consecutive_anomalous: usize,
-    cusum: Option<Cusum>,
-    cusum_anchor: Option<(f64, f64)>,
-    /// Causal hour-of-week baseline for deseasonalizing the CUSUM input: the prior
-    /// values per (dow*24+hod) bucket (168). The baseline is their MEDIAN — robust to
-    /// a persistent shift polluting the reference (a running mean is not). Lazily
-    /// sized to 168; the current sample is appended AFTER scoring (latest-excluded).
-    how_vals: Vec<Vec<f64>>,
-}
-
-/// Median of a slice (mid value for odd n, average of the two middle for even).
-fn median(values: &[f64]) -> f64 {
-    if values.is_empty() {
-        return 0.0;
-    }
-    let mut v = values.to_vec();
-    v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let n = v.len();
-    if n % 2 == 1 {
-        v[n / 2]
-    } else {
-        (v[n / 2 - 1] + v[n / 2]) / 2.0
-    }
-}
-
-/// Mean and sample standard deviation (n-1) of a slice; (0,0) when empty.
-fn mean_std(values: &[f64]) -> (f64, f64) {
-    let n = values.len();
-    if n == 0 {
-        return (0.0, 0.0);
-    }
-    let mean = values.iter().sum::<f64>() / n as f64;
-    let denom = n.saturating_sub(1).max(1) as f64;
-    let var = values.iter().map(|v| (v - mean) * (v - mean)).sum::<f64>() / denom;
-    (mean, var.sqrt())
-}
-
-/// Hour-of-week bucket (0..167) from a unix-nanosecond timestamp, UTC. 1970-01-01 was
-/// a Thursday (dow 4), so `dow = (days + 4) mod 7`.
-fn hour_of_week(observed_at_unix_nano: u64) -> usize {
-    let secs = (observed_at_unix_nano / 1_000_000_000) as i64;
-    let dow = ((secs.div_euclid(86_400) + 4).rem_euclid(7)) as usize;
-    let hod = (secs.rem_euclid(86_400) / 3_600) as usize;
-    dow * 24 + hod
 }
 
 #[derive(Debug, Serialize)]
@@ -196,8 +169,21 @@ fn main() {
 }
 
 fn run(args: Args, mut out: impl Write) -> Result<(), String> {
-    let mut states: HashMap<String, SeriesState> = HashMap::new();
+    let cfg = args.replay_config();
     let input = input_reader(args.input.as_ref()).map_err(|err| err.to_string())?;
+
+    // Scoring mode: replay everything, match against the labeled truth, print the
+    // scorecard JSON instead of per-sample verdicts.
+    if let Some(truth_path) = &args.truth {
+        let truth_reader = open_bufread(truth_path).map_err(|err| err.to_string())?;
+        let truth = load_truth(truth_reader)?;
+        let scorecard = run_scorecard(input, &truth, &cfg)?;
+        serde_json::to_writer_pretty(&mut out, &scorecard).map_err(|err| err.to_string())?;
+        out.write_all(b"\n").map_err(|err| err.to_string())?;
+        return Ok(());
+    }
+
+    let mut states: HashMap<String, SeriesState> = HashMap::new();
 
     for (line_number, line) in input.lines().enumerate() {
         let line = line.map_err(|err| format!("line {}: {err}", line_number + 1))?;
@@ -207,99 +193,17 @@ fn run(args: Args, mut out: impl Write) -> Result<(), String> {
             continue;
         }
 
-        let sample: InputSample = serde_json::from_str(line)
+        let sample: BacktestSample = serde_json::from_str(line)
             .map_err(|err| format!("line {}: invalid JSON sample: {err}", line_number + 1))?;
 
         let state = states.entry(sample.series_key.clone()).or_default();
-
-        // Hour-of-week (dow*24+hod) bucket shared by --seasonal and --cusum; it holds
-        // the PRIOR values for this slot (the current sample is pushed after scoring,
-        // so both reads stay causal).
-        let how = sample.observed_at_unix_nano.map(hour_of_week);
-        if (args.seasonal || args.cusum) && state.how_vals.is_empty() {
-            state.how_vals = vec![Vec::new(); 168];
-        }
-        let seasonal_baseline = if args.seasonal {
-            how.map(|h| state.how_vals[h].clone())
-        } else {
-            None
-        };
-
-        let verdict = reason_impl(
-            ReasonContext {
-                baseline: Vec::new(),
-                rolling_acc: None,
-                window_tail: Some(state.window_tail.clone()),
-                seasonal_baseline,
-                trend_baseline: None,
-                rolling_enabled: Some(true),
-                seasonal_enabled: Some(args.seasonal),
-                trend_enabled: Some(false),
-                min_samples: Some(args.min_samples),
-                seasonal_min_samples: Some(args.seasonal_min_samples.unwrap_or(args.min_samples)),
-                trend_min_samples: None,
-                window_size: Some(args.window_size),
-                n_sigma: Some(args.n_sigma),
-                seasonal_n_sigma: Some(args.seasonal_n_sigma.unwrap_or(args.n_sigma)),
-                trend_n_sigma: None,
-                confirm_slots: Some(args.confirm_slots),
-                consecutive_anomalous: Some(state.consecutive_anomalous),
-                min_std_floor: args.min_std_floor,
-                min_cv: args.min_cv,
-                saturation_gate: args.saturation_gate_min.map(|min_value| SaturationGate {
-                    directional: true,
-                    min_value,
-                }),
-            },
-            ReasonSample {
-                value: sample.value,
-                observed_at_unix_nano: sample.observed_at_unix_nano,
-            },
-        )
-        .map_err(|err| format!("line {}: detector failed: {err}", line_number + 1))?;
-
-        // CUSUM drift detector on a DESEASONALIZED residual (`--cusum`). A rolling
-        // z-score's mean tracks a slow ramp and misses it; raw CUSUM floods false
-        // positives on a seasonal series (it accumulates every diurnal swing). So we
-        // accumulate `(x - hour_of_week_median) / scale` against a CAUSAL hour-of-week
-        // baseline (median: robust to a persistent shift polluting the reference, which
-        // a running mean is not) — `scale` is the warmed baseline std (~noise). The
-        // bucket is updated AFTER scoring (causal) and CUSUM only scores a warm bucket.
-        let (mut cusum_pos, mut cusum_neg, mut cusum_alarm) = (None, None, None);
-        if args.cusum {
-            const MIN_SEASONAL_BUCKET: u32 = 30;
-            if state.cusum_anchor.is_none() && state.window_tail.len() >= args.min_samples {
-                let (mean, std) = mean_std(&state.window_tail);
-                state.cusum_anchor = Some((mean, std.max(f64::EPSILON)));
-                state.cusum = Some(Cusum::new(args.cusum_k, args.cusum_h));
-            }
-            if let Some(h) = how
-                && state.how_vals[h].len() as u32 >= MIN_SEASONAL_BUCKET
-            {
-                let seasonal = median(&state.how_vals[h]);
-                if let (Some((_t, scale)), Some(cusum)) = (state.cusum_anchor, state.cusum.as_mut())
-                {
-                    let step = cusum.update((sample.value - seasonal) / scale);
-                    cusum_pos = Some(step.pos);
-                    cusum_neg = Some(step.neg);
-                    cusum_alarm = Some(step.alarm);
-                }
-            }
-        }
-
-        // Push the current value to its hour-of-week bucket (causal: after both the
-        // seasonal-baseline read above and the CUSUM read).
-        if let Some(h) = how
-            && !state.how_vals.is_empty()
-        {
-            state.how_vals[h].push(sample.value);
-        }
-
-        state.window_tail = verdict.next_window_tail.clone();
-        state.consecutive_anomalous = verdict.next_consecutive_anomalous;
+        let outcome = state
+            .step(&cfg, sample.value, sample.observed_at_unix_nano)
+            .map_err(|err| format!("line {}: detector failed: {err}", line_number + 1))?;
+        let verdict = &outcome.verdict;
 
         let emit = should_emit(args.emit, verdict.anomalous, verdict.breached)
-            || cusum_alarm == Some(true);
+            || outcome.cusum_alarm == Some(true);
         if emit {
             let output = OutputVerdict {
                 series_key: &sample.series_key,
@@ -311,9 +215,9 @@ fn run(args: Args, mut out: impl Write) -> Result<(), String> {
                 baseline_count: verdict.baseline_count,
                 sample_value: verdict.sample_value,
                 observed_at_unix_nano: verdict.observed_at_unix_nano,
-                cusum_pos,
-                cusum_neg,
-                cusum_alarm,
+                cusum_pos: outcome.cusum_pos,
+                cusum_neg: outcome.cusum_neg,
+                cusum_alarm: outcome.cusum_alarm,
             };
 
             serde_json::to_writer(&mut out, &output).map_err(|err| err.to_string())?;
@@ -326,10 +230,7 @@ fn run(args: Args, mut out: impl Write) -> Result<(), String> {
 
 fn input_reader(input: Option<&PathBuf>) -> io::Result<Box<dyn BufRead>> {
     match input {
-        Some(path) if path.as_os_str() != "-" => {
-            let file = File::open(path)?;
-            Ok(Box::new(BufReader::new(file)))
-        }
+        Some(path) if path.as_os_str() != "-" => open_bufread(path),
         _ => {
             let mut data = Vec::new();
             io::stdin().read_to_end(&mut data)?;
@@ -349,6 +250,28 @@ fn should_emit(mode: EmitMode, anomalous: bool, breached: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
+
+    fn args_for(input: PathBuf) -> Args {
+        Args {
+            input: Some(input),
+            truth: None,
+            emit: EmitMode::Anomalies,
+            window_size: 10,
+            min_samples: 3,
+            n_sigma: 3.0,
+            confirm_slots: 1,
+            saturation_gate_min: None,
+            min_std_floor: None,
+            min_cv: None,
+            seasonal: false,
+            seasonal_n_sigma: None,
+            seasonal_min_samples: None,
+            cusum: false,
+            cusum_k: 0.5,
+            cusum_h: 5.0,
+        }
+    }
 
     #[test]
     fn emit_mode_filters_verdicts() {
@@ -374,26 +297,7 @@ mod tests {
         }
 
         let mut output = Vec::new();
-        let result = run(
-            Args {
-                input: Some(input.clone()),
-                emit: EmitMode::Anomalies,
-                window_size: 10,
-                min_samples: 3,
-                n_sigma: 3.0,
-                confirm_slots: 1,
-                saturation_gate_min: None,
-                min_std_floor: None,
-                min_cv: None,
-                seasonal: false,
-                seasonal_n_sigma: None,
-                seasonal_min_samples: None,
-                cusum: false,
-                cusum_k: 0.5,
-                cusum_h: 5.0,
-            },
-            &mut output,
-        );
+        let result = run(args_for(input.clone()), &mut output);
         let _ = std::fs::remove_file(input);
         result.expect("run backtest");
 
@@ -401,5 +305,46 @@ mod tests {
         assert_eq!(lines.lines().count(), 1);
         assert!(lines.contains(r#""series_key":"s1""#));
         assert!(lines.contains(r#""anomalous":true"#));
+    }
+
+    #[test]
+    fn truth_mode_scores_replay_against_labels() {
+        let dir = std::env::temp_dir();
+        let input = dir.join(format!(
+            "serviceradar-anomaly-backtest-truth-{}.jsonl",
+            std::process::id()
+        ));
+        let truth = dir.join(format!(
+            "serviceradar-anomaly-backtest-truth-{}.csv",
+            std::process::id()
+        ));
+
+        {
+            let mut file = File::create(&input).expect("create temp input");
+            for value in [10.0, 10.0, 10.0, 30.0] {
+                writeln!(file, r#"{{"series_key":"s1","value":{value}}}"#).expect("write sample");
+            }
+            let mut file = File::create(&truth).expect("create temp truth");
+            writeln!(file, "series_key,i,t_ns,value,is_truth,klass").expect("write header");
+            for (i, is_truth) in [(0, 0), (1, 0), (2, 0), (3, 1)] {
+                writeln!(file, "s1,{i},{i},10.0,{is_truth},spike").expect("write row");
+            }
+        }
+
+        let mut output = Vec::new();
+        let mut args = args_for(input.clone());
+        args.truth = Some(truth.clone());
+        let result = run(args, &mut output);
+        let _ = std::fs::remove_file(input);
+        let _ = std::fs::remove_file(truth);
+        result.expect("run truth mode");
+
+        let scorecard: serde_json::Value = serde_json::from_slice(&output).expect("scorecard JSON");
+        let series = &scorecard["series"][0];
+        assert_eq!(series["series_key"], "s1");
+        assert_eq!(series["tp_flags"], 1);
+        assert_eq!(series["fp_flags"], 0);
+        assert_eq!(series["by_class"][0]["klass"], "spike");
+        assert_eq!(series["by_class"][0]["detected"], 1);
     }
 }

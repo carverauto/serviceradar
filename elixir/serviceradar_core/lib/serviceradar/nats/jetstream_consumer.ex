@@ -14,6 +14,18 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
   @default_max_ack_pending 5_000
   @default_max_deliver 10
 
+  # Stream shape options describe the stream a consumer config requested; they
+  # must never be stamped onto a different stream discovery resolved onto.
+  @stream_shape_opts [
+    :stream_retention,
+    :stream_storage,
+    :stream_discard,
+    :stream_replicas,
+    :stream_max_bytes,
+    :stream_max_age,
+    :stream_duplicate_window
+  ]
+
   @type connection_ref :: atom() | pid()
   @type ensure_opts :: keyword()
 
@@ -23,7 +35,8 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     with {:ok, subject} <- fetch_required(opts, :filter_subject),
          {:ok, consumer_name} <- fetch_required(opts, :consumer_name),
          {:ok, stream_name} <- resolve_stream_name(connection_ref, opts, subject),
-         :ok <- ensure_stream(connection_ref, stream_name, subject, opts),
+         {:ok, stream_name} <-
+           ensure_stream_for_subject(connection_ref, stream_name, subject, opts),
          :ok <- create_consumer(connection_ref, stream_name, consumer_name, subject, opts) do
       {:ok, %{stream_name: stream_name, consumer_name: consumer_name}}
     end
@@ -75,6 +88,71 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
         {:error, reason}
     end
   end
+
+  # A discovery ERROR (not an empty result) falls the resolver back to the
+  # requested stream name; on an existing deployment another stream (e.g. the
+  # legacy `events` stream) may still own the subject, so STREAM.CREATE fails
+  # with JetStream's subject-overlap error and would leave the consumer down
+  # until discovery recovers. Re-run discovery once on that specific error and
+  # proceed against the stream that owns the subject when one is found.
+  defp ensure_stream_for_subject(connection_ref, stream_name, subject, opts) do
+    case ensure_stream(
+           connection_ref,
+           stream_name,
+           subject,
+           scoped_stream_opts(opts, stream_name)
+         ) do
+      :ok ->
+        {:ok, stream_name}
+
+      {:error, reason} = error ->
+        if subject_overlap_error?(reason) do
+          retry_stream_for_overlap(connection_ref, stream_name, subject, opts, error)
+        else
+          error
+        end
+    end
+  end
+
+  defp retry_stream_for_overlap(connection_ref, requested, subject, opts, original_error) do
+    domain = Keyword.get(opts, :domain)
+    discovery = find_streams_by_subject(connection_ref, subject, domain)
+
+    case overlap_fallback_stream(discovery, requested) do
+      {:ok, stream_name} ->
+        Logger.warning("Stream create hit a subject overlap; using the stream owning the subject",
+          requested_stream: requested,
+          discovered_stream: stream_name,
+          subject: subject
+        )
+
+        case ensure_stream(
+               connection_ref,
+               stream_name,
+               subject,
+               scoped_stream_opts(opts, stream_name)
+             ) do
+          :ok -> {:ok, stream_name}
+          {:error, _reason} = error -> error
+        end
+
+      :error ->
+        original_error
+    end
+  end
+
+  @doc false
+  # Picks the stream to retry against after a subject-overlap create failure.
+  # The requested stream is excluded — it just failed to own the subject, and
+  # retrying the same name could only repeat the overlap error.
+  def overlap_fallback_stream({:ok, streams}, requested) when is_list(streams) do
+    case Enum.filter(streams, &(is_binary(&1) and &1 != requested)) do
+      [stream | _rest] -> {:ok, stream}
+      [] -> :error
+    end
+  end
+
+  def overlap_fallback_stream(_discovery, _requested), do: :error
 
   defp ensure_stream(connection_ref, stream_name, subject, opts) do
     if Keyword.get(opts, :ensure_stream, true) == false do
@@ -191,6 +269,24 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
 
   def reconciled_stream_payload(_config, _stream_name, _subject, _opts) do
     {:error, :invalid_stream_config}
+  end
+
+  @doc false
+  # Subject discovery can resolve a consumer onto a stream other than the one
+  # its config requested (e.g. an existing deployment where a legacy stream
+  # still owns the subject). The stream_* shape options describe the requested
+  # stream only; reconciling them onto the fallback stream would rewrite its
+  # retention — e.g. shrink the shared `events` stream to a dedicated stream's
+  # byte cap — so drop them and reconcile subjects only.
+  def scoped_stream_opts(opts, resolved_stream_name) do
+    requested = Keyword.get(opts, :stream_name)
+
+    if valid_requested_stream?(requested) and
+         resolved_stream_name not in [requested, normalize_stream_name(requested)] do
+      Keyword.drop(opts, @stream_shape_opts)
+    else
+      opts
+    end
   end
 
   defp create_consumer(connection_ref, stream_name, consumer_name, subject, opts) do
@@ -360,6 +456,21 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     String.contains?(description, "can not update push consumer to pull based") or
       String.contains?(description, "can not update pull consumer to push based")
   end
+
+  @doc false
+  # JetStream rejects STREAM.CREATE with err_code 10065 ("subjects overlap
+  # with an existing stream") when another stream already owns the subject.
+  def subject_overlap_error?(%{"err_code" => 10_065}), do: true
+
+  def subject_overlap_error?(%{"description" => description}) when is_binary(description) do
+    subject_overlap_error?(description)
+  end
+
+  def subject_overlap_error?(description) when is_binary(description) do
+    String.contains?(description, "subjects overlap with an existing stream")
+  end
+
+  def subject_overlap_error?(_error), do: false
 
   defp stream_exists_error?(description) when is_binary(description) do
     String.contains?(description, "stream name already") or

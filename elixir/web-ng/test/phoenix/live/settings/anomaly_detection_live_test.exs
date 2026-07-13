@@ -9,7 +9,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLiveTest do
   setup :register_and_log_in_admin_user
 
   test "renders anomaly settings page", %{conn: conn} do
-    {:ok, _lv, html} = live(conn, ~p"/settings/anomaly-detection")
+    {:ok, lv, html} = live(conn, ~p"/settings/anomaly-detection")
 
     assert html =~ "Anomaly Detection"
     assert html =~ "Streaming Detector"
@@ -19,7 +19,21 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLiveTest do
     assert html =~ "Metric denylist"
     assert html =~ "Metric Classes"
     assert html =~ "Deseasonalized only"
+    assert html =~ "Additional forecast sources"
+    assert html =~ "CPU usage (daily p95)"
+    assert html =~ "Interface utilization (daily p95)"
+    assert html =~ "Flow volume"
+    assert html =~ "statistically weaker"
     refute html =~ "Edge spike scalar knobs are managed"
+
+    # The opt-in checkbox list derives from the core source definitions, so a
+    # source added there must surface here without a web-ng edit.
+    for source_key <- ServiceRadar.Observability.CapacityForecasting.Source.opt_in_names() do
+      assert has_element?(
+               lv,
+               ~s(#capacity-forecast-settings-form input[name="forecast[default_source_opt_ins][]"][value="#{source_key}"])
+             )
+    end
   end
 
   test "updates anomaly detector settings", %{conn: conn} do
@@ -121,12 +135,28 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLiveTest do
         "warning_threshold_percent" => "75.5",
         "model" => "seasonal_linear",
         "minimum_history_points" => "96",
+        "default_source_opt_ins" => ["cpu_usage", "flow_bytes_per_hour"],
         "metric_class_overrides" => ~s({"disk":{"minimum_history_points":120}})
       }
     })
     |> render_submit()
 
     assert render(lv) =~ "Saved capacity forecast settings"
+
+    assert has_element?(
+             lv,
+             ~s(#capacity-forecast-settings-form input[name="forecast[default_source_opt_ins][]"][value="cpu_usage"][checked])
+           )
+
+    assert has_element?(
+             lv,
+             ~s(#capacity-forecast-settings-form input[name="forecast[default_source_opt_ins][]"][value="flow_bytes_per_hour"][checked])
+           )
+
+    refute has_element?(
+             lv,
+             ~s(#capacity-forecast-settings-form input[name="forecast[default_source_opt_ins][]"][value="interface_rate"][checked])
+           )
   end
 
   test "rejects invalid capacity forecast numeric input instead of silently defaulting it", %{

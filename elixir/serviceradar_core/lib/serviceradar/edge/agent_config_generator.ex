@@ -417,8 +417,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       |> Enum.map(&ensure_addon_package_loaded(&1, actor))
       |> Enum.reject(&retired_addon_assignment?/1)
       |> Enum.filter(&approved_addon_package?/1)
-      |> Enum.sort_by(&addon_assignment_precedence/1)
-      |> Enum.uniq_by(&logical_addon_id/1)
+      |> select_effective_addon_assignments()
 
     assigned_addon_ids = MapSet.new(assignments, &logical_addon_id/1)
     required_addons = required_agent_addon_specs(assigned_addon_ids)
@@ -538,15 +537,83 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     end
   end
 
-  defp addon_assignment_precedence(%AddonAssignment{source: :manual}), do: {0, 0}
+  @doc false
+  # One effective assignment per logical add-on id, chosen by a deterministic
+  # total order so duplicate enabled profiles (legacy data the enable-path
+  # validation now prevents) resolve stably instead of by DB read order.
+  def select_effective_addon_assignments(assignments) do
+    ranked = Enum.sort_by(assignments, &addon_assignment_precedence/1)
+    effective = Enum.uniq_by(ranked, &logical_addon_id/1)
 
-  defp addon_assignment_precedence(%AddonAssignment{source: :profile, profile_metadata: metadata})
+    ranked
+    |> Enum.group_by(&logical_addon_id/1)
+    |> Enum.each(fn
+      {_addon_id, [_winner]} ->
+        :ok
+
+      {addon_id, [winner | shadowed]} ->
+        Enum.each(shadowed, &warn_shadowed_addon_assignment(addon_id, &1, winner))
+    end)
+
+    effective
+  end
+
+  # Config generation runs on every agent poll, so persistent legacy duplicates
+  # would repeat this warning proportional to agents x poll rate. Mirror the
+  # addon_delivery_marker_key pattern: warn once per shadowing pair via a
+  # persistent_term marker, then drop to debug.
+  defp warn_shadowed_addon_assignment(addon_id, shadowed, winner) do
+    message =
+      "Duplicate enabled add-on assignments for #{addon_id}: " <>
+        "#{describe_addon_assignment(shadowed)} is shadowed by #{describe_addon_assignment(winner)}"
+
+    marker_key = shadowed_addon_marker_key(addon_id, shadowed.id, winner.id)
+
+    if :persistent_term.get(marker_key, :none) == :warned do
+      Logger.debug(message)
+    else
+      :persistent_term.put(marker_key, :warned)
+      Logger.warning(message)
+    end
+  end
+
+  defp shadowed_addon_marker_key(addon_id, shadowed_assignment_id, winner_assignment_id),
+    do: {__MODULE__, :shadowed_addon, addon_id, shadowed_assignment_id, winner_assignment_id}
+
+  defp describe_addon_assignment(
+         %AddonAssignment{source: :profile, profile_metadata: %{"profile_name" => name}} =
+           assignment
+       )
+       when is_binary(name) do
+    "profile \"#{name}\" (assignment #{assignment.id})"
+  end
+
+  defp describe_addon_assignment(%AddonAssignment{source: source} = assignment) do
+    "#{source} assignment #{assignment.id}"
+  end
+
+  defp addon_assignment_precedence(%AddonAssignment{} = assignment) do
+    {rank, priority} = addon_assignment_rank(assignment)
+    {rank, priority, -addon_assignment_recency(assignment), to_string(assignment.id)}
+  end
+
+  defp addon_assignment_rank(%AddonAssignment{source: :manual}), do: {0, 0}
+
+  defp addon_assignment_rank(%AddonAssignment{source: :profile, profile_metadata: metadata})
        when is_map(metadata) do
     {1, map_int(metadata, "priority", 100)}
   end
 
-  defp addon_assignment_precedence(%AddonAssignment{source: :profile}), do: {1, 100}
-  defp addon_assignment_precedence(%AddonAssignment{}), do: {2, 100}
+  defp addon_assignment_rank(%AddonAssignment{source: :profile}), do: {1, 100}
+  defp addon_assignment_rank(%AddonAssignment{}), do: {2, 100}
+
+  defp addon_assignment_recency(%AddonAssignment{updated_at: %DateTime{} = updated_at}),
+    do: DateTime.to_unix(updated_at, :microsecond)
+
+  defp addon_assignment_recency(%AddonAssignment{inserted_at: %DateTime{} = inserted_at}),
+    do: DateTime.to_unix(inserted_at, :microsecond)
+
+  defp addon_assignment_recency(_assignment), do: 0
 
   defp build_deliverable_addon_assignment_config(%AddonAssignment{} = assignment, profile) do
     package = assignment.addon_package

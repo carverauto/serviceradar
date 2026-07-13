@@ -40,6 +40,16 @@ defmodule ServiceRadar.Observability.AnomalyDetectionConfig do
     "reopen_cooldown_secs" => 600
   }
 
+  @doc """
+  Default edge episode heartbeat interval (seconds), from the emission
+  defaults. Workers that derive margins from the heartbeat (e.g. the episode
+  stale-close sweep) use this instead of duplicating the constant.
+  """
+  @spec default_episode_update_interval_secs() :: pos_integer()
+  def default_episode_update_interval_secs do
+    Map.fetch!(@default_emission, "episode_update_interval_secs")
+  end
+
   postgres do
     table "anomaly_detection_configs"
     repo ServiceRadar.Repo
