@@ -5,6 +5,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
   alias ServiceRadar.Automation.CallbackGrants.Authority
   alias ServiceRadar.Automation.CallbackGrants.CanonicalJSON
   alias ServiceRadar.Automation.CallbackGrants.Lifecycle
+  alias ServiceRadar.Automation.Callbacks.ActionRegistry
 
   defmodule FakeAuthorizer do
     @moduledoc false
@@ -568,6 +569,13 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
     assert decoded["job_id"] == 9_001
     assert decoded["authorization"]["permissions"] == Enum.sort(@required_permissions)
     assert length(decoded["targets"]) == 1
+
+    assert {:ok, contract} = ActionRegistry.fetch(@action, "1.0.0")
+
+    assert :ok =
+             contract.response_schema
+             |> ExJsonSchema.Schema.resolve()
+             |> ExJsonSchema.Validator.validate(decoded)
 
     persisted_use = Agent.get(context.store, & &1.uses[@grant_id])
     assert byte_size(persisted_use.idempotency_key_verifier) == 32
