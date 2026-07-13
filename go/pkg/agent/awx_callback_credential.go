@@ -34,6 +34,7 @@ import (
 
 const (
 	awxCallbackCredentialBindingSchema = "serviceradar.awx_callback_credential_binding.v1"
+	awxCallbackCredentialCleanupSchema = "serviceradar.awx_callback_credential_cleanup_binding.v1"
 	awxCallbackCredentialSlot          = "ssh_ca_callback"
 	awxCallbackCredentialNamePrefix    = "sr-callback-"
 	awxCallbackCredentialDescription   = "ServiceRadar ephemeral automation callback credential"
@@ -68,9 +69,11 @@ var awxCallbackCredentialInputNames = [...]string{
 }
 
 // AWXCallbackCredentialBinding is the non-secret, durable command binding for
-// one reviewed callback credential. EnvelopeRef is opaque and single-use; it
-// is not credential material. CommandID is filled by the selected agent and is
-// never accepted from the durable payload.
+// one reviewed callback credential. EnvelopeRef is opaque and single-use for
+// creation and is not credential material. Cleanup commands use a distinct
+// schema and MUST leave EnvelopeRef empty, so credential deletion cannot
+// resolve or reuse launch material. CommandID is filled by the selected agent
+// and is never accepted from the durable payload.
 type AWXCallbackCredentialBinding struct {
 	Schema           string `json:"schema"`
 	EnvelopeRef      string `json:"envelope_ref"`
@@ -253,10 +256,16 @@ func validateAWXCallbackCredentialBinding(
 	selectedAgentID string,
 	controllerID string,
 	args map[string]any,
+	deleting bool,
 ) (AWXCallbackCredentialBinding, error) {
 	binding.CommandID = strings.TrimSpace(commandID)
-	if binding.Schema != awxCallbackCredentialBindingSchema ||
-		!opaqueEnvelopeReference(binding.EnvelopeRef) ||
+	expectedSchema := awxCallbackCredentialBindingSchema
+	validEnvelope := opaqueEnvelopeReference(binding.EnvelopeRef)
+	if deleting {
+		expectedSchema = awxCallbackCredentialCleanupSchema
+		validEnvelope = binding.EnvelopeRef == ""
+	}
+	if binding.Schema != expectedSchema || !validEnvelope ||
 		strings.TrimSpace(binding.DispatchAgentID) == "" ||
 		strings.TrimSpace(binding.DispatchAgentID) != strings.TrimSpace(selectedAgentID) ||
 		strings.TrimSpace(binding.ControllerID) == "" ||
@@ -278,7 +287,7 @@ func validateAWXCallbackCredentialBinding(
 	if !typeOK || !orgOK || !positiveAWXID(credentialTypeID) || !positiveAWXID(organizationID) ||
 		!nameOK || credentialTypeID != binding.CredentialTypeID ||
 		organizationID != binding.OrganizationID || credentialName != binding.CredentialName ||
-		(!deletingCommandArgs(args) && (!injectorOK || injectorSHA256 != binding.InjectorSHA256)) {
+		(!deleting && (!injectorOK || injectorSHA256 != binding.InjectorSHA256)) {
 		return binding, errAWXCallbackCredentialBindingInvalid
 	}
 
@@ -300,11 +309,6 @@ func validateAWXCallbackCredentialCommandArgs(args map[string]any, deleting bool
 		return errAWXCallbackCredentialBindingInvalid
 	}
 	return nil
-}
-
-func deletingCommandArgs(args map[string]any) bool {
-	_, present := args["credential_id"]
-	return present
 }
 
 func validateAWXCallbackCredentialMaterial(material AWXCallbackCredentialMaterial, now time.Time) error {
@@ -685,6 +689,13 @@ func resolveAWXCallbackCredentialMemoryInput(
 	binding AWXCallbackCredentialBinding,
 	now time.Time,
 ) (*awxCallbackCredentialMemoryInput, error) {
+	// Cleanup bindings are deliberately non-resolvable. Keep this check here in
+	// addition to the delete branch in control_stream.go so a future call-site
+	// cannot accidentally turn deletion correlation into credential access.
+	if binding.Schema != awxCallbackCredentialBindingSchema ||
+		!opaqueEnvelopeReference(binding.EnvelopeRef) {
+		return nil, errAWXCallbackCredentialResolutionDenied
+	}
 	if resolver == nil {
 		return nil, errAWXCallbackCredentialResolverMissing
 	}

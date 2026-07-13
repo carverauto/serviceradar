@@ -36,18 +36,19 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   @default_capability nil
 
   @callback_binding_schema "serviceradar.awx_callback_credential_binding.v1"
+  @callback_cleanup_binding_schema "serviceradar.awx_callback_credential_cleanup_binding.v1"
   @callback_credential_slot "ssh_ca_callback"
   @callback_credential_name_prefix "sr-callback-"
-  @callback_binding_keys MapSet.new([
-                           "envelope_ref",
-                           "child_execution_id",
-                           "inventory_id",
-                           "job_template_id",
-                           "credential_type_id",
-                           "organization_id",
-                           "credential_slot",
-                           "injector_sha256"
-                         ])
+  @callback_common_binding_keys MapSet.new([
+                                  "child_execution_id",
+                                  "inventory_id",
+                                  "job_template_id",
+                                  "credential_type_id",
+                                  "organization_id",
+                                  "credential_slot",
+                                  "injector_sha256"
+                                ])
+  @callback_create_binding_keys MapSet.put(@callback_common_binding_keys, "envelope_ref")
   @sha256_hex ~r/\A[a-f0-9]{64}\z/
 
   @typedoc "A `(job_id, since_id)` pair for `fetch_events_for_jobs/3`."
@@ -75,6 +76,17 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   @typedoc "Non-secret binding for one single-resolution callback credential envelope."
   @type callback_credential_binding :: %{
           required(:envelope_ref) => String.t(),
+          required(:child_execution_id) => String.t(),
+          required(:inventory_id) => pos_integer(),
+          required(:job_template_id) => pos_integer(),
+          required(:credential_type_id) => pos_integer(),
+          required(:organization_id) => pos_integer(),
+          required(:credential_slot) => String.t(),
+          required(:injector_sha256) => String.t()
+        }
+
+  @typedoc "Non-secret binding used only to delete one callback credential."
+  @type callback_credential_cleanup_binding :: %{
           required(:child_execution_id) => String.t(),
           required(:inventory_id) => pos_integer(),
           required(:job_template_id) => pos_integer(),
@@ -181,7 +193,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
         ) :: {:ok, struct()} | {:error, term()}
   def create_callback_credential(controller, binding, opts \\ []) when is_map(binding) do
     with {:ok, _command_id} <- preallocated_callback_command_id(opts),
-         {:ok, binding, args} <- normalize_callback_credential_binding(controller, binding) do
+         {:ok, binding, args} <- normalize_callback_credential_create_binding(controller, binding) do
       dispatch_verb(
         controller,
         "awx.create_callback_credential",
@@ -195,16 +207,21 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   Deletes one previously bound ephemeral callback credential. The AWX plugin
   first verifies the credential ID's deterministic name, custom type, and
   organization, and treats an already absent credential as successful cleanup.
+
+  Deletion uses a dedicated cleanup-only binding with no launch-envelope
+  reference. The selected agent validates this separate schema and never calls
+  the credential-material resolver for the delete verb.
   """
   @spec delete_callback_credential(
           Controller.t(),
           pos_integer(),
-          callback_credential_binding(),
+          callback_credential_cleanup_binding(),
           keyword()
         ) :: {:ok, struct()} | {:error, term()}
   def delete_callback_credential(controller, credential_id, binding, opts \\ [])
       when is_integer(credential_id) and credential_id > 0 and is_map(binding) do
-    with {:ok, binding, args} <- normalize_callback_credential_binding(controller, binding) do
+    with {:ok, binding, args} <-
+           normalize_callback_credential_cleanup_binding(controller, binding) do
       dispatch_verb(
         controller,
         "awx.delete_callback_credential",
@@ -487,32 +504,50 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
 
   defp insecure_skip_verify?(_), do: false
 
-  defp normalize_callback_credential_binding(%Controller{} = controller, binding) do
-    with {:ok, binding} <- stringify_exact_callback_binding(binding),
+  defp normalize_callback_credential_create_binding(%Controller{} = controller, binding) do
+    with {:ok, binding} <-
+           stringify_exact_callback_binding(binding, @callback_create_binding_keys),
          {:ok, child_execution_id} <- cast_uuid(binding["child_execution_id"]),
          {:ok, envelope_ref} <- opaque_envelope_ref(binding["envelope_ref"]),
-         {:ok, inventory_id} <- positive_integer(binding["inventory_id"]),
+         {:ok, common} <- normalize_callback_credential_common(binding, child_execution_id) do
+      command_binding =
+        common.command_binding
+        |> Map.put("schema", @callback_binding_schema)
+        |> Map.put("envelope_ref", envelope_ref)
+        |> Map.put("dispatch_agent_id", controller.agent_id)
+        |> Map.put("controller_id", controller.id)
+
+      {:ok, command_binding, common.args}
+    else
+      {:error, _reason} -> {:error, :invalid_callback_credential_binding}
+    end
+  end
+
+  defp normalize_callback_credential_cleanup_binding(%Controller{} = controller, binding) do
+    with {:ok, binding} <-
+           stringify_exact_callback_binding(binding, @callback_common_binding_keys),
+         {:ok, child_execution_id} <- cast_uuid(binding["child_execution_id"]),
+         {:ok, common} <- normalize_callback_credential_common(binding, child_execution_id) do
+      command_binding =
+        common.command_binding
+        |> Map.put("schema", @callback_cleanup_binding_schema)
+        |> Map.put("dispatch_agent_id", controller.agent_id)
+        |> Map.put("controller_id", controller.id)
+
+      {:ok, command_binding, common.args}
+    else
+      {:error, _reason} -> {:error, :invalid_callback_credential_binding}
+    end
+  end
+
+  defp normalize_callback_credential_common(binding, child_execution_id) do
+    with {:ok, inventory_id} <- positive_integer(binding["inventory_id"]),
          {:ok, job_template_id} <- positive_integer(binding["job_template_id"]),
          {:ok, credential_type_id} <- positive_integer(binding["credential_type_id"]),
          {:ok, organization_id} <- positive_integer(binding["organization_id"]),
          :ok <- exact_callback_slot(binding["credential_slot"]),
          :ok <- injector_sha256(binding["injector_sha256"]) do
       credential_name = @callback_credential_name_prefix <> child_execution_id
-
-      command_binding = %{
-        "schema" => @callback_binding_schema,
-        "envelope_ref" => envelope_ref,
-        "dispatch_agent_id" => controller.agent_id,
-        "controller_id" => controller.id,
-        "child_execution_id" => child_execution_id,
-        "inventory_id" => inventory_id,
-        "job_template_id" => job_template_id,
-        "credential_type_id" => credential_type_id,
-        "organization_id" => organization_id,
-        "credential_name" => credential_name,
-        "credential_slot" => @callback_credential_slot,
-        "injector_sha256" => binding["injector_sha256"]
-      }
 
       args = %{
         "credential_type_id" => credential_type_id,
@@ -521,24 +556,36 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
         "injector_sha256" => binding["injector_sha256"]
       }
 
-      {:ok, command_binding, args}
-    else
-      {:error, _reason} -> {:error, :invalid_callback_credential_binding}
+      {:ok,
+       %{
+         command_binding: %{
+           "child_execution_id" => child_execution_id,
+           "inventory_id" => inventory_id,
+           "job_template_id" => job_template_id,
+           "credential_type_id" => credential_type_id,
+           "organization_id" => organization_id,
+           "credential_name" => credential_name,
+           "credential_slot" => @callback_credential_slot,
+           "injector_sha256" => binding["injector_sha256"]
+         },
+         args: args
+       }}
     end
   end
 
-  defp stringify_exact_callback_binding(binding) when is_map(binding) do
+  defp stringify_exact_callback_binding(binding, expected_keys) when is_map(binding) do
     keys = Enum.map(Map.keys(binding), &to_string/1)
 
     if length(keys) == MapSet.size(MapSet.new(keys)) and
-         MapSet.new(keys) == @callback_binding_keys do
+         MapSet.new(keys) == expected_keys do
       {:ok, Map.new(binding, fn {key, value} -> {to_string(key), value} end)}
     else
       {:error, :unexpected_callback_binding_field}
     end
   end
 
-  defp stringify_exact_callback_binding(_binding), do: {:error, :invalid_callback_binding}
+  defp stringify_exact_callback_binding(_binding, _expected_keys),
+    do: {:error, :invalid_callback_binding}
 
   defp cast_uuid(value) when is_binary(value) do
     case Ecto.UUID.cast(value) do

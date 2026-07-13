@@ -31,6 +31,14 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
         {state.result, %{state | calls: [{mode, grant} | state.calls]}}
       end)
     end
+
+    @impl true
+    def delete_activated(grant, pid) do
+      Agent.get_and_update(pid, fn state ->
+        send(state.test, {:delete_activated, grant})
+        {state.result, %{state | calls: [{:post_activation, grant} | state.calls]}}
+      end)
+    end
   end
 
   defmodule FakeStore do
@@ -454,6 +462,50 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
 
     broadened = Map.put(binding, :host_limit, "farm01-pve01,other")
     assert {:error, :awx_scope_mismatch} = Lifecycle.activate(@grant_id, broadened, context.opts)
+  end
+
+  test "post-activation credential deletion is asynchronous and leaves the grant active",
+       context do
+    {:ok, _issued} = Lifecycle.prepare(context.attrs, context.opts)
+    assert {:ok, _bound} = Lifecycle.bind_credential(@grant_id, 31, context.opts)
+
+    assert {:ok, %{state: :active}} =
+             Lifecycle.activate(@grant_id, job_binding(context.attrs), context.opts)
+
+    Agent.update(context.cleanup, fn state ->
+      %{
+        state
+        | result:
+            {:ok,
+             %{
+               cleanup_status: :queued,
+               job_cleanup: :not_required,
+               credential_cleanup: :delete_requested
+             }}
+      }
+    end)
+
+    assert {:ok,
+            %{
+              state: :active,
+              job_id: 9_001,
+              cleanup_status: :queued,
+              credential_status: :delete_requested
+            }} = Lifecycle.delete_activated_credential(@grant_id, context.opts)
+
+    assert grant(context.store).state == :active
+    assert grant(context.store).budget_remaining == 1
+    assert Agent.get(context.store, & &1.uses) == %{}
+
+    assert Agent.get(context.store, & &1.cleanups[@grant_id]) == %{
+             cleanup_status: :queued,
+             cancel_status: :not_required,
+             credential_status: :delete_requested
+           }
+
+    assert_receive {:delete_activated, safe_grant}
+    refute Map.has_key?(safe_grant, :launch_envelope_ref)
+    refute Map.has_key?(safe_grant, :verifier_digest)
   end
 
   test "activation rechecks current target and permission contraction", context do

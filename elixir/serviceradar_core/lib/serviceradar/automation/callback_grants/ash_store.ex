@@ -10,6 +10,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStore do
   @behaviour ServiceRadar.Automation.CallbackGrants.Store
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Automation.CallbackGrants.Audit
   alias ServiceRadar.Automation.CallbackGrants.CanonicalJSON
   alias ServiceRadar.Automation.Callbacks.AuditEvent
   alias ServiceRadar.Automation.Callbacks.Grant
@@ -21,6 +22,17 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStore do
   @actor SystemActor.system(:automation_callback_grant_store)
   @response_schema "serviceradar.remote_access.ssh_ca_bundle/v1"
   @max_response_bytes 262_144
+  @cleanup_reconcile_keys MapSet.new([
+                            :command_id,
+                            :cleanup_kind,
+                            :cleanup_mode,
+                            :execution_id,
+                            :controller_id,
+                            :dispatch_agent_id,
+                            :awx_job_id,
+                            :credential_id,
+                            :result_status
+                          ])
 
   @impl true
   def create_pending(grant, audit, _context) when is_map(grant) and is_map(audit) do
@@ -131,6 +143,27 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStore do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  @impl true
+  def reconcile_cleanup_result(grant_id, attrs, _context)
+      when is_binary(grant_id) and is_map(attrs) do
+    fn ->
+      with {:ok, grant} <- lock_grant(grant_id),
+           {:ok, attrs} <- normalize_cleanup_reconciliation(attrs),
+           :ok <- validate_cleanup_reconciliation(grant, attrs),
+           {:ok, update_attrs} <- reconciliation_cleanup_attrs(grant, attrs) do
+        reconcile_cleanup_update(grant, update_attrs, attrs)
+      end
+    end
+    |> transaction()
+    |> case do
+      {:ok, _outcome} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def reconcile_cleanup_result(_grant_id, _attrs, _context),
+    do: {:error, :invalid_cleanup_reconciliation}
 
   @impl true
   def record_audit(audit, _context) when is_map(audit) do
@@ -278,6 +311,9 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStore do
       idempotency_verifier_digest: grant.idempotency_key_verifier,
       idempotency_verifier_key_id: grant.idempotency_pepper_version,
       credential_cleanup_state: grant.credential_cleanup_state,
+      credential_cleanup_attempted_at: grant.credential_cleanup_attempted_at,
+      credential_cleanup_completed_at: grant.credential_cleanup_completed_at,
+      credential_cleanup_error_code: grant.credential_cleanup_error_code,
       orphan_risk_state: grant.orphan_risk_state
     }
   end
@@ -440,10 +476,19 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStore do
        when state in [:revoked, :expired], do: {:error, {:grant_already_terminal, state}}
 
   defp transition_terminal_locked(grant, :revoked, reason, audit, now) do
+    orphan_risk_state =
+      if is_integer(grant.awx_job_id) and grant.awx_job_id > 0,
+        do: :cancel_requested,
+        else: grant.orphan_risk_state
+
     with {:ok, updated} <-
            Grant.record_revoked(
              grant,
-             %{revoked_at: now, revocation_reason: reason, orphan_risk_state: :cancel_requested},
+             %{
+               revoked_at: now,
+               revocation_reason: reason,
+               orphan_risk_state: orphan_risk_state
+             },
              actor: @actor
            ),
          {:ok, _audit} <-
@@ -585,30 +630,71 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStore do
     now = DateTime.utc_now()
     credential_state = cleanup_credential_state(grant.credential_cleanup_state, attrs)
     orphan_state = cleanup_orphan_state(grant.orphan_risk_state, attrs)
+    credential_touched? = credential_cleanup_touched?(value(attrs, :credential_status))
 
     update = %{
       credential_cleanup_state: credential_state,
-      credential_cleanup_attempted_at: now,
-      credential_cleanup_completed_at: if(credential_state == :deleted, do: now),
+      credential_cleanup_attempted_at:
+        if(credential_touched?, do: now, else: grant.credential_cleanup_attempted_at),
+      credential_cleanup_completed_at:
+        if(credential_state == :deleted,
+          do: grant.credential_cleanup_completed_at || if(credential_touched?, do: now)
+        ),
       credential_cleanup_error_code:
-        if(credential_state == :delete_failed, do: "callback_credential_cleanup_failed"),
+        cond do
+          credential_state == :delete_failed -> "callback_credential_cleanup_failed"
+          credential_state == :deleted -> nil
+          true -> grant.credential_cleanup_error_code
+        end,
       orphan_risk_state: orphan_state
     }
 
     {:ok, update}
   end
 
+  defp cleanup_credential_state(:deleted, _attrs), do: :deleted
+
   defp cleanup_credential_state(current, attrs) do
     case value(attrs, :credential_status) do
-      :deleted -> :deleted
-      "deleted" -> :deleted
-      status when status in [:delete_failed, :failed, "delete_failed", "failed"] -> :delete_failed
-      _ -> current
+      :deleted ->
+        :deleted
+
+      "deleted" ->
+        :deleted
+
+      status when status in [:delete_requested, :deleting, "delete_requested", "deleting"] ->
+        :deleting
+
+      status when status in [:delete_failed, :failed, "delete_failed", "failed"] ->
+        :delete_failed
+
+      _ ->
+        current
     end
   end
 
+  defp credential_cleanup_touched?(status),
+    do:
+      status in [
+        :delete_requested,
+        "delete_requested",
+        :deleting,
+        "deleting",
+        :deleted,
+        "deleted",
+        :delete_failed,
+        "delete_failed",
+        :failed,
+        "failed"
+      ]
+
+  defp cleanup_orphan_state(:cancel_confirmed, _attrs), do: :cancel_confirmed
+
   defp cleanup_orphan_state(current, attrs) do
     case value(attrs, :cancel_status) do
+      status when status in [:cancel_requested, "cancel_requested"] ->
+        :cancel_requested
+
       :cancel_failed ->
         :cancel_failed
 
@@ -623,18 +709,187 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStore do
     end
   end
 
+  defp cleanup_event(%{credential_cleanup_state: :deleting}), do: :credential_delete_requested
+
   defp cleanup_event(%{credential_cleanup_state: :delete_failed}), do: :credential_delete_failed
 
   defp cleanup_event(_attrs), do: :cleanup_completed
 
   defp cleanup_outcome(%{credential_cleanup_state: :delete_failed}), do: :failed
   defp cleanup_outcome(%{orphan_risk_state: :cancel_failed}), do: :failed
+  defp cleanup_outcome(%{credential_cleanup_state: :deleting}), do: :pending
+  defp cleanup_outcome(%{orphan_risk_state: :cancel_requested}), do: :pending
   defp cleanup_outcome(_attrs), do: :succeeded
 
   defp cleanup_reason(%{credential_cleanup_state: :delete_failed}), do: :credential_delete_failed
 
   defp cleanup_reason(%{orphan_risk_state: :cancel_failed}), do: :cancel_failed
   defp cleanup_reason(_attrs), do: :success
+
+  defp normalize_cleanup_reconciliation(attrs) do
+    attrs
+    |> Enum.reduce_while({:ok, %{}}, fn {key, item}, {:ok, acc} ->
+      normalized = cleanup_reconcile_key(key)
+
+      cond do
+        is_nil(normalized) ->
+          {:halt, {:error, :unexpected_cleanup_reconciliation_field}}
+
+        Map.has_key?(acc, normalized) ->
+          {:halt, {:error, :duplicate_cleanup_reconciliation_field}}
+
+        true ->
+          {:cont, {:ok, Map.put(acc, normalized, item)}}
+      end
+    end)
+    |> case do
+      {:ok, normalized} ->
+        if map_size(normalized) == MapSet.size(@cleanup_reconcile_keys),
+          do: {:ok, normalized},
+          else: {:error, :incomplete_cleanup_reconciliation}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp cleanup_reconcile_key(key) when is_atom(key) do
+    if MapSet.member?(@cleanup_reconcile_keys, key), do: key
+  end
+
+  defp cleanup_reconcile_key(key) when is_binary(key) do
+    Enum.find(@cleanup_reconcile_keys, &(Atom.to_string(&1) == key))
+  end
+
+  defp cleanup_reconcile_key(_key), do: nil
+
+  defp validate_cleanup_reconciliation(grant, attrs) do
+    with {:ok, command_id} <- Ecto.UUID.cast(attrs.command_id),
+         true <- command_id == attrs.command_id || {:error, :cleanup_command_id_mismatch},
+         true <-
+           same_identifier?(grant.execution_id, attrs.execution_id) ||
+             {:error, :cleanup_execution_mismatch},
+         true <-
+           same_identifier?(grant.controller_id, attrs.controller_id) ||
+             {:error, :cleanup_controller_mismatch},
+         true <-
+           grant.dispatch_agent_id == attrs.dispatch_agent_id ||
+             {:error, :cleanup_agent_mismatch},
+         true <- grant.awx_job_id == attrs.awx_job_id || {:error, :cleanup_job_mismatch},
+         true <-
+           grant.awx_ephemeral_credential_id == attrs.credential_id ||
+             {:error, :cleanup_credential_mismatch},
+         :ok <- cleanup_mode_matches(grant, attrs.cleanup_mode),
+         :ok <- cleanup_result_matches_kind(grant, attrs) do
+      :ok
+    else
+      :error -> {:error, :invalid_cleanup_command_id}
+      false -> {:error, :cleanup_correlation_mismatch}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp cleanup_mode_matches(%Grant{state: state, awx_job_id: job_id}, mode)
+       when state in [:active, :consumed, :revoked, :expired] and is_integer(job_id) and
+              mode in [:post_activation, "post_activation"],
+       do: :ok
+
+  defp cleanup_mode_matches(%Grant{state: state}, mode)
+       when state in [:consumed, :revoked] and mode in [:consumed, "consumed"], do: :ok
+
+  defp cleanup_mode_matches(%Grant{state: :revoked}, mode)
+       when mode in [:revoked, :job_terminal, "revoked", "job_terminal"], do: :ok
+
+  defp cleanup_mode_matches(%Grant{state: :expired}, mode) when mode in [:expired, "expired"],
+    do: :ok
+
+  defp cleanup_mode_matches(_grant, _mode), do: {:error, :cleanup_mode_mismatch}
+
+  defp cleanup_result_matches_kind(grant, %{cleanup_kind: kind, result_status: status})
+       when kind in [:credential_delete, "credential_delete"] and
+              status in [:deleted, :delete_failed, "deleted", "delete_failed"] do
+    if is_integer(grant.awx_ephemeral_credential_id) and grant.awx_ephemeral_credential_id > 0,
+      do: :ok,
+      else: {:error, :cleanup_credential_missing}
+  end
+
+  defp cleanup_result_matches_kind(grant, %{cleanup_kind: kind, result_status: status})
+       when kind in [:job_cancel, "job_cancel"] and
+              status in [:cancel_confirmed, :cancel_failed, "cancel_confirmed", "cancel_failed"] do
+    if is_integer(grant.awx_job_id) and grant.awx_job_id > 0 and
+         grant.state in [:revoked, :expired],
+       do: :ok,
+       else: {:error, :cleanup_job_missing}
+  end
+
+  defp cleanup_result_matches_kind(_grant, _attrs), do: {:error, :cleanup_result_kind_mismatch}
+
+  defp reconciliation_cleanup_attrs(grant, attrs) do
+    cleanup =
+      case {attrs.cleanup_kind, attrs.result_status} do
+        {kind, status} when kind in [:credential_delete, "credential_delete"] ->
+          %{credential_status: status}
+
+        {kind, status} when kind in [:job_cancel, "job_cancel"] ->
+          %{cancel_status: status}
+      end
+
+    cleanup_attrs(grant, cleanup)
+  end
+
+  defp reconcile_cleanup_update(grant, update_attrs, attrs) do
+    if grant.credential_cleanup_state == update_attrs.credential_cleanup_state and
+         grant.orphan_risk_state == update_attrs.orphan_risk_state do
+      {:ok, :existing}
+    else
+      with {:ok, updated} <-
+             Grant.record_credential_cleanup(grant, update_attrs, actor: @actor),
+           {:ok, audit} <-
+             Audit.attrs(:grant_cleanup, to_lifecycle(updated), %{
+               cleanup_status: :complete,
+               cancel_status: updated.orphan_risk_state,
+               credential_status: updated.credential_cleanup_state
+             }),
+           {:ok, _event} <-
+             record_audit_event(updated, nil, audit,
+               event_type: reconciliation_event(attrs),
+               outcome: reconciliation_outcome(attrs),
+               reason_code: reconciliation_reason(attrs),
+               budget_before: remaining_budget(updated),
+               budget_after: remaining_budget(updated)
+             ) do
+        {:ok, :updated}
+      end
+    end
+  end
+
+  defp reconciliation_event(%{cleanup_kind: kind, result_status: status})
+       when kind in [:credential_delete, "credential_delete"] and status in [:deleted, "deleted"],
+       do: :credential_deleted
+
+  defp reconciliation_event(%{cleanup_kind: kind})
+       when kind in [:credential_delete, "credential_delete"],
+       do: :credential_delete_failed
+
+  defp reconciliation_event(_attrs), do: :cleanup_completed
+
+  defp reconciliation_outcome(%{result_status: status})
+       when status in [:delete_failed, :cancel_failed, "delete_failed", "cancel_failed"],
+       do: :failed
+
+  defp reconciliation_outcome(_attrs), do: :succeeded
+
+  defp reconciliation_reason(%{result_status: status})
+       when status in [:delete_failed, "delete_failed"],
+       do: :credential_delete_failed
+
+  defp reconciliation_reason(%{result_status: status})
+       when status in [:cancel_failed, "cancel_failed"],
+       do: :cancel_failed
+
+  defp reconciliation_reason(_attrs), do: :success
+
+  defp same_identifier?(left, right), do: to_string(left) == to_string(right)
 
   defp transaction(fun) when is_function(fun, 0) do
     fn ->

@@ -42,7 +42,7 @@ func TestValidateAWXCallbackCredentialBindingRequiresExactSelectedAgentScope(t *
 		"injector_sha256":    repeatedByte('a', 64),
 	}
 	binding := testAWXCallbackBinding()
-	validated, err := validateAWXCallbackCredentialBinding(binding, testAWXCallbackCommand, "agent-a", "controller-a", args)
+	validated, err := validateAWXCallbackCredentialBinding(binding, testAWXCallbackCommand, "agent-a", "controller-a", args, false)
 	if err != nil {
 		t.Fatalf("validate binding: %v", err)
 	}
@@ -59,9 +59,61 @@ func TestValidateAWXCallbackCredentialBindingRequiresExactSelectedAgentScope(t *
 	} {
 		candidate := testAWXCallbackBinding()
 		mutate(&candidate)
-		if _, err := validateAWXCallbackCredentialBinding(candidate, testAWXCallbackCommand, "agent-a", "controller-a", args); !errors.Is(err, errAWXCallbackCredentialBindingInvalid) {
+		if _, err := validateAWXCallbackCredentialBinding(candidate, testAWXCallbackCommand, "agent-a", "controller-a", args, false); !errors.Is(err, errAWXCallbackCredentialBindingInvalid) {
 			t.Fatalf("expected invalid binding, got %v for %#v", err, candidate)
 		}
+	}
+}
+
+func TestValidateAWXCallbackCredentialCleanupBindingCannotResolveLaunchMaterial(t *testing.T) {
+	t.Parallel()
+
+	args := map[string]any{
+		"credential_id":      float64(401),
+		"credential_type_id": float64(91),
+		"organization_id":    float64(2),
+		"credential_name":    testAWXCallbackName,
+	}
+	binding := testAWXCallbackBinding()
+	binding.Schema = awxCallbackCredentialCleanupSchema
+	binding.EnvelopeRef = ""
+
+	validated, err := validateAWXCallbackCredentialBinding(
+		binding,
+		testAWXCallbackCommand,
+		"agent-a",
+		"controller-a",
+		args,
+		true,
+	)
+	if err != nil {
+		t.Fatalf("validate cleanup binding: %v", err)
+	}
+	if validated.EnvelopeRef != "" {
+		t.Fatalf("cleanup binding retained envelope reference: %#v", validated)
+	}
+
+	resolver := &fakeAWXCallbackCredentialResolver{
+		material: testAWXCallbackMaterial(time.Now().UTC().Add(5 * time.Minute)),
+	}
+	_, err = resolveAWXCallbackCredentialMemoryInput(t.Context(), resolver, validated, time.Now().UTC())
+	if !errors.Is(err, errAWXCallbackCredentialResolutionDenied) {
+		t.Fatalf("cleanup binding unexpectedly resolved material: %v", err)
+	}
+	if resolver.binding != (AWXCallbackCredentialBinding{}) {
+		t.Fatalf("cleanup binding reached credential resolver: %#v", resolver.binding)
+	}
+
+	launchBinding := testAWXCallbackBinding()
+	if _, err := validateAWXCallbackCredentialBinding(
+		launchBinding,
+		testAWXCallbackCommand,
+		"agent-a",
+		"controller-a",
+		args,
+		true,
+	); !errors.Is(err, errAWXCallbackCredentialBindingInvalid) {
+		t.Fatalf("delete accepted launch-envelope binding: %v", err)
 	}
 }
 

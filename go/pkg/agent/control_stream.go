@@ -908,6 +908,7 @@ func (p *PushLoop) runAWXPluginVerb(
 		p.agentID(),
 		payload.ControllerID,
 		payload.Args,
+		isDelete,
 	)
 	if err != nil {
 		return nil, err

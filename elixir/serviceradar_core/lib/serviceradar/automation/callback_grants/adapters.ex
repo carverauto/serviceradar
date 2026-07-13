@@ -49,9 +49,11 @@ defmodule ServiceRadar.Automation.CallbackGrants.Store do
             ) :: {:ok, map()} | {:error, term()}
 
   @callback record_cleanup(binary(), map(), map(), context()) :: :ok | {:error, term()}
+  @callback reconcile_cleanup_result(binary(), map(), context()) ::
+              :ok | {:error, term()}
   @callback record_audit(map(), context()) :: :ok | {:error, term()}
 
-  @optional_callbacks record_cleanup: 4, record_audit: 2
+  @optional_callbacks record_cleanup: 4, reconcile_cleanup_result: 3, record_audit: 2
 end
 
 defmodule ServiceRadar.Automation.CallbackGrants.Authorizer do
@@ -73,8 +75,10 @@ end
 
 defmodule ServiceRadar.Automation.CallbackGrants.Cleanup do
   @moduledoc """
-  Best-effort external cleanup boundary used only after callback authority has
-  been atomically removed or consumed.
+  Best-effort external cleanup boundary used after callback authority has been
+  atomically removed or consumed. The optional `delete_activated/2` callback is
+  the bounded exception: it may only queue credential deletion after exact job
+  and host-scope activation proof, without consuming the running callback.
 
   Adapters delete/detach the ephemeral credential for `:consumed`. For
   `:revoked`, `:expired`, or `:job_terminal`, they also cancel the AWX child
@@ -84,6 +88,10 @@ defmodule ServiceRadar.Automation.CallbackGrants.Cleanup do
 
   @callback cleanup(map(), :consumed | :revoked | :expired | :job_terminal, term()) ::
               {:ok, map()} | {:error, map()}
+
+  @callback delete_activated(map(), term()) :: {:ok, map()} | {:error, map()}
+
+  @optional_callbacks delete_activated: 2
 end
 
 defmodule ServiceRadar.Automation.CallbackGrants.NoopCleanup do

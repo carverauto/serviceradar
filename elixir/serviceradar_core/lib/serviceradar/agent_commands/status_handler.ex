@@ -8,6 +8,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentCommands.PubSub
   alias ServiceRadar.Automation.Ansible.EventIngestor, as: AnsibleEventIngestor
+  alias ServiceRadar.Automation.CallbackGrants.CleanupReconciler
 
   alias ServiceRadar.Automation.Northbound.CommandResultHandler,
     as: NorthboundCommandResultHandler
@@ -20,14 +21,21 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
 
   require Logger
 
-  def start_link(_opts \\ []) do
-    GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
+  @cleanup_command_types ["awx.delete_callback_credential", "awx.cancel_job"]
+
+  def start_link(opts \\ []) do
+    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
   @impl true
-  def init(state) do
+  def init(opts) do
     PubSub.subscribe()
-    {:ok, Map.put(state, :actor, SystemActor.system(:agent_command_status))}
+
+    {:ok,
+     %{
+       actor: SystemActor.system(:agent_command_status),
+       cleanup_reconciler: Keyword.get(opts, :cleanup_reconciler, CleanupReconciler)
+     }}
   end
 
   @impl true
@@ -45,15 +53,128 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   end
 
   def handle_info({:command_result, data}, state) do
-    persist_result(data, state.actor)
-    safe_maybe_ingest_mtr_result(data)
-    AgentReleaseManager.handle_command_result(data, actor: state.actor)
-    AnsibleEventIngestor.handle_command_result(data, actor: state.actor)
-    NorthboundCommandResultHandler.handle_command_result(data, actor: state.actor)
+    safe_data = sanitize_cleanup_result(data)
+    persist_result(safe_data, state.actor)
+    safe_reconcile_callback_cleanup(data, state.cleanup_reconciler)
+    safe_maybe_ingest_mtr_result(safe_data)
+    AgentReleaseManager.handle_command_result(safe_data, actor: state.actor)
+    AnsibleEventIngestor.handle_command_result(safe_data, actor: state.actor)
+    NorthboundCommandResultHandler.handle_command_result(safe_data, actor: state.actor)
     {:noreply, state}
   end
 
   def handle_info(_message, state), do: {:noreply, state}
+
+  @doc false
+  @spec sanitize_cleanup_result(map()) :: map()
+  def sanitize_cleanup_result(data) when is_map(data) do
+    command_type = map_get_any(data, [:command_type, "command_type"], nil)
+
+    if command_type in @cleanup_command_types do
+      success? = map_get_any(data, [:success, "success"], false) == true
+      payload = map_get_any(data, [:payload, "payload", :result_payload, "result_payload"], %{})
+
+      %{
+        command_id: map_get_any(data, [:command_id, "command_id"], nil),
+        command_type: command_type,
+        success: success?
+      }
+      |> Map.put(:payload, safe_cleanup_payload(command_type, payload))
+      |> Map.put(
+        :message,
+        if(success?, do: "cleanup command completed", else: "cleanup command failed")
+      )
+      |> Map.put(:failure_reason, if(success?, do: nil, else: "cleanup_command_failed"))
+    else
+      data
+    end
+  end
+
+  def sanitize_cleanup_result(data), do: data
+
+  defp safe_cleanup_payload("awx.delete_callback_credential", payload) do
+    %{
+      "verb" => safe_exact_string(payload, "verb", "awx.delete_callback_credential"),
+      "ok" => map_get_any(payload, ["ok", :ok], false) == true,
+      "credential_id" => safe_positive_integer(payload, "credential_id"),
+      "credential_type_id" => safe_positive_integer(payload, "credential_type_id"),
+      "cleanup_status" =>
+        safe_enum_string(payload, "cleanup_status", ["deleted", "already_absent"])
+    }
+  end
+
+  defp safe_cleanup_payload("awx.cancel_job", payload) do
+    %{
+      "verb" => safe_exact_string(payload, "verb", "awx.cancel_job"),
+      "ok" => map_get_any(payload, ["ok", :ok], false) == true,
+      "job_id" => safe_positive_integer(payload, "job_id"),
+      "status" => safe_http_status(payload)
+    }
+  end
+
+  defp safe_exact_string(payload, key, expected) do
+    if safe_payload_value(payload, key) == expected,
+      do: expected,
+      else: "invalid"
+  end
+
+  defp safe_positive_integer(payload, key) do
+    value = safe_payload_value(payload, key)
+    if is_integer(value) and value > 0 and value <= 2_147_483_647, do: value
+  end
+
+  defp safe_enum_string(payload, key, allowed) do
+    value = safe_payload_value(payload, key)
+    if value in allowed, do: value, else: "invalid"
+  end
+
+  defp safe_http_status(payload) do
+    value = map_get_any(payload, ["status", :status], nil)
+    if is_integer(value) and value in 100..599, do: value
+  end
+
+  defp safe_payload_value(payload, "verb"), do: map_get_any(payload, ["verb", :verb], nil)
+
+  defp safe_payload_value(payload, "credential_id"),
+    do: map_get_any(payload, ["credential_id", :credential_id], nil)
+
+  defp safe_payload_value(payload, "credential_type_id"),
+    do: map_get_any(payload, ["credential_type_id", :credential_type_id], nil)
+
+  defp safe_payload_value(payload, "job_id"), do: map_get_any(payload, ["job_id", :job_id], nil)
+
+  defp safe_payload_value(payload, "cleanup_status"),
+    do: map_get_any(payload, ["cleanup_status", :cleanup_status], nil)
+
+  defp safe_payload_value(_payload, _key), do: nil
+
+  defp safe_reconcile_callback_cleanup(data, reconciler) do
+    cond do
+      is_function(reconciler, 1) -> reconciler.(data)
+      is_atom(reconciler) -> reconciler.handle_command_result(data)
+      true -> {:error, :cleanup_reconciler_unavailable}
+    end
+
+    :ok
+  rescue
+    exception ->
+      Logger.warning("AgentCommandStatusHandler: callback cleanup reconciliation failed",
+        command_id: map_get_any(data, [:command_id, "command_id"], nil),
+        command_type: map_get_any(data, [:command_type, "command_type"], nil),
+        exception: exception.__struct__
+      )
+
+      :ok
+  catch
+    kind, _reason ->
+      Logger.warning("AgentCommandStatusHandler: callback cleanup reconciliation failed",
+        command_id: map_get_any(data, [:command_id, "command_id"], nil),
+        command_type: map_get_any(data, [:command_type, "command_type"], nil),
+        failure_kind: kind
+      )
+
+      :ok
+  end
 
   defp persist_ack(%{command_id: command_id} = data, _actor) do
     command_id_text = normalize_command_id(command_id)

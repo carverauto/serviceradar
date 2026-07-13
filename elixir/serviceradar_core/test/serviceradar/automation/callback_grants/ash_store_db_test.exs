@@ -170,7 +170,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStoreDbTest do
     assert length(uses) == 1
   end
 
-  test "revoked authority stays revoked while cleanup records cancel_failed", context do
+  test "revoked authority without an accepted AWX job has no cancellation risk", context do
     {:ok, pending} = AshStore.create_pending(context.grant, %{}, nil)
 
     assert {:ok, :bound, _bound} =
@@ -194,14 +194,14 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStoreDbTest do
              )
 
     assert revoked.state == :revoked
-    assert revoked.orphan_risk_state == :cancel_requested
+    assert revoked.orphan_risk_state == :none
 
     assert :ok =
              AshStore.record_cleanup(
                pending.id,
                %{
-                 cleanup_status: :partial,
-                 cancel_status: :cancel_failed,
+                 cleanup_status: :complete,
+                 cancel_status: :not_required,
                  credential_status: :deleted
                },
                %{},
@@ -210,8 +210,135 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStoreDbTest do
 
     assert {:ok, stored} = Grant.get_by_id(pending.id, actor: @actor)
     assert stored.state == :revoked
-    assert stored.orphan_risk_state == :cancel_failed
+    assert stored.orphan_risk_state == :none
     assert stored.credential_cleanup_state == :deleted
+  end
+
+  test "cleanup command results reconcile monotonically and idempotently", context do
+    {:ok, pending} = AshStore.create_pending(context.grant, %{}, nil)
+
+    {:ok, :bound, _bound} =
+      AshStore.bind_credential(
+        pending.id,
+        31,
+        fn _locked -> :ok end,
+        %{},
+        DateTime.utc_now(),
+        nil
+      )
+
+    binding =
+      context.grant.awx_scope_snapshot
+      |> Map.update!(:credential_ids, &(&1 ++ [31]))
+      |> Map.put(:job_id, 9_001)
+
+    {:ok, :activated, active} =
+      AshStore.activate(
+        pending.id,
+        binding,
+        fn _locked -> :ok end,
+        %{},
+        DateTime.utc_now(),
+        nil
+      )
+
+    assert :ok =
+             AshStore.record_cleanup(
+               pending.id,
+               %{
+                 cleanup_status: :queued,
+                 cancel_status: :not_required,
+                 credential_status: :delete_requested
+               },
+               %{},
+               nil
+             )
+
+    attrs = %{
+      command_id: Ash.UUID.generate(),
+      cleanup_kind: "credential_delete",
+      cleanup_mode: "post_activation",
+      execution_id: active.execution_id,
+      controller_id: active.awx_scope_snapshot["controller_id"],
+      dispatch_agent_id: active.dispatch_agent_id,
+      awx_job_id: active.job_binding["job_id"],
+      credential_id: active.ephemeral_credential_id,
+      result_status: :deleted
+    }
+
+    failed_attrs = %{attrs | command_id: Ash.UUID.generate(), result_status: :delete_failed}
+    assert :ok = AshStore.reconcile_cleanup_result(pending.id, failed_attrs, nil)
+
+    assert {:ok, failed} = Grant.get_by_id(pending.id, actor: @actor)
+    assert failed.state == :active
+    assert failed.credential_cleanup_state == :delete_failed
+    assert failed.credential_cleanup_error_code == "callback_credential_cleanup_failed"
+
+    assert :ok = AshStore.reconcile_cleanup_result(pending.id, attrs, nil)
+
+    assert {:ok, deleted} = Grant.get_by_id(pending.id, actor: @actor)
+    assert deleted.state == :active
+    assert deleted.credential_cleanup_state == :deleted
+    assert deleted.credential_cleanup_completed_at
+    completed_at = deleted.credential_cleanup_completed_at
+
+    assert :ok = AshStore.reconcile_cleanup_result(pending.id, attrs, nil)
+
+    assert :ok =
+             AshStore.reconcile_cleanup_result(
+               pending.id,
+               %{attrs | result_status: :delete_failed},
+               nil
+             )
+
+    assert {:ok, unchanged} = Grant.get_by_id(pending.id, actor: @actor)
+    assert unchanged.credential_cleanup_state == :deleted
+    assert unchanged.credential_cleanup_completed_at == completed_at
+
+    assert {:ok, events} = AuditEvent.list_for_grant(pending.id, actor: @actor)
+    assert Enum.count(events, &(&1.event_type == :credential_deleted)) == 1
+    assert Enum.count(events, &(&1.event_type == :credential_delete_failed)) == 1
+
+    assert {:ok, revoked} =
+             AshStore.transition_terminal(
+               pending.id,
+               :revoked,
+               "operator_revoked",
+               %{},
+               DateTime.utc_now(),
+               nil
+             )
+
+    assert revoked.orphan_risk_state == :cancel_requested
+
+    cancel_attrs = %{
+      attrs
+      | command_id: Ash.UUID.generate(),
+        cleanup_kind: "job_cancel",
+        cleanup_mode: "revoked",
+        result_status: :cancel_confirmed
+    }
+
+    assert :ok = AshStore.reconcile_cleanup_result(pending.id, cancel_attrs, nil)
+    assert :ok = AshStore.reconcile_cleanup_result(pending.id, cancel_attrs, nil)
+
+    terminal_delete_attrs = %{
+      attrs
+      | command_id: Ash.UUID.generate(),
+        cleanup_mode: "revoked"
+    }
+
+    assert :ok = AshStore.reconcile_cleanup_result(pending.id, terminal_delete_attrs, nil)
+
+    assert {:ok, cleaned} = Grant.get_by_id(pending.id, actor: @actor)
+    assert cleaned.state == :revoked
+    assert cleaned.orphan_risk_state == :cancel_confirmed
+    assert cleaned.credential_cleanup_state == :deleted
+
+    assert {:ok, events} = AuditEvent.list_for_grant(pending.id, actor: @actor)
+    assert Enum.count(events, &(&1.event_type == :credential_deleted)) == 1
+    assert Enum.count(events, &(&1.event_type == :credential_delete_failed)) == 1
+    assert Enum.count(events, &(&1.event_type == :cleanup_completed)) == 1
   end
 
   test "response fingerprint and size checks fail before any use row", context do

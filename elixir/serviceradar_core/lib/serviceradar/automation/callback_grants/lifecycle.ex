@@ -162,6 +162,45 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
   def job_terminal(grant_id, job_status, opts),
     do: terminate(grant_id, :revoked, {:job_terminal, job_status}, :job_terminal, opts)
 
+  @doc """
+  Queues deletion of the ephemeral AWX credential after exact job and host-scope
+  proof has activated the grant. The active callback grant remains usable by
+  the already-running execution environment, and this function never waits for
+  the asynchronous agent-command result.
+  """
+  @spec delete_activated_credential(binary(), opts()) :: {:ok, map()} | {:error, term()}
+  def delete_activated_credential(grant_id, opts) when is_binary(grant_id) and is_list(opts) do
+    cleanup = Keyword.get(opts, :cleanup, NoopCleanup)
+    context = Keyword.get(opts, :cleanup_context)
+
+    with {:ok, grant} <- store(opts).fetch(grant_id, store_context(opts)),
+         true <- value(grant, :state) == :active || {:error, :grant_not_active},
+         true <- value(grant, :binding_verified) == true || {:error, :awx_binding_not_verified},
+         true <-
+           cleanup_exported?(cleanup, :delete_activated, 2) ||
+             {:error, :activated_credential_cleanup_unavailable},
+         {result, cleanup_attrs} <- activated_delete_result(cleanup, grant, context),
+         :ok <- record_cleanup(grant, cleanup_attrs, opts) do
+      case result do
+        :ok ->
+          {:ok,
+           public_result(grant, %{
+             cleanup_status: cleanup_attrs.cleanup_status,
+             credential_status: cleanup_attrs.credential_status
+           })}
+
+        :error ->
+          {:error, :callback_credential_cleanup_dispatch_failed}
+      end
+    else
+      false -> {:error, :activated_credential_cleanup_unavailable}
+      {:error, _} = error -> error
+    end
+  end
+
+  def delete_activated_credential(_grant_id, _opts),
+    do: {:error, :invalid_activated_credential_cleanup}
+
   defp prepare_draft(attrs, contract, now) do
     actor = value(attrs, :actor_snapshot) || %{}
     response_snapshot = value(attrs, :response_snapshot) || %{}
@@ -479,13 +518,76 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
     safe_grant = Audit.safe_grant(grant)
 
     cleanup_attrs =
-      case cleanup.cleanup(safe_grant, mode, context) do
+      case call_cleanup(cleanup, :cleanup, [safe_grant, mode, context]) do
         {:ok, attrs} when is_map(attrs) -> sanitize_cleanup(attrs, :ok)
         {:error, attrs} when is_map(attrs) -> sanitize_cleanup(attrs, :cancel_failed)
-        _ -> %{cleanup_status: :failed, cancel_status: :unknown}
+        _ -> cleanup_dispatch_failure(mode, grant)
       end
 
     record_cleanup(grant, cleanup_attrs, opts)
+  end
+
+  defp activated_delete_result(cleanup, grant, context) do
+    safe_grant = Audit.safe_grant(grant)
+
+    case call_cleanup(cleanup, :delete_activated, [safe_grant, context]) do
+      {:ok, attrs} when is_map(attrs) ->
+        {:ok, sanitize_cleanup(attrs, :ok)}
+
+      {:error, attrs} when is_map(attrs) ->
+        {:error, sanitize_cleanup(attrs, :delete_failed)}
+
+      _ ->
+        {:error,
+         %{
+           cleanup_status: :failed,
+           cancel_status: :not_required,
+           credential_status: :delete_failed
+         }}
+    end
+  end
+
+  defp cleanup_exported?(cleanup, function, arity) when is_atom(cleanup),
+    do: Code.ensure_loaded?(cleanup) and function_exported?(cleanup, function, arity)
+
+  defp cleanup_exported?(_cleanup, _function, _arity), do: false
+
+  defp call_cleanup(cleanup, function, args) do
+    apply(cleanup, function, args)
+  rescue
+    _exception -> :cleanup_dispatch_failed
+  catch
+    _kind, _reason -> :cleanup_dispatch_failed
+  end
+
+  defp cleanup_dispatch_failure(mode, grant) do
+    %{
+      cleanup_status: :failed,
+      cancel_status:
+        case mode do
+          :consumed ->
+            :not_required
+
+          :job_terminal ->
+            if exact_terminal_job_binding?(grant), do: :cancel_confirmed, else: :cancel_failed
+
+          _mode ->
+            :cancel_failed
+        end,
+      credential_status: :delete_failed
+    }
+  end
+
+  defp exact_terminal_job_binding?(grant) do
+    scope = value(grant, :awx_scope_snapshot)
+    binding = value(grant, :job_binding)
+    controller_id = value(scope, :controller_id)
+    bound_controller_id = value(binding, :controller_id)
+    job_id = value(binding, :job_id)
+
+    controller_id not in [nil, ""] and bound_controller_id not in [nil, ""] and
+      to_string(controller_id) == to_string(bound_controller_id) and
+      is_integer(job_id) and job_id > 0 and job_id <= 2_147_483_647
   end
 
   defp record_cleanup(grant, cleanup_attrs, opts) do

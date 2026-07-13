@@ -62,6 +62,12 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
     )
   end
 
+  defp callback_credential_cleanup_binding(overrides \\ %{}) do
+    overrides
+    |> callback_credential_binding()
+    |> Map.delete(:envelope_ref)
+  end
+
   defp callback_dispatch_opts, do: dispatch_opts() ++ [command_id: @callback_command_id]
 
   describe "dispatchability validation" do
@@ -293,7 +299,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
                AwxClient.delete_callback_credential(
                  controller(),
                  401,
-                 callback_credential_binding(),
+                 callback_credential_cleanup_binding(),
                  dispatch_opts()
                )
 
@@ -311,6 +317,36 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
                "methods" => ["GET", "DELETE"],
                "paths" => ["=/api/v2/credentials/401/"]
              }
+
+      assert payload["callback_credential_binding"] == %{
+               "schema" => "serviceradar.awx_callback_credential_cleanup_binding.v1",
+               "dispatch_agent_id" => "agent-a",
+               "controller_id" => "ctrl-uuid-1",
+               "child_execution_id" => "018f3f56-1111-7222-8333-123456789abc",
+               "inventory_id" => 7,
+               "job_template_id" => 42,
+               "credential_type_id" => 91,
+               "organization_id" => 2,
+               "credential_name" => "sr-callback-018f3f56-1111-7222-8333-123456789abc",
+               "credential_slot" => "ssh_ca_callback",
+               "injector_sha256" => String.duplicate("a", 64)
+             }
+
+      refute Map.has_key?(payload["callback_credential_binding"], "envelope_ref")
+      refute inspect(payload) =~ "launch-envelope:"
+    end
+
+    test "delete rejects a launch envelope or any unreviewed cleanup binding field" do
+      for invalid <- [
+            callback_credential_binding(),
+            Map.put(callback_credential_cleanup_binding(), :envelope_ref, "opaque-ref"),
+            Map.put(callback_credential_cleanup_binding(), :callback_grant, "must-not-pass")
+          ] do
+        assert {:error, :invalid_callback_credential_binding} =
+                 AwxClient.delete_callback_credential(controller(), 401, invalid, dispatch_opts())
+
+        refute_received {:dispatch, _, _, _, _}
+      end
     end
 
     test "requires exact reviewed binding including explicit organization" do
