@@ -20,6 +20,7 @@
 - [ ] 3.2 Add and validate an ephemeral reviewed AWX custom credential environment/header injector; reject survey/ordinary-variable fallback and require AWX's non-injectable system `JOB_ID` in the exact request/response contract.
 - [ ] 3.3 Add the reusable Ansible callback helper contract with canonical HTTPS, CA/hostname verification, no redirects/credential-forwarding proxies, bounded time/size/method, schema validation, no_log, and sanitized retry statuses.
 - [ ] 3.4 Restrict execution-environment callback egress to the server-declared destination and declared job dependencies.
+- [x] 3.5 Split runtime custody so only web receives bearer HMAC/origin, core receives enabled-only envelope/contract/policy material plus secret-free internal continuation adapters, gateway receives none, and disabled external-Secret upgrades project no callback keys.
 
 ## 4. Replay, supply chain, audit, and UX
 

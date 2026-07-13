@@ -93,6 +93,7 @@ config :serviceradar_core,
     ServiceRadar.WifiMap,
     ServiceRadar.Automation.Northbound,
     ServiceRadar.Automation.Ansible,
+    ServiceRadar.Automation.Callbacks,
     ServiceRadar.Security,
     # Import environment specific config (if present)
     ServiceRadar.Spatial

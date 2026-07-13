@@ -57,7 +57,6 @@
 {{- $automationCallbacksEnabled := false -}}
 {{- if hasKey $automationCallbacks "enabled" -}}{{- $automationCallbacksEnabled = get $automationCallbacks "enabled" -}}{{- end -}}
 {{- $automationCallbackResponsePolicy := default (dict) $automationCallbacks.responsePolicy -}}
-{{- $automationCallbackOrigin := default $webNgPublicUrl $automationCallbacks.canonicalOrigin -}}
 {{- $remoteAccess := default (dict) .Values.remoteAccess -}}
 {{- $remoteAccessDesktop := default (dict) $remoteAccess.desktop -}}
 {{- $remoteAccessDesktopRdp := default (dict) $remoteAccessDesktop.rdp -}}
@@ -555,17 +554,13 @@ spec:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: cloak-key
-        - name: SERVICERADAR_AUTOMATION_CALLBACK_HMAC_KEYRING_FILE
-          value: "/etc/serviceradar/automation-callback/hmac-keyring.json"
+        - name: SERVICERADAR_AUTOMATION_CALLBACKS_ENABLED
+          value: {{ $automationCallbacksEnabled | quote }}
+        {{- if $automationCallbacksEnabled }}
         - name: SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_FILE
           value: "/etc/serviceradar/automation-callback/envelope-key"
         - name: SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_ID
           value: {{ default "current" $automationCallbacks.envelopeKeyId | quote }}
-        - name: SERVICERADAR_AUTOMATION_CALLBACK_ORIGIN
-          value: {{ $automationCallbackOrigin | quote }}
-        - name: SERVICERADAR_AUTOMATION_CALLBACKS_ENABLED
-          value: {{ $automationCallbacksEnabled | quote }}
-        {{- if $automationCallbacksEnabled }}
         - name: SERVICERADAR_AUTOMATION_CALLBACK_AWX_CREDENTIAL_TYPE_ID
           value: {{ $automationCallbacks.awxCredentialTypeId | quote }}
         - name: SERVICERADAR_AUTOMATION_CALLBACK_AWX_ORGANIZATION_ID
@@ -646,10 +641,10 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
-        - name: automation-callback-secrets
+        {{- if $automationCallbacksEnabled }}
+        - name: automation-callback-envelope
           mountPath: /etc/serviceradar/automation-callback
           readOnly: true
-        {{- if $automationCallbacksEnabled }}
         - name: automation-callback-response-policy
           mountPath: /etc/serviceradar/automation-callback-policy
           readOnly: true
@@ -723,16 +718,14 @@ spec:
       - name: cert-data
         secret:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
-      - name: automation-callback-secrets
+      {{- if $automationCallbacksEnabled }}
+      - name: automation-callback-envelope
         secret:
           secretName: {{ $secrets | quote }}
           defaultMode: 0440
           items:
-          - key: automation-callback-hmac-keyring
-            path: hmac-keyring.json
           - key: automation-callback-envelope-key
             path: envelope-key
-      {{- if $automationCallbacksEnabled }}
       - name: automation-callback-response-policy
         secret:
           secretName: {{ $automationCallbackResponsePolicy.existingSecretName | quote }}

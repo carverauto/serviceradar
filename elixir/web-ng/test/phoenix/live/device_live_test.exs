@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   alias ServiceRadar.Inventory.EndpointInventoryScan
   alias ServiceRadar.Inventory.EndpointPackage
   alias ServiceRadar.Inventory.EndpointVulnerabilityMatch
+  alias ServiceRadar.Inventory.IntegrationIdentity
   alias ServiceRadar.Inventory.VirtualizationDatastore
   alias ServiceRadar.Inventory.VirtualizationGuest
   alias ServiceRadar.Inventory.VirtualizationHost
@@ -1248,56 +1249,58 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   test "renders curated device metadata without dumping internal keys", %{conn: conn} do
     uid = "test-device-curated-metadata-#{System.unique_integer([:positive])}"
 
+    metadata = %{
+      "integration_type" => "armis",
+      "source_device_id" => "42",
+      "sync_service_id" => "agent-dusk01",
+      "controller_name" => "Dusk UniFi",
+      "controller_url" => "https://unifi.example.local",
+      "unifi_api_names" => "tonka01",
+      "unifi_api_urls" => "https://192.168.10.1/proxy/network/integration/v1",
+      "mikrotik_api_names" => "edge-mikrotik",
+      "mikrotik_api_urls" => "http://192.168.6.167/rest",
+      "proxmox_candidate_probe_enabled" => true,
+      "sys_name" => "aruba-24g-02",
+      "sys_location" => "Minnetonka, MN",
+      "sys_contact" => "support@example.test",
+      "sys_object_id" => ".1.3.6.1.4.1.11.2.3.7.11.153",
+      "uptime" => 168_519_247,
+      "sys_descr" => "HP J9727A 2920-24G-PoE+ Switch",
+      "device_role" => "gateway",
+      "bridge_port_count" => 8,
+      "type" => "Tablet",
+      "category" => "OT",
+      "risk_score" => "7",
+      "is_active" => false,
+      "source_tags" => "managed,ot",
+      "boundary_names" => "All OT Boundaries",
+      "serial_numbers" => "SN-123",
+      "purdue_level" => "2.5",
+      "visibility" => "Full",
+      "site" => %{"name" => "Plant 7"},
+      "network_interfaces" => [%{"name" => "eth0"}, %{"name" => "eth1"}],
+      "netbox_device_id" => "nb-123",
+      "tenant_name" => "Manufacturing",
+      "rack_name" => "MDF-A",
+      "asset_tag" => "asset-7799",
+      "classification_source" => "unifi",
+      "classification_confidence" => 0.94,
+      "classification_reason" => "matched UniFi gateway role",
+      "alt_ip:10.0.0.1" => true,
+      "alt_ip:192.168.10.1" => true,
+      "alt_mac:0eea1432d277" => true,
+      "_alias_last_seen_at" => "2026-05-16T18:00:00Z",
+      "debug_unifi_payload" => %{"raw" => "payload"},
+      "device_id" => "raw-integration-id"
+    }
+
     Repo.insert_all("ocsf_devices", [
       %{
         uid: uid,
         type_id: 12,
         hostname: "metadata-host",
         ip: "192.168.1.20",
-        metadata: %{
-          "integration_type" => "armis",
-          "source_device_id" => "42",
-          "sync_service_id" => "agent-dusk01",
-          "controller_name" => "Dusk UniFi",
-          "controller_url" => "https://unifi.example.local",
-          "unifi_api_names" => "tonka01",
-          "unifi_api_urls" => "https://192.168.10.1/proxy/network/integration/v1",
-          "mikrotik_api_names" => "edge-mikrotik",
-          "mikrotik_api_urls" => "http://192.168.6.167/rest",
-          "proxmox_candidate_probe_enabled" => true,
-          "sys_name" => "aruba-24g-02",
-          "sys_location" => "Minnetonka, MN",
-          "sys_contact" => "support@example.test",
-          "sys_object_id" => ".1.3.6.1.4.1.11.2.3.7.11.153",
-          "uptime" => 168_519_247,
-          "sys_descr" => "HP J9727A 2920-24G-PoE+ Switch",
-          "device_role" => "gateway",
-          "bridge_port_count" => 8,
-          "type" => "Tablet",
-          "category" => "OT",
-          "risk_score" => "7",
-          "is_active" => false,
-          "source_tags" => "managed,ot",
-          "boundary_names" => "All OT Boundaries",
-          "serial_numbers" => "SN-123",
-          "purdue_level" => "2.5",
-          "visibility" => "Full",
-          "site" => %{"name" => "Plant 7"},
-          "network_interfaces" => [%{"name" => "eth0"}, %{"name" => "eth1"}],
-          "netbox_device_id" => "nb-123",
-          "tenant_name" => "Manufacturing",
-          "rack_name" => "MDF-A",
-          "asset_tag" => "asset-7799",
-          "classification_source" => "unifi",
-          "classification_confidence" => 0.94,
-          "classification_reason" => "matched UniFi gateway role",
-          "alt_ip:10.0.0.1" => true,
-          "alt_ip:192.168.10.1" => true,
-          "alt_mac:0eea1432d277" => true,
-          "_alias_last_seen_at" => "2026-05-16T18:00:00Z",
-          "debug_unifi_payload" => %{"raw" => "payload"},
-          "device_id" => "raw-integration-id"
-        },
+        metadata: metadata,
         is_available: true,
         first_seen_time: ~U[2100-01-01 00:00:00Z],
         last_seen_time: ~U[2100-01-01 00:00:00Z]
@@ -1307,6 +1310,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
     html = render_until(view, "Dusk UniFi", 10_000)
 
+    curated_html =
+      render_component(&VisibilityComponents.metadata_summary_section/1,
+        device_row: %{"metadata" => metadata}
+      )
+
     assert html =~ "Metadata"
     assert html =~ "UniFi"
     assert html =~ "Armis"
@@ -1315,8 +1323,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Dusk UniFi"
     assert html =~ "gateway"
     assert html =~ "Tablet"
-    refute html =~ "Proxmox"
-    refute html =~ "Candidate probe"
+    refute curated_html =~ "Proxmox"
+    refute curated_html =~ "Candidate probe"
     assert html =~ "aruba-24g-02"
     assert html =~ "Minnetonka, MN"
     assert html =~ ".1.3.6.1.4.1.11.2.3.7.11.153"
@@ -1327,25 +1335,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "In Service"
     assert html =~ "SN-123"
     assert html =~ "Plant 7"
-    assert html =~ "2 items"
     assert html =~ "nb-123"
     assert html =~ "Manufacturing"
     assert html =~ "MDF-A"
     assert html =~ "matched UniFi gateway role"
 
-    refute html =~ "Additional metadata keys"
-    refute html =~ "Other Metadata"
-    refute html =~ "MikroTik"
-    refute html =~ "tonka01"
-    refute html =~ "edge-mikrotik"
-    refute html =~ "10.0.0.1"
-    refute html =~ "192.168.10.1"
-    refute html =~ "0eea1432d277"
-    refute html =~ "Integration Details"
-    refute html =~ "asset-7799"
-    refute html =~ "_alias_last_seen_at"
-    refute html =~ "debug_unifi_payload"
-    refute html =~ "raw-integration-id"
+    refute curated_html =~ "Additional metadata keys"
+    refute curated_html =~ "Other Metadata"
+    refute curated_html =~ "MikroTik"
+    refute curated_html =~ "tonka01"
+    refute curated_html =~ "edge-mikrotik"
+    refute curated_html =~ "10.0.0.1"
+    refute curated_html =~ "192.168.10.1"
+    refute curated_html =~ "0eea1432d277"
+    refute curated_html =~ "Integration Details"
+    refute curated_html =~ "asset-7799"
+    refute curated_html =~ "_alias_last_seen_at"
+    refute curated_html =~ "debug_unifi_payload"
+    refute curated_html =~ "raw-integration-id"
   end
 
   test "device details lists every discovery source a merged device was seen through", %{
@@ -2486,13 +2493,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   test "renders Proxmox virtualization inventory on device details", %{conn: conn, scope: scope} do
     unique = System.unique_integer([:positive])
     uid = "test-device-proxmox-#{unique}"
+    node_name = "pve-live-#{unique}"
     observed_at = DateTime.utc_now()
+    source_scope = proxmox_v3_source_scope(unique)
+    host_identity = proxmox_v3_identity!(source_scope, "node", node_name)
+    guest_identity = proxmox_v3_identity!(source_scope, "qemu", unique)
 
     Repo.insert_all("ocsf_devices", [
       %{
         uid: uid,
         type_id: 0,
-        hostname: "pve-live-#{unique}",
+        hostname: node_name,
         is_available: true,
         first_seen_time: ~U[2100-01-01 00:00:00Z],
         last_seen_time: ~U[2100-01-01 00:00:00Z]
@@ -2503,17 +2514,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       VirtualizationHost
       |> Ash.Changeset.for_create(
         :create,
-        %{
+        Map.merge(host_identity, %{
           provider: "proxmox",
-          provider_ref: "proxmox:node:pve-live-#{unique}",
           device_uid: uid,
-          name: "pve-live-#{unique}",
+          name: node_name,
           status: "online",
           cpu_ratio: 0.42,
           memory_used_bytes: 1_073_741_824,
           memory_total_bytes: 4_294_967_296,
           observed_at: observed_at
-        }
+        })
       )
       |> Ash.create(scope: scope)
 
@@ -2523,7 +2533,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         :create,
         %{
           provider: "proxmox",
-          provider_ref: "proxmox:datastore:pve-live-#{unique}:local-zfs",
+          provider_ref: proxmox_v3_child_ref!(host_identity, "datastore", [node_name, "local-zfs"]),
           host_id: host.id,
           name: "local-zfs",
           storage_type: "zfspool",
@@ -2542,7 +2552,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         :create,
         %{
           provider: "proxmox",
-          provider_ref: "proxmox:disk:pve-live-#{unique}:sda",
+          provider_ref: proxmox_v3_child_ref!(host_identity, "disk", [node_name, "sda"]),
           host_id: host.id,
           device_uid: uid,
           path: "/dev/sda",
@@ -2561,7 +2571,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         :create,
         %{
           provider: "proxmox",
-          provider_ref: "proxmox:iface:pve-live-#{unique}:vmbr0",
+          provider_ref: proxmox_v3_child_ref!(host_identity, "interface", [node_name, "vmbr0"]),
           host_id: host.id,
           device_uid: uid,
           name: "vmbr0",
@@ -2580,7 +2590,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         :create,
         %{
           provider: "proxmox",
-          provider_ref: "proxmox:ceph:pve-live-#{unique}",
+          provider_ref: proxmox_v3_child_ref!(host_identity, "storage", [node_name, "ceph"]),
           host_id: host.id,
           name: "Ceph",
           storage_system_type: "ceph",
@@ -2595,20 +2605,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       VirtualizationGuest
       |> Ash.Changeset.for_create(
         :create,
-        %{
+        Map.merge(guest_identity, %{
           provider: "proxmox",
-          provider_ref: "proxmox:vm:#{unique}",
           host_id: host.id,
           name: "guest-#{unique}",
           guest_type: "vm",
           vmid: unique,
           status: "running",
           observed_at: observed_at
-        }
+        })
       )
       |> Ash.create(scope: scope)
 
-    {:ok, _view, html} = live(conn, ~p"/devices/#{uid}")
+    {:ok, view, html} = live(conn, ~p"/devices/#{uid}")
 
     assert html =~ "Virtualization"
     assert html =~ "Proxmox"
@@ -2621,21 +2630,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "HEALTH_OK"
     assert html =~ "1 running"
     assert html =~ "Open PVE shell"
-    assert html =~ "target_kind=pve_host"
-    assert html =~ "console_mode=proxmox_termproxy"
+
+    assert has_element?(
+             view,
+             "a[href='/devices/#{uid}/proxmox-console']",
+             "Open PVE shell"
+           )
+
+    refute html =~ "target_kind="
+    refute html =~ "console_mode="
   end
 
   test "guest device links back to its parent hypervisor node", %{conn: conn, scope: scope} do
     unique = System.unique_integer([:positive])
     host_uid = "test-device-pve-node-#{unique}"
     guest_uid = "test-device-pve-guest-#{unique}"
+    node_name = "pve-node-#{unique}"
     observed_at = DateTime.utc_now()
+    source_scope = proxmox_v3_source_scope(unique)
+    host_identity = proxmox_v3_identity!(source_scope, "node", node_name)
+    guest_identity = proxmox_v3_identity!(source_scope, "qemu", unique)
 
     Repo.insert_all("ocsf_devices", [
       %{
         uid: host_uid,
         type_id: 0,
-        hostname: "pve-node-#{unique}",
+        hostname: node_name,
         is_available: true,
         first_seen_time: ~U[2100-01-01 00:00:00Z],
         last_seen_time: ~U[2100-01-01 00:00:00Z]
@@ -2654,14 +2674,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       VirtualizationHost
       |> Ash.Changeset.for_create(
         :create,
-        %{
+        Map.merge(host_identity, %{
           provider: "proxmox",
-          provider_ref: "proxmox:node:pve-node-#{unique}",
           device_uid: host_uid,
-          name: "pve-node-#{unique}",
+          name: node_name,
           status: "online",
           observed_at: observed_at
-        }
+        })
       )
       |> Ash.create(scope: scope)
 
@@ -2669,9 +2688,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       VirtualizationGuest
       |> Ash.Changeset.for_create(
         :create,
-        %{
+        Map.merge(guest_identity, %{
           provider: "proxmox",
-          provider_ref: "proxmox:node:pve-node-#{unique}:vm:#{unique}",
           host_id: host.id,
           device_uid: guest_uid,
           name: "guest-vm-#{unique}",
@@ -2679,7 +2697,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
           vmid: unique,
           status: "running",
           observed_at: observed_at
-        }
+        })
       )
       |> Ash.create(scope: scope)
 
@@ -2687,7 +2705,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     html = render_until(view, "Hypervisor", 10_000)
 
     assert html =~ "Hypervisor"
-    assert html =~ "pve-node-#{unique}"
+    assert html =~ node_name
     assert html =~ ~p"/devices/#{host_uid}"
     assert html =~ "Open node"
   end
@@ -2695,13 +2713,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   test "PVE node Guests tab reliably renders the node's guests", %{conn: conn, scope: scope} do
     unique = System.unique_integer([:positive])
     host_uid = "test-device-pve-guests-tab-#{unique}"
+    node_name = "pve-guests-tab-#{unique}"
     observed_at = DateTime.utc_now()
+    source_scope = proxmox_v3_source_scope(unique)
+    host_identity = proxmox_v3_identity!(source_scope, "node", node_name)
+    guest_identity = proxmox_v3_identity!(source_scope, "qemu", unique)
 
     Repo.insert_all("ocsf_devices", [
       %{
         uid: host_uid,
         type_id: 0,
-        hostname: "pve-guests-tab-#{unique}",
+        hostname: node_name,
         is_available: true,
         first_seen_time: ~U[2100-01-01 00:00:00Z],
         last_seen_time: ~U[2100-01-01 00:00:00Z]
@@ -2712,14 +2734,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       VirtualizationHost
       |> Ash.Changeset.for_create(
         :create,
-        %{
+        Map.merge(host_identity, %{
           provider: "proxmox",
-          provider_ref: "proxmox:node:pve-guests-tab-#{unique}",
           device_uid: host_uid,
-          name: "pve-guests-tab-#{unique}",
+          name: node_name,
           status: "online",
           observed_at: observed_at
-        }
+        })
       )
       |> Ash.create(scope: scope)
 
@@ -2727,16 +2748,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       VirtualizationGuest
       |> Ash.Changeset.for_create(
         :create,
-        %{
+        Map.merge(guest_identity, %{
           provider: "proxmox",
-          provider_ref: "proxmox:vm:#{unique}",
           host_id: host.id,
           name: "guest-node-#{unique}",
           guest_type: "vm",
           vmid: unique,
           status: "running",
           observed_at: observed_at
-        }
+        })
       )
       |> Ash.create(scope: scope)
 
@@ -4408,6 +4428,34 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     |> :crypto.hash("manual:#{ip}")
     |> Base.encode16(case: :lower)
     |> String.slice(0, 32)
+  end
+
+  defp proxmox_v3_source_scope(suffix) do
+    %{
+      integration_id: Ecto.UUID.generate(),
+      controller_id: Ecto.UUID.generate(),
+      native_cluster_id: "test-cluster-#{suffix}"
+    }
+  end
+
+  defp proxmox_v3_identity!(source_scope, object_kind, native_object_id) do
+    {:ok, identity} =
+      IntegrationIdentity.proxmox_v3_fields(
+        source_scope.integration_id,
+        source_scope.controller_id,
+        source_scope.native_cluster_id,
+        object_kind,
+        native_object_id
+      )
+
+    identity
+  end
+
+  defp proxmox_v3_child_ref!(identity, kind, components) do
+    {:ok, provider_ref} =
+      IntegrationIdentity.proxmox_v3_child_ref(identity.provider_instance_ref, kind, components)
+
+    provider_ref
   end
 
   defp render_until(view, expected, timeout_ms \\ 2_000) do

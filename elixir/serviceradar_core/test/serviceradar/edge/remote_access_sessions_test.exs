@@ -210,7 +210,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
                audit_writer: AuditSink
              )
 
-    assert_receive {:remote_access_audit, %{action: :remote_access_session_attach_denied}}
+    assert_receive {:remote_access_audit, attach_denied_audit}
+    assert attach_denied_audit[:action] == :remote_access_session_attach_denied
 
     assert {:ok, %RemoteAccessSession{status: :attached}} =
              RemoteAccessSessions.attach_with_ticket(ticket,
@@ -219,7 +220,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
                audit_writer: AuditSink
              )
 
-    assert_receive {:remote_access_audit, %{action: :remote_access_session_attach}}
+    assert_receive {:remote_access_audit, attach_audit}
+    assert attach_audit[:action] == :remote_access_session_attach
   end
 
   test "browser lifecycle transitions and durable activity are owner-bound" do
@@ -253,18 +255,20 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert {:ok, %RemoteAccessSession{status: :opening}} =
              RemoteAccessSessions.mark_opening(session.id, audit_writer: AuditSink)
 
-    assert_receive {:remote_access_audit, %{action: :remote_access_session_opening}}
+    assert_receive {:remote_access_audit, opening_audit}
+    assert opening_audit[:action] == :remote_access_session_opening
 
     assert {:ok, %RemoteAccessSession{status: :active}} =
              RemoteAccessSessions.activate_session(session.id, audit_writer: AuditSink)
 
-    assert_receive {:remote_access_audit, %{action: :remote_access_session_active}}
+    assert_receive {:remote_access_audit, active_audit}
+    assert active_audit[:action] == :remote_access_session_active
 
     old_activity = DateTime.utc_now() |> DateTime.add(-300, :second) |> DateTime.truncate(:second)
 
     Repo.query!(
       "UPDATE platform.remote_access_sessions SET last_activity_at = $2 WHERE id = $1::uuid",
-      [session.id, old_activity]
+      [Ecto.UUID.dump!(session.id), old_activity]
     )
 
     versions_before = version_count("remote_access_session_versions", session.id)
@@ -1818,7 +1822,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
   defp bind_session_owner!(session_id, owner_id) do
     Repo.query!(
       "UPDATE platform.remote_access_sessions SET requested_by = $2::uuid WHERE id = $1::uuid",
-      [session_id, owner_id]
+      [Ecto.UUID.dump!(session_id), Ecto.UUID.dump!(owner_id)]
     )
   end
 

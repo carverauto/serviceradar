@@ -166,7 +166,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # contested IP from every distinct UID and retain their stronger identities.
   defp incoming_ip_owners(records) do
     records
-    |> Enum.filter(&(SourcePolicy.valid_ip?(Map.get(&1, :ip))))
+    |> Enum.filter(&SourcePolicy.valid_ip?(Map.get(&1, :ip)))
     |> Enum.group_by(&Map.get(&1, :ip), &Map.fetch!(&1, :uid))
     |> Map.new(fn {ip, uids} -> {ip, Enum.uniq(uids)} end)
   end
@@ -185,8 +185,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
       conflict =
         if MapSet.member?(strong_uids, record.uid),
-          do: SourceIdentityDrift.build_active_ip_conflict(record, conflicting_uid, ip),
-          else: nil
+          do: SourceIdentityDrift.build_active_ip_conflict(record, conflicting_uid, ip)
 
       {Map.put(record, :ip, nil), {remap, prepend_conflict(conflicts, conflict)}}
     else

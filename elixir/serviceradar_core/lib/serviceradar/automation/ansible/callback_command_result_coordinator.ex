@@ -1466,7 +1466,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandResultCoordinator do
         lifecycle_opts
 
       _ ->
-        case Runtime.lifecycle_opts() do
+        case Runtime.internal_opts() do
           {:ok, lifecycle_opts} -> lifecycle_opts
           {:error, reason} -> throw({:callback_lifecycle_unavailable, reason})
         end

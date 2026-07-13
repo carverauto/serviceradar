@@ -109,6 +109,17 @@ The authorized dispatcher, AWX credential-decryption path, selected execution en
 - **WHEN** the helper builds its callback request
 - **THEN** it reads `JOB_ID` from AWX's system runtime environment and not from the ephemeral custom credential or any playbook-controlled value
 
+### Requirement: Callback key custody is least privilege by runtime
+The web/API runtime SHALL be the only ServiceRadar workload that receives the callback bearer HMAC keyring and canonical callback origin. The core runtime MAY receive the launch-envelope key and non-secret reviewed AWX/response-policy contract for envelope resolution and internal continuation. Internal result, cleanup, and recovery operations MUST use persisted authority without the bearer HMAC keyring. Agent gateways MUST receive none of this callback custody material. A disabled deployment MUST NOT project callback key files into any workload.
+
+#### Scenario: Internal cleanup runs on core
+- **WHEN** core coordinates or recovers an already-authorized callback child
+- **THEN** it uses secret-free internal lifecycle adapters and cannot issue or consume a callback bearer
+
+#### Scenario: Callback feature is disabled during an upgrade
+- **WHEN** an installation uses an older external Secret without callback keys and leaves callbacks disabled
+- **THEN** core, web, and gateway render without callback-key environment variables, mounts, or volumes
+
 ### Requirement: Callback transport is canonical and bounded
 Integrated callbacks SHALL use a server-selected canonical HTTPS origin with CA/hostname verification. User, catalog, playbook, redirect, proxy, or response input MUST NOT change the credential destination. The helper SHALL disable redirects and credential forwarding, bound method/time/size, validate content type/schema, and expose sanitized statuses.
 

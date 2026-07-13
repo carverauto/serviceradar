@@ -6,6 +6,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
   # would (required env stubbed) and asserts the Oban crontab is complete.
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Automation.Ansible.FileCallbackResponsePolicyProvider
   alias ServiceRadar.EventWriter.Config, as: EventWriterConfig
   alias ServiceRadar.Observability.CapacityForecasting.Worker
 
@@ -131,6 +132,96 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     assert falco.subject == "falco.logs"
   end
 
+  test "prod config exposes internal callback recovery without the bearer keyring" do
+    tmp_dir =
+      Path.join(
+        System.tmp_dir!(),
+        "serviceradar-core-elx-callback-runtime-#{System.unique_integer([:positive])}"
+      )
+
+    File.mkdir_p!(tmp_dir)
+    on_exit(fn -> File.rm_rf(tmp_dir) end)
+
+    envelope_key = :crypto.strong_rand_bytes(32)
+    keyring_path = Path.join(tmp_dir, "keyring.json")
+    envelope_path = Path.join(tmp_dir, "envelope-key")
+
+    File.write!(
+      keyring_path,
+      Jason.encode!(%{
+        "active_key_id" => "callback-test",
+        "keys" => %{"callback-test" => Base.encode64(:crypto.strong_rand_bytes(32))}
+      })
+    )
+
+    File.write!(envelope_path, Base.encode64(envelope_key))
+    File.chmod!(keyring_path, 0o600)
+    File.chmod!(envelope_path, 0o600)
+
+    with_env("SERVICERADAR_AUTOMATION_CALLBACK_HMAC_KEYRING_FILE", keyring_path)
+    with_env("SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_FILE", envelope_path)
+    with_env("SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_ID", "envelope-test")
+    with_env("SERVICERADAR_AUTOMATION_CALLBACK_ORIGIN", "https://callbacks.example.test")
+    with_env("SERVICERADAR_AUTOMATION_CALLBACKS_ENABLED", "false")
+
+    core_config = read_prod_config()[:serviceradar_core]
+
+    assert core_config[:automation_callback_grants] == []
+    refute Keyword.has_key?(core_config, :automation_launch_envelope_key)
+    refute Keyword.has_key?(core_config, :automation_launch_envelope_key_id)
+    refute Keyword.has_key?(core_config, :automation_callback_origin)
+  end
+
+  test "prod config loads envelope custody and the non-secret continuation contract when enabled" do
+    tmp_dir =
+      Path.join(
+        System.tmp_dir!(),
+        "serviceradar-core-elx-callback-policy-#{System.unique_integer([:positive])}"
+      )
+
+    File.mkdir_p!(tmp_dir)
+    on_exit(fn -> File.rm_rf(tmp_dir) end)
+
+    envelope_key = :crypto.strong_rand_bytes(32)
+    envelope_path = Path.join(tmp_dir, "envelope-key")
+    policy_path = Path.join(tmp_dir, "response-policy.json")
+    File.write!(envelope_path, Base.encode64(envelope_key))
+    File.write!(policy_path, Jason.encode!(response_policy_document()))
+    File.chmod!(envelope_path, 0o600)
+    File.chmod!(policy_path, 0o600)
+
+    with_env("SERVICERADAR_AUTOMATION_CALLBACKS_ENABLED", "true")
+    with_env("SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_FILE", envelope_path)
+    with_env("SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_ID", "envelope-test")
+    with_env("SERVICERADAR_AUTOMATION_CALLBACK_AWX_CREDENTIAL_TYPE_ID", "68")
+    with_env("SERVICERADAR_AUTOMATION_CALLBACK_AWX_ORGANIZATION_ID", "3")
+
+    with_env(
+      "SERVICERADAR_AUTOMATION_CALLBACK_AWX_INJECTOR_DIGEST",
+      String.duplicate("a", 64)
+    )
+
+    with_env("SERVICERADAR_AUTOMATION_CALLBACK_RESPONSE_POLICY_FILE", policy_path)
+
+    core_config = read_prod_config()[:serviceradar_core]
+
+    assert core_config[:automation_callback_grants] == []
+    assert core_config[:automation_launch_envelope_key] == envelope_key
+    assert core_config[:automation_launch_envelope_key_id] == "envelope-test"
+    refute Keyword.has_key?(core_config, :automation_callback_origin)
+
+    assert core_config[:automation_callback_awx_credential_contract] == [
+             credential_type_id: 68,
+             organization_id: 3,
+             injector_digest: String.duplicate("a", 64)
+           ]
+
+    assert core_config[:automation_callback_response_policy_provider] ==
+             FileCallbackResponsePolicyProvider
+
+    assert core_config[FileCallbackResponsePolicyProvider] == [path: policy_path]
+  end
+
   defp read_prod_event_writer_streams do
     with_env("EVENT_WRITER_ENABLED", "true")
 
@@ -155,5 +246,70 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
 
   defp read_prod_config do
     Config.Reader.read!(@runtime_config, env: :prod)
+  end
+
+  defp response_policy_document do
+    %{
+      "schema" => "serviceradar.automation.callback_response_policy/v1",
+      "policies" => [
+        %{
+          "enabled" => true,
+          "action" => "remote_access.ssh_ca.bundle.read",
+          "action_version" => "1.0.0",
+          "policy_version" => "ssh-policy-v1",
+          "scope" => %{
+            "tenant_id" => "platform",
+            "controller_id" => "controller-farm01",
+            "inventory_id" => 34,
+            "job_template_id" => 42,
+            "binding_id" => "binding-7",
+            "binding_version" => 7,
+            "approval_id" => "approval-8",
+            "scm_revision" => String.duplicate("b", 40),
+            "content_sha256" => String.duplicate("c", 64)
+          },
+          "review" => %{
+            "state" => "approved",
+            "reviewed_by_principal_type" => "human",
+            "reviewed_by_principal_id" => "reviewer-1",
+            "reviewed_at" => "2026-07-13T01:00:00.000000Z",
+            "expires_at" => "2026-07-13T03:00:00.000000Z"
+          },
+          "signer_key_id" => "ca-main",
+          "ca_keys" => [ca_key()],
+          "targets" => [
+            %{
+              "state" => "ready",
+              "target_identity" => %{
+                "controller_id" => "controller-farm01",
+                "inventory_id" => 34,
+                "awx_host_id" => 100,
+                "canonical_device_uid" => "device:linux-01"
+              },
+              "ca_key_ids" => ["ca-main"],
+              "accounts" => [
+                %{
+                  "name" => "mfreeman",
+                  "principals" => ["srp_v1_0123456789abcdefghijklmnop"]
+                }
+              ],
+              "transaction" => %{}
+            }
+          ]
+        }
+      ]
+    }
+  end
+
+  defp ca_key do
+    type = "ssh-ed25519"
+    key_bytes = :binary.copy(<<7>>, 32)
+    blob = <<byte_size(type)::32, type::binary, byte_size(key_bytes)::32, key_bytes::binary>>
+
+    %{
+      "id" => "ca-main",
+      "public_key" => type <> " " <> Base.encode64(blob),
+      "fingerprint" => "SHA256:" <> Base.encode64(:crypto.hash(:sha256, blob), padding: false)
+    }
   end
 end

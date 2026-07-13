@@ -76,6 +76,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSession do
     store_action_inputs? false
     create_version_on_destroy? false
     ignore_attributes [:attach_ticket_hash, :last_activity_at, :inserted_at, :updated_at]
+    ignore_actions [:record_activity]
   end
 
   code_interface do

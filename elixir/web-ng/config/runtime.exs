@@ -9,46 +9,6 @@ alias Swoosh.Adapters.Local
 
 require Logger
 
-# The web release embeds serviceradar_core, so it must load the callback
-# verifier and reviewed AWX credential contract itself. Secret key material is
-# intentionally file-only.
-case System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_HMAC_KEYRING_FILE") do
-  path when is_binary(path) and path != "" ->
-    verifier_config = RuntimeConfig.load_verifier_file!(path)
-
-    config :serviceradar_core, :automation_callback_grants, verifier_config: verifier_config
-
-  _ ->
-    :ok
-end
-
-case System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_FILE") do
-  path when is_binary(path) and path != "" ->
-    envelope_key =
-      RuntimeConfig.load_envelope_key_file!(path)
-
-    config :serviceradar_core,
-      automation_launch_envelope_key: envelope_key,
-      automation_launch_envelope_key_id: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_ID", "current")
-
-  _ ->
-    :ok
-end
-
-case System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_ORIGIN") do
-  origin when is_binary(origin) and origin != "" ->
-    case RuntimeConfig.canonical_callback_origin(origin) do
-      {:ok, canonical_origin} ->
-        config :serviceradar_core, :automation_callback_origin, canonical_origin
-
-      {:error, _reason} ->
-        raise "invalid ServiceRadar automation callback origin"
-    end
-
-  _ ->
-    :ok
-end
-
 callback_deployment =
   RuntimeConfig.callback_deployment_config!(%{
     enabled: System.get_env("SERVICERADAR_AUTOMATION_CALLBACKS_ENABLED", "false"),
@@ -59,6 +19,28 @@ callback_deployment =
   })
 
 if is_map(callback_deployment) do
+  verifier_config =
+    "SERVICERADAR_AUTOMATION_CALLBACK_HMAC_KEYRING_FILE"
+    |> System.get_env()
+    |> RuntimeConfig.load_verifier_file!()
+
+  envelope_key =
+    "SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_FILE"
+    |> System.get_env()
+    |> RuntimeConfig.load_envelope_key_file!()
+
+  callback_origin =
+    case System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_ORIGIN") do
+      origin when is_binary(origin) and origin != "" ->
+        case RuntimeConfig.canonical_callback_origin(origin) do
+          {:ok, canonical_origin} -> canonical_origin
+          {:error, _reason} -> raise "invalid ServiceRadar automation callback origin"
+        end
+
+      _ ->
+        raise "ServiceRadar automation callback origin is required"
+    end
+
   config :serviceradar_core,
          FileCallbackResponsePolicyProvider,
          callback_deployment.response_policy_provider_config
@@ -70,6 +52,12 @@ if is_map(callback_deployment) do
   config :serviceradar_core,
          :automation_callback_response_policy_provider,
          callback_deployment.response_policy_provider
+
+  config :serviceradar_core,
+    automation_callback_grants: [verifier_config: verifier_config],
+    automation_launch_envelope_key: envelope_key,
+    automation_launch_envelope_key_id: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_ID", "current"),
+    automation_callback_origin: callback_origin
 end
 
 parse_int_env = fn env_name, default ->

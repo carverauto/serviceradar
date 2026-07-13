@@ -303,7 +303,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandRecovery do
   defp lifecycle_opts(opts) do
     case Keyword.fetch(opts, :lifecycle_opts) do
       {:ok, lifecycle_opts} when is_list(lifecycle_opts) -> {:ok, lifecycle_opts}
-      _ -> Runtime.lifecycle_opts()
+      _ -> Runtime.internal_opts()
     end
   end
 

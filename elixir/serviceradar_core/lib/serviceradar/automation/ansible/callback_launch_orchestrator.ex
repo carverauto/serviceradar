@@ -212,7 +212,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestrator do
     case Keyword.fetch(opts, :lifecycle_opts) do
       {:ok, lifecycle_opts} when is_list(lifecycle_opts) -> {:ok, lifecycle_opts}
       {:ok, _invalid} -> {:error, :callback_unavailable}
-      :error -> Runtime.lifecycle_opts()
+      :error -> Runtime.issuance_opts()
     end
   end
 

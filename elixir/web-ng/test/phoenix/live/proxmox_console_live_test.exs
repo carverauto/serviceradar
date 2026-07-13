@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias ServiceRadar.Identity.RBAC.Cache
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.TestSupport.ProxmoxConsoleSessionManagerStub
 
@@ -72,7 +73,14 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLiveTest do
     conn: conn,
     user: user
   } do
-    Process.put({:rbac_permissions, user.id}, MapSet.new(["devices.console.open"]))
+    permissions = MapSet.new(["devices.console.open"])
+
+    # The disconnected render runs in the test process, while the connected
+    # LiveView mounts in its own process. Populate both RBAC cache tiers so the
+    # permission contraction is observed consistently across that boundary.
+    Process.put({:rbac_permissions, user.id}, permissions)
+    Cache.put(user.id, permissions)
+    on_exit(fn -> Cache.invalidate(user.id) end)
 
     {:ok, _view, html} =
       live(conn, ~p"/devices/pve-1/proxmox-console?target_kind=pve_host&console_mode=ssh")

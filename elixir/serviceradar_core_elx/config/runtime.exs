@@ -2,6 +2,8 @@ import Config
 
 alias Geolix.Adapter.MMDB2
 alias Oban.Plugins.Cron
+alias ServiceRadar.Automation.Ansible.FileCallbackResponsePolicyProvider
+alias ServiceRadar.Automation.CallbackGrants.RuntimeConfig
 alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
 alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.Jobs.AlertsRetentionWorker
@@ -10,6 +12,43 @@ alias ServiceRadar.Observability.CapacityForecasting.Worker, as: CapacityForecas
 alias ServiceRadar.Observability.DataRetentionWorker
 alias ServiceRadar.Observability.ProductionSchedule
 alias ServiceRadar.Observability.SeasonalDisposition.Worker, as: SeasonalDispositionWorker
+
+callback_deployment =
+  RuntimeConfig.callback_deployment_config!(%{
+    enabled: System.get_env("SERVICERADAR_AUTOMATION_CALLBACKS_ENABLED", "false"),
+    credential_type_id: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_AWX_CREDENTIAL_TYPE_ID"),
+    organization_id: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_AWX_ORGANIZATION_ID"),
+    injector_digest: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_AWX_INJECTOR_DIGEST"),
+    response_policy_file: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_RESPONSE_POLICY_FILE")
+  })
+
+# This release hosts callback result coordination and recovery from
+# serviceradar_core. Those internal continuations use persisted authority and
+# must never receive the web tier's bearer HMAC keyring.
+config :serviceradar_core, :automation_callback_grants, []
+
+if is_map(callback_deployment) do
+  envelope_key =
+    "SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_FILE"
+    |> System.get_env()
+    |> RuntimeConfig.load_envelope_key_file!()
+
+  config :serviceradar_core,
+         FileCallbackResponsePolicyProvider,
+         callback_deployment.response_policy_provider_config
+
+  config :serviceradar_core,
+         :automation_callback_awx_credential_contract,
+         callback_deployment.credential_contract
+
+  config :serviceradar_core,
+         :automation_callback_response_policy_provider,
+         callback_deployment.response_policy_provider
+
+  config :serviceradar_core,
+    automation_launch_envelope_key: envelope_key,
+    automation_launch_envelope_key_id: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_ID", "current")
+end
 
 parse_int_env = fn env_name, default ->
   case System.get_env(env_name) do
