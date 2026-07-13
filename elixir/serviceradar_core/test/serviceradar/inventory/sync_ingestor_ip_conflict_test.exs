@@ -119,7 +119,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
       )
       |> Ash.read(actor: actor)
 
-    assert Enum.map(identifiers, & &1.device_id) |> Enum.uniq() |> length() == 2
+    assert identifiers |> Enum.map(& &1.device_id) |> Enum.uniq() |> length() == 2
 
     {:ok, devices_at_ip} =
       Device
