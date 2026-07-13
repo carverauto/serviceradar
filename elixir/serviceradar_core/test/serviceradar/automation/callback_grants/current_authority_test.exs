@@ -41,6 +41,74 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
     assert authority.job_state == :running
   end
 
+  test "activation fails closed while the accepted execution is only launching", %{
+    fixture: fixture
+  } do
+    launching =
+      fixture
+      |> put_in([:execution, :state], :launching)
+      |> put_in([:execution, :scope_verified_at], nil)
+
+    assert {:error, :job_not_active} = authorize(:activate, launching)
+
+    missing_durable_marker = put_in(fixture.execution.scope_verified_at, nil)
+    assert {:error, :job_not_active} = authorize(:activate, missing_durable_marker)
+  end
+
+  test "activation accepts the exact durably scope-verified execution", %{fixture: fixture} do
+    assert {:ok, authority} = authorize(:activate, fixture)
+    assert authority.job_id == 9_001
+    assert authority.job_state == :running
+  end
+
+  test "use preserves fresh verification after the execution advances to running", %{
+    fixture: fixture
+  } do
+    running = put_in(fixture.execution.state, :running)
+    assert {:ok, authority} = authorize(:use, running)
+    assert authority.job_state == :running
+  end
+
+  test "activation rejects stale or mismatched persisted scope evidence", %{fixture: fixture} do
+    stale =
+      put_in(
+        fixture.execution.accepted_job_snapshot["scope_verification"]["snapshot_digest"],
+        String.duplicate("f", 64)
+      )
+
+    assert {:error, :awx_binding_changed} = authorize(:activate, stale)
+
+    mismatched =
+      put_in(
+        fixture.execution.accepted_job_snapshot["scope_verification"]["observed_host_ids"],
+        [101]
+      )
+
+    assert {:error, :target_no_longer_authorized} = authorize(:activate, mismatched)
+
+    incomplete_snapshot =
+      update_in(fixture.execution.accepted_job_snapshot, &Map.delete(&1, "credentials"))
+
+    assert {:error, :awx_binding_changed} = authorize(:activate, incomplete_snapshot)
+  end
+
+  test "activation rejects a proposed job binding that differs from the persisted job", %{
+    fixture: fixture
+  } do
+    mismatched = put_in(fixture.grant.job_binding["job_id"], 9_002)
+    assert {:error, :job_binding_changed} = authorize(:activate, mismatched)
+
+    mismatched_full_binding =
+      put_in(fixture.grant.job_binding["controller_id"], "another-controller")
+
+    assert {:error, :job_binding_changed} = authorize(:activate, mismatched_full_binding)
+  end
+
+  test "activation rechecks current authority contraction", %{fixture: fixture} do
+    contracted = put_in(fixture.principal.profile.permissions, ["ansible.runs.launch"])
+    assert {:error, :current_permission_denied} = authorize(:activate, contracted)
+  end
+
   test "fails closed after permission contraction", %{fixture: fixture} do
     contracted = put_in(fixture.principal.profile.permissions, ["ansible.runs.launch"])
     assert {:error, :current_permission_denied} = authorize(contracted)
@@ -140,9 +208,13 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
   end
 
   defp authorize(fixture) do
+    authorize(:use, fixture)
+  end
+
+  defp authorize(stage, fixture) do
     Process.put(:current_authority_fixture, fixture)
 
-    CurrentAuthority.current_authority(:use, fixture.grant,
+    CurrentAuthority.current_authority(stage, fixture.grant,
       source: Source,
       now: @now
     )
@@ -345,6 +417,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
       dispatch_id: "dispatch-1",
       awx_job_id: 9_001,
       state: :scope_verified,
+      scope_verified_at: DateTime.add(@now, -30),
       metadata: %{"awx_created_by_id" => 11, "target_digest" => target_digest},
       accepted_job_snapshot: %{
         "controller_id" => ids.controller,
@@ -358,13 +431,22 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
         "awx_created_by_id" => 11,
         "serviceradar_dispatch_id" => "dispatch-1",
         "serviceradar_snapshot_digest" => snapshot_digest,
+        "credentials" => [
+          %{"id" => 5, "kind" => "ssh"},
+          %{"id" => 91, "kind" => "cloud"}
+        ],
         "credential_ids" => [5, 91],
+        "ephemeral_credential_id" => 91,
+        "job_type" => "run",
         "scope_verification" => %{
+          "schema" => "serviceradar.awx_scope_verification.v1",
           "execution_id" => ids.execution,
           "controller_id" => ids.controller,
           "awx_job_id" => 9_001,
+          "inventory_id" => 34,
           "expected_host_ids" => [100],
-          "observed_host_ids" => [100]
+          "observed_host_ids" => [100],
+          "snapshot_digest" => snapshot_digest
         }
       }
     }
@@ -416,7 +498,10 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
       policy_digest: policy_digest,
       approval_snapshot: approval_snapshot,
       policy_snapshot: policy_snapshot,
-      job_binding: %{"job_id" => 9_001},
+      job_binding:
+        scope
+        |> Map.put("credential_ids", [5, 91])
+        |> Map.put("job_id", 9_001),
       ephemeral_credential_id: 91,
       binding_verified: true
     }

@@ -22,8 +22,36 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
     "devices.remote_access.ssh.ca_bundle.read"
   ]
   @active_operation_states [:planned, :dispatching, :running]
-  @accepted_execution_states [:launching, :scope_verified, :running]
   @verified_execution_states [:scope_verified, :running]
+  @accepted_job_snapshot_keys MapSet.new([
+                                "controller_id",
+                                "awx_job_id",
+                                "job_template_id",
+                                "inventory_id",
+                                "host_limit",
+                                "project_id",
+                                "scm_revision",
+                                "execution_environment_id",
+                                "credentials",
+                                "credential_ids",
+                                "ephemeral_credential_id",
+                                "awx_created_by_id",
+                                "job_type",
+                                "serviceradar_dispatch_id",
+                                "serviceradar_snapshot_digest",
+                                "scope_verification"
+                              ])
+  @scope_verification_schema "serviceradar.awx_scope_verification.v1"
+  @scope_verification_keys MapSet.new([
+                             "schema",
+                             "controller_id",
+                             "awx_job_id",
+                             "execution_id",
+                             "inventory_id",
+                             "expected_host_ids",
+                             "observed_host_ids",
+                             "snapshot_digest"
+                           ])
   @approval_snapshot_keys MapSet.new([
                             "binding_id",
                             "binding_version",
@@ -127,9 +155,9 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
          {:ok, policy_snapshot} <- current_policy_snapshot(grant, binding),
          {:ok, targets} <-
            current_targets(grant, execution, execution_targets, memberships),
-         :ok <- stage_job(stage, grant, execution, targets),
          {:ok, current_scope} <-
            current_scope(scope, execution, binding, targets, callback_contract),
+         :ok <- stage_job(stage, grant, execution, targets, current_scope),
          {:ok, scope_digest} <- CanonicalJSON.digest(current_scope),
          {:ok, approval_digest} <- CanonicalJSON.digest(approval_snapshot),
          {:ok, policy_digest} <- CanonicalJSON.digest(policy_snapshot),
@@ -447,16 +475,17 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
     secure_equal(Targeting.target_digest(targets), to_string(expected))
   end
 
-  defp stage_job(stage, grant, execution, targets) when stage in [:activate, :use, :replay] do
-    state = value(execution, :state)
+  defp stage_job(stage, grant, execution, targets, current_scope)
+       when stage in [:activate, :use, :replay] do
     job_id = value(execution, :awx_job_id)
     grant_job_id = value(value(grant, :job_binding) || %{}, :job_id)
     snapshot = value(execution, :accepted_job_snapshot) || %{}
 
-    with true <- state in @accepted_execution_states || {:error, :job_not_active},
+    with :ok <- verified_execution_state(stage, execution),
          true <- positive_integer?(job_id) || {:error, :job_binding_required},
          true <- to_string(job_id) == to_string(grant_job_id) || {:error, :job_binding_changed},
          :ok <- exact_accepted_job(execution, grant, snapshot),
+         :ok <- exact_proposed_job_binding(grant, execution, snapshot, current_scope),
          :ok <- verified_scope(stage, execution, snapshot, targets) do
       :ok
     else
@@ -465,7 +494,21 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
     end
   end
 
-  defp stage_job(_stage, _grant, _execution, _targets), do: :ok
+  defp stage_job(_stage, _grant, _execution, _targets, _current_scope), do: :ok
+
+  defp verified_execution_state(:activate, execution) do
+    if value(execution, :state) == :scope_verified and
+         match?(%DateTime{}, value(execution, :scope_verified_at)),
+       do: :ok,
+       else: {:error, :job_not_active}
+  end
+
+  defp verified_execution_state(stage, execution) when stage in [:use, :replay] do
+    if value(execution, :state) in @verified_execution_states and
+         match?(%DateTime{}, value(execution, :scope_verified_at)),
+       do: :ok,
+       else: {:error, :job_not_active}
+  end
 
   defp exact_accepted_job(execution, grant, snapshot) do
     scope = value(grant, :awx_scope_snapshot) || %{}
@@ -473,6 +516,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
     base_ids = List.wrap(value(scope, :credential_ids))
     accepted_ids = snapshot |> value(:credential_ids) |> List.wrap() |> Enum.sort()
     expected_ids = Enum.sort(Enum.uniq(base_ids ++ [ephemeral_id]))
+    expected_job_type = if value(execution, :check_mode), do: "check", else: "run"
 
     checks = [
       {value(snapshot, :controller_id), value(execution, :controller_id)},
@@ -490,10 +534,22 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
     ]
 
     cond do
+      not exact_keys?(snapshot, @accepted_job_snapshot_keys) ->
+        {:error, :awx_binding_changed}
+
       not positive_integer?(ephemeral_id) ->
         {:error, :callback_credential_not_bound}
 
+      value(snapshot, :ephemeral_credential_id) != ephemeral_id ->
+        {:error, :awx_binding_changed}
+
+      value(snapshot, :job_type) != expected_job_type ->
+        {:error, :awx_binding_changed}
+
       accepted_ids != expected_ids ->
+        {:error, :awx_binding_changed}
+
+      not exact_accepted_credentials?(value(snapshot, :credentials), expected_ids) ->
         {:error, :awx_binding_changed}
 
       not Enum.all?(checks, fn {left, right} -> to_string(left) == to_string(right) end) ->
@@ -504,15 +560,35 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
     end
   end
 
-  defp verified_scope(:activate, _execution, _snapshot, _targets), do: :ok
+  defp exact_proposed_job_binding(grant, execution, snapshot, current_scope) do
+    accepted_ids = snapshot |> value(:credential_ids) |> List.wrap() |> Enum.sort()
 
-  defp verified_scope(stage, execution, snapshot, targets) when stage in [:use, :replay] do
+    expected =
+      current_scope
+      |> Map.put("credential_ids", accepted_ids)
+      |> Map.put("job_id", value(execution, :awx_job_id))
+
+    with {:ok, proposed} <- normalize_job_binding(value(grant, :job_binding)),
+         {:ok, expected} <- normalize_job_binding(expected),
+         true <- canonical_equal?(proposed, expected) || {:error, :job_binding_changed} do
+      :ok
+    else
+      false -> {:error, :job_binding_changed}
+      {:error, _} -> {:error, :job_binding_changed}
+    end
+  end
+
+  defp verified_scope(stage, execution, snapshot, targets)
+       when stage in [:activate, :use, :replay] do
     evidence = value(snapshot, :scope_verification) || %{}
     expected_host_ids = Enum.map(targets, & &1.awx_host_id)
 
     cond do
-      value(execution, :state) not in @verified_execution_states ->
-        {:error, :job_not_active}
+      not exact_keys?(evidence, @scope_verification_keys) ->
+        {:error, :awx_binding_changed}
+
+      value(evidence, :schema) != @scope_verification_schema ->
+        {:error, :awx_binding_changed}
 
       to_string(value(evidence, :execution_id)) != to_string(value(execution, :id)) ->
         {:error, :awx_binding_changed}
@@ -522,6 +598,15 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
         {:error, :awx_binding_changed}
 
       value(evidence, :awx_job_id) != value(execution, :awx_job_id) ->
+        {:error, :awx_binding_changed}
+
+      value(evidence, :inventory_id) != value(execution, :inventory_id) ->
+        {:error, :awx_binding_changed}
+
+      not secure_equal(
+        to_string(value(evidence, :snapshot_digest)),
+        to_string(value(execution, :snapshot_digest))
+      ) ->
         {:error, :awx_binding_changed}
 
       List.wrap(value(evidence, :expected_host_ids)) != expected_host_ids ->
@@ -534,6 +619,49 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
         :ok
     end
   end
+
+  defp exact_accepted_credentials?(credentials, expected_ids) when is_list(credentials) do
+    credentials
+    |> Enum.reduce_while({:ok, []}, fn credential, {:ok, ids} ->
+      id = value(credential, :id)
+      kind = value(credential, :kind)
+
+      if positive_integer?(id) and is_binary(kind) and kind != "" do
+        {:cont, {:ok, [id | ids]}}
+      else
+        {:halt, :error}
+      end
+    end)
+    |> case do
+      {:ok, ids} -> Enum.reverse(ids) == expected_ids
+      :error -> false
+    end
+  end
+
+  defp exact_accepted_credentials?(_credentials, _expected_ids), do: false
+
+  defp normalize_job_binding(binding) when is_map(binding) and map_size(binding) > 0 do
+    with {:ok, normalized} <- normalize_snapshot(binding),
+         credential_ids when is_list(credential_ids) <- normalized["credential_ids"],
+         true <-
+           Enum.all?(credential_ids, &positive_integer?/1) and
+             length(credential_ids) == MapSet.size(MapSet.new(credential_ids)) do
+      {:ok, Map.put(normalized, "credential_ids", Enum.sort(credential_ids))}
+    else
+      _ -> {:error, :job_binding_changed}
+    end
+  end
+
+  defp normalize_job_binding(_binding), do: {:error, :job_binding_changed}
+
+  defp exact_keys?(map, expected) when is_map(map) do
+    case normalize_snapshot(map) do
+      {:ok, normalized} -> MapSet.new(Map.keys(normalized)) == expected
+      {:error, _} -> false
+    end
+  end
+
+  defp exact_keys?(_map, _expected), do: false
 
   defp current_scope(_scope, execution, binding, targets, callback_contract) do
     with {:ok, credential_ids} <- reviewed_credential_ids(binding),
