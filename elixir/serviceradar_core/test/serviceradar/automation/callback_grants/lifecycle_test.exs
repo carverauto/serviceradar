@@ -1,0 +1,869 @@
+defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
+  use ExUnit.Case, async: true
+
+  alias ServiceRadar.Automation.CallbackGrants.Authority
+  alias ServiceRadar.Automation.CallbackGrants.CanonicalJSON
+  alias ServiceRadar.Automation.CallbackGrants.Lifecycle
+
+  defmodule FakeAuthorizer do
+    @moduledoc false
+    @behaviour ServiceRadar.Automation.CallbackGrants.Authorizer
+
+    @impl true
+    def current_authority(stage, _grant, pid) do
+      Agent.get(pid, fn state ->
+        send(state.test, {:authorized, stage})
+        state.result
+      end)
+    end
+  end
+
+  defmodule FakeCleanup do
+    @moduledoc false
+    @behaviour ServiceRadar.Automation.CallbackGrants.Cleanup
+
+    @impl true
+    def cleanup(grant, mode, pid) do
+      Agent.get_and_update(pid, fn state ->
+        send(state.test, {:cleanup, mode, grant})
+        {state.result, %{state | calls: [{mode, grant} | state.calls]}}
+      end)
+    end
+  end
+
+  defmodule FakeStore do
+    @moduledoc false
+    @behaviour ServiceRadar.Automation.CallbackGrants.Store
+
+    @impl true
+    def create_pending(attrs, audit, pid) do
+      Agent.get_and_update(pid, fn state ->
+        if Map.has_key?(state.grants, attrs.id) do
+          {{:error, :duplicate_grant}, state}
+        else
+          grant = Map.put(attrs, :audit_count, 1)
+
+          {{:ok, grant},
+           %{
+             state
+             | grants: Map.put(state.grants, attrs.id, grant),
+               audits: [audit | state.audits]
+           }}
+        end
+      end)
+    end
+
+    @impl true
+    def fetch(id, pid) do
+      Agent.get(pid, fn state ->
+        case Map.fetch(state.grants, id) do
+          {:ok, grant} -> {:ok, grant}
+          :error -> {:error, :grant_not_found}
+        end
+      end)
+    end
+
+    @impl true
+    def activate(id, binding, authorize, audit, _now, pid) do
+      Agent.get_and_update(pid, fn state ->
+        with :ok <- forced(state, :activate),
+             {:ok, grant} <- Map.fetch(state.grants, id) do
+          activate_locked(state, grant, binding, authorize, audit)
+        else
+          :error -> {{:error, :grant_not_found}, state}
+          {:error, _} = error -> {error, state}
+        end
+      end)
+    end
+
+    defp activate_locked(state, %{state: :pending} = grant, binding, authorize, audit) do
+      case authorize.(grant) do
+        :ok ->
+          activated =
+            grant
+            |> Map.put(:state, :active)
+            |> Map.put(:binding_verified, true)
+            |> Map.put(:job_binding, binding)
+
+          {{:ok, :activated, activated},
+           %{
+             state
+             | grants: Map.put(state.grants, grant.id, activated),
+               audits: [audit | state.audits]
+           }}
+
+        {:error, _} = error ->
+          {error, state}
+      end
+    end
+
+    defp activate_locked(
+           state,
+           %{state: :active, job_binding: binding} = grant,
+           binding,
+           authorize,
+           _audit
+         ) do
+      case authorize.(grant) do
+        :ok -> {{:ok, :existing, grant}, state}
+        {:error, _} = error -> {error, state}
+      end
+    end
+
+    defp activate_locked(state, %{state: :active}, _binding, _authorize, _audit),
+      do: {{:error, :job_binding_conflict}, state}
+
+    defp activate_locked(state, grant, _binding, _authorize, _audit),
+      do: {{:error, {:grant_not_pending, grant.state}}, state}
+
+    @impl true
+    def consume_once(id, attrs, response, authorize, audit, _now, pid) do
+      Agent.get_and_update(pid, fn state ->
+        with :ok <- forced(state, :consume),
+             {:ok, grant} <- Map.fetch(state.grants, id),
+             true <-
+               grant.state in [:active, :consumed] ||
+                 {:error, {:grant_not_active, grant.state}},
+             :ok <- authorize.(grant) do
+          consume_locked(state, grant, attrs, response, audit)
+        else
+          :error -> {{:error, :grant_not_found}, state}
+          false -> {{:error, :grant_not_active}, state}
+          {:error, _} = error -> {error, state}
+        end
+      end)
+    end
+
+    defp consume_locked(state, grant, attrs, response, audit) do
+      case Map.get(state.uses, grant.id) do
+        nil when grant.state == :active and grant.budget_remaining == 1 ->
+          use = Map.put(attrs, :response, response)
+
+          consumed =
+            grant
+            |> Map.put(:state, :consumed)
+            |> Map.put(:budget_remaining, 0)
+
+          {{:ok, :committed, response, consumed},
+           %{
+             state
+             | grants: Map.put(state.grants, grant.id, consumed),
+               uses: Map.put(state.uses, grant.id, use),
+               audits: [audit | state.audits]
+           }}
+
+        %{idempotency_key_verifier: key, request_digest: digest, response: ^response}
+        when key == attrs.idempotency_key_verifier and digest == attrs.request_digest ->
+          {{:ok, :replay, response, grant}, state}
+
+        %{idempotency_key_verifier: key} when key == attrs.idempotency_key_verifier ->
+          {{:error, :idempotency_payload_conflict}, state}
+
+        _existing ->
+          {{:error, :success_budget_consumed}, state}
+      end
+    end
+
+    @impl true
+    def transition_terminal(id, terminal, reason, audit, _now, pid) do
+      Agent.get_and_update(pid, fn state ->
+        case Map.fetch(state.grants, id) do
+          {:ok, grant} ->
+            grant = grant |> Map.put(:state, terminal) |> Map.put(:terminal_reason, reason)
+
+            {{:ok, grant},
+             %{
+               state
+               | grants: Map.put(state.grants, id, grant),
+                 audits: [audit | state.audits]
+             }}
+
+          :error ->
+            {{:error, :grant_not_found}, state}
+        end
+      end)
+    end
+
+    @impl true
+    def record_cleanup(id, attrs, audit, pid) do
+      Agent.update(pid, fn state ->
+        %{
+          state
+          | cleanups: Map.put(state.cleanups, id, attrs),
+            audits: [audit | state.audits]
+        }
+      end)
+    end
+
+    @impl true
+    def record_audit(audit, pid) do
+      Agent.update(pid, &%{&1 | audits: [audit | &1.audits]})
+    end
+
+    defp forced(%{force: %{activate: nil}}, :activate), do: :ok
+    defp forced(%{force: %{consume: nil}}, :consume), do: :ok
+    defp forced(%{force: %{activate: reason}}, :activate), do: {:error, reason}
+    defp forced(%{force: %{consume: reason}}, :consume), do: {:error, reason}
+  end
+
+  @now ~U[2026-07-12 18:00:00Z]
+  @grant_id "018f3f56-1111-7222-8333-123456789abc"
+  @principal_id "018f3f56-1111-7222-8333-123456789abf"
+  @action "remote_access.ssh_ca.bundle.read"
+  @required_permissions [
+    "ansible.runs.launch",
+    "devices.remote_access.ssh.ca_bundle.read"
+  ]
+
+  setup do
+    test = self()
+
+    {:ok, store} =
+      Agent.start_link(fn ->
+        %{
+          grants: %{},
+          uses: %{},
+          audits: [],
+          cleanups: %{},
+          force: %{activate: nil, consume: nil}
+        }
+      end)
+
+    attrs = attrs()
+    authority = current_authority(attrs)
+    {:ok, authorizer} = Agent.start_link(fn -> %{test: test, result: {:ok, authority}} end)
+
+    {:ok, cleanup} =
+      Agent.start_link(fn ->
+        %{
+          test: test,
+          calls: [],
+          result:
+            {:ok,
+             %{
+               cleanup_status: :complete,
+               job_cleanup: :not_required,
+               credential_cleanup: :deleted
+             }}
+        }
+      end)
+
+    opts = [
+      store: FakeStore,
+      store_context: store,
+      authorizer: FakeAuthorizer,
+      authority_context: authorizer,
+      cleanup: FakeCleanup,
+      cleanup_context: cleanup,
+      verifier_config: [
+        active_key_id: "callback-v1",
+        keys: %{"callback-v1" => String.duplicate("k", 32)}
+      ],
+      random_bytes: fn 32 -> :binary.copy(<<7>>, 32) end,
+      now: @now
+    ]
+
+    %{store: store, authorizer: authorizer, cleanup: cleanup, attrs: attrs, opts: opts}
+  end
+
+  test "pending issuance returns one opaque bearer and no verifier material", context do
+    assert {:ok, %{grant: pending, bearer: bearer}} =
+             Lifecycle.prepare(context.attrs, context.opts)
+
+    assert pending == %{
+             id: @grant_id,
+             state: :pending,
+             action: @action,
+             expires_at: DateTime.add(@now, 120),
+             retryable: true
+           }
+
+    assert byte_size(bearer) == 43
+    refute inspect(pending) =~ bearer
+    refute inspect(pending) =~ "verifier"
+
+    stored = grant(context.store)
+    refute Map.has_key?(stored, :bearer)
+    assert stored.verifier_key_id == "callback-v1"
+    assert byte_size(stored.verifier_digest) == 32
+
+    state = Agent.get(context.store, & &1)
+    refute inspect(state.audits) =~ bearer
+    refute Enum.any?(state.audits, &Map.has_key?(&1, :verifier_digest))
+  end
+
+  test "SystemActor cannot be the grant authority", context do
+    attrs =
+      context.attrs
+      |> put_in([:actor_snapshot, :principal_type], :system)
+      |> put_in([:actor_snapshot, :principal_id], "system:dispatcher")
+
+    assert {:error, :initiating_principal_required} = Lifecycle.prepare(attrs, context.opts)
+    assert Agent.get(context.store, &map_size(&1.grants)) == 0
+  end
+
+  test "deployment limits cannot exceed the principal's issuance ceiling", context do
+    attrs = put_in(context.attrs, [:issuance_ceiling, :max_ttl_seconds], 60)
+
+    assert {:error, :ttl_outside_issuance_ceiling} = Lifecycle.prepare(attrs, context.opts)
+    assert Agent.get(context.store, &map_size(&1.grants)) == 0
+  end
+
+  test "pending callbacks get only a sanitized retry and consume no budget", context do
+    {:ok, issued} = Lifecycle.prepare(context.attrs, context.opts)
+
+    assert {:retry,
+            %{
+              status: 409,
+              code: "grant_pending",
+              retryable: true,
+              retry_after_seconds: 1
+            }} =
+             Lifecycle.consume(
+               @grant_id,
+               issued.bearer,
+               idempotency("pending"),
+               request(context.attrs),
+               context.opts
+             )
+
+    assert grant(context.store).budget_remaining == 1
+    assert Agent.get(context.store, & &1.uses) == %{}
+  end
+
+  test "activation binds one exact job and cannot expand its scope", context do
+    {:ok, _issued} = Lifecycle.prepare(context.attrs, context.opts)
+    binding = job_binding(context.attrs)
+
+    assert {:ok, %{state: :active, job_id: 9_001, outcome: :activated}} =
+             Lifecycle.activate(@grant_id, binding, context.opts)
+
+    assert {:ok, %{state: :active, job_id: 9_001, outcome: :existing}} =
+             Lifecycle.activate(@grant_id, binding, context.opts)
+
+    changed_job = Map.put(binding, :job_id, 9_002)
+
+    assert {:error, :job_binding_conflict} =
+             Lifecycle.activate(@grant_id, changed_job, context.opts)
+
+    broadened = Map.put(binding, :host_limit, "farm01-pve01,other")
+    assert {:error, :awx_scope_mismatch} = Lifecycle.activate(@grant_id, broadened, context.opts)
+  end
+
+  test "activation rechecks current target and permission contraction", context do
+    {:ok, _issued} = Lifecycle.prepare(context.attrs, context.opts)
+
+    update_authority(context.authorizer, fn authority ->
+      %{authority | permissions: ["ansible.runs.launch"]}
+    end)
+
+    assert {:error, :current_permission_denied} =
+             Lifecycle.activate(@grant_id, job_binding(context.attrs), context.opts)
+
+    assert grant(context.store).state == :pending
+  end
+
+  test "adapter-reported activation races leave the pending grant inert", context do
+    {:ok, _issued} = Lifecycle.prepare(context.attrs, context.opts)
+
+    Agent.update(context.store, fn state ->
+      put_in(state, [:force, :activate], :serialization_conflict)
+    end)
+
+    assert {:error, :serialization_conflict} =
+             Lifecycle.activate(@grant_id, job_binding(context.attrs), context.opts)
+
+    assert grant(context.store).state == :pending
+    assert grant(context.store).binding_verified == false
+  end
+
+  test "response targets cannot be substituted for another canonical tuple", context do
+    attrs =
+      update_in(context.attrs, [:response_snapshot, :targets], fn [target] ->
+        [put_in(target, [:target_identity, :canonical_device_uid], "sr:device-other")]
+      end)
+
+    {:ok, target_keys} = Authority.target_keys(attrs.response_snapshot.targets)
+    attrs = put_in(attrs, [:issuance_ceiling, :target_keys], target_keys)
+    update_authority(context.authorizer, &%{&1 | target_keys: target_keys})
+
+    assert {:error, :callback_awx_target_mismatch} = Lifecycle.prepare(attrs, context.opts)
+    assert Agent.get(context.store, &map_size(&1.grants)) == 0
+  end
+
+  test "the reviewed deployment maximum keeps destructive wrappers disabled", context do
+    attrs =
+      context.attrs
+      |> put_in([:response_snapshot, :operation], "remove")
+      |> put_in([:response_snapshot, :state], "absent")
+      |> update_in([:response_snapshot, :targets], fn [target] ->
+        [%{target | ca_keys: [], accounts: []}]
+      end)
+
+    assert {:error, :operation_outside_deployment_maximum} =
+             Lifecycle.prepare(attrs, context.opts)
+
+    assert Agent.get(context.store, &map_size(&1.grants)) == 0
+  end
+
+  test "first read commits atomically and same key replays identical bytes", context do
+    %{bearer: bearer} = prepare_and_activate(context)
+    request = request(context.attrs)
+
+    assert {:ok, first} =
+             Lifecycle.consume(
+               @grant_id,
+               bearer,
+               idempotency("attempt-0001"),
+               request,
+               context.opts
+             )
+
+    assert first.status == 200
+    assert first.content_type == "application/json"
+    refute first.replay
+    assert first.response_digest == CanonicalJSON.sha256(first.body)
+
+    decoded = Jason.decode!(first.body)
+    assert decoded["schema_version"] == "serviceradar.remote_access.ssh_ca_bundle/v1"
+    assert decoded["action"] == @action
+    assert decoded["authorization"]["permissions"] == Enum.sort(@required_permissions)
+    assert length(decoded["targets"]) == 1
+
+    persisted_use = Agent.get(context.store, & &1.uses[@grant_id])
+    assert byte_size(persisted_use.idempotency_key_verifier) == 32
+    refute Map.has_key?(persisted_use, :idempotency_key)
+    refute inspect(persisted_use) =~ idempotency("attempt-0001")
+
+    assert {:ok, replay} =
+             Lifecycle.consume(
+               @grant_id,
+               bearer,
+               idempotency("attempt-0001"),
+               request,
+               context.opts
+             )
+
+    assert replay.replay
+    assert replay.body == first.body
+    assert grant(context.store).state == :consumed
+    assert grant(context.store).budget_remaining == 0
+  end
+
+  test "idempotency keys follow the public credential contract", context do
+    %{bearer: bearer} = prepare_and_activate(context)
+
+    assert {:error, :invalid_idempotency_key} =
+             Lifecycle.consume(
+               @grant_id,
+               bearer,
+               "too-short",
+               request(context.attrs),
+               context.opts
+             )
+
+    assert {:error, :invalid_idempotency_key} =
+             Lifecycle.consume(
+               @grant_id,
+               bearer,
+               String.duplicate("a", 31) <> ":",
+               request(context.attrs),
+               context.opts
+             )
+
+    assert grant(context.store).state == :active
+    assert Agent.get(context.store, & &1.uses) == %{}
+  end
+
+  test "same-key changed payload and different-key replay are denied", context do
+    %{bearer: bearer} = prepare_and_activate(context)
+    request = request(context.attrs)
+
+    assert {:ok, _first} =
+             Lifecycle.consume(
+               @grant_id,
+               bearer,
+               idempotency("attempt-0001"),
+               request,
+               context.opts
+             )
+
+    changed = Map.put(request, "phase", "verify")
+
+    assert {:error, :callback_request_mismatch} =
+             Lifecycle.consume(
+               @grant_id,
+               bearer,
+               idempotency("attempt-0001"),
+               changed,
+               context.opts
+             )
+
+    assert {:error, :success_budget_consumed} =
+             Lifecycle.consume(
+               @grant_id,
+               bearer,
+               idempotency("attempt-0002"),
+               request,
+               context.opts
+             )
+  end
+
+  test "different-key first-use races have exactly one winner", context do
+    %{bearer: bearer} = prepare_and_activate(context)
+    parent = self()
+
+    tasks =
+      for suffix <- ["0001", "0002"] do
+        Task.async(fn ->
+          result =
+            Lifecycle.consume(
+              @grant_id,
+              bearer,
+              idempotency("race-#{suffix}"),
+              request(context.attrs),
+              context.opts
+            )
+
+          send(parent, {:race_result, result})
+          result
+        end)
+      end
+
+    results = Enum.map(tasks, &Task.await/1)
+    assert Enum.count(results, &match?({:ok, _}, &1)) == 1
+    assert Enum.count(results, &match?({:error, :success_budget_consumed}, &1)) == 1
+    assert map_size(Agent.get(context.store, & &1.uses)) == 1
+  end
+
+  test "promotion never expands the immutable response", context do
+    %{bearer: bearer} = prepare_and_activate(context)
+
+    update_authority(context.authorizer, fn authority ->
+      %{
+        authority
+        | permissions: ["platform.superuser" | authority.permissions],
+          actions: ["dangerous.future.action" | authority.actions],
+          target_keys: [String.duplicate("f", 64) | authority.target_keys]
+      }
+    end)
+
+    assert {:ok, result} =
+             Lifecycle.consume(
+               @grant_id,
+               bearer,
+               idempotency("attempt-0001"),
+               request(context.attrs),
+               context.opts
+             )
+
+    response = Jason.decode!(result.body)
+    assert response["authorization"]["permissions"] == Enum.sort(@required_permissions)
+    assert length(response["targets"]) == 1
+    refute result.body =~ "platform.superuser"
+    refute result.body =~ "dangerous.future.action"
+  end
+
+  test "same-key replay is denied after current authority contracts", context do
+    %{bearer: bearer} = prepare_and_activate(context)
+    request = request(context.attrs)
+
+    assert {:ok, _} =
+             Lifecycle.consume(
+               @grant_id,
+               bearer,
+               idempotency("attempt-0001"),
+               request,
+               context.opts
+             )
+
+    update_authority(context.authorizer, &%{&1 | target_keys: []})
+
+    assert {:error, :target_no_longer_authorized} =
+             Lifecycle.consume(
+               @grant_id,
+               bearer,
+               idempotency("attempt-0001"),
+               request,
+               context.opts
+             )
+  end
+
+  test "atomic audit failure releases no response and consumes no budget", context do
+    %{bearer: bearer} = prepare_and_activate(context)
+
+    Agent.update(context.store, fn state ->
+      put_in(state, [:force, :consume], :audit_commit_failed)
+    end)
+
+    assert {:error, :audit_commit_failed} =
+             Lifecycle.consume(
+               @grant_id,
+               bearer,
+               idempotency("attempt-0001"),
+               request(context.attrs),
+               context.opts
+             )
+
+    assert grant(context.store).state == :active
+    assert grant(context.store).budget_remaining == 1
+    assert Agent.get(context.store, & &1.uses) == %{}
+  end
+
+  test "invalid bearer is denied without exposing it in audit", context do
+    {:ok, _issued} = Lifecycle.prepare(context.attrs, context.opts)
+    invalid = String.duplicate("x", 43)
+
+    assert {:error, :invalid_callback_grant} =
+             Lifecycle.consume(
+               @grant_id,
+               invalid,
+               idempotency("attempt-0001"),
+               request(context.attrs),
+               context.opts
+             )
+
+    refute inspect(Agent.get(context.store, & &1.audits)) =~ invalid
+  end
+
+  test "expiry and terminal transitions remove authority before cleanup failure", context do
+    %{bearer: bearer} = prepare_and_activate(context)
+
+    Agent.update(context.cleanup, fn state ->
+      %{
+        state
+        | result:
+            {:error,
+             %{
+               cleanup_status: :partial,
+               job_cleanup: :cancel_failed,
+               credential_cleanup: :deleted
+             }}
+      }
+    end)
+
+    expired_opts = Keyword.put(context.opts, :now, DateTime.add(@now, 121))
+
+    assert {:error, :grant_expired} =
+             Lifecycle.consume(
+               @grant_id,
+               bearer,
+               idempotency("attempt-0001"),
+               request(context.attrs),
+               expired_opts
+             )
+
+    assert grant(context.store).state == :expired
+
+    cleanup = Agent.get(context.store, & &1.cleanups[@grant_id])
+    assert cleanup.cleanup_status == :partial
+    assert cleanup.cancel_status == :cancel_failed
+    assert cleanup.credential_status == :deleted
+
+    assert_receive {:cleanup, :expired, safe_grant}
+    refute Map.has_key?(safe_grant, :verifier_digest)
+    refute Map.has_key?(safe_grant, :verifier_key_id)
+    refute Map.has_key?(safe_grant, :token_verifier)
+    refute Map.has_key?(safe_grant, :token_pepper_version)
+    refute Map.has_key?(safe_grant, :launch_envelope_ref)
+  end
+
+  test "explicit revoke and terminal job cleanup keep grants unusable", context do
+    %{bearer: bearer} = prepare_and_activate(context)
+
+    assert {:ok, %{state: :revoked}} =
+             Lifecycle.revoke(@grant_id, :operator_revoked, context.opts)
+
+    assert {:error, {:grant_not_active, :revoked}} =
+             Lifecycle.consume(
+               @grant_id,
+               bearer,
+               idempotency("attempt-0001"),
+               request(context.attrs),
+               context.opts
+             )
+
+    assert_receive {:cleanup, :revoked, _grant}
+  end
+
+  test "terminal AWX status revokes the grant and invokes terminal cleanup", context do
+    %{bearer: bearer} = prepare_and_activate(context)
+
+    assert {:ok, %{state: :revoked}} =
+             Lifecycle.job_terminal(@grant_id, :failed, context.opts)
+
+    assert {:error, {:grant_not_active, :revoked}} =
+             Lifecycle.consume(
+               @grant_id,
+               bearer,
+               idempotency("attempt-0001"),
+               request(context.attrs),
+               context.opts
+             )
+
+    assert_receive {:cleanup, :job_terminal, _grant}
+  end
+
+  defp prepare_and_activate(context) do
+    assert {:ok, issued} = Lifecycle.prepare(context.attrs, context.opts)
+
+    assert {:ok, %{state: :active}} =
+             Lifecycle.activate(@grant_id, job_binding(context.attrs), context.opts)
+
+    issued
+  end
+
+  defp grant(store), do: Agent.get(store, & &1.grants[@grant_id])
+
+  defp idempotency(suffix), do: "serviceradar-callback-idempotency-#{suffix}"
+
+  defp update_authority(authorizer, fun) do
+    Agent.update(authorizer, fn state ->
+      {:ok, authority} = state.result
+      %{state | result: {:ok, fun.(authority)}}
+    end)
+  end
+
+  defp request(attrs) do
+    snapshot = attrs.response_snapshot
+
+    %{
+      "action" => @action,
+      "schema_version" => "serviceradar.remote_access.ssh_ca_bundle/v1",
+      "manifest_sha256" => snapshot.manifest_sha256,
+      "phase" => snapshot.phase,
+      "operation" => snapshot.operation,
+      "state" => snapshot.state
+    }
+  end
+
+  defp job_binding(attrs), do: Map.put(attrs.awx_scope_snapshot, :job_id, 9_001)
+
+  defp attrs do
+    target_identity = %{
+      controller_id: "controller-demo",
+      inventory_id: 34,
+      awx_host_id: 7,
+      canonical_device_uid: "sr:device-7"
+    }
+
+    awx_target =
+      Map.merge(target_identity, %{
+        host_name: "farm01-pve01",
+        ansible_host: "192.168.2.22"
+      })
+
+    response_target = %{
+      inventory_hostname: "farm01-pve01",
+      inventory_address: "192.168.2.22",
+      target_identity: target_identity,
+      ca_keys: [
+        %{
+          id: "serviceradar-user-ca-2026",
+          public_key:
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZm test",
+          fingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
+      ],
+      accounts: [
+        %{
+          name: "mfreeman",
+          principals: ["srp_v1_AAAAAAAAAAAAAAAAAAAA"]
+        }
+      ],
+      transaction: %{
+        id: "txn-enroll-1",
+        stage_job_id: 8_999,
+        generation: "generation-1",
+        machine_credential_ref: "awx-credential-ref:linux-demo"
+      }
+    }
+
+    %{
+      id: @grant_id,
+      tenant_id: "platform",
+      parent_run_id: "018f3f56-1111-7222-8333-123456789abd",
+      execution_id: "018f3f56-1111-7222-8333-123456789abe",
+      action: @action,
+      audience: "serviceradar.awx.callback/v1",
+      budget: 1,
+      expires_at: DateTime.add(@now, 120),
+      actor_snapshot: %{
+        principal_type: :human,
+        principal_id: @principal_id,
+        tenant_id: "platform",
+        authorization_version: "role-v7"
+      },
+      approval_snapshot: %{id: "approval-1", approved: true},
+      policy_snapshot: %{version: "ssh-policy-v3", approved: true},
+      issuance_ceiling: issuance_ceiling([response_target]),
+      awx_scope_snapshot: %{
+        controller_id: "controller-demo",
+        inventory_id: 34,
+        job_template_id: 42,
+        project_id: 3,
+        scm_revision: String.duplicate("a", 40),
+        content_sha256: String.duplicate("b", 64),
+        execution_environment_id: 4,
+        machine_credential_id: 5,
+        callback_credential_type_id: 6,
+        callback_credential_id: 31,
+        callback_credential_injector_digest: String.duplicate("c", 64),
+        host_limit: "farm01-pve01",
+        target_count: 1,
+        target_digest: String.duplicate("d", 64),
+        snapshot_digest: String.duplicate("e", 64),
+        targets: [awx_target],
+        binding_id: "binding-1",
+        awx_created_by_id: 11,
+        credential_ids: [5]
+      },
+      response_snapshot: %{
+        manifest_sha256: String.duplicate("f", 64),
+        phase: "stage",
+        operation: "enroll",
+        state: "present",
+        targets: [response_target]
+      },
+      ephemeral_credential_id: 31
+    }
+  end
+
+  defp issuance_ceiling(targets) do
+    {:ok, target_keys} = Authority.target_keys(targets)
+
+    %{
+      permissions: @required_permissions,
+      actions: [@action],
+      target_keys: target_keys,
+      tenant_id: "platform",
+      principal_type: :human,
+      principal_id: @principal_id,
+      max_ttl_seconds: 300,
+      success_budget: 1
+    }
+  end
+
+  defp current_authority(attrs) do
+    {:ok, target_keys} = Authority.target_keys(attrs.response_snapshot.targets)
+    {:ok, scope_digest} = CanonicalJSON.digest(attrs.awx_scope_snapshot)
+    {:ok, approval_digest} = CanonicalJSON.digest(attrs.approval_snapshot)
+    {:ok, policy_digest} = CanonicalJSON.digest(attrs.policy_snapshot)
+
+    %{
+      enabled: true,
+      principal_type: :human,
+      principal_id: attrs.actor_snapshot.principal_id,
+      tenant_id: attrs.tenant_id,
+      permissions: @required_permissions,
+      actions: [@action],
+      target_keys: target_keys,
+      approval_digest: approval_digest,
+      policy_digest: policy_digest,
+      scope_digest: scope_digest,
+      run_state: :running,
+      job_state: :running,
+      job_id: 9_001
+    }
+  end
+end
