@@ -42,13 +42,15 @@ defmodule ServiceRadar.Automation.Callbacks.ActionRegistryTest do
     assert schema["additionalProperties"] == false
 
     assert MapSet.new(schema["required"]) ==
-             MapSet.new(~w(action schema_version manifest_sha256 phase operation state))
+             MapSet.new(~w(action schema_version manifest_sha256 job_id phase operation state))
 
     assert schema["properties"]["action"] == %{"const" => @action}
 
     assert schema["properties"]["schema_version"] == %{
              "const" => "serviceradar.remote_access.ssh_ca_bundle/v1"
            }
+
+    assert schema["properties"]["job_id"] == %{"type" => "integer", "minimum" => 1}
 
     assert schema["properties"]["phase"]["enum"] ==
              ~w(preflight stage verify commit)

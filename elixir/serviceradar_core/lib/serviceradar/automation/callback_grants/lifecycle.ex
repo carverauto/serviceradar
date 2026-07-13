@@ -226,9 +226,12 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
   end
 
   defp validate_response_snapshot(draft) do
-    hypothetical = Map.put(draft, :binding_verified, true)
+    hypothetical =
+      draft
+      |> Map.put(:binding_verified, true)
+      |> Map.put(:job_binding, %{"job_id" => 1})
 
-    with {:ok, request} <- SshCaBundleResponse.expected_request(hypothetical),
+    with {:ok, request} <- SshCaBundleResponse.expected_request(hypothetical, 1),
          {:ok, _built} <- SshCaBundleResponse.build(hypothetical, request) do
       :ok
     end
@@ -239,8 +242,9 @@ defmodule ServiceRadar.Automation.CallbackGrants.Lifecycle do
       :pending ->
         with :ok <- validate_idempotency_key(idempotency_key),
              :ok <- verify_idempotency_key(idempotency_key, grant, opts),
-             {:ok, expected_request} <- SshCaBundleResponse.expected_request(grant),
              {:ok, request} <- SshCaBundleResponse.validate_request(request),
+             {:ok, expected_request} <-
+               SshCaBundleResponse.expected_request(grant, request["job_id"]),
              true <- request == expected_request || {:error, :callback_request_mismatch},
              :ok <- audit_pending(grant, opts) do
           {:retry,

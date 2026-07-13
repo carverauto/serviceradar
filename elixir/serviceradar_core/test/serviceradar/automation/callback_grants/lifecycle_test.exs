@@ -589,6 +589,33 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
     assert Enum.any?(Agent.get(context.store, & &1.audits), &(&1.event == "callback_replay"))
   end
 
+  test "active callbacks require the exact accepted AWX runtime job ID", context do
+    %{bearer: bearer, idempotency_key: key} = prepare_and_activate(context)
+    expected = request(context.attrs)
+
+    assert {:error, :callback_request_mismatch} =
+             Lifecycle.consume(
+               @grant_id,
+               bearer,
+               key,
+               Map.put(expected, "job_id", 9_002),
+               context.opts
+             )
+
+    assert {:error, :invalid_callback_request} =
+             Lifecycle.consume(
+               @grant_id,
+               bearer,
+               key,
+               Map.delete(expected, "job_id"),
+               context.opts
+             )
+
+    assert grant(context.store).state == :active
+    assert grant(context.store).budget_remaining == 1
+    assert Agent.get(context.store, & &1.uses) == %{}
+  end
+
   test "idempotency keys follow the public credential contract", context do
     %{bearer: bearer} = prepare_and_activate(context)
 
@@ -924,6 +951,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.LifecycleTest do
       "action" => @action,
       "schema_version" => "serviceradar.remote_access.ssh_ca_bundle/v1",
       "manifest_sha256" => snapshot.manifest_sha256,
+      "job_id" => 9_001,
       "phase" => snapshot.phase,
       "operation" => snapshot.operation,
       "state" => snapshot.state

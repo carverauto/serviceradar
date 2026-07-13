@@ -17,7 +17,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.SshCaBundleResponse do
   @operations ~w(enroll overlap retire remove)
   @states ~w(present absent)
 
-  @request_keys MapSet.new(~w(action schema_version manifest_sha256 phase operation state))
+  @request_keys MapSet.new(~w(action schema_version manifest_sha256 job_id phase operation state))
 
   @approval_snapshot_keys MapSet.new(
                             ~w(binding_id binding_version approval_id approval_expires_at reviewed_by_principal_type reviewed_by_principal_id reviewed_at review_metadata issued_at)
@@ -47,12 +47,21 @@ defmodule ServiceRadar.Automation.CallbackGrants.SshCaBundleResponse do
 
   @spec expected_request(map()) :: {:ok, map()} | {:error, term()}
   def expected_request(grant) when is_map(grant) do
+    expected_request(grant, grant |> value(:job_binding) |> value(:job_id))
+  end
+
+  def expected_request(_grant), do: {:error, :invalid_grant}
+
+  @doc "Builds the immutable request expected while the accepted AWX job is not bound yet."
+  @spec expected_request(map(), pos_integer()) :: {:ok, map()} | {:error, term()}
+  def expected_request(grant, job_id) when is_map(grant) do
     snapshot = value(grant, :response_snapshot) || %{}
 
     request = %{
       "action" => value(grant, :action),
       "schema_version" => @schema,
       "manifest_sha256" => value(snapshot, :manifest_sha256),
+      "job_id" => job_id,
       "phase" => value(snapshot, :phase),
       "operation" => value(snapshot, :operation),
       "state" => value(snapshot, :state)
@@ -63,7 +72,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.SshCaBundleResponse do
     end
   end
 
-  def expected_request(_grant), do: {:error, :invalid_grant}
+  def expected_request(_grant, _job_id), do: {:error, :invalid_grant}
 
   @spec build(map(), map()) :: {:ok, built()} | {:error, term()}
   def build(grant, request) when is_map(grant) and is_map(request) do
@@ -432,6 +441,9 @@ defmodule ServiceRadar.Automation.CallbackGrants.SshCaBundleResponse do
       not digest?(request["manifest_sha256"], 64) ->
         {:error, :invalid_manifest_digest}
 
+      not positive_integer?(request["job_id"]) ->
+        {:error, :invalid_callback_job_id}
+
       request["phase"] not in @phases ->
         {:error, :invalid_callback_phase}
 
@@ -462,6 +474,8 @@ defmodule ServiceRadar.Automation.CallbackGrants.SshCaBundleResponse do
   end
 
   defp string_map(_map), do: {:error, :object_required}
+
+  defp positive_integer?(value), do: is_integer(value) and value > 0
 
   defp exact_keys(map, expected, reason) do
     if MapSet.new(Map.keys(map)) == expected, do: :ok, else: {:error, reason}

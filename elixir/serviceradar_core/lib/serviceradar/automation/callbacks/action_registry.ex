@@ -70,6 +70,7 @@ defmodule ServiceRadar.Automation.Callbacks.ActionRegistry do
       "action",
       "schema_version",
       "manifest_sha256",
+      "job_id",
       "phase",
       "operation",
       "state"
@@ -78,6 +79,7 @@ defmodule ServiceRadar.Automation.Callbacks.ActionRegistry do
       "action" => %{"const" => @ssh_ca_bundle_action},
       "schema_version" => %{"const" => "serviceradar.remote_access.ssh_ca_bundle/v1"},
       "manifest_sha256" => %{"type" => "string", "pattern" => "^[a-f0-9]{64}$"},
+      "job_id" => %{"type" => "integer", "minimum" => 1},
       "phase" => %{"enum" => ["preflight", "stage", "verify", "commit"]},
       "operation" => %{"enum" => ["enroll", "overlap", "retire", "remove"]},
       "state" => %{"enum" => ["present", "absent"]}

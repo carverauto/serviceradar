@@ -279,6 +279,7 @@ defmodule ServiceRadarWebNGWeb.Api.AutomationCallbackGrantControllerTest do
       "action" => "remote_access.ssh_ca.bundle.read",
       "schema_version" => "serviceradar.remote_access.ssh_ca_bundle/v1",
       "manifest_sha256" => String.duplicate("f", 64),
+      "job_id" => 9_001,
       "phase" => "stage",
       "operation" => "enroll",
       "state" => "present"
