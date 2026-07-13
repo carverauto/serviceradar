@@ -31,7 +31,7 @@ This document is the program-level architecture and sequencing proposal. It does
 
 ## Impact
 
-- Affected specs: `remote-access-readiness` (new), `ssh-access-enrollment` (new), `ansible-remote-access-enrollment` (new), `automation-callback-grants` (new), `proxmox-guest-console` (new), `edge-architecture`, `agent-connectivity`, `device-inventory`
+- Affected specs: `remote-access-readiness` (new), `ssh-access-enrollment` (new), `proxmox-guest-console` (new), `edge-architecture`, `agent-connectivity`, `device-inventory`; bounded child changes solely own the callback and public Ansible enrollment capability deltas
 - Related active changes: `add-secure-agent-routed-remote-access`, `add-proxmox-plugin-credential-rules`, `add-remote-access-desktop-rdp`, `expand-remote-access-teleport-parity`, `add-proxmox-guest-network-identity`, `fix-proxmox-inventory-plugin-reliability`, `harden-remote-access-security`
 - Affected code: `elixir/serviceradar_core`, `elixir/web-ng`, `elixir/serviceradar_agent_gateway`, `go/pkg/agent`, `go/cmd/wasm-plugins/proxmox`, `rust/rdp-adapter`, native add-on packaging, Helm/demo values, ServiceRadar Ansible catalog/launch targeting, the public `/Users/mfreeman/src/serviceradar-ansible` repository, remote-access documentation, and deployed E2E tests
 - Operational impact: new SSH user-CA secret/public-key lifecycle, public AWX-importable enrollment playbooks, collision-safe multi-inventory rollout, explicit Proxmox console credentials with `VM.Console`/`Sys.Console`, corrected demo target/route records, and opt-in protocol rollout gates
