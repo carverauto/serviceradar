@@ -9,6 +9,11 @@ defmodule ServiceRadar.Plugins.Validations.SingleEnabledAddonProfile do
   enabled anomaly profiles with different params therefore make the delivered
   edge config ambiguous. Other add-ons keep priority-layered multi-profile
   targeting, so the rule is scoped to the exclusive add-on list.
+
+  This validation is the friendly-error first line; the invariant itself is
+  enforced under concurrency by the partial unique index
+  `addon_profiles_single_enabled_anomaly_index` (migration 20260713010000).
+  Keep `@exclusive_addon_ids` in sync with that index's predicate.
   """
 
   use Ash.Resource.Validation

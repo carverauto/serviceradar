@@ -42,11 +42,11 @@ The DB singletons are operator-owned and frozen at their 2026-06-13 state:
 
 ## 3. Profile hygiene + damping decision (overhaul task 0.3 + this change's 8.2)
 
-Two enabled anomaly profiles are assigned to every agent: `197e30c8` (n_sigma 3.0 / confirm 5 — currently winning on the wire) and `e89a5f67` (Phase-0 damping, 4.0 / 8). After the uniqueness validation ships, exactly one must remain enabled.
+Two enabled anomaly profiles are assigned to every agent: `197e30c8` (n_sigma 3.0 / confirm 5 — currently winning on the wire) and `e89a5f67` (Phase-0 damping, 4.0 / 8). **Migration `20260713010000` auto-resolves this at roll time**: it keeps the deterministic delivery winner (lowest priority, then most recently updated — on demo that is `197e30c8`, i.e. 3.0/5), disables the rest, and adds a partial unique index so exactly one anomaly profile can be enabled from then on.
 
-Decision aid: current flap rate is ~50–120 rows/series/day on ~20 SNMP counter series (gate: ≤20/day). Options:
-- **Ratify damping**: keep `e89a5f67` (4.0/8), disable `197e30c8` → immediate flap reduction, fewer marginal opens.
-- **Keep 3.0/5**: disable `e89a5f67`, rely on episodes folding + seasonal deseasonalization (weeks away) + central tuning via the now-working projector.
+Decision aid: current flap rate is ~50–120 rows/series/day on ~20 SNMP counter series (gate: ≤20/day). The migration's default outcome is **keep 3.0/5**. Options:
+- **Ratify damping instead**: disable `197e30c8`, then enable `e89a5f67` (4.0/8) → immediate flap reduction, fewer marginal opens. (The index allows exactly one enabled at a time, so disable first.)
+- **Keep 3.0/5** (migration default): rely on episodes folding + seasonal deseasonalization (weeks away) + central tuning via the now-working projector — with projection live, n_sigma/confirm can also be raised from Settings without touching profiles.
 
 Either way, record the outcome against overhaul task 0.3. Re-check per-series volume 24h later (§6).
 

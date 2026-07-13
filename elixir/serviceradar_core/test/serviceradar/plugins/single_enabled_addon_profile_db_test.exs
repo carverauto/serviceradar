@@ -47,20 +47,31 @@ defmodule ServiceRadar.Plugins.SingleEnabledAddonProfileDbTest do
     package = approved_package("anomaly", actor)
 
     {:ok, first} = create_profile(package, "Anomaly A", true, actor)
-    {:ok, second} = create_profile(package, "Anomaly B", false, actor)
-
-    # Simulate pre-validation legacy data where both profiles are enabled.
-    Repo.update_all(
-      from(p in AddonProfile, where: p.id == ^second.id),
-      [set: [enabled: true]],
-      prefix: "platform"
-    )
+    {:ok, _second} = create_profile(package, "Anomaly B", false, actor)
 
     assert {:ok, updated} = update_profile(first, %{description: "still editable"}, actor)
     assert updated.description == "still editable"
 
     assert {:ok, disabled} = update_profile(first, %{enabled: false}, actor)
     refute disabled.enabled
+  end
+
+  test "the partial unique index backstops the validation against races", %{actor: actor} do
+    package = approved_package("anomaly", actor)
+
+    {:ok, _first} = create_profile(package, "Anomaly A", true, actor)
+    {:ok, second} = create_profile(package, "Anomaly B", false, actor)
+
+    # The validation reads-then-writes, so a concurrent enable can slip past
+    # it; writing past the validation simulates the losing side of that race
+    # and must be stopped by addon_profiles_single_enabled_anomaly_index.
+    assert_raise Postgrex.Error, ~r/addon_profiles_single_enabled_anomaly_index/, fn ->
+      Repo.update_all(
+        from(p in AddonProfile, where: p.id == ^second.id),
+        [set: [enabled: true]],
+        prefix: "platform"
+      )
+    end
   end
 
   test "atomic/bulk updates fall back and cannot bypass the enabled check", %{actor: actor} do
