@@ -8,42 +8,8 @@ Remote-access commands and frames SHALL use the existing agent-initiated control
 - **THEN** the gateway SHALL deliver open/data/resize/close frames over that existing stream
 - **AND** the platform SHALL NOT dial the agent directly.
 
-### Requirement: Agents advertise remote-access capabilities
-Agents SHALL advertise remote-access adapter and enhanced-recording capabilities during enrollment and control-stream heartbeats.
-
-#### Scenario: Agent lacks BPF support
-- **GIVEN** an agent is running on a platform without compatible BPF support
-- **WHEN** it sends Hello or a control-stream heartbeat
-- **THEN** it SHALL omit `remote_access.bpf`
-- **AND** the control plane SHALL NOT route sessions requiring enhanced BPF tracing to that agent.
-
-#### Scenario: BPF capability requires explicit production gate
-- **GIVEN** the agent has a ServiceRadar-owned BPF collector implementation
-- **WHEN** BPF runtime enablement is disabled, the kernel compatibility check fails, required BPF filesystem paths are unavailable, required eBPF features are unsupported, permissions are insufficient, or the self-test collection cannot load
-- **THEN** the agent SHALL omit `remote_access.bpf`
-- **AND** the capability report SHALL preserve sanitized disabled reasons for operator diagnosis.
-
-#### Scenario: Procfs fallback does not advertise BPF
-- **GIVEN** an agent can collect fallback host events from procfs or another non-BPF source
-- **WHEN** the agent advertises remote-access capabilities
-- **THEN** fallback collection MAY advertise generic recording capability
-- **AND** it SHALL NOT advertise `remote_access.bpf`.
-
-#### Scenario: Required BPF policy fails before target dial
-- **GIVEN** a remote-access session policy requires BPF enhanced recording
-- **AND** the selected agent cannot start the required ServiceRadar-owned BPF collector for that session
-- **WHEN** the agent receives the open frame
-- **THEN** it SHALL fail the session before opening the target connection
-- **AND** the target opener SHALL NOT be invoked.
-
-#### Scenario: Agentless target cannot satisfy required BPF
-- **GIVEN** a remote-access session targets a host where ServiceRadar cannot attach managed host probes
-- **WHEN** policy requires BPF enhanced recording
-- **THEN** the session SHALL fail closed before target access
-- **AND** fallback collectors SHALL be used only when policy explicitly allows fallback.
-
-### Requirement: Agent enforces session grants
-Agents SHALL enforce signed or otherwise authenticated session grants that constrain protocol, target, credential reference, TTL, session ID, and selected agent/gateway route.
+### Requirement: Bound remote-access instructions are enforced end to end
+The control plane SHALL enforce session authorization and expiry and bind protocol, registered target, selected agent/gateway route, and credential custody before dispatch. The selected agent SHALL accept frames only for that bound session and route and SHALL reject retargeting after open.
 
 #### Scenario: Browser cannot retarget SSH connection
 - **GIVEN** a session grant authorizes SSH to target `10.1.2.3:22`
@@ -76,7 +42,7 @@ Agents SHALL support remote-access credentials supplied through explicit custody
 - **GIVEN** an operator authenticated to ServiceRadar through an OIDC/SAML identity provider such as Authentik
 - **AND** ServiceRadar RBAC allows the operator to assume one or more SSH principals on a target
 - **WHEN** the operator opens a generic SSH remote-access session
-- **THEN** ServiceRadar SHALL be able to issue a short-lived OpenSSH user certificate scoped to that actor, target, principal set, and session
+- **THEN** ServiceRadar SHALL be able to issue a short-lived OpenSSH user certificate limited to the approved principal set and TTL while session authorization remains scoped to that actor, target, and session
 - **AND** the selected agent SHALL use the certificate for SSH authentication without storing a reusable target password or shared bastion private key.
 
 #### Scenario: Protocol rejects mismatched custody mode

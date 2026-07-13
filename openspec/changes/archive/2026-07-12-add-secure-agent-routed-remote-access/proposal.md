@@ -1,17 +1,20 @@
 # Change: Add Teleport-like agent-routed access
 
+## Archival Reconciliation
+Before archival, this change is narrowed to the delivered generic session, authorization, route, SSH, host-key, custody, audit, and recording substrate. File transfer, application/TCP access, production eBPF attachment, provider-native Proxmox consoles, QEMU graphical consoles, and RDP remain owned by their separate active changes and are not claimed as delivered by this foundation. Provider metadata alone does not make a console ready.
+
 ## Why
 ServiceRadar needs a Teleport-like access plane built into its existing agent/gateway architecture. Operators should be able to reach infrastructure in segmented, remote, and overlapping networks through enrolled agents, with the same class of capabilities Teleport provides: SSH and shell access, session lifecycle and recording, audit trails, approval/RBAC, app/database/Kubernetes/desktop-style protocol adapters over time, and enhanced host telemetry such as BPF-backed command, file, and network tracing.
 
-The current Proxmox console work proves the route, but the console/xterm substrate should become a broader access platform without storing high-blast-radius private keys in the control-plane database by default.
+The earlier Proxmox console work motivated the outbound route shape, but does not prove a ready provider-native console transport. The generic tunnel and terminal substrate should become a broader access platform without storing high-blast-radius private keys in the control-plane database by default.
 
 ## What Changes
 - Define a generic remote-access session model routed from browser to web-ng to agent-gateway to selected agent to target.
-- Support protocol adapters for SSH first, Proxmox/vSphere console targets as consumers, RDP later, and deferred OT/industrial protocol adapters such as CEA-852/CN-IP for LonTalk networks.
+- Deliver the generic adapter boundary and SSH foundation first; Proxmox/vSphere console, RDP, and deferred OT/industrial protocols such as CEA-852/CN-IP require separate approved changes and live proofs.
 - Define credential custody modes: short-lived SSH certificates as the enterprise default, user-present session credentials as a transitional fallback, and tightly scoped centrally brokered secrets only for explicit break-glass or non-SSH-device cases.
-- Add RBAC, approval, audit, network scope, session lifecycle, optional recording/redaction, and enhanced host-event tracing requirements.
+- Add RBAC, approval, audit, network scope, session lifecycle, and optional recording/redaction requirements; enhanced host-event tracing remains in its separate active change.
 - Inventory Teleport functionality and reuse verified Apache-2.0 Go code wherever its full transitive dependency path is license-clean.
-- Build clean-room ServiceRadar implementations for Teleport-equivalent features whose implementation source is AGPL or otherwise unsuitable for import, including BPF/enhanced recording if no importable path is cleared.
+- Define clean-room and proposal gates for Teleport-equivalent features whose implementation source is AGPL or otherwise unsuitable for import; production BPF/enhanced recording remains in its separate active change.
 - Keep browser terminal/rendering components generic, with provider/protocol-specific labels and adapters outside the core tunnel.
 
 ## Current Phase
