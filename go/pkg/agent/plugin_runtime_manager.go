@@ -1010,6 +1010,10 @@ func (m *PluginManager) RunPluginVerbWithAWXCallbackCredential(
 	if callbackCredential == nil {
 		return nil, errAWXCallbackCredentialInputMissing
 	}
+	// Ownership transfers at this boundary. Destruction is guaranteed even if
+	// assignment lookup, Wasm loading/instantiation, preflight verification, or
+	// the sentinel POST fails before the plugin returns normally.
+	defer callbackCredential.destroy()
 	return m.runPluginVerb(ctx, pluginID, configJSON, credentialGrants, callbackCredential, timeout)
 }
 

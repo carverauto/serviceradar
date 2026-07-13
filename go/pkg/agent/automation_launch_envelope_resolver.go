@@ -18,9 +18,11 @@ package agent
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -33,33 +35,81 @@ var errAutomationLaunchEnvelopeDenied = errors.New("automation launch envelope r
 const (
 	launchEnvelopeReferencePrefix = "srle1_"
 	callbackIdempotencyKeyPrefix  = "srci_v1_"
+	maxLaunchEnvelopeTTL          = 10 * time.Minute
 )
 
 type automationLaunchEnvelopeGateway interface {
 	ResolveAutomationLaunchEnvelope(context.Context, *proto.AutomationLaunchEnvelopeResolveRequest) (*proto.AutomationLaunchEnvelopeResolveResponse, error)
 }
 
-// AutomationLaunchEnvelopeMaterial is intentionally byte-backed so the caller
-// can zero the one-time bearer and idempotency key as soon as the AWX
-// credential request finishes. Neither value may be placed in a command
-// result, log field, fact, or managed-host payload.
+// AutomationLaunchEnvelopeMaterial keeps every callback input in caller-owned
+// byte buffers so the caller can clear the complete material set as soon as
+// the AWX credential request finishes. No callback input may be placed in a
+// command result, log field, fact, or managed-host payload.
 type AutomationLaunchEnvelopeMaterial struct {
-	Bearer          []byte
-	IdempotencyKey  []byte
-	CallbackGrantID string
-	ExpiresAt       time.Time
+	Bearer                           []byte
+	IdempotencyKey                   []byte
+	CallbackURL                      []byte
+	CallbackAllowedOrigin            []byte
+	ManifestSHA256                   []byte
+	SCMRevision                      []byte
+	ContentSHA256                    []byte
+	CallbackPhase                    []byte
+	CallbackOperation                []byte
+	CallbackState                    []byte
+	CallbackCredentialInjectorSHA256 []byte
+	CallbackGrantID                  string
+	ControllerID                     string
+	ChildExecutionID                 string
+	DispatchAgentID                  string
+	CommandID                        string
+	InventoryID                      int
+	JobTemplateID                    int
+	CallbackCredentialTypeID         int
+	CallbackCredentialOrganizationID int
+	ExpiresAt                        time.Time
 }
 
-// Destroy best-effort clears the mutable bearer and idempotency-key buffers.
+// Destroy best-effort clears every mutable callback-input buffer.
 func (m *AutomationLaunchEnvelopeMaterial) Destroy() {
 	if m == nil {
 		return
 	}
 
-	zeroBytes(m.Bearer)
-	zeroBytes(m.IdempotencyKey)
+	for _, value := range m.mutableBuffers() {
+		zeroBytes(value)
+	}
 	m.Bearer = nil
 	m.IdempotencyKey = nil
+	m.CallbackURL = nil
+	m.CallbackAllowedOrigin = nil
+	m.ManifestSHA256 = nil
+	m.SCMRevision = nil
+	m.ContentSHA256 = nil
+	m.CallbackPhase = nil
+	m.CallbackOperation = nil
+	m.CallbackState = nil
+	m.CallbackCredentialInjectorSHA256 = nil
+}
+
+func (m *AutomationLaunchEnvelopeMaterial) mutableBuffers() [][]byte {
+	if m == nil {
+		return nil
+	}
+
+	return [][]byte{
+		m.Bearer,
+		m.IdempotencyKey,
+		m.CallbackURL,
+		m.CallbackAllowedOrigin,
+		m.ManifestSHA256,
+		m.SCMRevision,
+		m.ContentSHA256,
+		m.CallbackPhase,
+		m.CallbackOperation,
+		m.CallbackState,
+		m.CallbackCredentialInjectorSHA256,
+	}
 }
 
 type controlPlaneAutomationLaunchEnvelopeResolver struct {
@@ -114,29 +164,182 @@ func (r *controlPlaneAutomationLaunchEnvelopeResolver) Resolve(
 		return AutomationLaunchEnvelopeMaterial{}, fmt.Errorf("%w: empty response", errAutomationLaunchEnvelopeDenied)
 	}
 
+	responseBuffers := automationLaunchEnvelopeResponseBuffers(resp)
+	defer zeroByteBuffers(responseBuffers)
 	bearer := resp.GetBearer()
-	defer zeroBytes(bearer)
 	idempotencyKey := resp.GetIdempotencyKey()
-	defer zeroBytes(idempotencyKey)
 	callbackGrantID, validGrantID := canonicalLaunchCommandID(resp.GetCallbackGrantId())
 	expiresAt := launchEnvelopeExpiresAt(resp.GetExpiresAtUnix())
 	now := time.Now
 	if r.now != nil {
 		now = r.now
 	}
+	currentTime := now().UTC()
 
 	if !resp.GetSuccess() || !validCallbackBearer(bearer) ||
 		!validCallbackIdempotencyKey(idempotencyKey) || !validGrantID ||
-		expiresAt.IsZero() || !expiresAt.After(now().UTC()) {
+		expiresAt.IsZero() || !expiresAt.After(currentTime) ||
+		expiresAt.After(currentTime.Add(maxLaunchEnvelopeTTL)) ||
+		resp.GetDispatchAgentId() != r.agentID ||
+		resp.GetCommandId() != canonicalCommandID ||
+		!validLaunchEnvelopeCorrelation(resp) {
 		return AutomationLaunchEnvelopeMaterial{}, errAutomationLaunchEnvelopeDenied
 	}
 
 	return AutomationLaunchEnvelopeMaterial{
-		Bearer:          append([]byte(nil), bearer...),
-		IdempotencyKey:  append([]byte(nil), idempotencyKey...),
-		CallbackGrantID: callbackGrantID,
-		ExpiresAt:       expiresAt,
+		Bearer:                           cloneMutableBytes(bearer),
+		IdempotencyKey:                   cloneMutableBytes(idempotencyKey),
+		CallbackURL:                      cloneMutableBytes(resp.GetCallbackUrl()),
+		CallbackAllowedOrigin:            cloneMutableBytes(resp.GetCallbackAllowedOrigin()),
+		ManifestSHA256:                   cloneMutableBytes(resp.GetManifestSha256()),
+		SCMRevision:                      cloneMutableBytes(resp.GetScmRevision()),
+		ContentSHA256:                    cloneMutableBytes(resp.GetContentSha256()),
+		CallbackPhase:                    cloneMutableBytes(resp.GetCallbackPhase()),
+		CallbackOperation:                cloneMutableBytes(resp.GetCallbackOperation()),
+		CallbackState:                    cloneMutableBytes(resp.GetCallbackState()),
+		CallbackCredentialInjectorSHA256: cloneMutableBytes(resp.GetCallbackCredentialInjectorSha256()),
+		CallbackGrantID:                  callbackGrantID,
+		ControllerID:                     resp.GetControllerId(),
+		ChildExecutionID:                 resp.GetChildExecutionId(),
+		DispatchAgentID:                  resp.GetDispatchAgentId(),
+		CommandID:                        resp.GetCommandId(),
+		InventoryID:                      int(resp.GetInventoryId()),
+		JobTemplateID:                    int(resp.GetJobTemplateId()),
+		CallbackCredentialTypeID:         int(resp.GetCallbackCredentialTypeId()),
+		CallbackCredentialOrganizationID: int(resp.GetCallbackCredentialOrganizationId()),
+		ExpiresAt:                        expiresAt,
 	}, nil
+}
+
+// ResolveAWXCallbackCredentialEnvelope bridges the single-use control-plane
+// envelope to the exact in-memory material expected by the AWX host boundary.
+// Every response coordinate is compared with the reviewed durable binding;
+// command arguments are never a source for callback input values.
+func (r *controlPlaneAutomationLaunchEnvelopeResolver) ResolveAWXCallbackCredentialEnvelope(
+	ctx context.Context,
+	binding AWXCallbackCredentialBinding,
+) (AWXCallbackCredentialMaterial, error) {
+	resolved, err := r.Resolve(ctx, binding.EnvelopeRef, binding.CommandID)
+	if err != nil {
+		return AWXCallbackCredentialMaterial{}, errAWXCallbackCredentialResolutionDenied
+	}
+	defer resolved.Destroy()
+
+	if !automationLaunchEnvelopeMatchesAWXBinding(resolved, binding) {
+		return AWXCallbackCredentialMaterial{}, errAWXCallbackCredentialResolutionDenied
+	}
+
+	material := AWXCallbackCredentialMaterial{
+		CallbackURL:            cloneMutableBytes(resolved.CallbackURL),
+		CallbackGrant:          cloneMutableBytes(resolved.Bearer),
+		CallbackIdempotencyKey: cloneMutableBytes(resolved.IdempotencyKey),
+		CallbackAllowedOrigin:  cloneMutableBytes(resolved.CallbackAllowedOrigin),
+		CallbackManifestSHA256: cloneMutableBytes(resolved.ManifestSHA256),
+		SCMRevision:            cloneMutableBytes(resolved.SCMRevision),
+		ContentSHA256:          cloneMutableBytes(resolved.ContentSHA256),
+		CallbackPhase:          cloneMutableBytes(resolved.CallbackPhase),
+		CallbackOperation:      cloneMutableBytes(resolved.CallbackOperation),
+		CallbackState:          cloneMutableBytes(resolved.CallbackState),
+		ExpiresAt:              resolved.ExpiresAt,
+	}
+
+	grantID := []byte(resolved.CallbackGrantID)
+	defer zeroBytes(grantID)
+	if err := validateAWXCallbackCredentialMaterial(material, resolverNow(r)); err != nil ||
+		!callbackURLMatchesGrant(material.CallbackURL, material.CallbackAllowedOrigin, grantID) {
+		material.destroy()
+		return AWXCallbackCredentialMaterial{}, errAWXCallbackCredentialResolutionDenied
+	}
+
+	return material, nil
+}
+
+func automationLaunchEnvelopeMatchesAWXBinding(
+	resolved AutomationLaunchEnvelopeMaterial,
+	binding AWXCallbackCredentialBinding,
+) bool {
+	return resolved.DispatchAgentID == strings.TrimSpace(binding.DispatchAgentID) &&
+		resolved.CommandID == strings.TrimSpace(binding.CommandID) &&
+		resolved.ControllerID == strings.TrimSpace(binding.ControllerID) &&
+		resolved.ChildExecutionID == strings.TrimSpace(binding.ChildExecutionID) &&
+		resolved.InventoryID == binding.InventoryID &&
+		resolved.JobTemplateID == binding.JobTemplateID &&
+		resolved.CallbackCredentialTypeID == binding.CredentialTypeID &&
+		resolved.CallbackCredentialOrganizationID == binding.OrganizationID &&
+		constantTimeBytesEqual(resolved.CallbackCredentialInjectorSHA256, []byte(binding.InjectorSHA256))
+}
+
+func callbackURLMatchesGrant(callbackURL, allowedOrigin, grantID []byte) bool {
+	expected := make([]byte, 0, len(allowedOrigin)+len(grantID)+96)
+	expected = append(expected, allowedOrigin...)
+	expected = append(expected, "/api/v1/automation/callback-grants/"...)
+	expected = append(expected, grantID...)
+	expected = append(expected, "/actions/remote_access.ssh_ca.bundle.read"...)
+	defer zeroBytes(expected)
+
+	return constantTimeBytesEqual(callbackURL, expected)
+}
+
+func validLaunchEnvelopeCorrelation(resp *proto.AutomationLaunchEnvelopeResolveResponse) bool {
+	if resp == nil || strings.TrimSpace(resp.GetControllerId()) == "" ||
+		strings.TrimSpace(resp.GetChildExecutionId()) == "" ||
+		strings.TrimSpace(resp.GetDispatchAgentId()) == "" ||
+		strings.TrimSpace(resp.GetCommandId()) == "" {
+		return false
+	}
+
+	return positiveProtoAWXID(resp.GetInventoryId()) &&
+		positiveProtoAWXID(resp.GetJobTemplateId()) &&
+		positiveProtoAWXID(resp.GetCallbackCredentialTypeId()) &&
+		positiveProtoAWXID(resp.GetCallbackCredentialOrganizationId())
+}
+
+func positiveProtoAWXID(value int64) bool {
+	return value > 0 && value <= math.MaxInt32
+}
+
+func automationLaunchEnvelopeResponseBuffers(resp *proto.AutomationLaunchEnvelopeResolveResponse) [][]byte {
+	if resp == nil {
+		return nil
+	}
+
+	return [][]byte{
+		resp.GetBearer(),
+		resp.GetIdempotencyKey(),
+		resp.GetCallbackUrl(),
+		resp.GetCallbackAllowedOrigin(),
+		resp.GetManifestSha256(),
+		resp.GetScmRevision(),
+		resp.GetContentSha256(),
+		resp.GetCallbackPhase(),
+		resp.GetCallbackOperation(),
+		resp.GetCallbackState(),
+		resp.GetCallbackCredentialInjectorSha256(),
+	}
+}
+
+func zeroByteBuffers(buffers [][]byte) {
+	for _, buffer := range buffers {
+		zeroBytes(buffer)
+	}
+}
+
+func cloneMutableBytes(value []byte) []byte {
+	if value == nil {
+		return nil
+	}
+	return append([]byte(nil), value...)
+}
+
+func constantTimeBytesEqual(left, right []byte) bool {
+	return len(left) == len(right) && subtle.ConstantTimeCompare(left, right) == 1
+}
+
+func resolverNow(resolver *controlPlaneAutomationLaunchEnvelopeResolver) time.Time {
+	if resolver != nil && resolver.now != nil {
+		return resolver.now().UTC()
+	}
+	return time.Now().UTC()
 }
 
 func launchEnvelopeExpiresAt(unixSeconds int64) time.Time {

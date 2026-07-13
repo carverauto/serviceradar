@@ -71,7 +71,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.AshStore do
          {:ok, command} <- lock_command(context.command_id),
          :ok <- validate_command_binding(command, context, request, now),
          {:ok, grant} <- lock_grant(context.callback_grant_id),
-         :ok <- validate_grant_binding(grant, context, now),
+         :ok <- validate_grant_binding(grant, context, request, now),
          {:ok, resolved} <-
            LaunchEnvelope.mark_resolved(
              envelope,
@@ -158,7 +158,7 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.AshStore do
     end
   end
 
-  defp validate_grant_binding(grant, context, now) do
+  defp validate_grant_binding(grant, context, request, now) do
     cond do
       grant.state != :pending ->
         {:error, :callback_grant_not_pending}
@@ -166,25 +166,10 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.AshStore do
       DateTime.compare(grant.expires_at, now) != :gt ->
         {:error, :launch_envelope_expired}
 
-      not secure_equal?(grant.tenant_id, context.tenant_id) ->
+      not Context.grant_matches?(context, grant) ->
         {:error, :launch_envelope_context_mismatch}
 
-      not secure_equal?(to_string(grant.execution_id), context.child_execution_id) ->
-        {:error, :launch_envelope_context_mismatch}
-
-      not secure_equal?(to_string(grant.controller_id), context.controller_id) ->
-        {:error, :launch_envelope_context_mismatch}
-
-      grant.inventory_id != context.inventory_id ->
-        {:error, :launch_envelope_context_mismatch}
-
-      grant.job_template_id != context.job_template_id ->
-        {:error, :launch_envelope_context_mismatch}
-
-      not secure_equal?(grant.dispatch_agent_id, context.dispatch_agent_id) ->
-        {:error, :launch_envelope_context_mismatch}
-
-      DateTime.compare(grant.expires_at, context.expires_at) != :eq ->
+      not secure_equal?(grant.launch_envelope_ref, Map.get(request, :envelope_ref)) ->
         {:error, :launch_envelope_context_mismatch}
 
       true ->

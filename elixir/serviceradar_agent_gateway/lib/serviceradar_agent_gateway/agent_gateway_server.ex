@@ -289,7 +289,24 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           bearer: Map.get(material, :bearer, <<>>),
           idempotency_key: Map.get(material, :idempotency_key, <<>>),
           callback_grant_id: Map.get(material, :callback_grant_id, ""),
-          expires_at_unix: expires_at_unix(Map.get(material, :expires_at))
+          expires_at_unix: expires_at_unix(Map.get(material, :expires_at)),
+          callback_url: Map.get(material, :callback_url, <<>>),
+          callback_allowed_origin: Map.get(material, :callback_allowed_origin, <<>>),
+          manifest_sha256: Map.get(material, :manifest_sha256, <<>>),
+          scm_revision: Map.get(material, :scm_revision, <<>>),
+          content_sha256: Map.get(material, :content_sha256, <<>>),
+          callback_phase: Map.get(material, :callback_phase, <<>>),
+          callback_operation: Map.get(material, :callback_operation, <<>>),
+          callback_state: Map.get(material, :callback_state, <<>>),
+          controller_id: Map.get(material, :controller_id, ""),
+          inventory_id: Map.get(material, :inventory_id, 0),
+          job_template_id: Map.get(material, :job_template_id, 0),
+          callback_credential_type_id: Map.get(material, :callback_credential_type_id, 0),
+          callback_credential_organization_id: Map.get(material, :callback_credential_organization_id, 0),
+          callback_credential_injector_sha256: Map.get(material, :callback_credential_injector_sha256, <<>>),
+          dispatch_agent_id: Map.get(material, :dispatch_agent_id, ""),
+          child_execution_id: Map.get(material, :child_execution_id, ""),
+          command_id: Map.get(material, :command_id, "")
         }
 
       {:ok, {:error, reason}} ->

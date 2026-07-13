@@ -40,6 +40,20 @@ defmodule ServiceRadar.Automation.LaunchEnvelopesTest do
     assert material.idempotency_key == @idempotency_key
     assert material.callback_grant_id == grant_id()
 
+    assert material.callback_url ==
+             "https://demo.example.com/api/v1/automation/callback-grants/#{grant_id()}/actions/remote_access.ssh_ca.bundle.read"
+
+    assert material.callback_allowed_origin == "https://demo.example.com"
+    assert material.manifest_sha256 == String.duplicate("a", 64)
+    assert material.scm_revision == String.duplicate("b", 40)
+    assert material.content_sha256 == String.duplicate("c", 64)
+    assert material.callback_phase == "stage"
+    assert material.callback_operation == "enroll"
+    assert material.callback_state == "present"
+    assert material.callback_credential_type_id == 91
+    assert material.callback_credential_organization_id == 2
+    assert material.callback_credential_injector_sha256 == String.duplicate("d", 64)
+
     assert {:error, :launch_envelope_denied} = resolve(prepared, exact, store)
   end
 
@@ -120,6 +134,16 @@ defmodule ServiceRadar.Automation.LaunchEnvelopesTest do
       inventory_id: 17,
       job_template_id: 23,
       dispatch_agent_id: "agent-farm01",
+      callback_allowed_origin: "https://demo.example.com",
+      manifest_sha256: String.duplicate("a", 64),
+      scm_revision: String.duplicate("b", 40),
+      content_sha256: String.duplicate("c", 64),
+      callback_phase: "stage",
+      callback_operation: "enroll",
+      callback_state: "present",
+      callback_credential_type_id: 91,
+      callback_credential_organization_id: 2,
+      callback_credential_injector_sha256: String.duplicate("d", 64),
       expires_at: DateTime.add(@issued_at, 300, :second)
     }
   end

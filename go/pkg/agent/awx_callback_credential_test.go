@@ -326,6 +326,48 @@ func TestResolveAWXCallbackCredentialMemoryInputUsesOpaqueBindingAndSanitizesErr
 	}
 }
 
+func TestPluginManagerDestroysAWXCallbackMaterialOnPreExecutionFailure(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UTC()
+	material := testAWXCallbackMaterial(now.Add(5 * time.Minute))
+	buffers := [][]byte{
+		material.CallbackGrant,
+		material.CallbackIdempotencyKey,
+		material.CallbackURL,
+		material.CallbackAllowedOrigin,
+		material.CallbackManifestSHA256,
+		material.SCMRevision,
+		material.ContentSHA256,
+		material.CallbackPhase,
+		material.CallbackOperation,
+		material.CallbackState,
+	}
+	input := &awxCallbackCredentialMemoryInput{
+		Binding:  testAWXCallbackBinding(),
+		Material: material,
+	}
+	manager := NewPluginManager(t.Context(), PluginManagerConfig{})
+	defer manager.Stop()
+
+	_, err := manager.RunPluginVerbWithAWXCallbackCredential(
+		t.Context(),
+		awxPluginID,
+		nil,
+		nil,
+		input,
+		time.Second,
+	)
+	if !errors.Is(err, errPluginAssignmentNotFound) {
+		t.Fatalf("expected pre-execution assignment failure, got %v", err)
+	}
+	for _, buffer := range buffers {
+		if !allZero(buffer) {
+			t.Fatal("PluginManager retained callback material after failure")
+		}
+	}
+}
+
 func testAWXCallbackBinding() AWXCallbackCredentialBinding {
 	return AWXCallbackCredentialBinding{
 		Schema:           awxCallbackCredentialBindingSchema,

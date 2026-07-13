@@ -44,6 +44,17 @@ defmodule ServiceRadar.Repo.Migrations.AddAutomationLaunchEnvelopes do
       add(:inventory_id, :bigint, null: false)
       add(:job_template_id, :bigint, null: false)
       add(:dispatch_agent_id, :text, null: false)
+      add(:callback_url, :text, null: false)
+      add(:callback_allowed_origin, :text, null: false)
+      add(:manifest_sha256, :text, null: false)
+      add(:scm_revision, :text, null: false)
+      add(:content_sha256, :text, null: false)
+      add(:callback_phase, :text, null: false)
+      add(:callback_operation, :text, null: false)
+      add(:callback_state, :text, null: false)
+      add(:callback_credential_type_id, :bigint, null: false)
+      add(:callback_credential_organization_id, :bigint, null: false)
+      add(:callback_credential_injector_sha256, :text, null: false)
       add(:context_digest, :binary, null: false)
       add(:ciphertext, :binary, null: false)
       add(:cipher_version, :text, null: false)
@@ -101,7 +112,26 @@ defmodule ServiceRadar.Repo.Migrations.AddAutomationLaunchEnvelopes do
              check:
                "char_length(tenant_id) BETWEEN 1 AND 128 AND " <>
                  "char_length(dispatch_agent_id) BETWEEN 1 AND 255 AND " <>
-                 "inventory_id > 0 AND job_template_id > 0"
+                 "char_length(callback_url) BETWEEN 1 AND 2048 AND " <>
+                 "char_length(callback_allowed_origin) BETWEEN 1 AND 512 AND " <>
+                 "inventory_id BETWEEN 1 AND 2147483647 AND " <>
+                 "job_template_id BETWEEN 1 AND 2147483647 AND " <>
+                 "callback_credential_type_id BETWEEN 1 AND 2147483647 AND " <>
+                 "callback_credential_organization_id BETWEEN 1 AND 2147483647"
+           )
+
+    create constraint(:automation_launch_envelopes, :automation_launch_envelopes_callback,
+             prefix: @prefix,
+             check:
+               "manifest_sha256 ~ '^[a-f0-9]{64}$' AND " <>
+                 "scm_revision ~ '^[a-f0-9]{40,64}$' AND " <>
+                 "content_sha256 ~ '^[a-f0-9]{64}$' AND " <>
+                 "callback_credential_injector_sha256 ~ '^[a-f0-9]{64}$' AND " <>
+                 "callback_phase IN ('preflight', 'stage', 'verify', 'commit') AND " <>
+                 "callback_operation IN ('enroll', 'overlap', 'retire', 'remove') AND " <>
+                 "callback_state IN ('present', 'absent') AND " <>
+                 "((callback_operation = 'remove' AND callback_state = 'absent') OR " <>
+                 "(callback_operation <> 'remove' AND callback_state = 'present'))"
            )
 
     create constraint(:automation_launch_envelopes, :automation_launch_envelopes_expiry,

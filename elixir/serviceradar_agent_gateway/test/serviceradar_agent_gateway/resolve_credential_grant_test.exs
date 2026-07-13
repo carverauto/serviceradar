@@ -100,6 +100,23 @@ defmodule ServiceRadarAgentGateway.ResolveCredentialGrantTest do
                    bearer: <<1, 2, 3>>,
                    idempotency_key: <<4, 5, 6>>,
                    callback_grant_id: "01980a6d-4a62-7b3f-a249-5f825874ca53",
+                   callback_url: "https://demo.example.com/callback",
+                   callback_allowed_origin: "https://demo.example.com",
+                   manifest_sha256: String.duplicate("a", 64),
+                   scm_revision: String.duplicate("b", 40),
+                   content_sha256: String.duplicate("c", 64),
+                   callback_phase: "stage",
+                   callback_operation: "enroll",
+                   callback_state: "present",
+                   controller_id: "01980a6d-4a62-7b3f-a249-5f825874ca44",
+                   inventory_id: 17,
+                   job_template_id: 23,
+                   callback_credential_type_id: 91,
+                   callback_credential_organization_id: 2,
+                   callback_credential_injector_sha256: String.duplicate("d", 64),
+                   dispatch_agent_id: "agent-1",
+                   child_execution_id: "01980a6d-4a62-7b3f-a249-5f825874ca42",
+                   command_id: "01980a6d-4a62-7b3f-a249-5f825874ca41",
                    expires_at: expires_at
                  }}},
                "agent-1",
@@ -109,6 +126,14 @@ defmodule ServiceRadarAgentGateway.ResolveCredentialGrantTest do
     assert response.success
     assert response.bearer == <<1, 2, 3>>
     assert response.idempotency_key == <<4, 5, 6>>
+    assert response.callback_url == "https://demo.example.com/callback"
+    assert response.callback_allowed_origin == "https://demo.example.com"
+    assert response.manifest_sha256 == String.duplicate("a", 64)
+    assert response.callback_credential_type_id == 91
+    assert response.callback_credential_organization_id == 2
+    assert response.callback_credential_injector_sha256 == String.duplicate("d", 64)
+    assert response.dispatch_agent_id == "agent-1"
+    assert response.command_id == "01980a6d-4a62-7b3f-a249-5f825874ca41"
     assert response.expires_at_unix == DateTime.to_unix(expires_at)
   end
 

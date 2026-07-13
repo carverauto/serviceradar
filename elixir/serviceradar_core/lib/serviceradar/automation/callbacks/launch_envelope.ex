@@ -61,6 +61,17 @@ defmodule ServiceRadar.Automation.Callbacks.LaunchEnvelope do
         :inventory_id,
         :job_template_id,
         :dispatch_agent_id,
+        :callback_url,
+        :callback_allowed_origin,
+        :manifest_sha256,
+        :scm_revision,
+        :content_sha256,
+        :callback_phase,
+        :callback_operation,
+        :callback_state,
+        :callback_credential_type_id,
+        :callback_credential_organization_id,
+        :callback_credential_injector_sha256,
         :context_digest,
         :ciphertext,
         :cipher_version,
@@ -120,6 +131,32 @@ defmodule ServiceRadar.Automation.Callbacks.LaunchEnvelope do
     end
 
     attribute :dispatch_agent_id, :string, allow_nil?: false, public?: false
+    attribute :callback_url, :string, allow_nil?: false, public?: false
+    attribute :callback_allowed_origin, :string, allow_nil?: false, public?: false
+    attribute :manifest_sha256, :string, allow_nil?: false, public?: false
+    attribute :scm_revision, :string, allow_nil?: false, public?: false
+    attribute :content_sha256, :string, allow_nil?: false, public?: false
+    attribute :callback_phase, :string, allow_nil?: false, public?: false
+    attribute :callback_operation, :string, allow_nil?: false, public?: false
+    attribute :callback_state, :string, allow_nil?: false, public?: false
+
+    attribute :callback_credential_type_id, :integer do
+      allow_nil? false
+      public? false
+      constraints min: 1, max: 2_147_483_647
+    end
+
+    attribute :callback_credential_organization_id, :integer do
+      allow_nil? false
+      public? false
+      constraints min: 1, max: 2_147_483_647
+    end
+
+    attribute :callback_credential_injector_sha256, :string do
+      allow_nil? false
+      public? false
+      sensitive? true
+    end
 
     attribute :context_digest, :binary do
       allow_nil? false

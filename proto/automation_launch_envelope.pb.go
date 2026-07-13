@@ -105,15 +105,32 @@ func (x *AutomationLaunchEnvelopeResolveRequest) GetCommandId() string {
 // value may be logged, persisted in a command result, or forwarded to a
 // managed host.
 type AutomationLaunchEnvelopeResolveResponse struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	Success         bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	Message         string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
-	Bearer          []byte                 `protobuf:"bytes,3,opt,name=bearer,proto3" json:"bearer,omitempty"`
-	CallbackGrantId string                 `protobuf:"bytes,4,opt,name=callback_grant_id,json=callbackGrantId,proto3" json:"callback_grant_id,omitempty"`
-	ExpiresAtUnix   int64                  `protobuf:"varint,5,opt,name=expires_at_unix,json=expiresAtUnix,proto3" json:"expires_at_unix,omitempty"`
-	IdempotencyKey  []byte                 `protobuf:"bytes,6,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state                            protoimpl.MessageState `protogen:"open.v1"`
+	Success                          bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Message                          string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	Bearer                           []byte                 `protobuf:"bytes,3,opt,name=bearer,proto3" json:"bearer,omitempty"`
+	CallbackGrantId                  string                 `protobuf:"bytes,4,opt,name=callback_grant_id,json=callbackGrantId,proto3" json:"callback_grant_id,omitempty"`
+	ExpiresAtUnix                    int64                  `protobuf:"varint,5,opt,name=expires_at_unix,json=expiresAtUnix,proto3" json:"expires_at_unix,omitempty"`
+	IdempotencyKey                   []byte                 `protobuf:"bytes,6,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	CallbackUrl                      []byte                 `protobuf:"bytes,7,opt,name=callback_url,json=callbackUrl,proto3" json:"callback_url,omitempty"`
+	CallbackAllowedOrigin            []byte                 `protobuf:"bytes,8,opt,name=callback_allowed_origin,json=callbackAllowedOrigin,proto3" json:"callback_allowed_origin,omitempty"`
+	ManifestSha256                   []byte                 `protobuf:"bytes,9,opt,name=manifest_sha256,json=manifestSha256,proto3" json:"manifest_sha256,omitempty"`
+	ScmRevision                      []byte                 `protobuf:"bytes,10,opt,name=scm_revision,json=scmRevision,proto3" json:"scm_revision,omitempty"`
+	ContentSha256                    []byte                 `protobuf:"bytes,11,opt,name=content_sha256,json=contentSha256,proto3" json:"content_sha256,omitempty"`
+	CallbackPhase                    []byte                 `protobuf:"bytes,12,opt,name=callback_phase,json=callbackPhase,proto3" json:"callback_phase,omitempty"`
+	CallbackOperation                []byte                 `protobuf:"bytes,13,opt,name=callback_operation,json=callbackOperation,proto3" json:"callback_operation,omitempty"`
+	CallbackState                    []byte                 `protobuf:"bytes,14,opt,name=callback_state,json=callbackState,proto3" json:"callback_state,omitempty"`
+	ControllerId                     string                 `protobuf:"bytes,15,opt,name=controller_id,json=controllerId,proto3" json:"controller_id,omitempty"`
+	InventoryId                      int64                  `protobuf:"varint,16,opt,name=inventory_id,json=inventoryId,proto3" json:"inventory_id,omitempty"`
+	JobTemplateId                    int64                  `protobuf:"varint,17,opt,name=job_template_id,json=jobTemplateId,proto3" json:"job_template_id,omitempty"`
+	CallbackCredentialTypeId         int64                  `protobuf:"varint,18,opt,name=callback_credential_type_id,json=callbackCredentialTypeId,proto3" json:"callback_credential_type_id,omitempty"`
+	CallbackCredentialOrganizationId int64                  `protobuf:"varint,19,opt,name=callback_credential_organization_id,json=callbackCredentialOrganizationId,proto3" json:"callback_credential_organization_id,omitempty"`
+	CallbackCredentialInjectorSha256 []byte                 `protobuf:"bytes,20,opt,name=callback_credential_injector_sha256,json=callbackCredentialInjectorSha256,proto3" json:"callback_credential_injector_sha256,omitempty"`
+	DispatchAgentId                  string                 `protobuf:"bytes,21,opt,name=dispatch_agent_id,json=dispatchAgentId,proto3" json:"dispatch_agent_id,omitempty"`
+	ChildExecutionId                 string                 `protobuf:"bytes,22,opt,name=child_execution_id,json=childExecutionId,proto3" json:"child_execution_id,omitempty"`
+	CommandId                        string                 `protobuf:"bytes,23,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	unknownFields                    protoimpl.UnknownFields
+	sizeCache                        protoimpl.SizeCache
 }
 
 func (x *AutomationLaunchEnvelopeResolveResponse) Reset() {
@@ -188,6 +205,125 @@ func (x *AutomationLaunchEnvelopeResolveResponse) GetIdempotencyKey() []byte {
 	return nil
 }
 
+func (x *AutomationLaunchEnvelopeResolveResponse) GetCallbackUrl() []byte {
+	if x != nil {
+		return x.CallbackUrl
+	}
+	return nil
+}
+
+func (x *AutomationLaunchEnvelopeResolveResponse) GetCallbackAllowedOrigin() []byte {
+	if x != nil {
+		return x.CallbackAllowedOrigin
+	}
+	return nil
+}
+
+func (x *AutomationLaunchEnvelopeResolveResponse) GetManifestSha256() []byte {
+	if x != nil {
+		return x.ManifestSha256
+	}
+	return nil
+}
+
+func (x *AutomationLaunchEnvelopeResolveResponse) GetScmRevision() []byte {
+	if x != nil {
+		return x.ScmRevision
+	}
+	return nil
+}
+
+func (x *AutomationLaunchEnvelopeResolveResponse) GetContentSha256() []byte {
+	if x != nil {
+		return x.ContentSha256
+	}
+	return nil
+}
+
+func (x *AutomationLaunchEnvelopeResolveResponse) GetCallbackPhase() []byte {
+	if x != nil {
+		return x.CallbackPhase
+	}
+	return nil
+}
+
+func (x *AutomationLaunchEnvelopeResolveResponse) GetCallbackOperation() []byte {
+	if x != nil {
+		return x.CallbackOperation
+	}
+	return nil
+}
+
+func (x *AutomationLaunchEnvelopeResolveResponse) GetCallbackState() []byte {
+	if x != nil {
+		return x.CallbackState
+	}
+	return nil
+}
+
+func (x *AutomationLaunchEnvelopeResolveResponse) GetControllerId() string {
+	if x != nil {
+		return x.ControllerId
+	}
+	return ""
+}
+
+func (x *AutomationLaunchEnvelopeResolveResponse) GetInventoryId() int64 {
+	if x != nil {
+		return x.InventoryId
+	}
+	return 0
+}
+
+func (x *AutomationLaunchEnvelopeResolveResponse) GetJobTemplateId() int64 {
+	if x != nil {
+		return x.JobTemplateId
+	}
+	return 0
+}
+
+func (x *AutomationLaunchEnvelopeResolveResponse) GetCallbackCredentialTypeId() int64 {
+	if x != nil {
+		return x.CallbackCredentialTypeId
+	}
+	return 0
+}
+
+func (x *AutomationLaunchEnvelopeResolveResponse) GetCallbackCredentialOrganizationId() int64 {
+	if x != nil {
+		return x.CallbackCredentialOrganizationId
+	}
+	return 0
+}
+
+func (x *AutomationLaunchEnvelopeResolveResponse) GetCallbackCredentialInjectorSha256() []byte {
+	if x != nil {
+		return x.CallbackCredentialInjectorSha256
+	}
+	return nil
+}
+
+func (x *AutomationLaunchEnvelopeResolveResponse) GetDispatchAgentId() string {
+	if x != nil {
+		return x.DispatchAgentId
+	}
+	return ""
+}
+
+func (x *AutomationLaunchEnvelopeResolveResponse) GetChildExecutionId() string {
+	if x != nil {
+		return x.ChildExecutionId
+	}
+	return ""
+}
+
+func (x *AutomationLaunchEnvelopeResolveResponse) GetCommandId() string {
+	if x != nil {
+		return x.CommandId
+	}
+	return ""
+}
+
 var File_automation_launch_envelope_proto protoreflect.FileDescriptor
 
 const file_automation_launch_envelope_proto_rawDesc = "" +
@@ -198,14 +334,33 @@ const file_automation_launch_envelope_proto_rawDesc = "" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12!\n" +
 	"\fenvelope_ref\x18\x02 \x01(\tR\venvelopeRef\x12\x1d\n" +
 	"\n" +
-	"command_id\x18\x03 \x01(\tR\tcommandId\"\xf2\x01\n" +
+	"command_id\x18\x03 \x01(\tR\tcommandId\"\x83\b\n" +
 	"'AutomationLaunchEnvelopeResolveResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12\x16\n" +
 	"\x06bearer\x18\x03 \x01(\fR\x06bearer\x12*\n" +
 	"\x11callback_grant_id\x18\x04 \x01(\tR\x0fcallbackGrantId\x12&\n" +
 	"\x0fexpires_at_unix\x18\x05 \x01(\x03R\rexpiresAtUnix\x12'\n" +
-	"\x0fidempotency_key\x18\x06 \x01(\fR\x0eidempotencyKeyB*Z(github.com/carverauto/serviceradar/protob\x06proto3"
+	"\x0fidempotency_key\x18\x06 \x01(\fR\x0eidempotencyKey\x12!\n" +
+	"\fcallback_url\x18\a \x01(\fR\vcallbackUrl\x126\n" +
+	"\x17callback_allowed_origin\x18\b \x01(\fR\x15callbackAllowedOrigin\x12'\n" +
+	"\x0fmanifest_sha256\x18\t \x01(\fR\x0emanifestSha256\x12!\n" +
+	"\fscm_revision\x18\n" +
+	" \x01(\fR\vscmRevision\x12%\n" +
+	"\x0econtent_sha256\x18\v \x01(\fR\rcontentSha256\x12%\n" +
+	"\x0ecallback_phase\x18\f \x01(\fR\rcallbackPhase\x12-\n" +
+	"\x12callback_operation\x18\r \x01(\fR\x11callbackOperation\x12%\n" +
+	"\x0ecallback_state\x18\x0e \x01(\fR\rcallbackState\x12#\n" +
+	"\rcontroller_id\x18\x0f \x01(\tR\fcontrollerId\x12!\n" +
+	"\finventory_id\x18\x10 \x01(\x03R\vinventoryId\x12&\n" +
+	"\x0fjob_template_id\x18\x11 \x01(\x03R\rjobTemplateId\x12=\n" +
+	"\x1bcallback_credential_type_id\x18\x12 \x01(\x03R\x18callbackCredentialTypeId\x12M\n" +
+	"#callback_credential_organization_id\x18\x13 \x01(\x03R callbackCredentialOrganizationId\x12M\n" +
+	"#callback_credential_injector_sha256\x18\x14 \x01(\fR callbackCredentialInjectorSha256\x12*\n" +
+	"\x11dispatch_agent_id\x18\x15 \x01(\tR\x0fdispatchAgentId\x12,\n" +
+	"\x12child_execution_id\x18\x16 \x01(\tR\x10childExecutionId\x12\x1d\n" +
+	"\n" +
+	"command_id\x18\x17 \x01(\tR\tcommandIdB*Z(github.com/carverauto/serviceradar/protob\x06proto3"
 
 var (
 	file_automation_launch_envelope_proto_rawDescOnce sync.Once

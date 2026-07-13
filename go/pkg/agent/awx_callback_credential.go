@@ -105,8 +105,9 @@ type AWXCallbackCredentialMaterial struct {
 }
 
 // AWXCallbackCredentialEnvelopeResolver authenticates and resolves one opaque
-// launch envelope for the exact selected-agent binding. Its implementation is
-// intentionally outside this slice.
+// launch envelope for the exact selected-agent binding. The control-plane
+// implementation also re-correlates the returned material before handing it
+// to this trusted host boundary.
 type AWXCallbackCredentialEnvelopeResolver interface {
 	ResolveAWXCallbackCredentialEnvelope(
 		context.Context,

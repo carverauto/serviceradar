@@ -277,9 +277,17 @@ func configureAutomationLaunchEnvelopeResolver(server *Server, gateway *agentgat
 		return
 	}
 
+	server.mu.RLock()
+	pluginManager := server.pluginManager
+	server.mu.RUnlock()
+
 	server.mu.Lock()
 	server.launchEnvelopes = resolver
 	server.mu.Unlock()
+
+	if pluginManager != nil {
+		pluginManager.SetAWXCallbackCredentialEnvelopeResolver(resolver)
+	}
 }
 
 func configurePluginArtifactUploader(server *Server) {

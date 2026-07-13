@@ -91,6 +91,38 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.CipherTest do
              |> Context.new(issued_at: issued_at)
   end
 
+  test "locked grant and scope metadata must match the authenticated context" do
+    context = context!()
+    grant = correlated_grant(context)
+
+    assert Context.grant_matches?(context, grant)
+
+    refute Context.grant_matches?(
+             context,
+             put_in(
+               grant,
+               ["target_snapshot", "awx_scope", "scm_revision"],
+               String.duplicate("e", 40)
+             )
+           )
+
+    refute Context.grant_matches?(
+             context,
+             put_in(
+               grant,
+               ["target_snapshot", "response", "manifest_sha256"],
+               String.duplicate("f", 64)
+             )
+           )
+
+    refute Context.grant_matches?(
+             context,
+             put_in(grant, ["target_snapshot", "awx_scope", "callback_credential_type_id"], 92)
+           )
+
+    refute Context.grant_matches?(context, Map.put(grant, "dispatch_agent_id", "agent-other"))
+  end
+
   defp context! do
     issued_at = ~U[2026-07-13 01:00:00.000000Z]
 
@@ -111,6 +143,16 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.CipherTest do
       inventory_id: 17,
       job_template_id: 23,
       dispatch_agent_id: "agent-farm01",
+      callback_allowed_origin: "https://demo.example.com",
+      manifest_sha256: String.duplicate("a", 64),
+      scm_revision: String.duplicate("b", 40),
+      content_sha256: String.duplicate("c", 64),
+      callback_phase: "stage",
+      callback_operation: "enroll",
+      callback_state: "present",
+      callback_credential_type_id: 91,
+      callback_credential_organization_id: 2,
+      callback_credential_injector_sha256: String.duplicate("d", 64),
       expires_at: expires_at
     }
   end
@@ -125,7 +167,57 @@ defmodule ServiceRadar.Automation.LaunchEnvelopes.CipherTest do
       inventory_id: context.inventory_id + 1,
       job_template_id: context.job_template_id + 1,
       dispatch_agent_id: "agent-tonka01",
+      callback_url: String.replace(context.callback_url, "demo", "other"),
+      callback_allowed_origin: "https://other.example.com",
+      manifest_sha256: String.duplicate("e", 64),
+      scm_revision: String.duplicate("f", 40),
+      content_sha256: String.duplicate("0", 64),
+      callback_phase: "verify",
+      callback_operation: "overlap",
+      callback_state: "absent",
+      callback_credential_type_id: context.callback_credential_type_id + 1,
+      callback_credential_organization_id: context.callback_credential_organization_id + 1,
+      callback_credential_injector_sha256: String.duplicate("1", 64),
       expires_at: DateTime.add(context.expires_at, -1, :second)
     ]
+  end
+
+  defp correlated_grant(context) do
+    scope = %{
+      "controller_id" => context.controller_id,
+      "inventory_id" => context.inventory_id,
+      "job_template_id" => context.job_template_id,
+      "scm_revision" => context.scm_revision,
+      "content_sha256" => context.content_sha256,
+      "callback_credential_type_id" => context.callback_credential_type_id,
+      "callback_credential_organization_id" => context.callback_credential_organization_id,
+      "callback_credential_injector_digest" => context.callback_credential_injector_sha256
+    }
+
+    response = %{
+      "manifest_sha256" => context.manifest_sha256,
+      "phase" => context.callback_phase,
+      "operation" => context.callback_operation,
+      "state" => context.callback_state
+    }
+
+    %{
+      "id" => context.callback_grant_id,
+      "tenant_id" => context.tenant_id,
+      "execution_id" => context.child_execution_id,
+      "controller_id" => context.controller_id,
+      "inventory_id" => context.inventory_id,
+      "job_template_id" => context.job_template_id,
+      "dispatch_agent_id" => context.dispatch_agent_id,
+      "expires_at" => context.expires_at,
+      "action" => "remote_access.ssh_ca.bundle.read",
+      "scm_revision" => context.scm_revision,
+      "content_sha256" => context.content_sha256,
+      "manifest_sha256" => context.manifest_sha256,
+      "callback_phase" => context.callback_phase,
+      "remote_access_operation" => context.callback_operation,
+      "desired_state" => context.callback_state,
+      "target_snapshot" => %{"awx_scope" => scope, "response" => response}
+    }
   end
 end
