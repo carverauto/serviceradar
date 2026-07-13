@@ -101,12 +101,13 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
     end
   end
 
-  describe "list_inventories / list_projects / list_templates" do
+  describe "list_inventories / list_projects / list_templates / current_user" do
     test "each verb dispatches with empty args and the GET allow-list" do
       for {fun, verb} <- [
             {:list_inventories, "awx.list_inventories"},
             {:list_projects, "awx.list_projects"},
-            {:list_templates, "awx.list_templates"}
+            {:list_templates, "awx.list_templates"},
+            {:current_user, "awx.current_user"}
           ] do
         assert {:ok, _} = apply(AwxClient, fun, [controller(), dispatch_opts()])
         assert_receive {:dispatch, "agent-a", ^verb, payload, _opts}
@@ -120,6 +121,14 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
     test "carries inventory_id in args" do
       assert {:ok, _} = AwxClient.list_hosts(controller(), 7, dispatch_opts())
       assert_receive {:dispatch, "agent-a", "awx.list_hosts", payload, _opts}
+      assert payload["args"] == %{"inventory_id" => 7}
+    end
+  end
+
+  describe "list_inventory_groups/3" do
+    test "carries inventory_id in args" do
+      assert {:ok, _} = AwxClient.list_inventory_groups(controller(), 7, dispatch_opts())
+      assert_receive {:dispatch, "agent-a", "awx.list_inventory_groups", payload, _opts}
       assert payload["args"] == %{"inventory_id" => 7}
     end
   end
@@ -153,6 +162,42 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
       assert payload["credential_broker"]["allow"]["methods"] == ["POST"]
     end
 
+    test "passes reviewed immutable execution fields" do
+      launch_opts = %{
+        credential_ids: [5, 9],
+        execution_environment_id: 12,
+        job_type: "check",
+        diff_mode: true,
+        verbosity: 2,
+        forks: 10,
+        job_slice_count: 1,
+        timeout: 600,
+        job_tags: "preflight,enroll",
+        skip_tags: "destructive",
+        labels: [4],
+        instance_group_ids: [8]
+      }
+
+      assert {:ok, _} = AwxClient.launch_job(controller(), 42, launch_opts, dispatch_opts())
+      assert_receive {:dispatch, "agent-a", "awx.launch_job", payload, _opts}
+
+      assert payload["args"] == %{
+               "template_id" => 42,
+               "credential_ids" => [5, 9],
+               "execution_environment_id" => 12,
+               "job_type" => "check",
+               "diff_mode" => true,
+               "verbosity" => 2,
+               "forks" => 10,
+               "job_slice_count" => 1,
+               "timeout" => 600,
+               "job_tags" => "preflight,enroll",
+               "skip_tags" => "destructive",
+               "labels" => [4],
+               "instance_group_ids" => [8]
+             }
+    end
+
     test "omits empty / nil optional args" do
       assert {:ok, _} =
                AwxClient.launch_job(
@@ -178,6 +223,61 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
       assert {:ok, _} = AwxClient.fetch_job(controller(), 7331, dispatch_opts())
       assert_receive {:dispatch, "agent-a", "awx.fetch_job", payload, _opts}
       assert payload["args"] == %{"job_id" => 7331}
+    end
+  end
+
+  describe "fetch_job_host_summaries/3" do
+    test "carries job_id" do
+      assert {:ok, _} = AwxClient.fetch_job_host_summaries(controller(), 7331, dispatch_opts())
+      assert_receive {:dispatch, "agent-a", "awx.fetch_job_host_summaries", payload, _opts}
+      assert payload["args"] == %{"job_id" => 7331}
+    end
+  end
+
+  describe "list_recent_jobs/3" do
+    test "requires exact controller integration identity and bounded window" do
+      filters = %{
+        template_id: 42,
+        inventory_id: 7,
+        created_by_id: 11,
+        created_after: "2026-07-12T20:00:00Z",
+        page_size: 25
+      }
+
+      assert {:ok, _} = AwxClient.list_recent_jobs(controller(), filters, dispatch_opts())
+      assert_receive {:dispatch, "agent-a", "awx.list_recent_jobs", payload, _opts}
+
+      assert payload["args"] == %{
+               "template_id" => 42,
+               "inventory_id" => 7,
+               "created_by_id" => 11,
+               "created_after" => "2026-07-12T20:00:00Z",
+               "page_size" => 25
+             }
+    end
+
+    test "rejects absent identity and oversized enumeration" do
+      assert_raise ArgumentError, fn ->
+        AwxClient.list_recent_jobs(
+          controller(),
+          %{template_id: 42, inventory_id: 7, created_after: "2026-07-12T20:00:00Z"},
+          dispatch_opts()
+        )
+      end
+
+      assert_raise ArgumentError, fn ->
+        AwxClient.list_recent_jobs(
+          controller(),
+          %{
+            template_id: 42,
+            inventory_id: 7,
+            created_by_id: 11,
+            created_after: "2026-07-12T20:00:00Z",
+            page_size: 101
+          },
+          dispatch_opts()
+        )
+      end
     end
   end
 

@@ -281,4 +281,51 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchemaTest do
       assert VariableSchema.extra_vars_from_form(vars(), %{}) == %{}
     end
   end
+
+  describe "validated_non_secret_inputs/2" do
+    test "canonicalizes declared typed non-secret inputs" do
+      vars = [
+        %Var{name: "version", type: :text, required: true},
+        %Var{name: "replicas", type: :integer, min: 1, max: 10},
+        %Var{name: "environment", type: :select, choices: ["stage", "prod"]}
+      ]
+
+      assert {:ok, %{"version" => "1.2.3", "replicas" => 3, "environment" => "prod"}} =
+               VariableSchema.validated_non_secret_inputs(vars, %{
+                 "version" => "1.2.3",
+                 "replicas" => "3",
+                 "environment" => "prod"
+               })
+    end
+
+    test "rejects an entire binding that declares a private/password input" do
+      vars = [
+        %Var{name: "version", type: :text},
+        %Var{name: "password", type: :password, private: true}
+      ]
+
+      assert {:error, {:sensitive_launch_inputs, ["password"]}} =
+               VariableSchema.validated_non_secret_inputs(vars, %{"version" => "1.2.3"})
+    end
+
+    test "rejects undeclared fields and invalid typed values" do
+      vars = [%Var{name: "replicas", type: :integer, min: 1, max: 10}]
+
+      assert {:error, {:undeclared_launch_inputs, ["password"]}} =
+               VariableSchema.validated_non_secret_inputs(vars, %{"password" => "secret"})
+
+      assert {:error, {:invalid_launch_input, "replicas"}} =
+               VariableSchema.validated_non_secret_inputs(vars, %{"replicas" => "many"})
+
+      assert {:error, {:launch_input_out_of_bounds, "replicas"}} =
+               VariableSchema.validated_non_secret_inputs(vars, %{"replicas" => "11"})
+    end
+
+    test "requires mandatory values" do
+      vars = [%Var{name: "version", type: :text, required: true}]
+
+      assert {:error, {:required_launch_input, "version"}} =
+               VariableSchema.validated_non_secret_inputs(vars, %{})
+    end
+  end
 end

@@ -42,7 +42,19 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   @type launch_opts :: %{
           optional(:extra_vars) => map(),
           optional(:host_limit) => String.t() | nil,
-          optional(:inventory_id) => integer() | nil
+          optional(:inventory_id) => integer() | nil,
+          optional(:credential_ids) => [integer()],
+          optional(:execution_environment_id) => integer() | nil,
+          optional(:job_type) => String.t() | nil,
+          optional(:diff_mode) => boolean() | nil,
+          optional(:verbosity) => non_neg_integer() | nil,
+          optional(:forks) => pos_integer() | nil,
+          optional(:job_slice_count) => pos_integer() | nil,
+          optional(:timeout) => pos_integer() | nil,
+          optional(:job_tags) => String.t() | nil,
+          optional(:skip_tags) => String.t() | nil,
+          optional(:labels) => [integer()],
+          optional(:instance_group_ids) => [integer()]
         }
 
   @doc """
@@ -59,6 +71,21 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   def list_hosts(controller, inventory_id, opts \\ []) when is_integer(inventory_id) do
     dispatch_verb(controller, "awx.list_hosts", %{"inventory_id" => inventory_id}, opts)
   end
+
+  @spec list_inventory_groups(Controller.t(), integer(), keyword()) ::
+          {:ok, struct()} | {:error, term()}
+  def list_inventory_groups(controller, inventory_id, opts \\ []) when is_integer(inventory_id) do
+    dispatch_verb(
+      controller,
+      "awx.list_inventory_groups",
+      %{"inventory_id" => inventory_id},
+      opts
+    )
+  end
+
+  @spec current_user(Controller.t(), keyword()) :: {:ok, struct()} | {:error, term()}
+  def current_user(controller, opts \\ []),
+    do: dispatch_verb(controller, "awx.current_user", %{}, opts)
 
   @spec list_projects(Controller.t(), keyword()) :: {:ok, struct()} | {:error, term()}
   def list_projects(controller, opts \\ []),
@@ -88,6 +115,18 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
       |> maybe_put("extra_vars", Map.get(launch_opts, :extra_vars))
       |> maybe_put("host_limit", Map.get(launch_opts, :host_limit))
       |> maybe_put("inventory_id", Map.get(launch_opts, :inventory_id))
+      |> maybe_put("credential_ids", Map.get(launch_opts, :credential_ids))
+      |> maybe_put("execution_environment_id", Map.get(launch_opts, :execution_environment_id))
+      |> maybe_put("job_type", Map.get(launch_opts, :job_type))
+      |> maybe_put("diff_mode", Map.get(launch_opts, :diff_mode))
+      |> maybe_put("verbosity", Map.get(launch_opts, :verbosity))
+      |> maybe_put("forks", Map.get(launch_opts, :forks))
+      |> maybe_put("job_slice_count", Map.get(launch_opts, :job_slice_count))
+      |> maybe_put("timeout", Map.get(launch_opts, :timeout))
+      |> maybe_put("job_tags", Map.get(launch_opts, :job_tags))
+      |> maybe_put("skip_tags", Map.get(launch_opts, :skip_tags))
+      |> maybe_put("labels", Map.get(launch_opts, :labels))
+      |> maybe_put("instance_group_ids", Map.get(launch_opts, :instance_group_ids))
 
     dispatch_verb(controller, "awx.launch_job", args, opts)
   end
@@ -95,6 +134,39 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   @spec fetch_job(Controller.t(), integer(), keyword()) :: {:ok, struct()} | {:error, term()}
   def fetch_job(controller, job_id, opts \\ []) when is_integer(job_id) do
     dispatch_verb(controller, "awx.fetch_job", %{"job_id" => job_id}, opts)
+  end
+
+  @spec fetch_job_host_summaries(Controller.t(), integer(), keyword()) ::
+          {:ok, struct()} | {:error, term()}
+  def fetch_job_host_summaries(controller, job_id, opts \\ []) when is_integer(job_id) do
+    dispatch_verb(
+      controller,
+      "awx.fetch_job_host_summaries",
+      %{"job_id" => job_id},
+      opts
+    )
+  end
+
+  @doc """
+  Enumerates a bounded AWX job window for dispatch-timeout reconciliation.
+
+  The plugin does not claim server-side marker filtering. Callers must fetch
+  and compare the retained `serviceradar_dispatch_id` and snapshot digest on
+  each returned candidate. The AWX integration user ID is mandatory so a
+  different AWX actor cannot be reconciled into the child execution.
+  """
+  @spec list_recent_jobs(Controller.t(), map(), keyword()) ::
+          {:ok, struct()} | {:error, term()}
+  def list_recent_jobs(controller, filters, opts \\ []) when is_map(filters) do
+    args = %{
+      "template_id" => fetch_positive_int!(filters, :template_id),
+      "inventory_id" => fetch_positive_int!(filters, :inventory_id),
+      "created_by_id" => fetch_positive_int!(filters, :created_by_id),
+      "created_after" => fetch_nonempty_string!(filters, :created_after),
+      "page_size" => bounded_page_size(filters)
+    }
+
+    dispatch_verb(controller, "awx.list_recent_jobs", args, opts)
   end
 
   @spec cancel_job(Controller.t(), integer(), keyword()) :: {:ok, struct()} | {:error, term()}
@@ -299,6 +371,37 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
     case Map.get(map, key) || Map.get(map, to_string(key)) do
       v when is_integer(v) -> v
       v -> raise ArgumentError, "expected integer at #{inspect(key)}, got #{inspect(v)}"
+    end
+  end
+
+  defp fetch_positive_int!(map, key) do
+    case fetch_int!(map, key) do
+      value when value > 0 ->
+        value
+
+      value ->
+        raise ArgumentError, "expected positive integer at #{inspect(key)}, got #{inspect(value)}"
+    end
+  end
+
+  defp fetch_nonempty_string!(map, key) do
+    case Map.get(map, key) || Map.get(map, to_string(key)) do
+      value when is_binary(value) ->
+        if String.trim(value) == "" do
+          raise ArgumentError, "expected non-empty string at #{inspect(key)}"
+        else
+          value
+        end
+
+      value ->
+        raise ArgumentError, "expected string at #{inspect(key)}, got #{inspect(value)}"
+    end
+  end
+
+  defp bounded_page_size(map) do
+    case Map.get(map, :page_size) || Map.get(map, "page_size") || 50 do
+      value when is_integer(value) and value in 1..100 -> value
+      value -> raise ArgumentError, "expected page_size in 1..100, got #{inspect(value)}"
     end
   end
 

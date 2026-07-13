@@ -230,6 +230,157 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchema do
 
   def extra_vars_from_form(_, _), do: %{}
 
+  @doc """
+  Validates and canonicalizes inputs for the hardened launch path.
+
+  ServiceRadar does not collect secret launch values. A schema containing a
+  private/password field is non-launchable until the value is moved into a
+  reviewed pre-bound AWX credential. Unknown fields and invalid typed values
+  fail instead of being silently dropped.
+  """
+  @spec validated_non_secret_inputs([Var.t()], map()) ::
+          {:ok, map()} | {:error, term()}
+  def validated_non_secret_inputs(vars, params) when is_list(vars) and is_map(params) do
+    vars_by_name = Map.new(vars, &{&1.name, &1})
+
+    sensitive =
+      vars
+      |> Enum.filter(&(&1.private == true or &1.type == :password))
+      |> Enum.map(& &1.name)
+      |> Enum.sort()
+
+    normalized_params = Map.new(params, fn {key, value} -> {to_string(key), value} end)
+
+    unknown =
+      normalized_params
+      |> Map.keys()
+      |> Enum.reject(&Map.has_key?(vars_by_name, &1))
+      |> Enum.sort()
+
+    cond do
+      sensitive != [] ->
+        {:error, {:sensitive_launch_inputs, sensitive}}
+
+      unknown != [] ->
+        {:error, {:undeclared_launch_inputs, unknown}}
+
+      true ->
+        with {:ok, inputs} <- strict_inputs(vars, normalized_params),
+             :ok <- bounded_inputs(inputs) do
+          {:ok, inputs}
+        end
+    end
+  end
+
+  def validated_non_secret_inputs(_vars, _params), do: {:error, :invalid_launch_inputs}
+
+  defp strict_inputs(vars, params) do
+    Enum.reduce_while(vars, {:ok, %{}}, fn %Var{} = var, {:ok, acc} ->
+      case strict_value(var, Map.fetch(params, var.name)) do
+        {:ok, :drop} -> {:cont, {:ok, acc}}
+        {:ok, value} -> {:cont, {:ok, Map.put(acc, var.name, value)}}
+        {:error, reason} -> {:halt, {:error, {reason, var.name}}}
+      end
+    end)
+  end
+
+  defp strict_value(%Var{required: true}, :error), do: {:error, :required_launch_input}
+  defp strict_value(_var, :error), do: {:ok, :drop}
+  defp strict_value(%Var{required: true}, {:ok, ""}), do: {:error, :required_launch_input}
+  defp strict_value(_var, {:ok, ""}), do: {:ok, :drop}
+
+  defp strict_value(%Var{type: :integer, min: min, max: max}, {:ok, value}) do
+    with {:ok, parsed} <- strict_integer(value),
+         :ok <- within_bounds(parsed, min, max) do
+      {:ok, parsed}
+    end
+  end
+
+  defp strict_value(%Var{type: :float, min: min, max: max}, {:ok, value}) do
+    with {:ok, parsed} <- strict_float(value),
+         :ok <- within_bounds(parsed, min, max) do
+      {:ok, parsed}
+    end
+  end
+
+  defp strict_value(%Var{type: :select, choices: choices}, {:ok, value}) do
+    value = to_string(value)
+
+    if choices == [] or value in choices,
+      do: {:ok, value},
+      else: {:error, :invalid_launch_choice}
+  end
+
+  defp strict_value(%Var{type: :multiselect, choices: choices}, {:ok, value}) do
+    selected =
+      case value do
+        list when is_list(list) ->
+          Enum.map(list, &to_string/1)
+
+        string when is_binary(string) ->
+          string |> String.split(",") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
+
+        _ ->
+          :invalid
+      end
+
+    cond do
+      selected == :invalid ->
+        {:error, :invalid_launch_choice}
+
+      choices != [] and not Enum.all?(selected, &(&1 in choices)) ->
+        {:error, :invalid_launch_choice}
+
+      true ->
+        {:ok, Enum.uniq(selected)}
+    end
+  end
+
+  defp strict_value(%Var{type: type}, {:ok, value}) when type in [:text, :textarea] do
+    if is_binary(value), do: {:ok, value}, else: {:error, :invalid_launch_input}
+  end
+
+  defp strict_value(_var, _value), do: {:error, :invalid_launch_input}
+
+  defp strict_integer(value) when is_integer(value), do: {:ok, value}
+
+  defp strict_integer(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {parsed, ""} -> {:ok, parsed}
+      _ -> {:error, :invalid_launch_input}
+    end
+  end
+
+  defp strict_integer(_), do: {:error, :invalid_launch_input}
+
+  defp strict_float(value) when is_float(value), do: {:ok, value}
+  defp strict_float(value) when is_integer(value), do: {:ok, value / 1}
+
+  defp strict_float(value) when is_binary(value) do
+    case Float.parse(value) do
+      {parsed, ""} -> {:ok, parsed}
+      _ -> {:error, :invalid_launch_input}
+    end
+  end
+
+  defp strict_float(_), do: {:error, :invalid_launch_input}
+
+  defp within_bounds(value, min, _max) when is_number(min) and value < min,
+    do: {:error, :launch_input_out_of_bounds}
+
+  defp within_bounds(value, _min, max) when is_number(max) and value > max,
+    do: {:error, :launch_input_out_of_bounds}
+
+  defp within_bounds(_value, _min, _max), do: :ok
+
+  defp bounded_inputs(inputs) do
+    if :erlang.external_size(inputs) <= 65_536 do
+      :ok
+    else
+      {:error, :launch_inputs_too_large}
+    end
+  end
+
   defp coerce(_var, nil), do: :drop
 
   defp coerce(%Var{type: :integer}, ""), do: :drop
