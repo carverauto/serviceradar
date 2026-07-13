@@ -127,7 +127,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CleanupReconcilerTest do
       | context: Map.put(delete_context(), "dispatch_agent_id", "another-agent")
     }
 
-    assert {:error, :cleanup_result_agent_mismatch} =
+    assert {:error, :cleanup_command_agent_mismatch} =
              CleanupReconciler.handle_command_result(
                delete_result(valid_delete_payload()),
                opts(self(), mismatched)
