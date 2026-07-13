@@ -371,8 +371,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       case read_active_rules(state) do
         {:ok, results} ->
           rules =
-            results
-            |> Enum.filter(fn rule -> shard_for_rule_id(rule.id) == state.shard end)
+            Enum.filter(results, fn rule -> shard_for_rule_id(rule.id) == state.shard end)
 
           :telemetry.execute(
             [:serviceradar, :stateful_alert_engine, :rules_loaded],

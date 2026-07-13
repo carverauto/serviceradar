@@ -6,6 +6,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
   # would (required env stubbed) and asserts the Oban crontab is complete.
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.EventWriter.Config, as: EventWriterConfig
   alias ServiceRadar.Observability.CapacityForecasting.Worker
 
   @runtime_config Path.expand("../../config/runtime.exs", __DIR__)
@@ -103,7 +104,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     assert predictions, "missing ANALYTICS_PREDICTIONS EventWriter stream entry"
 
     # The release runtime.exs must splice the shared definition verbatim.
-    assert predictions == ServiceRadar.EventWriter.Config.analytics_predictions_stream()
+    assert predictions == EventWriterConfig.analytics_predictions_stream()
 
     assert predictions.stream_name == "analytics_predictions"
     assert predictions.subject == "signals.analytics.predictions.>"
