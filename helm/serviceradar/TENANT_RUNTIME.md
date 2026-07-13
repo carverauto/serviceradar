@@ -9,6 +9,13 @@ The control plane owns hosted deployment facts such as tenant identity, public
 hosts, contract version, pull-secret names, and plan entitlement defaults. The
 chart owns runtime topology and behavior.
 
+The control plane also creates `certs.runtimeSecretName` before Helm bootstrap.
+Hosted values must keep both `certs.generator.enabled` and
+`certs.regenerator.enabled` false. The chart treats a non-empty
+`hostedRuntime.contractVersion` as authoritative hosted mode and suppresses
+both in-cluster certificate-generation paths even if another values layer tries
+to enable them.
+
 ## Validate The Baseline
 
 Render the chart locally before changing tenant-facing values:

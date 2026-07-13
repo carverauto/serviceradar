@@ -159,7 +159,20 @@ nats:
     storageClassName: ""
 certs:
   runtimeSecretName: serviceradar-runtime-certs
+  # Empty preserves the self-managed single-Secret bootstrap. Hosted values
+  # set distinct pre-created Secrets so CA signing keys never enter the general
+  # runtime Secret.
+  issuerSecretName: ""
+  cnpgIssuerSecretName: ""
   runtimeLayoutVersion: "4"
+  # Non-secret rollout token. Hosted rotation supplies a SHA-256 revision so
+  # all certificate consumers restart onto the reconciled Secret generation.
+  runtimeRevision: initial
+  generator:
+    # Self-managed installs bootstrap their runtime Secret in-cluster. Hosted
+    # runtimes always disable this path and receive a control-plane-managed
+    # Secret before Helm installs the workloads.
+    enabled: true
   regenerator:
     # Disable by default to avoid unexpected cert rotation.
     enabled: false

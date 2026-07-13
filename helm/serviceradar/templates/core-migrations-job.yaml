@@ -26,8 +26,9 @@ spec:
       labels:
         app: serviceradar-core-migrations
         app.kubernetes.io/part-of: serviceradar
-      {{- with $migrationVals.podAnnotations }}
       annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
+      {{- with $migrationVals.podAnnotations }}
         {{- toYaml . | nindent 8 }}
       {{- end }}
     spec:
@@ -179,6 +180,8 @@ spec:
       - name: cert-data
         secret:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+          items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "core.pem" "core-key.pem" "cnpg-client.pem" "cnpg-client-key.pem") | indent 12 }}
       - name: {{ $cnpgClusterName }}-ca
         secret:
           secretName: {{ $cnpgClusterName }}-ca

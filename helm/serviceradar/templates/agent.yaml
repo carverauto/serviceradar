@@ -1,4 +1,5 @@
 {{- $agentVals := default (dict) .Values.agent -}}
+{{- $agentGatewayVals := default (dict) .Values.agentGateway -}}
 {{- $agentSA := default "serviceradar-agent" $agentVals.serviceAccount -}}
 {{- $agentResources := default (dict) $agentVals.resources -}}
 {{- $agentStorage := default (dict) (get $agentVals "checkersStorage") -}}
@@ -6,6 +7,10 @@
 {{- $agentCacheStorage := default (dict) (get $agentVals "cacheStorage") -}}
 {{- $agentRuntimeStorage := default (dict) (get $agentVals "runtimeStorage") -}}
 {{- $endpointInventoryRuntimePath := default "/var/lib/serviceradar/endpoint-inventory" $agentRuntimeStorage.endpointInventoryPath -}}
+{{- $agentID := default "k8s-agent" $agentVals.agentId -}}
+{{- $agentPartition := coalesce .Values.partitionId $agentVals.partitionId $agentGatewayVals.partitionId "default" -}}
+{{- $agentComponentCert := printf "%s-%s-chain.pem" $agentID $agentPartition -}}
+{{- $agentComponentKey := printf "%s-%s-key.pem" $agentID $agentPartition -}}
 {{- $agentLimits := default (dict) $agentResources.limits -}}
 {{- $agentRequests := default (dict) $agentResources.requests -}}
 {{- $agentHostNetwork := true -}}
@@ -46,6 +51,7 @@ spec:
         app: serviceradar-agent
         app.kubernetes.io/part-of: serviceradar
       annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
         checksum/serviceradar-config: {{ include (print $.Template.BasePath "/serviceradar-config.yaml") . | sha256sum }}
         {{- if .Values.global.forceRolloutOnUpgrade }}
         serviceradar.io/release-revision: {{ .Release.Revision | quote }}
@@ -119,6 +125,7 @@ spec:
             subPath: endpoint-inventory
           - name: cert-data
             mountPath: /etc/serviceradar/certs
+            readOnly: true
           {{- if $agentEBPFEnabled }}
           - name: bpffs
             mountPath: {{ default "/sys/fs/bpf" $agentEBPF.bpffsPath | quote }}
@@ -190,6 +197,8 @@ spec:
       - name: cert-data
         secret:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+          items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "agent.pem" "agent-key.pem" $agentComponentCert $agentComponentKey) | indent 12 }}
       {{- if $agentEBPFEnabled }}
       # bpffs is required for pinned eBPF maps/programs shared across agent
       # restarts. Keep this mount limited to the configured bpffs path.

@@ -15,6 +15,8 @@ spec:
     metadata:
       labels:
         app: serviceradar-checker-templates-kv-bootstrap
+      annotations:
+        {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
     spec:
       restartPolicy: Never
       serviceAccountName: {{ .Values.spire.coreServiceAccount | default "serviceradar-core" }}
@@ -76,4 +78,6 @@ spec:
         - name: cert-data
           secret:
             secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+            items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "kv.pem" "kv-key.pem") | indent 14 }}
 {{- end }}
