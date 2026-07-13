@@ -137,6 +137,41 @@ defmodule ServiceRadar.Automation.Ansible.TargetingFoundationTest do
            end)
   end
 
+  test "hold clearance stamps the authorized principal and canonical evidence" do
+    approval_id = Ash.UUID.generate()
+    hold = %AutomationTargetHold{active: true}
+
+    changeset =
+      Ash.Changeset.for_update(
+        hold,
+        :clear,
+        %{
+          approval_id: approval_id,
+          current_policy_digest: "sha256:current-policy",
+          reconciliation_evidence: %{
+            recovery_method: "rollback_verified",
+            evidence_digest: "sha256:recovery-evidence",
+            verified_at: "2026-07-12T20:00:00Z",
+            verification_ids: ["verification:rollback", "verification:reconnect"]
+          }
+        },
+        actor: %{id: "user:hold-admin", role: :admin}
+      )
+
+    assert changeset.valid?
+    assert Ash.Changeset.get_attribute(changeset, :active) == false
+    assert Ash.Changeset.get_attribute(changeset, :cleared_by_principal_type) == :human
+    assert Ash.Changeset.get_attribute(changeset, :cleared_by_principal_id) == "user:hold-admin"
+    assert Ash.Changeset.get_attribute(changeset, :clearance_approval_id) == approval_id
+
+    assert Ash.Changeset.get_attribute(changeset, :clearance_evidence) == %{
+             "recovery_method" => "rollback_verified",
+             "evidence_digest" => "sha256:recovery-evidence",
+             "verified_at" => "2026-07-12T20:00:00Z",
+             "verification_ids" => ["verification:rollback", "verification:reconnect"]
+           }
+  end
+
   defp identity_attributes(resource, name) do
     resource
     |> Info.identities()
