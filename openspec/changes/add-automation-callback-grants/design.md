@@ -43,7 +43,9 @@ An integrated SSH-CA enrollment launch checks `ansible.runs.launch` and exact pe
 
 ### Decision: Use pending-to-active AWX binding
 
-ServiceRadar transactionally creates the parent run, child execution, immutable launch snapshot, and hashed pending grant. The launch envelope contains a reference to that pending grant. When AWX returns, ServiceRadar verifies the controller, inventory, template, SCM revision, exact non-empty limit, and target count, atomically binds the returned job ID, and activates the grant. A callback racing activation receives only a retryable `grant_pending` result.
+ServiceRadar transactionally creates the parent run, child execution, immutable launch snapshot, and hashed pending grant. The launch envelope contains a reference to that pending grant. When AWX returns, ServiceRadar verifies the controller, inventory, template, SCM revision, exact non-empty limit, target count, and the accepted credential set: every approved base credential plus exactly one distinct bound ephemeral callback credential. It then binds the returned job ID but keeps response authority pending until authenticated job-host summaries equal the complete immutable AWX host-ID/name set. The public integrated entrypoint creates one controller-local host-bound event per limited inventory host before its callback task, so this proof does not contact managed targets or depend on hostname/address inference. A callback racing either proof receives only a retryable `grant_pending` result.
+
+AWX supplies a positive integer `JOB_ID` in the running job environment. The helper reads it directly, includes it in the exact request body, and validates the echoed value. The reviewed custom credential does not define `JOB_ID`, and exact accepted-credential proof prevents an extra custom credential from substituting it. A copied or relaunched job necessarily receives a different AWX job ID, so possession of retained encrypted callback material cannot authorize a response for the original child.
 
 A timeout with an unknown launch result is `dispatch_ambiguous`: revoke the grant, delete/detach the ephemeral credential, and require a newly authorized child. AWX relaunch/copy never reuses an old grant.
 
@@ -57,7 +59,7 @@ The initial action permits one successful logical read per child/policy partitio
 
 ### Decision: Use a reviewed AWX custom credential boundary
 
-The random bearer is placed in a single-resolution encrypted envelope whose authenticated data binds tenant, command, child, controller, inventory, template, dispatch agent, and expiry. Dispatch resolves it into an ephemeral reviewed AWX custom credential environment/header injector. Outside the reviewed local helper invocation, it is never a survey answer, ordinary `extra_vars`, inventory/host/group var, persisted task/event output, fact, artifact, or target file.
+The random bearer is placed in a single-resolution encrypted envelope whose authenticated data binds tenant, command, child, controller, inventory, template, dispatch agent, and expiry. Dispatch resolves it into an ephemeral reviewed AWX custom credential environment/header injector. The injector carries callback material and immutable request fields but never AWX's system `JOB_ID`. Outside the reviewed local helper invocation, it is never a survey answer, ordinary `extra_vars`, inventory/host/group var, persisted task/event output, fact, artifact, or target file.
 
 The dispatcher, AWX controller credential-decryption path, selected execution-environment process, and reviewed helper are trusted transient bearer handlers. Acceptance tests inspect AWX job detail/API, stdout/events, relaunch/copy, facts, artifacts, analytics, support bundles, failure logs, and backups. Expiry/revocation keeps a restored encrypted credential inert.
 
