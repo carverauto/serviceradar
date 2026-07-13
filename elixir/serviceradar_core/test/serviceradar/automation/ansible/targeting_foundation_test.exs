@@ -49,6 +49,12 @@ defmodule ServiceRadar.Automation.Ansible.TargetingFoundationTest do
              :idempotency_key
            ]
 
+    assert identity_attributes(AutomationMutationPhase, :unique_transaction_generation) == [
+             :execution_target_id,
+             :transaction_id,
+             :generation
+           ]
+
     action_names =
       AutomationMutationPhase
       |> Info.actions()

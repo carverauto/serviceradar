@@ -454,6 +454,15 @@ defmodule ServiceRadar.Repo.Migrations.HardenAnsibleAwxTargetingFoundation do
     )
 
     create(
+      unique_index(
+        :ansible_automation_mutation_phases,
+        [:execution_target_id, :transaction_id, :generation],
+        name: "ansible_automation_mutation_phases_transaction_generation_uidx",
+        prefix: @prefix
+      )
+    )
+
+    create(
       index(
         :ansible_automation_mutation_phases,
         [:execution_target_id, :generation, :occurred_at],

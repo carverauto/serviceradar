@@ -23,7 +23,9 @@ defmodule ServiceRadar.Automation.Ansible.AutomationMutationPhase do
     schema "platform"
 
     identity_index_names unique_idempotency_key:
-                           "ansible_automation_mutation_phases_idempotency_uidx"
+                           "ansible_automation_mutation_phases_idempotency_uidx",
+                         unique_transaction_generation:
+                           "ansible_automation_mutation_phases_transaction_generation_uidx"
 
     references do
       reference :execution_target, on_delete: :delete
@@ -180,5 +182,8 @@ defmodule ServiceRadar.Automation.Ansible.AutomationMutationPhase do
 
   identities do
     identity :unique_idempotency_key, [:execution_target_id, :idempotency_key]
+
+    identity :unique_transaction_generation,
+             [:execution_target_id, :transaction_id, :generation]
   end
 end
